@@ -71,6 +71,7 @@ SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS = 100
 SMALL_FIRST_WARMUP_MATMUL_DIM_SCALE = 4
 ACCURACY_ATOL = 2.0
 ACCURACY_RTOL = 0.02
+PROFILE_DEBUG_HEAD_BYTES = 32
 
 
 def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
@@ -78,19 +79,61 @@ def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
 
 
 def maybe_cast_weight_to_nz(
-    args: argparse.Namespace, weight: torch.Tensor
+    args: argparse.Namespace,
+    weight: torch.Tensor,
+    origin_dtype: torch.dtype,
+    logical_shape: Tuple[int, int, int],
 ) -> torch.Tensor:
-    """Convert supported quantized weights to A5 FRACTAL_NZ storage."""
+    """Convert a quantized weight to A5 FRACTAL_NZ storage.
+
+    FP4 quantization returns packed bytes whose subsequent view as float4 is a
+    recovery-format tensor.  CANN does not accept that recovery format as the
+    input to npu_format_cast, so the layout conversion must happen first.
+    """
     if args.weight_format != "NZ":
-        return weight
-    if args.quant == "fp4_e2m1":
-        raise ValueError("FP4 + NZ is not supported yet")
+        return weight.view(origin_dtype)
 
     # Prefer the public enum when available; keep numeric 29 as a compatibility
     # fallback for torch_npu versions that do not expose Format.FRACTAL_NZ.
     npu_format = getattr(torch_npu, "Format", None)
     fractal_nz = getattr(npu_format, "FRACTAL_NZ", 29)
-    return torch_npu.npu_format_cast(weight, fractal_nz)
+    try:
+        if args.quant == "fp4_e2m1":
+            weight = torch_npu.npu_format_cast(weight, fractal_nz)
+        else:
+            weight = torch_npu.npu_format_cast(weight.view(origin_dtype), fractal_nz)
+    except RuntimeError as exc:
+        if args.quant == "fp4_e2m1":
+            raise RuntimeError(
+                "FP4-NZ input construction is unavailable in this CANN/PTA "
+                "environment: packed FP4 npu_format_cast failed. "
+                "The fused kernel was not invoked."
+            ) from exc
+        raise
+
+    weight = weight.view(origin_dtype)
+    format_code = torch_npu.get_npu_format(weight)
+    if format_code != fractal_nz:
+        raise RuntimeError(
+            f"FP4/quantized NZ construction produced format {format_code}, "
+            f"expected FRACTAL_NZ({fractal_nz})"
+        )
+    if args.quant == "fp4_e2m1":
+        expected_bytes = (
+            ((logical_shape[2] + 63) // 64)
+            * ((logical_shape[1] + 15) // 16)
+            * 16
+            * 64
+            // 2
+            * logical_shape[0]
+        )
+        actual_bytes = weight.untyped_storage().nbytes()
+        if actual_bytes < expected_bytes:
+            raise RuntimeError(
+                f"FP4-NZ storage is too small: got {actual_bytes} bytes, "
+                f"expected at least {expected_bytes} for logical shape {logical_shape}"
+            )
+    return weight
 
 
 def log_quant_tensor(rank: int, enabled: bool, name: str, tensor: torch.Tensor):
@@ -163,8 +206,12 @@ def make_umdk_static_inputs(
     gmm1_weight, gmm1_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm1_fp, dst_type=quant_cfg["quant_dst_type"], axis=1
     )
-    gmm1_weight = gmm1_weight.view(quant_cfg["origin_dtype"])
-    gmm1_weight = maybe_cast_weight_to_nz(args, gmm1_weight)
+    gmm1_weight = maybe_cast_weight_to_nz(
+        args,
+        gmm1_weight,
+        quant_cfg["origin_dtype"],
+        (local_experts, args.hidden, args.moe_intermediate_size * 2),
+    )
     gmm1_scale = gmm1_scale_raw.view(torch.float8_e8m0fnu)
 
     gmm2_fp = (
@@ -177,8 +224,12 @@ def make_umdk_static_inputs(
     gmm2_weight, gmm2_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm2_fp, dst_type=quant_cfg["quant_dst_type"], axis=1
     )
-    gmm2_weight = gmm2_weight.view(quant_cfg["origin_dtype"])
-    gmm2_weight = maybe_cast_weight_to_nz(args, gmm2_weight)
+    gmm2_weight = maybe_cast_weight_to_nz(
+        args,
+        gmm2_weight,
+        quant_cfg["origin_dtype"],
+        (local_experts, args.moe_intermediate_size, args.hidden),
+    )
     gmm2_scale = gmm2_scale_raw.view(torch.float8_e8m0fnu)
 
     return {
@@ -244,6 +295,435 @@ def make_small_op_padded_inputs(
         "x_active_mask": x_active_mask,
         "padded_num_tokens": padded_num_tokens,
     }
+
+
+def make_random_profile_cases(
+    base_inputs: Dict[str, torch.Tensor],
+    rank: int,
+    world_size: int,
+    local_num_tokens: int,
+    padded_num_tokens: int,
+    args: argparse.Namespace,
+) -> List[Dict[str, object]]:
+    cases = []
+    total_case_count = args.num_warmups + args.num_tests
+    for case_idx in range(total_case_count):
+        case_seed = args.random_profile_seed + case_idx * world_size + rank
+        torch_generator = torch.Generator(device="npu")
+        torch_generator.manual_seed(case_seed)
+        routing_rng = random.Random(case_seed)
+
+        x = (
+            torch.rand(
+                (local_num_tokens, args.hidden),
+                dtype=torch.float32,
+                device="npu",
+                generator=torch_generator,
+            ).bfloat16()
+            * 2
+            - 1
+        )
+        expert_scales = torch.rand(
+            (local_num_tokens, args.num_topk),
+            dtype=torch.float32,
+            device="npu",
+            generator=torch_generator,
+        )
+        if local_num_tokens > 0:
+            sampled_rows = [
+                routing_rng.sample(range(args.num_experts), args.num_topk)
+                for _ in range(local_num_tokens)
+            ]
+            expert_ids = torch.tensor(sampled_rows, dtype=torch.int32).npu()
+        else:
+            expert_ids = torch.empty((0, args.num_topk), dtype=torch.int32).npu()
+
+        fused_inputs = {
+            **base_inputs,
+            "x": x,
+            "expert_ids": expert_ids,
+            "expert_scales": expert_scales,
+        }
+        cases.append(
+            {
+                "seed": case_seed,
+                "fused_inputs": fused_inputs,
+                "small_inputs": make_small_op_padded_inputs(
+                    fused_inputs, local_num_tokens, padded_num_tokens
+                ),
+            }
+        )
+    return cases
+
+
+def make_fixed_profile_cases(
+    base_inputs: Dict[str, torch.Tensor],
+    rank: int,
+    world_size: int,
+    local_num_tokens: int,
+    padded_num_tokens: int,
+    args: argparse.Namespace,
+) -> List[Dict[str, object]]:
+    """Create distinct tensor storage with identical values for every profile call.
+
+    This mode separates cross-iteration state corruption from input-dependent
+    numerical differences.  We intentionally clone only the per-call inputs;
+    quantized weights remain shared and immutable.
+    """
+    total_case_count = args.num_warmups + args.num_tests
+    source = make_random_profile_cases(
+        base_inputs,
+        rank,
+        world_size,
+        local_num_tokens,
+        padded_num_tokens,
+        argparse.Namespace(**{**vars(args), "num_warmups": 1, "num_tests": 0}),
+    )[0]
+    cases = []
+    for case_idx in range(total_case_count):
+        fused_inputs = dict(source["fused_inputs"])
+        for name in ("x", "expert_ids", "expert_scales"):
+            fused_inputs[name] = source["fused_inputs"][name].clone()
+        small_inputs = make_small_op_padded_inputs(
+            fused_inputs, local_num_tokens, padded_num_tokens
+        )
+        cases.append(
+            {
+                "seed": source["seed"],
+                "fused_inputs": fused_inputs,
+                "small_inputs": small_inputs,
+                "fixed_values": True,
+                "case_index": case_idx,
+            }
+        )
+    return cases
+
+
+def assert_unique_tensor_storage(tensors: List[torch.Tensor], name: str):
+    data_ptrs = [tensor.data_ptr() for tensor in tensors if tensor.numel() > 0]
+    if len(data_ptrs) != len(set(data_ptrs)):
+        raise AssertionError(
+            f"{name} must use distinct storage for every profile iteration"
+        )
+
+
+def format_tensor_head_bytes(
+    tensor: torch.Tensor, max_bytes: int = PROFILE_DEBUG_HEAD_BYTES
+) -> str:
+    """Return a compact raw-byte preview after all profiled work is complete."""
+    try:
+        byte_tensor = tensor.detach().contiguous().cpu().view(torch.uint8).flatten()
+        values = byte_tensor[:max_bytes].tolist()
+        return " ".join(f"{int(value):02x}" for value in values)
+    except Exception as exc:
+        return f"<unavailable: {exc}>"
+
+
+def print_profile_case_head_bytes(
+    profile_cases: List[Dict[str, object]],
+    small_results: List[Tuple[torch.Tensor, torch.Tensor]],
+    fused_results: List[Tuple[torch.Tensor, torch.Tensor]],
+    rank: int,
+):
+    """Print compact per-iteration input/output bytes for a failed profile."""
+    print(
+        f"[rank {rank}] profile debug tensor heads "
+        f"(first {PROFILE_DEBUG_HEAD_BYTES} bytes; values are raw storage bytes):",
+        flush=True,
+    )
+    input_names = ("x", "expert_ids", "expert_scales")
+    case_count = min(len(profile_cases), len(small_results), len(fused_results))
+    for case_idx in range(case_count):
+        case = profile_cases[case_idx]
+        print(
+            f"[rank {rank}] iteration={case_idx}, seed={case.get('seed')}, "
+            f"fixed={case.get('fixed_values', False)}",
+            flush=True,
+        )
+        for side, inputs in (
+            ("small_input", case.get("small_inputs", {})),
+            ("fused_input", case.get("fused_inputs", {})),
+        ):
+            for input_name in input_names:
+                tensor = inputs.get(input_name)
+                if tensor is None:
+                    continue
+                print(
+                    f"  {side}.{input_name}: dtype={tensor.dtype}, "
+                    f"shape={tuple(tensor.shape)}, data_ptr=0x{tensor.data_ptr():x}, "
+                    f"bytes={format_tensor_head_bytes(tensor)}",
+                    flush=True,
+                )
+        small_output, small_counts = small_results[case_idx]
+        fused_output, fused_counts = fused_results[case_idx]
+        for side, tensor in (
+            ("small_output", small_output),
+            ("fused_output", fused_output),
+            ("small_counts", small_counts),
+            ("fused_counts", fused_counts),
+        ):
+            print(
+                f"  {side}: dtype={tensor.dtype}, shape={tuple(tensor.shape)}, "
+                f"data_ptr=0x{tensor.data_ptr():x}, "
+                f"bytes={format_tensor_head_bytes(tensor)}",
+                flush=True,
+            )
+
+
+def validate_random_profile_results(
+    profile_cases: List[Dict[str, object]],
+    small_results: List[Tuple[torch.Tensor, torch.Tensor]],
+    fused_results: List[Tuple[torch.Tensor, torch.Tensor]],
+    rank: int,
+    world_size: int,
+    local_num_tokens: int,
+    padded_num_tokens: int,
+    local_experts: int,
+    args: argparse.Namespace,
+):
+    local_error = None
+    total_case_count = args.num_warmups + args.num_tests
+    try:
+        if len(profile_cases) != total_case_count:
+            raise AssertionError(
+                f"profile case count mismatch: expected={total_case_count}, actual={len(profile_cases)}"
+            )
+        if (
+            len(small_results) != total_case_count
+            or len(fused_results) != total_case_count
+        ):
+            raise AssertionError(
+                "profile result count mismatch: "
+                f"expected={total_case_count}, small={len(small_results)}, fused={len(fused_results)}"
+            )
+
+        for input_name in ("x", "expert_ids", "expert_scales"):
+            assert_unique_tensor_storage(
+                [case["fused_inputs"][input_name] for case in profile_cases],
+                f"random profile fused input {input_name}",
+            )
+            assert_unique_tensor_storage(
+                [case["small_inputs"][input_name] for case in profile_cases],
+                f"random profile small-op input {input_name}",
+            )
+        assert_unique_tensor_storage(
+            [result[0] for result in small_results], "random profile small-op output"
+        )
+        assert_unique_tensor_storage(
+            [result[0] for result in fused_results], "random profile fused output"
+        )
+        assert_unique_tensor_storage(
+            [result[1] for result in small_results], "random profile small-op counts"
+        )
+        assert_unique_tensor_storage(
+            [result[1] for result in fused_results], "random profile fused counts"
+        )
+
+        if profile_cases[0].get("fixed_values", False) and total_case_count > 1:
+            baseline_small = small_results[0][0][:local_num_tokens].float()
+            baseline_fused = fused_results[0][0][:local_num_tokens].float()
+            baseline_small_counts = small_results[0][1]
+            baseline_fused_counts = fused_results[0][1]
+            fixed_cross_mismatches = []
+            for case_idx in range(1, total_case_count):
+                small_value_error = None
+                fused_value_error = None
+                small_count_error = None
+                fused_count_error = None
+                current_small = small_results[case_idx][0][:local_num_tokens].float()
+                current_fused = fused_results[case_idx][0][:local_num_tokens].float()
+                try:
+                    torch.testing.assert_close(
+                        current_small, baseline_small, atol=0.0, rtol=0.0
+                    )
+                except Exception as exc:
+                    small_value_error = str(exc).splitlines()[0]
+                try:
+                    torch.testing.assert_close(
+                        current_fused, baseline_fused, atol=0.0, rtol=0.0
+                    )
+                except Exception as exc:
+                    fused_value_error = str(exc).splitlines()[0]
+                try:
+                    torch.testing.assert_close(
+                        small_results[case_idx][1], baseline_small_counts
+                    )
+                except Exception as exc:
+                    small_count_error = str(exc).splitlines()[0]
+                try:
+                    torch.testing.assert_close(
+                        fused_results[case_idx][1], baseline_fused_counts
+                    )
+                except Exception as exc:
+                    fused_count_error = str(exc).splitlines()[0]
+                if any(
+                    (
+                        small_value_error,
+                        fused_value_error,
+                        small_count_error,
+                        fused_count_error,
+                    )
+                ):
+                    small_avg, small_max, _ = summarize_output_diff(
+                        baseline_small, current_small
+                    )
+                    fused_avg, fused_max, _ = summarize_output_diff(
+                        baseline_fused, current_fused
+                    )
+                    fixed_cross_mismatches.append(
+                        "iteration="
+                        f"{case_idx}, seed={profile_cases[case_idx]['seed']}; "
+                        f"small(avg={small_avg:.6f}, max={small_max:.6f}, error={small_value_error!r}), "
+                        f"fused(avg={fused_avg:.6f}, max={fused_max:.6f}, error={fused_value_error!r}), "
+                        f"small_counts={small_count_error!r}, fused_counts={fused_count_error!r}"
+                    )
+            if fixed_cross_mismatches:
+                raise AssertionError(
+                    "fixed-value cross-iteration mismatches: "
+                    + " | ".join(fixed_cross_mismatches)
+                )
+
+        first_formal_small = None
+        first_formal_fused = None
+        first_formal_counts = None
+        first_formal_fused_counts = None
+        for test_idx in range(args.num_tests):
+            result_idx = args.num_warmups + test_idx
+            case = profile_cases[result_idx]
+            small_output, small_counts = small_results[result_idx]
+            fused_output, fused_counts = fused_results[result_idx]
+            valid_small_output = small_output[:local_num_tokens]
+            valid_fused_output = fused_output[:local_num_tokens]
+            small_nan_count = torch.isnan(small_output).sum().item()
+            fused_nan_count = torch.isnan(fused_output).sum().item()
+            avg_diff, max_diff, cosine_diff = summarize_output_diff(
+                valid_small_output, valid_fused_output
+            )
+            same_round_error = None
+
+            small_cross_error = None
+            fused_cross_error = None
+            counts_cross_error = None
+            fused_counts_cross_error = None
+            if case.get("fixed_values", False):
+                if first_formal_small is None:
+                    first_formal_small = valid_small_output.float().clone()
+                    first_formal_fused = valid_fused_output.float().clone()
+                    first_formal_counts = small_counts.clone()
+                    first_formal_fused_counts = fused_counts.clone()
+                else:
+                    try:
+                        torch.testing.assert_close(
+                            valid_small_output.float(),
+                            first_formal_small,
+                            atol=0.0,
+                            rtol=0.0,
+                        )
+                    except Exception as exc:
+                        small_cross_error = str(exc).splitlines()[0]
+                    try:
+                        torch.testing.assert_close(
+                            valid_fused_output.float(),
+                            first_formal_fused,
+                            atol=0.0,
+                            rtol=0.0,
+                        )
+                    except Exception as exc:
+                        fused_cross_error = str(exc).splitlines()[0]
+                    try:
+                        torch.testing.assert_close(small_counts, first_formal_counts)
+                    except Exception as exc:
+                        counts_cross_error = str(exc).splitlines()[0]
+                    try:
+                        torch.testing.assert_close(
+                            fused_counts, first_formal_fused_counts
+                        )
+                    except Exception as exc:
+                        fused_counts_cross_error = str(exc).splitlines()[0]
+
+            try:
+                assert small_output.shape == (padded_num_tokens, args.hidden)
+                assert fused_output.shape == (local_num_tokens, args.hidden)
+                assert small_output.dtype == torch.bfloat16
+                assert fused_output.dtype == torch.bfloat16
+                assert small_counts.shape == (local_experts,)
+                assert fused_counts.shape == (local_experts,)
+                assert small_nan_count == 0
+                assert fused_nan_count == 0
+                torch.testing.assert_close(small_counts, fused_counts)
+                if local_num_tokens > 0:
+                    try:
+                        torch.testing.assert_close(
+                            valid_small_output.float(),
+                            valid_fused_output.float(),
+                            atol=ACCURACY_ATOL,
+                            rtol=ACCURACY_RTOL,
+                        )
+                    except Exception as exc:
+                        same_round_error = str(exc).splitlines()[0]
+                        raise AssertionError(
+                            f"small_vs_fused mismatch: {same_round_error}"
+                        ) from exc
+                if (
+                    small_cross_error
+                    or fused_cross_error
+                    or counts_cross_error
+                    or fused_counts_cross_error
+                ):
+                    raise AssertionError(
+                        "fixed-value cross-iteration mismatch: "
+                        f"small={small_cross_error!r}, fused={fused_cross_error!r}, "
+                        f"small_counts={counts_cross_error!r}, "
+                        f"fused_counts={fused_counts_cross_error!r}"
+                    )
+            except Exception as exc:
+                local_error = (
+                    f"[rank {rank}] profile accuracy failed: "
+                    f"performance_iteration={test_idx}, result_index={result_idx}, "
+                    f"seed={case['seed']}, local_num_tokens={local_num_tokens}, "
+                    f"avg_diff={avg_diff:.6f}, max_diff={max_diff:.6f}, "
+                    f"calc_diff={cosine_diff:.6f}, small_nan_count={small_nan_count}, "
+                    f"fused_nan_count={fused_nan_count}, "
+                    f"expert_ids={case['fused_inputs']['expert_ids'].cpu().tolist()}, "
+                    f"small_counts={small_counts.cpu().tolist()}, "
+                    f"fused_counts={fused_counts.cpu().tolist()}, "
+                    f"comparison={'small_vs_fused' if same_round_error else 'profile'}: {exc}"
+                )
+                if (
+                    small_cross_error
+                    or fused_cross_error
+                    or counts_cross_error
+                    or fused_counts_cross_error
+                ):
+                    local_error += (
+                        f", fixed_cross_iteration={{small={small_cross_error!r}, "
+                        f"fused={fused_cross_error!r}, "
+                        f"small_counts={counts_cross_error!r}, "
+                        f"fused_counts={fused_counts_cross_error!r}}}"
+                    )
+                break
+    except Exception as exc:
+        local_error = f"[rank {rank}] random profile validation setup failed: {exc}"
+
+    failure_flag = torch.tensor(
+        [1 if local_error is not None else 0], dtype=torch.int32, device="npu"
+    )
+    dist.all_reduce(failure_flag, op=dist.ReduceOp.SUM)
+    if failure_flag.item() != 0:
+        if local_error is not None:
+            print(local_error, flush=True)
+            print_profile_case_head_bytes(
+                profile_cases, small_results, fused_results, rank
+            )
+        dist.barrier()
+        raise AssertionError(
+            f"Random profile accuracy validation failed on {failure_flag.item()} of {world_size} ranks"
+        )
+    if rank == 0:
+        print(
+            f"Random profile accuracy check passed for {args.num_tests} performance iterations.",
+            flush=True,
+        )
 
 
 def run_small_op_baseline(
@@ -814,6 +1294,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 f"num_experts={args.num_experts}, "
                 f"num_topk={args.num_topk}, "
                 f"quant={args.quant}, "
+                f"weight_format={args.weight_format}, "
                 f"kernel_trace_dir={args.kernel_trace_dir}, "
                 f"num_warmups={args.num_warmups}, "
                 f"num_tests={args.num_tests}, "
@@ -951,6 +1432,31 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         small_stats = None
         small_breakdown_stats = None
         fused_stats = None
+        profile_cases = None
+        small_profile_results = []
+        fused_profile_results = []
+        if args.random_profile_cases or args.fixed_profile_cases:
+            case_builder = (
+                make_fixed_profile_cases
+                if args.fixed_profile_cases
+                else make_random_profile_cases
+            )
+            profile_cases = case_builder(
+                inputs,
+                rank,
+                world_size,
+                local_num_tokens,
+                padded_num_tokens,
+                args,
+            )
+            # Keep random input construction outside both profiler regions.
+            torch.npu.synchronize()
+            if rank == 0:
+                print(
+                    f"{'Fixed' if args.fixed_profile_cases else 'Random'} profile cases prepared: "
+                    f"count={len(profile_cases)}, seed={args.random_profile_seed}",
+                    flush=True,
+                )
 
         if True:
             small_trace_path = (
@@ -971,9 +1477,14 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                     if small_profile_call_idx == 0 and args.num_warmups > 0
                     else 1
                 )
+                profile_inputs = (
+                    profile_cases[small_profile_call_idx]["small_inputs"]
+                    if profile_cases is not None
+                    else small_op_inputs
+                )
                 small_profile_call_idx += 1
-                return run_small_op_baseline(
-                    small_op_inputs,
+                result = run_small_op_baseline(
+                    profile_inputs,
                     hcomm_name_small,
                     rank,
                     world_size,
@@ -982,6 +1493,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                     gmm_burn_in_repeats=gmm_burn_in_repeats,
                     warmup_burn_in_buffers=warmup_burn_in_buffers,
                 )
+                if profile_cases is not None:
+                    small_profile_results.append(result)
+                return result
 
             (
                 small_durations,
@@ -1044,14 +1558,22 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                     burn_in_lhs, burn_in_rhs = warmup_burn_in_buffers
                     for _ in range(SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS):
                         _ = torch.matmul(burn_in_lhs, burn_in_rhs)
+                profile_inputs = (
+                    profile_cases[fused_profile_call_idx]["fused_inputs"]
+                    if profile_cases is not None
+                    else inputs
+                )
                 fused_profile_call_idx += 1
-                return run_buffer_fused(
+                result = run_buffer_fused(
                     buffer,
-                    inputs,
+                    profile_inputs,
                     padded_num_tokens,
                     args,
                     kernel_trace_dir=args.kernel_trace_dir,
                 )
+                if profile_cases is not None:
+                    fused_profile_results.append(result)
+                return result
 
             try:
                 (
@@ -1089,6 +1611,20 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                     )
                     buffer.runtime.end_profile()
         dist.barrier()
+
+        if profile_cases is not None:
+            validate_random_profile_results(
+                profile_cases,
+                small_profile_results,
+                fused_profile_results,
+                rank,
+                world_size,
+                local_num_tokens,
+                padded_num_tokens,
+                local_experts,
+                args,
+            )
+            dist.barrier()
 
         if small_stats is not None:
             small_stats_tensor = torch.tensor(
@@ -1293,6 +1829,28 @@ def main():
         help="Number of counted performance iterations when --profile-num-tests is not set.",
     )
     parser.add_argument(
+        "--random-profile-cases",
+        action="store_true",
+        help=(
+            "Use distinct randomized activation/routing inputs for every profiler "
+            "iteration and compare results afterward."
+        ),
+    )
+    parser.add_argument(
+        "--random-profile-seed",
+        type=int,
+        default=2026,
+        help="Base seed for deterministic per-iteration randomized profiler inputs.",
+    )
+    parser.add_argument(
+        "--fixed-profile-cases",
+        action="store_true",
+        help=(
+            "Use identical activation/routing values with distinct tensor storage "
+            "for every profiler iteration; implies profile-case validation."
+        ),
+    )
+    parser.add_argument(
         "--quant",
         choices=tuple(MX_QUANT_CONFIGS.keys()),
         default="fp8_e4m3",
@@ -1302,7 +1860,7 @@ def main():
         "--weight-format",
         choices=("ND", "NZ"),
         default="ND",
-        help="Storage format for quantized GMM weights; NZ is supported for FP8 only.",
+        help="Storage format for quantized GMM weights.",
     )
     parser.add_argument(
         "--trace-dir",
@@ -1358,9 +1916,11 @@ def main():
         parser.error("--num-warmups must be non-negative")
     if args.num_tests <= 0:
         parser.error("--num-tests must be positive")
-    if args.quant == "fp4_e2m1" and args.weight_format == "NZ":
+    if args.random_profile_seed < 0:
+        parser.error("--random-profile-seed must be non-negative")
+    if args.random_profile_cases and args.fixed_profile_cases:
         parser.error(
-            "--weight-format NZ is currently supported for FP8 quantization only"
+            "--random-profile-cases and --fixed-profile-cases are mutually exclusive"
         )
     if args.quant == "fp4_e2m1" and args.hidden % 2 != 0:
         parser.error("--hidden must be even when --quant is fp4_e2m1")

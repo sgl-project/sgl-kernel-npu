@@ -883,7 +883,7 @@ public:
     }
 
     ACT_DEVICE
-    void SendToMoeExprt(GM_ADDR gmX, GM_ADDR gmExpandIdx)
+    void SendToMoeExpert(GM_ADDR gmX, GM_ADDR gmExpandIdx)
     {
         // 给路由专家发送token
         uint32_t sendTokenNum = expertIdsCnt / sendToMoeAivNum;
@@ -1021,7 +1021,7 @@ SendCoreFunc(GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR gmX1, GM_ADDR gmX1Scale, 
     if (hasShareExpert && sendCoreIdx >= sendToMoeAivNum) {
         SendToShareExprt(gmX, gmX1, gmX1Scale);
     } else {
-        SendToMoeExprt(gmX, gmExpandIdx);
+        SendToMoeExpert(gmX, gmExpandIdx);
     }
     AscendC::PipeBarrier<PIPE_ALL>();
 }
