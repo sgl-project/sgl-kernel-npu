@@ -1270,6 +1270,7 @@ def torch_causal_conv1d_update_npu(
     if activation in ["silu", "swish"]:
         out = F.silu(out)
     out = out.to(hidden_state.dtype)
+    conv_state_update = conv_state_update.to(conv_state.dtype)
     return out, conv_state_update
 
 
