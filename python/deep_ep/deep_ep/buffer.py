@@ -15,7 +15,7 @@ from .ep_strategy import (
     get_low_latency_strategy,
     get_normal_strategy,
 )
-from .utils import EventOverlap, log_parameters
+from .utils import EventOverlap, _resolve_normal_quant_mode, log_parameters
 
 
 class FuseMode(IntEnum):
@@ -301,7 +301,9 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-        quant_mode: Optional[str] = None,
+        use_fp8: bool = False,
+        use_mxfp4: bool = False,
+        use_mxfp8: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -317,13 +319,9 @@ class Buffer:
             index should be visible via RDMA.
 
         Arguments:
-            x: input tokens. Supports two formats:
-                - `torch.Tensor` with `torch.bfloat16`, shaped `[num_tokens, hidden]`. Quantization is controlled by
-                  the `DEEP_NORMAL_MODE_USE_INT8_QUANT` environment variable (set to `1` for INT8 quantization, **deprecated**).
-                - Tuple of two `torch.Tensor`: for MXFP8 quantization, the first element is shaped `[num_tokens, hidden]`
-                  with `torch.float8_e4m3fn` (pre-quantized data), the second is shaped `[num_tokens, hidden // 32]`
-                  with `torch.float8_e8m0fnu` (per-block E8M0 scales). On NPU, this triggers MXFP8 per-block quantization
-                  (quant_mode=3) inside the dispatch kernel.
+            x: input tokens, ``torch.Tensor`` with ``torch.bfloat16``, shaped ``[num_tokens, hidden]``.
+                The dtype of ``x`` is no longer used for quantization-mode detection; use
+                the ``use_fp8`` / ``use_mxfp4`` / ``use_mxfp8`` bool flags instead.
             handle: an optional communication handle, if set, the CPU will reuse the layout information to save some time.
             num_tokens_per_rank: `[num_ranks]` with `torch.int`, the number of tokens to be sent to each rank.
             num_tokens_per_rdma_rank: `[num_rdma_ranks]` with `torch.int`, the number of tokens to be sent to each RDMA
@@ -342,15 +340,26 @@ class Buffer:
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
             dispatch_wait_recv_cost_stats: `[num_ranks]` with `torch.int`, record the time it takes for the dispatch phase
                 to receive all tokens from each slave rank in the current rank.
+            use_fp8: enable FP8-family quantization. On A5 → ``pertoken_fp8_e4m3``;
+                on A2/A3 → ``int8``.
+            use_mxfp4: enable MXFP4 per-block quantization → ``mx_fp4_e2m1`` (A5 only).
+                Raises ``NotImplementedError`` on A2/A3.
+            use_mxfp8: enable MXFP8 per-block quantization → ``mx_fp8_e4m3`` (A5 only).
+                Raises ``NotImplementedError`` on A2/A3.
 
         Returns:
             recv_x: received tokens. The format depends on quantization mode:
                 - BF16 (no quantization): a `torch.Tensor` shaped `[received_token_count, hidden]` with `torch.bfloat16`.
-                - INT8 (`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, **deprecated**): a tuple, first element shaped `[received_token_count, hidden]`
+                - INT8: a tuple, first element shaped `[received_token_count, hidden]`
                   with `torch.int8`, second element shaped `[received_token_count]` with `torch.float32` (per-token scales).
-                - MXFP8 (tuple input with `float8_e4m3fn` + `float8_e8m0fnu`, A5/C310 only): a tuple, first element shaped
-                  `[received_token_count, hidden]` with `torch.float8_e4m3fn`, second element shaped
+                - PerToken FP8 (A5): a tuple, first element shaped `[received_token_count, hidden]`
+                  with `torch.float8_e4m3fn`, second element shaped `[received_token_count]` with `torch.float32`.
+                - MXFP8 (A5): a tuple, first element shaped `[received_token_count, hidden]`
+                  with `torch.float8_e4m3fn`, second element shaped
                   `[received_token_count, hidden // 32]` with `torch.float8_e8m0fnu` (per-block E8M0 scales).
+                - MXFP4 (A5): a tuple, first element shaped `[received_token_count, hidden / 2]`
+                  with `torch.float4_e2m1fn_x2`, second element shaped
+                  `[received_token_count, hidden // 32]` with `torch.float8_e8m0fnu`.
             recv_topk_idx: received expert indices.
             recv_topk_weights: received expert weights.
             num_recv_tokens_per_expert_list: Python list shaped `[num_local_experts]`, the received token count by
@@ -361,6 +370,9 @@ class Buffer:
         """
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
+
+        # Resolve quant_mode from bool flags + device architecture
+        quant_mode = _resolve_normal_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
