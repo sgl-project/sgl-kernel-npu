@@ -29,4 +29,8 @@ def get_device_version() -> int:
     """Return the SoC version code via the ACL runtime API."""
     import acl
 
-    return acl.rt.get_device_info(0, 601)[0]
+    version = acl.rt.get_device_info(0, 601)[0]
+    # 低于 CANN 9.1 的版本不支持机型编码查询，返回 0 时默认设置为 2201 (A2/A3)
+    if version == 0:
+        version = 2201
+    return version
