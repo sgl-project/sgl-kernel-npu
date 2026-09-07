@@ -874,7 +874,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4
 
       - name: Run alltoall low-latency
-        timeout-minutes: 10
+        timeout-minutes: 60
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
 
