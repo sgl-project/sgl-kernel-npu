@@ -1,0 +1,101 @@
+name: Test A3 Runner Labels (Unified Resource Pool)
+
+# Temporary workflow to verify the new A3 runner labels after the unified
+# resource pool migration. To be removed once labels are confirmed working.
+#   - linux-aarch64-a3-800t-<N>: 752t (Atlas 800T A3) only
+#   - linux-aarch64-a3-800i-<N>: 560t (Atlas 800I A3) only
+#   - linux-aarch64-a3-x-<N>  : mixed 752t/560t pool
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/test-a3-runner-labels.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: test-a3-labels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke - ${{ matrix.label }}
+    runs-on: ${{ matrix.label }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        label:
+          # new labels (unified resource pool)
+          - linux-aarch64-a3-800t-16
+          - linux-aarch64-a3-800t-2
+          - linux-aarch64-a3-800i-2
+          - linux-aarch64-a3-800i-8
+          - linux-aarch64-a3-x-2
+          - linux-aarch64-a3-x-16
+          # old label as control group
+          - linux-aarch64-a3-2
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Runner and NPU info
+        run: |
+          {
+            echo "## A3 Runner Label Smoke Test"
+            echo ""
+            echo "- **Label**: \`${{ matrix.label }}\`"
+            echo "- **Runner name**: \`${{ runner.name }}\`"
+            echo "- **Hostname**: \`$(hostname)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=== Label: ${{ matrix.label }} ==="
+          echo "=== Runner name: ${{ runner.name }} ==="
+          echo "=== Hostname: $(hostname) ==="
+          echo "=== npu-smi info ==="
+          npu-smi info || true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version 9.0.0
+
+      - name: Simple NPU compute test
+        run: |
+          python3 - <<'EOF'
+          import torch
+          import torch_npu
+
+          print("torch:", torch.__version__)
+          print("visible NPU count:", torch.npu.device_count())
+
+          x = torch.randn(256, 256, device="npu")
+          y = (x @ x).sum().item()
+          assert y == y, "matmul result is NaN"
+          print("NPU matmul OK, sum =", y)
+          print("SMOKE TEST PASSED")
+          EOF
+          {
+            echo "- **Result**: PASS"
+          } >> "$GITHUB_STEP_SUMMARY" || true
