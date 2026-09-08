@@ -13,6 +13,7 @@ from utils import (
     bench_kineto,
     calc_diff,
     calculate_avg_stats,
+    get_diff_threshold,
     hash_tensor,
     init_dist,
     per_token_cast_back,
@@ -95,6 +96,7 @@ def test(
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
+                    quant_mode="int8" if quant_type == "int8" else None,
                 )
             )
             simulated_gemm_x = (
@@ -162,14 +164,8 @@ def test(
             print(
                 f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
             )
-            if dispatch_use_mxfp4:
-                assert diff < 1e-2, f"Error: {diff=}"
-            elif dispatch_use_ue8m0:
-                assert diff < 1e-3, f"Error: {diff=}"
-            elif dispatch_use_fp8:
-                assert diff < 1e-4, f"Error: {diff=}"
-            else:
-                assert diff < 1e-5, f"Error: {diff=}"
+            diff_threshold = get_diff_threshold(quant_type)
+            assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
             hash_value ^= hash_tensor(combined_x)
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -190,6 +186,7 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
+            quant_mode="int8" if quant_type == "int8" else None,
         )
         simulated_gemm_x_local = (
             per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
@@ -209,7 +206,7 @@ def test(
         num_values = num_tokens * hidden
         if quant_type == "int8":
             data_bytes = num_values * 1
-            scale_bytes = num_tokens * 2
+            scale_bytes = num_tokens * 4
             return data_bytes + scale_bytes
         else:
             return num_values * 2
@@ -241,6 +238,7 @@ def test(
         "use_ue8m0": dispatch_use_ue8m0,
         "use_mxfp4": dispatch_use_mxfp4,
         "topk_weights": topk_weights,
+        "quant_mode": "int8" if quant_type == "int8" else None,
     }
     # dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
     dispatch_alltoall_t = bench_kineto(
@@ -276,8 +274,10 @@ def test(
     combine_t = sum(combine_alltoall_t)
 
     print(
-        f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-        f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+        f"[rank {rank}] Dispatch raw_bw={num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+        f"Combine raw_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
         flush=True,
     )
     calculate_avg_stats(

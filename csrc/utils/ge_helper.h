@@ -171,8 +171,14 @@ public:
 private:
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
     {
-        auto status = aclrtMemcpy(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T), ACL_MEMCPY_HOST_TO_DEVICE);
+        // Upload on the torch_npu current stream so the H2D copy is ordered with the
+        // surrounding kernel launches, then sync because the source is a stack object
+        // (an async memcpy would otherwise read freed memory after this returns).
+        auto stream = c10_npu::getCurrentNPUStream().stream(false);
+        auto status = aclrtMemcpyAsync(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T),
+                                       ACL_MEMCPY_HOST_TO_DEVICE, stream);
         TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
+        aclrtSynchronizeStream(stream);
     }
     struct DeviceCache {
         at::Tensor buffer;

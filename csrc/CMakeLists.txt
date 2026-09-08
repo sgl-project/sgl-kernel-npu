@@ -18,6 +18,19 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
 endif()
 message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
 
+# A5-only ops: compile only on Ascend950-series SoCs.
+if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    if(_sgl_soc_lower MATCHES "^ascend950")
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS ON)
+    else()
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS OFF)
+    endif()
+endif()
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    add_compile_definitions(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+endif()
+message(STATUS "SGL_KERNEL_ENABLE_A5_ONLY_OPS=${SGL_KERNEL_ENABLE_A5_ONLY_OPS} (SOC=${SOC_VERSION})")
+
 # host side files
 set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
@@ -27,6 +40,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_mamba_state/op_host/transfer_mamba_state.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
@@ -59,6 +73,16 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
+    )
+endif()
+# A5-only host sources
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
     )
 endif()
 if(BUILD_CATLASS_MODULE)
@@ -72,6 +96,10 @@ if(BUILD_CATLASS_MODULE)
             ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
         )
     endif()
+endif()
+
+if(NOT DEFINED ASCEND_DRIVER_PATH)
+    set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
 endif()
 
 # kernel side files without workspace
@@ -93,6 +121,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
     )
 endif()
 # catlass fp8 no-workspace kernels: double-gated
@@ -131,6 +161,12 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     )
 endif()
+# A5-only workspace kernels
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp
+    )
+endif()
 
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(workspace_kernel PRIVATE
@@ -139,6 +175,7 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
+    ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
@@ -242,6 +279,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
@@ -252,4 +290,6 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_DRIVER_PATH}/include
+        ${ASCEND_DRIVER_PATH}/kernel/inc
 )

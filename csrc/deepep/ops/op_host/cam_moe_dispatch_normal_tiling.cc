@@ -467,6 +467,10 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
     auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    OP_TILING_CHECK(roundPtr == nullptr, OP_LOGE(nodeName, "roundPtr is null."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(realMaxBsPtr == nullptr, OP_LOGE(nodeName, "realMaxBsPtr is null."), return ge::GRAPH_FAILED);
     tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
     tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);

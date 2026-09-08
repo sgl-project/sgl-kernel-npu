@@ -4,6 +4,14 @@
 #include "graph/types.h"
 #include <cstring>
 
+#ifndef ACLNN_ERR_INNER_NULLPTR
+#define ACLNN_ERR_INNER_NULLPTR (-1)
+#endif
+
+#ifndef ACLNN_SUCCESS
+#define ACLNN_SUCCESS 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -38,13 +46,22 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
     const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut, const aclTensor *tpRecvCountsOut,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    if (commAlg == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     aclnnStatus getWorkspaceSizesRes = aclnnInnerMoeLowLatencyDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum,
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
+    if (getWorkspaceSizesRes != ACLNN_SUCCESS) {
+        return getWorkspaceSizesRes;
+    }
+    if (executor == nullptr || *executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     if (NnopbaseSetHcclServerType) {
-        if (std::strcmp(commAlg, "ccu") == 0) {
+        if (commAlg != nullptr && std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);
         } else {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

@@ -52,7 +52,7 @@ def run_normal(buffer, x, topk_idx, topk_weights, num_experts, config, quant_typ
         config=config,
         topk_idx=topk_idx,
         topk_weights=topk_weights,
-        quant_mode=None if quant_type == "bf16" else quant_type,
+        use_fp8=(quant_type != "bf16"),
     )
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 

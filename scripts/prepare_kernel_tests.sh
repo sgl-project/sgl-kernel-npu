@@ -14,6 +14,7 @@ export UV_SYSTEM_PYTHON=true
 # Official version mapping (strict 1:1):
 #   CANN 8.5.0 -> triton-ascend 3.2.0
 #   CANN 9.0.0 -> triton-ascend 3.2.1
+#   CANN 9.1.0 -> triton-ascend 3.2.2
 if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
     pip install ${TRITON_ASCEND_WHL}
 else
@@ -24,6 +25,9 @@ else
             ;;
         9.0.*)
             TRITON_ASCEND_VER="3.2.1"
+            ;;
+        9.1.*)
+            TRITON_ASCEND_VER="3.2.2"
             ;;
         *)
             echo "WARNING: Unknown CANN version $CANN_VER, defaulting to triton-ascend 3.2.0"

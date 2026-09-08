@@ -206,6 +206,9 @@ static ge::graphStatus CheckShareExpertDtypes(gert::TilingContext &context, Fuse
     auto gmm2ScaleTensor = context.GetDynamicInputTensor(INPUT_GMM2_WEIGHT_SCALE_INDEX, 0);
     auto shareGmm1ScaleTensor = context.GetOptionalInputTensor(INPUT_SHARE_GMM1_WEIGHT_SCALE_INDEX);
     auto shareGmm2ScaleTensor = context.GetOptionalInputTensor(INPUT_SHARE_GMM2_WEIGHT_SCALE_INDEX);
+    OPS_ERR_IF(shareGmm1ScaleTensor == nullptr || shareGmm2ScaleTensor == nullptr,
+               OPS_LOG_E(nodeName, "Shared expert weight scales must exist when shared expert is enabled."),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF((shareGmm1ScaleTensor->GetDataType() != gmm1ScaleTensor->GetDataType()),
                OPS_LOG_E(nodeName, "share expert weight1 scale datatype (%d) must be same with routed experts'(%d).",
                          static_cast<ge::DataType>(shareGmm1ScaleTensor->GetDataType()),
@@ -504,7 +507,11 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     auto profileEnablePtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_ENABLE_INDEX);
     auto profileBufferBytesPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_BUFFER_BYTES_INDEX);
     auto profileLaunchIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_LAUNCH_ID_INDEX);
-
+    OPS_ERR_IF(groupEpPtr == nullptr, OPS_LOG_E(nodeName, "groupEpPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
@@ -561,7 +568,8 @@ static ge::graphStatus CheckHcclBufferSize(const char *nodeName, const FusedDeep
     uint32_t moeExpertNumPerRank = tilingData.fusedDeepMoeInfo.moeExpertNumPerRank;
     uint32_t globalBatchSize = tilingData.fusedDeepMoeInfo.globalBs;
     uint32_t h = tilingData.fusedDeepMoeInfo.h;
-    uint64_t bufferDemand = moeExpertNumPerRank * globalBatchSize * h * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
+    uint64_t bufferDemand =
+        static_cast<uint64_t>(moeExpertNumPerRank) * globalBatchSize * h * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
     OPS_ERR_IF(bufferDemand > maxWindowSize,
                OPS_LOG_E(nodeName,

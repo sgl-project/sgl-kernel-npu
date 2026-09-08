@@ -126,12 +126,24 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
             return ge::GRAPH_FAILED);
     }
 
+    OP_TILING_CHECK((*numTokensPtr < 0) || (*numTokensPtr > static_cast<int64_t>(UINT32_MAX)),
+                    OP_LOGE(nodeName, "numTokens is invalid, must be in [0, %ld], but got numTokens=%ld.",
+                            static_cast<int64_t>(UINT32_MAX), *numTokensPtr),
+                    return ge::GRAPH_FAILED);
     tilingData.dispatchLayoutInfo.numTokens = static_cast<uint32_t>(*numTokensPtr);
     tilingData.dispatchLayoutInfo.numRanks = static_cast<uint32_t>(*numRanksPtr);
     tilingData.dispatchLayoutInfo.numExperts = static_cast<uint32_t>(*numExpertsPtr);
     tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
     tilingData.dispatchLayoutInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
+    OP_TILING_CHECK((*perRoundTokensPtr < 0) || (*perRoundTokensPtr > static_cast<int64_t>(UINT32_MAX)),
+                    OP_LOGE(nodeName, "perRoundTokens is invalid, must be in [0, %ld], but got perRoundTokens=%ld.",
+                            static_cast<int64_t>(UINT32_MAX), *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
     tilingData.dispatchLayoutInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+    OP_TILING_CHECK((*rankIdPtr < 0) || (*rankIdPtr > static_cast<int64_t>(UINT32_MAX)),
+                    OP_LOGE(nodeName, "rankId is invalid, must be in [0, %ld], but got rankId=%ld.",
+                            static_cast<int64_t>(UINT32_MAX), *rankIdPtr),
+                    return ge::GRAPH_FAILED);
     tilingData.dispatchLayoutInfo.rankId = static_cast<uint32_t>(*rankIdPtr);
 
     return ge::GRAPH_SUCCESS;
