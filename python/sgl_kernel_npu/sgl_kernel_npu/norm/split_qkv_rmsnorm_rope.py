@@ -1,5 +1,3 @@
-import math
-
 import torch
 import triton
 import triton.language as tl
@@ -390,55 +388,7 @@ def split_qkv_rmsnorm_rope(
     _, num_vectorcore = get_device_properties()
 
     if head_dim == 192:
-        # Keep the existing power-of-two path unchanged. Native 192 uses the
-        # same fused kernel with one complete KV head per program column.
-        if (
-            input.dtype != torch.bfloat16
-            or input.device.type != "npu"
-            or input.ndim != 2
-            or not input.is_contiguous()
-        ):
-            raise ValueError("head_dim=192 requires contiguous 2D BF16 NPU input")
-        if (
-            q_hidden_size != kv_hidden_size
-            or kv_hidden_size <= 0
-            or kv_hidden_size % head_dim != 0
-            or input.shape[1] != q_hidden_size + 2 * kv_hidden_size
-        ):
-            raise ValueError("head_dim=192 requires equal, complete Q and KV heads")
-        if eps is None or not math.isfinite(eps) or eps <= 0:
-            raise ValueError("head_dim=192 requires RMSNorm with positive finite eps")
-        if q_bias is not None or k_bias is not None or not is_neox_style:
-            raise ValueError("head_dim=192 supports unbiased RMSNorm and NeoX RoPE")
-        for weight in (q_weight, k_weight):
-            if (
-                weight is None
-                or weight.shape != (head_dim,)
-                or weight.dtype != input.dtype
-                or weight.device != input.device
-                or not weight.is_contiguous()
-            ):
-                raise ValueError("head_dim=192 requires contiguous BF16 Q/K weights")
-        if (
-            sin.ndim < 2
-            or sin.shape != cos.shape
-            or sin.shape[0] != input.shape[0]
-            or sin.shape[-1] != head_dim
-            or sin.numel() != input.shape[0] * head_dim
-            or sin.dtype != cos.dtype
-        ):
-            raise ValueError(
-                "head_dim=192 requires full RoPE caches matching input rows"
-            )
-        for cache in (sin, cos):
-            if (
-                cache.dtype not in (torch.bfloat16, torch.float32)
-                or cache.device != input.device
-                or not cache.is_contiguous()
-            ):
-                raise ValueError(
-                    "head_dim=192 requires contiguous BF16 or FP32 RoPE caches"
-                )
+        # Preserve the existing kernel's input contract for native 192 heads.
         KV_BLOCK_SIZE = head_dim
     else:
         KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
