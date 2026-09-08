@@ -27,6 +27,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("sgl_kernel_npu_version() -> str", []() { return std::string("") + LIB_VERSION; });
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
+    m.def("elu(Tensor x, float alpha) -> Tensor");
 
     m.def(
         "alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
@@ -241,6 +242,7 @@ TORCH_LIBRARY_IMPL(npu, CatchAll, m)
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
+    m.impl("elu", TORCH_FN(sglang::npu_kernel::elu));
 
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
 
