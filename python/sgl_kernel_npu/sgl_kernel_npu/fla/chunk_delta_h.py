@@ -24,6 +24,9 @@ from sgl_kernel_npu.fla.utils import (
         "STORE_FINAL_STATE": lambda args: args["ht"] is not None,
         "SAVE_NEW_VALUE": lambda args: args["v_new"] is not None,
         "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
+        "USE_INITIAL_STATE_INDICES": lambda args: args["initial_state_indices"]
+        is not None,
+        "USE_FINAL_STATE_INDICES": lambda args: args["final_state_indices"] is not None,
     }
 )
 @triton.jit(do_not_specialize=["T"])
@@ -36,9 +39,12 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
     h,
     h0,
     ht,
+    initial_state_indices,
+    final_state_indices,
     cu_seqlens,
     chunk_offsets,
     T,
+    STATE_POOL_SIZE: tl.constexpr,
     H: tl.constexpr,
     Hg: tl.constexpr,
     K: tl.constexpr,
@@ -49,6 +55,8 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
     STORE_FINAL_STATE: tl.constexpr,
     SAVE_NEW_VALUE: tl.constexpr,
     IS_VARLEN: tl.constexpr,
+    USE_INITIAL_STATE_INDICES: tl.constexpr,
+    USE_FINAL_STATE_INDICES: tl.constexpr,
 ):
     i_nh = tl.program_id(1)
     i_n, i_h = i_nh // H, i_nh % H
@@ -82,13 +90,26 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
     mask_kv1 = (offs_k < K) & (offs_v1 < V)
     mask_kv2 = (offs_k < K) & (offs_v2 < V)
 
+    initial_state_idx = i_n
+    initial_state_valid = True
+    if USE_INITIAL_STATE_INDICES:
+        initial_state_idx = tl.load(initial_state_indices + i_n).to(tl.int64)
+        initial_state_valid = (initial_state_idx >= 0) & (
+            initial_state_idx < STATE_POOL_SIZE
+        )
+        initial_state_idx = tl.where(initial_state_valid, initial_state_idx, 0)
+
     if USE_INITIAL_STATE:
-        h0_ptr = h0 + i_nh * K * V
+        h0_ptr = h0 + (initial_state_idx * H + i_h) * K * V
         ptr_h0_bv1 = h0_ptr + offs_k * V + offs_v1 * 1
-        b_h1_bv1 += tl.load(ptr_h0_bv1, mask=mask_kv1, other=0.0).to(tl.float32)
+        b_h1_bv1 += tl.load(
+            ptr_h0_bv1, mask=mask_kv1 & initial_state_valid, other=0.0
+        ).to(tl.float32)
 
         ptr_h0_bv2 = h0_ptr + offs_k * V + offs_v2 * 1
-        b_h1_bv2 += tl.load(ptr_h0_bv2, mask=mask_kv2, other=0.0).to(tl.float32)
+        b_h1_bv2 += tl.load(
+            ptr_h0_bv2, mask=mask_kv2 & initial_state_valid, other=0.0
+        ).to(tl.float32)
 
     for i_t in range(NT):
         h_base = h + (boh + i_t) * H * K * V + i_h * K * V
@@ -192,20 +213,35 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
         b_h1_bv2 += tl.dot(b_k, b_v_new2)
 
     if STORE_FINAL_STATE:
-        ht_ptr = ht + i_nh * K * V
-        p_ht1_bv1 = tl.make_block_ptr(
-            ht_ptr, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0)
-        )
-        tl.store(
-            p_ht1_bv1, b_h1_bv1.to(p_ht1_bv1.dtype.element_ty), boundary_check=(0, 1)
-        )
+        final_state_idx = i_n
+        final_state_valid = initial_state_valid
+        if USE_FINAL_STATE_INDICES:
+            final_state_idx = tl.load(final_state_indices + i_n).to(tl.int64)
+            final_state_valid = (
+                final_state_valid
+                & (final_state_idx >= 0)
+                & (final_state_idx < STATE_POOL_SIZE)
+            )
+            final_state_idx = tl.where(final_state_valid, final_state_idx, 0)
+        if final_state_valid:
+            ht_ptr = ht + (final_state_idx * H + i_h) * K * V
+            p_ht1_bv1 = tl.make_block_ptr(
+                ht_ptr, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0)
+            )
+            tl.store(
+                p_ht1_bv1,
+                b_h1_bv1.to(p_ht1_bv1.dtype.element_ty),
+                boundary_check=(0, 1),
+            )
 
-        p_ht1_bv2 = tl.make_block_ptr(
-            ht_ptr, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0)
-        )
-        tl.store(
-            p_ht1_bv2, b_h1_bv2.to(p_ht1_bv2.dtype.element_ty), boundary_check=(0, 1)
-        )
+            p_ht1_bv2 = tl.make_block_ptr(
+                ht_ptr, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0)
+            )
+            tl.store(
+                p_ht1_bv2,
+                b_h1_bv2.to(p_ht1_bv2.dtype.element_ty),
+                boundary_check=(0, 1),
+            )
 
 
 def chunk_gated_delta_rule_fwd_h_npu(
@@ -218,6 +254,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
     chunk_size: int = 64,  # SY: remove this argument and force chunk size 64?
     save_new_value: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    initial_state_indices: Optional[torch.Tensor] = None,
+    inplace_final_state: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     B, T, Hg, K, V = *k.shape, u.shape[-1]
     H = u.shape[-2]
@@ -239,9 +277,38 @@ def chunk_gated_delta_rule_fwd_h_npu(
         )
     assert K <= 256, "current kernel does not support head dimension larger than 256."
     h = k.new_empty(B, NT, H, K, V)
-    final_state = (
-        k.new_empty(N, H, K, V, dtype=torch.float32) if output_final_state else None
-    )
+    if initial_state_indices is not None:
+        if initial_state is None:
+            raise ValueError("initial_state_indices requires initial_state")
+        if initial_state_indices.ndim != 1 or initial_state_indices.numel() < N:
+            raise ValueError(
+                "initial_state_indices must be 1D with at least one entry per sequence"
+            )
+        if initial_state_indices.dtype not in (torch.int32, torch.int64):
+            raise ValueError("initial_state_indices must use int32 or int64")
+        if initial_state_indices.device != initial_state.device:
+            raise ValueError(
+                "initial_state_indices and initial_state must be on the same device"
+            )
+
+    if inplace_final_state:
+        if initial_state is None or initial_state_indices is None:
+            raise ValueError(
+                "inplace_final_state requires initial_state and initial_state_indices"
+            )
+        final_state_buffer = initial_state
+        final_state_indices = initial_state_indices
+    else:
+        final_state_buffer = (
+            k.new_zeros(N, H, K, V, dtype=torch.float32)
+            if output_final_state and initial_state_indices is not None
+            else (
+                k.new_empty(N, H, K, V, dtype=torch.float32)
+                if output_final_state
+                else None
+            )
+        )
+        final_state_indices = None
 
     v_new = torch.empty_like(u) if save_new_value else None
     # Pre-transpose tensors outside the kernel to ensure contiguous memory access within the kernel
@@ -259,10 +326,13 @@ def chunk_gated_delta_rule_fwd_h_npu(
         g=g,
         h=h,
         h0=initial_state,
-        ht=final_state,
+        ht=final_state_buffer,
+        initial_state_indices=initial_state_indices,
+        final_state_indices=final_state_indices,
         cu_seqlens=cu_seqlens,
         chunk_offsets=chunk_offsets,
         T=T,
+        STATE_POOL_SIZE=initial_state.shape[0] if initial_state is not None else 0,
         H=H,
         Hg=Hg,
         K=K,
@@ -271,4 +341,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
         num_warps=4,
         num_stages=2,
     )
+    # In indexed in-place mode the caller already owns the updated pool.  Do
+    # not materialize an indexed view merely to satisfy the legacy return
+    # contract; returning None also tells SGLang to skip its IndexPutV2 scatter.
+    final_state = None if inplace_final_state else final_state_buffer
     return h, v_new, final_state

@@ -212,11 +212,62 @@ def chunk_gated_delta_rule_fwd(
     initial_state: torch.Tensor,
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    initial_state_indices: Optional[torch.Tensor] = None,
+    inplace_final_state: bool = False,
 ):
     if _use_mega_gdn():
+        # The AscendC mega kernel currently consumes compact per-request
+        # states. Preserve that backend by doing the legacy transfer here; the
+        # default Triton path below performs true indexed pool I/O.
+        mega_initial_state = initial_state
+        state_indices = None
+        valid_state_indices = None
+        if initial_state is not None and initial_state_indices is not None:
+            num_sequences = (
+                len(cu_seqlens) - 1 if cu_seqlens is not None else q.shape[0]
+            )
+            state_indices = (
+                initial_state_indices[:num_sequences].to(dtype=torch.long).contiguous()
+            )
+            valid_state_indices = (state_indices >= 0) & (
+                state_indices < initial_state.shape[0]
+            )
+            if initial_state.shape[0] == 0:
+                mega_initial_state = initial_state.new_zeros(
+                    num_sequences, *initial_state.shape[1:]
+                )
+            else:
+                safe_state_indices = state_indices.masked_fill(~valid_state_indices, 0)
+                mega_initial_state = initial_state.index_select(0, safe_state_indices)
+                mega_initial_state.masked_fill_(
+                    ~valid_state_indices.view(-1, 1, 1, 1), 0
+                )
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
-            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+            q,
+            k,
+            v,
+            g,
+            beta,
+            scale,
+            mega_initial_state,
+            output_final_state or inplace_final_state,
+            cu_seqlens,
         )
+        if inplace_final_state:
+            if final_state is None:
+                raise RuntimeError(
+                    "mega GDN did not return a final state for in-place update"
+                )
+            valid_slots = state_indices[valid_state_indices]
+            if valid_slots.numel() > 0:
+                initial_state.index_copy_(
+                    0,
+                    valid_slots,
+                    final_state[valid_state_indices].to(initial_state.dtype),
+                )
+            final_state = None
+        elif final_state is not None and valid_state_indices is not None:
+            final_state.masked_fill_(~valid_state_indices.view(-1, 1, 1, 1), 0)
         if SUPPRESS_LEVEL < 3:
             return g, o, A, final_state, None, h, None
         return g, o, A, final_state, w, h, v_new
@@ -241,7 +292,9 @@ def chunk_gated_delta_rule_fwd(
         u=u,
         g=g,
         initial_state=initial_state,
+        initial_state_indices=initial_state_indices,
         output_final_state=output_final_state,
+        inplace_final_state=inplace_final_state,
         cu_seqlens=cu_seqlens,
     )
     o = chunk_fwd_o(
@@ -259,7 +312,7 @@ def chunk_gated_delta_rule_fwd(
         return g, o, A, final_state, w, h, v_new
 
 
-@input_guard
+@input_guard(preserve_when={"initial_state": "inplace_final_state"})
 @torch.compiler.disable
 def chunk_gated_delta_rule_npu(
     q: torch.Tensor,
@@ -273,6 +326,8 @@ def chunk_gated_delta_rule_npu(
     cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
     use_qk_l2norm_in_kernel: bool = False,
+    initial_state_indices: Optional[torch.Tensor] = None,
+    inplace_final_state: bool = False,
 ):
     r"""
     Args:
@@ -293,8 +348,14 @@ def chunk_gated_delta_rule_npu(
             Initial state of shape `[N, H, K, V]` for `N` input sequences.
             For equal-length input sequences, `N` equals the batch size `B`.
             Default: `None`.
+        initial_state_indices (Optional[torch.Tensor]):
+            Slot index for each sequence when ``initial_state`` is a full state
+            pool. When omitted, states are packed in sequence order.
         output_final_state (Optional[bool]):
             Whether to output the final state of shape `[N, H, K, V]`. Default: `False`.
+        inplace_final_state (Optional[bool]):
+            Write final states directly to ``initial_state`` at
+            ``initial_state_indices`` and return ``None`` for the final state.
         cu_seqlens (torch.LongTensor):
             Cumulative sequence lengths of shape `[N+1]` used for variable-length training,
             consistent with the FlashAttention API.
@@ -367,11 +428,42 @@ def chunk_gated_delta_rule_npu(
                 f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
                 f"Please flatten variable-length inputs before processing."
             )
-        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
+        if (
+            initial_state is not None
+            and initial_state_indices is None
+            and initial_state.shape[0] != len(cu_seqlens) - 1
+        ):
             raise ValueError(
                 f"The number of initial states is expected to be equal to the number of input sequences, "
                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
             )
+    num_sequences = len(cu_seqlens) - 1 if cu_seqlens is not None else q.shape[0]
+    if initial_state_indices is not None:
+        if initial_state is None:
+            raise ValueError("initial_state_indices requires initial_state")
+        if (
+            initial_state_indices.ndim != 1
+            or initial_state_indices.numel() < num_sequences
+        ):
+            raise ValueError(
+                "initial_state_indices must be 1D with at least one entry per sequence"
+            )
+        if initial_state_indices.dtype not in (torch.int32, torch.int64):
+            raise ValueError("initial_state_indices must use int32 or int64")
+        if initial_state_indices.device != initial_state.device:
+            raise ValueError(
+                "initial_state_indices and initial_state must be on the same device"
+            )
+    if inplace_final_state and initial_state_indices is None:
+        raise ValueError(
+            "inplace_final_state requires initial_state and initial_state_indices"
+        )
+    if (
+        inplace_final_state
+        and initial_state is not None
+        and not initial_state.is_contiguous()
+    ):
+        raise ValueError("inplace_final_state requires a contiguous initial_state pool")
     if scale is None:
         scale = k.shape[-1] ** -0.5
 
@@ -380,7 +472,17 @@ def chunk_gated_delta_rule_npu(
         k = l2norm_fwd(k)
 
     _, o, _, final_state, _, h, _ = chunk_gated_delta_rule_fwd(
-        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        cu_seqlens=cu_seqlens,
+        initial_state_indices=initial_state_indices,
+        inplace_final_state=inplace_final_state,
     )
     o = o.to(q.dtype)
     if head_first:
