@@ -39,6 +39,52 @@ logger = logging.getLogger()
 torch.set_printoptions(profile="full")
 
 
+def _resolve_quant_mode(
+    use_fp8: bool,
+    use_mxfp4: bool,
+    use_mxfp8: bool,
+) -> Optional[str]:
+    """Resolve the effective ``quant_mode`` from bool flags and device architecture.
+
+    Looks up ``QUANT_MODE_TABLE[(param_type, version_code)]`` for the first
+    active bool flag.  ``None`` in the table means the combination is not
+    supported on that hardware.
+
+    Priority:
+    1. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags (table lookup).
+    2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
+    3. ``None`` (BF16, no quantization).
+    """
+    if sum([use_fp8, use_mxfp8, use_mxfp4]) > 1:
+        raise ValueError("at most one of use_mxfp8, use_mxfp4, use_fp8 can be True")
+
+    try:
+        version_code = get_device_version()
+    except Exception:
+        version_code = None
+
+    for param_type, flag in (
+        ("use_mxfp4", use_mxfp4),
+        ("use_mxfp8", use_mxfp8),
+        ("use_fp8", use_fp8),
+    ):
+        if not flag:
+            continue
+        quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if quant_mode is not None:
+            return quant_mode
+        raise NotImplementedError(
+            f"{param_type} is not supported on device version {version_code} "
+            f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
+        )
+
+    # Deprecated env-var fallback for backward compatibility
+    if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
+        return "int8"
+
+    return None
+
+
 def get_simplify_tensor(arg):
     if type(arg) in (tuple, list):
         return ", ".join([get_simplify_tensor(a) for a in arg])
@@ -113,46 +159,3 @@ def log_parameters(input_name_full_tensor=None, output_idx_full_tensor=None):
         return wrapper
 
     return log_parameters_decorator
-
-
-def _resolve_normal_quant_mode(
-    use_fp8: bool,
-    use_mxfp4: bool,
-    use_mxfp8: bool,
-) -> Optional[str]:
-    """Resolve the effective ``quant_mode`` for normal dispatch.
-
-    Looks up ``QUANT_MODE_TABLE[(param_type, version_code)]`` for the first
-    active bool flag.  ``None`` in the table means the combination is not
-    supported on that hardware.
-
-    Priority:
-    1. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags (table lookup).
-    2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
-    3. ``None`` (BF16, no quantization).
-    """
-    try:
-        version_code = get_device_version()
-    except Exception:
-        version_code = None
-
-    for param_type, flag in (
-        ("use_mxfp4", use_mxfp4),
-        ("use_mxfp8", use_mxfp8),
-        ("use_fp8", use_fp8),
-    ):
-        if not flag:
-            continue
-        quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
-        if quant_mode is not None:
-            return quant_mode
-        raise NotImplementedError(
-            f"{param_type} is not supported on device version {version_code} "
-            f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
-        )
-
-    # Deprecated env-var fallback for backward compatibility
-    if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
-        return "int8"
-
-    return None

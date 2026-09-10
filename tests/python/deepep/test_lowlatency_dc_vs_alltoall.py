@@ -45,7 +45,6 @@ def run_with_buffer(
         return_recv_hook=False,
         topk_weights=topk_weights,
         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-        quant_mode=None if quant_type == "bf16" else quant_type,
     )
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 

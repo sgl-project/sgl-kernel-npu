@@ -14,6 +14,7 @@ QUANT_MODE_TABLE = {
     ("use_fp8", 9201): "pertoken_fp8_e4m3",
     ("use_fp8", 3510): "pertoken_fp8_e4m3",
     ("use_fp8", 2201): "int8",
+    ("use_fp8", None): "int8",
     ("use_mxfp4", 9301): "mx_fp4_e2m1",
     ("use_mxfp4", 9201): "mx_fp4_e2m1",
     ("use_mxfp4", 3510): "mx_fp4_e2m1",

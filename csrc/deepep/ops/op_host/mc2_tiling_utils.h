@@ -2,6 +2,7 @@
 #define __MC2_TILING_UTILS_H__
 
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -19,6 +20,11 @@
 class Mc2TilingUtils
 {
 public:
+    static bool IsHybridDeployment()
+    {
+        return getenv("DEEPEP_HYBRID_DEPLOYMENT") != nullptr;
+    }
+
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;

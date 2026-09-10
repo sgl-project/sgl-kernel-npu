@@ -615,6 +615,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     auto waitRecvcostStatsStorageShape = context->GetOutputShape(OUTPUT_WAIT_RECV_COST_INDEX);
     bool isEnableDiagnose = (waitRecvcostStatsStorageShape != nullptr);
     tilingData->camMoeDispatchNormalInfo.isEnableDiagnose = isEnableDiagnose;
+    tilingData->camMoeDispatchNormalInfo.isHybridDeployment = Mc2TilingUtils::IsHybridDeployment();
 
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(
@@ -647,16 +648,20 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     tokenNeedSizeCombine =
         round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
-    uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
-                           NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t perHalfDataSize = maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch);
+    uint64_t reservedSize = tilingData->camMoeDispatchNormalInfo.isHybridDeployment
+                                ? Moe::A3WindowLayout::kPerHalfReservedSize
+                                : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
-                            " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
-                            " + tokenNeedSizeCombine) + 4MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            " k = %lu, hybridDeployment=%d, perHalfDataSize=%lu, perHalfReservedSize=%lu, "
+                            "NEEDED_HCCL_BUFFSIZE((perHalfDataSize + perHalfReservedSize) * 2) = %luMB, "
+                            "HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
+                            tilingData->camMoeDispatchNormalInfo.isHybridDeployment, perHalfDataSize, reservedSize,
                             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
     tilingData->camMoeDispatchNormalInfo.totalWinSize = maxWindowSize;
