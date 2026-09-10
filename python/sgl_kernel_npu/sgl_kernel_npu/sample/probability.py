@@ -3,15 +3,44 @@ from typing import Union
 import torch
 
 
+def _encode_keep_keys(sorted_probs: torch.Tensor, sorted_indices: torch.Tensor):
+    """Pack each token ID and its nonzero keep bit into one exact FP32 integer.
+
+    Contract: indices come from a full row sort; masked sorted_probs contains
+    either that token's original probability or zero. This is not a general
+    scatter replacement. No float probability values are packed into the key.
+    """
+    if sorted_indices.shape[-1] > 2**23:
+        raise ValueError("Packed keep keys require vocab_size <= 2**23")
+    keys = sorted_indices.to(torch.float32).mul_(2.0)
+    keys.add_(sorted_probs.ne(0).to(torch.float32))
+    return keys
+
+
+def _write_from_ordered_keys(probs, ordered_keys, denominator):
+    # Keys are now 2*j or 2*j+1 at vocabulary position j. Recover the mask
+    # with contiguous elementwise operations; no gather/scatter/modulo needed.
+    base_keys = (
+        torch.arange(probs.shape[-1], device=probs.device, dtype=torch.float32)
+        .mul_(2.0)
+        .view(1, -1)
+    )
+    output = probs.masked_fill(ordered_keys == base_keys, 0.0)
+    return output.div_(denominator)
+
+
 def _renorm_from_sorted_probs(
     probs: torch.Tensor,
     sorted_probs: torch.Tensor,
     sorted_indices: torch.Tensor,
 ) -> torch.Tensor:
-    sorted_probs.div_(sorted_probs.sum(dim=-1, keepdim=True).clamp_min_(1e-20))
-    return torch.zeros_like(probs).scatter_(
-        dim=-1, index=sorted_indices, src=sorted_probs
-    )
+    # Keep the original reduction order and clamp to preserve normalization.
+    denominator = sorted_probs.sum(dim=-1, keepdim=True).clamp_min_(1e-20)
+    keys = _encode_keep_keys(sorted_probs, sorted_indices)
+    # Sorting VALUES carries the keep bit into vocabulary order. The returned
+    # sort indices are unused, so no full-vocabulary indexed read/write follows.
+    ordered_keys = keys.sort(dim=-1).values
+    return _write_from_ordered_keys(probs, ordered_keys, denominator)
 
 
 def _as_batch_threshold(
