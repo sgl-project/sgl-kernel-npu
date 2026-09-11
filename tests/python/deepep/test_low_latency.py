@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.strategies import OpsLowLatencyCommStrategy
 from deep_ep.device_info import (
     DEVICE_VERSION_TABLE,
     QUANT_MODE_TABLE,
@@ -353,9 +354,14 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
-        is_layout = os.getenv("DEEP_USE_MODE", "").lower()
+        # The ops strategy may be selected via the --low-latency-strategy CLI flag
+        # (buffer.low_latency_strategy instance) or via DEEP_USE_MODE=ops; either
+        # way the dispatched kernels are the MoeDistribute* ones.
+        is_ops = isinstance(buffer.low_latency_strategy, OpsLowLatencyCommStrategy) or (
+            os.getenv("DEEP_USE_MODE", "").lower() == "ops"
+        )
 
-        if is_layout == "ops":
+        if is_ops:
             dispatch_name = "MoeDistributeDispatchV2"
             combine_name = "MoeDistributeCombineV2"
         else:
