@@ -148,6 +148,17 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
+      - name: Run test multi-round intranode with combine long-seq
+        # Cover DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 ("ant moving home" in the combine phase, see python/deep_ep/README.md env table)
+        timeout-minutes: 10
+        env:
+          DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
+          DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+          DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
       - name: Run test little processes intranode
         timeout-minutes: 10
         env:
@@ -268,6 +279,13 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --enable-dynamic-tokens
+      - name: Run test low latency with ops strategy
+        # Cover DEEP_USE_MODE=ops strategy (OpsLowLatencyCommStrategy via torch_npu ops, see python/deep_ep/README.md strategy table)
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --low-latency-strategy=ops
       - name: Run test generalization of fused deep moe
         timeout-minutes: 10
         env:
@@ -470,7 +488,7 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
       - name: Run test alltoall mode for both normal and low_latency
-        if: matrix.cann_version == '9.0.0'
+        # Runs on both CANN 9.0.0 and 9.1.0 (was 9.0.0-only; A5 already validates alltoall on 9.1.0)
         timeout-minutes: 10
         env:
           DEEP_MOE_MODE: alltoall
@@ -924,6 +942,21 @@ jobs:
           --num-warmups 3 \
           --num-tests 10 \
           --weight-format NZ
+
+      - name: Run test mixed normal and low-latency
+        # Cover mixed normal + low-latency deployment on A5 (A3/A2 jobs already cover this)
+        timeout-minutes: 20
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=4 --normal-num-tokens=512 --low-latency-num-tokens=256 --test-loop=100
+
+      - name: Run A5 ant-migration regression
+        # Cover long-seq multi-round dispatch/combine on A5 (run_a5_ant_migration_regression.sh, 9 built-in cases)
+        timeout-minutes: 60
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: bash $GITHUB_WORKSPACE/tests/python/deepep/run_a5_ant_migration_regression.sh
 
   finish:
     if: always()

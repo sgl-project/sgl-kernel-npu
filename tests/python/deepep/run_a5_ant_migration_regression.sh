@@ -118,18 +118,39 @@ run_case()
     echo "configured_rounds=${rounds}, actual_rounds=${actual_rounds}, per_round_tokens=${per_round_tokens}"
     echo "tokens=${num_tokens}, hidden=${hidden}, experts=${num_experts}, topk=${num_topk}, quant=${quant_type}, combine_long_seq=${combine_long_seq}"
 
-    ASCEND_LAUNCH_BLOCKING="${LAUNCH_BLOCKING}" \
-    DEEPEP_NORMAL_LONG_SEQ_ROUND="${rounds}" \
-    DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS="${per_round_tokens}" \
-    DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ="${combine_long_seq}" \
-    HCCL_BUFFSIZE="${HCCL_BUFFER_MB}" \
+    # Map legacy quant-type names to the architecture-aware bool flags of
+    # test_intranode.py (--use-fp8/--use-mxfp8/--use-mxfp4, see PR #773).
+    local -a quant_args=()
+    local -a quant_env=()
+    case "${quant_type}" in
+        bf16) ;;
+        int8)
+            # Deprecated fallback path, see quantization priority in python/deep_ep/README.md
+            quant_env+=("DEEP_NORMAL_MODE_USE_INT8_QUANT=1")
+            ;;
+        pertoken_fp8_e4m3) quant_args+=(--use-fp8) ;;
+        mx_fp8_e4m3|mx_fp8_e5m2) quant_args+=(--use-mxfp8) ;;
+        mx_fp4_e2m1) quant_args+=(--use-mxfp4) ;;
+        *)
+            echo "${name}: unsupported quant_type '${quant_type}'." >&2
+            exit 1
+            ;;
+    esac
+
+    env \
+        ASCEND_LAUNCH_BLOCKING="${LAUNCH_BLOCKING}" \
+        DEEPEP_NORMAL_LONG_SEQ_ROUND="${rounds}" \
+        DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS="${per_round_tokens}" \
+        DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ="${combine_long_seq}" \
+        HCCL_BUFFSIZE="${HCCL_BUFFER_MB}" \
+        "${quant_env[@]}" \
         python3 "${TEST_SCRIPT}" \
             --num-processes="${NUM_PROCESSES}" \
             --num-tokens="${num_tokens}" \
             --hidden="${hidden}" \
             --num-experts="${num_experts}" \
             --num-topk="${num_topk}" \
-            --quant-type="${quant_type}"
+            "${quant_args[@]}"
 }
 
 # Legacy single-round path.
