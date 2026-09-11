@@ -8,12 +8,12 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from deep_ep.strategies import OpsLowLatencyCommStrategy
 from deep_ep.device_info import (
     DEVICE_VERSION_TABLE,
     QUANT_MODE_TABLE,
     get_device_version,
 )
+from deep_ep.strategies import OpsLowLatencyCommStrategy
 from utils import (
     bench,
     bench_kineto,
