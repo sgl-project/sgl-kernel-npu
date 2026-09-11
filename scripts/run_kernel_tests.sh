@@ -55,6 +55,7 @@ ATTENTION_TESTS=(
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
     test_split_qkv_tp_rmsnorm_rope.py
     test_fused_rope_qk_mqa.py
+    test_sparse_flash_attention_lse.py
 )
 
 CACHE_TESTS=(

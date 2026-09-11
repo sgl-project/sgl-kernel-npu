@@ -56,6 +56,7 @@ jobs:
             attention:
               - csrc/attentions/**
               - csrc/mla_preprocess/**
+              - csrc/sparse_flash_attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
               - tests/python/sgl_kernel_npu/test_decode_attention.py
@@ -64,6 +65,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
               - tests/python/sgl_kernel_npu/test_split_qkv_tp_rmsnorm_rope.py
               - tests/python/sgl_kernel_npu/test_fused_rope_qk_mqa.py
+              - tests/python/sgl_kernel_npu/test_sparse_flash_attention_lse.py
             cache:
               - csrc/alloc_extend/**
               - csrc/cache_location_assign/**
