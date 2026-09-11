@@ -172,6 +172,31 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       double norm_eps, int64_t rotary_mode, int64_t cache_mode,
                       int64_t state_cache_stride_dim0);
 
+// Ported from vllm-ascend csrc/attention/sparse_flash_attention. Distinct from
+// CANN's torch_npu.npu_sparse_flash_attention: this one will return the
+// log-sum-exp under a paged KV layout, which the CANN build refuses and which
+// Decode Context Parallelism requires. See
+// csrc/sparse_flash_attention/README.md.
+//
+// Declared unguarded, as sparse_attn_sharedkv below is: only arch22 (A2/A3) is
+// built, so the definition and the m.impl registration are both inside
+// SGL_KERNEL_ENABLE_A3_ONLY_OPS, but a declaration that is never referenced
+// costs the A5 build nothing.
+//
+// Returns (attention_out, softmax_max, softmax_sum); lse = softmax_max +
+// log(softmax_sum).
+std::tuple<at::Tensor, at::Tensor, at::Tensor> npu_sparse_flash_attention_lse(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_indices, double scale_value,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    const c10::optional<at::Tensor> &query_rope,
+    const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
+    c10::string_view layout_query, c10::string_view layout_kv,
+    int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
+    int64_t attention_mode, bool return_softmax_lse);
+
 std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
     const c10::optional<at::Tensor> &cmp_kv,

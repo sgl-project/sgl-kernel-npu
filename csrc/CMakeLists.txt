@@ -69,6 +69,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/sparse_flash_attention.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/sparse_flash_attention_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
@@ -243,6 +245,38 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -cce-vf-remove-membar=false
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
+
+    # Ported from vllm-ascend; see csrc/sparse_flash_attention/README.md. op_host is on the include
+    # path because the kernel reads the tiling struct and the dispatch-key layout from
+    # op_host/sparse_flash_attention_tiling_data.h, so host and kernel cannot disagree about either.
+    #
+    # Only arch22 (A2/A3) is built, which is why this is an A3-only target: there is no A5 hardware on
+    # this project to validate arch35 against, and the tiling rejects non-A2/A3 SOCs rather than
+    # letting a call reach a kernel that was never built for it.
+    ascendc_library(sparse_flash_attention_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sparse_flash_attention.cpp
+    )
+    ascendc_include_directories(sparse_flash_attention_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(sparse_flash_attention_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    # Upstream's op_host/CMakeLists.txt also passes
+    #     -mllvm -cce-aicore-hoist-movemask=false
+    # but CANN 9.1.0's bisheng rejects it as an unknown argument, so it is dropped here (the same
+    # finding came out of the lightning_indexer_v2 port). Restore it if a later CANN accepts it:
+    # upstream disabling movemask hoisting suggests the optimisation is unwanted for this kernel.
+    ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm
+        -cce-vf-remove-membar=false
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_flash_attention_kernel)
 endif()
 
 # create shared library
@@ -281,6 +315,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
         ${TORCH_DIR}/include

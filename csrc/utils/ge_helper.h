@@ -287,6 +287,19 @@ public:
         return *this;
     }
 
+    // Int() stores a 32-bit int, and RuntimeAttrs::GetAttrPointer<T> type-checks with typeid, so a
+    // tiling that reads an attribute as int64_t cannot be fed by Int(). CANN's own OpDef::Attr::Int()
+    // is 64-bit, so ops whose upstream definition says .Int(...) but whose tiling reads int64_t need
+    // this overload -- csrc/sparse_flash_attention is one.
+    AttrDef &Int64(int64_t value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
     AttrDef &Float(float value)
     {
         TORCH_CHECK(valueInitialized_ == false,
