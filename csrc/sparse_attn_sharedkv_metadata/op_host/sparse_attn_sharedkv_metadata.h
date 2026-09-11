@@ -145,6 +145,7 @@ struct SplitResult {
     int64_t maxCost{0};
     uint32_t numOfFdHead{0U};
     uint32_t maxS2SplitNum{0U};
+    uint32_t maxS2GBaseNum{0U};
     FlashDecodeResult fdRes{0U, 0U};
 
     SplitResult(uint32_t aicNum, uint32_t aivNum)
@@ -254,12 +255,14 @@ public:
     SparseAttnSharedkvMetadataHost() = default;
     ~SparseAttnSharedkvMetadataHost() = default;
 
-    bool Run(const int32_t *cuSeqLenQ,  // cu_seqlens_q (len B+1); required for layout_q TND
-             const int32_t *seqUsedKv,  // seqused_kv  (len B);  required for layout_kv PA_ND
+    bool Run(const int32_t *cuSeqLenQ,  // cu_seqlens_q (len B+1); used for layout_q TND
+             const int32_t *seqUsedKv,  // seqused_kv  (len B); used for layout_kv PA_ND
              int32_t batchSize, int32_t queryHeadNum, int32_t kvHeadNum, int32_t headDim, uint32_t aicCoreNum,
              uint32_t aivCoreNum, const std::string &socVersion, int32_t cmpTopK, int32_t cmpRatio, int32_t oriMaskMode,
              int32_t cmpMaskMode, int64_t winLeft, int64_t winRight, const std::string &layoutQuery,
-             const std::string &layoutKv, bool hasOriKv, bool hasCmpKv, int32_t *metaData);
+             const std::string &layoutKv, bool hasOriKv, bool hasCmpKv, int32_t *metaData,
+             uint32_t *maxS2GBaseNum = nullptr, const int32_t *seqUsedQ = nullptr,
+             const int32_t *cuSeqLenOriKv = nullptr, int32_t querySeqSize = 0, int32_t kvSeqSize = 0);
 
 private:
     bool ParamsInit();
@@ -311,6 +314,8 @@ private:
 
     // Inputs (raw CPU pointers; null when the optional tensor was not provided).
     const int32_t *actSeqLenQ_{nullptr};
+    const int32_t *seqUsedQ_{nullptr};
+    const int32_t *actSeqLenOriKv_{nullptr};
     const int32_t *seqUsedKv_{nullptr};
 
     int32_t *metaData_{nullptr};  // output
@@ -320,6 +325,8 @@ private:
     int32_t queryHeadNum_{0};
     int32_t kvHeadNum_{0};
     int32_t headDim_{0};
+    int32_t querySeqSize_{0};
+    int32_t kvSeqSize_{0};
     int32_t cmpTopK_{0};
     int32_t cmpRatio_{-1};
     int32_t oriMaskMode_{4};
@@ -342,6 +349,7 @@ private:
     bool isS1G_{true};
     bool isCFA_{false};
     bool isSCFA_{false};
+    bool isN128_{false};
     bool supportFd_{false};  // inert (never enabled)
     uint32_t attentionMode_{1};
 

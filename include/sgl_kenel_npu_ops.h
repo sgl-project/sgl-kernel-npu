@@ -11,6 +11,8 @@
 #ifndef SGL_KERNEL_NPU_OPS_H
 #define SGL_KERNEL_NPU_OPS_H
 
+#include <cstdint>
+
 namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
@@ -206,6 +208,33 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
+
+std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
+    const at::Tensor &q, int64_t kv_quant_mode,
+    const c10::optional<at::Tensor> &ori_kv, const c10::optional<at::Tensor> &cmp_kv,
+    const c10::optional<at::Tensor> &ori_sparse_indices, const c10::optional<at::Tensor> &cmp_sparse_indices,
+    const c10::optional<at::Tensor> &ori_block_table, const c10::optional<at::Tensor> &cmp_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens_q, const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv, const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv, const c10::optional<at::Tensor> &sinks,
+    const c10::optional<at::Tensor> &metadata, int64_t tile_size, int64_t rope_head_dim,
+    double softmax_scale, int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
+
+at::Tensor kv_quant_sparse_attn_sharedkv_metadata(
+    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim, int64_t kv_quant_mode,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+    const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv,
+    int64_t batch_size, int64_t max_seqlen_q, int64_t max_seqlen_kv,
+    int64_t ori_topk, int64_t cmp_topk, int64_t tile_size, int64_t rope_head_dim,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool has_ori_kv, bool has_cmp_kv,
+    c10::string_view device);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -246,6 +275,17 @@ at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
     int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
     bool has_ori_kv, bool has_cmp_kv);
+
+at::Tensor sparse_attn_sharedkv_metadata_host_with_max_s2(
+    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+    const std::string &layout_q, const std::string &layout_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+    int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
+    int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
+    bool has_ori_kv, bool has_cmp_kv, uint32_t *max_s2_g_base_num,
+    const int32_t *seq_used_q = nullptr, const int32_t *cu_seqlens_ori_kv = nullptr,
+    int32_t max_seqlen_q = 0, int32_t max_seqlen_kv = 0);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 /**

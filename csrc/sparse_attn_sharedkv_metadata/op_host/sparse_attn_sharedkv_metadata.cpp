@@ -44,15 +44,21 @@ bool SparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t
                                          uint32_t aivCoreNum, const std::string &socVersion, int32_t cmpTopK,
                                          int32_t cmpRatio, int32_t oriMaskMode, int32_t cmpMaskMode, int64_t winLeft,
                                          int64_t winRight, const std::string &layoutQuery, const std::string &layoutKv,
-                                         bool hasOriKv, bool hasCmpKv, int32_t *metaData)
+                                         bool hasOriKv, bool hasCmpKv, int32_t *metaData, uint32_t *maxS2GBaseNum,
+                                         const int32_t *seqUsedQ, const int32_t *cuSeqLenOriKv, int32_t querySeqSize,
+                                         int32_t kvSeqSize)
 {
     cacheReady_ = false;
     actSeqLenQ_ = cuSeqLenQ;
+    seqUsedQ_ = seqUsedQ;
+    actSeqLenOriKv_ = cuSeqLenOriKv;
     seqUsedKv_ = seqUsedKv;
     batchSize_ = batchSize;
     queryHeadNum_ = queryHeadNum;
     kvHeadNum_ = kvHeadNum;
     headDim_ = headDim;
+    querySeqSize_ = querySeqSize;
+    kvSeqSize_ = kvSeqSize;
     aicCoreNum_ = aicCoreNum;
     aivCoreNum_ = aivCoreNum;
     socVersion_ = socVersion;
@@ -87,7 +93,11 @@ bool SparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t
         return false;
     }
     SplitResult splitRes{aicCoreNum_, aivCoreNum_};
-    return BalanceSchedule(splitRes) && GenMetaData(splitRes);
+    bool ok = BalanceSchedule(splitRes) && GenMetaData(splitRes);
+    if (ok && maxS2GBaseNum != nullptr) {
+        *maxS2GBaseNum = splitRes.maxS2GBaseNum;
+    }
+    return ok;
 }
 
 ValidSocVersion SparseAttnSharedkvMetadataHost::ProcessSocVersion()
@@ -134,7 +144,17 @@ bool SparseAttnSharedkvMetadataHost::ParamsInit()
         mBaseSize_ = groupSize_;
         s2BaseSize_ = 512U;
     } else if (validSocVersion == ValidSocVersion::ASCEND950) {
-        mBaseSize_ = 64U;
+        if (mode == SparseMode::BAND) {
+            nextToken_ = 0;
+        }
+        isN128_ = (queryHeadNum_ == 128);
+        if (isN128_) {
+            mBaseSize_ = groupSize_;
+            aicCoreNum_ /= 2U;
+            aivCoreNum_ /= 2U;
+        } else {
+            mBaseSize_ = 64U;
+        }
         s2BaseSize_ = 128U;
     }
     return true;
@@ -142,10 +162,13 @@ bool SparseAttnSharedkvMetadataHost::ParamsInit()
 
 uint32_t SparseAttnSharedkvMetadataHost::GetS1SeqSize(uint32_t bIdx)
 {
+    if (seqUsedQ_ != nullptr) {
+        return static_cast<uint32_t>(seqUsedQ_[bIdx]);
+    }
     if (layoutQuery_ == "TND" && actSeqLenQ_ != nullptr) {
         return static_cast<uint32_t>(actSeqLenQ_[bIdx + 1U] - actSeqLenQ_[bIdx]);
     }
-    return 0U;  // layout_q BSND fallback; the op requires cu_seqlens_q (TND)
+    return static_cast<uint32_t>(querySeqSize_);
 }
 
 uint32_t SparseAttnSharedkvMetadataHost::GetS2SeqSize(uint32_t bIdx)
@@ -153,7 +176,10 @@ uint32_t SparseAttnSharedkvMetadataHost::GetS2SeqSize(uint32_t bIdx)
     if (seqUsedKv_ != nullptr) {
         return static_cast<uint32_t>(seqUsedKv_[bIdx]);
     }
-    return 0U;  // layout_kv TND fallback; the op requires seqused_kv (PA_ND)
+    if (layoutKv_ == "TND" && actSeqLenOriKv_ != nullptr) {
+        return static_cast<uint32_t>(actSeqLenOriKv_[bIdx + 1U] - actSeqLenOriKv_[bIdx]);
+    }
+    return static_cast<uint32_t>(kvSeqSize_);
 }
 
 void SparseAttnSharedkvMetadataHost::CalcSplitInfo(SplitContext &splitContext)
@@ -709,6 +735,7 @@ void SparseAttnSharedkvMetadataHost::AssignBlocksToCore(const SplitContext &spli
     result.gS1End[assignContext.curCoreIdx] = assignContext.curS1GIdx;
     result.s2End[assignContext.curCoreIdx] = assignContext.curS2Idx;
     result.maxCost = std::max(result.maxCost, assignContext.coreCache.cost);
+    result.maxS2GBaseNum = std::max(result.maxS2GBaseNum, assignContext.coreCache.block);
     assignContext.unassignedCost -= assignContext.coreCache.cost;
     if (IsNeedRecordFDInfo(assignContext, result)) {
         RecordFDInfo(splitContext, assignContext, result);
@@ -868,13 +895,13 @@ const HostTopology &ResolveHostTopology()
 }
 }  // namespace
 
-at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
-                                              const std::string &layout_q, const std::string &layout_kv,
-                                              const c10::optional<at::Tensor> &cu_seqlens_q,
-                                              const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
-                                              int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
-                                              int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
-                                              bool has_ori_kv, bool has_cmp_kv)
+at::Tensor sparse_attn_sharedkv_metadata_host_with_max_s2(
+    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim, const std::string &layout_q,
+    const std::string &layout_kv, const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size, int64_t cmp_topk, int64_t cmp_ratio,
+    int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right, bool has_ori_kv,
+    bool has_cmp_kv, uint32_t *max_s2_g_base_num, const int32_t *seq_used_q, const int32_t *cu_seqlens_ori_kv,
+    int32_t max_seqlen_q, int32_t max_seqlen_kv)
 {
     // Pinned staging so the final H2D can be enqueued asynchronously (see below).
     auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCPU).pinned_memory(true);
@@ -902,10 +929,25 @@ at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_h
                       static_cast<int32_t>(num_heads_kv), static_cast<int32_t>(head_dim), topo.aicCoreNum,
                       topo.aivCoreNum, topo.socVersion, static_cast<int32_t>(cmp_topk), static_cast<int32_t>(cmp_ratio),
                       static_cast<int32_t>(ori_mask_mode), static_cast<int32_t>(cmp_mask_mode), ori_win_left,
-                      ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, metaDataHost.data_ptr<int32_t>());
+                      ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, metaDataHost.data_ptr<int32_t>(),
+                      max_s2_g_base_num, seq_used_q, cu_seqlens_ori_kv, max_seqlen_q, max_seqlen_kv);
     TORCH_CHECK(ok, "sparse_attn_sharedkv_metadata_host: scheduling failed (invalid params)");
     // Return the table on device, matching the AICPU op's output placement.
     return metaDataHost.to(at::Device("npu"), /*non_blocking=*/true);
+}
+
+at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+                                              const std::string &layout_q, const std::string &layout_kv,
+                                              const c10::optional<at::Tensor> &cu_seqlens_q,
+                                              const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+                                              int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
+                                              int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
+                                              bool has_ori_kv, bool has_cmp_kv)
+{
+    return sparse_attn_sharedkv_metadata_host_with_max_s2(
+        num_heads_q, num_heads_kv, head_dim, layout_q, layout_kv, cu_seqlens_q, seqused_kv, batch_size, cmp_topk,
+        cmp_ratio, ori_mask_mode, cmp_mask_mode, ori_win_left, ori_win_right, has_ori_kv, has_cmp_kv, nullptr, nullptr,
+        nullptr, 0, 0);
 }
 
 }  // namespace npu_kernel
