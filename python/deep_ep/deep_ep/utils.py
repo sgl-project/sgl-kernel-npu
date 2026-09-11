@@ -78,10 +78,6 @@ def _resolve_quant_mode(
             f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
         )
 
-    # Deprecated env-var fallback for backward compatibility
-    if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
-        return "int8"
-
     return None
 
 

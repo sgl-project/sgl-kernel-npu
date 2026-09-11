@@ -371,8 +371,10 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
-        # Resolve quant_mode from bool flags + device architecture
         quant_mode = _resolve_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
+        if quant_mode is None:
+            is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT", "0")
+            quant_mode = "int8" if is_quant_env == "1" else "bf16"
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
@@ -682,15 +684,7 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
-        quant_mode = None
-        if self.low_latency_strategy.get_name() == "default":
-            resolved_use_mxfp8 = use_mxfp8 or (use_fp8 and use_ue8m0)
-            resolved_use_fp8 = use_fp8 and not use_ue8m0
-            quant_mode = _resolve_quant_mode(
-                use_fp8=resolved_use_fp8,
-                use_mxfp4=use_mxfp4,
-                use_mxfp8=resolved_use_mxfp8,
-            )
+        quant_mode = _resolve_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
 
         return self.low_latency_strategy.low_latency_dispatch(
             x=x,
