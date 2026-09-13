@@ -154,6 +154,7 @@ public:
         uint32_t topK;
         uint32_t tokenLen;
         uint32_t shareN;
+        uint32_t l2PrefetchEnable;
         // Methods
         CATLASS_HOST_DEVICE
         Params() {}
@@ -216,7 +217,8 @@ public:
               bs(fusedDeepMoeInfo.bs),
               topK(fusedDeepMoeInfo.k),
               tokenLen(fusedDeepMoeInfo.h),
-              shareN(fusedDeepMoeInfo.shareGmm1HLen)
+              shareN(fusedDeepMoeInfo.shareGmm1HLen),
+              l2PrefetchEnable(fusedDeepMoeInfo.l2PrefetchEnable)
         {}
     };
 
@@ -1381,6 +1383,31 @@ public:
         uint32_t currentM = 0;
         uint32_t target = 1;
 
+        // L2 cross-expert weight prefetch: while AIC computes expert g, AIVs pull expert g+1's
+        // w1 weights into the shared L2 during idle epilogue spin windows.
+        L2PrefetchCtx l2PfCtx;
+        l2PfCtx.active = false;
+        const bool l2PfEnabled = (params.l2PrefetchEnable != 0) && (params.problemCount > 1);
+        AscendC::LocalTensor<uint8_t> l2PfPad =
+            resource.ubBuf.template GetBufferByByte<uint8_t>(L2Prefetch::UB_PAD_OFFSET);
+        AscendC::ListTensorDesc l2PfBListDesc(reinterpret_cast<__gm__ void *>(params.ptrB));
+        AscendC::ListTensorDesc l2PfBScaleListDesc(reinterpret_cast<__gm__ void *>(params.ptrMxScaleB));
+        uint64_t l2PfPerGroupB = 0;
+        uint64_t l2PfPerGroupScale = 0;
+        if (l2PfEnabled) {
+            // mirror the AIC-side per-group B offset accumulation (static in k/n, independent of M)
+            if constexpr (AscendC::Std::is_one_of_v<ElementB, float4_e2m1x2_t, float4_e1m2x2_t>) {
+                l2PfPerGroupB = std::is_same_v<LayoutB, layout::ColumnMajor>
+                                    ? CeilDiv<2>(params.problemShape.k()) * params.problemShape.n()
+                                    : CeilDiv<2>(params.problemShape.n()) * params.problemShape.k();
+            } else {
+                l2PfPerGroupB = static_cast<uint64_t>(params.problemShape.k()) * params.problemShape.n();
+            }
+            l2PfPerGroupScale =
+                static_cast<uint64_t>(CeilDiv<MX_BASEK_FACTOR>(params.problemShape.k()) * MX_SCALE_COPY_GROUP_NUM) *
+                params.problemShape.n();
+        }
+
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             currentM = axisBS;
             gmC.SetGlobalBuffer(params.ptrShareC);
@@ -1400,6 +1427,12 @@ public:
                 startLoopIdx = coreIdx - startCoreIdx;
             }
 
+            if (l2PfEnabled) {
+                // warm routed expert 0 weights while AIC computes the shared expert GEMM
+                SetupL2PrefetchGroup(l2PfCtx, l2PfPad, params, l2PfBListDesc, l2PfBScaleListDesc, l2PfPerGroupB,
+                                     l2PfPerGroupScale, 0, aivIdx, aivNum);
+            }
+
             for (uint32_t loopIdx = startLoopIdx; loopIdx < coreLoops; loopIdx += coreNum) {
                 GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
                 GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord);
@@ -1413,8 +1446,9 @@ public:
                             tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
                 bool isLeft = (blockCoord.n() * L1_TILE_N < params.shareProblemShape.n() / 2);
-                CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
-                              static_cast<int32_t>(compCoreIdx), target);
+                CheckSyncFlagWithL2Prefetch(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
+                                            static_cast<int32_t>(compCoreIdx), target,
+                                            l2PfEnabled ? &l2PfCtx : nullptr);
                 target += 1;
                 blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, isLeft);
             }
@@ -1434,11 +1468,19 @@ public:
 
             for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
                 uint64_t profSwigluStart = 0;
+                if (l2PfEnabled && (groupIdx + 1) < params.problemCount) {
+                    // AIC is entering/ computing group groupIdx: prefetch group groupIdx+1's w1 into L2
+                    SetupL2PrefetchGroup(l2PfCtx, l2PfPad, params, l2PfBListDesc, l2PfBScaleListDesc, l2PfPerGroupB,
+                                         l2PfPerGroupScale, groupIdx + 1, aivIdx, aivNum);
+                } else {
+                    L2PrefetchDeactivate(l2PfCtx);
+                }
                 if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
                     groupTokenNumStateTensor.SetGlobalBuffer(
                         (__gm__ int32_t *)(statusDataSpaceGm + GROUP_TOKEN_NUM_OFFSET) + groupIdx * GROUP_INFO_SIZE);
-                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
-                                  static_cast<int32_t>(compCoreIdx), target);
+                    CheckSyncFlagWithL2Prefetch(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
+                                                static_cast<int32_t>(compCoreIdx), target,
+                                                l2PfEnabled ? &l2PfCtx : nullptr);
                     target += 1;
                     currentM = FlushAndGetValue<int32_t>(groupTokenNumStateTensor, GROUP_TOKEN_COUNT);
                 } else {
@@ -1473,8 +1515,9 @@ public:
                         tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
                     bool isLeft = (blockCoord.n() * L1_TILE_N < params.problemShape.n() / 2);
-                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
-                                  static_cast<int32_t>(compCoreIdx), target);
+                    CheckSyncFlagWithL2Prefetch(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
+                                                static_cast<int32_t>(compCoreIdx), target,
+                                                l2PfEnabled ? &l2PfCtx : nullptr);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, isLeft);
                 }
@@ -1514,6 +1557,29 @@ public:
     }
 
 private:
+    // Point the prefetch context at targetGroup's w1 weights (+ MxScaleB), stripe-sliced across AIVs.
+    // Address math mirrors the AIC-side gmB/gmMxScaleB setup (static per group, independent of token counts).
+    CATLASS_DEVICE
+    void SetupL2PrefetchGroup(L2PrefetchCtx &ctx, AscendC::LocalTensor<uint8_t> &pad, Params const &params,
+                              AscendC::ListTensorDesc &bListDesc, AscendC::ListTensorDesc &bScaleListDesc,
+                              uint64_t perGroupB, uint64_t perGroupScale, uint32_t targetGroup, uint32_t stripeId,
+                              uint32_t stripeNum)
+    {
+        __gm__ ElementB *weightBase = nullptr;
+        __gm__ ElementMxScaleB *scaleBase = nullptr;
+        if constexpr (EXEC_FLAG & EXEC_FLAG_TENSOR_LIST) {
+            weightBase = bListDesc.GetDataPtr<ElementB>(targetGroup);
+            scaleBase = bScaleListDesc.GetDataPtr<ElementMxScaleB>(targetGroup);
+        } else {
+            weightBase = bListDesc.GetDataPtr<ElementB>(0) + static_cast<uint64_t>(targetGroup) * perGroupB;
+            scaleBase =
+                bScaleListDesc.GetDataPtr<ElementMxScaleB>(0) + static_cast<uint64_t>(targetGroup) * perGroupScale;
+        }
+        L2PrefetchInit(ctx, pad, reinterpret_cast<__gm__ uint8_t *>(weightBase), static_cast<uint32_t>(perGroupB),
+                       reinterpret_cast<__gm__ uint8_t *>(scaleBase), static_cast<uint32_t>(perGroupScale), stripeId,
+                       stripeNum);
+    }
+
     friend struct AicSetFunc;
     struct AicSetFunc {
         CATLASS_DEVICE
