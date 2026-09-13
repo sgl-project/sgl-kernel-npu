@@ -155,6 +155,23 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    /*
+     * Ported from vllm-ascend so the log-sum-exp can be obtained under a paged KV layout, which the
+     * CANN build of this operator refuses; Decode Context Parallelism needs it to weight the
+     * cross-rank merge. Deliberately a *different* name from CANN's
+     * torch_npu.npu_sparse_flash_attention, which the non-DCP serving path keeps using untouched.
+     * See csrc/sparse_flash_attention/README.md.
+     *
+     * Returns (attention_out, softmax_max, softmax_sum); lse = softmax_max + log(softmax_sum).
+     */
+    m.def(
+        "npu_sparse_flash_attention_lse(Tensor query, Tensor key, Tensor value, Tensor sparse_indices, "
+        "float scale_value=1.0, Tensor? block_table=None, Tensor? actual_seq_lengths_query=None, "
+        "Tensor? actual_seq_lengths_kv=None, Tensor? query_rope=None, Tensor? key_rope=None, "
+        "int sparse_block_size=1, str layout_query='BSND', str layout_kv='BSND', "
+        "int sparse_mode=3, int pre_tokens=9223372036854775807, int next_tokens=9223372036854775807, "
+        "int attention_mode=2, bool return_softmax_lse=False) -> (Tensor, Tensor, Tensor)");
+
     m.def(
         "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
         "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
@@ -319,6 +336,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
+
+    m.impl("npu_sparse_flash_attention_lse", TORCH_FN(sglang::npu_kernel::npu_sparse_flash_attention_lse));
 
     m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
 
