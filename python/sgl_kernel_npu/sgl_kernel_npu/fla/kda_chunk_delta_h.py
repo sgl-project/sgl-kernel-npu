@@ -15,6 +15,13 @@ from sgl_kernel_npu.fla.utils import (
 
 CHUNK_SIZE = 64
 
+# Public compatibility contract consumed by SGLang before it enables Kimi-K3
+# prefill context parallelism.  Keep the version tied to the complete affine
+# PCP surface rather than to an individual symbol: version 1 includes the
+# affine pre-scan/merge operators and the persistent [H, K, V] state contract.
+KDA_FLA_CP_API_VERSION = 1
+KDA_PREFILL_STATE_LAYOUT = "key_value"
+
 
 @triton.jit(do_not_specialize=["T"])
 def chunk_gated_delta_rule_fwd_kernel_h_npu(
