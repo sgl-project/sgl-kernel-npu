@@ -46,4 +46,9 @@ npu_op_package_add(${package_name}
     LIBRARY ascendc_kernels
 )
 
-npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+option(DEEPEP_A2_DEDUP "Enable experimental A2 shared-token dispatch (same build required on all ranks)" OFF)
+if(DEEPEP_A2_DEDUP)
+    npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 -DDEEPEP_A2_DEDUP=1 --cce-auto-sync=off)
+else()
+    npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+endif()

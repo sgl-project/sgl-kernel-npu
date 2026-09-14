@@ -1,6 +1,11 @@
 #ifndef MOE_DISTRIBUTE_DISPATCH_V2_SINGLE_H
 #define MOE_DISTRIBUTE_DISPATCH_V2_SINGLE_H
 
+// Private packet protocol: every participating rank must use the same build.
+#ifndef DEEPEP_A2_DEDUP
+#define DEEPEP_A2_DEDUP 0
+#endif
+
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_base.h"
@@ -70,6 +75,17 @@ public:
 private:
     __aicore__ inline void SendToSharedExpert();
     __aicore__ inline void SendToMoeExpert();
+    __aicore__ inline bool DedupEnabled() const
+    {
+        return DEEPEP_A2_DEDUP && !StaticQuant && !DynamicQuant && !IsNeedAllgater &&
+               !IsShareExpertRank && sharedExpertRankNum_ == 0 && tpWorldSize_ == 1 &&
+               !isTokenMaskFlag_;
+    }
+    __aicore__ inline void SendDedupEntry(int32_t index, uint32_t tokenIndex, uint32_t topKIndex,
+                                        uint32_t dstExpertId, uint32_t toRankId, int32_t curExpertCnt,
+                                        GlobalTensor<ExpandXOutType> &dstWin);
+    __aicore__ inline void ReadDedupEntry(GM_ADDR rowAddr, LocalTensor<ExpandXOutType> &row);
+
     __aicore__ inline void AlltoAllDispatch();
     __aicore__ inline void LocalWindowCopy();
     __aicore__ inline void TokenActiveMaskCal();
@@ -648,6 +664,13 @@ __aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc
                                             hAlignWinSize_ * curExpertCnt);  // 计算地址偏移
         dstWinGMTensor.SetGlobalBuffer((__gm__ ExpandXOutType *)rankGM);
 
+        if constexpr (!StaticQuant && !DynamicQuant && !IsNeedAllgater && !IsShareExpertRank) {
+            if (DedupEnabled()) {
+                SendDedupEntry(index, tokenIndex, topKIndex, dstExpertId, toRankId, curExpertCnt, dstWinGMTensor);
+                continue;
+            }
+        }
+
         if (epRankId_ == 0) {
             CAM_PRINT("[SendToMoeExpert1] rank:%d, aivId:%d, dstWinGMTensor(0):%d ...\n", epRankId_, aivId_,
                       dstWinGMTensor.GetValue(0));
@@ -680,6 +703,96 @@ __aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc
                       dstWinGMTensor.GetValue(0));
         }
     }
+}
+
+// One full payload per (source token, destination rank). Other assignments retain their
+// existing expert-window slots, but contain only a 44-byte descriptor + combine triple.
+// The otherwise-unused BF16 scale area stores [magic, leader local expert, leader ordinal].
+// Existing per-expert counts and the source/token/top-k triples remain unchanged.
+template <TemplateMC2TypeA2SingleClass>
+__aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc>::SendDedupEntry(
+    int32_t index, uint32_t tokenIndex, uint32_t topKIndex, uint32_t dstExpertId,
+    uint32_t toRankId, int32_t curExpertCnt, GlobalTensor<ExpandXOutType> &dstWin)
+{
+    int32_t leaderIndex = index;
+    uint32_t leaderExpert = dstExpertId;
+    // Scan active assignments of this token only. With an expert mask the compact
+    // index is not the original top-k index, and masked entries must never lead.
+    for (int32_t previous = index - 1; previous >= 0; --previous) {
+        const int32_t original = isExpertMaskFlag_ ? vaildExpIndexTensor_(previous) : previous;
+        if (static_cast<uint32_t>(original) / axisK_ != tokenIndex) {
+            break;
+        }
+        const uint32_t expert = expertIdsTensor_(original);
+        if (expert / moeExpertNumPerRank_ == toRankId) {
+            leaderIndex = previous;
+            leaderExpert = expert;
+        }
+    }
+    int32_t leaderCount = curExpertCnt;
+    if (leaderIndex != index) {
+        leaderCount = 0;
+        if (leaderIndex > 0) {
+            CalTokenSendExpertCnt(leaderExpert, leaderIndex, leaderCount);
+        }
+    }
+    LocalTensor<ExpandXOutType> row = xQueue_.AllocTensor<ExpandXOutType>();
+    if (leaderIndex == index) {
+        DataCopyPadExtParams<XType> pad{false, 0U, 0U, 0U};
+        DataCopyPad(row, xGMTensor_[tokenIndex * axisH_], xCopyParams_, pad);
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
+    }
+    // Ensure prior DMA using a recycled UB slot has completed before scalar writes.
+    SyncFunc<AscendC::HardEvent::MTE3_S>();
+    LocalTensor<int32_t> header = row.template ReinterpretCast<int32_t>();
+    const uint32_t at = hOutSizeAlign_ / sizeof(int32_t);
+    for (uint32_t i = 0; i < UB_ALIGN / sizeof(int32_t); ++i) {
+        header.SetValue(at + i, 0);
+    }
+    header.SetValue(at, 0x44554431);  // DUD1, private protocol version 1
+    header.SetValue(at + 1, leaderExpert % moeExpertNumPerRank_);
+    header.SetValue(at + 2, leaderCount);
+    FillTriple(row, tokenIndex, topKIndex);  // also orders scalar writes before MTE3
+    if (leaderIndex == index) {
+        DataCopyPad(dstWin, row, hCommuCopyOutParams_);
+    } else {
+        const DataCopyExtParams descriptor{1U, UB_ALIGN + EXPAND_IDX_INFO * sizeof(int32_t), 0U, 0U, 0U};
+        const uint32_t offset = hOutSizeAlign_ / sizeof(ExpandXOutType);
+        DataCopyPad(dstWin[offset], row[offset], descriptor);
+    }
+    xQueue_.FreeTensor(row);
+}
+
+template <TemplateMC2TypeA2SingleClass>
+__aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc>::ReadDedupEntry(
+    GM_ADDR rowAddr, LocalTensor<ExpandXOutType> &row)
+{
+    GlobalTensor<ExpandXOutType> packet;
+    packet.SetL2CacheHint(CacheMode::CACHE_MODE_DISABLE);
+    packet.SetGlobalBuffer((__gm__ ExpandXOutType *)rowAddr);
+    const uint32_t offset = hOutSizeAlign_ / sizeof(ExpandXOutType);
+    const DataCopyExtParams descriptor{1U, UB_ALIGN + EXPAND_IDX_INFO * sizeof(int32_t), 0U, 0U, 0U};
+    DataCopyPadExtParams<ExpandXOutType> pad{false, 0U, 0U, 0U};
+    DataCopyPad(row[offset], packet[offset], descriptor, pad);
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
+    LocalTensor<int32_t> header = row.template ReinterpretCast<int32_t>();
+    const uint32_t at = hOutSizeAlign_ / sizeof(int32_t);
+    const int32_t source = header.GetValue(tokenQuantAlign_);
+    const int32_t expert = header.GetValue(at + 1);
+    const int32_t ordinal = header.GetValue(at + 2);
+    // Mixing native and dedup ranks is a protocol error. Fail instead of reading
+    // an unvalidated reference. Bounds also protect the HCCL window addressing.
+    ASSERT(header.GetValue(at) == 0x44554431);
+    ASSERT(source >= 0 && source < epWorldSize_);
+    ASSERT(expert >= 0 && expert < moeExpertNumPerRank_);
+    ASSERT(ordinal >= 0 && ordinal < axisMaxBS_);
+    const uint64_t refOffset = (static_cast<uint64_t>(source) * moeExpertNumPerRank_ + expert) *
+                              expertPerSizeOnWin_ + static_cast<uint64_t>(ordinal) * hAlignWinSize_;
+    packet.SetGlobalBuffer((__gm__ ExpandXOutType *)(windowGM_ + refOffset));
+    // WaitDispatch observes flags emitted only after all sender cores finish
+    // payloads AND descriptors. The referenced payload is therefore ready even
+    // when another AIV core wrote it. This transfer reads local HBM, not a peer.
+    DataCopyPad(row, packet, expandXCopyParams_, pad);
 }
 
 template <TemplateMC2TypeA2SingleClass>
@@ -1146,7 +1259,11 @@ __aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc
             tokGlobal.SetGlobalBuffer((__gm__ ExpandXOutType *)(wAddr + j * hAlignWinSize_));
             // 将数据从Window拷贝到UB
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
-            DataCopyPad(xTmpTensor_, tokGlobal, hCommuCopyOutParams_, copyPadExtParams);
+            if (DedupEnabled()) {
+                ReadDedupEntry(wAddr + j * hAlignWinSize_, xTmpTensor_);
+            } else {
+                DataCopyPad(xTmpTensor_, tokGlobal, hCommuCopyOutParams_, copyPadExtParams);
+            }
             xQueue_.EnQue(xTmpTensor_);
             xTmpTensor_ = xQueue_.DeQue<ExpandXOutType>();
             xTmpTensorInt = xTmpTensor_.template ReinterpretCast<int32_t>();
