@@ -143,6 +143,7 @@ public:
         GM_ADDR gmEpSendCount;
         GM_ADDR gmExpertTokenNums;
         FusedDeepMoeProfileWriter *profile;
+        EpilogueParams epilogueParams;
 
         uint32_t epRankSize;
         uint32_t epRankId;
@@ -169,7 +170,8 @@ public:
                GM_ADDR gmShareSwigluOut_, GM_ADDR ptrShareX2_, GM_ADDR gmShareX2Scale_, GM_ADDR gmX_,
                GM_ADDR gmExpertIds_, GM_ADDR gmXActiveMask_, GM_ADDR gmMoeSmoothScales_, GM_ADDR gmShareSmoothScales_,
                GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_, GM_ADDR gmExpertTokenNums_,
-               const FusedDeepMoeInfo &fusedDeepMoeInfo, FusedDeepMoeProfileWriter *profile_)
+               const FusedDeepMoeInfo &fusedDeepMoeInfo, FusedDeepMoeProfileWriter *profile_,
+               EpilogueParams const &epilogueParams_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -207,6 +209,7 @@ public:
               gmEpSendCount(gmEpSendCount_),
               gmExpertTokenNums(gmExpertTokenNums_),
               profile(profile_),
+              epilogueParams(epilogueParams_),
               epRankSize(fusedDeepMoeInfo.epRankSize),
               epRankId(fusedDeepMoeInfo.epRankId),
               moeExpertNum(fusedDeepMoeInfo.moeExpertNum),
@@ -1376,7 +1379,7 @@ public:
         AscendC::GlobalTensor<ElementC> gmSwigluOutTensor;
         AscendC::GlobalTensor<ElementC> gmShareSwigluOutTensor;
 
-        BlockEpilogue blockEpilogue(resource);
+        BlockEpilogue blockEpilogue(resource, params.epilogueParams);
         uint32_t startCoreIdx = 0;
         uint32_t currentM = 0;
         uint32_t target = 1;
