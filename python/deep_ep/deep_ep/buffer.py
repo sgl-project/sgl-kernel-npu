@@ -779,6 +779,9 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        activation: Optional[str] = "swiglu",
+        beta: Optional[float] = 4.0,
+        linear_beta: Optional[float] = 25.0,
         profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -786,7 +789,7 @@ class Buffer:
 
         Two fuse modes are available via the FuseMode enum:
         - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
-          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          InitRouting + AllToAll + GMM1 + DequantActivationQuant + GMM2 + Dequant
           + Unpermute/Combine in a single AscendC kernel.
         - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
           InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
@@ -825,6 +828,12 @@ class Buffer:
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
                 values 1 or 2 directly.
+            activation: activation used after GMM1. ``"swiglu"`` selects
+                SwiGLU (default); ``"situ"`` selects SiTU.
+            beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
+            linear_beta: SiTU up-projection soft-saturation bound. A positive
+                value enables the transform; ``None`` leaves the up branch unchanged.
+            profile_enable: whether to enable fused-kernel profiling (default: False).
 
         Notes:
             - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
@@ -862,9 +871,16 @@ class Buffer:
                 num_experts,
                 quant_mode,
                 profile_enable,
+                activation,
+                beta,
+                linear_beta,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            if activation == "situ":
+                raise NotImplementedError(
+                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
+                )
             # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(
