@@ -3,7 +3,6 @@ Normal mode EP communication strategies.
 All normal mode strategy implementations are in this file.
 """
 
-import os
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
