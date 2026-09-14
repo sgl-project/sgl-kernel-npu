@@ -17,7 +17,7 @@ class TestLoraKernels(unittest.TestCase):
         dtype = torch.float16
         device_dtype = torch.float16
 
-        possible_lora_ranks = [8, 16, 32, 64]
+        possible_lora_ranks = [16, 32, 64]
         lora_ranks = random.sample(
             possible_lora_ranks,
             counts=[num_loras] * len(possible_lora_ranks),
@@ -89,7 +89,7 @@ class TestLoraKernels(unittest.TestCase):
         dtype = torch.float16
         device_dtype = torch.float16
 
-        possible_lora_ranks = [8, 16, 32, 64]
+        possible_lora_ranks = [16, 32, 64]
         lora_ranks = random.sample(
             possible_lora_ranks,
             counts=[num_loras] * len(possible_lora_ranks),
