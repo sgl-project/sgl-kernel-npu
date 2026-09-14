@@ -3,6 +3,7 @@ import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
 from sgl_kernel_npu.fla.kda_chunk_delta_h import (
+    chunk_gated_delta_rule_fwd_h_npu,
     chunk_gated_delta_rule_fwd_affine_npu,
     merge_kda_cp_affine_states,
 )
@@ -85,6 +86,45 @@ def test_kda_cp_fused_merge_identity_plan():
     torch.testing.assert_close(final, initial)
     torch.testing.assert_close(local_initial[0], initial[0])
     torch.testing.assert_close(local_initial[1], initial[0])
+
+
+@requires_npu
+def test_kda_chunk_state_preserves_key_value_layout():
+    """Cover the prefill-to-decode state handoff with K != V."""
+    device = torch.device("npu")
+    batch, tokens, heads = 1, 64, 1
+    key_dim, value_dim = 64, 32
+    dtype = torch.bfloat16
+    k = torch.zeros((batch, tokens, heads, key_dim), dtype=dtype, device=device)
+    w = torch.zeros_like(k)
+    u = torch.zeros((batch, tokens, heads, value_dim), dtype=dtype, device=device)
+    g = torch.zeros((batch, tokens, heads, key_dim), dtype=torch.float32, device=device)
+    cu_seqlens = torch.tensor([0, tokens], dtype=torch.int32, device=device)
+    state_indices = torch.tensor([1], dtype=torch.int32, device=device)
+    state_pool = torch.zeros((2, heads, key_dim, value_dim), dtype=dtype, device=device)
+    seed = (
+        torch.arange(heads * key_dim * value_dim, dtype=torch.float32, device=device)
+        .div_(heads * key_dim * value_dim)
+        .reshape(heads, key_dim, value_dim)
+        .to(dtype)
+    )
+    state_pool[1].copy_(seed)
+
+    chunk_states, _ = chunk_gated_delta_rule_fwd_h_npu(
+        k=k,
+        w=w,
+        u=u,
+        gk=g,
+        initial_state=state_pool,
+        initial_state_indices=state_indices,
+        save_new_value=False,
+        cu_seqlens=cu_seqlens,
+        use_exp2=True,
+    )
+    torch.npu.synchronize()
+
+    torch.testing.assert_close(chunk_states[0, 0, 0], seed[0])
+    torch.testing.assert_close(state_pool[1], seed)
 
 
 def test_kda_recompute_preserves_public_return_contract(monkeypatch):
