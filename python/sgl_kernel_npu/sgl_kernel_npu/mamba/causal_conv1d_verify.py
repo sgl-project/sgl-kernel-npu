@@ -36,6 +36,7 @@ def _causal_conv1d_linear_verify_kernel(
     HAS_BIAS: tl.constexpr,
     SILU: tl.constexpr,
     UPDATE_PERSISTENT_STATE: tl.constexpr,
+    MERGE_SNAPSHOT_STORES: tl.constexpr,
     BLOCK_C: tl.constexpr,
 ):
     pid_batch = tl.program_id(0)
@@ -119,6 +120,9 @@ def _causal_conv1d_linear_verify_kernel(
     else:
         bias = tl.zeros((BLOCK_C,), dtype=tl.float32)
 
+    step_offsets = tl.arange(0, STEPS)
+    snapshot_window_offsets = tl.arange(0, 4)
+    out_tile = tl.zeros((BLOCK_C, STEPS), dtype=tl.float32)
     for step in tl.static_range(0, STEPS):
         current = tl.load(
             x_ptr
@@ -177,13 +181,10 @@ def _causal_conv1d_linear_verify_kernel(
 
         if SILU:
             acc = acc / (1.0 + tl.exp(-acc))
-        tl.store(
-            out_ptr
-            + pid_batch * stride_out_batch
-            + channel * stride_out_channel
-            + step * stride_out_step,
-            acc,
-            mask=mask,
+        out_tile = tl.where(
+            step_offsets[None, :] == step,
+            acc[:, None],
+            out_tile,
         )
 
         snapshot_base = (
@@ -192,28 +193,56 @@ def _causal_conv1d_linear_verify_kernel(
             + step * stride_snapshot_step
             + channel * stride_snapshot_channel
         )
-        if KERNEL_WIDTH >= 2:
-            tl.store(snapshot_base, history0, mask=mask)
-        if KERNEL_WIDTH >= 3:
-            tl.store(snapshot_base + stride_snapshot_window, history1, mask=mask)
-        if KERNEL_WIDTH >= 4:
-            tl.store(
-                snapshot_base + 2 * stride_snapshot_window,
-                history2,
-                mask=mask,
+        if MERGE_SNAPSHOT_STORES:
+            snapshot_values = tl.where(
+                snapshot_window_offsets[None, :] == 0,
+                history0[:, None],
+                history2[:, None],
             )
-        if KERNEL_WIDTH >= 5:
-            tl.store(
-                snapshot_base + 3 * stride_snapshot_window,
-                history3,
-                mask=mask,
+            snapshot_values = tl.where(
+                snapshot_window_offsets[None, :] == 1,
+                history1[:, None],
+                snapshot_values,
             )
-        if KERNEL_WIDTH >= 6:
             tl.store(
-                snapshot_base + 4 * stride_snapshot_window,
-                history4,
-                mask=mask,
+                snapshot_base[:, None]
+                + snapshot_window_offsets[None, :] * stride_snapshot_window,
+                snapshot_values,
+                mask=mask[:, None]
+                & (snapshot_window_offsets[None, :] < KERNEL_WIDTH - 1),
             )
+        else:
+            if KERNEL_WIDTH >= 2:
+                tl.store(snapshot_base, history0, mask=mask)
+            if KERNEL_WIDTH >= 3:
+                tl.store(snapshot_base + stride_snapshot_window, history1, mask=mask)
+            if KERNEL_WIDTH >= 4:
+                tl.store(
+                    snapshot_base + 2 * stride_snapshot_window,
+                    history2,
+                    mask=mask,
+                )
+            if KERNEL_WIDTH >= 5:
+                tl.store(
+                    snapshot_base + 3 * stride_snapshot_window,
+                    history3,
+                    mask=mask,
+                )
+            if KERNEL_WIDTH >= 6:
+                tl.store(
+                    snapshot_base + 4 * stride_snapshot_window,
+                    history4,
+                    mask=mask,
+                )
+
+    tl.store(
+        out_ptr
+        + pid_batch * stride_out_batch
+        + channel[:, None] * stride_out_channel
+        + step_offsets[None, :] * stride_out_step,
+        out_tile,
+        mask=mask[:, None],
+    )
 
     if UPDATE_PERSISTENT_STATE:
         if KERNEL_WIDTH >= 2:
@@ -290,10 +319,15 @@ def causal_conv1d_linear_verify_npu(
     conv_state_indices = conv_state_indices.to(torch.int32).contiguous()
     intermediate_state_indices = intermediate_state_indices.to(torch.int32).contiguous()
     out = torch.zeros_like(x)
-    # Eight verify steps keep the full convolution history live. A 512-channel
-    # tile overflows the 192 KiB UB on Ascend 910; 256 leaves enough room for
-    # compiler-generated multi-buffer temporaries.
-    block_c = min(256, triton.next_power_of_2(channels))
+    # Offline profiling on the 40-vector-core Ascend target shows that the best
+    # channel tile is batch dependent for the captured verify batches (1..8).
+    if batch == 1:
+        max_block_c = 64
+    elif batch == 2 or 5 <= batch <= 6:
+        max_block_c = 128
+    else:
+        max_block_c = 256
+    block_c = min(max_block_c, triton.next_power_of_2(channels))
     grid = (batch, triton.cdiv(channels, block_c))
     _causal_conv1d_linear_verify_kernel[grid](
         x,
@@ -315,6 +349,7 @@ def causal_conv1d_linear_verify_npu(
         HAS_BIAS=bias is not None,
         SILU=activation in ("silu", "swish"),
         UPDATE_PERSISTENT_STATE=update_persistent_state,
+        MERGE_SNAPSHOT_STORES=batch in (2, 4, 8, 16) and kernel_width == 4,
         BLOCK_C=block_c,
     )
     return out
