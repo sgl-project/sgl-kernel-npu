@@ -166,6 +166,7 @@ endif()
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel/swiglu_group_quant.cpp
     )
 endif()
 
@@ -177,6 +178,7 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
     ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
+    ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
@@ -246,43 +248,11 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
 endif()
 
-# Dedicated A5-only kernel targets. swiglu_group_quant is MicroAPI (register-level) code, so it is
-# built with these options rather than the workspace_kernel defaults: automatic synchronization
-# insertion (--cce-auto-sync) is unsound around MicroAPI's hand-managed sync, and
-# cce-aicore-hoist-movemask must stay off. It is kept off workspace_kernel so these options cannot
-# affect the other A5 kernels.
-#
-# --op_relocatable_kernel_binary=true is deliberately NOT passed. It is an op-package option,
-# consumed by CANN's op build, and the kernel compile driver here rejects it ("unsupport option");
-# nothing in a bare ascendc_library compile needs it.
-set(A5_ONLY_KERNEL_TARGETS)
-if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
-    ascendc_library(swiglu_group_quant_kernel STATIC
-        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel/swiglu_group_quant.cpp
-    )
-    ascendc_include_directories(swiglu_group_quant_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel
-        ${PROJECT_OP_SRC_BASE}/utils/kernel
-    )
-    ascendc_compile_definitions(swiglu_group_quant_kernel PRIVATE
-        -DHAVE_WORKSPACE
-        -DHAVE_TILING
-    )
-    ascendc_compile_options(swiglu_group_quant_kernel PRIVATE
-        --cce-auto-sync=off
-        -Wno-deprecated-declarations
-        -mllvm
-        -cce-aicore-hoist-movemask=false
-    )
-    list(APPEND A5_ONLY_KERNEL_TARGETS swiglu_group_quant_kernel)
-endif()
-
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
-        ${A5_ONLY_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
