@@ -85,6 +85,7 @@ endif()
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_host/swiglu_group_quant.cpp
     )
 endif()
 if(BUILD_CATLASS_MODULE)
@@ -167,6 +168,7 @@ endif()
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel/swiglu_group_quant.cpp
     )
 endif()
 
@@ -178,6 +180,7 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
     ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
+    ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE

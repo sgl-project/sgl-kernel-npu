@@ -218,6 +218,30 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
+
+/**
+ * @brief Fused SwiGLU activation + quantization (A5 only).
+ *
+ * Halves x along its last dim into gate/up, applies SwiGLU, and quantizes the
+ * result. All three quant modes are supported: quant_mode 1 = per-128-element
+ * group scales (fp32), 2 = MX per-32 scales (e8m0), 3 = per-token (fp8, e8m0
+ * when ue8m0_scale is set).
+ *
+ * @param topk_weight      optional per-row weight applied before quantization
+ * @param group_index      optional per-group token counts (prefix sums); when
+ * present every core walks the whole list, so the launch uses tiling's coreNum
+ * @param dst_type         y's dtype: Float8_e4m3fn (default) or Float8_e5m2
+ * @param clamp_value      when non-zero, activates clamping of the SwiGLU
+ * result
+ * @return tuple of (y, scale, y_origin); y_origin is only meaningful when
+ * output_origin is set
+ */
+std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
+    const at::Tensor &x, const c10::optional<at::Tensor> &topk_weight,
+    const c10::optional<at::Tensor> &group_index,
+    c10::optional<at::ScalarType> dst_type, int64_t quant_mode,
+    int64_t group_size, bool round_scale, bool ue8m0_scale, bool output_origin,
+    int64_t group_list_type, double clamp_value);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
