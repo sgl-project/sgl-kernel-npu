@@ -58,18 +58,18 @@ AICORE inline void SyncAllImpl()
 {
     pipe_barrier(PIPE_ALL);
     if constexpr (isAIVOnly) {
-        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, SYNC_AIV_ONLY_ALL));
-        wait_flag_dev(SYNC_AIV_ONLY_ALL);
+        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, ::SYNC_AIV_ONLY_ALL));
+        wait_flag_dev(::SYNC_AIV_ONLY_ALL);
         return;
     }
 #if defined(__DAV_C220_CUBE__)
-    wait_flag_dev(SYNC_AIV_FLAG);
-    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, SYNC_AIC_FLAG));
-    wait_flag_dev(SYNC_AIC_FLAG);
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIC_AIV_FLAG));
+    wait_flag_dev(::SYNC_AIV_FLAG);
+    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, ::SYNC_AIC_FLAG));
+    wait_flag_dev(::SYNC_AIC_FLAG);
+    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, ::SYNC_AIC_AIV_FLAG));
 #elif defined(__DAV_C220_VEC__)
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIV_FLAG));
-    wait_flag_dev(SYNC_AIC_AIV_FLAG);
+    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, ::SYNC_AIV_FLAG));
+    wait_flag_dev(::SYNC_AIC_AIV_FLAG);
 #endif
 }
 
