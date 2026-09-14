@@ -6,8 +6,10 @@ prototype sends one payload per source token and destination, followed by small
 references for the other experts. The receiver expands the rows using local HBM
 reads, preserving the expert GEMM and combine interfaces.
 
-This is an opt-in experiment. It is disabled in ordinary builds. It does not
-establish a serving-latency improvement and should not yet become the default.
+This is an opt-in experiment, disabled in ordinary builds. The matched serving
+study below finds a small latency reduction with one replicated placement,
+while default placement with the control kernel remains fastest. This does not
+establish a general speedup or justify enabling the protocol by default.
 
 ## Enable and build
 
@@ -85,6 +87,14 @@ Unset `HCCL_OP_EXPANSION_MODE` for this A2 setup. Optional
 `--expected-module-root` verifies the imported package location.
 Use a fresh output directory, process group and Buffer for each shape.
 
+When another imported vendor package also exposes `libcust_opapi.so`, preload
+the selected DeepEP package's `vendors/hwcomputing/op_api/lib/libcust_opapi.so`
+through `LD_PRELOAD` before starting workers. The DeepEP helper resolves that
+generic library name; selecting the Python package alone does not ensure the
+matching operator API is loaded. The serving comparison applies this equally
+to control and shared-copy builds and verifies symbol resolution on every rank
+before graph capture.
+
 Hardware validation on four Ascend 910B2 devices passed T=1/6/128, 24 routing
 cases and 48 graph replays per rank per shape, checking 220,791 expert rows.
 Input rows and triples are exact; weighted affine/identity outputs use BF16
@@ -122,18 +132,65 @@ or 12,640 (spread), but these are not measured wire-byte counters.
 
 ## TP=EP=8 serving validation
 
-A matched Qwen3-30B-A3B serving comparison was prepared with TP=EP=8,
-DeepEP auto, graph replay, 144 requests, concurrency 48, target 512 input / 128
-output tokens, seed 1234, and the same static default / ILP / ILP+16 placements.
-Two CPU generations of the exact request objects matched SHA-256
-`4d65322a63ecbbe2a69bd7b7d1a040175ab18ec393b96449e88f7822fef8e96a`.
+Qwen3-30B-A3B on eight Ascend 910B2 NPUs, SGLang TP=EP=8, DeepEP auto,
+graph replay, 144 requests per run, concurrency 48, target 512 input / 128
+output tokens, seed 1234. Default is contiguous placement; the two ILP maps
+are fixed at startup, with zero or 16 extra physical expert slots per layer.
+No runtime solver or online routing coordinator is used. Model startup, map
+loading, graph capture and correctness probes are outside the ITL measurement.
+No profiler or utilization sampler is enabled.
 
-The scheduler could not grant all eight NPUs because one remained reserved by
-another task. After a bounded 600-second allocation wait, the unstarted pilot
-was cancelled: **zero serving arms executed**. The experiment remains resumable.
-No eight-device correctness result or serving-latency improvement is claimed.
+Two separate backend pilots were discarded. Twelve measured process runs use
+forward configuration/backend order followed by reverse order. All generated
+request objects match SHA-256
+`4d65322a63ecbbe2a69bd7b7d1a040175ab18ec393b96449e88f7822fef8e96a`.
+Every process passed Paris and arithmetic probes, all 1,728 measured requests
+completed with 128 output tokens each, and all 96 rank startup audits selected
+the intended package and unquantized operator API. Each task reserved all eight
+cards through the scheduler and finished in 216–240 seconds (300-second cap).
+
+Median ITL is the median within each run, then across two independent process
+runs. Negative change means shared-copy is faster.
+
+| Placement | Control ITL (ms) | Shared-copy ITL (ms) | Change | Repeat 1 | Repeat 2 |
+|---|---:|---:|---:|---:|---:|
+| Default contiguous | 25.022 | 25.079 | +0.23% | -0.03% | +0.48% |
+| ILP, no replicas | 25.450 | 25.241 | -0.82% | -0.23% | -1.41% |
+| ILP, +16 slots | 26.059 | 25.703 | -1.37% | -1.25% | -1.49% |
+
+The +16 result is a small, consistent reduction in these two repeats: 0.356 ms,
+or 1.37%. Output throughput changes only +0.21% for that placement. The
+no-replica effect varies more between repeats, and the default effect changes
+sign. There are only two process repeats per condition; no confidence interval
+or general performance guarantee is claimed.
+
+Default with the control kernel remains fastest. The shared-copy ILP maps are
+0.88% (no replicas) and 2.72% (+16) slower than default control. This study tests
+the kernel at existing fixed maps; it does not establish an ILP advantage over
+default or a production greedy placement. No new placement objective is solved.
+
+Exact generated-text agreement across backends is 103–105 of 144 requests;
+within-backend repeats agree on 100–109. Similar agreement rates are compatible
+with batching/numerical variation but do not prove tensor-level equivalence or
+model quality. The synthetic hardware test above separately checks received
+rows and combine results. Output serialization occurs after benchmark timing.
+
+### Environment qualifications
+
+Card 0 reported an inconsistent AI-core counter despite low HBM, zero overall
+utilization, no device processes and healthy status. Scheduler-reserved vector
+and matrix-multiply correctness diagnostics passed. Each serving arm required
+a scheduler reservation and two stable low-HBM polls; only card 0 used the
+independent availability indicators when that counter was nonzero. The control
+pilot reproduced the historical 25.14 ms baseline at 25.058 ms. These checks do
+not prove that every hardware performance characteristic was normal.
+
+All measured runs logged the same forkserver signal-handler exceptions during
+startup, then completed graph capture, probes and serving. That startup issue
+was not changed or suppressed during measurement. Both backend packages use
+the library-selection procedure above; no audit hook runs during timed replay.
 
 The branch's ON dispatch target compiles with CANN 9.0.1; OFF configuration
-retains the original compile flags. The kernel header is byte-for-byte identical
-to the four-card tested prototype. CPU protocol and repository Python formatting
-checks pass. These checks do not substitute for the pending serving experiment.
+retains the original compile flags. Its kernel header matches the tested
+prototype byte-for-byte. CPU protocol and repository Python formatting checks
+pass. The original source checkout and installed serving package are unchanged.
