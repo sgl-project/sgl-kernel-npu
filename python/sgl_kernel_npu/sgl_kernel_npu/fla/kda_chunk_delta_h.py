@@ -15,13 +15,6 @@ from sgl_kernel_npu.fla.utils import (
 
 CHUNK_SIZE = 64
 
-# Public compatibility contract consumed by SGLang before it enables Kimi-K3
-# prefill context parallelism.  Keep the version tied to the complete affine
-# PCP surface rather than to an individual symbol: version 1 includes the
-# affine pre-scan/merge operators and the persistent [H, K, V] state contract.
-KDA_FLA_CP_API_VERSION = 1
-KDA_PREFILL_STATE_LAYOUT = "key_value"
-
 
 @triton.jit(do_not_specialize=["T"])
 def chunk_gated_delta_rule_fwd_kernel_h_npu(
@@ -266,20 +259,16 @@ def chunk_gated_delta_rule_fwd_h_npu(
     h = k.new_empty(B, NT, H, K, V)
     v_new = torch.empty_like(u) if save_new_value else None
 
-    # Speculative KDA uses one persistent [..., H, K, V] contract across
-    # prefill, decode, and target verification. Select only this request's
-    # slots into contiguous kernel storage, then scatter the updated KxV
-    # states back without transposing them.
+    # The unified cache remains [..., H, V, K] for the NPU verify/decode
+    # kernels. Select only this request's slots, convert them to the original
+    # KxV prefill layout, then scatter the updated states back after launch.
     if initial_state is not None:
         if initial_state_indices is None:
             raise ValueError("initial_state_indices are required with initial_state")
-        if tuple(initial_state.shape[-2:]) != (K, V):
-            raise ValueError(
-                "initial_state must use [..., H, K, V] layout, "
-                f"got {tuple(initial_state.shape)} for K={K}, V={V}"
-            )
         source_indices = initial_state_indices[:N].to(torch.long)
-        kernel_state = initial_state.index_select(0, source_indices).contiguous()
+        kernel_state = (
+            initial_state.index_select(0, source_indices).transpose(-1, -2).contiguous()
+        )
         kernel_indices = torch.arange(N, dtype=torch.long, device=initial_state.device)
     else:
         source_indices = None
@@ -321,7 +310,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
     )
 
     if initial_state is not None:
-        initial_state.index_copy_(0, source_indices, kernel_state)
+        updated_state = kernel_state.transpose(-1, -2).contiguous()
+        initial_state.index_copy_(0, source_indices, updated_state)
     return h, v_new
 
 
