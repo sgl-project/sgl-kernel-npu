@@ -287,6 +287,15 @@ public:
         return *this;
     }
 
+    AttrDef &Int(int64_t value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
     AttrDef &Float(float value)
     {
         TORCH_CHECK(valueInitialized_ == false,

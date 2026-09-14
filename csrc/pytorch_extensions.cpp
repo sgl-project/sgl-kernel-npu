@@ -105,6 +105,16 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
+    m.def(
+        "sgl_sparse_flash_attention(Tensor query, Tensor key, Tensor value, "
+        "Tensor sparse_indices, float scale_value, *, Tensor? block_table=None, "
+        "Tensor? actual_seq_lengths_query=None, Tensor? actual_seq_lengths_kv=None, "
+        "Tensor? query_rope=None, Tensor? key_rope=None, int sparse_block_size=1, "
+        "str layout_query='BSND', str layout_kv='BSND', int sparse_mode=3, "
+        "int pre_tokens=9223372036854775807, int next_tokens=9223372036854775807, "
+        "int attention_mode=2, bool return_softmax_lse=False) "
+        "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -278,6 +288,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
+
+    m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
         auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
