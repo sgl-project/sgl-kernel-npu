@@ -4,8 +4,12 @@ import pytest
 import sgl_kernel_npu  # noqa: F401  Registers torch.ops.npu.sgl_sparse_flash_attention.
 import torch
 import torch_npu
+from utils import require_npu_op
 
-pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="NPU is required")
+pytestmark = [
+    pytest.mark.skipif(not torch.npu.is_available(), reason="NPU is required"),
+    require_npu_op("sgl_sparse_flash_attention"),
+]
 
 
 def _dsa_inputs():
