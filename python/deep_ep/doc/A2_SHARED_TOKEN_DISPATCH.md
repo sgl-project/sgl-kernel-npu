@@ -122,5 +122,18 @@ or 12,640 (spread), but these are not measured wire-byte counters.
 
 ## TP=EP=8 serving validation
 
-A matched Qwen3-30B-A3B serving comparison is being prepared/run separately.
-No eight-device serving improvement is claimed in this branch yet.
+A matched Qwen3-30B-A3B serving comparison was prepared with TP=EP=8,
+DeepEP auto, graph replay, 144 requests, concurrency 48, target 512 input / 128
+output tokens, seed 1234, and the same static default / ILP / ILP+16 placements.
+Two CPU generations of the exact request objects matched SHA-256
+`4d65322a63ecbbe2a69bd7b7d1a040175ab18ec393b96449e88f7822fef8e96a`.
+
+The scheduler could not grant all eight NPUs because one remained reserved by
+another task. After a bounded 600-second allocation wait, the unstarted pilot
+was cancelled: **zero serving arms executed**. The experiment remains resumable.
+No eight-device correctness result or serving-latency improvement is claimed.
+
+The branch's ON dispatch target compiles with CANN 9.0.1; OFF configuration
+retains the original compile flags. The kernel header is byte-for-byte identical
+to the four-card tested prototype. CPU protocol and repository Python formatting
+checks pass. These checks do not substitute for the pending serving experiment.
