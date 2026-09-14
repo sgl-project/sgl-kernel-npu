@@ -596,7 +596,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         if quant_mode not in self._SUPPORTED_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16' , 'mx_fp8_e4m3', 'mx_fp4_e2m1' and 'int8' are supported."
+                f"Only 'bf16' , 'mx_fp8_e4m3(A5)', 'mx_fp4_e2m1(A5)' and 'int8(A3)' are supported."
             )
         hidden_shape = x.shape
 

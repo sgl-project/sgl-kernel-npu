@@ -318,7 +318,7 @@ dispatch(
 > **各路径差异：**
 > - **intranode**（default 策略）：完整优先级顺序。FP8/FP4 模式仅 A5 支持。
 > - **internode**（default 策略）：仅支持 `"bf16"` 和 `"int8"`。其他 quant_mode 值抛 `NotImplementedError`。
-> - **alltoall** 策略（`DEEP_USE_MODE=alltoall`）：仅支持 `"mx_fp4_e2m1"` `"bf16"` 和 `"mx_fp8_e4m3"`。
+> - **alltoall** 策略（`DEEP_USE_MODE=alltoall`）： 仅支持 '"bf16"' , '"mx_fp8_e4m3(A5)"', '"mx_fp4_e2m1(A5)"' and '"int8(A3)"'。
 >
 > **平台支持：** INT8 **全平台**（A2/A3/A5）支持。FP8/FP4 模式（`pertoken_fp8_e4m3`、`mx_fp8_e4m3`、`mx_fp4_e2m1`）**仅 A5**。
 >
