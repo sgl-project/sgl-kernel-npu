@@ -399,13 +399,24 @@ function build_cmake_modules()
         )
     fi
 
-    rm -rf "$BUILD_DIR"
+    # KEEP_BUILD_DIR=1 reuses the existing CMake cache and object files. The
+    # AscendC kernel targets (chunk_kda_fwd in particular) dominate a cold build,
+    # so keeping them lets an unrelated edit rebuild in seconds. Default stays a
+    # clean build; drop the variable whenever the CMake configuration changes.
+    if [[ "${KEEP_BUILD_DIR:-0}" == "1" && -f "$BUILD_DIR/CMakeCache.txt" ]]; then
+        echo "KEEP_BUILD_DIR=1: reusing $BUILD_DIR (incremental build)"
+    else
+        rm -rf "$BUILD_DIR"
+    fi
     mkdir -p "$BUILD_DIR"
 
     cmake "${cmake_args[@]}" \
         -B "$BUILD_DIR" \
         -S "$PROJECT_ROOT"
-    cmake --build "$BUILD_DIR" --target install -j 16
+    # Parallelism is bounded by RAM, not cores: the CCE compiler needs ~1-2 GB per
+    # job and the AscendC kernel TUs are the memory-hungry ones. Keep the historical
+    # default and let callers tune it with BUILD_JOBS.
+    cmake --build "$BUILD_DIR" --target install -j "${BUILD_JOBS:-16}"
 }
 
 function build_deepep_kernels()

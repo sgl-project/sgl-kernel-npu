@@ -190,7 +190,8 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
     }
 }
 
-template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode>
+template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode,
+          bool ClampE4m3Finite = false>
 __aicore__ inline void ComputeFp8Data(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfScaleLocalAddr,
                                       __ubuf__ int8_t *outLocalAddr, uint32_t totalCountInUB)
 {
@@ -219,6 +220,12 @@ __aicore__ inline void ComputeFp8Data(__ubuf__ T *srcAddr, __ubuf__ uint16_t *ha
         MicroAPI::RegTensor<U> vdExp0FP8One;
         MicroAPI::RegTensor<U> vdExp1FP8Zero;
         MicroAPI::RegTensor<U> vdExp1FP8One;
+        MicroAPI::RegTensor<T> e4m3FiniteMax;
+        MicroAPI::RegTensor<T> e4m3FiniteMin;
+        if constexpr (ClampE4m3Finite && Std::IsSame<U, fp8_e4m3fn_t>::value) {
+            MicroAPI::Duplicate(e4m3FiniteMax, static_cast<T>(FP8_E4M3_MAX_VALUE));
+            MicroAPI::Duplicate(e4m3FiniteMin, static_cast<T>(-FP8_E4M3_MAX_VALUE));
+        }
         // 放到索引位置0
         static constexpr MicroAPI::CastTrait castTraitZero = {MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
                                                               MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
@@ -264,6 +271,12 @@ __aicore__ inline void ComputeFp8Data(__ubuf__ T *srcAddr, __ubuf__ uint16_t *ha
                 MicroAPI::Mul(vdExp0, vdExp0, (MicroAPI::RegTensor<T> &)halfScaleForMul, dataMask1);
                 MicroAPI::Mul(vdExp1, vdExp1, (MicroAPI::RegTensor<T> &)halfScaleForMul, dataMask1);
                 MicroAPI::Interleave(vdExp0, vdExp1, vdExp0, vdExp1);
+                if constexpr (ClampE4m3Finite && Std::IsSame<U, fp8_e4m3fn_t>::value) {
+                    MicroAPI::Min(vdExp0, vdExp0, e4m3FiniteMax, dataMask1);
+                    MicroAPI::Max(vdExp0, vdExp0, e4m3FiniteMin, dataMask1);
+                    MicroAPI::Min(vdExp1, vdExp1, e4m3FiniteMax, dataMask2);
+                    MicroAPI::Max(vdExp1, vdExp1, e4m3FiniteMin, dataMask2);
+                }
                 MicroAPI::Cast<float, T, castTraitZero>(vdExp0FP32Zero, vdExp0, dataMask1);
                 MicroAPI::Cast<float, T, castTraitOne>(vdExp0FP32One, vdExp0, dataMask1);
                 MicroAPI::Interleave(vdExp0FP32Zero, vdExp0FP32One, vdExp0FP32Zero, vdExp0FP32One);

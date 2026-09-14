@@ -60,6 +60,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling/sparse_flash_attention_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host/chunk_kda_fwd.cpp
     )
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
@@ -85,6 +86,7 @@ endif()
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_host/situ_mxfp8_quant.cpp
     )
 endif()
 if(BUILD_CATLASS_MODULE)
@@ -117,6 +119,12 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
 )
+# A5-only no-workspace kernels
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel/situ_mxfp8_quant.cpp
+    )
+endif()
 # A3-only no-workspace kernels
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
@@ -138,6 +146,9 @@ endif()
 ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(no_workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
+    ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel
+    ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel
+    ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel/fused_deep_moe_a5/fused_deep_moe/gemm/kernel
 )
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(no_workspace_kernel PRIVATE
@@ -184,6 +195,32 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
     -DHAVE_WORKSPACE
     -DHAVE_TILING
 )
+
+# chunk_kda_fwd: dedicated kernel target with its own compile options. The kernel
+# manages cross-pipe synchronization manually (SetFlag/WaitFlag/SyncAll), so the
+# aclnn build compiles it with --cce-auto-sync=off; keep that here instead of
+# applying it to the shared workspace_kernel target.
+ascendc_library(chunk_kda_fwd_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel/chunk_kda_fwd.cpp
+)
+ascendc_include_directories(chunk_kda_fwd_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+    ${ASCEND_INCLUDE_DIR}
+)
+ascendc_compile_definitions(chunk_kda_fwd_kernel PRIVATE
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
+)
+ascendc_compile_options(chunk_kda_fwd_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+)
+if(_sgl_soc_lower MATCHES "^ascend950")
+    ascendc_compile_definitions(chunk_kda_fwd_kernel PRIVATE
+        -DENABLE_CV_COMM_VIA_SSBUF=true
+    )
+endif()
 
 # Build catlass kernel in its own target (no sparse_attention_score include dir),
 # so catlass's #include "tla/layout.hpp" resolves to its own copy and avoids
@@ -280,6 +317,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${SFA_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
+        chunk_kda_fwd_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
         ascendcl
@@ -313,6 +351,8 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host
+        ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include

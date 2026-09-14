@@ -218,10 +218,23 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
 #endif
 
+    m.def(
+        "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
+        "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
+        "Tensor? cu_seqlens=None, Tensor? chunk_indices=None, "
+        "str layout='BSND', float scale=1.0, int chunk_size=64, "
+        "bool safe_gate=False, float lower_bound=-5.0, bool use_gate_in_kernel=False, "
+        "bool state_v_first=False, bool output_final_state=True, bool output_gk=False, "
+        "bool output_w=False, bool output_u=False, bool output_qg=False, "
+        "bool output_kg=False, bool output_v_new=False, bool output_h=False) "
+        "-> (Tensor, Tensor?, Tensor?, Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?)");
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
     m.def(
         "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
         "int quant_group_size, int quant_mode, bool round_scale_flag, int layout) -> ()");
+    m.def(
+        "situ_mxfp8_quant(Tensor x, Tensor group_list, int group_list_type=1, "
+        "float beta=4.0, float linear_beta=25.0) -> (Tensor, Tensor)");
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -361,7 +374,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
     m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
+    m.impl("situ_mxfp8_quant", TORCH_FN(sglang::npu_kernel::situ_mxfp8_quant));
 #endif
+
+    m.impl("chunk_kda_fwd", TORCH_FN(sglang::npu_kernel::chunk_kda_fwd));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
