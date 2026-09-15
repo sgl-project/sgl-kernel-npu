@@ -265,15 +265,6 @@ def situ_and_mul_quant(
         raise NotImplementedError(
             "SituAndMul quantization is only implemented for d<=6144 (int8). "
         )
-        # _situ_and_mul_kernel[(num_vectorcore,)](
-        #     x_2d, group_list_arg, out,
-        #     TOTAL_COLS=h, HALF_COLS=half_cols,
-        #     NUM_EXPERTS=num_experts_arg, NUM_EXPERTS_ALGIN=num_experts_algin_arg,
-        #     GROUP_LIST_TYPE=gl_type_arg, N_ROWS=s, NUM_CORES=num_vectorcore,
-        #     HAS_GROUP_LIST=has_group_list, BETA=beta, INV_BETA=1.0 / beta,
-        #     DO_LINEAR_BETA=do_linear_beta, LINEAR_BETA=linear_beta_v,
-        #     INV_LINEAR_BETA=(1.0 / linear_beta_v) if do_linear_beta else 1.0,
-        # )
     return out.reshape(*x.shape[:-1], half_cols), scale
 
 
