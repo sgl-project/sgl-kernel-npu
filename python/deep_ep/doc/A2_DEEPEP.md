@@ -164,7 +164,7 @@ export MOE_EXPERT_TOKEN_NUMS_TYPE=0
 
 #### Dual-Node Test
 
-> **Manual validation only:** A2 multi-node CI was disabled on 2026-09-02 (#768) because the node pool shrank from four to two nodes. Communication configurations, HCCL tuning and tests are retained. Recommended restoration conditions: restore sufficient capacity or optimize scheduling, validate connectivity and CANN, pass multi-node tests, then reinstate dedicated and daily CI jobs. See [CI status](../README.md#ci-coverage-and-a2-multi-node-status).
+> A2 multi-node CI was disabled on 2026-09-02. The related configurations and test scripts are retained for manual validation and can be re-enabled after resources are restored or CI is optimized.
 
 For A2 dual-node cross-node communication tests (set the primary node IP in `run_test_internode.sh` first). The final Python command can be replaced with the desired test case (`test_internode.py`, `test_low_latency.py`):
 ```bash
@@ -333,7 +333,7 @@ export MOE_EXPERT_TOKEN_NUMS_TYPE=0
 
 #### 双机跨节点测试
 
-> **仅供手动验证：**A2 多机 CI 于 2026-09-02 停用（#768），原因是节点池从 4 个缩减为 2 个，资源不足。通信配置、HCCL 调优及测试继续保留。建议恢复条件：补足资源或完成调度优化，验证网络和 CANN 环境，通过多机测试，再恢复独立及每日 CI job。详见 [CI 状态](../README.md#ci-覆盖范围与-a2-多机状态)。
+> A2 多机 CI 于 2026-09-02 停用。相关配置和测试脚本继续保留，供手动验证及后续资源恢复或 CI 优化后重新启用。
 
 在A2双机下执行，测试跨节点通信 (需要先设置run_test_internode.sh中的主节点IP)。
 脚本末尾的 Python 命令可以替换为需要执行的测试用例 (test_internode.py、test_low_latency.py)

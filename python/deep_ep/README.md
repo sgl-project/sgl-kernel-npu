@@ -578,7 +578,6 @@ bash tests/python/deepep/run_test_internode.sh
 - CANN 8.5.0 runner 已下线，测试矩阵于 2026 年 8 月移除，不再验证 8.5.0 的兼容性。
 - **A2 多机 CI 自 2026-09-02 起停用**。节点池从 4 个缩减为 2 个，资源不足以支撑 CI，已删除独立的 `a2-internode-test.yml` 和每日流水线的 `multi-node-internode` job。
 - 保留 `test_internode_a2.py`、`run_test_internode.sh`、可复用的 `internode.yml`，以及分层/不分层通信、HCCL 调优说明，供手动验证及后续恢复使用；这些资料不代表 A2 多机仍有 CI 覆盖。
-- **建议恢复条件：**具备足够的可调度 A2 多机资源（或通过调度、资源使用优化适配现有节点池），确认网络连通性和所选 CANN 环境，通过保留的多机测试后，恢复独立及每日 CI job。在此之前，A2 多机变更需在目标环境手动验证。
 
 ### 常见问题
 
