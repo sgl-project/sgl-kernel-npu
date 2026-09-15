@@ -1,15 +1,25 @@
+import inspect
+
 import pytest
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
 from sgl_kernel_npu.fla.kda_chunk_delta_h import (
     chunk_gated_delta_rule_fwd_affine_npu,
+    chunk_gated_delta_rule_fwd_h_npu,
     merge_kda_cp_affine_states,
 )
 
 requires_npu = pytest.mark.skipif(
     not torch.npu.is_available(), reason="KDA CP affine kernels require an NPU"
 )
+
+
+def test_kda_state_kernel_exposes_native_pcp_layout_options():
+    parameters = inspect.signature(chunk_gated_delta_rule_fwd_h_npu).parameters
+
+    assert parameters["initial_state_key_value_layout"].default is False
+    assert parameters["block_value"].default == 32
 
 
 @requires_npu

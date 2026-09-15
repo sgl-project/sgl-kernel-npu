@@ -236,6 +236,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
     cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_indices: Optional[torch.LongTensor] = None,
     use_exp2: bool = False,
+    initial_state_key_value_layout: bool = False,
+    block_value: int = 32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert not (
         use_exp2 and g is not None
@@ -244,6 +246,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
     H = u.shape[-2]
     if K > 128:
         raise ValueError("The Kimi K3 NPU chunk-state kernel supports K <= 128")
+    if block_value not in (32, 64):
+        raise ValueError(f"block_value must be 32 or 64, got {block_value}")
 
     if chunk_indices is None and cu_seqlens is not None:
         chunk_indices = prepare_chunk_indices(cu_seqlens, CHUNK_SIZE)
@@ -259,17 +263,34 @@ def chunk_gated_delta_rule_fwd_h_npu(
     h = k.new_empty(B, NT, H, K, V)
     v_new = torch.empty_like(u) if save_new_value else None
 
-    # The unified cache remains [..., H, V, K] for the NPU verify/decode
-    # kernels. Select only this request's slots, convert them to the original
-    # KxV prefill layout, then scatter the updated states back after launch.
+    # PCP owns a native contiguous [..., H, K, V] cache and can update it
+    # directly. The default path preserves the established public
+    # [..., H, V, K] ABI by selecting and transposing request states around
+    # the KxV Triton kernel.
     if initial_state is not None:
         if initial_state_indices is None:
             raise ValueError("initial_state_indices are required with initial_state")
-        source_indices = initial_state_indices[:N].to(torch.long)
-        kernel_state = (
-            initial_state.index_select(0, source_indices).transpose(-1, -2).contiguous()
-        )
-        kernel_indices = torch.arange(N, dtype=torch.long, device=initial_state.device)
+        if initial_state_key_value_layout:
+            if tuple(initial_state.shape[-2:]) != (K, V):
+                raise ValueError(
+                    "key-value initial_state must use [..., H, K, V] layout, "
+                    f"got {tuple(initial_state.shape)} for K={K}, V={V}"
+                )
+            if not initial_state.is_contiguous():
+                raise ValueError("key-value initial_state must be contiguous")
+            source_indices = None
+            kernel_state = initial_state
+            kernel_indices = initial_state_indices[:N]
+        else:
+            source_indices = initial_state_indices[:N].to(torch.long)
+            kernel_state = (
+                initial_state.index_select(0, source_indices)
+                .transpose(-1, -2)
+                .contiguous()
+            )
+            kernel_indices = torch.arange(
+                N, dtype=torch.long, device=initial_state.device
+            )
     else:
         source_indices = None
         # The kernel always materializes its final tile. Keep that write in a
@@ -279,7 +300,7 @@ def chunk_gated_delta_rule_fwd_h_npu(
         )
         kernel_indices = torch.arange(max(N, 1), dtype=torch.long, device=k.device)
 
-    grid = (triton.cdiv(V, 32), N * H)
+    grid = (triton.cdiv(V, block_value), N * H)
     chunk_gated_delta_rule_fwd_kernel_h_npu[grid](
         k=k,
         v=u,
@@ -298,7 +319,7 @@ def chunk_gated_delta_rule_fwd_h_npu(
         K=K,
         V=V,
         BT=CHUNK_SIZE,
-        BV=32,
+        BV=block_value,
         USE_G=g is not None,
         USE_GK=gk is not None,
         USE_INITIAL_STATE=initial_state is not None,
@@ -309,7 +330,7 @@ def chunk_gated_delta_rule_fwd_h_npu(
         num_stages=2,
     )
 
-    if initial_state is not None:
+    if initial_state is not None and not initial_state_key_value_layout:
         updated_state = kernel_state.transpose(-1, -2).contiguous()
         initial_state.index_copy_(0, source_indices, updated_state)
     return h, v_new
