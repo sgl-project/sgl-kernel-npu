@@ -144,6 +144,7 @@ public:
         GM_ADDR gmExpertTokenNums;
         GM_ADDR gmX2ReadyState;
         FusedDeepMoeProfileWriter *profile;
+        EpilogueParams epilogueParams;
 
         uint32_t epRankSize;
         uint32_t epRankId;
@@ -171,7 +172,8 @@ public:
                GM_ADDR gmShareSwigluOut_, GM_ADDR ptrShareX2_, GM_ADDR gmShareX2Scale_, GM_ADDR gmX_,
                GM_ADDR gmExpertIds_, GM_ADDR gmXActiveMask_, GM_ADDR gmMoeSmoothScales_, GM_ADDR gmShareSmoothScales_,
                GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_, GM_ADDR gmExpertTokenNums_, GM_ADDR gmX2ReadyState_,
-               const FusedDeepMoeInfo &fusedDeepMoeInfo, FusedDeepMoeProfileWriter *profile_)
+               const FusedDeepMoeInfo &fusedDeepMoeInfo, FusedDeepMoeProfileWriter *profile_,
+               EpilogueParams const &epilogueParams_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -210,6 +212,7 @@ public:
               gmExpertTokenNums(gmExpertTokenNums_),
               gmX2ReadyState(gmX2ReadyState_),
               profile(profile_),
+              epilogueParams(epilogueParams_),
               epRankSize(fusedDeepMoeInfo.epRankSize),
               epRankId(fusedDeepMoeInfo.epRankId),
               moeExpertNum(fusedDeepMoeInfo.moeExpertNum),
@@ -1729,7 +1732,7 @@ public:
         // Its destructor drains the event-0 pipeline before the later
         // global synchronization and status cleanup stages.
         {
-            BlockEpilogue blockEpilogue(resource);
+            BlockEpilogue blockEpilogue(resource, params.epilogueParams);
             uint32_t currentM = 0;
             uint32_t target = 1;
 

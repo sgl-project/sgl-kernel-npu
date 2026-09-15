@@ -102,6 +102,18 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_indices, double scale_value,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    const c10::optional<at::Tensor> &query_rope,
+    const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
+    c10::string_view layout_query, c10::string_view layout_kv,
+    int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
+    int64_t attention_mode, bool return_softmax_lse);
+
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
@@ -206,6 +218,30 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
+
+/**
+ * @brief Fused SwiGLU activation + quantization (A5 only).
+ *
+ * Halves x along its last dim into gate/up, applies SwiGLU, and quantizes the
+ * result. All three quant modes are supported: quant_mode 1 = per-128-element
+ * group scales (fp32), 2 = MX per-32 scales (e8m0), 3 = per-token (fp8, e8m0
+ * when ue8m0_scale is set).
+ *
+ * @param topk_weight      optional per-row weight applied before quantization
+ * @param group_index      optional per-group token counts (prefix sums); when
+ * present every core walks the whole list, so the launch uses tiling's coreNum
+ * @param dst_type         y's dtype: Float8_e4m3fn (default) or Float8_e5m2
+ * @param clamp_value      when non-zero, activates clamping of the SwiGLU
+ * result
+ * @return tuple of (y, scale, y_origin); y_origin is only meaningful when
+ * output_origin is set
+ */
+std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
+    const at::Tensor &x, const c10::optional<at::Tensor> &topk_weight,
+    const c10::optional<at::Tensor> &group_index,
+    c10::optional<at::ScalarType> dst_type, int64_t quant_mode,
+    int64_t group_size, bool round_scale, bool ue8m0_scale, bool output_origin,
+    int64_t group_list_type, double clamp_value);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE

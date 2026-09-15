@@ -17,7 +17,7 @@ concurrency:
 jobs:
   run-daily-tests:
     name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-16' || 'linux-aarch64-a2-8' }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     timeout-minutes: ${{ matrix.test_type == 'intranode' && 350 || 330 }}
