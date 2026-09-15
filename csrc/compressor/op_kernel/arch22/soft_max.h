@@ -21,12 +21,12 @@
 
 namespace Compressor {
 /**
- * @brief ColumnSoftMax 对矩阵按列进行SoftMax
- * @param dstLocal 输出tensor [row, col]，支持和srcLocal是同一块空间
- * @param srcLocal 输入tensor [row, col]
- * @param shareTmpUb 临时buffer 内部需要的空间为 [floor(row / 2) * col * sizeof(float)]
- * @param row 行数
- * @param col 列数
+ * @brief ColumnSoftMax applies SoftMax to the matrix by column
+ * @param dstLocal output tensor [row, col]; may share the same space as srcLocal
+ * @param srcLocal input tensor [row, col]
+ * @param shareTmpUb temporary buffer; internal space required is [floor(row / 2) * col * sizeof(float)]
+ * @param row number of rows
+ * @param col number of columns
  */
 __aicore__ inline void ColumnSoftMax(const LocalTensor<float> &dstLocal, const LocalTensor<float> &srcLocal,
                                      const LocalTensor<float> &shareTmpUb, uint32_t row, uint32_t col)

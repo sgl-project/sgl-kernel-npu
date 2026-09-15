@@ -22,9 +22,9 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
-#define OP_LOGI(...)  // 保持空，避免刷屏
+#define OP_LOGI(...)  // keep it empty to avoid log flooding
 
-// plog 写入（weak symbol，运行时由 libascendalog/libunified_dlog 解析）
+// plog write (weak symbol, resolved at runtime by libascendalog/libunified_dlog)
 extern "C" {
 void DlogRecord(int32_t moduleId, int32_t level, const char *fmt, ...) __attribute__((weak));
 void DlogFlush(void);
@@ -182,10 +182,12 @@ ge::graphStatus CompressorTiling::SetBaseInfo()
         (baseParams_->seqSize + baseParams_->cmpRatio - 1) / baseParams_->cmpRatio;  // number of token after compress
     baseParams_->stateCacheStrideDim0 = static_cast<uint64_t>(*context_->stateCacheStrideDim0);
     coff = static_cast<uint8_t>(*context_->coff);
-    baseParams_->nSize = 2;  // 2:每个核处理两个基本块后做全核同步
+    baseParams_->nSize = 2;  // 2: each core processes two basic blocks before the all-core sync
+    baseParams_->usedCoreNum = aicNum_;
 
-    OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u", baseParams_->batchSize,
-            baseParams_->tokenSize, baseParams_->cmpRatio, coff);
+    OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u, stateCacheStrideDim0:%u",
+            baseParams_->batchSize, baseParams_->tokenSize, baseParams_->cmpRatio, coff,
+            baseParams_->stateCacheStrideDim0);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -194,7 +196,7 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
 {
     pageAttentionParams_->blockNum = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_0);
     pageAttentionParams_->blockSize = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
-    if (context_->stateBlockTable.shape->GetStorageShape().GetDimNum() == COMPRESSOR_DIM_NUM_2) {
+    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CONTINUOUS)) {
         pageAttentionParams_->maxBlockNumPerBatch =
             context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
     }
@@ -205,17 +207,13 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
 ge::graphStatus CompressorTiling::SetWorkSpaceInfo()
 {
     workspaceParams_->dbWorkspaceRatio = 2;
+    workspaceParams_->aivNum = aivNum_;
     workspaceParams_->mm1KvResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * coff;
     workspaceParams_->mm1ScoreResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * coff;
     if (coff == 2) {
         workspaceParams_->vec1TailCacheSize = baseParams_->cmpRatio * baseParams_->headDim;
     }
-    if (context_->templateId == TemplateId::PERF) {
-        workspaceParams_->vec1ResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * baseParams_->nSize;
-    } else {
-        workspaceParams_->vec1ResSize =
-            innerSplitParams_->mBaseSize / baseParams_->cmpRatio * innerSplitParams_->dBaseSize * baseParams_->nSize;
-    }
+    workspaceParams_->vec1ResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * baseParams_->nSize;
 
     return ge::GRAPH_SUCCESS;
 }
@@ -230,30 +228,65 @@ ge::graphStatus CompressorTiling::SetTemplateId()
     if (context_->templateId == TemplateId::EMPTY_X) {
         return ge::GRAPH_SUCCESS;
     }
-    // 设置高性能模板
-    context_->templateId = TemplateId::PERF;
+    if (socVersion_ == platform_ascendc::SocVersion::ASCEND950) {
+        // select the high-performance template
+        if (context_->layout == LayoutType::LAYOUT_BSH && baseParams_->seqSize <= 4 && baseParams_->tokenSize <= 256) {
+            context_->templateId = TemplateId::FULL_LOAD;
+        }
+        return ge::GRAPH_SUCCESS;
+    }
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus CompressorTiling::SetInnerSplitInfo()
 {
-    innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
-    innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
-    if (context_->templateId == TemplateId::PERF) {
-        if (coff == 2) {
-            innerSplitParams_->mBaseSize = 128;
-        } else {
-            innerSplitParams_->mBaseSize = 256;
+    if (context_->templateId == TemplateId::FULL_LOAD) {
+        innerSplitParams_->mBaseSize = 256;               // 256: inter-core split, M-axis basic block size
+        innerSplitParams_->dBaseSize = 256 / (coff * 2);  // nBase = dBase * coff * 2
+        uint32_t dBaseNum = baseParams_->headDim / innerSplitParams_->dBaseSize;
+        uint32_t mBaseNum = (baseParams_->tokenSize + innerSplitParams_->mBaseSize - 1) / innerSplitParams_->mBaseSize;
+        baseParams_->coreGroupNum = baseParams_->usedCoreNum / dBaseNum;
+        baseParams_->kBaseNum = 1;
+        baseParams_->kBaseSize = baseParams_->hiddenSize;
+        if ((dBaseNum * mBaseNum) < baseParams_->usedCoreNum) {
+            baseParams_->kBaseNum = baseParams_->usedCoreNum / dBaseNum;
+            uint32_t kAlignSize = (baseParams_->hiddenSize + baseParams_->kBaseNum - 1) / baseParams_->kBaseNum;
+            baseParams_->kBaseSize = kAlignSize / 16 * 16;  // k-split size must be 16-aligned
         }
-        innerSplitParams_->dBaseSize = 64;
+        for (uint32_t i = 0; i < baseParams_->usedCoreNum; i++) {
+            baseParams_->splitCoreParam[i].nStart = (i % dBaseNum) * innerSplitParams_->dBaseSize;
+            baseParams_->splitCoreParam[i].nEnd = baseParams_->splitCoreParam[i].nStart + innerSplitParams_->dBaseSize;
+            if (baseParams_->kBaseNum > 1) {
+                uint32_t kStartIdx = i / dBaseNum;
+                if (kStartIdx + 1 < baseParams_->coreGroupNum) {
+                    uint32_t dealKSize = baseParams_->kBaseSize;
+                    baseParams_->splitCoreParam[i].kStart = kStartIdx * baseParams_->kBaseSize;
+                    baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + dealKSize;
+                } else {
+                    uint32_t dealKSize = kStartIdx < baseParams_->coreGroupNum
+                                             ? baseParams_->hiddenSize - kStartIdx * baseParams_->kBaseSize
+                                             : 0;
+                    baseParams_->splitCoreParam[i].kStart = kStartIdx * baseParams_->kBaseSize;
+                    baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + dealKSize;
+                }
+                baseParams_->splitCoreParam[i].mStart = 0;
+                baseParams_->splitCoreParam[i].mEnd = baseParams_->tokenSize;
+                baseParams_->mLoopNum = 1;
+            } else {
+                baseParams_->splitCoreParam[i].kStart = 0;
+                baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + baseParams_->kBaseSize;
+                uint32_t mStart = (i / dBaseNum) * innerSplitParams_->mBaseSize;
+                baseParams_->splitCoreParam[i].mStart =
+                    mStart < baseParams_->tokenSize ? mStart : baseParams_->tokenSize;
+                uint32_t mEnd = baseParams_->splitCoreParam[i].mStart + innerSplitParams_->mBaseSize;
+                baseParams_->splitCoreParam[i].mEnd = mEnd < baseParams_->tokenSize ? mEnd : baseParams_->tokenSize;
+                baseParams_->mLoopNum = mBaseNum / baseParams_->coreGroupNum;
+            }
+        }
     } else {
-        innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
-        innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
+        innerSplitParams_->mBaseSize = 256;         // 256: inter-core split, M-axis basic block size
+        innerSplitParams_->dBaseSize = 128 / coff;  // 128: inter-core split, D-axis basic block size
     }
-    // a5 由于loc更大, mBaseSize x 2
-    // if (socVersion_ == platform_ascendc::SocVersion::ASCEND910_95) {
-    //      innerSplitParams_->mBaseSize *= 2;
-    //  }
     return ge::GRAPH_SUCCESS;
 }
 
@@ -268,15 +301,17 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
     workspaceSize_ +=
         workspaceParams_->mm1ScoreResSize * maxGroupNum * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
     workspaceSize_ += workspaceParams_->vec1TailCacheSize * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio *
-                      2;  // 2 kv和score
+                      2;  // 2: kv and score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
+    workspaceSize_ += (aicNum_ + 1 + aivNum_) * workspaceParams_->dbWorkspaceRatio * sizeof(uint32_t);
 
     if (context_->workSpaces) {
         context_->workSpaces[0] = workspaceSize_;
     }
 
-    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu", workspaceSize_);
+    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu aicNum_=%u aivNum_=%u", workspaceSize_, aicNum_,
+            aivNum_);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -349,8 +384,6 @@ ge::graphStatus CompressorTiling::RunBigKernelTiling(CompressorTilingData *tilin
             return ge::GRAPH_FAILED;
         }
     }
-
-    baseParams_->usedCoreNum = aicNum_;
 
     context_->blockDim = aicNum_;
 
@@ -819,22 +852,14 @@ ge::graphStatus CompressorTiling::CheckFeature() const
         pageAttentionParams_->blockSize < MIN_BLOCK_SIZE,
         OP_LOGE(context_->opName, "blockSize should not be less than 1, but got %u", pageAttentionParams_->blockSize),
         return ge::GRAPH_FAILED);
-    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::EXPLICIT)) {
-        const uint32_t tableDimNum = context_->stateBlockTable.shape->GetStorageShape().GetDimNum();
-        OP_CHECK_IF(tableDimNum != COMPRESSOR_DIM_NUM_2,
-                    OP_LOGE(context_->opName,
-                            "when cacheMode is %u, stateBlockTable must be 2-dimensional, but got %u dimensions",
-                            static_cast<uint8_t>(CACHE_MODE::EXPLICIT), tableDimNum),
-                    return ge::GRAPH_FAILED);
-        const uint32_t historySize = static_cast<uint32_t>(coff) * baseParams_->cmpRatio;
-        const uint32_t minTableWidth = historySize + 1;
-        OP_CHECK_IF(pageAttentionParams_->maxBlockNumPerBatch < minTableWidth,
-                    OP_LOGE(context_->opName,
-                            "when cacheMode is %u, stateBlockTable dim 1 must be at least coff*cmpRatio+1(%u), "
-                            "but got %u",
-                            static_cast<uint8_t>(CACHE_MODE::EXPLICIT), minTableWidth,
-                            pageAttentionParams_->maxBlockNumPerBatch),
-                    return ge::GRAPH_FAILED);
+    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CYCLE)) {
+        OP_CHECK_IF(
+            pageAttentionParams_->blockNum < baseParams_->batchSize,
+            OP_LOGE(context_->opName,
+                    "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
+                    "but got %u",
+                    static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize, pageAttentionParams_->blockNum),
+            return ge::GRAPH_FAILED);
     }
     uint64_t cacheStride =
         context_->stateCache.shape->GetShape().GetDim(1) * context_->stateCache.shape->GetShape().GetDim(2);

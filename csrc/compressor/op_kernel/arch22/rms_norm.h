@@ -21,16 +21,16 @@
 
 namespace Compressor {
 /**
- * @brief RmsNorm 对矩阵进行rmsnorm
- * @param dstLocal 输出tensor [row, col]，支持和srcLocal是同一块空间
- * @param srcLocal 输入tensor [row, col]
- * @param gammaLocal 系数gamma [1, col]
- * @param shareTmpUb 临时buffer 内部需要的空间为 [(row * col + row) * sizeof(float)]
- * @param rmsNormParams rms所需系数，包括
-          reciprocal rmsnorm系数reciprocal
-          epsilon rmsnorm系数epsilon
-          row 处理的行数
-          col 列数
+ * @brief RmsNorm applies rmsnorm to the matrix
+ * @param dstLocal output tensor [row, col]; may share the same space as srcLocal
+ * @param srcLocal input tensor [row, col]
+ * @param gammaLocal coefficient gamma [1, col]
+ * @param shareTmpUb temporary buffer; internal space required is [(row * col + row) * sizeof(float)]
+ * @param rmsNormParams coefficients needed for rms, including
+          reciprocal rmsnorm coefficient reciprocal
+          epsilon rmsnorm coefficient epsilon
+          row number of rows to process
+          col number of columns
  */
 template <typename GammaType>
 __aicore__ inline void RmsNorm(const LocalTensor<float> &dstLocal, const LocalTensor<float> &srcLocal,

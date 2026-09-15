@@ -27,7 +27,7 @@ class Compressor : public OpDef
 public:
     explicit Compressor(const char *name) : OpDef(name)
     {
-        // ---- 12 个输入（前 8 必选，后 4 可选）----
+        // ---- 12 inputs (first 8 required, last 4 optional) ----
         this->Input("x")
             .ParamType(REQUIRED)
             .DataType({ge::DT_BF16, ge::DT_FLOAT16})
@@ -85,10 +85,10 @@ public:
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
 
-        // ---- 输出：cmp_kv 为新输出；state_cache 为 in-place 原地写回（host 里单独处理）----
+        // ---- Outputs: cmp_kv is a new output; state_cache is written back in-place (handled separately in host) ----
         this->Output("cmp_kv").ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16}).FormatList({ge::FORMAT_ND});
 
-        // ---- 7 个 attr ----
+        // ---- 7 attrs ----
         this->Attr("rope_head_dim").AttrType(REQUIRED).Int(64);
         this->Attr("cmp_ratio").AttrType(REQUIRED).Int(4);
         this->Attr("coff").AttrType(OPTIONAL).Int(1);

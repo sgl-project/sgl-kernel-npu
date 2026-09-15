@@ -1,16 +1,16 @@
 /**
- * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /*!
  * \file compressor_tools.h
- * \brief 放算子都需要、与算子联系紧密、但是又不方便单独独立出来的公共工具
+ * \brief common utilities needed by all operators, closely tied to operators, but not convenient to separate out
  */
 
 #ifndef COMPRESSOR_TOOLS_H
@@ -189,9 +189,9 @@ __aicore__ inline void CompressorSliceIterator<COMP>::IteratorSlice()
 {
     bool isUpdateBatchInfo = false;
     if (!isFirst_) {
-        // 更新剩余未处理的行数
+        // update the remaining number of unprocessed rows
         maxDealSeqCnt_ -= sliceInfo_.dealSeqCnt;
-        // 更新sIdx和bIdx、以及与bIdx相关的bStartPos和bSeqUsed
+        // update sIdx and bIdx, and the bStartPos and bSeqUsed associated with bIdx
         sliceInfo_.sIdx += sliceInfo_.validSeqCnt;
         if (sliceInfo_.sIdx == sliceInfo_.bSeqUsed) {
             sliceInfo_.sIdx = 0;
@@ -203,7 +203,7 @@ __aicore__ inline void CompressorSliceIterator<COMP>::IteratorSlice()
         isFirst_ = false;
     }
 
-    // 更新与bIdx相关的bStartPos和bSeqUsed
+    // update the bStartPos and bSeqUsed associated with bIdx
     if (isUpdateBatchInfo) {
         // SkipInvalidBatch
         while (sliceInfo_.bIdx < batch_size_) {
@@ -228,7 +228,7 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSliceByCmp()
         sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
         isFirst_ = false;
     }
-    // 计算头部占位行数、有效数据行数、尾部占位行数
+    // compute the number of head placeholder rows, valid data rows, and tail placeholder rows
     sliceInfo_.headHolderSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.sIdx) % cmpRatio;
 
     sliceInfo_.validSeqCnt = sliceInfo_.bSeqUsed - sliceInfo_.sIdx;
@@ -241,7 +241,7 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSliceByCmp()
         sliceInfo_.tailHolderSeqCnt = 0;
     }
 
-    // 头和尾处理，否则需要处理的seq等于cmpRatio
+    // head and tail handling; otherwise the seq to process equals cmpRatio
     if (sliceInfo_.validSeqCnt < cmpRatio) {
         sliceInfo_.dealSeqCnt = sliceInfo_.validSeqCnt;
         if (sliceInfo_.sIdx == 0) {
@@ -252,13 +252,15 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSliceByCmp()
     }
     sliceInfo_.validSeqCnt = sliceInfo_.dealSeqCnt;
 
-    // 计算本次可以处理的Tc个数
+    // compute the number of Tc that can be processed this time
     sliceInfo_.dealTcSize = (sliceInfo_.dealSeqCnt + cmpRatio - 1) / cmpRatio;
 
-    // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
+    // because the data belongs to one batch, only the last compression block may not need compression; in that case
+    // sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize =
+            sliceInfo_.dealTcSize - 1;  // when the last compression block is not full, it does not need compression
     }
 
     return sliceInfo_;
@@ -273,7 +275,7 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSlice()
         sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
         isFirst_ = false;
     }
-    // 计算头部占位行数、有效数据行数、尾部占位行数
+    // compute the number of head placeholder rows, valid data rows, and tail placeholder rows
     sliceInfo_.headHolderSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.sIdx) % cmpRatio;
     sliceInfo_.validSeqCnt = sliceInfo_.bSeqUsed - sliceInfo_.sIdx;
     if (sliceInfo_.headHolderSeqCnt + sliceInfo_.validSeqCnt > maxDealSeqCnt_) {
@@ -286,13 +288,15 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSlice()
     }
 
     sliceInfo_.dealSeqCnt = sliceInfo_.headHolderSeqCnt + sliceInfo_.validSeqCnt + sliceInfo_.tailHolderSeqCnt;
-    // 计算本次可以处理的Tc个数
+    // compute the number of Tc that can be processed this time
     sliceInfo_.dealTcSize = sliceInfo_.dealSeqCnt / cmpRatio;
 
-    // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
+    // because the data belongs to one batch, only the last compression block may not need compression; in that case
+    // sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize =
+            sliceInfo_.dealTcSize - 1;  // when the last compression block is not full, it does not need compression
     }
 
     return sliceInfo_;
@@ -302,7 +306,7 @@ struct SplitCoreSliceInfo : public SliceInfo {
     __aicore__ inline SplitCoreSliceInfo(){};
     __aicore__ inline SplitCoreSliceInfo(uint32_t bIdx, uint32_t sIdx) : SliceInfo(bIdx, sIdx){};
 
-    uint32_t preFirstSeqCnt = 0U;  // 左边每次迭代基本块的第一个seqCnt大小
+    uint32_t preFirstSeqCnt = 0U;  // size of the first seqCnt of the base block in each left-side iteration
 };
 
 template <typename COMP>
@@ -377,13 +381,13 @@ __aicore__ inline void CompressorSplitCoreSliceIterator<COMP>::IteratorSlice()
         isMaxDealSeqCntFirst = false;
     }
     if (!isFirst_) {
-        // 更新剩余未处理的行数
+        // update the remaining number of unprocessed rows
         maxDealSeqCnt_ -= sliceInfo_.dealSeqCnt;
-        // 更新sIdx和bIdx、以及与bIdx相关的bStartPos和bSeqUsed
+        // update sIdx and bIdx, and the bStartPos and bSeqUsed associated with bIdx
         sliceInfo_.sIdx += sliceInfo_.validSeqCnt;
         if (sliceInfo_.sIdx == sliceInfo_.bSeqUsed) {
             sliceInfo_.sIdx = 0;
-            // 左边最后一块跳到b=0 s=0处理
+            // the last left-side block jumps to b=0 s=0 for processing
             if (isLeftFirstBath) {
                 isLeftFirstBath = false;
             } else {
@@ -396,7 +400,7 @@ __aicore__ inline void CompressorSplitCoreSliceIterator<COMP>::IteratorSlice()
         isFirst_ = false;
     }
 
-    // 更新与bIdx相关的bStartPos和bSeqUsed
+    // update the bStartPos and bSeqUsed associated with bIdx
     if (isUpdateBatchInfo) {
         // SkipInvalidBatch
         while (sliceInfo_.bIdx < batch_size_) {
@@ -417,14 +421,14 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
 {
     uint32_t cmpRatio = tools_.toolParams_.cmpRatio;
     if (isFirst_) {
-        // 左边 T轴首次减去T轴最后一块
+        // left side: subtract the last block of the T axis from the T axis for the first time
         sliceInfo_.bSeqUsed = tools_.GetSeqUsed(batch_size_ - 1);
         sliceInfo_.bStartPos = tools_.GetStartPos(batch_size_ - 1);
-        // 处理最后一块是中间整块或者尾块的情况
+        // handle the case where the last block is a middle full block or a tail block
         uint32_t lastSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio == 0
                                   ? cmpRatio
                                   : (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio;
-        // 处理最后一块是头块的情况
+        // handle the case where the last block is a head block
         if (sliceInfo_.bSeqUsed < cmpRatio) {
             lastSeqCnt = sliceInfo_.bSeqUsed;
         }
@@ -433,7 +437,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
         isLeftFirstBath = true;
         isFirst_ = false;
     }
-    // 计算头部占位行数、有效数据行数、尾部占位行数
+    // compute the number of head placeholder rows, valid data rows, and tail placeholder rows
     sliceInfo_.headHolderSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.sIdx) % cmpRatio;
 
     sliceInfo_.validSeqCnt = sliceInfo_.bSeqUsed - sliceInfo_.sIdx;
@@ -446,7 +450,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
         sliceInfo_.tailHolderSeqCnt = 0;
     }
 
-    // 头和尾处理，否则需要处理的seq等于cmpRatio
+    // head and tail handling; otherwise the seq to process equals cmpRatio
     if (sliceInfo_.validSeqCnt < cmpRatio) {
         sliceInfo_.dealSeqCnt = sliceInfo_.validSeqCnt;
         if (sliceInfo_.sIdx == 0) {
@@ -457,16 +461,18 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
     }
     sliceInfo_.validSeqCnt = sliceInfo_.dealSeqCnt;
 
-    // 计算本次可以处理的Tc个数
+    // compute the number of Tc that can be processed this time
     sliceInfo_.dealTcSize = (sliceInfo_.dealSeqCnt + cmpRatio - 1) / cmpRatio;
 
-    // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
+    // because the data belongs to one batch, only the last compression block may not need compression; in that case
+    // sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize =
+            sliceInfo_.dealTcSize - 1;  // when the last compression block is not full, it does not need compression
     }
 
-    // 记录左边第一个块
+    // record the first block on the left
     if (isMaxDealSeqCntFirst) {
         sliceInfo_.preFirstSeqCnt = sliceInfo_.dealSeqCnt;
     }
@@ -483,7 +489,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
         sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
         isFirst_ = false;
     }
-    // 计算头部占位行数、有效数据行数、尾部占位行数
+    // compute the number of head placeholder rows, valid data rows, and tail placeholder rows
     sliceInfo_.headHolderSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.sIdx) % cmpRatio;
 
     sliceInfo_.validSeqCnt = sliceInfo_.bSeqUsed - sliceInfo_.sIdx;
@@ -496,7 +502,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
         sliceInfo_.tailHolderSeqCnt = 0;
     }
 
-    // 头和尾处理，否则需要处理的seq等于cmpRatio
+    // head and tail handling; otherwise the seq to process equals cmpRatio
     if (sliceInfo_.validSeqCnt < cmpRatio) {
         sliceInfo_.dealSeqCnt = sliceInfo_.validSeqCnt;
         if (sliceInfo_.sIdx == 0) {
@@ -507,13 +513,15 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
     }
     sliceInfo_.validSeqCnt = sliceInfo_.dealSeqCnt;
 
-    // 计算本次可以处理的Tc个数
+    // compute the number of Tc that can be processed this time
     sliceInfo_.dealTcSize = (sliceInfo_.dealSeqCnt + cmpRatio - 1) / cmpRatio;
 
-    // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
+    // because the data belongs to one batch, only the last compression block may not need compression; in that case
+    // sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize =
+            sliceInfo_.dealTcSize - 1;  // when the last compression block is not full, it does not need compression
     }
 
     return sliceInfo_;
@@ -531,7 +539,6 @@ struct Vec1SliceInfo : public SliceInfo {
     uint32_t compressoredScCnt = 0U;
     bool isFirst = false;
     bool isLast = false;
-    bool isWrapped = false;
 };
 
 struct StatisticInfo {
@@ -557,8 +564,6 @@ public:
     __aicore__ inline void SetDealedTcCnt(uint32_t dealedTcCnt);
     __aicore__ inline void SetCompressoredScCnt(uint32_t compressoredScCnt);
     __aicore__ inline void SetNeedDealTcSize(uint32_t needDealTcSize);
-    __aicore__ inline void SetWrapped(bool isWrapped);
-    __aicore__ inline void SetRunStartBatch(uint32_t runStartBatch);
     __aicore__ inline void SetNeedDealTcSize(uint32_t needDealTcSize, uint32_t canDealTcSize);
     __aicore__ inline uint32_t GetNeedDealTcSize();
     __aicore__ inline bool IsEnd();
@@ -576,8 +581,6 @@ private:
     StatisticInfo statisticInfo_{};
     uint32_t needDealTcSize_ = 0U;
     uint32_t batch_size_ = 0U;
-    uint32_t runStartBatch_ = 0U;
-    bool isWrapped_ = false;
 };
 
 template <typename COMP>
@@ -585,12 +588,10 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::Reset(uint32_t bIdx, u
 {
     sliceInfo_.bIdx = bIdx;
     sliceInfo_.sIdx = sIdx;
-    isWrapped_ = false;
     while (tools_.GetSeqLength(sliceInfo_.bIdx) == 0) {
         sliceInfo_.bIdx++;
         if (sliceInfo_.bIdx == batch_size_) {
             sliceInfo_.bIdx = 0;
-            isWrapped_ = true;
         }
     }
     sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
@@ -639,18 +640,6 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::SetNeedDealTcSize(uint
 }
 
 template <typename COMP>
-__aicore__ inline void CompressorVec1SliceIterator<COMP>::SetWrapped(bool isWrapped)
-{
-    this->isWrapped_ = isWrapped;
-}
-
-template <typename COMP>
-__aicore__ inline void CompressorVec1SliceIterator<COMP>::SetRunStartBatch(uint32_t runStartBatch)
-{
-    this->runStartBatch_ = runStartBatch;
-}
-
-template <typename COMP>
 template <bool IS_STATISTIC>
 __aicore__ inline void CompressorVec1SliceIterator<COMP>::IteratorSlice()
 {
@@ -665,40 +654,71 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::IteratorSlice()
     sliceInfo_.sIdx += sliceInfo_.validSeqCnt;
     if (sliceInfo_.sIdx >= sliceInfo_.bSeqUsed) {
         do {
-            uint32_t seqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
+            const uint32_t seqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
             if (sliceInfo_.bSeqUsed < seqLength) {
-                bool isLeadingEmptyBatch = sliceInfo_.bSeqUsed == 0 && sliceInfo_.bIdx == runStartBatch_;
-                uint32_t nextAlignSIdx = Align(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio) - sliceInfo_.bStartPos;
-                if (isLeadingEmptyBatch) {
-                    nextAlignSIdx = min(nextAlignSIdx, seqLength);
+                // ── (A) tailH row advance (does not consume task amount) ──
+                // ★Special 1: advance tailH only when sIdx > 0 (the slice has actually processed).
+                //   sIdx == 0 means an invalid batch with seqused == 0 (no slice); all its rows belong to
+                //   hole (block task amount not consumed); advancing by tailH at this point makes "rows ahead of task
+                //   amount" -> out of bounds.
+                if (sliceInfo_.sIdx > 0) {
+                    uint32_t nextAlignSIdx =
+                        Align(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio) - sliceInfo_.bStartPos;
+                    // ★Special 2: clamp the alignment amount into the hole.
+                    uint32_t align = min(nextAlignSIdx - sliceInfo_.sIdx, seqLength - sliceInfo_.sIdx);
+                    sliceInfo_.dealedSeqCnt += align;
+                    sliceInfo_.sIdx += align;
                 }
-                sliceInfo_.dealedSeqCnt += nextAlignSIdx - sliceInfo_.sIdx;
-                uint32_t tcGap =
-                    CeilDivT(static_cast<int32_t>(seqLength - nextAlignSIdx), static_cast<int32_t>(cmpRatio));
-                if (!isLeadingEmptyBatch && sliceInfo_.bSeqUsed == 0 && nextAlignSIdx > seqLength) {
-                    // 此时bseqused所在压缩块未被纳入计算
-                    tcGap++;
+
+                // ── number of compression blocks tcGap corresponding to the hole (after tailH) (task amount to
+                // consume) ── ★Special 3: when sIdx == 0 (seqused == 0), the start block is not consumed by the slice,
+                // so the block count starts from
+                //   counting starts from floor(bStartPos/cr); when sIdx > 0, counting starts from
+                //   ceil((bStartPos+sIdx)/cr).
+                const uint32_t gapRows = seqLength - sliceInfo_.sIdx;
+                uint32_t tcGap;
+                if (sliceInfo_.sIdx == 0) {
+                    tcGap = CeilDivT(sliceInfo_.bStartPos + seqLength, cmpRatio) - sliceInfo_.bStartPos / cmpRatio;
+                } else {
+                    tcGap = CeilDivT(sliceInfo_.bStartPos + seqLength, cmpRatio) -
+                            CeilDivT(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio);
                 }
-                sliceInfo_.sIdx = nextAlignSIdx;
+
                 if (needDealTcSize_ < tcGap) {
-                    sliceInfo_.dealedSeqCnt += needDealTcSize_ * cmpRatio;
-                    sliceInfo_.sIdx += needDealTcSize_ * cmpRatio;
+                    // ── (B) partial skip: task amount is insufficient to skip the entire hole ──
+                    // ★Special 4: when needTc == 0, do not advance any row (row advance must strictly correspond to
+                    // task amount consumption). ★Special 5: needTc*cmpRatio may exceed the number of hole rows; after
+                    // clamp it stops at the end of the hole.
+                    uint32_t skip = needDealTcSize_ * cmpRatio;
+                    if (sliceInfo_.sIdx == 0 && needDealTcSize_ > 0) {
+                        skip -= static_cast<uint32_t>(sliceInfo_.bStartPos % cmpRatio);
+                    }
+                    sliceInfo_.dealedSeqCnt += skip;
+                    sliceInfo_.sIdx += skip;
                     needDealTcSize_ = 0;
-                    break;
+                    break;  // task amount exhausted: iteration terminates
                 }
-                sliceInfo_.dealedSeqCnt += seqLength - sliceInfo_.sIdx;
+                // ── (C) full skip: advance the entire hole, consuming tcGap Tc ──
+                sliceInfo_.dealedSeqCnt += gapRows;
+                sliceInfo_.sIdx += gapRows;
                 needDealTcSize_ -= tcGap;
             }
             sliceInfo_.bIdx++;
             if (sliceInfo_.bIdx == batch_size_) {
-                sliceInfo_.bIdx = 0;
-                isWrapped_ = true;
+                // terminate instead of wrap around (prevents infinite loop; normal traversal will not trigger it)
+                sliceInfo_.bIdx = batch_size_ - 1;
+                sliceInfo_.sIdx = 0;
+                sliceInfo_.bSeqUsed = 0;
+                sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+                sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
+                needDealTcSize_ = 0;
+                break;
             }
             sliceInfo_.sIdx = 0;
             sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
+            sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+            sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
         } while (sliceInfo_.bSeqUsed == 0);
-        sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
-        sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
     }
     if (isFirst_) {
         isFirst_ = false;
@@ -728,7 +748,7 @@ __aicore__ inline Vec1SliceInfo &CompressorVec1SliceIterator<COMP>::GetSlice()
         sliceInfo_.dealTcSize = 0;
         sliceInfo_.compressTcSize = 0;
     } else {
-        // 计算头部占位行数、有效数据行数、尾部占位行数
+        // compute the number of head placeholder rows, valid data rows, and tail placeholder rows
         sliceInfo_.headHolderSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.sIdx) % cmpRatio;
         sliceInfo_.validSeqCnt = sliceInfo_.bSeqUsed - sliceInfo_.sIdx;
         if (CeilDivT(sliceInfo_.headHolderSeqCnt + sliceInfo_.validSeqCnt, cmpRatio) > needDealTcSize_) {
@@ -737,7 +757,7 @@ __aicore__ inline Vec1SliceInfo &CompressorVec1SliceIterator<COMP>::GetSlice()
         uint32_t globalTotalSeqCnt = sliceInfo_.bStartPos + sliceInfo_.sIdx + sliceInfo_.validSeqCnt;
         sliceInfo_.tailHolderSeqCnt = Align(globalTotalSeqCnt, cmpRatio) - globalTotalSeqCnt;
 
-        // 计算本次可以处理的Tc个数
+        // compute the number of Tc that can be processed this time
         sliceInfo_.dealTcSize =
             (sliceInfo_.headHolderSeqCnt + sliceInfo_.validSeqCnt + sliceInfo_.tailHolderSeqCnt) / cmpRatio;
 
@@ -750,7 +770,6 @@ __aicore__ inline Vec1SliceInfo &CompressorVec1SliceIterator<COMP>::GetSlice()
     sliceInfo_.isLast =
         sliceInfo_.bSeqUsed > sliceInfo_.sIdx &&
         CeilDivT(sliceInfo_.headHolderSeqCnt + sliceInfo_.bSeqUsed - sliceInfo_.sIdx, cmpRatio) >= needDealTcSize_;
-    sliceInfo_.isWrapped = isWrapped_;
 
     return sliceInfo_;
 }
@@ -776,6 +795,135 @@ __aicore__ inline StatisticInfo &CompressorVec1SliceIterator<COMP>::FullIterator
     }
     return statisticInfo_;
 }
+
+struct Vec2SliceInfo {
+    __aicore__ inline Vec2SliceInfo(){};
+    __aicore__ inline Vec2SliceInfo(uint32_t bIdx, uint32_t scIdx) : bIdx(bIdx), scIdx(scIdx) {}
+
+    uint32_t bIdx = 0U;
+    uint32_t scIdx = 0U;
+    uint32_t scNum = 0U;
+    uint32_t remainScCnt = 0U;  // remaining number of sc in the current batch
+    uint32_t bStartPos = 0U;
+    uint32_t bSeqUsed = 0U;
+    uint32_t bSeqLength = 0U;
+    uint32_t dealedScCnt = 0U;   // global dealedScCnt (refreshed by Reset)
+    uint32_t curDealScNum = 0U;  // number of sc processed in the current loop (refreshed by IteratorSlice)
+    uint32_t bOutputScLen = 0U;  // Output length after padding for each batch in the BSH scenario
+    uint32_t padScIdx = 0U;  // current sc output position; in the TH scenario it is the global dealedScCnt, in the BSH
+                             // scenario it is the global index after padding (refreshed by Reset)
+    uint32_t loopDealedScCnt = 0U;  // number of sc processed in the current iteration (refreshed by Reset)
+};
+
+template <typename COMP>
+class CompressorVec2SliceIterator
+{
+public:
+    __aicore__ inline CompressorVec2SliceIterator(CompressorTools<COMP> &tools) : tools_(tools) {}
+    __aicore__ inline void Reset(uint32_t bIdx, uint32_t scIdx, uint32_t dealedScCnt);
+    __aicore__ inline void SetMaxBatchSize(uint32_t batch_size);
+    __aicore__ inline void SetNeedDealScSize(uint32_t needDealScSize);
+    __aicore__ inline void ResetLoopDealedScCnt();
+    __aicore__ inline uint32_t GetNeedDealScSize();
+    __aicore__ inline bool IsEnd();
+    __aicore__ inline void IteratorSlice();
+    __aicore__ inline Vec2SliceInfo &GetSlice();
+
+private:
+    CompressorTools<COMP> &tools_;
+
+    Vec2SliceInfo sliceInfo_{};
+    uint32_t needDealScSize_ = 0U;
+    uint32_t batch_size_ = 0U;
+};
+
+template <typename COMP>
+__aicore__ inline void CompressorVec2SliceIterator<COMP>::Reset(uint32_t bIdx, uint32_t scIdx, uint32_t dealedScCnt)
+{
+    uint32_t cmpRatio = tools_.toolParams_.cmpRatio;
+    sliceInfo_.bIdx = bIdx;
+    sliceInfo_.scIdx = scIdx;
+    sliceInfo_.dealedScCnt = dealedScCnt;
+    if constexpr (COMP::xLayout == X_LAYOUT::BSH) {
+        sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+        sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
+        sliceInfo_.scNum = (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) / cmpRatio - sliceInfo_.bStartPos / cmpRatio;
+        sliceInfo_.remainScCnt = sliceInfo_.scNum - sliceInfo_.scIdx;
+        sliceInfo_.bOutputScLen = CeilDivT(tools_.GetSeqLength(sliceInfo_.bIdx), cmpRatio);
+        sliceInfo_.padScIdx = sliceInfo_.bIdx * sliceInfo_.bOutputScLen + sliceInfo_.scIdx;
+    } else {
+        sliceInfo_.padScIdx = sliceInfo_.dealedScCnt;
+    }
+    sliceInfo_.loopDealedScCnt = 0U;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorVec2SliceIterator<COMP>::ResetLoopDealedScCnt()
+{
+    sliceInfo_.loopDealedScCnt = 0U;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorVec2SliceIterator<COMP>::SetMaxBatchSize(uint32_t batch_size)
+{
+    this->batch_size_ = batch_size;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorVec2SliceIterator<COMP>::SetNeedDealScSize(uint32_t needDealScSize)
+{
+    this->needDealScSize_ = needDealScSize;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorVec2SliceIterator<COMP>::IteratorSlice()
+{
+    if constexpr (COMP::xLayout == X_LAYOUT::TH) {
+        sliceInfo_.padScIdx += sliceInfo_.curDealScNum;
+    } else {
+        if (needDealScSize_ <= sliceInfo_.remainScCnt) {
+            sliceInfo_.scIdx += sliceInfo_.curDealScNum;
+            sliceInfo_.padScIdx += sliceInfo_.curDealScNum;
+        } else {
+            uint32_t cmpRatio = tools_.toolParams_.cmpRatio;
+            sliceInfo_.padScIdx += sliceInfo_.bOutputScLen - sliceInfo_.scIdx;
+            sliceInfo_.bIdx++;
+            sliceInfo_.scIdx = 0;
+            sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+            sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
+            sliceInfo_.scNum =
+                (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) / cmpRatio - sliceInfo_.bStartPos / cmpRatio;
+        }
+        sliceInfo_.remainScCnt = sliceInfo_.scNum - sliceInfo_.scIdx;
+    }
+    sliceInfo_.dealedScCnt += sliceInfo_.curDealScNum;
+    needDealScSize_ -= sliceInfo_.curDealScNum;
+    sliceInfo_.loopDealedScCnt += sliceInfo_.curDealScNum;
+}
+
+template <typename COMP>
+__aicore__ inline uint32_t CompressorVec2SliceIterator<COMP>::GetNeedDealScSize()
+{
+    return needDealScSize_;
+}
+
+template <typename COMP>
+__aicore__ inline bool CompressorVec2SliceIterator<COMP>::IsEnd()
+{
+    return (needDealScSize_ == 0);
+}
+
+template <typename COMP>
+__aicore__ inline Vec2SliceInfo &CompressorVec2SliceIterator<COMP>::GetSlice()
+{
+    if constexpr (COMP::xLayout == X_LAYOUT::TH) {
+        sliceInfo_.curDealScNum = needDealScSize_;
+    } else {
+        sliceInfo_.curDealScNum = min(sliceInfo_.remainScCnt, needDealScSize_);
+    }
+    return sliceInfo_;
+}
+
 }  // namespace Compressor
 
 #endif

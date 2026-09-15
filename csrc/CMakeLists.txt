@@ -6,6 +6,17 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # --- SOC_VERSION ARCH mapping ------
 string(TOLOWER "${SOC_VERSION}" _sgl_soc_lower)
+# Kernel arch family, derived from the SoC:
+#   arch22: A2 (Ascend910B*) / A3 (Ascend910_9382)
+#   arch35: A5 (Ascend950*)
+if(_sgl_soc_lower MATCHES "^ascend950")
+    set(SGL_KERNEL_ARCH arch35)
+else()
+    set(SGL_KERNEL_ARCH arch22)
+endif()
+# A3-family-specific operators (compiled only on the A2/A3 arch family).
+# Note: this is an A3-family toggle, NOT an arch selector -- dual-arch ops
+# must use SGL_KERNEL_ARCH instead.
 if(NOT DEFINED SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     if(_sgl_soc_lower MATCHES "^ascend950")
         set(SGL_KERNEL_ENABLE_A3_ONLY_OPS OFF)
@@ -16,7 +27,17 @@ endif()
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     add_compile_definitions(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
 endif()
-message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
+# Expose the arch family to host compilation (SGL_KERNEL_ARCH_22 / _35).
+# Dual-arch host code selects its arch implementation with these macros.
+if(SGL_KERNEL_ARCH STREQUAL "arch35")
+    add_compile_definitions(SGL_KERNEL_ARCH_35)
+else()
+    add_compile_definitions(SGL_KERNEL_ARCH_22)
+endif()
+message(STATUS "SGL_KERNEL_ARCH=${SGL_KERNEL_ARCH} SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
+
+# Compressor dual-arch tiling: arch22 on A2/A3, arch35 on A5.
+set(COMPRESSOR_ARCH_DIR ${SGL_KERNEL_ARCH})
 
 # A5-only ops: compile only on Ascend950-series SoCs.
 if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
@@ -52,7 +73,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor.cpp
-    ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/compressor/op_host/${COMPRESSOR_ARCH_DIR}/compressor_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
@@ -173,10 +194,14 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 endif()
 
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
+# The compressor entry (compressor.cpp) resolves `compressor_kernel.h` through
+# this include path, so only one arch's headers are visible per build; the arch
+# dir is selected by the same SOC flag as the tiling above.
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
+    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/${COMPRESSOR_ARCH_DIR}
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
     ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
