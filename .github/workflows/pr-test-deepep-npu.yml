@@ -943,6 +943,15 @@ jobs:
           --num-tests 10 \
           --weight-format NZ
 
+      - name: Run test combine only
+        # Cover combine-only correctness on A5 (A2/A3 jobs already cover this)
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2500
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --num-processes=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency" --num-processes=4
+
       - name: Run test mixed normal and low-latency
         # Cover mixed normal + low-latency deployment on A5 (A3/A2 jobs already cover this)
         timeout-minutes: 20
