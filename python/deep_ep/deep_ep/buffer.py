@@ -371,8 +371,10 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
-        # Resolve quant_mode from bool flags + device architecture
         quant_mode = _resolve_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
+        if quant_mode is None:
+            is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT", "0")
+            quant_mode = "int8" if is_quant_env == "1" else "bf16"
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
@@ -682,15 +684,7 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
-        quant_mode = None
-        if self.low_latency_strategy.get_name() == "default":
-            resolved_use_mxfp8 = use_mxfp8 or (use_fp8 and use_ue8m0)
-            resolved_use_fp8 = use_fp8 and not use_ue8m0
-            quant_mode = _resolve_quant_mode(
-                use_fp8=resolved_use_fp8,
-                use_mxfp4=use_mxfp4,
-                use_mxfp8=resolved_use_mxfp8,
-            )
+        quant_mode = _resolve_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
 
         return self.low_latency_strategy.low_latency_dispatch(
             x=x,
@@ -785,6 +779,9 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        activation: Optional[str] = "swiglu",
+        beta: Optional[float] = 4.0,
+        linear_beta: Optional[float] = 25.0,
         profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -792,7 +789,7 @@ class Buffer:
 
         Two fuse modes are available via the FuseMode enum:
         - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
-          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          InitRouting + AllToAll + GMM1 + DequantActivationQuant + GMM2 + Dequant
           + Unpermute/Combine in a single AscendC kernel.
         - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
           InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
@@ -831,6 +828,12 @@ class Buffer:
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
                 values 1 or 2 directly.
+            activation: activation used after GMM1. ``"swiglu"`` selects
+                SwiGLU (default); ``"situ"`` selects SiTU.
+            beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
+            linear_beta: SiTU up-projection soft-saturation bound. A positive
+                value enables the transform; ``None`` leaves the up branch unchanged.
+            profile_enable: whether to enable fused-kernel profiling (default: False).
 
         Notes:
             - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
@@ -868,9 +871,16 @@ class Buffer:
                 num_experts,
                 quant_mode,
                 profile_enable,
+                activation,
+                beta,
+                linear_beta,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            if activation == "situ":
+                raise NotImplementedError(
+                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
+                )
             # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(

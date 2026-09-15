@@ -1,16 +1,16 @@
-"""A5 FusedDeepMoe correctness and performance comparison script."""
+"""A5 FusedDeepMoe correctness and performance comparison for SwiGLU or SiTU."""
 
 import argparse
 import os
 import random
 import traceback
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-from utils import calc_diff, init_dist, profile_npu_event_sequences
+from utils import calc_diff, get_diff_threshold, init_dist, profile_npu_event_sequences
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -71,6 +71,7 @@ SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS = 100
 SMALL_FIRST_WARMUP_MATMUL_DIM_SCALE = 4
 ACCURACY_ATOL = 2.0
 ACCURACY_RTOL = 0.02
+SITU_MAX_MISMATCH_RATIO = 1e-4
 
 
 def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
@@ -246,6 +247,24 @@ def make_small_op_padded_inputs(
     }
 
 
+def situ_reference(
+    x: torch.Tensor, beta: Optional[float], linear_beta: Optional[float]
+) -> torch.Tensor:
+    # GMM1 already returns the input dtype, matching the fused epilogue's
+    # half-precision rounding. Compute both branches and their product in FP32,
+    # then round once before MX quantization.
+    gate, up = x.float().chunk(2, dim=-1)
+    beta = 4.0 if beta is None else beta
+    # Follow the kernel's multiply-by-reciprocal and Exp/Add/Div order.
+    # Multiplying by sigmoid is algebraically equivalent, but has different
+    # FP32 rounding before BF16 and MX quantization.
+    gate_out = beta * torch.tanh(gate * (1.0 / beta))
+    gate_out = gate_out / (torch.exp(-gate) + 1.0)
+    if linear_beta is not None:
+        up = linear_beta * torch.tanh(up * (1.0 / linear_beta))
+    return (gate_out * up).to(x.dtype)
+
+
 def run_small_op_baseline(
     inputs: Dict[str, torch.Tensor],
     hcomm_name: str,
@@ -324,11 +343,16 @@ def run_small_op_baseline(
         output_dtype=output_dtype,
     )[0]
     log_quant_tensor(rank, args.log_quant_dtypes, "gmm1.output", y1_fp)
-    swiglu_out = torch_npu.npu_swiglu(y1_fp)
-    log_quant_tensor(rank, args.log_quant_dtypes, "swiglu.output", swiglu_out)
+    if args.activation == "situ":
+        activation_out = situ_reference(y1_fp, args.beta, args.linear_beta)
+    else:
+        activation_out = torch_npu.npu_swiglu(y1_fp)
+    log_quant_tensor(
+        rank, args.log_quant_dtypes, f"{args.activation}.output", activation_out
+    )
 
     x2, x2_scale = torch_npu.npu_dynamic_mx_quant(
-        swiglu_out, dst_type=quant_cfg["quant_dst_type"]
+        activation_out, dst_type=quant_cfg["quant_dst_type"]
     )
     x2 = x2.view(quant_cfg["origin_dtype"])
 
@@ -405,6 +429,9 @@ def run_buffer_fused(
         args.num_experts,
         FUSED_COMPAT_QUANT_MODE,
         profile_enable=kernel_trace_dir is not None,
+        activation=args.activation,
+        beta=args.beta,
+        linear_beta=args.linear_beta,
     )
     return output, ep_recv_count
 
@@ -678,8 +705,10 @@ def summarize_output_diff(
 ) -> Tuple[float, float, float]:
     if reference.numel() == 0:
         return 0.0, 0.0, 0.0
-    reference_f = reference.float()
-    actual_f = actual.float()
+    # Compute diagnostics on CPU because A5 does not support FP64 and silently
+    # downcasts calc_diff's double arithmetic to FP32.
+    reference_f = reference.float().cpu()
+    actual_f = actual.float().cpu()
     eps = 1e-8
     reference_nozero = torch.where(reference_f == 0, eps, reference_f)
     rel_diff = torch.abs(actual_f - reference_f) / torch.abs(reference_nozero)
@@ -813,7 +842,8 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 f"moe_intermediate_size={args.moe_intermediate_size}, "
                 f"num_experts={args.num_experts}, "
                 f"num_topk={args.num_topk}, "
-                f"quant={args.quant}, "
+                f"quant={args.quant}, activation={args.activation}, "
+                f"beta={args.beta}, linear_beta={args.linear_beta}, "
                 f"kernel_trace_dir={args.kernel_trace_dir}, "
                 f"num_warmups={args.num_warmups}, "
                 f"num_tests={args.num_tests}, "
@@ -896,6 +926,16 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         fused_absmax, fused_mean = summarize_tensor_stats(
             fused_output[:valid_token_num]
         )
+        mismatch_ratio = 0.0
+        small_cpu = None
+        fused_cpu = None
+        if has_valid_tokens:
+            small_cpu = small_output[:valid_token_num].float().cpu()
+            fused_cpu = fused_output[:valid_token_num].float().cpu()
+            if args.activation == "situ":
+                abs_error = (small_cpu - fused_cpu).abs()
+                tolerance = ACCURACY_ATOL + ACCURACY_RTOL * fused_cpu.abs()
+                mismatch_ratio = (abs_error > tolerance).float().mean().item()
         diag_tensor = torch.tensor(
             [
                 avg_diff,
@@ -906,6 +946,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 fused_absmax,
                 fused_mean,
                 float(has_valid_tokens),
+                mismatch_ratio,
             ],
             dtype=torch.float32,
             device="npu",
@@ -917,10 +958,37 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         ]
         dist.all_gather(gathered_fused_counts, fused_counts)
         dist.barrier()
-        if has_valid_tokens:
+        if args.activation == "situ":
+            # SiTU is composed from generic Tanh/Exp/Div ops in the baseline,
+            # while the fused path uses AscendC intrinsics before MX
+            # quantization. Check the standard quantized-output metric and
+            # limit sparse values that cross a quantization boundary.
+            quant_type = "fp4" if args.quant.startswith("fp4") else "fp8"
+            diff_threshold = get_diff_threshold(quant_type)
+            local_accuracy_failed = has_valid_tokens and (
+                cosine_diff >= diff_threshold
+                or mismatch_ratio > SITU_MAX_MISMATCH_RATIO
+            )
+            accuracy_failed = torch.tensor(
+                [int(local_accuracy_failed)], dtype=torch.int32, device="npu"
+            )
+            dist.all_reduce(accuracy_failed, op=dist.ReduceOp.MAX)
+            if accuracy_failed.item():
+                if local_accuracy_failed:
+                    raise AssertionError(
+                        f"SiTU accuracy failed on rank {rank}: "
+                        f"calc_diff={cosine_diff:.8e} (limit {diff_threshold}), "
+                        f"mismatch_ratio={mismatch_ratio:.8e} "
+                        f"(limit {SITU_MAX_MISMATCH_RATIO})"
+                    )
+                raise AssertionError(
+                    "SiTU accuracy failed on another rank; performance testing "
+                    "was not started."
+                )
+        elif has_valid_tokens:
             torch.testing.assert_close(
-                small_output[:valid_token_num].float(),
-                fused_output[:valid_token_num].float(),
+                small_cpu,
+                fused_cpu,
                 atol=ACCURACY_ATOL,
                 rtol=ACCURACY_RTOL,
             )
@@ -932,13 +1000,17 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 for idx in range(world_size)
                 if gathered_diag_cpu[idx, 7].item() == 0.0
             ]
-            print(
-                "Accuracy check passed. "
+            accuracy_summary = (
+                f"{args.activation} accuracy check passed. "
                 f"avg_diff={gathered_diag_cpu[:, 0].max().item():.6f}, "
                 f"max_diff={gathered_diag_cpu[:, 1].max().item():.6f}, "
-                f"calc_diff={gathered_diag_cpu[:, 2].max().item():.6f}",
-                flush=True,
+                f"calc_diff={gathered_diag_cpu[:, 2].max().item():.6f}"
             )
+            if args.activation == "situ":
+                accuracy_summary += (
+                    f", mismatch_ratio=" f"{gathered_diag_cpu[:, 8].max().item():.8e}"
+                )
+            print(accuracy_summary, flush=True)
             if skipped_accuracy_ranks:
                 print(
                     "Skipped per-token accuracy comparison for zero-token ranks: "
@@ -948,6 +1020,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 )
 
         dist.barrier()
+        if args.activation == "situ":
+            return
+
         small_stats = None
         small_breakdown_stats = None
         fused_stats = None
@@ -1219,7 +1294,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="A5 fused vs small-op correctness and profiler performance comparison"
+        description="A5 fused vs small-op correctness and performance comparison"
     )
     parser.add_argument(
         "--num-processes",
@@ -1329,7 +1404,37 @@ def main():
         action="store_true",
         help="Print per-rank small-op/fused profiler tables in addition to the mean-over-ranks summary.",
     )
+    parser.add_argument(
+        "--activation",
+        choices=("swiglu", "situ"),
+        default="swiglu",
+        help="Activation used for both correctness and performance comparisons.",
+    )
+    parser.add_argument(
+        "--beta",
+        type=float,
+        default=4.0,
+        help="SiTU gate saturation bound.",
+    )
+    parser.add_argument(
+        "--linear-beta",
+        type=float,
+        default=25.0,
+        help="SiTU up saturation bound.",
+    )
+    parser.add_argument(
+        "--no-linear-beta",
+        action="store_true",
+        help="Disable SiTU up saturation (pass linear_beta=None).",
+    )
     args = parser.parse_args()
+    if args.no_linear_beta:
+        args.linear_beta = None
+    if args.activation == "situ":
+        if not args.beta > 0:
+            parser.error("--beta must be positive for SiTU")
+        if args.linear_beta is not None and not args.linear_beta > 0:
+            parser.error("--linear-beta must be positive for SiTU")
 
     gmm1_hidden = 2 * args.moe_intermediate_size
     if args.num_processes <= 0:

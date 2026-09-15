@@ -2,6 +2,7 @@
 #define SGLANG_KERNEL_GE_HELPER_H
 #include <cstring>
 #include <cstdint>
+#include <functional>
 #include <any>
 #include <map>
 #include <mutex>
@@ -145,6 +146,11 @@ public:
                         "NPU graph capture cannot use a one-shot tiling address");
             auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
             CopyTo_(tilingTensor, tilingData, opName);
+            // The async kernel launched right after this returns reads this
+            // one-shot buffer, so tell the caching allocator to keep the block
+            // alive until the current stream has drained (it is recorded when
+            // the tensor is freed, i.e. after the launch).
+            tilingTensor.record_stream(c10_npu::getCurrentNPUStream());
             return tilingTensor;
         }
 
@@ -152,8 +158,13 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": run one eager warmup with the same configuration before NPU graph capture to initialize "
                         "the tiling cache");
-            cache.buffer =
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
+            // Allocate the persistent tiling buffer OUTSIDE the torch NPU caching
+            // allocator (aclrtMalloc + non-owning from_blob view). Its addresses are
+            // baked into captured NPU graphs, and torch-allocator-owned memory has
+            // been observed to get re-mapped/re-written by graph capture, which would
+            // corrupt the tiling between host write and device read. Dedicated GM is
+            // never touched by the allocator, so captured addresses keep their content.
+            cache.buffer = MakeBuffer_(device, tilingSize * MAX_TILING_CACHE_ENTRIES);
         } else {
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
@@ -169,6 +180,27 @@ public:
     }
 
 private:
+    // Allocate the persistent tiling buffer from dedicated GM via aclrtMalloc and
+    // wrap it in a non-owning from_blob view, so it never lives in (and is never
+    // re-mapped/re-written by) the torch NPU caching allocator or graph capture.
+    static at::Tensor MakeBuffer_(const c10::Device &device, int64_t bytes)
+    {
+        void *ptr = nullptr;
+        aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling buffer failed, acl error ",
+                    static_cast<int>(st));
+        auto del = [](void *p) {
+            if (p != nullptr) {
+                aclrtFree(p);
+            }
+        };
+        int64_t nbytes[] = {bytes};
+        int64_t bstrides[] = {1};
+        std::function<void(void *)> deleter = del;
+        return at::from_blob(ptr, at::IntArrayRef(nbytes, 1), at::IntArrayRef(bstrides, 1), deleter,
+                             at::TensorOptions().device(device).dtype(at::kByte));
+    }
+
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
     {
         // Upload on the torch_npu current stream so the H2D copy is ordered with the
@@ -279,6 +311,15 @@ public:
     }
 
     AttrDef &Int(int value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Int(int64_t value)
     {
         TORCH_CHECK(valueInitialized_ == false,
                     "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");

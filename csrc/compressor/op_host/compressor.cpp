@@ -19,7 +19,11 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "compressor_tiling.h"
+#ifdef SGL_KERNEL_ARCH_35
+#include "arch35/compressor_tiling.h"
+#else
+#include "arch22/compressor_tiling.h"
+#endif
 #include "ge_helper.h"
 #include "common_tiling.h"
 #include "common.h"
@@ -163,6 +167,26 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     // ---- 6) workspace ----
     at::Tensor workspace =
         at::empty({(int64_t)workspaceSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+#ifdef SGL_KERNEL_ARCH_35
+    // Zero the AIV db release counters (readGen, aivNum * dbWorkspaceRatio * 4
+    // bytes) so the generation handshake starts at 0. The kernel's readGen sits
+    // right after its data workspace (InitWorkspace offsets start from 0 at the
+    // buffer start). The tiling workspaceSize_ reserves, after that data
+    // region, a (aicNum+1+aivNum)*dbWorkspaceRatio*4 GM slab and the libapi
+    // prefix at the very end, so readGen starts at
+    // workspaceSize - libapiSize - gmSize (== the kernel data tail), NOT at
+    // workspaceSize - libapiSize - genFlagsSize.
+    int64_t genFlagsSize =
+        (int64_t)(tilingData.workspaceParams.aivNum * tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    int64_t libapiSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize());
+    int64_t gmSize = (int64_t)(tilingData.baseParams.usedCoreNum + 1 + tilingData.workspaceParams.aivNum) *
+                     tilingData.workspaceParams.dbWorkspaceRatio * (int64_t)sizeof(uint32_t);
+    int64_t flagsOffset = (int64_t)workspaceSize - libapiSize - gmSize;
+    if (flagsOffset >= 0) {
+        workspace.narrow(0, flagsOffset, genFlagsSize).view(at::kInt).zero_();
+    }
+#endif
 
     // ---- 7) dispatch: single kernel entry, dispatch by tilingKey inside kernel ----
     at::Tensor stateBlockTable = state_block_table.has_value()
