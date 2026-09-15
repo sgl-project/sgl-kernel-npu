@@ -341,7 +341,7 @@ __simd_vf__ inline void SoftmaxDndBase128(__ubuf__ T *inputAddr, __ubuf__ float 
                 pregAll);
         }
     }
-    // 尾块处理
+    // tail block handling
     for (uint16_t loopSc = 0; loopSc < uint16_t(vScRealSize % 4); ++loopSc) {
         Duplicate(max00, minValue);
         Duplicate(max01, minValue);
@@ -594,7 +594,7 @@ __simd_vf__ inline void SoftmaxDndBase64(__ubuf__ T *inputAddr, __ubuf__ float *
                 ((__ubuf__ T *&)inputAddr3 + loopM * RowSize + ReduceSize * RowSize * loopSc * 4), vregStore3, pregAll);
         }
     }
-    // 尾块处理
+    // tail block handling
     for (uint16_t loopSc = 0; loopSc < uint16_t(vScRealSize % 4); ++loopSc) {
         Duplicate(max00, minValue);
         Duplicate(max01, minValue);
@@ -855,7 +855,7 @@ __simd_vf__ inline void SoftmaxDndBase32(__ubuf__ T *inputAddr, __ubuf__ float *
                 pregLHalf);
         }
     }
-    // 尾块处理
+    // tail block handling
     for (uint16_t loopSc = 0; loopSc < uint16_t(vScRealSize % 4); ++loopSc) {
         Duplicate(max0, minValue);
         Duplicate(max00, minValue);
@@ -1240,7 +1240,7 @@ __simd_vf__ inline void SoftmaxDndBase16(__ubuf__ T *inputAddr, __ubuf__ float *
                 pregLHalf);
         }
     }
-    // 尾块处理
+    // tail block handling
     for (uint16_t loopSc = 0; loopSc < uint16_t(vScRealSize % 4); ++loopSc) {
         Duplicate(max0, minValue);
         Duplicate(max00, minValue);

@@ -18,7 +18,7 @@
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
-const uint32_t CMP_MAX_AIC_CORE_NUM = 26;  // 25 + 1 保证数组8字节对齐 (A2/A3)
+const uint32_t CMP_MAX_AIC_CORE_NUM = 26;  // 25 + 1 to ensure 8-byte alignment of the array (A2/A3)
 
 namespace optiling {
 struct CompressorSplitCoreParams {
@@ -30,22 +30,22 @@ struct CompressorSplitCoreParams {
     uint32_t kEnd;
 };
 
-// 1. 基础参数结构体
+// 1. Basic parameter struct
 struct CompressorBaseParams {
-    uint32_t batchSize = 0;             // bastch size（批大小）
-    uint32_t seqSize = 0;               // sequence size（kvs大小）
-    uint32_t hiddenSize = 0;            // hidden size（隐藏层大小）
-    uint32_t tokenSize = 0;             // token size = batchSize * seqSize(token总数：批大小x序列1长度)
-    uint32_t headDim = 0;               // head size of kv
-    uint32_t ropeHeadDim = 64;          // dim size per rope head 64（单个带RoPE头的维度）
-    uint32_t csSize = 0;                // Compress sequence len
-    uint32_t cmpRatio = 4;              // Compress ratio
-    uint32_t cgSize = 0;                // Compress group size
-    float normEps = 1e-6;               // RMSNorm eps
-    float reciprocalD = 0;              // 1分之D
-    uint32_t usedCoreNum = 0;           // 使用核数
-    uint32_t nSize = 0;                 // 控制v2积攒的轮数
-    uint64_t stateCacheStrideDim0 = 0;  // stateCache第0维的stride
+    uint32_t batchSize = 0;     // bastch size (batch size)
+    uint32_t seqSize = 0;       // sequence size (kvs size)
+    uint32_t hiddenSize = 0;    // hidden size (hidden layer size)
+    uint32_t tokenSize = 0;     // token size = batchSize * seqSize (total tokens: batch size x sequence length 1)
+    uint32_t headDim = 0;       // head size of kv
+    uint32_t ropeHeadDim = 64;  // dim size per rope head 64 (dimension of a single RoPE head)
+    uint32_t csSize = 0;        // Compress sequence len
+    uint32_t cmpRatio = 4;      // Compress ratio
+    uint32_t cgSize = 0;        // Compress group size
+    float normEps = 1e-6;       // RMSNorm eps
+    float reciprocalD = 0;      // 1/D
+    uint32_t usedCoreNum = 0;   // number of cores used
+    uint32_t nSize = 0;         // controls the number of rounds v2 accumulates
+    uint64_t stateCacheStrideDim0 = 0;  // stride of dimension 0 of stateCache
     uint32_t kBaseNum = 0;
     uint32_t kBaseSize = 0;
     uint32_t coreGroupNum = 0;

@@ -49,13 +49,13 @@ private:
     // ================================Process functions================================
     __aicore__ inline void InitTilingData();
     __aicore__ inline void SplitK();
-    // 获取基本块数量
+    // get the number of base blocks
     __aicore__ inline uint32_t GetLoopTimes();
     __aicore__ inline void SkipInvalidBatch(BatchInfo &batchInfo);
     __aicore__ inline void UpdateCurGroup(BasicBlockInfo &basicBlockInfo, BatchInfo batchInfo, uint32_t &curGroupQuota,
                                           uint32_t curDealSeq);
     __aicore__ inline BasicBlockInfo SkipOneLoop(BatchInfo &batchInfo);
-    // 计算分核基本信息
+    // compute basic core-split information
     __aicore__ inline void CalcSplitCoreInfo();
 
     __aicore__ inline void AllocEventID();
@@ -75,7 +75,7 @@ private:
     using MM1_OUT_T = T;
     using VEC1_OUT_T = T;
 
-    // 常量
+    // constants
     static constexpr uint64_t SYNC_MODE0 = 0;
     static constexpr uint64_t SYNC_MODE2 = 2;
     static constexpr uint32_t SYNC_C1_FLAG = 3;
@@ -139,7 +139,7 @@ __aicore__ inline void CompressorKernel<COMP>::Init(__gm__ uint8_t *x, __gm__ ui
     tools_.toolParams_.cmpRatio = tilingData_->baseParams.cmpRatio;
     tools_.Init(startPos, seqUsed, cuSeqlens);
 
-    // 剔除尾部的无效batch
+    // remove invalid batches at the tail
     for (; constInfo.batchSize > 0; --constInfo.batchSize) {
         uint32_t bSeqUsed = tools_.GetSeqLength(constInfo.batchSize - 1);
         if (bSeqUsed > 0) {
@@ -147,21 +147,21 @@ __aicore__ inline void CompressorKernel<COMP>::Init(__gm__ uint8_t *x, __gm__ ui
         }
     }
 
-    // 所有batch的有效序列都为0时, 直接退出
+    // when the valid sequences of all batches are 0, exit directly
     if (constInfo.batchSize == 0) {
         return;
     }
 
-    // 0. 计算最后一个Tc块的起始位置
+    // 0. Compute the start position of the last Tc block
     constInfo.bIdxOfLastTc = constInfo.batchSize - 1;
-    // 1. 计算head_dim的切分大小, 构建ConstInfo的其他信息
+    // 1. Compute the head_dim split size and build the rest of ConstInfo
     CalcSplitCoreInfo();
-    SplitK();  // K轴切分
-    // 2. 计算循环次数
+    SplitK();  // K-axis split
+    // 2. Compute the number of loop iterations
     loopTimes = GetLoopTimes();
-    // 3. 初始化workspace
+    // 3. Initialize workspace
     InitWorkspace(workspace);
-    // 4. 初始化block层
+    // 4. Initialize the block layer
     if ASCEND_IS_AIC {
         blockCube_.InitParams(constInfo, tools_);
         blockCube_.Init(x, wKv, wGate, stateCache, ape, normWeight, ropeSin, ropeCos, stateBlockTable, cuSeqlens,
@@ -211,7 +211,7 @@ __aicore__ inline void CompressorKernel<COMP>::SplitK()
     uint32_t mSize = 0;
     for (uint32_t i = 0; i < constInfo.batchSize; i++) {
         uint32_t bSeqUsed = tools_.GetSeqLength(i);
-        // 获取m大小
+        // get the size of m
         mSize += bSeqUsed;
     }
 
@@ -221,11 +221,11 @@ __aicore__ inline void CompressorKernel<COMP>::SplitK()
         uint32_t kAlignSize = CeilDivT(
             Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
         constInfo.kBaseSize = Trunc(kAlignSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T)));
-        // 当切m轴无法满足开满核时，不切m轴(切m处理有点复杂)
-        constInfo.mGroupNum = 1;     // 在m轴处理上所有核当一个组
-        constInfo.mCurGroupIdx = 0;  // 只有一个组
+        // when splitting the m axis cannot fill all cores, do not split the m axis (splitting m is a bit complex)
+        constInfo.mGroupNum = 1;     // all cores act as one group for m-axis processing
+        constInfo.mCurGroupIdx = 0;  // only one group
     }
-    // 每轮固定不变，预计算后主循环直接复用
+    // fixed for each round; after precomputation the main loop reuses it directly
     if (constInfo.kBaseNum > 1) {
         kStartIdx_ = constInfo.aiCoreIdx / constInfo.dBasicBlockNum;
         if (constInfo.curGroupIdx + 1 < constInfo.coreGroupNum) {
@@ -272,7 +272,7 @@ template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::UpdateCurGroup(BasicBlockInfo &basicBlockInfo, BatchInfo batchInfo,
                                                               uint32_t &curGroupQuota, uint32_t curDealSeq)
 {
-    // 更新当前组的信息
+    // update information of the current group
     if (curGroupQuota == 0 && !isFirstUpdateCurGroup) {
         return;
     }
@@ -282,7 +282,8 @@ __aicore__ inline void CompressorKernel<COMP>::UpdateCurGroup(BasicBlockInfo &ba
     basicBlockInfo.sIdx = batchInfo.sIdx + curGroupDealSeq;
     basicBlockInfo.dealSeqCnt += curGroupDealSeq;
     curGroupQuota -= curGroupDealSeq;
-    // 结尾需要跳batch，需要考虑在当前组起始为末尾，或者当前组起始大于整个M轴
+    // the end needs to jump batch; must consider that the current group start is at the end, or the current group start
+    // is greater than the entire M axis
     if ((curGroupQuota == 0 || basicBlockInfo.bIdx == constInfo.batchSize - 1) &&
         basicBlockInfo.sIdx == batchInfo.seqCnt) {
         basicBlockInfo.sIdx = 0;
@@ -300,7 +301,7 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
 {
     BasicBlockInfo basicBlockInfo{};
     isFirstUpdateCurGroup = true;
-    uint32_t curGroupQuota = constInfo.mBaseSize * constInfo.mCurGroupIdx;  // m轴当前组起始
+    uint32_t curGroupQuota = constInfo.mBaseSize * constInfo.mCurGroupIdx;  // m-axis start of the current group
     bool curGroupStartFlag = false;
     uint32_t quota = constInfo.mGroupNum * constInfo.mBaseSize;
 
@@ -308,40 +309,40 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
         uint32_t curDealSeq = 0;
         uint32_t curDealTcNum = 0;
         uint32_t curDealCompressedTcNum = 0;
-        // 无法处理完当前整个batch
+        // cannot finish processing the entire current batch
         if (quota < batchInfo.remSeqCnt) {
-            // 向下对齐r，
+            // align r downward,
             uint32_t alignSeq = constInfo.cmpRatio;
             if (batchInfo.bIdx == 0) {
                 alignSeq = constInfo.cmpRatio - batchInfo.headHolderSeq;
             }
             if (quota > alignSeq) {
-                uint32_t delta =
-                    (batchInfo.bStartPos + batchInfo.sIdx + quota) & (constInfo.cmpRatio - 1);  // 超出对齐的部分
+                uint32_t delta = (batchInfo.bStartPos + batchInfo.sIdx + quota) &
+                                 (constInfo.cmpRatio - 1);  // the part exceeding the alignment
                 curDealSeq = quota - delta;
                 quota -= curDealSeq;
                 curDealTcNum = (curDealSeq + constInfo.cmpRatio - 1) / constInfo.cmpRatio;
                 curDealCompressedTcNum = min(curDealTcNum, batchInfo.compressedTcNum);
-                // 更新当前组所需信息
+                // update information needed by the current group
                 UpdateCurGroup(basicBlockInfo, batchInfo, curGroupQuota, curDealSeq);
-                // 更新batch信息
+                // update batch information
                 batchInfo.remSeqCnt = batchInfo.remSeqCnt - curDealSeq;
                 batchInfo.sIdx = batchInfo.sIdx + curDealSeq;
                 batchInfo.compressedTcNum -= curDealCompressedTcNum;
                 batchInfo.tcNum -= curDealTcNum;
-                // 更新loop信息
+                // update loop information
                 basicBlockInfo.dealTcNum += curDealTcNum;
                 basicBlockInfo.compressedTcNum += curDealCompressedTcNum;
             }
             break;
         } else {
-            // 处理整个batch
+            // process the entire batch
             quota -= batchInfo.remSeqCnt;
             curDealSeq = batchInfo.remSeqCnt;
             curDealTcNum = batchInfo.tcNum;
-            // 更新当前组所需信息
+            // update information needed by the current group
             UpdateCurGroup(basicBlockInfo, batchInfo, curGroupQuota, curDealSeq);
-            // 更新batch和loop信息
+            // update batch and loop information
             batchInfo.remSeqCnt = 0;
             basicBlockInfo.dealTcNum += batchInfo.tcNum;
             basicBlockInfo.compressedTcNum += batchInfo.compressedTcNum;
@@ -350,15 +351,15 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
         }
     }
     uint32_t totalDataSize = constInfo.mGroupNum * constInfo.mBaseSize - quota;
-    // 2. 当前组的起始偏移
+    // 2. Start offset of the current group
     uint32_t currentGroupStart = constInfo.mCurGroupIdx * constInfo.mBaseSize;
 
-    // 3. 安全判断
+    // 3. Safety check
     if (currentGroupStart >= totalDataSize) {
-        // 超出尾块
+        // exceeds the tail block
         basicBlockInfo.dealSeqCnt = 0;
     } else {
-        // 还在有效范围内，计算剩余量
+        // still within the valid range; compute the remaining amount
         uint32_t remaining = totalDataSize - currentGroupStart;
         basicBlockInfo.dealSeqCnt = (remaining < constInfo.mBaseSize) ? remaining : constInfo.mBaseSize;
     }
@@ -368,7 +369,7 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
 template <typename COMP>
 __aicore__ inline uint32_t CompressorKernel<COMP>::GetLoopTimes()
 {
-    // 计算主循环次数
+    // compute the number of main loop iterations
     uint32_t loopTimes = 0;
     BatchInfo batchInfo{};
     SkipInvalidBatch(batchInfo);
@@ -381,13 +382,13 @@ __aicore__ inline uint32_t CompressorKernel<COMP>::GetLoopTimes()
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::CalcSplitCoreInfo()
 {
-    // D方向的基本块数量
+    // number of base blocks in the D direction
     constInfo.dBasicBlockNum = constInfo.headDim / constInfo.dBaseSize;
-    // 核的组数
+    // number of core groups
     constInfo.coreGroupNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
-    // 每个核处理的d方向的索引
+    // index in the d direction processed by each core
     constInfo.dIdx = constInfo.aiCoreIdx % constInfo.dBasicBlockNum;
-    // 当前组id
+    // current group id
     constInfo.curGroupIdx = constInfo.aiCoreIdx / constInfo.dBasicBlockNum;
     constInfo.mGroupNum = constInfo.coreGroupNum;
     constInfo.mCurGroupIdx = constInfo.curGroupIdx;
@@ -520,7 +521,7 @@ __aicore__ inline void CompressorKernel<COMP>::FreeEventID()
 template <typename COMP>
 __aicore__ inline bool CompressorKernel<COMP>::IsNeedExcuteC1(RunInfo info)
 {
-    // B超出范围则cube不执行
+    // If B is out of range, cube does not execute
     return info.bStart < constInfo.batchSize;
 }
 
@@ -571,12 +572,12 @@ template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::UpdateVec2Info(Vec2RunInfo &vec2Info, uint32_t curBasicBlockIdx,
                                                               const Vec1RunInfo &info)
 {
-    // nSize轮起始先重置v2Info信息
+    // reset v2Info information at the start of each nSize round
     if (curBasicBlockIdx % constInfo.nSize == 0) {
         vec2Info.v2DbIdx = (vec2Loop & (constInfo.dbWorkspaceRatio - 1));
         vec2Info.bStart = info.bStart;
         vec2Info.sStart = info.sStart;
-        // 将sStart转成bCompressedId
+        // convert sStart to bCompressedId
         uint32_t startPos = tools_.GetStartPos(info.bStart);
         if (tools_.isExistSeqUsed_) {
             uint32_t seqUsed = tools_.GetSeqUsed(info.bStart);
@@ -598,7 +599,7 @@ __aicore__ inline void CompressorKernel<COMP>::UpdateVec2Info(Vec2RunInfo &vec2I
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::Process()
 {
-    // 所有batch的有效序列都为0时, 直接退出
+    // when the valid sequences of all batches are 0, exit directly
     if (constInfo.batchSize == 0) {
         return;
     }

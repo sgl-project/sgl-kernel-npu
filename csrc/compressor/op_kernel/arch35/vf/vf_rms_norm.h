@@ -17,7 +17,7 @@
 #define VF_RMS_NORM_H
 #include "kernel_tensor.h"
 
-// repeatTimes——D轴的分块数
+// repeatTimes -- number of blocks along the D axis
 template <typename T, typename GammaType>
 __simd_vf__ void RmsNormVFImpl(__ubuf__ T *inputBuf, __ubuf__ GammaType *gammaBuf, __ubuf__ T *outputBuf,
                                uint32_t repeatTimes, float reciprocal, float epsilon)
@@ -69,15 +69,15 @@ __simd_vf__ void RmsNormVFImpl(__ubuf__ T *inputBuf, __ubuf__ GammaType *gammaBu
 }
 
 /**
- * @brief RmsNormVF 对一行进行rmsnorm
- * @param outputLocal 输出tensor [row, col]，row目前均为1
- * @param inputLocal 输入tensor [row, col]
- * @param gammaLocal gamma参数tensor [row, col]
- * @param rmsNormParams rmsNrom计算所需系数，包括
-          row 行数  1
-          col 列数，对应headSizeCq或headSizeCkv
-          reciprocal ，1/N
-          epsilon，防止除零极小数
+ * @brief RmsNormVF applies rmsnorm to one row
+ * @param outputLocal output tensor [row, col]; row is currently always 1
+ * @param inputLocal input tensor [row, col]
+ * @param gammaLocal gamma parameter tensor [row, col]
+ * @param rmsNormParams coefficients needed for rmsNrom computation, including
+          row number of rows  1
+          col number of columns, corresponding to headSizeCq or headSizeCkv
+          reciprocal: 1/N
+          epsilon, a very small number to prevent division by zero
  */
 template <typename T, typename GammaType>
 __aicore__ inline void RmsNormVF(const LocalTensor<T> outputLocal, const LocalTensor<T> inputLocal,

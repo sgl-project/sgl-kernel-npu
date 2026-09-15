@@ -22,9 +22,9 @@
 namespace Compressor {
 
 /**
- * @brief SetGatherSrcOffset 计算用于interleave模式的offset
- * @param gatherOffsetLocal 输出tensor [count]，数据类型需要为int64_t，使用时要转换
- * @param count offset的元素个数，一般为列数
+ * @brief SetGatherSrcOffset computes the offset used in interleave mode
+ * @param gatherOffsetLocal output tensor [count]; data type must be int64_t, convert when using
+ * @param count number of offset elements, usually the number of columns
  */
 template <typename T>
 __aicore__ inline void SetGatherSrcOffset(const LocalTensor<int32_t> &gatherOffsetLocal, uint32_t count)
@@ -54,17 +54,17 @@ __aicore__ inline void SetGatherSrcOffset(const LocalTensor<int32_t> &gatherOffs
 }
 
 /**
- * @brief RotaryPosEmb 同时做row行的RotaryPosEmb，每一行的元素为col
- * @param dstLocal 输出tensor [row, actualCol]，支持和srcLocal是同一块空间
- * @param srcLocal 输入tensor [row, actualCol]
- * @param cosLocal cos系数tensor [row, col]
- * @param sinLocal sin系数tensor [row, col]
- * @param shareTmpUb 临时buffer 内部需要的空间为 [row * col * sizeof(float)]
- * @param gatherOffsetcastLocal 用于interleave模式的offset，数据类型需要为uint64_t
- * @param row 待处理的行数
- * @param col 待处理的列数
- * @param actualCol 实际列数
- * @param baseAddr 计算基地址
+ * @brief RotaryPosEmb applies RotaryPosEmb to row rows at once; each row has col elements
+ * @param dstLocal output tensor [row, actualCol]; may share the same space as srcLocal
+ * @param srcLocal input tensor [row, actualCol]
+ * @param cosLocal cos coefficient tensor [row, col]
+ * @param sinLocal sin coefficient tensor [row, col]
+ * @param shareTmpUb temporary buffer; internal space required is [row * col * sizeof(float)]
+ * @param gatherOffsetcastLocal offset used in interleave mode; data type must be uint64_t
+ * @param row number of rows to process
+ * @param col number of columns to process
+ * @param actualCol actual number of columns
+ * @param baseAddr base address for computation
  */
 template <ROTARY_MODE MODE>
 __aicore__ inline void RotaryPosEmb(const LocalTensor<float> &dstLocal, const LocalTensor<float> &srcLocal,

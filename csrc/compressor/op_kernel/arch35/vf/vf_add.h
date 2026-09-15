@@ -332,14 +332,14 @@ __simd_vf__ void MultiAdd512VFImpl(__ubuf__ T *outputAddr, __ubuf__ T *inputAddr
 }
 
 /**
- * @brief AddVF 输入与apt相加
- * @param rightLocal 输出tensor []
- * @param leftLocal 输入tensor [row, col]
- * @param aptLocal apt输入tensor [r]
- * @param apeIdx ape起始位置
- * @param d  coff*d为ape的D轴大小
- * @param coreSplitD scoreleft大小，coff*coreSplitD为总大小
- * @param coreSplitS 核间d轴切分大小
+ * @brief AddVF adds input and apt
+ * @param rightLocal output tensor []
+ * @param leftLocal input tensor [row, col]
+ * @param aptLocal apt input tensor [r]
+ * @param apeIdx ape start position
+ * @param d  coff*d is the D-axis size of ape
+ * @param coreSplitD scoreleft size; coff*coreSplitD is the total size
+ * @param coreSplitS inter-core d-axis split size
  */
 template <typename T>
 __aicore__ inline void AddVF(const LocalTensor<T> &scoreLocal, const LocalTensor<T> &apeLocal, uint32_t row,

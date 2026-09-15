@@ -47,9 +47,9 @@ private:
     __aicore__ inline void InitWorkspace(__gm__ uint8_t *workspace);
     // ================================Process functions================================
     __aicore__ inline void InitTilingData();
-    // 获取基本块数量
+    // get the number of base blocks
     __aicore__ inline void SkipInvalidBatch(BatchInfo &batchInfo);
-    // 计算分核基本信息
+    // compute basic core-split information
     __aicore__ inline void CalcSplitCoreInfo();
 
     __aicore__ inline void AllocEventID();
@@ -70,7 +70,7 @@ private:
     using MM1_OUT_T = T;
     using VEC1_OUT_T = T;
 
-    // 常量
+    // constants
     static constexpr uint64_t SYNC_MODE0 = 0;
     static constexpr uint64_t SYNC_MODE2 = 2;
     static constexpr uint32_t SYNC_C1_FLAG = 3;
@@ -132,7 +132,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::Init(__gm__ uint8_t *x, _
     tools_.toolParams_.cmpRatio = tilingData_->baseParams.cmpRatio;
     tools_.Init(startPos, seqUsed, cuSeqlens);
 
-    // 剔除尾部的无效batch
+    // remove invalid batches at the tail
     for (; constInfo.batchSize > 0; --constInfo.batchSize) {
         uint32_t bSeqUsed = tools_.GetSeqLength(constInfo.batchSize - 1);
         if (bSeqUsed > 0) {
@@ -140,20 +140,20 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::Init(__gm__ uint8_t *x, _
         }
     }
 
-    // 所有batch的有效序列都为0时, 直接退出
+    // when the valid sequences of all batches are 0, exit directly
     if (constInfo.batchSize == 0) {
         return;
     }
 
-    // 0. 计算最后一个Tc块的起始位置
+    // 0. Compute the start position of the last Tc block
     constInfo.bIdxOfLastTc = constInfo.batchSize - 1;
-    // 1. 计算head_dim的切分大小, 构建ConstInfo的其他信息
+    // 1. Compute the head_dim split size and build the rest of ConstInfo
     CalcSplitCoreInfo();
-    // 2. 计算循环次数
+    // 2. Compute the number of loop iterations
     loopTimes = 1;
-    // 3. 初始化workspace
+    // 3. Initialize workspace
     InitWorkspace(workspace);
-    // 4. 初始化block层
+    // 4. Initialize the block layer
     if ASCEND_IS_AIC {
         blockCube_.InitParams(constInfo, tools_);
         blockCube_.Init(x, wKv, wGate, stateCache, ape, normWeight, ropeSin, ropeCos, stateBlockTable, cuSeqlens,
@@ -234,11 +234,11 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::SkipInvalidBatch(BatchInf
 template <typename COMP>
 __aicore__ inline void CompressorKernelFullLoad<COMP>::CalcSplitCoreInfo()
 {
-    // D方向的基本块数量
+    // number of base blocks in the D direction
     constInfo.dBasicBlockNum = constInfo.headDim / constInfo.dBaseSize;
-    // 核的组数
+    // number of core groups
     constInfo.coreGroupNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
-    // 当前组id
+    // current group id
     constInfo.curGroupIdx = constInfo.aiCoreIdx / constInfo.dBasicBlockNum;
     constInfo.mGroupNum = constInfo.coreGroupNum;
     constInfo.mCurGroupIdx = constInfo.curGroupIdx;
@@ -346,7 +346,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::FreeEventID()
 template <typename COMP>
 __aicore__ inline bool CompressorKernelFullLoad<COMP>::IsNeedExcuteC1(RunInfo info)
 {
-    // B超出范围则cube不执行
+    // If B is out of range, cube does not execute
     return info.bStart < constInfo.batchSize;
 }
 
@@ -401,12 +401,12 @@ template <typename COMP>
 __aicore__ inline void CompressorKernelFullLoad<COMP>::UpdateVec2Info(Vec2RunInfo &vec2Info, uint32_t curBasicBlockIdx,
                                                                       const Vec1RunInfo &info)
 {
-    // nSize轮起始先重置v2Info信息
+    // reset v2Info information at the start of each nSize round
     if (curBasicBlockIdx % constInfo.nSize == 0) {
         vec2Info.v2DbIdx = (vec2Loop & (constInfo.dbWorkspaceRatio - 1));
         vec2Info.bStart = info.bStart;
         vec2Info.sStart = info.sStart;
-        // 将sStart转成bCompressedId
+        // convert sStart to bCompressedId
         uint32_t startPos = tools_.GetStartPos(info.bStart);
         if (tools_.isExistSeqUsed_) {
             uint32_t seqUsed = tools_.GetSeqUsed(info.bStart);
@@ -428,7 +428,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::UpdateVec2Info(Vec2RunInf
 template <typename COMP>
 __aicore__ inline void CompressorKernelFullLoad<COMP>::Process()
 {
-    // 所有batch的有效序列都为0时, 直接退出
+    // when the valid sequences of all batches are 0, exit directly
     if (constInfo.batchSize == 0) {
         return;
     }

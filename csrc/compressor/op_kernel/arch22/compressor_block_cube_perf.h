@@ -94,18 +94,18 @@ private:
     // mte2 <> mte1 EventID
     static constexpr uint32_t X_EVENT0 = EVENT_ID0;
     static constexpr uint32_t X_EVENT1 = EVENT_ID1;
-    uint32_t xBufId = 0;  // 用于DB计数
+    uint32_t xBufId = 0;  // used for DB counting
     static constexpr uint32_t W_EVENT0 = EVENT_ID4;
     static constexpr uint32_t W_EVENT1 = EVENT_ID5;
     static constexpr uint32_t W_EVENT2 = EVENT_ID6;
     static constexpr uint32_t W_EVENT3 = EVENT_ID7;
-    uint32_t wBufId = 0;  // 用于DB计数
+    uint32_t wBufId = 0;  // used for DB counting
     // mte1 <> mmad EventID
     static constexpr uint32_t L0AB_EVENT0 = EVENT_ID3;
     static constexpr uint32_t L0AB_EVENT1 = EVENT_ID4;
     uint32_t l0abBufId = 0;
     // mmad <> fixpipe EventID
-    static constexpr uint32_t L0C_EVENT0 = EVENT_ID0;  // 每块L0C单独分配EVENT_ID
+    static constexpr uint32_t L0C_EVENT0 = EVENT_ID0;  // each L0C block is assigned a separate EVENT_ID
     static constexpr uint32_t L0C_EVENT1 = EVENT_ID1;
     uint32_t l0cBufId = 0;
 
@@ -145,11 +145,13 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockCubePerf<COMP>::InitBuffers(TPipe *pipe)
 {
     // L1
-    // 1. coff=1时, mBase=256, kL1=256, X单次拷贝到L1的数据量最大为mBase*kL1*sizeof(BF16/FP16)=256*256*2=128K
-    // 2. coff=2时, mBase=128, kL1=256, r最大为128, X单次拷贝到L1的最大数据量为(128+r)*kL1*sizeof(BF16/FP16)<=128K
+    // 1. When coff=1, mBase=256, kL1=256, the maximum data copied from X to L1 in one transfer is
+    // mBase*kL1*sizeof(BF16/FP16)=256*256*2=128K
+    // 2. When coff=2, mBase=128, kL1=256, r is at most 128, the maximum data copied from X to L1 in one transfer is
+    // (128+r)*kL1*sizeof(BF16/FP16)<=128K
     pipe->InitBuffer(xBufL1, L1_X_SIZE * 2);
-    // dBaseSize<=64, wkv和wgate各一份, kL1=256, 右矩阵为dBaseSize*2*sizeof(BF16/FP16)<=64K
-    // cur和pre循环使用, 2份buffer就足够
+    // dBaseSize<=64, one copy each for wkv and wgate, kL1=256, the right matrix is dBaseSize*2*sizeof(BF16/FP16)<=64K
+    // cur and pre are used in a loop; 2 buffers are sufficient
     pipe->InitBuffer(wBufL1, L1_W_SIZE * 4);
 
     // L0
@@ -206,16 +208,18 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockCubePerf<COMP>::CopyXGmToL1(const RunInfo &info, LocalTensor<X_T> xL1Tensor,
                                                                   uint32_t hIdx, uint32_t kBase)
 {
-    uint32_t tStart = tools_.GetTIdxByBatch(info.bStart) + info.sStart;  // 此基本块在整个序列中的位置
-    uint32_t copySeqCnt = info.dealSeqCnt;                               // 此基本块处理的长度
+    uint32_t tStart =
+        tools_.GetTIdxByBatch(info.bStart) + info.sStart;  // position of this base block in the whole sequence
+    uint32_t copySeqCnt = info.dealSeqCnt;                 // length processed by this base block
 
     uint32_t xL1Offset = 0 * (32 / sizeof(X_T));
-    uint64_t sIdx = tStart;  // 起始s在整个T的起始点
+    uint64_t sIdx = tStart;  // start point of the starting s in the whole T
     uint64_t gmOffset = sIdx * constInfo_.hSize + hIdx;
     uint32_t nValue = copySeqCnt;
-    uint32_t dValue = kBase;  // 拷贝的列数kBase
+    uint32_t dValue = kBase;  // number of columns copied, kBase
     uint32_t srcDValue = constInfo_.hSize;
-    uint32_t dstNzC0Stride = (copySeqCnt + 15) / 16 * 16;  // 1行变2行的行方向的偏移，需要16对齐
+    uint32_t dstNzC0Stride =
+        (copySeqCnt + 15) / 16 * 16;  // row-direction offset for turning 1 row into 2 rows; must be 16-aligned
     CopySingleMatrixNDToNZ(xL1Tensor[xL1Offset], xGm_[gmOffset], nValue, dValue, srcDValue, dstNzC0Stride);
 }
 
@@ -223,14 +227,16 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockCubePerf<COMP>::CopyWeightGmToL1(LocalTensor<X_T> wL1Tensor, uint32_t hIdx,
                                                                        uint32_t kBase, uint32_t coffId)
 {
-    // coffId=0, 搬运左矩阵的数据; coffId=1, 搬运右矩阵的数据
+    // coffId=0, move left matrix data; coffId=1, move right matrix data
     uint64_t gmOffset = coffId * constInfo_.headDim * constInfo_.hSize + constInfo_.dIdx * constInfo_.hSize + hIdx;
     uint32_t wkvL1Offset = 0;
-    uint32_t wgateL1Offset = constInfo_.dBaseSize * (32 / sizeof(X_T));  // wgate与wkv的起始点相隔dBaseSize个32B
+    uint32_t wgateL1Offset = constInfo_.dBaseSize *
+                             (32 / sizeof(X_T));  // the start points of wgate and wkv are separated by dBaseSize * 32B
     uint32_t nValue = constInfo_.dBaseSize;
     uint32_t dValue = kBase;
     uint32_t srcDValue = constInfo_.hSize;
-    uint32_t dstNzC0Stride = 2 * constInfo_.dBaseSize;  // 2: wkv和wgate各搬运dBaseSize行, dBaseSize需保证8的倍数
+    uint32_t dstNzC0Stride =
+        2 * constInfo_.dBaseSize;  // 2: wkv and wgate each move dBaseSize rows; dBaseSize must be a multiple of 8
     CopySingleMatrixNDToNZ(wL1Tensor[wkvL1Offset], wkvGm_[gmOffset], nValue, dValue, srcDValue, dstNzC0Stride);
     CopySingleMatrixNDToNZ(wL1Tensor[wgateL1Offset], wgateGm_[gmOffset], nValue, dValue, srcDValue, dstNzC0Stride);
 }
@@ -253,7 +259,8 @@ __aicore__ inline void CompressorBlockCubePerf<COMP>::LoadAToL0(const RunInfo &i
         loadData2DParams.srcStride = mSizeAlign / 16;
         loadData2DParams.dstGap = 0;
         loadData2DParams.ifTranspose = false;
-        LoadData(aL0Tensor[i * 16 * kBase], xL1Tensor[xTensorOffset], loadData2DParams);  // 16: 一个分型的行数
+        LoadData(aL0Tensor[i * 16 * kBase], xL1Tensor[xTensorOffset],
+                 loadData2DParams);  // 16: number of rows in one fractal
     }
 }
 
@@ -261,7 +268,8 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockCubePerf<COMP>::LoadBToL0(LocalTensor<X_T> bL0Tensor, LocalTensor<X_T> wL1Tensor,
                                                                 uint32_t kStart, uint32_t kBase)
 {
-    uint32_t rowCnt = 2 * constInfo_.dBaseSize;  // 2: wkv和wgate各搬运dBaseSize行, dBaseSize需保证8的倍数
+    uint32_t rowCnt =
+        2 * constInfo_.dBaseSize;  // 2: wkv and wgate each move dBaseSize rows; dBaseSize must be a multiple of 8
     uint64_t wTensorOffset = rowCnt * kStart;
     LoadData2DParams loadData2DParams;
     loadData2DParams.startIndex = 0;
@@ -292,11 +300,11 @@ __aicore__ inline void CompressorBlockCubePerf<COMP>::CopyOutMm1Res(const RunInf
                                                                     uint32_t coffId, uint32_t mStart,
                                                                     uint32_t mDealSize)
 {
-    // coffId=0, 存左矩阵的数据; coffId=1, 存右矩阵的数据
+    // coffId=0, store left matrix data; coffId=1, store right matrix data
     FixpipeParamsV220 fixParams;
     fixParams.mSize = mDealSize;
     fixParams.nSize = constInfo_.dBaseSize;
-    fixParams.srcStride = (mDealSize + 15) / 16 * 16;  // 需要16对齐
+    fixParams.srcStride = (mDealSize + 15) / 16 * 16;  // must be 16-aligned
     fixParams.dstStride = (uint32_t)COMP::coff * constInfo_.headDim;
     fixParams.ndNum = 1;
 
@@ -324,21 +332,22 @@ __aicore__ inline void CompressorBlockCubePerf<COMP>::ComputeMm1(const RunInfo &
     static constexpr uint32_t K_L0_BASE = 128;
     uint32_t nCoff = (uint32_t)COMP::coff;
 
-    // hSize为K_SIZE=512的倍数
+    // hSize is a multiple of K_SIZE=512
     uint32_t hSize = constInfo_.hSize;
-    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) * K_L1_BASE;  // 每组核内的h循环起始不同
+    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
+                         K_L1_BASE;  // the h loop start differs within each group of cores
     for (uint32_t h = 0; h < hSize; h += K_SIZE) {
         for (uint32_t k = 0; k < K_SIZE; k += K_L1_BASE) {
             bool isFirst = (h == 0 && k == 0);
             bool isLast = ((h + K_SIZE >= hSize) && (k + K_L1_BASE >= K_SIZE));
-            uint32_t hIdx = (h + k + hIdxStart) % hSize;  // h方向错位搬运
+            uint32_t hIdx = (h + k + hIdxStart) % hSize;  // staggered movement in the h direction
             WaitFlag<HardEvent::MTE1_MTE2>(X_EVENT0 + xBufId);
             LocalTensor<X_T> xL1Tensor = xBufL1.GetWithOffset<X_T>(L1_X_SIZE / sizeof(X_T), xBufId * L1_X_SIZE);
             CopyXGmToL1(info, xL1Tensor, hIdx, K_L1_BASE);
             SetFlag<HardEvent::MTE2_MTE1>(X_EVENT0 + xBufId);
             WaitFlag<HardEvent::MTE2_MTE1>(X_EVENT0 + xBufId);
             for (uint32_t i = nCoff; i > 0; i--) {
-                // coffId=0, 计算pre数据; coffId=1, 计算cur数据
+                // coffId=0, compute pre data; coffId=1, compute cur data
                 uint32_t coffId = i - 1;
                 WaitFlag<HardEvent::MTE1_MTE2>(W_EVENT0 + wBufId);
                 LocalTensor<X_T> wL1Tensor = wBufL1.GetWithOffset<X_T>(L1_W_SIZE / sizeof(X_T), wBufId * L1_W_SIZE);
@@ -360,7 +369,9 @@ __aicore__ inline void CompressorBlockCubePerf<COMP>::ComputeMm1(const RunInfo &
                         WaitFlag<HardEvent::FIX_M>(L0C_EVENT0 + l0cBufId);
                     }
                     uint32_t nDealSize =
-                        2 * constInfo_.dBaseSize;  // 2: wkv和wgate各搬运dBaseSize行, dBaseSize需保证8的倍数
+                        2 *
+                        constInfo_
+                            .dBaseSize;  // 2: wkv and wgate each move dBaseSize rows; dBaseSize must be a multiple of 8
                     for (uint32_t kL0 = 0; kL0 < K_L1_BASE; kL0 += K_L0_BASE) {
                         WaitFlag<HardEvent::M_MTE1>(L0AB_EVENT0 + l0abBufId);
                         LocalTensor<X_T> aL0Tensor =

@@ -41,24 +41,24 @@ public:
     static constexpr bool X_DTYPE = COMP::xDtype == X_DTYPE::BF16;
     static constexpr float FLOAT_ZERO = 0;
     static constexpr float SOFTMAX_MIN_NUM = -std::numeric_limits<float>::infinity();
-    // =================================类型定义区=================================
-    // 中间计算数据类型为float，高精度模式
+    // =================================Type Definitions=================================
+    // intermediate computation data type is float, high-precision mode
     using T = float;
     using X_T = typename AscendC::Conditional<X_DTYPE, bfloat16_t, half>::type;
 
     __aicore__ inline CompressorBlockVectorFullLoad(){};
-    // =================================设置参数=================================
+    // =================================Set Parameters=================================
     __aicore__ inline void InitParams(const ConstInfo &constInfo, const CompressorTools<COMP> &tools);
     __aicore__ inline void Init(__gm__ uint8_t *x, __gm__ uint8_t *wKv, __gm__ uint8_t *wGate,
                                 __gm__ uint8_t *stateCache, __gm__ uint8_t *ape, __gm__ uint8_t *normWeight,
                                 __gm__ uint8_t *ropeSin, __gm__ uint8_t *ropeCos, __gm__ uint8_t *stateBlockTable,
                                 __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
                                 __gm__ uint8_t *cmpKvOut);
-    // =================================资源管理=================================
+    // =================================Resource Management=================================
     __aicore__ inline void InitBuffers(TPipe *pipe);
     __aicore__ inline void AllocEventID();
     __aicore__ inline void FreeEventID();
-    // =================================执行计算=================================
+    // =================================Execute Computation=================================
     __aicore__ inline void InitVec1GlobalTensor(GlobalTensor<T> kvMm1ResGm, GlobalTensor<T> scoreMm1ResGm,
                                                 GlobalTensor<T> kvCacheTcGm, GlobalTensor<T> scoreCacheTcGm,
                                                 GlobalTensor<T> vec1ResGm, GlobalTensor<T> vec2InputGm);
@@ -196,13 +196,13 @@ private:
     GlobalTensor<T> ropeCosGm_;
     GlobalTensor<X_T> cmpKvOutGm_;
 
-    // ================================Local Buffer区====================================
+    // ================================Local Buffer====================================
     // TBuf<TPosition::VECIN> mm1ResUb;
     LocalTensor<T> normWeightUb;
     LocalTensor<T> apeUb;
     LocalTensor<T> scoreUb;
     LocalTensor<T> kvUb;
-    // 临时tbuf
+    // temporary tbuf
     TBuf<TPosition::VECCALC> tmpBuf1;
     TBuf<TPosition::VECCALC> tmpBuf2;
     TBuf<TPosition::VECCALC> apeBuf;
@@ -268,7 +268,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::InitBuffers(TPipe *p
     pipe->InitBuffer(apeBuf, BUFFER_SIZE_BYTE_16K);
     normWeightUb = normWeightBuf.Get<T>();
     LocalTensor<T> normweightInUb = inputQue2.AllocTensor<T>();
-    DataCopy(normweightInUb, normWeightGm_, constInfo_.headDim);  // 获取normWeight，常驻
+    DataCopy(normweightInUb, normWeightGm_, constInfo_.headDim);  // get normWeight, kept resident
     inputQue2.EnQue(normweightInUb);
     inputQue2.DeQue<T>();
     DataCopy(normWeightUb, normweightInUb, constInfo_.headDim);
@@ -615,12 +615,12 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::PadAlign(const Local
     uint32_t copyRowCount = sliceInfo.compressTcSize * cmpRatio_ - sliceInfo.headHolderSeqCnt;
     uint32_t copyColCount = dDealSize;
     uint32_t srcSingleRowCount = srcSingleRowElemNum;
-    uint32_t dstSingleRowCount = dDealSize * coff_;  // left和right在seq方向是交错存储的
+    uint32_t dstSingleRowCount = dDealSize * coff_;  // left and right are stored interleaved in the seq direction
     uint64_t srcLocalOffset = sliceInfo.dealedSeqCnt * srcSingleRowElemNum + dBaseOffset;
 
     uint64_t dstUbOffset = sliceInfo.compressoredScCnt * cmpRatio_ * dstSingleRowCount;
     if constexpr (COMP::coff == COFF::OVERLAP) {
-        // 左侧
+        // left side
         uint64_t preSrcLocalOffset = srcLocalOffset;
         uint64_t preDstUbOffset = dstUbOffset + (sliceInfo.headHolderSeqCnt + cmpRatio_) * dstSingleRowCount;
         DataCopyAlignUbToUb(dstLocal[preDstUbOffset], srcLocal[preSrcLocalOffset],
@@ -629,7 +629,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::PadAlign(const Local
         dstUbOffset += dDealSize;
         srcLocalOffset += dBaseSize;
     }
-    // 右侧
+    // right side
     dstUbOffset += sliceInfo.headHolderSeqCnt * dstSingleRowCount;
     DataCopyAlignUbToUb(dstLocal[dstUbOffset], srcLocal[srcLocalOffset], copyRowCount, copyColCount, srcSingleRowCount,
                         dstSingleRowCount);
@@ -800,13 +800,13 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ReadState(
     const LocalTensor<T> &dstLocal, const GlobalTensor<T> &stateGm, const GlobalTensor<int32_t> &blockTableGm,
     const Vec1SliceInfo &sliceInfo, uint32_t dStartIdx, uint32_t dDealSize, uint32_t stateIdx)
 {
-    // 没有需要压缩的块时, 不需要读state的信息
+    // when there is no block to compress, there is no need to read state information
     if (sliceInfo.compressTcSize == 0) {
         return;
     }
-    // 填充右边
+    // fill the right side
     if (sliceInfo.headHolderSeqCnt > 0) {
-        // 整个batch的第一块
+        // the first block of the entire batch
         uint32_t startSeqIdx = Trunc(sliceInfo.bStartPos + sliceInfo.sIdx, cmpRatio_);
         uint32_t endSeqIdx = sliceInfo.bStartPos;
         uint64_t dstBaseOffset = sliceInfo.compressoredScCnt * cmpRatio_ * coff_ * dDealSize;
@@ -817,12 +817,12 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ReadState(
                            dStartIdx + (coff_ - 1) * constInfo_.headDim, dDealSize, stateIdx);
     }
 
-    // 填充左边
+    // fill the left side
     if constexpr (COMP::coff == Compressor::COFF::OVERLAP) {
         bool isFirst = sliceInfo.bStartPos + sliceInfo.sIdx < cmpRatio_;
         if (isFirst) {
-            // 无历史数据
-            // dDealSize必须为64
+            // no historical data
+            // dDealSize must be 64
             uint64_t dstBaseOffset = sliceInfo.compressoredScCnt * cmpRatio_ * coff_ * dDealSize;
             DuplicateFirstBlock<IS_SCORE>(dstLocal[dstBaseOffset], cmpRatio_, dDealSize, coff_ * dDealSize);
         }
@@ -902,13 +902,13 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::LoadFromWorkSpace(
     uint32_t copyRowCount = min(sliceInfo.sIdx, cmpRatio_);
     uint64_t dstLocalOffset =
         (sliceInfo.compressoredScCnt * cmpRatio_ + cmpRatio_ - copyRowCount) * dstSingleRowElemNum;
-    if (loopInfo.isCoreRowFirst && loopInfo.isCoreLoopFirst && sliceInfo.isFirst) {  // 从cacheGm获取
+    if (loopInfo.isCoreRowFirst && loopInfo.isCoreLoopFirst && sliceInfo.isFirst) {  // get from cacheGm
         uint32_t srcSingleRowElemNum = constInfo_.headDim;
         uint64_t srcLocalOffset = dStartIdx;
 
         DataCopyWithInputQue(dstLocal[dstLocalOffset], cacheTcGm[srcLocalOffset], copyRowCount, dDealSize,
                              srcSingleRowElemNum, coff_ * dDealSize);
-    } else if (sliceInfo.isFirst) {  // 从存放MatMul结果的WorkSpace中获取
+    } else if (sliceInfo.isFirst) {  // get from the WorkSpace holding the MatMul result
         uint32_t srcSingleRowElemNum = constInfo_.headDim * coff_;
         uint64_t srcLocalOffset =
             (globalSeqIdx + sliceInfo.dealedSeqCnt - copyRowCount) * srcSingleRowElemNum + dStartIdx;
@@ -920,7 +920,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::LoadFromWorkSpace(
             AddMultiDataToUb(dstLocal[dstLocalOffset], srcGm[srcLocalOffset], copyRowCount, dDealSize,
                              srcSingleRowElemNum, coff_ * dDealSize, constInfo_.kBaseNum, constInfo_.mm1KvResSize);
         }
-    } else {  // 从UB中获取
+    } else {  // get from UB
         uint32_t srcSingleRowElemNum = dDealSize * coff_;
         uint64_t srcLocalOffset = (sliceInfo.dealedSeqCnt - copyRowCount) * srcSingleRowElemNum;
         DataCopyAlignUbToUb(dstLocal[dstLocalOffset], srcLocal[srcLocalOffset], copyRowCount, dDealSize,
@@ -1057,7 +1057,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::CalRope(const LocalT
             uint32_t computeSize = sliceInfo.curDealScNum * constInfo_.ropeHeadDim;
             uint64_t SinCosOffset = sliceInfo.padScIdx * constInfo_.ropeHeadDim;
 
-            // sin与cos各占一半, 实际分别最多只会用16K,总占用32K
+            // sin and cos each take half; in practice each uses at most 16K, total 32K
             LocalTensor<T> cosUb = inputQue2.AllocTensor<T>();
             LocalTensor<T> sinUb = cosUb[BUFFER_SIZE_BYTE_16K / sizeof(T)];
             DataCopy(cosUb, ropeCosGm_[SinCosOffset], computeSize);
@@ -1112,8 +1112,8 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::DealVec2BaseBlock(
     MultRowRmsNorm(normResUb, vec1ResUb, normWeightUb, tempLocal, needDealScSize);
     inputQue1.FreeTensor(vec1ResUb);
 
-    // rope: 只对后RD进行rope; 将normResUb每行前headDim -
-    // ropeHeadDim个元素cast到X_T，然后再与rope后的结果组合存到outputUb
+    // rope: apply rope only to the latter RD; cast the first headDim -
+    // ropeHeadDim elements of each row of normResUb to X_T, then combine with the rope result and store to outputUb
     LocalTensor<X_T> outputUb = outputQue1.AllocTensor<X_T>();
     PipeBarrier<PIPE_V>();
     CalRope(outputUb, normResUb, sliceInfo, needDealScSize);
@@ -1131,15 +1131,15 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::CalcGroupInfo(Vec1Sp
     uint32_t aiCoreNum = constInfo_.usedCoreNum * 2;
     splitInfo.dBaseSize =
         constInfo_.headDim / min(FloorPow2(aiCoreNum), CeilPow2(CeilDivT(aiCoreNum, constInfo_.batchSize)));
-    // 32B(8个FP32)对齐的UB列窗口上限（同 NORMAL 模板）：dBaseSize 超过它时
-    // CalcTilingStrategy 的 dSplitSize = dBaseSize/dLoopCount 整数除法会切出非32B
-    // 对齐的列窗口（DataCopy blockLen/srcGap 整数除法错位 → 数据错乱）。
+    // Upper limit of the 32B (8 FP32) aligned UB column window (same as the NORMAL template): when dBaseSize exceeds it
+    // CalcTilingStrategy's dSplitSize = dBaseSize/dLoopCount integer division will cut out non-32B
+    // aligned column window (DataCopy blockLen/srcGap integer division misalignment -> data corruption).
     uint32_t maxDealColNum = BUFFER_SIZE_BYTE_32K / (cmpRatio_ * coff_ * sizeof(T));
     splitInfo.dBaseSize = min(splitInfo.dBaseSize, FloorPow2(Trunc(maxDealColNum, FP32_BLOCK_ELEMENT_NUM)));
     if (constInfo_.kBaseNum > 1) {
         splitInfo.dBaseSize = max(splitInfo.dBaseSize, FP32_REPEAT_ELEMENT_NUM);
     }
-    // 结果输出到GM前必须转换成X_T，dBaseSize * sizeof(X_T)需32B对齐
+    // before outputting the result to GM it must be converted to X_T; dBaseSize * sizeof(X_T) must be 32B-aligned
     splitInfo.dBaseSize = max(splitInfo.dBaseSize, static_cast<uint32_t>(BlockElementNum<X_T>()));
     splitInfo.vec1GroupSize = constInfo_.headDim / splitInfo.dBaseSize;
     splitInfo.vec1GroupNum = min(static_cast<uint32_t>(aiCoreNum / splitInfo.vec1GroupSize), constInfo_.batchSize);
@@ -1190,17 +1190,18 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::UpdateIteratorState(
 template <typename COMP>
 __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::CalcTilingStrategy(Vec1SplitInfo &splitInfo)
 {
-    // 计算headDim和Tc方向切分大小
+    // compute the split size in the headDim and Tc directions
     uint32_t maxDealColNum = BUFFER_SIZE_BYTE_32K / (cmpRatio_ * coff_ * sizeof(T));
 
-    // 切块逻辑
+    // tiling logic
     if (maxDealColNum < splitInfo.dBaseSize) {
         splitInfo.tcSplitSize = 1;
         splitInfo.dLoopCount = CeilDivT(splitInfo.dBaseSize, maxDealColNum);
         splitInfo.dSplitSize = splitInfo.dBaseSize / splitInfo.dLoopCount;
     } else {
         splitInfo.dSplitSize = splitInfo.dBaseSize;
-        splitInfo.dLoopCount = splitInfo.dBaseSize / splitInfo.dSplitSize;  // 此处常等于1，保留原逻辑
+        splitInfo.dLoopCount =
+            splitInfo.dBaseSize / splitInfo.dSplitSize;  // this is usually equal to 1 here; keep the original logic
         splitInfo.tcSplitSize = maxDealColNum / splitInfo.dBaseSize;
     }
 }
@@ -1210,20 +1211,20 @@ __aicore__ inline Vec1SplitInfo CompressorBlockVectorFullLoad<COMP>::SplitCoreV1
 {
     Vec1SplitInfo splitInfo;
 
-    // 1. 计算基础分组和分片大小
+    // 1. Compute the base grouping and slice size
     CalcGroupInfo(splitInfo);
 
-    // 2. 根据当前的 BlockIdx 计算任务分配（负载均衡）
+    // 2. Compute task assignment based on the current BlockIdx (load balancing)
     CalcTaskDistribution(splitInfo);
 
-    // 3. 刷新迭代器并获取当前核的起始位置状态
+    // 3. Refresh the iterator and get the start position state of the current core
     UpdateIteratorState(splitInfo);
 
     if (splitInfo.dealBatchNum == 0) {
         return splitInfo;
     }
 
-    // 4. 计算具体在内存中的切块（Tiling）逻辑
+    // 4. Compute the concrete in-memory tiling logic
     CalcTilingStrategy(splitInfo);
 
     return splitInfo;
@@ -1233,7 +1234,7 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ComputeVec1()
 {
     Vec1SplitInfo splitInfo = SplitCoreV1();
-    // 计算当前VecCore的任务量
+    // compute the workload of the current VecCore
     if (splitInfo.dealBatchNum == 0) {
         return;
     }
@@ -1248,7 +1249,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ComputeVec1()
 
     CompressorVec1SliceIterator sliceIterator(tools_);
     sliceIterator.SetMaxBatchSize(constInfo_.batchSize);
-    // 切块循环
+    // tiling loop
     uint64_t baseOffset = loopInfo.coreColIdx * splitInfo.dBaseSize;
 
     uint32_t cnt = constInfo_.sSize * splitInfo.dBaseSize * coff_;
@@ -1307,7 +1308,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ComputeVec1()
 
                 loopInfo.isCoreLoopFirst = tcIdx == 0;
                 loopInfo.isCoreLoopLast = tcIdx + splitInfo.tcSplitSize >= splitInfo.dealTcNum;
-                // 处理单个切块
+                // process a single tile
                 sliceIterator.SetNeedDealTcSize(actDealTcSize);
                 sliceIterator.SetDealedTcCnt(0U);
                 DealVec1BaseBlock(sliceIterator, loopInfo, baseOffset, dLoopIdx * splitInfo.dSplitSize,

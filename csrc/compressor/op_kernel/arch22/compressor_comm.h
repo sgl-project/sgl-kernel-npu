@@ -96,13 +96,13 @@ struct COMPType {
 };
 
 struct ConstInfo {
-    // 整个AICORE的任务信息, 左闭右开区间[ (bStart, s2Start), (bEnd, s2End) )
+    // task information of the entire AICORE, left-closed right-open interval [ (bStart, s2Start), (bEnd, s2End) )
     uint32_t bStart = 0U;
     uint32_t sStart = 0U;
     uint32_t bEnd = 0U;
     uint32_t sEnd = 0U;
 
-    // 分核相关
+    // core splitting related
     uint32_t usedCoreNum = 0;
     uint32_t dBaseSize = 0;
     uint32_t mBaseSize = 0;
@@ -116,7 +116,7 @@ struct ConstInfo {
     uint32_t bIdxOfLastTc = 0;
     uint32_t sIdxOfLastTc = 0;
 
-    // shape及参数
+    // shape and parameters
     uint32_t batchSize = 0;
     uint32_t hSize = 0;
     uint32_t sSize = 0;
@@ -142,7 +142,7 @@ struct ConstInfo {
     uint32_t mm1ScoreResSize = 0;
     uint32_t vec1TailCacheSize = 0;
     uint32_t vec1ResSize = 0;
-    uint32_t mm1ResSize = 0;  // 所有cube输出kv/score结果的总大小
+    uint32_t mm1ResSize = 0;  // total size of kv/score results output by all cube
 
     uint32_t aiCoreIdx = 0;
     uint32_t nSize = 0;
@@ -152,26 +152,26 @@ struct ConstInfo {
 
 struct RunInfo {
     bool isValid = false;
-    uint32_t cubeDbIdx = 0;  // kernel主循环索引
+    uint32_t cubeDbIdx = 0;  // kernel main loop index
 
-    // 增加字段
+    // added fields
     uint32_t dealTcNum = 0;
-    // 右边相关信息
+    // right-side related information
     uint32_t bStart = 0;
     uint32_t sStart = 0;
     uint32_t dealSeqCnt = 0;
-    // 左边相关信息
+    // left-side related information
     uint32_t preBStart = 0;
     uint32_t preSStart = 0;
-    uint32_t preDealSeqCnt = 0;   // 左边需要处理的s大小
-    uint32_t preFirstSeqCnt = 0;  // 左边首块大小
+    uint32_t preDealSeqCnt = 0;   // size of s to process on the left side
+    uint32_t preFirstSeqCnt = 0;  // size of the first left-side block
 
     uint32_t bEnd = 0;
     uint32_t sEnd = 0;
     uint32_t bStartSeqIdx = 0;
     uint32_t bEndSeqIdx = 0;
 
-    // v2分核信息 sc是左闭右开
+    // v2 core-split information; sc is left-closed right-open
     uint32_t scStart = 0;
     uint32_t scEnd = 0;
     uint32_t dealScSize = 0;
@@ -181,10 +181,10 @@ struct RunInfo {
 };
 
 struct Vec1RunInfo {
-    // vec相关信息，一次syncAll需处理数据的起始索引
-    bool resetResFlag = false;  // v1积攒N轮 是否是N轮的起始轮
-    uint32_t c1v1DbIdx = 0;     // vec1 doubleBuffer索引
-    uint32_t v1v2DbIdx = 0;     // v1v2 doubleBuffer索引
+    // vec-related information; start index of data to process in one syncAll
+    bool resetResFlag = false;  // v1 accumulates N rounds; whether this is the first round of N
+    uint32_t c1v1DbIdx = 0;     // vec1 doubleBuffer index
+    uint32_t v1v2DbIdx = 0;     // v1v2 doubleBuffer index
     uint32_t bStart = 0;
     uint32_t sStart = 0;
     uint32_t dealTcNum = 0;
@@ -193,16 +193,16 @@ struct Vec1RunInfo {
 
 struct Vec2RunInfo {
     // uint32_t bStart = 0;
-    uint32_t v2DbIdx = 0;  // v2 doubleBuffer索引
+    uint32_t v2DbIdx = 0;  // v2 doubleBuffer index
     uint32_t sStart = 0;
     uint32_t bEnd = 0;
     uint32_t sEnd = 0;
-    // v2分核信息 sc是左闭右开
+    // v2 core-split information; sc is left-closed right-open
     uint32_t scStart = 0;
     uint32_t scEnd = 0;
     // uint32_t dealScSize = 0;
 
-    // 增加字段
+    // added fields
     uint32_t bStart = 0;
     uint32_t compressedId = 0;
     uint32_t bCompressedId = 0;
@@ -238,7 +238,7 @@ struct BlockInfo {
     uint32_t compressTcSize = 0U;
 };
 
-// BUFFER的字节数
+// number of bytes of BUFFER
 inline constexpr uint32_t BUFFER_SIZE_BYTE_32B = 32;
 inline constexpr uint32_t BUFFER_SIZE_BYTE_64B = 64;
 inline constexpr uint32_t BUFFER_SIZE_BYTE_256B = 256;
@@ -251,10 +251,10 @@ inline constexpr uint32_t BUFFER_SIZE_BYTE_16K = 16384;
 inline constexpr uint32_t BUFFER_SIZE_BYTE_32K = 32768;
 inline constexpr uint32_t BUFFER_SIZE_BYTE_64K = 65536;
 
-// BLOCK和REPEAT的字节数
+// number of bytes per BLOCK and REPEAT
 inline constexpr uint64_t BYTE_BLOCK = 32UL;
 inline constexpr uint32_t REPEAT_BLOCK_BYTE = 256U;
-// BLOCK和REPEAT的FP32元素数
+// number of FP32 elements per BLOCK and REPEAT
 inline constexpr uint32_t FP32_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(float);          // 8
 inline constexpr uint32_t FP32_REPEAT_ELEMENT_NUM = REPEAT_BLOCK_BYTE / sizeof(float);  // 64
 inline constexpr uint32_t REPEAT_STRIDE_NUM = REPEAT_BLOCK_BYTE / BYTE_BLOCK;           // 8
@@ -268,14 +268,14 @@ __aicore__ inline void CopySingleMatrixNDToNZ(LocalTensor<T> l1Tensor, const Glo
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = nValue;  // nd矩阵的行数
+    nd2nzPara.nValue = nValue;  // number of rows of the ND matrix
     if constexpr (IsSameType<T, int4b_t>::value) {
         constexpr uint32_t HALF_SIZE_DIVISOR = 2;
         nd2nzPara.dValue = dValue / HALF_SIZE_DIVISOR;
         nd2nzPara.srcDValue = srcDValue / HALF_SIZE_DIVISOR;
     } else {
-        nd2nzPara.dValue = dValue;        // nd矩阵的列数
-        nd2nzPara.srcDValue = srcDValue;  // 同一nd矩阵相邻行起始地址间的偏移
+        nd2nzPara.dValue = dValue;        // number of columns of the ND matrix
+        nd2nzPara.srcDValue = srcDValue;  // offset between the start addresses of adjacent rows of the same ND matrix
     }
     nd2nzPara.dstNzC0Stride = dstNzC0Stride;
     nd2nzPara.dstNzNStride = 1;
