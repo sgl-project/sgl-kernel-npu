@@ -945,9 +945,11 @@ jobs:
 
       - name: Run test combine only
         # Cover combine-only correctness on A5 (A2/A3 jobs already cover this)
+        # bf16 low-latency combine with default params (512 tokens / 256 experts)
+        # needs HCCL_BUFFSIZE >= 3825MB on 4 ranks, hence 5000
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2500
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --num-processes=4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency" --num-processes=4
