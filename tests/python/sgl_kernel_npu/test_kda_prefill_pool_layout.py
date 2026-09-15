@@ -20,9 +20,7 @@ import argparse
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.fla.kda_chunk_delta_h import (
-    chunk_gated_delta_rule_fwd_h_npu,
-)
+from sgl_kernel_npu.fla.kda_chunk_delta_h import chunk_gated_delta_rule_fwd_h_npu
 
 
 def ref_chunk_h(k, w, u, gk, initial_state_vm, chunk_size=64):
