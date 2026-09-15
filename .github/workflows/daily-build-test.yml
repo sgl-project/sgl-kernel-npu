@@ -15,6 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # CANN 8.5.0 runners/matrices retired; current A2/A3 coverage is 9.0.0/9.1.0.
+  # A2 multi-node CI disabled on 2026-09-02 (#768) due to reduced node capacity.
+  # Restoration: python/deep_ep/README.md#ci-coverage-and-a2-multi-node-status.
   run-daily-tests:
     name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-16' || 'linux-aarch64-a2-8' }}

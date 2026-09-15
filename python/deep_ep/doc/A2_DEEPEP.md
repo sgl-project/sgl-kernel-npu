@@ -20,7 +20,7 @@ English | [中文](#中文)
 Supported Hardware: Atlas A2 series
 Platform: aarch64/x86
 Supporting Software:
-- Driver Ascend HDK ≥ 25.3.RC1, CANN ≥ 8.5.0
+- Driver Ascend HDK ≥ 25.3.RC1, CANN 9.0.0 or 9.1.0, with matching firmware; CANN 8.5.0 is no longer CI-validated.
 
 ### Build
 
@@ -164,9 +164,11 @@ export MOE_EXPERT_TOKEN_NUMS_TYPE=0
 
 #### Dual-Node Test
 
-For A2 dual-node cross-node communication tests (set the primary node IP in `run_test_internode.sh` first). Line 22 can be replaced with the desired test case (`test_internode.py`, `test_low_latency.py`):
+> **Manual validation only:** A2 multi-node CI was disabled on 2026-09-02 (#768) because the node pool shrank from four to two nodes. Communication configurations, HCCL tuning and tests are retained. Recommended restoration conditions: restore sufficient capacity or optimize scheduling, validate connectivity and CANN, pass multi-node tests, then reinstate dedicated and daily CI jobs. See [CI status](../README.md#ci-coverage-and-a2-multi-node-status).
+
+For A2 dual-node cross-node communication tests (set the primary node IP in `run_test_internode.sh` first). The final Python command can be replaced with the desired test case (`test_internode.py`, `test_low_latency.py`):
 ```bash
-cd tests/python/deepep/run_test_internode.sh
+cd tests/python/deepep
 
 # Set the primary node IP in run_test_internode.sh first
 bash run_test_internode.sh
@@ -185,7 +187,7 @@ DeepEP 支持 A2、A3、A5 平台。本节为 A2 专属配置说明。
 硬件型号：Atlas A2 系列
 平台：aarch64/x86
 配套软件
-- 驾动 Ascend HDK ≥ 25.3.RC1、CANN ≥ 8.5.0
+- 驱动 Ascend HDK ≥ 25.3.RC1、CANN 9.0.0 或 9.1.0，并安装配套固件；CANN 8.5.0 不再由 CI 验证。
 
 ### 构建DeepEp包
 
@@ -331,10 +333,12 @@ export MOE_EXPERT_TOKEN_NUMS_TYPE=0
 
 #### 双机跨节点测试
 
+> **仅供手动验证：**A2 多机 CI 于 2026-09-02 停用（#768），原因是节点池从 4 个缩减为 2 个，资源不足。通信配置、HCCL 调优及测试继续保留。建议恢复条件：补足资源或完成调度优化，验证网络和 CANN 环境，通过多机测试，再恢复独立及每日 CI job。详见 [CI 状态](../README.md#ci-覆盖范围与-a2-多机状态)。
+
 在A2双机下执行，测试跨节点通信 (需要先设置run_test_internode.sh中的主节点IP)。
-`line:22` 可以替换为需要执行的测试用例 (test_internode.py、test_low_latency.py)
+脚本末尾的 Python 命令可以替换为需要执行的测试用例 (test_internode.py、test_low_latency.py)
 ```bash
-cd tests/python/deepep/run_test_internode.sh
+cd tests/python/deepep
 
 # 需要先设置run_test_internode.sh中的主节点IP
 bash run_test_internode.sh
