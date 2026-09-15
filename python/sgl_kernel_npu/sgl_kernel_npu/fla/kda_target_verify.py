@@ -49,7 +49,7 @@ def _kda_target_verify_kernel(
     offset_v = pid_v * BV + tl.arange(0, BV)
     mask_k = offset_k < K
     mask_v = offset_v < V
-    mask_state = mask_v[:, None] & mask_k[None, :]
+    mask_state = mask_k[:, None] & mask_v[None, :]
 
     q_ratio = H_V // H_Q
     k_ratio = H_V // H_K
@@ -61,8 +61,8 @@ def _kda_target_verify_kernel(
     initial_offsets = (
         initial_idx * initial_stride_0
         + pid_hv * initial_stride_1
-        + offset_v[:, None] * initial_stride_2
-        + offset_k[None, :] * initial_stride_3
+        + offset_k[:, None] * initial_stride_2
+        + offset_v[None, :] * initial_stride_3
     )
     state = tl.load(
         initial_state_ptr + initial_offsets,
@@ -125,11 +125,11 @@ def _kda_target_verify_kernel(
             gate = tl.exp(log_gate)
             beta = 1.0 / (1.0 + tl.exp(-beta_input))
 
-        state *= gate[None, :]
-        value -= tl.sum(state * k[None, :], axis=1)
+        state *= gate[:, None]
+        value -= tl.sum(state * k[:, None], axis=0)
         value *= beta
-        state += value[:, None] * k[None, :]
-        output = tl.sum(state * q[None, :], axis=1)
+        state += k[:, None] * value[None, :]
+        output = tl.sum(state * q[:, None], axis=0)
 
         tl.store(
             out_ptr + (token * H_V + pid_hv) * V + offset_v,
@@ -140,14 +140,18 @@ def _kda_target_verify_kernel(
             snapshot_idx * snapshot_stride_0
             + step * snapshot_stride_1
             + pid_hv * snapshot_stride_2
-            + offset_v[:, None] * snapshot_stride_3
-            + offset_k[None, :] * snapshot_stride_4
+            + offset_k[:, None] * snapshot_stride_3
+            + offset_v[None, :] * snapshot_stride_4
         )
         tl.store(
             snapshot_ptr + snapshot_offsets,
             state,
             mask=(snapshot_idx >= 0) & mask_state,
         )
+        # Sequential decode persists the recurrent state after every token.
+        # Match that dtype boundary during multi-token target verification so
+        # the next step consumes exactly the state that ordinary decode would.
+        state = state.to(snapshot_ptr.dtype.element_ty).to(tl.float32)
 
 
 def kda_target_verify_npu(
@@ -170,8 +174,8 @@ def kda_target_verify_npu(
 ) -> torch.Tensor:
     """KDA fixed-width target verification with per-step state snapshots.
 
-    The persistent and intermediate state layout is the Ascend KDA layout
-    ``[..., H_v, V, K]``. The persistent cache is read-only.
+    The persistent and intermediate state layout is the speculative Ascend KDA
+    layout ``[..., H_v, K, V]``. The persistent cache is read-only.
 
     When ``gates_are_preactivated`` is true, ``a`` is the log-decay
     ``-exp(A_log) * softplus(raw_a + dt_bias)`` and ``b`` is already sigmoid
@@ -221,14 +225,14 @@ def kda_target_verify_npu(
         raise ValueError("A_log and dt_bias shapes do not match KDA heads")
     if initial_state_source.ndim != 4 or tuple(initial_state_source.shape[1:]) != (
         h_v,
-        value_dim,
         key_dim,
+        value_dim,
     ):
-        raise ValueError("initial state must have shape [pool, H_v, V, K]")
+        raise ValueError("initial state must have shape [pool, H_v, K, V]")
     if intermediate_states_buffer.ndim != 5 or tuple(
         intermediate_states_buffer.shape[1:]
-    ) != (cache_steps, h_v, value_dim, key_dim):
-        raise ValueError("intermediate state must have shape [scratch, T, H_v, V, K]")
+    ) != (cache_steps, h_v, key_dim, value_dim):
+        raise ValueError("intermediate state must have shape [scratch, T, H_v, K, V]")
     if initial_state_indices.ndim != 1 or initial_state_indices.numel() < batch:
         raise ValueError("initial_state_indices must contain at least B entries")
     if (
