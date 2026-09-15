@@ -18,10 +18,6 @@ concurrency:
   group: pr-test-deepep-npu-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
-# CANN 8.5.0 runners/matrices retired.
-# Current coverage: A2/A3 on 9.0.0/9.1.0; A5 on 9.1.0.
-# A2 multi-node CI is disabled; status and restoration conditions:
-# python/deep_ep/README.md#ci-coverage-and-a2-multi-node-status.
 jobs:
   get-changed-files:
     name: Check changed files
