@@ -546,7 +546,34 @@ def test_main(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    t = bench(lambda: buffer.combine(**tune_args))[0]
+    _bench_counter = [0]
+    _recv_src_idx = handle[3]
+    _send_head = handle[5]
+
+    def _combine_with_debug():
+        _bench_counter[0] += 1
+        _iter = _bench_counter[0]
+        print(
+            f"[bench iter={_iter}] rank={rank} before combine, ts={time.time():.6f}",
+            flush=True,
+        )
+        _src_idx_np = _recv_src_idx[:20].cpu().numpy()
+        _send_head_np = _send_head.cpu().numpy()
+        print(
+            f"[debug iter={_iter}] rank={rank} recv_src_idx[:20]:\n{_src_idx_np}",
+            flush=True,
+        )
+        print(
+            f"[debug iter={_iter}] rank={rank} send_head:\n{_send_head_np}",
+            flush=True,
+        )
+        buffer.combine(**tune_args)
+        print(
+            f"[bench iter={_iter}] rank={rank} after combine, ts={time.time():.6f}",
+            flush=True,
+        )
+
+    t = bench(_combine_with_debug)[0]
     if local_rank == 0:
         print(
             f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
