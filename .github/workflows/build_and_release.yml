@@ -104,9 +104,25 @@ jobs:
           export TORCH_DEVICE_BACKEND_AUTOLOAD=0
           TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" | awk -F'+' '{print $1}')
           PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
-          PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          TAG="${{ github.event.release.tag_name }}"
+          SUFFIX="torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}"
+
           cd output/
-          zip -v ${PACKAGE_NAME} ./*.whl
+          ALL_WHEELS=(./*.whl)
+          DEEPEP_WHEELS=(./deep_ep-*.whl)
+          OTHER_WHEELS=()
+          for wheel in "${ALL_WHEELS[@]}"; do
+            if [[ "$wheel" != ./deep_ep-* ]]; then
+              OTHER_WHEELS+=("$wheel")
+            fi
+          done
+
+          # 1) Full bundle: unchanged name and contents.
+          zip -v "sgl-kernel-npu-${TAG}-${SUFFIX}.zip" "${ALL_WHEELS[@]}"
+          # 2) DeepEP only.
+          zip -v "deep-ep-${TAG}-${SUFFIX}.zip" "${DEEPEP_WHEELS[@]}"
+          # 3) Every wheel except DeepEP.
+          zip -v "sgl-kernel-npu-no-deepep-${TAG}-${SUFFIX}.zip" "${OTHER_WHEELS[@]}"
           ls -al
 
       - name: Upload Release Artifacts
