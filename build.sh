@@ -405,6 +405,9 @@ function build_cmake_modules()
     cmake "${cmake_args[@]}" \
         -B "$BUILD_DIR" \
         -S "$PROJECT_ROOT"
+    # Parallelism is bounded by RAM, not cores: the CCE compiler needs ~1-2 GB per
+    # job and the AscendC kernel TUs are the memory-hungry ones. Keep the historical
+    # default and let callers tune it with BUILD_JOBS.
     cmake --build "$BUILD_DIR" --target install -j 16
 }
 
