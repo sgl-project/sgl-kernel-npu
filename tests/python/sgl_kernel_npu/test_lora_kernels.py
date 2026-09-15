@@ -84,12 +84,12 @@ class TestLoraKernels(unittest.TestCase):
 
     def test_sgemmv_expand(self):
         batch_size = 4
-        output_dim = 2 * 1024
+        output_dim = 4096
         num_loras = 8
         dtype = torch.float16
         device_dtype = torch.float16
 
-        possible_lora_ranks = [16, 32, 64]
+        possible_lora_ranks = [8, 16, 32, 64]
         lora_ranks = random.sample(
             possible_lora_ranks,
             counts=[num_loras] * len(possible_lora_ranks),
