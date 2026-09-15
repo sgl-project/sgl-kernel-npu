@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,6 +54,13 @@ public:
         seqLenGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(seqLen), seqLenSize);
         loraRanksGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraRanks), loraRanksSize);
         loraScalesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ half *>(loraScales), loraScalesSize);
+
+        // AscendC::DumpTensor(xGm_, 0, 16);
+        // AscendC::DumpTensor(yOutGm_, 0, 16);
+        // AscendC::DumpTensor(wGm_, 0, 2560);
+        // AscendC::DumpTensor(wGm_, 1, 2560);
+        // AscendC::DumpTensor(wGm_, 2, 2560);
+        // AscendC::DumpTensor(wGm_, 3, 2560);
 
         pipe_->InitBuffer(inQueueX_, BUFFER_NUM, TILE_LENGTH * sizeof(X_T));
         pipe_->InitBuffer(inQueueW_, BUFFER_NUM, TILE_LENGTH * sizeof(W_T));
@@ -116,22 +123,33 @@ private:
             AscendC::LocalTensor<float> xTmpTensor = tmpBufferX_.Get<float>();
             AscendC::LocalTensor<X_T> xLocal = inQueueX_.DeQue<X_T>();
             Cast(xTmpTensor, xLocal, AscendC::RoundMode::CAST_NONE, inputHiddenDim_);
-            AscendC::PipeBarrier<PIPE_V>();
+            pipe_barrier(PIPE_V);
             inQueueX_.FreeTensor(xLocal);
         }
 
-        for (int i = 0; i < reqLoRARank_; i++) {
+        // AscendC::PRINTF("inputHiddenDim_: %ld\n", inputHiddenDim_);
+        // AscendC::PRINTF("TILE_LENGTH: %ld\n", TILE_LENGTH);
+
+        for (int i = 0; i < maxLoRARank_; i++) {
+            // AscendC::PRINTF("i: %d\n", i);
             float acc(0);
             for (int32_t j = 0; j < inputHiddenDim_ / TILE_LENGTH; j++) {
+                // AscendC::PRINTF("j: %d\n", j);
                 if constexpr (INCREMENTAL_MODE) {
                     CopyInX(idx, j);
                 }
                 CopyInW(i, j);
                 Compute<INCREMENTAL_MODE>(acc);
             }
+
             CopyAndComputeLastIteration<INCREMENTAL_MODE>(idx, i, acc);
             yOutLocal.SetValue(i, acc);
+            // AscendC::PRINTF("yOutLocal: \n");
+            // AscendC::DumpTensor(yOutLocal, 0, 24);
         }
+
+        // AscendC::PRINTF("yOutLocal: \n");
+        // AscendC::DumpTensor(yOutLocal, 0, maxLoRARank_);
     }
 
     __aicore__ inline void CopyInX(const int64_t idx, int32_t colIdx, int32_t numElements = TILE_LENGTH)
@@ -155,24 +173,28 @@ private:
         AscendC::LocalTensor<float> xTmpTensor = tmpBufferX_.Get<float>();
         AscendC::LocalTensor<float> wTmpTensor = tmpBufferW_.Get<float>();
 
+        // AscendC::DumpTensor(wLocal, 0, 16);
+        // AscendC::DumpTensor(xTmpTensor, 0, 16);
+
         if constexpr (INCREMENTAL_MODE) {
             AscendC::LocalTensor<X_T> xLocal = inQueueX_.DeQue<X_T>();
             Cast(xTmpTensor, xLocal, AscendC::RoundMode::CAST_NONE, numElements);
             Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, numElements);
-            AscendC::PipeBarrier<PIPE_V>();
+            pipe_barrier(PIPE_V);
             inQueueX_.FreeTensor(xLocal);
             inQueueW_.FreeTensor(wLocal);
         } else {
             Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, numElements);
-            AscendC::PipeBarrier<PIPE_V>();
+            pipe_barrier(PIPE_V);
             inQueueW_.FreeTensor(wLocal);
         }
         // dot product of the one tile of X and W
         Mul(wTmpTensor, xTmpTensor, wTmpTensor, numElements);
-        AscendC::PipeBarrier<PIPE_V>();
+
+        pipe_barrier(PIPE_V);
         // reduce sum generate one number, which is the summation of all the dot product
         ReduceSum<float>(wTmpTensor, wTmpTensor, wTmpTensor, numElements);
-        AscendC::PipeBarrier<PIPE_V>();
+        pipe_barrier(PIPE_V);
 
         acc += wTmpTensor.GetValue(0);
     }
@@ -197,8 +219,8 @@ private:
         AscendC::LocalTensor<float> yLocal = outBufferY_.Get<float>();
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.AllocTensor<Y_T>();
 
-        Muls(yOutLocal, yLocal, reqLoRAScale_, reqLoRARank_);
-        AscendC::PipeBarrier<PIPE_V>();
+        Muls(yOutLocal, yLocal, reqLoRAScale_, maxLoRARank_);
+        pipe_barrier(PIPE_V);
 
         outQueueY_.EnQue<Y_T>(yOutLocal);
     }
@@ -206,7 +228,13 @@ private:
     __aicore__ inline void CopyOut(const int64_t idx)
     {
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.DeQue<Y_T>();
-        DataCopy(yOutGm_[maxLoRARank_ * idx], yOutLocal, reqLoRARank_);
+        // AscendC::PRINTF("############################################################\n");
+        // AscendC::PRINTF("To Output yOutLocal: \n");
+        // AscendC::PRINTF("maxLoRARank_: %ld\n", maxLoRARank_);
+        // AscendC::PRINTF("idx: %ld\n", idx);
+        // AscendC::DumpTensor(yOutLocal, 0, 24);
+        // AscendC::PRINTF("############################################################\n");
+        DataCopy(yOutGm_[maxLoRARank_ * idx], yOutLocal, maxLoRARank_);
         outQueueY_.FreeTensor(yOutLocal);
     }
 
