@@ -13,8 +13,8 @@
 
 #include "../../../attn_infra/base_defs.hpp"
 #include "../../../attn_infra/arch/arch.hpp"
-#include "../../../tla/tensor.hpp"
-#include "../../../tla/layout.hpp"
+#include "../../../attn_tla/tensor.hpp"
+#include "../../../attn_tla/layout.hpp"
 
 namespace NpuArch::Epilogue::Tile {
 

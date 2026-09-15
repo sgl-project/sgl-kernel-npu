@@ -14,7 +14,7 @@
 #include "../../../attn_infra/base_defs.hpp"
 #include "../../../attn_infra/arch/arch.hpp"
 #include "../../../attn_infra/gemm/tile_common/copy_l0c_to_dst.hpp"
-#include "../../../tla/tensor.hpp"
+#include "../../../attn_tla/tensor.hpp"
 
 #if (__CCE_AICORE__ == 310)
 constexpr AscendC::FixpipeConfig CFG_ROW_MAJOR_UB = {AscendC::CO2Layout::ROW_MAJOR, true};

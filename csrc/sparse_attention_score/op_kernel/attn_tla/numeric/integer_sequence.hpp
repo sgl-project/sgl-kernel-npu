@@ -12,8 +12,8 @@
 #ifndef TLA_NUMERIC_INTEGER_SEQUENCE_HPP
 #define TLA_NUMERIC_INTEGER_SEQUENCE_HPP
 
-#include "../../tla/numeric/integral_constant.hpp"
-#include "../../tla/type_traits.hpp"
+#include "../../attn_tla/numeric/integral_constant.hpp"
+#include "../../attn_tla/type_traits.hpp"
 
 namespace tla {
 

@@ -13,9 +13,9 @@
 #define TLA_LAYOUT_HPP
 
 #include "../attn_infra/base_defs.hpp"
-#include "../tla/numeric/integral_constant.hpp"
-#include "../tla/tuple.hpp"
-#include "../tla/int_tuple.hpp"
+#include "../attn_tla/numeric/integral_constant.hpp"
+#include "../attn_tla/tuple.hpp"
+#include "../attn_tla/int_tuple.hpp"
 #include "../attn_infra/layout/layout.hpp"
 
 namespace tla {
@@ -423,25 +423,28 @@ HOST_DEVICE constexpr auto MakeLayout(T const &rows, U const &cols)
         return MakeLayout(MakeShape(rows, cols), MakeStride(Int<1>{}, (int64_t)rows));
     } else if constexpr (std::is_same_v<LayoutTag, NpuArch::layout::zN>) {
         return MakeLayout(
-            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
-                      MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
-            MakeStride(
-                MakeStride(Int<ELE_NUM_PER_C0>{}, Int<ELE_NUM_PER_FRACTAL>{}),
-                MakeStride(Int<1>{}, RoundUp((int64_t)rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) * ELE_NUM_PER_C0)));
+            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{},
+                                NpuArch::CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
+                      MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+            MakeStride(MakeStride(Int<ELE_NUM_PER_C0>{}, Int<ELE_NUM_PER_FRACTAL>{}),
+                       MakeStride(Int<1>{}, NpuArch::RoundUp((int64_t)rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) *
+                                                ELE_NUM_PER_C0)));
     } else if constexpr (std::is_same_v<LayoutTag, NpuArch::layout::zZ>) {
         return MakeLayout(
-            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
-                      MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{},
+                                NpuArch::CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
+                      MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
             MakeStride(MakeStride(Int<ELE_NUM_PER_C0>{},
-                                  RoundUp((int64_t)cols, Int<ELE_NUM_PER_C0>{}) * NpuArch::C0_NUM_PER_FRACTAL),
+                                  NpuArch::RoundUp((int64_t)cols, Int<ELE_NUM_PER_C0>{}) * NpuArch::C0_NUM_PER_FRACTAL),
                        MakeStride(Int<1>{}, Int<ELE_NUM_PER_FRACTAL>{})));
     } else {
         return MakeLayout(
-            MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})),
-                      MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
-            MakeStride(
-                MakeStride(Int<1>{}, RoundUp((int64_t)cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) * ELE_NUM_PER_C0),
-                MakeStride(Int<ELE_NUM_PER_C0>{}, Int<ELE_NUM_PER_FRACTAL>{})));
+            MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(rows, Int<ELE_NUM_PER_C0>{})),
+                      MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{},
+                                NpuArch::CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
+            MakeStride(MakeStride(Int<1>{},
+                                  NpuArch::RoundUp((int64_t)cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) * ELE_NUM_PER_C0),
+                       MakeStride(Int<ELE_NUM_PER_C0>{}, Int<ELE_NUM_PER_FRACTAL>{})));
     }
 }
 
@@ -462,35 +465,39 @@ HOST_DEVICE constexpr auto MakeMxScaleLayout(T const &rows, U const &cols)
     if constexpr (std::is_same_v<LayoutTag, NpuArch::layout::RowMajor>) {
         if constexpr (!isMxScaleB) {
             return MakeLayout(
-                MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
-                MakeStride(RoundUp(cols, Int<ELE_NUM_PER_C0>{}), MakeStride(Int<1>{}, Int<ELE_NUM_PER_C0>{})));
+                MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+                MakeStride(NpuArch::RoundUp(cols, Int<ELE_NUM_PER_C0>{}), MakeStride(Int<1>{}, Int<ELE_NUM_PER_C0>{})));
         } else {
-            return MakeLayout(MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
-                              MakeStride(MakeStride(Int<1>{}, cols * ELE_NUM_PER_C0), Int<ELE_NUM_PER_C0>{}));
+            return MakeLayout(
+                MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
+                MakeStride(MakeStride(Int<1>{}, cols * ELE_NUM_PER_C0), Int<ELE_NUM_PER_C0>{}));
         }
     } else if constexpr (std::is_same_v<LayoutTag, NpuArch::layout::ColumnMajor>) {
         if constexpr (!isMxScaleB) {
-            return MakeLayout(MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
-                              MakeStride(Int<ELE_NUM_PER_C0>{}, MakeStride(Int<1>{}, rows * ELE_NUM_PER_C0)));
+            return MakeLayout(
+                MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+                MakeStride(Int<ELE_NUM_PER_C0>{}, MakeStride(Int<1>{}, rows * ELE_NUM_PER_C0)));
         } else {
             return MakeLayout(
-                MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
-                MakeStride(MakeStride(Int<1>{}, Int<ELE_NUM_PER_C0>{}), RoundUp(rows, Int<ELE_NUM_PER_C0>{})));
+                MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
+                MakeStride(MakeStride(Int<1>{}, Int<ELE_NUM_PER_C0>{}), NpuArch::RoundUp(rows, Int<ELE_NUM_PER_C0>{})));
         }
     } else if constexpr (std::is_same_v<LayoutTag, NpuArch::layout::zZ>) {
         return MakeLayout(
-            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
-                      MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+            MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{},
+                                NpuArch::CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
+                      MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
             MakeStride(MakeStride(Int<ELE_NUM_PER_C0>{},
-                                  RoundUp((int64_t)cols, Int<ELE_NUM_PER_C0>{}) * NpuArch::C0_NUM_PER_FRACTAL),
+                                  NpuArch::RoundUp((int64_t)cols, Int<ELE_NUM_PER_C0>{}) * NpuArch::C0_NUM_PER_FRACTAL),
                        MakeStride(Int<1>{}, Int<ELE_NUM_PER_FRACTAL>{})));
     } else {
         return MakeLayout(
-            MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})),
-                      MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
+            MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(rows, Int<ELE_NUM_PER_C0>{})),
+                      MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{},
+                                NpuArch::CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
             MakeStride(MakeStride(Int<1>{}, Int<ELE_NUM_PER_FRACTAL>{}),
-                       MakeStride(Int<ELE_NUM_PER_C0>{},
-                                  RoundUp((int64_t)rows, Int<ELE_NUM_PER_C0>{}) * NpuArch::C0_NUM_PER_FRACTAL)));
+                       MakeStride(Int<ELE_NUM_PER_C0>{}, NpuArch::RoundUp((int64_t)rows, Int<ELE_NUM_PER_C0>{}) *
+                                                             NpuArch::C0_NUM_PER_FRACTAL)));
     }
 }
 
@@ -507,31 +514,33 @@ HOST_DEVICE constexpr auto MakeLayoutTile(Layout const &layout, ShapeNew const &
         const uint32_t rows = get<0>(shapeNew);
         const uint32_t cols = get<1>(shapeNew);
         constexpr uint32_t ELE_NUM_PER_C0 = decltype(shape<1, 0>(layout))::value;
-        return MakeLayout(MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
-                          layout.stride());
+        return MakeLayout(
+            MakeShape(rows, MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(cols, Int<ELE_NUM_PER_C0>{}))),
+            layout.stride());
     } else if constexpr (Layout::depth == 2 && Layout::rank == 2 && rank_v<decltype(shape<0>(Layout{}))> == 2 &&
                          rank_v<decltype(shape<1>(Layout{}))> == 1) {
         const uint32_t rows = get<0>(shapeNew);
         const uint32_t cols = get<1>(shapeNew);
         constexpr uint32_t ELE_NUM_PER_C0 = decltype(shape<0, 0>(layout))::value;
-        return MakeLayout(MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
-                          layout.stride());
+        return MakeLayout(
+            MakeShape(MakeShape(Int<ELE_NUM_PER_C0>{}, NpuArch::CeilDiv(rows, Int<ELE_NUM_PER_C0>{})), cols),
+            layout.stride());
     } else if constexpr (is_static<decltype(shape<0, 0>(layout))>::value &&
                          is_static<decltype(shape<1, 0>(layout))>::value) {
         const uint32_t rows = get<0>(shapeNew);
         const uint32_t cols = get<1>(shapeNew);
         constexpr uint32_t dstInnerShapeRow = decltype(shape<0, 0>(layout))::value;
         constexpr uint32_t dstInnerShapeCol = decltype(shape<1, 0>(layout))::value;
-        return MakeLayout(MakeShape(MakeShape(Int<dstInnerShapeRow>{}, CeilDiv<dstInnerShapeRow>(rows)),
-                                    MakeShape(Int<dstInnerShapeCol>{}, CeilDiv<dstInnerShapeCol>(cols))),
+        return MakeLayout(MakeShape(MakeShape(Int<dstInnerShapeRow>{}, NpuArch::CeilDiv<dstInnerShapeRow>(rows)),
+                                    MakeShape(Int<dstInnerShapeCol>{}, NpuArch::CeilDiv<dstInnerShapeCol>(cols))),
                           layout.stride());
     } else {
         const uint32_t rows = get<0>(shapeNew);
         const uint32_t cols = get<1>(shapeNew);
         const uint32_t dstInnerShapeRow = shape<0, 0>(layout);
         const uint32_t dstInnerShapeCol = shape<1, 0>(layout);
-        return MakeLayout(MakeShape(MakeShape(dstInnerShapeRow, CeilDiv(rows, dstInnerShapeRow)),
-                                    MakeShape(dstInnerShapeCol, CeilDiv(cols, dstInnerShapeCol))),
+        return MakeLayout(MakeShape(MakeShape(dstInnerShapeRow, NpuArch::CeilDiv(rows, dstInnerShapeRow)),
+                                    MakeShape(dstInnerShapeCol, NpuArch::CeilDiv(cols, dstInnerShapeCol))),
                           layout.stride());
     }
 }
@@ -541,10 +550,11 @@ HOST_DEVICE constexpr auto MakeLayoutL0C(T const &rows, U const &cols)
 {
     constexpr uint32_t ELE_NUM_PER_FRACTAL = 256;
     return MakeLayout(
-        MakeShape(MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
-                  MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
+        MakeShape(
+            MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, NpuArch::CeilDiv(rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{})),
+            MakeShape(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, NpuArch::CeilDiv(cols, Int<NpuArch::C0_NUM_PER_FRACTAL>{}))),
         MakeStride(MakeStride(Int<NpuArch::C0_NUM_PER_FRACTAL>{}, Int<ELE_NUM_PER_FRACTAL>{}),
-                   MakeStride(Int<1>{}, RoundUp((int64_t)rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) *
+                   MakeStride(Int<1>{}, NpuArch::RoundUp((int64_t)rows, Int<NpuArch::C0_NUM_PER_FRACTAL>{}) *
                                             NpuArch::C0_NUM_PER_FRACTAL)));
 }
 
