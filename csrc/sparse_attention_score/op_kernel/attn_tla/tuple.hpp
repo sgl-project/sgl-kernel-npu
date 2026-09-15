@@ -12,8 +12,8 @@
 #ifndef TLA_TUPLE_HPP
 #define TLA_TUPLE_HPP
 
-#include "../tla/numeric/integral_constant.hpp"
-#include "../tla/numeric/integer_sequence.hpp"
+#include "../attn_tla/numeric/integral_constant.hpp"
+#include "../attn_tla/numeric/integer_sequence.hpp"
 
 namespace tla {
 

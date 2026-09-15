@@ -13,8 +13,8 @@
 #define TLA_NUMERIC_INTEGER_CONSTANT_HPP
 
 #include "../../attn_infra/detail/macros.hpp"
-#include "../../tla/type_traits.hpp"
-#include "../../tla/numeric/math.hpp"
+#include "../../attn_tla/type_traits.hpp"
+#include "../../attn_tla/numeric/math.hpp"
 
 namespace tla {
 

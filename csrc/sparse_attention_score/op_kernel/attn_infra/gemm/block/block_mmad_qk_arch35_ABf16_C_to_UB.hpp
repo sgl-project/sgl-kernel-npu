@@ -27,8 +27,8 @@
 #include "../../../attn_infra/gemm_coord.hpp"
 #include "../../../attn_infra/gemm/tile_common/tile_copy.hpp"
 #include "../../../attn_infra/gemm/tile_common/tile_mmad.hpp"
-#include "../../../tla/layout.hpp"
-#include "../../../tla/tensor.hpp"
+#include "../../../attn_tla/layout.hpp"
+#include "../../../attn_tla/tensor.hpp"
 
 ////////////////////////////////////////////////////////////////////
 
