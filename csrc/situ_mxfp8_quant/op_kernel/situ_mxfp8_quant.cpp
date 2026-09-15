@@ -22,9 +22,8 @@ template <typename GroupType>
 class SituMxFp8Quant
 {
 public:
-    __aicore__ inline void Init(GM_ADDR x, GM_ADDR group_list, GM_ADDR payload, GM_ADDR scales,
-                                uint32_t capacity_rows, uint32_t num_experts,
-                                uint32_t group_list_type, float beta, float linear_beta)
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR group_list, GM_ADDR payload, GM_ADDR scales, uint32_t capacity_rows,
+                                uint32_t num_experts, uint32_t group_list_type, float beta, float linear_beta)
     {
         x_gm_.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(x));
         group_list_gm_.SetGlobalBuffer(reinterpret_cast<__gm__ GroupType *>(group_list));
@@ -136,8 +135,7 @@ private:
 
         __ubuf__ bfloat16_t *src = reinterpret_cast<__ubuf__ bfloat16_t *>(result.GetPhyAddr());
         __ubuf__ uint16_t *max_exp = reinterpret_cast<__ubuf__ uint16_t *>(quant_tmp.GetPhyAddr());
-        __ubuf__ uint16_t *half_scale =
-            reinterpret_cast<__ubuf__ uint16_t *>(quant_tmp[SCALE_COLS].GetPhyAddr());
+        __ubuf__ uint16_t *half_scale = reinterpret_cast<__ubuf__ uint16_t *>(quant_tmp[SCALE_COLS].GetPhyAddr());
         __ubuf__ uint16_t *mx_scale = reinterpret_cast<__ubuf__ uint16_t *>(scales.GetPhyAddr());
         __ubuf__ int8_t *out = reinterpret_cast<__ubuf__ int8_t *>(payload.GetPhyAddr());
 
@@ -175,28 +173,25 @@ private:
 
 }  // namespace SituMxFp8QuantOps
 
-extern "C" __global__ __aicore__ void situ_mxfp8_quant(
-    GM_ADDR x, GM_ADDR group_list, GM_ADDR payload, GM_ADDR scales,
-    uint32_t capacity_rows, uint32_t num_experts, uint32_t group_list_type,
-    uint32_t group_dtype, float beta, float linear_beta)
+extern "C" __global__ __aicore__ void situ_mxfp8_quant(GM_ADDR x, GM_ADDR group_list, GM_ADDR payload, GM_ADDR scales,
+                                                       uint32_t capacity_rows, uint32_t num_experts,
+                                                       uint32_t group_list_type, uint32_t group_dtype, float beta,
+                                                       float linear_beta)
 {
-    int64_t old_mode = AscendC::GetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL,
-                                           SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>();
-    AscendC::SetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL,
-                        SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>(0);
+    int64_t old_mode =
+        AscendC::GetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL, SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>();
+    AscendC::SetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL, SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>(0);
     if (group_dtype == 0) {
         SituMxFp8QuantOps::SituMxFp8Quant<int32_t> op;
-        op.Init(x, group_list, payload, scales, capacity_rows, num_experts,
-                group_list_type, beta, linear_beta);
+        op.Init(x, group_list, payload, scales, capacity_rows, num_experts, group_list_type, beta, linear_beta);
         op.Process();
     } else {
         SituMxFp8QuantOps::SituMxFp8Quant<int64_t> op;
-        op.Init(x, group_list, payload, scales, capacity_rows, num_experts,
-                group_list_type, beta, linear_beta);
+        op.Init(x, group_list, payload, scales, capacity_rows, num_experts, group_list_type, beta, linear_beta);
         op.Process();
     }
-    AscendC::SetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL,
-                        SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>(old_mode);
+    AscendC::SetCtrlSpr<SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL, SituMxFp8QuantOps::FLOAT_OVERFLOW_MODE_CTRL>(
+        old_mode);
 }
 
 #endif  // defined(__NPU_ARCH__)

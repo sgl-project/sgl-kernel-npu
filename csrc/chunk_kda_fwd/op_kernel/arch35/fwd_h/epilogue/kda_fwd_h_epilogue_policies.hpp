@@ -23,6 +23,6 @@ struct EpilogueAtlasKdaFwdHUpdate {
     using ArchTag = Arch::Ascend950;
 };
 
-} // namespace Catlass::Epilogue
+}  // namespace Catlass::Epilogue
 
-#endif // CATLASS_EPILOGUE_KDA_FWD_H_EPILOGUE_POLICIES_HPP
+#endif  // CATLASS_EPILOGUE_KDA_FWD_H_EPILOGUE_POLICIES_HPP

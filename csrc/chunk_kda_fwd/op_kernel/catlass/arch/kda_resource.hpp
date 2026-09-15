@@ -38,6 +38,6 @@ public:
     }
 };
 
-} // namespace Catlass::Arch
+}  // namespace Catlass::Arch
 
-#endif // CATLASS_KDA_RESOURCE_HPP
+#endif  // CATLASS_KDA_RESOURCE_HPP

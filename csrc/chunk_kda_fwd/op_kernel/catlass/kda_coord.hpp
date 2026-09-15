@@ -16,11 +16,10 @@
 namespace Catlass {
 
 /// Statically-sized array specifying Coords within a tensor
-template <
-    int RANK_,                 ///< Logical rank of coordinate
-    class Index_ = uint32_t,   ///< Index type used for each dimension
-    class LongIndex_ = int64_t ///< Long index type used for linear offsets
-    >
+template <int RANK_,                  ///< Logical rank of coordinate
+          class Index_ = uint32_t,    ///< Index type used for each dimension
+          class LongIndex_ = int64_t  ///< Long index type used for linear offsets
+          >
 struct Coord {
 public:
     // Number of elements in Coord
@@ -48,7 +47,7 @@ public:
         }
     }
 
-    // Constructs frrom an array of integers
+    // Constructs from an array of integers
     CATLASS_HOST_DEVICE
     int Argmin() const
     {
@@ -209,7 +208,7 @@ public:
         return true;
     }
 
-    // Member acces operator
+    // Member access operator
     CATLASS_HOST_DEVICE
     Index &operator[](int dim)
     {
@@ -239,9 +238,7 @@ public:
 
     // Gets the index of a given Coord element
     template <int DIM>
-    CATLASS_HOST_DEVICE
-        Index const &
-        At() const
+    CATLASS_HOST_DEVICE Index const &At() const
     {
         return idx[DIM];
     }
@@ -331,6 +328,6 @@ CATLASS_HOST_DEVICE constexpr Coord<7, T> MakeCoord(T dim0, T dim1, T dim2, T di
     return Coord<7, T>(values);
 }
 
-} // namespace Catlass
+}  // namespace Catlass
 
-#endif // CATLASS_KDA_COORD_HPP
+#endif  // CATLASS_KDA_COORD_HPP

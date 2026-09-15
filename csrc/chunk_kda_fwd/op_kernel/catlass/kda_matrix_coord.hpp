@@ -15,9 +15,7 @@
 
 namespace Catlass {
 
-template <
-    uint32_t ROW_ = 1,
-    uint32_t COLUMN_ = 1>
+template <uint32_t ROW_ = 1, uint32_t COLUMN_ = 1>
 struct MatrixShape {
     static constexpr uint32_t ROW = ROW_;
     static constexpr uint32_t COLUMN = COLUMN_;
@@ -55,37 +53,43 @@ struct MatrixCoord : public Coord<2, uint32_t> {
 
     /// Constructs from Coord<2>
     CATLASS_HOST_DEVICE
-    MatrixCoord(Coord<2, Index> const &coord)
-        : Base(coord)
-    {}
+    MatrixCoord(Coord<2, Index> const &coord) : Base(coord) {}
 
     /// Helper to construct from a row and column
     CATLASS_HOST_DEVICE
-    MatrixCoord(Index row, Index column)
-        : Base(MakeCoord(row, column))
-    {}
+    MatrixCoord(Index row, Index column) : Base(MakeCoord(row, column)) {}
 
     /// Helper to construct from a row and column, which are LongIndex based
     CATLASS_HOST_DEVICE
-    MatrixCoord(LongIndex row, LongIndex column)
-        : Base(MakeCoord(Index(row), Index(column)))
-    {}
+    MatrixCoord(LongIndex row, LongIndex column) : Base(MakeCoord(Index(row), Index(column))) {}
 
     /// Returns the row of the coordinate
     CATLASS_HOST_DEVICE
-    Index const &row() const { return this->At(ROW_INDEX); }
+    Index const &row() const
+    {
+        return this->At(ROW_INDEX);
+    }
 
     /// Returns the row of the coordinate
     CATLASS_HOST_DEVICE
-    Index &row() { return this->At(ROW_INDEX); }
+    Index &row()
+    {
+        return this->At(ROW_INDEX);
+    }
 
     /// Returns the column of the coordinate
     CATLASS_HOST_DEVICE
-    Index const &column() const { return this->At(COLUMN_INDEX); }
+    Index const &column() const
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
     /// Returns the column of the coordinate
     CATLASS_HOST_DEVICE
-    Index &column() { return this->At(COLUMN_INDEX); }
+    Index &column()
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
     /// Element-wise addition
     CATLASS_HOST_DEVICE
@@ -103,6 +107,6 @@ struct MatrixCoord : public Coord<2, uint32_t> {
     }
 };
 
-} // namespace Catlass
+}  // namespace Catlass
 
 #endif

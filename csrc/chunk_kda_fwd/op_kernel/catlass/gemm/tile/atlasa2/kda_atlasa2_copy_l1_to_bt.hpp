@@ -21,12 +21,10 @@ using namespace tla;
 
 namespace Catlass::Gemm::Tile {
 
-template <
-    class ArchTag,
-    class L1Type,
-    class L0Type = void>
+template <class ArchTag, class L1Type, class L0Type = void>
 struct CopyL1ToBT {
-    static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy l1 to biasTable buffer, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<ArchTag>,
+                  "Unsupported copy l1 to biasTable buffer, can not find the specialization.");
 };
 
 template <class ArchTag, class ElementSrc, class ElementDst>
@@ -41,10 +39,8 @@ struct CopyL1ToBT<ArchTag, Catlass::Gemm::GemmType<ElementSrc, layout::VectorLay
     CopyL1ToBT() {}
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<ElementDst> dstTensor,
-        AscendC::LocalTensor<ElementSrc> srcTensor,
-        LayoutDst layoutDst, LayoutSrc layoutSrc)
+    void operator()(AscendC::LocalTensor<ElementDst> dstTensor, AscendC::LocalTensor<ElementSrc> srcTensor,
+                    LayoutDst layoutDst, LayoutSrc layoutSrc)
     {
         AscendC::DataCopyParams intriParams;
         intriParams.blockCount = 1;
@@ -57,6 +53,6 @@ struct CopyL1ToBT<ArchTag, Catlass::Gemm::GemmType<ElementSrc, layout::VectorLay
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_KDA_ATLASA2_COPY_L1_TO_BT_HPP
+#endif  // CATLASS_KDA_ATLASA2_COPY_L1_TO_BT_HPP

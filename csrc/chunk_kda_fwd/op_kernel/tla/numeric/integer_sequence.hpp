@@ -19,7 +19,10 @@ namespace tla {
 template <typename T, T... Ns>
 struct IntegerSequence {
     using value_type = T;
-    static constexpr size_t size() { return sizeof...(Ns); }
+    static constexpr size_t size()
+    {
+        return sizeof...(Ns);
+    }
 };
 
 template <typename Sequence, typename T, size_t N>
@@ -62,6 +65,6 @@ using make_seq = make_int_sequence<N>;
 template <class Tuple>
 using tuple_seq = make_seq<tuple_size<tla::remove_cvref_t<Tuple>>::value>;
 
-} // end namespace tla
+}  // end namespace tla
 
-#endif // TLA_NUMERIC_INTEGER_SEQUENCE_HPP
+#endif  // TLA_NUMERIC_INTEGER_SEQUENCE_HPP

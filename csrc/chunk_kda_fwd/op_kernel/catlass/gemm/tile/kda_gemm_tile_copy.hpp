@@ -48,7 +48,8 @@ template <
 struct TileCopy {
     using ElementA = typename AType::Element;
     using ElementB = typename BType::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using CopyGmToL1A = Gemm::Tile::CopyGmToL1<ArchTag, AType>;
     using CopyGmToL1B = Gemm::Tile::CopyGmToL1<ArchTag, BType>;
@@ -57,21 +58,21 @@ struct TileCopy {
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType>;
     using BiasTypeSelector = helper::L1BiasTypeSelector<BiasType, ElementAccumulator>;
     using CopyGmToL1Bias = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyGmToL1<ArchTag, typename BiasTypeSelector::GMBiasType, typename BiasTypeSelector::L1BiasType>>;
     using CopyL1ToBT = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyL1ToBT<ArchTag, typename BiasTypeSelector::L1BiasType, typename BiasTypeSelector::L0BiasType>>;
 };
 
-template <class ArchTag, class AType, class BType, class CType, class PrologueA_, class PrologueB_, class BiasType = void>
+template <class ArchTag, class AType, class BType, class CType, class PrologueA_, class PrologueB_,
+          class BiasType = void>
 struct TileCopyWithPrologueDeqPerTensor {
     using ElementA = typename AType::Element;
     using ElementB = typename BType::Element;
 
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using CopyGmToL1A = Gemm::Tile::CopyGmToL1<ArchTag, AType>;
     using CopyGmToL1B = Gemm::Tile::CopyGmToL1<ArchTag, BType>;
@@ -84,21 +85,21 @@ struct TileCopyWithPrologueDeqPerTensor {
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType, Tile::ScaleGranularity::PER_TENSOR>;
     using BiasTypeSelector = helper::L1BiasTypeSelector<BiasType, ElementAccumulator>;
     using CopyGmToL1Bias = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyGmToL1<ArchTag, typename BiasTypeSelector::GMBiasType, typename BiasTypeSelector::L1BiasType>>;
     using CopyL1ToBT = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyL1ToBT<ArchTag, typename BiasTypeSelector::L1BiasType, typename BiasTypeSelector::L0BiasType>>;
 };
 
-template <class ArchTag, class AType, class BType, class CType, class PrologueA_, class PrologueB_, class BiasType = void>
+template <class ArchTag, class AType, class BType, class CType, class PrologueA_, class PrologueB_,
+          class BiasType = void>
 struct TileCopyWithPrologue {
     using ElementA = typename AType::Element;
     using ElementB = typename BType::Element;
 
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using CopyGmToL1A = Gemm::Tile::CopyGmToL1<ArchTag, AType>;
     using CopyGmToL1B = Gemm::Tile::CopyGmToL1<ArchTag, BType>;
@@ -111,12 +112,10 @@ struct TileCopyWithPrologue {
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType>;
     using BiasTypeSelector = helper::L1BiasTypeSelector<BiasType, ElementAccumulator>;
     using CopyGmToL1Bias = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyGmToL1<ArchTag, typename BiasTypeSelector::GMBiasType, typename BiasTypeSelector::L1BiasType>>;
     using CopyL1ToBT = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyL1ToBT<ArchTag, typename BiasTypeSelector::L1BiasType, typename BiasTypeSelector::L0BiasType>>;
 };
 
@@ -136,8 +135,9 @@ template <
 struct TileCopyGemm {
     using ElementA = typename AType::Element;
     using ElementB = typename BType::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
-    // change structual
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    // change structural
     using L1AType = typename Gemm::helper::L1AndL0TypeSelectorGemm<AType, BType>::L1AType;
     using L1BType = typename Gemm::helper::L1AndL0TypeSelectorGemm<AType, BType>::L1BType;
     using L0AType = typename Gemm::helper::L1AndL0TypeSelectorGemm<AType, BType>::L0AType;
@@ -164,7 +164,8 @@ template <
 struct ConvTileCopy {
     using ElementA = typename AType::Element;
     using ElementB = typename BType::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using CopyGmToL1A = Gemm::Tile::CopyGmToL1<ArchTag, AType>;
     using CopyGmToL1B = Gemm::Tile::CopyGmToL1<ArchTag, BType>;
@@ -173,12 +174,10 @@ struct ConvTileCopy {
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType>;
     using BiasTypeSelector = helper::L1BiasTypeSelector<BiasType, ElementAccumulator>;
     using CopyGmToL1Bias = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyGmToL1<ArchTag, typename BiasTypeSelector::GMBiasType, typename BiasTypeSelector::L1BiasType>>;
     using CopyL1ToBT = std::conditional_t<
-        std::is_same_v<BiasType, void>,
-        void,
+        std::is_same_v<BiasType, void>, void,
         Gemm::Tile::CopyL1ToBT<ArchTag, typename BiasTypeSelector::L1BiasType, typename BiasTypeSelector::L0BiasType>>;
 };
 
@@ -197,8 +196,8 @@ template <
 struct ReluTileCopy : public TileCopy<ArchTag, AType, BType, CType, BiasType> {
     // 重写 CopyL0CToGm
     using ElementAccumulator = typename TileCopy<ArchTag, AType, BType, CType, BiasType>::ElementAccumulator;
-    using CopyL0CToGm = Gemm::Tile::
-        CopyL0CToGm<ArchTag, ElementAccumulator, CType, Catlass::Gemm::Tile::ScaleGranularity::NO_QUANT, true>;
+    using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType,
+                                                Catlass::Gemm::Tile::ScaleGranularity::NO_QUANT, true>;
 };
 
 // fixpipe开启随路量化
@@ -220,31 +219,25 @@ struct QuantTileCopy : public TileCopy<ArchTag, AType, BType, CType, BiasType> {
     using ElementAccumulator = typename TileCopy<ArchTag, AType, BType, CType, BiasType>::ElementAccumulator;
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, CType, SCALE_GRANU, false>;
 
-    using CopyGmToL1Scale = Gemm::Tile::CopyGmToL1<
-        ArchTag,
-        Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::GM>,
-        Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::A1>>;
+    using CopyGmToL1Scale =
+        Gemm::Tile::CopyGmToL1<ArchTag, Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::GM>,
+                               Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::A1>>;
 
-    using CopyL1ToFP = Gemm::Tile::CopyL1ToFP<
-        ArchTag,
-        Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::A1>,
-        Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::C2PIPE2GM>>;
+    using CopyL1ToFP =
+        Gemm::Tile::CopyL1ToFP<ArchTag, Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::A1>,
+                               Gemm::GemmType<uint64_t, layout::VectorLayout, AscendC::TPosition::C2PIPE2GM>>;
 };
 
 // sparse Tile
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class ElementA_,
-    class LayoutTagA,
-    class ElementB_,
-    class LayoutTagB,
-    class ElementC_,
+    class ArchTag, class ElementA_, class LayoutTagA, class ElementB_, class LayoutTagB, class ElementC_,
     class LayoutTagC>
 struct SparseTileCopyTla {
     using ElementA = ElementA_;
     using ElementB = ElementB_;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using LayoutTagL1A = typename helper::L1ATypeSelector<Gemm::GemmType<ElementA, LayoutTagA>>::L1AType::Layout;
     using LayoutTagL1B = typename helper::L1BTypeSelector<Gemm::GemmType<ElementB, LayoutTagB>>::L1BType::Layout;
@@ -273,8 +266,8 @@ struct SparseTileCopyTla {
         tla::Tensor<AscendC::LocalTensor<ElementA>, LayoutL0A, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::A2>;
     using TensorL0B =
         tla::Tensor<AscendC::LocalTensor<ElementB>, LayoutL0B, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::B2>;
-    using TensorL0C = tla::
-        Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::CO1>;
+    using TensorL0C = tla::Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>,
+                                  AscendC::TPosition::CO1>;
 
     using L1AAlignHelper = Gemm::helper::L1AlignHelper<ElementA, LayoutTagA>;
     using L1BAlignHelper = Gemm::helper::L1AlignHelper<ElementB, LayoutTagB>;
@@ -300,24 +293,17 @@ struct SparseTileCopyTla {
 
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class ElementA_,
-    class LayoutTagA_,
-    class ElementB_,
-    class LayoutTagB_,
-    class ElementC_,
-    class LayoutTagC_,
-    class ElementBias = void,
-    bool ReluEnable_ = false,
-    ScaleGranularity DEQUANT_GRANULARITY_ = ScaleGranularity::NO_QUANT,
-    class L0CCopyMode = CopyToGM>
+    class ArchTag, class ElementA_, class LayoutTagA_, class ElementB_, class LayoutTagB_, class ElementC_,
+    class LayoutTagC_, class ElementBias = void, bool ReluEnable_ = false,
+    ScaleGranularity DEQUANT_GRANULARITY_ = ScaleGranularity::NO_QUANT, class L0CCopyMode = CopyToGM>
 struct PackedTileCopyTla {
     using ElementA = ElementA_;
     using ElementB = ElementB_;
     using LayoutTagA = LayoutTagA_;
     using LayoutTagB = LayoutTagB_;
     using LayoutTagC = LayoutTagC_;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
     static constexpr bool ReluEnable = ReluEnable_;
     static constexpr ScaleGranularity DEQUANT_GRANULARITY = DEQUANT_GRANULARITY_;
 
@@ -353,27 +339,20 @@ struct PackedTileCopyTla {
         tla::Tensor<AscendC::LocalTensor<ElementA>, LayoutL0A, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::A2>;
     using TensorL0B =
         tla::Tensor<AscendC::LocalTensor<ElementB>, LayoutL0B, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::B2>;
-    using TensorL0C = tla::
-        Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::CO1>;
+    using TensorL0C = tla::Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>,
+                                  AscendC::TPosition::CO1>;
     using TensorL1Bias = std::conditional_t<
         HAS_BIAS,
-        tla::Tensor<
-            AscendC::LocalTensor<ElementBias>,
-            detail::TagToLayout_t<ElementBias, layout::VectorLayout>,
-            tla::Coord<tla::_0>,
-            AscendC::TPosition::A1>,
+        tla::Tensor<AscendC::LocalTensor<ElementBias>, detail::TagToLayout_t<ElementBias, layout::VectorLayout>,
+                    tla::Coord<tla::_0>, AscendC::TPosition::A1>,
         EmptyClass>;
-    using TensorL0Bias = tla::Tensor<
-        AscendC::LocalTensor<ElementAccumulator>,
-        detail::TagToLayout_t<ElementAccumulator, layout::VectorLayout>,
-        tla::Coord<tla::_0>,
-        AscendC::TPosition::C2>;
+    using TensorL0Bias = tla::Tensor<AscendC::LocalTensor<ElementAccumulator>,
+                                     detail::TagToLayout_t<ElementAccumulator, layout::VectorLayout>,
+                                     tla::Coord<tla::_0>, AscendC::TPosition::C2>;
     using TensorL1Quant = std::conditional_t<
         HAS_QUANT_TENSOR,
-        tla::Tensor<AscendC::LocalTensor<uint64_t>,
-                    detail::TagToLayout_t<uint64_t, layout::VectorLayout>,
-                    tla::Coord<tla::_0>,
-                    AscendC::TPosition::A1>,
+        tla::Tensor<AscendC::LocalTensor<uint64_t>, detail::TagToLayout_t<uint64_t, layout::VectorLayout>,
+                    tla::Coord<tla::_0>, AscendC::TPosition::A1>,
         EmptyClass>;
 
     using L1AAlignHelper = Gemm::helper::L1AlignHelper<ElementA, LayoutTagA>;
@@ -410,27 +389,17 @@ struct PackedTileCopyTla {
 
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class TensorA,
-    class LayoutTagA,
-    class TensorB,
-    class LayoutTagB,
-    class TensorC,
-    class LayoutTagC,
-    class TensorBias = void,
-    class LayoutTagBias = void,
-    bool IS_PADDING_A = false,
-    bool IS_PADDING_B = false>
+    class ArchTag, class TensorA, class LayoutTagA, class TensorB, class LayoutTagB, class TensorC, class LayoutTagC,
+    class TensorBias = void, class LayoutTagBias = void, bool IS_PADDING_A = false, bool IS_PADDING_B = false>
 struct PaddingPackedTileCopyTla {
-    static_assert(
-        std::is_same_v<LayoutTagA, layout::RowMajor> || std::is_same_v<LayoutTagA, layout::ColumnMajor>,
-        "Unsupported layout, only can be RowMajor and ColumnMajor");
-    static_assert(
-        std::is_same_v<LayoutTagB, layout::RowMajor> || std::is_same_v<LayoutTagB, layout::ColumnMajor>,
-        "Unsupported layout, only can be RowMajor and ColumnMajor");
+    static_assert(std::is_same_v<LayoutTagA, layout::RowMajor> || std::is_same_v<LayoutTagA, layout::ColumnMajor>,
+                  "Unsupported layout, only can be RowMajor and ColumnMajor");
+    static_assert(std::is_same_v<LayoutTagB, layout::RowMajor> || std::is_same_v<LayoutTagB, layout::ColumnMajor>,
+                  "Unsupported layout, only can be RowMajor and ColumnMajor");
     using ElementA = typename TensorA::Element;
     using ElementB = typename TensorB::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
     using LayoutTagL1A = typename helper::L1ATypeSelector<Gemm::GemmType<ElementA, LayoutTagA>>::L1AType::Layout;
     using LayoutTagL1B = typename helper::L1BTypeSelector<Gemm::GemmType<ElementB, LayoutTagB>>::L1BType::Layout;
@@ -451,25 +420,25 @@ struct PaddingPackedTileCopyTla {
         tla::Tensor<AscendC::LocalTensor<ElementA>, LayoutL0A, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::A2>;
     using TensorL0B =
         tla::Tensor<AscendC::LocalTensor<ElementB>, LayoutL0B, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::B2>;
-    using TensorL0C = tla::
-        Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::CO1>;
+    using TensorL0C = tla::Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>,
+                                  AscendC::TPosition::CO1>;
 
     using L1AAlignHelper = Gemm::helper::L1AlignHelper<ElementA, LayoutTagA>;
     using L1BAlignHelper = Gemm::helper::L1AlignHelper<ElementB, LayoutTagB>;
 
-    using LayoutPaddingTagA = std::
-        conditional_t<std::is_same_v<LayoutTagA, layout::RowMajor>, layout::PaddingRowMajor, layout::PaddingColumnMajor>;
-    using LayoutPaddingTagB = std::
-        conditional_t<std::is_same_v<LayoutTagB, layout::RowMajor>, layout::PaddingRowMajor, layout::PaddingColumnMajor>;
+    using LayoutPaddingTagA = std::conditional_t<std::is_same_v<LayoutTagA, layout::RowMajor>, layout::PaddingRowMajor,
+                                                 layout::PaddingColumnMajor>;
+    using LayoutPaddingTagB = std::conditional_t<std::is_same_v<LayoutTagB, layout::RowMajor>, layout::PaddingRowMajor,
+                                                 layout::PaddingColumnMajor>;
 
-    using CopyGmToL1A = std::conditional_t<
-        IS_PADDING_A,
-        Gemm::Tile::TileCopyTlaExt<ArchTag, TensorA, TensorL1A, LayoutPaddingTagA, LayoutTagL1A>,
-        Gemm::Tile::TileCopyTlaExt<ArchTag, TensorA, TensorL1A, LayoutTagA, LayoutTagL1A>>;
-    using CopyGmToL1B = std::conditional_t<
-        IS_PADDING_B,
-        Gemm::Tile::TileCopyTlaExt<ArchTag, TensorB, TensorL1B, LayoutPaddingTagB, LayoutTagL1B>,
-        Gemm::Tile::TileCopyTlaExt<ArchTag, TensorB, TensorL1B, LayoutTagB, LayoutTagL1B>>;
+    using CopyGmToL1A =
+        std::conditional_t<IS_PADDING_A,
+                           Gemm::Tile::TileCopyTlaExt<ArchTag, TensorA, TensorL1A, LayoutPaddingTagA, LayoutTagL1A>,
+                           Gemm::Tile::TileCopyTlaExt<ArchTag, TensorA, TensorL1A, LayoutTagA, LayoutTagL1A>>;
+    using CopyGmToL1B =
+        std::conditional_t<IS_PADDING_B,
+                           Gemm::Tile::TileCopyTlaExt<ArchTag, TensorB, TensorL1B, LayoutPaddingTagB, LayoutTagL1B>,
+                           Gemm::Tile::TileCopyTlaExt<ArchTag, TensorB, TensorL1B, LayoutTagB, LayoutTagL1B>>;
 
     using CopyL1ToL0A = Gemm::Tile::TileCopyTla<ArchTag, TensorL1A, TensorL0A>;
     using CopyL1ToL0B = Gemm::Tile::TileCopyTla<ArchTag, TensorL1B, TensorL0B>;
@@ -484,30 +453,15 @@ struct PaddingPackedTileCopyTla {
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class ElementA_,
-    class LayoutTagA,
-    class ElementB_,
-    class LayoutTagB,
-    class ElementC_,
-    class LayoutTagC,
-    class ElementBias = void,
-    CopyL0CToUBMode CopyMode_ = CopyL0CToUBMode::NO_SPLIT,
-    bool ReluEnable = false,
-    ScaleGranularity DEQUANT_GRANULARITY = ScaleGranularity::NO_QUANT>
-struct PackedTileCopyTlaToUB
-    : public PackedTileCopyTla<ArchTag, ElementA_, LayoutTagA, ElementB_, LayoutTagB, ElementC_, LayoutTagC, ElementBias> {
+    class ArchTag, class ElementA_, class LayoutTagA, class ElementB_, class LayoutTagB, class ElementC_,
+    class LayoutTagC, class ElementBias = void, CopyL0CToUBMode CopyMode_ = CopyL0CToUBMode::NO_SPLIT,
+    bool ReluEnable = false, ScaleGranularity DEQUANT_GRANULARITY = ScaleGranularity::NO_QUANT>
+struct PackedTileCopyTlaToUB : public PackedTileCopyTla<ArchTag, ElementA_, LayoutTagA, ElementB_, LayoutTagB,
+                                                        ElementC_, LayoutTagC, ElementBias> {
     static constexpr CopyL0CToUBMode CopyMode = CopyMode_;
     // 重写 CopyL0CToDst
-    using TensorL0C = typename PackedTileCopyTla<
-        ArchTag,
-        ElementA_,
-        LayoutTagA,
-        ElementB_,
-        LayoutTagB,
-        ElementC_,
-        LayoutTagC,
-        ElementBias>::TensorL0C;
+    using TensorL0C = typename PackedTileCopyTla<ArchTag, ElementA_, LayoutTagA, ElementB_, LayoutTagB, ElementC_,
+                                                 LayoutTagC, ElementBias>::TensorL0C;
 
     template <class TensorC>
     using CopyL0CToDst =
@@ -515,6 +469,6 @@ struct PackedTileCopyTlaToUB
 };
 #endif
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_KDA_GEMM_TILE_COPY_HPP
+#endif  // CATLASS_KDA_GEMM_TILE_COPY_HPP

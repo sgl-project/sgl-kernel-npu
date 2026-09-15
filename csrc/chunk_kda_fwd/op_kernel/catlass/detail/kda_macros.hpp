@@ -23,4 +23,4 @@
 #endif
 #define CATLASS_GLOBAL __global__ __aicore__
 
-#endif // CATLASS_KDA_MACROS_HPP
+#endif  // CATLASS_KDA_MACROS_HPP

@@ -780,9 +780,10 @@ __aicore__ inline T FloatToType(float value)
     return static_cast<T>(value);
 }
 
-template <bool SAFE_GATE, typename T, typename GK_T = float, uint32_t COMPILE_BT = 0,
-          uint32_t COMPILE_K = 0, uint32_t COMPILE_V = 0>
-class ChunkKdaFwdPrepareKernel {
+template <bool SAFE_GATE, typename T, typename GK_T = float, uint32_t COMPILE_BT = 0, uint32_t COMPILE_K = 0,
+          uint32_t COMPILE_V = 0>
+class ChunkKdaFwdPrepareKernel
+{
 public:
     using OUT_T = T;
     using AKK_T = float;
@@ -896,7 +897,10 @@ public:
         ReleaseVectorEvents();
     }
 
-    __aicore__ inline void ProcessAic() { ProcessPreAic(); }
+    __aicore__ inline void ProcessAic()
+    {
+        ProcessPreAic();
+    }
 
     template <typename PostWuOp>
     __aicore__ inline void ProcessAicFused(PostWuOp &postWu)
@@ -965,7 +969,10 @@ private:
         return ((b * HV_ + hv) * T_ + t) * dim + d;
     }
 
-    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const { return (b * HV_ + hv) * T_ + t; }
+    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const
+    {
+        return (b * HV_ + hv) * T_ + t;
+    }
 
     __aicore__ inline uint64_t AOffset(uint64_t b, uint64_t hv, uint64_t t, uint64_t j) const
     {
@@ -1139,7 +1146,10 @@ private:
         return vecBuf_.Get<float>()[slot * EXP2_UB_ELEMENTS];
     }
 
-    __aicore__ inline uint64_t GateStageElems() const { return GatePipelineRows() * K_; }
+    __aicore__ inline uint64_t GateStageElems() const
+    {
+        return GatePipelineRows() * K_;
+    }
 
     __aicore__ inline uint64_t GatePipelineRows() const
     {
@@ -1370,9 +1380,15 @@ private:
         return vecBuf_.Get<T>()[slot * 3 * GateStageElems()];
     }
 
-    __aicore__ inline LocalTensor<T> GateDirectW(uint64_t slot) { return GateDirectQ(slot)[GateStageElems()]; }
+    __aicore__ inline LocalTensor<T> GateDirectW(uint64_t slot)
+    {
+        return GateDirectQ(slot)[GateStageElems()];
+    }
 
-    __aicore__ inline LocalTensor<T> GateDirectV(uint64_t slot) { return GateDirectQ(slot)[2 * GateStageElems()]; }
+    __aicore__ inline LocalTensor<T> GateDirectV(uint64_t slot)
+    {
+        return GateDirectQ(slot)[2 * GateStageElems()];
+    }
 
     __aicore__ inline LocalTensor<float> GateBetaFloat(uint64_t slot)
     {
@@ -1407,14 +1423,20 @@ private:
         SetFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
     }
 
-    __aicore__ inline void WaitGateInputReady() { WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_); }
+    __aicore__ inline void WaitGateInputReady()
+    {
+        WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
+    }
 
     __aicore__ inline void WaitGateOutputForMte2(uint64_t slot = 0)
     {
         WaitFlag<HardEvent::MTE3_MTE2>(mte3ToMte2Events_[slot]);
     }
 
-    __aicore__ inline void WaitGateOutputForVector() { WaitFlag<HardEvent::MTE3_V>(mte3ToVEvent_); }
+    __aicore__ inline void WaitGateOutputForVector()
+    {
+        WaitFlag<HardEvent::MTE3_V>(mte3ToVEvent_);
+    }
 
     __aicore__ inline void SignalGateOutputDone()
     {
@@ -2655,10 +2677,10 @@ private:
                                           Catlass::Arch::PositionGM{});
         auto tensorKNeg = tla::MakeTensor(scoreWorkspace_[ScoreScratchOffset(scoreSlot, KDA_SCORE_SCRATCH_KG)], layoutB,
                                           Catlass::Arch::PositionGM{});
-        auto aqkBase = paddedTail ? solveWorkspace_[SolveScratchOffset(b, hv, chunkIdx, KDA_SOLVE_SCRATCH_RAW_AQK)] :
-                                    aqk_[AOffset(b, hv, start, 0)];
-        auto akkBase = paddedTail ? solveWorkspace_[SolveScratchOffset(b, hv, chunkIdx, KDA_SOLVE_SCRATCH_RAW_AKK)] :
-                                    akk_[AOffset(b, hv, start, 0)];
+        auto aqkBase = paddedTail ? solveWorkspace_[SolveScratchOffset(b, hv, chunkIdx, KDA_SOLVE_SCRATCH_RAW_AQK)]
+                                  : aqk_[AOffset(b, hv, start, 0)];
+        auto akkBase = paddedTail ? solveWorkspace_[SolveScratchOffset(b, hv, chunkIdx, KDA_SOLVE_SCRATCH_RAW_AKK)]
+                                  : akk_[AOffset(b, hv, start, 0)];
         auto tensorAqk = tla::MakeTensor(aqkBase, layoutC, Catlass::Arch::PositionGM{});
         auto tensorAkk = tla::MakeTensor(akkBase, layoutC, Catlass::Arch::PositionGM{});
 
@@ -4097,8 +4119,8 @@ private:
         const bool useFullChunkScore = false;
         uint64_t scoreBlockSize = useFullChunkScore ? curT : ScoreRefBlockSize();
         uint64_t scoreBlockCount = (curT + scoreBlockSize - 1) / scoreBlockSize;
-        uint64_t pipelineBlockCount = useFullChunkScore ? scoreBlockCount :
-                                                          (scoreBlockCount + KDA_SCORE_QUEUE_DEPTH - 1) /
+        uint64_t pipelineBlockCount = useFullChunkScore ? scoreBlockCount
+                                                        : (scoreBlockCount + KDA_SCORE_QUEUE_DEPTH - 1) /
                                                               KDA_SCORE_QUEUE_DEPTH * KDA_SCORE_QUEUE_DEPTH;
         const bool useDirectScoreUb =
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
@@ -4321,8 +4343,8 @@ private:
         const bool useFullChunkScore = false;
         uint64_t scoreBlockSize = useFullChunkScore ? curT : ScoreRefBlockSize();
         uint64_t scoreBlockCount = (curT + scoreBlockSize - 1) / scoreBlockSize;
-        uint64_t pipelineBlockCount = useFullChunkScore ? scoreBlockCount :
-                                                          (scoreBlockCount + KDA_SCORE_QUEUE_DEPTH - 1) /
+        uint64_t pipelineBlockCount = useFullChunkScore ? scoreBlockCount
+                                                        : (scoreBlockCount + KDA_SCORE_QUEUE_DEPTH - 1) /
                                                               KDA_SCORE_QUEUE_DEPTH * KDA_SCORE_QUEUE_DEPTH;
         for (uint64_t block = 0; block < pipelineBlockCount; ++block) {
             Catlass::Arch::CrossCoreWaitFlagWithReverse<0x2, PIPE_FIX>(scoreReadyFlag_);
@@ -4761,7 +4783,7 @@ private:
     __gm__ int64_t *chunkIndicesAddr_ = nullptr;
     __gm__ int64_t *cuSeqlensAddr_ = nullptr;
 };
-} // namespace
+}  // namespace
 
 template <bool SAFE_GATE, typename T, typename GK_T, typename TilingData, uint32_t COMPILE_BT = 0,
           uint32_t COMPILE_K = 0, uint32_t COMPILE_V = 0>
@@ -4803,4 +4825,4 @@ __aicore__ inline void RunChunkKdaPrepare(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_AD
     }
 }
 
-} // namespace KdaPrepare
+}  // namespace KdaPrepare

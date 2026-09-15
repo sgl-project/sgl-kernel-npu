@@ -60,7 +60,6 @@ constexpr int64_t MAX_KDA_K_DIM = 256;
 constexpr int64_t MAX_KDA_HEAD_NUM = 128;
 constexpr int64_t MAX_KDA_VARLEN_SEQUENCES = 1024;
 
-
 enum class KdaFwdLayout {
     BSND,
     BNSD,
@@ -154,8 +153,7 @@ void ResolveShapeInfo(const at::Tensor &q, const at::Tensor &v, const c10::optio
     info.isRank3 = layout == KdaFwdLayout::TND || layout == KdaFwdLayout::NTD;
     const int64_t tensorRank = info.isRank3 ? 3 : 4;
     const int64_t betaRank = info.isRank3 ? 2 : 3;
-    TORCH_CHECK(q.dim() == tensorRank && v.dim() == tensorRank && g->dim() == tensorRank &&
-                    beta->dim() == betaRank,
+    TORCH_CHECK(q.dim() == tensorRank && v.dim() == tensorRank && g->dim() == tensorRank && beta->dim() == betaRank,
                 "chunk_kda_fwd: q/k/v/g and beta ranks must match layout: rank3/rank2 for TND/NTD, "
                 "rank4/rank3 for BSND/BNSD.");
 
@@ -209,13 +207,11 @@ void ResolveShapeInfo(const at::Tensor &q, const at::Tensor &v, const c10::optio
     info.totalChunks = CountChunks(cuSeqlens, info.seqlen, chunkSize);
 }
 
-void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNum, int64_t kDim,
-                       int64_t vDim, int64_t chunkSize, int64_t seqNum, int64_t totalChunks,
-                       int64_t inputRank, double scale, double lowerBound, bool hasInitialState,
-                       bool isVarLen, bool safeGate, bool sequenceMajor, bool useGateInKernel,
-                       bool hasALog, bool hasDtBias, int64_t gateDataType,
-                       bool storeFinalState, bool storeGk, bool storeW,
-                       bool storeU, bool storeQG, bool storeKg, bool storeVNew, bool storeH,
+void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNum, int64_t kDim, int64_t vDim,
+                       int64_t chunkSize, int64_t seqNum, int64_t totalChunks, int64_t inputRank, double scale,
+                       double lowerBound, bool hasInitialState, bool isVarLen, bool safeGate, bool sequenceMajor,
+                       bool useGateInKernel, bool hasALog, bool hasDtBias, int64_t gateDataType, bool storeFinalState,
+                       bool storeGk, bool storeW, bool storeU, bool storeQG, bool storeKg, bool storeVNew, bool storeH,
                        uint32_t blockDim, const optiling::arch35::ChunkKdaFwdArch35Options &arch35Options,
                        int64_t betaDataType, ChunkKdaFwd::ChunkKdaFwdTilingData &td)
 {
@@ -271,21 +267,17 @@ void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNu
 
     uint64_t cursor = 0;
     td.gkStorageOffset = storeGk ? 0 : AllocateWorkspace(cursor, gkBytes);
-    td.finalStateStorageOffset =
-        storeFinalState ? 0 : AllocateWorkspace(cursor, stateElements * sizeof(float));
+    td.finalStateStorageOffset = storeFinalState ? 0 : AllocateWorkspace(cursor, stateElements * sizeof(float));
     td.wStorageOffset = storeW ? 0 : AllocateWorkspace(cursor, kTensorBytes);
     td.uStorageOffset = storeU ? 0 : AllocateWorkspace(cursor, vTensorBytes);
     td.qgStorageOffset = storeQG ? 0 : AllocateWorkspace(cursor, kTensorBytes);
     td.kgStorageOffset = storeKg ? 0 : AllocateWorkspace(cursor, kTensorBytes);
-    const uint64_t vNewStorageBytes =
-        arch35Options.useDenseFwdH && !storeVNew
-            ? static_cast<uint64_t>(batch) * hvNum * chunkSize * vDim * dataBytes
-            : vTensorBytes;
+    const uint64_t vNewStorageBytes = arch35Options.useDenseFwdH && !storeVNew
+                                          ? static_cast<uint64_t>(batch) * hvNum * chunkSize * vDim * dataBytes
+                                          : vTensorBytes;
     td.vNewStorageOffset = storeVNew ? 0 : AllocateWorkspace(cursor, vNewStorageBytes);
     const uint64_t hStorageBytes =
-        arch35Options.useDenseFwdH && !storeH
-            ? static_cast<uint64_t>(batch) * hvNum * kDim * vDim * dataBytes
-            : hBytes;
+        arch35Options.useDenseFwdH && !storeH ? static_cast<uint64_t>(batch) * hvNum * kDim * vDim * dataBytes : hBytes;
     td.hStorageOffset = storeH ? 0 : AllocateWorkspace(cursor, hStorageBytes);
     td.qgScaledOffset = AllocateWorkspace(cursor, kTensorBytes);
 
@@ -295,10 +287,9 @@ void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNu
     td.prepareScratchOffset = AlignWorkspace(cursor);
     const uint64_t solveDepth = safeGate ? KDA_SOLVE_PIPELINE_DEPTH : 1;
     const uint64_t solveBytes =
-        static_cast<uint64_t>(blockDim) * solveDepth * KDA_SOLVE_SCRATCH_SLOTS * chunkSize * chunkSize *
-        sizeof(float);
-    const uint64_t scoreBytes = static_cast<uint64_t>(blockDim) * KDA_SCORE_QUEUE_SLOTS *
-                                KDA_SCORE_SCRATCH_PLANES * chunkSize * kDim * dataBytes;
+        static_cast<uint64_t>(blockDim) * solveDepth * KDA_SOLVE_SCRATCH_SLOTS * chunkSize * chunkSize * sizeof(float);
+    const uint64_t scoreBytes = static_cast<uint64_t>(blockDim) * KDA_SCORE_QUEUE_SLOTS * KDA_SCORE_SCRATCH_PLANES *
+                                chunkSize * kDim * dataBytes;
     cursor = td.prepareScratchOffset + AlignWorkspace(solveBytes) + scoreBytes;
 
     td.postWuScratchOffset = AlignWorkspace(cursor);
@@ -309,17 +300,13 @@ void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNu
     td.fwdHWorkspaceBaseOffset = AlignWorkspace(cursor);
     uint64_t fwdHCursor = 0;
     td.vWorkspaceOffset = AllocateWorkspace(
-        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * vDim * sizeof(float) *
-                        KDA_GDN_PIPELINE_DEPTH);
+        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * vDim * sizeof(float) * KDA_GDN_PIPELINE_DEPTH);
     td.vUpdateWorkspaceOffset = AllocateWorkspace(
-        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * vDim * sizeof(float) *
-                        KDA_GDN_PIPELINE_DEPTH);
+        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * vDim * sizeof(float) * KDA_GDN_PIPELINE_DEPTH);
     td.kDecayWorkspaceOffset = AllocateWorkspace(
-        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * kDim * sizeof(float) *
-                        KDA_GDN_PIPELINE_DEPTH);
+        fwdHCursor, static_cast<uint64_t>(blockDim) * chunkSize * kDim * sizeof(float) * KDA_GDN_PIPELINE_DEPTH);
     td.hWorkspaceOffset = AllocateWorkspace(
-        fwdHCursor, static_cast<uint64_t>(blockDim) * kDim * vDim * sizeof(float) *
-                        KDA_GDN_PIPELINE_DEPTH);
+        fwdHCursor, static_cast<uint64_t>(blockDim) * kDim * vDim * sizeof(float) * KDA_GDN_PIPELINE_DEPTH);
     const uint64_t tokenBatch = isVarLen ? static_cast<uint64_t>(seqNum) : 1;
     td.numSeqWorkspaceOffset = AllocateWorkspace(fwdHCursor, (tokenBatch + 1) * sizeof(int64_t));
     td.numChunksWorkspaceOffset = AllocateWorkspace(fwdHCursor, (tokenBatch + 1) * sizeof(int64_t));
@@ -329,16 +316,14 @@ void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNu
 }
 
 std::tuple<at::Tensor, c10::optional<at::Tensor>, c10::optional<at::Tensor>, at::Tensor, at::Tensor,
-           c10::optional<at::Tensor>, c10::optional<at::Tensor>, c10::optional<at::Tensor>,
-           c10::optional<at::Tensor>, c10::optional<at::Tensor>, c10::optional<at::Tensor>>
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>, c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>>
 chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
-              const at::Tensor &beta, const c10::optional<at::Tensor> &aLog,
-              const c10::optional<at::Tensor> &dtBias, const c10::optional<at::Tensor> &initialState,
-              const c10::optional<at::Tensor> &cuSeqlens,
-              const c10::optional<at::Tensor> &chunkIndices, const std::string &layout, double scale,
-              int64_t chunkSize, bool safeGate, double lowerBound, bool useGateInKernel,
-              bool stateVFirst, bool outputFinalState, bool outputGk, bool outputW, bool outputU,
-              bool outputQG, bool outputKg, bool outputVNew, bool outputH)
+              const at::Tensor &beta, const c10::optional<at::Tensor> &aLog, const c10::optional<at::Tensor> &dtBias,
+              const c10::optional<at::Tensor> &initialState, const c10::optional<at::Tensor> &cuSeqlens,
+              const c10::optional<at::Tensor> &chunkIndices, const std::string &layout, double scale, int64_t chunkSize,
+              bool safeGate, double lowerBound, bool useGateInKernel, bool stateVFirst, bool outputFinalState,
+              bool outputGk, bool outputW, bool outputU, bool outputQG, bool outputKg, bool outputVNew, bool outputH)
 {
     TORCH_CHECK(q.defined() && k.defined() && v.defined() && g.defined() && beta.defined(),
                 "chunk_kda_fwd: q, k, v, g and beta must be defined");
@@ -351,15 +336,13 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     const bool isRank3 = parsedLayout == KdaFwdLayout::TND || parsedLayout == KdaFwdLayout::NTD;
 
     // dtype checks: q/k/v must be bf16 (direct-launch restriction), g/beta fp32 or bf16.
-    TORCH_CHECK(q.scalar_type() == at::kBFloat16 && k.scalar_type() == at::kBFloat16 &&
-                    v.scalar_type() == at::kBFloat16,
-                "chunk_kda_fwd: q, k and v must be bfloat16 (direct-launch currently supports bf16)");
+    TORCH_CHECK(
+        q.scalar_type() == at::kBFloat16 && k.scalar_type() == at::kBFloat16 && v.scalar_type() == at::kBFloat16,
+        "chunk_kda_fwd: q, k and v must be bfloat16 (direct-launch currently supports bf16)");
     const at::ScalarType gateType = g.scalar_type();
-    TORCH_CHECK(gateType == at::kFloat || gateType == at::kBFloat16,
-                "chunk_kda_fwd: g must be float32 or bfloat16");
+    TORCH_CHECK(gateType == at::kFloat || gateType == at::kBFloat16, "chunk_kda_fwd: g must be float32 or bfloat16");
     const at::ScalarType betaType = beta.scalar_type();
-    TORCH_CHECK(betaType == at::kFloat || betaType == at::kBFloat16,
-                "chunk_kda_fwd: beta must be float32 or bfloat16");
+    TORCH_CHECK(betaType == at::kFloat || betaType == at::kBFloat16, "chunk_kda_fwd: beta must be float32 or bfloat16");
     const bool gIsFp32 = gateType == at::kFloat;
     const int64_t gateDataType = gIsFp32 ? 2 : (gateType == at::kBFloat16 ? 1 : 0);
     const int64_t betaDataType = betaType == at::kFloat ? 0 : 1;
@@ -371,8 +354,7 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
         TORCH_CHECK(dtBias->scalar_type() == at::kFloat, "chunk_kda_fwd: dt_bias must be float32");
     }
     if (initialState.has_value() && initialState->defined()) {
-        TORCH_CHECK(initialState->scalar_type() == at::kFloat,
-                    "chunk_kda_fwd: initial_state must be float32");
+        TORCH_CHECK(initialState->scalar_type() == at::kFloat, "chunk_kda_fwd: initial_state must be float32");
     }
     if (useGateInKernel) {
         TORCH_CHECK(aLog.has_value() && aLog->defined(),
@@ -386,31 +368,27 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
                 "chunk_kda_fwd: H and HV must be positive, HV must be a multiple of H");
     TORCH_CHECK(info.hNum <= MAX_KDA_HEAD_NUM && info.hvNum <= MAX_KDA_HEAD_NUM,
                 "chunk_kda_fwd: H and HV must be <= 128");
-    TORCH_CHECK(info.kDim >= 16 && info.kDim <= MAX_KDA_K_DIM && info.kDim % 16 == 0 &&
-                    info.vDim >= 16 && info.vDim <= 256 && info.vDim % 16 == 0,
+    TORCH_CHECK(info.kDim >= 16 && info.kDim <= MAX_KDA_K_DIM && info.kDim % 16 == 0 && info.vDim >= 16 &&
+                    info.vDim <= 256 && info.vDim % 16 == 0,
                 "chunk_kda_fwd: K/V must be multiples of 16, K <= 256 and V <= 256");
-    TORCH_CHECK(SameShape(q, k) && q.dim() == k.dim(),
-                "chunk_kda_fwd: q and k must have identical shape");
+    TORCH_CHECK(SameShape(q, k) && q.dim() == k.dim(), "chunk_kda_fwd: q and k must have identical shape");
     TORCH_CHECK(info.seqlen > 0 && info.totalChunks > 0, "chunk_kda_fwd: invalid sequence length");
     if (cuSeqlens.has_value() && cuSeqlens->defined()) {
         TORCH_CHECK(cuSeqlens->scalar_type() == at::kLong, "chunk_kda_fwd: cu_seqlens must be int64");
         TORCH_CHECK(cuSeqlens->numel() >= 2, "chunk_kda_fwd: cu_seqlens must contain at least [0, T]");
         TORCH_CHECK(!isRank3 || info.batch == 1, "chunk_kda_fwd: rank4 varlen requires B=1");
-        TORCH_CHECK(info.seqNum <= MAX_KDA_VARLEN_SEQUENCES,
-                    "chunk_kda_fwd: varlen supports at most 1024 sequences");
+        TORCH_CHECK(info.seqNum <= MAX_KDA_VARLEN_SEQUENCES, "chunk_kda_fwd: varlen supports at most 1024 sequences");
         const at::Tensor cuCpu = cuSeqlens->cpu().contiguous();
         const int64_t *cuPtr = reinterpret_cast<const int64_t *>(cuCpu.data_ptr());
         TORCH_CHECK(cuPtr[0] == 0, "chunk_kda_fwd: cu_seqlens[0] must be 0");
         TORCH_CHECK(cuPtr[cuCpu.numel() - 1] == info.seqlen,
                     "chunk_kda_fwd: cu_seqlens last element must equal the sequence length");
         for (int64_t idx = 0; idx + 1 < cuCpu.numel(); ++idx) {
-            TORCH_CHECK(cuPtr[idx] <= cuPtr[idx + 1],
-                        "chunk_kda_fwd: cu_seqlens must be nondecreasing");
+            TORCH_CHECK(cuPtr[idx] <= cuPtr[idx + 1], "chunk_kda_fwd: cu_seqlens must be nondecreasing");
         }
     }
     if (chunkIndices.has_value() && chunkIndices->defined()) {
-        TORCH_CHECK(cuSeqlens.has_value() && cuSeqlens->defined(),
-                    "chunk_kda_fwd: chunk_indices requires cu_seqlens");
+        TORCH_CHECK(cuSeqlens.has_value() && cuSeqlens->defined(), "chunk_kda_fwd: chunk_indices requires cu_seqlens");
         TORCH_CHECK(chunkIndices->scalar_type() == at::kLong, "chunk_kda_fwd: chunk_indices must be int64");
         TORCH_CHECK(chunkIndices->numel() == info.totalChunks * 2,
                     "chunk_kda_fwd: chunk_indices must contain one (seq_id, chunk_id) pair per chunk");
@@ -420,9 +398,8 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
                     "chunk_kda_fwd: lower_bound must be in [-5, 0) when safe_gate is true");
     }
     if (initialState.has_value() && initialState->defined()) {
-        const bool valid = stateVFirst
-                               ? HasShape(*initialState, {info.seqNum, info.hvNum, info.vDim, info.kDim})
-                               : HasShape(*initialState, {info.seqNum, info.hvNum, info.kDim, info.vDim});
+        const bool valid = stateVFirst ? HasShape(*initialState, {info.seqNum, info.hvNum, info.vDim, info.kDim})
+                                       : HasShape(*initialState, {info.seqNum, info.hvNum, info.kDim, info.vDim});
         TORCH_CHECK(valid,
                     "chunk_kda_fwd: initial_state must be [N,HV,K,V] (state_v_first=false) or "
                     "[N,HV,V,K] (state_v_first=true)");
@@ -430,23 +407,20 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
 
     const auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     const uint32_t physicalCoreNum = std::max<uint32_t>(ascendcPlatform->GetCoreNumAic(), 1);
-    const bool isAscend950 =
-        ascendcPlatform->GetSocVersion() == platform_ascendc::SocVersion::ASCEND950;
+    const bool isAscend950 = ascendcPlatform->GetSocVersion() == platform_ascendc::SocVersion::ASCEND950;
     const bool isVarLen = cuSeqlens.has_value() && cuSeqlens->defined();
-    const uint64_t fwdHTaskCount = static_cast<uint64_t>(isVarLen ? info.seqNum : info.batch) *
-                                   info.hvNum;
+    const uint64_t fwdHTaskCount = static_cast<uint64_t>(isVarLen ? info.seqNum : info.batch) * info.hvNum;
     const uint32_t blockDim =
-        isAscend950 ? static_cast<uint32_t>(
-                          std::min<uint64_t>(physicalCoreNum, std::max<uint64_t>(fwdHTaskCount, 1))) :
-                      physicalCoreNum;
+        isAscend950 ? static_cast<uint32_t>(std::min<uint64_t>(physicalCoreNum, std::max<uint64_t>(fwdHTaskCount, 1)))
+                    : physicalCoreNum;
 
     const bool hasALog = aLog.has_value() && aLog->defined();
     const bool hasDtBias = dtBias.has_value() && dtBias->defined();
     const bool hasInitialState = initialState.has_value() && initialState->defined();
 
     const auto arch35Options = optiling::arch35::ConfigureChunkKdaFwdArch35(
-        isAscend950, true /* qIsBf16 */, gIsFp32, hasALog, useGateInKernel, safeGate, isVarLen,
-        info.seqlen, info.hvNum, chunkSize, info.kDim, info.vDim, outputQG, outputVNew, outputH);
+        isAscend950, true /* qIsBf16 */, gIsFp32, hasALog, useGateInKernel, safeGate, isVarLen, info.seqlen, info.hvNum,
+        chunkSize, info.kDim, info.vDim, outputQG, outputVNew, outputH);
 
     const bool storeFinalState = outputFinalState;
     const bool storeGk = outputGk;
@@ -458,11 +432,10 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     const bool storeH = outputH;
 
     ChunkKdaFwd::ChunkKdaFwdTilingData tilingData;
-    ComputeTilingData(info.batch, info.seqlen, info.hNum, info.hvNum, info.kDim, info.vDim, chunkSize,
-                      info.seqNum, info.totalChunks, info.isRank3 ? 3 : 4, scale, lowerBound,
-                      hasInitialState, isVarLen, safeGate, parsedLayout == KdaFwdLayout::BSND,
-                      useGateInKernel, hasALog, hasDtBias, gateDataType, storeFinalState,
-                      storeGk, storeW, storeU, storeQG, storeKg, storeVNew, storeH, blockDim,
+    ComputeTilingData(info.batch, info.seqlen, info.hNum, info.hvNum, info.kDim, info.vDim, chunkSize, info.seqNum,
+                      info.totalChunks, info.isRank3 ? 3 : 4, scale, lowerBound, hasInitialState, isVarLen, safeGate,
+                      parsedLayout == KdaFwdLayout::BSND, useGateInKernel, hasALog, hasDtBias, gateDataType,
+                      storeFinalState, storeGk, storeW, storeU, storeQG, storeKg, storeVNew, storeH, blockDim,
                       arch35Options, betaDataType, tilingData);
 
     // ---- layout conversion to the kernel's input convention ----
@@ -540,16 +513,14 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     at::Tensor finalStateOut;
     void *finalStatePtr = nullptr;
     if (storeFinalState) {
-        finalStateOut = at::empty({info.seqNum, hv, kd, vd},
-                                  at::TensorOptions().dtype(at::kFloat).device(q.device()));
+        finalStateOut = at::empty({info.seqNum, hv, kd, vd}, at::TensorOptions().dtype(at::kFloat).device(q.device()));
         finalStatePtr = finalStateOut.data_ptr();
     }
 
     at::Tensor gkOut;
     void *gkPtr = nullptr;
     if (storeGk) {
-        gkOut = at::empty({b, hv, s, kd},
-                          at::TensorOptions().dtype(at::kFloat).device(q.device()));
+        gkOut = at::empty({b, hv, s, kd}, at::TensorOptions().dtype(at::kFloat).device(q.device()));
         gkPtr = gkOut.data_ptr();
     }
 
@@ -597,9 +568,9 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     }
 
     // ---- workspace + tiling ----
-    int32_t tilingSize = (static_cast<int32_t>(sizeof(ChunkKdaFwd::ChunkKdaFwdTilingData)) +
-                          static_cast<int32_t>(PADDING_BYTE) - 1) /
-                         PADDING_BYTE * PADDING_BYTE;
+    int32_t tilingSize =
+        (static_cast<int32_t>(sizeof(ChunkKdaFwd::ChunkKdaFwdTilingData)) + static_cast<int32_t>(PADDING_BYTE) - 1) /
+        PADDING_BYTE * PADDING_BYTE;
 
     auto cpuTiling = at::empty({tilingSize}, at::kByte);
     std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(ChunkKdaFwd::ChunkKdaFwdTilingData));
@@ -610,12 +581,11 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     const uint64_t sysytemWorkspaceBytes = static_cast<int64_t>(ascendcPlatform->GetLibApiWorkSpaceSize());
     const int64_t totalWorkspaceBytes =
         sysytemWorkspaceBytes + static_cast<int64_t>(AlignWorkspace(totalUserWorkspace));
-    auto workspaceTensor =
-        at::empty({totalWorkspaceBytes}, at::TensorOptions().dtype(at::kByte).device(q.device()));
+    auto workspaceTensor = at::empty({totalWorkspaceBytes}, at::TensorOptions().dtype(at::kByte).device(q.device()));
 
-    EXEC_KERNEL_CMD(chunk_kda_fwd, blockDim, qHead, kHead, vHead, gHead, betaHead, aLogPtr, dtBiasPtr,
-                    initStatePtr, cuSeqlensPtr, chunkIndicesPtr, attnOut, finalStatePtr, gkPtr, aqkOut,
-                    akkOut, wPtr, uPtr, qgPtr, kgPtr, vNewPtr, hPtr, workspaceTensor, tilingTensor);
+    EXEC_KERNEL_CMD(chunk_kda_fwd, blockDim, qHead, kHead, vHead, gHead, betaHead, aLogPtr, dtBiasPtr, initStatePtr,
+                    cuSeqlensPtr, chunkIndicesPtr, attnOut, finalStatePtr, gkPtr, aqkOut, akkOut, wPtr, uPtr, qgPtr,
+                    kgPtr, vNewPtr, hPtr, workspaceTensor, tilingTensor);
 
     // ---- post-process outputs to the aclnn-documented user layouts ----
     at::Tensor attn = attnOut;

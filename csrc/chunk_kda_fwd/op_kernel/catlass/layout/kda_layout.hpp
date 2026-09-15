@@ -16,4 +16,4 @@
 #include "catlass/layout/kda_vector.hpp"
 #include "catlass/layout/kda_tensor.hpp"
 
-#endif // CATLASS_KDA_LAYOUT_HPP
+#endif  // CATLASS_KDA_LAYOUT_HPP

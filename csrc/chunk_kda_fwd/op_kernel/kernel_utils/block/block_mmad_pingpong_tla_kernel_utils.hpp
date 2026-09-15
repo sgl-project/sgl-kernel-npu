@@ -36,7 +36,7 @@ struct BlockMmadTla {
     static_assert(DEPENDENT_FALSE<DispatchPolicy>, "BlockMmadTla is not implemented for this DispatchPolicy");
 };
 
-// Now ENABLE_UNIT_FLAG_ must be false when intput element is int8
+// Now ENABLE_UNIT_FLAG_ must be false when input element is int8
 template <class ArchTag_, bool ENABLE_UNIT_FLAG_ = false, bool USE_HF32_MODE_ = false, uint32_t L0C_STAGES_ = 1,
           bool ENABLE_L1_RESIDENT_ = false, uint32_t L1A_STAGES_ = 2, uint32_t L1B_STAGES_ = 2,
           uint32_t L0A_STAGES_ = 2, uint32_t L0B_STAGES_ = 2, uint32_t UB_STAGES_ = 2>
@@ -148,7 +148,7 @@ public:
     static_assert(L0B_TILE_SIZE * L0B_STAGES <= ArchTag::L0B_SIZE, "L0TileShape exceeding the L0B space!");
     static_assert(L0C_TILE_SIZE * L0C_STAGES <= ArchTag::L0C_SIZE, "L0TileShape exceeding the L0C space!");
 
-    static constexpr uint32_t _32B = 32 * 8; // in bits
+    static constexpr uint32_t _32B = 32 * 8;  // in bits
     static_assert(L1_TILE_M == L0_TILE_M && L1_TILE_N == L0_TILE_N,
                   "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
     static_assert(L0_TILE_K <= L1_TILE_K, "L0TileShape::K cannot exceed L1TileShape::K");
@@ -1009,6 +1009,6 @@ protected:
     CopyL1ToBT copyL1ToBT;
 };
 
-} // namespace Common
+}  // namespace Common
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_TLA_KERNEL_UTILS_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_TLA_KERNEL_UTILS_HPP

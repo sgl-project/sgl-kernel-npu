@@ -22,7 +22,8 @@ namespace Catlass::Epilogue::Block {
 template <class HOutputType_, class GInputType_, class HInputType_, class HUpdateInputType_, class FinalStateType_,
           class KGatedTag>
 class BlockEpilogue<EpilogueAtlasKdaFwdHUpdate, HOutputType_, GInputType_, HInputType_, HUpdateInputType_,
-                    FinalStateType_, KGatedTag> {
+                    FinalStateType_, KGatedTag>
+{
     static constexpr bool kGated = KGatedTag::value;
     static constexpr bool scalarGated = KGatedTag::scalarGated;
     static constexpr bool useExp2 = KGatedTag::useExp2;
@@ -521,6 +522,6 @@ private:
     AscendC::LocalTensor<GElementInput> gkInputUbTensor_pong;
     AscendC::LocalTensor<uint8_t> shareBufferGk_;
 };
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
 #endif

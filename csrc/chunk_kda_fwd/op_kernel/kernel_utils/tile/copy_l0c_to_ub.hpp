@@ -288,7 +288,7 @@ struct CopyL0CToUBTla<
 
         // Fixpipe layout information
         intriParams.nSize = tla::get<1>(dstTensor.originShape());
-        intriParams.mSize = RoundUp(tla::get<0>(dstTensor.originShape()), 2); // m must be even when spilt m
+        intriParams.mSize = RoundUp(tla::get<0>(dstTensor.originShape()), 2);  // m must be even when spilt m
         intriParams.srcStride = tla::get<1, 1>(srcTensor.stride()) / tla::get<0, 0>(srcTensor.stride());
         intriParams.dstStride = tla::get<0>(dstTensor.stride());
 
@@ -333,7 +333,7 @@ struct CopyL0CToUBTla<
 
         // Fixpipe layout information
         intriParams.nSize = RoundUp(tla::get<1>(dstTensor.originShape()), 32);
-        intriParams.mSize = tla::get<0>(dstTensor.originShape()); // m must be even when spilt m
+        intriParams.mSize = tla::get<0>(dstTensor.originShape());  // m must be even when spilt m
         intriParams.srcStride = tla::get<1, 1>(srcTensor.stride()) / tla::get<0, 0>(srcTensor.stride());
         intriParams.dstStride = tla::get<0>(dstTensor.stride());
 
@@ -376,6 +376,6 @@ struct PackedTileCopyTlaToUB : public PackedTileCopyTla<ArchTag, ElementA_, Layo
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Common::Tile
+}  // namespace Common::Tile
 
-#endif // CATLASS_GEMM_TILE_ASCEND950_COPY_L0C_TO_UB_950_HPP
+#endif  // CATLASS_GEMM_TILE_ASCEND950_COPY_L0C_TO_UB_950_HPP

@@ -23,11 +23,11 @@ namespace Catlass::Gemm::Tile {
 
 /// Partial specialization for CopyL1ToL0A, Ascend950, zN in and zN out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
-    std::enable_if_t<tla::detail::iszN<ElementSrc, LayoutSrc>::value && tla::detail::iszN<ElementDst, LayoutDst>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
+                   std::enable_if_t<tla::detail::iszN<ElementSrc, LayoutSrc>::value &&
+                                    tla::detail::iszN<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<ElementSrc>::value;
 
@@ -40,11 +40,15 @@ struct TileCopyTla<
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
         static_assert(
-            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and zN, while TensorDst must be L0A and zN");
 
-        const uint32_t dstOuterShapeRow = CeilDiv(tla::get<0>(dstTensor.originShape()), tla::get<0, 0>(dstTensor.shape()));
-        const uint32_t dstOuterShapeCol = CeilDiv(tla::get<1>(dstTensor.originShape()), tla::get<1, 0>(dstTensor.shape()));
+        const uint32_t dstOuterShapeRow =
+            CeilDiv(tla::get<0>(dstTensor.originShape()), tla::get<0, 0>(dstTensor.shape()));
+        const uint32_t dstOuterShapeCol =
+            CeilDiv(tla::get<1>(dstTensor.originShape()), tla::get<1, 0>(dstTensor.shape()));
         const uint32_t srcOuterStrideCol = tla::get<1, 1>(srcTensor.stride());
         const uint32_t dstOuterStrideCol = tla::get<1, 1>(dstTensor.stride());
         auto srcCoord = srcTensor.coord();
@@ -66,11 +70,15 @@ struct TileCopyTla<
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor, uint32_t l0Batch)
     {
         static_assert(
-            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and zN, while TensorDst must be L0A and zN");
 
-        const uint32_t dstOuterShapeRow = CeilDiv(tla::get<0>(dstTensor.originShape()), tla::get<0, 0>(dstTensor.shape()));
-        const uint32_t dstOuterShapeCol = CeilDiv(tla::get<1>(dstTensor.originShape()), tla::get<1, 0>(dstTensor.shape()));
+        const uint32_t dstOuterShapeRow =
+            CeilDiv(tla::get<0>(dstTensor.originShape()), tla::get<0, 0>(dstTensor.shape()));
+        const uint32_t dstOuterShapeCol =
+            CeilDiv(tla::get<1>(dstTensor.originShape()), tla::get<1, 0>(dstTensor.shape()));
         const uint32_t srcOuterStrideCol = tla::get<1, 1>(srcTensor.stride());
         const uint32_t dstOuterStrideCol = tla::get<1, 1>(dstTensor.stride());
 
@@ -89,14 +97,13 @@ struct TileCopyTla<
 
 /// Partial specialization for CopyL1ToL0A, Ascend950, not B8, nZ in and zN out. (Transpose A)
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
-    std::enable_if_t<
-        !AscendC::Std::is_one_of_v<ElementSrc, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-        !AscendC::Std::is_one_of_v<ElementDst, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-        tla::detail::isnZ<ElementSrc, LayoutSrc>::value && tla::detail::iszN<ElementDst, LayoutDst>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
+                   std::enable_if_t<!AscendC::Std::is_one_of_v<ElementSrc, int8_t, float8_e4m3_t, float8_e5m2_t> &&
+                                    !AscendC::Std::is_one_of_v<ElementDst, int8_t, float8_e4m3_t, float8_e5m2_t> &&
+                                    tla::detail::isnZ<ElementSrc, LayoutSrc>::value &&
+                                    tla::detail::iszN<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<ElementSrc>::value;
 
@@ -111,7 +118,9 @@ struct TileCopyTla<
         static_assert(
             !AscendC::Std::is_one_of_v<typename TensorSrc::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
                 !AscendC::Std::is_one_of_v<typename TensorDst::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and nZ, while TensorDst must be L0A and zN");
 
         const uint32_t L0M = tla::get<0>(dstTensor.originShape());
@@ -126,7 +135,7 @@ struct TileCopyTla<
         loadDataParams.mStep = CeilDiv<C0_NUM_PER_FRACTAL>(L0K);
         loadDataParams.kStep = CeilDiv<ELE_NUM_PER_C0>(L0M);
         if constexpr (AscendC::Std::is_one_of_v<typename TensorSrc::Element, float, uint32_t, int32_t>) {
-            loadDataParams.kStep = RoundUp<2>(loadDataParams.kStep); // for b32 data types, ensure kStep is even
+            loadDataParams.kStep = RoundUp<2>(loadDataParams.kStep);  // for b32 data types, ensure kStep is even
         }
         loadDataParams.srcStride = CeilDiv<ELE_NUM_PER_FRACTAL>(srcOuterStrideRow);
         loadDataParams.dstStride = CeilDiv<ELE_NUM_PER_FRACTAL>(dstOuterStrideCol);
@@ -142,7 +151,9 @@ struct TileCopyTla<
         static_assert(
             !AscendC::Std::is_one_of_v<typename TensorSrc::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
                 !AscendC::Std::is_one_of_v<typename TensorDst::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and nZ, while TensorDst must be L0A and zN");
 
         const uint32_t L1M = tla::get<0, 0>(srcTensor.shape()) * tla::get<0, 1>(srcTensor.shape());
@@ -160,29 +171,28 @@ struct TileCopyTla<
         loadDataParams.mStep = CeilDiv<C0_NUM_PER_FRACTAL>(L0KOrigin);
         loadDataParams.kStep = CeilDiv<ELE_NUM_PER_C0>(L0MOrigin);
         if constexpr (AscendC::Std::is_one_of_v<typename TensorSrc::Element, float, uint32_t, int32_t>) {
-            loadDataParams.kStep = RoundUp<2>(loadDataParams.kStep); // for b32 data types, ensure kStep is even
+            loadDataParams.kStep = RoundUp<2>(loadDataParams.kStep);  // for b32 data types, ensure kStep is even
         }
         loadDataParams.srcStride = CeilDiv<ELE_NUM_PER_FRACTAL>(srcOuterStrideRow);
         loadDataParams.dstStride = CeilDiv<ELE_NUM_PER_FRACTAL>(dstOuterStrideCol);
         loadDataParams.ifTranspose = true;
 
         for (uint32_t l0BatchIdx = 0; l0BatchIdx < l0Batch; l0BatchIdx++) {
-            AscendC::LoadData(
-                dstTensor.data()[l0BatchIdx * L0M * L0K], srcTensor.data()[l0BatchIdx * L1M * L1K], loadDataParams);
+            AscendC::LoadData(dstTensor.data()[l0BatchIdx * L0M * L0K], srcTensor.data()[l0BatchIdx * L1M * L1K],
+                              loadDataParams);
         }
     }
 };
 
 /// Partial specialization for CopyL1ToL0A, Ascend950, B8, nZ in and zN out. (Transpose A)
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
-    std::enable_if_t<
-        AscendC::Std::is_one_of_v<ElementSrc, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-        AscendC::Std::is_one_of_v<ElementDst, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-        tla::detail::isnZ<ElementSrc, LayoutSrc>::value && tla::detail::iszN<ElementDst, LayoutDst>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
+                   std::enable_if_t<AscendC::Std::is_one_of_v<ElementSrc, int8_t, float8_e4m3_t, float8_e5m2_t> &&
+                                    AscendC::Std::is_one_of_v<ElementDst, int8_t, float8_e4m3_t, float8_e5m2_t> &&
+                                    tla::detail::isnZ<ElementSrc, LayoutSrc>::value &&
+                                    tla::detail::iszN<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<ElementSrc>::value;
 
@@ -197,7 +207,9 @@ struct TileCopyTla<
         static_assert(
             AscendC::Std::is_one_of_v<typename TensorSrc::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
                 AscendC::Std::is_one_of_v<typename TensorDst::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and nZ, while TensorDst must be L0A and zN");
 
         const uint32_t L0MPadded = tla::get<0, 0>(dstTensor.shape()) * tla::get<0, 1>(dstTensor.shape());
@@ -230,8 +242,8 @@ struct TileCopyTla<
                 loadDataParams.ifTranspose = true;
 
                 auto dstOffset = dstTensor.layout()(dstTensor.coord());
-                AscendC::LoadData(
-                    dstTensor.data()[dstOffset + kIdx * L0MPadded * ELE_NUM_PER_C0], srcTensor.data(), loadDataParams);
+                AscendC::LoadData(dstTensor.data()[dstOffset + kIdx * L0MPadded * ELE_NUM_PER_C0], srcTensor.data(),
+                                  loadDataParams);
             }
         }
     }
@@ -242,7 +254,9 @@ struct TileCopyTla<
         static_assert(
             AscendC::Std::is_one_of_v<typename TensorSrc::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
                 AscendC::Std::is_one_of_v<typename TensorDst::Element, int8_t, float8_e4m3_t, float8_e5m2_t> &&
-                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
+                tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::A2,
             "The input parameters do not match. TensorSrc must be L1 and nZ, while TensorDst must be L0A and zN");
 
         const uint32_t L1M = tla::get<0, 0>(srcTensor.shape()) * tla::get<0, 1>(srcTensor.shape());
@@ -267,8 +281,8 @@ struct TileCopyTla<
             loadDataParams.ifTranspose = true;
 
             for (uint32_t l0BatchIdx = 0; l0BatchIdx < l0Batch; l0BatchIdx++) {
-                AscendC::LoadData(
-                    dstTensor.data()[l0BatchIdx * L0MPadded * L0KPadded], srcTensor.data()[l0BatchIdx * L1M * L1K], loadDataParams);
+                AscendC::LoadData(dstTensor.data()[l0BatchIdx * L0MPadded * L0KPadded],
+                                  srcTensor.data()[l0BatchIdx * L1M * L1K], loadDataParams);
             }
         } else {
             loadDataParams.mStartPosition = 0;
@@ -290,11 +304,10 @@ struct TileCopyTla<
 };
 
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
-    std::enable_if_t<tla::detail::isVector<LayoutSrc>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A2>,
+                   std::enable_if_t<tla::detail::isVector<LayoutSrc>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<ElementSrc>::value;
 
@@ -323,11 +336,7 @@ struct TileCopyTla<
 };
 
 ////////////////////////////////////CopyL1ToL0A(No-TLA, Ascend950)////////////////////////////////////////////////
-template <
-    class ArchTag,
-    class L1Type,
-    class L0Type = void,
-    class Enable = void>
+template <class ArchTag, class L1Type, class L0Type = void, class Enable = void>
 struct CopyL1ToL0A {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy l1 to l0, can not find the specialization.");
 };
@@ -347,10 +356,8 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::zN, AscendC:
     CopyL1ToL0A() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         AscendC::LoadData2DParamsV2 loadDataParams;
         loadDataParams.mStartPosition = 0;
@@ -368,8 +375,8 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::zN, AscendC:
 /// Partial specialization for CopyL1ToL0A, AtlasA5, not B8 or B4, nZ in and zN out. (Transpose A)
 template <class Element>
 struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC::TPosition::A1>, void,
-                   std::enable_if_t<
-                       !AscendC::Std::is_one_of_v<Element, int8_t, float8_e4m3_t, float8_e5m2_t, float4_e2m1x2_t, float4_e1m2x2_t>>> {
+                   std::enable_if_t<!AscendC::Std::is_one_of_v<Element, int8_t, float8_e4m3_t, float8_e5m2_t,
+                                                               float4_e2m1x2_t, float4_e1m2x2_t>>> {
     using LayoutDst = layout::zN;
     using LayoutSrc = layout::nZ;
 
@@ -382,10 +389,8 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC:
     CopyL1ToL0A() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         const uint32_t L0M = layoutDst.shape(0) * layoutDst.shape(1);
         const uint32_t L0K = layoutDst.shape(2) * layoutDst.shape(3);
@@ -408,8 +413,8 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC:
 /// Partial specialization for CopyL1ToL0A, AtlasA5, B8 or B4, nZ in and zN out. (Transpose A)
 template <class Element>
 struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC::TPosition::A1>, void,
-                   std::enable_if_t<
-                       AscendC::Std::is_one_of_v<Element, int8_t, float8_e4m3_t, float8_e5m2_t, float4_e2m1x2_t, float4_e1m2x2_t>>> {
+                   std::enable_if_t<AscendC::Std::is_one_of_v<Element, int8_t, float8_e4m3_t, float8_e5m2_t,
+                                                              float4_e2m1x2_t, float4_e1m2x2_t>>> {
     using LayoutDst = layout::zN;
     using LayoutSrc = layout::nZ;
 
@@ -422,10 +427,8 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC:
     CopyL1ToL0A() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         const uint32_t L0M = layoutDst.shape(0) * layoutDst.shape(1);
         const uint32_t L0K = layoutDst.shape(2) * layoutDst.shape(3);
@@ -453,8 +456,7 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC:
                 loadDataParams.dstStride = CeilDiv<ELE_NUM_PER_FRACTAL>(dstOuterStrideCol);
                 loadDataParams.ifTranspose = true;
 
-                AscendC::LoadData(
-                    dstTensor[kIdx * L0M * ELE_NUM_PER_C0], srcTensor, loadDataParams);
+                AscendC::LoadData(dstTensor[kIdx * L0M * ELE_NUM_PER_C0], srcTensor, loadDataParams);
             }
         }
     }
@@ -462,6 +464,6 @@ struct CopyL1ToL0A<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ, AscendC:
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_KDA_ASCEND950_COPY_L1_TO_L0A_HPP
+#endif  // CATLASS_KDA_ASCEND950_COPY_L1_TO_L0A_HPP

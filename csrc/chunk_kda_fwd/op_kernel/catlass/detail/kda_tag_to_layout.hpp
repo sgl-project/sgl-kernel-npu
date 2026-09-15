@@ -81,6 +81,6 @@ using LayoutL0C = tla::Layout<
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::detail
+}  // namespace Catlass::detail
 
-#endif // CATLASS_KDA_TAG_TO_LAYOUT_HPP
+#endif  // CATLASS_KDA_TAG_TO_LAYOUT_HPP

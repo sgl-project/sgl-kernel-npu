@@ -18,22 +18,17 @@
 
 namespace Catlass::Epilogue::Tile {
 
-template <
-    class ArchTag,
-    class TensorSrc,
-    class TensorDst,
-    class Enable = void>
+template <class ArchTag, class TensorSrc, class TensorDst, class Enable = void>
 struct CopyGm2UbTla {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported CopyGm2UbTla, can not find the specialization.");
 };
 
 /// Partial specialization for AtlasA2, RowMajor in and RowMajor out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct CopyGm2UbTla<Arch::AtlasA2,
-                    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-                    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
-                    std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value &&
-                                     tla::detail::isRowMajor<LayoutDst>::value>> {
+struct CopyGm2UbTla<
+    Arch::AtlasA2, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
+    std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value && tla::detail::isRowMajor<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(ElementSrc);
 
     // Methods
@@ -52,11 +47,9 @@ struct CopyGm2UbTla<Arch::AtlasA2,
                       "while TensorDst must be UB and RowMajor");
 
         AscendC::DataCopyExtParams dataCopyParams(
-            tla::get<0>(srcTensor.shape()),
-            tla::get<1>(srcTensor.shape()) * sizeof(ElementSrc),
+            tla::get<0>(srcTensor.shape()), tla::get<1>(srcTensor.shape()) * sizeof(ElementSrc),
             (tla::get<0>(srcTensor.stride()) - tla::get<1>(srcTensor.shape())) * sizeof(ElementSrc),
-            (tla::get<0>(dstTensor.stride()) - tla::get<1>(dstTensor.shape())) / ELE_NUM_PER_BLK,
-            0);
+            (tla::get<0>(dstTensor.stride()) - tla::get<1>(dstTensor.shape())) / ELE_NUM_PER_BLK, 0);
         AscendC::DataCopyPadExtParams<ElementSrc> padParams(false, 0, 0, 0);
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
@@ -66,11 +59,10 @@ struct CopyGm2UbTla<Arch::AtlasA2,
 
 /// Partial specialization for Ascend950, Vector in and Vector out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct CopyGm2UbTla<Arch::Ascend950,
-                    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-                    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
-                    std::enable_if_t<tla::detail::isVector<LayoutSrc>::value &&
-                                     tla::detail::isVector<LayoutDst>::value>> {
+struct CopyGm2UbTla<
+    Arch::Ascend950, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
+    std::enable_if_t<tla::detail::isVector<LayoutSrc>::value && tla::detail::isVector<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(ElementSrc);
 
     // Methods
@@ -88,12 +80,7 @@ struct CopyGm2UbTla<Arch::Ascend950,
                       "The input parameters do not match. TensorSrc must be GM and Vector, "
                       "while TensorDst must be UB and Vector");
 
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            tla::get<0>(srcTensor.shape()) * sizeof(ElementSrc),
-            0,
-            0,
-            0);
+        AscendC::DataCopyExtParams dataCopyParams(1, tla::get<0>(srcTensor.shape()) * sizeof(ElementSrc), 0, 0, 0);
         AscendC::DataCopyPadExtParams<ElementSrc> padParams(false, 0, 0, 0);
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
@@ -103,11 +90,10 @@ struct CopyGm2UbTla<Arch::Ascend950,
 
 /// Partial specialization for Ascend950, RowMajor in and RowMajor out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct CopyGm2UbTla<Arch::Ascend950,
-                    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-                    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
-                    std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value &&
-                                     tla::detail::isRowMajor<LayoutDst>::value>> {
+struct CopyGm2UbTla<
+    Arch::Ascend950, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
+    std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value && tla::detail::isRowMajor<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(ElementSrc);
 
     // Methods
@@ -126,11 +112,9 @@ struct CopyGm2UbTla<Arch::Ascend950,
                       "while TensorDst must be UB and RowMajor");
 
         AscendC::DataCopyExtParams dataCopyParams(
-            tla::get<0>(srcTensor.shape()),
-            tla::get<1>(srcTensor.shape()) * sizeof(ElementSrc),
+            tla::get<0>(srcTensor.shape()), tla::get<1>(srcTensor.shape()) * sizeof(ElementSrc),
             (tla::get<0>(srcTensor.stride()) - tla::get<1>(srcTensor.shape())) * sizeof(ElementSrc),
-            (tla::get<0>(dstTensor.stride()) - tla::get<1>(dstTensor.shape())) / ELE_NUM_PER_BLK,
-            0);
+            (tla::get<0>(dstTensor.stride()) - tla::get<1>(dstTensor.shape())) / ELE_NUM_PER_BLK, 0);
         AscendC::DataCopyPadExtParams<ElementSrc> padParams(false, 0, 0, 0);
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
@@ -138,6 +122,6 @@ struct CopyGm2UbTla<Arch::Ascend950,
     };
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
-#endif // CATLASS_KDA_COPY_GM_TO_UB_TLA_HPP
+#endif  // CATLASS_KDA_COPY_GM_TO_UB_TLA_HPP

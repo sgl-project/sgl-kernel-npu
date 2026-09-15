@@ -14,10 +14,9 @@
 
 namespace KdaVarlen {
 
-__aicore__ inline bool ResolveChunkRange(
-    const __gm__ int64_t *cuSeqlens, const __gm__ int64_t *chunkIndices,
-    uint64_t seqNum, uint64_t totalTokens, uint64_t chunkSize,
-    uint64_t flatChunk, uint64_t &seq, uint64_t &start, uint64_t &end)
+__aicore__ inline bool ResolveChunkRange(const __gm__ int64_t *cuSeqlens, const __gm__ int64_t *chunkIndices,
+                                         uint64_t seqNum, uint64_t totalTokens, uint64_t chunkSize, uint64_t flatChunk,
+                                         uint64_t &seq, uint64_t &start, uint64_t &end)
 {
     if (cuSeqlens == nullptr || chunkSize == 0) {
         return false;
@@ -48,8 +47,7 @@ __aicore__ inline bool ResolveChunkRange(
         }
     }
 
-    if (seqValue < 0 || localChunkValue < 0 ||
-        static_cast<uint64_t>(seqValue) >= seqNum) {
+    if (seqValue < 0 || localChunkValue < 0 || static_cast<uint64_t>(seqValue) >= seqNum) {
         return false;
     }
     const int64_t seqStartValue = cuSeqlens[seqValue];
@@ -75,4 +73,4 @@ __aicore__ inline bool ResolveChunkRange(
     return start < end;
 }
 
-} // namespace KdaVarlen
+}  // namespace KdaVarlen

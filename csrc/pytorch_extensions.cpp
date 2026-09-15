@@ -335,7 +335,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                                     query_loc_or_empty, activation_mode, pad_slot_id);
            });
 
-    
     m.impl("causal_conv1d", [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
                                const c10::optional<at::Tensor> &bias, const c10::optional<at::Tensor> &query_start_loc,
                                const c10::optional<at::Tensor> &cache_indices,

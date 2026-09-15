@@ -21,11 +21,10 @@ namespace Catlass::Gemm::Tile {
 
 /// Partial specialization for AtlasA2, RowMajor in and RowMajor out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<Arch::AtlasA2,
-                   tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
-                   std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value &&
-                                    tla::detail::isRowMajor<LayoutDst>::value>> {
+struct TileCopyTla<
+    Arch::AtlasA2, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::VECCALC>,
+    std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value && tla::detail::isRowMajor<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(ElementSrc);
 
     // Methods
@@ -46,12 +45,9 @@ struct TileCopyTla<Arch::AtlasA2,
         const uint16_t row = tla::get<0>(srcTensor.originShape());
         const uint16_t col = tla::get<1>(srcTensor.originShape());
 
-        AscendC::DataCopyExtParams dataCopyParams(
-            row,
-            col * sizeof(ElementSrc),
-            (tla::get<0>(srcTensor.stride()) - col) * sizeof(ElementSrc),
-            (tla::get<0>(dstTensor.stride()) - col) / ELE_NUM_PER_BLK,
-            0);
+        AscendC::DataCopyExtParams dataCopyParams(row, col * sizeof(ElementSrc),
+                                                  (tla::get<0>(srcTensor.stride()) - col) * sizeof(ElementSrc),
+                                                  (tla::get<0>(dstTensor.stride()) - col) / ELE_NUM_PER_BLK, 0);
         AscendC::DataCopyPadExtParams<ElementSrc> padParams(false, 0, 0, 0);
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
@@ -59,9 +55,7 @@ struct TileCopyTla<Arch::AtlasA2,
     };
 };
 
-template <
-    class ArchTag,
-    class GmType>
+template <class ArchTag, class GmType>
 struct CopyGm2Ub {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to ub, can not find the specialization.");
 };
@@ -77,23 +71,15 @@ struct CopyGm2Ub<Arch::AtlasA2, Gemm::GemmType<Element, layout::VectorLayout>> {
     CopyGm2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::VectorLayout const &layoutDst,
-        layout::VectorLayout const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::VectorLayout const &layoutDst, layout::VectorLayout const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            layoutSrc.shape(0) * sizeof(Element),
-            0,
-            0,
-            0);
+        AscendC::DataCopyExtParams dataCopyParams(1, layoutSrc.shape(0) * sizeof(Element), 0, 0, 0);
         AscendC::DataCopyPadExtParams<Element> padParams(false, 0, 0, 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams, padParams);
     };
 };
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_KDA_ATLASA2_COPY_GM_TO_UB_HPP
+#endif  // CATLASS_KDA_ATLASA2_COPY_GM_TO_UB_HPP

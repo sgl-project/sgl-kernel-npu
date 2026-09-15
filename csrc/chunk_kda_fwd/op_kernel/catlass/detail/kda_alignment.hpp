@@ -24,14 +24,14 @@ CATLASS_HOST_DEVICE constexpr T RoundUp(const T &val)
 template <class T, class U>
 CATLASS_HOST_DEVICE constexpr auto RoundUp(T const &val, U const &align)
 {
-    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) { // Int, Int
+    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) {  // Int, Int
         constexpr uint32_t res = (T::value + U::value - 1) / U::value * U::value;
         return tla::Int<res>{};
-    } else if constexpr (tla::is_static<T>::value) { // Int, int
+    } else if constexpr (tla::is_static<T>::value) {  // Int, int
         return (T::value + align - 1) / align * align;
-    } else if constexpr (tla::is_static<U>::value) { // int, Int
+    } else if constexpr (tla::is_static<U>::value) {  // int, Int
         return (val + U::value - 1) / U::value * U::value;
-    } else { // int, int
+    } else {  // int, int
         return (val + align - 1) / align * align;
     }
 }
@@ -46,14 +46,14 @@ CATLASS_HOST_DEVICE constexpr T RoundDown(const T val)
 template <class T, class U>
 CATLASS_HOST_DEVICE constexpr auto RoundDown(T const &val, U const &align)
 {
-    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) { // Int, Int
+    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) {  // Int, Int
         constexpr uint32_t res = T::value / U::value * U::value;
         return tla::Int<res>{};
-    } else if constexpr (tla::is_static<T>::value) { // Int, int
+    } else if constexpr (tla::is_static<T>::value) {  // Int, int
         return T::value / align * align;
-    } else if constexpr (tla::is_static<U>::value) { // int, Int
+    } else if constexpr (tla::is_static<U>::value) {  // int, Int
         return val / U::value * U::value;
-    } else { // int, int
+    } else {  // int, int
         return val / align * align;
     }
 }
@@ -68,14 +68,14 @@ CATLASS_HOST_DEVICE constexpr T CeilDiv(const T dividend)
 template <class T, class U>
 CATLASS_HOST_DEVICE constexpr auto CeilDiv(T const &dividend, U const &divisor)
 {
-    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) { // Int, Int
+    if constexpr (tla::is_static<T>::value && tla::is_static<U>::value) {  // Int, Int
         constexpr uint32_t res = (T::value + U::value - 1) / U::value;
         return tla::Int<res>{};
-    } else if constexpr (tla::is_static<T>::value) { // Int, int
+    } else if constexpr (tla::is_static<T>::value) {  // Int, int
         return (T::value + divisor - 1) / divisor;
-    } else if constexpr (tla::is_static<U>::value) { // int, Int
+    } else if constexpr (tla::is_static<U>::value) {  // int, Int
         return (dividend + U::value - 1) / U::value;
-    } else { // int, int
+    } else {  // int, int
         return (dividend + divisor - 1) / divisor;
     }
 }
@@ -100,4 +100,4 @@ CATLASS_HOST_DEVICE constexpr auto Min(T const &a, U const &b)
     }
 }
 
-#endif // CATLASS_KDA_ALIGNMENT_HPP
+#endif  // CATLASS_KDA_ALIGNMENT_HPP

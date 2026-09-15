@@ -140,8 +140,7 @@ struct ElementAccumulatorSelector<AscendC::int4b_t, AscendC::int4b_t> {
 
 template <class GmAType>
 struct L1ATypeSelector {
-    static_assert(DEPENDENT_FALSE<GmAType>,
-                  "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<GmAType>, "Unsupported layout selector, can not find the specialization.");
 };
 
 template <class Element>
@@ -191,8 +190,7 @@ struct L1ATypeSelector<Gemm::GemmType<Element, layout::NC1HWC0>> {
 
 template <class GmBType>
 struct L1BTypeSelector {
-    static_assert(DEPENDENT_FALSE<GmBType>,
-                  "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<GmBType>, "Unsupported layout selector, can not find the specialization.");
 };
 
 template <class Element>
@@ -237,8 +235,7 @@ struct L1BTypeSelector<Gemm::GemmType<Element, layout::CI1KHKWCOCI0>> {
 
 template <class GmBiasType, class ElementAccumulator>
 struct L1BiasTypeSelector {
-    static_assert(DEPENDENT_FALSE<GmBiasType>,
-                  "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<GmBiasType>, "Unsupported layout selector, can not find the specialization.");
 };
 
 template <class ElementAccumulator>
@@ -257,8 +254,7 @@ struct L1BiasTypeSelector<Gemm::GemmType<Element, layout::VectorLayout>, Element
 
 template <class ArchTag>
 struct L0ALayoutSelector {
-    static_assert(DEPENDENT_FALSE<ArchTag>,
-                  "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported layout selector, can not find the specialization.");
 };
 
 template <>
@@ -301,10 +297,8 @@ struct ElementAccumulatorSelector<int32_t, int32_t> {
 
 template <class GmAType, class GmBType>
 struct L1AndL0TypeSelectorGemm {
-    static_assert(DEPENDENT_FALSE<GmAType>,
-                  "Unsupported layout selector, can not find the specialization.");
-    static_assert(DEPENDENT_FALSE<GmBType>,
-                  "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<GmAType>, "Unsupported layout selector, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<GmBType>, "Unsupported layout selector, can not find the specialization.");
 };
 
 template <class Element>
@@ -324,7 +318,8 @@ struct L1AndL0TypeSelectorGemm<Gemm::GemmType<int8_t, layout::RowMajor>, Gemm::G
 };
 
 template <class Element>
-struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::ColumnMajor>, Gemm::GemmType<Element, layout::ColumnMajor>> {
+struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::ColumnMajor>,
+                               Gemm::GemmType<Element, layout::ColumnMajor>> {
     using L1AType = Gemm::GemmType<Element, layout::nN, AscendC::TPosition::A1>;
     using L1BType = Gemm::GemmType<Element, layout::nZ, AscendC::TPosition::B1>;
     using L0AType = Gemm::GemmType<Element, layout::zZ, AscendC::TPosition::A2>;
@@ -332,7 +327,8 @@ struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::ColumnMajor>, Gem
 };
 
 template <>
-struct L1AndL0TypeSelectorGemm<Gemm::GemmType<int8_t, layout::ColumnMajor>, Gemm::GemmType<int8_t, layout::ColumnMajor>> {
+struct L1AndL0TypeSelectorGemm<Gemm::GemmType<int8_t, layout::ColumnMajor>,
+                               Gemm::GemmType<int8_t, layout::ColumnMajor>> {
     using L1AType = Gemm::GemmType<int8_t, layout::nZ, AscendC::TPosition::A1>;
     using L1BType = Gemm::GemmType<int8_t, layout::nZ, AscendC::TPosition::B1>;
     using L0AType = Gemm::GemmType<int8_t, layout::zZ, AscendC::TPosition::A2>;
@@ -340,7 +336,8 @@ struct L1AndL0TypeSelectorGemm<Gemm::GemmType<int8_t, layout::ColumnMajor>, Gemm
 };
 
 template <class Element>
-struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::RowMajor>, Gemm::GemmType<Element, layout::ColumnMajor>> {
+struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::RowMajor>,
+                               Gemm::GemmType<Element, layout::ColumnMajor>> {
     using L1AType = Gemm::GemmType<Element, layout::zN, AscendC::TPosition::A1>;
     using L1BType = Gemm::GemmType<Element, layout::nZ, AscendC::TPosition::B1>;
     using L0AType = Gemm::GemmType<Element, layout::zZ, AscendC::TPosition::A2>;
@@ -348,7 +345,8 @@ struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::RowMajor>, Gemm::
 };
 
 template <class Element>
-struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::ColumnMajor>, Gemm::GemmType<Element, layout::RowMajor>> {
+struct L1AndL0TypeSelectorGemm<Gemm::GemmType<Element, layout::ColumnMajor>,
+                               Gemm::GemmType<Element, layout::RowMajor>> {
     using L1AType = Gemm::GemmType<Element, layout::nN, AscendC::TPosition::A1>;
     using L1BType = Gemm::GemmType<Element, layout::zZ, AscendC::TPosition::B1>;
     using L0AType = Gemm::GemmType<Element, layout::zZ, AscendC::TPosition::A2>;
@@ -380,6 +378,6 @@ struct TileShapeAlignChecker {
 };
 
 ///////////////////////////////////////
-} // namespace Catlass::Gemm::helper
+}  // namespace Catlass::Gemm::helper
 
-#endif // CATLASS_KDA_GEMM_HELPER_HPP
+#endif  // CATLASS_KDA_GEMM_HELPER_HPP

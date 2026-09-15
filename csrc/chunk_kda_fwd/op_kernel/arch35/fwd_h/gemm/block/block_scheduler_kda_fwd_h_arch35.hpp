@@ -377,19 +377,34 @@ struct BlockSchedulerKdaFwdH {
     }
 
     CATLASS_DEVICE
-    const KdaFwdHStream &GetStream(uint32_t i) const { return runningQ.streams[i]; }
+    const KdaFwdHStream &GetStream(uint32_t i) const
+    {
+        return runningQ.streams[i];
+    }
 
     CATLASS_DEVICE
-    uint32_t GetStreamId(uint32_t i) const { return i; }
+    uint32_t GetStreamId(uint32_t i) const
+    {
+        return i;
+    }
 
     CATLASS_DEVICE
-    const KdaFwdHOffsets &GetCurTaskOffsets(const KdaFwdHStream &stream) const { return stream.offset; }
+    const KdaFwdHOffsets &GetCurTaskOffsets(const KdaFwdHStream &stream) const
+    {
+        return stream.offset;
+    }
 
     CATLASS_DEVICE
-    bool StreamIsDone(const KdaFwdHStream &stream) const { return !stream.active; }
+    bool StreamIsDone(const KdaFwdHStream &stream) const
+    {
+        return !stream.active;
+    }
 
     CATLASS_DEVICE
-    bool NeedProcessStage2(const KdaFwdHStream &stream) { return storeFinalState || !stream.offset.isFinalState; }
+    bool NeedProcessStage2(const KdaFwdHStream &stream)
+    {
+        return storeFinalState || !stream.offset.isFinalState;
+    }
 };
 
 struct BlockSchedulerKdaFwdHCube : public BlockSchedulerKdaFwdH {
@@ -432,6 +447,6 @@ struct BlockSchedulerKdaFwdHVec : public BlockSchedulerKdaFwdH {
     }
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_SCHEDULER_KDA_FWD_H_HPP
+#endif  // CATLASS_GEMM_SCHEDULER_KDA_FWD_H_HPP

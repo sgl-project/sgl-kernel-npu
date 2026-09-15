@@ -160,7 +160,8 @@ __aicore__ inline T FloatToType(float value)
 }
 
 template <bool SAFE_GATE, typename T, typename GK_T = float>
-class ChunkKdaFwdPrepareKernel {
+class ChunkKdaFwdPrepareKernel
+{
 public:
     using OUT_T = T;
     using AKK_T = float;
@@ -259,7 +260,10 @@ public:
         ReleaseVectorEvents();
     }
 
-    __aicore__ inline void ProcessAic() { ProcessPreAic(); }
+    __aicore__ inline void ProcessAic()
+    {
+        ProcessPreAic();
+    }
 
 private:
     __aicore__ inline void AllocVectorEvents()
@@ -312,7 +316,10 @@ private:
         return ((b * HV_ + hv) * T_ + t) * dim + d;
     }
 
-    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const { return (b * HV_ + hv) * T_ + t; }
+    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const
+    {
+        return (b * HV_ + hv) * T_ + t;
+    }
 
     __aicore__ inline uint64_t AOffset(uint64_t b, uint64_t hv, uint64_t t, uint64_t j) const
     {
@@ -486,7 +493,10 @@ private:
         return vecBuf_.Get<float>()[slot * EXP2_UB_ELEMENTS];
     }
 
-    __aicore__ inline uint64_t GateStageElems() const { return GatePipelineRows() * K_; }
+    __aicore__ inline uint64_t GateStageElems() const
+    {
+        return GatePipelineRows() * K_;
+    }
 
     __aicore__ inline uint64_t GatePipelineRows() const
     {
@@ -497,7 +507,10 @@ private:
         return rows < KDA_GATE_TILE_ROWS ? rows : KDA_GATE_TILE_ROWS;
     }
 
-    __aicore__ inline uint64_t GateInputSlotBytes() const { return GateStageElems() * (2 * sizeof(T) + sizeof(GK_T)); }
+    __aicore__ inline uint64_t GateInputSlotBytes() const
+    {
+        return GateStageElems() * (2 * sizeof(T) + sizeof(GK_T));
+    }
 
     __aicore__ inline LocalTensor<T> GateQTyped(uint64_t slot)
     {
@@ -547,14 +560,20 @@ private:
         SetFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
     }
 
-    __aicore__ inline void WaitGateInputReady() { WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_); }
+    __aicore__ inline void WaitGateInputReady()
+    {
+        WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
+    }
 
     __aicore__ inline void WaitGateOutputForMte2(uint64_t slot = 0)
     {
         WaitFlag<HardEvent::MTE3_MTE2>(mte3ToMte2Events_[slot]);
     }
 
-    __aicore__ inline void WaitGateOutputForVector() { WaitFlag<HardEvent::MTE3_V>(mte3ToVEvent_); }
+    __aicore__ inline void WaitGateOutputForVector()
+    {
+        WaitFlag<HardEvent::MTE3_V>(mte3ToVEvent_);
+    }
 
     __aicore__ inline void SignalGateOutputDone()
     {
@@ -2492,7 +2511,7 @@ private:
     __gm__ int64_t *chunkIndicesAddr_ = nullptr;
     __gm__ int64_t *cuSeqlensAddr_ = nullptr;
 };
-} // namespace
+}  // namespace
 
 template <bool SAFE_GATE, typename T, typename GK_T, typename TilingData>
 __aicore__ inline void RunChunkKdaPrepare(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR gk, GM_ADDR beta,
@@ -2520,8 +2539,8 @@ __aicore__ inline void RunChunkKdaPrepare(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_AD
     }
 }
 
-template <bool SAFE_GATE, typename T, typename GK_T, typename TilingData, uint32_t COMPILE_BT,
-          uint32_t COMPILE_K, uint32_t COMPILE_V>
+template <bool SAFE_GATE, typename T, typename GK_T, typename TilingData, uint32_t COMPILE_BT, uint32_t COMPILE_K,
+          uint32_t COMPILE_V>
 __aicore__ inline void RunChunkKdaPrepare(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR gk, GM_ADDR, GM_ADDR, GM_ADDR,
                                           GM_ADDR beta, GM_ADDR initialState, GM_ADDR cuSeqlens, GM_ADDR chunkIndices,
                                           GM_ADDR aqk, GM_ADDR akk, GM_ADDR qg, GM_ADDR qgScaled, GM_ADDR wSeed,
@@ -2532,4 +2551,4 @@ __aicore__ inline void RunChunkKdaPrepare(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_AD
                                            qgScaled, wSeed, uSeed, userWorkspace, tiling, pipe);
 }
 
-} // namespace KdaPrepare
+}  // namespace KdaPrepare

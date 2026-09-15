@@ -76,7 +76,8 @@ struct KdaFwdHGateTag {
 template <typename INPUT_TYPE, typename G_TYPE, typename STATE_TYPE, typename WORKSPACE_TYPE,
           typename TileShapes = KdaFwdHTileShapes128, bool kGated = false, bool scalarGated = true,
           bool useExp2 = false>
-class KdaFwdHKernel {
+class KdaFwdHKernel
+{
 public:
     using ArchTag = Arch::Ascend950;
     using CubeScheduler = typename Catlass::Gemm::Block::BlockSchedulerKdaFwdHCube;
@@ -607,7 +608,7 @@ public:
             auto hworkLayout = tla::MakeLayout<ElementHWork, LayoutH>(kHeadDim, cubeBlockScheduler.vBlockSize);
 
             AscendC::SyncAll<false>();
-            uint32_t currStage = 0; // 0: C1, 1: C2
+            uint32_t currStage = 0;  // 0: C1, 1: C2
             while (cubeBlockScheduler.isRunning) {
                 if (currStage == 0) {
                     /* C1: v_work = w @ h[i] */
@@ -748,8 +749,8 @@ public:
                                 int64_t cube2OffsetVwork = cube2Offsets.vWorkOffset;
                                 auto tensorK =
                                     kGated ? tla::MakeTensor(gmKDecayWorkspace[cube2OffsetK], kLayout,
-                                                             Catlass::Arch::PositionGM{}) :
-                                             tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
+                                                             Catlass::Arch::PositionGM{})
+                                           : tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
                                 auto vUpdateLayout = tla::MakeLayout<ElementVUpdate, LayoutVUpdate>(
                                     cube2Offsets.blockTokens, cube2Offsets.vBlockDim);
                                 auto tensorVwork = tla::MakeTensor(gmVUpdateWorkspace[cube2OffsetVwork], vUpdateLayout,
@@ -796,8 +797,8 @@ public:
                                 int64_t cube2OffsetK = kGated ? cube2Offsets.kDecayWorkOffset : cube2Offsets.wkOffset;
                                 auto tensorK =
                                     kGated ? tla::MakeTensor(gmKDecayWorkspace[cube2OffsetK], kLayout,
-                                                             Catlass::Arch::PositionGM{}) :
-                                             tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
+                                                             Catlass::Arch::PositionGM{})
+                                           : tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
                                 auto vUpdateLayout = tla::MakeLayout<ElementVUpdate, LayoutVUpdate>(
                                     cube2Offsets.blockTokens, cube2Offsets.vBlockDim);
                                 auto tensorVwork = tla::MakeTensor(gmVUpdateWorkspace[cube2Offsets.vWorkOffset],
@@ -841,8 +842,8 @@ public:
                                 int64_t cube2OffsetVwork = cube2Offsets.vWorkOffset;
                                 auto tensorK =
                                     kGated ? tla::MakeTensor(gmKDecayWorkspace[cube2OffsetK], kLayout,
-                                                             Catlass::Arch::PositionGM{}) :
-                                             tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
+                                                             Catlass::Arch::PositionGM{})
+                                           : tla::MakeTensor(gmK[cube2OffsetK], kLayout, Catlass::Arch::PositionGM{});
                                 auto vUpdateLayout = tla::MakeLayout<ElementVUpdate, LayoutVUpdate>(
                                     cube2Offsets.blockTokens, cube2Offsets.vBlockDim);
                                 auto tensorVwork = tla::MakeTensor(gmVUpdateWorkspace[cube2OffsetVwork], vUpdateLayout,
@@ -967,25 +968,25 @@ public:
             uint32_t pongBaseEvent = 4;
 
             if (storeFinalState && std::is_same<ElementFinalState, float>::value) {
-                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0); // preset final_state
+                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);  // preset final_state
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0 + pongBaseEvent);
-                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2); // preset h
+                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2);  // preset h
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2 + pongBaseEvent);
             } else {
-                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0); // preset h_update
+                AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);  // preset h_update
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0 + pongBaseEvent);
-                AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2); // preset h
+                AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2);  // preset h
                 AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pongBaseEvent);
             }
-            AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1); // preset u
+            AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1);  // preset u
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pongBaseEvent);
-            AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3); // preset g
+            AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3);  // preset g
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3 + pongBaseEvent);
-            AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0); // preset h_update
+            AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);  // preset h_update
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pongBaseEvent);
-            AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2); // preset h
+            AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2);  // preset h
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2 + pongBaseEvent);
-            uint32_t currStage = 0; // 0: V1, 1: V2
+            uint32_t currStage = 0;  // 0: V1, 1: V2
             bool event0FromMte3[PING_PONG_STAGES] = {false, false};
             bool event2FromMte3[PING_PONG_STAGES] = {
                 !(storeFinalState && std::is_same<ElementFinalState, float>::value),
@@ -1107,21 +1108,21 @@ public:
                     AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2 + pongBaseEvent);
                 }
             } else {
-                AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0); // preset h_update
+                AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);  // preset h_update
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0 + pongBaseEvent);
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2); // preset h
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2);  // preset h
                 AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pongBaseEvent);
             }
-            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1); // preset u
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1);  // preset u
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pongBaseEvent);
-            AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3); // preset g
+            AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3);  // preset g
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3 + pongBaseEvent);
-            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0); // drain h_update
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);  // drain h_update
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pongBaseEvent);
-            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2); // drain h
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2);  // drain h
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID2 + pongBaseEvent);
         }
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel

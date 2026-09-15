@@ -15,18 +15,17 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class DispatchPolicy,
-    class... Args>
-class BlockEpilogue {
+template <class DispatchPolicy, class... Args>
+class BlockEpilogue
+{
     static_assert(DEPENDENT_FALSE<DispatchPolicy>, "Could not find an epilogue specialization");
 };
 
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
 // chunk_kda_fwd only instantiates BlockEpilogue for its own FwdH policies
 // (EpilogueAtlasKdaFwdHVnew / EpilogueAtlasKdaFwdHUpdate), whose specializations
 // live under arch22|arch35/fwd_h/epilogue/block/ and are included by their users.
 // None of the upstream catlass epilogues were ever selected here.
 
-#endif // CATLASS_KDA_BLOCK_EPILOGUE_HPP
+#endif  // CATLASS_KDA_BLOCK_EPILOGUE_HPP

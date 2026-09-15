@@ -20,9 +20,9 @@ struct Conv3dParams {
 public:
     typedef uint32_t Index;
     static constexpr uint32_t N0 = 16;
-    using Fmap6HDShape = Coord<6, Index>;       // {batch, di, cin1, hi, wi, cin0}
-    using FilterFracZ3DShape = Coord<7, Index>; // {kd, cin1, kh, kw, n1, n0, cin0}
-    using Out6HDShape = Coord<6, Index>;        // {batch, do, cout1, ho, wo, cout0}
+    using Fmap6HDShape = Coord<6, Index>;        // {batch, di, cin1, hi, wi, cin0}
+    using FilterFracZ3DShape = Coord<7, Index>;  // {kd, cin1, kh, kw, n1, n0, cin0}
+    using Out6HDShape = Coord<6, Index>;         // {batch, do, cout1, ho, wo, cout0}
     using Strides = Coord<3, Index>;
     using Pads = Coord<3, Index>;
     using Dilations = Coord<3, Index>;
@@ -38,31 +38,10 @@ private:
 
 public:
     CATLASS_HOST_DEVICE
-    Conv3dParams(
-        Index BATCH = 1,
-        Index Di = 1,
-        Index Cin1 = 1,
-        Index Hi = 1,
-        Index Wi = 1,
-        Index C0 = 16,
-        Index Kd = 1,
-        Index Kh = 1,
-        Index Kw = 1,
-        Index N1 = 1,
-        Index Do = 1,
-        Index Ho = 1,
-        Index Wo = 1,
-        Index Cout1 = 1,
-        Index Cout = 1,
-        Index padHead = 0,
-        Index padTop = 0,
-        Index padLeft = 0,
-        Index strideD = 1,
-        Index strideH = 1,
-        Index strideW = 1,
-        Index dilationD = 1,
-        Index dilationH = 1,
-        Index dilationW = 1)
+    Conv3dParams(Index BATCH = 1, Index Di = 1, Index Cin1 = 1, Index Hi = 1, Index Wi = 1, Index C0 = 16, Index Kd = 1,
+                 Index Kh = 1, Index Kw = 1, Index N1 = 1, Index Do = 1, Index Ho = 1, Index Wo = 1, Index Cout1 = 1,
+                 Index Cout = 1, Index padHead = 0, Index padTop = 0, Index padLeft = 0, Index strideD = 1,
+                 Index strideH = 1, Index strideW = 1, Index dilationD = 1, Index dilationH = 1, Index dilationW = 1)
         : fmap6HDShape_(MakeCoord(BATCH, Di, Cin1, Hi, Wi, C0)),
           filterFracZ3DShape_(MakeCoord(Kd, Cin1, Kh, Kw, N1, N0, C0)),
           out6HDShape_(MakeCoord(BATCH, Do, Cout1, Ho, Wo, C0)),
@@ -73,63 +52,72 @@ public:
     {}
 
     CATLASS_HOST_DEVICE
-    static Conv3dParams MakeConvCoord(
-        const uint32_t *fmapShape,
-        const uint32_t *filterShape,
-        const uint32_t *paddings,
-        const uint32_t *strides,
-        const uint32_t *dilations)
+    static Conv3dParams MakeConvCoord(const uint32_t *fmapShape, const uint32_t *filterShape, const uint32_t *paddings,
+                                      const uint32_t *strides, const uint32_t *dilations)
     {
         return Conv3dParams(
-            fmapShape[0],
-            fmapShape[1],
-            fmapShape[2],
-            fmapShape[3],
-            fmapShape[4],
-            fmapShape[5],
-            filterShape[0],
-            filterShape[1],
-            filterShape[2],
-            CeilDiv(filterShape[3], N0),
-            (fmapShape[1] + paddings[0] * 2 - dilations[0] * (filterShape[0] - 1) - 1) / strides[0] + 1, // Do
-            (fmapShape[3] + paddings[1] * 2 - dilations[1] * (filterShape[1] - 1) - 1) / strides[1] + 1, // Ho
-            (fmapShape[4] + paddings[2] * 2 - dilations[2] * (filterShape[2] - 1) - 1) / strides[2] + 1, // Wo
-            CeilDiv(filterShape[3], fmapShape[5]),
-            filterShape[3],
-            paddings[0],
-            paddings[1],
-            paddings[2],
-            strides[0],
-            strides[1],
-            strides[2],
-            dilations[0],
-            dilations[1],
-            dilations[2]);
+            fmapShape[0], fmapShape[1], fmapShape[2], fmapShape[3], fmapShape[4], fmapShape[5], filterShape[0],
+            filterShape[1], filterShape[2], CeilDiv(filterShape[3], N0),
+            (fmapShape[1] + paddings[0] * 2 - dilations[0] * (filterShape[0] - 1) - 1) / strides[0] + 1,  // Do
+            (fmapShape[3] + paddings[1] * 2 - dilations[1] * (filterShape[1] - 1) - 1) / strides[1] + 1,  // Ho
+            (fmapShape[4] + paddings[2] * 2 - dilations[2] * (filterShape[2] - 1) - 1) / strides[2] + 1,  // Wo
+            CeilDiv(filterShape[3], fmapShape[5]), filterShape[3], paddings[0], paddings[1], paddings[2], strides[0],
+            strides[1], strides[2], dilations[0], dilations[1], dilations[2]);
     }
 
     // fmapShape
     CATLASS_HOST_DEVICE
-    Index const &batch() const { return fmap6HDShape_[0]; }
+    Index const &batch() const
+    {
+        return fmap6HDShape_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &cin1() const { return fmap6HDShape_[2]; }
+    Index const &cin1() const
+    {
+        return fmap6HDShape_[2];
+    }
     CATLASS_HOST_DEVICE
-    Index const &di() const { return fmap6HDShape_[1]; }
+    Index const &di() const
+    {
+        return fmap6HDShape_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &hi() const { return fmap6HDShape_[3]; }
+    Index const &hi() const
+    {
+        return fmap6HDShape_[3];
+    }
     CATLASS_HOST_DEVICE
-    Index const &wi() const { return fmap6HDShape_[4]; }
+    Index const &wi() const
+    {
+        return fmap6HDShape_[4];
+    }
     CATLASS_HOST_DEVICE
-    Index const &cin0() const { return fmap6HDShape_[5]; }
+    Index const &cin0() const
+    {
+        return fmap6HDShape_[5];
+    }
     CATLASS_HOST_DEVICE
-    Index const hiwi() const { return fmap6HDShape_[3] * fmap6HDShape_[4]; }
+    Index const hiwi() const
+    {
+        return fmap6HDShape_[3] * fmap6HDShape_[4];
+    }
 
     // filterShape
     CATLASS_HOST_DEVICE
-    Index const &kd() const { return filterFracZ3DShape_[0]; }
+    Index const &kd() const
+    {
+        return filterFracZ3DShape_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &kh() const { return filterFracZ3DShape_[2]; }
+    Index const &kh() const
+    {
+        return filterFracZ3DShape_[2];
+    }
     CATLASS_HOST_DEVICE
-    Index const &kw() const { return filterFracZ3DShape_[3]; }
+    Index const &kw() const
+    {
+        return filterFracZ3DShape_[3];
+    }
     CATLASS_HOST_DEVICE
     Index const khkw() const
     {
@@ -141,76 +129,161 @@ public:
         return filterFracZ3DShape_[0] * filterFracZ3DShape_[1] * filterFracZ3DShape_[2] * filterFracZ3DShape_[3];
     }
     CATLASS_HOST_DEVICE
-    Index const &n1() const { return filterFracZ3DShape_[4]; }
+    Index const &n1() const
+    {
+        return filterFracZ3DShape_[4];
+    }
     CATLASS_HOST_DEVICE
-    Index const &n0() const { return filterFracZ3DShape_[5]; }
+    Index const &n0() const
+    {
+        return filterFracZ3DShape_[5];
+    }
 
     // outShape
     CATLASS_HOST_DEVICE
-    Index const &dout() const { return out6HDShape_[1]; }
+    Index const &dout() const
+    {
+        return out6HDShape_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &ho() const { return out6HDShape_[3]; }
+    Index const &ho() const
+    {
+        return out6HDShape_[3];
+    }
     CATLASS_HOST_DEVICE
-    Index const &wo() const { return out6HDShape_[4]; }
+    Index const &wo() const
+    {
+        return out6HDShape_[4];
+    }
     CATLASS_HOST_DEVICE
-    Index const &cout1() const { return out6HDShape_[2]; }
+    Index const &cout1() const
+    {
+        return out6HDShape_[2];
+    }
     CATLASS_HOST_DEVICE
-    Index const &cout0() const { return out6HDShape_[5]; }
+    Index const &cout0() const
+    {
+        return out6HDShape_[5];
+    }
     CATLASS_HOST_DEVICE
-    Index const &cout() const { return cout_; }
+    Index const &cout() const
+    {
+        return cout_;
+    }
 
     /// paddings
     CATLASS_HOST_DEVICE
-    Index const &padhead() const { return pads_[0]; }
+    Index const &padhead() const
+    {
+        return pads_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &padtail() const { return pads_[0]; }
+    Index const &padtail() const
+    {
+        return pads_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &padtop() const { return pads_[1]; }
+    Index const &padtop() const
+    {
+        return pads_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &padbottom() const { return pads_[1]; }
+    Index const &padbottom() const
+    {
+        return pads_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &padleft() const { return pads_[2]; }
+    Index const &padleft() const
+    {
+        return pads_[2];
+    }
     CATLASS_HOST_DEVICE
-    Index const &padright() const { return pads_[2]; }
+    Index const &padright() const
+    {
+        return pads_[2];
+    }
 
     /// strideSize
     CATLASS_HOST_DEVICE
-    Index const &sD() const { return strides_[0]; }
+    Index const &sD() const
+    {
+        return strides_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &sH() const { return strides_[1]; }
+    Index const &sH() const
+    {
+        return strides_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &sW() const { return strides_[2]; }
+    Index const &sW() const
+    {
+        return strides_[2];
+    }
 
     /// dilationSize
     CATLASS_HOST_DEVICE
-    Index const &dD() const { return dilations_[0]; }
+    Index const &dD() const
+    {
+        return dilations_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const dilatedKernelD() const { return 1 + (filterFracZ3DShape_[0] - 1) * dilations_[0]; }
+    Index const dilatedKernelD() const
+    {
+        return 1 + (filterFracZ3DShape_[0] - 1) * dilations_[0];
+    }
     CATLASS_HOST_DEVICE
-    Index const &dH() const { return dilations_[1]; }
+    Index const &dH() const
+    {
+        return dilations_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const dilatedKernelH() const { return 1 + (filterFracZ3DShape_[2] - 1) * dilations_[1]; }
+    Index const dilatedKernelH() const
+    {
+        return 1 + (filterFracZ3DShape_[2] - 1) * dilations_[1];
+    }
     CATLASS_HOST_DEVICE
-    Index const &dW() const { return dilations_[2]; }
+    Index const &dW() const
+    {
+        return dilations_[2];
+    }
     CATLASS_HOST_DEVICE
-    Index const dilatedKernelW() const { return 1 + (filterFracZ3DShape_[3] - 1) * dilations_[2]; }
+    Index const dilatedKernelW() const
+    {
+        return 1 + (filterFracZ3DShape_[3] - 1) * dilations_[2];
+    }
 
     ///// used in block
     CATLASS_HOST_DEVICE
-    Index const howo() const { return out6HDShape_[3] * out6HDShape_[4]; }
+    Index const howo() const
+    {
+        return out6HDShape_[3] * out6HDShape_[4];
+    }
     CATLASS_HOST_DEVICE
-    Index const alignCout() const { return out6HDShape_[2] * out6HDShape_[5]; }
+    Index const alignCout() const
+    {
+        return out6HDShape_[2] * out6HDShape_[5];
+    }
     CATLASS_HOST_DEVICE
-    Index const wicin0() const { return fmap6HDShape_[4] * fmap6HDShape_[5]; }
+    Index const wicin0() const
+    {
+        return fmap6HDShape_[4] * fmap6HDShape_[5];
+    }
     CATLASS_HOST_DEVICE
-    Index const khkwcin0() const { return filterFracZ3DShape_[2] * filterFracZ3DShape_[3] * filterFracZ3DShape_[6]; }
+    Index const khkwcin0() const
+    {
+        return filterFracZ3DShape_[2] * filterFracZ3DShape_[3] * filterFracZ3DShape_[6];
+    }
     CATLASS_HOST_DEVICE
     Index const alignCinKhKwKd() const
     {
-        return filterFracZ3DShape_[0] * filterFracZ3DShape_[1] * filterFracZ3DShape_[2] * filterFracZ3DShape_[3] * filterFracZ3DShape_[6];
+        return filterFracZ3DShape_[0] * filterFracZ3DShape_[1] * filterFracZ3DShape_[2] * filterFracZ3DShape_[3] *
+               filterFracZ3DShape_[6];
     }
     CATLASS_HOST_DEVICE
-    Index const kdcin1() const { return filterFracZ3DShape_[0] * filterFracZ3DShape_[1]; }
+    Index const kdcin1() const
+    {
+        return filterFracZ3DShape_[0] * filterFracZ3DShape_[1];
+    }
     CATLASS_HOST_DEVICE
     Index const fmapOneBatchSize() const
     {
@@ -223,11 +296,7 @@ public:
     }
 };
 
-template <
-    uint32_t noCnt_ = 1,
-    uint32_t doCnt_ = 1,
-    uint32_t co1Cnt_ = 1,
-    uint32_t howoCnt_ = 1>
+template <uint32_t noCnt_ = 1, uint32_t doCnt_ = 1, uint32_t co1Cnt_ = 1, uint32_t howoCnt_ = 1>
 struct ConvCoreShape {
     static uint32_t const noCnt = noCnt_;
     static uint32_t const doCnt = doCnt_;
@@ -242,10 +311,7 @@ struct ConvCoreShape {
     }
 };
 
-template <
-    uint32_t mAL1_ = 1,
-    uint32_t Kd_ = 1,
-    uint32_t Ci1_ = 1>
+template <uint32_t mAL1_ = 1, uint32_t Kd_ = 1, uint32_t Ci1_ = 1>
 struct ConvFmapL1Shape {
     static uint32_t constexpr mAL1 = mAL1_;
     static uint32_t constexpr Kd = Kd_;
@@ -259,10 +325,7 @@ struct ConvFmapL1Shape {
     }
 };
 
-template <
-    uint32_t Kd_ = 1,
-    uint32_t Ci1_ = 1,
-    uint32_t nBL1_ = 1>
+template <uint32_t Kd_ = 1, uint32_t Ci1_ = 1, uint32_t nBL1_ = 1>
 struct ConvFilterL1Shape {
     static uint32_t constexpr Kd = Kd_;
     static uint32_t constexpr Ci1 = Ci1_;
@@ -276,10 +339,7 @@ struct ConvFilterL1Shape {
     }
 };
 
-template <
-    uint32_t mL0_ = 1,
-    uint32_t kL0_ = 1,
-    uint32_t nL0_ = 1>
+template <uint32_t mL0_ = 1, uint32_t kL0_ = 1, uint32_t nL0_ = 1>
 struct ConvL0Shape {
     static uint32_t constexpr mL0 = mL0_;
     static uint32_t constexpr kL0 = kL0_;
@@ -308,14 +368,10 @@ struct Conv3d6HdCoord : public Coord<4, uint32_t> {
     Conv3d6HdCoord() {}
 
     CATLASS_HOST_DEVICE
-    Conv3d6HdCoord(Coord<4, Index> const &coord)
-        : Base(coord)
-    {}
+    Conv3d6HdCoord(Coord<4, Index> const &coord) : Base(coord) {}
 
     CATLASS_HOST_DEVICE
-    Conv3d6HdCoord(Index n, Index d, Index c1, Index hw)
-        : Base(MakeCoord(n, d, c1, hw))
-    {}
+    Conv3d6HdCoord(Index n, Index d, Index c1, Index hw) : Base(MakeCoord(n, d, c1, hw)) {}
 
     CATLASS_HOST_DEVICE
     Index const &n() const
@@ -375,9 +431,7 @@ struct Conv3dFracZ3dCoord : public Coord<2, uint32_t> {
     Conv3dFracZ3dCoord() {}
 
     CATLASS_HOST_DEVICE
-    Conv3dFracZ3dCoord(Index kdc1khkw, Index n1)
-        : Base(MakeCoord(kdc1khkw, n1))
-    {}
+    Conv3dFracZ3dCoord(Index kdc1khkw, Index n1) : Base(MakeCoord(kdc1khkw, n1)) {}
 
     CATLASS_HOST_DEVICE
     Index const &kdc1khkw() const
@@ -404,11 +458,9 @@ struct Conv3dFracZ3dCoord : public Coord<2, uint32_t> {
 
 /////////////////// Shapes and Coords for Conv2d ///////////////////
 
-template <
-    uint32_t Ho_ = 1,
-    uint32_t Wo_ = 1,
-    uint32_t Cin1_ = 1>
-struct Conv2dFmapL1Shape { // (Ho, Wo, Cin1)
+template <uint32_t Ho_ = 1, uint32_t Wo_ = 1,
+          uint32_t Cin1_ = 1>
+struct Conv2dFmapL1Shape {  // (Ho, Wo, Cin1)
     static constexpr uint32_t Ho = Ho_;
     static constexpr uint32_t Wo = Wo_;
     static constexpr uint32_t Cin1 = Cin1_;
@@ -421,10 +473,9 @@ struct Conv2dFmapL1Shape { // (Ho, Wo, Cin1)
     }
 };
 
-template <
-    uint32_t Cout_ = 16,
-    uint32_t Cin1_ = 1>
-struct Conv2dFilterL1Shape { // (Cout, Cin1)
+template <uint32_t Cout_ = 16,
+          uint32_t Cin1_ = 1>
+struct Conv2dFilterL1Shape {  // (Cout, Cin1)
     static constexpr uint32_t Cout = Cout_;
     static constexpr uint32_t Cin1 = Cin1_;
 
@@ -436,10 +487,7 @@ struct Conv2dFilterL1Shape { // (Cout, Cin1)
     }
 };
 
-template <
-    uint32_t M_ = 16,
-    uint32_t N_ = 16,
-    uint32_t K_ = 16>
+template <uint32_t M_ = 16, uint32_t N_ = 16, uint32_t K_ = 16>
 struct Conv2dL0Shape {
     static constexpr uint32_t M = M_;
     static constexpr uint32_t N = N_;
@@ -453,7 +501,7 @@ struct Conv2dL0Shape {
     }
 };
 
-struct Conv2dFmapCoord : public Coord<5, uint32_t> { // (Batch, C1, H, W, C0)
+struct Conv2dFmapCoord : public Coord<5, uint32_t> {  // (Batch, C1, H, W, C0)
 public:
     /// Integer-valued index
     using Index = uint32_t;
@@ -477,15 +525,11 @@ public:
 
     /// Constructs from Coord<5>
     CATLASS_HOST_DEVICE
-    Conv2dFmapCoord(Coord<5, Index> const &coord)
-        : Base(coord)
-    {}
+    Conv2dFmapCoord(Coord<5, Index> const &coord) : Base(coord) {}
 
     /// Helper to construct from C1, H, W, C0
     CATLASS_HOST_DEVICE
-    Conv2dFmapCoord(Index batch, Index c1, Index h, Index w, Index c0)
-        : Base(MakeCoord(batch, c1, h, w, c0))
-    {}
+    Conv2dFmapCoord(Index batch, Index c1, Index h, Index w, Index c0) : Base(MakeCoord(batch, c1, h, w, c0)) {}
 
     CATLASS_HOST_DEVICE
     Conv2dFmapCoord(LongIndex batch, LongIndex c1, LongIndex h, LongIndex w, LongIndex c0)
@@ -563,7 +607,7 @@ public:
     }
 };
 
-struct Conv2dFilterCoord : public Coord<5, uint32_t> { // (Cin1, Kh, Kw, Cout, C0)
+struct Conv2dFilterCoord : public Coord<5, uint32_t> {  // (Cin1, Kh, Kw, Cout, C0)
 public:
     /// Integer-valued index
     using Index = uint32_t;
@@ -587,15 +631,11 @@ public:
 
     /// Constructs from Coord<5>
     CATLASS_HOST_DEVICE
-    Conv2dFilterCoord(Coord<5, Index> const &coord)
-        : Base(coord)
-    {}
+    Conv2dFilterCoord(Coord<5, Index> const &coord) : Base(coord) {}
 
     /// Helper to construct from Cin1, Kh, Kw, Cout, C0
     CATLASS_HOST_DEVICE
-    Conv2dFilterCoord(Index cin1, Index kh, Index kw, Index cout, Index c0)
-        : Base(MakeCoord(cin1, kh, kw, cout, c0))
-    {}
+    Conv2dFilterCoord(Index cin1, Index kh, Index kw, Index cout, Index c0) : Base(MakeCoord(cin1, kh, kw, cout, c0)) {}
 
     CATLASS_HOST_DEVICE
     Conv2dFilterCoord(LongIndex cin1, LongIndex kh, LongIndex kw, LongIndex cout, LongIndex c0)
@@ -673,7 +713,7 @@ public:
     }
 };
 
-struct Conv2dHoWoCoCoord : public Coord<3, uint32_t> { // (Ho, Wo, Cout)
+struct Conv2dHoWoCoCoord : public Coord<3, uint32_t> {  // (Ho, Wo, Cout)
 public:
     /// Integer-valued index
     using Index = uint32_t;
@@ -695,19 +735,14 @@ public:
 
     /// Constructs from Coord<3>
     CATLASS_HOST_DEVICE
-    Conv2dHoWoCoCoord(Coord<3, Index> const &coord)
-        : Base(coord)
-    {}
+    Conv2dHoWoCoCoord(Coord<3, Index> const &coord) : Base(coord) {}
 
     /// Helper to construct from Ho, Wo, Cout
     CATLASS_HOST_DEVICE
-    Conv2dHoWoCoCoord(Index ho, Index wo, Index cout)
-        : Base(MakeCoord(ho, wo, cout))
-    {}
+    Conv2dHoWoCoCoord(Index ho, Index wo, Index cout) : Base(MakeCoord(ho, wo, cout)) {}
 
     CATLASS_HOST_DEVICE
-    Conv2dHoWoCoCoord(LongIndex ho, LongIndex wo, LongIndex cout)
-        : Base(MakeCoord(Index(ho), Index(wo), Index(cout)))
+    Conv2dHoWoCoCoord(LongIndex ho, LongIndex wo, LongIndex cout) : Base(MakeCoord(Index(ho), Index(wo), Index(cout)))
     {}
 
     CATLASS_HOST_DEVICE
@@ -768,7 +803,7 @@ public:
     }
 };
 
-struct Conv2dCoord : public Coord<5, uint32_t> { // (Batch, H, W, Cout, Cin1)
+struct Conv2dCoord : public Coord<5, uint32_t> {  // (Batch, H, W, Cout, Cin1)
 public:
     /// Integer-valued index
     using Index = uint32_t;
@@ -792,15 +827,11 @@ public:
 
     /// Constructs from Coord<5>
     CATLASS_HOST_DEVICE
-    Conv2dCoord(Coord<5, Index> const &coord)
-        : Base(coord)
-    {}
+    Conv2dCoord(Coord<5, Index> const &coord) : Base(coord) {}
 
     /// Helper to construct from Batch, H, W, Cout, Cin1
     CATLASS_HOST_DEVICE
-    Conv2dCoord(Index batch, Index h, Index w, Index cout, Index cin1)
-        : Base(MakeCoord(batch, h, w, cout, cin1))
-    {}
+    Conv2dCoord(Index batch, Index h, Index w, Index cout, Index cin1) : Base(MakeCoord(batch, h, w, cout, cin1)) {}
 
     CATLASS_HOST_DEVICE
     Conv2dCoord(LongIndex batch, LongIndex h, LongIndex w, LongIndex cout, LongIndex cin1)
@@ -884,7 +915,8 @@ public:
     }
 };
 
-class Conv2dFilterParams {
+class Conv2dFilterParams
+{
 public:
     typedef uint8_t ShortIndex;
     typedef uint32_t Index;
@@ -901,9 +933,9 @@ private:
     Dilations dilations;
 
 public:
-    Conv2dFilterParams(ShortIndex kh = 0, ShortIndex kw = 0,
-                       ShortIndex padLeft = 0, ShortIndex padRight = 0, ShortIndex padTop = 0, ShortIndex padBottom = 0,
-                       ShortIndex strideH = 0, ShortIndex strideW = 0, ShortIndex dilationH = 0, ShortIndex dilationW = 0)
+    Conv2dFilterParams(ShortIndex kh = 0, ShortIndex kw = 0, ShortIndex padLeft = 0, ShortIndex padRight = 0,
+                       ShortIndex padTop = 0, ShortIndex padBottom = 0, ShortIndex strideH = 0, ShortIndex strideW = 0,
+                       ShortIndex dilationH = 0, ShortIndex dilationW = 0)
         : ks(MakeCoord(kh, kw)),
           pads(MakeCoord(padLeft, padRight, padTop, padBottom)),
           strides(MakeCoord(strideH, strideW)),
@@ -1032,22 +1064,20 @@ public:
 
 private:
     // Batch, Hi, Wi, Cin, Cout, Kh, Kw
-    Conv2dFmapCoord fmapShape;     // {Batch, Cin1, Hi, Wi, C0}
-    Conv2dFilterCoord filterShape; // {Cin1, Kh, Kw, Cout, C0}
-    Conv2dFmapCoord outputShape;   // {Batch, Cout1, Ho, Wo, C0}
-    Conv2dFilterParams configs;    // {Ks, Pads, Strides, Dilations}
-    Conv2dCoord postIm2colShape;   // {Batch, Ho, Wo, Cout, Cin1}
+    Conv2dFmapCoord fmapShape;      // {Batch, Cin1, Hi, Wi, C0}
+    Conv2dFilterCoord filterShape;  // {Cin1, Kh, Kw, Cout, C0}
+    Conv2dFmapCoord outputShape;    // {Batch, Cout1, Ho, Wo, C0}
+    Conv2dFilterParams configs;     // {Ks, Pads, Strides, Dilations}
+    Conv2dCoord postIm2colShape;    // {Batch, Ho, Wo, Cout, Cin1}
 public:
     /// Default ctor
     CATLASS_HOST_DEVICE
     Conv2dParams() {}
 
     CATLASS_HOST_DEVICE
-    Conv2dParams(Index batch, Index hi, Index wi, Index cin, Index cout,
-                 ShortIndex kh, ShortIndex kw,
-                 ShortIndex padLeft, ShortIndex padRight, ShortIndex padTop, ShortIndex padBottom,
-                 ShortIndex strideH, ShortIndex strideW,
-                 ShortIndex dilationH, ShortIndex dilationW)
+    Conv2dParams(Index batch, Index hi, Index wi, Index cin, Index cout, ShortIndex kh, ShortIndex kw,
+                 ShortIndex padLeft, ShortIndex padRight, ShortIndex padTop, ShortIndex padBottom, ShortIndex strideH,
+                 ShortIndex strideW, ShortIndex dilationH, ShortIndex dilationW)
         : fmapShape(MakeCoord(batch, CeilDiv(cin, C0), hi, wi, C0)),
           filterShape(MakeCoord(CeilDiv(cin, C0), (Index)kh, (Index)kw, cout, C0)),
           configs(kh, kw, padLeft, padRight, padTop, padBottom, strideH, strideW, dilationH, dilationW)
@@ -1060,18 +1090,15 @@ public:
     }
 
     CATLASS_HOST_DEVICE
-    static Conv2dParams MakeConv2dParams(
-        const Index *dataSizes,        // [Batch, Hi, Wi, Cin, Cout]
-        const ShortIndex *filterSizes, // [Kh, Kw]
-        const ShortIndex *pads,        // [padLeft, padRight, padTop, padBottom]
-        const ShortIndex *strides,     // [strideH, strideW]
-        const ShortIndex *dilations)   // [dilationH, dilationW]
+    static Conv2dParams MakeConv2dParams(const Index *dataSizes,         // [Batch, Hi, Wi, Cin, Cout]
+                                         const ShortIndex *filterSizes,  // [Kh, Kw]
+                                         const ShortIndex *pads,         // [padLeft, padRight, padTop, padBottom]
+                                         const ShortIndex *strides,      // [strideH, strideW]
+                                         const ShortIndex *dilations)    // [dilationH, dilationW]
     {
-        return Conv2dParams(
-            dataSizes[0], dataSizes[1], dataSizes[2], dataSizes[3], dataSizes[4],
-            filterSizes[0], filterSizes[1],
-            pads[0], pads[1], pads[2], pads[3],
-            strides[0], strides[1], strides[2], strides[3]);
+        return Conv2dParams(dataSizes[0], dataSizes[1], dataSizes[2], dataSizes[3], dataSizes[4], filterSizes[0],
+                            filterSizes[1], pads[0], pads[1], pads[2], pads[3], strides[0], strides[1], strides[2],
+                            strides[3]);
     }
 
     CATLASS_HOST_DEVICE
@@ -1315,6 +1342,6 @@ public:
     }
 };
 
-} // namespace Catlass
+}  // namespace Catlass
 
-#endif // CATLASS_KDA_CONV_COORD_HPP
+#endif  // CATLASS_KDA_CONV_COORD_HPP

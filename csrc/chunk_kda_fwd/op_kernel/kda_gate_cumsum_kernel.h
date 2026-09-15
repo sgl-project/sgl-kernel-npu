@@ -61,8 +61,7 @@ static __simd_vf__ inline void AccumulateGateRowRegbase(__ubuf__ float *input, _
     }
 }
 
-static __simd_vf__ inline void AccumulateGateChunk128Regbase(__ubuf__ float *input,
-                                                             __ubuf__ float *output,
+static __simd_vf__ inline void AccumulateGateChunk128Regbase(__ubuf__ float *input, __ubuf__ float *output,
                                                              uint16_t rows)
 {
     using namespace AscendC::MicroAPI;
@@ -79,8 +78,7 @@ static __simd_vf__ inline void AccumulateGateChunk128Regbase(__ubuf__ float *inp
         RegTensor<float> inputZeroReg;
         RegTensor<float> inputOneReg;
         LoadAlign<float, LoadDist::DIST_NORM>(inputZeroReg, input + rowOffset);
-        LoadAlign<float, LoadDist::DIST_NORM>(
-            inputOneReg, input + rowOffset + FLOAT_ELEMENTS_PER_REG);
+        LoadAlign<float, LoadDist::DIST_NORM>(inputOneReg, input + rowOffset + FLOAT_ELEMENTS_PER_REG);
         Muls(inputZeroReg, inputZeroReg, RCP_LN2, floatMask);
         Muls(inputOneReg, inputOneReg, RCP_LN2, floatMask);
         Add(accZeroReg, accZeroReg, inputZeroReg, floatMask);
@@ -91,9 +89,9 @@ static __simd_vf__ inline void AccumulateGateChunk128Regbase(__ubuf__ float *inp
 }
 
 template <bool HAS_BIAS>
-static __simd_vf__ inline void AccumulateSafeGateChunk128Regbase(
-    __ubuf__ float *input, __ubuf__ float *bias, __ubuf__ float *output,
-    uint16_t rows, float expA, float lowerBound)
+static __simd_vf__ inline void AccumulateSafeGateChunk128Regbase(__ubuf__ float *input, __ubuf__ float *bias,
+                                                                 __ubuf__ float *output, uint16_t rows, float expA,
+                                                                 float lowerBound)
 {
     using namespace AscendC::MicroAPI;
     constexpr uint16_t FLOAT_ELEMENTS_PER_REG = AscendC::VECTOR_REG_WIDTH / sizeof(float);
@@ -123,8 +121,7 @@ static __simd_vf__ inline void AccumulateSafeGateChunk128Regbase(
         RegTensor<float> sigmoidZeroReg;
         RegTensor<float> sigmoidOneReg;
         LoadAlign<float, LoadDist::DIST_NORM>(gateZeroReg, input + rowOffset);
-        LoadAlign<float, LoadDist::DIST_NORM>(
-            gateOneReg, input + rowOffset + FLOAT_ELEMENTS_PER_REG);
+        LoadAlign<float, LoadDist::DIST_NORM>(gateOneReg, input + rowOffset + FLOAT_ELEMENTS_PER_REG);
         if constexpr (HAS_BIAS) {
             Add(gateZeroReg, gateZeroReg, biasZeroReg, floatMask);
             Add(gateOneReg, gateOneReg, biasOneReg, floatMask);
@@ -149,7 +146,8 @@ static __simd_vf__ inline void AccumulateSafeGateChunk128Regbase(
 #endif
 
 template <typename T, bool USE_GATE_IN_KERNEL, bool SAFE_GATE>
-class KdaGateCumsumKernel {
+class KdaGateCumsumKernel
+{
 public:
     template <typename TilingData>
     __aicore__ inline void Init(GM_ADDR g, GM_ADDR aLog, GM_ADDR dtBias, GM_ADDR cuSeqlens, GM_ADDR gk,
@@ -284,19 +282,14 @@ private:
         }
     }
 
-    __aicore__ inline void CopyGateRowsIn(LocalTensor<T> &dst, uint64_t b, uint64_t start,
-                                          uint64_t hv, uint64_t rows)
+    __aicore__ inline void CopyGateRowsIn(LocalTensor<T> &dst, uint64_t b, uint64_t start, uint64_t hv, uint64_t rows)
     {
         if (!inputSequenceMajor_) {
             CopyVectorIn(dst, g_, InputOffset(b, start, hv, 0), rows * k_);
             return;
         }
-        DataCopyExtParams params{
-            static_cast<uint16_t>(rows),
-            static_cast<uint32_t>(k_ * sizeof(T)),
-            static_cast<uint32_t>((hv_ - 1) * k_ * sizeof(T)),
-            0,
-            0};
+        DataCopyExtParams params{static_cast<uint16_t>(rows), static_cast<uint32_t>(k_ * sizeof(T)),
+                                 static_cast<uint32_t>((hv_ - 1) * k_ * sizeof(T)), 0, 0};
         DataCopyPadExtParams<T> padParams{false, 0, 0, 0};
         DataCopyPad(dst, g_[InputOffset(b, start, hv, 0)], params, padParams);
     }
@@ -503,16 +496,14 @@ private:
             if (rowIdx >= GATE_PIPELINE_DEPTH) {
                 WaitFlag<HardEvent::MTE3_V>(outputMte3ToVEvent_[outputSlot]);
             }
-            LocalTensor<float> output =
-                outBuf_.Get<float>()[outputSlot * GATE_ROW_ELEMENTS];
+            LocalTensor<float> output = outBuf_.Get<float>()[outputSlot * GATE_ROW_ELEMENTS];
 
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
             if constexpr (!USE_GATE_IN_KERNEL && IsSameType<T, float>::value) {
                 if ((k_ % 128) == 0) {
                     LocalTensor<float> input = inBuf_.Get<float>()[slot * GATE_ROW_ELEMENTS];
-                    AccumulateGateRowRegbase(
-                        (__ubuf__ float *)input.GetPhyAddr(), (__ubuf__ float *)acc.GetPhyAddr(),
-                        (__ubuf__ float *)output.GetPhyAddr(), static_cast<uint16_t>(k_));
+                    AccumulateGateRowRegbase((__ubuf__ float *)input.GetPhyAddr(), (__ubuf__ float *)acc.GetPhyAddr(),
+                                             (__ubuf__ float *)output.GetPhyAddr(), static_cast<uint16_t>(k_));
                     PipeBarrier<PIPE_V>();
                 } else {
                     MaterializeGateRow(slot, row);
@@ -669,9 +660,8 @@ private:
         CopyGateRowsIn(buffer0, b, start, hv, rows);
         SetFlag<HardEvent::MTE2_V>(inputMte2ToVEvent_[0]);
         WaitFlag<HardEvent::MTE2_V>(inputMte2ToVEvent_[0]);
-        AccumulateGateChunk128Regbase(
-            (__ubuf__ float *)buffer0.GetPhyAddr(), (__ubuf__ float *)buffer0.GetPhyAddr(),
-            static_cast<uint16_t>(rows));
+        AccumulateGateChunk128Regbase((__ubuf__ float *)buffer0.GetPhyAddr(), (__ubuf__ float *)buffer0.GetPhyAddr(),
+                                      static_cast<uint16_t>(rows));
         PipeBarrier<PIPE_V>();
         SetFlag<HardEvent::V_MTE3>(outputVToMte3Event_[0]);
         WaitFlag<HardEvent::V_MTE3>(outputVToMte3Event_[0]);
@@ -733,8 +723,8 @@ __aicore__ inline void RunKdaGateCumsum(GM_ADDR g, GM_ADDR aLog, GM_ADDR dtBias,
 }
 
 template <typename T, typename TilingData>
-__aicore__ inline void DispatchKdaGateCumsum(GM_ADDR g, GM_ADDR aLog, GM_ADDR dtBias, GM_ADDR cuSeqlens,
-                                             GM_ADDR gk, const TilingData &tilingData, TPipe *pipe)
+__aicore__ inline void DispatchKdaGateCumsum(GM_ADDR g, GM_ADDR aLog, GM_ADDR dtBias, GM_ADDR cuSeqlens, GM_ADDR gk,
+                                             const TilingData &tilingData, TPipe *pipe)
 {
     if (tilingData.useGateInKernel != 0) {
         if (tilingData.safeGate != 0) {
@@ -746,4 +736,4 @@ __aicore__ inline void DispatchKdaGateCumsum(GM_ADDR g, GM_ADDR aLog, GM_ADDR dt
         RunKdaGateCumsum<T, false, false>(g, aLog, dtBias, cuSeqlens, gk, tilingData, pipe);
     }
 }
-} // namespace KdaGateCumsum
+}  // namespace KdaGateCumsum

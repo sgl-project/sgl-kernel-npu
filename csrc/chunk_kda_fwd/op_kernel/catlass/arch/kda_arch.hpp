@@ -47,6 +47,6 @@ using PositionL0C = PositionType<AscendC::TPosition::CO1>;
 using PositionBias = PositionType<AscendC::TPosition::C2>;
 using PositionUB = PositionType<AscendC::TPosition::VECCALC>;
 
-} // namespace Catlass::Arch
+}  // namespace Catlass::Arch
 
-#endif // CATLASS_KDA_ARCH_HPP
+#endif  // CATLASS_KDA_ARCH_HPP

@@ -39,4 +39,4 @@ struct ChunkKdaFwdHRuntimeTiling {
     int64_t numChunksWorkspaceOffset;
 };
 
-#endif // CHUNK_KDA_FWD_H_RUNTIME_TILING_H
+#endif  // CHUNK_KDA_FWD_H_RUNTIME_TILING_H

@@ -39,13 +39,9 @@ CATLASS_HOST_DEVICE constexpr T getv(EBO<N, T, true> const &)
 // Specialization for types T that are not empty;
 template <size_t N, class T>
 struct EBO<N, T, false> {
-    CATLASS_HOST_DEVICE constexpr EBO()
-        : t_{}
-    {}
+    CATLASS_HOST_DEVICE constexpr EBO() : t_{} {}
 
-    CATLASS_HOST_DEVICE constexpr EBO(T const &t)
-        : t_{t}
-    {}
+    CATLASS_HOST_DEVICE constexpr EBO(T const &t) : t_{t} {}
 
     T t_;
 };
@@ -70,12 +66,10 @@ template <size_t... I, class... T>
 struct TupleBase<index_sequence<I...>, T...> : EBO<I, T>... {
     CATLASS_HOST_DEVICE constexpr TupleBase() {}
 
-    CATLASS_HOST_DEVICE constexpr TupleBase(T const &...t)
-        : EBO<I, T>(t)...
-    {}
+    CATLASS_HOST_DEVICE constexpr TupleBase(T const &...t) : EBO<I, T>(t)... {}
 };
 
-} // end namespace detail
+}  // end namespace detail
 
 // tla::tuple class.
 template <class... T>
@@ -115,27 +109,24 @@ template <class T>
 auto has_tuple_size(T *) -> bool_constant<(0 <= tuple_size<T>::value)>;
 auto has_tuple_size(...) -> false_type;
 
-} // end namespace detail
+}  // end namespace detail
 
 template <class T>
 struct is_tuple : decltype(detail::has_tuple_size((T *)0)){};
 
 template <class... T>
-struct tuple_size<tla::tuple<T...>>
-    : std::integral_constant<size_t, sizeof...(T)> {};
+struct tuple_size<tla::tuple<T...>> : std::integral_constant<size_t, sizeof...(T)> {};
 
 template <class... T>
-struct tuple_size<const tla::tuple<T...>>
-    : std::integral_constant<size_t, sizeof...(T)> {};
+struct tuple_size<const tla::tuple<T...>> : std::integral_constant<size_t, sizeof...(T)> {};
 
 // make_tuple
 template <class... T>
-CATLASS_HOST_DEVICE constexpr tuple<T...>
-MakeTuple(T const &...t)
+CATLASS_HOST_DEVICE constexpr tuple<T...> MakeTuple(T const &...t)
 {
     return {t...};
 }
 
-} // end namespace tla
+}  // end namespace tla
 
-#endif // TLA_TUPLE_HPP
+#endif  // TLA_TUPLE_HPP

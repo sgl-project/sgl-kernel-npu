@@ -42,23 +42,18 @@ public:
     /// Constructor
     CATLASS_HOST_DEVICE
     RowMajor(Index rows = 0, Index cols = 0)
-        : shape_(MakeCoord(rows, cols)),
-          stride_(MakeCoord(LongIndex(cols), LongIndex(1)))
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(cols), LongIndex(1)))
     {}
 
     /// Constructor
     CATLASS_HOST_DEVICE
     RowMajor(Index rows, Index cols, LongIndex ldm)
-        : shape_(MakeCoord(rows, cols)),
-          stride_(MakeCoord(ldm, LongIndex(1)))
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(ldm, LongIndex(1)))
     {}
 
     /// Ctor
     CATLASS_HOST_DEVICE
-    RowMajor(Shape shape, Stride stride)
-        : shape_(shape),
-          stride_(stride)
-    {}
+    RowMajor(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
     CATLASS_HOST_DEVICE static RowMajor MakeLayout(Index rows, Index cols)
@@ -187,23 +182,18 @@ public:
     /// Constructor
     CATLASS_HOST_DEVICE
     ColumnMajor(Index rows = 0, Index cols = 0)
-        : shape_(MakeCoord(rows, cols)),
-          stride_(MakeCoord(LongIndex(1), LongIndex(rows)))
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), LongIndex(rows)))
     {}
 
     /// Constructor
     CATLASS_HOST_DEVICE
     ColumnMajor(Index rows, Index cols, LongIndex ldm)
-        : shape_(MakeCoord(rows, cols)),
-          stride_(MakeCoord(LongIndex(1), ldm))
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), ldm))
     {}
 
     /// Ctor
     CATLASS_HOST_DEVICE
-    ColumnMajor(Shape shape, Stride stride)
-        : shape_(shape),
-          stride_(stride)
-    {}
+    ColumnMajor(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
     CATLASS_HOST_DEVICE static ColumnMajor MakeLayout(Index rows, Index cols)
@@ -329,16 +319,17 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr nZ(Index orgRows = 0,                 /// Number of rows of origin matrices
-                                     Index orgCols = 0,                 /// Number of cols of origin matrices
-                                     Index rowsInFractal = 0,           /// Number of rows inside the fractal
-                                     Index rowsByFractal = 0,           /// number of rows by the fractal
-                                     Index colsInFractal = 0,           /// number of cols inside the fractal
-                                     Index colsByFractal = 0,           /// number of cols by the fractal
-                                     LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-                                     LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-                                     LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-                                     LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    CATLASS_HOST_DEVICE constexpr nZ(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
@@ -346,9 +337,7 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr nZ(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
     {}
 
     /// Make the layout of a coordinate (row, column)
@@ -359,16 +348,8 @@ public:
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<Element>::value;
         Index rowsRound = RoundUp<ELE_NUM_PER_C0>(orgRows);
         Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
-        return nZ(orgRows,
-                  orgCols,
-                  ELE_NUM_PER_C0,
-                  rowsRound / ELE_NUM_PER_C0,
-                  C0_NUM_PER_FRACTAL,
-                  colsRound / C0_NUM_PER_FRACTAL,
-                  1,
-                  colsRound * ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  ELE_NUM_PER_FRACTAL);
+        return nZ(orgRows, orgCols, ELE_NUM_PER_C0, rowsRound / ELE_NUM_PER_C0, C0_NUM_PER_FRACTAL,
+                  colsRound / C0_NUM_PER_FRACTAL, 1, colsRound * ELE_NUM_PER_C0, ELE_NUM_PER_C0, ELE_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
@@ -384,9 +365,8 @@ public:
     CATLASS_HOST_DEVICE
     nZ GetTileLayout(MatrixCoord const &tileOriShape) const
     {
-        auto tileShape = MakeCoord(
-            shape(0), CeilDiv(tileOriShape.row(), shape(0)),
-            shape(2), CeilDiv(tileOriShape.column(), shape(2)));
+        auto tileShape = MakeCoord(shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2),
+                                   CeilDiv(tileOriShape.column(), shape(2)));
         return nZ(tileOriShape, tileShape, stride());
     }
 
@@ -506,16 +486,17 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr zN(Index orgRows = 0,                 /// Number of rows of origin matrices
-                                     Index orgCols = 0,                 /// Number of cols of origin matrices
-                                     Index rowsInFractal = 0,           /// Number of rows inside the fractal
-                                     Index rowsByFractal = 0,           /// number of rows by the fractal
-                                     Index colsInFractal = 0,           /// number of cols inside the fractal
-                                     Index colsByFractal = 0,           /// number of cols by the fractal
-                                     LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-                                     LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-                                     LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-                                     LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    CATLASS_HOST_DEVICE constexpr zN(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
@@ -523,9 +504,7 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr zN(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
     {}
 
     /// Make the layout of a coordinate (row, column)
@@ -536,30 +515,16 @@ public:
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<Element>::value;
         Index rowsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgRows);
         Index colsRound = RoundUp<ELE_NUM_PER_C0>(orgCols);
-        return zN(orgRows,
-                  orgCols,
-                  C0_NUM_PER_FRACTAL,
-                  rowsRound / C0_NUM_PER_FRACTAL,
-                  ELE_NUM_PER_C0,
-                  colsRound / ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  ELE_NUM_PER_FRACTAL,
-                  1,
-                  rowsRound * ELE_NUM_PER_C0);
+        return zN(orgRows, orgCols, C0_NUM_PER_FRACTAL, rowsRound / C0_NUM_PER_FRACTAL, ELE_NUM_PER_C0,
+                  colsRound / ELE_NUM_PER_C0, ELE_NUM_PER_C0, ELE_NUM_PER_FRACTAL, 1, rowsRound * ELE_NUM_PER_C0);
     }
 
     CATLASS_HOST_DEVICE
     static zN MakeLayoutInL0C(MatrixCoord const &shape)
     {
-        return zN(shape.row(),
-                  shape.column(),
-                  C0_NUM_PER_FRACTAL,
-                  CeilDiv<C0_NUM_PER_FRACTAL>(shape.row()),
-                  C0_NUM_PER_FRACTAL,
-                  CeilDiv<C0_NUM_PER_FRACTAL>(shape.column()),
-                  C0_NUM_PER_FRACTAL,
-                  C0_NUM_PER_FRACTAL * C0_NUM_PER_FRACTAL,
-                  1,
+        return zN(shape.row(), shape.column(), C0_NUM_PER_FRACTAL, CeilDiv<C0_NUM_PER_FRACTAL>(shape.row()),
+                  C0_NUM_PER_FRACTAL, CeilDiv<C0_NUM_PER_FRACTAL>(shape.column()), C0_NUM_PER_FRACTAL,
+                  C0_NUM_PER_FRACTAL * C0_NUM_PER_FRACTAL, 1,
                   RoundUp<C0_NUM_PER_FRACTAL>(shape.row()) * C0_NUM_PER_FRACTAL);
     }
 
@@ -576,9 +541,8 @@ public:
     CATLASS_HOST_DEVICE
     zN GetTileLayout(MatrixCoord const &tileOriShape) const
     {
-        auto tileShape = MakeCoord(
-            shape(0), CeilDiv(tileOriShape.row(), shape(0)),
-            shape(2), CeilDiv(tileOriShape.column(), shape(2)));
+        auto tileShape = MakeCoord(shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2),
+                                   CeilDiv(tileOriShape.column(), shape(2)));
         return zN(tileOriShape, tileShape, stride());
     }
 
@@ -698,16 +662,17 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr zZ(Index orgRows = 0,                 /// Number of rows of origin matrices
-                                     Index orgCols = 0,                 /// Number of cols of origin matrices
-                                     Index rowsInFractal = 0,           /// Number of rows inside the fractal
-                                     Index rowsByFractal = 0,           /// number of rows by the fractal
-                                     Index colsInFractal = 0,           /// number of cols inside the fractal
-                                     Index colsByFractal = 0,           /// number of cols by the fractal
-                                     LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-                                     LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-                                     LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-                                     LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    CATLASS_HOST_DEVICE constexpr zZ(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
@@ -715,9 +680,7 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr zZ(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
     {}
 
     /// Make the layout of a coordinate (row, column)
@@ -728,16 +691,8 @@ public:
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<Element>::value;
         Index rowsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgRows);
         Index colsRound = RoundUp<ELE_NUM_PER_C0>(orgCols);
-        return zZ(orgRows,
-                  orgCols,
-                  C0_NUM_PER_FRACTAL,
-                  rowsRound / C0_NUM_PER_FRACTAL,
-                  ELE_NUM_PER_C0,
-                  colsRound / ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  colsRound * C0_NUM_PER_FRACTAL,
-                  1,
-                  ELE_NUM_PER_FRACTAL);
+        return zZ(orgRows, orgCols, C0_NUM_PER_FRACTAL, rowsRound / C0_NUM_PER_FRACTAL, ELE_NUM_PER_C0,
+                  colsRound / ELE_NUM_PER_C0, ELE_NUM_PER_C0, colsRound * C0_NUM_PER_FRACTAL, 1, ELE_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
@@ -859,16 +814,17 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr L0C(Index orgRows = 0,                 /// Number of rows of origin matrices
-                                      Index orgCols = 0,                 /// Number of cols of origin matrices
-                                      Index rowsInFractal = 0,           /// Number of rows inside the fractal
-                                      Index rowsByFractal = 0,           /// number of rows by the fractal
-                                      Index colsInFractal = 0,           /// number of cols inside the fractal
-                                      Index colsByFractal = 0,           /// number of cols by the fractal
-                                      LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-                                      LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-                                      LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-                                      LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    CATLASS_HOST_DEVICE constexpr L0C(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
@@ -876,9 +832,7 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr L0C(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
     {}
 
     /// Make the layout of a coordinate (row, column)
@@ -888,15 +842,8 @@ public:
         constexpr uint32_t ELE_NUM_PER_FRACTAL = 256;
         Index rowsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgRows);
         Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
-        return L0C(orgRows,
-                   orgCols,
-                   C0_NUM_PER_FRACTAL,
-                   rowsRound / C0_NUM_PER_FRACTAL,
-                   C0_NUM_PER_FRACTAL,
-                   colsRound / C0_NUM_PER_FRACTAL,
-                   C0_NUM_PER_FRACTAL,
-                   ELE_NUM_PER_FRACTAL,
-                   1,
+        return L0C(orgRows, orgCols, C0_NUM_PER_FRACTAL, rowsRound / C0_NUM_PER_FRACTAL, C0_NUM_PER_FRACTAL,
+                   colsRound / C0_NUM_PER_FRACTAL, C0_NUM_PER_FRACTAL, ELE_NUM_PER_FRACTAL, 1,
                    rowsRound * C0_NUM_PER_FRACTAL);
     }
 
@@ -913,9 +860,8 @@ public:
     CATLASS_HOST_DEVICE
     L0C GetTileLayout(MatrixCoord const &tileOriShape) const
     {
-        auto tileShape = MakeCoord(
-            shape(0), CeilDiv(tileOriShape.row(), shape(0)),
-            shape(2), CeilDiv(tileOriShape.column(), shape(2)));
+        auto tileShape = MakeCoord(shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2),
+                                   CeilDiv(tileOriShape.column(), shape(2)));
         return L0C(tileOriShape, tileShape, stride());
     }
 
@@ -1050,7 +996,8 @@ public:
     {
         LongIndex blockRows = (LongIndex)shape_[0];
         LongIndex blockCols = (LongIndex)shape_[2];
-        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] + (LongIndex)coord.row() % blockRows * stride_[0] + (LongIndex)coord.column() % blockCols;
+        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] +
+               (LongIndex)coord.row() % blockRows * stride_[0] + (LongIndex)coord.column() % blockCols;
     }
 
     CATLASS_HOST_DEVICE
@@ -1187,7 +1134,8 @@ public:
     {
         LongIndex blockRows = (LongIndex)shape_[0];
         LongIndex blockCols = (LongIndex)shape_[2];
-        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] + (LongIndex)coord.row() % blockRows + (LongIndex)coord.column() % blockCols * stride_[2];
+        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] +
+               (LongIndex)coord.row() % blockRows + (LongIndex)coord.column() % blockCols * stride_[2];
     }
 
     CATLASS_HOST_DEVICE
@@ -1312,31 +1260,26 @@ public:
 
     /// Constructor
     CATLASS_HOST_DEVICE
-    nN(Index orgRows = 0, /// Number of rows of origin matrices
-       Index orgCols = 0, /// Number of cols of origin matrices
+    nN(Index orgRows = 0,  /// Number of rows of origin matrices
+       Index orgCols = 0,  /// Number of cols of origin matrices
 
-       Index rowsInFractal = 0, /// Number of rows inside the fractal
-       Index rowsByFractal = 0, /// number of rows by the fractal
-       Index colsInFractal = 0, /// number of cols inside the fractal
-       Index colsByFractal = 0, /// number of cols by the fractal
+       Index rowsInFractal = 0,  /// Number of rows inside the fractal
+       Index rowsByFractal = 0,  /// number of rows by the fractal
+       Index colsInFractal = 0,  /// number of cols inside the fractal
+       Index colsByFractal = 0,  /// number of cols by the fractal
 
-       LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-       LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-       LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-       LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+       LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+       LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+       LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+       LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
-    {
-    }
+    {}
 
     /// Ctor
     CATLASS_HOST_DEVICE
-    nN(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
-    {}
+    nN(OrgShape orgShape, Shape shape, Stride stride) : orgShape_(orgShape), shape_(shape), stride_(stride) {}
 
     /// Make the layout of a coordinate (row, column)
     template <class Element>
@@ -1346,18 +1289,11 @@ public:
         static constexpr uint32_t ELE_NUM_PER_FRACTAL = BytesToBits(BYTE_PER_FRACTAL) / SizeOfBits<Element>::value;
         Index rowsRound = RoundUp<ELE_NUM_PER_C0>(orgRows);
         Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
-        return nN(orgRows,
-                  orgCols,
+        return nN(orgRows, orgCols,
 
-                  ELE_NUM_PER_C0,
-                  rowsRound / ELE_NUM_PER_C0,
-                  C0_NUM_PER_FRACTAL,
-                  colsRound / C0_NUM_PER_FRACTAL,
+                  ELE_NUM_PER_C0, rowsRound / ELE_NUM_PER_C0, C0_NUM_PER_FRACTAL, colsRound / C0_NUM_PER_FRACTAL,
 
-                  1,
-                  ELE_NUM_PER_FRACTAL,
-                  ELE_NUM_PER_C0,
-                  rowsRound * C0_NUM_PER_FRACTAL);
+                  1, ELE_NUM_PER_FRACTAL, ELE_NUM_PER_C0, rowsRound * C0_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
@@ -1473,25 +1409,20 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr NDC1HWC0(
-        Index batch = 0,
-        Index D = 0,
-        Index C1 = 0,
-        Index H = 0,
-        Index W = 0,
-        Index C0 = 0,
+    CATLASS_HOST_DEVICE constexpr NDC1HWC0(Index batch = 0, Index D = 0, Index C1 = 0, Index H = 0, Index W = 0,
+                                           Index C0 = 0,
 
-        Index rowsInFractal = 0, /// Number of rows inside the fractal
-        Index rowsByFractal = 0, /// number of rows by the fractal
-        Index colsInFractal = 0, /// number of cols inside the fractal
-        Index colsByFractal = 0, /// number of cols by the fractal
+                                           Index rowsInFractal = 0,  /// Number of rows inside the fractal
+                                           Index rowsByFractal = 0,  /// number of rows by the fractal
+                                           Index colsInFractal = 0,  /// number of cols inside the fractal
+                                           Index colsByFractal = 0,  /// number of cols by the fractal
 
-        LongIndex strideC0 = 0, /// number of elements between adjacent C0 cols
-        LongIndex strideHW = 0, /// number of elements between adjacent W rows
-        LongIndex StrideC1 = 0, /// number of elements between adjacent C1 cols
-        LongIndex StrideD = 0,  /// number of elements between adjacent D batchCols
-        LongIndex StrideN = 0   /// number of elements between adjacent batch
-        )
+                                           LongIndex strideC0 = 0,  /// number of elements between adjacent C0 cols
+                                           LongIndex strideHW = 0,  /// number of elements between adjacent W rows
+                                           LongIndex StrideC1 = 0,  /// number of elements between adjacent C1 cols
+                                           LongIndex StrideD = 0,   /// number of elements between adjacent D batchCols
+                                           LongIndex StrideN = 0    /// number of elements between adjacent batch
+                                           )
         : orgShape_(MakeCoord(batch, D, C1, H, W, C0)),
           shape_(MakeCoord(batch, rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideC0, strideHW, StrideC1, StrideD, StrideN))
@@ -1499,30 +1430,20 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr NDC1HWC0(OrgShape orgshape, Shape shape, Stride stride)
-        : orgShape_(orgshape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgshape), shape_(shape), stride_(stride)
     {}
 
     CATLASS_HOST_DEVICE constexpr static NDC1HWC0 MakeLayout(Index Batch, Index D, Index C1, Index H, Index W, Index C0)
     {
-        return NDC1HWC0(Batch,
-                        D,
-                        C1,
-                        H,
-                        W,
-                        C0,
+        return NDC1HWC0(Batch, D, C1, H, W, C0,
 
-                        W,
-                        H,
-                        C0,
-                        D * C1,
+                        W, H, C0, D * C1,
 
-                        1,                  /// StrideC0
-                        C0,                 /// StrideHW
-                        H * W * C0,         /// StrideC1
-                        H * W * C0 * C1,    /// StrideD
-                        H * W * C0 * C1 * D /// StrideN
+                        1,                   /// StrideC0
+                        C0,                  /// StrideHW
+                        H * W * C0,          /// StrideC1
+                        H * W * C0 * C1,     /// StrideD
+                        H * W * C0 * C1 * D  /// StrideN
         );
     }
 
@@ -1539,18 +1460,13 @@ public:
     CATLASS_HOST_DEVICE
     NDC1HWC0 GetTileLayout(OrgShape const &tileOriShape) const
     {
-        Shape tileShape = MakeCoord(
-            tileOriShape[0],
-            tileOriShape[4],
-            tileOriShape[3],
-            shape(3),
-            tileOriShape[1] * tileOriShape[2]);
+        Shape tileShape =
+            MakeCoord(tileOriShape[0], tileOriShape[4], tileOriShape[3], shape(3), tileOriShape[1] * tileOriShape[2]);
 
-        Stride tileStride = MakeCoord(stride(0),
-                                      stride(1),
-                                      (LongIndex)(tileOriShape[3] * tileOriShape[4] * shape(3)),
-                                      (LongIndex)(tileOriShape[2] * tileOriShape[3] * tileOriShape[4] * shape(3)),
-                                      (LongIndex)(tileOriShape[1] * tileOriShape[2] * tileOriShape[3] * tileOriShape[4] * shape(3)));
+        Stride tileStride =
+            MakeCoord(stride(0), stride(1), (LongIndex)(tileOriShape[3] * tileOriShape[4] * shape(3)),
+                      (LongIndex)(tileOriShape[2] * tileOriShape[3] * tileOriShape[4] * shape(3)),
+                      (LongIndex)(tileOriShape[1] * tileOriShape[2] * tileOriShape[3] * tileOriShape[4] * shape(3)));
         return NDC1HWC0(tileOriShape, tileShape, tileStride);
     }
 
@@ -1661,21 +1577,21 @@ public:
     // Methods
 
     /// Constructor
-    CATLASS_HOST_DEVICE constexpr KDC1KHKWN1N0C0(Index KdC1KhKw = 0, /// Merging Kd,Kh,Kw,C1 axes of KDC1KHKWN1N0C0
-                                                 Index N1 = 0,       /// Cout = N1*N0
-                                                 Index N0 = 0,
-                                                 Index C0 = 0,
+    CATLASS_HOST_DEVICE constexpr KDC1KHKWN1N0C0(
+        Index KdC1KhKw = 0,  /// Merging Kd,Kh,Kw,C1 axes of KDC1KHKWN1N0C0
+        Index N1 = 0,        /// Cout = N1*N0
+        Index N0 = 0, Index C0 = 0,
 
-                                                 Index rowsInFractal = 0, /// Number of rows inside the fractal
-                                                 Index rowsByFractal = 0, /// number of rows by the fractal
-                                                 Index colsInFractal = 0, /// number of cols inside the fractal
-                                                 Index colsByFractal = 0, /// number of cols by the fractal
+        Index rowsInFractal = 0,  /// Number of rows inside the fractal
+        Index rowsByFractal = 0,  /// number of rows by the fractal
+        Index colsInFractal = 0,  /// number of cols inside the fractal
+        Index colsByFractal = 0,  /// number of cols by the fractal
 
-                                                 LongIndex strideC0 = 0,    /// number of elements between adjacent rows inside the fractal
-                                                 LongIndex StrideDC1HW = 0, /// number of elements between adjacent fractal rows
-                                                 LongIndex strideN0 = 0,    /// number of elements between adjacent cols inside the fractal
-                                                 LongIndex strideN1 = 0     /// number of elements between adjacent fractal cols
-                                                 )
+        LongIndex strideC0 = 0,     /// number of elements between adjacent rows inside the fractal
+        LongIndex StrideDC1HW = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideN0 = 0,     /// number of elements between adjacent cols inside the fractal
+        LongIndex strideN1 = 0      /// number of elements between adjacent fractal cols
+        )
         : orgShape_(MakeCoord(KdC1KhKw, N1, N0, C0)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
           stride_(MakeCoord(strideC0, strideN0, strideN1, StrideDC1HW))
@@ -1683,28 +1599,20 @@ public:
 
     /// Ctor
     CATLASS_HOST_DEVICE constexpr KDC1KHKWN1N0C0(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape),
-          shape_(shape),
-          stride_(stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
     {}
 
     /// Make the layout of a coordinate (Kd*C1*Kh*Kw,N1,N0,C0)
     CATLASS_HOST_DEVICE constexpr static KDC1KHKWN1N0C0 MakeLayout(Index KdC1KhKw, Index N1, Index N0, Index C0)
     {
-        return KDC1KHKWN1N0C0(KdC1KhKw,
-                              N1,
-                              N0,
-                              C0,
+        return KDC1KHKWN1N0C0(KdC1KhKw, N1, N0, C0,
 
-                              C0,
-                              KdC1KhKw,
-                              N0,
-                              N1,
+                              C0, KdC1KhKw, N0, N1,
 
-                              1,            /// StrideC0
-                              C0 * N0 * N1, /// StrideDC1HW
-                              C0,           /// StrideN0
-                              C0 * N0       /// StrideN1
+                              1,             /// StrideC0
+                              C0 * N0 * N1,  /// StrideDC1HW
+                              C0,            /// StrideN0
+                              C0 * N0        /// StrideN1
         );
     }
 
@@ -1720,15 +1628,15 @@ public:
     CATLASS_HOST_DEVICE
     KDC1KHKWN1N0C0 GetTileLayout(OrgShape const &tileOriShape) const
     {
-        Shape tileShape = MakeCoord(shape(0),        /// C0
-                                    tileOriShape[0], /// Kd*C1*Kh*Kw
-                                    shape(2),        /// N0
-                                    tileOriShape[1]  /// N1
+        Shape tileShape = MakeCoord(shape(0),         /// C0
+                                    tileOriShape[0],  /// Kd*C1*Kh*Kw
+                                    shape(2),         /// N0
+                                    tileOriShape[1]   /// N1
         );
-        Stride tileStride = MakeCoord(stride(0),                                     /// TileStrideC0
-                                      stride(2) * tileOriShape[1] * tileOriShape[2], /// TileStrideDC1HW
-                                      (LongIndex)shape(0),                           /// TileStrideN0
-                                      stride(2) * tileOriShape[2]                    /// TileStrideN1
+        Stride tileStride = MakeCoord(stride(0),                                      /// TileStrideC0
+                                      stride(2) * tileOriShape[1] * tileOriShape[2],  /// TileStrideDC1HW
+                                      (LongIndex)shape(0),                            /// TileStrideN0
+                                      stride(2) * tileOriShape[2]                     /// TileStrideN1
         );
         return KDC1KHKWN1N0C0(tileOriShape, tileShape, tileStride);
     }
@@ -1813,6 +1721,6 @@ private:
     /// Stride data member
     Stride stride_;
 };
-} // namespace Catlass::layout
+}  // namespace Catlass::layout
 
-#endif // CATLASS_KDA_MATRIX_HPP
+#endif  // CATLASS_KDA_MATRIX_HPP

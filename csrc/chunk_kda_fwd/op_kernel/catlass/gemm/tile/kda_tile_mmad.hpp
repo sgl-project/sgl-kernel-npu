@@ -40,10 +40,8 @@ struct TileMmad {
 
     CATLASS_DEVICE
     void operator()(AscendC::LocalTensor<ElementAccumulator> const &l0CTensor,
-                    AscendC::LocalTensor<ElementA> const &l0ATensor,
-                    AscendC::LocalTensor<ElementB> const &l0BTensor,
-                    uint32_t m, uint32_t n, uint32_t k,
-                    bool initC = true, uint8_t unitFlag = 0)
+                    AscendC::LocalTensor<ElementA> const &l0ATensor, AscendC::LocalTensor<ElementB> const &l0BTensor,
+                    uint32_t m, uint32_t n, uint32_t k, bool initC = true, uint8_t unitFlag = 0)
     {
         AscendC::MmadParams mmadParams;
         mmadParams.m = m;
@@ -66,10 +64,7 @@ struct TileMmad {
         }
 #endif
 
-        AscendC::Mmad(l0CTensor,
-                      l0ATensor,
-                      l0BTensor,
-                      mmadParams);
+        AscendC::Mmad(l0CTensor, l0ATensor, l0BTensor, mmadParams);
 
         const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
         if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
@@ -79,10 +74,8 @@ struct TileMmad {
 
     CATLASS_DEVICE
     void operator()(AscendC::LocalTensor<ElementAccumulator> const &l0CTensor,
-                    AscendC::LocalTensor<ElementA> const &l0ATensor,
-                    AscendC::LocalTensor<ElementB> const &l0BTensor,
-                    AscendC::LocalTensor<ElementAccumulator> const &l0BiasTensor,
-                    uint32_t m, uint32_t n, uint32_t k,
+                    AscendC::LocalTensor<ElementA> const &l0ATensor, AscendC::LocalTensor<ElementB> const &l0BTensor,
+                    AscendC::LocalTensor<ElementAccumulator> const &l0BiasTensor, uint32_t m, uint32_t n, uint32_t k,
                     bool initC = true, uint8_t unitFlag = 0)
     {
         AscendC::MmadParams mmadParams;
@@ -101,11 +94,7 @@ struct TileMmad {
         mmadParams.disableGemv = true;
 #endif
 
-        AscendC::Mmad(l0CTensor,
-                      l0ATensor,
-                      l0BTensor,
-                      l0BiasTensor,
-                      mmadParams);
+        AscendC::Mmad(l0CTensor, l0ATensor, l0BTensor, l0BiasTensor, mmadParams);
 
         const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
         if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
@@ -130,11 +119,8 @@ struct TileMmadTla {
     TileMmadTla() {}
 
     template <class TensorC, class TensorA, class TensorB>
-    CATLASS_DEVICE void operator()(TensorC const &l0CTensor,
-                                   TensorA const &l0ATensor,
-                                   TensorB const &l0BTensor,
-                                   uint32_t m, uint32_t n, uint32_t k,
-                                   bool initC = true, uint8_t unitFlag = 0)
+    CATLASS_DEVICE void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor, TensorB const &l0BTensor,
+                                   uint32_t m, uint32_t n, uint32_t k, bool initC = true, uint8_t unitFlag = 0)
     {
         AscendC::MmadParams mmadParams;
         mmadParams.m = m;
@@ -155,10 +141,7 @@ struct TileMmadTla {
         }
 #endif
 
-        AscendC::Mmad(l0CTensor.data(),
-                      l0ATensor.data(),
-                      l0BTensor.data(),
-                      mmadParams);
+        AscendC::Mmad(l0CTensor.data(), l0ATensor.data(), l0BTensor.data(), mmadParams);
 
         const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
         if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
@@ -167,11 +150,8 @@ struct TileMmadTla {
     }
 
     template <class TensorC, class TensorA, class TensorB, class TensorBias>
-    CATLASS_DEVICE void operator()(TensorC const &l0CTensor,
-                                   TensorA const &l0ATensor,
-                                   TensorB const &l0BTensor,
-                                   TensorBias const &l0BiasTensor,
-                                   uint32_t m, uint32_t n, uint32_t k,
+    CATLASS_DEVICE void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor, TensorB const &l0BTensor,
+                                   TensorBias const &l0BiasTensor, uint32_t m, uint32_t n, uint32_t k,
                                    bool initC = true, uint8_t unitFlag = 0)
     {
         AscendC::MmadParams mmadParams;
@@ -189,11 +169,7 @@ struct TileMmadTla {
         mmadParams.disableGemv = true;
 #endif
 
-        AscendC::Mmad(l0CTensor.data(),
-                      l0ATensor.data(),
-                      l0BTensor.data(),
-                      l0BiasTensor.data(),
-                      mmadParams);
+        AscendC::Mmad(l0CTensor.data(), l0ATensor.data(), l0BTensor.data(), l0BiasTensor.data(), mmadParams);
 
         const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
         if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
@@ -202,11 +178,8 @@ struct TileMmadTla {
     }
 
     template <class TensorC, class TensorA, class TensorB>
-    CATLASS_DEVICE void operator()(TensorC const &l0CTensor,
-                                   TensorA const &l0ATensor,
-                                   TensorB const &l0BTensor,
-                                   uint32_t m, uint32_t n, uint32_t k,
-                                   uint32_t l0Batch)
+    CATLASS_DEVICE void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor, TensorB const &l0BTensor,
+                                   uint32_t m, uint32_t n, uint32_t k, uint32_t l0Batch)
     {
         const uint32_t L0AM = tla::get<0, 0>(l0ATensor.shape()) * tla::get<0, 1>(l0ATensor.shape());
         const uint32_t L0AK = tla::get<1, 0>(l0ATensor.shape()) * tla::get<1, 1>(l0ATensor.shape());
@@ -225,18 +198,14 @@ struct TileMmadTla {
         mmadParams.disableGemv = true;
 #endif
         for (uint32_t l0BatchIdx = 0; l0BatchIdx < l0Batch; l0BatchIdx++) {
-            AscendC::Mmad(l0CTensor.data()[l0BatchIdx * L0CM * L0CN],
-                          l0ATensor.data()[l0BatchIdx * L0AM * L0AK],
-                          l0BTensor.data()[l0BatchIdx * L0BK * L0BN],
-                          mmadParams);
+            AscendC::Mmad(l0CTensor.data()[l0BatchIdx * L0CM * L0CN], l0ATensor.data()[l0BatchIdx * L0AM * L0AK],
+                          l0BTensor.data()[l0BatchIdx * L0BK * L0BN], mmadParams);
         }
     }
 
     // automatically extracts actual sizes from tensor originShape
     template <class TensorC, class TensorA, class TensorB>
-    CATLASS_DEVICE void operator()(TensorC const &l0CTensor,
-                                   TensorA const &l0ATensor,
-                                   TensorB const &l0BTensor,
+    CATLASS_DEVICE void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor, TensorB const &l0BTensor,
                                    bool initC = true, uint8_t unitFlag = 0)
     {
         // Get actual sizes from tensor originShape
@@ -249,8 +218,7 @@ struct TileMmadTla {
             mmadParams.kDirectionAlign = true;
         }
         if constexpr (!std::is_same_v<LayoutTagL1A, layout::VectorLayout>) {
-            if (m == 1)
-                m = 16; // avoid gemv mode
+            if (m == 1) m = 16;  // avoid gemv mode
         }
 #endif
 #if (defined(__NPU_ARCH__) && __NPU_ARCH__ == 3510)
@@ -266,10 +234,7 @@ struct TileMmadTla {
         mmadParams.unitFlag = unitFlag;
         mmadParams.cmatrixInitVal = initC;
 
-        AscendC::Mmad(l0CTensor.data(),
-                      l0ATensor.data(),
-                      l0BTensor.data(),
-                      mmadParams);
+        AscendC::Mmad(l0CTensor.data(), l0ATensor.data(), l0BTensor.data(), mmadParams);
 
         const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
         if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
@@ -280,6 +245,6 @@ struct TileMmadTla {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_KDA_TILE_MMAD_HPP
+#endif  // CATLASS_KDA_TILE_MMAD_HPP

@@ -190,8 +190,7 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
     }
 }
 
-template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode,
-          bool ClampE4m3Finite = false>
+template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode, bool ClampE4m3Finite = false>
 __aicore__ inline void ComputeFp8Data(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfScaleLocalAddr,
                                       __ubuf__ int8_t *outLocalAddr, uint32_t totalCountInUB)
 {

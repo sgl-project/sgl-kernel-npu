@@ -37,6 +37,6 @@ CATLASS_HOST_DEVICE constexpr ReturnType BytesToBits(T bytes)
     return static_cast<ReturnType>(bytes) * static_cast<ReturnType>(8);
 }
 
-} // namespace Catlass
+}  // namespace Catlass
 
-#endif // CATLASS_KDA_NUMERIC_SIZE_HPP
+#endif  // CATLASS_KDA_NUMERIC_SIZE_HPP

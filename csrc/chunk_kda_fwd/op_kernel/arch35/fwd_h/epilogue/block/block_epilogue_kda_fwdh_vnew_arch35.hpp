@@ -23,7 +23,8 @@ namespace Catlass::Epilogue::Block {
 template <class VOutputType_, class GInputType_, class UInputType_, class WSInputType_, class VUpdateType_,
           class FinalStateType_, class KGatedTag>
 class BlockEpilogue<EpilogueAtlasKdaFwdHVnew, VOutputType_, GInputType_, UInputType_, WSInputType_, VUpdateType_,
-                    FinalStateType_, KGatedTag> {
+                    FinalStateType_, KGatedTag>
+{
     static constexpr bool kGated = KGatedTag::value;
     static constexpr bool scalarGated = KGatedTag::scalarGated;
     static constexpr bool useExp2 = KGatedTag::useExp2;
@@ -504,6 +505,6 @@ private:
 
     AscendC::LocalTensor<float> gBrcbUbTensor_;
 };
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
 #endif

@@ -55,7 +55,8 @@ struct KdaFwdHGateTag {
 template <typename INPUT_TYPE, typename G_TYPE, typename STATE_TYPE, typename WORKSPACE_TYPE,
           typename TileShapes = KdaFwdHTileShapes128, bool kGated = false, bool scalarGated = true,
           bool useExp2 = false>
-class KdaFwdHKernel {
+class KdaFwdHKernel
+{
 public:
     using ArchTag = Arch::AtlasA2;
     using CubeScheduler = typename Catlass::Gemm::Block::BlockSchedulerKdaFwdHCube;
@@ -493,7 +494,7 @@ public:
                 BlockMmadKV blockMmadKVTail(resource);
                 AscendC::SyncAll<false>();
                 cubeBlockScheduler.InitTaskWave(waveIdx);
-                uint32_t currStage = 0; // 0: C1, 1: C2
+                uint32_t currStage = 0;  // 0: C1, 1: C2
                 while (cubeBlockScheduler.isRunning) {
                     if (currStage == 0) {
                         /* C1: v_work = w @ h[i] */
@@ -670,7 +671,7 @@ public:
                 Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[0]);
                 Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[1]);
                 PresetVectorPipelineEvents();
-                uint32_t currStage = 0; // 0: V1, 1: V2
+                uint32_t currStage = 0;  // 0: V1, 1: V2
                 bool waitStageFence = false;
                 bool event0FromMte3[PING_PONG_STAGES] = {false, false};
                 bool event2FromMte3[PING_PONG_STAGES] = {
@@ -704,8 +705,7 @@ public:
                                 // the software W @ H reads gmH, not afterwards in
                                 // the epilogue.
                                 Arch::CrossCoreWaitFlag(vecBlockScheduler.cube1Done[streamId]);
-                                ComputeTailVWorkspace(vec1Offsets,
-                                                      EVENT_ID3 + (streamId == 0 ? 0 : pongEventOffset));
+                                ComputeTailVWorkspace(vec1Offsets, EVENT_ID3 + (streamId == 0 ? 0 : pongEventOffset));
                             }
                             bool waitWsFromMte3 = storeFinalState && std::is_same<ElementFinalState, float>::value &&
                                                   event0FromMte3[streamId];
@@ -772,4 +772,4 @@ public:
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel

@@ -38,6 +38,6 @@ struct tuple_size<T, std::void_t<typename std::tuple_size<T>::type>>
 template <class T>
 constexpr size_t tuple_size_v = tuple_size<T>::value;
 
-} // end namespace tla
+}  // end namespace tla
 
-#endif // TLA_UTIL_TYPE_TRAITS_HPP
+#endif  // TLA_UTIL_TYPE_TRAITS_HPP

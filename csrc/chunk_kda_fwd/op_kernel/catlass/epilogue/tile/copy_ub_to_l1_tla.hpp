@@ -18,11 +18,7 @@
 
 namespace Catlass::Epilogue::Tile {
 
-template <
-    class ArchTag,
-    class TensorSrc,
-    class TensorDst,
-    class Enable = void>
+template <class ArchTag, class TensorSrc, class TensorDst, class Enable = void>
 struct CopyUb2L1Tla {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported CopyUb2L1Tla, can not find the specialization.");
 };
@@ -52,11 +48,9 @@ struct CopyUb2L1Tla<Arch::Ascend950,
                       "while TensorDst must be L1 and zN");
 
         int64_t srcShape = tla::get<0, 0>(srcTensor.shape());
-        AscendC::DataCopyParams dataCopyParams(
-            tla::get<1, 1>(srcTensor.shape()),
-            srcShape,
-            (tla::get<1, 1>(srcTensor.stride()) / ELE_NUM_PER_C0 - srcShape),
-            (tla::get<1, 1>(dstTensor.stride()) / ELE_NUM_PER_C0 - srcShape));
+        AscendC::DataCopyParams dataCopyParams(tla::get<1, 1>(srcTensor.shape()), srcShape,
+                                               (tla::get<1, 1>(srcTensor.stride()) / ELE_NUM_PER_C0 - srcShape),
+                                               (tla::get<1, 1>(dstTensor.stride()) / ELE_NUM_PER_C0 - srcShape));
 
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
@@ -64,6 +58,6 @@ struct CopyUb2L1Tla<Arch::Ascend950,
     }
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
-#endif // CATLASS_EPILOGUE_TILE_COPY_UB_TO_L1_TLA_HPP
+#endif  // CATLASS_EPILOGUE_TILE_COPY_UB_TO_L1_TLA_HPP

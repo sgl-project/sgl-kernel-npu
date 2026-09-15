@@ -24,8 +24,7 @@ namespace Catlass::Gemm::Tile {
 /// Partial specialization for CopyGmToL1, Ascend950, RowMajor in and zN out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
 struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    Arch::Ascend950, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
     tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
     std::enable_if_t<tla::detail::isRowMajor<LayoutSrc>::value && tla::detail::iszN<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
@@ -36,15 +35,13 @@ struct TileCopyTla<
     TileCopyTla() {};
 
     template <class TensorDst, class TensorSrc>
-    CATLASS_DEVICE void operator()(
-        TensorDst const &dstTensor,
-        TensorSrc const &srcTensor,
-        uint32_t ndNum = 1,
-        uint32_t srcNdMatrixStride = 0,
-        uint32_t dstNzMatrixStride = 0)
+    CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor, uint32_t ndNum = 1,
+                                   uint32_t srcNdMatrixStride = 0, uint32_t dstNzMatrixStride = 0)
     {
         static_assert(
-            tla::detail::isRowMajor<typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
+            tla::detail::isRowMajor<typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
             "The input parameters do not match. TensorSrc must be GM and RowMajor, while TensorDst must be L1 and zN");
 
         const uint32_t nValue = tla::get<0>(srcTensor.originShape());
@@ -73,11 +70,11 @@ struct TileCopyTla<
 
 /// Partial specialization for CopyGmToL1, Ascend950, zN in and zN out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
-    std::enable_if_t<tla::detail::iszN<ElementSrc, LayoutSrc>::value && tla::detail::iszN<ElementDst, LayoutDst>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
+                   std::enable_if_t<tla::detail::iszN<ElementSrc, LayoutSrc>::value &&
+                                    tla::detail::iszN<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
 
     // Methods
@@ -89,7 +86,9 @@ struct TileCopyTla<
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
         static_assert(
-            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
+            tla::detail::iszN<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                tla::detail::iszN<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
             "The input parameters do not match. TensorSrc must be GM and zN, while TensorDst must be L1 and zN");
 
         uint32_t blockCount = CeilDiv<ELE_NUM_PER_C0>(tla::get<1>(srcTensor.originShape()));
@@ -112,8 +111,7 @@ struct TileCopyTla<
 /// Partial specialization for CopyGmToL1, Ascend950, ColumnMajor in and nZ out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
 struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    Arch::Ascend950, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
     tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
     std::enable_if_t<tla::detail::isColumnMajor<LayoutSrc>::value && tla::detail::isnZ<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
@@ -124,17 +122,15 @@ struct TileCopyTla<
     TileCopyTla() {};
 
     template <class TensorDst, class TensorSrc>
-    CATLASS_DEVICE void operator()(
-        TensorDst const &dstTensor,
-        TensorSrc const &srcTensor,
-        uint32_t ndNum = 1,
-        uint32_t srcNdMatrixStride = 0,
-        uint32_t dstNzMatrixStride = 0)
+    CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor, uint32_t ndNum = 1,
+                                   uint32_t srcNdMatrixStride = 0, uint32_t dstNzMatrixStride = 0)
     {
-        static_assert(
-            tla::detail::isColumnMajor<typename TensorSrc::Layout>::value && tla::detail::isnZ<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
-            "The input parameters do not match. TensorSrc must be GM and ColumnMajor, "
-            "while TensorDst must be L1 and nZ");
+        static_assert(tla::detail::isColumnMajor<typename TensorSrc::Layout>::value &&
+                          tla::detail::isnZ<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                          TensorSrc::position == AscendC::TPosition::GM &&
+                          TensorDst::position == AscendC::TPosition::A1,
+                      "The input parameters do not match. TensorSrc must be GM and ColumnMajor, "
+                      "while TensorDst must be L1 and nZ");
 
         const uint32_t nValue = tla::get<1>(srcTensor.originShape());
         const uint32_t dValue = tla::get<0>(srcTensor.originShape());
@@ -162,11 +158,11 @@ struct TileCopyTla<
 
 /// Partial specialization for CopyGmToL1, Ascend950, nZ in and nZ out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
-struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
-    tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
-    std::enable_if_t<tla::detail::isnZ<ElementSrc, LayoutSrc>::value && tla::detail::isnZ<ElementDst, LayoutDst>::value>> {
+struct TileCopyTla<Arch::Ascend950,
+                   tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+                   tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
+                   std::enable_if_t<tla::detail::isnZ<ElementSrc, LayoutSrc>::value &&
+                                    tla::detail::isnZ<ElementDst, LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
 
     // Methods
@@ -177,10 +173,12 @@ struct TileCopyTla<
     template <class TensorDst, class TensorSrc>
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
-        static_assert(
-            tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value && tla::detail::isnZ<typename TensorDst::Element, typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
-            "The input parameters do not match. TensorSrc must be GM and nZ, "
-            "while TensorDst must be L1 and nZ");
+        static_assert(tla::detail::isnZ<typename TensorSrc::Element, typename TensorSrc::Layout>::value &&
+                          tla::detail::isnZ<typename TensorDst::Element, typename TensorDst::Layout>::value &&
+                          TensorSrc::position == AscendC::TPosition::GM &&
+                          TensorDst::position == AscendC::TPosition::A1,
+                      "The input parameters do not match. TensorSrc must be GM and nZ, "
+                      "while TensorDst must be L1 and nZ");
 
         uint32_t blockCount = CeilDiv<ELE_NUM_PER_C0>(tla::get<0>(srcTensor.originShape()));
         uint32_t blockLen = tla::get<1>(srcTensor.originShape());
@@ -202,8 +200,7 @@ struct TileCopyTla<
 /// Partial specialization for CopyGmToL1, Ascend950, VectorLayout in and VectorLayout out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
 struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
+    Arch::Ascend950, tla::Tensor<AscendC::GlobalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::GM>,
     tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::A1>,
     std::enable_if_t<tla::detail::isVector<LayoutSrc>::value && tla::detail::isVector<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
@@ -216,10 +213,12 @@ struct TileCopyTla<
     template <class TensorDst, class TensorSrc>
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
-        static_assert(
-            tla::detail::isVector<typename TensorSrc::Layout>::value && tla::detail::isVector<typename TensorDst::Layout>::value && TensorSrc::position == AscendC::TPosition::GM && TensorDst::position == AscendC::TPosition::A1,
-            "The input parameters do not match. TensorSrc must be GM and Vector, "
-            "while TensorDst must be L1 and Vector");
+        static_assert(tla::detail::isVector<typename TensorSrc::Layout>::value &&
+                          tla::detail::isVector<typename TensorDst::Layout>::value &&
+                          TensorSrc::position == AscendC::TPosition::GM &&
+                          TensorDst::position == AscendC::TPosition::A1,
+                      "The input parameters do not match. TensorSrc must be GM and Vector, "
+                      "while TensorDst must be L1 and Vector");
 
         AscendC::DataCopyParams intriParams;
         intriParams.blockCount = 1;
@@ -235,30 +234,23 @@ struct TileCopyTla<
 };
 
 ////////////////////////////////////CopyGmToL1(No-TLA, Ascend950)////////////////////////////////////////////////
-template <
-    class ArchTag,
-    /// GemmType for matrix operand
-    class GmType,
-    class L1Type = void,
-    class Enable = void>
+template <class ArchTag,
+          /// GemmType for matrix operand
+          class GmType, class L1Type = void, class Enable = void>
 struct CopyGmToL1 {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to l1, can not find the specialization.");
 };
 
-template <
-    class ArchTag,
-    /// GemmType for matrix operand
-    class GmType,
-    class L1Type = void>
+template <class ArchTag,
+          /// GemmType for matrix operand
+          class GmType, class L1Type = void>
 struct CopyGmToL1GMMPTD {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to l1, can not find the specialization.");
 };
 
-template <
-    class ArchTag,
-    /// GemmType for matrix operand
-    class GmType,
-    class L1Type = void>
+template <class ArchTag,
+          /// GemmType for matrix operand
+          class GmType, class L1Type = void>
 struct CopyGmToL1DynamicOptimized {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to l1, can not find the specialization.");
 };
@@ -275,10 +267,8 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         const uint32_t dstInnerStrideRow = layoutDst.stride(0);
         const uint32_t dstOuterStrideCol = layoutDst.stride(3);
@@ -302,13 +292,9 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
 
     // layoutSrc must be the layout of one of the src matrices
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc,
-        uint32_t ndNum, uint32_t srcNdMatrixStride,
-        uint32_t dstNzNStride, uint32_t dstNzMatrixStride,
-        uint32_t dstNzC0Stride)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc, uint32_t ndNum, uint32_t srcNdMatrixStride,
+                    uint32_t dstNzNStride, uint32_t dstNzMatrixStride, uint32_t dstNzC0Stride)
     {
         AscendC::Nd2NzParams intriParams;
 
@@ -340,10 +326,8 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::ColumnMajor>>
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         // <dstNzC0Stride>dstOuterStrideRow = tla::get<0, 1>(dstTensor.stride()) -->
         // tag.stride(1) --> strideRowsByFractal[语义]
@@ -357,7 +341,7 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::ColumnMajor>>
         intriParams.dValue = layoutSrc.shape(0);
         intriParams.srcDValue = layoutSrc.stride(1);
 
-        intriParams.dstNzC0Stride = layoutDst.stride(1) / ELE_NUM_PER_C0; // Outer stride -- col
+        intriParams.dstNzC0Stride = layoutDst.stride(1) / ELE_NUM_PER_C0;  // Outer stride -- col
         intriParams.dstNzNStride = layoutDst.stride(2) / ELE_NUM_PER_C0;
 
         intriParams.srcNdMatrixStride = 0;
@@ -381,10 +365,8 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::zN>> {
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         const uint32_t blockLen = layoutSrc.shape(0) * layoutSrc.shape(1);
         AscendC::DataCopyParams repeatParams;
@@ -412,10 +394,8 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>> {
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         const uint32_t blockLen = layoutSrc.shape(2) * layoutSrc.shape(3);
         AscendC::DataCopyParams repeatParams;
@@ -432,8 +412,7 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>> {
 
 /// Partial specialization for CopyGmToL1(no-tla), AtlasA5, fp8_e8m0_t, MxScaleA RowMajor in and zZ out.
 template <class Element>
-struct CopyGmToL1<Arch::Ascend950,
-                  Gemm::GemmType<Element, layout::RowMajor>,
+struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>,
                   Gemm::GemmType<Element, layout::zZ, AscendC::TPosition::A1>,
                   std::enable_if_t<std::is_same_v<Element, AscendC::fp8_e8m0_t>>> {
     using LayoutDst = layout::zZ;
@@ -444,10 +423,8 @@ struct CopyGmToL1<Arch::Ascend950,
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         if (layoutSrc.shape(2) != ELE_NUM_PER_C0) {
             // std::cerr << "layoutSrc.shape(2) != 2" << std::endl;
@@ -478,16 +455,14 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::PaddingRowMaj
 
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<Element>::value;
 
-    // Mehtods
+    // Methods
 
     CATLASS_DEVICE
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         AscendC::Nd2NzParams intriParams;
 
@@ -505,24 +480,21 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::PaddingRowMaj
 };
 
 /// Partial specialization for AtlasA2, ColumnMajor in and nZ out.
-template <
-    class Element>
+template <class Element>
 struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::PaddingColumnMajor>> {
     using LayoutDst = layout::nZ;
     using LayoutSrc = layout::PaddingColumnMajor;
 
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<Element>::value;
 
-    // Mehtods
+    // Methods
 
     CATLASS_DEVICE
     CopyGmToL1() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         AscendC::Nd2NzParams intriParams;
 
@@ -543,11 +515,13 @@ struct CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::PaddingColumn
 
 /// Partial specialization for Ascend950, zN in and zN out.
 template <class Element>
-struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layout::zN>> : public CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::zN>> {};
+struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layout::zN>>
+    : public CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::zN>> {};
 
 /// Partial specialization for Ascend950, nZ in and nZ out.
 template <class Element>
-struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>> : public CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>> {};
+struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>>
+    : public CopyGmToL1<Arch::Ascend950, Gemm::GemmType<Element, layout::nZ>> {};
 
 /// Partial specialization for Ascend950, RowMajor in and zN out.
 template <class Element>
@@ -562,20 +536,17 @@ struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layou
     CopyGmToL1DynamicOptimized() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         if (layoutSrc.shape(0) <= 16) {
             // If the number of matrix row is very small, call the regular interval-based data-copy
             for (int i = 0; i < layoutSrc.shape(0); ++i) {
-                AscendC::DataCopyParams dataCopyParams(
-                    CeilDiv(layoutSrc.shape(1), layoutDst.shape(2)),
-                    layoutDst.shape(2) / ELE_NUM_PER_C0,
-                    0,
-                    (layoutDst.stride(3) - layoutDst.shape(2)) / ELE_NUM_PER_C0);
-                AscendC::DataCopy(dstTensor[i * layoutDst.shape(2)], srcTensor[i * layoutSrc.stride(0)], dataCopyParams);
+                AscendC::DataCopyParams dataCopyParams(CeilDiv(layoutSrc.shape(1), layoutDst.shape(2)),
+                                                       layoutDst.shape(2) / ELE_NUM_PER_C0, 0,
+                                                       (layoutDst.stride(3) - layoutDst.shape(2)) / ELE_NUM_PER_C0);
+                AscendC::DataCopy(dstTensor[i * layoutDst.shape(2)], srcTensor[i * layoutSrc.stride(0)],
+                                  dataCopyParams);
             }
         } else {
             AscendC::Nd2NzParams intriParams;
@@ -608,22 +579,18 @@ struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layou
     CopyGmToL1DynamicOptimized() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         if (layoutSrc.shape(1) <= 16) {
             // If the number of matrix cols is 1, the regular interval-based DataCopy interface can be used instead of
             // the ND2NZ DataCopy interface, resulting in higher transfer efficiency.
             for (int i = 0; i < layoutSrc.shape(1); ++i) {
-                AscendC::DataCopyParams dataCopyParams(
-                    CeilDiv(layoutSrc.shape(0), layoutDst.shape(0)),
-                    layoutDst.shape(0) / ELE_NUM_PER_C0,
-                    0,
-                    (layoutDst.stride(1) - layoutDst.shape(0)) / ELE_NUM_PER_C0);
-                AscendC::DataCopy(
-                    dstTensor[i * layoutDst.shape(0)], srcTensor[i * layoutSrc.stride(1)], dataCopyParams);
+                AscendC::DataCopyParams dataCopyParams(CeilDiv(layoutSrc.shape(0), layoutDst.shape(0)),
+                                                       layoutDst.shape(0) / ELE_NUM_PER_C0, 0,
+                                                       (layoutDst.stride(1) - layoutDst.shape(0)) / ELE_NUM_PER_C0);
+                AscendC::DataCopy(dstTensor[i * layoutDst.shape(0)], srcTensor[i * layoutSrc.stride(1)],
+                                  dataCopyParams);
             }
         } else {
             AscendC::Nd2NzParams intriParams;
@@ -633,7 +600,7 @@ struct CopyGmToL1DynamicOptimized<Arch::Ascend950, Gemm::GemmType<Element, layou
             intriParams.dValue = layoutSrc.shape(0);
             intriParams.srcDValue = layoutSrc.stride(1);
 
-            intriParams.dstNzC0Stride = layoutDst.stride(1) / ELE_NUM_PER_C0; // Outer stride -- col
+            intriParams.dstNzC0Stride = layoutDst.stride(1) / ELE_NUM_PER_C0;  // Outer stride -- col
             intriParams.dstNzNStride = layoutDst.stride(2) / ELE_NUM_PER_C0;
 
             intriParams.srcNdMatrixStride = 0;
@@ -653,16 +620,14 @@ struct CopyGmToL1GMMPTD<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
 
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<Element>::value;
 
-    // Mehtods
+    // Methods
 
     CATLASS_DEVICE
     CopyGmToL1GMMPTD() {};
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         AscendC::Nd2NzParams intriParams;
 
@@ -675,11 +640,9 @@ struct CopyGmToL1GMMPTD<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
         if (layoutSrc.shape(0) == 1) {
             // If the number of matrix rows is 1, the regular interval-based DataCopy interface can be used instead of
             // the ND2NZ DataCopy interface, resulting in higher transfer efficiency.
-            AscendC::DataCopyParams dataCopyParams(
-                CeilDiv(layoutSrc.shape(1), layoutDst.shape(2)),
-                layoutDst.shape(2) / ELE_NUM_PER_C0,
-                0,
-                (layoutDst.stride(3) - layoutDst.shape(2)) / ELE_NUM_PER_C0);
+            AscendC::DataCopyParams dataCopyParams(CeilDiv(layoutSrc.shape(1), layoutDst.shape(2)),
+                                                   layoutDst.shape(2) / ELE_NUM_PER_C0, 0,
+                                                   (layoutDst.stride(3) - layoutDst.shape(2)) / ELE_NUM_PER_C0);
             AscendC::DataCopy(dstTensor, srcTensor, dataCopyParams);
         } else {
             if (layoutSrc.shape(1) != ELE_NUM_PER_C0 || layoutSrc.stride(0) != ELE_NUM_PER_C0) {
@@ -698,13 +661,9 @@ struct CopyGmToL1GMMPTD<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
 
     // layoutSrc must be the layout of one of the src matrices
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst, LayoutSrc const &layoutSrc,
-        uint32_t ndNum, uint32_t srcNdMatrixStride,
-        uint32_t dstNzNStride, uint32_t dstNzMatrixStride,
-        uint32_t dstNzC0Stride)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc, uint32_t ndNum, uint32_t srcNdMatrixStride,
+                    uint32_t dstNzNStride, uint32_t dstNzMatrixStride, uint32_t dstNzC0Stride)
     {
         AscendC::Nd2NzParams intriParams;
 
@@ -722,6 +681,6 @@ struct CopyGmToL1GMMPTD<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
 #endif

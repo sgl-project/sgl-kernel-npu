@@ -35,7 +35,7 @@ struct MmadPingpongTlaPreloadAL1B : public MmadBase<ArchTag_, false> {
     static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
 };
 
-} // namespace Catlass::Gemm
+}  // namespace Catlass::Gemm
 
 namespace Catlass::Gemm::Block {
 
@@ -121,7 +121,7 @@ public:
     static_assert(L0B_TILE_SIZE * L0B_STAGES <= ArchTag::L0B_SIZE, "L0TileShape exceeding the L0B space!");
     static_assert(L0C_TILE_SIZE * L0C_STAGES <= ArchTag::L0C_SIZE, "L0TileShape exceeding the L0C space!");
 
-    static constexpr uint32_t _32B = 32 * 8; // in bits
+    static constexpr uint32_t _32B = 32 * 8;  // in bits
     static_assert(L1_TILE_M == L0_TILE_M && L1_TILE_N == L0_TILE_N,
                   "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
     static_assert(L0_TILE_K <= L1_TILE_K, "L0TileShape::K cannot exceed L1TileShape::K");
@@ -493,6 +493,6 @@ protected:
     CopyL1ToBT copyL1ToBT;
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_TLA_PRELOADA_L1B_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_TLA_PRELOADA_L1B_HPP

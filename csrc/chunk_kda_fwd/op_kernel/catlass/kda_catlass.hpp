@@ -35,16 +35,17 @@ constexpr uint32_t BYTE_PER_VECTOR_FRACTAL = BYTE_PER_BLK * BLK_NUM_PER_VECTOR_F
 constexpr uint64_t L2_OFFSET = 0;
 constexpr uint32_t STRIDE_LIMIT = 65536;
 
-constexpr uint32_t BYTE_PER_BLK_FP = 128; /// datablock size of A1->C2PiPE2GM
+constexpr uint32_t BYTE_PER_BLK_FP = 128;  /// datablock size of A1->C2PiPE2GM
 
-class EmptyClass {};
+class EmptyClass
+{};
 
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
-constexpr uint32_t MX_SCALE_COPY_GROUP_NUM = 2; // Mx-scale matrix 2-byte aligned
-constexpr uint32_t MX_SCALE_GROUP_NUM = 32;     // Data count for one MX-scale factor per group
-constexpr uint32_t MX_BASEK_FACTOR = 64;        // Data matrix alignment at K-dimension
+constexpr uint32_t MX_SCALE_COPY_GROUP_NUM = 2;  // Mx-scale matrix 2-byte aligned
+constexpr uint32_t MX_SCALE_GROUP_NUM = 32;      // Data count for one MX-scale factor per group
+constexpr uint32_t MX_BASEK_FACTOR = 64;         // Data matrix alignment at K-dimension
 #endif
-} // namespace Catlass
+}  // namespace Catlass
 
 #if defined(__CCE__) && defined(L2_CACHE_HINT) && defined(CATLASS_BUILD_LEGACY)
 inline __gm__ struct OpSystemRunCfg g_opSystemRunCfg {
@@ -52,4 +53,4 @@ inline __gm__ struct OpSystemRunCfg g_opSystemRunCfg {
 };
 #endif
 
-#endif // CATLASS_KDA_CATLASS_HPP
+#endif  // CATLASS_KDA_CATLASS_HPP

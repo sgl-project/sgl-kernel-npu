@@ -322,7 +322,8 @@ __aicore__ inline T FloatToType(float value)
 }
 
 template <typename T, typename GK_T = float>
-class ChunkKdaFwdPostWuKernel {
+class ChunkKdaFwdPostWuKernel
+{
 public:
     using OUT_T = T;
     using AKK_T = T;
@@ -402,7 +403,10 @@ public:
         ReleaseVectorEvents();
     }
 
-    __aicore__ inline void ProcessAic() { ProcessPostAic(); }
+    __aicore__ inline void ProcessAic()
+    {
+        ProcessPostAic();
+    }
 
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
     __aicore__ inline void ProcessPreparedFullHeadPairBatchArch35(const uint64_t *batchB, const uint64_t *batchHvBase,
@@ -544,7 +548,10 @@ private:
         return ((b * HV_ + hv) * T_ + t) * dim + d;
     }
 
-    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const { return (b * HV_ + hv) * T_ + t; }
+    __aicore__ inline uint64_t BetaOffset(uint64_t b, uint64_t hv, uint64_t t) const
+    {
+        return (b * HV_ + hv) * T_ + t;
+    }
 
     __aicore__ inline uint64_t AOffset(uint64_t b, uint64_t hv, uint64_t t, uint64_t j) const
     {
@@ -575,7 +582,10 @@ private:
         return (((solveCoreIdx_ * KDA_SCORE_QUEUE_DEPTH + slot) * KDA_SCORE_SCRATCH_PLANES + plane) * BT_ + t) * K_ + d;
     }
 
-    __aicore__ inline uint64_t ScoreRefBlockSize() const { return KDA_SCORE_REF_BC; }
+    __aicore__ inline uint64_t ScoreRefBlockSize() const
+    {
+        return KDA_SCORE_REF_BC;
+    }
 
     __aicore__ inline uint64_t ScoreRowBlockCount(uint64_t curT, uint64_t rowBegin) const
     {
@@ -2006,7 +2016,7 @@ private:
     __gm__ int64_t *chunkIndicesAddr_ = nullptr;
     __gm__ int64_t *cuSeqlensAddr_ = nullptr;
 };
-} // namespace
+}  // namespace
 
 template <typename T, typename GK_T, typename TilingData>
 __aicore__ inline void RunChunkKdaPostWu(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR gk, GM_ADDR beta,
@@ -2031,4 +2041,4 @@ __aicore__ inline void RunChunkKdaPostWu(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADD
     }
 }
 
-} // namespace KdaPostWu
+}  // namespace KdaPostWu

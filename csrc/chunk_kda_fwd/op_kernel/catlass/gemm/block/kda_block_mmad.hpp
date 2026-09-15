@@ -17,27 +17,22 @@
 
 namespace Catlass::Gemm::Block {
 
-template <
-    class DispatchPolicy,
-    class L1TileShape,
-    class L0TileShape,
-    class ElementA,
-    class ElementB,
-    class ElementC,
-    class ElementBias = void,
-    class TileCopy = Gemm::Tile::PackedTileCopyTla<typename DispatchPolicy::ArchTag, ElementA, layout::RowMajor,
-                                                   ElementB, layout::RowMajor, ElementC, layout::RowMajor, ElementBias>,
-    class TileMmad =
-        Gemm::Tile::TileMmadTla<typename DispatchPolicy::ArchTag, ElementA, typename TileCopy::LayoutTagL1A> >
+template <class DispatchPolicy, class L1TileShape, class L0TileShape, class ElementA, class ElementB, class ElementC,
+          class ElementBias = void,
+          class TileCopy =
+              Gemm::Tile::PackedTileCopyTla<typename DispatchPolicy::ArchTag, ElementA, layout::RowMajor, ElementB,
+                                            layout::RowMajor, ElementC, layout::RowMajor, ElementBias>,
+          class TileMmad =
+              Gemm::Tile::TileMmadTla<typename DispatchPolicy::ArchTag, ElementA, typename TileCopy::LayoutTagL1A> >
 struct BlockMmadTla {
     static_assert(DEPENDENT_FALSE<DispatchPolicy>, "BlockMmadTla is not implemented for this DispatchPolicy");
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
 // Only the pingpong-TLA implementation is instantiated by chunk_kda_fwd
 // (Gemm::MmadPingpong).  The MmadPingpongTlaMulti / MmadPingpongTlaPreloadAL1B
 // specializations live under kernel_utils/block/ and are included by their users.
 #include "catlass/gemm/block/block_mmad_pingpong_tla.hpp"
 
-#endif // CATLASS_KDA_BLOCK_MMAD_HPP
+#endif  // CATLASS_KDA_BLOCK_MMAD_HPP

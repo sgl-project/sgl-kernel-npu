@@ -39,9 +39,7 @@ using LogFuncType = std::function<void(const char *)>;
  * @param logFunc Log function, which receives a C-Style string.
  * @return
  */
-inline void aclCheck(
-    aclError status,
-    LogFuncType logFunc = [](const char *logStrPtr) { std::cerr << logStrPtr; })
+inline void aclCheck(aclError status, LogFuncType logFunc = [](const char *logStrPtr) { std::cerr << logStrPtr; })
 {
     if (status != ACL_SUCCESS) {
         std::stringstream ss;
@@ -55,9 +53,7 @@ inline void aclCheck(
  * @param logFunc Log function, which receives a C-Style string.
  * @return
  */
-inline void rtCheck(
-    int status,
-    LogFuncType logFunc = [](const char *logStrPtr) { std::cerr << logStrPtr; })
+inline void rtCheck(int status, LogFuncType logFunc = [](const char *logStrPtr) { std::cerr << logStrPtr; })
 {
     if (status != 0) {
         std::stringstream ss;
@@ -67,7 +63,8 @@ inline void rtCheck(
 }
 
 namespace Adx {
-void AdumpPrintWorkSpace(const void *dumpBufferAddr, const size_t dumpBufferSize, aclrtStream stream, const char *opType);
-} // namespace Adx
+void AdumpPrintWorkSpace(const void *dumpBufferAddr, const size_t dumpBufferSize, aclrtStream stream,
+                         const char *opType);
+}  // namespace Adx
 
-#endif // CATLASS_KDA_DEBUG_HPP
+#endif  // CATLASS_KDA_DEBUG_HPP

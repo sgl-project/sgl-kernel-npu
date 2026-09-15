@@ -14,26 +14,22 @@
 namespace sglang {
 namespace npu_kernel {
 
-HOST_API std::tuple<at::Tensor, at::Tensor> situ_mxfp8_quant(
-    const at::Tensor &x, const at::Tensor &group_list,
-    int64_t group_list_type, double beta, double linear_beta)
+HOST_API std::tuple<at::Tensor, at::Tensor> situ_mxfp8_quant(const at::Tensor &x, const at::Tensor &group_list,
+                                                             int64_t group_list_type, double beta, double linear_beta)
 {
     TORCH_CHECK(x.dim() == 2, "x must be 2D [capacity, 2 * hidden], got dim=", x.dim());
     TORCH_CHECK(x.scalar_type() == at::kBFloat16, "x must be BF16, got ", x.scalar_type());
     TORCH_CHECK(x.is_contiguous(), "x must be contiguous");
-    TORCH_CHECK(x.size(0) > 0 && x.size(1) == 6144,
-                "the first A5 kernel supports x shape [capacity, 6144], got [",
+    TORCH_CHECK(x.size(0) > 0 && x.size(1) == 6144, "the first A5 kernel supports x shape [capacity, 6144], got [",
                 x.size(0), ", ", x.size(1), "]");
-    TORCH_CHECK(group_list.dim() == 1 && group_list.numel() > 0,
-                "group_list must be a non-empty 1D tensor");
+    TORCH_CHECK(group_list.dim() == 1 && group_list.numel() > 0, "group_list must be a non-empty 1D tensor");
     TORCH_CHECK(group_list.scalar_type() == at::kInt || group_list.scalar_type() == at::kLong,
                 "group_list must use int32 or int64, got ", group_list.scalar_type());
     TORCH_CHECK(group_list.is_contiguous(), "group_list must be contiguous");
     TORCH_CHECK(group_list.device() == x.device(), "x and group_list must be on the same NPU");
     TORCH_CHECK(group_list_type == 0 || group_list_type == 1,
                 "group_list_type must be 0 (cumulative) or 1 (count), got ", group_list_type);
-    TORCH_CHECK(beta > 0.0 && linear_beta > 0.0,
-                "beta and linear_beta must be positive, got beta=", beta,
+    TORCH_CHECK(beta > 0.0 && linear_beta > 0.0, "beta and linear_beta must be positive, got beta=", beta,
                 ", linear_beta=", linear_beta);
 
     constexpr int64_t kOutputCols = 3072;
@@ -55,9 +51,8 @@ HOST_API std::tuple<at::Tensor, at::Tensor> situ_mxfp8_quant(
     uint32_t group_dtype = group_list.scalar_type() == at::kLong ? 1U : 0U;
     float beta_f32 = static_cast<float>(beta);
     float linear_beta_f32 = static_cast<float>(linear_beta);
-    EXEC_KERNEL_CMD(situ_mxfp8_quant, block_dim, x, group_list, payload, scales,
-                    capacity_rows, num_experts, group_list_type_u32, group_dtype,
-                    beta_f32, linear_beta_f32);
+    EXEC_KERNEL_CMD(situ_mxfp8_quant, block_dim, x, group_list, payload, scales, capacity_rows, num_experts,
+                    group_list_type_u32, group_dtype, beta_f32, linear_beta_f32);
     return std::make_tuple(payload, scales);
 }
 

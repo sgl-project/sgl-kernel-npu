@@ -41,16 +41,10 @@ public:
     // Methods
 
     CATLASS_HOST_DEVICE
-    VectorLayout(Index size = 0)
-        : shape_(MakeCoord(size)),
-          stride_(MakeCoord(LongIndex(1)))
-    {}
+    VectorLayout(Index size = 0) : shape_(MakeCoord(size)), stride_(MakeCoord(LongIndex(1))) {}
 
     CATLASS_HOST_DEVICE
-    VectorLayout(Shape shape, Stride stride)
-        : shape_(shape),
-          stride_(stride)
-    {}
+    VectorLayout(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
     CATLASS_HOST_DEVICE static VectorLayout MakeLayoutInUb(TensorCoord const &tileShape)
@@ -134,6 +128,6 @@ private:
     Stride stride_;
 };
 
-} // namespace Catlass::layout
+}  // namespace Catlass::layout
 
-#endif // CATLASS_KDA_VECTOR_HPP
+#endif  // CATLASS_KDA_VECTOR_HPP
