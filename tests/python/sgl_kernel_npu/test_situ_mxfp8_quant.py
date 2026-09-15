@@ -4,7 +4,6 @@ import time
 
 import torch
 import torch_npu
-
 from sgl_kernel_npu.activation.situ import situ
 from sgl_kernel_npu.activation.situ_mxfp8_quant import situ_mxfp8_quant
 
@@ -97,7 +96,9 @@ def benchmark():
             torch.npu.synchronize()
             samples.append((time.perf_counter_ns() - start) / 1000.0)
         samples.sort()
-        print(f"{name}: p50={samples[len(samples)//2]:.3f} us avg={sum(samples)/len(samples):.3f} us")
+        print(
+            f"{name}: p50={samples[len(samples)//2]:.3f} us avg={sum(samples)/len(samples):.3f} us"
+        )
 
 
 if __name__ == "__main__":
