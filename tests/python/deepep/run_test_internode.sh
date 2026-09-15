@@ -1,7 +1,3 @@
-# Manual A2 multi-node validation: CI disabled since 2026-09-02 (#768)
-# because the reduced A2 node pool cannot sustain CI. Restoration requires
-# sufficient capacity or scheduling optimization and passing multi-node tests.
-# See python/deep_ep/README.md#ci-coverage-and-a2-multi-node-status.
 # set your master node ip
 RANK0_IP=""
 IP=$(hostname -I | awk '{print $1}')

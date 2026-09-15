@@ -1,6 +1,3 @@
-# A2 multi-node CI disabled since 2026-09-02 (#768): reduced node pool.
-# Retained for manual validation; restore capacity/scheduling and pass multi-node
-# tests before reinstating CI. See python/deep_ep/README.md CI status section.
 import argparse
 import os
 import random
