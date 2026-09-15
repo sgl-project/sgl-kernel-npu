@@ -83,6 +83,25 @@ def test_swiglu_mxfp8_quant():
     torch.testing.assert_close(actual[:20], expected[:20], rtol=0.05, atol=0.1)
 
 
+def test_swiglu_mxfp8_quant_4096_columns():
+    torch.manual_seed(3)
+    x = torch.randn(64, 4096, dtype=torch.bfloat16, device="npu")
+    group_list = torch.tensor([8, 0, 5, 0, 7], dtype=torch.int64, device="npu")
+
+    payload, scale = swiglu_quant(
+        x,
+        group_list,
+        group_list_type=1,
+        need_quant=True,
+        do_limit=True,
+        limit=7.0,
+    )
+
+    actual = _dequantize_mxfp8(payload, scale)
+    expected = _reference(x, True, 7.0)
+    torch.testing.assert_close(actual[:20], expected[:20], rtol=0.05, atol=0.1)
+
+
 def test_swiglu_mxfp8_quant_rounds_scale_up_at_saturation_boundary():
     x = torch.full((1, 3072), 7.0, dtype=torch.bfloat16, device="npu")
     group_list = torch.tensor([0, 1], dtype=torch.int64, device="npu")

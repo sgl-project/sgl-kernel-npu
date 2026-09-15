@@ -72,13 +72,14 @@ def _swiglu_quant_kernel(
                 amax = tl.max(tl.abs(blk2d), axis=1)
                 m = tl.maximum(amax, 1e-4)
                 m2 = m * (1.0 / 448.0)
-                e = (m2.to(tl.int32, bitcast=True) >> 23) & 0xFF
-                floor_scale = tl.exp2(e.to(tl.float32) - 127.0)
-                e += (m2 > floor_scale).to(tl.int32)
-                descale = tl.reshape(
-                    tl.exp2(e.to(tl.float32) - 127.0), (NUM_SUB_BLK, 1)
+                m2_bits = m2.to(tl.int32, bitcast=True)
+                e = (m2_bits >> 23) & 0xFF
+                has_mantissa = (m2_bits & 0x7FFFFF) != 0
+                e += tl.where(e < 0xFF, has_mantissa, False).to(tl.int32)
+                inv_scale = tl.reshape(
+                    tl.exp2(127.0 - e.to(tl.float32)), (NUM_SUB_BLK, 1)
                 )
-                q = tl.clamp(blk2d / descale, -448.0, 448.0)
+                q = tl.clamp(blk2d * inv_scale, -448.0, 448.0)
                 q = tl.reshape(q, (COL_BLOCK_SIZE,)).to(out_ptr.dtype.element_ty)
 
                 o_offsets = (
@@ -130,6 +131,11 @@ def swiglu_quant(
         raise ValueError(
             f"MXFP8 quant requires h // 2 divisible by 32, but got {half_cols}"
         )
+    # At the profiled 2048-wide output, a 1536-wide tile executes an otherwise
+    # masked 1024-element tail in the second quantization tile.
+    col_block_size = 1536
+    if half_cols == 2048:
+        col_block_size = 1024
     out_dtype = torch.float8_e4m3fn if need_quant else x.dtype
     out = torch.empty((s, half_cols), dtype=out_dtype, device=x.device)
     scale = torch.empty((s, half_cols // 32), dtype=torch.uint8, device=x.device)
@@ -152,7 +158,7 @@ def swiglu_quant(
         scale,
         TOTAL_COLS=h,
         HALF_COLS=half_cols,
-        COL_BLOCK_SIZE=1536,
+        COL_BLOCK_SIZE=col_block_size,
         NUM_EXPERTS=num_experts,
         NUM_EXPERTS_ALGIN=num_experts_algin,
         GROUP_LIST_TYPE=group_list_type,
