@@ -16,6 +16,7 @@
 #include "register/op_def_registry.h"
 #include "mc2_tiling_utils.h"
 #include "../op_kernel/notify_dispatch_tiling.h"
+#include "tiling_args.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
 #include "platform/platform_infos_def.h"
@@ -274,8 +275,13 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     NotifyDispatchTilingData *tilingData = context->GetTilingData<NotifyDispatchTilingData>();
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
     uint64_t actualSize = dataSize * tilingData->notifyDispatchInfo.sendCount + 2 * 1024 * 1024;  // 2MB flag位
+    if (actualSize > Moe::A3WindowLayout::kNotifyDispatchSize) {
+        OP_LOGE(nodeName, "notify payload exceeds its fixed 102MB window region, needed=%luMB.",
+                actualSize / MB_SIZE + 1UL);
+        return false;
+    }
     if (actualSize > maxWindowSize) {
-        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
+        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should be at least %luMB.", actualSize / MB_SIZE + 1UL);
         return false;
     }
     tilingData->notifyDispatchInfo.totalWinSize = maxWindowSize;

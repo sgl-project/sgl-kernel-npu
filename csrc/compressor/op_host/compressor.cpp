@@ -14,16 +14,16 @@
  * \brief host wrapper (ge_helper + direct kernel launch) for the Compressor op.
  */
 #include <cstdio>
-#include <mutex>
-#include <string>
-#include <type_traits>
-#include <unordered_map>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "compressor_tiling.h"
+#ifdef SGL_KERNEL_ARCH_35
+#include "arch35/compressor_tiling.h"
+#else
+#include "arch22/compressor_tiling.h"
+#endif
 #include "ge_helper.h"
 #include "common_tiling.h"
 #include "common.h"
@@ -32,83 +32,6 @@
 
 namespace sglang {
 namespace npu_kernel {
-
-constexpr uint32_t MAX_CAPTURE_NUM = 1024;
-
-namespace {
-
-struct TilingCache {
-    at::Tensor buffer;
-    std::unordered_map<std::string, uint32_t> slots;
-    uint32_t nextSlot = 0;
-};
-
-template <typename T>
-void AppendTilingKey(std::string &key, const T &value)
-{
-    static_assert(std::is_trivially_copyable_v<T>);
-    key.append(reinterpret_cast<const char *>(&value), sizeof(T));
-}
-
-std::string MakeTilingCacheKey(const optiling::CompressorTilingData &data)
-{
-    std::string key;
-    key.reserve(sizeof(optiling::CompressorTilingData));
-    const auto &base = data.baseParams;
-    AppendTilingKey(key, base.batchSize);
-    AppendTilingKey(key, base.seqSize);
-    AppendTilingKey(key, base.hiddenSize);
-    AppendTilingKey(key, base.headDim);
-    AppendTilingKey(key, base.cmpRatio);
-    AppendTilingKey(key, base.tokenSize);
-    AppendTilingKey(key, base.csSize);
-    AppendTilingKey(key, base.cgSize);
-    AppendTilingKey(key, base.nSize);
-    AppendTilingKey(key, base.usedCoreNum);
-    AppendTilingKey(key, base.ropeHeadDim);
-    AppendTilingKey(key, base.normEps);
-    AppendTilingKey(key, base.reciprocalD);
-    AppendTilingKey(key, base.stateCacheStrideDim0);
-    const auto &page = data.pageAttentionParams;
-    AppendTilingKey(key, page.blockNum);
-    AppendTilingKey(key, page.blockSize);
-    AppendTilingKey(key, page.maxBlockNumPerBatch);
-    const auto &split = data.innerSplitParams;
-    AppendTilingKey(key, split.mBaseSize);
-    AppendTilingKey(key, split.dBaseSize);
-    const auto &ws = data.workspaceParams;
-    AppendTilingKey(key, ws.mm1KvResSize);
-    AppendTilingKey(key, ws.mm1ScoreResSize);
-    AppendTilingKey(key, ws.vec1ResSize);
-    AppendTilingKey(key, ws.vec1TailCacheSize);
-    AppendTilingKey(key, ws.dbWorkspaceRatio);
-    AppendTilingKey(key, data.tilingKey);
-    return key;
-}
-
-bool IsNpuGraphCapturing()
-{
-    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
-    aclmdlRI model = nullptr;
-    auto stream = c10_npu::getCurrentNPUStream().stream(false);
-    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
-    TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to query NPU graph capture status, acl error ", status);
-    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
-}
-
-std::unordered_map<int64_t, TilingCache> &GetTilingCaches()
-{
-    static std::unordered_map<int64_t, TilingCache> deviceCaches;
-    return deviceCaches;
-}
-
-std::mutex &GetTilingCacheMutex()
-{
-    static std::mutex cacheMutex;
-    return cacheMutex;
-}
-
-}  // namespace
 
 namespace {
 
@@ -239,51 +162,31 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
         return cmp_kv;
     }
 
-    auto key = MakeTilingCacheKey(tilingData);
-    at::Tensor tilingTensor;
-    if (IsNpuGraphCapturing()) {
-        // ── 入图路径：查缓存，必须命中 ──
-        std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
-        auto &cache = GetTilingCaches()[x.device().index()];
-        TORCH_CHECK(cache.buffer.defined(),
-                    "compressor: run one eager warmup before NPU graph capture to initialize the tiling cache");
-        auto iter = cache.slots.find(key);
-        TORCH_CHECK(iter != cache.slots.end(),
-                    "compressor: the current tiling configuration is not cached; run one eager warmup ...");
-        tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
-    } else {
-        // ── 不入图路径：查缓存 → 填缓存 → 满则退回 memcpy（lightning_indexer 风格）──
-        std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
-        auto &cache = GetTilingCaches()[x.device().index()];
-        if (!cache.buffer.defined()) {
-            cache.buffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                     at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-        }
-        auto iter = cache.slots.find(key);
-        if (iter != cache.slots.end()) {
-            tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);  // 命中复用
-        } else if (cache.nextSlot >= MAX_CAPTURE_NUM) {
-            // 缓存满：退回一次性 memcpy（局部 tensor，避免 static 跨线程/跨设备覆盖）
-            at::Tensor t = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-            auto status =
-                aclrtMemcpy(t.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-            TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to copy tiling data, acl error ", status);
-            tilingTensor = t;
-        } else {
-            // 正常 MISS：填缓存
-            const uint32_t slot = cache.nextSlot;
-            tilingTensor = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
-            auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                                      ACL_MEMCPY_HOST_TO_DEVICE);
-            TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
-            cache.slots.emplace(std::move(key), slot);
-            cache.nextSlot++;
-        }
-    }
+    auto tilingTensor = context->GetTilingTensor(tilingData);
 
     // ---- 6) workspace ----
     at::Tensor workspace =
         at::empty({(int64_t)workspaceSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+#ifdef SGL_KERNEL_ARCH_35
+    // Zero the AIV db release counters (readGen, aivNum * dbWorkspaceRatio * 4
+    // bytes) so the generation handshake starts at 0. The kernel's readGen sits
+    // right after its data workspace (InitWorkspace offsets start from 0 at the
+    // buffer start). The tiling workspaceSize_ reserves, after that data
+    // region, a (aicNum+1+aivNum)*dbWorkspaceRatio*4 GM slab and the libapi
+    // prefix at the very end, so readGen starts at
+    // workspaceSize - libapiSize - gmSize (== the kernel data tail), NOT at
+    // workspaceSize - libapiSize - genFlagsSize.
+    int64_t genFlagsSize =
+        (int64_t)(tilingData.workspaceParams.aivNum * tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    int64_t libapiSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize());
+    int64_t gmSize = (int64_t)(tilingData.baseParams.usedCoreNum + 1 + tilingData.workspaceParams.aivNum) *
+                     tilingData.workspaceParams.dbWorkspaceRatio * (int64_t)sizeof(uint32_t);
+    int64_t flagsOffset = (int64_t)workspaceSize - libapiSize - gmSize;
+    if (flagsOffset >= 0) {
+        workspace.narrow(0, flagsOffset, genFlagsSize).view(at::kInt).zero_();
+    }
+#endif
 
     // ---- 7) dispatch: single kernel entry, dispatch by tilingKey inside kernel ----
     at::Tensor stateBlockTable = state_block_table.has_value()

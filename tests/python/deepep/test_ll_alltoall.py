@@ -20,6 +20,14 @@ from utils import (
 )
 
 
+def get_alltoall_quant_config(quant_type: str):
+    if quant_type == "int8":
+        return True, False, False
+    if quant_type == "bf16":
+        return False, False, False
+    raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
+
+
 def test(
     aligned_num_tokens: int,  # 对齐后的最大token数
     num_tokens: int,  # 当前rank的实际token数，有效token数
@@ -69,10 +77,7 @@ def test(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
 
-    if quant_type == "int8":
-        quant_configs = [(True, False, False)]
-    else:  # no quant
-        quant_configs = [(False, False, False)]
+    quant_configs = [get_alltoall_quant_config(quant_type)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
@@ -96,7 +101,6 @@ def test(
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
-                    quant_mode="int8" if quant_type == "int8" else None,
                 )
             )
             simulated_gemm_x = (
@@ -186,7 +190,6 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
-            quant_mode="int8" if quant_type == "int8" else None,
         )
         simulated_gemm_x_local = (
             per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
@@ -238,7 +241,6 @@ def test(
         "use_ue8m0": dispatch_use_ue8m0,
         "use_mxfp4": dispatch_use_mxfp4,
         "topk_weights": topk_weights,
-        "quant_mode": "int8" if quant_type == "int8" else None,
     }
     # dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
     dispatch_alltoall_t = bench_kineto(
