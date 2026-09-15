@@ -475,9 +475,9 @@ jobs:
         env:
           DEEP_MOE_MODE: alltoall
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --quant-type int8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type int8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --quant-type bf16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type bf16
 
   test-build-deepep-a2:
@@ -872,6 +872,8 @@ jobs:
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4 --use-mxfp4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4 --use-mxfp8
 
       - name: Run alltoall low-latency
         timeout-minutes: 10
