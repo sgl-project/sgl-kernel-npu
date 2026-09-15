@@ -13,9 +13,9 @@
 #define TLA_TENSOR_HPP
 
 #include "../attn_infra/arch/arch.hpp"
-#include "../tla/layout.hpp"                     // tla::Shape
-#include "../tla/numeric/integral_constant.hpp"  // tla::is_integral
-#include "../tla/int_tuple.hpp"
+#include "../attn_tla/layout.hpp"                     // tla::Shape
+#include "../attn_tla/numeric/integral_constant.hpp"  // tla::is_integral
+#include "../attn_tla/int_tuple.hpp"
 
 namespace tla {
 //
