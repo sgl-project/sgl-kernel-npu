@@ -58,7 +58,10 @@ struct FusedDeepMoeInfo {
     uint64_t totalUbSize;
     uint64_t totalWinSize;
     uint64_t gmm1HLen;
-    uint64_t shareGmm1HLen;  // shared expert gmm1 hidden length
+    uint64_t shareGmm1HLen;     // shared expert gmm1 hidden length
+    uint32_t weightLayoutMode;  // 0: ND, 1: FRACTAL_NZ (shared by GMM1/GMM2)
+    uint64_t gmm1WeightExpertStrideBytes;
+    uint64_t gmm2WeightExpertStrideBytes;
     bool isTensorList;
 };
 
@@ -86,6 +89,8 @@ constexpr uint32_t GMM2_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;
 
 constexpr uint32_t MX_FP4_QUANT_MODE = 4U;
+constexpr uint32_t WEIGHT_LAYOUT_ND = 0U;
+constexpr uint32_t WEIGHT_LAYOUT_NZ = 1U;
 constexpr uint32_t ACTIVATION_SWIGLU = 0U;
 constexpr uint32_t ACTIVATION_SITU = 1U;
 
