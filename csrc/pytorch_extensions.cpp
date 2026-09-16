@@ -116,7 +116,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
         "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
         "int state_cache_stride_dim0=0) -> Tensor");
-    
+
     m.def(
         "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
         "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
