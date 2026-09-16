@@ -446,12 +446,19 @@ template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, bool isNeedExcute)
 {
     if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        // wait every AIV finished the previous generation of mm1[dbIdx] (bypass DCache)
+        // Wait until every AIV has finished the previous generation of mm1[dbIdx].
+        // Layout is slot-major (readGen[dbIdx][aiv]) so the aivNum counters of the
+        // current slot are contiguous. The two AIVs on this AI Core are already
+        // covered by the SYNC_MODE2 wait below, so they are skipped here.
         uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
         uint32_t aivNum = tilingData_->workspaceParams.aivNum;
         __gm__ uint32_t *readGenBase = (__gm__ uint32_t *)readGenGm.GetPhyAddr();
+        const uint32_t local0 = constInfo.aiCoreIdx * 2;
         for (uint32_t a = 0; a < aivNum; ++a) {
-            while (AscendC::ReadGmByPassDCache(readGenBase + (a * constInfo.dbWorkspaceRatio + info.cubeDbIdx)) < gen) {
+            if (a == local0 || a == local0 + 1) {
+                continue;
+            }
+            while (AscendC::ReadGmBypassDCache(readGenBase + (info.cubeDbIdx * aivNum + a)) < gen) {
             }
         }
     }
@@ -476,8 +483,9 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
         SyncAll();
         blockVec_.CommitState(info);
         // AIV publishes the generation it just finished (bypass DCache)
-        AscendC::WriteGmByPassDCache(
-            (__gm__ uint32_t *)readGenGm.GetPhyAddr() + GetBlockIdx() * constInfo.dbWorkspaceRatio + info.c1v1DbIdx,
+        AscendC::WriteGmBypassDCache(
+            (__gm__ uint32_t *)readGenGm.GetPhyAddr() +
+                (info.c1v1DbIdx * tilingData_->workspaceParams.aivNum + GetBlockIdx()),
             (vec1Loop - 1) / constInfo.dbWorkspaceRatio + 1U);
     }
     CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + info.c1v1DbIdx);
