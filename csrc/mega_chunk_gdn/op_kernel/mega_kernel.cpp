@@ -33,50 +33,26 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
+// Must be included at global scope: the sub-kernels below are #include'd into
+// separate namespaces, and #pragma once would otherwise trap mega_chunk_utils
+// inside whichever namespace pulled it in first.
+#include "mega_chunk_utils.h"
 #include <type_traits>
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
+using mega_chunk::WaitBothVecOnA5;
+using mega_chunk::SyncAllMegaKernel;
 
 // ===================================================================
 // Device-only helpers (shared with standard mega-kernel)
 // ===================================================================
 #ifdef __CCE_AICORE__
 
-constexpr uint16_t SYNC_AIV_FLAG = 12;
-constexpr uint16_t SYNC_AIC_FLAG = 11;
-constexpr uint16_t SYNC_AIC_AIV_FLAG = 13;
-constexpr uint16_t SYNC_AIV_ONLY_ALL = 14;
-constexpr uint16_t SYNC_MODE_SHIFT_VALUE = 4;
-constexpr uint16_t SYNC_FLAG_SHIFT_VALUE = 8;
-
-AICORE inline uint16_t GetffstMsg(uint16_t mode, uint16_t flagId)
-{
-    return (0x1 + ((mode & 0x3) << SYNC_MODE_SHIFT_VALUE) + ((flagId & 0xf) << SYNC_FLAG_SHIFT_VALUE));
-}
-
-template <bool isAIVOnly = true>
-AICORE inline void SyncAllImpl()
-{
-    pipe_barrier(PIPE_ALL);
-    if constexpr (isAIVOnly) {
-        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, SYNC_AIV_ONLY_ALL));
-        wait_flag_dev(SYNC_AIV_ONLY_ALL);
-        return;
-    }
-#if defined(__DAV_C220_CUBE__)
-    wait_flag_dev(SYNC_AIV_FLAG);
-    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, SYNC_AIC_FLAG));
-    wait_flag_dev(SYNC_AIC_FLAG);
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIC_AIV_FLAG));
-#elif defined(__DAV_C220_VEC__)
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIV_FLAG));
-    wait_flag_dev(SYNC_AIC_AIV_FLAG);
-#endif
-}
 
 template <typename T, int32_t H_val>
 AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len)
 {
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_subblockid() != 0) return;
     set_mask_norm();
     set_vector_mask(-1, -1);
@@ -110,9 +86,9 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
 
     using Gm2D = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmSrcS = Stride<1, 1, 1, H, 1>;
-    using GmHeadS = Stride<1, 1, 1, 1, H>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmSrcS = pto::Stride<1, 1, 1, H, 1>;
+    using GmHeadS = pto::Stride<1, 1, 1, 1, H>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     if constexpr (H < MinTransposeCols) {
         int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
@@ -192,7 +168,7 @@ template <int32_t H, int32_t C>
 AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *dst, uint32_t num_matrices,
                                                int64_t total_tokens)
 {
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_subblockid() != 0) return;
     set_mask_norm();
     set_vector_mask(-1, -1);
@@ -209,7 +185,7 @@ AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *d
     using DstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, 1, C, SLayout::NoneBox, 512>;
     using DynDstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     SrcUB src_ub;
     TASSIGN(src_ub, F32_UB);
@@ -326,7 +302,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_SYNC1
     return;
@@ -342,7 +318,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_kkt::kkt_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(beta_t_ptr),
@@ -350,10 +326,20 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(kkt_ws_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     pipe_barrier(PIPE_ALL);
+    // Drain the KKT slot-free flags Vec left set (flags 2/3).
+    // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+    // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+    //     with each Vec sub-block signalling its own flag (base, base+16).
+#if __CCE_AICORE__ == 220
     wait_flag_dev(2);
     wait_flag_dev(3);
+#else
+    WaitBothVecOnA5<PIPE_MTE2>(2);
+    WaitBothVecOnA5<PIPE_MTE2>(3);
+    pipe_barrier(PIPE_ALL);
+#endif
 #endif
 
 #ifdef MEGA_STOP_AFTER_KKT
@@ -361,7 +347,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mega_solve_tril(reinterpret_cast<__gm__ half *>(A_inv_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
                     reinterpret_cast<__gm__ half *>(minus_id_ptr), C, num_matrices, H,
@@ -372,14 +358,14 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_CAST
     pipe_barrier(PIPE_ALL);
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_SYNC_BEFORE_WY
     return;
@@ -393,11 +379,20 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(u_ptr), reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len,
         total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
+        // Drain the WY slot-free flags Cube left set (flags 3/4).
+        // A2: Cube is a separate core → FFTS cross-core flag.
+        // A5: Cube shares the core → intra-block flag.
+#if __CCE_AICORE__ == 220
         wait_flag_dev(3);
         wait_flag_dev(4);
+#else
+        wait_intra_block(PIPE_MTE3, 3);
+        wait_intra_block(PIPE_MTE3, 4);
+        pipe_barrier(PIPE_ALL);
+#endif
     }
 #endif
 
@@ -406,7 +401,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_h::chunk_h_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(w_ptr),
@@ -421,7 +416,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_o::chunk_o_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(q_ptr), reinterpret_cast<__gm__ half *>(k_ptr),
@@ -431,10 +426,16 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(o_ws_gated_ptr), reinterpret_cast<__gm__ half *>(o_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
+        // Drain the chunk_o workspace-free flag Vec left set (flag 3).
+#if __CCE_AICORE__ == 220
         wait_flag_dev(3);
+#else
+        WaitBothVecOnA5<PIPE_MTE2>(3);
+        pipe_barrier(PIPE_ALL);
+#endif
     }
 #endif
 }
