@@ -448,16 +448,13 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, b
     if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
         // Wait until every AIV has finished the previous generation of mm1[dbIdx].
         // Layout is slot-major (readGen[dbIdx][aiv]) so the aivNum counters of the
-        // current slot are contiguous. The two AIVs on this AI Core are already
-        // covered by the SYNC_MODE2 wait below, so they are skipped here.
+        // current slot are contiguous. Note: the local AI Core's two AIVs must be
+        // polled here as well; the SYNC_MODE2 wait below only guarantees "this slot
+        // was released once", not the generation, so it cannot replace this check.
         uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
         uint32_t aivNum = tilingData_->workspaceParams.aivNum;
         __gm__ uint32_t *readGenBase = (__gm__ uint32_t *)readGenGm.GetPhyAddr();
-        const uint32_t local0 = constInfo.aiCoreIdx * 2;
         for (uint32_t a = 0; a < aivNum; ++a) {
-            if (a == local0 || a == local0 + 1) {
-                continue;
-            }
             while (AscendC::ReadGmBypassDCache(readGenBase + (info.cubeDbIdx * aivNum + a)) < gen) {
             }
         }

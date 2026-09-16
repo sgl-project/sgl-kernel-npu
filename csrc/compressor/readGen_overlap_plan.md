@@ -4,7 +4,7 @@
 > `csrc/compressor/op_kernel/arch35/compressor_block_cube.h`。
 > 只针对 **arch35 (A5) + `cache_mode=2 (CYCLE)`**。
 
-## 0. 已完成（①②③，本仓已改）
+## 0. 已完成（①③，本仓已改）
 
 `csrc/compressor/op_kernel/arch35/compressor_kernel.h`：
 
@@ -12,10 +12,17 @@
   - AIC 读：`readGenBase + (info.cubeDbIdx * aivNum + a)`
   - AIV 写：`readGenGm + (info.c1v1DbIdx * aivNum + GetBlockIdx())`
   - host 归零区域不变（仍是 `aivNum*dbRatio` 个 uint32）。
-- **② 跳过本核 AIV**：`const uint32_t local0 = constInfo.aiCoreIdx * 2;`，
-  `a == local0 || a == local0 + 1` 时 `continue`（本核由 `SYNC_MODE2` flag 保证）。
 - **③ API 名**：`ReadGmByPassDCache` / `WriteGmByPassDCache`
   → `ReadGmBypassDCache` / `WriteGmBypassDCache`（同操作，仅去废弃告警）。
+
+### ② 已撤销（原"跳过本核 AIV"）
+
+原打算跳过本核 2 个 AIV 的 GM 轮询（认为 `SYNC_MODE2` flag 已覆盖）。
+**撤销原因**：README `:184-190` 明确 "pure flags cannot express a generation"
+（same-flag reordering，消费者可能被提前放行）。这个论证**对本核 AIV 同样成立**——
+`CrossCoreWaitFlag<SYNC_MODE2>(SYNC_V1_C1_FLAG + cubeDbIdx)` 是"按槽 flag"，
+跨圈复用会有 same-flag reordering，**不能替代本核 AIV 的圈数检查**。
+所以本核 2 个 AIV **必须照常轮询**。
 
 ## 1. 目的
 
