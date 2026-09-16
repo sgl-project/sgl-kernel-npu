@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-blue)]()
-[![CANN](https://img.shields.io/badge/CANN-8.5%2B%20%7C%209.0-green)]()
+[![CANN](https://img.shields.io/badge/CANN-9.0.0%20%7C%209.1.0-green)]()
 [![Python](https://img.shields.io/badge/Python-3.9%2B-yellow)]()
 
 English | [中文](#中文)
@@ -27,13 +27,12 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 
 ### Software and Hardware
 
-Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (supports CANN 9.0).
+Supported Hardware Models: Atlas A2, A3 (support CANN 9.0.0 and 9.1.0), and Atlas A5 (supports CANN 9.0.0 and 9.1.0; current A5 CI covers 9.1.0).
 
 Platform: aarch64/x86
 
 Supporting Software:
-- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 8.5.0 and later versions (refer to the [CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit) to install the CANN development kit package, as well as the supporting firmware and drivers)
-- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 9.0.0 or 9.1.0, with firmware and dependencies matching the selected CANN release.
 - Python >= 3.9, Recommendation: Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -267,7 +266,7 @@ export DEEPEP_HYBRID_DEPLOYMENT=1
 
 #### A5
 
-- Supports CANN 9.0.
+- Supports CANN 9.0.0 and 9.1.0; current A5 CI validates 9.1.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
 - Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`), MXFP8 per-block quantization, and MXFP4 per-block quantization in normal dispatch.
 
@@ -285,9 +284,17 @@ python3 tests/python/deepep/test_intranode.py --num-processes=8
 python3 tests/python/deepep/test_low_latency.py --num-processes=8
 python3 tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
-# A2 dual-node internode test (set primary node IP in run_test_internode.sh first)
+# Manual A2 dual-node test (CI disabled; see CI status below); set primary node IP first
 bash tests/python/deepep/run_test_internode.sh
 ```
+
+### CI coverage and A2 multi-node status
+
+- The [PR workflow](../../.github/workflows/pr-test-deepep-npu.yml) validates A2/A3 on CANN 9.0.0 and 9.1.0, and A5 on 9.1.0. The [daily workflow](../../.github/workflows/daily-build-test.yml) covers A2/A3 on 9.0.0 and 9.1.0.
+- CANN 8.5.0 runners were retired and its test matrices removed in August 2026. Compatibility with 8.5.0 is no longer verified.
+- **A2 multi-node CI has been disabled since September 2, 2026**. The node pool shrank from four to two nodes, leaving insufficient capacity for CI. The dedicated `a2-internode-test.yml` and daily `multi-node-internode` job were removed.
+- `test_internode_a2.py`, `run_test_internode.sh`, the reusable `internode.yml`, and hierarchical/non-hierarchical communication and HCCL tuning instructions remain available for manual validation and future restoration. They do not imply active A2 multi-node CI coverage.
+- **Recommended restoration conditions:** provide sufficient schedulable A2 multi-node resources (or optimize scheduling/resource usage to fit the available pool), validate connectivity and the selected CANN environment, pass the retained multi-node tests, then restore the dedicated and daily jobs. Until then, validate A2 multi-node changes manually in the target environment.
 
 ### FAQ
 
@@ -322,13 +329,12 @@ DeepEP-Ascend 采用**策略式架构**，通过环境变量灵活选择通信�
 
 ### 软硬件配套说明
 
-硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 8.5 和 CANN 9.0，Atlas A5 适配 CANN 9.0。
+硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 9.0.0 和 9.1.0，Atlas A5 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 
 平台：aarch64/x86
 
 配套软件：
-- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版 8.5.0 及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装 CANN 开发套件包以及配套固件和驱动）
-- 安装 CANN 软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- 驱动 Ascend HDK 25.1.RC1.1、CANN 社区版 9.0.0 或 9.1.0，并安装与所选版本配套的固件和依赖。
 - Python >= 3.9，推荐 Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -544,7 +550,7 @@ export DEEPEP_HYBRID_DEPLOYMENT=1
 
 #### A5
 
-- 适配 CANN 9.0。
+- 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 - 构建命令：`bash build.sh -a deepep Ascend950`。
 - 支持 scalar FP8 per-token 量化（`quant_mode="pertoken_fp8_e4m3"`）、MXFP8 per-block 量化和 MXFP4 per-block 量化（normal dispatch）。
 
@@ -562,9 +568,16 @@ python3 tests/python/deepep/test_intranode.py --num-processes=8
 python3 tests/python/deepep/test_low_latency.py --num-processes=8
 python3 tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
-# A2 双机跨节点测试（需先设置 run_test_internode.sh 中的主节点 IP）
+# A2 双机手动测试（CI 已停用，见 CI 状态说明；需先设置主节点 IP）
 bash tests/python/deepep/run_test_internode.sh
 ```
+
+### CI 覆盖范围与 A2 多机状态
+
+- [PR 工作流](../../.github/workflows/pr-test-deepep-npu.yml) 在 A2/A3 上验证 CANN 9.0.0、9.1.0，在 A5 上验证 9.1.0；[每日工作流](../../.github/workflows/daily-build-test.yml) 覆盖 A2/A3 的 9.0.0、9.1.0。
+- CANN 8.5.0 runner 已下线，测试矩阵于 2026 年 8 月移除，不再验证 8.5.0 的兼容性。
+- **A2 多机 CI 自 2026-09-02 起停用**。节点池从 4 个缩减为 2 个，资源不足以支撑 CI，已删除独立的 `a2-internode-test.yml` 和每日流水线的 `multi-node-internode` job。
+- 保留 `test_internode_a2.py`、`run_test_internode.sh`、可复用的 `internode.yml`，以及分层/不分层通信、HCCL 调优说明，供手动验证及后续恢复使用；这些资料不代表 A2 多机仍有 CI 覆盖。
 
 ### 常见问题
 
