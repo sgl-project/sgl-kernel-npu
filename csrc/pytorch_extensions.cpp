@@ -307,9 +307,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
-#endif
 
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
         auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
