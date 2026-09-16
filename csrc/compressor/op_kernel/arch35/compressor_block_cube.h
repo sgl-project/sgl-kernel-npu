@@ -42,6 +42,10 @@ public:
     __aicore__ inline void AllocEventID(TPipe *pipe);
     __aicore__ inline void FreeEventID(TPipe *pipe);
     __aicore__ inline void ComputeMm1(const RunInfo &info);
+    // Set the readGen release-poll parameters (CYCLE only). The poll is then issued
+    // once inside ComputeMm1, in the x-load window (after the MTE2 issue, before the
+    // wait), so it overlaps the MTE2 transfer instead of running before ComputeMm1.
+    __aicore__ inline void SetReadGenPoll(__gm__ uint32_t *base, uint32_t gen, uint32_t dbIdx, uint32_t aivNum);
 
 private:
     using T = float;
@@ -72,6 +76,13 @@ private:
     GlobalTensor<int32_t> sequsedGm_;
     GlobalTensor<int32_t> startPosGm_;
     bool isExistSeqUsed = false;
+
+    // readGen release-poll parameters (CYCLE only); polled once inside ComputeMm1.
+    __gm__ uint32_t *readGenPollBase_ = nullptr;
+    uint32_t readGenPollGen_ = 0;
+    uint32_t readGenPollDbIdx_ = 0;
+    uint32_t readGenPollAivNum_ = 0;
+    bool needReadGenPoll_ = false;
 
     // =================================L1 Buffer=================================
     static constexpr uint32_t L1_X_SIZE = 128 * 1024;
@@ -342,6 +353,17 @@ __aicore__ inline uint32_t CompressorBlockCube<COMP>::GetMSize(const RunInfo &in
 }
 
 template <typename COMP>
+__aicore__ inline void CompressorBlockCube<COMP>::SetReadGenPoll(__gm__ uint32_t *base, uint32_t gen, uint32_t dbIdx,
+                                                                 uint32_t aivNum)
+{
+    readGenPollBase_ = base;
+    readGenPollGen_ = gen;
+    readGenPollDbIdx_ = dbIdx;
+    readGenPollAivNum_ = aivNum;
+    needReadGenPoll_ = true;
+}
+
+template <typename COMP>
 __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info)
 {
     static constexpr uint32_t K_L1_BASE = 256;
@@ -370,6 +392,19 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
         LocalTensor<X_T> xL1Tensor = xBufL1.GetWithOffset<X_T>(L1_X_SIZE / sizeof(X_T), xBufId * L1_X_SIZE);
         CopyXGmToL1(info, xL1Tensor, hStart + hIdx, kSize);
         SetFlag<HardEvent::MTE2_MTE1>(X_EVENT0 + xBufId);
+        // Poll the readGen release counters here, while the x MTE2 transfer above is
+        // still in flight. The scalar spin only delays the instructions issued after
+        // this point; the already-issued MTE2 runs in parallel. This must complete
+        // before the first CopyOutMm1Res (the mm1 slot write), which only happens in
+        // the last K iteration.
+        if (needReadGenPoll_) {
+            for (uint32_t a = 0; a < readGenPollAivNum_; ++a) {
+                while (AscendC::ReadGmBypassDCache(readGenPollBase_ + (readGenPollDbIdx_ * readGenPollAivNum_ + a)) <
+                       readGenPollGen_) {
+                }
+            }
+            needReadGenPoll_ = false;
+        }
         WaitFlag<HardEvent::MTE2_MTE1>(X_EVENT0 + xBufId);
         for (uint32_t i = nCoff; i > 0; i--) {
             // coffId=0, compute pre data; coffId=1, compute cur data
