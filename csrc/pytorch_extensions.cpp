@@ -116,6 +116,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
         "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
         "int state_cache_stride_dim0=0) -> Tensor");
+    
+    m.def(
+        "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
+        "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
+        "Tensor? cu_seqlens=None, Tensor? chunk_indices=None, "
+        "str layout='BSND', float scale=1.0, int chunk_size=64, "
+        "bool safe_gate=False, float lower_bound=-5.0, bool use_gate_in_kernel=False, "
+        "bool state_v_first=False, bool output_final_state=True, bool output_gk=False, "
+        "bool output_w=False, bool output_u=False, bool output_qg=False, "
+        "bool output_kg=False, bool output_v_new=False, bool output_h=False) "
+        "-> (Tensor, Tensor?, Tensor?, Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?)");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
@@ -216,16 +227,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
 #endif
 
-    m.def(
-        "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
-        "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
-        "Tensor? cu_seqlens=None, Tensor? chunk_indices=None, "
-        "str layout='BSND', float scale=1.0, int chunk_size=64, "
-        "bool safe_gate=False, float lower_bound=-5.0, bool use_gate_in_kernel=False, "
-        "bool state_v_first=False, bool output_final_state=True, bool output_gk=False, "
-        "bool output_w=False, bool output_u=False, bool output_qg=False, "
-        "bool output_kg=False, bool output_v_new=False, bool output_h=False) "
-        "-> (Tensor, Tensor?, Tensor?, Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?)");
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
     m.def(
         "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
@@ -314,13 +315,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
         return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);
     });
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
-    m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
-
-    m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
-
-    m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
-#endif
+    m.impl("chunk_kda_fwd", TORCH_FN(sglang::npu_kernel::chunk_kda_fwd));
 
     m.impl("causal_conv1d_update",
            [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,
@@ -362,6 +357,14 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     });
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
+
+    m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
+
+    m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
+#endif
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
@@ -388,8 +391,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     // being unwrapped to empty tensors here.
     m.impl("swiglu_group_quant", TORCH_FN(sglang::npu_kernel::swiglu_group_quant));
 #endif
-
-    m.impl("chunk_kda_fwd", TORCH_FN(sglang::npu_kernel::chunk_kda_fwd));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
