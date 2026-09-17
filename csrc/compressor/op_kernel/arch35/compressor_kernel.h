@@ -477,7 +477,7 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
         SyncAll();
         blockVec_.CommitState(info);
         // AIV publishes the generation it just finished (bypass DCache)
-        AscendC::WriteGmBypassDCache(
+        AscendC::WriteGmByPassDCache(
             (__gm__ uint32_t *)readGenGm.GetPhyAddr() +
                 (info.c1v1DbIdx * tilingData_->workspaceParams.aivNum + GetBlockIdx()),
             (vec1Loop - 1) / constInfo.dbWorkspaceRatio + 1U);

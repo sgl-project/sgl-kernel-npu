@@ -12,8 +12,9 @@
   - AIC 读：`readGenBase + (info.cubeDbIdx * aivNum + a)`
   - AIV 写：`readGenGm + (info.c1v1DbIdx * aivNum + GetBlockIdx())`
   - host 归零区域不变（仍是 `aivNum*dbRatio` 个 uint32）。
-- **③ API 名**：`ReadGmByPassDCache` / `WriteGmByPassDCache`
-  → `ReadGmBypassDCache` / `WriteGmBypassDCache`（同操作，仅去废弃告警）。
+- **③ 已回滚**：服务器 CANN 9.1.0 只有旧名 `ReadGmByPassDCache` / `WriteGmByPassDCache`，
+  新名 `ReadGmBypassDCache` / `WriteGmBypassDCache` 是 9.2.0 才加的，9.1.0 编译报
+  "no member named 'ReadGmBypassDCache'"。**保持旧名**（旧名在 9.2.0 仍可用，仅 deprecation 告警）。
 
 ### ② 已撤销（原"跳过本核 AIV"）
 
@@ -74,12 +75,12 @@ WaitFlag<MTE1_MTE2>(X_EVENT0 + xBufId);
 CopyXGmToL1(info, xL1Tensor, hStart + hIdx, kSize);   // 发射 MTE2
 SetFlag<MTE2_MTE1>(X_EVENT0 + xBufId);
 // ★ 轮询（只在第一次 K 迭代需要；后续已保证）
-if (needPollReadGen) {
-    for (uint32_t a = 0; a < aivNum; ++a) {
-        if (a == local0 || a == local0 + 1) continue;
-        while (AscendC::ReadGmBypassDCache(readGenBase + (cubeDbIdx * aivNum + a)) < gen) {}
+if (needReadGenPoll_) {
+    for (uint32_t a = 0; a < readGenPollAivNum_; ++a) {
+        while (AscendC::ReadGmByPassDCache(readGenPollBase_ + (readGenPollDbIdx_ * readGenPollAivNum_ + a)) <
+               readGenPollGen_) {}
     }
-    needPollReadGen = false;
+    needReadGenPoll_ = false;
 }
 WaitFlag<MTE2_MTE1>(X_EVENT0 + xBufId);
 ```

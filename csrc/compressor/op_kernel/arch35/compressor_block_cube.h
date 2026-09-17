@@ -399,7 +399,7 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
         // the last K iteration.
         if (needReadGenPoll_) {
             for (uint32_t a = 0; a < readGenPollAivNum_; ++a) {
-                while (AscendC::ReadGmBypassDCache(readGenPollBase_ + (readGenPollDbIdx_ * readGenPollAivNum_ + a)) <
+                while (AscendC::ReadGmByPassDCache(readGenPollBase_ + (readGenPollDbIdx_ * readGenPollAivNum_ + a)) <
                        readGenPollGen_) {
                 }
             }

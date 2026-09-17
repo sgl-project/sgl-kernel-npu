@@ -17,7 +17,8 @@
   AIC 读 `readGenBase + (cubeDbIdx * aivNum + a)`；
   AIV 写 `readGenGm + (c1v1DbIdx * aivNum + GetBlockIdx())`。
   **host 归零区域不变**。
-- **③**：`ReadGmByPassDCache`/`WriteGmByPassDCache` → `ReadGmBypassDCache`/`WriteGmBypassDCache`。
+- **③ 已回滚**：保持旧名 `ReadGmByPassDCache`/`WriteGmByPassDCache`
+  （服务器 CANN 9.1.0 只有旧名；`ReadGmBypassDCache` 是 9.2.0 才加的）。
 - **⑤**：`readGen` 轮询从 `ComputeMm1` 入口挪到 `block_cube.h::ComputeMm1` 的
   **x 载入发射之后、`WaitFlag(MTE2_MTE1)` 之前**，与 MTE2 搬运并行。
   - 轮询参数经 `blockCube_.SetReadGenPoll(base, gen, dbIdx, aivNum)` 传入；
