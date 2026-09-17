@@ -12,10 +12,10 @@
 #ifndef TLA_INT_TUPLE_HPP
 #define TLA_INT_TUPLE_HPP
 
-#include "../tla/type_traits.hpp"
-#include "../tla/tuple.hpp"
-#include "../tla/numeric/integral_constant.hpp"
-#include "../tla/numeric/integer_sequence.hpp"
+#include "../attn_tla/type_traits.hpp"
+#include "../attn_tla/tuple.hpp"
+#include "../attn_tla/numeric/integral_constant.hpp"
+#include "../attn_tla/numeric/integer_sequence.hpp"
 
 namespace tla {
 

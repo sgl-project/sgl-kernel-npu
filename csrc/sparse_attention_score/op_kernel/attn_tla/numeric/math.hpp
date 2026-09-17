@@ -13,7 +13,7 @@
 #define TLA_NUMERIC_MATH_HPP
 
 #include "../../attn_infra/detail/macros.hpp"
-#include "../../tla/type_traits.hpp"
+#include "../../attn_tla/type_traits.hpp"
 
 namespace tla {
 

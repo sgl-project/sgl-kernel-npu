@@ -12,7 +12,7 @@
 #define DETAIL_TAG_TO_LAYOUT_HPP
 
 #include "../../attn_infra/layout/layout.hpp"
-#include "../../tla/layout.hpp"
+#include "../../attn_tla/layout.hpp"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

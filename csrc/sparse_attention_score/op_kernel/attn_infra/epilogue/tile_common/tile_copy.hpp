@@ -18,7 +18,7 @@
 #include "../../../attn_infra/epilogue/tile_common/copy_ub_to_gm.hpp"
 #include "../../../attn_infra/epilogue/tile_common/copy_gm_to_ub_tla.hpp"
 #include "../../../attn_infra/epilogue/tile_common/copy_ub_to_gm_tla.hpp"
-#include "../../../tla/tensor.hpp"
+#include "../../../attn_tla/tensor.hpp"
 
 namespace NpuArch::Epilogue::Tile {
 

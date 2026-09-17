@@ -11,10 +11,17 @@
 #ifndef DEPENDENT_FALSE_HPP
 #define DEPENDENT_FALSE_HPP
 
+// Namespaced under NpuArch to avoid colliding with the identically named
+// global variable templates in third_party/catlass
+// (catlass/detail/dependent_false.hpp) when both header trees are visible.
+namespace NpuArch {
+
 template <bool VALUE, class... Args>
 constexpr bool DEPENDENT_BOOL_VALUE = VALUE;
 
 template <class... Args>
 constexpr bool DEPENDENT_FALSE = DEPENDENT_BOOL_VALUE<false, Args...>;
+
+}  // namespace NpuArch
 
 #endif  // DETAIL_DEPENDENT_FALSE_HPP
