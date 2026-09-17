@@ -4,6 +4,10 @@ import torch
 import triton
 import triton.language as tl
 
+# The NPU runtime limits the product of all grid dimensions per launch.
+_MAX_GRID_PROGRAMS = 65535
+_SPLITS = 8
+
 
 @triton.jit
 def _sparse_partials(
@@ -31,7 +35,7 @@ def _sparse_partials(
     SCALE: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
-    row = tl.program_id(0)
+    row = tl.program_id(0).to(tl.int64)
     head = tl.program_id(1)
     split = tl.program_id(2)
     dims = tl.arange(0, DIM)
@@ -93,7 +97,7 @@ def _merge_partials(
 
 
 def can_run_sparse_attention(q, k, v, slots) -> bool:
-    """Whether tensor metadata matches the temporary kernel's supported layout."""
+    """Whether tensor metadata fits the supported layout and launch bounds."""
     return (
         q.device.type == "npu"
         and q.ndim == k.ndim == v.ndim == 3
@@ -105,7 +109,7 @@ def can_run_sparse_attention(q, k, v, slots) -> bool:
         and q.shape[-1] == k.shape[-1]
         and q.shape[-1] in (64, 128, 256)
         and k.shape[1] > 0
-        and q.shape[1] > 0
+        and 0 < q.shape[1] <= _MAX_GRID_PROGRAMS // _SPLITS
         and q.shape[1] % k.shape[1] == 0
         and q.shape[0] == slots.shape[0]
         and q.stride(-1) == k.stride(-1) == v.stride(-1) == 1
@@ -121,41 +125,56 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
     width = slots.shape[1]
     if rows == 0 or width == 0:
         return torch.zeros_like(q)
-    splits = 8
+    splits = _SPLITS
     block = 32
+    # Chunk query rows so both the split grid and the smaller merge grid fit.
+    # Keep each row's split reductions unchanged, including in graph capture.
+    chunk_rows = min(rows, _MAX_GRID_PROGRAMS // (heads * splits))
     partial = torch.empty(
-        (rows, heads, splits, dim), device=q.device, dtype=torch.float32
+        (chunk_rows, heads, splits, dim), device=q.device, dtype=torch.float32
     )
-    maxima = torch.empty((rows, heads, splits), device=q.device, dtype=torch.float32)
+    maxima = torch.empty(
+        (chunk_rows, heads, splits), device=q.device, dtype=torch.float32
+    )
     sums = torch.empty_like(maxima)
     output = torch.empty(q.shape, device=q.device, dtype=q.dtype)
-    _sparse_partials[(rows, heads, splits)](
-        q,
-        k,
-        v,
-        slots,
-        partial,
-        maxima,
-        sums,
-        q.stride(0),
-        q.stride(1),
-        k.stride(0),
-        k.stride(1),
-        v.stride(0),
-        v.stride(1),
-        slots.stride(0),
-        slots.stride(1),
-        heads,
-        heads // k.shape[1],
-        dim,
-        width,
-        splits,
-        triton.cdiv(width, splits * block),
-        softmax_scale or dim**-0.5,
-        block,
-        enable_fp_fusion=False,
-    )
-    _merge_partials[(rows * heads,)](
-        partial, maxima, sums, output, dim, splits, enable_fp_fusion=False
-    )
+    for start in range(0, rows, chunk_rows):
+        count = min(chunk_rows, rows - start)
+        query = q[start : start + count]
+        indices = slots[start : start + count]
+        _sparse_partials[(count, heads, splits)](
+            query,
+            k,
+            v,
+            indices,
+            partial,
+            maxima,
+            sums,
+            query.stride(0),
+            query.stride(1),
+            k.stride(0),
+            k.stride(1),
+            v.stride(0),
+            v.stride(1),
+            indices.stride(0),
+            indices.stride(1),
+            heads,
+            heads // k.shape[1],
+            dim,
+            width,
+            splits,
+            triton.cdiv(width, splits * block),
+            softmax_scale or dim**-0.5,
+            block,
+            enable_fp_fusion=False,
+        )
+        _merge_partials[(count * heads,)](
+            partial,
+            maxima,
+            sums,
+            output[start : start + count],
+            dim,
+            splits,
+            enable_fp_fusion=False,
+        )
     return output

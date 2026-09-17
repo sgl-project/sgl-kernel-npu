@@ -119,6 +119,8 @@ def can_run_norm(x, weight, group_size):
 
 def grouped_norm(x, weight, group_size, eps):
     dim = group_size if group_size is not None else x.shape[-1]
+    if x.numel() // dim > _MAX_GRID_PROGRAMS:
+        raise ValueError("NPU HC normalization grid exceeds the launch limit")
     y = torch.empty_like(x)
     if x.numel():
         _norm[(x.numel() // dim,)](
@@ -156,6 +158,15 @@ def can_run_mix(x, down, up, hc, hs):
 
 
 def mix(x, down, up, hc, hs):
+    # Enforce the runtime bound even when called without the performance guard.
+    if (
+        max(
+            triton.cdiv(x.shape[0] * down.shape[0], 256),
+            x.shape[0] * triton.cdiv(hs, 256),
+        )
+        > _MAX_GRID_PROGRAMS
+    ):
+        raise ValueError("NPU HC mix grid exceeds the launch limit")
     hidden = F.linear(x, down)
     activated = torch.empty_like(hidden)
     if hidden.numel():
@@ -204,6 +215,8 @@ def can_run_combine(block, residual, normed, weight, hc, hs):
 
 
 def combine(block, residual, normed, weight, hc, hs):
+    if residual.shape[0] * triton.cdiv(hs, 512) > _MAX_GRID_PROGRAMS:
+        raise ValueError("NPU HC combine grid exceeds the launch limit")
     gates = F.linear(normed, weight)
     y = torch.empty_like(residual)
     if residual.shape[0]:

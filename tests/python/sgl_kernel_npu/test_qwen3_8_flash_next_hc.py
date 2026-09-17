@@ -144,5 +144,18 @@ def test_combine_intermediate_rounding_under_cancellation():
     torch.testing.assert_close(actual, torch.zeros_like(actual), atol=0, rtol=0)
 
 
+@pytest.mark.parametrize("operation", ["norm", "mix", "combine"])
+def test_direct_calls_reject_oversized_grid(operation):
+    x = torch.empty(65536, 1, device="npu")
+    weight = torch.ones(1, 1, device="npu")
+    with pytest.raises(ValueError, match="grid exceeds the launch limit"):
+        if operation == "norm":
+            hc.grouped_norm(x, weight.flatten(), 1, 1e-6)
+        elif operation == "mix":
+            hc.mix(x, weight, weight, 1, 1)
+        else:
+            hc.combine(x, x, x, weight, 1, 1)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

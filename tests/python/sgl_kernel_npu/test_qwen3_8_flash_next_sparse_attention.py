@@ -137,3 +137,59 @@ def test_sparse_attention_large_batch():
     expected = qsa_sparse_attention_reference(*args)
     actual = sparse_attention(*args)
     torch.testing.assert_close(actual, expected, atol=2e-3, rtol=2e-3)
+
+
+@pytest.mark.parametrize(
+    "rows,dim,width,dtype",
+    [
+        (2730, 64, 33, torch.float32),  # Last row count below the split-grid limit.
+        (2731, 64, 33, torch.float32),
+        (4096, 256, 2051, torch.bfloat16),  # Full prefill chunk for this model.
+        (21846, 64, 1, torch.bfloat16),  # Even the unchunked merge grid overflows.
+    ],
+)
+def test_sparse_attention_launch_boundaries(rows, dim, width, dtype):
+    q, k, v, slots = make_inputs(4, 3, 1, dim, width, dtype)
+    # Repeat distinct rows to check both chunk offsets and the final partial chunk.
+    expected = qsa_sparse_attention_reference(q, k, v, slots)
+    copies = (rows + 3) // 4
+    q = q.repeat(copies, 1, 1)[:rows].transpose(0, 1).contiguous().transpose(0, 1)
+    slots = slots.repeat(copies, 1)[:rows].t().contiguous().t()
+    actual = sparse_attention(q, k, v, slots)
+    tolerance = 2e-5 if dtype == torch.float32 else 2e-3
+    torch.testing.assert_close(
+        actual, expected.repeat(copies, 1, 1)[:rows], atol=tolerance, rtol=tolerance
+    )
+
+
+def test_sparse_attention_chunked_graph_replay():
+    rows = 2731
+    q, k, v, slots = make_inputs(4, 3, 1, 64, 33, torch.bfloat16)
+    copies = (rows + 3) // 4
+    queries = q.repeat(copies, 1, 1)[:rows]
+    indices = slots.repeat(copies, 1)[:rows]
+    for _ in range(2):
+        sparse_attention(queries, k, v, indices)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        actual = sparse_attention(queries, k, v, indices)
+    for length in (0, 17, 33):
+        q.normal_()
+        slots.fill_(-1)
+        slots[:, :length] = 1
+        queries.copy_(q.repeat(copies, 1, 1)[:rows])
+        indices.copy_(slots.repeat(copies, 1)[:rows])
+        graph.replay()
+        torch.npu.synchronize()
+        expected = qsa_sparse_attention_reference(q, k, v, slots)
+        torch.testing.assert_close(
+            actual, expected.repeat(copies, 1, 1)[:rows], atol=2e-3, rtol=2e-3
+        )
+
+
+def test_sparse_attention_head_count_exceeds_launch_limit():
+    q, k, v, slots = make_inputs(1, 8192, 1, 64, 1, torch.bfloat16)
+    assert not can_run_sparse_attention(q, k, v, slots)
+    with pytest.raises(ValueError, match="Unsupported NPU"):
+        sparse_attention(q, k, v, slots)
