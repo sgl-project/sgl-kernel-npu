@@ -74,9 +74,9 @@ SPECULATIVE_TESTS=(
 )
 
 MAMBA_TESTS=(
-    # test_conv1d_prefill.py  # FAILING: PyTorch 2.10.0 strict schema check
+    test_conv1d_prefill.py
     test_conv1d_update.py
-    # test_mamba_conv.py  # FAILING: varlen conv fp16 swish+bias output mismatch (ratio ~1.0)
+    test_mamba_conv.py
     # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
 )
 
@@ -161,6 +161,32 @@ case "$TEST_GROUP" in
         exit 1
         ;;
 esac
+
+# CANN 9.1.0: skip flaky/broken fla tests that only fail on this image.
+# - test_triangular_inverse.py: torch_npu builtin op output mismatch (DTS 20260819-#2)
+# - test_chunk_gdn_triton.py:    intermittent aicore timeout, error 507014 (DTS 20260819-#3)
+# Both still run on CANN 9.0.0 where they pass.
+if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
+    SKIP_ON_910=(
+        test_triangular_inverse.py
+        test_chunk_gdn_triton.py
+    )
+    FILTERED_TESTS=()
+    for t in "${TESTS[@]}"; do
+        local_skip=0
+        for s in "${SKIP_ON_910[@]}"; do
+            if [[ "$t" == "$s" ]]; then
+                local_skip=1
+                break
+            fi
+        done
+        if [ "$local_skip" -eq 0 ]; then
+            FILTERED_TESTS+=("$t")
+        fi
+    done
+    echo "[CANN_VERSION=$CANN_VERSION] skipping on 9.1.0: ${SKIP_ON_910[*]}"
+    TESTS=("${FILTERED_TESTS[@]}")
+fi
 
 echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
 echo ""

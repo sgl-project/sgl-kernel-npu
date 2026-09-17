@@ -183,10 +183,10 @@ private:
     uint32_t expertIdsCnt{0};
     uint32_t stateOffset{0};
     uint32_t dataState{0};
-    uint32_t winDataSizeOffset{0};
     uint32_t waitRecvCostStatsBufSize{0};
     uint32_t srcRankOffset{0};
-    uint32_t baseWindSize{0};
+    uint64_t winDataSizeOffset{0};
+    uint64_t baseWindSize{0};
 
     uint32_t startStatusId;
     uint32_t endStatusId;
@@ -808,7 +808,17 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     recvCountLocalSync.SetFlag(0);
     recvCountLocalSync.WaitFlag(0);
 
-    for (uint32_t i = startStatusId; i < endStatusId; ++i) {
+    for (uint32_t index = startStatusId; index < endStatusId; ++index) {
+        uint64_t expertStart = 0;
+        // Expert global index logic:
+        // 1. index % moeExpertNumPerRank: Calculate the expert offset within the current rank, range [0,
+        // moeExpertNumPerRank-1]
+        // 2. epRankSize * (...): Convert the expert offset to a cross-rank expert group start index (each rank contains
+        // moeExpertNumPerRank experts)
+        // 3. index / moeExpertNumPerRank: Calculate the rank offset of the current index, range [0, epRankSize-1]
+        // 4. Final i is the global expert index, formula equivalent to: i = expert group ID * total ranks + rank offset
+        // within group
+        uint32_t i = epRankSize * (index % moeExpertNumPerRank) + index / moeExpertNumPerRank;
         preCount = 0;
         if (likely(i != 0)) {
             preCount = recvCountTensor(i - 1);

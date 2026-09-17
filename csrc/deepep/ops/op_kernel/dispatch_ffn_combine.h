@@ -168,7 +168,7 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
 
     int64_t activeNum = 0;
     int64_t expertCapacity = 0;
-    int64_t expertNum = expertPerRank * EP;
+    int64_t expertNum = static_cast<int64_t>(expertPerRank) * static_cast<int64_t>(EP);
     int64_t dropPadMode = 0;
     int64_t expertTokensCountOrCumsumFlag = 2;
     bool expertTokensBeforeCapacityFlag = false;
@@ -239,7 +239,7 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
     GemmCoord problemShape{static_cast<uint32_t>(m), static_cast<uint32_t>(n), static_cast<uint32_t>(k)};
 
     uint32_t epilogueCoreNum = aivNum / 2;
-    uint32_t epilogueGranularity = expertPerRank - 1;
+    uint32_t epilogueGranularity = (expertPerRank > 0) ? (expertPerRank - 1) : 0;
 
     typename MatmulKernel::Params params{problemShape,
                                          static_cast<uint32_t>(EP),

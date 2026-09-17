@@ -205,7 +205,7 @@ private:
     uint32_t flagRcvCount_{0};
     uint32_t axisBsAlignSize_{0};
     uint32_t expertScaleBeginIdx_{0};
-    uint32_t baseWindSize_{0};
+    uint64_t baseWindSize_{0};
 
     TQueBind<QuePosition::VECIN, QuePosition::VECOUT, 1> moeQueue_;
     TQue<QuePosition::VECIN, 1> moeSumQueue_;

@@ -2,13 +2,15 @@
 #define COMM_ARGS_H
 #include <cstdint>
 
+#include "window_layout.h"
+
 #define FORCE_INLINE_AICORE __attribute__((always_inline)) inline __aicore__
 #include "kernel_operator.h"
 
 namespace Moe {
 constexpr int CAM_MAX_RANK_SIZE = 384;  // Maximum number of NPU cards supported by the communication library
 
-constexpr uint64_t NOTIFY_DISPATCH_BUFF_OFFSET = 102UL * 1024UL * 1024UL;
+constexpr uint64_t NOTIFY_DISPATCH_BUFF_OFFSET = A3WindowLayout::kNotifyDispatchSize;
 constexpr int64_t IPC_BUFF_MAX_SIZE = 100 * 1024 * 1024;
 constexpr int64_t IPC_DATA_OFFSET = 2 * 1024 * 1024;  // First 2MB as flag, then 100MB as data storage
 constexpr int64_t PING_PONG_SIZE = 2;

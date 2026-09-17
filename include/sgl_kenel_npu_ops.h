@@ -52,6 +52,21 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               const at::Tensor &host_indices, int64_t page_size,
                               int64_t direction, int64_t flags);
 
+void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
+                          const at::Tensor &device_indices,
+                          const at::Tensor &host_indices, int64_t direction);
+void transfer_state_per_layer_direct_pf_lf(const at::Tensor &src,
+                                           const at::Tensor &dst,
+                                           const at::Tensor &src_indices,
+                                           const at::Tensor &dst_indices,
+                                           int64_t layer_id, int64_t flags);
+
+void transfer_state_all_layer_direct_lf_pf(at::TensorList device_states,
+                                           at::TensorList host_states,
+                                           const at::Tensor &device_indices,
+                                           const at::Tensor &host_indices,
+                                           int64_t flags);
+
 at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
                        at::Tensor &y, int64_t slice_offset, int64_t slice_size);
 
@@ -87,6 +102,18 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_indices, double scale_value,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    const c10::optional<at::Tensor> &query_rope,
+    const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
+    c10::string_view layout_query, c10::string_view layout_kv,
+    int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
+    int64_t attention_mode, bool return_softmax_lse);
+
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
@@ -143,6 +170,8 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+#endif
+
 at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       const at::Tensor &wgate, at::Tensor &state_cache,
                       const at::Tensor &ape, const at::Tensor &norm_weight,
@@ -155,6 +184,24 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       double norm_eps, int64_t rotary_mode, int64_t cache_mode,
                       int64_t state_cache_stride_dim0);
 
+std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
+    const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
+    const c10::optional<at::Tensor> &cmp_kv,
+    const c10::optional<at::Tensor> &ori_sparse_indices,
+    const c10::optional<at::Tensor> &cmp_sparse_indices,
+    const c10::optional<at::Tensor> &ori_block_table,
+    const c10::optional<at::Tensor> &cmp_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+    const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv,
+    const c10::optional<at::Tensor> &sinks,
+    const c10::optional<at::Tensor> &metadata, double softmax_scale,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
@@ -165,6 +212,36 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
+
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
+                        const at::Tensor &slot_mapping,
+                        int64_t quant_group_size, int64_t quant_mode,
+                        bool round_scale_flag, int64_t layout);
+
+/**
+ * @brief Fused SwiGLU activation + quantization (A5 only).
+ *
+ * Halves x along its last dim into gate/up, applies SwiGLU, and quantizes the
+ * result. All three quant modes are supported: quant_mode 1 = per-128-element
+ * group scales (fp32), 2 = MX per-32 scales (e8m0), 3 = per-token (fp8, e8m0
+ * when ue8m0_scale is set).
+ *
+ * @param topk_weight      optional per-row weight applied before quantization
+ * @param group_index      optional per-group token counts (prefix sums); when
+ * present every core walks the whole list, so the launch uses tiling's coreNum
+ * @param dst_type         y's dtype: Float8_e4m3fn (default) or Float8_e5m2
+ * @param clamp_value      when non-zero, activates clamping of the SwiGLU
+ * result
+ * @return tuple of (y, scale, y_origin); y_origin is only meaningful when
+ * output_origin is set
+ */
+std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
+    const at::Tensor &x, const c10::optional<at::Tensor> &topk_weight,
+    const c10::optional<at::Tensor> &group_index,
+    c10::optional<at::ScalarType> dst_type, int64_t quant_mode,
+    int64_t group_size, bool round_scale, bool ue8m0_scale, bool output_origin,
+    int64_t group_list_type, double clamp_value);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -205,6 +282,56 @@ at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
     int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
     bool has_ori_kv, bool has_cmp_kv);
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+/**
+ * @brief Sparse row copy: for each i where valid_mask[i] is true,
+ *   dst[dst_index[i]] = src[src_index[i]]
+ *
+ * Src and dst are viewed as byte buffers of shape [rows, block_bytes].
+ * Used by the Ascend NPU sparse KV cache path to move selected KV rows
+ * between host-slab and device buffers.
+ */
+void unidex_copy(const at::Tensor &src, at::Tensor &dst,
+                 const at::Tensor &src_index, const at::Tensor &dst_index,
+                 const at::Tensor &valid_mask, int64_t src_rows,
+                 int64_t dst_rows, int64_t block_bytes, int64_t max_copy,
+                 int64_t block_dim, c10::optional<int64_t> src_ptr,
+                 c10::optional<int64_t> dst_ptr);
+
+/**
+ * @brief Look up slot_map[req_indices[b], topk_indices[b, k]] for each query.
+ *
+ * Replaces the broadcast + eq + any + argmax pattern used for device cache
+ * lookup in the sparse KV cache path.
+ *
+ * Outputs (pre-allocated, written in place):
+ *   token_on_device[bs, topk]: int32 indicator, 1 for hit and 0 for miss
+ *   device_token_pos[bs, topk]: int32 slot position, or -1 for a miss
+ *
+ * block_dim=0 selects the default block count.
+ */
+void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
+                     const at::Tensor &topk_indices,
+                     at::Tensor &token_on_device, at::Tensor &device_token_pos,
+                     int64_t block_dim);
+
+/**
+ * @brief Create host shared memory and register it to the NPU device.
+ *
+ * Returns:
+ *   host pointer as int64_t
+ *   device-visible pointer as int64_t
+ */
+std::tuple<int64_t, int64_t>
+shm_allocator_create_and_register(int64_t size, int64_t device_id,
+                                  c10::string_view name);
+
+/**
+ * @brief Unregister and free all shared-memory entries for one device.
+ */
+void shm_allocator_free_all(int64_t device_id);
+#endif
 
 } // namespace npu_kernel
 

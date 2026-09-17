@@ -206,7 +206,7 @@ def test_conv_varlen_update(
     state_indexs = torch.Tensor(state_indexs).to(device).long()
 
     x = torch.randn(T, D).to(device, dtype)
-    weight = torch.randn(D, W).to(device, dtype) * 0
+    weight = torch.randn(D, W).to(device, dtype)
     bias = torch.randn(D).to(device, dtype) if has_bias else None
     residual = x.clone() if has_residual else None
     conv_states_ref = torch.randn(T + 1, D, W - 1).to(device, dtype)
