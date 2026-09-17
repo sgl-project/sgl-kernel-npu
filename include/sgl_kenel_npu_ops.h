@@ -169,7 +169,6 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_query,
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
-
 #endif
 
 at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
@@ -219,6 +218,9 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
 
+std::tuple<at::Tensor, at::Tensor>
+situ_mxfp8_quant(const at::Tensor &x, const at::Tensor &group_list,
+                 int64_t group_list_type, double beta, double linear_beta);
 /**
  * @brief Fused SwiGLU activation + quantization (A5 only).
  *
@@ -290,6 +292,23 @@ at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
     bool has_ori_kv, bool has_cmp_kv);
 
+std::tuple<at::Tensor, c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           at::Tensor, at::Tensor, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>>
+chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+              const at::Tensor &g, const at::Tensor &beta,
+              const c10::optional<at::Tensor> &aLog,
+              const c10::optional<at::Tensor> &dtBias,
+              const c10::optional<at::Tensor> &initialState,
+              const c10::optional<at::Tensor> &cuSeqlens,
+              const c10::optional<at::Tensor> &chunkIndices,
+              const std::string &layout, double scale, int64_t chunkSize,
+              bool safeGate, double lowerBound, bool useGateInKernel,
+              bool stateVFirst, bool outputFinalState, bool outputGk,
+              bool outputW, bool outputU, bool outputQG, bool outputKg,
+              bool outputVNew, bool outputH);
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 /**
  * @brief Sparse row copy: for each i where valid_mask[i] is true,
