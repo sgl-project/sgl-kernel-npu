@@ -16,7 +16,9 @@
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 #include "causal_conv1d/op_host/causal_conv1d.h"
+#endif
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -104,21 +106,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
     m.def(
-        "causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, Tensor? bias=None, "
-        "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
-        "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, "
-        "int run_mode=0) -> Tensor");
-
-    m.def(
-        "chunk_gated_delta_rule(Tensor query, Tensor key, Tensor value, *, Tensor? beta=None, "
-        "Tensor? initial_state=None, Tensor? actual_seq_lengths=None, float? scale=None, "
-        "Tensor? g=None, Tensor(c!)? chunk_state=None) -> (Tensor, Tensor)");
         "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
         "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
         "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
         "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
         "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
         "int state_cache_stride_dim0=0) -> Tensor");
+
+    m.def(
+        "chunk_gated_delta_rule(Tensor query, Tensor key, Tensor value, *, Tensor? beta=None, "
+        "Tensor? initial_state=None, Tensor? actual_seq_lengths=None, float? scale=None, "
+        "Tensor? g=None, Tensor(c!)? chunk_state=None) -> (Tensor, Tensor)");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
@@ -337,6 +335,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                                     query_loc_or_empty, activation_mode, pad_slot_id);
            });
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("causal_conv1d", [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
                                const c10::optional<at::Tensor> &bias, const c10::optional<at::Tensor> &query_start_loc,
                                const c10::optional<at::Tensor> &cache_indices,
@@ -359,7 +358,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
