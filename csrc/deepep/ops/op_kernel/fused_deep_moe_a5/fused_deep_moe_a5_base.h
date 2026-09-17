@@ -20,7 +20,7 @@
 #define TemplateDispatchTypeFunc \
     XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgater, EXEC_FLAG
 
-constexpr int64_t SLEEP_CYCLE = 50;
+constexpr int64_t SLEEP_CYCLE = 200;
 
 __aicore__ inline void SPIN_WAIT_CYCLES()
 {

@@ -3,7 +3,7 @@
 Native AscendC block-sparse attention kernel for MiniMax-M3, statically linked
 into `libsgl_kernel_npu.so` and registered as `torch.ops.npu.npu_sparse_attention_score`.
 
-This is the **main attention** step (post-indexer): given a set of pre-selected
+This is the **main attention** step (post-indexer): given a set of preselected
 top-k KV blocks per query, it computes sparse attention only over those blocks
 instead of full attention. It replaces the Triton split-K fallback on Ascend NPU
 when available — self-contained, with no PTA plugin and no `ASCEND_CUSTOM_OPP_PATH`.
