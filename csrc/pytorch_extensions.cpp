@@ -336,6 +336,22 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
            });
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
+
+    m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
+
+    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
+
+    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
+    m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
+
+    m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
+
+    m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+    
     m.impl("causal_conv1d", [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
                                const c10::optional<at::Tensor> &bias, const c10::optional<at::Tensor> &query_start_loc,
                                const c10::optional<at::Tensor> &cache_indices,
@@ -357,22 +373,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             x, weight, bias_or_empty, conv_states, query_start_loc_or_empty, cache_indices_or_empty,
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
-
-    m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
-
-    m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
-
-    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
-
-    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
-
-    m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
-
-    m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
-
-    m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
-
-    m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
