@@ -72,7 +72,13 @@ setuptools.setup(
     version=_version,
     description="python api for sgl_kernel_npu",
     packages=find_namespace_packages(
-        exclude=("tests*", "target_providers", "target_providers.*")
+        exclude=(
+            "tests*",
+            "build_tools",
+            "build_tools.*",
+            "target_providers",
+            "target_providers.*",
+        )
     ),
     ext_modules=[NpuExtension("sgl_kernel_npu._C", sources=[])],
     cmdclass={"build_py": TargetBuildPy},

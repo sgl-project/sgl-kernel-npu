@@ -83,13 +83,19 @@ def wheel_setup(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch_npu", torch_npu)
     monkeypatch.setitem(sys.modules, "torch_npu.utils", torch_npu_utils)
     monkeypatch.setitem(sys.modules, "torch_npu.utils.cpp_extension", cpp_extension)
-    monkeypatch.setattr(setuptools, "setup", lambda **kwargs: None)
+    setup_kwargs = {}
+    monkeypatch.setattr(
+        setuptools, "setup", lambda **kwargs: setup_kwargs.update(kwargs)
+    )
     monkeypatch.setattr(ConfigParser, "get", lambda *args, **kwargs: "0.0.0")
 
     spec = importlib.util.spec_from_file_location("sgl_kernel_npu_setup", SETUP_PATH)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    # build.sh runs setup.py from here, and package discovery is cwd-relative.
+    monkeypatch.chdir(PACKAGE_ROOT)
     spec.loader.exec_module(module)
+    module.setup_kwargs = setup_kwargs
     return module
 
 
@@ -226,12 +232,12 @@ def test_source_tree_keeps_providers_out_of_the_package():
     assert (providers / "Ascend950" / "norm" / "gemma_rmsnorm.py").exists()
 
 
-def test_setup_excludes_provider_tree_from_packages():
-    """``target_providers/`` sits next to setup.py and holds .py files.
+def test_wheel_packages_only_sgl_kernel_npu(wheel_setup):
+    """Build inputs next to setup.py must stay out of the wheel.
 
-    Without the exclusion, find_namespace_packages would pick it up as a
-    namespace package and ship the whole provider tree into the wheel.
+    ``target_providers/`` and ``build_tools/`` sit beside the package and hold
+    .py files, so find_namespace_packages would otherwise ship them as
+    top-level packages.
     """
-    setup_source = SETUP_PATH.read_text(encoding="utf-8")
-    expected_exclude = 'exclude=("tests*", "target_providers", "target_providers.*")'
-    assert expected_exclude in setup_source
+    packages = wheel_setup.setup_kwargs["packages"]
+    assert {name.split(".")[0] for name in packages} == {"sgl_kernel_npu"}
