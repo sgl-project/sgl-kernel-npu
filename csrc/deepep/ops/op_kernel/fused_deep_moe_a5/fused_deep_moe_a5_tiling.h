@@ -25,16 +25,26 @@ struct WorkSpaceOffset {
     int64_t shareX2ScaleOffset;
     int64_t x2ScaleOffset;
 
-    int64_t shareMm1SwapSpaceOffset;  // 交换空间，用于C->V数据交换
-    int64_t shareMm2SwapSpaceOffset;  // 交换空间，用于C->V数据交换
-    int64_t gmm1SwapSpaceOffset;      // 交换空间，用于C->V数据交换
-    int64_t gmm2SwapSpaceOffset;      // 交换空间，用于C->V数据交换
-    int64_t y2TokenOffset;            // 浅融合使用，已反量化无scale
-    int64_t groupListOffset;          // 各专家token数前缀和形式
-    int64_t expandIdxOffset;          // dispatch时token在远端索引
-    int64_t epSendCountOffset;        // 各专家从各个rank收到的token数
-    int64_t reservedOffset;           // 预留空间
+    int64_t shareMm1SwapSpaceOffset;       // 交换空间，用于C->V数据交换
+    int64_t shareMm2SwapSpaceOffset;       // 交换空间，用于C->V数据交换
+    int64_t gmm1SwapSpaceOffset;           // 交换空间，用于C->V数据交换
+    int64_t gmm2SwapSpaceOffset;           // 交换空间，用于C->V数据交换
+    int64_t y2TokenOffset;                 // 浅融合使用，已反量化无scale
+    int64_t groupListOffset;               // 各专家token数前缀和形式
+    int64_t expandIdxOffset;               // dispatch时token在远端索引
+    int64_t epSendCountOffset;             // 各专家从各个rank收到的token数
+    int64_t routedGroupMetaOffset;         // 稀疏routed路径的group metadata
+    int64_t routedActiveGroupCountOffset;  // 稀疏routed路径的active group的数量
+    int64_t routedActiveGroupIdsOffset;    // 稀疏routed路径的active group
+    int64_t reservedOffset;                // 预留空间
 };
+
+struct RoutedGroupMeta {
+    uint32_t tokenCount;             // 当前 group 实际收到的 token 数
+    uint32_t computeActiveAivCount;  // GMM2 等待的 routed-X2 ready 通知数
+    uint8_t padding[24];             // 保持每个 group 独占一个 32B GM block
+};
+static_assert(sizeof(RoutedGroupMeta) == 32, "RoutedGroupMeta must occupy one GM cache line");
 
 struct FusedDeepMoeInfo {
     uint32_t epRankSize;           // epRankSize
@@ -63,6 +73,7 @@ struct FusedDeepMoeInfo {
     uint64_t gmm1WeightExpertStrideBytes;
     uint64_t gmm2WeightExpertStrideBytes;
     bool isTensorList;
+    uint32_t enableRoutedSparseFastPath;
 };
 
 struct FusedDeepMoeTilingData {
@@ -76,6 +87,10 @@ constexpr uint32_t GMM1_L1M = 256;
 constexpr uint32_t GMM1_L1N = 256;
 constexpr uint32_t GMM1_L1K = 256;
 constexpr uint32_t GMM1_L0K = 128;
+// FP4 stores two logical values per byte, so its L1/L0 K tiles can be
+// doubled while keeping the same physical buffer footprint as FP8.
+constexpr uint32_t GMM1_L1K_FP4 = 512;
+constexpr uint32_t GMM1_L0K_FP4 = 256;
 constexpr uint32_t GMM1_EPIM = 64;
 constexpr uint32_t GMM1_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM1_SWIZZLE_DIRECTION = 0;
@@ -84,6 +99,8 @@ constexpr uint32_t GMM2_L1M = 256;
 constexpr uint32_t GMM2_L1N = 256;
 constexpr uint32_t GMM2_L1K = 256;
 constexpr uint32_t GMM2_L0K = 128;
+constexpr uint32_t GMM2_L1K_FP4 = 512;
+constexpr uint32_t GMM2_L0K_FP4 = 256;
 constexpr uint32_t GMM2_EPIM = 64;
 constexpr uint32_t GMM2_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;

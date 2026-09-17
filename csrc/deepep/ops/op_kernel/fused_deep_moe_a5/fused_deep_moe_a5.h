@@ -34,14 +34,44 @@ using ElementC = float;
 using ElementMxScale = fp8_e8m0_t;
 using ElementGroupList = int64_t;
 
-using Gmm1L1TileShape = Shape<Int<GMM1_L1M>, Int<GMM1_L1N>, Int<GMM1_L1K>>;
-using Gmm1L0TileShape = Shape<Int<GMM1_L1M>, Int<GMM1_L1N>, Int<GMM1_L0K>>;
+// FP4 uses the deeper L1 pipeline used by the standalone grouped-matmul
+// implementation.  ND/NZ layout selection remains in LayoutTagB; the
+// pipeline parameters depend only on the FP4 element types.
+template <class ElementA, class ElementB>
+inline constexpr bool IsFp4Gmm =
+    (std::is_same_v<ElementA, float4_e2m1x2_t> || std::is_same_v<ElementA, float4_e1m2x2_t>) &&
+    (std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>);
+
+template <class ElementA, class ElementB>
+using A5MmadMxDispatchPolicy =
+    std::conditional_t<IsFp4Gmm<ElementA, ElementB>,
+                       Catlass::Gemm::MmadMxWithCallback<Catlass::Arch::Ascend950, true, 4, 1, false, 3, 3, 2, 2>,
+                       Catlass::Gemm::MmadMxWithCallback<Catlass::Arch::Ascend950, true>>;
+
+template <class Element>
+using Gmm1L1TileShape =
+    Shape<Int<GMM1_L1M>, Int<GMM1_L1N>,
+          Int<std::is_same_v<Element, float4_e2m1x2_t> || std::is_same_v<Element, float4_e1m2x2_t> ? GMM1_L1K_FP4
+                                                                                                   : GMM1_L1K>>;
+template <class Element>
+using Gmm1L0TileShape =
+    Shape<Int<GMM1_L1M>, Int<GMM1_L1N>,
+          Int<std::is_same_v<Element, float4_e2m1x2_t> || std::is_same_v<Element, float4_e1m2x2_t> ? GMM1_L0K_FP4
+                                                                                                   : GMM1_L0K>>;
 using Gmm1EpilogueTileShape = MatrixShape<GMM1_EPIM, GMM1_L1N>;
 using Gmm1BlockScheduler =
     typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM1_SWIZZLE_OFFSET, GMM1_SWIZZLE_DIRECTION>;
 
-using Gmm2L1TileShape = Shape<Int<GMM2_L1M>, Int<GMM2_L1N>, Int<GMM2_L1K>>;
-using Gmm2L0TileShape = Shape<Int<GMM2_L1M>, Int<GMM2_L1N>, Int<GMM2_L0K>>;
+template <class Element>
+using Gmm2L1TileShape =
+    Shape<Int<GMM2_L1M>, Int<GMM2_L1N>,
+          Int<std::is_same_v<Element, float4_e2m1x2_t> || std::is_same_v<Element, float4_e1m2x2_t> ? GMM2_L1K_FP4
+                                                                                                   : GMM2_L1K>>;
+template <class Element>
+using Gmm2L0TileShape =
+    Shape<Int<GMM2_L1M>, Int<GMM2_L1N>,
+          Int<std::is_same_v<Element, float4_e2m1x2_t> || std::is_same_v<Element, float4_e1m2x2_t> ? GMM2_L0K_FP4
+                                                                                                   : GMM2_L0K>>;
 using Gmm2EpilogueTileShape = MatrixShape<GMM2_EPIM, GMM2_L1N>;
 using Gmm2BlockScheduler =
     typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM2_SWIZZLE_OFFSET, GMM2_SWIZZLE_DIRECTION>;
@@ -65,6 +95,7 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     // dispatch and quant, when EXEC_FLAG_DEEP_FUSE.
     GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR xActiveMask, GM_ADDR gmMoeSmoothScales, GM_ADDR gmShareSmoothScales,
     GM_ADDR gmExpandIdx, GM_ADDR gmEpSendCount, GM_ADDR gmExpertTokenNums, GM_ADDR gmX2ReadyState,
+    GM_ADDR gmRoutedGroupMeta, GM_ADDR gmRoutedActiveGroupCount, GM_ADDR gmRoutedActiveGroupIds,
     const FusedDeepMoeInfo &fusedDeepMoeInfo, FusedDeepMoeProfileWriter *profile)
 {
     static_assert((std::is_same_v<ElementA, float8_e5m2_t> || std::is_same_v<ElementA, float8_e4m3_t> ||
@@ -90,8 +121,7 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     using LayoutTagC = Catlass::layout::RowMajor;
 
     using ArchTag = Catlass::Arch::Ascend950;
-    constexpr bool enableUnitFlag = true;
-    using DispatchPolicy = Catlass::Gemm::MmadMxWithCallback<ArchTag, enableUnitFlag>;
+    using DispatchPolicy = A5MmadMxDispatchPolicy<ElementA, ElementB>;
 
     auto layoutA = tla::MakeLayout<ElementA, LayoutTagA>(m, k);
     auto layoutB = tla::MakeLayout<ElementB, LayoutTagB>(k, n);
@@ -153,9 +183,12 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
                                          gmEpSendCount,
                                          gmExpertTokenNums,
                                          gmX2ReadyState,
+                                         gmRoutedGroupMeta,
+                                         gmRoutedActiveGroupCount,
+                                         gmRoutedActiveGroupIds,
                                          fusedDeepMoeInfo,
-                                         profile,
-                                         epilogueParams};
+                                         epilogueParams,
+                                         profile};
 
     MatmulKernel kernel;
     kernel(params);
@@ -173,7 +206,9 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     // shared expert, matmul
     Catlass::GemmCoord sharedProblemShape, GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale,
     GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareD, void *combiner, uint32_t expectedAivNum,
-    GM_ADDR gmX2ReadyState, uint64_t weightExpertStrideBytes, FusedDeepMoeProfileWriter *profile)
+    GM_ADDR gmX2ReadyState, GM_ADDR gmRoutedGroupMeta, uint32_t enableRoutedSparseFastPath,
+    GM_ADDR gmRoutedActiveGroupCount, GM_ADDR gmRoutedActiveGroupIds, uint64_t weightExpertStrideBytes,
+    FusedDeepMoeProfileWriter *profile)
 {
     static_assert((std::is_same_v<ElementA, float8_e5m2_t> || std::is_same_v<ElementA, float8_e4m3_t> ||
                    std::is_same_v<ElementA, float4_e2m1x2_t> || std::is_same_v<ElementA, float4_e1m2x2_t>) &&
@@ -199,8 +234,7 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     using LayoutTagC = Catlass::layout::RowMajor;
 
     using ArchTag = Catlass::Arch::Ascend950;
-    constexpr bool enableUnitFlag = true;
-    using DispatchPolicy = Catlass::Gemm::MmadMxWithCallback<ArchTag, enableUnitFlag>;
+    using DispatchPolicy = A5MmadMxDispatchPolicy<ElementA, ElementB>;
 
     auto layoutA = tla::MakeLayout<ElementA, LayoutTagA>(m, k);
     auto layoutShareA = tla::MakeLayout<ElementA, LayoutTagA>(m, shareK);
@@ -252,8 +286,12 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
                                          combiner,
                                          expectedAivNum,
                                          gmX2ReadyState,
+                                         gmRoutedGroupMeta,
+                                         gmRoutedActiveGroupCount,
+                                         gmRoutedActiveGroupIds,
                                          weightExpertStrideBytes,
                                          profile};
+    params.enableRoutedSparseFastPath = enableRoutedSparseFastPath;
 
     MatmulKernel kernel;
     kernel(params);
@@ -409,18 +447,22 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
     GM_ADDR gmExpandIdx = workspaceGM_ + tilingData_->workSpaceOffset.expandIdxOffset;
     GM_ADDR gmEpSendCount = workspaceGM_ + tilingData_->workSpaceOffset.epSendCountOffset;
     GM_ADDR gmX2ReadyState = workspaceGM_ + tilingData_->workSpaceOffset.reservedOffset;
+    GM_ADDR gmRoutedGroupMeta = workspaceGM_ + tilingData_->workSpaceOffset.routedGroupMetaOffset;
+    GM_ADDR gmRoutedActiveGroupCount = workspaceGM_ + tilingData_->workSpaceOffset.routedActiveGroupCountOffset;
+    GM_ADDR gmRoutedActiveGroupIds = workspaceGM_ + tilingData_->workSpaceOffset.routedActiveGroupIdsOffset;
     FusedDeepMoeProfileWriter profileWriter;
     profileWriter.Init(profileBufferGM_, tilingData_->fusedDeepMoeInfo.profileEnable != 0,
                        static_cast<uint32_t>(tilingData_->fusedDeepMoeInfo.profileLaunchId),
                        static_cast<uint32_t>(g_coreType), tilingData_->fusedDeepMoeInfo.profileBufferBytes);
 
-    DispatchMxGmm1SwigluQuantFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm1L1TileShape, Gmm1L0TileShape,
-                                  Gmm1EpilogueTileShape, Gmm1BlockScheduler>(
+    DispatchMxGmm1SwigluQuantFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm1L1TileShape<ElementB>,
+                                  Gmm1L0TileShape<ElementB>, Gmm1EpilogueTileShape, Gmm1BlockScheduler>(
         gmm1ProblemShape, groupCount_, gmGroupList, gmX1, gmWeight1_, gmX1Scale, gmScale1_, gmGmm1SwapSpace,
         gmSwigluOut, gmX2, gmX2Scale, shareGmm1ProblemShape, gmShareX1, gmShareWeight1_, gmShareX1Scale,
         gmShareWeight1Scale_, gmShareMm1SwapSpace, gmShareSwigluOut, gmShareX2, gmShareX2Scale, gmX_, gmexpertIds_,
         xActiveMask_, gmSmoothScales_, gmShareSmoothScales_, gmExpandIdx, gmEpSendCount, gmExpertTokenNums_,
-        gmX2ReadyState, tilingData_->fusedDeepMoeInfo, &profileWriter);
+        gmX2ReadyState, gmRoutedGroupMeta, gmRoutedActiveGroupCount, gmRoutedActiveGroupIds,
+        tilingData_->fusedDeepMoeInfo, &profileWriter);
     uint64_t stageBarrierStart = 0U;
     if (profileWriter.enabled) {
         stageBarrierStart = profileWriter.Now();
@@ -443,11 +485,12 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         combiner.Init(gmGmm2DepOut, gmexpertIds_, gmExpandIdx, gmEpSendCount, nullptr, gmexpertScales_, xActiveMask_,
                       gmOutput_, nullptr, nullptr, tilingData_);
     }
-    MxGmm2CastCombineFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm2L1TileShape, Gmm2L0TileShape,
+    MxGmm2CastCombineFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm2L1TileShape<ElementB>, Gmm2L0TileShape<ElementB>,
                           Gmm2EpilogueTileShape, Gmm2BlockScheduler>(
         gmm2ProblemShape, groupCount_, gmGroupList, gmX2, gmWeight2_, gmX2Scale, gmScale2_, gmGmm2SwapSpace,
         gmGmm2DepOut, shareGmm2ProblemShape, gmShareX2, gmShareWeight2_, gmShareX2Scale, gmShareWeight2Scale_,
         gmShareMm2SwapSpace, gmShareOutput_, &combiner, tilingData_->fusedDeepMoeInfo.aivNum, gmX2ReadyState,
-        tilingData_->fusedDeepMoeInfo.gmm2WeightExpertStrideBytes, &profileWriter);
+        gmRoutedGroupMeta, tilingData_->fusedDeepMoeInfo.enableRoutedSparseFastPath, gmRoutedActiveGroupCount,
+        gmRoutedActiveGroupIds, tilingData_->fusedDeepMoeInfo.gmm2WeightExpertStrideBytes, &profileWriter);
 }
 #endif  // FUSED_DEEP_MOE_H

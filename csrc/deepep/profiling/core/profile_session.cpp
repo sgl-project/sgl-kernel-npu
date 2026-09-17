@@ -11,7 +11,10 @@
 namespace deep_ep::profiling::session {
 namespace {
 
-constexpr uint64_t kMaxBytesPerRank = 128ULL * 1024ULL * 1024ULL;
+// Large expert counts multiply per-group stage records across all captured
+// launches. Keep a bounded per-rank allocation while accommodating the 256
+// local-expert fused Deep MoE profile layout.
+constexpr uint64_t kMaxBytesPerRank = 256ULL * 1024ULL * 1024ULL;
 
 std::mutex &SessionMutex()
 {

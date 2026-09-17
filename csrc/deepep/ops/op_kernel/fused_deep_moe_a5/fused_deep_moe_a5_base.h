@@ -20,11 +20,12 @@
 #define TemplateDispatchTypeFunc \
     XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgater, EXEC_FLAG
 
-constexpr int64_t SLEEP_CYCLE = 200;
+constexpr int64_t SLEEP_CYCLE = 100;
 
+template <int64_t CYCLE = SLEEP_CYCLE>
 __aicore__ inline void SPIN_WAIT_CYCLES()
 {
-    AscendC::Nop<SLEEP_CYCLE>();
+    AscendC::Nop<CYCLE>();
 }
 
 #endif  // FUSED_DEEP_MOE_BASE_H
