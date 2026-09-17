@@ -72,7 +72,12 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
 
+#ifdef SGL_KERNEL_ARCH_35
+    // The kernel is AIV-only: on Ascend 950 launch one block per vector core, like the other AIV-only ops.
+    uint32_t coreNum = ascendcPlatform->GetCoreNumAiv();
+#else
     uint32_t coreNum = ascendcPlatform->GetCoreNum();
+#endif
 
     int devidx = mix_qkv.device().index();
     c10_npu::set_device(devidx);
