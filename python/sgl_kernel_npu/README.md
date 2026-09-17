@@ -7,8 +7,6 @@ SGLang Kernels for Ascend NPU
 
 ## Software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
-(generic Ascend 950 builds use the 910C compatibility target; an explicit Ascend 950
-compiler target enables the native Ascend 950 kernel build — see below)
 Platform: aarch64/x86
 Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
@@ -41,10 +39,10 @@ every target used to default to unconditionally, so container builds are
 unaffected. Detection only picks a default: an explicit argument always wins.
 
 `910B` (A2), `910`/`910C` (A3) and `950` (Ascend 950) select the SoC family. A generic or
-auto-detected Ascend 950 target keeps the 910C compatibility compile path. Kernel-only
-builds preserve explicit compiler targets such as `Ascend950PR_9599` and pass
-them to AscendC. Both forms select the same Ascend 950 Gemma provider for the
-wheel.
+auto-detected Ascend 950 target compiles with `Ascend950PR_9599`, the target of the
+released `950` package; pass another concrete compiler target such as
+`Ascend950PR_958b` to override it. Both forms select the same Ascend 950 Gemma
+provider for the wheel.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
 that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910 and to

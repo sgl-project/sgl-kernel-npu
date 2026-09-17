@@ -36,7 +36,7 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2, A3, or Ascend 950.
+    ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2 or A3.
     ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or Ascend 950.
@@ -57,7 +57,7 @@ TARGET:
 SOC_VERSION:
     Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
     Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
-    Ascend950           Ascend 950 family alias. Valid for all/deepep/kernels.
+    Ascend950           Ascend 950 family alias. Valid for deepep/kernels.
     Ascend950PR_9599    Concrete Ascend 950 compiler target. Valid for kernels.
     (omitted)           all/deepep/kernels: auto-detect via npu-smi,
                         fallback to Ascend910_9382.
@@ -68,9 +68,11 @@ SOC_VERSION aliases:
     910  | 910C | Ascend910_9382             A3, native Gemma provider
     950  | Ascend950 | Ascend950{PR,DT}_*    Ascend 950, ACLNN Gemma provider
 
-Generic Ascend 950 names use the 910C compatibility target. For kernel-only builds,
-concrete Ascend950PR_*/Ascend950DT_* targets are preserved and passed to
-AscendC. Both forms select the Ascend950 wheel provider.
+For kernels, generic and detected Ascend 950 names compile with Ascend950PR_9599, the
+target of the 950 release package. Pass a concrete Ascend950PR_* or
+Ascend950DT_* target to override it; every Ascend 950 form selects the Ascend950 wheel
+provider. The full build does not support Ascend 950: build deepep and kernels
+separately.
 
 Options:
     -d             Enable debug logging.
@@ -205,8 +207,8 @@ function detect_soc_version()
 }
 
 # Fold friendly product names onto canonical SoC names. Kernel-only builds keep
-# concrete Ascend 950 compiler targets so upstream's native Ascend950 build path remains
-# available; all/deepep still consume the generic Ascend950 family name.
+# an explicit concrete Ascend 950 compiler target; all/deepep still consume the generic
+# Ascend950 family name.
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
@@ -302,20 +304,23 @@ function configure_soc_version()
             CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
         all )
-            CMAKE_SOC_VERSION="$SOC_VERSION"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                # A full Ascend 950 build has no concrete compiler selector, so retain
-                # the feature branch's known-compatible 910C target.
-                CMAKE_SOC_VERSION="Ascend910_9382"
+                # One CMake configure serves both modules, but deep_ep builds
+                # with the A3 SoC (see build_cmake_modules) while Ascend 950 kernels
+                # need a concrete Ascend 950 SoC, so no single configure fits Ascend 950.
+                die "The full build does not support Ascend 950." \
+                    "Run './build.sh -a deepep 950' and './build.sh -a kernels 950' separately."
             fi
+            CMAKE_SOC_VERSION="$SOC_VERSION"
             ;;
         kernels )
             CMAKE_SOC_VERSION="$SOC_VERSION"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                # Friendly/detected Ascend 950 names do not identify a concrete
-                # compiler target. Preserve the existing compatibility path;
-                # explicit Ascend950PR_*/Ascend950DT_* values pass through.
-                CMAKE_SOC_VERSION="Ascend910_9382"
+                # AscendC needs a concrete SoC, and csrc/CMakeLists.txt derives
+                # arch35 and the Ascend 950-only ops from it. Match the 950 release
+                # package (build_and_release.yml); explicit Ascend950PR_* and
+                # Ascend950DT_* values pass through unchanged.
+                CMAKE_SOC_VERSION="Ascend950PR_9599"
             fi
             ;;
     esac

@@ -148,7 +148,7 @@ def test_build_script_exports_canonical_wheel_target():
 @pytest.mark.parametrize(
     ("chip", "wheel_target", "cmake_soc"),
     [
-        ("950", "Ascend950", "Ascend910_9382"),
+        ("950", "Ascend950", "Ascend950PR_9599"),
         ("a3", "Ascend910", "Ascend910_9382"),
         ("a2", "Ascend910", "Ascend910B1"),
         # npu-smi present but the chip is unrecognized, and no npu-smi at all:
@@ -171,8 +171,9 @@ def test_kernels_build_detects_the_local_soc(chip, wheel_target, cmake_soc):
     ("requested_soc", "wheel_target", "cmake_soc"),
     [
         ("910B", "Ascend910", "Ascend910B1"),
-        ("950", "Ascend950", "Ascend910_9382"),
-        ("Ascend950PR_9599", "Ascend950", "Ascend950PR_9599"),
+        ("950", "Ascend950", "Ascend950PR_9599"),
+        # A concrete Ascend 950 target other than the default reaches CMake unchanged.
+        ("Ascend950PR_958b", "Ascend950", "Ascend950PR_958b"),
     ],
 )
 @needs_posix_shell
@@ -183,6 +184,16 @@ def test_explicit_soc_version_skips_detection(requested_soc, wheel_target, cmake
     assert done.returncode == 0, done.stderr
     assert f"Wheel SOC_VERSION: {wheel_target}" in done.stdout
     assert f"CMake SOC_VERSION: {cmake_soc}" in done.stdout
+
+
+@pytest.mark.parametrize("requested_soc", ["", "Ascend950PR_9599"])
+@needs_posix_shell
+def test_full_build_rejects_ascend950(requested_soc):
+    """deep_ep needs the A3 CMake SoC and Ascend 950 kernels a concrete one."""
+    done = resolve_soc("all", chip="950", requested_soc=requested_soc)
+
+    assert done.returncode != 0
+    assert "The full build does not support Ascend 950" in done.stdout + done.stderr
 
 
 @needs_posix_shell
