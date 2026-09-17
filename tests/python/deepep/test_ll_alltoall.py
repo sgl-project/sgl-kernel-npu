@@ -13,10 +13,19 @@ from utils import (
     bench_kineto,
     calc_diff,
     calculate_avg_stats,
+    get_diff_threshold,
     hash_tensor,
     init_dist,
     per_token_cast_back,
 )
+
+
+def get_alltoall_quant_config(quant_type: str):
+    if quant_type == "int8":
+        return True, False, False
+    if quant_type == "bf16":
+        return False, False, False
+    raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
 
 def test(
@@ -68,10 +77,7 @@ def test(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
 
-    if quant_type == "int8":
-        quant_configs = [(True, False, False)]
-    else:  # no quant
-        quant_configs = [(False, False, False)]
+    quant_configs = [get_alltoall_quant_config(quant_type)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
@@ -162,14 +168,8 @@ def test(
             print(
                 f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
             )
-            if dispatch_use_mxfp4:
-                assert diff < 1e-2, f"Error: {diff=}"
-            elif dispatch_use_ue8m0:
-                assert diff < 1e-3, f"Error: {diff=}"
-            elif dispatch_use_fp8:
-                assert diff < 1e-4, f"Error: {diff=}"
-            else:
-                assert diff < 1e-5, f"Error: {diff=}"
+            diff_threshold = get_diff_threshold(quant_type)
+            assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
             hash_value ^= hash_tensor(combined_x)
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -209,7 +209,7 @@ def test(
         num_values = num_tokens * hidden
         if quant_type == "int8":
             data_bytes = num_values * 1
-            scale_bytes = num_tokens * 2
+            scale_bytes = num_tokens * 4
             return data_bytes + scale_bytes
         else:
             return num_values * 2
@@ -276,8 +276,10 @@ def test(
     combine_t = sum(combine_alltoall_t)
 
     print(
-        f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-        f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+        f"[rank {rank}] Dispatch raw_bw={num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+        f"Combine raw_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
         flush=True,
     )
     calculate_avg_stats(

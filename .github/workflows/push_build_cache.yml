@@ -29,11 +29,11 @@ jobs:
         include:
           # --- A3 环境 (910C) ---
           - arch: a3
-            runner: linux-aarch64-a3-16
+            runner: linux-aarch64-a3-800t-16
             cann_version: "9.0.0"
             image_tag: "9.0.0-a3-ubuntu22.04-py3.11"
           - arch: a3
-            runner: linux-aarch64-a3-16
+            runner: linux-aarch64-a3-800t-16
             cann_version: "9.1.0"
             image_tag: "9.1.0-a3-ubuntu22.04-py3.12"
 

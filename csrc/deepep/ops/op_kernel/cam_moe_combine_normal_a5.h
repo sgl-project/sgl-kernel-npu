@@ -406,7 +406,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
                                                                                      uint32_t tkIndex)
 {
     uint32_t tokenOffset = tkIndex * axisH_;
-    GM_ADDR dstGM = GetBufferAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
+    GM_ADDR dstGM =
+        GetBufferAddrByRankId(srcRankId) + static_cast<uint64_t>(srcTokenId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
     GlobalTensor<XType> dstWindow;
     dstWindow.SetGlobalBuffer((__gm__ XType *)dstGM);
     DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
@@ -488,7 +489,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferAnd
             continue;
         }
         float scale = topkWeightsLocal.GetValue((tokenIndex - startTokenIndex) * axisK_ + topkId);
-        GM_ADDR localTokenAddr = localRankGM_ + (tokenIndex * axisK_ + topkId) * h512AlignRecvXLen_;
+        GM_ADDR localTokenAddr =
+            localRankGM_ + static_cast<uint64_t>(tokenIndex * axisK_ + topkId) * h512AlignRecvXLen_;
         GlobalTensor<XType> localTokenTensor;
         localTokenTensor.SetGlobalBuffer((__gm__ XType *)localTokenAddr);
 

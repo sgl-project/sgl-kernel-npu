@@ -431,12 +431,12 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
             for (int i = 0; i < localExpertNum_; ++i) {
                 idx = i * epWorldSize_ + epRankId_;
                 count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-                localDataSize += count * perTokenSize_;
+                localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
             }
         } else {
             idx = epRankId_;
             count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-            localDataSize += count * perTokenSize_;
+            localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
         }
 
         hcclHandleId_ = hccl_.AlltoAllvWrite<true>(sendBufGM_, sendOffsetGM_, sendSizeGM_, recvOffset_, localDataSize);

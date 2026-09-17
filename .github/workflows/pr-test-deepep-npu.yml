@@ -60,7 +60,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-aarch64-a3-16
+    runs-on: linux-aarch64-a3-800t-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
@@ -191,12 +191,12 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-diagnose
-      - name: Run test intranode for int8 quant
+      - name: Run test intranode for use-fp8 quant
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 2300
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --quant-type=int8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --use-fp8
 
       - name: Run test intranode for output parameters of different types
         timeout-minutes: 10
@@ -290,7 +290,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: ["linux-aarch64-a3-16", "a3-752t"]
+    runs-on: linux-aarch64-a3-800t-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
@@ -618,12 +618,12 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122 --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048 --num-processes=8
-      - name: Run test intranode for int8 quant
+      - name: Run test intranode for use-fp8 quant
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --quant-type=int8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --use-fp8
 
       - name: Run test intranode for output parameters of different types
         timeout-minutes: 10
@@ -749,12 +749,190 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency" --num-processes=8
 
+  test-deepep-a5:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-amd64-a5-4
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py3.12
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    strategy:
+      matrix:
+        cann_version: [9.1.0]
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a5-cann${{ matrix.cann_version }}-py3.12-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+      - name: Prepare Deepep
+        # - cache hit: install cached wheel only (skip build via -s flag)
+        # - cache miss: clear stale wheels + build + install
+        run: |
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
+          fi
+      - name: Run normal mode use-fp8 quantization
+        env:
+          HCCL_BUFFSIZE: 500
+        timeout-minutes: 20
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 512 --hidden 7168 --num-topk 8 --num-experts 256 --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 257 --hidden 7168 --num-topk 2 --num-experts 128 --enable-dynamic-tokens --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --use-fp8
+
+      - name: Run normal mode use-mxfp8 quantization
+        env:
+          HCCL_BUFFSIZE: 500
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --use-mxfp8
+
+      - name: Run normal mode use-mxfp4 quantization
+        env:
+          HCCL_BUFFSIZE: 500
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --use-mxfp4
+
+      - name: Run low‑latency mode mx_fp8_e4m3 quantization
+        env:
+          HCCL_BUFFSIZE: 10000
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=256 --hidden=8192
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4 --num-topk=6 --num-tokens=512 --num-experts=256 --hidden=7168
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=520 --hidden=8192
+
+      - name: Run low‑latency mode mx_fp4_e2m1 quantization
+        env:
+          HCCL_BUFFSIZE: 2500
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=8 --num-experts=256 --hidden=7168 --num-tokens=256 --use-mxfp4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=12 --num-experts=512 --hidden=8192 --num-tokens=128 --use-mxfp4 --enable-dynamic-tokens
+
+      - name: Run low‑latency mode pertoken_fp8_e4m3 quantization
+        env:
+          HCCL_BUFFSIZE: 2500
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes 4 --num-tokens 256 --hidden 7168 --num-topk 8 --num-experts 256 --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes 4 --num-tokens 257 --hidden 7168 --num-topk 2 --num-experts 128 --enable-dynamic-tokens --use-fp8
+
+      - name: Run alltoall normal
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4
+
+      - name: Run alltoall low-latency
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
+
+      - name: Run fusion operator
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py --num-processes 4 --num-warmups 3  --num-tests 10
+
+      - name: Run single bs scenario
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
+          --quant fp8_e4m3 \
+          --num-processes 4 \
+          --hidden 7168 \
+          --moe-intermediate-size 3072 \
+          --num-topk 8 \
+          --num-experts 32 \
+          --num-warmups 3 \
+          --num-tests 10 \
+          --single-active-rank 1
+
+      - name: Run bs uneven scenario
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
+          --quant fp8_e4m3 \
+          --num-processes 4 \
+          --hidden 7168 \
+          --moe-intermediate-size 3072 \
+          --num-topk 8 \
+          --num-experts 32 \
+          --num-warmups 3 \
+          --num-tests 10 \
+          --num-token-jitter 5
+
+      - name: Run nz format weights
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
+          --quant fp8_e4m3 \
+          --num-processes 4 \
+          --hidden 7168 \
+          --moe-intermediate-size 3072 \
+          --num-topk 8 \
+          --num-experts 32 \
+          --num-warmups 3 \
+          --num-tests 10 \
+          --weight-format NZ
+
   finish:
     if: always()
     needs:
       - test-all-build-core
       - test-all-build-moe
       - test-build-deepep-a2
+      - test-deepep-a5
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
