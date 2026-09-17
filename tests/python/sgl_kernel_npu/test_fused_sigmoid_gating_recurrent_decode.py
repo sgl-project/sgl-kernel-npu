@@ -270,6 +270,53 @@ def test_gdn_decode_update_custom_head_dims(h: int, hv: int, k: int, v: int):
     _check(bs, inputs, atol_state_vs_generic=2e-2)
 
 
+def test_gdn_decode_update_rejects_multi_token():
+    """The decode kernel only supports one token per sequence."""
+    torch.manual_seed(500)
+    bs = 4
+    q, k, v, a, b, A_log, dt_bias, ssm, idx, loc, scale = _make_inputs(bs)
+
+    def _run_decode(q, k, v, a, b, cu_seqlens):
+        return decode_kernel(
+            A_log=A_log,
+            a=a,
+            dt_bias=dt_bias,
+            softplus_beta=1.0,
+            softplus_threshold=20.0,
+            q=q,
+            k=k,
+            v=v,
+            b=b,
+            initial_state_source=ssm.clone(),
+            initial_state_indices=idx,
+            scale=scale,
+            use_qk_l2norm_in_kernel=True,
+            cu_seqlens=cu_seqlens,
+        )
+
+    # Varlen: two tokens in one sequence.
+    loc_multi = torch.tensor([0, 2, 3, 4, 5], dtype=torch.int32, device=device)
+    q2 = q.repeat(1, 2, 1, 1)[:, :5]
+    k2 = k.repeat(1, 2, 1, 1)[:, :5]
+    v2 = v.repeat(1, 2, 1, 1)[:, :5]
+    a2 = a.repeat(2, 1)[:5]
+    b2 = b.repeat(2, 1)[:5]
+    with pytest.raises(ValueError, match="1 token per sequence"):
+        _run_decode(q2, k2, v2, a2, b2, loc_multi)
+
+    # Non-varlen: T > 1.
+    q3, k3, v3, a3, b3, _, _, _, _, _, _ = _make_inputs_non_varlen(bs)
+    with pytest.raises(ValueError, match="T=1"):
+        _run_decode(
+            q3.repeat(1, 2, 1, 1),
+            k3.repeat(1, 2, 1, 1),
+            v3.repeat(1, 2, 1, 1),
+            a3,
+            b3,
+            None,
+        )
+
+
 if __name__ == "__main__":
     for bs in [1, 8, 32, 128]:
         test_gdn_decode_update_correctness(bs)
@@ -280,4 +327,5 @@ if __name__ == "__main__":
     test_gdn_decode_update_custom_head_dims(8, 16, 64, 128)
     test_gdn_decode_update_custom_head_dims(8, 16, 128, 64)
     test_gdn_decode_update_custom_head_dims(4, 8, 64, 64)
+    test_gdn_decode_update_rejects_multi_token()
     print("All GDN decode update tests passed.")

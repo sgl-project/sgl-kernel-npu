@@ -188,69 +188,82 @@ def fused_sigmoid_gating_delta_rule_update_decode_npu(
 
     with torch.npu.device(q.device.index):
         B, T, H, K = q.shape
-    HV = v.shape[2]
-    V = v.shape[-1]
-    N = B if cu_seqlens is None else len(cu_seqlens) - 1
+        HV = v.shape[2]
+        V = v.shape[-1]
+        N = B if cu_seqlens is None else len(cu_seqlens) - 1
 
-    BK = triton.next_power_of_2(K)
-    BV = min(triton.next_power_of_2(V), 64)
-    NK = triton.cdiv(K, BK)
-    NV = triton.cdiv(V, BV)
-    assert NK == 1, "NK > 1 is not supported in the decode-optimized kernel"
+        # Single-token decode only.  In varlen mode q.shape[1] is the total
+        # token count across the batch and must equal the sequence count.
+        if cu_seqlens is None:
+            if T != 1:
+                raise ValueError(
+                    f"decode kernel only supports T=1 per sequence, got T={T}"
+                )
+        elif T != N:
+            raise ValueError(
+                "decode kernel only supports 1 token per sequence, got "
+                f"{T} tokens across {N} sequences"
+            )
 
-    if scale is None:
-        scale = K**-0.5
-    else:
-        assert scale > 0, "scale must be positive"
+        BK = triton.next_power_of_2(K)
+        BV = min(triton.next_power_of_2(V), 64)
+        NK = triton.cdiv(K, BK)
+        NV = triton.cdiv(V, BV)
+        assert NK == 1, "NK > 1 is not supported in the decode-optimized kernel"
 
-    # Each program handles exactly one value head.
-    BHV = 1
-    NHV = HV
+        if scale is None:
+            scale = K**-0.5
+        else:
+            assert scale > 0, "scale must be positive"
 
-    o = q.new_empty(B, T, HV, V)
+        # Each program handles exactly one value head.
+        BHV = 1
+        NHV = HV
 
-    # 1-D grid sized to the AIV vector core count; num_warps=4 was tuned for
-    # small-batch decode. Oversubscription does not help because the loop
-    # trip count is already small.
-    num_aicore, num_vectorcore = get_device_properties()
-    OVERSUB = 1
-    num_programs = min(N * NHV, num_vectorcore * OVERSUB)
-    num_programs = max(1, num_programs)
-    grid = (num_programs,)
+        o = q.new_empty(B, T, HV, V)
 
-    num_warps = 4
-    num_stages = 1
+        # 1-D grid sized to the AIV vector core count; num_warps=4 was tuned for
+        # small-batch decode. Oversubscription does not help because the loop
+        # trip count is already small.
+        num_aicore, num_vectorcore = get_device_properties()
+        OVERSUB = 1
+        num_programs = min(N * NHV, num_vectorcore * OVERSUB)
+        num_programs = max(1, num_programs)
+        grid = (num_programs,)
 
-    _fused_sigmoid_gating_delta_rule_update_decode_kernel[grid](
-        A_log=A_log,
-        a=a,
-        dt_bias=dt_bias,
-        softplus_beta=softplus_beta,
-        softplus_threshold=softplus_threshold,
-        q=q,
-        k=k,
-        v=v,
-        b=b,
-        o=o,
-        h0_source=initial_state_source,
-        h0_indices=initial_state_indices,
-        cu_seqlens=cu_seqlens,
-        scale=scale,
-        T=T,
-        N=N,
-        NHV=NHV,
-        B=B,
-        H=H,
-        HV=HV,
-        K=K,
-        V=V,
-        BK=BK,
-        BV=BV,
-        BHV=BHV,
-        OVERSUB=OVERSUB,
-        USE_QK_L2NORM_IN_KERNEL=use_qk_l2norm_in_kernel,
-        num_warps=num_warps,
-        num_stages=num_stages,
-        multibuffer=False,
-    )
-    return o
+        num_warps = 4
+        num_stages = 1
+
+        _fused_sigmoid_gating_delta_rule_update_decode_kernel[grid](
+            A_log=A_log,
+            a=a,
+            dt_bias=dt_bias,
+            softplus_beta=softplus_beta,
+            softplus_threshold=softplus_threshold,
+            q=q,
+            k=k,
+            v=v,
+            b=b,
+            o=o,
+            h0_source=initial_state_source,
+            h0_indices=initial_state_indices,
+            cu_seqlens=cu_seqlens,
+            scale=scale,
+            T=T,
+            N=N,
+            NHV=NHV,
+            B=B,
+            H=H,
+            HV=HV,
+            K=K,
+            V=V,
+            BK=BK,
+            BV=BV,
+            BHV=BHV,
+            OVERSUB=OVERSUB,
+            USE_QK_L2NORM_IN_KERNEL=use_qk_l2norm_in_kernel,
+            num_warps=num_warps,
+            num_stages=num_stages,
+            multibuffer=False,
+        )
+        return o

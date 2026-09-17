@@ -106,18 +106,20 @@ def fused_sigmoid_mul_broadcast(x: torch.Tensor, gate: torch.Tensor) -> torch.Te
         raise ValueError(f"x must be 2-D, got ndim={x.ndim}, shape={x.shape}")
 
     bs, hidden_dim = x.shape
-    out = torch.empty_like(x)
 
     # Accept gate as (N,) or (N, 1).  Passing it directly avoids the squeeze()
     # Python overhead that showed up in micro-benchmarks on Ascend NPU.
     if gate.ndim == 2:
-        if gate.shape[1] != 1:
+        if gate.shape[0] != bs or gate.shape[1] != 1:
             raise ValueError(f"2-D gate must have shape ({bs}, 1), got {gate.shape}")
     elif gate.ndim != 1 or gate.shape[0] != bs:
         raise ValueError(f"gate must be ({bs},) or ({bs}, 1), got {gate.shape}")
 
     x = x.contiguous()
     gate = gate.contiguous()
+    # Allocate after contiguous() so a transposed/strided x still yields a
+    # contiguous output matching the kernel's row-major writes.
+    out = torch.empty_like(x)
 
     BLOCK_SIZE = triton.next_power_of_2(hidden_dim)
     _, num_vectorcore = get_device_properties()

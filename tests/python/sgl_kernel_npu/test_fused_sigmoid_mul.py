@@ -79,11 +79,26 @@ def test_fused_sigmoid_mul_broadcast():
                 _check(out, _reference(x, gate.reshape(n, 1)), dtype)
 
 
+def test_fused_sigmoid_mul_broadcast_transposed():
+    # A transposed (non-contiguous) x must still produce correctly laid out output.
+    for dtype in _DTYPES:
+        x = torch.randn(4096, 32, dtype=dtype, device=device).T
+        gate = torch.randn(32, 1, dtype=dtype, device=device)
+        out = fused_sigmoid_mul_broadcast(x, gate)
+        assert out.shape == x.shape
+        _check(out, _reference(x, gate), dtype)
+
+
 def test_fused_sigmoid_mul_broadcast_bad_gate():
     x = torch.randn(32, 4096, device=device)
     # 2-D gate must have exactly one column.
     with pytest.raises(ValueError):
         fused_sigmoid_mul_broadcast(x, torch.randn(32, 2, device=device))
+    # 2-D gate must match the row count.
+    with pytest.raises(ValueError):
+        fused_sigmoid_mul_broadcast(x, torch.randn(1, 1, device=device))
+    with pytest.raises(ValueError):
+        fused_sigmoid_mul_broadcast(x, torch.randn(64, 1, device=device))
     # 1-D gate must match the row count.
     with pytest.raises(ValueError):
         fused_sigmoid_mul_broadcast(x, torch.randn(64, device=device))
@@ -100,5 +115,6 @@ if __name__ == "__main__":
     test_fused_sigmoid_mul_empty()
     test_fused_sigmoid_mul_shape_mismatch()
     test_fused_sigmoid_mul_broadcast()
+    test_fused_sigmoid_mul_broadcast_transposed()
     test_fused_sigmoid_mul_broadcast_bad_gate()
     print("All fused_sigmoid_mul tests passed.")
