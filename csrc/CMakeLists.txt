@@ -195,6 +195,8 @@ if(_sgl_soc_lower MATCHES "^ascend950")
 else()
     list(APPEND WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_kernel/chunk_gated_delta_rule.cpp
+    )
+endif()
 # A5-only workspace kernels
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
