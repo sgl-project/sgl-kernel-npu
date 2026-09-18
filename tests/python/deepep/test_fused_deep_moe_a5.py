@@ -2003,16 +2003,16 @@ def main():
         0 <= args.single_active_rank < args.num_processes
     ):
         parser.error("--single-active-rank must be in [0, --num-processes - 1]")
-    if not 1 <= args.num_topk <= min(args.num_experts, 12):
-        parser.error("--num-topk must be in [1, min(--num-experts, 12)]")
+    if not 1 <= args.num_topk <= min(args.num_experts, 16):
+        parser.error("--num-topk must be in [1, min(--num-experts, 16)]")
     if not 1 <= args.num_tokens <= 256:
         parser.error("--num-tokens must be in [1, 256]")
     if args.num_token_jitter < 0:
         parser.error("--num-token-jitter must be non-negative")
     if args.single_active_rank is not None and args.num_token_jitter > 0:
         parser.error("--single-active-rank cannot be combined with --num-token-jitter")
-    if not 512 <= args.hidden <= 7168:
-        parser.error("--hidden must be in [512, 7168]")
+    if not 512 <= args.hidden <= 8192:
+        parser.error("--hidden must be in [512, 8192]")
     if not 1024 <= gmm1_hidden <= 6144 or gmm1_hidden % 1024 != 0:
         parser.error(
             "2 * --moe-intermediate-size must be in [1024, 6144] and divisible by 1024"
