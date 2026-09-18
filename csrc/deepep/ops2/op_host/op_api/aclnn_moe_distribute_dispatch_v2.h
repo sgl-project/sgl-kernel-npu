@@ -1,18 +1,3 @@
-/**
- * Copyright (c) Huawei Technologies Co., Ltd. 2024-2025. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 #ifndef OP_API_INC_MOE_DISTRIBUTE_DISPATCH_V2_
 #define OP_API_INC_MOE_DISTRIBUTE_DISPATCH_V2_
 
@@ -63,7 +48,7 @@ extern "C" {
  * @return aclnnStatus: 返回值，返回状态码
  *
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scalesOptional,
     const aclTensor *xActiveMaskOptional, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
     char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
@@ -81,7 +66,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2G
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize,
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyDispatchV2(void *workspace, uint64_t workspaceSize,
                                                                                 aclOpExecutor *executor,
                                                                                 aclrtStream stream);
 

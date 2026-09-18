@@ -37,11 +37,12 @@ public:
     {
         uint16_t defaultWindowSize = 200;
         const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
-        if (getenv(hcclBuffSize) == nullptr) {
+        const char *envValue = getenv(hcclBuffSize);
+        if (envValue == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(hcclBuffSize));
+                std::string envStr(envValue);
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
@@ -102,7 +103,7 @@ constexpr uint32_t STATIC_QUANT_MODE = 1;
 constexpr uint32_t DYNAMIC_QUANT_MODE = 2;
 constexpr uint32_t RANK_NUM_PER_NODE_A2 = 8;
 constexpr uint32_t BLOCK_SIZE_A2 = 32;
-constexpr uint32_t MAX_K_VALUE_A2 = 10;
+constexpr uint32_t MAX_K_VALUE_A2 = 16;
 constexpr uint32_t MIN_K_VALUE_A2 = 2;
 constexpr int32_t MAX_HIDDEN_SIZE_A2 = 7168;
 constexpr int32_t MAX_EP_WORLD_SIZE_A2 = 256;
@@ -124,7 +125,7 @@ constexpr uint32_t TP_TILING_KEY = 100;
 constexpr uint32_t VERSION_2 = 2;
 constexpr uint32_t HCOMMCNT_2 = 2;
 constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
-constexpr int64_t K_MAX = 10;
+constexpr int64_t K_MAX = 16;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t USER_WORKSPACE_A2 = 1 * 1024 * 1024;  // moeExpertNum_ * sizeof(uint32_t) + epWorldSize_ * 2 * 32
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
@@ -903,6 +904,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
     auto attrs = context.GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(K_INNER_DEBUG, "attrs is null."), return ge::GRAPH_FAILED);
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
+    OP_TILING_CHECK(quantModePtr == nullptr, OP_LOGE(K_INNER_DEBUG, "quantModePtr is null."), return GRAPH_FAILED);
     OP_TILING_CHECK(h % BLOCK_SIZE_A2 != 0 || h <= 0 || h > MAX_HIDDEN_SIZE_A2,
                     OP_LOGE(K_INNER_DEBUG, "hiddensize is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(
@@ -1063,6 +1065,7 @@ static uint64_t MoeDistributeDispatchA2CalcTilingKey(const gert::TilingContext &
     const char *nodeName = context.GetNodeName();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return 0);
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
+    OP_TILING_CHECK(quantModePtr == nullptr, OP_LOGE(nodeName, "quantModePtr is null."), return 0);
     tilingKey += static_cast<uint64_t>(*quantModePtr);
 
     const gert::StorageShape *scalesStorageShape = context.GetOptionalInputShape(SCALES_INDEX);
@@ -1120,6 +1123,7 @@ static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext
     auto attrs = context.GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
     auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
+    OP_TILING_CHECK(group == nullptr, OP_LOGE(nodeName, "group is nullptr."), return ge::GRAPH_FAILED);
     uint32_t opType = 18;  // batch write=18,
     std::string algConfig = "MultiPut=level0:fullmesh";
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(group, opType, algConfig);

@@ -1,15 +1,3 @@
-/*
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 1.0 (the
- * "License"). Please refer to the License for details. You may not use this
- * file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON AN
- * "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
 #ifndef ACT_GEMM_TILE_COPY_GM_TO_L1_HPP
 #define ACT_GEMM_TILE_COPY_GM_TO_L1_HPP
 
@@ -605,8 +593,9 @@ struct CopyGmToL1<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>,
             for (uint32_t i = 0; i < rLoops; ++i) {
                 uint32_t rActual = (i < rLoops - 1) ? MAX_REPEAT : rows - i * MAX_REPEAT;
                 AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
-                DataCopy(dstTensor[i * MAX_REPEAT * layoutDst.stride(0)],
-                         srcTensor[i * MAX_REPEAT * layoutSrc.stride(0)], dataCopyParams);
+                uint64_t dstOffset64 = (uint64_t)i * MAX_REPEAT * layoutDst.stride(0);
+                uint64_t srcOffset64 = (uint64_t)i * MAX_REPEAT * layoutSrc.stride(0);
+                DataCopy(dstTensor[dstOffset64], srcTensor[srcOffset64], dataCopyParams);
             }
         } else {
             for (uint32_t i = 0; i < rows; ++i) {

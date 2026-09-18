@@ -5,6 +5,7 @@
 #include <tuple>
 #include <vector>
 #include <optional>
+#include <string>
 #include "hccl/hccl.h"
 #include "hccl/hccl_types.h"
 #include "aclnn/opdev/platform.h"
@@ -114,7 +115,8 @@ public:
     low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                          const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                          int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8, bool round_scale,
-                         bool use_ue8m0, bool async, bool return_recv_hook);
+                         bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook,
+                         const std::string &quant_mode_name);
 
     std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> low_latency_combine(
         const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
@@ -127,7 +129,13 @@ public:
                                            const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
                                            const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
                                            int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                           int quant_mode);
+                                           int quant_mode, bool profile_enable = false,
+                                           const std::optional<std::string> &activation = std::string("swiglu"),
+                                           std::optional<double> beta = 4.0, std::optional<double> linear_beta = 25.0);
+
+    void begin_profile(int64_t num_profile_skip_launches, int64_t num_profile_active_launches,
+                       const std::string &profile_trace_dir = "");
+    void end_profile();
 
     std::vector<at::Tensor> dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
                                                  const at::Tensor &weight1, const at::Tensor &scale1,

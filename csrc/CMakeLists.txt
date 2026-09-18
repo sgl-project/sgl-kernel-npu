@@ -1,18 +1,68 @@
 # set the library output dir to the python dir for wheel package build
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/sgl_kernel_npu/lib)
 
+# set the so name
+set(OP_PLUGIN_NAME sgl_kernel_npu)
+
+# --- SOC_VERSION ARCH mapping ------
+string(TOLOWER "${SOC_VERSION}" _sgl_soc_lower)
+# Kernel arch family, derived from the SoC:
+#   arch22: A2 (Ascend910B*) / A3 (Ascend910_9382)
+#   arch35: A5 (Ascend950*)
+if(_sgl_soc_lower MATCHES "^ascend950")
+    set(SGL_KERNEL_ARCH arch35)
+else()
+    set(SGL_KERNEL_ARCH arch22)
+endif()
+# A3-family-specific operators (compiled only on the A2/A3 arch family).
+# Note: this is an A3-family toggle, NOT an arch selector -- dual-arch ops
+# must use SGL_KERNEL_ARCH instead.
+if(NOT DEFINED SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    if(_sgl_soc_lower MATCHES "^ascend950")
+        set(SGL_KERNEL_ENABLE_A3_ONLY_OPS OFF)
+    else()
+        set(SGL_KERNEL_ENABLE_A3_ONLY_OPS ON)
+    endif()
+endif()
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    add_compile_definitions(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+endif()
+# Expose the arch family to host compilation (SGL_KERNEL_ARCH_22 / _35).
+# Dual-arch host code selects its arch implementation with these macros.
+if(SGL_KERNEL_ARCH STREQUAL "arch35")
+    add_compile_definitions(SGL_KERNEL_ARCH_35)
+else()
+    add_compile_definitions(SGL_KERNEL_ARCH_22)
+endif()
+message(STATUS "SGL_KERNEL_ARCH=${SGL_KERNEL_ARCH} SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
+
+# Compressor dual-arch tiling: arch22 on A2/A3, arch35 on A5.
+set(COMPRESSOR_ARCH_DIR ${SGL_KERNEL_ARCH})
+
+# A5-only ops: compile only on Ascend950-series SoCs.
+if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    if(_sgl_soc_lower MATCHES "^ascend950")
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS ON)
+    else()
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS OFF)
+    endif()
+endif()
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    add_compile_definitions(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+endif()
+message(STATUS "SGL_KERNEL_ENABLE_A5_ONLY_OPS=${SGL_KERNEL_ENABLE_A5_ONLY_OPS} (SOC=${SOC_VERSION})")
+
 # host side files
-FILE(GLOB OP_SRCS
+set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
-    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_mamba_state/op_host/transfer_mamba_state.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
@@ -22,58 +72,106 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
+    ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor.cpp
+    ${PROJECT_OP_SRC_BASE}/compressor/op_host/${COMPRESSOR_ARCH_DIR}/compressor_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
-    ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_host/chunk_gated_delta_rule.cpp
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host/chunk_kda_fwd.cpp
     )
+# A3-only host sources
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
+        ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
+        ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
+        ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
+        ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/sparse_flash_attention.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling/sparse_flash_attention_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
+        ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
+        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
+    )
+endif()
+# A5-only host sources
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_host/situ_mxfp8_quant.cpp
+        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_host/swiglu_group_quant.cpp
+    )
+endif()
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_op_utils.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_gmm_fp8.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
     )
+    if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+        list(APPEND OP_SRCS
+            ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_gmm_fp8.cpp
+            ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
+        )
+    endif()
 endif()
-list(APPEND OP_SRCS
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
-)
-list(APPEND OP_SRCS
-    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_host/mega_moe_w4a4.cpp
-)
 
-# set the so name
-set(OP_PLUGIN_NAME sgl_kernel_npu)
+if(NOT DEFINED ASCEND_DRIVER_PATH)
+    set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
+endif()
 
 # kernel side files without workspace
 set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
 )
-
-if(BUILD_CATLASS_MODULE)
+# A5-only no-workspace kernels
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel/situ_mxfp8_quant.cpp
+    )
+endif()
+# A3-only no-workspace kernels
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
+    )
+endif()
+# catlass fp8 no-workspace kernels: double-gated
+if(BUILD_CATLASS_MODULE AND SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_gmm_fp8_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_fp8_kernel.cpp
     )
 endif()
+
 ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(no_workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
+    ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel
+    ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel
+    ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel/fused_deep_moe_a5/fused_deep_moe/gemm/kernel
 )
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(no_workspace_kernel PRIVATE
@@ -83,86 +181,181 @@ endif()
 
 # kernel side files with workspace
 set(WORKSPACE_KERNEL_SRCS
-    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel/sparse_attention_score.cpp
 )
-if(BUILD_CATLASS_MODULE)
+# A3-only workspace kernels (causal_conv1d kernel is intentionally always-built)
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     )
 endif()
+# chunk_gated_delta_rule: pick arch22 (Ascend A3) or arch35 (Ascend A5) entry,
+# compiled on both A3 and A5
+if(_sgl_soc_lower MATCHES "^ascend950")
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_kernel/chunk_gated_delta_rule_apt.cpp
+    )
+else()
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_kernel/chunk_gated_delta_rule.cpp
+    )
+endif()
+# A5-only workspace kernels
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel/swiglu_group_quant.cpp
+    )
+endif()
+
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
+# The compressor entry (compressor.cpp) resolves `compressor_kernel.h` through
+# this include path, so only one arch's headers are visible per build; the arch
+# dir is selected by the same SOC flag as the tiling above.
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-)
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
-endif()
-
-ascendc_include_directories(workspace_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
+    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/${COMPRESSOR_ARCH_DIR}
     ${PROJECT_OP_SRC_BASE}/utils/kernel
+    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
+    ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_kernel
+    ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
+    ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_kernel
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
-       -DHAVE_WORKSPACE
-       -DHAVE_TILING
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
 )
 
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
-ascendc_library(mega_chunk_gdn_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
+# chunk_kda_fwd: dedicated kernel target with its own compile options. The kernel
+# manages cross-pipe synchronization manually (SetFlag/WaitFlag/SyncAll), so the
+# aclnn build compiles it with --cce-auto-sync=off; keep that here instead of
+# applying it to the shared workspace_kernel target.
+ascendc_library(chunk_kda_fwd_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel/chunk_kda_fwd.cpp
 )
-ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+ascendc_include_directories(chunk_kda_fwd_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${ASCEND_INCLUDE_DIR}
-    ${ASCEND_INCLUDE_DIR}/experiment/runtime
-    ${ASCEND_INCLUDE_DIR}/experiment/msprof
 )
-ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
-    -DGDN_KERNEL_NAME=launch_mega_kernel
-    -DGDN_D=128
-    -DGDN_C=128
+ascendc_compile_definitions(chunk_kda_fwd_kernel PRIVATE
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
 )
+ascendc_compile_options(chunk_kda_fwd_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+)
+if(_sgl_soc_lower MATCHES "^ascend950")
+    ascendc_compile_definitions(chunk_kda_fwd_kernel PRIVATE
+        -DENABLE_CV_COMM_VIA_SSBUF=true
+    )
+endif()
 
-# W4A4 fused MoE "mega" kernel (Qwen3.x-MoE): PTO-ISA vec stages + AscendC
-# MatmulImpl<int4b_t> cube stages in one MIX launch. Built for the production
-# Qwen3.6-35B-A3B per-rank shape (H_DIM=2048, I_DIM_OVERRIDE=128), Hadamard block 64.
-set(MEGA_MOE_W4A4_KERNEL_TARGETS mega_moe_w4a4_kernel)
-ascendc_library(mega_moe_w4a4_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_kernel/mega_moe_w4a4_kernel.cpp
-)
-ascendc_include_directories(mega_moe_w4a4_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_kernel
-    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
-    ${ASCEND_INCLUDE_DIR}
-    ${ASCEND_INCLUDE_DIR}/experiment/runtime
-    ${ASCEND_INCLUDE_DIR}/experiment/msprof
-)
-ascendc_compile_definitions(mega_moe_w4a4_kernel PRIVATE
-    -DW4A4_MEGA_KERNEL_NAME=launch_mega_moe_w4a4
-    -DI_DIM_OVERRIDE=128
-    -DMEGA_HADAMARD_N=64
-)
+# Build catlass kernel in its own target (no sparse_attention_score include dir),
+# so catlass's #include "tla/layout.hpp" resolves to its own copy and avoids
+# symbol redefinition (RoundDown/CeilDiv/Max/Min/...) with sparse_attention_score.
+set(CATLASS_WORKSPACE_KERNEL_TARGETS)
+if(BUILD_CATLASS_MODULE)
+    set(CATLASS_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
+    )
+    ascendc_library(catlass_workspace_kernel STATIC ${CATLASS_WORKSPACE_KERNEL_SRCS})
+    ascendc_include_directories(catlass_workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(catlass_workspace_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
+endif()
 
-# create shared library libsgl_kernel_npu.so
+# Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
+# their compiler definitions/options apply to the whole AscendC target.
+set(A3_ONLY_KERNEL_TARGETS)
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    ascendc_library(mega_chunk_gdn_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
+    )
+    ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
+        ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+        ${ASCEND_INCLUDE_DIR}
+        ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_INCLUDE_DIR}/experiment/msprof
+    )
+    ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
+        -DGDN_KERNEL_NAME=launch_mega_kernel
+        -DGDN_D=128
+        -DGDN_C=128
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS mega_chunk_gdn_kernel)
+
+    ascendc_library(sparse_attn_sharedkv_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
+    )
+    ascendc_include_directories(sparse_attn_sharedkv_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(sparse_attn_sharedkv_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(sparse_attn_sharedkv_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm
+        -cce-vf-remove-membar=false
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
+
+    ascendc_library(sparse_flash_attention_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sparse_flash_attention.cpp
+    )
+    ascendc_include_directories(sparse_flash_attention_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(sparse_flash_attention_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
+        -DASCENDC_DUMP=0
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        # Keep each -mllvm pair grouped; CMake otherwise deduplicates repeated -mllvm flags.
+        "SHELL:-mllvm -cce-vf-remove-membar=false"
+        "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_flash_attention_kernel)
+endif()
+
+# create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
-        ${MEGA_MOE_W4A4_KERNEL_TARGETS}
+        ${A3_ONLY_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
+        chunk_kda_fwd_kernel
+        ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
         ascendcl
         tiling_api
@@ -177,6 +370,10 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_NPU_DIR}/lib
 )
 
+# Enable OpenMP for the pure-host metadata scheduler (parallel per-row cache build).
+target_compile_options(${OP_PLUGIN_NAME} PRIVATE -fopenmp)
+target_link_libraries(${OP_PLUGIN_NAME} PRIVATE gomp)
+
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
@@ -184,10 +381,15 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/stub
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host
+        ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
@@ -195,4 +397,6 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_DRIVER_PATH}/include
+        ${ASCEND_DRIVER_PATH}/kernel/inc
 )

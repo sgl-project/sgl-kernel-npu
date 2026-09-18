@@ -1,11 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: add combine kernel implement
- * Author: Chen Cheng
- * Create: 2025-07-21
- * Note:
- * History: 2025-07-21 add combine kernel implement
- */
 #ifndef CAM_MOE_DISTRIBUTE_COMBINE_H
 #define CAM_MOE_DISTRIBUTE_COMBINE_H
 #define OPT_RANK_OFFSET 512
@@ -95,12 +87,14 @@ private:
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain, const uint8_t expertLocalId = 0U)
     {
         if (domain == EP_DOMAIN) {
+            assert(epWinContext_ != nullptr);
             return (GM_ADDR)((epRankId_ == rankId)
                                  ? epWinContext_->localWindowsIn
                                  : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
                                        ->windowsIn) +
                    winDataSizeOffset_ + expertLocalId * expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
         } else {
+            assert(tpWinContext_ != nullptr);
             return (GM_ADDR)((tpRankId_ == rankId)
                                  ? tpWinContext_->localWindowsIn
                                  : ((HcclRankRelationResV2 *)(tpWinContext_->remoteRes[rankId].nextDevicePtr))
@@ -111,7 +105,11 @@ private:
 
     __aicore__ GM_ADDR GetWinStateAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
+        if (domain == TP_DOMAIN) {
+            assert(tpWinContext_ != nullptr);
+        }
         if (domain == EP_DOMAIN) {
+            assert(epWinContext_ != nullptr);
             return (GM_ADDR)((epRankId_ == rankId)
                                  ? epWinContext_->localWindowsExp
                                  : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
@@ -297,6 +295,8 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     bsKNum_ = axisBS_ * axisK_;
 
     if constexpr (IsNeedReduceScatter) {
+        auto contextGM1 = AscendC::GetHcclContext<1>();
+        tpWinContext_ = (__gm__ HcclOpResParam *)contextGM1;
         tpSendCountGM_.SetGlobalBuffer((__gm__ int32_t *)tpSendCount);
         tpWindowGM_ = GetWinAddrByRankId(tpRankId_, TP_DOMAIN);
         tpStatusSpaceGm_ = GetWinStateAddrByRankId(tpRankId_, TP_DOMAIN);

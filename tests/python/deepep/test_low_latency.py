@@ -8,11 +8,17 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.device_info import (
+    DEVICE_VERSION_TABLE,
+    QUANT_MODE_TABLE,
+    get_device_version,
+)
 from utils import (
     bench,
     bench_kineto,
     calc_diff,
     calculate_avg_stats,
+    get_diff_threshold,
     hash_tensor,
     init_dist,
     per_token_cast_back,
@@ -31,6 +37,10 @@ def test(
     buffer: Buffer,
     drop_percent: float,
     seed: int = 0,
+    use_fp8: bool = False,
+    use_mxfp4: bool = False,
+    use_mxfp8: bool = False,
+    local_rank: int = 0,
 ):
     torch.manual_seed(seed + rank)
     random.seed(seed + rank)
@@ -38,7 +48,34 @@ def test(
     assert num_experts % num_ranks == 0
     num_local_experts = num_experts // num_ranks
 
-    # NOTES: the integers greater than 256 exceeds the BF16 precision limit
+    use_bool_flags = use_fp8 or use_mxfp4 or use_mxfp8
+    if use_bool_flags:
+        if use_mxfp4:
+            param_type = "use_mxfp4"
+        elif use_mxfp8:
+            param_type = "use_mxfp8"
+        else:
+            param_type = "use_fp8"
+        version_code = get_device_version()
+        dispatch_quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if param_type == "use_fp8" and version_code is None:
+            dispatch_quant_mode = "int8"
+        if dispatch_quant_mode is None:
+            raise NotImplementedError(
+                f"{param_type} is not supported on device version {version_code} "
+                f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
+            )
+        quant_dispatch_kwargs = {
+            "use_fp8": use_fp8,
+            "use_mxfp4": use_mxfp4,
+            "use_mxfp8": use_mxfp8,
+        }
+    else:
+        dispatch_quant_mode = (
+            "int8" if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1" else "bf16"
+        )
+        quant_dispatch_kwargs = {"use_fp8": False}
+
     rank_offset = 128
     assert (
         num_ranks - rank_offset < 257
@@ -48,6 +85,7 @@ def test(
         rank - rank_offset
     )
     x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
+    x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     scores = (
         torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
@@ -76,57 +114,88 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    for dispatch_use_fp8 in (True, False):
-        packed_recv_x, packed_recv_count, handle, event, hook = (
-            buffer.low_latency_dispatch(
-                x,
-                topk_idx,
-                aligned_num_tokens,
-                num_experts,
-                use_fp8=dispatch_use_fp8,
-                round_scale=False,
-                use_ue8m0=False,
-                cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-                async_finish=not return_recv_hook,
-                return_recv_hook=return_recv_hook,
-                topk_weights=topk_weights,
-            )
-        )
-        simulated_gemm_x = (
-            per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
-        )
 
-        padding_size = aligned_num_tokens - num_tokens
-        if padding_size > 0:
-            padding_tensor = torch.full(
-                (padding_size, num_topk),
-                fill_value=-1,
+    dispatch_use_fp8 = dispatch_quant_mode != "bf16"
+    dispatch_use_ue8m0 = dispatch_quant_mode.startswith("mx_fp8")
+    fp8_configs = [(dispatch_use_fp8, dispatch_use_ue8m0)]
+
+    for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
+        for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
+            quant_label = dispatch_quant_mode
+            if local_rank == 0:
+                print(
+                    f'[testing] Running with {quant_label}, data={"rand" if current_x is x_pure_rand else "uniform"} ...',
+                    flush=True,
+                )
+
+            packed_recv_x, packed_recv_count, handle, event, hook = (
+                buffer.low_latency_dispatch(
+                    current_x,
+                    topk_idx,
+                    aligned_num_tokens,
+                    num_experts,
+                    round_scale=False,
+                    cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+                    async_finish=not return_recv_hook,
+                    return_recv_hook=return_recv_hook,
+                    topk_weights=topk_weights,
+                    **quant_dispatch_kwargs,
+                )
+            )
+            if dispatch_quant_mode == "int8":
+                assert packed_recv_x[0].dtype == torch.int8, (
+                    "INT8 dispatch must return an INT8 payload, but got "
+                    f"{packed_recv_x[0].dtype}"
+                )
+            elif dispatch_quant_mode == "pertoken_fp8_e4m3":
+                assert packed_recv_x[0].dtype == torch.float8_e4m3fn, (
+                    "Per-token FP8 mode must return an FP8 payload, but got "
+                    f"{packed_recv_x[0].dtype}"
+                )
+            simulated_gemm_x = (
+                per_token_cast_back(*packed_recv_x)
+                if dispatch_use_fp8
+                else packed_recv_x
+            )
+            padding_size = aligned_num_tokens - num_tokens
+            if padding_size > 0:
+                padding_tensor = torch.full(
+                    (padding_size, num_topk),
+                    fill_value=-1,
+                    dtype=topk_idx.dtype,
+                    device="npu",
+                )
+                topk_idx_padded = torch.cat([topk_idx, padding_tensor], dim=0)
+            else:
+                topk_idx_padded = topk_idx
+
+            all_topk_idx = torch.empty(
+                (num_ranks, aligned_num_tokens, num_topk),
                 dtype=topk_idx.dtype,
                 device="npu",
             )
-            topk_idx_padded = torch.cat([topk_idx, padding_tensor], dim=0)
-        else:
-            topk_idx_padded = topk_idx
-
-        all_topk_idx = torch.empty(
-            (num_ranks, aligned_num_tokens, num_topk),
-            dtype=topk_idx.dtype,
-            device="npu",
-        )
-        dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
+            dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
         for i in range(num_local_experts if do_check and not all_to_all_mode else 0):
             expert_id = rank * num_local_experts + i
             temp = aligned_num_tokens / num_local_experts
             recv_count = packed_recv_count[i]
+            token_start = int(i * temp)
+            token_end = int((i + 1) * temp)
+            scales_per_token = (
+                hidden // 32 if dispatch_quant_mode.startswith("mx_") else 1
+            )
+            scale_start = token_start * scales_per_token
+            scale_end = token_end * scales_per_token
             recv_x = (
                 per_token_cast_back(
-                    packed_recv_x[0][int(i * temp) : int((i + 1) * temp)],
-                    packed_recv_x[1][int(i * temp) : int((i + 1) * temp)],
+                    packed_recv_x[0][token_start:token_end],
+                    packed_recv_x[1][scale_start:scale_end],
                 )
                 if dispatch_use_fp8
-                else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
+                else packed_recv_x[token_start:token_end]
             )
+            quant_label = dispatch_quant_mode
             if i == 0:
                 recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
             else:
@@ -134,89 +203,114 @@ def test(
                     handle[1][(i + 1) * num_ranks - 1] - handle[1][i * num_ranks - 1]
                 )
 
-            # Check expert indices
-            int_mask = (2**32) - 1
-            num_valid_tokens = recv_count.item()
-            assert (
-                num_valid_tokens == (recv_layout_range & int_mask).item()
-            ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
-            assert (
-                num_valid_tokens == (all_topk_idx == expert_id).sum().item()
-            ), f"{num_valid_tokens} != {(all_topk_idx == expert_id).sum().item()}"
+                int_mask = (2**32) - 1
+                num_valid_tokens = recv_count.item()
+                assert (
+                    num_valid_tokens == (recv_layout_range & int_mask).item()
+                ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
+                assert (
+                    num_valid_tokens == (all_topk_idx == expert_id).sum().item()
+                ), f"{num_valid_tokens} != {(all_topk_idx == expert_id).sum().item()}"
 
-            if num_valid_tokens == 0:
-                continue
-            # Check received data
-            recv_x = recv_x[:num_valid_tokens]
-            recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-            assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
-            if dispatch_use_fp8:
-                hash_value ^= hash_tensor(
-                    packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
-                )
-                hash_value ^= hash_tensor(
-                    packed_recv_x[1][int(i * temp) : int(i * temp + num_valid_tokens)]
-                )
-            else:
-                hash_value ^= hash_tensor(
-                    packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
-                )
+                if num_valid_tokens == 0:
+                    continue
+                recv_x = recv_x[:num_valid_tokens]
+                recv_x_amin = recv_x[:, :-128].amin(dim=-1)
+                recv_x_amax = recv_x[:, :-128].amax(dim=-1)
+                if current_x is x and not dispatch_use_ue8m0:
+                    if dispatch_use_fp8:
+                        assert torch.allclose(recv_x_amin, recv_x_amax, atol=1e-1)
+                    else:
+                        assert torch.equal(recv_x_amin, recv_x_amax)
+                if dispatch_use_fp8:
+                    hash_value ^= hash_tensor(
+                        packed_recv_x[0][token_start : token_start + num_valid_tokens]
+                    )
+                    valid_scale_end = (
+                        token_start + num_valid_tokens
+                    ) * scales_per_token
+                    hash_value ^= hash_tensor(
+                        packed_recv_x[1][scale_start:valid_scale_end]
+                    )
+                else:
+                    hash_value ^= hash_tensor(
+                        packed_recv_x[token_start : token_start + num_valid_tokens]
+                    )
 
         # Check combine correctness
         if not all_to_all_mode:
-            (
-                src_info,
-                layout_range,
-                num_max_dispatch_tokens_per_rank,
-                hidden,
-                num_experts,
-                packed_recv_count,
-                expand_scales,
-            ) = handle
+            src_info = handle[0]
+            layout_range = handle[1]
+            num_max_dispatch_tokens_per_rank = handle[2]
+            hidden = handle[3]
+            num_experts = handle[4]
+            packed_recv_count = handle[5]
+            expand_scales = handle[6]
 
-        out = torch.empty(
-            (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        )
-        combined_x, event, hook = buffer.low_latency_combine(
-            simulated_gemm_x,
-            topk_idx,
-            topk_weights,
-            handle,
-            async_finish=not return_recv_hook,
-            zero_copy=False,
-            return_recv_hook=return_recv_hook,
-            out=out,
-        )
-
-        if do_check:
-            diff = calc_diff(
-                x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                combined_x,
+            out = torch.empty(
+                (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
             )
-            assert torch.isnan(combined_x).sum().item() == 0
-            if dispatch_use_fp8:
-                assert diff < 1e-4, f"Error: {diff=}"
-            else:
-                assert diff < 1e-5, f"Error: {diff=}"
-            hash_value ^= hash_tensor(combined_x)
+            combined_x, event, hook = buffer.low_latency_combine(
+                simulated_gemm_x,
+                topk_idx,
+                topk_weights,
+                handle,
+                async_finish=not return_recv_hook,
+                zero_copy=False,
+                return_recv_hook=return_recv_hook,
+                out=out,
+            )
 
-            print(f"rank {rank} PASSED")
+            if do_check:
+                ref_x = x_pure_rand if current_x is x_pure_rand else x
+                diff = calc_diff(
+                    ref_x
+                    * topk_weights.masked_fill(topk_idx == -1, 0)
+                    .sum(dim=1)
+                    .view(-1, 1),
+                    combined_x,
+                )
+                assert torch.isnan(combined_x).sum().item() == 0
+                golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(
+                    dim=1
+                ).view(-1, 1)
+                eps = 1e-8
+                golden_nozero = torch.where(golden == 0, eps, golden)
+                max_diff = torch.max(
+                    torch.abs(combined_x - golden) / golden_nozero
+                ).item()
+                avg_diff = torch.mean(
+                    torch.abs(combined_x - golden) / golden_nozero
+                ).item()
+                print(
+                    f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
+                )
+                threshold = get_diff_threshold(dispatch_quant_mode)
+                assert diff < threshold, f"Error: {diff=}, {threshold=}"
+                hash_value ^= hash_tensor(combined_x)
+                if local_rank == 0:
+                    print(" passed", flush=True)
+        if local_rank == 0:
+            print("", flush=True)
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
         recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
-            x,
+            current_x,
             topk_idx,
             aligned_num_tokens,
             num_experts,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            use_fp8=dispatch_use_fp8,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
+            **quant_dispatch_kwargs,
+        )
+        simulated_gemm_x_local = (
+            per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
         )
         combined_x, event, hook = buffer.low_latency_combine(
-            simulated_gemm_x,
+            simulated_gemm_x_local,
             topk_idx,
             topk_weights,
             handle,
@@ -225,11 +319,21 @@ def test(
         )
 
     # Calculate bandwidth
-    num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
+    num_mxfp8_bytes = hidden + hidden // 32 + 16
+    num_mxfp4_bytes = hidden // 2 + hidden // 32 + 16
+    num_fp8_bytes = hidden + hidden // 128 * 4 + 16
+    num_bf16_bytes = hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
     for i in range(num_tokens):
         num_selections = (topk_idx[i] != -1).sum().item()
-        num_dispatch_comm_bytes += num_fp8_bytes * num_selections
+        if dispatch_quant_mode.startswith("mx_fp8"):
+            num_dispatch_comm_bytes += num_mxfp8_bytes * num_selections
+        elif dispatch_quant_mode.startswith("mx_fp4"):
+            num_dispatch_comm_bytes += num_mxfp4_bytes * num_selections
+        elif dispatch_quant_mode != "bf16":
+            num_dispatch_comm_bytes += num_fp8_bytes * num_selections
+        else:
+            num_dispatch_comm_bytes += num_bf16_bytes * num_selections
         num_combine_comm_bytes += num_bf16_bytes * num_selections
 
     # Dispatch + combine testing
@@ -249,9 +353,17 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
+        is_layout = os.getenv("DEEP_USE_MODE", "").lower()
+
+        if is_layout == "ops":
+            dispatch_name = "MoeDistributeDispatchV2"
+            combine_name = "MoeDistributeCombineV2"
+        else:
+            dispatch_name = "MoeLowLatencyDispatchV2"
+            combine_name = "MoeLowLatencyCombineV2"
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+            kernel_names=(dispatch_name, combine_name),
             barrier_comm_profiling=True,
             suppress_kineto_output=True,
             num_kernels_per_period=2 if return_recv_hook else 1,
@@ -259,8 +371,10 @@ def test(
         )
         if not return_recv_hook:
             print(
-                f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-                f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+                f"[rank {rank}] Dispatch raw_bw={num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, "
+                f"equiv_bw={num_combine_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+                f"Combine raw_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, "
+                f"equiv_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
                 flush=True,
             )
             calculate_avg_stats(
@@ -343,6 +457,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         buffer,
         drop_percent,
         seed=1,
+        use_fp8=args.use_fp8,
+        use_mxfp4=args.use_mxfp4,
+        use_mxfp8=args.use_mxfp8,
+        local_rank=local_rank,
     )
 
     do_pressure_test = args.pressure_test
@@ -361,6 +479,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             buffer,
             drop_percent,
             seed=seed,
+            use_fp8=args.use_fp8,
+            use_mxfp4=args.use_mxfp4,
+            use_mxfp8=args.use_mxfp8,
+            local_rank=local_rank,
         )
         for i in range(20):
             assert (
@@ -376,6 +498,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     buffer,
                     drop_percent,
                     seed=seed,
+                    use_fp8=args.use_fp8,
+                    use_mxfp4=args.use_mxfp4,
+                    use_mxfp8=args.use_mxfp8,
+                    local_rank=local_rank,
                 )
                 == ref_hash
             ), f"Error: seed={seed}"
@@ -423,6 +549,27 @@ if __name__ == "__main__":
         default="default",
         choices=["default", "ops"],
         help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
+    )
+    parser.add_argument(
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use use_fp8=True for default low-latency dispatch. "
+        "A5 -> pertoken_fp8_e4m3, A2/A3 -> int8.",
+    )
+    parser.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use use_mxfp4=True for default low-latency dispatch. "
+        "A5 -> mx_fp4_e2m1; A2/A3 is not supported.",
+    )
+    parser.add_argument(
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use use_mxfp8=True for default low-latency dispatch. "
+        "A5 -> mx_fp8_e4m3; A2/A3 is not supported.",
     )
     args = parser.parse_args()
 

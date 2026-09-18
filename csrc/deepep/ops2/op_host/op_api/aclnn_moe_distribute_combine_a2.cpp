@@ -10,6 +10,10 @@
 
 // using namespace op;
 
+#ifndef ACLNN_ERR_INNER_NULLPTR
+#define ACLNN_ERR_INNER_NULLPTR (-1)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,6 +37,9 @@ aclnnStatus aclnnMoeDistributeCombineA2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     aclTensor *x, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    if (workspaceSize == nullptr || executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     aclnnStatus ret = aclnnInnerMoeDistributeCombineA2GetWorkspaceSize(
         expandX, expertIds, expandIdx, epSendCounts, expertScales, tpSendCounts, xActiveMask, activationScale,
         weightScale, groupList, expandScales, offsetInner, offsetOuter, countOuter, groupEp, epWorldSize, epRankId,
@@ -44,6 +51,9 @@ aclnnStatus aclnnMoeDistributeCombineA2GetWorkspaceSize(
 aclnnStatus aclnnMoeDistributeCombineA2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                         aclrtStream stream)
 {
+    if (executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     if (NnopbaseSetHcclServerType) {
         if (op::GetCurrentPlatformInfo().GetSocVersion() == op::SocVersion::ASCEND910B) {
             NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_AICPU);

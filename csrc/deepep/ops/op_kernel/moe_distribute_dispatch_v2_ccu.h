@@ -1,13 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
 /*!
  * \file moe_distribute_dispatch_v2_ccu.h
  * \brief
@@ -127,7 +117,7 @@ private:
     uint32_t perTokenOutSize_;
     uint32_t perTokenMergeSize_;
     uint32_t perTokenCommSize_;
-    uint32_t perRankDataSize_;
+    uint64_t perRankDataSize_;
     uint32_t expertTokenNumsType_;
     uint32_t scaleOutBytes_;
     uint32_t shareRankRcvTokenCnt_;
@@ -264,7 +254,9 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     pipe_->InitBuffer(workspaceBuf, histoSize);
     expertCumSumLT_ = workspaceBuf.Get<uint16_t>();
 
-    pipe_->InitBuffer(workspaceBuf, sortNum_ * sizeof(int32_t));
+    uint32_t rankPerAivNum = Ceil<uint32_t, uint32_t>(epWorldSize_, aivNum_);
+    uint32_t indexLtElem = (sortNum_ > rankPerAivNum) ? sortNum_ : rankPerAivNum;
+    pipe_->InitBuffer(workspaceBuf, indexLtElem * sizeof(int32_t));
     indexLT_ = workspaceBuf.Get<int32_t>();
 
     pipe_->InitBuffer(tempBuf_, sortNum_ * sizeof(int32_t) * DUAL_DATA);
@@ -327,7 +319,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     }
 
     perTokenCommSize_ = Align512<uint32_t>(perTokenMergeSize_);
-    perRankDataSize_ = COUNT_OFFSET + perTokenCommSize_ * axisMaxBs_ * localExpertNum_;
+    perRankDataSize_ = COUNT_OFFSET + static_cast<uint64_t>(perTokenCommSize_) * axisMaxBs_ * localExpertNum_;
 
     if constexpr (QuantMode > UNQUANT) {
         pipe_->InitBuffer(tokenInQue_, BUFFER_NUM, perTokenInSize_);
@@ -469,7 +461,8 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     }
 
     LocalTensor<float> tokenF32Tmp = outLocal.template ReinterpretCast<float>();
-    tokenF32Tmp(Align32<uint32_t>(axisH_) / sizeof(float)) = static_cast<float>(1.0) / dynamicScale;
+    uint32_t scaleF32Idx = Align32(axisH_) * sizeof(ExpandXOutType) / sizeof(float);
+    tokenF32Tmp(scaleF32Idx) = static_cast<float>(1.0) / dynamicScale;
     SyncFunc<AscendC::HardEvent::S_MTE3>();
 }
 
@@ -598,7 +591,8 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     GlobalTensor<uint32_t> sendCntGT;
     sendCntGT.SetGlobalBuffer((__gm__ uint32_t *)(sendBufGM_ + startRank * perRankDataSize_));
     uint32_t cntSize = sizeof(uint32_t);
-    DataCopyExtParams cntParams = {static_cast<uint16_t>(rankPerAiv), cntSize, 0, perRankDataSize_ - cntSize, 0};
+    DataCopyExtParams cntParams = {static_cast<uint16_t>(rankPerAiv), cntSize, 0,
+                                   static_cast<int64_t>(perRankDataSize_ - cntSize), 0};
     DataCopyPad(sendCntGT, cntLT, cntParams);
 }
 
@@ -741,7 +735,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     sendCntGT.SetGlobalBuffer((__gm__ uint32_t *)(sendBufGM_ + (startRank + sharedExpertRankNum_) * perRankDataSize_));
     uint32_t cpSize2 = sizeof(uint32_t) * localExpertNum_;
     DataCopyExtParams cntParams = {static_cast<uint16_t>(rankPerAiv), cpSize2, rankCntSize - cpSize2,
-                                   perRankDataSize_ - cpSize2, 0};
+                                   static_cast<int64_t>(perRankDataSize_ - cpSize2), 0};
     DataCopyPad(sendCntGT, cntLT, cntParams);
 }
 
@@ -913,7 +907,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
 {
     DataCopyParams scaleOutParams = {1U, static_cast<uint16_t>(scaleOutBytes_), 0U, 0U};
     if constexpr (QuantMode == PERTOKEN_DYNAMIC_QUANT || ((QuantMode == UNQUANT) && IsSmoothScaleExist)) {
-        auto scaleLT = quantTok[Align32<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
+        auto scaleLT = quantTok[Align32(axisH_)].template ReinterpretCast<uint8_t>();
         DataCopyPad(dynamicScaleGT_[currentTokenIndex * scaleOutBytes_], scaleLT, scaleOutParams);
     }
 }

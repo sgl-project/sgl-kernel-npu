@@ -12,7 +12,7 @@ torch.set_printoptions(threshold=float("inf"))
 class TestLoraKernels(unittest.TestCase):
     def test_sgemmv_shrink(self):
         batch_size = 2
-        input_dim = 1024
+        input_dim = 2 * 1024
         num_loras = 3
         dtype = torch.float16
         device_dtype = torch.float16
@@ -84,7 +84,7 @@ class TestLoraKernels(unittest.TestCase):
 
     def test_sgemmv_expand(self):
         batch_size = 4
-        output_dim = 1024
+        output_dim = 2 * 1024
         num_loras = 8
         dtype = torch.float16
         device_dtype = torch.float16

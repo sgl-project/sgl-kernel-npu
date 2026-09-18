@@ -1,9 +1,18 @@
 #ifndef SGLANG_KERNEL_GE_HELPER_H
 #define SGLANG_KERNEL_GE_HELPER_H
+#include <cstring>
 #include <cstdint>
-#include <vector>
+#include <functional>
 #include <any>
 #include <map>
+#include <mutex>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <vector>
+
+#include "acl/acl.h"
+#include "exe_graph/runtime/tiling_context.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 
@@ -93,6 +102,122 @@ constexpr size_t DIM1 = 1;
 constexpr size_t DIM2 = 2;
 constexpr size_t DIM3 = 3;
 constexpr size_t DIM4 = 4;
+constexpr int64_t MAX_TILING_CACHE_ENTRIES = 512;
+
+inline bool IsNpuGraphCapturing()
+{
+    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
+    aclmdlRI model = nullptr;
+    auto stream = c10_npu::getCurrentNPUStream().stream(false);
+    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
+    TORCH_CHECK(status == ACL_ERROR_NONE, "[GE_Helper] Failed to query NPU graph capture status, acl error ", status);
+    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
+}
+
+template <typename T>
+class TilingTensorCache
+{
+    static_assert(std::is_trivially_copyable_v<T>, "TilingData must be trivially copyable");
+
+public:
+    static at::Tensor Get(const T &tilingData, const std::string &opName)
+    {
+        static std::mutex cacheMutex;
+        static std::unordered_map<int64_t, DeviceCache> deviceCaches;
+
+        const auto device = c10_npu::getCurrentNPUStream().device();
+        const auto tilingSize = static_cast<int64_t>(sizeof(T));
+        // TilingData must be deterministically initialized because its complete
+        // serialized representation, including padding, is used as the cache key.
+        std::string key(tilingSize, '\0');
+        std::memcpy(key.data(), &tilingData, sizeof(T));
+
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto &cache = deviceCaches[static_cast<int64_t>(device.index())];
+        auto iter = cache.slots.find(key);
+        if (iter != cache.slots.end()) {
+            return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
+        }
+
+        const bool isCapturing = IsNpuGraphCapturing();
+        if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES) {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": the current tiling configuration is not cached and the 512-entry cache is full; "
+                        "NPU graph capture cannot use a one-shot tiling address");
+            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            CopyTo_(tilingTensor, tilingData, opName);
+            // The async kernel launched right after this returns reads this
+            // one-shot buffer, so tell the caching allocator to keep the block
+            // alive until the current stream has drained (it is recorded when
+            // the tensor is freed, i.e. after the launch).
+            tilingTensor.record_stream(c10_npu::getCurrentNPUStream());
+            return tilingTensor;
+        }
+
+        if (!cache.buffer.defined()) {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": run one eager warmup with the same configuration before NPU graph capture to initialize "
+                        "the tiling cache");
+            // Allocate the persistent tiling buffer OUTSIDE the torch NPU caching
+            // allocator (aclrtMalloc + non-owning from_blob view). Its addresses are
+            // baked into captured NPU graphs, and torch-allocator-owned memory has
+            // been observed to get re-mapped/re-written by graph capture, which would
+            // corrupt the tiling between host write and device read. Dedicated GM is
+            // never touched by the allocator, so captured addresses keep their content.
+            cache.buffer = MakeBuffer_(device, tilingSize * MAX_TILING_CACHE_ENTRIES);
+        } else {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
+                        "shapes, dtypes, optional inputs, and attributes before NPU graph capture");
+        }
+
+        const int64_t slot = cache.nextSlot;
+        auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
+        CopyTo_(cachedTiling, tilingData, opName);
+        cache.slots.emplace(std::move(key), slot);
+        cache.nextSlot++;
+        return cachedTiling;
+    }
+
+private:
+    // Allocate the persistent tiling buffer from dedicated GM via aclrtMalloc and
+    // wrap it in a non-owning from_blob view, so it never lives in (and is never
+    // re-mapped/re-written by) the torch NPU caching allocator or graph capture.
+    static at::Tensor MakeBuffer_(const c10::Device &device, int64_t bytes)
+    {
+        void *ptr = nullptr;
+        aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling buffer failed, acl error ",
+                    static_cast<int>(st));
+        auto del = [](void *p) {
+            if (p != nullptr) {
+                aclrtFree(p);
+            }
+        };
+        int64_t nbytes[] = {bytes};
+        int64_t bstrides[] = {1};
+        std::function<void(void *)> deleter = del;
+        return at::from_blob(ptr, at::IntArrayRef(nbytes, 1), at::IntArrayRef(bstrides, 1), deleter,
+                             at::TensorOptions().device(device).dtype(at::kByte));
+    }
+
+    static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
+    {
+        // Upload on the torch_npu current stream so the H2D copy is ordered with the
+        // surrounding kernel launches, then sync because the source is a stack object
+        // (an async memcpy would otherwise read freed memory after this returns).
+        auto stream = c10_npu::getCurrentNPUStream().stream(false);
+        auto status = aclrtMemcpyAsync(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T),
+                                       ACL_MEMCPY_HOST_TO_DEVICE, stream);
+        TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
+        aclrtSynchronizeStream(stream);
+    }
+    struct DeviceCache {
+        at::Tensor buffer;
+        std::unordered_map<std::string, int64_t> slots;
+        int64_t nextSlot = 0;
+    };
+};
 
 class InputDef
 {
@@ -186,6 +311,33 @@ public:
     }
 
     AttrDef &Int(int value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Int(int64_t value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Float(float value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Bool(bool value)
     {
         TORCH_CHECK(valueInitialized_ == false,
                     "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
@@ -300,7 +452,8 @@ public:
         // Safety check to avoid underflow
         TORCH_CHECK(!descPtr->empty(), "[GE_Helper] No tensor description available.");
 
-        auto index = descPtr->size() - 1;
+        auto index = tensorPtr->size();
+        TORCH_CHECK(index < descPtr->size(), "[GE_Helper] Tensor registration index out of range.");
         // storageFormat == originFormat
         auto geOriginFormat = (*descPtr)[index]->GetOriginFormat();
         auto storageFormat = gert::StorageFormat(geOriginFormat, geOriginFormat, gert::ExpandDimsType());
@@ -326,7 +479,7 @@ public:
 
     const gert::CompileTimeTensorDesc *GetOptionalInputDesc(uint32_t index) const
     {
-        return inputDesc_[index].get();
+        return inputTensor_[index] == nullptr ? nullptr : inputDesc_[index].get();
     }
 
     const gert::StorageShape *GetOptionalInputShape(uint32_t index) const
@@ -395,6 +548,12 @@ public:
     size_t GetWorkspaceSize()
     {
         return systemWorkSpaceSize_ + userWorkSpaceSize_;
+    }
+
+    template <typename T>
+    at::Tensor GetTilingTensor(const T &tilingData) const
+    {
+        return TilingTensorCache<T>::Get(tilingData, nodeName_);
     }
 
     // Deleted, do not need to use these functions

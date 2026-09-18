@@ -2,6 +2,7 @@
 #define __MC2_TILING_UTILS_H__
 
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -19,15 +20,21 @@
 class Mc2TilingUtils
 {
 public:
+    static bool IsHybridDeployment()
+    {
+        return getenv("DEEPEP_HYBRID_DEPLOYMENT") != nullptr;
+    }
+
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;
         const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
-        if (getenv(hcclBuffSize) == nullptr) {
+        const char *envValue = getenv(hcclBuffSize);
+        if (envValue == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(hcclBuffSize));
+                std::string envStr(envValue);
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
@@ -63,7 +70,7 @@ constexpr uint32_t AIC_NUM_910D = 32;
 constexpr uint64_t MC2_TILINGKEY_OFFSET = uint64_t(1000000000000000000UL);  // 10^18
 constexpr size_t RES_LEN = 64;
 constexpr size_t MAX_MSG_NUM = 16;
-constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // Ö»Í¨ĞÅ²»¼ÆËã
+constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // åªé€šä¿¡ä¸è®¡ç®—
 constexpr char HCCL_DETERMINISTIC[] = "HCCL_DETERMINISTIC";
 
 constexpr uint8_t AIV_ENGINE = 3;
@@ -126,12 +133,15 @@ inline ge::graphStatus GetEpWinSize(const gert::TilingContext *context, const ch
 {
     auto attrs = context->GetAttrs();
     if (mc2tiling::GetSocVersion(context) == "Ascend910_95") {
-        // A5 Ôİ²»Ö§³Ö Hccl CommGetBufSizeCfg ½Ó¿Ú£¬´Ë´¦Ôİ×÷¹æ±Ü
+        // A5 æš‚ä¸æ”¯æŒ Hccl CommGetBufSizeCfg æ¥å£ï¼Œæ­¤å¤„æš‚ä½œè§„é¿
         hcclBufferSizeEp = Mc2TilingUtils::GetMaxWindowSize();
-        // A5 ÉÏÇ° 1MB ×÷Îª×´Ì¬Çø£¬Ê£Óà¿Õ¼äÓÃ×÷Êı¾İÇø
+        // A5 ä¸Šå‰ 1MB ä½œä¸ºçŠ¶æ€åŒºï¼Œå‰©ä½™ç©ºé—´ç”¨ä½œæ•°æ®åŒº
         maxWindowSizeEp = hcclBufferSizeEp - MTE_STATE_ZONE_SIZE;
     } else {
-        OP_LOGI(nodeName, "GetEpWinSize not in Ascend910_95!");
+        hcclBufferSizeEp = 0;
+        maxWindowSizeEp = 0;
+        OP_LOGE(nodeName, "GetEpWinSize not in Ascend910_95!");
+        return ge::GRAPH_FAILED;
     }
     return ge::GRAPH_SUCCESS;
 }

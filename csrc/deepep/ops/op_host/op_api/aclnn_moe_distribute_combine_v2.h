@@ -50,7 +50,7 @@ extern "C" {
  * @return aclnnStatus: 返回值，返回状态码
  *
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *expertIds, const aclTensor *assistInfoForCombine,
     const aclTensor *epSendCounts, const aclTensor *expertScales, const aclTensor *tpSendCountsOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *activationScaleOptional,
@@ -70,7 +70,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2Ge
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize,
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyCombineV2(void *workspace, uint64_t workspaceSize,
                                                                                aclOpExecutor *executor,
                                                                                aclrtStream stream);
 

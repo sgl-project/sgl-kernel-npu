@@ -100,6 +100,10 @@ inline ge::graphStatus CheckEpAndTpWorldSize(const gert::TilingContext *context,
     auto tpWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTRS_TP_WORLD_SIZE_INDEX);
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTRS_GROUP_EP_INDEX));
     auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTRS_GROUP_TP_INDEX));
+    OP_TILING_CHECK(epWorldSizePtr == nullptr, OP_LOGE(nodeName, "The epWorldSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(tpWorldSizePtr == nullptr, OP_LOGE(nodeName, "The tpWorldSizePtr is null."),
+                    return ge::GRAPH_FAILED);
     OP_TILING_CHECK(groupEpPtr == nullptr, OP_LOGE(nodeName, "The groupEpPtr is null."), return ge::GRAPH_FAILED);
     uint64_t len = strnlen(groupEpPtr, MAX_GROUP_NAME_LENGTH);
     OP_TILING_CHECK(
@@ -117,7 +121,7 @@ inline ge::graphStatus CheckEpAndTpWorldSize(const gert::TilingContext *context,
                             MAX_TP_WORLD_SIZE, *tpWorldSizePtr),
                     return ge::GRAPH_FAILED);
     groupEp = std::string(groupEpPtr);
-    groupTp = std::string(groupTpPtr);
+    groupTp = (groupTpPtr != nullptr) ? std::string(groupTpPtr) : std::string();
     return ge::GRAPH_SUCCESS;
 }
 
@@ -238,7 +242,7 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext *contex
                     OP_LOGE(nodeName, "CheckEpAndTpWorldSize failed."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(CheckEpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckEpRankId failed."),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(CheckTpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckEpRankId failed."),
+    OP_TILING_CHECK(CheckTpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckTpRankId failed."),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(*expertShardTypePtr != 0,
                     OP_LOGE(nodeName, "The expected value of expertShardType is 0, but the actual value is %ld.",
@@ -398,6 +402,11 @@ inline ge::graphStatus CheckSharedExpertXShape(const gert::TilingContext *contex
     if (sharedExpertXShape == nullptr) {
         return ge::GRAPH_SUCCESS;
     }
+    OP_TILING_CHECK(((sharedExpertXShape->GetStorageShape().GetDimNum() != TWO_DIMS) &&
+                     (sharedExpertXShape->GetStorageShape().GetDimNum() != THREE_DIMS)),
+                    OP_LOGE(nodeName, "sharedExpertX must be 2-dimension or 3-dimension, but got %lu dim",
+                            sharedExpertXShape->GetStorageShape().GetDimNum()),
+                    return ge::GRAPH_FAILED);
     int64_t sharedExpertXDim0 = sharedExpertXShape->GetStorageShape().GetDim(0);
     int64_t sharedExpertXDim1 = sharedExpertXShape->GetStorageShape().GetDim(1);
     if (sharedExpertXShape->GetStorageShape().GetDimNum() == TWO_DIMS) {
@@ -669,7 +678,7 @@ ge::graphStatus MoeDistributeCombineTilingImpl(gert::TilingContext *context)
     // Tiling implementation
     OP_TILING_CHECK(context == nullptr, OP_LOGE(OP_NAME, "Fail to get tiling context."), return ge::GRAPH_FAILED);
     const char *nodeName = context->GetNodeName();
-    OP_TILING_CHECK(nodeName == nullptr, OP_LOGE(nodeName, "Fail to get nodeName."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(nodeName == nullptr, OP_LOGE("unKnownNodeName", "Fail to get nodeName."), return ge::GRAPH_FAILED);
     OP_LOGD(nodeName, "Start MoeDistributeCombineA5 tiling.");
     MoeDistributeCombineV2TilingData *tilingData = context->GetTilingData<MoeDistributeCombineV2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);

@@ -539,6 +539,7 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     auto sendCostStatsStorageShape = context->GetOutputShape(OUTPUT_SEND_COST_INDEX);
     bool isEnableDiagnose = (sendCostStatsStorageShape != nullptr);
     tilingData->camMoeCombineNormalInfo.isEnableDiagnose = isEnableDiagnose;
+    tilingData->camMoeCombineNormalInfo.isHybridDeployment = Mc2TilingUtils::IsHybridDeployment();
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(TilingCheckCamMoeCombineNormal(context, nodeName, isEnableDiagnose) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling check params failed"), return ge::GRAPH_FAILED);
@@ -562,20 +563,35 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t realMaxBs = tilingData->camMoeCombineNormalInfo.realMaxBs;
     uint64_t realBs = std::min(perRoundTokens, realMaxBs);
     uint32_t maxRound = tilingData->camMoeCombineNormalInfo.maxRound;
+    if (tilingData->camMoeCombineNormalInfo.isHybridDeployment) {
+        uint64_t normalStateSize = realBs * k * Moe::A3WindowLayout::kNormalCombineStateEntrySize;
+        uint64_t normalStateCapacity = maxRound > 1 ? Moe::A3WindowLayout::kNormalCombineStateHalfSize
+                                                    : Moe::A3WindowLayout::kNormalCombineStateSize;
+        OP_TILING_CHECK(normalStateSize > normalStateCapacity,
+                        OP_LOGE(nodeName,
+                                "normal combine token state exceeds the hybrid slot, needed=%lu, slot=%lu, "
+                                "realBs=%lu, k=%lu, maxRound=%u.",
+                                normalStateSize, normalStateCapacity, realBs, k, maxRound),
+                        return ge::GRAPH_FAILED);
+    }
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     tokenNeedSizeCombine = maxRound > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;
-    uint64_t actualSize = (realBs * k * tokenNeedSizeCombine + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t perHalfDataSize = realBs * k * tokenNeedSizeCombine;
+    uint64_t reservedSize = tilingData->camMoeCombineNormalInfo.isHybridDeployment
+                                ? Moe::A3WindowLayout::kPerHalfReservedSize
+                                : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
-        OP_LOGE(nodeName,
-                "HCCL_BUFFSIZE is too SMALL, realBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
-                " tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((realBs * k * tokenNeedSizeCombine * 2)) + 4MB + 204MB) * 2) = %luMB, "
-                "HCCL_BUFFSIZE=%luMB.",
-                realBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
-                maxWindowSize / MB_SIZE),
+        OP_LOGE(
+            nodeName,
+            "HCCL_BUFFSIZE is too SMALL, realBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
+            " tokenNeedSizeCombine = %lu, k = %lu, hybridDeployment=%d, perHalfDataSize=%lu, perHalfReservedSize=%lu, "
+            "NEEDED_HCCL_BUFFSIZE((perHalfDataSize + perHalfReservedSize) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+            realBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k,
+            tilingData->camMoeCombineNormalInfo.isHybridDeployment, perHalfDataSize, reservedSize,
+            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
     tilingData->camMoeCombineNormalInfo.totalWinSize = maxWindowSize;
 

@@ -1,13 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
 /* !
  * \file moe_v2_fullload_dynamic_quant.h
  * \brief
@@ -192,7 +182,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::ComputeExpertTokenCountOrCu
         int32_t curExpertId = expandedExpertIdxLocal.GetValue(i);
         tokenCount++;
         while (lastExpertId < curExpertId) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            }
             if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_COUNT) {
                 tokenCount = 1;
             }
@@ -200,11 +192,15 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::ComputeExpertTokenCountOrCu
         }
     }
 #ifndef __CCE_KT_TEST__
-    expertTokensCount.SetValue(lastExpertId, tokenCount);
+    if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+        expertTokensCount.SetValue(lastExpertId, tokenCount);
+    }
     if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_CUMSUM) {
         lastExpertId++;
         while (lastExpertId < this->expertNum) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount);
+            if (lastExpertId >= 0) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount);
+            }
             lastExpertId++;
         }
     }
@@ -304,7 +300,7 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
         while (curRowsStart <= curRowsEnd && curRowsStart / this->k_ == row) {
             int32_t outIndex = expandedRowIdx.GetValue(curRowsStart);
             curRowsStart++;
-            if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows_)) {
+            if (!(0 <= outIndex && outIndex < this->activateRows_)) {
                 continue;
             }
             DataCopyPad(expandedXGm_[outIndex * this->cols_scale_], outLocal, intriParams);
@@ -314,6 +310,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
         inputXOutQueue.FreeTensor(outLocal);
     }
     expandedRowIdxCopyOutQueue_.FreeTensor(expandedRowIdx);
+    if (smoothType == 1) {
+        smoothInQueue.FreeTensor(smoothLocal);
+    }
 }
 
 template <typename T>

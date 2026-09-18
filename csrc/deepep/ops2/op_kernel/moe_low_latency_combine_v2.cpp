@@ -1,0 +1,69 @@
+/*!
+ * \file moe_distribute_combine_v2.cpp
+ * \brief
+ */
+#include "kernel_operator.h"
+#include "lib/matmul_intf.h"
+#include "moe_distribute_combine_v2_tiling.h"
+#include "moe_distribute_combine_v2.h"
+#include "moe_distribute_combine_v2_layered_custom.h"
+#include "moe_distribute_combine_v2_single.h"
+#include <cstdio>
+
+using namespace AscendC;
+using namespace MoeDistributeCombineA2Impl;
+
+/*
+ 2000  A2
+ 3000  A2+layered
+  100  quant
+*/
+extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
+    GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR assistInfoForCombine, GM_ADDR epSendCount, GM_ADDR scales,
+    GM_ADDR tpSendCount, GM_ADDR xActiveMask, GM_ADDR activationScale, GM_ADDR weightScale, GM_ADDR groupList,
+    GM_ADDR expandScales, GM_ADDR sharedExpertX, GM_ADDR elasticInfo, GM_ADDR oriX, GM_ADDR constExpertAlpha1,
+    GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+    GM_ADDR tilingGM)
+
+{
+    REGISTER_TILING_DEFAULT(MoeDistributeCombineV2TilingData);
+    REGISTER_TILING_FOR_TILINGKEY("TILING_KEY_VAR < 10000", MoeDistributeCombineV2TilingData);
+    GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+    TPipe pipe;
+
+#if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
+    if (TILING_KEY_IS(2000)) {
+        MoeDistributeCombineV2<DTYPE_EXPAND_X, int32_t> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, xActiveMask, oriX, constExpertAlpha1,
+                constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
+    } else if (TILING_KEY_IS(3000)) {
+        auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low and does not support layered mode.\n");
+        }
+    } else if (TILING_KEY_IS(3100)) {
+        auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, int8_t> op;
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low. It should not be lower than 25.0.rc1.1.\n");
+        }
+    } else if (TILING_KEY_IS(5000)) {  // single server
+        MoeDistributeCombineV2Single<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false, false> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+                XOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
+    }
+#endif
+}

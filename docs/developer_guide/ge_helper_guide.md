@@ -46,9 +46,30 @@ Manages the context for operation tiling including tensor registration and attri
 - `GetOptionalInputDesc` - Get optional input description by index.
 - `GetOptionalInputShape()` - Get optional input shape by index.
 - `GetOptionalInputTensor()` - Get optional input tensor by index.
+- `GetTilingTensor()` - Serialize tiling data into a persistent device cache and return a graph-stable tensor view.
 Note: In CANN framework, the inputs and optional inputs are stored in the same container, we keep it so the index is not separated between inputs and optional inputs.
 
-### 4. OpDef Class
+### 4. Device Tiling Cache
+
+Directly launched kernels do not have an `aclOpExecutor` to own the device-side tiling buffer. `TilingContext::GetTilingTensor()` provides that ownership in the helper layer, so individual operators do not implement cache maps, capture checks, or H2D copies.
+
+```cpp
+SparseAttnSharedkvTiling tiling(context.get());
+TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, "tiling failed");
+
+auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData());
+```
+
+The cache has the following behavior:
+
+- One cache per tiling data type and NPU device.
+- At most 512 persistent tiling records in each cache.
+- Eager execution inserts a missing record and copies it to the device.
+- NPU graph capture only accepts an existing record. Run one eager call with the same tiling configuration before capture.
+- Once the cache is full, eager execution uses a one-shot tiling tensor; graph capture rejects an uncached configuration.
+- Lookup uses the complete serialized tiling data as its key. Tiling structures must be trivially copyable and deterministically initialized, including padding. Value-initialize them with `{}`.
+
+### 5. OpDef Class
 
 Defines operation signatures including inputs, outputs, and attributes.
 
@@ -108,7 +129,7 @@ The library uses `TORCH_CHECK` for error handling instead of exceptions to maint
 
 ## Thread Safety
 
-The classes are designed to be used in single-threaded contexts during graph compilation. Concurrent access to the same instances should be protected by external synchronization mechanisms.
+Individual context instances are designed to be used in single-threaded host tiling code. The shared device tiling cache protects lookup and insertion with an internal mutex.
 
 ## Dependencies
 

@@ -3,7 +3,6 @@ Normal mode EP communication strategies.
 All normal mode strategy implementations are in this file.
 """
 
-import os
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
@@ -11,7 +10,11 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import EventHandle
 
-from ..ep_strategy import NormalEPCommStrategy, register_normal_strategy
+from ..ep_strategy import (
+    VALID_QUANT_MODES,
+    NormalEPCommStrategy,
+    register_normal_strategy,
+)
 from ..utils import EventOverlap
 
 # Global variable for communication stream
@@ -86,6 +89,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -110,6 +114,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
                 previous_event,
                 async_finish,
                 allocate_on_comm_stream,
+                quant_mode,
             )
 
         return self._intranode_dispatch(
@@ -127,6 +132,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             async_finish,
             allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats,
+            quant_mode,
         )
 
     def _intranode_dispatch(
@@ -145,6 +151,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool,
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -153,36 +160,22 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Determine quant type
-        if isinstance(x, torch.Tensor):
-            # BF16 no quant
-            data = x
-            x_scales = None
+        # Resolve quant parameters from the (already-resolved) quant_mode.
+        # The Buffer layer resolves quant_mode from bool flags + device architecture,
+        # so we no longer inspect x[1].dtype for quantization type detection.
+        data = x[0] if isinstance(x, tuple) else x
+        x_scales = None
+        if quant_mode is None or quant_mode == "bf16":
             quant_type = "bf16"
             use_quant = False
-        elif isinstance(x, tuple) and len(x) == 2:
-            data, quant_type_tensor = x
-            if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                quant_type = "fp8_e4m3"
-                use_quant = True
-            elif quant_type_tensor.dtype == torch.float8_e5m2:
-                quant_type = "fp8_e5m2"
-                use_quant = True
-            elif quant_type_tensor.dtype == torch.int8:
-                quant_type = "int8"
-                use_quant = True
-            else:
-                raise TypeError(
-                    f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
-                )
-            x_scales = None
         else:
-            raise TypeError(f"Unsupported x type: {type(x)}")
-
-        if not use_quant:
-            use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-            if use_quant:
-                quant_type = "int8"
+            if quant_mode not in VALID_QUANT_MODES:
+                raise ValueError(
+                    f"Invalid quant_mode: {quant_mode}. "
+                    f"Valid options: {VALID_QUANT_MODES}"
+                )
+            quant_type = quant_mode
+            use_quant = True
 
         if handle is not None:
             raise NotImplementedError(
@@ -264,6 +257,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         previous_event: Optional[EventOverlap],
         async_finish: bool,
         allocate_on_comm_stream: bool,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -273,7 +267,14 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         EventOverlap,
     ]:
         x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+
+        # Internode dispatch only supports BF16 and INT8 quantization.
+        if quant_mode is not None and quant_mode not in ("bf16", "int8"):
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by internode dispatch; "
+                f"only 'bf16' and 'int8' are supported."
+            )
+        use_quant = quant_mode == "int8"
 
         if handle is not None:
             raise NotImplementedError(
@@ -446,6 +447,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
     Internode and intranode use the same implementation.
     """
 
+    _SUPPORTED_QUANT_MODES = frozenset({"bf16", "int8"})
+
     def __init__(self, runtime, group: dist.ProcessGroup):
         super().__init__(group)
         self.runtime = runtime
@@ -532,6 +535,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "output_splits": output_splits,
             "num_global_tokens_per_local_expert": num_global_tokens_per_local_expert,
             "global_tokens_indices": global_tokens_indices,
+            "num_experts": num_experts,
         }
 
         num_tokens_per_rank = num_local_tokens_per_expert.reshape(
@@ -566,6 +570,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -584,21 +589,35 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "num_global_tokens_per_local_expert"
         ]
         global_tokens_indices = layout["global_tokens_indices"]
+        num_experts = layout["num_experts"]
+        topk_idx_int = topk_idx.to(torch.int32)
 
+        if quant_mode is None:
+            quant_mode = "bf16"
+        if quant_mode not in self._SUPPORTED_QUANT_MODES:
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
+                f"Only 'bf16' and 'int8' are supported; use the default strategy for "
+                f"FP8/FP4 modes."
+            )
         hidden_shape = x.shape
-        x = x.view(-1, hidden_shape[-1])
 
-        permutated_tokens, reversed_local_mapping = torch_npu.npu_moe_token_permute(
-            tokens=x,
-            indices=topk_idx,
-            num_out_tokens=topk_idx.numel(),
+        use_quant = 1 if quant_mode == "int8" else -1
+
+        (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
+            torch_npu.npu_moe_init_routing_v2(
+                x,
+                topk_idx_int,
+                quant_mode=use_quant,
+                expert_num=num_experts,
+                expert_tokens_num_type=1,
+                expert_tokens_num_flag=True,
+                row_idx_type=0,
+                active_expert_range=[0, num_experts],
+            )
         )
 
-        input_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-        if input_quant:
-            permutated_tokens, dynamic_scale = torch_npu.npu_dynamic_quant(
-                permutated_tokens
-            )
+        if use_quant == 1:
             _, dynamic_scale_after_all2all, scale_handle = self._async_all_to_all(
                 dynamic_scale, output_splits, input_splits, self.group
             )
@@ -615,14 +634,39 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         permutated_tokens.untyped_storage().resize_(0)
 
         if num_local_experts > 1:
-            if input_quant:
-                dynamic_scale_after_all2all, _ = torch_npu.npu_moe_token_permute(
-                    dynamic_scale_after_all2all.unsqueeze(-1), global_tokens_indices
+            global_tokens_indices = global_tokens_indices.reshape(
+                global_tokens_indices.size(0), 1
+            )
+            if use_quant == 1:
+                dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(
+                    dynamic_scale_after_all2all.size(0), 1
                 )
-                dynamic_scale_after_all2all = dynamic_scale_after_all2all.squeeze(-1)
-
-            dispatch_out, reversed_global_mapping = torch_npu.npu_moe_token_permute(
-                global_input_tokens, global_tokens_indices
+                (dynamic_scale_after_routing, reversed_global_mapping, _, _) = (
+                    torch_npu.npu_moe_init_routing_v2(
+                        dynamic_scale_after_all2all,
+                        global_tokens_indices,
+                        quant_mode=-1,
+                        expert_num=num_local_experts,
+                        expert_tokens_num_type=1,
+                        expert_tokens_num_flag=True,
+                        row_idx_type=0,
+                        active_expert_range=[0, num_local_experts],
+                    )
+                )
+                dynamic_scale_after_routing = dynamic_scale_after_routing.reshape(
+                    dynamic_scale_after_routing.size(0)
+                )
+            (dispatch_out, reversed_global_mapping, _, _) = (
+                torch_npu.npu_moe_init_routing_v2(
+                    global_input_tokens,
+                    global_tokens_indices,
+                    quant_mode=-1,
+                    expert_num=num_local_experts,
+                    expert_tokens_num_type=1,
+                    expert_tokens_num_flag=True,
+                    row_idx_type=0,
+                    active_expert_range=[0, num_local_experts],
+                )
             )
         else:
             dispatch_out = global_input_tokens
@@ -642,9 +686,10 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "hidden_shape_before_permute": x.shape,
             "num_local_experts": num_local_experts,
         }
-
         recv_x = (
-            (dispatch_out, dynamic_scale_after_all2all) if input_quant else dispatch_out
+            (dispatch_out, dynamic_scale_after_routing)
+            if use_quant == 1
+            else dispatch_out
         )
 
         return (
@@ -684,7 +729,16 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             and num_local_experts > 1
             and reversed_global_mapping is not None
         ):
-            x = torch_npu.npu_moe_token_unpermute(x, reversed_global_mapping)
+            x = torch_npu.npu_moe_finalize_routing(
+                expanded_permuted_rows=x,
+                skip1=None,
+                skip2=None,
+                bias=None,
+                scales=None,
+                expanded_src_to_dst_row=reversed_global_mapping.to(torch.int32),
+                export_for_source_row=None,
+                drop_pad_mode=2,
+            )
 
         _, local_tokens, a2a_handle = self._async_all_to_all(
             x,
@@ -695,11 +749,15 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         a2a_handle.wait()
         x.untyped_storage().resize_(0)
 
-        output = torch_npu.npu_moe_token_unpermute(
-            permuted_tokens=local_tokens,
-            sorted_indices=reversed_local_mapping.to(torch.int32),
-            probs=topk_weights,
-            restore_shape=hidden_shape_before_permute,
+        output = torch_npu.npu_moe_finalize_routing(
+            expanded_permuted_rows=local_tokens,
+            skip1=None,
+            skip2=None,
+            bias=None,
+            scales=topk_weights,
+            expanded_src_to_dst_row=reversed_local_mapping.to(torch.int32),
+            export_for_source_row=None,
+            drop_pad_mode=2,
         )
         output = output.view(hidden_shape)
 

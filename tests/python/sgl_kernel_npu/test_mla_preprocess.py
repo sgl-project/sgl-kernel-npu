@@ -7,6 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_npu
 from torch_npu.testing.testcase import TestCase, run_tests
+from utils import require_npu_op
+
+pytestmark = require_npu_op("mla_preprocess")
 
 torch.npu.config.allow_internal_format = True
 

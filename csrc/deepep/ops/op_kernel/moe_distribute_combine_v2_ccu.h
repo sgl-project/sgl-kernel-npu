@@ -1,13 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
 /*!
  * \file moe_distribute_combine_a5.h
  * \brief
@@ -305,15 +295,16 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
     uint32_t outPreExpertCount = 0;
     uint32_t localExpertNum = isShareExpertRank_ ? 1 : localExpertNum_;
     for (uint32_t k = 0; k < localExpertNum; ++k) {
-        uint32_t expertOffset = k * epWorldSize_;
+        uint64_t expertOffset = static_cast<uint64_t>(k) * epWorldSize_;
         uint32_t inPreCount = startRank > 0 ? inputCountLT_(expertOffset + startRank - 1) : inPreExpertCount;
         for (uint32_t i = 0; i < rankNum; ++i) {
             uint32_t curRankId = startRank + i;
             uint32_t curSumNum = inputCountLT_(expertOffset + curRankId);
             uint32_t curTokenNum = curSumNum - inPreCount;
-            uint32_t tokenBeginIdx = inPreCount * axisH_;
+            uint64_t tokenBeginIdx = static_cast<uint64_t>(inPreCount) * axisH_;
 
-            GM_ADDR dstGM = sendBufGM_ + curRankId * perRankDataSize_ + offsetLT(i) * perTokenSize_;
+            GM_ADDR dstGM = sendBufGM_ + static_cast<uint64_t>(curRankId) * perRankDataSize_ +
+                            static_cast<uint64_t>(offsetLT(i)) * perTokenSize_;
             SyncFunc<AscendC::HardEvent::S_MTE2>();
             for (uint32_t j = 0; j < curTokenNum; ++j) {
                 auto t = tokenQue_.AllocTensor<ExpandXType>();
@@ -330,16 +321,16 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
             offsetLT(i) += curTokenNum;
 
             inPreCount = curSumNum;
-            uint64_t countByte = curTokenNum * perTokenSize_;
+            uint64_t countByte = static_cast<uint64_t>(curTokenNum) * perTokenSize_;
             uint64_t halfSize = countByte / HALF_DATA_DIV;
             sizeLT(i) += halfSize;
             sizeLT(i + eachCnt) += countByte - halfSize;
 
-            sendOffsetLT(i) = curRankId * perRankDataSize_;
-            sendOffsetLT(i + eachCnt) = curRankId * perRankDataSize_ + sizeLT(i);
+            sendOffsetLT(i) = static_cast<uint64_t>(curRankId) * perRankDataSize_;
+            sendOffsetLT(i + eachCnt) = static_cast<uint64_t>(curRankId) * perRankDataSize_ + sizeLT(i);
         }
 
-        inPreExpertCount = inputCountLT_((k + 1) * epWorldSize_ - 1);
+        inPreExpertCount = inputCountLT_(static_cast<uint64_t>(k + 1) * epWorldSize_ - 1);
     }
 }
 
@@ -440,12 +431,12 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
             for (int i = 0; i < localExpertNum_; ++i) {
                 idx = i * epWorldSize_ + epRankId_;
                 count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-                localDataSize += count * perTokenSize_;
+                localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
             }
         } else {
             idx = epRankId_;
             count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-            localDataSize += count * perTokenSize_;
+            localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
         }
 
         hcclHandleId_ = hccl_.AlltoAllvWrite<true>(sendBufGM_, sendOffsetGM_, sendSizeGM_, recvOffset_, localDataSize);

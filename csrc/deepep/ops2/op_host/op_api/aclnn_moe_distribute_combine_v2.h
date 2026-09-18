@@ -1,18 +1,3 @@
-/**
- * Copyright (c) Huawei Technologies Co., Ltd. 2024-2025. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 #ifndef OP_API_INC_MOE_DISTRIBUTE_COMBINE_V2_
 #define OP_API_INC_MOE_DISTRIBUTE_COMBINE_V2_
 
@@ -65,7 +50,7 @@ extern "C" {
  * @return aclnnStatus: 返回值，返回状态码
  *
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *expertIds, const aclTensor *assistInfoForCombine,
     const aclTensor *epSendCounts, const aclTensor *expertScales, const aclTensor *tpSendCountsOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *activationScaleOptional,
@@ -84,7 +69,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2Ge
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize,
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeLowLatencyCombineV2(void *workspace, uint64_t workspaceSize,
                                                                                aclOpExecutor *executor,
                                                                                aclrtStream stream);
 

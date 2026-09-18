@@ -83,7 +83,10 @@ public:
         sliceOffsetsGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(sliceOffsets), sliceOffsetsSize);
 
         pipe_->InitBuffer(inQueueX_, 1, NUM_ELEMENTS_PER_REPEAT * sizeof(X_T));
-        pipe_->InitBuffer(inQueueW_, BUFFER_NUM, W_IN_TILE_NUM_ELEMENTS * sizeof(W_T));
+        pipe_->InitBuffer(
+            inQueueW_, BUFFER_NUM,
+            W_IN_TILE_NUM_ELEMENTS * 2 *
+                sizeof(W_T));  // because block size is 32, type of W_T is float16 = 16 => we need x2 memory in buffer
         pipe_->InitBuffer(inQueueY_, BUFFER_NUM, Y_OUT_TILE_NUM_ELEMENTS * sizeof(Y_T));
         pipe_->InitBuffer(outQueueY_, BUFFER_NUM, Y_OUT_TILE_NUM_ELEMENTS * sizeof(Y_T));
 
@@ -212,7 +215,7 @@ private:
             }
         } else {
             Cast(xDup, xLocal, AscendC::RoundMode::CAST_NONE, reqLoRARank_);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
 
             for (int32_t i = reqLoRARank_; i < NUM_ELEMENTS_PER_REPEAT; i += reqLoRARank_) {
                 for (int32_t j = 0; j < reqLoRARank_; j++) {
@@ -247,15 +250,15 @@ private:
         AscendC::LocalTensor<Y_T> yInLocal = inQueueY_.DeQue<Y_T>();
         AscendC::LocalTensor<float> yInLocalFP32 = inBufferY_.Get<float>();
         Cast(yInLocalFP32, yInLocal, AscendC::RoundMode::CAST_NONE, numElements);
-        pipe_barrier(PIPE_V);
+        AscendC::PipeBarrier<PIPE_V>();
         inQueueY_.FreeTensor(yInLocal);
 
         Add(yLocal, yLocal, yInLocalFP32, numElements);
-        pipe_barrier(PIPE_V);
+        AscendC::PipeBarrier<PIPE_V>();
 
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.AllocTensor<Y_T>();
-        Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_RINT, numElements);
-        pipe_barrier(PIPE_V);
+        Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_NONE, numElements);
+        AscendC::PipeBarrier<PIPE_V>();
 
         outQueueY_.EnQue<Y_T>(yOutLocal);
     }
@@ -270,40 +273,40 @@ private:
         AscendC::LocalTensor<float> wTmpTensor = tmpBufferW_.Get<float>();
 
         Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, MASK_COUNT, blockReduceRepeatCount, castParams_);
-        pipe_barrier(PIPE_V);
+        AscendC::PipeBarrier<PIPE_V>();
         inQueueW_.FreeTensor(wLocal);
 
         Mul(wTmpTensor, xDup, wTmpTensor, MASK_COUNT, blockReduceRepeatCount, dotProductParams_);
-        pipe_barrier(PIPE_V);
+        AscendC::PipeBarrier<PIPE_V>();
 
         if (reqLoRARank_ == LORA_RANK_8) {
             BlockReduceSum(yLocal[progress], wTmpTensor, blockReduceRepeatCount, MASK_COUNT,
                            reduceSumParams_.dstRepStride, reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
         } else if (reqLoRARank_ == LORA_RANK_16) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
             PairReduceSum(yLocal[progress], wTmpTensor, pairReduceRepeat16, MASK_COUNT, reduceSumParams_.dstRepStride,
                           reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
         } else if (reqLoRARank_ == LORA_RANK_32) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
             PairReduceSum(wTmpTensor, wTmpTensor, pairReduceRepeat16, MASK_COUNT, reduceSumParams_.dstRepStride,
                           reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
             PairReduceSum(yLocal[progress], wTmpTensor, pairReduceRepeat32, MASK_COUNT, reduceSumParams_.dstRepStride,
                           reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
         } else if (reqLoRARank_ == LORA_RANK_64) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
             BlockReduceSum(yLocal[progress], wTmpTensor, pairReduceRepeat16, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
-            pipe_barrier(PIPE_V);
+            AscendC::PipeBarrier<PIPE_V>();
         }
     }
 

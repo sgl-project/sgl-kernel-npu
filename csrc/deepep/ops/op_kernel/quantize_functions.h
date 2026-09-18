@@ -1,13 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
 /*!
  * \file quantize_functions.h
  * \brief
@@ -387,7 +377,7 @@ __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float
 {
     uint32_t vlB16 = GetVRegSizeDispatch() / sizeof(T);
     uint32_t vlB32 = GetVRegSizeDispatch() / sizeof(float);
-    uint16_t loopNum = Ceil(totalCountInUB, vlB16);
+    uint32_t loopNum = Ceil(totalCountInUB, vlB16);
     uint32_t totalCntForB32 = totalCountInUB;
     float maxVal = 0.0f;
     if constexpr (Std::IsSame<U, fp8_e5m2_t>::value) {

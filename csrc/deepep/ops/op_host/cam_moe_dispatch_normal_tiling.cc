@@ -67,6 +67,8 @@ constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
 constexpr uint32_t MXFP8_SCALES = 3;
+constexpr uint32_t MXFP4_SCALES = 4;
+constexpr uint32_t PER_TOKEN_FP8_SCALES = 5;
 constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
 
 constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
@@ -106,7 +108,9 @@ static const std::unordered_map<DataType, std::string> geDataTypeMap = {{ge::DT_
                                                                         {ge::DT_BF16, "DT_BF16"},
                                                                         {ge::DT_FLOAT8_E4M3FN, "DT_FLOAT8_E4M3FN"},
                                                                         {ge::DT_FLOAT8_E5M2, "DT_FLOAT8_E5M2"},
-                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"}};
+                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"},
+                                                                        {ge::DT_FLOAT4_E2M1, "DT_FLOAT4_E2M1"},
+                                                                        {ge::DT_FLOAT4_E1M2, "DT_FLOAT4_E1M2"}};
 namespace optiling {
 static void PrintTilingDataInfo(const char *nodeName, CamMoeDispatchNormalTilingData &tilingData)
 {
@@ -158,7 +162,7 @@ static bool CheckTensorDim(gert::TilingContext *context, const char *nodeName, c
     OP_LOGD(nodeName, "expandX dim0 = %ld", expandXStorageShape->GetStorageShape().GetDim(0));
     OP_LOGD(nodeName, "expandX dim1 = %ld", expandXStorageShape->GetStorageShape().GetDim(1));
 
-    if (quantMode == DYNAMIC_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == PER_TOKEN_FP8_SCALES) {
         const gert::StorageShape *dynamicScalesStorageShape = context->GetOutputShape(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesStorageShape == nullptr, OP_LOGE(nodeName, "dynamicScalesShape is null."),
                         return false);
@@ -221,6 +225,21 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                     "expandX dataType is invalid for MXFP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
+    } else if (quantMode == PER_TOKEN_FP8_SCALES) {
+        OP_TILING_CHECK(
+            expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN && expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
+            OP_LOGE(
+                nodeName,
+                "expandX dataType is invalid for scalar FP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
+                geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            return false);
+    } else if (quantMode == MXFP4_SCALES) {
+        OP_TILING_CHECK(
+            expandXDesc->GetDataType() != ge::DT_FLOAT4_E2M1 && expandXDesc->GetDataType() != ge::DT_FLOAT4_E1M2,
+            OP_LOGE(nodeName,
+                    "expandX dataType is invalid for MXFP4 quant, dataType should be fp4e2m1 or fp4e1m2, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            return false);
     } else {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != xDesc->GetDataType(),
@@ -229,21 +248,20 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
             return false);
     }
 
-    if (quantMode == DYNAMIC_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == PER_TOKEN_FP8_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(
             dynamicScalesDesc->GetDataType() != ge::DT_FLOAT,
-            OP_LOGE(nodeName, "dynamicScales dataType is invalid for INT8 quant, dataType should be float, but is %s",
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid for quant, dataType should be float, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
-    } else if (quantMode == MXFP8_SCALES) {
+    } else if (quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(
             dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
-            OP_LOGE(nodeName,
-                    "dynamicScales dataType is invalid for MXFP8 quant, dataType should be fp8e8m0, but is %s",
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid for MXFP quant, dataType should be fp8e8m0, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
     }
@@ -291,7 +309,8 @@ static bool CheckTensorFormat(gert::TilingContext *context, const char *nodeName
         static_cast<ge::Format>(ge::GetPrimaryFormat(expandXDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "expandX format is invalid."), return false);
 
-    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES ||
+        quantMode == PER_TOKEN_FP8_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(static_cast<ge::Format>(ge::GetPrimaryFormat(dynamicScalesDesc->GetStorageFormat())) ==
@@ -378,11 +397,11 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     OP_LOGE(nodeName, "moeExpertNum is invalid, only support (0, %ld], but got moeExpertNum=%ld.",
                             MOE_EXPERT_MAX_NUM, moeExpertNum),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(
-        (*quantModePtr < static_cast<int64_t>(NO_SCALES)) || (*quantModePtr > static_cast<int64_t>(MXFP8_SCALES)),
-        OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.", MXFP8_SCALES,
-                *quantModePtr),
-        return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*quantModePtr < static_cast<int64_t>(NO_SCALES)) ||
+                        (*quantModePtr > static_cast<int64_t>(PER_TOKEN_FP8_SCALES)),
+                    OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.",
+                            PER_TOKEN_FP8_SCALES, *quantModePtr),
+                    return ge::GRAPH_FAILED);
 
     int64_t moePerRankNum = moeExpertNum / epWorldSize;
     int64_t curDispatchStatusNum = moePerRankNum * epWorldSize;
@@ -448,6 +467,10 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
     auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    OP_TILING_CHECK(roundPtr == nullptr, OP_LOGE(nodeName, "roundPtr is null."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(realMaxBsPtr == nullptr, OP_LOGE(nodeName, "realMaxBsPtr is null."), return ge::GRAPH_FAILED);
     tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
     tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);
@@ -496,12 +519,14 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
     const int64_t expandXDim0 = expandXStorageShape->GetStorageShape().GetDim(0);
     const int64_t expandXDim1 = expandXStorageShape->GetStorageShape().GetDim(1);
 
-    OP_TILING_CHECK(xDim1 != expandXDim1,
-                    OP_LOGE(nodeName,
-                            "expandX's dim1 not equal to xShape's dim1, "
-                            "xShape's dim1 is %ld, expandX's dim1 is %ld.",
-                            xDim1, expandXDim1),
-                    return ge::GRAPH_FAILED);
+    int64_t expectedExpandXDim1 = (quantMode == MXFP4_SCALES) ? xDim1 / 2 : xDim1;
+    OP_TILING_CHECK(
+        expectedExpandXDim1 != expandXDim1,
+        OP_LOGE(nodeName,
+                "expandX's dim1 not equal to expected dim1, "
+                "xShape's dim1 is %ld, expected expandX's dim1 is %ld, expandX's dim1 is %ld, quantMode=%u.",
+                xDim1, expectedExpandXDim1, expandXDim1, quantMode),
+        return ge::GRAPH_FAILED);
 
     // 校验dynamicScales的维度
     if (quantMode != NO_SCALES) {
@@ -590,6 +615,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     auto waitRecvcostStatsStorageShape = context->GetOutputShape(OUTPUT_WAIT_RECV_COST_INDEX);
     bool isEnableDiagnose = (waitRecvcostStatsStorageShape != nullptr);
     tilingData->camMoeDispatchNormalInfo.isEnableDiagnose = isEnableDiagnose;
+    tilingData->camMoeDispatchNormalInfo.isHybridDeployment = Mc2TilingUtils::IsHybridDeployment();
 
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(
@@ -622,16 +648,20 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     tokenNeedSizeCombine =
         round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
-    uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
-                           NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t perHalfDataSize = maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch);
+    uint64_t reservedSize = tilingData->camMoeDispatchNormalInfo.isHybridDeployment
+                                ? Moe::A3WindowLayout::kPerHalfReservedSize
+                                : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
-                            " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
-                            " + tokenNeedSizeCombine) + 4MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            " k = %lu, hybridDeployment=%d, perHalfDataSize=%lu, perHalfReservedSize=%lu, "
+                            "NEEDED_HCCL_BUFFSIZE((perHalfDataSize + perHalfReservedSize) * 2) = %luMB, "
+                            "HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
+                            tilingData->camMoeDispatchNormalInfo.isHybridDeployment, perHalfDataSize, reservedSize,
                             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
     tilingData->camMoeDispatchNormalInfo.totalWinSize = maxWindowSize;

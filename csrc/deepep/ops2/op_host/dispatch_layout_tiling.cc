@@ -74,6 +74,9 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
 static bool CheckIfA2MultiMachine(gert::TilingContext *context, DispatchLayoutTilingData &tilingData)
 {
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    if (platformInfoPtr == nullptr) {
+        return false;
+    }
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
 
     std::string socVersion;
