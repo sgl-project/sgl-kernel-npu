@@ -70,6 +70,16 @@ def move_cache_dynamic_last_kernel_h_block(
             tl.store(dst_base_addr + offsets, data, mask=mask)
 
 
+def _dst_entry_is_contiguous(t: torch.Tensor, entry_start_dim: int) -> bool:
+    """Check whether trailing dims from entry_start_dim are contiguous."""
+    expected = 1
+    for i in range(t.ndim - 1, entry_start_dim - 1, -1):
+        if t.shape[i] != 1 and t.stride(i) != expected:
+            return False
+        expected *= t.shape[i]
+    return True
+
+
 def move_intermediate_cache(
     ssm_states,
     intermediate_state_cache,
@@ -89,6 +99,17 @@ def move_intermediate_cache(
         last_steps_tensor: Last steps tensor
         h_block_size: Unused, kept for API compatibility
     """
+    # Route to KDA variant when destination entry dims are non-contiguous
+    # (e.g. transposed (-1, -2) layouts) — flat 1D copy is invalid there.
+    if not _dst_entry_is_contiguous(ssm_states, 2):
+        return move_intermediate_cache_kda(
+            ssm_states,
+            intermediate_state_cache,
+            dst_indices_tensor,
+            src_indices_tensor,
+            last_steps_tensor,
+        )
+
     L, S, D, H, V, K = intermediate_state_cache.shape
 
     strides = intermediate_state_cache.stride()
@@ -151,6 +172,8 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     h_dim,
     dim_v,
     dim_k,
+    elem_per_entry,
+    vk,
     num_layers,
     BLOCK_SIZE: tl.constexpr,
 ):
@@ -168,9 +191,6 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     last_step_val = tl.load(last_steps_ptr + valid_id)
     if last_step_val < 0:
         return
-
-    elem_per_entry = h_dim * dim_v * dim_k
-    vk = dim_v * dim_k
 
     for l in range(num_layers):
         src_base_addr = (
@@ -266,6 +286,8 @@ def move_intermediate_cache_kda(
         h_dim=H,
         dim_v=V,
         dim_k=K,
+        elem_per_entry=H * V * K,
+        vk=V * K,
         num_layers=L,
         BLOCK_SIZE=BLOCK_SIZE,
     )
