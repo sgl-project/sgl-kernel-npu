@@ -1455,9 +1455,9 @@ def main():
         parser.error("--single-active-rank cannot be combined with --num-token-jitter")
     if not 512 <= args.hidden <= 8192:
         parser.error("--hidden must be in [512, 8192]")
-    if not 1024 <= gmm1_hidden <= 6144 or gmm1_hidden % 1024 != 0:
+    if not 1024 <= gmm1_hidden <= 8192 or gmm1_hidden % 1024 != 0:
         parser.error(
-            "2 * --moe-intermediate-size must be in [1024, 6144] and divisible by 1024"
+            "2 * --moe-intermediate-size must be in [1024, 8192] and divisible by 1024"
         )
     if args.num_warmups < 0:
         parser.error("--num-warmups must be non-negative")
