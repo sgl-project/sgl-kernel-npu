@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) Huawei Technologies Co., Ltd. 2024. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,6 +57,9 @@ public:
     // Same for rank=64, we do not support ranks greater than 64.
     static constexpr int32_t PAIR_REDUCE_NUM_REPEATS_32 = (PAIR_REDUCE_NUM_REPEATS_16 + 1) / 2;
 
+    static constexpr uint64_t MASK_FILTER[] = {0x00FF00FF00FF00FF};
+    static constexpr float ZERO_VALUE = .0f;
+
 public:
     __aicore__ inline SGEMMVExpand(AscendC::TPipe *pipe) : pipe_(pipe) {}
 
@@ -83,10 +86,7 @@ public:
         sliceOffsetsGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(sliceOffsets), sliceOffsetsSize);
 
         pipe_->InitBuffer(inQueueX_, 1, NUM_ELEMENTS_PER_REPEAT * sizeof(X_T));
-        pipe_->InitBuffer(
-            inQueueW_, BUFFER_NUM,
-            W_IN_TILE_NUM_ELEMENTS * 2 *
-                sizeof(W_T));  // because block size is 32, type of W_T is float16 = 16 => we need x2 memory in buffer
+        pipe_->InitBuffer(inQueueW_, BUFFER_NUM, W_IN_TILE_NUM_ELEMENTS * sizeof(W_T));
         pipe_->InitBuffer(inQueueY_, BUFFER_NUM, Y_OUT_TILE_NUM_ELEMENTS * sizeof(Y_T));
         pipe_->InitBuffer(outQueueY_, BUFFER_NUM, Y_OUT_TILE_NUM_ELEMENTS * sizeof(Y_T));
 
@@ -127,9 +127,13 @@ public:
                 continue;
             }
 
-            reqLoRARank_ = loraRanksGm_.GetValue(reqLoRAIndex_);
+            reqInternalLoRARank_ = reqLoRARank_ = loraRanksGm_.GetValue(reqLoRAIndex_);
             if (reqLoRARank_ == 0) {
                 continue;
+            }
+
+            if (reqLoRARank_ == LORA_RANK_8 && maxLoRARank_ != LORA_RANK_8) {
+                reqInternalLoRARank_ = LORA_RANK_16;
             }
 
             reqLoRAWeightOffset_ = reqLoRAIndex_ * singleLoRAWeightLen_ + sliceOffset_ * maxLoRARank_;
@@ -137,7 +141,8 @@ public:
             // Each compute iteration would generate not one, but several output elements.
             // Therefore, the following variable would determine how many output elements are calculated in each
             // iteration.
-            numOutputElementsPerInputTile_ = BLOCK_REDUCE_NUM_REPEATS * (NUM_ELEMENTS_PER_REPEAT / reqLoRARank_);
+            numOutputElementsPerInputTile_ =
+                BLOCK_REDUCE_NUM_REPEATS * (NUM_ELEMENTS_PER_REPEAT / reqInternalLoRARank_);
             numStreamInPerOutputTile_ = Y_OUT_TILE_NUM_ELEMENTS / numOutputElementsPerInputTile_;
 
             CopyInX(idx);
@@ -163,7 +168,7 @@ private:
             return;
         }
         int32_t numStreamOut = outputHiddenDim_ / Y_OUT_TILE_NUM_ELEMENTS;
-        int32_t remainingW = remainingY * reqLoRARank_;
+        int32_t remainingW = remainingY * reqInternalLoRARank_;
         int32_t numCompleteWTileInForLastIteration = remainingW / W_IN_TILE_NUM_ELEMENTS;
         int32_t remainingWForLastRepeat = remainingW % W_IN_TILE_NUM_ELEMENTS;
 
@@ -178,7 +183,7 @@ private:
         if (remainingWForLastRepeat != 0) {
             CopyInW(numStreamOut * numStreamInPerOutputTile_ + numCompleteWTileInForLastIteration,
                     remainingWForLastRepeat);
-            int32_t lastRepeatCount = remainingWForLastRepeat / NUM_ELEMENTS_PER_REPEAT;
+            int32_t lastRepeatCount = (remainingWForLastRepeat + NUM_ELEMENTS_PER_REPEAT - 1) / NUM_ELEMENTS_PER_REPEAT;
             int32_t pairReduceRepeat16 =
                 (lastRepeatCount * NUM_BLOCKS_PER_REPEAT + NUM_ELEMENTS_PER_REPEAT - 1) / NUM_ELEMENTS_PER_REPEAT;
             int32_t pairReduceRepeat32 = (pairReduceRepeat16 + 1) / 2;
@@ -237,8 +242,9 @@ private:
     __aicore__ inline void CopyInW(int32_t progress, int32_t numElements = W_IN_TILE_NUM_ELEMENTS)
     {
         AscendC::LocalTensor<W_T> wLocal = inQueueW_.AllocTensor<W_T>();
-        DataCopy(wLocal, wGm_[reqLoRAWeightOffset_ + progress * (W_IN_TILE_NUM_ELEMENTS / reqLoRARank_) * maxLoRARank_],
-                 {static_cast<uint16_t>(numElements / reqLoRARank_),
+        DataCopy(wLocal,
+                 wGm_[reqLoRAWeightOffset_ + progress * (W_IN_TILE_NUM_ELEMENTS / reqInternalLoRARank_) * maxLoRARank_],
+                 {static_cast<uint16_t>(numElements / reqInternalLoRARank_),
                   static_cast<uint16_t>((reqLoRARank_ * sizeof(W_T) + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK),
                   static_cast<uint16_t>((maxLoRARank_ - reqLoRARank_) * sizeof(W_T) / DATA_VECTOR_BLOCK), 0});
         inQueueW_.EnQue(wLocal);
@@ -272,25 +278,33 @@ private:
         AscendC::LocalTensor<W_T> wLocal = inQueueW_.DeQue<W_T>();
         AscendC::LocalTensor<float> wTmpTensor = tmpBufferW_.Get<float>();
 
-        Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, MASK_COUNT, blockReduceRepeatCount, castParams_);
+        if (reqInternalLoRARank_ != reqLoRARank_) {
+            Duplicate<float>(wTmpTensor, ZERO_VALUE, MASK_COUNT * blockReduceRepeatCount);
+            AscendC::PipeBarrier<PIPE_V>();
+
+            Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, MASK_FILTER, blockReduceRepeatCount, castParams_);
+        } else {
+            Cast(wTmpTensor, wLocal, AscendC::RoundMode::CAST_NONE, MASK_COUNT, blockReduceRepeatCount, castParams_);
+        }
+
         AscendC::PipeBarrier<PIPE_V>();
         inQueueW_.FreeTensor(wLocal);
 
         Mul(wTmpTensor, xDup, wTmpTensor, MASK_COUNT, blockReduceRepeatCount, dotProductParams_);
         AscendC::PipeBarrier<PIPE_V>();
 
-        if (reqLoRARank_ == LORA_RANK_8) {
+        if (reqInternalLoRARank_ == LORA_RANK_8) {
             BlockReduceSum(yLocal[progress], wTmpTensor, blockReduceRepeatCount, MASK_COUNT,
                            reduceSumParams_.dstRepStride, reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
-        } else if (reqLoRARank_ == LORA_RANK_16) {
+        } else if (reqInternalLoRARank_ == LORA_RANK_16) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
             PairReduceSum(yLocal[progress], wTmpTensor, pairReduceRepeat16, MASK_COUNT, reduceSumParams_.dstRepStride,
                           reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
-        } else if (reqLoRARank_ == LORA_RANK_32) {
+        } else if (reqInternalLoRARank_ == LORA_RANK_32) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
@@ -300,7 +314,7 @@ private:
             PairReduceSum(yLocal[progress], wTmpTensor, pairReduceRepeat32, MASK_COUNT, reduceSumParams_.dstRepStride,
                           reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
-        } else if (reqLoRARank_ == LORA_RANK_64) {
+        } else if (reqInternalLoRARank_ == LORA_RANK_64) {
             BlockReduceSum(wTmpTensor, wTmpTensor, blockReduceRepeatCount, MASK_COUNT, reduceSumParams_.dstRepStride,
                            reduceSumParams_.srcBlkStride, reduceSumParams_.srcRepStride);
             AscendC::PipeBarrier<PIPE_V>();
@@ -341,6 +355,7 @@ private:
     uint32_t singleLoRAWeightLen_;
     int64_t reqLoRAIndex_;
     int32_t reqLoRARank_;
+    int32_t reqInternalLoRARank_;
     uint64_t reqLoRAWeightOffset_;
     int32_t reqSlice_;
     uint32_t numOutputElementsPerInputTile_;

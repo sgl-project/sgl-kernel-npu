@@ -22,13 +22,18 @@
 #include "../attn_infra/arch/resource.hpp"
 #include "../attn_infra/epilogue/block/block_epilogue.hpp"
 #include "../attn_infra/epilogue/dispatch_policy.hpp"
-#include "../tla/tensor.hpp"
-#include "../tla/layout.hpp"
+#include "../attn_tla/tensor.hpp"
+#include "../attn_tla/layout.hpp"
 #include "kernel_operator.h"
 #include "lib/matmul_intf.h"
 #include "kernel_tiling/kernel_tiling.h"
 
 namespace SasaKernelArch35 {
+
+// Alignment helpers live in NpuArch (see attn_infra/detail/alignment.hpp);
+// pull in only the ones used here.
+using NpuArch::CeilDiv;
+using NpuArch::RoundUp;
 
 enum class Format { TND = 0, BNSD = 1, BSND = 2 };
 
