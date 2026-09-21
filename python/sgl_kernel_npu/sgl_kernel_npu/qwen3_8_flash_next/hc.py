@@ -1,234 +1,172 @@
-"""HC vector fusions retaining the Torch intermediate rounding boundaries."""
+"""Model-scoped hyperconnection operators for Qwen3.8-Flash-Next.
 
+Inputs and outputs
+------------------
+    R is the physical token-row count, including caller graph padding.
+    HC=4 branches, H=2560 hidden columns per branch, HC*H=10240, L=320.
+
+    API           Inputs                                    Output
+    ------------  ----------------------------------------  ----------
+    grouped_norm  x[R,10240], weight[10240]                   [R,10240]
+    mix           x[R,10240], down[320,10240], up[10240,320]   [R,2560]
+    combine       block[R,2560], residual/normed[R,10240],    [R,10240]
+                  weight[4,10240]
+
+    In mix, x is the upstream learned grouped-norm output. In combine, weight
+    is the branch-injection projection. group_size=2560 means four independent
+    norm groups per row. hc and hs must be 4 and 2560, respectively. eps is a
+    finite positive scalar, currently 1e-6. R counts tokens, not requests:
+    eight requests with four verification tokens can produce R32 before padding.
+    Decode, verification and prefill do not select different algorithms.
+
+Upstream contract and validation
+-------------------------------
+    Public tensors are contiguous BF16 on the same NPU. The wrapper checks
+    tensor type, device, dtype, contiguity, ranks, exact shapes, matching row
+    counts and scalar metadata before selecting a path, including for R0.
+    HC/H/L are model constraints, not tuning parameters or attention-TP shards.
+    The model uses replicated dense gate weights and learned per-branch norm;
+    mix and combine's normed input come from that norm. The broader GPU API
+    does not authorize other shapes, dtypes, strides or out= in this wrapper.
+
+    There is no device-value scan or host copy for dispatch. Finite values are
+    an upstream assumption, not a runtime value check or a guarantee that every
+    magnitude passes numerical tolerances. Learned norm weights affect the
+    range; synthetic arbitrary inputs are not actual checkpoint activations.
+    Each physical row is independent, including padding. No valid-row inference
+    or zero-padding-output promise is made. Request metadata, padding policy
+    and communication remain with the caller.
+
+Paths and examples
+------------------
+    Operation     Rows       Path                    Example
+    ------------  ---------  ----------------------  -------------------------
+    all           R == 0     Empty, after validation No kernel computation
+    grouped_norm  R > 0      Ordinary FP32 Triton    [4096,10240] -> [4096,10240]
+    mix           1..8192    Native FP32 + Triton    [32,10240] -> [32,2560]
+    combine       1..8192    Native FP32 + Triton    [32,2560] plus branch inputs
+    mix/combine   R > 8192   Same hybrid, chunked    R8193 -> 4096+4096+1
+
+    Norm needs no second algorithm. Native projections are an intended part
+    of the hybrid, not an escape to the old framework Torch reference. Large
+    R stays in this wrapper; unsupported metadata raises without silent fallback.
+    R8192 and R8193 have the same mathematical contract. The 8192 boundary and
+    4096-row block bound projection scratch growth; they are resource scheduling
+    choices, not model row limits or decode/prefill boundaries.
+
+Tiles and temporary storage
+---------------------------
+    Norm has R*4 logical 2560-element group tasks. Each uses 4096 lanes; masked
+    lanes load zero, do not contribute to the sum, and are not stored. Programs
+    loop over tasks beyond the available vector-core launch count. Mix's final
+    stage handles 256 hidden columns across four branches per task; combine's
+    final stage handles 512. The SiLU stage processes 256 flattened elements.
+
+    Mix/combine above R8192 process consecutive slices of at most 4096 rows,
+    including the tail, using the same computations. Mix bounds the rows of
+    converted activations, down-projection, SiLU and up-projection temporaries;
+    combine bounds converted normed activations and gate-projection rows.
+    Chunked calls convert weights once, reuse them across chunks, and write
+    into slices of one full output. Chunking does not bound full output storage,
+    converted weights, captured graph residency or total process memory.
+    Output size and captured work still grow with R; OOM is not caught/retried.
+
+Computation and precision
+-------------------------
+    Norm: conceptually view each row as [4,2560]; compute mean(x*x) in FP32,
+    inverse_rms=rsqrt(mean+eps), then (x*inverse_rms)*(1+weight), store BF16.
+    No additional precision compensation. GPU arithmetic stages are followed,
+    not CUDA bitwise parity: reduction order, rsqrt and conversion can differ.
+
+    Mix: a = x @ down.T / 4; b = SiLU(a); gates = sigmoid(b @ up.T);
+    output = mean_over_4_branches(x * gates), preserving hidden-column indices.
+    Native projections, SiLU storage, gate multiplication and reduction use
+    FP32; output is BF16. This does not reproduce the BF16 SiLU storage boundary
+    of every GPU fused path, nor the GPU framework's small-row dispatch rules.
+
+    Combine: gates = 2*sigmoid(normed @ weight.T / 4);
+    output[r,branch,col] = residual[r,branch,col] + gates[r,branch]*block[r,col].
+    Projection and elementwise intermediates use FP32; output is BF16 [R,10240].
+
+Graph and ownership
+-------------------
+    Inputs/weights are not modified. Each eager invocation owns a fresh output;
+    no public output aliases an input. Weight conversions are per invocation,
+    not cached across calls in a way that hides in-place updates. Only immutable
+    device metadata is cached. Warm up before capture. Replay may change tensor
+    contents in place while preserving captured shapes, layouts, addresses and
+    scalar parameters. A different R requires another capture.
+
+    Captured outputs/storage live with their graph and caller references; replay
+    overwrites that graph's output. Copy results if they must survive its next
+    replay. Callers manage graph/buffer lifetimes and stream synchronization.
+    Numerical acceptance requires separate validation; successful capture alone
+    proves neither numerical nor model-level accuracy.
+"""
+import math
 import torch
-import torch.nn.functional as F
-import triton
-import triton.language as tl
-
-# The NPU runtime limits the total number of programs in a launch.
-_MAX_GRID_PROGRAMS = 65535
-# Larger batches did not improve over the eager mix/combine in graph microtests.
-_MAX_FUSED_ROWS = 32
+from . import hc_core as core
 
 
-@triton.jit
-def _norm(
-    X,
-    W,
-    Y,
-    DIM: tl.constexpr,
-    WIDTH: tl.constexpr,
-    EPS: tl.constexpr,
-    BLOCK: tl.constexpr,
-):
-    row = tl.program_id(0).to(tl.int64)
-    col = tl.arange(0, BLOCK)
-    x = tl.load(X + row * DIM + col, col < DIM, other=0).to(tl.float32)
-    w = tl.load(W + (row * DIM % WIDTH) + col, col < DIM, other=0)
-    inv = tl.rsqrt(tl.sum(x * x, 0) / DIM + EPS)
-    y = (x * inv) * (1.0 + w.to(tl.float32))
-    tl.store(Y + row * DIM + col, y, col < DIM)
+def _tensors(values):
+    if any(not isinstance(x, torch.Tensor) for x in values):
+        raise ValueError('Expected tensors')
+    device = values[0].device
+    if device.type != 'npu' or any(x.device != device for x in values):
+        raise ValueError('Expected tensors on the same NPU')
+    if any(x.dtype != torch.bfloat16 or not x.is_contiguous() for x in values):
+        raise ValueError('Expected contiguous BF16 tensors')
 
 
-@triton.jit
-def _silu(X, Y, N: tl.constexpr, HC: tl.constexpr, BLOCK: tl.constexpr):
-    i = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    dtype = Y.dtype.element_ty
-    x = tl.load(X + i, i < N, other=0).to(tl.float32)
-    x = (x / HC).to(dtype).to(tl.float32)
-    tl.store(Y + i, x * tl.sigmoid(x), i < N)
-
-
-@triton.jit
-def _mix(
-    X,
-    G,
-    Y,
-    HC: tl.constexpr,
-    DIM: tl.constexpr,
-    HEADS: tl.constexpr,
-    BLOCK: tl.constexpr,
-):
-    row = tl.program_id(0).to(tl.int64)
-    col = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
-    head = tl.arange(0, HEADS)
-    offset = row * HC * DIM + head[:, None] * DIM + col[None, :]
-    mask = (head[:, None] < HC) & (col[None, :] < DIM)
-    dtype = Y.dtype.element_ty
-    x = tl.load(X + offset, mask, other=0).to(tl.float32)
-    g = tl.load(G + offset, mask, other=0).to(tl.float32)
-    gate = tl.sigmoid(g).to(dtype).to(tl.float32)
-    product = (x * gate).to(dtype).to(tl.float32)
-    y = tl.sum(product, 0) / HC
-    tl.store(Y + row * DIM + col, y, col < DIM)
-
-
-@triton.jit
-def _combine(
-    B,
-    R,
-    G,
-    Y,
-    HC: tl.constexpr,
-    DIM: tl.constexpr,
-    HEADS: tl.constexpr,
-    BLOCK: tl.constexpr,
-):
-    row = tl.program_id(0).to(tl.int64)
-    head = tl.arange(0, HEADS)
-    col = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
-    dtype = Y.dtype.element_ty
-    gate = tl.load(G + row * HC + head, head < HC, other=0)
-    gate = (gate.to(tl.float32) / HC).to(dtype).to(tl.float32)
-    gate = tl.sigmoid(gate).to(dtype).to(tl.float32)
-    gate = (2 * gate).to(dtype).to(tl.float32)
-    block = tl.load(B + row * DIM + col, col < DIM, other=0)
-    offset = (row * HC + head[:, None]) * DIM + col[None, :]
-    mask = (head[:, None] < HC) & (col[None, :] < DIM)
-    residual = tl.load(R + offset, mask, other=0)
-    injection = block[None, :].to(tl.float32) * gate[:, None]
-    injection = injection.to(dtype).to(tl.float32)
-    y = residual.to(tl.float32) + injection
-    tl.store(Y + offset, y, mask)
-
-
-def _supported(x):
-    return (
-        x.device.type == "npu"
-        and x.dtype in (torch.float32, torch.float16, torch.bfloat16)
-        and x.is_contiguous()
-        and x.ndim >= 2
-    )
-
-
-def can_run_norm(x, weight, group_size):
-    if not _supported(x):
-        return False
-    dim = group_size if group_size is not None else x.shape[-1]
-    return (
-        isinstance(dim, int)
-        and 0 < dim <= 8192
-        and x.shape[-1] % dim == 0
-        and x.numel() // dim <= _MAX_GRID_PROGRAMS
-        and weight.shape == (x.shape[-1],)
-        and weight.device == x.device
-        and weight.dtype in (torch.float32, torch.float16, torch.bfloat16)
-        and weight.is_contiguous()
-    )
+def _dimensions(hc, hs):
+    if type(hc) is not int or type(hs) is not int or (hc, hs) != (4, 2560):
+        raise ValueError('Current model requires HC=4 and H=2560')
 
 
 def grouped_norm(x, weight, group_size, eps):
-    dim = group_size if group_size is not None else x.shape[-1]
-    if x.numel() // dim > _MAX_GRID_PROGRAMS:
-        raise ValueError("NPU HC normalization grid exceeds the launch limit")
-    y = torch.empty_like(x)
-    if x.numel():
-        _norm[(x.numel() // dim,)](
-            x,
-            weight,
-            y,
-            dim,
-            weight.numel(),
-            eps,
-            triton.next_power_of_2(dim),
-            enable_fp_fusion=False,
-        )
-    return y
-
-
-def can_run_mix(x, down, up, hc, hs):
-    return (
-        _supported(x)
-        and x.ndim == 2
-        and x.shape[0] <= _MAX_FUSED_ROWS
-        and hc in (1, 2, 3, 4, 5, 8)
-        and 0 < hs <= 8192
-        and x.shape[1] == hc * hs
-        and down.ndim == up.ndim == 2
-        and down.shape[1] == hc * hs
-        and 0 < down.shape[0]
-        # This also keeps the flat SiLU element offsets within int32 range.
-        and triton.cdiv(x.shape[0] * down.shape[0], 256) <= _MAX_GRID_PROGRAMS
-        and up.shape == (hc * hs, down.shape[0])
-        and down.device == up.device == x.device
-        and down.dtype == up.dtype == x.dtype
-        and down.is_contiguous()
-        and up.is_contiguous()
-    )
+    _tensors((x, weight))
+    if x.ndim != 2 or x.shape[1] != 10240 or weight.shape != (10240,):
+        raise ValueError('Expected x[R,10240], weight[10240]')
+    if type(group_size) is not int or group_size != 2560:
+        raise ValueError('Expected group_size=2560')
+    if type(eps) not in (int, float) or not math.isfinite(eps) or eps <= 0:
+        raise ValueError('Expected finite positive epsilon')
+    if x.shape[0] == 0:
+        return torch.empty_like(x)
+    return core.grouped_norm(x, weight, group_size, eps)
 
 
 def mix(x, down, up, hc, hs):
-    # Enforce the runtime bound even when called without the performance guard.
-    if (
-        max(
-            triton.cdiv(x.shape[0] * down.shape[0], 256),
-            x.shape[0] * triton.cdiv(hs, 256),
-        )
-        > _MAX_GRID_PROGRAMS
-    ):
-        raise ValueError("NPU HC mix grid exceeds the launch limit")
-    hidden = F.linear(x, down)
-    activated = torch.empty_like(hidden)
-    if hidden.numel():
-        _silu[(triton.cdiv(hidden.numel(), 256),)](
-            hidden,
-            activated,
-            hidden.numel(),
-            hc,
-            256,
-            enable_fp_fusion=False,
-        )
-    gates = F.linear(activated, up)
-    y = x.new_empty((x.shape[0], hs))
-    if x.shape[0]:
-        _mix[(x.shape[0], triton.cdiv(hs, 256))](
-            x,
-            gates,
-            y,
-            hc,
-            hs,
-            triton.next_power_of_2(hc),
-            256,
-            enable_fp_fusion=False,
-        )
-    return y
-
-
-def can_run_combine(block, residual, normed, weight, hc, hs):
-    return (
-        _supported(residual)
-        and residual.ndim == 2
-        and residual.shape[0] <= _MAX_FUSED_ROWS
-        and hc in (1, 2, 3, 4, 5, 8)
-        and 0 < hs <= 8192
-        and residual.shape[1] == hc * hs
-        and block.shape == (residual.shape[0], hs)
-        and normed.shape == residual.shape
-        and weight.shape == (hc, hc * hs)
-        and all(
-            t.device == residual.device
-            and t.dtype == residual.dtype
-            and t.is_contiguous()
-            for t in (block, normed, weight)
-        )
-    )
+    _dimensions(hc, hs)
+    _tensors((x, down, up))
+    if (x.ndim != 2 or x.shape[1] != 10240
+            or down.shape != (320, 10240) or up.shape != (10240, 320)):
+        raise ValueError('Expected x[R,10240], down[320,10240], up[10240,320]')
+    if x.shape[0] == 0:
+        return x.new_empty((0, hs))
+    implementation = core.mix if x.shape[0] <= core.DIRECT_ROWS else core.mix_chunked
+    return implementation(x, down, up, hc, hs)
 
 
 def combine(block, residual, normed, weight, hc, hs):
-    if residual.shape[0] * triton.cdiv(hs, 512) > _MAX_GRID_PROGRAMS:
-        raise ValueError("NPU HC combine grid exceeds the launch limit")
-    gates = F.linear(normed, weight)
-    y = torch.empty_like(residual)
-    if residual.shape[0]:
-        _combine[(residual.shape[0], triton.cdiv(hs, 512))](
-            block,
-            residual,
-            gates,
-            y,
-            hc,
-            hs,
-            triton.next_power_of_2(hc),
-            512,
-            enable_fp_fusion=False,
-        )
-    return y
+    _dimensions(hc, hs)
+    _tensors((block, residual, normed, weight))
+    if (residual.ndim != 2 or residual.shape[1] != 10240
+            or normed.shape != residual.shape or block.shape != (residual.shape[0], hs)
+            or weight.shape != (4, 10240)):
+        raise ValueError('Expected block[R,2560], residual/normed[R,10240], weight[4,10240]')
+    if residual.shape[0] == 0:
+        return torch.empty_like(residual)
+    implementation = (core.combine if residual.shape[0] <= core.DIRECT_ROWS
+                      else core.combine_chunked)
+    return implementation(block, residual, normed, weight, hc, hs)
+
+
+def path_name(op, args):
+    # Diagnostic only: tests/bench call this outside the timed/captured region.
+    if args[0].shape[0] == 0:
+        return 'empty'
+    if op == 'grouped_norm':
+        return 'fp32_triton_norm'
+    return ('fp32_native_hybrid' if args[0].shape[0] <= core.DIRECT_ROWS
+            else 'chunked_fp32_native_hybrid')

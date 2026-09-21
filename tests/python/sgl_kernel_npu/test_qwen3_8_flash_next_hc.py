@@ -1,160 +1,165 @@
-"""Compare HC fusions against the eager Torch intermediate-dtype contract."""
+"""Model-scoped HC contracts and CPU FP64 numerical regression checks.
 
+The ordinary FP32 norm has known large-row failures at the unchanged numerical
+gate. Keep those failures visible; graph/eager agreement is a separate check.
+"""
 import pytest
 import torch
-import torch.nn.functional as F
 import torch_npu
 from sgl_kernel_npu.qwen3_8_flash_next import hc
 
-pytestmark = pytest.mark.skipif(
-    not torch_npu.npu.is_available(), reason="NPU is required"
-)
+pytestmark = pytest.mark.skipif(not torch_npu.npu.is_available(), reason="NPU is required")
+OPS = ("grouped_norm", "mix", "combine")
+TOLERANCES = {
+    "grouped_norm": dict(atol=5e-3, rtol=5e-3),
+    "mix": dict(atol=5e-3, rtol=1e-2),
+    "combine": dict(atol=5e-3, rtol=1e-2),
+}
 
 
-def norm_reference(x, weight, group_size, eps):
-    dim = group_size or x.shape[-1]
-    grouped = x.float().reshape(*x.shape[:-1], x.shape[-1] // dim, dim)
-    normalized = grouped * torch.rsqrt(grouped.square().mean(-1, True) + eps)
-    return (normalized.flatten(-2) * (1 + weight.float())).to(x.dtype)
+def inputs(op, rows):
+    generator = torch.Generator(device="cpu").manual_seed(73)
+
+    def rand(shape, scale=1.0):
+        return (torch.randn(shape, generator=generator) * scale).to(torch.bfloat16)
+
+    x = rand((rows, 10240))
+    if op == "grouped_norm":
+        return x, rand((10240,), 0.1), 2560, 1e-6
+    if op == "mix":
+        return x, rand((320, 10240), 0.02), rand((10240, 320), 0.02), 4, 2560
+    return rand((rows, 2560)), x, rand((rows, 10240)), rand((4, 10240), 0.02), 4, 2560
 
 
-def mix_reference(x, down, up, count, dim):
-    gates = F.linear(F.silu(F.linear(x, down) / count), up).sigmoid()
-    return (gates.unflatten(-1, (count, dim)) * x.unflatten(-1, (count, dim))).mean(-2)
+def reference(op, args):
+    """CPU FP64, with BF16 rounding only at the public output boundary."""
+    tensors = [v.detach().cpu() for v in args if isinstance(v, torch.Tensor)]
+    rows = tensors[0].shape[0]
+    width = 2560 if op == "mix" else 10240
+    result = torch.empty((rows, width), dtype=torch.bfloat16)
+    weights = [v.double() for v in (tensors[1:] if op != "combine" else tensors[3:])]
+    for start in range(0, rows, 64):
+        stop = min(rows, start + 64)
+        x = tensors[0][start:stop].double()
+        if op == "grouped_norm":
+            grouped = x.reshape(-1, 4, 2560)
+            square_mean = (grouped * grouped).sum(-1, keepdim=True) / 2560
+            y = (grouped / torch.sqrt(square_mean + args[3])).flatten(1) * (1 + weights[0])
+        elif op == "mix":
+            low = x @ weights[0].T / 4
+            hidden = low / (1 + torch.exp(-low))
+            gates = 1 / (1 + torch.exp(-(hidden @ weights[1].T)))
+            y = (gates.reshape(-1, 4, 2560) * x.reshape(-1, 4, 2560)).sum(1) / 4
+        else:
+            residual, normed = [v[start:stop].double() for v in tensors[1:3]]
+            logits = normed @ weights[0].T / 4
+            gate = 2 / (1 + torch.exp(-logits))
+            y = (residual.reshape(-1, 4, 2560) + gate[:, :, None] * x[:, None, :]).flatten(1)
+        result[start:stop] = y.to(torch.bfloat16)
+    return result
 
 
-def combine_reference(block, residual, normed, weight, count, dim):
-    gate = 2 * torch.sigmoid(F.linear(normed, weight) / count)
-    return (
-        residual.unflatten(-1, (count, dim)) + block.unsqueeze(-2) * gate.unsqueeze(-1)
-    ).flatten(-2)
+def on_device(args):
+    return tuple(v.to("npu") if isinstance(v, torch.Tensor) else v for v in args)
 
 
-def close(actual, expected):
-    # Match the existing HC test tolerances; FP32 checks are stricter.
-    tol = {
-        torch.float32: (2e-5, 2e-5),
-        torch.float16: (1e-3, 2e-3),
-        torch.bfloat16: (5e-3, 1e-2),
-    }[expected.dtype]
-    torch.testing.assert_close(actual, expected, atol=tol[0], rtol=tol[1])
+@pytest.mark.parametrize("op", OPS)
+@pytest.mark.parametrize("rows", [0, 1, 32, 33, 4096, 8193])
+def test_model_fp64(op, rows):
+    cpu = inputs(op, rows)
+    args = on_device(cpu)
+    saved = [v.clone() for v in args if isinstance(v, torch.Tensor)]
+    out = getattr(hc, op)(*args)
+    assert out.dtype == torch.bfloat16 and out.device == args[0].device
+    assert out.is_contiguous()
+    for value, original in zip((v for v in args if isinstance(v, torch.Tensor)), saved):
+        torch.testing.assert_close(value, original, atol=0, rtol=0)
+    torch.testing.assert_close(out.cpu(), reference(op, cpu), **TOLERANCES[op])
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize(
-    "rows,count,dim",
-    [
-        (0, 4, 128),
-        (1, 3, 127),
-        (2, 1, 128),
-        (2, 2, 128),
-        (2, 8, 8192),
-        (8, 4, 2560),
-        (32, 5, 2560),
-        (129, 4, 512),
-    ],
-)
-def test_hc_reference(rows, count, dim, dtype):
-    torch.manual_seed(81)
-    x = torch.randn(rows, count * dim, device="npu", dtype=dtype)
-    down = torch.randn(32, count * dim, device="npu", dtype=dtype) * 0.02
-    up = torch.randn(count * dim, 32, device="npu", dtype=dtype) * 0.02
-    weight = torch.randn(count, count * dim, device="npu", dtype=dtype) * 0.02
-    block = torch.randn(rows, dim, device="npu", dtype=dtype)
-    assert hc.can_run_mix(x, down, up, count, dim) == (rows <= 32)
-    assert hc.can_run_combine(block, x, x, weight, count, dim) == (rows <= 32)
-    close(hc.mix(x, down, up, count, dim), mix_reference(x, down, up, count, dim))
-    close(
-        hc.combine(block, x, x, weight, count, dim),
-        combine_reference(block, x, x, weight, count, dim),
-    )
+@pytest.mark.parametrize("op", OPS)
+@pytest.mark.parametrize("bad", ["cpu", "dtype", "stride", "shape", "scalar", "weight_dtype"])
+def test_reject_unsupported_metadata(op, bad):
+    args = list(on_device(inputs(op, 1)))
+    if bad == "cpu":
+        args[0] = args[0].cpu()
+    elif bad == "dtype":
+        args[0] = args[0].float()
+    elif bad == "stride":
+        args[0] = torch.stack((args[0], args[0]), -1)[..., 0]
+    elif bad == "shape":
+        args[0] = args[0][:, :-1].contiguous()
+    elif bad == "weight_dtype":
+        slot = 3 if op == "combine" else 1
+        args[slot] = args[slot].float()
+    elif op == "grouped_norm":
+        args[2] = 1280
+    else:
+        args[-2] = 5
+    with pytest.raises(ValueError):
+        getattr(hc, op)(*args)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize(
-    "shape,group",
-    [
-        ((0, 512), 128),
-        ((3, 4, 2560), None),
-        ((8, 10240), 2560),
-        ((2, 381), 127),
-        ((1, 8192), None),
-    ],
-)
-def test_norm_reference(shape, group, dtype):
-    torch.manual_seed(91)
-    x = torch.randn(shape, device="npu", dtype=dtype)
-    weight = torch.randn(shape[-1], device="npu", dtype=torch.float32)
-    assert hc.can_run_norm(x, weight, group)
-    close(
-        hc.grouped_norm(x, weight, group, 1e-6), norm_reference(x, weight, group, 1e-6)
-    )
+@pytest.mark.parametrize("eps", [0, -1, float("nan"), float("inf"), True])
+def test_reject_invalid_epsilon(eps):
+    x, w, group, _ = on_device(inputs("grouped_norm", 0))
+    with pytest.raises(ValueError):
+        hc.grouped_norm(x, w, group, eps)
 
 
-def test_graph_replay():
-    x = torch.randn(8, 4 * 2560, device="npu", dtype=torch.bfloat16)
-    weight = torch.randn(4 * 2560, device="npu")
-    down = torch.randn(320, 4 * 2560, device="npu", dtype=x.dtype) * 0.02
-    up = down.t().contiguous()
-    inject = torch.randn(4, 4 * 2560, device="npu", dtype=x.dtype) * 0.02
+@pytest.mark.parametrize("op", OPS)
+@pytest.mark.parametrize("rows", [0, 33, 8192, 8193, 16384])
+def test_resource_dispatch(monkeypatch, op, rows):
+    args = on_device(inputs(op, rows))
+    calls = []
+    sentinel = object()
+    names = ("grouped_norm",) if op == "grouped_norm" else (op, op + "_chunked")
+    for name in names:
+        def stub(*args, _name=name):
+            calls.append(_name)
+            return sentinel
+        monkeypatch.setattr(hc.core, name, stub)
+    out = getattr(hc, op)(*args)
+    if rows == 0:
+        assert out.shape == (0, 2560 if op == "mix" else 10240)
+        assert not calls
+    else:
+        assert out is sentinel
+        expected = op if op == "grouped_norm" or rows <= 8192 else op + "_chunked"
+        assert calls == [expected]
 
-    def run():
-        normed = hc.grouped_norm(x, weight, 2560, 1e-6)
-        mixed = hc.mix(normed, down, up, 4, 2560)
-        return hc.combine(mixed, x, normed, inject, 4, 2560)
 
-    for _ in range(2):
-        run()
-    torch.npu.synchronize()
+@pytest.mark.parametrize("op", OPS)
+@pytest.mark.parametrize("rows", [33, 8193])
+def test_graph_updates_match_eager(op, rows):
+    """Replay correctness only; the independent numerical gate is above."""
+    args = on_device(inputs(op, rows))
+    tensors = [v for v in args if isinstance(v, torch.Tensor)]
+    pointers = [v.data_ptr() for v in tensors]
+    fn = getattr(hc, op)
+    for _ in range(3):
+        fn(*args)
     graph = torch.npu.NPUGraph()
     with torch.npu.graph(graph):
-        output = run()
-    for scale in (0, 0.1, 2):
-        x.normal_().mul_(scale)
-        weight.normal_()
+        out = fn(*args)
+    for slot in range(-1, len(tensors)):
+        if slot >= 0:
+            tensors[slot].mul_(-0.5).add_(0.03125)
         graph.replay()
         torch.npu.synchronize()
-        normed = norm_reference(x, weight, 2560, 1e-6)
-        mixed = mix_reference(normed, down, up, 4, 2560)
-        close(output, combine_reference(mixed, x, normed, inject, 4, 2560))
+        assert [v.data_ptr() for v in tensors] == pointers
+        torch.testing.assert_close(out, fn(*args), atol=0, rtol=0)
 
 
-def test_unsupported_layout():
-    x = torch.empty(3, 1024, device="npu")[:, ::2]
-    weight = torch.empty(512, device="npu")
-    assert not hc.can_run_norm(x, weight, 128)
-    assert not hc.can_run_norm(x.cpu(), weight.cpu(), 128)
-    assert not hc.can_run_norm(x.contiguous(), weight, 127)
-
-
-def test_combine_intermediate_rounding_under_cancellation():
-    torch.manual_seed(81)
-    block = torch.randn(1, 2560, device="npu", dtype=torch.bfloat16) * 3
-    normed = torch.zeros(1, 10240, device="npu", dtype=block.dtype)
-    normed[:, 0] = 1
-    weight = torch.zeros(4, 10240, device="npu", dtype=block.dtype)
-    weight[:, 0] = torch.tensor(
-        [-0.62109375, 0.9453125, -0.51171875, -2.65625],
-        device="npu",
-        dtype=block.dtype,
+def test_combine_fp32_cancellation():
+    # Do not require exact zero from the obsolete BF16 intermediate rounding.
+    args = list(on_device(inputs("combine", 1)))
+    block, _, normed, weight = args[:4]
+    gate = 2 * torch.sigmoid(normed.cpu().double() @ weight.cpu().double().T / 4)
+    args[1] = (-(block.cpu().double()[:, None, :] * gate[:, :, None])).flatten(1).to(
+        device=block.device, dtype=torch.bfloat16
     )
-    gate = 2 * torch.sigmoid(F.linear(normed, weight) / 4)
-    residual = -(block.unsqueeze(1) * gate.unsqueeze(-1)).flatten(1)
-    actual = hc.combine(block, residual, normed, weight, 4, 2560)
-    torch.testing.assert_close(actual, torch.zeros_like(actual), atol=0, rtol=0)
-
-
-@pytest.mark.parametrize("operation", ["norm", "mix", "combine"])
-def test_direct_calls_reject_oversized_grid(operation):
-    x = torch.empty(65536, 1, device="npu")
-    weight = torch.ones(1, 1, device="npu")
-    with pytest.raises(ValueError, match="grid exceeds the launch limit"):
-        if operation == "norm":
-            hc.grouped_norm(x, weight.flatten(), 1, 1e-6)
-        elif operation == "mix":
-            hc.mix(x, weight, weight, 1, 1)
-        else:
-            hc.combine(x, x, x, weight, 1, 1)
+    torch.testing.assert_close(hc.combine(*args).cpu(), reference("combine", args), **TOLERANCES["combine"])
 
 
 if __name__ == "__main__":
