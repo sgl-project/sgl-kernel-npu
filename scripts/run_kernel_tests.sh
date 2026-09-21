@@ -50,6 +50,7 @@ NORM_TESTS=(
 
 ATTENTION_TESTS=(
     test_qwen3_8_flash_next_expansion.py
+    test_qwen3_8_flash_next_qsa_topk.py
     test_qwen3_8_flash_next_mqa.py
     test_qwen3_8_flash_next_sparse_attention.py
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
