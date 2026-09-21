@@ -15,7 +15,7 @@ try:
     from cann_ops_transformer.ops import mega_moe as _mega_moe
 
     _MEGA_MOE_IMPORT_ERROR = None
-except ImportError as exc:
+except (ImportError, RuntimeError) as exc:
     _get_symm_buffer_for_mega_moe = None
     _mega_moe = None
     _MEGA_MOE_IMPORT_ERROR = exc
