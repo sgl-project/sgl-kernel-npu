@@ -13,7 +13,7 @@
 
 #include "../../../attn_infra/base_defs.hpp"
 #include "../../../attn_infra/gemm/helper.hpp"
-#include "../../../tla/tensor.hpp"
+#include "../../../attn_tla/tensor.hpp"
 namespace NpuArch::Gemm::Tile {
 
 ///////////////////////////////////////////////////////////
