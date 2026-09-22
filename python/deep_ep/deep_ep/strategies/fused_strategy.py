@@ -55,10 +55,15 @@ class DeepEPFusedStrategy(FusedEPStrategy):
         max_recv_token_num: int,
     ):
         activation_clamp = buffer._validate_activation_clamp(activation_clamp)
-        if activation != "swiglu":
+        if activation not in ("swiglu", "situ"):
             raise ValueError(
-                "The deep_ep fused backend only supports activation='swiglu'. "
-                "Use backend='mega_moe' for other activation types."
+                f"Unsupported deep_ep activation {activation!r}. Expected one of "
+                "`swiglu` or `situ`."
+            )
+        if activation == "situ" and fuse_mode != buffer.FuseMode.FUSED_DEEP_MOE:
+            raise NotImplementedError(
+                "The deep_ep backend supports activation='situ' only with "
+                "FuseMode.FUSED_DEEP_MOE."
             )
         if activation_clamp is not None:
             raise ValueError(
