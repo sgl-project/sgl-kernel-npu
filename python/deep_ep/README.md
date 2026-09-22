@@ -209,10 +209,9 @@ Backend highlights:
 
 - DeepEP SiTU is supported only with `FuseMode.FUSED_DEEP_MOE`
 - `activation="swiglu_gpt_oss"` requires `FuseMode.MEGA_MOE`
-- `linear_beta` is the public API name for the `situ` linear control; `activation_clamp` is no longer exposed at the DeepEP API layer
+- `linear_beta` controls the SiTU linear branch
 - `l1_bias` / `l2_bias` are supported only on `mega_moe` for A8W4-INT compensation
-- MegaMoe dispatch quantization mode and output dtype are inferred internally from
-  `quant_mode`, weights, scales, and optional compensation biases
+- MegaMoe dispatch quantization mode and output dtype are derived from `quant_mode`
 
 For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
 missing, only calls using that mode fail; the DeepEP modes still work.
@@ -501,10 +500,9 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 - DeepEP SiTU 仅支持 `FuseMode.FUSED_DEEP_MOE`
 - `activation="swiglu_gpt_oss"` 需要使用 `FuseMode.MEGA_MOE`
-- `linear_beta` 是对外的新参数名，用于 `situ` 激活；DeepEP API 层不再暴露 `activation_clamp`
+- `linear_beta` 用于控制 SiTU 的线性分支
 - `l1_bias` / `l2_bias` 仅在 `mega_moe` 的 A8W4-INT 补偿场景中支持
-- MegaMoe 的 dispatch 量化模式和输出类型由 `quant_mode`、权重、scale 及可选补偿
-  bias 在内部自动推导
+- MegaMoe 的 dispatch 量化模式和输出类型由 `quant_mode` 决定
 
 如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
 只有使用该模式的调用会报错，DeepEP 模式不受影响。

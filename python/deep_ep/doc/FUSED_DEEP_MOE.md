@@ -86,9 +86,9 @@ def fused_deep_moe(
 | **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token. On A3 this is typically `bfloat16`; on A5 the fused host op supports both `bfloat16` and `float16`. **bs** range **[1, 256]**. **hidden** range **[512, 7168]**. |
 | **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token. Python converts it to `int32` before launch. A value of `-1` indicates the token is not dispatched. |
 | **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`). |
-| **gmm1_permuted_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | First-stage weights. DeepEP modes require tensor form. `MEGA_MOE` accepts a leading local-expert dimension or one tensor per local expert. |
+| **gmm1_permuted_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | First-stage weights. DeepEP modes require tensor form; `MEGA_MOE` requires one tensor per local expert. |
 | **gmm1_permuted_weight_scale** | `torch.Tensor`, `list[torch.Tensor]`, or `None` | FuseMode-dependent | DeepEP modes require tensor form. It is optional for `MEGA_MOE` A16W16 and required for quantized MegaMoe execution. |
-| **gmm2_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | Second-stage weights. DeepEP modes require tensor form; `MEGA_MOE` also accepts one tensor per local expert. |
+| **gmm2_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | Second-stage weights. DeepEP modes require tensor form; `MEGA_MOE` requires one tensor per local expert. |
 | **gmm2_weight_scale** | `torch.Tensor`, `list[torch.Tensor]`, or `None` | FuseMode-dependent | Follows the same mode rules as `gmm1_permuted_weight_scale`. |
 | **num_max_dispatch_tokens_per_rank** | `int` | Scalar | For A3, used in the existing fused-path buffer sizing logic. For A5, this value is also used as per-rank **capacity**, and must be **greater than or equal to local bs**. |
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
@@ -181,9 +181,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
   - `gmm1_permuted_weight_scale -> l1_weights_sf`
   - `gmm2_weight -> l2_weights`
   - `gmm2_weight_scale -> l2_weights_sf`
-- Accepts either:
-  - a tensor whose leading dimension is the local expert count
-  - or `list[Tensor]` with one tensor per local expert
+- Requires `list[Tensor]` with one tensor per local expert
 
 ## Parameter Notes
 

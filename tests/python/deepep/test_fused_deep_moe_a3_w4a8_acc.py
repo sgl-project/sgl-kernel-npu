@@ -77,13 +77,6 @@ def parse_float_list(raw: str) -> List[float]:
     return [float(item) for item in parse_csv_list(raw)]
 
 
-def swiglu_reference(x: torch.Tensor) -> torch.Tensor:
-    d = x.shape[-1] // 2
-    gate = x[..., :d].to(torch.float32)
-    up = x[..., d:].to(torch.float32)
-    return (gate * torch.sigmoid(gate) * up).to(x.dtype)
-
-
 def situ_reference(
     x: torch.Tensor,
     *,
@@ -130,22 +123,8 @@ def make_topk_inputs(
     return topk_ids.to(torch.int32), topk_weights
 
 
-def validate_topk_inputs(topk_ids_int32: torch.Tensor, num_experts: int):
-    if topk_ids_int32.dtype != torch.int32:
-        raise TypeError(f"topk_ids must be int32, got {topk_ids_int32.dtype}")
-    if torch.any(topk_ids_int32 < 0) or torch.any(topk_ids_int32 >= num_experts):
-        raise ValueError("topk_ids contains out-of-range expert indices.")
-    sorted_ids = torch.sort(topk_ids_int32, dim=-1).values
-    if torch.any(sorted_ids[:, 1:] == sorted_ids[:, :-1]):
-        raise ValueError("topk_ids must be unique within each token's top-k row.")
-
-
 def pack_scale_to_uint64(scale: torch.Tensor) -> torch.Tensor:
     return scale.contiguous().view(torch.int32).to(torch.int64).view(torch.uint64)
-
-
-def pack_scale_to_int64(scale: torch.Tensor) -> torch.Tensor:
-    return scale.contiguous().view(torch.int32).to(torch.int64)
 
 
 def pack_int4(values: torch.Tensor, pack_dim: int) -> torch.Tensor:
@@ -183,19 +162,6 @@ def pack_int4_experts_to_int8(weights: torch.Tensor) -> torch.Tensor:
         for weight in weights.unbind(dim=0)
     ]
     return torch.stack(packed, dim=0).contiguous()
-
-
-def pack_int4_to_int8(weight: torch.Tensor) -> torch.Tensor:
-    if weight.shape[-1] % 2 != 0:
-        raise ValueError(
-            f"logical int4 weight last dim must be divisible by 2, got {weight.shape}."
-        )
-    packed = (
-        (weight.to(torch.int16) + 8)
-        .to(torch.uint8)
-        .reshape(*weight.shape[:-1], weight.shape[-1] // 2, 2)
-    )
-    return ((packed[..., 1] << 4) | packed[..., 0]).view(torch.int8)
 
 
 def normalize_expert_counts(
@@ -1009,14 +975,12 @@ def run_fused_reference(
     x: torch.Tensor,
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
-    num_tokens: int,
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     weights: dict,
     activation: str,
     beta: float,
     linear_beta: Optional[float],
-    barrier_group: dist.ProcessGroup,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     out = buffer.fused_deep_moe(
         x=x,
@@ -1144,14 +1108,12 @@ def launch_case(
         x,
         topk_idx,
         topk_weights,
-        args.num_tokens,
         max_num_tokens,
         args.num_experts,
         weights,
         case["activation"],
         case["beta"],
         case["linear_beta"],
-        mega_group,
     )
     info_rank0(
         rank,
@@ -1292,14 +1254,12 @@ def test_main(
                     launched_case["x"],
                     launched_case["topk_idx"],
                     launched_case["topk_weights"],
-                    args.num_tokens,
                     launched_case["max_num_tokens"],
                     args.num_experts,
                     launched_case["weights"],
                     case["activation"],
                     case["beta"],
                     case["linear_beta"],
-                    mega_group,
                 )
             torch.npu.synchronize()
             dist.barrier()
@@ -1340,14 +1300,12 @@ def test_main(
                     launched_case["x"],
                     launched_case["topk_idx"],
                     launched_case["topk_weights"],
-                    args.num_tokens,
                     launched_case["max_num_tokens"],
                     args.num_experts,
                     launched_case["weights"],
                     case["activation"],
                     case["beta"],
                     case["linear_beta"],
-                    mega_group,
                 ),
                 "MegaMoe",
                 num_tests=args.performance_iters,
