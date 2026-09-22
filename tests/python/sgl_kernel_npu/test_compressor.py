@@ -111,20 +111,13 @@ def _read_state_page_cache(
     if cache_mode == 2:
         state_flat = state.reshape(-1, state.shape[-1])
         for offset in range(seq_cnt):
-            if _is_arch35():
-                # A5 request-bank: one bank id per request, in-bank ring offset
-                # derived from the seq position (matches the arch35 kernel).
-                state_loc = int(block_table[b_idx]) * state.shape[1] + (
-                    (start_seq_idx + offset) % state.shape[1]
-                )
-            else:
-                state_loc = _explicit_state_loc(
-                    block_table,
-                    b_idx,
-                    start_seq_idx + offset,
-                    batch_start_pos,
-                    history_size,
-                )
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             result[offset] = state_flat[state_loc, d_start:d_end]
         return result
     finish_cnt = 0
@@ -162,18 +155,13 @@ def _write_state_page_cache(
         state_flat = state.reshape(-1, state.shape[-1])
         update_flat = update_position.reshape(-1, update_position.shape[-1])
         for offset in range(seq_cnt):
-            if _is_arch35():
-                state_loc = int(block_table[b_idx]) * state.shape[1] + (
-                    (start_seq_idx + offset) % state.shape[1]
-                )
-            else:
-                state_loc = _explicit_state_loc(
-                    block_table,
-                    b_idx,
-                    start_seq_idx + offset,
-                    batch_start_pos,
-                    history_size,
-                )
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             state_flat[state_loc] = sc_new_state[offset]
             update_flat[state_loc] = True
         return
@@ -547,22 +535,15 @@ def _make_inputs(
             # for c4 = 8). Overrides the safe max() formula so wrap-around
             # write/read overlaps can be exercised.
             state_block_size = ring_size
-        if _is_arch35():
-            # A5 request-bank: one bank id per request; the kernel derives the
-            # in-bank ring offset from seq position itself.
-            bank_ids = torch.arange(batch, dtype=torch.int32)
-            block_table = bank_ids
-            block_num = max(int(bank_ids.max().item()) + 1, batch)
-        else:
-            capacities = [seq_len] * batch
-            block_table, block_num, _ = _build_explicit_state_loc_table(
-                start_pos,
-                capacities,
-                state_block_size,
-                coff,
-                cmp_ratio,
-                banks_per_batch=1,
-            )
+        capacities = [seq_len] * batch
+        block_table, block_num, _ = _build_explicit_state_loc_table(
+            start_pos,
+            capacities,
+            state_block_size,
+            coff,
+            cmp_ratio,
+            banks_per_batch=1,
+        )
     else:
         max_block = (max(start_pos) + seq_len + block_size - 1) // block_size
         block_table = torch.zeros(batch, max_block, dtype=torch.int32)
