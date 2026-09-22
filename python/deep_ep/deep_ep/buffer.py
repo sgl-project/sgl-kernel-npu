@@ -6,7 +6,6 @@ import deep_ep_cpp
 import torch
 import torch.distributed as dist
 import torch_npu
-from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
 from deep_ep_cpp import Config, EventHandle
 
 from .ep_strategy import (
@@ -928,6 +927,21 @@ class Buffer:
             )
             return output, expert_token_nums
         elif fuse_mode == FuseMode.MEGA_MOE:
+            # Lazy import: mega_moe is JIT-built (requires ninja), so importing it at
+            # module level would break other fused modes on environments without ninja.
+            try:
+                from cann_ops_transformer.ops import (
+                    get_symm_buffer_for_mega_moe,
+                    mega_moe,
+                )
+            except RuntimeError as e:
+                raise RuntimeError(
+                    "Failed to import `cann_ops_transformer.ops.mega_moe`, which "
+                    "is required by FuseMode.MEGA_MOE. The mega_moe op is JIT-built "
+                    "with ninja; ensure `ninja` is installed "
+                    "(e.g. `pip install ninja`). Original error: "
+                    f"{e}"
+                ) from e
             dispatch_quant_mode = 2 if quant_mode == 1 else 0
             dispatch_quant_out_dtype = torch.int8 if dispatch_quant_mode == 2 else None
             hidden = x.size(1)
