@@ -888,14 +888,9 @@ class Buffer:
                   each local expert on this rank;
                 - MEGA_MOE: `expert_token_nums`, shape `[num_local_experts]`.
         """
+        topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            if l1_bias is not None or l2_bias is not None:
-                raise ValueError(
-                    "`l1_bias` and `l2_bias` are only supported by "
-                    "FuseMode.MEGA_MOE."
-                )
-            topk_ids = topk_idx.int()
-            return self.runtime.fused_deep_moe(
+            output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,
                 topk_ids,
                 gmm1_permuted_weight,
@@ -911,20 +906,15 @@ class Buffer:
                 beta,
                 linear_beta,
             )
-
-        if fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
-            if l1_bias is not None or l2_bias is not None:
-                raise ValueError(
-                    "`l1_bias` and `l2_bias` are only supported by "
-                    "FuseMode.MEGA_MOE."
-                )
+            return output, ep_recv_count
+        elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
             if activation == "situ":
                 raise NotImplementedError(
-                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE "
-                    "and FuseMode.MEGA_MOE."
+                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
                 )
-            topk_ids = topk_idx.int()
-            return self.runtime.dispatch_ffn_combine(
+            # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
+            max_output_size = num_max_dispatch_tokens_per_rank
+            output, expert_token_nums = self.runtime.dispatch_ffn_combine(
                 x,
                 topk_ids,
                 gmm1_permuted_weight,
@@ -932,12 +922,12 @@ class Buffer:
                 gmm2_weight,
                 gmm2_weight_scale,
                 topk_weights,
-                num_max_dispatch_tokens_per_rank,
+                max_output_size,
                 num_experts,
                 quant_mode,
             )
-
-        if fuse_mode == FuseMode.MEGA_MOE:
+            return output, expert_token_nums
+        elif fuse_mode == FuseMode.MEGA_MOE:
             dispatch_quant_mode = 2 if quant_mode == 1 else 0
             dispatch_quant_out_dtype = torch.int8 if dispatch_quant_mode == 2 else None
             hidden = x.size(1)
@@ -1030,4 +1020,5 @@ class Buffer:
             )
             return output[:num_tokens], expert_token_nums
 
-        raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
+        else:
+            raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
