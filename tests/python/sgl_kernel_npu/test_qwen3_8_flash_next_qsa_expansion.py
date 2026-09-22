@@ -9,8 +9,8 @@ import itertools
 import pytest
 import torch
 import torch_npu
-from sgl_kernel_npu.qwen3_8_flash_next import expansion as module
-from sgl_kernel_npu.qwen3_8_flash_next.expansion import (
+from sgl_kernel_npu.qwen3_8_flash_next import qsa_expansion as module
+from sgl_kernel_npu.qwen3_8_flash_next.qsa_expansion import (
     can_run_block_expansion,
     expand_blocks,
 )

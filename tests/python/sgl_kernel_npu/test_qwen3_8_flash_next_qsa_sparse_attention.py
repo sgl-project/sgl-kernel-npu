@@ -9,7 +9,7 @@ import pytest
 import torch
 import torch_npu
 
-impl = importlib.import_module("sgl_kernel_npu.qwen3_8_flash_next.sparse_attention")
+impl = importlib.import_module("sgl_kernel_npu.qwen3_8_flash_next.qsa_sparse_attention")
 pytestmark = pytest.mark.skipif(
     not torch_npu.npu.is_available(), reason="NPU is required"
 )

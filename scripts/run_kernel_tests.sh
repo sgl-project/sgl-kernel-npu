@@ -49,10 +49,10 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    test_qwen3_8_flash_next_expansion.py
+    test_qwen3_8_flash_next_qsa_expansion.py
     test_qwen3_8_flash_next_qsa_topk.py
-    test_qwen3_8_flash_next_mqa.py
-    test_qwen3_8_flash_next_sparse_attention.py
+    test_qwen3_8_flash_next_qsa_mqa.py
+    test_qwen3_8_flash_next_qsa_sparse_attention.py
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)

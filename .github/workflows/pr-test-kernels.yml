@@ -55,12 +55,8 @@ jobs:
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
               - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/expansion.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/mqa.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/sparse_attention.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_expansion.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_mqa.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_sparse_attention.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/qsa_*.py
+              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_qsa_*.py
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**

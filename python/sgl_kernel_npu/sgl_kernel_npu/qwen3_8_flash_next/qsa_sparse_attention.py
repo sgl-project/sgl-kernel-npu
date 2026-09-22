@@ -4,7 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .torch_attention import torch_attention
+from .qsa_torch_attention import torch_attention
 
 _MAX_GRID_PROGRAMS = 65535
 # Offline experiments may override this through the fixed test/bench entrypoints.

@@ -13,7 +13,7 @@ from typing import Optional
 import pytest
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.qwen3_8_flash_next import mqa as wrapper
+from sgl_kernel_npu.qwen3_8_flash_next import qsa_mqa as wrapper
 
 
 @dataclass(frozen=True)
