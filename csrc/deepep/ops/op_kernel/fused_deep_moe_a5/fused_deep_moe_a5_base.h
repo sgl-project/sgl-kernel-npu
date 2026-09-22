@@ -5,6 +5,8 @@
 #include "op_kernel/moe_distribute_base.h"
 #elif defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_INC_KERNEL)
 #include "inc/kernel/moe_distribute_base.h"
+#elif defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_COMMON)
+#include "moe_distribute_base.h"
 #else
 #error "A5 fused requires a system moe_distribute_base.h include mode"
 #endif
