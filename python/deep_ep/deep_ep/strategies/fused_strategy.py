@@ -96,8 +96,6 @@ class DeepEPFusedStrategy(FusedEPStrategy):
 
         topk_ids = topk_idx.int()
         if fuse_mode == buffer.FuseMode.FUSED_DEEP_MOE:
-            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-            gmm2_weight_scale = gmm2_weight_scale.float()
             output, ep_recv_count = buffer.runtime.fused_deep_moe(
                 x,
                 topk_ids,
@@ -157,7 +155,8 @@ class MegaMoeFusedStrategy(FusedEPStrategy):
             raise ImportError(
                 "The mega_moe backend requires the optional dependency "
                 "`cann_ops_transformer`. Install or expose `cann_ops_transformer.ops` "
-                'before calling `Buffer.fused_deep_moe(..., backend="mega_moe")`.'
+                "before calling `Buffer.fused_deep_moe(..., "
+                "fuse_mode=FuseMode.MEGA_MOE)`."
             ) from _MEGA_MOE_IMPORT_ERROR
         return _get_symm_buffer_for_mega_moe, _mega_moe
 
@@ -561,9 +560,9 @@ class MegaMoeFusedStrategy(FusedEPStrategy):
                 f"Unsupported mega_moe activation {activation!r}. Expected one of "
                 "`swiglu`, `swiglu_gpt_oss`, or `situ`."
             )
-        if fuse_mode != buffer.FuseMode.FUSED_DEEP_MOE:
+        if fuse_mode != buffer.FuseMode.MEGA_MOE:
             raise NotImplementedError(
-                "The mega_moe backend only supports FuseMode.FUSED_DEEP_MOE."
+                "The mega_moe backend requires FuseMode.MEGA_MOE."
             )
 
         expected_num_local_experts = num_experts // buffer.group_size

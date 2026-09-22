@@ -1,15 +1,12 @@
 ﻿# Fused Deep MoE API
 
 `Buffer.fused_deep_moe(...)` is the unified fused MoE entrypoint in DeepEP-Ascend.
-It now supports two execution backends:
+It supports three execution modes:
 
 
-- `deep_ep`: legacy fused kernels exposed by `deep_ep_cpp`
-- `mega_moe`: `cann_ops_transformer.ops.mega_moe`
-
-`backend="auto"` keeps the existing A5 behavior and routes non-A5 or mega_moe-only features to `mega_moe`.
-
-</div>
+- `FuseMode.FUSED_DEEP_MOE`: DeepEP `aclnnFusedDeepMoe`
+- `FuseMode.DISPATCH_FFN_COMBINE`: DeepEP `aclnnDispatchFFNCombine`
+- `FuseMode.MEGA_MOE`: `cann_ops_transformer.ops.mega_moe`
 
 > [!IMPORTANT]
 > This API is available on both A3 and A5 in the current codebase, but the A5 path is not identical to the A3 path. In particular, A5 has different weight dtype/layout support, capacity handling, and second-return-value semantics.
@@ -29,15 +26,16 @@ Two fuse modes are available via the `FuseMode` enum:
 |----------|-------|---------------|-------------|
 | `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: Dispatch + GMM1 + activation/quantization + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. The A5 path supports SwiGLU and SiTU. |
 | `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Integrated routing (`MoeInitRoutingQuantV2`) + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel. |
+| `FuseMode.MEGA_MOE` | `3` | `cann_ops_transformer.ops.mega_moe` | MegaMoe fused dispatch + expert FFN + combine. |
 
 > [!NOTE]
 > `FuseMode` is **not** exported from the package's top-level `__init__.py`. Import it explicitly:
 > ```python
 > from deep_ep.buffer import FuseMode
 > ```
-> Or use integer values directly: `fuse_mode=1` (FUSED_DEEP_MOE) or `fuse_mode=2` (DISPATCH_FFN_COMBINE).
+> Or use integer values directly: `1` (FUSED_DEEP_MOE), `2` (DISPATCH_FFN_COMBINE), or `3` (MEGA_MOE).
 
-#### Key Differences Between Fuse Modes
+#### Key Differences Between DeepEP Fuse Modes
 
 | Aspect | `FUSED_DEEP_MOE` (mode=1) | `DISPATCH_FFN_COMBINE` (mode=2) |
 |--------|---------------------------|---------------------------------|
@@ -61,33 +59,42 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: str = "swiglu",
+    activation: Optional[str] = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
     *,
-    backend: str = "auto",
     l1_bias: Optional[Union[torch.Tensor, List[torch.Tensor]]] = None,
     l2_bias: Optional[Union[torch.Tensor, List[torch.Tensor]]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
-## Backend Rules
+## FuseMode Routing
+
+| `fuse_mode` | Actual implementation |
+|---|---|
+| `FuseMode.FUSED_DEEP_MOE` | DeepEP `aclnnFusedDeepMoe` |
+| `FuseMode.DISPATCH_FFN_COMBINE` | DeepEP `aclnnDispatchFFNCombine` |
+| `FuseMode.MEGA_MOE` | `cann_ops_transformer.ops.mega_moe` |
+
+`activation="swiglu_gpt_oss"` requires `FuseMode.MEGA_MOE`.
+
+## Parameter Reference
 
 | Parameter | Type | Shape | Description |
 |-----------|------|-------|-------------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token. On A3 this is typically `bfloat16`; on A5 the fused host op supports both `bfloat16` and `float16`. **bs** range **[1, 256]**. **hidden** range **[512, 7168]**. |
 | **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token. Python converts it to `int32` before launch. A value of `-1` indicates the token is not dispatched. |
 | **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`). |
-| **gmm1_permuted_weight** | `torch.Tensor` | e.g., `[G, 7168, 4096]` | First-stage (up-projection) expert weights. A3 keeps the existing fused-path weight contract. On A5, the current fused host op additionally supports quantized weights in `ND` and `FRACTAL_NZ` format. |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights. A3 runtime converts scales to `float32` before launch. On A5 fused path, the host-op contract is different and follows the current A5 quantized-weight definition. |
-| **gmm2_weight** | `torch.Tensor` | e.g., `[G, 7168, 2048]` | Second-stage (down-projection) expert weights. Same A3/A5 difference as `gmm1_permuted_weight`. |
-| **gmm2_weight_scale** | `torch.Tensor` | e.g., `[G, 7168]` | Quantization scale for second-stage weights. Same A3/A5 difference as `gmm1_permuted_weight_scale`. |
+| **gmm1_permuted_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | First-stage weights. DeepEP modes require tensor form. `MEGA_MOE` accepts a leading local-expert dimension or one tensor per local expert. |
+| **gmm1_permuted_weight_scale** | `torch.Tensor`, `list[torch.Tensor]`, or `None` | FuseMode-dependent | DeepEP modes require tensor form. It is optional for `MEGA_MOE` A16W16 and required for quantized MegaMoe execution. |
+| **gmm2_weight** | `torch.Tensor` or `list[torch.Tensor]` | FuseMode-dependent | Second-stage weights. DeepEP modes require tensor form; `MEGA_MOE` also accepts one tensor per local expert. |
+| **gmm2_weight_scale** | `torch.Tensor`, `list[torch.Tensor]`, or `None` | FuseMode-dependent | Follows the same mode rules as `gmm1_permuted_weight_scale`. |
 | **num_max_dispatch_tokens_per_rank** | `int` | Scalar | For A3, used in the existing fused-path buffer sizing logic. For A5, this value is also used as per-rank **capacity**, and must be **greater than or equal to local bs**. |
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
-| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
-| **activation** | `str` | Scalar, default `"swiglu"` | Activation after GMM1. Supported values are `"swiglu"` and `"situ"`. SiTU is currently supported only by the A5 `FUSED_DEEP_MOE` path. |
+| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Selects the DeepEP fused kernel or MegaMoe implementation. |
+| **activation** | `Optional[str]` | Scalar, default `"swiglu"` | DeepEP supports `"swiglu"` and `"situ"`; SiTU requires `FUSED_DEEP_MOE`. MegaMoe additionally supports `"swiglu_gpt_oss"`. |
 | **beta** | `Optional[float]` | Scalar, default `4.0` | Soft-saturation bound for the SiTU gate branch. `None` uses the internal default `4.0`. It must be greater than zero when SiTU is selected. |
 | **linear_beta** | `Optional[float]` | Scalar, default `25.0` | Optional soft-saturation bound for the SiTU up branch. A positive value enables the transformation; `None` leaves the up branch unchanged. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
@@ -123,16 +130,16 @@ output, expert_token_nums = buffer.fused_deep_moe(
     gmm2_weight_scale,
     num_max_dispatch_tokens_per_rank,
     num_experts,
+    fuse_mode=FuseMode.MEGA_MOE,
     activation="situ",
     beta=4.0,
     linear_beta=25.0,
 )
 ```
 
-- A5 + legacy-compatible arguments: use `deep_ep`
-- `activation="situ"`: use `mega_moe`
-- `l1_bias` or `l2_bias` provided: use `mega_moe`
-- non-A5 build: use `mega_moe`
+- `FuseMode.FUSED_DEEP_MOE`: use DeepEP
+- `FuseMode.DISPATCH_FFN_COMBINE`: use DeepEP; SiTU is not supported
+- `FuseMode.MEGA_MOE`: use MegaMoe
 
 #### For `fuse_mode=FUSED_DEEP_MOE` (mode=1)
 
@@ -146,7 +153,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - On **A5**, `num_max_dispatch_tokens_per_rank >= bs`.
 - On **A5 MXFP4** paths, `hidden` and `gmm1_hidden` must be even.
 - On **A5 MXFP4** paths, quantized weights in `FRACTAL_NZ` format are not supported currently.
-- SiTU is supported only on **A5**. Selecting `activation="situ"` on the A3 path is rejected.
+- DeepEP SiTU is supported by the A5 fused kernel; the A3 DeepEP runtime rejects it. MegaMoe provides the A3 SiTU path.
 - For SiTU, `beta` must be greater than zero. When `linear_beta` is provided, it must also be greater than zero.
 
 #### For `fuse_mode=DISPATCH_FFN_COMBINE` (mode=2)
@@ -155,16 +162,18 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - Shared expert is not supported.
 - Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
 
+### DeepEP modes
+
 - Supports `FuseMode.FUSED_DEEP_MOE`
 - Supports `FuseMode.DISPATCH_FFN_COMBINE`
-- Supports only `activation="swiglu"`
+- Supports `activation="swiglu"` and `activation="situ"`; SiTU requires `FUSED_DEEP_MOE`
 - Uses legacy `quant_mode`
 - Requires tensor-form legacy fused weights/scales
 - Does not support `l1_bias` or `l2_bias`
 
-### `backend="mega_moe"`
+### `FuseMode.MEGA_MOE`
 
-- Supports only `FuseMode.FUSED_DEEP_MOE`
+- Selected with `FuseMode.MEGA_MOE`
 - Requires `cann_ops_transformer`
 - Supports `activation="swiglu"`, `activation="swiglu_gpt_oss"`, and `activation="situ"`
 - Interprets legacy parameter names as mega_moe inputs:
@@ -190,9 +199,8 @@ output, expert_token_nums = buffer.fused_deep_moe(
 | `num_max_dispatch_tokens_per_rank` | EP dispatch capacity hint shared across ranks. |
 | `num_experts` | Global expert count. On `mega_moe`, it must be divisible by the process-group size. |
 | `quant_mode` | Public quantization selector. MegaMoe maps it to its internal dispatch quantization mode. |
-| `fuse_mode` | `mega_moe` supports only `FuseMode.FUSED_DEEP_MOE`. |
-| `backend` | `"auto"`, `"deep_ep"`, or `"mega_moe"`. |
-| `activation` | `mega_moe` supports `"swiglu"`, `"swiglu_gpt_oss"`, `"situ"`. `deep_ep` supports only `"swiglu"`. |
+| `fuse_mode` | `FUSED_DEEP_MOE` and `DISPATCH_FFN_COMBINE` select DeepEP; `MEGA_MOE` selects MegaMoe. |
+| `activation` | `mega_moe` supports `"swiglu"`, `"swiglu_gpt_oss"`, and `"situ"`. `deep_ep` supports `"swiglu"` and `"situ"`; SiTU requires `FUSED_DEEP_MOE`. |
 | `linear_beta` | SiTU up-branch soft-saturation bound. It is passed through MegaMoe activation parameters. |
 | `l1_bias`, `l2_bias` | Optional A8W4-INT compensation biases for `mega_moe` only. |
 
@@ -224,12 +232,13 @@ output, expert_token_nums = buffer.fused_deep_moe(
 
 ## `situ` Activation
 
-`situ` is not implemented in `buffer.py` itself. It is forwarded to `mega_moe`.
+`situ` is not implemented in `buffer.py` itself. It is forwarded to DeepEP with
+`FuseMode.FUSED_DEEP_MOE`, or to MegaMoe with `FuseMode.MEGA_MOE`.
 
 - Public API name: `linear_beta`
 - MegaMoe activation parameter name: `linear_beta`
-- `linear_beta=None` or `0`: no extra linear beta term
-- `linear_beta>0`: forwarded as the `situ` linear beta control value
+- DeepEP SiTU requires `linear_beta > 0` when it is provided
+- MegaMoe receives `linear_beta` through its activation parameters
 
 ## Return Value
 
@@ -249,5 +258,5 @@ The `mega_moe` backend depends on:
 from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
 ```
 
-If that package is not available, `deep_ep` backend behavior is unchanged, but calls that
-actually route to `mega_moe` will raise an import error with an explicit message.
+If that package is not available, the DeepEP modes are unchanged, but calls using
+`FuseMode.MEGA_MOE` raise an import error with an explicit message.

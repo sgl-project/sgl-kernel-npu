@@ -22,6 +22,7 @@ from .utils import EventOverlap, _resolve_quant_mode, log_parameters
 class FuseMode(IntEnum):
     FUSED_DEEP_MOE = 1
     DISPATCH_FFN_COMBINE = 2
+    MEGA_MOE = 3
 
 
 TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
@@ -770,6 +771,21 @@ class Buffer:
             out=out,
         )
 
+    def begin_profile(
+        self,
+        num_profile_skip_launches: int,
+        num_profile_active_launches: int,
+        profile_trace_dir: Optional[str] = "",
+    ) -> None:
+        self.runtime.begin_profile(
+            num_profile_skip_launches,
+            num_profile_active_launches,
+            profile_trace_dir or "",
+        )
+
+    def end_profile(self) -> None:
+        self.runtime.end_profile()
+
     @staticmethod
     def _validate_activation_clamp(
         activation_clamp: Optional[float],
@@ -779,25 +795,6 @@ class Buffer:
         if activation_clamp < 0:
             raise ValueError("`activation_clamp` must be None or >= 0.")
         return activation_clamp
-
-    def _resolve_fused_backend(
-        self,
-        *,
-        backend: str,
-        activation: str,
-        l1_bias: Optional[TensorOrTensors],
-        l2_bias: Optional[TensorOrTensors],
-    ) -> str:
-        if backend not in ("auto", "deep_ep", "mega_moe"):
-            raise ValueError(
-                f"Unsupported backend {backend!r}. Expected one of "
-                "`auto`, `deep_ep`, or `mega_moe`."
-            )
-        if backend == "auto":
-            if activation == "situ" or l1_bias is not None or l2_bias is not None:
-                return "mega_moe"
-            return "deep_ep"
-        return backend
 
     def fused_deep_moe(
         self,
@@ -817,91 +814,105 @@ class Buffer:
         linear_beta: Optional[float] = 25.0,
         profile_enable: bool = False,
         *,
-        backend: str = "auto",
         l1_bias: Optional[TensorOrTensors] = None,
         l2_bias: Optional[TensorOrTensors] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Fused MoE forward entrypoint with backend routing between `deep_ep` and
-        `cann_ops_transformer.ops.mega_moe`.
+        A fused low-latency implementation for MoE expert forward and combination.
+
+        Three execution modes are available via the FuseMode enum:
+        - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
+          InitRouting + AllToAll + GMM1 + DequantActivationQuant + GMM2 + Dequant
+          + Unpermute/Combine in a single AscendC kernel.
+        - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via
+          aclnnDispatchFFNCombine. InitRouting + AllToAll dispatch + GMM1 +
+          DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel,
+          using a different internal fusion strategy.
+        - FuseMode.MEGA_MOE (3): Fused execution via
+          `cann_ops_transformer.ops.mega_moe`.
 
         Arguments:
-            x: `[bs, hidden]` token tensor. The hidden dimension defines the
-                mega_moe `hidden` parameter.
-            topk_idx: `[bs, num_topk]` token-to-expert routing indices. `-1` means
-                the token does not select that top-k slot.
-            topk_weights: `[bs, num_topk]` routing weights used during combine.
-            gmm1_permuted_weight: First-stage expert weights. For `backend="deep_ep"`,
-                this preserves the legacy fused kernel layout requirements. For
-                `backend="mega_moe"`, this argument is interpreted as mega_moe
-                `l1_weights` and must be either a Tensor whose leading dimension is
-                the local expert count or a `list[Tensor]` of per-expert weights in
-                mega_moe layout `[hidden, 2 * intermediate_hidden]` for
-                A16W16/A8W8-INT, or packed INT4 layout exposed as `torch.int32`
-                with shape `[hidden, (2 * intermediate_hidden) // 8]` for A8W4-INT.
-            gmm1_permuted_weight_scale: First-stage weight scales. Required by the
-                deep_ep backend. Optional for mega_moe A16W16, required for mega_moe
-                A8W8-INT/A8W4-INT. For mega_moe, accepts either a Tensor with leading
-                local-expert dimension or a `list[Tensor]`.
-            gmm2_weight: Second-stage expert weights. For `backend="mega_moe"`, this
-                is interpreted as mega_moe `l2_weights` and must use layout
-                `[intermediate_hidden, hidden]` per local expert for
-                A16W16/A8W8-INT, or packed INT4 layout exposed as `torch.int32`
-                with shape `[intermediate_hidden, hidden // 8]` for A8W4-INT.
-            gmm2_weight_scale: Second-stage weight scales. Same backend and quantized
-                scene rules as `gmm1_permuted_weight_scale`.
-            num_max_dispatch_tokens_per_rank: Maximum token count participating in EP
-                dispatch for each rank. This value is forwarded to either backend and
-                is also part of the mega_moe SymmBuffer cache key. On Atlas A3, the
-                mega_moe operator supports at most 4096 tokens per rank in a single
-                invocation.
-            num_experts: Global expert count. For mega_moe, it must be divisible by
-                the process-group size so that local expert counts are well-defined.
-            quant_mode: Quantization mode. The deep_ep backend consumes this value
-                directly. The mega_moe backend maps quantized execution to its
-                internal dispatch mode and infers W8/W4 from weights, scales, and bias.
-            fuse_mode: Fused execution mode. The deep_ep backend supports both
-                `FuseMode.FUSED_DEEP_MOE` and `FuseMode.DISPATCH_FFN_COMBINE`.
-                The mega_moe backend supports only `FuseMode.FUSED_DEEP_MOE`.
-            activation: Activation name. Supported values are `"swiglu"`,
-                `"swiglu_gpt_oss"`, and `"situ"` on the mega_moe backend. The
-                deep_ep backend supports `"swiglu"` and `"situ"` (`"situ"`
-                only with `FuseMode.FUSED_DEEP_MOE`).
-            beta: Optional beta parameter for the `"situ"` activation. Defaults
-                to `4.0`.
-            linear_beta: Optional linear beta for the `"situ"` activation linear
-                branch. Defaults to `25.0`.
-            profile_enable: Whether to enable fused-kernel profiling for the deep_ep
-                fused backend. Defaults to `False`.
-            backend: Keyword-only backend selector. Supported values:
-                - `"deep_ep"`: native fused kernels (`aclnnFusedDeepMoe` /
-                  `aclnnDispatchFFNCombine`);
-                - `"mega_moe"`: `cann_ops_transformer.ops.mega_moe`; supports
-                  `"swiglu"`, `"swiglu_gpt_oss"`, and `"situ"`.
-                - `"auto"` (default): routes to mega_moe only when
-                  `activation == "situ"` or `l1_bias`/`l2_bias` is provided;
-                  otherwise keeps the deep_ep path. Note `"swiglu_gpt_oss"`
-                  is not auto-routed and needs `backend="mega_moe"`.
-            l1_bias: Optional per-expert first-stage bias tensors used for mega_moe
+            x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
+                the token representations to be processed by selected experts.
+            topk_idx: `[bs, num_topk]` with `torch.int64`, the selected expert indices
+                for each token. `-1` indices are supported (meaning no expert selected).
+            topk_weights: `[bs, num_topk]` with `torch.float32`, the expert weights
+                selected by the dispatched tokens. The received tokens will be reduced
+                with the weights in this tensor.
+            gmm1_permuted_weight: weight tensor for the first stage (up-projection).
+                For deep_ep FUSED_DEEP_MOE mode, requires tile-N permuted layout to fit
+                Grouped MatMul (see `reshape_fusion_gmm_weight` in test code). For
+                DISPATCH_FFN_COMBINE mode, uses standard NZ format without permutation.
+                For mega_moe, accepts a Tensor with a leading local-expert dimension or
+                a `list[Tensor]` of per-expert weights in mega_moe layout.
+            gmm1_permuted_weight_scale: quantization scale for the first stage. For
+                DeepEP FUSED_DEEP_MOE, the A3 runtime converts it to `torch.float32`
+                internally while A5 preserves its host-op contract. For
+                DISPATCH_FFN_COMBINE, the caller must provide `torch.int64` values
+                containing reinterpreted float32 scale bits. It is optional for
+                MegaMoe A16W16 and required for quantized MegaMoe execution.
+            gmm2_weight: weight tensor for the second stage (down-projection). For
+                mega_moe, accepts a Tensor with a leading local-expert dimension or a
+                `list[Tensor]` of per-expert weights in mega_moe layout.
+            gmm2_weight_scale: quantization scale tensor for the second stage. It
+                follows the same mode rules as `gmm1_permuted_weight_scale`.
+            num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
+                number of tokens to dispatch per rank, used for buffer allocation. For
+                DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
+                dispatch. All ranks must use the same value. MegaMoe on Atlas A3
+                supports at most 4096 tokens per rank in one invocation.
+            num_experts: the total number of global experts. MegaMoe requires it to be
+                divisible by the process-group size.
+            quant_mode: quantization mode. DeepEP supports 0 = no quantization (BF16)
+                and 1 = INT8. MegaMoe infers its W8/W4 scene from weights, scales, and
+                optional compensation biases.
+            fuse_mode: Selects the implementation. `FUSED_DEEP_MOE` and
+                `DISPATCH_FFN_COMBINE` use DeepEP; `MEGA_MOE` uses
+                `cann_ops_transformer.ops.mega_moe`.
+                FuseMode is not exported from the package's top-level `__init__.py`;
+                import it via `from deep_ep.buffer import FuseMode` or use integer
+                values 1, 2, or 3 directly.
+            activation: activation used after GMM1. DeepEP supports `"swiglu"` and
+                `"situ"`; SiTU requires FUSED_DEEP_MOE. MegaMoe additionally supports
+                `"swiglu_gpt_oss"`.
+            beta: SiTU gate soft-saturation bound. `None` uses the kernel default.
+            linear_beta: SiTU up-projection soft-saturation bound. A positive value
+                enables the transform; `None` leaves the up branch unchanged.
+            profile_enable: whether to enable DeepEP fused-kernel profiling.
+            l1_bias: optional per-expert first-stage bias tensors used for mega_moe
                 A8W4-INT compensation. Unsupported on the deep_ep backend.
-            l2_bias: Optional per-expert second-stage bias tensors used for mega_moe
+            l2_bias: optional per-expert second-stage bias tensors used for mega_moe
                 A8W4-INT compensation. Unsupported on the deep_ep backend.
 
+        Notes:
+            - DISPATCH_FFN_COMBINE does not support shared experts or BF16 weights.
+            - The first dimension of `topk_idx` defines batch size `bs`.
+            - The second dimension of `x` defines hidden dimension `hidden`.
+            - Exact weight and scale shapes depend on backend, quantization, layout,
+              and expert sharding.
+            - If optional scale tensors are empty, the DeepEP kernel skips those
+              transforms.
+
         Returns:
-            A tuple `(output, aux)` where `output` is the fused expert output tensor.
-            The `aux` tensor is backend-dependent:
-            - deep_ep + `FuseMode.FUSED_DEEP_MOE`: `ep_recv_count`,
-              shape `[num_local_experts * num_ranks]`
-            - deep_ep + `FuseMode.DISPATCH_FFN_COMBINE`: `expert_token_nums`,
-              shape `[num_local_experts]`
-            - mega_moe: `expert_token_nums`, shape `[num_local_experts]`
+            output: `torch.Tensor`, shape `[bs, hidden]`.
+            aux: mode-dependent metadata:
+                - FUSED_DEEP_MOE: `ep_recv_count`, shape
+                  `[num_local_experts * num_ranks]`, indicating the number of tokens
+                  received by each expert across all ranks;
+                - DISPATCH_FFN_COMBINE: `expert_token_nums`, shape
+                  `[num_local_experts]`, indicating the number of tokens received by
+                  each local expert on this rank;
+                - MEGA_MOE: `expert_token_nums`, shape `[num_local_experts]`.
         """
-        resolved_backend = self._resolve_fused_backend(
-            backend=backend,
-            activation=activation,
-            l1_bias=l1_bias,
-            l2_bias=l2_bias,
-        )
+        if fuse_mode == FuseMode.MEGA_MOE:
+            resolved_backend = "mega_moe"
+        elif fuse_mode in (
+            FuseMode.FUSED_DEEP_MOE,
+            FuseMode.DISPATCH_FFN_COMBINE,
+        ):
+            resolved_backend = "deep_ep"
+        else:
+            raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
         strategy = self._fused_strategies[resolved_backend]
         if x.size(0) == 0:
             x = torch.zeros(
@@ -951,11 +962,4 @@ class Buffer:
             dispatch_quant_out_dtype=strategy_dispatch_quant_out_dtype,
             max_recv_token_num=0,
         )
-        if x.size(0) == 0:
-            output = torch.empty(
-                (0, x.size(1)),
-                dtype=x.dtype,
-                device=x.device,
-            )
-
         return output, expert_token_num

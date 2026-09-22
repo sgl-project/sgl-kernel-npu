@@ -199,24 +199,23 @@ Quantization modes in `low_latency_dispatch`. For the `default` strategy, the ef
 
 ### Fused MoE
 
-The `fused_deep_moe` API now acts as a unified fused MoE entrypoint with two backends:
+The `fused_deep_moe` API selects its implementation through `FuseMode`:
 
-- `backend="deep_ep"`: legacy fused kernels from `deep_ep_cpp`
-- `backend="mega_moe"`: `cann_ops_transformer.ops.mega_moe`
-- `backend="auto"`: keeps the existing A5 fused path and routes non-A5 or mega_moe-only features to `mega_moe`
+- `FuseMode.FUSED_DEEP_MOE`: DeepEP `aclnnFusedDeepMoe`
+- `FuseMode.DISPATCH_FFN_COMBINE`: DeepEP `aclnnDispatchFFNCombine`
+- `FuseMode.MEGA_MOE`: `cann_ops_transformer.ops.mega_moe`
 
 Backend highlights:
 
-- `deep_ep` supports both `FuseMode.FUSED_DEEP_MOE` and `FuseMode.DISPATCH_FFN_COMBINE`
-- `mega_moe` supports only `FuseMode.FUSED_DEEP_MOE`
-- `activation="situ"` requires `backend="mega_moe"`
+- DeepEP SiTU is supported only with `FuseMode.FUSED_DEEP_MOE`
+- `activation="swiglu_gpt_oss"` requires `FuseMode.MEGA_MOE`
 - `linear_beta` is the public API name for the `situ` linear control; `activation_clamp` is no longer exposed at the DeepEP API layer
 - `l1_bias` / `l2_bias` are supported only on `mega_moe` for A8W4-INT compensation
 - MegaMoe dispatch quantization mode and output dtype are inferred internally from
   `quant_mode`, weights, scales, and optional compensation biases
 
-For the `mega_moe` backend, the package `cann_ops_transformer` must be available. If it is
-missing, only calls that actually route to `mega_moe` fail; the legacy `deep_ep` path still works.
+For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
+missing, only calls using that mode fail; the DeepEP modes still work.
 
 
 See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
@@ -492,24 +491,23 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 ### 融合 MoE
 
-`fused_deep_moe` 现在是统一的融合 MoE 入口，内部支持两个后端：
+`fused_deep_moe` 通过 `FuseMode` 选择具体实现：
 
-- `backend="deep_ep"`：沿用 `deep_ep_cpp` 的旧 fused kernel
-- `backend="mega_moe"`：调用 `cann_ops_transformer.ops.mega_moe`
-- `backend="auto"`：保持 A5 现有 fused 路径不变，并在非 A5 或仅 mega_moe 支持的功能上自动切到 `mega_moe`
+- `FuseMode.FUSED_DEEP_MOE`：DeepEP `aclnnFusedDeepMoe`
+- `FuseMode.DISPATCH_FFN_COMBINE`：DeepEP `aclnnDispatchFFNCombine`
+- `FuseMode.MEGA_MOE`：调用 `cann_ops_transformer.ops.mega_moe`
 
-后端差异要点：
+模式差异要点：
 
-- `deep_ep` 同时支持 `FuseMode.FUSED_DEEP_MOE` 和 `FuseMode.DISPATCH_FFN_COMBINE`
-- `mega_moe` 只支持 `FuseMode.FUSED_DEEP_MOE`
-- `activation="situ"` 只能走 `mega_moe`
+- DeepEP SiTU 仅支持 `FuseMode.FUSED_DEEP_MOE`
+- `activation="swiglu_gpt_oss"` 需要使用 `FuseMode.MEGA_MOE`
 - `linear_beta` 是对外的新参数名，用于 `situ` 激活；DeepEP API 层不再暴露 `activation_clamp`
 - `l1_bias` / `l2_bias` 仅在 `mega_moe` 的 A8W4-INT 补偿场景中支持
 - MegaMoe 的 dispatch 量化模式和输出类型由 `quant_mode`、权重、scale 及可选补偿
   bias 在内部自动推导
 
-如果要使用 `mega_moe` 后端，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
-只有实际路由到 `mega_moe` 的调用会报错，旧的 `deep_ep` 路径不受影响。
+如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
+只有使用该模式的调用会报错，DeepEP 模式不受影响。
 
 详见 [融合 Deep MoE API](doc/FUSED_DEEP_MOE.md)。
 
