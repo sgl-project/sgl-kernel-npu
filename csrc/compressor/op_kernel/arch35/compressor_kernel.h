@@ -445,7 +445,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitWorkspace(__gm__ uint8_t *wor
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, bool isNeedExcute)
 {
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
         // wait every AIV finished the previous generation of mm1[dbIdx] (bypass DCache)
         uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
         uint32_t aivNum = tilingData_->workspaceParams.aivNum;
@@ -472,9 +472,7 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
     blockVec_.ComputeVec1(info);
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        SyncAll();
-        blockVec_.CommitState(info);
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
         // AIV publishes the generation it just finished (bypass DCache)
         AscendC::WriteGmByPassDCache(
             (__gm__ uint32_t *)readGenGm.GetPhyAddr() + GetBlockIdx() * constInfo.dbWorkspaceRatio + info.c1v1DbIdx,

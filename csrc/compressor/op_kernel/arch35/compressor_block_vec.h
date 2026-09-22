@@ -620,19 +620,9 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
         AddApeToScore(srcLocal, apeUb, sliceInfo, dDealSize);
         PipeBarrier<PIPE_V>();
     }
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        // Ring buffer: SaveState is deferred to the kernel-level SyncAll
-        // (CommitState) so every ReadState observes the old history. With the
-        // real A5 ring (c4 ring_size=8, c128=128) a write can land on the same
-        // ring row another slice still needs to read, both within a slice and
-        // across slices.
-        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                            static_cast<uint32_t>(IS_SCORE));
-    } else {
-        SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
-        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                            static_cast<uint32_t>(IS_SCORE));
-    }
+    SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
+    ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
+                        static_cast<uint32_t>(IS_SCORE));
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
         uint32_t nextC1V1DbIdx = (info.c1v1DbIdx + 1) % constInfo_.dbWorkspaceRatio;
@@ -762,24 +752,37 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
             curSeqIdx += copyRowCount;
         }
     } else {
+        // EXPLICIT: state_block_table maps each compressed position to a flat
+        // slot index; decompose into (block, row) over the 3-D state_cache.
         uint32_t curSeqIdx = startSeqIdx;
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
-        uint64_t idInBlockTable = blockTableGm.GetValue(batchIdx);
+        uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
+        int64_t tableColumn =
+            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+            static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
-            uint64_t remainRowCnt = curSeqIdx % constInfo_.blockSize;
-            uint32_t copyRowCount = constInfo_.blockSize - remainRowCnt;
-            if (copyFinishRowCnt + copyRowCount > seqCnt) {
-                copyRowCount = seqCnt - copyFinishRowCnt;
+            uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
+            uint32_t copyRowCount = 1;
+            while (copyFinishRowCnt + copyRowCount < seqCnt) {
+                uint64_t nextStateLoc =
+                    static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
+                if (nextStateLoc != stateLoc + copyRowCount) {
+                    break;
+                }
+                copyRowCount++;
             }
-            uint64_t stateOffset = idInBlockTable * constInfo_.stateCacheStrideDim0 +
-                                   remainRowCnt * 2 * coff_ * constInfo_.headDim +
+            uint64_t blockIdx = stateLoc / constInfo_.blockSize;
+            uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
+                                   rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
 
             DataCopyWithInputQue(output[copyFinishRowCnt * coff_ * dDealSize], state[stateOffset], copyRowCount,
                                  dDealSize, coff_ * constInfo_.headDim * 2, coff_ * dDealSize);
             copyFinishRowCnt += copyRowCount;
             curSeqIdx += copyRowCount;
+            tableColumn += copyRowCount;
         }
     }
 }
@@ -820,21 +823,32 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
         uint32_t curSeqIdx = startSeqIdx;
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
-        uint64_t idInBlockTable = blockTableGm.GetValue(batchIdx);
+        uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
+        int64_t tableColumn =
+            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+            static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
-            uint64_t remainRowCnt = curSeqIdx % constInfo_.blockSize;
-            uint32_t copyRowCount = constInfo_.blockSize - remainRowCnt;
-            if (copyFinishRowCnt + copyRowCount > seqCnt) {
-                copyRowCount = seqCnt - copyFinishRowCnt;
+            uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
+            uint32_t copyRowCount = 1;
+            while (copyFinishRowCnt + copyRowCount < seqCnt) {
+                uint64_t nextStateLoc =
+                    static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
+                if (nextStateLoc != stateLoc + copyRowCount) {
+                    break;
+                }
+                copyRowCount++;
             }
-            uint64_t stateOffset = idInBlockTable * constInfo_.stateCacheStrideDim0 +
-                                   remainRowCnt * 2 * coff_ * constInfo_.headDim +
+            uint64_t blockIdx = stateLoc / constInfo_.blockSize;
+            uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
+                                   rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
             DataCopyWithOutputQue(state[stateOffset], input[copyFinishRowCnt * coff_ * dDealSize], copyRowCount,
                                   dDealSize, coff_ * dDealSize, coff_ * constInfo_.headDim * 2);
 
             copyFinishRowCnt += copyRowCount;
             curSeqIdx += copyRowCount;
+            tableColumn += copyRowCount;
         }
     }
 }
@@ -849,31 +863,6 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
     uint32_t startSeqIdx = sliceInfo.bStartPos + sliceInfo.sIdx;
     uint32_t endSeqIdx = startSeqIdx + sliceInfo.validSeqCnt;
     uint64_t srcBaseOffset = sliceInfo.dealedSeqCnt * coff_ * dDealSize;
-
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        // Rows strictly before the compress boundary become c-state and do not
-        // need to stay in the raw ring -- EXCEPT during MTP verify, where a
-        // partially-accepted round must be able to re-compress from the
-        // actually-accepted offset and therefore re-reads raw rows that were
-        // between the accepted position and this round's compress boundary.
-        // Keep those extra tail rows the ring can hold beyond one window
-        // (mirrors sglang's get_compress_state_write_pad / c_plan `mtp_pad`):
-        //     pad = ring - window + 2   (0 when ring <= window)
-        const uint32_t window = (coff_ == 2U ? 2U : 1U) * cmpRatio_;
-        const uint32_t pad = constInfo_.blockSize > window ? constInfo_.blockSize - window + 2U : 0U;
-        const uint32_t batchEnd = sliceInfo.bStartPos + sliceInfo.bSeqUsed;
-        const uint32_t compressSeqIdx = Trunc(batchEnd, cmpRatio_);
-        uint32_t writeSeqStartIdx =
-            compressSeqIdx > (coff_ - 1U) * cmpRatio_ ? compressSeqIdx - (coff_ - 1U) * cmpRatio_ : 0U;
-        if (pad != 0U) {
-            writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
-        }
-        if (endSeqIdx <= writeSeqStartIdx) {
-            return;
-        }
-        srcBaseOffset += (max(startSeqIdx, writeSeqStartIdx) - startSeqIdx) * coff_ * dDealSize;
-        startSeqIdx = max(startSeqIdx, writeSeqStartIdx);
-    }
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
         WriteToCacheState(stateGm, blockTableGm, srcLocal[srcBaseOffset], sliceInfo.bIdx, startSeqIdx, endSeqIdx,
