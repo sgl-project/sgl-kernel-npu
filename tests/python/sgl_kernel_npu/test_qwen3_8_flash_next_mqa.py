@@ -5,6 +5,7 @@ custom-scale and independent-width coverage is intentionally replaced by
 metadata rejection tests. The old tests remain available in Git history.
 CPU FP64 is an independent oracle; device Torch FP32 is a separate reference.
 """
+
 import math
 from dataclasses import dataclass
 from typing import Optional
@@ -13,6 +14,7 @@ import pytest
 import torch
 import torch_npu  # noqa: F401
 from sgl_kernel_npu.qwen3_8_flash_next import mqa as wrapper
+
 
 @dataclass(frozen=True)
 class Case:
@@ -64,8 +66,8 @@ def make_case(name, device="cpu", seed=73):
         starts = torch.zeros(c.rows, dtype=torch.int32)
         ends = torch.full((c.rows,), c.width, dtype=torch.int32)
         if c.pattern == "two_requests":
-            starts[c.rows // 2:] = c.width // 2
-            ends[:c.rows // 2] = c.width // 2
+            starts[c.rows // 2 :] = c.width // 2
+            ends[: c.rows // 2] = c.width // 2
         elif c.pattern == "fresh_chunk":
             ends = ((torch.arange(c.rows) + 1) // 4).to(torch.int32)
         elif c.rows > 1:
@@ -75,17 +77,27 @@ def make_case(name, device="cpu", seed=73):
         pages = c.width // 16
         requests = c.rows // 4 if c.pattern == "verify" else c.rows
         # Unique pages within a request; verify rows share the request mapping.
-        table = torch.arange(1, requests * pages + 1, dtype=torch.int32).reshape(requests, pages)
+        table = torch.arange(1, requests * pages + 1, dtype=torch.int32).reshape(
+            requests, pages
+        )
         if c.pattern == "verify":
             table = table.repeat_interleave(4, dim=0)
-            lengths = ((4089 + torch.arange(4) + 1) // 4).repeat(requests).to(torch.int32)
+            lengths = (
+                ((4089 + torch.arange(4) + 1) // 4).repeat(requests).to(torch.int32)
+            )
         else:
             limit = min(c.width, 33) if c.pattern == "short" else c.width
             lengths = torch.linspace(0, limit, c.rows).to(torch.int32)
             if c.rows == 1:
                 lengths.fill_(limit)
-        cache = torch.randn(max(1, requests * pages + 1), 16, 1, 128,
-                            generator=rng, dtype=torch.bfloat16)
+        cache = torch.randn(
+            max(1, requests * pages + 1),
+            16,
+            1,
+            128,
+            generator=rng,
+            dtype=torch.bfloat16,
+        )
         args = (q, cache, table, lengths, c.width)
     return tuple(x.to(device) if isinstance(x, torch.Tensor) else x for x in args)
 
@@ -196,7 +208,6 @@ def torch_qsa_mqa_decode(
     return logits
 
 
-
 @pytest.mark.parametrize("name", list(CASES))
 def test_model(name):
     kind = CASES[name].kind
@@ -207,6 +218,7 @@ def test_model(name):
     assert out.is_contiguous()
     for x, before in zip(args, saved):
         torch.testing.assert_close(x, before, atol=0, rtol=0)
+
 
 def check(kind, args, out, reference=True):
     oracle = expected(kind, args)
@@ -219,9 +231,22 @@ def check(kind, args, out, reference=True):
         torch.testing.assert_close(out, fn(*args), atol=2e-5, rtol=2e-5)
 
 
-@pytest.mark.parametrize("rows,width", [(1,1), (3,31), (4,32), (5,33),
-                                       (7,63), (8,64), (9,65),
-                                       (15,127), (16,128), (17,129), (33,257)])
+@pytest.mark.parametrize(
+    "rows,width",
+    [
+        (1, 1),
+        (3, 31),
+        (4, 32),
+        (5, 33),
+        (7, 63),
+        (8, 64),
+        (9, 65),
+        (15, 127),
+        (16, 128),
+        (17, 129),
+        (33, 257),
+    ],
+)
 @pytest.mark.parametrize("kind", ["packed", "paged"])
 def test_tile_boundaries(kind, rows, width):
     rng = torch.Generator().manual_seed(109)
@@ -238,8 +263,10 @@ def test_tile_boundaries(kind, rows, width):
         k = torch.randn(pages + 2, 16, 1, 128, generator=rng).bfloat16()
         # Reversed maps share physical pages across rows without identity addressing.
         table = torch.arange(pages, 0, -1, dtype=torch.int32).repeat(rows, 1)
-        choices = torch.tensor([0,1,15,16,17,31,32,33,63,64,65,
-                                127,128,129,255,256,257], dtype=torch.int32)
+        choices = torch.tensor(
+            [0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256, 257],
+            dtype=torch.int32,
+        )
         lengths = choices[torch.arange(rows) % choices.numel()].clamp_max(width)
         lengths[-1] = width
         args = (q, k, table, lengths, width)
@@ -254,8 +281,8 @@ def test_unused_pages_and_valid_zero():
     q = torch.zeros(6, 4, 128, dtype=torch.bfloat16, device="npu")
     cache = torch.ones(4, 16, 1, 128, dtype=torch.bfloat16, device="npu")
     cache[0] = float("nan")
-    lengths = torch.tensor([0,1,15,16,17,33], dtype=torch.int32, device="npu")
-    table = torch.tensor([[1,2,3,0]] * 6, dtype=torch.int32, device="npu")
+    lengths = torch.tensor([0, 1, 15, 16, 17, 33], dtype=torch.int32, device="npu")
+    table = torch.tensor([[1, 2, 3, 0]] * 6, dtype=torch.int32, device="npu")
     positions = torch.arange(4, device="npu")[None, :] * 16
     table.masked_fill_(positions >= lengths[:, None], 123456)
     args = (q, cache, table, lengths, 64)
@@ -277,12 +304,21 @@ def test_normalized_and_cancelling_scores(kind, seed):
     check(kind, args, getattr(wrapper, kind)(*args))
 
 
-@pytest.mark.parametrize("name", ["packed_multi_request", "packed_tail", "packed_q1_prefix",
-                                  "packed_q1_long_prefix",
-                                  "packed_r7_w1023", "packed_r16_w1024",
-                                  "packed_r33_w1025",
-                                  "paged_verify_b8_w4", "paged_old_limit_129",
-                                  "paged_graph_short"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "packed_multi_request",
+        "packed_tail",
+        "packed_q1_prefix",
+        "packed_q1_long_prefix",
+        "packed_r7_w1023",
+        "packed_r16_w1024",
+        "packed_r33_w1025",
+        "paged_verify_b8_w4",
+        "paged_old_limit_129",
+        "paged_graph_short",
+    ],
+)
 def test_independent_graph_updates(name):
     kind = name.split("_")[0]
     args = make_case(name, device="npu")
@@ -325,8 +361,12 @@ def test_independent_graph_updates(name):
 
 def test_out_of_scope_rejected():
     q, k, starts, ends = make_case("packed_tail", device="npu")
-    for args in ((q.float(), k, starts, ends), (q[:, :3], k, starts, ends),
-                 (q, k, starts.long(), ends), (q, k, starts, ends[:-1])):
+    for args in (
+        (q.float(), k, starts, ends),
+        (q[:, :3], k, starts, ends),
+        (q, k, starts.long(), ends),
+        (q, k, starts, ends[:-1]),
+    ):
         with pytest.raises(ValueError):
             wrapper.packed(*args)
     q, k, table, lengths, width = make_case("paged_decode_b8", device="npu")

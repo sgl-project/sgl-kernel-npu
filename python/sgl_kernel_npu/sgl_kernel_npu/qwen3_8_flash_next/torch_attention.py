@@ -1,16 +1,30 @@
 """Bounded BF16 hybrid path: masked gather and FP32 matrix softmax."""
+
 import torch
 import triton
 import triton.language as tl
 
 
 @triton.jit
-def _gather(K, V, Slots, Keys, Values,
-            K_ROW: tl.constexpr, K_HEAD: tl.constexpr,
-            V_ROW: tl.constexpr, V_HEAD: tl.constexpr,
-            SLOT_ROW: tl.constexpr, SLOT_COL: tl.constexpr,
-            WIDTH: tl.constexpr, DIM: tl.constexpr, KV_HEAD,
-            START_ROW, START_ITEM, ITEMS: tl.constexpr):
+def _gather(
+    K,
+    V,
+    Slots,
+    Keys,
+    Values,
+    K_ROW: tl.constexpr,
+    K_HEAD: tl.constexpr,
+    V_ROW: tl.constexpr,
+    V_HEAD: tl.constexpr,
+    SLOT_ROW: tl.constexpr,
+    SLOT_COL: tl.constexpr,
+    WIDTH: tl.constexpr,
+    DIM: tl.constexpr,
+    KV_HEAD,
+    START_ROW,
+    START_ITEM,
+    ITEMS: tl.constexpr,
+):
     item = START_ITEM + tl.program_id(0).to(tl.int64) * 32 + tl.arange(0, 32)
     row = item // WIDTH + START_ROW
     col = item % WIDTH
@@ -19,10 +33,20 @@ def _gather(K, V, Slots, Keys, Values,
     safe = tl.maximum(slots, 0).to(tl.int64)
     kv_head = tl.full((), 0, tl.int64) + KV_HEAD
     dims = tl.arange(0, DIM)
-    keys = tl.load(K + safe[:, None] * K_ROW + kv_head * K_HEAD + dims[None, :], valid[:, None], other=0).to(tl.float32)
-    values = tl.load(V + safe[:, None] * V_ROW + kv_head * V_HEAD + dims[None, :], valid[:, None], other=0).to(tl.float32)
+    keys = tl.load(
+        K + safe[:, None] * K_ROW + kv_head * K_HEAD + dims[None, :],
+        valid[:, None],
+        other=0,
+    ).to(tl.float32)
+    values = tl.load(
+        V + safe[:, None] * V_ROW + kv_head * V_HEAD + dims[None, :],
+        valid[:, None],
+        other=0,
+    ).to(tl.float32)
     tl.store(Keys + item[:, None] * DIM + dims[None, :], keys, (item < ITEMS)[:, None])
-    tl.store(Values + item[:, None] * DIM + dims[None, :], values, (item < ITEMS)[:, None])
+    tl.store(
+        Values + item[:, None] * DIM + dims[None, :], values, (item < ITEMS)[:, None]
+    )
 
 
 def torch_attention(q, k, v, slots, scale):
@@ -98,33 +122,61 @@ def torch_attention(q, k, v, slots, scale):
         count = min(chunk_rows, rows - start)
         keys = torch.empty((count, width, dim), device=q.device, dtype=torch.float32)
         values = torch.empty_like(keys)
-        valid = slots[start:start+count] >= 0
+        valid = slots[start : start + count] >= 0
         items = count * width
         for item_start in range(0, items, 65535 * 32):
             programs = min(65535, triton.cdiv(items - item_start, 32))
             _gather[(programs,)](
-                k, v, slots, keys, values, k.stride(0), k.stride(1),
-                v.stride(0), v.stride(1), *slots.stride(), width, dim, 0,
-                start, item_start, items, enable_fp_fusion=False,
+                k,
+                v,
+                slots,
+                keys,
+                values,
+                k.stride(0),
+                k.stride(1),
+                v.stride(0),
+                v.stride(1),
+                *slots.stride(),
+                width,
+                dim,
+                0,
+                start,
+                item_start,
+                items,
+                enable_fp_fusion=False,
             )
-        query = q[start:start+count].float()
+        query = q[start : start + count].float()
         scores = torch.bmm(query, keys.transpose(1, 2)) * scale
-        scores = scores.masked_fill(scores == -float('inf'), float('nan'))
-        scores = scores.masked_fill(~valid[:, None, :], -float('inf'))
+        scores = scores.masked_fill(scores == -float("inf"), float("nan"))
+        scores = scores.masked_fill(~valid[:, None, :], -float("inf"))
         probabilities = torch.softmax(scores, -1)
         probabilities = torch.where(valid[:, None, :], probabilities, 0.0)
         result = torch.bmm(probabilities, values).to(q.dtype)
-        output[start:start+count].copy_(result)
+        output[start : start + count].copy_(result)
     return output
 
 
 @triton.jit
-def _gather_heads(K, V, Slots, Keys, Values,
-                  K_ROW: tl.constexpr, K_HEAD: tl.constexpr,
-                  V_ROW: tl.constexpr, V_HEAD: tl.constexpr,
-                  SLOT_ROW: tl.constexpr, SLOT_COL: tl.constexpr,
-                  WIDTH: tl.constexpr, DIM: tl.constexpr, KV_COUNT: tl.constexpr,
-                  HEAD_START, START_ROW, START_ITEM, ITEMS: tl.constexpr):
+def _gather_heads(
+    K,
+    V,
+    Slots,
+    Keys,
+    Values,
+    K_ROW: tl.constexpr,
+    K_HEAD: tl.constexpr,
+    V_ROW: tl.constexpr,
+    V_HEAD: tl.constexpr,
+    SLOT_ROW: tl.constexpr,
+    SLOT_COL: tl.constexpr,
+    WIDTH: tl.constexpr,
+    DIM: tl.constexpr,
+    KV_COUNT: tl.constexpr,
+    HEAD_START,
+    START_ROW,
+    START_ITEM,
+    ITEMS: tl.constexpr,
+):
     item = START_ITEM + tl.program_id(0).to(tl.int64) * 32 + tl.arange(0, 32)
     row = item // (WIDTH * KV_COUNT) + START_ROW
     col = item % WIDTH
@@ -133,10 +185,20 @@ def _gather_heads(K, V, Slots, Keys, Values,
     valid = (item < ITEMS) & (slots >= 0)
     safe = tl.maximum(slots, 0).to(tl.int64)
     dims = tl.arange(0, DIM)
-    keys = tl.load(K + safe[:, None] * K_ROW + head[:, None] * K_HEAD + dims[None, :], valid[:, None], other=0).to(tl.float32)
-    values = tl.load(V + safe[:, None] * V_ROW + head[:, None] * V_HEAD + dims[None, :], valid[:, None], other=0).to(tl.float32)
+    keys = tl.load(
+        K + safe[:, None] * K_ROW + head[:, None] * K_HEAD + dims[None, :],
+        valid[:, None],
+        other=0,
+    ).to(tl.float32)
+    values = tl.load(
+        V + safe[:, None] * V_ROW + head[:, None] * V_HEAD + dims[None, :],
+        valid[:, None],
+        other=0,
+    ).to(tl.float32)
     tl.store(Keys + item[:, None] * DIM + dims[None, :], keys, (item < ITEMS)[:, None])
-    tl.store(Values + item[:, None] * DIM + dims[None, :], values, (item < ITEMS)[:, None])
+    tl.store(
+        Values + item[:, None] * DIM + dims[None, :], values, (item < ITEMS)[:, None]
+    )
 
 
 def _batched_attention(q, k, v, slots, scale):
@@ -150,23 +212,46 @@ def _batched_attention(q, k, v, slots, scale):
     output_heads = output.view(rows, kv_heads, group, dim)
     for start in range(0, rows, chunk_rows):
         count = min(chunk_rows, rows - start)
-        valid = slots[start:start+count] >= 0
-        keys = torch.empty((count * kv_heads, width, dim), device=q.device, dtype=torch.float32)
+        valid = slots[start : start + count] >= 0
+        keys = torch.empty(
+            (count * kv_heads, width, dim), device=q.device, dtype=torch.float32
+        )
         values = torch.empty_like(keys)
         items = count * kv_heads * width
         for item_start in range(0, items, 65535 * 32):
             programs = min(65535, triton.cdiv(items - item_start, 32))
             _gather_heads[(programs,)](
-                k, v, slots, keys, values, k.stride(0), k.stride(1),
-                v.stride(0), v.stride(1), *slots.stride(), width, dim,
-                kv_heads, 0, start, item_start, items, enable_fp_fusion=False,
+                k,
+                v,
+                slots,
+                keys,
+                values,
+                k.stride(0),
+                k.stride(1),
+                v.stride(0),
+                v.stride(1),
+                *slots.stride(),
+                width,
+                dim,
+                kv_heads,
+                0,
+                start,
+                item_start,
+                items,
+                enable_fp_fusion=False,
             )
-        query = q[start:start+count].float().reshape(count * kv_heads, group, dim)
-        scores = (torch.bmm(query, keys.transpose(1, 2)) * scale).reshape(count, kv_heads, group, width)
-        scores = scores.masked_fill(scores == -float('inf'), float('nan'))
-        scores = scores.masked_fill(~valid[:, None, None, :], -float('inf'))
+        query = q[start : start + count].float().reshape(count * kv_heads, group, dim)
+        scores = (torch.bmm(query, keys.transpose(1, 2)) * scale).reshape(
+            count, kv_heads, group, width
+        )
+        scores = scores.masked_fill(scores == -float("inf"), float("nan"))
+        scores = scores.masked_fill(~valid[:, None, None, :], -float("inf"))
         probabilities = torch.softmax(scores, -1)
         probabilities = torch.where(valid[:, None, None, :], probabilities, 0.0)
-        result = torch.bmm(probabilities.reshape(count * kv_heads, group, width), values).to(q.dtype)
-        output_heads[start:start+count].copy_(result.reshape(count, kv_heads, group, dim))
+        result = torch.bmm(
+            probabilities.reshape(count * kv_heads, group, width), values
+        ).to(q.dtype)
+        output_heads[start : start + count].copy_(
+            result.reshape(count, kv_heads, group, dim)
+        )
     return output

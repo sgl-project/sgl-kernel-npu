@@ -3,6 +3,7 @@
 import torch
 import triton
 import triton.language as tl
+
 from .torch_attention import torch_attention
 
 _MAX_GRID_PROGRAMS = 65535
@@ -14,14 +15,34 @@ _GROUP_MODEL = True
 
 @triton.jit
 def _sparse_partials(
-    Q, K, V, Slots, Partial, Maxima, Sums, Output,
-    Q_ROW: tl.constexpr, Q_HEAD: tl.constexpr, Q_DIM: tl.constexpr,
-    K_ROW: tl.constexpr, K_HEAD: tl.constexpr, K_DIM: tl.constexpr,
-    V_ROW: tl.constexpr, V_HEAD: tl.constexpr, V_DIM: tl.constexpr,
-    SLOT_ROW: tl.constexpr, SLOT_COL: tl.constexpr,
-    HEADS: tl.constexpr, GROUP: tl.constexpr, DIM: tl.constexpr,
-    WIDTH: tl.constexpr, SPLITS: tl.constexpr, TILES: tl.constexpr,
-    SCALE: tl.constexpr, BLOCK: tl.constexpr, START: tl.constexpr,
+    Q,
+    K,
+    V,
+    Slots,
+    Partial,
+    Maxima,
+    Sums,
+    Output,
+    Q_ROW: tl.constexpr,
+    Q_HEAD: tl.constexpr,
+    Q_DIM: tl.constexpr,
+    K_ROW: tl.constexpr,
+    K_HEAD: tl.constexpr,
+    K_DIM: tl.constexpr,
+    V_ROW: tl.constexpr,
+    V_HEAD: tl.constexpr,
+    V_DIM: tl.constexpr,
+    SLOT_ROW: tl.constexpr,
+    SLOT_COL: tl.constexpr,
+    HEADS: tl.constexpr,
+    GROUP: tl.constexpr,
+    DIM: tl.constexpr,
+    WIDTH: tl.constexpr,
+    SPLITS: tl.constexpr,
+    TILES: tl.constexpr,
+    SCALE: tl.constexpr,
+    BLOCK: tl.constexpr,
+    START: tl.constexpr,
     WIDE_OFFSETS: tl.constexpr,
 ):
     local_item = tl.program_id(0).to(tl.int64)
@@ -41,7 +62,9 @@ def _sparse_partials(
         if WIDE_OFFSETS:
             base = base.to(tl.int64)
         cols = base * BLOCK + tl.arange(0, BLOCK)
-        slots = tl.load(Slots + row * SLOT_ROW + cols * SLOT_COL, cols < WIDTH, other=-1)
+        slots = tl.load(
+            Slots + row * SLOT_ROW + cols * SLOT_COL, cols < WIDTH, other=-1
+        )
         valid = (cols < WIDTH) & (slots >= 0)
         # Only negative padding is replaced; nonnegative slots are never clamped.
         if WIDE_OFFSETS:
@@ -49,12 +72,20 @@ def _sparse_partials(
         else:
             safe_slots = tl.maximum(slots, 0).to(tl.int32)
         keys = tl.load(
-            K + safe_slots[:, None] * K_ROW + (head // GROUP) * K_HEAD + dims[None, :] * K_DIM,
-            valid[:, None], other=0,
+            K
+            + safe_slots[:, None] * K_ROW
+            + (head // GROUP) * K_HEAD
+            + dims[None, :] * K_DIM,
+            valid[:, None],
+            other=0,
         ).to(tl.float32)
         values = tl.load(
-            V + safe_slots[:, None] * V_ROW + (head // GROUP) * V_HEAD + dims[None, :] * V_DIM,
-            valid[:, None], other=0,
+            V
+            + safe_slots[:, None] * V_ROW
+            + (head // GROUP) * V_HEAD
+            + dims[None, :] * V_DIM,
+            valid[:, None],
+            other=0,
         ).to(tl.float32)
         scores = tl.sum(keys * query[None, :], axis=1) * SCALE
         # A selected -inf score is an anomaly, not a padding sentinel.
@@ -78,12 +109,14 @@ def _sparse_partials(
 
 
 @triton.jit
-def _update_head(keys, values, query, valid, maximum, total, numerator, SCALE: tl.constexpr):
+def _update_head(
+    keys, values, query, valid, maximum, total, numerator, SCALE: tl.constexpr
+):
     scores = tl.sum(keys * query[None, :], 1) * SCALE
-    scores = tl.where(scores == -float('inf'), float('nan'), scores)
-    scores = tl.where(valid, scores, -float('inf'))
+    scores = tl.where(scores == -float("inf"), float("nan"), scores)
+    scores = tl.where(valid, scores, -float("inf"))
     next_max = tl.maximum(maximum, tl.max(scores, 0))
-    safe_max = tl.where(next_max == -float('inf'), 0, next_max)
+    safe_max = tl.where(next_max == -float("inf"), 0, next_max)
     correction = tl.exp(maximum - safe_max)
     weights = tl.where(valid, tl.exp(scores - safe_max), 0)
     numerator = numerator * correction + tl.sum(weights[:, None] * values, 0)
@@ -92,8 +125,20 @@ def _update_head(keys, values, query, valid, maximum, total, numerator, SCALE: t
 
 
 @triton.jit
-def _store_head(Partial, Maxima, Sums, Output, local_item, item, split,
-                maximum, total, numerator, DIM: tl.constexpr, SPLITS: tl.constexpr):
+def _store_head(
+    Partial,
+    Maxima,
+    Sums,
+    Output,
+    local_item,
+    item,
+    split,
+    maximum,
+    total,
+    numerator,
+    DIM: tl.constexpr,
+    SPLITS: tl.constexpr,
+):
     dims = tl.arange(0, DIM)
     if SPLITS == 1:
         result = numerator / tl.where(total > 0, total, 1)
@@ -107,12 +152,28 @@ def _store_head(Partial, Maxima, Sums, Output, local_item, item, split,
 
 @triton.jit
 def _grouped_partials(
-    Q, K, V, Slots, Partial, Maxima, Sums, Output,
-    Q_ROW: tl.constexpr, Q_HEAD: tl.constexpr, Q_DIM: tl.constexpr,
-    K_ROW: tl.constexpr, V_ROW: tl.constexpr,
-    SLOT_ROW: tl.constexpr, SLOT_COL: tl.constexpr,
-    DIM: tl.constexpr, WIDTH: tl.constexpr, SPLITS: tl.constexpr,
-    TILES: tl.constexpr, SCALE: tl.constexpr, BLOCK: tl.constexpr, START_ROW: tl.constexpr,
+    Q,
+    K,
+    V,
+    Slots,
+    Partial,
+    Maxima,
+    Sums,
+    Output,
+    Q_ROW: tl.constexpr,
+    Q_HEAD: tl.constexpr,
+    Q_DIM: tl.constexpr,
+    K_ROW: tl.constexpr,
+    V_ROW: tl.constexpr,
+    SLOT_ROW: tl.constexpr,
+    SLOT_COL: tl.constexpr,
+    DIM: tl.constexpr,
+    WIDTH: tl.constexpr,
+    SPLITS: tl.constexpr,
+    TILES: tl.constexpr,
+    SCALE: tl.constexpr,
+    BLOCK: tl.constexpr,
+    START_ROW: tl.constexpr,
 ):
     local_row = tl.program_id(0).to(tl.int64)
     row = local_row + START_ROW
@@ -121,9 +182,9 @@ def _grouped_partials(
     q0 = tl.load(Q + row * Q_ROW + dims * Q_DIM).to(tl.float32)
     q1 = tl.load(Q + row * Q_ROW + Q_HEAD + dims * Q_DIM).to(tl.float32)
     q2 = tl.load(Q + row * Q_ROW + 2 * Q_HEAD + dims * Q_DIM).to(tl.float32)
-    m0 = tl.full((), -float('inf'), tl.float32)
-    m1 = tl.full((), -float('inf'), tl.float32)
-    m2 = tl.full((), -float('inf'), tl.float32)
+    m0 = tl.full((), -float("inf"), tl.float32)
+    m1 = tl.full((), -float("inf"), tl.float32)
+    m2 = tl.full((), -float("inf"), tl.float32)
     s0 = tl.full((), 0, tl.float32)
     s1 = tl.full((), 0, tl.float32)
     s2 = tl.full((), 0, tl.float32)
@@ -132,22 +193,74 @@ def _grouped_partials(
     a2 = tl.full((DIM,), 0, tl.float32)
     for tile in range(TILES):
         cols = (split * TILES + tile) * BLOCK + tl.arange(0, BLOCK)
-        slots = tl.load(Slots + row * SLOT_ROW + cols * SLOT_COL, cols < WIDTH, other=-1)
+        slots = tl.load(
+            Slots + row * SLOT_ROW + cols * SLOT_COL, cols < WIDTH, other=-1
+        )
         valid = (cols < WIDTH) & (slots >= 0)
         safe_slots = tl.maximum(slots, 0).to(tl.int32)
-        keys = tl.load(K + safe_slots[:, None] * K_ROW + dims[None, :], valid[:, None], other=0).to(tl.float32)
-        values = tl.load(V + safe_slots[:, None] * V_ROW + dims[None, :], valid[:, None], other=0).to(tl.float32)
+        keys = tl.load(
+            K + safe_slots[:, None] * K_ROW + dims[None, :], valid[:, None], other=0
+        ).to(tl.float32)
+        values = tl.load(
+            V + safe_slots[:, None] * V_ROW + dims[None, :], valid[:, None], other=0
+        ).to(tl.float32)
         m0, s0, a0 = _update_head(keys, values, q0, valid, m0, s0, a0, SCALE)
         m1, s1, a1 = _update_head(keys, values, q1, valid, m1, s1, a1, SCALE)
         m2, s2, a2 = _update_head(keys, values, q2, valid, m2, s2, a2, SCALE)
-    _store_head(Partial, Maxima, Sums, Output, local_row * 3, row * 3, split, m0, s0, a0, DIM, SPLITS)
-    _store_head(Partial, Maxima, Sums, Output, local_row * 3 + 1, row * 3 + 1, split, m1, s1, a1, DIM, SPLITS)
-    _store_head(Partial, Maxima, Sums, Output, local_row * 3 + 2, row * 3 + 2, split, m2, s2, a2, DIM, SPLITS)
+    _store_head(
+        Partial,
+        Maxima,
+        Sums,
+        Output,
+        local_row * 3,
+        row * 3,
+        split,
+        m0,
+        s0,
+        a0,
+        DIM,
+        SPLITS,
+    )
+    _store_head(
+        Partial,
+        Maxima,
+        Sums,
+        Output,
+        local_row * 3 + 1,
+        row * 3 + 1,
+        split,
+        m1,
+        s1,
+        a1,
+        DIM,
+        SPLITS,
+    )
+    _store_head(
+        Partial,
+        Maxima,
+        Sums,
+        Output,
+        local_row * 3 + 2,
+        row * 3 + 2,
+        split,
+        m2,
+        s2,
+        a2,
+        DIM,
+        SPLITS,
+    )
 
 
 @triton.jit
-def _merge_partials(Partial, Maxima, Sums, Output,
-                    DIM: tl.constexpr, SPLITS: tl.constexpr, START: tl.constexpr):
+def _merge_partials(
+    Partial,
+    Maxima,
+    Sums,
+    Output,
+    DIM: tl.constexpr,
+    SPLITS: tl.constexpr,
+    START: tl.constexpr,
+):
     item = tl.program_id(0).to(tl.int64)
     splits = tl.arange(0, SPLITS)
     dims = tl.arange(0, DIM)
@@ -187,17 +300,23 @@ def can_run_sparse_attention(q, k, v, slots) -> bool:
     """Check production metadata only; no device-value reads or fallback."""
     return (
         q.device.type == "npu"
-        and q.ndim == k.ndim == v.ndim == 3 and slots.ndim == 2
+        and q.ndim == k.ndim == v.ndim == 3
+        and slots.ndim == 2
         and q.dtype == k.dtype == v.dtype == torch.bfloat16
         and q.device == k.device == v.device == slots.device
-        and k.shape == v.shape and q.shape[2] == k.shape[2] == 256
+        and k.shape == v.shape
+        and q.shape[2] == k.shape[2] == 256
         and (q.shape[1], k.shape[1]) in _SUPPORTED_HEADS
-        and q.shape[0] == slots.shape[0] and slots.dtype == torch.int32
-        and k.shape[0] <= 2**31 - 1 and _supported_width(slots.shape[1])
+        and q.shape[0] == slots.shape[0]
+        and slots.dtype == torch.int32
+        and k.shape[0] <= 2**31 - 1
+        and _supported_width(slots.shape[1])
         and k.stride() == v.stride() == (k.shape[1] * 256, 256, 1)
-        and q.stride(2) == 1 and q.stride(1) >= 256
+        and q.stride(2) == 1
+        and q.stride(1) >= 256
         and q.stride(0) >= (q.shape[1] - 1) * q.stride(1) + 256
-        and slots.stride(1) == 1 and slots.stride(0) >= slots.shape[1]
+        and slots.stride(1) == 1
+        and slots.stride(0) >= slots.shape[1]
     )
 
 
@@ -224,11 +343,19 @@ def _wide_offsets(q, k, v, slots, block, splits):
     # spans. A true result disables three-head
     # reuse; the generic Triton path uses int64 offsets in that case.
     limit = 2**31 - 1
-    return (_FORCE_WIDE or k.shape[0] > limit
-            or slots.shape[1] + block * splits > limit
-            or (slots.shape[1] + block * splits) * slots.stride(1) * slots.element_size() > limit
-            or any(sum(max(0, n - 1) * s for n, s in zip(x.shape, x.stride()))
-                   * x.element_size() > limit for x in (q, k, v, slots)))
+    return (
+        _FORCE_WIDE
+        or k.shape[0] > limit
+        or slots.shape[1] + block * splits > limit
+        or (slots.shape[1] + block * splits) * slots.stride(1) * slots.element_size()
+        > limit
+        or any(
+            sum(max(0, n - 1) * s for n, s in zip(x.shape, x.stride()))
+            * x.element_size()
+            > limit
+            for x in (q, k, v, slots)
+        )
+    )
 
 
 def _use_torch(q, k, slots):
@@ -241,32 +368,56 @@ def dispatch_info(q, k, v, slots):
     if not can_run_sparse_attention(q, k, v, slots):
         raise ValueError("Unsupported NPU sparse attention tensor configuration")
     if q.shape[0] == 0 or k.shape[0] == 0:
-        return dict(path='empty', launches=0, scratch_bytes=0)
+        return dict(path="empty", launches=0, scratch_bytes=0)
     if _use_torch(q, k, slots):
         kv_chunk = k.shape[1]
-        count = max(1, min(32, (16 * 1024**2) // (slots.shape[1] * q.shape[-1] * 8 * kv_chunk)))
-        return dict(path='torch_matrix', row_chunk=count, head_chunk=q.shape[1] // k.shape[1], kv_head_chunk=kv_chunk,
-                    gather_bytes=min(count, q.shape[0]) * slots.shape[1] * q.shape[-1] * 8 * kv_chunk,
-                    cache_copies=[],
-                    layout_copy_bytes=0)
+        count = max(
+            1, min(32, (16 * 1024**2) // (slots.shape[1] * q.shape[-1] * 8 * kv_chunk))
+        )
+        return dict(
+            path="torch_matrix",
+            row_chunk=count,
+            head_chunk=q.shape[1] // k.shape[1],
+            kv_head_chunk=kv_chunk,
+            gather_bytes=min(count, q.shape[0])
+            * slots.shape[1]
+            * q.shape[-1]
+            * 8
+            * kv_chunk,
+            cache_copies=[],
+            layout_copy_bytes=0,
+        )
     block, splits = _configuration(q, k, v, slots)
     grouped = _use_grouped(q, k, _wide_offsets(q, k, v, slots, block, splits))
     items = q.shape[0] * q.shape[1]
     chunk = min(items, _MAX_GRID_PROGRAMS // splits)
     if grouped:
         chunk = chunk // 3 * 3
-    path = 'torch_matrix' if _use_torch(q, k, slots) else ('direct' if splits == 1 else 'split')
-    return dict(path=('grouped_' + path) if grouped else path, block=block, splits=splits,
-                offset_bits=64 if _wide_offsets(q, k, v, slots, block, splits) else 32,
-                cache_copies=[],
-                layout_copy_bytes=0,
-                launches=triton.cdiv(items, chunk) * (1 if splits == 1 else 2),
-                scratch_bytes=0 if splits == 1 else chunk * splits * (q.shape[-1] + 2) * 4)
+    path = (
+        "torch_matrix"
+        if _use_torch(q, k, slots)
+        else ("direct" if splits == 1 else "split")
+    )
+    return dict(
+        path=("grouped_" + path) if grouped else path,
+        block=block,
+        splits=splits,
+        offset_bits=64 if _wide_offsets(q, k, v, slots, block, splits) else 32,
+        cache_copies=[],
+        layout_copy_bytes=0,
+        launches=triton.cdiv(items, chunk) * (1 if splits == 1 else 2),
+        scratch_bytes=0 if splits == 1 else chunk * splits * (q.shape[-1] + 2) * 4,
+    )
 
 
 def _use_grouped(q, k, wide_offsets):
-    return (_GROUP_MODEL and not wide_offsets and q.dtype == torch.bfloat16
-            and q.shape[1:] == (3, 256) and k.shape[1] == 1)
+    return (
+        _GROUP_MODEL
+        and not wide_offsets
+        and q.dtype == torch.bfloat16
+        and q.shape[1:] == (3, 256)
+        and k.shape[1] == 1
+    )
 
 
 def sparse_attention(q, k, v, slots, softmax_scale=None):
@@ -479,28 +630,73 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
     if splits == 1:
         partial = maxima = sums = output
     else:
-        partial = torch.empty((chunk_items, splits, dim), device=q.device, dtype=torch.float32)
-        maxima = torch.empty((chunk_items, splits), device=q.device, dtype=torch.float32)
+        partial = torch.empty(
+            (chunk_items, splits, dim), device=q.device, dtype=torch.float32
+        )
+        maxima = torch.empty(
+            (chunk_items, splits), device=q.device, dtype=torch.float32
+        )
         sums = torch.empty_like(maxima)
     for start in range(0, items, chunk_items):
         count = min(chunk_items, items - start)
         if grouped:
             _grouped_partials[(count // 3, splits)](
-                q, k, v, slots, partial, maxima, sums, output,
-                *q.stride(), k.stride(0), v.stride(0), *slots.stride(),
-                dim, width, splits, triton.cdiv(width, splits * block),
-                softmax_scale or dim**-0.5, block, start // 3, enable_fp_fusion=False,
+                q,
+                k,
+                v,
+                slots,
+                partial,
+                maxima,
+                sums,
+                output,
+                *q.stride(),
+                k.stride(0),
+                v.stride(0),
+                *slots.stride(),
+                dim,
+                width,
+                splits,
+                triton.cdiv(width, splits * block),
+                softmax_scale or dim**-0.5,
+                block,
+                start // 3,
+                enable_fp_fusion=False,
             )
         else:
             _sparse_partials[(count, splits)](
-                q, k, v, slots, partial, maxima, sums, output,
-                *q.stride(), *k.stride(), *v.stride(), *slots.stride(),
-                heads, heads // k.shape[1], dim, width, splits,
-                triton.cdiv(width, splits * block), softmax_scale or dim**-0.5,
-                block, start, wide_offsets, enable_fp_fusion=False,
+                q,
+                k,
+                v,
+                slots,
+                partial,
+                maxima,
+                sums,
+                output,
+                *q.stride(),
+                *k.stride(),
+                *v.stride(),
+                *slots.stride(),
+                heads,
+                heads // k.shape[1],
+                dim,
+                width,
+                splits,
+                triton.cdiv(width, splits * block),
+                softmax_scale or dim**-0.5,
+                block,
+                start,
+                wide_offsets,
+                enable_fp_fusion=False,
             )
         if splits != 1:
             _merge_partials[(count,)](
-                partial, maxima, sums, output, dim, splits, start, enable_fp_fusion=False,
+                partial,
+                maxima,
+                sums,
+                output,
+                dim,
+                splits,
+                start,
+                enable_fp_fusion=False,
             )
     return output

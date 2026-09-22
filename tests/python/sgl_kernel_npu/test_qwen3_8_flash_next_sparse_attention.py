@@ -2,13 +2,17 @@
 
 BF16 acceptance is atol=rtol=0.02, not an exact-rounding guarantee.
 """
+
 import importlib
+
 import pytest
 import torch
 import torch_npu
 
 impl = importlib.import_module("sgl_kernel_npu.qwen3_8_flash_next.sparse_attention")
-pytestmark = pytest.mark.skipif(not torch_npu.npu.is_available(), reason="NPU is required")
+pytestmark = pytest.mark.skipif(
+    not torch_npu.npu.is_available(), reason="NPU is required"
+)
 
 
 def oracle(q, k, v, slots, scale=None):
@@ -31,13 +35,23 @@ def oracle(q, k, v, slots, scale=None):
 
 def inputs(rows=4, heads=3, kv_heads=1, width=2051, gaps=False):
     g = torch.Generator().manual_seed(73 + rows + heads)
+
     def rand(shape):
         return torch.randn(shape, generator=g, dtype=torch.bfloat16).to("npu")
-    q = rand((rows * 2 + 1, heads, 512))[1::2, :, :256] if gaps else rand((rows, heads, 256))
+
+    q = (
+        rand((rows * 2 + 1, heads, 512))[1::2, :, :256]
+        if gaps
+        else rand((rows, heads, 256))
+    )
     k, v = rand((73, kv_heads, 256))[1:], rand((73, kv_heads, 256))[1:]
-    slots = torch.full((rows * 2 + 1, width + 7), -1, device="npu", dtype=torch.int32)[1::2, :width]
+    slots = torch.full((rows * 2 + 1, width + 7), -1, device="npu", dtype=torch.int32)[
+        1::2, :width
+    ]
     if rows:
-        slots[:, :33] = torch.randint(1, 72, (rows, 33), generator=g, dtype=torch.int32).to("npu")
+        slots[:, :33] = torch.randint(
+            1, 72, (rows, 33), generator=g, dtype=torch.int32
+        ).to("npu")
         slots[0] = -1
     k[0], v[0] = float("nan"), float("inf")
     return q, k, v, slots
@@ -94,21 +108,47 @@ def test_graph_updates(heads, kv_heads):
         assert pointers == [x.data_ptr() for x in args]
 
 
-@pytest.mark.parametrize("case", ["fp16", "fp32", "d128", "heads", "int64", "width0", "width33", "width2052", "kv_stride", "q_stride", "slot_stride", "cpu", "rows"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "fp16",
+        "fp32",
+        "d128",
+        "heads",
+        "int64",
+        "width0",
+        "width33",
+        "width2052",
+        "kv_stride",
+        "q_stride",
+        "slot_stride",
+        "cpu",
+        "rows",
+    ],
+)
 def test_reject_metadata(case):
     q, k, v, s = inputs()
     if case in ("fp16", "fp32"):
         dtype = torch.float16 if case == "fp16" else torch.float32
         q, k, v = (x.to(dtype) for x in (q, k, v))
-    elif case == "d128": q, k, v = (x[..., :128] for x in (q, k, v))
-    elif case == "heads": q = q[:, :2]
-    elif case == "int64": s = s.long()
-    elif case.startswith("width"): s = torch.full((4, int(case[5:])), -1, device="npu", dtype=s.dtype)
-    elif case == "kv_stride": k = k[:1].expand_as(k)
-    elif case == "q_stride": q = q[:1].expand_as(q)
-    elif case == "slot_stride": s = s[:1].expand_as(s)
-    elif case == "cpu": q = q.cpu()
-    elif case == "rows": s = s[:2]
+    elif case == "d128":
+        q, k, v = (x[..., :128] for x in (q, k, v))
+    elif case == "heads":
+        q = q[:, :2]
+    elif case == "int64":
+        s = s.long()
+    elif case.startswith("width"):
+        s = torch.full((4, int(case[5:])), -1, device="npu", dtype=s.dtype)
+    elif case == "kv_stride":
+        k = k[:1].expand_as(k)
+    elif case == "q_stride":
+        q = q[:1].expand_as(q)
+    elif case == "slot_stride":
+        s = s[:1].expand_as(s)
+    elif case == "cpu":
+        q = q.cpu()
+    elif case == "rows":
+        s = s[:2]
     assert not impl.can_run_sparse_attention(q, k, v, s)
     with pytest.raises(ValueError):
         impl.sparse_attention(q, k, v, s)

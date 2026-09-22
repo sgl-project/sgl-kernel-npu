@@ -5,7 +5,9 @@ Reduction order and backend math are not bitwise CUDA parity guarantees.
 Mix/combine use FP32 intermediates and row chunking.
 In particular, mix does not add the GPU small-row fused BF16 SiLU boundary.
 """
+
 from functools import lru_cache
+
 import torch
 import torch.nn.functional as F
 import triton
@@ -16,7 +18,7 @@ import triton.language as tl
 def _vector_cores(device):
     # Cache immutable device metadata only, never tensor data or converted weights.
     properties = triton.runtime.driver.active.utils.get_device_properties(device)
-    return max(1, int(properties['num_vectorcore']))
+    return max(1, int(properties["num_vectorcore"]))
 
 
 def _grid(tensor, tasks):
@@ -46,7 +48,9 @@ def _silu(X, Y, N: tl.constexpr, BLOCK: tl.constexpr):
 @triton.jit
 def _mix(X, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
     head = tl.arange(0, 4)
-    for task in range(tl.program_id(0), ROWS * tl.cdiv(2560, BLOCK), tl.num_programs(0)):
+    for task in range(
+        tl.program_id(0), ROWS * tl.cdiv(2560, BLOCK), tl.num_programs(0)
+    ):
         row = (task // tl.cdiv(2560, BLOCK)).to(tl.int64)
         col = (task % tl.cdiv(2560, BLOCK)) * BLOCK + tl.arange(0, BLOCK)
         offset = row * 10240 + head[:, None] * 2560 + col[None, :]
@@ -59,7 +63,9 @@ def _mix(X, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
 @triton.jit
 def _combine(B, R, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
     head = tl.arange(0, 4)
-    for task in range(tl.program_id(0), ROWS * tl.cdiv(2560, BLOCK), tl.num_programs(0)):
+    for task in range(
+        tl.program_id(0), ROWS * tl.cdiv(2560, BLOCK), tl.num_programs(0)
+    ):
         row = (task // tl.cdiv(2560, BLOCK)).to(tl.int64)
         col = (task % tl.cdiv(2560, BLOCK)) * BLOCK + tl.arange(0, BLOCK)
         logits = tl.load(G + row * 4 + head)
@@ -73,8 +79,9 @@ def _combine(B, R, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
 
 def grouped_norm(x, weight, group_size, eps):
     y = torch.empty_like(x)
-    _norm[_grid(x, x.shape[0] * 4)](x, weight, y, x.shape[0] * 4, eps,
-                                     enable_fp_fusion=False)
+    _norm[_grid(x, x.shape[0] * 4)](
+        x, weight, y, x.shape[0] * 4, eps, enable_fp_fusion=False
+    )
     return y
 
 
@@ -91,10 +98,12 @@ def _mix_project(x, down32, up32, out):
     hidden = F.linear(x.float(), down32)
     activated = torch.empty_like(hidden)
     _silu[_grid(x, triton.cdiv(hidden.numel(), 256))](
-        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False)
+        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False
+    )
     gates = F.linear(activated, up32)
-    _mix[_grid(x, x.shape[0] * 10)](x, gates, out, x.shape[0], 256,
-                                  enable_fp_fusion=False)
+    _mix[_grid(x, x.shape[0] * 10)](
+        x, gates, out, x.shape[0], 256, enable_fp_fusion=False
+    )
 
 
 def mix(x, down, up, hc, hs):
@@ -103,11 +112,13 @@ def mix(x, down, up, hc, hs):
     hidden = F.linear(x.float(), down.float())
     activated = torch.empty_like(hidden)
     _silu[_grid(x, triton.cdiv(hidden.numel(), 256))](
-        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False)
+        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False
+    )
     gates = F.linear(activated, up.float())
     y = x.new_empty((x.shape[0], 2560))
-    _mix[_grid(x, x.shape[0] * 10)](x, gates, y, x.shape[0], 256,
-                                     enable_fp_fusion=False)
+    _mix[_grid(x, x.shape[0] * 10)](
+        x, gates, y, x.shape[0], 256, enable_fp_fusion=False
+    )
     return y
 
 
@@ -124,14 +135,16 @@ def mix_chunked(x, down, up, hc, hs):
 def _combine_project(block, residual, normed, weight32, out):
     gates = F.linear(normed.float(), weight32)
     _combine[_grid(residual, residual.shape[0] * 5)](
-        block, residual, gates, out, residual.shape[0], 512, enable_fp_fusion=False)
+        block, residual, gates, out, residual.shape[0], 512, enable_fp_fusion=False
+    )
 
 
 def combine(block, residual, normed, weight, hc, hs):
     gates = F.linear(normed.float(), weight.float())
     y = torch.empty_like(residual)
     _combine[_grid(residual, residual.shape[0] * 5)](
-        block, residual, gates, y, residual.shape[0], 512, enable_fp_fusion=False)
+        block, residual, gates, y, residual.shape[0], 512, enable_fp_fusion=False
+    )
     return y
 
 
@@ -140,6 +153,11 @@ def combine_chunked(block, residual, normed, weight, hc, hs):
     weight32 = weight.float()
     for start in range(0, residual.shape[0], ROW_BLOCK):
         stop = min(start + ROW_BLOCK, residual.shape[0])
-        _combine_project(block[start:stop], residual[start:stop], normed[start:stop],
-                         weight32, out[start:stop])
+        _combine_project(
+            block[start:stop],
+            residual[start:stop],
+            normed[start:stop],
+            weight32,
+            out[start:stop],
+        )
     return out

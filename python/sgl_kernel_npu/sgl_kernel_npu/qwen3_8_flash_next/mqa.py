@@ -109,6 +109,7 @@ capture or model/TopK equivalence. No generic fallback, alternate dtype/layout,
 external padded H8, live-page clamp, NaN/inf repair or reserved-memory guarantee
 is provided. See HANDOFF.md for finite validation and integration acceptance.
 """
+
 import math
 from functools import lru_cache
 
@@ -131,9 +132,21 @@ def _compute_cores(device_index):
 
 
 @triton.jit
-def _score(Q, K, First, Last, Out, R: tl.constexpr, W: tl.constexpr,
-           L: tl.constexpr, PAGED: tl.constexpr, BQ: tl.constexpr,
-           BN: tl.constexpr, HQ: tl.constexpr, PROGRAMS: tl.constexpr):
+def _score(
+    Q,
+    K,
+    First,
+    Last,
+    Out,
+    R: tl.constexpr,
+    W: tl.constexpr,
+    L: tl.constexpr,
+    PAGED: tl.constexpr,
+    BQ: tl.constexpr,
+    BN: tl.constexpr,
+    HQ: tl.constexpr,
+    PROGRAMS: tl.constexpr,
+):
     for tile in range(tl.program_id(0), tl.cdiv(R, BQ) * tl.cdiv(W, BN), PROGRAMS):
         row_base = (tile // tl.cdiv(W, BN)) * BQ
         col_tile = tile % tl.cdiv(W, BN)
@@ -146,13 +159,24 @@ def _score(Q, K, First, Last, Out, R: tl.constexpr, W: tl.constexpr,
             valid = (cols < W) & (cols < length)
             result = tl.full((BN,), -float("inf"), tl.float32)
             if col_tile * BN < length:
-                pages = tl.load(First + row_base * L + cols // 16,
-                                valid, other=0).to(tl.int64)
-                k = tl.load(K + (pages[:, None] * 16 + cols[:, None] % 16) * 128
-                            + dims[None, :], valid[:, None], other=0)
-                q = tl.load(Q + row_base.to(tl.int64) * 512
-                            + heads[:, None] * 128 + dims[None, :],
-                            heads[:, None] < 4, other=0)
+                pages = tl.load(First + row_base * L + cols // 16, valid, other=0).to(
+                    tl.int64
+                )
+                k = tl.load(
+                    K
+                    + (pages[:, None] * 16 + cols[:, None] % 16) * 128
+                    + dims[None, :],
+                    valid[:, None],
+                    other=0,
+                )
+                q = tl.load(
+                    Q
+                    + row_base.to(tl.int64) * 512
+                    + heads[:, None] * 128
+                    + dims[None, :],
+                    heads[:, None] < 4,
+                    other=0,
+                )
                 scores = tl.dot(q, tl.trans(k))
                 result = tl.sum(tl.maximum(scores, 0), axis=0) / math.sqrt(128)
                 result = tl.where(valid, result, -float("inf"))
@@ -160,23 +184,34 @@ def _score(Q, K, First, Last, Out, R: tl.constexpr, W: tl.constexpr,
         else:
             starts = tl.load(First + rows, rows < R, other=W)
             ends = tl.load(Last + rows, rows < R, other=0)
-            valid = ((rows[:, None] < R) & (cols[None, :] < W)
-                     & (cols[None, :] >= starts[:, None])
-                     & (cols[None, :] < ends[:, None]))
+            valid = (
+                (rows[:, None] < R)
+                & (cols[None, :] < W)
+                & (cols[None, :] >= starts[:, None])
+                & (cols[None, :] < ends[:, None])
+            )
             # Compute packed tiles unconditionally, then apply row visibility.
             # The conditional version stalled during long-prefix graph replay
             # on the recorded toolchain; its exact failure cause is not established.
-            q = tl.load(Q + (row_base * 4 + heads[:, None]).to(tl.int64) * 128
-                        + dims[None, :], row_base * 4 + heads[:, None] < R * 4,
-                        other=0)
-            k = tl.load(K + cols[:, None].to(tl.int64) * 128 + dims[None, :],
-                        cols[:, None] < W, other=0)
+            q = tl.load(
+                Q + (row_base * 4 + heads[:, None]).to(tl.int64) * 128 + dims[None, :],
+                row_base * 4 + heads[:, None] < R * 4,
+                other=0,
+            )
+            k = tl.load(
+                K + cols[:, None].to(tl.int64) * 128 + dims[None, :],
+                cols[:, None] < W,
+                other=0,
+            )
             scores = tl.dot(q, tl.trans(k))
             scores = tl.reshape(tl.maximum(scores, 0), (BQ, 4, BN))
             result = tl.sum(scores, axis=1) / math.sqrt(128)
             result = tl.where(valid, result, -float("inf"))
-            tl.store(Out + rows[:, None].to(tl.int64) * W + cols[None, :], result,
-                     (rows[:, None] < R) & (cols[None, :] < W))
+            tl.store(
+                Out + rows[:, None].to(tl.int64) * W + cols[None, :],
+                result,
+                (rows[:, None] < R) & (cols[None, :] < W),
+            )
 
 
 def _validate(q, k, first, last, paged, width=None):
@@ -218,11 +253,25 @@ def packed(q, k, starts, ends):
     # This changes tile geometry only; packed ranges and output stay identical.
     bq_limit, bn = (8, 256) if width >= 1024 else (16, 128)
     bq = min(bq_limit, max(4, triton.next_power_of_2(rows)))
-    programs = min(_compute_cores(q.device.index),
-                   triton.cdiv(rows, bq) * triton.cdiv(width, bn))
+    programs = min(
+        _compute_cores(q.device.index), triton.cdiv(rows, bq) * triton.cdiv(width, bn)
+    )
     _score[(programs,)](
-        q, k, starts, ends, out, rows, width, 0, False, bq, bn, bq * 4, programs,
-        enable_fp_fusion=False)
+        q,
+        k,
+        starts,
+        ends,
+        out,
+        rows,
+        width,
+        0,
+        False,
+        bq,
+        bn,
+        bq * 4,
+        programs,
+        enable_fp_fusion=False,
+    )
     return out
 
 
@@ -243,6 +292,19 @@ def paged(q, cache, table, lengths, width):
     bn = 256
     programs = min(_compute_cores(q.device.index), rows * triton.cdiv(width, bn))
     _score[(programs,)](
-        q, cache, table, lengths, out, rows, width, table.shape[1], True,
-        1, bn, 16, programs, enable_fp_fusion=False)
+        q,
+        cache,
+        table,
+        lengths,
+        out,
+        rows,
+        width,
+        table.shape[1],
+        True,
+        1,
+        bn,
+        16,
+        programs,
+        enable_fp_fusion=False,
+    )
     return out

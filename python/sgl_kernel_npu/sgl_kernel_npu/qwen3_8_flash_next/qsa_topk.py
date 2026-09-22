@@ -3,7 +3,9 @@
 Production artifact: this file only; no legacy kernel/experiments imports.
 The finite-value premise is model-specific, not a restriction of GPU Top-K.
 """
+
 from functools import lru_cache
+
 import torch
 import triton
 import triton.language as tl
@@ -41,29 +43,53 @@ def select_implementation(rows, columns, topk):
 
 
 @triton.jit
-def _short(Lengths, Output, ROWS: tl.constexpr,
-           K: tl.constexpr, BR: tl.constexpr, CORES: tl.constexpr):
+def _short(
+    Lengths,
+    Output,
+    ROWS: tl.constexpr,
+    K: tl.constexpr,
+    BR: tl.constexpr,
+    CORES: tl.constexpr,
+):
     for block in range(tl.program_id(0), tl.cdiv(ROWS, BR), CORES):
         rows = block * BR + tl.arange(0, BR)
         length = tl.load(Lengths + rows.to(tl.int64), rows < ROWS, other=0)
         cols = tl.arange(0, K)
         result = tl.where(cols[None, :] < length[:, None], cols[None, :], -1)
-        tl.store(Output + rows.to(tl.int64)[:, None]*K + cols[None, :], result, rows[:, None] < ROWS)
+        tl.store(
+            Output + rows.to(tl.int64)[:, None] * K + cols[None, :],
+            result,
+            rows[:, None] < ROWS,
+        )
 
 
 @lru_cache(maxsize=None)
 def _vector_cores(device):
-    return triton.runtime.driver.active.utils.get_device_properties(device)["num_vectorcore"]
+    return triton.runtime.driver.active.utils.get_device_properties(device)[
+        "num_vectorcore"
+    ]
+
 
 _SORT_BLOCK = 4096
 _MAX_PROGRAMS = 65535
 
 
 @triton.jit
-def _reduce_candidates(Scores, Lengths, Starts, Values, Threshold,
-                       stride, WIDTH: tl.constexpr, OUT_WIDTH: tl.constexpr,
-                       K: tl.constexpr, HAS_STARTS: tl.constexpr,
-                       FIRST: tl.constexpr, FINAL: tl.constexpr, BLOCK: tl.constexpr):
+def _reduce_candidates(
+    Scores,
+    Lengths,
+    Starts,
+    Values,
+    Threshold,
+    stride,
+    WIDTH: tl.constexpr,
+    OUT_WIDTH: tl.constexpr,
+    K: tl.constexpr,
+    HAS_STARTS: tl.constexpr,
+    FIRST: tl.constexpr,
+    FINAL: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
     row = tl.program_id(0).to(tl.int64)
     tile = tl.program_id(1)
     length = tl.load(Lengths + row)
@@ -86,10 +112,18 @@ def _reduce_candidates(Scores, Lengths, Starts, Values, Threshold,
 
 
 @triton.jit
-def _counts(Scores, Lengths, Starts, Threshold, Counts,
-            stride: tl.constexpr,
-            K: tl.constexpr, HAS_STARTS: tl.constexpr, TILES: tl.constexpr,
-            BLOCK: tl.constexpr):
+def _counts(
+    Scores,
+    Lengths,
+    Starts,
+    Threshold,
+    Counts,
+    stride: tl.constexpr,
+    K: tl.constexpr,
+    HAS_STARTS: tl.constexpr,
+    TILES: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
     row = tl.program_id(0).to(tl.int64)
     tile = tl.program_id(1)
     length = tl.load(Lengths + row)
@@ -98,19 +132,31 @@ def _counts(Scores, Lengths, Starts, Threshold, Counts,
         if HAS_STARTS:
             start = tl.load(Starts + row)
         cols = tile * BLOCK + tl.arange(0, BLOCK)
-        x = tl.load(Scores + row * stride + start + cols, cols < length, other=-float("inf"))
+        x = tl.load(
+            Scores + row * stride + start + cols, cols < length, other=-float("inf")
+        )
         cutoff = tl.load(Threshold + row)
         greater = tl.sum(((cols < length) & (x > cutoff)).to(tl.int32), 0)
         equal = tl.sum(((cols < length) & (x == cutoff)).to(tl.int32), 0)
-        tl.store(Counts + row * (2*TILES) + tile, greater)
-        tl.store(Counts + row * (2*TILES) + TILES + tile, equal)
+        tl.store(Counts + row * (2 * TILES) + tile, greater)
+        tl.store(Counts + row * (2 * TILES) + TILES + tile, equal)
 
 
 @triton.jit
-def _emit_tiles(Scores, Lengths, Starts, Threshold, Counts, Output,
-                stride: tl.constexpr,
-                K: tl.constexpr, HAS_STARTS: tl.constexpr, TILES: tl.constexpr,
-                BLOCK: tl.constexpr, CT: tl.constexpr):
+def _emit_tiles(
+    Scores,
+    Lengths,
+    Starts,
+    Threshold,
+    Counts,
+    Output,
+    stride: tl.constexpr,
+    K: tl.constexpr,
+    HAS_STARTS: tl.constexpr,
+    TILES: tl.constexpr,
+    BLOCK: tl.constexpr,
+    CT: tl.constexpr,
+):
     row = tl.program_id(0).to(tl.int64)
     tile = tl.program_id(1)
     length = tl.load(Lengths + row)
@@ -123,13 +169,15 @@ def _emit_tiles(Scores, Lengths, Starts, Threshold, Counts, Output,
         if HAS_STARTS:
             start = tl.load(Starts + row)
         t = tl.arange(0, CT)
-        gs = tl.load(Counts + row*(2*TILES) + t, t<TILES, other=0)
-        es = tl.load(Counts + row*(2*TILES) + TILES + t, t<TILES, other=0)
+        gs = tl.load(Counts + row * (2 * TILES) + t, t < TILES, other=0)
+        es = tl.load(Counts + row * (2 * TILES) + TILES + t, t < TILES, other=0)
         total = tl.sum(gs, 0)
-        gb = tl.sum(tl.where(t<tile, gs, 0), 0)
-        eb = tl.sum(tl.where(t<tile, es, 0), 0)
+        gb = tl.sum(tl.where(t < tile, gs, 0), 0)
+        eb = tl.sum(tl.where(t < tile, es, 0), 0)
         cols = tile * BLOCK + tl.arange(0, BLOCK)
-        x = tl.load(Scores + row*stride + start + cols, cols<length, other=-float("inf"))
+        x = tl.load(
+            Scores + row * stride + start + cols, cols < length, other=-float("inf")
+        )
         cutoff = tl.load(Threshold + row)
         # Exact index sorting produces contiguous writes for each category.
         greater = (cols < length) & (x > cutoff)
@@ -139,35 +187,55 @@ def _emit_tiles(Scores, Lengths, Starts, Threshold, Counts, Output,
         ei = ext.sort(tl.where(equal, cols.to(tl.float32), float("inf")))
         gc = tl.sum(greater.to(tl.int32), 0)
         ec = tl.sum(equal.to(tl.int32), 0)
-        tl.store(Output + row*K + gb + local, gi.to(tl.int32), local < gc)
-        tl.store(Output + row*K + total + eb + local, ei.to(tl.int32),
-                 (local < ec) & (total + eb + local < K))
+        tl.store(Output + row * K + gb + local, gi.to(tl.int32), local < gc)
+        tl.store(
+            Output + row * K + total + eb + local,
+            ei.to(tl.int32),
+            (local < ec) & (total + eb + local < K),
+        )
+
 
 @triton.jit
-def _single_tile(Scores, Lengths, Starts, Output, stride,
-                K: tl.constexpr, HAS_STARTS: tl.constexpr, BLOCK: tl.constexpr,
-                ROWS: tl.constexpr, CORES: tl.constexpr):
+def _single_tile(
+    Scores,
+    Lengths,
+    Starts,
+    Output,
+    stride,
+    K: tl.constexpr,
+    HAS_STARTS: tl.constexpr,
+    BLOCK: tl.constexpr,
+    ROWS: tl.constexpr,
+    CORES: tl.constexpr,
+):
     for row_id in range(tl.program_id(0), ROWS, CORES):
         row = row_id.to(tl.int64)
         length = tl.load(Lengths + row)
         out_cols = tl.arange(0, K)
         if length <= K:
-            tl.store(Output + row * K + out_cols, tl.where(out_cols < length, out_cols, -1))
+            tl.store(
+                Output + row * K + out_cols, tl.where(out_cols < length, out_cols, -1)
+            )
         else:
             start = 0
             if HAS_STARTS:
                 start = tl.load(Starts + row)
             cols = tl.arange(0, BLOCK)
-            x = tl.load(Scores + row * stride + start + cols, cols < length, other=-float("inf"))
+            x = tl.load(
+                Scores + row * stride + start + cols, cols < length, other=-float("inf")
+            )
             ordered = ext.sort(x, descending=True)
             cutoff = ext.get_element(ordered, (K - 1,))
             # FP32 index keys are exact: 0 <= key <= 2*BLOCK <= 8192.
-            keys = tl.where((cols < length) & (x > cutoff), cols,
-                            tl.where((cols < length) & (x == cutoff), BLOCK + cols, 2*BLOCK))
+            keys = tl.where(
+                (cols < length) & (x > cutoff),
+                cols,
+                tl.where((cols < length) & (x == cutoff), BLOCK + cols, 2 * BLOCK),
+            )
             ordered_ids = ext.sort(keys.to(tl.float32))
             chosen = ext.extract_slice(ordered_ids, (0,), (K,), (1,)).to(tl.int32)
             chosen = tl.where(chosen >= BLOCK, chosen - BLOCK, chosen)
-            tl.store(Output + row*K + out_cols, chosen)
+            tl.store(Output + row * K + out_cols, chosen)
 
 
 def tiled_topk(score, lengths, topk, row_starts=None):
@@ -176,8 +244,7 @@ def tiled_topk(score, lengths, topk, row_starts=None):
     starts = lengths if row_starts is None else row_starts
     if columns <= _SORT_BLOCK:
         block = max(topk, triton.next_power_of_2(columns))
-        layout = (score.stride(0), topk,
-                  row_starts is not None, block)
+        layout = (score.stride(0), topk, row_starts is not None, block)
         # One schedule for every R: one program per row up to the vector-core
         # count, then the same kernel loops over additional rows.
         cores = min(rows, _vector_cores(score.device.index))
@@ -187,10 +254,10 @@ def tiled_topk(score, lengths, topk, row_starts=None):
     tiles = triton.cdiv(columns, _SORT_BLOCK)
     chunk_rows = max(1, _MAX_PROGRAMS // tiles)
     for base in range(0, rows, chunk_rows):
-        end = min(rows, base+chunk_rows)
+        end = min(rows, base + chunk_rows)
         x, lens, out = score[base:end], lengths[base:end], output[base:end]
         starts = lens if row_starts is None else row_starts[base:end]
-        threshold = torch.empty(end-base, dtype=torch.float32, device=score.device)
+        threshold = torch.empty(end - base, dtype=torch.float32, device=score.device)
         source, width, first = x, columns, True
         while True:
             block = min(_SORT_BLOCK, max(topk, triton.next_power_of_2(width)))
@@ -198,29 +265,60 @@ def tiled_topk(score, lengths, topk, row_starts=None):
             final = sort_tiles <= 1
             # Keeping K from each tile is exact: every discarded value already
             # has at least K values no smaller than it in its own tile.
-            values = threshold if final else torch.empty(
-                (end-base, sort_tiles*topk), dtype=torch.float32, device=x.device)
-            _reduce_candidates[(end-base, sort_tiles)](
-                source, lens, starts, values, threshold, source.stride(0),
-                width, sort_tiles*topk, topk,
-                row_starts is not None, first, final, block)
+            values = (
+                threshold
+                if final
+                else torch.empty(
+                    (end - base, sort_tiles * topk),
+                    dtype=torch.float32,
+                    device=x.device,
+                )
+            )
+            _reduce_candidates[(end - base, sort_tiles)](
+                source,
+                lens,
+                starts,
+                values,
+                threshold,
+                source.stride(0),
+                width,
+                sort_tiles * topk,
+                topk,
+                row_starts is not None,
+                first,
+                final,
+                block,
+            )
             if final:
                 break
-            source, width, first = values, sort_tiles*topk, False
-        counts = torch.empty((end-base, 2*tiles), dtype=torch.int32, device=x.device)
+            source, width, first = values, sort_tiles * topk, False
+        counts = torch.empty(
+            (end - base, 2 * tiles), dtype=torch.int32, device=x.device
+        )
         args = (x, lens, starts, threshold, counts)
-        layout = (x.stride(0), topk,
-                  row_starts is not None, tiles, _SORT_BLOCK)
-        _counts[(end-base, tiles)](*args, *layout)
-        _emit_tiles[(end-base, tiles)](*args, out, *layout, triton.next_power_of_2(tiles))
+        layout = (x.stride(0), topk, row_starts is not None, tiles, _SORT_BLOCK)
+        _counts[(end - base, tiles)](*args, *layout)
+        _emit_tiles[(end - base, tiles)](
+            *args, out, *layout, triton.next_power_of_2(tiles)
+        )
     return output
 
 
 @triton.jit
-def _pack(X, Lengths, Starts, Packed, stride,
-          M: tl.constexpr, K: tl.constexpr, HAS_STARTS: tl.constexpr,
-          TILES: tl.constexpr, TASKS: tl.constexpr, CORES: tl.constexpr,
-          BLOCK: tl.constexpr):
+def _pack(
+    X,
+    Lengths,
+    Starts,
+    Packed,
+    stride,
+    M: tl.constexpr,
+    K: tl.constexpr,
+    HAS_STARTS: tl.constexpr,
+    TILES: tl.constexpr,
+    TASKS: tl.constexpr,
+    CORES: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
     for task in range(tl.program_id(0), TASKS, CORES):
         row = (task // TILES).to(tl.int64)
         cols = (task % TILES) * BLOCK + tl.arange(0, BLOCK)
@@ -229,14 +327,18 @@ def _pack(X, Lengths, Starts, Packed, stride,
         if HAS_STARTS:
             start = tl.load(Starts + row)
         # Only long-row valid scores are read. Invalid/short rows pack as -inf.
-        values = tl.load(X + row * stride + start + cols,
-                         (cols < length) & (length > K), other=-float("inf"))
+        values = tl.load(
+            X + row * stride + start + cols,
+            (cols < length) & (length > K),
+            other=-float("inf"),
+        )
         tl.store(Packed + row * M + cols, values, cols < M)
 
 
 @triton.jit
-def _finish(Lengths, Indices, Output, K: tl.constexpr,
-            ROWS: tl.constexpr, CORES: tl.constexpr):
+def _finish(
+    Lengths, Indices, Output, K: tl.constexpr, ROWS: tl.constexpr, CORES: tl.constexpr
+):
     for rid in range(tl.program_id(0), ROWS, CORES):
         row = rid.to(tl.int64)
         length = tl.load(Lengths + row)
@@ -267,16 +369,29 @@ def hybrid_topk(score, lengths, topk, row_starts=None):
         end = min(rows, begin + chunk)
         x, lens, out = score[begin:end], lengths[begin:end], output[begin:end]
         starts = lens if row_starts is None else row_starts[begin:end]
-        packed = torch.empty((end-begin, packed_width), dtype=score.dtype, device=score.device)
+        packed = torch.empty(
+            (end - begin, packed_width), dtype=score.dtype, device=score.device
+        )
         tiles = triton.cdiv(packed_width, 4096)
-        tasks = (end-begin) * tiles
+        tasks = (end - begin) * tiles
         grid = min(cores, tasks)
-        _pack[(grid,)](x, lens, starts, packed, x.stride(0),
-                      packed_width, topk, row_starts is not None,
-                      tiles, tasks, grid, 4096)
+        _pack[(grid,)](
+            x,
+            lens,
+            starts,
+            packed,
+            x.stride(0),
+            packed_width,
+            topk,
+            row_starts is not None,
+            tiles,
+            tasks,
+            grid,
+            4096,
+        )
         values, indices = torch.topk(packed, topk, dim=1, sorted=True)
-        grid = min(cores, end-begin)
-        _finish[(grid,)](lens, indices, out, topk, end-begin, grid)
+        grid = min(cores, end - begin)
+        _finish[(grid,)](lens, indices, out, topk, end - begin, grid)
     return output
 
 
@@ -407,20 +522,33 @@ def fast_topk(score, lengths, topk, row_starts=None):
     """
     if type(topk) is not int or topk not in (512, 2048):
         raise ValueError("QSA NPU top-k supports integer K=512 or 2048")
-    if (not isinstance(score, torch.Tensor) or score.layout != torch.strided
-            or score.device.type != "npu" or score.dtype != torch.float32
-            or score.ndim != 2 or score.stride(1) != 1 or score.stride(0) < 0):
+    if (
+        not isinstance(score, torch.Tensor)
+        or score.layout != torch.strided
+        or score.device.type != "npu"
+        or score.dtype != torch.float32
+        or score.ndim != 2
+        or score.stride(1) != 1
+        or score.stride(0) < 0
+    ):
         raise ValueError("score must be NPU FP32 [R,M], contiguous in columns")
     rows, columns = score.shape
     implementation = select_implementation(rows, columns, topk)
     bounds = (lengths,) if row_starts is None else (lengths, row_starts)
     for tensor in bounds:
-        if (not isinstance(tensor, torch.Tensor) or tensor.layout != torch.strided
-                or tensor.shape != (rows,) or tensor.dtype != torch.int32
-                or tensor.device != score.device or not tensor.is_contiguous()):
-            raise ValueError("row bounds must be contiguous int32 [R] on the score device")
+        if (
+            not isinstance(tensor, torch.Tensor)
+            or tensor.layout != torch.strided
+            or tensor.shape != (rows,)
+            or tensor.dtype != torch.int32
+            or tensor.device != score.device
+            or not tensor.is_contiguous()
+        ):
+            raise ValueError(
+                "row bounds must be contiguous int32 [R] on the score device"
+            )
     limit = 2**63 - 1
-    end = score.storage_offset() + max(rows-1, 0)*score.stride(0) + columns
+    end = score.storage_offset() + max(rows - 1, 0) * score.stride(0) + columns
     if end * score.element_size() > limit or rows * topk * 4 > limit:
         raise ValueError("score/output byte offsets must fit signed int64")
     if implementation == "shortcut":
