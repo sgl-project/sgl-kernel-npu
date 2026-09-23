@@ -314,13 +314,17 @@ def _reference_compressor(
             # re-read raw rows between the accepted position and this round's
             # compress boundary. Keep the extra tail rows the ring can hold
             # beyond one window (mirrors sglang mtp_pad): pad = ring-window+2.
-            if cache_mode == 1:
+            if cache_mode == 1 or coff == 2:
+                # EXPLICIT c4 persists every position (mirrors arch35 SaveState):
+                # a later call resuming mid-sequence reads its first chunk's
+                # previous window from the ring, so a tail-only policy leaves
+                # those rows stale.
                 save_flag = True
             else:
-                window = (2 if coff == 2 else 1) * cmp_ratio
+                window = cmp_ratio
                 ring = kv_state.shape[1]
                 pad = ring - window + 2 if ring > window else 0
-                keep = compress_seq_id - (coff - 1) * cmp_ratio
+                keep = compress_seq_id
                 if pad:
                     end_abs = batch_start_pos + batch_seq_used
                     keep = min(keep, end_abs - pad if end_abs > pad else 0)
