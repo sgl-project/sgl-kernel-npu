@@ -43,6 +43,55 @@ find output python/deep_ep -name 'libcust_opapi.so' -exec \
 Use a fresh process after installing the wheel. A stale DeepEP/custom OPP
 installation still produces the missing-`aclnnDispatchFFNCombine` exception.
 
+The runtime loads `libcust_opapi.so` relative to the actual `deep_ep_cpp`
+extension before consulting the process search path. Changing
+`LD_LIBRARY_PATH` inside Python does not update glibc's startup search path;
+an older external custom library must not override the library in the wheel.
+Missing-symbol errors report the selected library path and any load failure.
+The A5 build checks both exports after installing the custom OPP and stops
+before creating the wheel if either symbol is absent. Kernel build failures
+also stop the build script.
+
+If the same error persists, run this read-only check with the Python
+interpreter and environment used to launch SGLang, and save the output:
+
+```bash
+python - <<'PY'
+import ctypes
+import importlib.metadata
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+import torch
+import torch_npu
+
+print("Python:", sys.executable)
+print("DeepEP version:", importlib.metadata.version("deep_ep"))
+spec = importlib.util.find_spec("deep_ep")
+print("DeepEP package:", spec.origin)
+package = Path(spec.origin).resolve().parent
+library = package / "vendors/hwcomputing/op_api/lib/libcust_opapi.so"
+print("Bundled library:", library, "exists:", library.is_file())
+if library.is_file():
+    try:
+        handle = ctypes.CDLL(str(library), mode=os.RTLD_NOW | os.RTLD_LOCAL)
+        for name in ("aclnnDispatchFFNCombine", "aclnnDispatchFFNCombineGetWorkspaceSize"):
+            print(name, "exported:", hasattr(handle, name))
+    except OSError as error:
+        print("Load failed:", error)
+PY
+```
+
+An absent export means the installed custom OPP does not contain this port;
+a load error identifies a missing dependency or incompatible library.
+If both exports are present, compare the package path with the traceback
+and the library path in the updated runtime error, and restart all workers
+after installing the matching DeepEP wheel. The host-only loader regression
+can be run on Linux with `python3 tests/python/deepep/test_op_api_loader.py -v`;
+it does not compile or validate the NPU kernel.
+
 ## Distributed INT8 kernel regression
 
 The existing test compares against unfused INT8 dispatch, grouped matmul,
