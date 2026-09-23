@@ -794,6 +794,133 @@ class TestCompressor(unittest.TestCase):
         )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
+    def _cpu_phase(self, p, starts, seq_len, kv_state, score_state, coff, ratio,
+                   ring_size, swa_page_size=128):
+        table = _build_production_swa_state_loc_table(
+            starts, [seq_len], swa_page_size, ring_size, coff, ratio
+        )
+        out, mask = _reference_compressor(
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            kv_state,
+            score_state,
+            torch.zeros_like(kv_state, dtype=torch.bool),
+            torch.zeros_like(score_state, dtype=torch.bool),
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
+            block_table=table,
+            cu_seqlens=[0, seq_len],
+            seqused=[seq_len],
+            start_pos=starts,
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+        )
+        return out[torch.from_numpy(np.asarray(mask)).bool()]
+
+    def _c4_two_phase(self, n, k, ring_size):
+        """(miss_rows, hit_rows) for the overlapping compressed positions.
+
+        Builds a full [0, n) prefill and a chunk starting at k, on the same
+        weights and the same position-indexed RoPE, carrying the state written
+        by the first phase into the second. x/rope of the chunk are sliced out
+        of the full-input tensors so the overlapping positions are bit-identical
+        inputs; only the history source differs.
+        """
+        coff, ratio, head_dim, hidden = 2, 4, 512, 1024
+        gen = torch.Generator().manual_seed(20260923)
+        sin_all = torch.randn(n // ratio + 1, 64, generator=gen) * 0.01
+        cos_all = torch.ones(n // ratio + 1, 64) + torch.randn(
+            n // ratio + 1, 64, generator=gen
+        ) * 0.01
+
+        p_a = _make_inputs(
+            [0], n, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=ring_size, total_seq=n,
+        )
+        p_b = _make_inputs(
+            [k], n - k, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=ring_size, total_seq=n,
+        )
+        p_a["rope_sin"], p_a["rope_cos"] = sin_all, cos_all
+        p_b["rope_sin"] = sin_all[k // ratio :]
+        p_b["rope_cos"] = cos_all[k // ratio :]
+        p_b["x"] = p_a["x"][k:].clone()
+        for name in ("wkv", "wgate", "ape", "norm_weight"):
+            p_b[name] = p_a[name]
+
+        kv_state, score_state = p_a["kv_state"], p_a["score_state"]
+        miss = self._cpu_phase(p_a, [0], n, kv_state, score_state, coff, ratio, ring_size)
+        hit = self._cpu_phase(p_b, [k], n - k, kv_state, score_state, coff, ratio, ring_size)
+        mark = (n - k) // ratio
+        return miss[-mark:], hit[:mark]
+
+    def test_hit_prefill_matches_miss_reference_c4(self):
+        # Cache-hit semantic check, CPU only. A call that starts mid-sequence
+        # must take its first chunk's previous window from the state ring, but
+        # cache_mode=2 persists only rows with start_seq_idx >= boundary -
+        # (coff-1)*cmpRatio = boundary - 4, i.e. the tail 4 rows, while the
+        # window is 8. The hit chunk at k=192 therefore reads rows the [0,256)
+        # prefill never wrote and differs from the prefill's own rows for the
+        # same positions.
+        miss, hit = self._c4_two_phase(n=256, k=192, ring_size=8)
+        diff = (miss - hit).abs().max().item()
+        self.assertLess(diff, 0.05, f"miss vs hit overlap maxdiff={diff:.4f}")
+
+    def test_chunked_continuation_matches_full_prefill_reference_c4(self):
+        # Control for the test above: when the previous chunk was the tail of
+        # the earlier call its rows are inside `keep`, so the continuation must
+        # reproduce the full prefill exactly. Confirms the harness itself is
+        # sound and isolates the failure to mid-sequence resumption.
+        coff, ratio, head_dim, hidden = 2, 4, 512, 1024
+        n, k = 256, 128
+        gen = torch.Generator().manual_seed(20260923)
+        sin_all = torch.randn(n // ratio + 1, 64, generator=gen) * 0.01
+        cos_all = torch.ones(n // ratio + 1, 64) + torch.randn(
+            n // ratio + 1, 64, generator=gen
+        ) * 0.01
+        p_full = _make_inputs(
+            [0], n, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=8, total_seq=n,
+        )
+        p_full["rope_sin"], p_full["rope_cos"] = sin_all, cos_all
+        p_head = _make_inputs(
+            [0], k, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=8, total_seq=n,
+        )
+        p_tail = _make_inputs(
+            [k], n - k, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=8, total_seq=n,
+        )
+        for p in (p_head, p_tail):
+            for name in ("wkv", "wgate", "ape", "norm_weight"):
+                p[name] = p_full[name]
+        p_head["x"] = p_full["x"][:k].clone()
+        p_tail["x"] = p_full["x"][k:].clone()
+        p_head["rope_sin"], p_head["rope_cos"] = sin_all[: k // ratio], cos_all[: k // ratio]
+        p_tail["rope_sin"] = sin_all[k // ratio :]
+        p_tail["rope_cos"] = cos_all[k // ratio :]
+
+        kv_state, score_state = p_full["kv_state"], p_full["score_state"]
+        full = self._cpu_phase(
+            p_full, [0], n, kv_state.clone(), score_state.clone(), coff, ratio, 8
+        )
+        head = self._cpu_phase(
+            p_head, [0], k, kv_state, score_state, coff, ratio, 8
+        )
+        tail = self._cpu_phase(
+            p_tail, [k], n - k, kv_state, score_state, coff, ratio, 8
+        )
+        self.assertEqual(head.shape[0] + tail.shape[0], full.shape[0])
+        diff = (torch.cat([head, tail], dim=0) - full).abs().max().item()
+        self.assertLess(diff, 0.05, f"chunked vs full prefill maxdiff={diff:.4f}")
+
     def test_ring_real_c4_multi_round(self):
         # Multi-round continuous decode: start positions advance each round,
         # kv/score state accumulates in-place on the CPU reference (torch
