@@ -90,6 +90,24 @@ def init_fused2_weights_int8(w13_weight, w13_weight_scale, w2_weight, w2_weight_
 
 
 # ======================== Utility Functions ========================
+def check_finite(name, tensor, rank):
+    # Inspect on CPU so reporting a failed NPU kernel does not depend on more
+    # device reductions (and includes useful coordinates, not just diff=nan).
+    values = tensor.detach().float().cpu()
+    nonfinite = ~torch.isfinite(values)
+    count = nonfinite.sum().item()
+    if count:
+        coordinates = nonfinite.nonzero()[:8].tolist()
+        print(
+            f"[Non-finite output] {rank=}, {name=}, shape={list(values.shape)}, "
+            f"nan={torch.isnan(values).sum().item()}, "
+            f"inf={torch.isinf(values).sum().item()}, "
+            f"first_coordinates={coordinates}",
+            flush=True,
+        )
+    assert count == 0, f"{name} contains {count} non-finite values on rank {rank}"
+
+
 def make_uniform_topk_idx(
     num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
 ):
@@ -414,6 +432,19 @@ def test(
         1,  # quant_mode: 1
         2,  # fuse_mode: DISPATCH_FFN_COMBINE
     )
+
+    # Report routing before checking output values, including on NaN failures.
+    expected_recv = gbl_num_tokens_per_expert[
+        rank * num_local_experts : (rank + 1) * num_local_experts
+    ]
+    print(
+        f"[Recv count] {rank=}, "
+        f"baseline_match={torch.equal(expected_recv, base_ep_recv_count.to(torch.int32))}, "
+        f"fused2_match={torch.equal(expected_recv, fused2_ep_recv_count.to(torch.int32))}",
+        flush=True,
+    )
+    check_finite("baseline", baseline_output, rank)
+    check_finite("fused2", fused2_output, rank)
 
     # ----- Compare Outputs -----
     baseline_output_avg = torch.mean(torch.abs(baseline_output)).item()

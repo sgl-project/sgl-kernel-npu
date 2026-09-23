@@ -17,10 +17,28 @@ CATLASS dependency, HCCL ABI and routing configuration.
 
 ## Validation status
 
-This is an unvalidated hardware port. The development host has neither CANN
-nor an NPU: the A5/A3 compile, distributed kernel execution, numerical
-comparison, and SGLang end-to-end regression below must be run before this
-change is considered ready. Static checks do not establish NPU correctness.
+This port is not ready for use until A5 numerical validation passes. The
+initial port and loader follow-up compiled in A5/A3 CI, but manual A5 testing
+at 17 tokens, hidden 2048, gate/up width 1536, 128 experts and top-k 8 produced
+finite unfused outputs and NaN fused outputs on all four ranks.
+
+The follow-up corrects GEMM2's per-token dequantization: its `Cast` and `Muls`
+calls used `isSetMask=false` without explicitly setting the vector mask.
+Ascend950's count-based APIs do not reset the SPR mask used by those calls.
+The epilogue now passes explicit element counts for the tile and each row,
+avoiding dependence on a previous operation's mask. Both matrix multiplies
+still use INT8 inputs and weights with INT32 accumulation.
+
+This fixes an identified mask-state dependency; it is not yet proof that the
+reported A5 NaNs are fully resolved. Rerun the distributed kernel and SGLang
+regressions below with the rebuilt wheel. Static checks and compilation do
+not establish NPU numerical correctness.
+
+The [epilogue mask regression](../tests/ascendc/fuseep_epilogue/README.md)
+isolates the production dequantization code on one NPU with NaN-filled UB
+and explicit full/restricted masks. On A3, the old implementation failed
+all nine restricted-mask cases; the corrected implementation passed all
+18 cases exactly. The test also compiles for Ascend950 with CANN 9.1.
 
 ## Build on A5
 
@@ -100,6 +118,11 @@ A5 (where `use_fp8=True` selects FP8), asserts integer tensor dtypes, checks
 output error and exact expert token counts, and can repeat on the same
 buffers to exercise communication state reuse. The original mean absolute
 error threshold of `1e-2` is unchanged.
+
+The test reports whether expert receive counts match before checking output
+values. Non-finite outputs fail explicitly with the rank, NaN/Inf counts and
+sample coordinates, before calculating an error metric. Save these lines
+and use `--debug` to include the weight formats if a failure persists.
 
 From the repository root, run the Qwen3-30B-A3B expert shapes (hidden 2048,
 gate/up width 1536, 128 experts, top-k 8) at decode, tail and prefill sizes:

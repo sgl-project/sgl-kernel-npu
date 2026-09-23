@@ -123,7 +123,11 @@ public:
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(event_id);
 
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(event_id);
-        AscendC::Cast<float, ElementC, false>(ubCFp32, ubC, AscendC::RoundMode::CAST_NONE, -1, repeat, {1, 1, 8, 4});
+        // Do not inherit SPR.MASK from routing/SwiGLU. On Ascend950 the
+        // count-based vector APIs do not reset the mask used by isSetMask=false
+        // calls, so those calls can leave output lanes uninitialized.
+        uint32_t tileElements = actualBlockShape.m() * n0;
+        AscendC::Cast(ubCFp32, ubC, AscendC::RoundMode::CAST_NONE, tileElements);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(event_id);
 
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(event_id_2);
@@ -146,12 +150,11 @@ public:
         AscendC::PipeBarrier<PIPE_V>();
         for (int32_t row = 0; row < actualBlockShape.m(); ++row) {
             float scale = scaleUb(row);
-            Muls<float, false>(ubCFp32[n0 * row], ubCFp32[n0 * row], scale, -1, (actualBlockShape.n() + 127) / 128 * 2,
-                               {1, 1, 8, 8});
+            AscendC::Muls(ubCFp32[n0 * row], ubCFp32[n0 * row], scale, actualBlockShape.n());
         }
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(event_id);
-        AscendC::Cast<ElementD, float, false>(ubD, ubCFp32, AscendC::RoundMode::CAST_RINT, -1, repeat, {1, 1, 4, 8});
+        AscendC::Cast(ubD, ubCFp32, AscendC::RoundMode::CAST_RINT, tileElements);
         AscendC::SetFlag<AscendC::HardEvent::S_MTE2>(event_id_2);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(event_id_2);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(event_id);
@@ -210,8 +213,6 @@ private:
     int32_t max_len = 8 * 32 / 4 * 128;
     int32_t n0;
     bool is_ping = false;
-
-    int32_t repeat = 128;
 
     CopyGmToUbC copyGmToUbC;
     CopyUbToGmD copyUbToGmD;
