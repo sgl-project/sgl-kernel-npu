@@ -795,16 +795,14 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::SaveState(
     uint64_t srcBaseOffset = sliceInfo.dealedSeqCnt * coff_ * dBaseSize;
 
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        if constexpr (COMP::coff == COFF::DISABLE) {
-            uint32_t compressSeqIdx = Trunc(sliceInfo.bStartPos + sliceInfo.bSeqUsed, cmpRatio_);
-            uint32_t writeSeqStartIdx =
-                compressSeqIdx > (coff_ - 1) * cmpRatio_ ? compressSeqIdx - (coff_ - 1) * cmpRatio_ : 0;
-            if (endSeqIdx <= writeSeqStartIdx) {
-                return;
-            }
-            srcBaseOffset += (max(startSeqIdx, writeSeqStartIdx) - startSeqIdx) * coff_ * dBaseSize;
-            startSeqIdx = max(startSeqIdx, writeSeqStartIdx);
+        uint32_t compressSeqIdx = Trunc(sliceInfo.bStartPos + sliceInfo.bSeqUsed, cmpRatio_);
+        uint32_t writeSeqStartIdx =
+            compressSeqIdx > (coff_ - 1) * cmpRatio_ ? compressSeqIdx - (coff_ - 1) * cmpRatio_ : 0;
+        if (endSeqIdx <= writeSeqStartIdx) {
+            return;
         }
+        srcBaseOffset += (max(startSeqIdx, writeSeqStartIdx) - startSeqIdx) * coff_ * dBaseSize;
+        startSeqIdx = max(startSeqIdx, writeSeqStartIdx);
     }
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
