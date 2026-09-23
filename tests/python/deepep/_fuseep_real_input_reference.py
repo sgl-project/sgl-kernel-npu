@@ -1,4 +1,4 @@
-"""Replay real mode-2 inputs without replacing the model's fused outputs.
+"""Replay real mode-2 inputs, preserving fused outputs by default.
 
 Used only by diagnose_sglang_fuseep.py. Separate HCCL groups/windows keep the
 reference from reusing the fused operator's communication state.
@@ -147,15 +147,18 @@ def audit(layer, fused_buffer, x, topk, out, counts):
     dist.all_reduce(max_tokens, op=dist.ReduceOp.MAX, group=fused_buffer.group)
     token_count = int(max_tokens.item())
     key = (layer_id, token_count)
-    if key in _seen or token_count < int(
+    model_output = os.environ.get("SGLANG_FUSEEP_AUDIT_MODEL_OUTPUT", "fused")
+    assert model_output in ("fused", "int32_dequant_swiglu", "bf16_gmm_swiglu")
+    capture = key not in _seen and token_count >= int(
         os.environ.get("SGLANG_FUSEEP_AUDIT_MIN_TOKENS", "4")
-    ):
+    )
+    if not capture and model_output == "fused":
         progress(
             "skipped",
             reason="already_compared" if key in _seen else "below_min_tokens",
             token_count=token_count,
         )
-        return
+        return out
     assert max_tokens.item() <= 128
     progress("fused_synchronize", token_count=token_count)
     torch.npu.synchronize()
@@ -188,20 +191,41 @@ def audit(layer, fused_buffer, x, topk, out, counts):
         input_abs_max=x.detach().float().abs().max().item() if x.numel() else 0.0,
         weight13_shape=list(layer.w13_weight.shape),
         weight2_shape=list(layer.w2_weight.shape),
+        model_output=model_output,
     )
     references = []
-    for variant in ["int32_dequant_swiglu", "bf16_gmm_swiglu"]:
+    selected_output = out
+    variants = (
+        ["int32_dequant_swiglu", "bf16_gmm_swiglu"] if capture else [model_output]
+    )
+    for variant in variants:
         ref, ref_counts = reference(
             _buffer, x, topk.topk_ids, topk.topk_weights, layer, scales, variant
         )
-        row[variant] = metrics(ref, out)
-        row[variant]["recv_counts_equal"] = torch.equal(ref_counts.cpu(), counts.cpu())
-        references.append(ref.detach().clone())
-    row["between_references"] = metrics(references[0], references[1])
-    root = Path(os.environ["SGLANG_FUSEEP_AUDIT_DIR"])
-    root.mkdir(parents=True, exist_ok=True)
-    with (root / f"rank{row['rank']}.jsonl").open("a") as f:
-        f.write(json.dumps(row) + "\n")
-    print("[REAL_MOE_AUDIT] " + json.dumps(row), flush=True)
-    _seen.add(key)
-    progress("comparison_recorded")
+        same_counts = torch.equal(ref_counts.cpu(), counts.cpu())
+        if capture:
+            row[variant] = metrics(ref, out)
+            row[variant]["recv_counts_equal"] = same_counts
+            references.append(ref.detach().clone())
+        if variant == model_output:
+            assert (
+                same_counts
+            ), f"Reference intervention receive-count mismatch: {layer_id=}"
+            assert bool(
+                ref.isfinite().all()
+            ), f"Nonfinite reference intervention: {layer_id=}"
+            selected_output = ref.detach().clone()
+    if capture:
+        row["between_references"] = metrics(references[0], references[1])
+        root = Path(os.environ["SGLANG_FUSEEP_AUDIT_DIR"])
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / f"rank{row['rank']}.jsonl").open("a") as f:
+            f.write(json.dumps(row) + "\n")
+        print("[REAL_MOE_AUDIT] " + json.dumps(row), flush=True)
+        _seen.add(key)
+        progress("comparison_recorded")
+    if model_output != "fused":
+        progress(
+            "reference_output_returned", model_output=model_output, captured=capture
+        )
+    return selected_output

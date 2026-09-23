@@ -1,11 +1,12 @@
 """Run SGLang #40516 with per-layer, same-input INT8 MoE comparisons.
 
-This diagnostic keeps the original test assertions and fused model outputs.
+This diagnostic keeps the original test assertions and, by default, fused outputs.
 It instruments a private source copy; no installed package is modified.
 """
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -71,8 +72,7 @@ def instrument(text):
         ),
         "    return hidden_states\n": (
             "    from _fuseep_real_input_reference import audit\n"
-            "    audit(layer, buf, audit_input, topk_output, hidden_states, audit_counts)\n"
-            "    return hidden_states\n"
+            "    return audit(layer, buf, audit_input, topk_output, hidden_states, audit_counts)\n"
         ),
     }
     for old, new in changes.items():
@@ -83,11 +83,51 @@ def instrument(text):
     return text
 
 
+def compare_logprobs(output):
+    """Report the original test's aligned input errors alongside layer diagnostics."""
+    paths = [output / name for name in ("baseline.json", "mode2.json")]
+    if not all(path.exists() for path in paths):
+        return {"status": "missing_results"}
+    try:
+        baseline, candidate = [
+            json.loads(path.read_text())["generation"] for path in paths
+        ]
+        if len(baseline) != len(candidate):
+            raise ValueError("Generation count mismatch")
+        errors = []
+        for a, b in zip(baseline, candidate):
+            left, right = [row["meta_info"]["input_token_logprobs"] for row in (a, b)]
+            if len(left) != len(right):
+                raise ValueError("Input token count mismatch")
+            for x, y in zip(left, right):
+                if x[1] != y[1] or (x[0] is None) != (y[0] is None):
+                    raise ValueError("Input token IDs or null masks differ")
+                if x[0] is not None:
+                    if not math.isfinite(x[0]) or not math.isfinite(y[0]):
+                        raise ValueError("Nonfinite input logprob")
+                    errors.append(abs(x[0] - y[0]))
+        if not errors:
+            raise ValueError("No aligned non-null input logprobs")
+        return {
+            "status": "aligned",
+            "tokens_compared": len(errors),
+            "mean_abs_logprob_diff": sum(errors) / len(errors),
+            "max_abs_logprob_diff": max(errors),
+        }
+    except (ValueError, KeyError, IndexError, TypeError) as error:
+        return {"status": "invalid_results", "reason": str(error)}
+
+
 def summarize(output, returncode):
     rows = []
     for path in sorted((output / "layers").glob("rank*.jsonl")):
         rows.extend(json.loads(line) for line in path.read_text().splitlines())
     result = {"original_test_exit_code": returncode, "layer_comparisons": len(rows)}
+    config_path = output / "diagnostic-config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    result["model_output"] = config.get("model_output", "fused")
+    result["fused_outputs_preserved"] = result["model_output"] == "fused"
+    result["full_model_comparison"] = compare_logprobs(output)
     result["diagnostic_status"] = "comparisons_recorded" if rows else "no_comparisons"
     result["artifacts"] = {
         name: (output / name).exists()
@@ -126,6 +166,11 @@ def summarize(output, returncode):
     print(json.dumps({k: v for k, v in result.items() if not isinstance(v, dict)}))
     print(f"Results: {output / 'layer-summary.json'}")
     print("The original full-model thresholds and exit status are unchanged.")
+    if not result["fused_outputs_preserved"]:
+        print(
+            "DIAGNOSTIC INTERVENTION: mode2.json uses unfused INT8 reference outputs. "
+            "A passing result does not validate the production fused kernel."
+        )
     if not rows:
         print(
             "No layer comparisons were collected; numerical checks are unknown, not failed."
@@ -178,6 +223,12 @@ def main():
     parser.add_argument("--devices", default="0,1,2,3")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--min-tokens", type=int, default=4)
+    parser.add_argument(
+        "--model-output",
+        choices=("fused", "int32_dequant_swiglu", "bf16_gmm_swiglu"),
+        default="fused",
+        help="Diagnostic only: optionally feed an unfused INT8 reference output into every MoE layer",
+    )
     args = parser.parse_args()
     root, output = args.sglang_root.resolve(), args.output_dir.resolve()
     test_path = (
@@ -224,6 +275,7 @@ def main():
         "SGLANG_FUSEEP_AUDIT_DIR": str(output / "layers"),
         "SGLANG_FUSEEP_AUDIT_PYTHON": str(private_python),
         "SGLANG_FUSEEP_AUDIT_MIN_TOKENS": str(args.min_tokens),
+        "SGLANG_FUSEEP_AUDIT_MODEL_OUTPUT": args.model_output,
         "PYTHONUNBUFFERED": "1",
     }
     if args.model is not None:
@@ -236,11 +288,19 @@ def main():
                 "model_override": env.get("SGLANG_TEST_MODEL_PATH"),
                 "devices": args.devices,
                 "min_tokens": args.min_tokens,
-                "fused_outputs_preserved": True,
+                "model_output": args.model_output,
+                "fused_outputs_preserved": args.model_output == "fused",
             },
             indent=2,
         )
     )
+    if args.model_output != "fused":
+        print(
+            f"DIAGNOSTIC INTERVENTION: every mode-2 MoE output, including decode, "
+            f"will use {args.model_output}. INT8 computation is preserved. "
+            "This run does not validate the production fused kernel.",
+            flush=True,
+        )
     returncode = run_test(
         [sys.executable, "-u", str(bootstrap), "test", str(test_path), "-v"],
         env,

@@ -268,3 +268,32 @@ original test with zero comparisons does not establish a numerical failure
 in either reference: check the import markers and progress records first.
 The per-layer data distinguishes a same-input operator discrepancy from accumulated
 full-model changes; it does not relax or replace the original precision test.
+
+To test whether the reference arithmetic improves the full-model result, use
+an explicit diagnostic intervention:
+
+```bash
+python tests/python/deepep/diagnose_sglang_fuseep.py \
+  --sglang-root /home/wzy/sgl-sglang \
+  --devices 0,1,2,3 \
+  --model-output bf16_gmm_swiglu \
+  --output-dir /tmp/fuseep-reference-bf16-a5
+```
+
+This feeds the unfused INT8 reference into every mode-2 MoE call, including
+decode and repeated prefill sizes. The default `--min-tokens` filter only
+controls the saved comparisons; it does not limit output replacement. Both
+matrix multiplications still use INT8 inputs/weights. BF16 here is the
+dequantized GEMM1 intermediate before SwiGLU. The fused operator still runs
+for comparison, but its output is not fed to the next layer in this mode.
+Use `--model-output int32_dequant_swiglu` in a separate new directory for the
+other reference. Omit the option to keep the default, unchanged fused outputs.
+
+The config and summary label the selected `model_output` and set
+`fused_outputs_preserved` to `false` for these interventions. `mode2.json`
+then contains the selected reference's model result, not production FuseEP
+output. A passing intervention does not validate the fused kernel. The summary
+also reports aligned input logprob differences under `full_model_comparison`.
+The original baseline still uses expert TP while the intervention uses EP,
+so a remaining error cannot be attributed solely to GEMM1 rounding. No wheel
+rebuild or acceptance-threshold change is involved.
