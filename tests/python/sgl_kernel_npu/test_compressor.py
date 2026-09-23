@@ -937,6 +937,34 @@ class TestCompressor(unittest.TestCase):
         diff = (torch.cat([head, tail], dim=0) - full).abs().max().item()
         self.assertLess(diff, 0.05, f"chunked vs full prefill maxdiff={diff:.4f}")
 
+    def test_c4_ring_persists_the_window_behind_a_page_boundary(self):
+        # Mechanism guard for the persist-every-position fix, independent of any
+        # end-to-end comparison: a resume at 128 reads page 0's last positions
+        # (120..127) from the ring, so the [0,256) prefill must actually have
+        # written their raw state there. Tail-only persistence leaves those rows
+        # at their initial values, so this must fail without the fix.
+        coff, ratio, head_dim, hidden = 2, 4, 512, 1024
+        n, boundary, ring_size = 256, 128, 8
+        p = _make_inputs(
+            [0], n, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
+            ring_size=ring_size, total_seq=n,
+        )
+        p["block_table"] = _build_production_swa_state_loc_table(
+            [0], [n], 128, ring_size, coff, ratio
+        )
+        self._cpu_phase(
+            p, [0], n, p["kv_state"], p["score_state"], coff, ratio, ring_size
+        )
+        flat = p["kv_state"].reshape(-1, p["kv_state"].shape[-1])
+        w = p["wkv"].float()
+        for pos in range(boundary - ring_size, boundary):
+            loc = (pos // 128) * ring_size + pos % ring_size
+            expect = p["x"][pos].float() @ w.T
+            diff = (flat[loc] - expect).abs().max().item()
+            self.assertLess(
+                diff, 1e-3, f"ring row {loc} for position {pos} not persisted: {diff:.4f}"
+            )
+
     def test_ring_real_c4_multi_round(self):
         # Multi-round continuous decode: start positions advance each round,
         # kv/score state accumulates in-place on the CPU reference (torch
