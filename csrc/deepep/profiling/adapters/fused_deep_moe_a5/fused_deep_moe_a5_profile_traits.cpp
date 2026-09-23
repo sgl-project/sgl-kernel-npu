@@ -122,7 +122,7 @@ std::string GetPrivateDataJson(uint64_t stageId, uint64_t occurrenceId, const Ca
 Cam::ProfileStageLayout BuildStageLayout(uint32_t groupCountCapacity)
 {
     EP_HOST_ASSERT_S(groupCountCapacity >= 1U && groupCountCapacity <= Cam::PROFILE_MAX_GROUP_COUNT_CAPACITY,
-                     "groupCountCapacity must be in [1, 64].");
+                     "groupCountCapacity must be in [1, 128].");
     Cam::ProfileStageLayout layout{};
     layout.stageCount = static_cast<uint16_t>(kStageCount);
     layout.activeStageCapacity = static_cast<uint16_t>(Cam::PROFILE_ACTIVE_STAGE_CAPACITY);
