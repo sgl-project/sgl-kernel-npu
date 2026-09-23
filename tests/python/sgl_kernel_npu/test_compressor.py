@@ -102,7 +102,8 @@ def _build_production_swa_state_loc_table(
     history_size = coff * cmp_ratio
     max_capacity = max(max(capacities, default=0), 1)
     max_position = max((sp + cap for sp, cap in zip(start_pos, capacities)), default=0)
-    dummy_loc = ((max_position // swa_page_size) + 1) * ring_size
+    span = 2 * ring_size
+    dummy_loc = ((max_position // swa_page_size) + 1) * span
     table = torch.full(
         (len(start_pos), history_size + max_capacity), dummy_loc, dtype=torch.int32
     )
@@ -113,7 +114,7 @@ def _build_production_swa_state_loc_table(
                 continue
             table[batch_idx, column] = (
                 position // swa_page_size
-            ) * ring_size + position % ring_size
+            ) * span + position % span
     return table
 
 
@@ -314,7 +315,10 @@ def _reference_compressor(
             # re-read raw rows between the accepted position and this round's
             # compress boundary. Keep the extra tail rows the ring can hold
             # beyond one window (mirrors sglang mtp_pad): pad = ring-window+2.
-            if cache_mode == 1:
+            if cache_mode == 1 or coff == 2:
+                # EXPLICIT c4 persists every position (mirrors arch35 SaveState):
+                # with a ring wider than the window the window a later call reads
+                # is always still in the ring.
                 save_flag = True
             else:
                 window = (2 if coff == 2 else 1) * cmp_ratio
