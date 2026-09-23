@@ -9,6 +9,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test DeepEP shared-library selection without an NPU
         run: python3 tests/python/deepep/test_op_api_loader.py -v
+      - name: Test FuseEP diagnostic source selection and reporting without an NPU
+        run: python3 tests/python/deepep/test_fuseep_diagnostic.py -v
 
   lint:
     runs-on: ubuntu-latest

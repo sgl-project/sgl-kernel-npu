@@ -6,6 +6,7 @@ reference from reusing the fused operator's communication state.
 
 import json
 import os
+import time
 from pathlib import Path
 
 import torch
@@ -16,6 +17,29 @@ from deep_ep import Buffer
 _buffer = None
 _seen = set()
 _scales = {}
+_progress_context = {}
+
+
+def progress(stage, **context):
+    """Keep the last entered stage even if the first reference never completes."""
+    if stage == "fused_enter":
+        _progress_context.clear()
+    _progress_context.update(context)
+    root = Path(os.environ["SGLANG_FUSEEP_AUDIT_DIR"])
+    root.mkdir(parents=True, exist_ok=True)
+    rank = dist.get_rank()
+    data = {
+        **_progress_context,
+        "stage": stage,
+        "rank": rank,
+        "pid": os.getpid(),
+        "time": time.time(),
+        "helper_source": __file__,
+    }
+    path = root / f"progress-rank{rank}.json"
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(data))
+    os.replace(temporary, path)
 
 
 def unpack_scale(value, experts):
@@ -31,6 +55,7 @@ def unpack_scale(value, experts):
 
 
 def reference(buffer, x, ids, probs, layer, scales, variant):
+    progress("reference_dispatch", variant=variant)
     (qx, sx), counts, handle, event, hook = (
         buffer.low_latency_strategy.low_latency_dispatch(
             x,
@@ -46,6 +71,7 @@ def reference(buffer, x, ids, probs, layer, scales, variant):
     assert qx.dtype == torch.int8 and sx.dtype == torch.float32
     group_list = counts.to(torch.int64)
     kwargs = dict(split_item=2, group_list_type=1, group_type=0, group_list=group_list)
+    progress("reference_gemm1")
     if variant == "int32_dequant_swiglu":
         h = torch_npu.npu_grouped_matmul(
             x=[qx],
@@ -53,6 +79,7 @@ def reference(buffer, x, ids, probs, layer, scales, variant):
             output_dtype=torch.int32,
             **kwargs,
         )[0]
+        progress("reference_swiglu")
         qh, sh = torch_npu.npu_dequant_swiglu_quant(
             x=h,
             weight_scale=scales[0],
@@ -70,7 +97,9 @@ def reference(buffer, x, ids, probs, layer, scales, variant):
             output_dtype=torch.bfloat16,
             **kwargs,
         )[0]
+        progress("reference_swiglu")
         qh, sh = torch_npu.npu_dequant_swiglu_quant(h, activate_left=True, quant_mode=1)
+    progress("reference_gemm2")
     out = torch_npu.npu_grouped_matmul(
         x=[qh],
         weight=[layer.w2_weight],
@@ -79,6 +108,7 @@ def reference(buffer, x, ids, probs, layer, scales, variant):
         output_dtype=torch.bfloat16,
         **kwargs,
     )[0]
+    progress("reference_combine")
     out, event, hook = buffer.low_latency_combine(
         out,
         ids.to(torch.int64),
@@ -87,6 +117,7 @@ def reference(buffer, x, ids, probs, layer, scales, variant):
         async_finish=False,
         return_recv_hook=False,
     )
+    progress("reference_synchronize")
     torch.npu.synchronize()
     return out, counts
 
@@ -111,6 +142,7 @@ def metrics(a, b):
 def audit(layer, fused_buffer, x, topk, out, counts):
     global _buffer
     layer_id = layer.layer_id
+    progress("token_count_reduce", input_shape=list(x.shape), variant=None)
     max_tokens = torch.tensor([x.shape[0]], device=x.device, dtype=torch.int64)
     dist.all_reduce(max_tokens, op=dist.ReduceOp.MAX, group=fused_buffer.group)
     token_count = int(max_tokens.item())
@@ -118,12 +150,20 @@ def audit(layer, fused_buffer, x, topk, out, counts):
     if key in _seen or token_count < int(
         os.environ.get("SGLANG_FUSEEP_AUDIT_MIN_TOKENS", "4")
     ):
+        progress(
+            "skipped",
+            reason="already_compared" if key in _seen else "below_min_tokens",
+            token_count=token_count,
+        )
         return
     assert max_tokens.item() <= 128
+    progress("fused_synchronize", token_count=token_count)
     torch.npu.synchronize()
     if _buffer is None:
         ranks = dist.get_process_group_ranks(fused_buffer.group)
+        progress("reference_group_create")
         group = dist.new_group(ranks=ranks, backend="hccl")
+        progress("reference_buffer_create")
         _buffer = Buffer(
             group,
             low_latency_mode=True,
@@ -133,6 +173,7 @@ def audit(layer, fused_buffer, x, topk, out, counts):
             num_qps_per_rank=layer.num_experts // len(ranks),
         )
     if layer_id not in _scales:
+        progress("unpack_scales")
         experts = layer.w13_weight.shape[0]
         _scales[layer_id] = (
             unpack_scale(layer.w13_weight_scale, experts),
@@ -163,3 +204,4 @@ def audit(layer, fused_buffer, x, topk, out, counts):
         f.write(json.dumps(row) + "\n")
     print("[REAL_MOE_AUDIT] " + json.dumps(row), flush=True)
     _seen.add(key)
+    progress("comparison_recorded")

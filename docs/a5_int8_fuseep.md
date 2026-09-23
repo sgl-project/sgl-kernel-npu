@@ -228,6 +228,10 @@ test. No wheel rebuild is required. It copies SGLang's Python sources to the
 new output directory, instruments mode 2 and runs the original regression.
 The installed sources, checkpoint, fused outputs, assertions and exit status
 are preserved. Allow approximately 70 MiB for the private source copy.
+The test and both servers run with the same Python interpreter and explicitly
+select that source copy after Python startup. Their logs print
+`[FUSEEP_DIAGNOSTIC_IMPORT]` with the selected source path. The launcher also
+bypasses environment proxies for localhost and streams the test console.
 
 ```bash
 python tests/python/deepep/diagnose_sglang_fuseep.py \
@@ -255,7 +259,12 @@ absolute error, relative squared error and output magnitude. The reference
 comparison shares loaded weights/routing with the fused path; it does not
 independently validate checkpoint loading or the router.
 
-Collect `layer-summary.json`, `layers/rank*.jsonl`, `baseline.json`,
-`mode2.json` and `test-console.log` from the output directory. The per-layer
-data distinguishes a same-input operator discrepancy from accumulated
+Collect `layer-summary.json`, `layers/rank*.jsonl`, `layers/progress-rank*.json`,
+`baseline.json`, `mode2.json`, `baseline.log`, `mode2.log` and `test-console.log`
+from the output directory. If no comparisons were recorded, numerical checks
+are `null` (unknown), not `false`. The summary lists available artifacts and
+each rank's last entered stage, including skipped-input reasons. A completed
+original test with zero comparisons does not establish a numerical failure
+in either reference: check the import markers and progress records first.
+The per-layer data distinguishes a same-input operator discrepancy from accumulated
 full-model changes; it does not relax or replace the original precision test.
