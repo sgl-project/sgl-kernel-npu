@@ -14,11 +14,11 @@
 
 namespace Catlass::Epilogue::Block {
 template <uint32_t UB_STAGES_, class CType_, class LayoutPerTokenScale_, class DType_, class TileCopy_>
-class BlockEpilogue<EpilogueAtlasA2PerTokenDequantV2<UB_STAGES_>, CType_, Gemm::GemmType<float, LayoutPerTokenScale_>,
+class BlockEpilogue<EpilogueDispatchFfnPerTokenDequant<UB_STAGES_>, CType_, Gemm::GemmType<float, LayoutPerTokenScale_>,
                     DType_, TileCopy_>
 {
 public:
-    using DispatchPolicy = EpilogueAtlasA2PerTokenDequantV2<UB_STAGES_>;
+    using DispatchPolicy = EpilogueDispatchFfnPerTokenDequant<UB_STAGES_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
 

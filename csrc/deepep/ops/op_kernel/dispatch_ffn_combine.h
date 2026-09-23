@@ -10,10 +10,11 @@ using namespace AscendC;
 
 #include "kernel_operator.h"
 
-#include "dispatch_ffn_combine_kernel/utils/moe_distribute_base.h"
+#include "dispatch_ffn_combine_kernel/utils/hccl_context.hpp"
 
 #include "dispatch_ffn_combine_tiling.h"
 
+#include "catlass_dtype_macro_guard_begin.h"
 #include "catlass/catlass.hpp"
 #include "catlass/arch/arch.hpp"
 #include "catlass/epilogue/dispatch_policy.hpp"
@@ -32,6 +33,7 @@ using namespace AscendC;
 #include "dispatch_ffn_combine_kernel/utils/const_args.hpp"
 #include "dispatch_ffn_combine_kernel/moe_init_routing_quant_v2/moe_init_routing_quant_v2_tiling.h"
 #include "dispatch_ffn_combine_kernel.hpp"
+#include "catlass_dtype_macro_guard_end.h"
 
 using namespace Catlass;
 
@@ -147,19 +149,17 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Init(GM_ADDR xGM,
     moeInitRoutingQuantV2TilingData = tilingData.cocTiling.moeInitRoutingQuantV2TilingData;
     initRoutingQuantTilingKey = tilingData.cocTiling.initRoutingQuantTilingKey;
 
-    auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    __gm__ HcclOpResParamCustom *WinContext_{nullptr};
-    WinContext_ = (__gm__ HcclOpResParamCustom *)contextGM0;
-
-    rank = WinContext_->localUsrRankId;
-    rankSize = WinContext_->rankSize;
+    auto contextGM0 = AscendC::GetHcclContext<0>();
+    auto context = (__gm__ DispatchFfnHccl::Context *)contextGM0;
+    rank = DispatchFfnHccl::Rank(context);
+    rankSize = DispatchFfnHccl::Size(context);
 }
 
 template <TemplateMMA2AClass>
 __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
 {
     // Define ArchTag
-    using ArchTag = Arch::AtlasA2;
+    using ArchTag = DispatchFfnArch;
     constexpr bool enableUnitFlag = false;
     constexpr bool enableShuffleK = true;
 
@@ -191,8 +191,8 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
     constexpr uint32_t l0BStages = 2;
     constexpr uint32_t l0CStages = 1;
 
-    using DispatchPolicy = Gemm::MmadAtlasA2PreloadAsyncFixpipe<preloadStages, l1Stages, l0AStages, l0BStages,
-                                                                l0CStages, enableUnitFlag, enableShuffleK>;
+    using DispatchPolicy = Gemm::MmadDispatchFfnPreloadAsyncFixpipe<preloadStages, l1Stages, l0AStages, l0BStages,
+                                                                    l0CStages, enableUnitFlag, enableShuffleK>;
 
     using L0TileShape = GemmShape<128, 256, 128>;
     using AType = Gemm::GemmType<int8_t, layout::RowMajor>;
@@ -207,7 +207,7 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
     using BlockMmad = Gemm::Block::BlockMmad<DispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
     constexpr uint32_t ubStages = 2;
 
-    using EpilogueDispatchPolicy1 = Epilogue::EpilogueAtlasA2PerTokenDequantSwigluQuant<ubStages>;
+    using EpilogueDispatchPolicy1 = Epilogue::EpilogueDispatchFfnPerTokenDequantSwigluQuant<ubStages>;
 
     using ScaleType = Gemm::GemmType<uint64_t, layout::VectorLayout>;
     using PerTokenScaleType = Gemm::GemmType<float, layout::VectorLayout>;
@@ -218,7 +218,7 @@ __aicore__ inline void DispatchFFNCombine<TemplateMMA2ACFunc>::Process()
     using BlockEpilogue1 = Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy1, CType, PerTokenScaleType, D1Type,
                                                           TileElemWiseMuls, TileCopy1>;
 
-    using EpilogueDispatchPolicy2 = Epilogue::EpilogueAtlasA2PerTokenDequantV2<ubStages>;
+    using EpilogueDispatchPolicy2 = Epilogue::EpilogueDispatchFfnPerTokenDequant<ubStages>;
     using TileCopy2 = Epilogue::Tile::TileCopy<ArchTag, CType, ScaleType, PerTokenScaleType, D2Type>;
     using BlockEpilogue2 =
         Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy2, CType, PerTokenScaleType, D2Type, TileCopy2>;

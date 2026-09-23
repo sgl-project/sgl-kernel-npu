@@ -8,9 +8,6 @@ set(op_codegen_options -g)
 if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     # Keep one FusedDeepMoe definition visible to code generation on A5.
     list(REMOVE_ITEM ops_srcs
-        ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_ffn_combine_def.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_ffn_combine_infer.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_ffn_combine_tiling.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/fused_deep_moe.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/fused_deep_moe_infer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/fused_deep_moe_tiling.cpp)
@@ -37,8 +34,6 @@ if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     # Keep all existing ACLNN wrappers (including low-latency dispatch/combine)
     # and overlay only the A5-specific FusedDeepMoe wrapper.
     list(REMOVE_ITEM pregen_file
-        "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_fused_deep_moe.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_fused_deep_moe.h")
     file(GLOB_RECURSE a5_pregen_file "${a5_fused_deep_moe_host_dir}/op_api/*")

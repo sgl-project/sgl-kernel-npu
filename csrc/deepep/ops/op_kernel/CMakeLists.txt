@@ -37,8 +37,7 @@ if ("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
         -I$ENV{ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/impl/ops_transformer/ascendc/common/
         -DCATLASS_ARCH=3510
-        -DDEEPEP_CATLASS_A5_COMPAT=1
-        -DDEEPEP_SKIP_DISPATCH_FFN_COMBINE=1)
+        -DDEEPEP_CATLASS_A5_COMPAT=1)
 endif()
 
 npu_op_kernel_sources(ascendc_kernels

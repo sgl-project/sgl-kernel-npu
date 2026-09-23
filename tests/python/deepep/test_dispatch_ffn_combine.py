@@ -136,21 +136,30 @@ def baseline_test(
     w2_scale,
     topk_weights,
 ):
-    hidden_states, packed_recv_count, handle, _, _ = buffer.low_latency_dispatch(
-        x,
-        topk_idx,
-        num_max_dispatch_tokens_per_rank,
-        num_experts,
-        cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-        use_fp8=True,
-        async_finish=not return_recv_hook,
-        return_recv_hook=return_recv_hook,
+    # The bool-only Buffer API maps use_fp8=True to real FP8 on A5. Select
+    # INT8 explicitly on the default strategy for this W8A8 reference.
+    assert buffer.low_latency_strategy.get_name() == "default"
+    hidden_states, packed_recv_count, handle, _, _ = (
+        buffer.low_latency_strategy.low_latency_dispatch(
+            x,
+            topk_idx,
+            num_max_dispatch_tokens_per_rank,
+            num_experts,
+            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+            use_fp8=False,
+            quant_mode="int8",
+            async_finish=not return_recv_hook,
+            return_recv_hook=return_recv_hook,
+        )
     )
     output_dtype = torch.bfloat16
     group_list_type = 1
 
     per_token_scale = hidden_states[1]
     hidden_states = hidden_states[0]
+    assert (
+        hidden_states.dtype == torch.int8
+    ), "The W8A8 reference must use INT8 activations"
 
     group_list = packed_recv_count.to(torch.int64)
 
@@ -303,6 +312,8 @@ def test(
         w2_weight.clone().detach(),
         w2_weight_scale.clone().detach(),
     )
+    assert w13_f2.dtype == w2_f2.dtype == torch.int8
+    assert w13s_f2.dtype == w2s_f2.dtype == torch.int64
 
     if args.debug and rank == 0:
         print("=== Check base weights ===")
@@ -438,6 +449,9 @@ def test(
         expected_recv, fuse2_recv
     ), f"Assertion fuse2 recv_count failed on rank {rank}: Expected {expected_recv}, Actual {fuse2_recv}"
 
+    if args.skip_benchmark:
+        return
+
     # ----- performance test -----
     dist.barrier()
     baseline_args = {
@@ -532,21 +546,22 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
     aligned_num_tokens = local_tokens_tensor.item()
 
-    test(
-        num_tokens,
-        hidden,
-        moe_intermediate_size,
-        use_experts,
-        num_topk,
-        rank,
-        use_ranks,
-        group,
-        buffer,
-        buffer2,
-        args,
-        aligned_num_tokens,
-        seed=1,
-    )
+    for iteration in range(args.repeat):
+        test(
+            num_tokens,
+            hidden,
+            moe_intermediate_size,
+            use_experts,
+            num_topk,
+            rank,
+            use_ranks,
+            group,
+            buffer,
+            buffer2,
+            args,
+            aligned_num_tokens,
+            seed=iteration + 1,
+        )
 
     dist.barrier()
     dist.destroy_process_group()
@@ -554,6 +569,17 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test dispatch_ffn_combine kernels")
+    parser.add_argument(
+        "--skip-benchmark",
+        action="store_true",
+        help="Run correctness checks without profiling",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat correctness checks on the same buffers",
+    )
     parser.add_argument(
         "--num-processes",
         type=int,
@@ -595,6 +621,8 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    if args.repeat < 1:
+        parser.error("--repeat must be positive")
     num_processes = args.num_processes
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
