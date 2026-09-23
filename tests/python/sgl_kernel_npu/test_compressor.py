@@ -822,7 +822,8 @@ class TestCompressor(unittest.TestCase):
             rotary_mode=2,
             cache_mode=2,
         )
-        return out[torch.from_numpy(np.asarray(mask)).bool()]
+        keep = torch.from_numpy(np.asarray(mask)).bool()
+        return out[keep].reshape(-1, out.shape[-1])
 
     def _c4_two_phase(self, n, k, ring_size):
         """(miss_rows, hit_rows) for the overlapping compressed positions.
