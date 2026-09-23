@@ -73,7 +73,7 @@ struct FusedDeepMoeInfo {
     uint64_t gmm1WeightExpertStrideBytes;
     uint64_t gmm2WeightExpertStrideBytes;
     bool isTensorList;
-    uint32_t enableRoutedSparseFastPath;
+    bool enableRoutedSparseFastPath;
 };
 
 struct FusedDeepMoeTilingData {

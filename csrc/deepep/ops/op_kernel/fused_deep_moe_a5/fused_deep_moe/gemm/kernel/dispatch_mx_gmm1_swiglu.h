@@ -160,7 +160,7 @@ public:
         uint32_t tokenLen;
         uint32_t shareN;
         uint64_t weightExpertStrideBytes;
-        uint32_t enableRoutedSparseFastPath;
+        bool enableRoutedSparseFastPath;
         // Methods
         CATLASS_HOST_DEVICE
         Params() {}
@@ -384,7 +384,7 @@ public:
     {
         AscendC::ICachePreLoad(1);
         uint32_t actualRecvCoreNumPerGroup = recvCoreNum;
-        bool sparseFastPath = params.enableRoutedSparseFastPath != 0;
+        bool sparseFastPath = params.enableRoutedSparseFastPath;
 
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(resource);
@@ -1473,7 +1473,7 @@ public:
         gmRoutedGroupMeta = params.gmRoutedGroupMeta;
         gmRoutedActiveGroupCount = params.gmRoutedActiveGroupCount;
         gmRoutedActiveGroupIds = params.gmRoutedActiveGroupIds;
-        sparseFastPath = params.enableRoutedSparseFastPath != 0;
+        sparseFastPath = params.enableRoutedSparseFastPath;
         moeExpertNumPerRank = params.moeExpertNumPerRank;
 
         epRankSize = params.epRankSize;
@@ -1896,14 +1896,14 @@ public:
             if (isSendCore) {
                 SendCoreFunc((GM_ADDR)params.gmX, (GM_ADDR)params.gmExpertIds, (GM_ADDR)params.gmMoeSmoothScales,
                              (GM_ADDR)params.gmExpandIdx, (GM_ADDR)params.gmXActiveMask,
-                             params.enableRoutedSparseFastPath != 0, params.profile);
+                             params.enableRoutedSparseFastPath, params.profile);
                 CleanRoutedX2ReadyState();
             }
             if (isRecvCore) {
                 RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrMxScaleA, (GM_ADDR)params.gmEpSendCount,
                              (GM_ADDR)params.ptrGroupList, (GM_ADDR)params.gmExpertTokenNums, params.profile);
             }
-            if (params.enableRoutedSparseFastPath == 0) {
+            if (!params.enableRoutedSparseFastPath) {
                 AivOnlySync();
                 FinalizeGroupMetaAfterRecv(params.ptrGroupList, params.gmEpSendCount, params.gmExpertTokenNums);
                 AivOnlySync();
@@ -1916,7 +1916,7 @@ public:
 
         uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         uint32_t coreNum = AscendC::GetBlockNum();
-        bool sparseFastPath = params.enableRoutedSparseFastPath != 0;
+        bool sparseFastPath = params.enableRoutedSparseFastPath;
         AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
         AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
         AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;

@@ -206,7 +206,7 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     // shared expert, matmul
     Catlass::GemmCoord sharedProblemShape, GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale,
     GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareD, void *combiner, uint32_t expectedAivNum,
-    GM_ADDR gmX2ReadyState, GM_ADDR gmRoutedGroupMeta, uint32_t enableRoutedSparseFastPath,
+    GM_ADDR gmX2ReadyState, GM_ADDR gmRoutedGroupMeta, bool enableRoutedSparseFastPath,
     GM_ADDR gmRoutedActiveGroupCount, GM_ADDR gmRoutedActiveGroupIds, uint64_t weightExpertStrideBytes,
     FusedDeepMoeProfileWriter *profile)
 {

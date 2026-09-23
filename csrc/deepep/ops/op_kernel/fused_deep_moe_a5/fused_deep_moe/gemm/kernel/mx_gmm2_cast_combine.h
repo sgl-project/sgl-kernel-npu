@@ -84,7 +84,7 @@ public:
         GM_ADDR gmRoutedGroupMeta;
         GM_ADDR gmRoutedActiveGroupCount;
         GM_ADDR gmRoutedActiveGroupIds;
-        uint32_t enableRoutedSparseFastPath;
+        bool enableRoutedSparseFastPath;
         uint64_t weightExpertStrideBytes;
         FusedDeepMoeProfileWriter *profile;
 
@@ -134,7 +134,7 @@ public:
               gmRoutedGroupMeta(gmRoutedGroupMeta_),
               gmRoutedActiveGroupCount(gmRoutedActiveGroupCount_),
               gmRoutedActiveGroupIds(gmRoutedActiveGroupIds_),
-              enableRoutedSparseFastPath(0),
+              enableRoutedSparseFastPath(false),
               weightExpertStrideBytes(weightExpertStrideBytes_),
               profile(profile_)
         {}
@@ -237,7 +237,7 @@ public:
     {
         gmX2ReadyState = params.gmX2ReadyState;
         gmRoutedGroupMeta = params.gmRoutedGroupMeta;
-        bool sparseFastPath = params.enableRoutedSparseFastPath != 0;
+        bool sparseFastPath = params.enableRoutedSparseFastPath;
         AscendC::ICachePreLoad(1);
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(resource);
@@ -517,7 +517,7 @@ public:
         gmC.SetGlobalBuffer(params.ptrC);
         AscendC::GlobalTensor<ElementGroupList> groupList;
         groupList.SetGlobalBuffer(params.ptrGroupList);
-        bool sparseFastPath = params.enableRoutedSparseFastPath != 0;
+        bool sparseFastPath = params.enableRoutedSparseFastPath;
         AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
         AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
         AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;
