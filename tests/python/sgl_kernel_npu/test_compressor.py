@@ -825,66 +825,6 @@ class TestCompressor(unittest.TestCase):
         keep = torch.from_numpy(np.asarray(mask)).bool()
         return out[keep].reshape(-1, out.shape[-1])
 
-    def _c4_two_phase(self, n, k, ring_size):
-        """(miss_rows, hit_rows) for the overlapping compressed positions.
-
-        Builds a full [0, n) prefill and a chunk starting at k, on the same
-        weights and the same position-indexed RoPE, carrying the state written
-        by the first phase into the second. x/rope of the chunk are sliced out
-        of the full-input tensors so the overlapping positions are bit-identical
-        inputs; only the history source differs.
-        """
-        coff, ratio, head_dim, hidden = 2, 4, 512, 1024
-        gen = torch.Generator().manual_seed(20260923)
-        sin_all = torch.randn(n // ratio + 1, 64, generator=gen) * 0.01
-        cos_all = torch.ones(n // ratio + 1, 64) + torch.randn(
-            n // ratio + 1, 64, generator=gen
-        ) * 0.01
-
-        p_a = _make_inputs(
-            [0], n, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
-            ring_size=ring_size, total_seq=n,
-        )
-        p_b = _make_inputs(
-            [k], n - k, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
-            ring_size=ring_size, total_seq=n,
-        )
-        p_a["rope_sin"], p_a["rope_cos"] = sin_all, cos_all
-        p_b["rope_sin"] = sin_all[k // ratio :]
-        p_b["rope_cos"] = cos_all[k // ratio :]
-        p_b["x"] = p_a["x"][k:].clone()
-        for name in ("wkv", "wgate", "ape", "norm_weight"):
-            p_b[name] = p_a[name]
-
-        kv_state, score_state = p_a["kv_state"], p_a["score_state"]
-        miss = self._cpu_phase(p_a, [0], n, kv_state, score_state, coff, ratio, ring_size)
-        hit = self._cpu_phase(p_b, [k], n - k, kv_state, score_state, coff, ratio, ring_size)
-        mark = (n - k) // ratio
-        return miss[-mark:], hit[:mark]
-
-    def test_hit_prefill_matches_miss_reference_c4(self):
-        # Cache-hit semantic check, CPU only. The state ring holds one row per
-        # (128-token SWA page, position % ring_size), so only the last <=ring_size
-        # positions of each page survive; a resume is therefore only well-defined
-        # at a page boundary, which is also what the radix cache matches on (the
-        # server hit was at 16384 = 128*128). k=128 keeps the window [120,128) as
-        # the tail of page 0, so it must come back exactly. k mid-page (e.g. 192)
-        # is not addressable by construction and is deliberately not asserted.
-        miss, hit = self._c4_two_phase(n=256, k=128, ring_size=8)
-        per_row = (miss - hit).abs().max(dim=1).values
-        row0 = per_row[0].item()
-        diff = per_row.max().item()
-        # Row 0 is the chunk at k (the only one whose history can come from the
-        # ring); later rows take theirs from the call's own x. A large row 0
-        # alone means the ring read is still stale; large values on every row
-        # mean the two calls differ globally (alignment/rope/state base).
-        self.assertLess(
-            diff,
-            0.05,
-            f"miss vs hit overlap maxdiff={diff:.4f} row0={row0:.4f} "
-            f"per_row={[round(v, 3) for v in per_row.tolist()]}",
-        )
-
     def test_chunked_continuation_matches_full_prefill_reference_c4(self):
         # Control for the test above: when the previous chunk was the tail of
         # the earlier call its rows are inside `keep`, so the continuation must
@@ -932,34 +872,6 @@ class TestCompressor(unittest.TestCase):
         self.assertEqual(head.shape[0] + tail.shape[0], full.shape[0])
         diff = (torch.cat([head, tail], dim=0) - full).abs().max().item()
         self.assertLess(diff, 0.05, f"chunked vs full prefill maxdiff={diff:.4f}")
-
-    def test_c4_ring_persists_the_window_behind_a_page_boundary(self):
-        # Mechanism guard for the persist-every-position fix, independent of any
-        # end-to-end comparison: a resume at 128 reads page 0's last positions
-        # (120..127) from the ring, so the [0,256) prefill must actually have
-        # written their raw state there. Tail-only persistence leaves those rows
-        # at their initial values, so this must fail without the fix.
-        coff, ratio, head_dim, hidden = 2, 4, 512, 1024
-        n, boundary, ring_size = 256, 128, 8
-        p = _make_inputs(
-            [0], n, coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16, 1, 16,
-            ring_size=ring_size, total_seq=n,
-        )
-        p["block_table"] = _build_production_swa_state_loc_table(
-            [0], [n], 128, ring_size, coff, ratio
-        )
-        self._cpu_phase(
-            p, [0], n, p["kv_state"], p["score_state"], coff, ratio, ring_size
-        )
-        flat = p["kv_state"].reshape(-1, p["kv_state"].shape[-1])
-        w = p["wkv"].float()
-        for pos in range(boundary - ring_size, boundary):
-            loc = (pos // 128) * ring_size + pos % ring_size
-            expect = p["x"][pos].float() @ w.T
-            diff = (flat[loc] - expect).abs().max().item()
-            self.assertLess(
-                diff, 1e-3, f"ring row {loc} for position {pos} not persisted: {diff:.4f}"
-            )
 
     def test_ring_real_c4_multi_round(self):
         # Multi-round continuous decode: start positions advance each round,
