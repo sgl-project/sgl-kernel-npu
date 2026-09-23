@@ -506,6 +506,7 @@ def _make_inputs(
     block_size=16,
     seed=20260813,
     ring_size=None,
+    total_seq=None,
 ):
     gen = torch.Generator().manual_seed(seed)
     ww = coff * head_dim
@@ -536,12 +537,12 @@ def _make_inputs(
             # write/read overlaps can be exercised.
             state_block_size = ring_size
         capacities = [seq_len] * batch
-        # Enough banks so the explicit table never wraps within a round: each
-        # block (position // state_block_size) gets its own bank. Mirrors the
-        # A3 SWA mapping's unbounded page dimension (no position % ring wrap).
-        banks_per_batch = (
-            (max(start_pos) + seq_len + state_block_size - 1) // state_block_size + 1
-        )
+        # Enough banks so the explicit table never wraps: each block
+        # (position // state_block_size) gets its own bank, mirroring the A3 SWA
+        # mapping's unbounded page dimension. total_seq overrides the span for
+        # multi-round tests whose state buffer must cover the whole run.
+        total_pos = max(start_pos) + seq_len if total_seq is None else total_seq
+        banks_per_batch = (total_pos + state_block_size - 1) // state_block_size + 1
         block_table, block_num, _ = _build_explicit_state_loc_table(
             start_pos,
             capacities,
@@ -720,6 +721,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 2, 8, 4, 8
+        total_seq = 16 + rounds * capacity
         p0 = _make_inputs(
             [8, 16],
             capacity,
@@ -733,6 +735,7 @@ class TestCompressor(unittest.TestCase):
             batch,
             16,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
@@ -759,6 +762,7 @@ class TestCompressor(unittest.TestCase):
                 16,
                 seed=3000 + r,
                 ring_size=ring_size,
+                total_seq=total_seq,
             )
             block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
@@ -827,6 +831,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         capacity, ring_size = 8, 8
+        total_seq = 8 + capacity
         p0 = _make_inputs(
             [8],
             capacity,
@@ -840,6 +845,7 @@ class TestCompressor(unittest.TestCase):
             1,
             16,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
@@ -868,6 +874,7 @@ class TestCompressor(unittest.TestCase):
                     16,
                     seed=4000 + accepted * 10 + r,
                     ring_size=ring_size,
+                    total_seq=total_seq,
                 )
                 block_table = p["block_table"].npu()
                 cu_t = p["cu_seqlens"].npu()
@@ -938,6 +945,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 256, 8, 2, 8
+        total_seq = 8 + (batch - 1) * capacity + rounds * capacity
         p0 = _make_inputs(
             list(range(8, 8 + batch * capacity, capacity)),
             capacity,
@@ -951,6 +959,7 @@ class TestCompressor(unittest.TestCase):
             batch,
             ring_size,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
@@ -977,6 +986,7 @@ class TestCompressor(unittest.TestCase):
                 ring_size,
                 seed=5000 + r,
                 ring_size=ring_size,
+                total_seq=total_seq,
             )
             block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
