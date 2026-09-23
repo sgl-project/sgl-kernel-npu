@@ -536,13 +536,19 @@ def _make_inputs(
             # write/read overlaps can be exercised.
             state_block_size = ring_size
         capacities = [seq_len] * batch
+        # Enough banks so the explicit table never wraps within a round: each
+        # block (position // state_block_size) gets its own bank. Mirrors the
+        # A3 SWA mapping's unbounded page dimension (no position % ring wrap).
+        banks_per_batch = (
+            (max(start_pos) + seq_len + state_block_size - 1) // state_block_size + 1
+        )
         block_table, block_num, _ = _build_explicit_state_loc_table(
             start_pos,
             capacities,
             state_block_size,
             coff,
             cmp_ratio,
-            banks_per_batch=1,
+            banks_per_batch=banks_per_batch,
         )
     else:
         max_block = (max(start_pos) + seq_len + block_size - 1) // block_size
@@ -731,7 +737,6 @@ class TestCompressor(unittest.TestCase):
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
-        block_table = p0["block_table"].npu()
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
@@ -755,6 +760,7 @@ class TestCompressor(unittest.TestCase):
                 seed=3000 + r,
                 ring_size=ring_size,
             )
+            block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
@@ -769,7 +775,7 @@ class TestCompressor(unittest.TestCase):
                 p0["norm_weight"],
                 p["rope_sin"],
                 p["rope_cos"],
-                block_table=p0["block_table"],
+                block_table=p["block_table"],
                 cu_seqlens=cu_list,
                 seqused=[capacity, capacity],
                 start_pos=starts,
@@ -839,7 +845,6 @@ class TestCompressor(unittest.TestCase):
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
         norm_npu = p0["norm_weight"].npu()
-        block_table = p0["block_table"].npu()
         init_kv = p0["kv_state"]
         init_score = p0["score_state"]
         init_state = p0["state_cache"].clone().npu()
@@ -864,6 +869,7 @@ class TestCompressor(unittest.TestCase):
                     seed=4000 + accepted * 10 + r,
                     ring_size=ring_size,
                 )
+                block_table = p["block_table"].npu()
                 cu_t = p["cu_seqlens"].npu()
                 cu_list = p["cu_seqlens"].tolist()
                 update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
@@ -880,7 +886,7 @@ class TestCompressor(unittest.TestCase):
                     p0["norm_weight"],
                     p["rope_sin"],
                     p["rope_cos"],
-                    block_table=p0["block_table"],
+                    block_table=p["block_table"],
                     cu_seqlens=cu_list,
                     seqused=[valid],
                     start_pos=[start],
@@ -949,7 +955,6 @@ class TestCompressor(unittest.TestCase):
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
-        block_table = p0["block_table"].npu()
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
@@ -973,6 +978,7 @@ class TestCompressor(unittest.TestCase):
                 seed=5000 + r,
                 ring_size=ring_size,
             )
+            block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
@@ -987,7 +993,7 @@ class TestCompressor(unittest.TestCase):
                 p0["norm_weight"],
                 p["rope_sin"],
                 p["rope_cos"],
-                block_table=p0["block_table"],
+                block_table=p["block_table"],
                 cu_seqlens=cu_list,
                 seqused=[capacity] * batch,
                 start_pos=starts,
@@ -1763,9 +1769,11 @@ class TestCompressor(unittest.TestCase):
         ape = torch.randn(ratio, ww, generator=gen).float() * 0.01
         norm_weight = torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0
 
-        kv_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
-        sc_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
-        block_table = torch.arange(batch, dtype=torch.int32)
+        max_pos = start0 + (batch - 1) * ndraft + (steps - 1) * accept + ndraft
+        banks_per_batch = (max_pos + ring - 1) // ring + 1
+        block_num = batch * banks_per_batch + 1
+        kv_cpu = torch.randn(block_num, ring, ww, generator=gen).float() * 0.01
+        sc_cpu = torch.randn(block_num, ring, ww, generator=gen).float() * 0.01
         state_npu = torch.cat([kv_cpu, sc_cpu], dim=-1).clone().npu()
 
         rope_rows = min(batch * ndraft, batch * ndraft // ratio + batch)
@@ -1800,6 +1808,9 @@ class TestCompressor(unittest.TestCase):
                 torch.ones(rope_rows, 64)
                 + torch.randn(rope_rows, 64, generator=rng).float() * 0.01
             )
+            block_table = _build_explicit_state_loc_table(
+                committed, [ndraft] * batch, ring, coff, ratio, banks_per_batch
+            )[0]
 
             ref, ref_mask = _reference_compressor(
                 x,
