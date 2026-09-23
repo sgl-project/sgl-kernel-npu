@@ -150,18 +150,20 @@ wheel on A3 and run the same regression. Do not reuse an A5 wheel on A3.
 
 ## Isolate a remaining numerical failure
 
-The manual A5 run after the GEMM2 mask fix produced finite outputs and matching
-expert counts on all four ranks, but still failed: mean absolute errors were
-0.206055-0.261719 (limit 0.01). Matching counts do not validate token payloads,
-scales, matrix results or combine output. A5 numerical correctness remains
-unverified.
+The A5 run after the GEMM2 mask fix, before the routing synchronization fix,
+produced finite outputs and matching expert counts but mean errors of
+0.206055-0.261719 (limit 0.01). After installing `bc12a46`, the reported
+17-token reproduction passed all three repetitions on four ranks with mean
+errors of 0.001182556-0.001762390. All three single-device diagnostics below
+also passed on A5. The full-model logprob regression still fails; these
+standalone successes do not establish full-model correctness.
 
 Input dynamic quantization also lacked a V-to-S event between `ReduceMax` and
 the scalar `GetValue` that reads its result. `PIPE_V` only orders vector work;
 the kernel build disables automatic synchronization. Both full-load and
 gather paths now synchronize this dependency and wait for the scalar read
 before reusing the scale buffer on Vector. Before/after full-load tests both
-passed on A3, so this correction is not yet proven to resolve the A5 failure.
+passed on A3; the A5 distributed improvement above followed this correction.
 
 Run the following single-device diagnostics on A5 from this repository root.
 They compile the production headers directly, without installing a DeepEP
@@ -212,3 +214,48 @@ concurrent arithmetic requests and teacher-forced logprobs (mean absolute
 difference `< 0.1`, maximum `< 0.6`). Use the Qwen3.5 model override for the
 shared-expert regression. Performance and graph execution need separate
 validation; these commands make no performance claim.
+
+### Compare real MoE inputs when the standalone test passes
+
+The standalone reference feeds GEMM1's INT32 output into fused dequantization
+and SwiGLU. SGLang's unfused path instead rounds GEMM1's dequantized output to
+BF16 before activation. It also uses expert TP for the `none` backend and EP
+for FuseEP. A full-model comparison alone cannot isolate these differences
+from a kernel error.
+
+Run the diagnostic below in the same environment/checkpoint as the failing
+test. No wheel rebuild is required. It copies SGLang's Python sources to the
+new output directory, instruments mode 2 and runs the original regression.
+The installed sources, checkpoint, fused outputs, assertions and exit status
+are preserved. Allow approximately 70 MiB for the private source copy.
+
+```bash
+python tests/python/deepep/diagnose_sglang_fuseep.py \
+  --sglang-root /home/wzy/sgl-sglang \
+  --devices 0,1,2,3 \
+  --output-dir /tmp/fuseep-real-input-a5
+```
+
+The model defaults to the original test's configuration, including
+`SGLANG_TEST_MODEL_PATH`; use `--model /path/to/Qwen-MoE-W8A8` to override it.
+Choose free devices and a new output directory for each run. An unchanged
+full-model assertion failure is expected if the precision issue persists.
+
+For each layer and each first-seen prefill size (at least four local tokens
+by default), the diagnostic replays the same hidden states, expert IDs,
+router weights and loaded expert weights through two unfused INT8 references:
+
+- INT32 GEMM1, dequantization/SwiGLU/requantization, BF16 GEMM2 and combine.
+- BF16 GEMM1, SwiGLU/requantization, BF16 GEMM2 and combine.
+
+Both references explicitly request INT8, including on A5. They use a separate
+HCCL group and communication window and never replace the model's fused
+output. The report includes exact receive-count agreement, finite checks,
+absolute error, relative squared error and output magnitude. The reference
+comparison shares loaded weights/routing with the fused path; it does not
+independently validate checkpoint loading or the router.
+
+Collect `layer-summary.json`, `layers/rank*.jsonl`, `baseline.json`,
+`mode2.json` and `test-console.log` from the output directory. The per-layer
+data distinguishes a same-input operator discrepancy from accumulated
+full-model changes; it does not relax or replace the original precision test.
