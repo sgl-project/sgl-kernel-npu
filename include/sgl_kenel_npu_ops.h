@@ -87,7 +87,7 @@ at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
 
 void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y);
+                   at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
 
 at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
                          at::Tensor &lora_indices, at::Tensor &seq_len,

@@ -17,7 +17,7 @@ class TestLoraKernels(unittest.TestCase):
         dtype = torch.float16
         device_dtype = torch.float16
 
-        possible_lora_ranks = [16, 32, 64]
+        possible_lora_ranks = [8, 16, 32, 64]
         lora_ranks = random.sample(
             possible_lora_ranks,
             counts=[num_loras] * len(possible_lora_ranks),
@@ -76,10 +76,15 @@ class TestLoraKernels(unittest.TestCase):
             actual_output,
         )
 
-        actual_output_cpu = actual_output.to(dtype=dtype, device="cpu")
+        actual_output_cpu = actual_output.to(device="cpu")
 
         self.assertTrue(
-            torch.allclose(actual_output_cpu, expect_output, atol=1e-3, rtol=1e-3)
+            torch.allclose(
+                actual_output_cpu,
+                expect_output.to(dtype=torch.float),
+                atol=1e-3,
+                rtol=1e-3,
+            )
         )
 
     def test_sgemmv_expand(self):

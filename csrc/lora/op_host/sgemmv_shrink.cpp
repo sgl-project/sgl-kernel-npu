@@ -29,24 +29,24 @@ extern void sgemmv_shrink_impl(at::ScalarType type, void *stream, void *x, void 
                                uint32_t loraIndicesSize, void *seqLen, uint32_t seqLenSize, void *loraRanks,
                                uint32_t loraRanksSize, void *loraScales, uint32_t loraScalesSize, void *y,
                                uint32_t batchSize, uint32_t numTokensPerCore, uint32_t inputHiddenDim,
-                               uint32_t maxLoRARank)
+                               uint32_t maxLoRARank, uint32_t slicesCount)
 {
-    uint32_t blockDim = (batchSize + numTokensPerCore - 1) / numTokensPerCore;
+    uint32_t blockDim = (batchSize * slicesCount + numTokensPerCore - 1) / numTokensPerCore;
     if (type == at::ScalarType::Float) {
         return;
     } else if (type == at::ScalarType::BFloat16) {
         ACLRT_LAUNCH_KERNEL(sgemmv_shrink_bfloat16_t)
         (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize,
-         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank);
+         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank, slicesCount);
     } else {
         ACLRT_LAUNCH_KERNEL(sgemmv_shrink_half)
         (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize,
-         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank);
+         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank, slicesCount);
     }
 }
 
 HOST_API void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len,
-                            at::Tensor &lora_ranks, at::Tensor &lora_scales, at::Tensor &y)
+                            at::Tensor &lora_ranks, at::Tensor &lora_scales, at::Tensor &y, int64_t slices = 1)
 {
     at::ScalarType scalar_type = x.scalar_type();
     TORCH_CHECK(scalar_type == at::kHalf || scalar_type == at::kBFloat16, "only support half and bf16");
@@ -70,13 +70,14 @@ HOST_API void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_
     void *y_ptr = y.data_ptr();
     int batch_size = x.size(0);
     int input_hidden_token = x.size(1);
-    uint32_t max_lora_rank = y.size(1);
+    uint32_t slices_count = slices;
+    uint32_t max_lora_rank = y.size(1) / slices_count;
     aclrtStream stream = c10_npu::getCurrentNPUStream().stream();
     at_npu::native::OpCommand cmd;
     cmd.Name("sgemmv_shrink");
     cmd.SetCustomHandler([scalar_type, stream, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
                           seq_len_size, lora_ranks_ptr, lora_ranks_size, lora_scales_ptr, lora_scales_size, y_ptr,
-                          batch_size, input_hidden_token, max_lora_rank]() -> int {
+                          batch_size, input_hidden_token, max_lora_rank, slices_count]() -> int {
         int device_id = 0;
         int64_t aiv_num = 0;
         TORCH_CHECK(aclGetDeviceCapability(device_id, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &aiv_num) == ACL_SUCCESS);
@@ -84,7 +85,7 @@ HOST_API void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_
         TORCH_CHECK(num_tokens_per_core != 0, "num_tokens_per_core should not be 0");
         sgemmv_shrink_impl(scalar_type, stream, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
                            seq_len_size, lora_ranks_ptr, lora_ranks_size, lora_scales_ptr, lora_scales_size, y_ptr,
-                           batch_size, num_tokens_per_core, input_hidden_token, max_lora_rank);
+                           batch_size, num_tokens_per_core, input_hidden_token, max_lora_rank, slices_count);
         return 0;
     });
     cmd.Run();
