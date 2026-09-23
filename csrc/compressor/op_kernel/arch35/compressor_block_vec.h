@@ -631,6 +631,9 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
     } else {
         SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
     }
+    event_t eventId_V_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE2));
+    SetFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
+    WaitFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
     ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
                         static_cast<uint32_t>(IS_SCORE));
 
@@ -642,11 +645,17 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
     if (sliceInfo.compressTcSize > 0) {
         PadAlign(dstLocal, srcLocal, sliceInfo, dStartIdx, dDealSize);
         if constexpr (COMP::coff == COFF::OVERLAP) {
+            event_t eventId_MTE3_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_MTE2));
+            SetFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
+            WaitFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
             GlobalTensor<T> curCacheTcGm = cacheTcGm[info.c1v1DbIdx * cmpRatio_ * constInfo_.headDim];
             LoadFromWorkSpace(dstLocal, curCacheTcGm, srcGm, srcLocal, sliceInfo, loopInfo, dStartIdx, globalSeqIdx,
                               dDealSize);
         }
     }
+    event_t eventId_MTE2_V = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE2_V));
+    SetFlag<HardEvent::MTE2_V>(eventId_MTE2_V);
+    WaitFlag<HardEvent::MTE2_V>(eventId_MTE2_V);
 }
 
 template <typename COMP>
