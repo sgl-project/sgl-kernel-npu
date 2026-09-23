@@ -86,6 +86,37 @@ def _build_explicit_state_loc_table(
     return table, dummy_bank + 1, dummy_loc
 
 
+def _build_production_swa_state_loc_table(
+    start_pos, capacities, swa_page_size, ring_size, coff, cmp_ratio
+):
+    """The mapping sglang's NPU pool actually feeds the kernel:
+
+        state_loc = (swa_loc // swa_page_size) * ring_size + swa_loc % ring_size
+
+    (NPUCompressStatePool.translate_from_swa_loc_to_state_loc). The SWA pool is
+    contiguous per request, so swa_loc == token position. With the real
+    swa_page_size=128 and c4 ring_size=8 this reuses a row every 8 positions --
+    exactly the c4 overlap window. _build_explicit_state_loc_table instead gives
+    every block its own bank, so it never wraps and cannot catch this aliasing.
+    """
+    history_size = coff * cmp_ratio
+    max_capacity = max(max(capacities, default=0), 1)
+    max_position = max((sp + cap for sp, cap in zip(start_pos, capacities)), default=0)
+    dummy_loc = ((max_position // swa_page_size) + 1) * ring_size
+    table = torch.full(
+        (len(start_pos), history_size + max_capacity), dummy_loc, dtype=torch.int32
+    )
+    for batch_idx, (batch_start, capacity) in enumerate(zip(start_pos, capacities)):
+        for column in range(history_size + capacity):
+            position = batch_start - history_size + column
+            if position < 0:
+                continue
+            table[batch_idx, column] = (
+                position // swa_page_size
+            ) * ring_size + position % ring_size
+    return table
+
+
 def _explicit_state_loc(block_table, b_idx, seq_idx, batch_start_pos, history_size):
     table_column = history_size + seq_idx - batch_start_pos
     return int(block_table[b_idx, table_column])
@@ -707,6 +738,59 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         p = _make_inputs(
             [8], 128, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8
+        )
+        self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
+
+    def test_ring_real_c4_production_swa_table(self):
+        # The table sglang actually passes: state_loc reuses a row every 8
+        # positions (ring_size=8) inside each 128-slot SWA page, i.e. exactly the
+        # c4 overlap window. Every other ring test here gives each block its own
+        # bank, so those never wrap.
+        if not _is_arch35():
+            self.skipTest("A5 explicit state table only")
+        seq_len, swa_page_size, ring_size = 256, 128, 8
+        p = _make_inputs(
+            [0],
+            seq_len,
+            2,
+            4,
+            512,
+            1024,
+            2,
+            "TH",
+            torch.bfloat16,
+            1,
+            16,
+            ring_size=ring_size,
+        )
+        p["block_table"] = _build_production_swa_state_loc_table(
+            p["start_pos"], [seq_len], swa_page_size, ring_size, 2, 4
+        )
+        self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
+
+    def test_ring_real_c4_production_swa_table_prefix(self):
+        # Same production table with a cached-prefix chunk (start_pos > 0),
+        # mirroring the cache-hit path: the chunk's history is addressed in the
+        # preceding SWA page.
+        if not _is_arch35():
+            self.skipTest("A5 explicit state table only")
+        start_pos, seq_len, swa_page_size, ring_size = 16384, 256, 128, 8
+        p = _make_inputs(
+            [start_pos],
+            seq_len,
+            2,
+            4,
+            512,
+            1024,
+            2,
+            "TH",
+            torch.bfloat16,
+            1,
+            16,
+            ring_size=ring_size,
+        )
+        p["block_table"] = _build_production_swa_state_loc_table(
+            p["start_pos"], [seq_len], swa_page_size, ring_size, 2, 4
         )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
