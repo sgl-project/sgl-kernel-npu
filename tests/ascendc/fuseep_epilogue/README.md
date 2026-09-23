@@ -1,4 +1,4 @@
-# FuseEP per-token dequantization mask regression
+# FuseEP vector epilogue diagnostics
 
 This NPU test includes the production GEMM2 epilogue. It replaces only the
 HCCL peer-address lookup with a local GM buffer, so it needs one device and
@@ -18,6 +18,7 @@ cmake -S tests/ascendc/fuseep_epilogue -B build/fuseep-epilogue \
   -DCATLASS_ARCH=3510
 cmake --build build/fuseep-epilogue -j2
 ./build/fuseep-epilogue/test_epilogue 0
+./build/fuseep-epilogue/test_swiglu 0
 ```
 
 Use `-DCATLASS_ARCH=2201` in a separate build directory on A3. The last
@@ -29,3 +30,12 @@ NaNs in all nine restricted-mask cases. The corrected epilogue passes all
 18 cases. Both variants also compile for Ascend950 with CANN 9.1. These
 results establish the mask-state defect; they do not validate the complete
 A5 distributed operator or the SGLang regression.
+
+`test_swiglu` calls the production GEMM1 per-token dequantization, SwiGLU and
+INT8 requantization stage. It checks the output scales against independent CPU
+math with a relative tolerance of 2e-5 and allows at most one INT8 step for
+rounding at quantization midpoints. It poisons UB with NaNs and tests full and
+restricted masks, 1/3/17 rows, 256/1536/7168 gate/up columns and three repeated
+calls (54 cases). All 54 cases passed on A3 with exact INT8 results, and the
+test also compiled for Ascend950. This test does not include either GEMM or
+cross-rank communication. The distributed regression's tolerance is unchanged.

@@ -242,10 +242,12 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::Compute(LocalTensor<float> 
     PipeBarrier<PIPE_V>();
 
     ReduceMax(dynamicQuantLocal, tempLocal, tempLocal, this->cols_);
-    PipeBarrier<PIPE_V>();
+    // GetValue runs on Scalar; PIPE_V alone does not wait for the reduction.
+    SetWaitFlag<HardEvent::V_S>(HardEvent::V_S);
 
     float maxValue = dynamicQuantLocal.GetValue(0) / 127.0f;
 
+    SetWaitFlag<HardEvent::S_V>(HardEvent::S_V);
     Duplicate<float>(dynamicQuantLocal, maxValue, 8);
     Duplicate<float>(tempLocal, maxValue, this->cols_);
     PipeBarrier<PIPE_V>();

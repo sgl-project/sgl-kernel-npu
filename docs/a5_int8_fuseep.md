@@ -148,6 +148,49 @@ timeout 600s python tests/python/deepep/test_dispatch_ffn_combine.py \
 Also rebuild for A3 (`bash build.sh -a deepep Ascend910_9382`), install that
 wheel on A3 and run the same regression. Do not reuse an A5 wheel on A3.
 
+## Isolate a remaining numerical failure
+
+The manual A5 run after the GEMM2 mask fix produced finite outputs and matching
+expert counts on all four ranks, but still failed: mean absolute errors were
+0.206055-0.261719 (limit 0.01). Matching counts do not validate token payloads,
+scales, matrix results or combine output. A5 numerical correctness remains
+unverified.
+
+Input dynamic quantization also lacked a V-to-S event between `ReduceMax` and
+the scalar `GetValue` that reads its result. `PIPE_V` only orders vector work;
+the kernel build disables automatic synchronization. Both full-load and
+gather paths now synchronize this dependency and wait for the scalar read
+before reusing the scale buffer on Vector. Before/after full-load tests both
+passed on A3, so this correction is not yet proven to resolve the A5 failure.
+
+Run the following single-device diagnostics on A5 from this repository root.
+They compile the production headers directly, without installing a DeepEP
+wheel. The epilogue tests use the CATLASS headers fetched by the DeepEP build.
+Use a free device and pass its visible device index as the last argument.
+
+```bash
+cmake -S tests/ascendc/fuseep_routing -B build/fuseep-routing \
+  -DASC_DIR="$ASCEND_HOME_PATH/compiler/tikcpp/ascendc_kernel_cmake" \
+  -DCATLASS_ARCH=3510
+cmake --build build/fuseep-routing -j2
+./build/fuseep-routing/test_routing_quant 0
+
+cmake -S tests/ascendc/fuseep_epilogue -B build/fuseep-epilogue \
+  -DASC_DIR="$ASCEND_HOME_PATH/compiler/tikcpp/ascendc_kernel_cmake" \
+  -DCATLASS_ARCH=3510
+cmake --build build/fuseep-epilogue -j2
+./build/fuseep-epilogue/test_swiglu 0
+./build/fuseep-epilogue/test_epilogue 0
+```
+
+Save the complete outputs and exit codes. `test_routing_quant` checks the
+input INT8 values, scales, routing indices and expert counts exactly.
+`test_swiglu` isolates per-token dequantization, activation and requantization
+between the two GEMMs. `test_epilogue` checks GEMM2's per-token dequantization
+with exact reference values. These tests do not cover the INT8 matrix kernels,
+HCCL transport or final unpermute/combine; a pass narrows the investigation
+but does not replace the unchanged distributed regression above.
+
 ## SGLang regression
 
 With the corresponding SGLang #40516 changes and the rebuilt A5 wheel,

@@ -20,3 +20,12 @@ target_include_directories(test_epilogue PRIVATE
     ${CATLASS_INCLUDE_DIR} ${EPILOGUE_INCLUDE_DIR} $ENV{ASCEND_HOME_PATH}/include)
 target_link_directories(test_epilogue PRIVATE $ENV{ASCEND_HOME_PATH}/lib64)
 target_link_libraries(test_epilogue PRIVATE ascendcl)
+
+add_executable(test_swiglu test_swiglu.cpp)
+set_source_files_properties(test_swiglu.cpp PROPERTIES LANGUAGE ASC)
+target_compile_options(test_swiglu PRIVATE --npu-arch=dav-${CATLASS_ARCH} --cce-auto-sync=off)
+target_compile_definitions(test_swiglu PRIVATE CATLASS_ARCH=${CATLASS_ARCH})
+target_include_directories(test_swiglu PRIVATE
+    ${CATLASS_INCLUDE_DIR} ${EPILOGUE_INCLUDE_DIR} $ENV{ASCEND_HOME_PATH}/include)
+target_link_directories(test_swiglu PRIVATE $ENV{ASCEND_HOME_PATH}/lib64)
+target_link_libraries(test_swiglu PRIVATE ascendcl m)
