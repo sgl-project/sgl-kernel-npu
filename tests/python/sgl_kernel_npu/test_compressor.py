@@ -874,8 +874,19 @@ class TestCompressor(unittest.TestCase):
         # prefill never wrote and differs from the prefill's own rows for the
         # same positions.
         miss, hit = self._c4_two_phase(n=256, k=192, ring_size=8)
-        diff = (miss - hit).abs().max().item()
-        self.assertLess(diff, 0.05, f"miss vs hit overlap maxdiff={diff:.4f}")
+        per_row = (miss - hit).abs().max(dim=1).values
+        row0 = per_row[0].item()
+        diff = per_row.max().item()
+        # Row 0 is the chunk at k (the only one whose history can come from the
+        # ring); later rows take theirs from the call's own x. A large row 0
+        # alone means the ring read is still stale; large values on every row
+        # mean the two calls differ globally (alignment/rope/state base).
+        self.assertLess(
+            diff,
+            0.05,
+            f"miss vs hit overlap maxdiff={diff:.4f} row0={row0:.4f} "
+            f"per_row={[round(v, 3) for v in per_row.tolist()]}",
+        )
 
     def test_chunked_continuation_matches_full_prefill_reference_c4(self):
         # Control for the test above: when the previous chunk was the tail of
