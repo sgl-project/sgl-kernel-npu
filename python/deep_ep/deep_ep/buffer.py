@@ -30,7 +30,6 @@ TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
 class Buffer:
 
     num_sms: int = 20
-    FuseMode = FuseMode
 
     def __init__(
         self,
