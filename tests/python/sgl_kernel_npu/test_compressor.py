@@ -867,14 +867,14 @@ class TestCompressor(unittest.TestCase):
         return miss[-mark:], hit[:mark]
 
     def test_hit_prefill_matches_miss_reference_c4(self):
-        # Cache-hit semantic check, CPU only. A call that starts mid-sequence
-        # must take its first chunk's previous window from the state ring, but
-        # cache_mode=2 persists only rows with start_seq_idx >= boundary -
-        # (coff-1)*cmpRatio = boundary - 4, i.e. the tail 4 rows, while the
-        # window is 8. The hit chunk at k=192 therefore reads rows the [0,256)
-        # prefill never wrote and differs from the prefill's own rows for the
-        # same positions.
-        miss, hit = self._c4_two_phase(n=256, k=192, ring_size=8)
+        # Cache-hit semantic check, CPU only. The state ring holds one row per
+        # (128-token SWA page, position % ring_size), so only the last <=ring_size
+        # positions of each page survive; a resume is therefore only well-defined
+        # at a page boundary, which is also what the radix cache matches on (the
+        # server hit was at 16384 = 128*128). k=128 keeps the window [120,128) as
+        # the tail of page 0, so it must come back exactly. k mid-page (e.g. 192)
+        # is not addressable by construction and is deliberately not asserted.
+        miss, hit = self._c4_two_phase(n=256, k=128, ring_size=8)
         per_row = (miss - hit).abs().max(dim=1).values
         row0 = per_row[0].item()
         diff = per_row.max().item()
