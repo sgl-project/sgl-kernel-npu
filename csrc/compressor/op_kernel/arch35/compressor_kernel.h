@@ -473,10 +473,15 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        if constexpr (COMP::coff == COFF::DISABLE) {
-            SyncAll();
-            blockVec_.CommitState(info);
-        }
+        SyncAll();
+        blockVec_.CommitState(info);
+        // CommitState just queued MTE3 writes into the state ring, and the next
+        // iteration's ReadState loads the same rows again through MTE2. Without
+        // this barrier those loads can race the in-flight writes, which makes
+        // the compressor nondeterministic for identical inputs.
+        event_t eventId_MTE3_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_MTE2));
+        SetFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
+        WaitFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
         // AIV publishes the generation it just finished (bypass DCache)
         AscendC::WriteGmByPassDCache(
             (__gm__ uint32_t *)readGenGm.GetPhyAddr() + GetBlockIdx() * constInfo.dbWorkspaceRatio + info.c1v1DbIdx,
