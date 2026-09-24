@@ -70,6 +70,11 @@ struct CausalConv1dTilingKey {
     int64_t hasCacheIndices;
     int64_t hasInitialState;
     int64_t hasNumAccept;
+    // The tiling data carries dtypeKey (bf16 vs fp16 kernel instantiation),
+    // so the dtype MUST be part of the cache key: without it, an fp16 call
+    // would register a tiling that a later bf16 call with identical shapes
+    // silently reuses, dispatching the half kernel over bfloat16 data.
+    int64_t isBf16;
 };
 
 struct CausalConv1dTilingKeyHash {
@@ -97,6 +102,7 @@ struct CausalConv1dTilingKeyHash {
         h = HashCombine(h, static_cast<std::size_t>(k.hasCacheIndices));
         h = HashCombine(h, static_cast<std::size_t>(k.hasInitialState));
         h = HashCombine(h, static_cast<std::size_t>(k.hasNumAccept));
+        h = HashCombine(h, static_cast<std::size_t>(k.isBf16));
         return h;
     }
 };
@@ -365,7 +371,8 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
                               hasBias ? 1 : 0,
                               hasCacheIndices ? 1 : 0,
                               hasInitialState ? 1 : 0,
-                              hasNumAccept ? 1 : 0};
+                              hasNumAccept ? 1 : 0,
+                              isBf16 ? 1 : 0};
     uint64_t hashValue = CausalConv1dTilingKeyHash{}(key);
 
     static auto globalTilingBuffer = at::empty({tilingSize * static_cast<int64_t>(MAX_CAPTURE_NUM)},
