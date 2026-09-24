@@ -473,8 +473,10 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        SyncAll();
-        blockVec_.CommitState(info);
+        if constexpr (COMP::coff == COFF::DISABLE) {
+            SyncAll();
+            blockVec_.CommitState(info);
+        }
         // AIV publishes the generation it just finished (bypass DCache)
         AscendC::WriteGmByPassDCache(
             (__gm__ uint32_t *)readGenGm.GetPhyAddr() + GetBlockIdx() * constInfo.dbWorkspaceRatio + info.c1v1DbIdx,

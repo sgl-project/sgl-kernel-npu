@@ -314,10 +314,7 @@ def _reference_compressor(
             # re-read raw rows between the accepted position and this round's
             # compress boundary. Keep the extra tail rows the ring can hold
             # beyond one window (mirrors sglang mtp_pad): pad = ring-window+2.
-            if cache_mode == 1 or coff == 2:
-                # EXPLICIT c4 persists every position (mirrors arch35 SaveState):
-                # each page then keeps its own last <= ring_size positions, which
-                # is the window a page-aligned resume reads.
+            if cache_mode == 1:
                 save_flag = True
             else:
                 window = (2 if coff == 2 else 1) * cmp_ratio
