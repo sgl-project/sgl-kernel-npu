@@ -387,8 +387,7 @@ def split_qkv_rmsnorm_rope(
 ):
     _, num_vectorcore = get_device_properties()
 
-    KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
-    assert KV_BLOCK_SIZE == head_dim
+    KV_BLOCK_SIZE = head_dim
     assert q_hidden_size % kv_hidden_size == 0
     Q_BLOCK_SIZE = q_hidden_size // kv_hidden_size * head_dim
     batch_size = input.shape[0]
