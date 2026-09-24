@@ -620,17 +620,13 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
         AddApeToScore(srcLocal, apeUb, sliceInfo, dDealSize);
         PipeBarrier<PIPE_V>();
     }
-    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        if constexpr (COMP::coff == COFF::OVERLAP) {
-            SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                      static_cast<uint32_t>(IS_SCORE));
-        }
-        // C128 (DISABLE) defers its state commit to the kernel-level SyncAll
-        // (CommitState), because explicit locations can map the history head and
-        // the new tail onto the same physical ring rows.
-    } else {
+    if constexpr (COMP::cacheMode != CACHE_MODE::EXPLICIT) {
         SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
     }
+    // EXPLICIT locations can map the history head and the new tail onto the same
+    // physical ring rows, so the commit is deferred to the kernel-level SyncAll
+    // (CommitState) for every ratio: the ReadState below must observe the old
+    // history.
     event_t eventId_V_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE2));
     SetFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
     WaitFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
