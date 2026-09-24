@@ -294,7 +294,9 @@ void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNu
 
     td.postWuScratchOffset = AlignWorkspace(cursor);
     if (!arch35Options.fusePostWu && !arch35Options.fusePostWuIntoFwdH) {
-        cursor = td.postWuScratchOffset + tokenHeads * kDim * sizeof(float);
+        // PostWU addresses W scratch by padded chunk index, not packed token index.
+        const uint64_t paddedTokenHeads = static_cast<uint64_t>(batch) * hvNum * totalChunks * chunkSize;
+        cursor = td.postWuScratchOffset + paddedTokenHeads * kDim * sizeof(float);
     }
 
     td.fwdHWorkspaceBaseOffset = AlignWorkspace(cursor);

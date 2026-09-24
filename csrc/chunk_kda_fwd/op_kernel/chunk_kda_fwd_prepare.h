@@ -1913,7 +1913,12 @@ private:
             LocalTensor<float> arena = vecBuf_.Get<float>();
             LocalTensor<float> aqkLocal = arena;
             LocalTensor<float> akkLocal = arena[matrixElems];
-            const uint64_t typedOffset = (2 * matrixElems + qgElems) * sizeof(float) / sizeof(T);
+            // The diagonal has no gate contribution: exp(g_i - g_i) == 1.
+            // Reserve FP32 scratch to avoid multiplying two separately rounded
+            // BF16 gate factors for this numerically dominant score term.
+            const uint64_t diagonalScratch = 3 * K_ + 8;
+            const uint64_t scratchElems = qgElems > diagonalScratch ? qgElems : diagonalScratch;
+            const uint64_t typedOffset = (2 * matrixElems + scratchElems) * sizeof(float) / sizeof(T);
             LocalTensor<T> typedBase = vecBuf_.Get<T>()[typedOffset];
             LocalTensor<T> aqkTyped = typedBase;
             LocalTensor<T> akkTyped = typedBase[matrixElems];
@@ -1925,6 +1930,24 @@ private:
             SetFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
             WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
 
+            LocalTensor<float> qLocal = arena[2 * matrixElems];
+            LocalTensor<float> kLocal = qLocal[K_];
+            LocalTensor<float> reduceLocal = qLocal[2 * K_];
+            LocalTensor<float> sumLocal = qLocal[3 * K_];
+            const uint64_t h = hv / (HV_ / H_);
+            for (uint64_t row = 0; row < rows; ++row) {
+                const uint64_t token = start + tileRow + row;
+                LoadAsFloatRow(q_, QOffset(b, h, token, 0), qLocal, K_);
+                LoadAsFloatRow(k_, QOffset(b, h, token, 0), kLocal, K_);
+                Mul(qLocal, qLocal, kLocal, static_cast<uint32_t>(K_));
+                PipeBarrier<PIPE_V>();
+                ReduceSum(sumLocal, qLocal, reduceLocal, static_cast<int32_t>(K_));
+                SetFlag<HardEvent::V_S>(EXP2_EVENT_ID);
+                WaitFlag<HardEvent::V_S>(EXP2_EVENT_ID);
+                aqkLocal.SetValue(row * BT_ + tileRow + row, sumLocal.GetValue(0));
+                SetFlag<HardEvent::S_V>(EXP2_EVENT_ID);
+                WaitFlag<HardEvent::S_V>(EXP2_EVENT_ID);
+            }
             Muls(aqkLocal, aqkLocal, scale_, static_cast<uint32_t>(matrixElems));
             PipeBarrier<PIPE_V>();
             ClampFp32ToOutputType(aqkLocal, static_cast<uint32_t>(matrixElems));

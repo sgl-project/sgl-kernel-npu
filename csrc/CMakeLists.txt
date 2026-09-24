@@ -390,11 +390,13 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host
         ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_kernel
+        # Prefer the selected CANN SDK's GE headers over torch_npu's bundled
+        # copies; mixing both versions causes graph status redefinitions.
+        ${ASCEND_INCLUDE_DIR}
+        ${ASCEND_INCLUDE_DIR}/external
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
-        ${ASCEND_INCLUDE_DIR}
-        ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
         ${ASCEND_DRIVER_PATH}/include
