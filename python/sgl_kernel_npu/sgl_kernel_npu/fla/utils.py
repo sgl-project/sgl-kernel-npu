@@ -5,7 +5,8 @@
 import contextlib
 import functools
 import os
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections import OrderedDict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 import triton
@@ -14,6 +15,9 @@ import triton.language.extra.libdevice as tldevice
 
 is_gather_supported = hasattr(triton.language, "gather")
 SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
+# Cross-layer GDN chunk meta / prepare_* cache. Content-keyed (not data_ptr).
+_GDN_META_CACHE = os.getenv("SGLANG_NPU_GDN_META_CACHE", "1") != "0"
+_GDN_META_CACHE_SIZE = max(1, int(os.getenv("SGLANG_NPU_GDN_META_CACHE_SIZE", "16")))
 
 if os.environ.get("FLA_USE_FAST_OPS", "0") == "1":
     exp = tldevice.fast_expf
@@ -145,32 +149,211 @@ def tensor_cache(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]
     return wrapper
 
 
-@tensor_cache
-def prepare_lens(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
-    cu_seqlens_i64 = cu_seqlens.to(torch.int64)
-    return cu_seqlens_i64[1:] - cu_seqlens_i64[:-1]
+# ---------------------------------------------------------------------------
+# Cross-layer GDN prepare_* caches (content key; not data_ptr).
+# Same cu_seqlens values across GDN layers reuse indices/offsets / CPU lens.
+# ---------------------------------------------------------------------------
+_CU_LENS_SESSION: Dict[str, Any] = {
+    "tensor": None,
+    "key": None,
+    "cpu": None,
+}
+_CU_LENS_CPU_CACHE: "OrderedDict[Tuple[int, ...], List[int]]" = OrderedDict()
+_PREPARE_LENS_CACHE: "OrderedDict[Tuple, torch.Tensor]" = OrderedDict()
+_CHUNK_INDICES_CACHE: "OrderedDict[Tuple, torch.Tensor]" = OrderedDict()
+_CHUNK_OFFSETS_CACHE: "OrderedDict[Tuple, torch.Tensor]" = OrderedDict()
+_AD_WORKSPACE_CACHE: "OrderedDict[Tuple, torch.Tensor]" = OrderedDict()
 
 
-@tensor_cache
-def prepare_chunk_indices(
-    cu_seqlens: torch.LongTensor, chunk_size: int
+def _lru_get(cache: OrderedDict, key: Tuple) -> Any:
+    value = cache.get(key)
+    if value is not None:
+        cache.move_to_end(key)
+    return value
+
+
+def _lru_put(cache: OrderedDict, key: Tuple, value: Any) -> Any:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > _GDN_META_CACHE_SIZE:
+        cache.popitem(last=False)
+    return value
+
+
+def _device_key(device: torch.device) -> Tuple[str, int]:
+    index = device.index if device.index is not None else -1
+    return device.type, index
+
+
+def cached_cu_lens_cpu(cu_seqlens: torch.Tensor) -> Tuple[Tuple[int, ...], List[int]]:
+    """D2H once per distinct cu_seqlens content; same Python object hits session."""
+    if (
+        _GDN_META_CACHE
+        and _CU_LENS_SESSION["tensor"] is cu_seqlens
+        and _CU_LENS_SESSION["key"] is not None
+    ):
+        return _CU_LENS_SESSION["key"], _CU_LENS_SESSION["cpu"]
+
+    cpu = [int(x) for x in cu_seqlens.detach().cpu().tolist()]
+    key = tuple(cpu)
+
+    if _GDN_META_CACHE:
+        cached = _lru_get(_CU_LENS_CPU_CACHE, key)
+        if cached is not None:
+            cpu = cached
+        else:
+            _lru_put(_CU_LENS_CPU_CACHE, key, cpu)
+        _CU_LENS_SESSION["tensor"] = cu_seqlens
+        _CU_LENS_SESSION["key"] = key
+        _CU_LENS_SESSION["cpu"] = cpu
+
+    return key, cpu
+
+
+def _prepare_lens_uncached(
+    cu_seqlens: torch.LongTensor, cpu: Optional[List[int]] = None
 ) -> torch.LongTensor:
-    indices = torch.cat(
-        [
-            torch.arange(n)
-            for n in triton.cdiv(prepare_lens(cu_seqlens), chunk_size).tolist()
+    if cpu is None:
+        cu_seqlens_i64 = cu_seqlens.to(torch.int64)
+        return cu_seqlens_i64[1:] - cu_seqlens_i64[:-1]
+    lens = [cpu[i + 1] - cpu[i] for i in range(len(cpu) - 1)]
+    return torch.tensor(lens, dtype=torch.int64, device=cu_seqlens.device)
+
+
+def prepare_lens(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
+    if not _GDN_META_CACHE:
+        return _prepare_lens_uncached(cu_seqlens)
+
+    content_key, cpu = cached_cu_lens_cpu(cu_seqlens)
+    cache_key = (content_key, _device_key(cu_seqlens.device))
+    cached = _lru_get(_PREPARE_LENS_CACHE, cache_key)
+    if cached is not None:
+        return cached
+    result = _prepare_lens_uncached(cu_seqlens, cpu=cpu)
+    return _lru_put(_PREPARE_LENS_CACHE, cache_key, result)
+
+
+def _prepare_chunk_indices_uncached(
+    cu_seqlens: torch.LongTensor,
+    chunk_size: int,
+    cpu: Optional[List[int]] = None,
+) -> torch.LongTensor:
+    if cpu is None:
+        n_chunks = triton.cdiv(prepare_lens(cu_seqlens), chunk_size).tolist()
+    else:
+        n_chunks = [
+            triton.cdiv(cpu[i + 1] - cpu[i], chunk_size) for i in range(len(cpu) - 1)
         ]
-    )
+    indices = torch.cat([torch.arange(n) for n in n_chunks])
     return torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(cu_seqlens)
 
 
-@tensor_cache
+def prepare_chunk_indices(
+    cu_seqlens: torch.LongTensor, chunk_size: int
+) -> torch.LongTensor:
+    if not _GDN_META_CACHE:
+        return _prepare_chunk_indices_uncached(cu_seqlens, chunk_size)
+
+    content_key, cpu = cached_cu_lens_cpu(cu_seqlens)
+    cache_key = (
+        content_key,
+        int(chunk_size),
+        _device_key(cu_seqlens.device),
+        cu_seqlens.dtype,
+    )
+    cached = _lru_get(_CHUNK_INDICES_CACHE, cache_key)
+    if cached is not None:
+        return cached
+    result = _prepare_chunk_indices_uncached(cu_seqlens, chunk_size, cpu=cpu)
+    return _lru_put(_CHUNK_INDICES_CACHE, cache_key, result)
+
+
+def _prepare_chunk_offsets_uncached(
+    cu_seqlens: torch.LongTensor,
+    chunk_size: int,
+    cpu: Optional[List[int]] = None,
+) -> torch.LongTensor:
+    if cpu is None:
+        return torch.cat(
+            [
+                cu_seqlens.new_tensor([0]),
+                triton.cdiv(prepare_lens(cu_seqlens), chunk_size),
+            ]
+        ).cumsum(-1)
+    n_chunks = [
+        triton.cdiv(cpu[i + 1] - cpu[i], chunk_size) for i in range(len(cpu) - 1)
+    ]
+    n_chunks_t = torch.tensor(n_chunks, dtype=torch.int64, device=cu_seqlens.device)
+    return torch.cat([cu_seqlens.new_tensor([0]), n_chunks_t]).cumsum(-1)
+
+
 def prepare_chunk_offsets(
     cu_seqlens: torch.LongTensor, chunk_size: int
 ) -> torch.LongTensor:
-    return torch.cat(
-        [cu_seqlens.new_tensor([0]), triton.cdiv(prepare_lens(cu_seqlens), chunk_size)]
-    ).cumsum(-1)
+    if not _GDN_META_CACHE:
+        return _prepare_chunk_offsets_uncached(cu_seqlens, chunk_size)
+
+    content_key, cpu = cached_cu_lens_cpu(cu_seqlens)
+    cache_key = (
+        content_key,
+        int(chunk_size),
+        _device_key(cu_seqlens.device),
+        cu_seqlens.dtype,
+    )
+    cached = _lru_get(_CHUNK_OFFSETS_CACHE, cache_key)
+    if cached is not None:
+        return cached
+    result = _prepare_chunk_offsets_uncached(cu_seqlens, chunk_size, cpu=cpu)
+    return _lru_put(_CHUNK_OFFSETS_CACHE, cache_key, result)
+
+
+def get_gdn_ad_workspace(
+    B: int,
+    T: int,
+    H: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Reuse Ad scratch across GDN layers when shape matches; content is rewritten."""
+    if not _GDN_META_CACHE:
+        return torch.empty(B, T, H, 16, device=device, dtype=dtype)
+
+    cache_key = (int(B), int(T), int(H), _device_key(device), dtype)
+    cached = _lru_get(_AD_WORKSPACE_CACHE, cache_key)
+    if cached is not None and cached.numel() == B * T * H * 16:
+        return cached
+    Ad = torch.empty(B, T, H, 16, device=device, dtype=dtype)
+    return _lru_put(_AD_WORKSPACE_CACHE, cache_key, Ad)
+
+
+def clear_gdn_meta_cache() -> None:
+    """Drop all cross-layer GDN meta / prepare_* / mega scratch cache entries."""
+    _CU_LENS_SESSION["tensor"] = None
+    _CU_LENS_SESSION["key"] = None
+    _CU_LENS_SESSION["cpu"] = None
+    _CU_LENS_CPU_CACHE.clear()
+    _PREPARE_LENS_CACHE.clear()
+    _CHUNK_INDICES_CACHE.clear()
+    _CHUNK_OFFSETS_CACHE.clear()
+    _AD_WORKSPACE_CACHE.clear()
+    try:
+        from sgl_kernel_npu.fla.mega_chunk_gdn import clear_mega_workspace_cache
+
+        clear_mega_workspace_cache()
+    except ImportError:
+        pass
+
+
+def set_gdn_meta_cache(enabled: bool) -> None:
+    """Runtime toggle for profilers / A-B tests (overrides env for this process)."""
+    global _GDN_META_CACHE
+    _GDN_META_CACHE = bool(enabled)
+    if not _GDN_META_CACHE:
+        clear_gdn_meta_cache()
+
+
+def is_gdn_meta_cache_enabled() -> bool:
+    return bool(_GDN_META_CACHE)
 
 
 @tensor_cache
