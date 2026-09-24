@@ -133,7 +133,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bool output_kg=False, bool output_v_new=False, bool output_h=False) "
         "-> (Tensor, Tensor?, Tensor?, Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?, Tensor?)");
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "sgl_sparse_flash_attention(Tensor query, Tensor key, Tensor value, "
         "Tensor sparse_indices, float scale_value, *, Tensor? block_table=None, "
@@ -144,6 +143,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
         "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
@@ -363,9 +363,9 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
