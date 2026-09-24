@@ -656,7 +656,14 @@ def prepare_scene_weights(
         ),
         flush=True,
     )
-    weights = {**baseline_weights, **fused_weights, "quant_mode": quant_mode}
+    weights = {
+        **baseline_weights,
+        **fused_weights,
+        "quant_mode": quant_mode,
+        # Both w4a8 and w8a8 keep the dispatch path quantized to int8
+        # (COMM_QUANT_MODE_INT8); the deep_ep API expresses this via quant_mode=1.
+        "api_quant_mode": 1,
+    }
     if include_baseline:
         weights["source"] = source
     return weights
@@ -992,6 +999,7 @@ def run_fused_reference(
         gmm2_weight_scale=weights["fused_l2_scales"],
         num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         num_experts=num_experts,
+        quant_mode=weights["api_quant_mode"],
         fuse_mode=FuseMode.MEGA_MOE,
         activation=activation,
         beta=beta,
