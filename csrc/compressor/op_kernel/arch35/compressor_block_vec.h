@@ -621,13 +621,10 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
         PipeBarrier<PIPE_V>();
     }
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        if constexpr (COMP::coff == COFF::OVERLAP) {
-            SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                      static_cast<uint32_t>(IS_SCORE));
-        }
-        // C128 (DISABLE) defers its state commit to the kernel-level SyncAll
-        // (CommitState), because explicit locations can map the history head and
-        // the new tail onto the same physical ring rows.
+        // EXPLICIT commits every ratio from CommitState after the kernel-wide
+        // SyncAll (see ComputeVec1). A row is `pos % ring_size`, so an inline
+        // write here would clobber the (pos - ring_size) row this same slice's
+        // ReadState still has to read.
     } else {
         SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
     }
@@ -884,28 +881,34 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
     uint64_t srcBaseOffset = sliceInfo.dealedSeqCnt * coff_ * dDealSize;
 
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        // Rows strictly before the compress boundary become c-state and do not
-        // need to stay in the raw ring -- EXCEPT during MTP verify, where a
-        // partially-accepted round must be able to re-compress from the
-        // actually-accepted offset and therefore re-reads raw rows that were
-        // between the accepted position and this round's compress boundary.
-        // Keep those extra tail rows the ring can hold beyond one window
-        // (mirrors sglang's get_compress_state_write_pad / c_plan `mtp_pad`):
-        //     pad = ring - window + 2   (0 when ring <= window)
-        const uint32_t window = (coff_ == 2U ? 2U : 1U) * cmpRatio_;
-        const uint32_t pad = constInfo_.blockSize > window ? constInfo_.blockSize - window + 2U : 0U;
-        const uint32_t batchEnd = sliceInfo.bStartPos + sliceInfo.bSeqUsed;
-        const uint32_t compressSeqIdx = Trunc(batchEnd, cmpRatio_);
-        uint32_t writeSeqStartIdx =
-            compressSeqIdx > (coff_ - 1U) * cmpRatio_ ? compressSeqIdx - (coff_ - 1U) * cmpRatio_ : 0U;
-        if (pad != 0U) {
-            writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
+        if constexpr (COMP::coff == COFF::DISABLE) {
+            // Rows strictly before the compress boundary become c-state and do
+            // not need to stay in the raw ring -- EXCEPT during MTP verify, where
+            // a partially-accepted round must be able to re-compress from the
+            // actually-accepted offset and therefore re-reads raw rows that were
+            // between the accepted position and this round's compress boundary.
+            // Keep those extra tail rows the ring can hold beyond one window
+            // (mirrors sglang's get_compress_state_write_pad / c_plan `mtp_pad`):
+            //     pad = ring - window + 2   (0 when ring <= window)
+            const uint32_t window = (coff_ == 2U ? 2U : 1U) * cmpRatio_;
+            const uint32_t pad = constInfo_.blockSize > window ? constInfo_.blockSize - window + 2U : 0U;
+            const uint32_t batchEnd = sliceInfo.bStartPos + sliceInfo.bSeqUsed;
+            const uint32_t compressSeqIdx = Trunc(batchEnd, cmpRatio_);
+            uint32_t writeSeqStartIdx =
+                compressSeqIdx > (coff_ - 1U) * cmpRatio_ ? compressSeqIdx - (coff_ - 1U) * cmpRatio_ : 0U;
+            if (pad != 0U) {
+                writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
+            }
+            if (endSeqIdx <= writeSeqStartIdx) {
+                return;
+            }
+            srcBaseOffset += (max(startSeqIdx, writeSeqStartIdx) - startSeqIdx) * coff_ * dDealSize;
+            startSeqIdx = max(startSeqIdx, writeSeqStartIdx);
         }
-        if (endSeqIdx <= writeSeqStartIdx) {
-            return;
-        }
-        srcBaseOffset += (max(startSeqIdx, writeSeqStartIdx) - startSeqIdx) * coff_ * dDealSize;
-        startSeqIdx = max(startSeqIdx, writeSeqStartIdx);
+        // C4 (OVERLAP) persists every row: each 128-token page then ends up
+        // holding its own last <= ring_size positions, which is the window a
+        // page-aligned resume reads. Safe only because the commit is deferred to
+        // CommitState, i.e. after every ReadState of this call.
     }
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
