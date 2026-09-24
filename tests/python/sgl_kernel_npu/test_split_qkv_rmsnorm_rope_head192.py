@@ -8,6 +8,7 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 # end-to-end model-quality or performance acceptance threshold.
 ATOL = 5e-2
 CACHE_DTYPES = (torch.float32, torch.bfloat16)
+HEAD_DIMS = (64, 96, 128, 160, 192, 256, 384)
 
 
 def _make_case(
@@ -131,13 +132,16 @@ def _assert_outputs(outputs, expected):
 
 
 @pytest.mark.parametrize("cache_dtype", CACHE_DTYPES, ids=("fp32", "bf16"))
+@pytest.mark.parametrize("head_dim", HEAD_DIMS)
 @pytest.mark.parametrize(
     "tokens,heads",
     [(1, 1), (8, 2), (33, 4), (8, 8), (1, 16), (8, 32), (1, 64), (0, 4)],
 )
-def test_head192_public_host_shapes(tokens, heads, cache_dtype):
+def test_public_host_shapes(tokens, heads, head_dim, cache_dtype):
     # Local head counts exercise valid tensor partitions, not TP communication.
-    case = _make_case(tokens, heads, cache_dtype=cache_dtype, seed=tokens + heads)
+    case = _make_case(
+        tokens, heads, head_dim=head_dim, cache_dtype=cache_dtype, seed=tokens + heads
+    )
     outputs = split_qkv_rmsnorm_rope(**_to_device(case))
     torch.npu.synchronize()
     _assert_outputs(outputs, _reference(case))
