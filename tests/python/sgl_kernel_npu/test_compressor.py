@@ -355,6 +355,57 @@ def _reference_compressor(
                     history_size=coff * cmp_ratio,
                 )
 
+            # Mirror the kernel's page-tail coverage: a resume at a state page
+            # boundary re-reads the page's trailing `ring` positions from the
+            # ring, and the tail clip above never writes them mid-call. Same
+            # ring-ahead predicate as the kernel: inside a page position q and
+            # q+ring share a ring row, past the page end they differ.
+            if cache_mode == 2 and coff == 2:
+                ring = kv_state.shape[1]
+                scan_end = min(end_seq_idx, batch_start_pos + batch_seq_used - ring)
+                for pos in range(start_seq_idx, scan_end):
+                    loc_here = _explicit_state_loc(
+                        block_table,
+                        b_idx,
+                        pos,
+                        batch_start_pos,
+                        coff * cmp_ratio,
+                    )
+                    loc_ahead = _explicit_state_loc(
+                        block_table,
+                        b_idx,
+                        pos + ring,
+                        batch_start_pos,
+                        coff * cmp_ratio,
+                    )
+                    if loc_ahead == loc_here:
+                        continue
+                    rel = start_offset + (pos - start_seq_idx)
+                    _write_state_page_cache(
+                        kv_state,
+                        update_kv,
+                        new_kv_state[rel : rel + 1, :],
+                        b_idx,
+                        pos,
+                        pos + 1,
+                        block_table,
+                        cache_mode=cache_mode,
+                        batch_start_pos=batch_start_pos,
+                        history_size=coff * cmp_ratio,
+                    )
+                    _write_state_page_cache(
+                        score_state,
+                        update_score,
+                        new_score_state[rel : rel + 1, :],
+                        b_idx,
+                        pos,
+                        pos + 1,
+                        block_table,
+                        cache_mode=cache_mode,
+                        batch_start_pos=batch_start_pos,
+                        history_size=coff * cmp_ratio,
+                    )
+
             if compress_flag:
                 sc_kv_state = np.zeros(
                     shape=(coff, cmp_ratio, head_dim), dtype=matmul_dtype

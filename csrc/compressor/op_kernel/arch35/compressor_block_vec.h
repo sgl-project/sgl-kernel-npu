@@ -897,6 +897,47 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
         if (pad != 0U) {
             writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
         }
+        if constexpr (COMP::coff == COFF::OVERLAP) {
+            // A resume at a state page boundary re-reads the page's trailing
+            // ringSize positions from the ring. They sit mid-call, so the tail
+            // clip below never writes them. Detect them with a ringSize
+            // look-ahead: inside a page q and q+ringSize share a row, past the
+            // page end they differ. Distinct residues => one writer per row.
+            const uint32_t ringSize = constInfo_.blockSize;
+            const uint64_t sliceBaseOffset = srcBaseOffset;
+            const uint32_t sliceStart = startSeqIdx;
+            const uint32_t scanEnd = batchEnd > ringSize ? min(endSeqIdx, batchEnd - ringSize) : 0U;
+            const uint64_t tableBaseOffset = sliceInfo.bIdx * constInfo_.maxBlockNumPerBatch;
+            const int64_t column0 =
+                static_cast<int64_t>(coff_ * cmpRatio_) + static_cast<int64_t>(sliceStart) - GetStartPos(sliceInfo.bIdx);
+            uint32_t runStart = 0U;
+            for (uint32_t curSeqIdx = sliceStart; curSeqIdx < scanEnd; ++curSeqIdx) {
+                const int64_t column = column0 + static_cast<int64_t>(curSeqIdx - sliceStart);
+                const uint64_t row = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + column));
+                const uint64_t rowAhead = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + column + ringSize));
+                if (rowAhead != row) {
+                    if (runStart == 0U) {
+                        runStart = curSeqIdx;
+                    }
+                    continue;
+                }
+                if (runStart != 0U) {
+                    const uint64_t runBaseOffset = sliceBaseOffset + (runStart - sliceStart) * coff_ * dDealSize;
+                    WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset], sliceInfo.bIdx, runStart, curSeqIdx,
+                                      dStartIdx, dDealSize, stateIdx);
+                    WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset + dDealSize], sliceInfo.bIdx,
+                                      runStart, curSeqIdx, dStartIdx + constInfo_.headDim, dDealSize, stateIdx);
+                    runStart = 0U;
+                }
+            }
+            if (runStart != 0U) {
+                const uint64_t runBaseOffset = sliceBaseOffset + (runStart - sliceStart) * coff_ * dDealSize;
+                WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset], sliceInfo.bIdx, runStart, scanEnd,
+                                  dStartIdx, dDealSize, stateIdx);
+                WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset + dDealSize], sliceInfo.bIdx, runStart,
+                                  scanEnd, dStartIdx + constInfo_.headDim, dDealSize, stateIdx);
+            }
+        }
         if (endSeqIdx <= writeSeqStartIdx) {
             return;
         }
