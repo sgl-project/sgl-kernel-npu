@@ -164,12 +164,10 @@ esac
 
 # CANN 9.1.0: skip flaky/broken fla tests that only fail on this image.
 # - test_triangular_inverse.py: torch_npu builtin op output mismatch (DTS 20260819-#2)
-# - test_chunk_gdn_triton.py:    intermittent aicore timeout, error 507014 (DTS 20260819-#3)
-# Both still run on CANN 9.0.0 where they pass.
+# It still runs on CANN 9.0.0 where it passes.
 if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
     SKIP_ON_910=(
         test_triangular_inverse.py
-        test_chunk_gdn_triton.py
     )
     FILTERED_TESTS=()
     for t in "${TESTS[@]}"; do
