@@ -819,7 +819,84 @@ class TestCompressor(unittest.TestCase):
         )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
-    def test_ring_real_c4_production_swa_table_prefix(self):
+    def test_ring_real_c4_production_swa_table_page_tail_state(self):
+        # Three 128-slot SWA pages put two page tails mid-call (124..127 and
+        # 252..255). A resume at a page boundary re-reads that page's trailing
+        # ring_size positions, so those rows must be written even though the
+        # tail clip only ever covers the call's own tail. Compares the STATE
+        # write-back, not cmp_kv: cmp_kv does not depend on the ring history,
+        # so it cannot see whether the tails were written.
+        if not _is_arch35():
+            self.skipTest("A5 explicit state table only")
+        seq_len, swa_page_size, ring_size = 384, 128, 8
+        p = _make_inputs(
+            [0],
+            seq_len,
+            2,
+            4,
+            512,
+            1024,
+            2,
+            "TH",
+            torch.bfloat16,
+            1,
+            16,
+            ring_size=ring_size,
+        )
+        p["block_table"] = _build_production_swa_state_loc_table(
+            p["start_pos"], [seq_len], swa_page_size, ring_size, 2, 4
+        )
+        kv_state = p["kv_state"].clone()
+        score_state = p["score_state"].clone()
+        _reference_compressor(
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            kv_state,
+            score_state,
+            torch.zeros_like(kv_state, dtype=torch.bool),
+            torch.zeros_like(score_state, dtype=torch.bool),
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
+            block_table=p["block_table"],
+            cu_seqlens=p["cu_seqlens"].tolist(),
+            seqused=p["seqused"],
+            start_pos=p["start_pos"],
+            rope_head_dim=64,
+            cmp_ratio=4,
+            coff=2,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+        )
+        state_npu = p["state_cache"].clone().npu()
+        torch.ops.npu.compressor(
+            p["x"].npu(),
+            p["wkv"].npu(),
+            p["wgate"].npu(),
+            state_npu,
+            p["ape"].npu(),
+            p["norm_weight"].npu(),
+            p["rope_sin"].npu(),
+            p["rope_cos"].npu(),
+            state_block_table=p["block_table"].npu(),
+            cu_seqlens=p["cu_seqlens"].npu(),
+            seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
+            start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
+            rope_head_dim=64,
+            cmp_ratio=4,
+            coff=2,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+            state_cache_stride_dim0=0,
+        )
+        torch_npu.npu.synchronize()
+        expected = torch.cat([kv_state, score_state], dim=-1)
+        sdiff = (state_npu.cpu() - expected).abs().max().item()
+        self.assertLess(sdiff, 1e-2, "state write-back incl. mid-call page tails")
         # Same production table with a cached-prefix chunk (start_pos > 0),
         # mirroring the cache-hit path: the chunk's history is addressed in the
         # preceding SWA page.
