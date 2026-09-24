@@ -4,6 +4,7 @@
 
 import contextlib
 import functools
+import inspect
 import os
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -51,18 +52,58 @@ def custom_device_ctx(index: int):
     return torch.npu.device(index)
 
 
-def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
+def input_guard(
+    fn: Optional[Callable[..., torch.Tensor]] = None,
+    *,
+    preserve_when: Optional[Dict[str, str]] = None,
+) -> Callable[..., torch.Tensor]:
     """
-    A decorator to make sure all input tensors are contiguous and set the device based on input tensors.
+    Make tensor inputs contiguous and select their device context.
+
+    ``preserve_when={"tensor_arg": "bool_arg"}`` preserves the original
+    storage for a tensor only when the named boolean argument is true. This is
+    used by in-place APIs that must never silently update a contiguous copy.
     """
+    if fn is None:
+        return lambda wrapped: input_guard(wrapped, preserve_when=preserve_when)
+
+    preserve_when = preserve_when or {}
+    signature = inspect.signature(fn)
+    positional_names = tuple(signature.parameters)
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
+        def argument_value(name):
+            if name in kwargs:
+                return kwargs[name]
+            try:
+                position = positional_names.index(name)
+            except ValueError:
+                return signature.parameters[name].default
+            if position < len(args):
+                return args[position]
+            return signature.parameters[name].default
+
+        preserved = {
+            tensor_name
+            for tensor_name, condition_name in preserve_when.items()
+            if bool(argument_value(condition_name))
+        }
         contiguous_args = (
-            i if not isinstance(i, torch.Tensor) else i.contiguous() for i in args
+            (
+                value
+                if not isinstance(value, torch.Tensor)
+                or positional_names[i] in preserved
+                else value.contiguous()
+            )
+            for i, value in enumerate(args)
         )
         contiguous_kwargs = {
-            k: (v if not isinstance(v, torch.Tensor) else v.contiguous())
+            k: (
+                v
+                if not isinstance(v, torch.Tensor) or k in preserved
+                else v.contiguous()
+            )
             for k, v in kwargs.items()
         }
 
