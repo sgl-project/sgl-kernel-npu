@@ -14,6 +14,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "op_api_loader.hpp"
+
 #include "torch_npu/csrc/aten/NPUNativeFunctions.h"
 #include "torch_npu/csrc/core/npu/NPUStream.h"
 #include "torch_npu/csrc/core/npu/NPUFormat.h"
@@ -108,49 +110,9 @@ static struct MapInitializer {
     }                                                                               \
     g_hashOffset += size_expression;
 
-inline const char *GetOpApiLibName(void)
-{
-    return "libopapi.so";
-}
-
-inline const char *GetCustOpApiLibName(void)
-{
-    return "libcust_opapi.so";
-}
-
-inline void *GetOpApiFuncAddrInLib(void *handler, const char *libName, const char *apiName)
-{
-    auto funcAddr = dlsym(handler, apiName);
-    if (funcAddr == nullptr) {
-        ASCEND_LOGW("dlsym %s from %s failed, error:%s.", apiName, libName, dlerror());
-    }
-    return funcAddr;
-}
-
-inline void *GetOpApiLibHandler(const char *libName)
-{
-    auto handler = dlopen(libName, RTLD_LAZY);
-    if (handler == nullptr) {
-        ASCEND_LOGW("dlopen %s failed, error:%s.", libName, dlerror());
-    }
-    return handler;
-}
-
 inline void *GetOpApiFuncAddr(const char *apiName)
 {
-    static auto custOpApiHandler = GetOpApiLibHandler(GetCustOpApiLibName());
-    if (custOpApiHandler != nullptr) {
-        auto funcAddr = GetOpApiFuncAddrInLib(custOpApiHandler, GetCustOpApiLibName(), apiName);
-        if (funcAddr != nullptr) {
-            return funcAddr;
-        }
-    }
-
-    static auto opApiHandler = GetOpApiLibHandler(GetOpApiLibName());
-    if (opApiHandler == nullptr) {
-        return nullptr;
-    }
-    return GetOpApiFuncAddrInLib(opApiHandler, GetOpApiLibName(), apiName);
+    return deep_ep::op_api::FindFunction(apiName);
 }
 
 inline c10::Scalar ConvertTensorToScalar(const at::Tensor &tensor)
@@ -558,8 +520,10 @@ typedef void (*ReleaseHugeMem)(void *, bool);
         static const auto unInitMemAddr = GetOpApiFuncAddr("UnInitHugeMemThreadLocal");                           \
         static const auto releaseMemAddr = GetOpApiFuncAddr("ReleaseHugeMem");                                    \
         TORCH_CHECK(getWorkspaceSizeFuncAddr != nullptr && opApiFuncAddr != nullptr, #aclnn_api, " or ",          \
-                    #aclnn_api "GetWorkspaceSize", " not in ", GetOpApiLibName(), ", or ", GetOpApiLibName(),     \
-                    "not found.");                                                                                \
+                    #aclnn_api "GetWorkspaceSize",                                                                \
+                    " not found. Custom API: ", deep_ep::op_api::Describe(deep_ep::op_api::CustomLibrary()),      \
+                    "; system API: ", deep_ep::op_api::Describe(deep_ep::op_api::SystemLibrary()),                \
+                    ". Check the installed DeepEP wheel and restart the process after reinstalling.");            \
         auto acl_stream = c10_npu::getCurrentNPUStream().stream(false);                                           \
         uint64_t workspace_size = 0;                                                                              \
         uint64_t *workspace_size_addr = &workspace_size;                                                          \

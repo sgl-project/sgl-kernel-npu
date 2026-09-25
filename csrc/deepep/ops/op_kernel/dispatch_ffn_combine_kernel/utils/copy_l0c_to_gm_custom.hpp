@@ -2,6 +2,9 @@
 #define COPY_L0C_TO_GM_CUSTOM_HPP
 
 namespace Catlass::Gemm::Tile {
+// CATLASS v1.6.1 supplies the Ascend950 specialization with FixpipeParamsC310.
+// This V220 specialization is only needed by the A3 dependency.
+#if !defined(CATLASS_ARCH) || CATLASS_ARCH != 3510
 template <class ElementAccumulator_, class ElementDst_, bool ReluEnable_>
 struct CopyL0CToGm<Catlass::Arch::AtlasA2, ElementAccumulator_, Gemm::GemmType<ElementDst_, layout::RowMajor>,
                    ScaleGranularity::PER_CHANNEL, ReluEnable_> {
@@ -36,5 +39,6 @@ struct CopyL0CToGm<Catlass::Arch::AtlasA2, ElementAccumulator_, Gemm::GemmType<E
         AscendC::Fixpipe<ElementDst, ElementSrc, AscendC::CFG_ROW_MAJOR>(dst, src, cbufWorkspace, intriParams);
     }
 };
+#endif
 }  // namespace Catlass::Gemm::Tile
 #endif  // COPY_L0C_TO_GM_CUSTOM_HPP

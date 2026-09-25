@@ -3,6 +3,13 @@ name: Lint
 on: [ pull_request ]
 
 jobs:
+  deepep-loader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test DeepEP shared-library selection without an NPU
+        run: python3 tests/python/deepep/test_op_api_loader.py -v
+
   lint:
     runs-on: ubuntu-latest
     steps:

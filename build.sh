@@ -439,6 +439,19 @@ function build_deepep_kernels()
         chmod +x "$custom_opp_file"
         rm -rf "$custom_opp_dir/vendors"
         "$custom_opp_file" --install-path="$custom_opp_dir"
+
+        if [[ "$DEEPEP_IS_A5_BUILD" == "ON" ]]; then
+            local custom_opapi_file="$custom_opp_dir/vendors/hwcomputing/op_api/lib/libcust_opapi.so"
+            local exported_symbols=""
+            [[ -f "$custom_opapi_file" ]] || die "Missing A5 custom operator library: $custom_opapi_file"
+            exported_symbols=$(nm -D --defined-only "$custom_opapi_file") ||
+                die "Cannot inspect A5 custom operator exports: $custom_opapi_file"
+            for symbol in aclnnDispatchFFNCombine aclnnDispatchFFNCombineGetWorkspaceSize; do
+                if ! awk '{print $NF}' <<< "$exported_symbols" | grep -Fxq "$symbol"; then
+                    die "A5 custom operator library does not export $symbol; refusing to package an incomplete DeepEP wheel"
+                fi
+            done
+        fi
     )
 }
 
