@@ -6,8 +6,8 @@ tiling and AscendC direct-launch integration. It supports the DSA
 inputs used by MLA (`TND` query and `PA_BSND` paged KV), including the softmax
 max/sum outputs consumed by DCP output merging.
 
-The operator is registered as `torch.ops.npu.sgl_sparse_flash_attention` in A3
-builds only.
+The operator is registered as `torch.ops.npu.sgl_sparse_flash_attention` on
+A2/A3 and A5 builds.
 The `sgl_` prefix avoids the existing torch_npu
 `torch.ops.npu.npu_sparse_flash_attention` schema while keeping the repository's
 standard `npu` namespace.
