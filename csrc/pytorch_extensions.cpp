@@ -86,7 +86,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "sgemmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
-        "              Tensor! lora_scales, Tensor! y) -> ()");
+        "              Tensor! lora_scales, Tensor! y, int slice_count=1) -> ()");
 
     m.def(
         "sgemmc_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
