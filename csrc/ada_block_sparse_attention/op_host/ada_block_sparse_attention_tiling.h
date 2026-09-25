@@ -23,7 +23,7 @@
 #include "data_copy_transpose_tiling_def.h"
 #include "data_copy_transpose_tiling.h"
 
-#include "register/tilingdata_base.h"
+#include "tiling_data_compat.h"
 #include "tiling/tiling_api.h"
 
 #include "register/op_def_registry.h"
@@ -39,7 +39,7 @@
 #include "ada_block_sparse_attention_tiling_struct.h"
 
 namespace optiling {
-BEGIN_TILING_DATA_DEF(PromptAttentionBaseParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionBaseParams)
 TILING_DATA_FIELD_DEF(uint8_t, causal);  // bool(uint8)
 TILING_DATA_FIELD_DEF(uint32_t, sparseSize);
 TILING_DATA_FIELD_DEF(uint32_t, sparseMaskS1);
@@ -108,7 +108,7 @@ TILING_DATA_FIELD_DEF(uint32_t, vHeadSize);
 TILING_DATA_FIELD_DEF(uint32_t, gOfMla);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionBaseApiBaseParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionBaseApiBaseParams)
 TILING_DATA_FIELD_DEF(uint32_t, batchSize);
 TILING_DATA_FIELD_DEF(uint32_t, headNumSize);
 TILING_DATA_FIELD_DEF(uint32_t, headSize);
@@ -143,7 +143,7 @@ TILING_DATA_FIELD_DEF(uint32_t, ppNScalar);
 TILING_DATA_FIELD_DEF(uint32_t, totalQBlkNumFirst);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionSeqParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionSeqParams)
 // Temporary reuse
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, CoreHeadNumTail);        // coreNStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualS1);               // coreNEnd
@@ -153,12 +153,12 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosStart);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionSplitCoreParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionSplitCoreParams)
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 50, startBlkArray);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 50, endBlkArray);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionSingleCoreParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionSingleCoreParams)
 TILING_DATA_FIELD_DEF(uint32_t, singleProcessSInnerSize);
 TILING_DATA_FIELD_DEF(uint32_t, singleProcessSOuterSize);
 TILING_DATA_FIELD_DEF(uint32_t, multiSmaxsInnerLoopTimes);
@@ -168,7 +168,7 @@ TILING_DATA_FIELD_DEF(uint32_t, attenMaskBatch);
 TILING_DATA_FIELD_DEF(uint32_t, kvAntiquantSInnerSize);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionSingleCoreTensorSize)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionSingleCoreTensorSize)
 TILING_DATA_FIELD_DEF(uint32_t, mmResUbSize);
 TILING_DATA_FIELD_DEF(uint32_t, pseShiftUbSize);
 TILING_DATA_FIELD_DEF(uint32_t, attenMaskUbSize);
@@ -203,7 +203,7 @@ TILING_DATA_FIELD_DEF(uint32_t, msdOutQueueSize);
 TILING_DATA_FIELD_DEF(uint32_t, msdComputeLines);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(PromptAttentionInitOutputParams)
+SGL_BEGIN_TILING_DATA_DEF(PromptAttentionInitOutputParams)
 TILING_DATA_FIELD_DEF(uint32_t, singleCoreSize);
 TILING_DATA_FIELD_DEF(int64_t, totalOutputSize);
 TILING_DATA_FIELD_DEF(int64_t, totalSoftMaxLseOutputSize);
@@ -211,7 +211,7 @@ TILING_DATA_FIELD_DEF(uint32_t, needInit);
 TILING_DATA_FIELD_DEF(uint32_t, isOneN);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(AdaBlockSparseAttentionTilingData)
+SGL_BEGIN_TILING_DATA_DEF(AdaBlockSparseAttentionTilingData)
 TILING_DATA_FIELD_DEF_STRUCT(TCubeTiling, bmm1TilingDataRect);
 TILING_DATA_FIELD_DEF_STRUCT(TCubeTiling, bmm2TilingDataRect);
 
@@ -226,7 +226,7 @@ TILING_DATA_FIELD_DEF_STRUCT(SoftMaxTiling, softmaxFlashTilingDataRect);
 TILING_DATA_FIELD_DEF_STRUCT(CopyTransposeTiling, transposeTilingDataRect);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(BSAInputParams)
+SGL_BEGIN_TILING_DATA_DEF(BSAInputParams)
 TILING_DATA_FIELD_DEF(int64_t, bSize);
 TILING_DATA_FIELD_DEF(int64_t, n2Size);
 TILING_DATA_FIELD_DEF(int64_t, gSize);
@@ -269,7 +269,7 @@ TILING_DATA_FIELD_DEF(int64_t, qStartIdx);
 TILING_DATA_FIELD_DEF(int64_t, kvStartIdx);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(BSAMultiCoreParams)
+SGL_BEGIN_TILING_DATA_DEF(BSAMultiCoreParams)
 TILING_DATA_FIELD_DEF(int32_t, coreNum);
 TILING_DATA_FIELD_DEF(int32_t, reserve);
 // BN2GS1.o
@@ -280,7 +280,7 @@ TILING_DATA_FIELD_DEF(int64_t, splitFactorTailSize);
 TILING_DATA_FIELD_DEF_ARR(int64_t, 48, sparseStartIdx);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(BSACoreParams)
+SGL_BEGIN_TILING_DATA_DEF(BSACoreParams)
 TILING_DATA_FIELD_DEF(int32_t, s1BaseSize);
 TILING_DATA_FIELD_DEF(int32_t, s1BaseTailSize);
 TILING_DATA_FIELD_DEF(int64_t, s1OuterSize);
@@ -310,7 +310,7 @@ TILING_DATA_FIELD_DEF(int64_t, pseAlibiBaseS1);
 TILING_DATA_FIELD_DEF(int64_t, pseAlibiBaseS2);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(BSATensorSizeParams)
+SGL_BEGIN_TILING_DATA_DEF(BSATensorSizeParams)
 TILING_DATA_FIELD_DEF(int32_t, bmm1ResUbSize);
 TILING_DATA_FIELD_DEF(int32_t, attenMaskUbSize);
 TILING_DATA_FIELD_DEF(int32_t, pseUbSize);
@@ -343,7 +343,7 @@ TILING_DATA_FIELD_DEF(int32_t, wkspSection1OffsetBytes);
 TILING_DATA_FIELD_DEF(int32_t, wkspSection2OffsetBytes);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(MLAGeneralTilingData)
+SGL_BEGIN_TILING_DATA_DEF(MLAGeneralTilingData)
 TILING_DATA_FIELD_DEF_STRUCT(BSAInputParams, BSAinputParams);
 TILING_DATA_FIELD_DEF_STRUCT(BSAMultiCoreParams, BSAmultiCoreParams);
 TILING_DATA_FIELD_DEF_STRUCT(BSACoreParams, BSAcoreParams);
@@ -355,12 +355,12 @@ TILING_DATA_FIELD_DEF_STRUCT(CopyTransposeTiling, transposeTilingData);
 TILING_DATA_FIELD_DEF_STRUCT(CopyTransposeTiling, transposeTilingDataTailCore);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(AdaBlockSparseAttentionBaseApiTilingData)
+SGL_BEGIN_TILING_DATA_DEF(AdaBlockSparseAttentionBaseApiTilingData)
 TILING_DATA_FIELD_DEF_STRUCT(PromptAttentionBaseApiBaseParams, promptAttentionBaseApiBaseParams);
 TILING_DATA_FIELD_DEF_STRUCT(PromptAttentionSplitCoreParams, promptAttentionSplitCoreParams);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(InputParamsRegbase)
+SGL_BEGIN_TILING_DATA_DEF(InputParamsRegbase)
 TILING_DATA_FIELD_DEF(int64_t, bSize);
 TILING_DATA_FIELD_DEF(int64_t, n2Size);
 TILING_DATA_FIELD_DEF(int64_t, gSize);
@@ -435,7 +435,7 @@ TILING_DATA_FIELD_DEF(uint32_t, attenMaskS1Size);
 TILING_DATA_FIELD_DEF(uint32_t, isRowInvalid);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(MultiCoreParamsRegbase)
+SGL_BEGIN_TILING_DATA_DEF(MultiCoreParamsRegbase)
 TILING_DATA_FIELD_DEF(int32_t, coreNum);
 TILING_DATA_FIELD_DEF(int64_t, totalSize);
 TILING_DATA_FIELD_DEF(int64_t, s1OuterSize);
@@ -445,14 +445,14 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 48, bnStartIdx);
 TILING_DATA_FIELD_DEF_ARR(int64_t, 48, sparseStartIdx);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(DropmaskParamsRegbase)
+SGL_BEGIN_TILING_DATA_DEF(DropmaskParamsRegbase)
 TILING_DATA_FIELD_DEF(int32_t, multiCoreFactorSize);
 TILING_DATA_FIELD_DEF(int32_t, baseUbCalSize);
 TILING_DATA_FIELD_DEF(int64_t, multiCoreTotalSize);
 TILING_DATA_FIELD_DEF(int64_t, shapeTotalSize);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(InitOutputParams)
+SGL_BEGIN_TILING_DATA_DEF(InitOutputParams)
 TILING_DATA_FIELD_DEF(uint32_t, singleCoreSize);
 TILING_DATA_FIELD_DEF(uint8_t, needInit);
 TILING_DATA_FIELD_DEF(uint8_t, isOneN);
@@ -461,7 +461,7 @@ TILING_DATA_FIELD_DEF(int64_t, totalOutputSize);
 TILING_DATA_FIELD_DEF(int64_t, totalSoftMaxLseOutputSize);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(FlashAttentionScoreSimplifiedTilingData)
+SGL_BEGIN_TILING_DATA_DEF(FlashAttentionScoreSimplifiedTilingData)
 TILING_DATA_FIELD_DEF_STRUCT(InputParamsRegbase, inputParamsRegbase);
 TILING_DATA_FIELD_DEF_STRUCT(MultiCoreParamsRegbase, multiCoreParamsRegbase);
 TILING_DATA_FIELD_DEF_STRUCT(DropmaskParamsRegbase, dropmaskParamsRegbase);

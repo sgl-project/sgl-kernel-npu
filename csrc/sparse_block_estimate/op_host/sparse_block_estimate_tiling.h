@@ -14,7 +14,7 @@
 #define SPARSE_BLOCK_ESTIMATE_H
 
 #include "exe_graph/runtime/tiling_context.h"
-#include "register/tilingdata_base.h"
+#include "tiling_data_compat.h"
 #include "tiling/tiling_api.h"
 
 namespace optiling {
@@ -30,7 +30,7 @@ struct SparseBlockEstimateCompileInfo {
     size_t defaultSysWorkspaceSize;
 };
 
-BEGIN_TILING_DATA_DEF(SparseBlockEstimateSeqParams)              // 不同的核心的首尾
+SGL_BEGIN_TILING_DATA_DEF(SparseBlockEstimateSeqParams)              // 不同的核心的首尾
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreHeadNumTail);        // coreNStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualS1);               // coreNEnd
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualCoreNums);         // coreSidStart
@@ -39,7 +39,7 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosStart);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
 END_TILING_DATA_DEF;
 
-BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)
+SGL_BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)
 TILING_DATA_FIELD_DEF(uint32_t, actualCoreNums);  // 分核后实际使用核心数量
 TILING_DATA_FIELD_DEF(uint32_t, coreNumAic);
 TILING_DATA_FIELD_DEF(uint32_t, batchSize);
