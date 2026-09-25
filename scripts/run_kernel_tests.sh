@@ -98,6 +98,7 @@ FUSED_TESTS=(
     test_lora_kernels.py
     test_gmm_wfp8a16.py
     test_mm_wfp8a16.py
+    test_elu.py
 )
 
 ALL_TESTS=(
