@@ -333,7 +333,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2、仅构建 DeepEP
 
-`deepep` target 仅构建 DeepEP，跳过 attentions 等无关模块，并自动识别当前平台是 A2、A3 还是 A5：
+`deepep` target 仅构建 DeepEP，跳过 kernels 等无关模块，并自动识别当前平台是 A2、A3 还是 A5：
 
 ```bash
 bash build.sh -a deepep

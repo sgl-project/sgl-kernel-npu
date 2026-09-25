@@ -42,6 +42,7 @@ SGLang-Kernel-NPU provides a comprehensive set of optimized inference kernels:
 - Multi-Latent Attention (MLA) with Paged KV Cache support
 - Grouped Query Attention (GQA)
 - Decode Attention with optimized memory access patterns
+- [Laser Attention, Ada Block Sparse Attention and Sparse Block Estimate](docs/attentions.md) for A2/A3
 
 **Flash Linear Attention (FLA):**
 - Gated Delta Rule implementation

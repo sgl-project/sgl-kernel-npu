@@ -9,7 +9,8 @@ import sgl_kernel_npu.attentions as attentions
 
 def test_laser_attn_public_api_and_schema():
     assert callable(attentions.laser_attn)
-    assert hasattr(torch.ops.npu, "laser_attn")
+    if not hasattr(torch.ops.npu, "laser_attn"):
+        pytest.skip("Laser Attention is not built for this SoC")
 
     schema = torch.ops.npu.laser_attn.default._schema
     assert schema.name == "npu::laser_attn"
@@ -32,13 +33,13 @@ def test_laser_attn_public_api_and_schema():
 
 
 @pytest.mark.skipif(
-    not hasattr(torch, "npu") or not torch.npu.is_available(),
+    not hasattr(torch, "npu")
+    or not torch.npu.is_available()
+    or not hasattr(torch.ops.npu, "laser_attn"),
     reason="Laser Attention requires an Ascend NPU",
 )
 @pytest.mark.parametrize("num_heads,num_key_value_heads", [(2, 2), (2, 1)])
-def test_laser_attn_fp16_bnsd_matches_torch_reference(
-    num_heads, num_key_value_heads
-):
+def test_laser_attn_fp16_bnsd_matches_torch_reference(num_heads, num_key_value_heads):
     batch_size, seq_len, head_dim = 1, 2048, 128
     query_shape = (batch_size, num_heads, seq_len, head_dim)
     scale = 1.0 / math.sqrt(head_dim)

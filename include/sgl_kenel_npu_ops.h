@@ -155,6 +155,20 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+at::Tensor ada_block_sparse_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
+    std::string input_layout, int64_t sparse_size, int64_t num_heads,
+    int64_t num_key_value_heads, double scale_value, bool causal, int64_t inner_precise,
+    int64_t pre_tokens, int64_t next_tokens, c10::OptionalIntArrayRef actual_seq_lengths,
+    c10::OptionalIntArrayRef actual_seq_lengths_kv);
+
+std::tuple<at::Tensor, at::Tensor> sparse_block_estimate(
+    const at::Tensor &query, const at::Tensor &key, c10::OptionalIntArrayRef actual_seq_lengths,
+    c10::OptionalIntArrayRef actual_seq_lengths_kv, std::string input_layout, int64_t stride,
+    int64_t sparse_size, int64_t num_heads, int64_t num_key_value_heads, double scale_value,
+    double threshold, bool causal, bool keep_sink, bool keep_recent, double row_sparse);
+
 std::tuple<at::Tensor, at::Tensor> laser_attn(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
     const c10::optional<at::Tensor> &atten_mask, const c10::optional<at::Tensor> &alibi_mask,

@@ -24,7 +24,6 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/laser_attention.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
@@ -115,23 +114,51 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_TILING
 )
 
-ascendc_library(laser_attention_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel/laser_attention.cpp
-)
-ascendc_include_directories(laser_attention_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel
-    ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/tiling
-)
-ascendc_compile_definitions(laser_attention_kernel PRIVATE
-    -DHAVE_WORKSPACE
-    -DHAVE_TILING
-)
-ascendc_compile_options(laser_attention_kernel PRIVATE
-    --cce-auto-sync=off
-    -Wno-deprecated-declarations
-    -Werror
-    -fpermissive
-)
+# These kernels use the A2/A3 implementation. Do not compile or register them
+# for A5 (or other SoCs), whose kernel APIs and scheduling differ.
+set(ATTENTION_KERNEL_TARGETS)
+if(SOC_VERSION MATCHES "^Ascend910(B|_93)")
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/laser_attention.cpp
+        ${PROJECT_OP_SRC_BASE}/ada_block_sparse_attention/op_host/ada_block_sparse_attention.cpp
+        ${PROJECT_OP_SRC_BASE}/ada_block_sparse_attention/op_host/ada_block_sparse_attention_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_block_estimate/op_host/sparse_block_estimate_tiling.cpp
+    )
+    ascendc_library(laser_attention_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel/laser_attention.cpp
+    )
+    ascendc_include_directories(laser_attention_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/tiling
+    )
+    ascendc_compile_definitions(laser_attention_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(laser_attention_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -Werror
+        -fpermissive
+    )
+
+    foreach(OP ada_block_sparse_attention sparse_block_estimate)
+        ascendc_library(${OP}_kernel STATIC
+            ${PROJECT_OP_SRC_BASE}/${OP}/op_kernel/${OP}.cpp
+        )
+        ascendc_include_directories(${OP}_kernel PRIVATE
+            ${PROJECT_OP_SRC_BASE}/${OP}/op_kernel
+        )
+        ascendc_compile_definitions(${OP}_kernel PRIVATE -DHAVE_WORKSPACE -DHAVE_TILING)
+        ascendc_compile_options(${OP}_kernel PRIVATE
+            --cce-auto-sync=off -Wno-deprecated-declarations -Werror -fpermissive
+        )
+        list(APPEND ATTENTION_KERNEL_TARGETS ${OP}_kernel)
+    endforeach()
+    list(APPEND ATTENTION_KERNEL_TARGETS laser_attention_kernel)
+else()
+    message(STATUS "Skipping laser_attention, ada_block_sparse_attention and sparse_block_estimate for ${SOC_VERSION}")
+endif()
 
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
@@ -153,10 +180,13 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
+if(ATTENTION_KERNEL_TARGETS)
+    target_compile_definitions(${OP_PLUGIN_NAME} PRIVATE SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION)
+endif()
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
-        laser_attention_kernel
+        ${ATTENTION_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         torch_npu
