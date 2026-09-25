@@ -18,9 +18,13 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include "torch_helper.h"
+// Load the SDK's GE/GERT definitions before torch_npu, which also ships GE
+// headers with the same include guards. Mixing the two sets is not supported.
+#include "graph/types.h"
+#include "exe_graph/runtime/storage_shape.h"
 #include "exe_graph/runtime/tensor.h"
 #include "tiling/platform/platform_ascendc.h"
+#include "torch_helper.h"
 
 namespace sglang::npu_kernel::sparse_attention {
 
@@ -71,10 +75,12 @@ inline at::Tensor normalize(const at::Tensor &x, const std::string &layout)
 
 inline gert::StorageShape storage_shape(at::IntArrayRef sizes)
 {
-    gert::Shape shape;
-    for (auto size : sizes)
-        shape.AppendDim(size);
-    return gert::StorageShape(shape, shape);
+    gert::StorageShape shape;
+    for (auto size : sizes) {
+        shape.MutableOriginShape().AppendDim(size);
+        shape.MutableStorageShape().AppendDim(size);
+    }
+    return shape;
 }
 
 inline at::IntArrayRef check_lengths(c10::OptionalIntArrayRef lengths, const InputShape &shape)
@@ -90,8 +96,8 @@ inline at::IntArrayRef check_lengths(c10::OptionalIntArrayRef lengths, const Inp
 
 inline gert::Tensor length_tensor(at::IntArrayRef values)
 {
-    gert::Shape shape{static_cast<int64_t>(values.size())};
-    gert::Tensor tensor(gert::StorageShape(shape, shape), gert::StorageFormat(), ge::DT_INT64);
+    const int64_t size = static_cast<int64_t>(values.size());
+    gert::Tensor tensor(gert::StorageShape({size}, {size}), gert::StorageFormat(), ge::DT_INT64);
     tensor.SetData(gert::TensorData{const_cast<int64_t *>(values.data())});
     return tensor;
 }

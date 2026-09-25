@@ -10,10 +10,10 @@
  * See the Mulan PSL v2 for more details.
  */
 
+#include "sparse_block_estimate_tiling.h"
+#include "sparse_attention_host.h"
 #include "aclrtlaunch_sparse_block_estimate.h"
 #include "defines.h"
-#include "sparse_attention_host.h"
-#include "sparse_block_estimate_tiling.h"
 
 #include <algorithm>
 #include <vector>

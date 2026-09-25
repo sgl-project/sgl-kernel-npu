@@ -10,10 +10,10 @@
  * See the Mulan PSL v2 for more details.
  */
 
+#include "ada_block_sparse_attention_tiling.h"
+#include "sparse_attention_host.h"
 #include "aclrtlaunch_ada_block_sparse_attention.h"
 #include "defines.h"
-#include "sparse_attention_host.h"
-#include "ada_block_sparse_attention_tiling.h"
 
 namespace sglang::npu_kernel {
 

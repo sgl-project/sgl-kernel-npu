@@ -436,7 +436,6 @@ protected:
     int64_t tensorACoreOffset = 0;
     int64_t tensorBCoreOffset = 0;
     uint32_t s2InCurrentBatch = 0;
-    AscendC::TensorDesc<__gm__ uint8_t> kvTensorDesc;
 
     uint32_t mm1SingleCoreNPrev = 0;
     uint32_t mm2MStridePrev = 0;
