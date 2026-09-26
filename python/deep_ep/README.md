@@ -199,16 +199,23 @@ Quantization modes in `low_latency_dispatch`. For the `default` strategy, the ef
 
 ### Fused MoE
 
-The `fused_deep_moe` API fuses dispatch + expert FFN computation + combine into a single operator call, significantly reducing communication overhead and end-to-end latency.
+The `fused_deep_moe` API selects its implementation through `FuseMode`:
 
-Two fuse modes are available via the `FuseMode` enum:
-- `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine via staged CamMoe communication with cross-core barriers.
-- `FuseMode.DISPATCH_FFN_COMBINE`: Integrated routing + FFN + combine with embedded HCCL communication, no cross-core barriers.
+- `FuseMode.FUSED_DEEP_MOE`: DeepEP `aclnnFusedDeepMoe`
+- `FuseMode.DISPATCH_FFN_COMBINE`: DeepEP `aclnnDispatchFFNCombine`
+- `FuseMode.MEGA_MOE`: `cann_ops_transformer.ops.mega_moe`
 
-Quantization modes (`quant_mode`):
-- `0`: No quantization (BF16 weights)
-- `1`: INT8 quantization (default)
-- FP8 will be supported in A5 release.
+Backend highlights:
+
+- DeepEP SiTU is supported only with `FuseMode.FUSED_DEEP_MOE`
+- `activation="swiglu_gpt_oss"` requires `FuseMode.MEGA_MOE`
+- `linear_beta` controls the SiTU linear branch
+- `l1_bias` / `l2_bias` are supported only on `mega_moe` for A8W4-INT compensation
+- MegaMoe dispatch quantization mode and output dtype are derived from `quant_mode`
+
+For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
+missing, only calls using that mode fail; the DeepEP modes still work.
+
 
 See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 
@@ -483,16 +490,22 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 ### 融合 MoE
 
-`fused_deep_moe` API 将 dispatch + 专家 FFN 计算 + combine 融合为单次算子调用，显著降低通信开销和端到端延迟。
+`fused_deep_moe` 通过 `FuseMode` 选择具体实现：
 
-通过 `FuseMode` 枚举提供两种融合模式：
-- `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合，通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。
-- `FuseMode.DISPATCH_FFN_COMBINE`：集成路由 + FFN + combine，HCCL 通信内嵌于 GMM kernel 中，无跨核 barrier。
+- `FuseMode.FUSED_DEEP_MOE`：DeepEP `aclnnFusedDeepMoe`
+- `FuseMode.DISPATCH_FFN_COMBINE`：DeepEP `aclnnDispatchFFNCombine`
+- `FuseMode.MEGA_MOE`：调用 `cann_ops_transformer.ops.mega_moe`
 
-量化模式（`quant_mode`）：
-- `0`：无量化（BF16 权重）
-- `1`：INT8 量化（默认）
-- FP8 将在 A5 版本中支持。
+模式差异要点：
+
+- DeepEP SiTU 仅支持 `FuseMode.FUSED_DEEP_MOE`
+- `activation="swiglu_gpt_oss"` 需要使用 `FuseMode.MEGA_MOE`
+- `linear_beta` 用于控制 SiTU 的线性分支
+- `l1_bias` / `l2_bias` 仅在 `mega_moe` 的 A8W4-INT 补偿场景中支持
+- MegaMoe 的 dispatch 量化模式和输出类型由 `quant_mode` 决定
+
+如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
+只有使用该模式的调用会报错，DeepEP 模式不受影响。
 
 详见 [融合 Deep MoE API](doc/FUSED_DEEP_MOE.md)。
 
