@@ -110,6 +110,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int run_mode=0) -> Tensor");
 
     m.def(
+        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
+        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
+        "int nk, int nv, "
+        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
+        "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
+
+    m.def(
         "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
         "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
         "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
@@ -159,13 +166,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
         "str? format_mode=None, str? quant_mode=None) -> ()");
-
-    m.def(
-        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
-        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
-        "int nk, int nv, "
-        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
-        "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
     m.def(
         "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
@@ -363,6 +363,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
 
+    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
@@ -375,8 +377,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
-
-    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 

@@ -44,6 +44,18 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     TORCH_CHECK(mix_qkv.dim() == 3, "MixQKV must be 3-dimensional (B, S, D)");
     TORCH_CHECK(recurrent_state.dim() == 4, "State must be 4-dimensional (N, nv, dv, dk)");
 
+    // The kernel has a single bfloat16 instantiation (RGDR<bfloat16_t, bfloat16_t>) and the UB
+    // budget below is sized at two bytes per state element, with nothing dispatching on dtype.
+    // Without these checks a wider state is not rejected: the kernel walks it with a two-byte
+    // stride, so every other element lands on the high half of an fp32 word, which is that
+    // value's own bfloat16 truncation. The state is corrupted while the numbers stay in range,
+    // so callers see degraded output rather than a failure.
+    TORCH_CHECK(mix_qkv.scalar_type() == at::kBFloat16, "mix_qkv must be bfloat16, got ",
+                mix_qkv.scalar_type());
+    TORCH_CHECK(beta.scalar_type() == at::kBFloat16, "beta must be bfloat16, got ", beta.scalar_type());
+    TORCH_CHECK(recurrent_state.scalar_type() == at::kBFloat16, "recurrent_state must be bfloat16, got ",
+                recurrent_state.scalar_type());
+
     int64_t b = mix_qkv.size(0);
     int64_t s = mix_qkv.size(1);
     int64_t d = mix_qkv.size(2);
@@ -72,7 +84,12 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
 
+#ifdef SGL_KERNEL_ARCH_35
+    // The kernel is AIV-only: on Ascend 950 launch one block per vector core, like the other AIV-only ops.
+    uint32_t coreNum = ascendcPlatform->GetCoreNumAiv();
+#else
     uint32_t coreNum = ascendcPlatform->GetCoreNum();
+#endif
 
     int devidx = mix_qkv.device().index();
     c10_npu::set_device(devidx);
@@ -123,6 +140,8 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
 
     if (intermediate_state_opt.has_value() && intermediate_state_opt.value().defined()) {
         hasIntermediateState = true;
+        TORCH_CHECK(intermediate_state_opt.value().scalar_type() == at::kBFloat16,
+                    "intermediate_state must be bfloat16, got ", intermediate_state_opt.value().scalar_type());
         intermediate_state_tensor = intermediate_state_opt.value().contiguous();
         intermediateStatePtr = intermediate_state_tensor.data_ptr();
 
