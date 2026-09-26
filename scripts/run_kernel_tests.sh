@@ -49,6 +49,10 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    test_qwen3_8_flash_next_qsa_expansion.py
+    test_qwen3_8_flash_next_qsa_topk.py
+    test_qwen3_8_flash_next_qsa_mqa.py
+    test_qwen3_8_flash_next_qsa_sparse_attention.py
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
@@ -91,6 +95,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
+    test_qwen3_8_flash_next_hc.py
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
