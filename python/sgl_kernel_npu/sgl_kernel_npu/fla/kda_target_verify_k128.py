@@ -1,13 +1,5 @@
-"""Opt-in K=128 split-K target verify candidate.
+"""K=V=128 target verify using two K64 state halves and BV=128."""
 
-This preserves the measured K64+K64 implementation, including its
-rsqrt(sum(x*x) + 1e-12) normalization. The default target-verify entry point
-uses a different epsilon convention and is deliberately unchanged.
-"""
-
-from typing import Optional
-
-import torch
 import triton
 import triton.language as tl
 
@@ -59,15 +51,13 @@ def _kda_target_verify_k128_fused_kernel(
     BK: tl.constexpr,
     BV: tl.constexpr,
     GATES_ARE_PREACTIVATED: tl.constexpr,
-    USE_LOWER_BOUND: tl.constexpr,
-    LOWER_BOUND: tl.constexpr,
 ):
     pid_batch = tl.program_id(0)
     pid_hv = tl.program_id(1)
     pid_v = tl.program_id(2)
 
     # A5's K=128 vector path operates naturally as two 64-element halves.
-    # Keep BV=128 and one program per (batch, value-head); split only K.
+    # The caller selects K=V=128: one program per (batch, value-head).
     offset_k0 = tl.arange(0, 64)
     offset_k1 = offset_k0 + 64
     offset_v = pid_v * BV + tl.arange(0, BV)
@@ -184,6 +174,7 @@ def _kda_target_verify_k128_fused_kernel(
         ).to(tl.float32)
 
         # Phase 2: q/k norm and gate computation are independent — overlap.
+        # Deliberately retain the measured rsqrt(sum + eps) convention.
         q_scale = scale * tl.rsqrt(tl.sum(q0 * q0 + q1 * q1, axis=0) + 1e-12)
         k_scale = tl.rsqrt(tl.sum(k0 * k0 + k1 * k1, axis=0) + 1e-12)
         q0 *= q_scale
@@ -198,22 +189,18 @@ def _kda_target_verify_k128_fused_kernel(
         else:
             gate_input0 = a0 + dt_bias0
             gate_input1 = a1 + dt_bias1
-            if USE_LOWER_BOUND:
-                gate0 = tl.exp(LOWER_BOUND * tl.sigmoid(exp_A * gate_input0))
-                gate1 = tl.exp(LOWER_BOUND * tl.sigmoid(exp_A * gate_input1))
-            else:
-                softplus0 = tl.where(
-                    gate_input0 <= 20.0,
-                    tl.log(1.0 + tl.exp(gate_input0)),
-                    gate_input0,
-                )
-                softplus1 = tl.where(
-                    gate_input1 <= 20.0,
-                    tl.log(1.0 + tl.exp(gate_input1)),
-                    gate_input1,
-                )
-                gate0 = tl.exp(neg_exp_A * softplus0)
-                gate1 = tl.exp(neg_exp_A * softplus1)
+            softplus0 = tl.where(
+                gate_input0 <= 20.0,
+                tl.log(1.0 + tl.exp(gate_input0)),
+                gate_input0,
+            )
+            softplus1 = tl.where(
+                gate_input1 <= 20.0,
+                tl.log(1.0 + tl.exp(gate_input1)),
+                gate_input1,
+            )
+            gate0 = tl.exp(neg_exp_A * softplus0)
+            gate1 = tl.exp(neg_exp_A * softplus1)
             beta = 1.0 / (1.0 + tl.exp(-beta_input))
 
         # Pass 1: decay state and reduce state @ k together. The addition of
@@ -266,187 +253,3 @@ def _kda_target_verify_k128_fused_kernel(
             state1,
             mask=(snapshot_idx >= 0) & mask_state1,
         )
-
-
-def kda_target_verify_k128_npu(
-    *,
-    A_log: torch.Tensor,
-    dt_bias: torch.Tensor,
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    a: torch.Tensor,
-    b: torch.Tensor,
-    initial_state_source: torch.Tensor,
-    initial_state_indices: torch.Tensor,
-    intermediate_states_buffer: torch.Tensor,
-    intermediate_state_indices: torch.Tensor,
-    cache_steps: int,
-    scale: Optional[float] = None,
-    gates_are_preactivated: Optional[bool] = None,
-    lower_bound: Optional[float] = None,
-) -> torch.Tensor:
-    """KDA fixed-width target verification with per-step state snapshots.
-
-    The persistent and intermediate state layout is the Ascend KDA layout
-    ``[..., H_v, V, K]``. The persistent cache is read-only.
-
-    When ``gates_are_preactivated`` is true, ``a`` is the log-decay
-    ``-exp(A_log) * softplus(raw_a + dt_bias)`` and ``b`` is already sigmoid
-    activated. Both gate tensors may include the SGLang leading singleton.
-    When the flag is omitted, a paired leading singleton selects this mode.
-
-    When ``gates_are_preactivated`` is false, raw ``a`` and ``b`` are passed
-    directly and the gate activation (softplus or lower-bound sigmoid) and
-    beta sigmoid are computed inside the recurrent loop, eliminating the
-    separate ``fused_kda_gate_npu`` kernel launch and ``sigmoid`` op.
-    ``lower_bound`` selects the bounded gate formula
-    ``exp(lower_bound * sigmoid(exp(A_log) * (a + dt_bias)))`` when provided.
-    """
-    if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
-        raise ValueError("q, k, and v must have shape [1, tokens, heads, dim]")
-    if q.shape[0] != 1 or k.shape[0] != 1 or v.shape[0] != 1:
-        raise ValueError("the leading q, k, and v dimension must be one")
-    if cache_steps <= 0 or q.shape[1] % cache_steps != 0:
-        raise ValueError("tokens must be divisible by positive cache_steps")
-    if q.shape[1] != k.shape[1] or q.shape[1] != v.shape[1]:
-        raise ValueError("q, k, and v token dimensions must match")
-
-    batch = q.shape[1] // cache_steps
-    h_q, key_dim = q.shape[2:]
-    h_k = k.shape[2]
-    h_v, value_dim = v.shape[2:]
-    a_has_leading_singleton = a.ndim == 4
-    b_has_leading_singleton = b.ndim == 3
-    if a_has_leading_singleton != b_has_leading_singleton:
-        raise ValueError("a and b must use the leading singleton together")
-    if gates_are_preactivated is None:
-        gates_are_preactivated = a_has_leading_singleton
-    if a.ndim == 4:
-        if a.shape[0] != 1:
-            raise ValueError("4D a must have a leading singleton dimension")
-        a = a.squeeze(0)
-    if b.ndim == 3:
-        if b.shape[0] != 1:
-            raise ValueError("3D b must have a leading singleton dimension")
-        b = b.squeeze(0)
-    if k.shape[3] != key_dim:
-        raise ValueError("q and k key dimensions must match")
-    if h_v % h_q != 0 or h_v % h_k != 0:
-        raise ValueError("value heads must be divisible by q and k heads")
-    if tuple(a.shape) != (q.shape[1], h_k, key_dim):
-        raise ValueError("a must have shape [tokens, H_k, K]")
-    if tuple(b.shape) != (q.shape[1], h_v):
-        raise ValueError("b must have shape [tokens, H_v]")
-    if not gates_are_preactivated and (
-        A_log.numel() != h_k or dt_bias.numel() != h_k * key_dim
-    ):
-        raise ValueError("A_log and dt_bias shapes do not match KDA heads")
-    if initial_state_source.ndim != 4 or tuple(initial_state_source.shape[1:]) != (
-        h_v,
-        value_dim,
-        key_dim,
-    ):
-        raise ValueError("initial state must have shape [pool, H_v, V, K]")
-    if intermediate_states_buffer.ndim != 5 or tuple(
-        intermediate_states_buffer.shape[1:]
-    ) != (cache_steps, h_v, value_dim, key_dim):
-        raise ValueError("intermediate state must have shape [scratch, T, H_v, V, K]")
-    if initial_state_indices.ndim != 1 or initial_state_indices.numel() < batch:
-        raise ValueError("initial_state_indices must contain at least B entries")
-    if (
-        intermediate_state_indices.ndim != 1
-        or intermediate_state_indices.numel() < batch
-    ):
-        raise ValueError("intermediate_state_indices must contain at least B entries")
-
-    # SGLang produces q/k/v as views of a packed QKV tensor. The kernel consumes
-    # explicit strides so serving can avoid five per-layer materializations.
-    tensors = [
-        A_log,
-        dt_bias,
-        q,
-        k,
-        v,
-        a,
-        b,
-        initial_state_source,
-        initial_state_indices,
-        intermediate_states_buffer,
-        intermediate_state_indices,
-    ]
-    if any(t.device != q.device for t in tensors):
-        raise ValueError("all tensors must be on the same device")
-    A_log = A_log.contiguous()
-    dt_bias = dt_bias.contiguous()
-    initial_state_indices = initial_state_indices.contiguous()
-    intermediate_state_indices = intermediate_state_indices.contiguous()
-    if initial_state_source.dtype != intermediate_states_buffer.dtype:
-        raise ValueError("persistent and intermediate state dtypes must match")
-    if initial_state_indices.dtype not in (torch.int32, torch.int64):
-        raise ValueError("initial_state_indices must be int32 or int64")
-    if intermediate_state_indices.dtype not in (torch.int32, torch.int64):
-        raise ValueError("intermediate_state_indices must be int32 or int64")
-
-    if scale is None:
-        scale = key_dim**-0.5
-    if scale <= 0:
-        raise ValueError("scale must be positive")
-
-    out = torch.empty((1, q.shape[1], h_v, value_dim), dtype=v.dtype, device=v.device)
-    if key_dim != 128:
-        raise ValueError("the k128_split_fused diagnostic supports only key_dim=128")
-    bk = 128
-    bv = 128  # min(64, triton.next_power_of_2(value_dim))
-    grid = (batch, h_v, triton.cdiv(value_dim, bv))
-    _kda_target_verify_k128_fused_kernel[grid](
-        A_log,
-        dt_bias,
-        q,
-        k,
-        v,
-        a,
-        b,
-        initial_state_source,
-        initial_state_indices,
-        intermediate_states_buffer,
-        intermediate_state_indices,
-        out,
-        scale,
-        q.stride(1),
-        q.stride(2),
-        q.stride(3),
-        k.stride(1),
-        k.stride(2),
-        k.stride(3),
-        v.stride(1),
-        v.stride(2),
-        v.stride(3),
-        a.stride(0),
-        a.stride(1),
-        a.stride(2),
-        b.stride(0),
-        b.stride(1),
-        initial_state_source.stride(0),
-        initial_state_source.stride(1),
-        initial_state_source.stride(2),
-        initial_state_source.stride(3),
-        intermediate_states_buffer.stride(0),
-        intermediate_states_buffer.stride(1),
-        intermediate_states_buffer.stride(2),
-        intermediate_states_buffer.stride(3),
-        intermediate_states_buffer.stride(4),
-        H_Q=h_q,
-        H_K=h_k,
-        H_V=h_v,
-        K=key_dim,
-        V=value_dim,
-        STEPS=cache_steps,
-        BK=bk,
-        BV=bv,
-        GATES_ARE_PREACTIVATED=gates_are_preactivated,
-        USE_LOWER_BOUND=lower_bound is not None,
-        LOWER_BOUND=lower_bound if lower_bound is not None else 0.0,
-        multibuffer=True,
-    )
-    return out

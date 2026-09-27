@@ -4,6 +4,8 @@ import torch
 import triton
 import triton.language as tl
 
+from .kda_target_verify_k128 import _kda_target_verify_k128_fused_kernel
+
 
 @triton.jit
 def _kda_target_verify_kernel(
@@ -198,6 +200,10 @@ def kda_target_verify_npu(
     ``-exp(A_log) * softplus(raw_a + dt_bias)`` and ``b`` is already sigmoid
     activated. Both gate tensors may include the SGLang leading singleton.
     When the flag is omitted, a paired leading singleton selects this mode.
+
+    K=V=128 uses the split-K kernel and normalizes q/k with
+    ``x * rsqrt(sum(x*x) + 1e-12)``. Other dimensions retain the original
+    ``x / (sqrt(sum(x*x)) + 1e-6)`` normalization and kernel.
     """
     if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
         raise ValueError("q, k, and v must have shape [1, tokens, heads, dim]")
@@ -293,9 +299,16 @@ def kda_target_verify_npu(
     bk = triton.next_power_of_2(key_dim)
     if bk > 256:
         raise ValueError("key dimensions greater than 256 are unsupported")
-    bv = min(64, triton.next_power_of_2(value_dim))
+    if key_dim == 128 and value_dim == 128:
+        kernel = _kda_target_verify_k128_fused_kernel
+        bv = 128
+        launch_options = {"multibuffer": True}
+    else:
+        kernel = _kda_target_verify_kernel
+        bv = min(64, triton.next_power_of_2(value_dim))
+        launch_options = {"num_warps": 1, "num_stages": 3, "multibuffer": False}
     grid = (batch, h_v, triton.cdiv(value_dim, bv))
-    _kda_target_verify_kernel[grid](
+    kernel[grid](
         A_log,
         dt_bias,
         q,
@@ -341,8 +354,6 @@ def kda_target_verify_npu(
         BK=bk,
         BV=bv,
         GATES_ARE_PREACTIVATED=gates_are_preactivated,
-        num_warps=1,
-        num_stages=3,
-        multibuffer=False,
+        **launch_options,
     )
     return out

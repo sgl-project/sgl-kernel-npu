@@ -1,15 +1,14 @@
-"""Accuracy coverage for the standalone K=128 split-K target verify candidate.
+"""Accuracy coverage for the K=V=128 split-K target verify dispatch.
 
-The reference below defines this candidate's ``rsqrt(sum(x*x) + 1e-12)``
-normalization.  Passing these tests does not establish equivalence to the
-different normalization formulas in other target-verify implementations.
+The CPU reference defines this fast path's ``rsqrt(sum(x*x) + 1e-12)``
+normalization, including its behavior on zero and near-zero inputs.
 """
 
 import pytest
 import torch
 import torch.nn.functional as F
 import torch_npu  # noqa: F401  Register NPU before importing the Triton module.
-from sgl_kernel_npu.fla.kda_target_verify_k128 import kda_target_verify_k128_npu
+from sgl_kernel_npu.fla.kda_target_verify import kda_target_verify_npu
 
 pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="requires an NPU")
 
@@ -20,52 +19,69 @@ SCALE = KEY_DIM**-0.5
 SENTINEL = -3.125
 
 
-def _make_case(batch, steps, layout, gate_mode, scale_mode, state_dtype, qk_scale=1.0):
+def _make_case(
+    batch,
+    steps,
+    layout,
+    gate_mode,
+    scale_mode,
+    state_dtype,
+    qk_scale=1.0,
+    heads=(HEADS, HEADS, HEADS),
+    negative_initial=False,
+    negative_snapshot=False,
+    index_dtype=torch.int32,
+    infer_gates=False,
+):
     generator = torch.Generator(device="cpu").manual_seed(
         20260927 + batch * 100 + steps
     )
     tokens = batch * steps
+    h_q, h_k, h_v = heads
 
     def normal(shape, scale=1.0):
         return torch.randn(shape, generator=generator, dtype=torch.float32) * scale
 
     # The split preserves the packed projection's token stride, as in SGLang.
-    packed_cpu = normal((tokens, HEADS * (2 * KEY_DIM + VALUE_DIM)))
-    packed_cpu[:, : HEADS * 2 * KEY_DIM] *= qk_scale
+    packed_cpu = normal((tokens, (h_q + h_k) * KEY_DIM + h_v * VALUE_DIM))
+    packed_cpu[:, : (h_q + h_k) * KEY_DIM] *= qk_scale
     packed_cpu = packed_cpu.to(torch.bfloat16)
     packed = packed_cpu.to("npu")
 
     def unpack(tensor):
-        q, k, v = tensor.split(
-            (HEADS * KEY_DIM, HEADS * KEY_DIM, HEADS * VALUE_DIM), dim=-1
-        )
+        q, k, v = tensor.split((h_q * KEY_DIM, h_k * KEY_DIM, h_v * VALUE_DIM), dim=-1)
         return (
-            q.reshape(1, tokens, HEADS, KEY_DIM),
-            k.reshape(1, tokens, HEADS, KEY_DIM),
-            v.reshape(1, tokens, HEADS, VALUE_DIM),
+            q.reshape(1, tokens, h_q, KEY_DIM),
+            k.reshape(1, tokens, h_k, KEY_DIM),
+            v.reshape(1, tokens, h_v, VALUE_DIM),
         )
 
     q_cpu, k_cpu, v_cpu = unpack(packed_cpu)
     q, k, v = unpack(packed)
-    a_log_cpu = normal((1, 1, HEADS, 1), 0.1) - 1.0
-    dt_bias_cpu = normal((HEADS, KEY_DIM), 0.1)
-    raw_a_cpu = normal((tokens, HEADS, KEY_DIM), 0.2)
-    raw_b_cpu = normal((tokens, HEADS), 0.5)
+    a_log_cpu = normal((1, 1, h_k, 1), 0.1) - 1.0
+    dt_bias_cpu = normal((h_k, KEY_DIM), 0.1)
+    raw_a_cpu = normal((tokens, h_k, KEY_DIM), 0.2)
+    raw_b_cpu = normal((tokens, h_v), 0.5)
     if gate_mode == "preactivated":
+        # The public API accepts externally activated bounded gates.
         a_cpu = -5.0 * torch.sigmoid(
-            a_log_cpu.reshape(HEADS, 1).exp() * (raw_a_cpu + dt_bias_cpu)
+            a_log_cpu.reshape(h_k, 1).exp() * (raw_a_cpu + dt_bias_cpu)
         )
         b_cpu = raw_b_cpu.sigmoid()
         a = a_cpu.to("npu").unsqueeze(0)
         b = b_cpu.to("npu").unsqueeze(0)
     else:
+        assert gate_mode == "raw_softplus"
         a_cpu, b_cpu = raw_a_cpu, raw_b_cpu
         packed_gate = torch.cat((raw_a_cpu.flatten(1), raw_b_cpu), dim=-1).to("npu")
-        a_flat, b = packed_gate.split((HEADS * KEY_DIM, HEADS), dim=-1)
-        a = a_flat.reshape(1, tokens, HEADS, KEY_DIM)
+        a_flat, b = packed_gate.split((h_k * KEY_DIM, h_v), dim=-1)
+        a = a_flat.reshape(1, tokens, h_k, KEY_DIM)
         b = b.unsqueeze(0)
+        if infer_gates:
+            # Omitting both leading singletons selects raw-gate mode.
+            a, b = a.squeeze(0), b.squeeze(0)
 
-    initial_cpu = normal((batch + 2, HEADS, VALUE_DIM, KEY_DIM), 0.02).to(state_dtype)
+    initial_cpu = normal((batch + 2, h_v, VALUE_DIM, KEY_DIM), 0.02).to(state_dtype)
     if layout == "framework":
         # NPU temporal cache is a V/K-transposed view with the same logical shape.
         initial = initial_cpu.transpose(-1, -2).contiguous().to("npu").transpose(-1, -2)
@@ -79,32 +95,34 @@ def _make_case(batch, steps, layout, gate_mode, scale_mode, state_dtype, qk_scal
     # Non-identity slots expose accidental assumptions that request index == slot.
     initial_indices_cpu = torch.arange(batch, dtype=torch.int64).flip(0)
     snapshot_indices_cpu = torch.arange(1, batch + 1, dtype=torch.int64).flip(0)
+    if negative_initial:
+        initial_indices_cpu[0] = -1
+    if negative_snapshot:
+        snapshot_indices_cpu[0] = -1
     snapshots = torch.full(
-        (batch + 2, steps, HEADS, VALUE_DIM, KEY_DIM),
+        (batch + 2, steps, h_v, VALUE_DIM, KEY_DIM),
         SENTINEL,
         dtype=state_dtype,
         device="npu",
     )
     kwargs = dict(
         A_log=a_log_cpu.to("npu"),
-        # The measured candidate supports the framework's flat bias tensor.
-        dt_bias=dt_bias_cpu.flatten().to("npu"),
+        dt_bias=dt_bias_cpu.to("npu"),
         q=q,
         k=k,
         v=v,
         a=a,
         b=b,
         initial_state_source=initial,
-        initial_state_indices=initial_indices_cpu.to(device="npu", dtype=torch.int32),
+        initial_state_indices=initial_indices_cpu.to(device="npu", dtype=index_dtype),
         intermediate_states_buffer=snapshots,
         intermediate_state_indices=snapshot_indices_cpu.to(
-            device="npu", dtype=torch.int32
+            device="npu", dtype=index_dtype
         ),
         cache_steps=steps,
-        gates_are_preactivated=gate_mode == "preactivated",
     )
-    if gate_mode == "raw_safe":
-        kwargs["lower_bound"] = -5.0
+    if not infer_gates:
+        kwargs["gates_are_preactivated"] = gate_mode == "preactivated"
     if scale_mode == "explicit":
         kwargs["scale"] = SCALE
     else:
@@ -116,7 +134,7 @@ def _make_case(batch, steps, layout, gate_mode, scale_mode, state_dtype, qk_scal
         v=v_cpu.float()[0],
         a=a_cpu,
         b=b_cpu,
-        A_log=a_log_cpu.reshape(HEADS),
+        A_log=a_log_cpu.reshape(h_k),
         dt_bias=dt_bias_cpu,
         initial=initial_cpu,
         initial_indices=initial_indices_cpu,
@@ -124,6 +142,7 @@ def _make_case(batch, steps, layout, gate_mode, scale_mode, state_dtype, qk_scal
         batch=batch,
         steps=steps,
         gate_mode=gate_mode,
+        heads=heads,
     )
     return kwargs, reference_inputs
 
@@ -131,26 +150,30 @@ def _make_case(batch, steps, layout, gate_mode, scale_mode, state_dtype, qk_scal
 def _reference(inputs):
     """CPU FP32 recurrence; intermediates stay FP32 even for BF16 state storage."""
     batch, steps = inputs["batch"], inputs["steps"]
+    h_q, h_k, h_v = inputs["heads"]
     q = inputs["q"] * torch.rsqrt(inputs["q"].square().sum(-1, keepdim=True) + 1e-12)
     k = inputs["k"] * torch.rsqrt(inputs["k"].square().sum(-1, keepdim=True) + 1e-12)
-    q = q * SCALE
+    q = q.repeat_interleave(h_v // h_q, dim=1) * SCALE
+    k = k.repeat_interleave(h_v // h_k, dim=1)
     if inputs["gate_mode"] == "preactivated":
         log_decay, beta = inputs["a"], inputs["b"]
     else:
         gate_input = inputs["a"] + inputs["dt_bias"]
         exp_a = inputs["A_log"].exp().unsqueeze(-1)
-        if inputs["gate_mode"] == "raw_safe":
-            log_decay = -5.0 * torch.sigmoid(exp_a * gate_input)
-        else:
-            log_decay = -exp_a * F.softplus(gate_input)
+        log_decay = -exp_a * F.softplus(gate_input)
         beta = inputs["b"].sigmoid()
+    log_decay = log_decay.repeat_interleave(h_v // h_k, dim=1)
 
-    output = torch.empty((1, batch * steps, HEADS, VALUE_DIM), dtype=torch.float32)
+    output = torch.empty((1, batch * steps, h_v, VALUE_DIM), dtype=torch.float32)
     snapshots = torch.empty(
-        (batch, steps, HEADS, VALUE_DIM, KEY_DIM), dtype=torch.float32
+        (batch, steps, h_v, VALUE_DIM, KEY_DIM), dtype=torch.float32
     )
     for request in range(batch):
-        state = inputs["initial"][inputs["initial_indices"][request]].float().clone()
+        initial_index = int(inputs["initial_indices"][request])
+        if initial_index < 0:
+            state = torch.zeros((h_v, VALUE_DIM, KEY_DIM), dtype=torch.float32)
+        else:
+            state = inputs["initial"][initial_index].float().clone()
         for step in range(steps):
             token = request * steps + step
             state = state * log_decay[token].exp().unsqueeze(-2)
@@ -175,15 +198,19 @@ def _check_result(output, kwargs, inputs, expected):
     expected_output, expected_states = expected
     _assert_close(output, expected_output)
     actual_pool = kwargs["intermediate_states_buffer"].detach().cpu()
-    actual_states = actual_pool[inputs["snapshot_indices"]]
+    valid_requests = inputs["snapshot_indices"] >= 0
+    written_slots = inputs["snapshot_indices"][valid_requests]
+    actual_states = actual_pool[written_slots]
     for step in range(inputs["steps"]):
-        _assert_close(actual_states[:, step], expected_states[:, step])
-    # State source is read-only, and unused scratch slots must remain untouched.
+        _assert_close(actual_states[:, step], expected_states[valid_requests, step])
+    # State source is read-only; every unwritten scratch slot stays untouched,
+    # including a slot whose request uses the negative snapshot sentinel.
     torch.testing.assert_close(
         kwargs["initial_state_source"].detach().cpu(), inputs["initial"], rtol=0, atol=0
     )
-    assert torch.all(actual_pool[0] == SENTINEL)
-    assert torch.all(actual_pool[-1] == SENTINEL)
+    unwritten_slots = torch.ones(actual_pool.shape[0], dtype=torch.bool)
+    unwritten_slots[written_slots] = False
+    assert torch.all(actual_pool[unwritten_slots] == SENTINEL)
 
 
 @pytest.mark.parametrize(
@@ -247,24 +274,6 @@ def _check_result(output, kwargs, inputs, expected):
             8,
             4,
             "framework",
-            "raw_safe",
-            "omitted",
-            torch.float32,
-            id="framework-raw-safe",
-        ),
-        pytest.param(
-            8,
-            4,
-            "contiguous",
-            "raw_safe",
-            "explicit",
-            torch.float32,
-            id="contiguous-raw-safe",
-        ),
-        pytest.param(
-            8,
-            4,
-            "framework",
             "preactivated",
             "omitted",
             torch.bfloat16,
@@ -279,15 +288,6 @@ def _check_result(output, kwargs, inputs, expected):
             torch.bfloat16,
             id="bf16-state-softplus",
         ),
-        pytest.param(
-            8,
-            4,
-            "framework",
-            "raw_safe",
-            "explicit",
-            torch.bfloat16,
-            id="bf16-state-safe",
-        ),
     ],
 )
 def test_kda_target_verify_k128(
@@ -297,23 +297,100 @@ def test_kda_target_verify_k128(
         batch, steps, layout, gate_mode, scale_mode, state_dtype
     )
     expected = _reference(inputs)
-    output = kda_target_verify_k128_npu(**kwargs)
+    output = kda_target_verify_npu(**kwargs)
     torch.npu.synchronize()
     _check_result(output, kwargs, inputs, expected)
 
 
 @pytest.mark.parametrize("qk_scale", [0.0, 1e-7], ids=["zero", "near-zero"])
 def test_kda_target_verify_k128_small_norm(qk_scale):
-    # Fixed B8/S4/H12/K128/V128; exercise this candidate's epsilon explicitly.
+    # Fixed B8/S4/H12/K128/V128; exercise the selected fast-path epsilon.
     kwargs, inputs = _make_case(
         8, 4, "framework", "preactivated", "omitted", torch.float32, qk_scale=qk_scale
     )
     expected = _reference(inputs)
-    output = kda_target_verify_k128_npu(**kwargs)
+    output = kda_target_verify_npu(**kwargs)
     torch.npu.synchronize()
     _check_result(output, kwargs, inputs, expected)
     if qk_scale == 0.0:
         assert torch.count_nonzero(output).item() == 0
+
+
+def test_kda_target_verify_k128_grouped_heads():
+    # Preserve PR #802's B4/S8/Hq=Hk=4/Hv=16/K128/V128 grouped-head case.
+    kwargs, inputs = _make_case(
+        4,
+        8,
+        "framework",
+        "preactivated",
+        "explicit",
+        torch.bfloat16,
+        heads=(4, 4, 16),
+    )
+    expected = _reference(inputs)
+    output = kda_target_verify_npu(**kwargs)
+    torch.npu.synchronize()
+    _check_result(output, kwargs, inputs, expected)
+
+
+@pytest.mark.parametrize(
+    "negative_initial,negative_snapshot",
+    [(True, False), (False, True), (True, True)],
+    ids=["zero-initial-state", "skip-snapshot", "both-negative"],
+)
+def test_kda_target_verify_k128_negative_indices(negative_initial, negative_snapshot):
+    kwargs, inputs = _make_case(
+        8,
+        4,
+        "framework",
+        "preactivated",
+        "omitted",
+        torch.float32,
+        negative_initial=negative_initial,
+        negative_snapshot=negative_snapshot,
+    )
+    expected = _reference(inputs)
+    output = kda_target_verify_npu(**kwargs)
+    torch.npu.synchronize()
+    _check_result(output, kwargs, inputs, expected)
+
+
+def test_kda_target_verify_k128_int64_indices():
+    kwargs, inputs = _make_case(
+        8,
+        4,
+        "framework",
+        "preactivated",
+        "omitted",
+        torch.float32,
+        index_dtype=torch.int64,
+    )
+    expected = _reference(inputs)
+    output = kda_target_verify_npu(**kwargs)
+    torch.npu.synchronize()
+    _check_result(output, kwargs, inputs, expected)
+
+
+@pytest.mark.parametrize("gate_mode", ["preactivated", "raw_softplus"])
+def test_kda_target_verify_k128_inferred_gate_mode(gate_mode):
+    kwargs, inputs = _make_case(
+        8,
+        4,
+        "framework",
+        gate_mode,
+        "omitted",
+        torch.float32,
+        infer_gates=True,
+    )
+    assert "gates_are_preactivated" not in kwargs
+    if gate_mode == "preactivated":
+        assert kwargs["a"].ndim == 4 and kwargs["b"].ndim == 3
+    else:
+        assert kwargs["a"].ndim == 3 and kwargs["b"].ndim == 2
+    expected = _reference(inputs)
+    output = kda_target_verify_npu(**kwargs)
+    torch.npu.synchronize()
+    _check_result(output, kwargs, inputs, expected)
 
 
 def test_kda_target_verify_k128_graph():
@@ -326,11 +403,11 @@ def test_kda_target_verify_k128_graph():
     # Compile and allocate before capture, using the same stream as capture.
     with torch.npu.stream(stream):
         for _ in range(3):
-            kda_target_verify_k128_npu(**kwargs)
+            kda_target_verify_npu(**kwargs)
     torch.npu.synchronize()
     graph = torch.npu.NPUGraph()
     with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
-        output = kda_target_verify_k128_npu(**kwargs)
+        output = kda_target_verify_npu(**kwargs)
     torch.npu.synchronize()
     for _ in range(2):
         output.fill_(float("nan"))
