@@ -1,4 +1,4 @@
-"""Accuracy coverage for the K=V=128 split-K target verify dispatch.
+"""Accuracy coverage for the updated target verify kernel.
 
 The CPU reference defines this fast path's ``rsqrt(sum(x*x) + 1e-12)``
 normalization, including its behavior on zero and near-zero inputs.
@@ -290,9 +290,7 @@ def _check_result(output, kwargs, inputs, expected):
         ),
     ],
 )
-def test_kda_target_verify_k128(
-    batch, steps, layout, gate_mode, scale_mode, state_dtype
-):
+def test_kda_target_verify(batch, steps, layout, gate_mode, scale_mode, state_dtype):
     kwargs, inputs = _make_case(
         batch, steps, layout, gate_mode, scale_mode, state_dtype
     )
@@ -303,7 +301,7 @@ def test_kda_target_verify_k128(
 
 
 @pytest.mark.parametrize("qk_scale", [0.0, 1e-7], ids=["zero", "near-zero"])
-def test_kda_target_verify_k128_small_norm(qk_scale):
+def test_kda_target_verify_small_norm(qk_scale):
     # Fixed B8/S4/H12/K128/V128; exercise the selected fast-path epsilon.
     kwargs, inputs = _make_case(
         8, 4, "framework", "preactivated", "omitted", torch.float32, qk_scale=qk_scale
@@ -316,7 +314,7 @@ def test_kda_target_verify_k128_small_norm(qk_scale):
         assert torch.count_nonzero(output).item() == 0
 
 
-def test_kda_target_verify_k128_grouped_heads():
+def test_kda_target_verify_grouped_heads():
     # Preserve PR #802's B4/S8/Hq=Hk=4/Hv=16/K128/V128 grouped-head case.
     kwargs, inputs = _make_case(
         4,
@@ -338,7 +336,7 @@ def test_kda_target_verify_k128_grouped_heads():
     [(True, False), (False, True), (True, True)],
     ids=["zero-initial-state", "skip-snapshot", "both-negative"],
 )
-def test_kda_target_verify_k128_negative_indices(negative_initial, negative_snapshot):
+def test_kda_target_verify_negative_indices(negative_initial, negative_snapshot):
     kwargs, inputs = _make_case(
         8,
         4,
@@ -355,7 +353,7 @@ def test_kda_target_verify_k128_negative_indices(negative_initial, negative_snap
     _check_result(output, kwargs, inputs, expected)
 
 
-def test_kda_target_verify_k128_int64_indices():
+def test_kda_target_verify_int64_indices():
     kwargs, inputs = _make_case(
         8,
         4,
@@ -372,7 +370,7 @@ def test_kda_target_verify_k128_int64_indices():
 
 
 @pytest.mark.parametrize("gate_mode", ["preactivated", "raw_softplus"])
-def test_kda_target_verify_k128_inferred_gate_mode(gate_mode):
+def test_kda_target_verify_inferred_gate_mode(gate_mode):
     kwargs, inputs = _make_case(
         8,
         4,
@@ -393,7 +391,7 @@ def test_kda_target_verify_k128_inferred_gate_mode(gate_mode):
     _check_result(output, kwargs, inputs, expected)
 
 
-def test_kda_target_verify_k128_graph():
+def test_kda_target_verify_graph():
     kwargs, inputs = _make_case(
         8, 4, "framework", "preactivated", "omitted", torch.float32
     )

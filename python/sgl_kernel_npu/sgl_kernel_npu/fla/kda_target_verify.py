@@ -4,8 +4,6 @@ import torch
 import triton
 import triton.language as tl
 
-from .kda_target_verify_k128 import _kda_target_verify_k128_fused_kernel
-
 
 @triton.jit
 def _kda_target_verify_kernel(
@@ -59,119 +57,319 @@ def _kda_target_verify_kernel(
     pid_hv = tl.program_id(1)
     pid_v = tl.program_id(2)
 
-    offset_k = tl.arange(0, BK)
-    offset_v = pid_v * BV + tl.arange(0, BV)
-    mask_k = offset_k < K
-    mask_v = offset_v < V
-    mask_state = mask_v[:, None] & mask_k[None, :]
+    # Dimensions are compile-time constants: emit only the selected path.
+    if K == 128 and V == 128:
+        # A5's K=128 vector path operates naturally as two 64-element halves.
+        # One program covers each (batch, value-head).
+        offset_k0 = tl.arange(0, 64)
+        offset_k1 = offset_k0 + 64
+        offset_v = pid_v * BV + tl.arange(0, BV)
+        mask_k0 = offset_k0 < K
+        mask_k1 = offset_k1 < K
+        mask_v = offset_v < V
+        mask_state0 = mask_v[:, None] & mask_k0[None, :]
+        mask_state1 = mask_v[:, None] & mask_k1[None, :]
 
-    q_ratio = H_V // H_Q
-    k_ratio = H_V // H_K
-    q_head = pid_hv // q_ratio
-    k_head = pid_hv // k_ratio
-    initial_idx = tl.load(initial_indices_ptr + pid_batch).to(tl.int64)
-    snapshot_idx = tl.load(snapshot_indices_ptr + pid_batch).to(tl.int64)
+        q_ratio = H_V // H_Q
+        k_ratio = H_V // H_K
+        q_head = pid_hv // q_ratio
+        k_head = pid_hv // k_ratio
+        initial_idx = tl.load(initial_indices_ptr + pid_batch).to(tl.int64)
+        snapshot_idx = tl.load(snapshot_indices_ptr + pid_batch).to(tl.int64)
 
-    initial_offsets = (
-        initial_idx * initial_stride_0
-        + pid_hv * initial_stride_1
-        + offset_v[:, None] * initial_stride_2
-        + offset_k[None, :] * initial_stride_3
-    )
-    state = tl.load(
-        initial_state_ptr + initial_offsets,
-        mask=(initial_idx >= 0) & mask_state,
-        other=0.0,
-    ).to(tl.float32)
-
-    A_log = tl.zeros((), dtype=tl.float32)
-    dt_bias = tl.zeros((BK,), dtype=tl.float32)
-    if not GATES_ARE_PREACTIVATED:
-        A_log = tl.load(A_log_ptr + k_head).to(tl.float32)
-        dt_bias = tl.load(
-            dt_bias_ptr + k_head * K + offset_k,
-            mask=mask_k,
+        initial_offsets0 = (
+            initial_idx * initial_stride_0
+            + pid_hv * initial_stride_1
+            + offset_v[:, None] * initial_stride_2
+            + offset_k0[None, :] * initial_stride_3
+        )
+        initial_offsets1 = (
+            initial_idx * initial_stride_0
+            + pid_hv * initial_stride_1
+            + offset_v[:, None] * initial_stride_2
+            + offset_k1[None, :] * initial_stride_3
+        )
+        state0 = tl.load(
+            initial_state_ptr + initial_offsets0,
+            mask=(initial_idx >= 0) & mask_state0,
+            other=0.0,
+        ).to(tl.float32)
+        state1 = tl.load(
+            initial_state_ptr + initial_offsets1,
+            mask=(initial_idx >= 0) & mask_state1,
             other=0.0,
         ).to(tl.float32)
 
-    for step in tl.static_range(0, STEPS):
-        token = pid_batch * STEPS + step
-        q = tl.load(
-            q_ptr
-            + token * stride_q_token
-            + q_head * stride_q_head
-            + offset_k * stride_q_dim,
-            mask=mask_k,
-            other=0.0,
-        ).to(tl.float32)
-        k = tl.load(
-            k_ptr
-            + token * stride_k_token
-            + k_head * stride_k_head
-            + offset_k * stride_k_dim,
-            mask=mask_k,
-            other=0.0,
-        ).to(tl.float32)
-        value = tl.load(
-            v_ptr
-            + token * stride_v_token
-            + pid_hv * stride_v_head
-            + offset_v * stride_v_dim,
-            mask=mask_v,
-            other=0.0,
-        ).to(tl.float32)
-        a = tl.load(
-            a_ptr
-            + token * stride_a_token
-            + k_head * stride_a_head
-            + offset_k * stride_a_dim,
-            mask=mask_k,
-            other=0.0,
-        ).to(tl.float32)
-        beta_input = tl.load(
-            b_ptr + token * stride_b_token + pid_hv * stride_b_head
-        ).to(tl.float32)
+        A_log = tl.zeros((), dtype=tl.float32)
+        dt_bias0 = tl.zeros((64,), dtype=tl.float32)
+        dt_bias1 = tl.zeros((64,), dtype=tl.float32)
+        exp_A = tl.zeros((), dtype=tl.float32)
+        neg_exp_A = tl.zeros((), dtype=tl.float32)
+        if not GATES_ARE_PREACTIVATED:
+            A_log = tl.load(A_log_ptr + k_head).to(tl.float32)
+            exp_A = tl.exp(A_log)
+            neg_exp_A = -exp_A
+            dt_bias0 = tl.load(
+                dt_bias_ptr + k_head * K + offset_k0,
+                mask=mask_k0,
+                other=0.0,
+            ).to(tl.float32)
+            dt_bias1 = tl.load(
+                dt_bias_ptr + k_head * K + offset_k1,
+                mask=mask_k1,
+                other=0.0,
+            ).to(tl.float32)
 
-        q = q / (tl.sqrt(tl.sum(q * q, axis=0)) + 1e-6)
-        k = k / (tl.sqrt(tl.sum(k * k, axis=0)) + 1e-6)
-        q *= scale
+        for step in range(0, STEPS):
+            token = pid_batch * STEPS + step
 
-        if GATES_ARE_PREACTIVATED:
-            gate = tl.exp(a)
-            beta = beta_input
-        else:
-            gate_input = a + dt_bias
-            softplus = tl.where(
-                gate_input <= 20.0,
-                tl.log(1.0 + tl.exp(gate_input)),
-                gate_input,
+            # Phase 1: fire all loads as early as possible — no inter-load deps.
+            q0 = tl.load(
+                q_ptr
+                + token * stride_q_token
+                + q_head * stride_q_head
+                + offset_k0 * stride_q_dim,
+                mask=mask_k0,
+                other=0.0,
+            ).to(tl.float32)
+            q1 = tl.load(
+                q_ptr
+                + token * stride_q_token
+                + q_head * stride_q_head
+                + offset_k1 * stride_q_dim,
+                mask=mask_k1,
+                other=0.0,
+            ).to(tl.float32)
+            k0 = tl.load(
+                k_ptr
+                + token * stride_k_token
+                + k_head * stride_k_head
+                + offset_k0 * stride_k_dim,
+                mask=mask_k0,
+                other=0.0,
+            ).to(tl.float32)
+            k1 = tl.load(
+                k_ptr
+                + token * stride_k_token
+                + k_head * stride_k_head
+                + offset_k1 * stride_k_dim,
+                mask=mask_k1,
+                other=0.0,
+            ).to(tl.float32)
+            a0 = tl.load(
+                a_ptr
+                + token * stride_a_token
+                + k_head * stride_a_head
+                + offset_k0 * stride_a_dim,
+                mask=mask_k0,
+                other=0.0,
+            ).to(tl.float32)
+            a1 = tl.load(
+                a_ptr
+                + token * stride_a_token
+                + k_head * stride_a_head
+                + offset_k1 * stride_a_dim,
+                mask=mask_k1,
+                other=0.0,
+            ).to(tl.float32)
+            beta_input = tl.load(
+                b_ptr + token * stride_b_token + pid_hv * stride_b_head
+            ).to(tl.float32)
+
+            # Phase 2: q/k norm and gate computation are independent — overlap.
+            # Deliberately retain the measured rsqrt(sum + eps) convention.
+            q_scale = scale * tl.rsqrt(tl.sum(q0 * q0 + q1 * q1, axis=0) + 1e-12)
+            k_scale = tl.rsqrt(tl.sum(k0 * k0 + k1 * k1, axis=0) + 1e-12)
+            q0 *= q_scale
+            q1 *= q_scale
+            k0 *= k_scale
+            k1 *= k_scale
+
+            if GATES_ARE_PREACTIVATED:
+                gate0 = tl.exp(a0)
+                gate1 = tl.exp(a1)
+                beta = beta_input
+            else:
+                gate_input0 = a0 + dt_bias0
+                gate_input1 = a1 + dt_bias1
+                softplus0 = tl.where(
+                    gate_input0 <= 20.0,
+                    tl.log(1.0 + tl.exp(gate_input0)),
+                    gate_input0,
+                )
+                softplus1 = tl.where(
+                    gate_input1 <= 20.0,
+                    tl.log(1.0 + tl.exp(gate_input1)),
+                    gate_input1,
+                )
+                gate0 = tl.exp(neg_exp_A * softplus0)
+                gate1 = tl.exp(neg_exp_A * softplus1)
+                beta = 1.0 / (1.0 + tl.exp(-beta_input))
+
+            # Pass 1: decay state and reduce state @ k together. The addition of
+            # the two K64 products happens before a single 64-wide reduction.
+            state0 *= gate0[None, :]
+            state1 *= gate1[None, :]
+            value = tl.load(
+                v_ptr
+                + token * stride_v_token
+                + pid_hv * stride_v_head
+                + offset_v * stride_v_dim,
+                mask=mask_v,
+                other=0.0,
+            ).to(tl.float32)
+            value -= tl.sum(state0 * k0[None, :] + state1 * k1[None, :], axis=1)
+            value *= beta
+
+            # Pass 2: update state and reduce state @ q together.
+            state0 += value[:, None] * k0[None, :]
+            state1 += value[:, None] * k1[None, :]
+            output = tl.sum(state0 * q0[None, :] + state1 * q1[None, :], axis=1)
+
+            # Phase 4: stores.
+            tl.store(
+                out_ptr + (token * H_V + pid_hv) * V + offset_v,
+                output,
+                mask=mask_v,
             )
-            gate = tl.exp(-tl.exp(A_log) * softplus)
-            beta = 1.0 / (1.0 + tl.exp(-beta_input))
+            snapshot_offsets0 = (
+                snapshot_idx * snapshot_stride_0
+                + step * snapshot_stride_1
+                + pid_hv * snapshot_stride_2
+                + offset_v[:, None] * snapshot_stride_3
+                + offset_k0[None, :] * snapshot_stride_4
+            )
+            snapshot_offsets1 = (
+                snapshot_idx * snapshot_stride_0
+                + step * snapshot_stride_1
+                + pid_hv * snapshot_stride_2
+                + offset_v[:, None] * snapshot_stride_3
+                + offset_k1[None, :] * snapshot_stride_4
+            )
+            tl.store(
+                snapshot_ptr + snapshot_offsets0,
+                state0,
+                mask=(snapshot_idx >= 0) & mask_state0,
+            )
+            tl.store(
+                snapshot_ptr + snapshot_offsets1,
+                state1,
+                mask=(snapshot_idx >= 0) & mask_state1,
+            )
+    else:
+        offset_k = tl.arange(0, BK)
+        offset_v = pid_v * BV + tl.arange(0, BV)
+        mask_k = offset_k < K
+        mask_v = offset_v < V
+        mask_state = mask_v[:, None] & mask_k[None, :]
 
-        state *= gate[None, :]
-        value -= tl.sum(state * k[None, :], axis=1)
-        value *= beta
-        state += value[:, None] * k[None, :]
-        output = tl.sum(state * q[None, :], axis=1)
+        q_ratio = H_V // H_Q
+        k_ratio = H_V // H_K
+        q_head = pid_hv // q_ratio
+        k_head = pid_hv // k_ratio
+        initial_idx = tl.load(initial_indices_ptr + pid_batch).to(tl.int64)
+        snapshot_idx = tl.load(snapshot_indices_ptr + pid_batch).to(tl.int64)
 
-        tl.store(
-            out_ptr + (token * H_V + pid_hv) * V + offset_v,
-            output,
-            mask=mask_v,
+        initial_offsets = (
+            initial_idx * initial_stride_0
+            + pid_hv * initial_stride_1
+            + offset_v[:, None] * initial_stride_2
+            + offset_k[None, :] * initial_stride_3
         )
-        snapshot_offsets = (
-            snapshot_idx * snapshot_stride_0
-            + step * snapshot_stride_1
-            + pid_hv * snapshot_stride_2
-            + offset_v[:, None] * snapshot_stride_3
-            + offset_k[None, :] * snapshot_stride_4
-        )
-        tl.store(
-            snapshot_ptr + snapshot_offsets,
-            state,
-            mask=(snapshot_idx >= 0) & mask_state,
-        )
+        state = tl.load(
+            initial_state_ptr + initial_offsets,
+            mask=(initial_idx >= 0) & mask_state,
+            other=0.0,
+        ).to(tl.float32)
+
+        A_log = tl.zeros((), dtype=tl.float32)
+        dt_bias = tl.zeros((BK,), dtype=tl.float32)
+        if not GATES_ARE_PREACTIVATED:
+            A_log = tl.load(A_log_ptr + k_head).to(tl.float32)
+            dt_bias = tl.load(
+                dt_bias_ptr + k_head * K + offset_k,
+                mask=mask_k,
+                other=0.0,
+            ).to(tl.float32)
+
+        for step in tl.static_range(0, STEPS):
+            token = pid_batch * STEPS + step
+            q = tl.load(
+                q_ptr
+                + token * stride_q_token
+                + q_head * stride_q_head
+                + offset_k * stride_q_dim,
+                mask=mask_k,
+                other=0.0,
+            ).to(tl.float32)
+            k = tl.load(
+                k_ptr
+                + token * stride_k_token
+                + k_head * stride_k_head
+                + offset_k * stride_k_dim,
+                mask=mask_k,
+                other=0.0,
+            ).to(tl.float32)
+            value = tl.load(
+                v_ptr
+                + token * stride_v_token
+                + pid_hv * stride_v_head
+                + offset_v * stride_v_dim,
+                mask=mask_v,
+                other=0.0,
+            ).to(tl.float32)
+            a = tl.load(
+                a_ptr
+                + token * stride_a_token
+                + k_head * stride_a_head
+                + offset_k * stride_a_dim,
+                mask=mask_k,
+                other=0.0,
+            ).to(tl.float32)
+            beta_input = tl.load(
+                b_ptr + token * stride_b_token + pid_hv * stride_b_head
+            ).to(tl.float32)
+
+            q = q / (tl.sqrt(tl.sum(q * q, axis=0)) + 1e-6)
+            k = k / (tl.sqrt(tl.sum(k * k, axis=0)) + 1e-6)
+            q *= scale
+
+            if GATES_ARE_PREACTIVATED:
+                gate = tl.exp(a)
+                beta = beta_input
+            else:
+                gate_input = a + dt_bias
+                softplus = tl.where(
+                    gate_input <= 20.0,
+                    tl.log(1.0 + tl.exp(gate_input)),
+                    gate_input,
+                )
+                gate = tl.exp(-tl.exp(A_log) * softplus)
+                beta = 1.0 / (1.0 + tl.exp(-beta_input))
+
+            state *= gate[None, :]
+            value -= tl.sum(state * k[None, :], axis=1)
+            value *= beta
+            state += value[:, None] * k[None, :]
+            output = tl.sum(state * q[None, :], axis=1)
+
+            tl.store(
+                out_ptr + (token * H_V + pid_hv) * V + offset_v,
+                output,
+                mask=mask_v,
+            )
+            snapshot_offsets = (
+                snapshot_idx * snapshot_stride_0
+                + step * snapshot_stride_1
+                + pid_hv * snapshot_stride_2
+                + offset_v[:, None] * snapshot_stride_3
+                + offset_k[None, :] * snapshot_stride_4
+            )
+            tl.store(
+                snapshot_ptr + snapshot_offsets,
+                state,
+                mask=(snapshot_idx >= 0) & mask_state,
+            )
 
 
 def kda_target_verify_npu(
@@ -201,9 +399,9 @@ def kda_target_verify_npu(
     activated. Both gate tensors may include the SGLang leading singleton.
     When the flag is omitted, a paired leading singleton selects this mode.
 
-    K=V=128 uses the split-K kernel and normalizes q/k with
+    K=V=128 uses two K64 state halves and normalizes q/k with
     ``x * rsqrt(sum(x*x) + 1e-12)``. Other dimensions retain the original
-    ``x / (sqrt(sum(x*x)) + 1e-6)`` normalization and kernel.
+    ``x / (sqrt(sum(x*x)) + 1e-6)`` normalization and computation.
     """
     if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
         raise ValueError("q, k, and v must have shape [1, tokens, heads, dim]")
@@ -300,15 +498,13 @@ def kda_target_verify_npu(
     if bk > 256:
         raise ValueError("key dimensions greater than 256 are unsupported")
     if key_dim == 128 and value_dim == 128:
-        kernel = _kda_target_verify_k128_fused_kernel
         bv = 128
         launch_options = {"multibuffer": True}
     else:
-        kernel = _kda_target_verify_kernel
         bv = min(64, triton.next_power_of_2(value_dim))
         launch_options = {"num_warps": 1, "num_stages": 3, "multibuffer": False}
     grid = (batch, h_v, triton.cdiv(value_dim, bv))
-    kernel[grid](
+    _kda_target_verify_kernel[grid](
         A_log,
         dt_bias,
         q,
