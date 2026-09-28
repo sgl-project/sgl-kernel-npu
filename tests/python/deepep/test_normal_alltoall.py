@@ -39,7 +39,6 @@ def test_main(
     base_num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_dynamic_tokens = args.enable_dynamic_tokens
-    quant_type = args.quant_type  # bf16, int8
 
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
@@ -185,14 +184,23 @@ def test_main(
     )
 
     # Test dispatch
-    dispatch_quant_mode = quant_type
+    if args.use_mxfp4:
+        dispatch_quant_mode = "mx_fp4_e2m1"
+    elif args.use_mxfp8:
+        dispatch_quant_mode = "mx_fp8_e4m3"
+    elif args.use_fp8:
+        dispatch_quant_mode = "int8"
+    else:
+        dispatch_quant_mode = "bf16"
+    quant_dispatch_kwargs = {
+        "use_mxfp4": args.use_mxfp4,
+        "use_mxfp8": args.use_mxfp8,
+        "use_fp8": args.use_fp8,
+    }
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
-        iter_quant = dispatch_quant_mode if current_x is x_pure_rand else "bf16"
-        if iter_quant is None:
-            iter_quant = "bf16"
         if local_rank == 0:
             print(
-                f"[testing] Running with {iter_quant.upper()}, with top-k {num_topk} ...",
+                f"[testing] Running with {dispatch_quant_mode.upper()}, with top-k {num_topk} ...",
                 flush=True,
             )
         dispatch_args = {
@@ -205,7 +213,7 @@ def test_main(
             "topk_weights": (
                 topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
             ),
-            "use_fp8": (quant_type != "bf16") if current_x is x_pure_rand else False,
+            **quant_dispatch_kwargs,
         }
 
         (
@@ -271,8 +279,10 @@ def test_main(
 
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        diff_threshold = get_diff_threshold(iter_quant)
-        assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
+        diff_threshold = get_diff_threshold(dispatch_quant_mode)
+        assert (
+            diff < diff_threshold
+        ), f"Assertion diff failed on {rank=}, Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -284,10 +294,37 @@ def test_main(
         print("", flush=True)
 
     # Tune dispatch performance
+    def calculate_recv_bytes(dispatch_bf16_recv_bytes, dispatch_quant_mode):
+        hidden_dim = hidden
+        bs = dispatch_bf16_recv_bytes / 2 / hidden_dim
+        num_values = bs * hidden_dim
+        scale_bytes = 0
+        if dispatch_quant_mode == "bf16":
+            # No quantization, use original BF16 communication
+            data_bytes = dispatch_bf16_recv_bytes
+        elif dispatch_quant_mode.startswith("int8"):
+            # INT8 per-token quantization:
+            # - Data: num_values * 1 byte (INT8)
+            # - Scale: x tokens * 2 bytes each (BF16)
+            data_bytes = num_values * 1
+            scale_bytes = bs * 2
+        elif dispatch_quant_mode.startswith("mx_fp4"):
+            data_bytes = num_values // 2
+            scale_bytes = num_values // 32
+        elif dispatch_quant_mode.startswith("mx_fp8"):
+            data_bytes = num_values
+            scale_bytes = num_values // 32
+        else:
+            raise ValueError(f"Unsupported quant_type: {dispatch_quant_mode}")
+        recv_bytes = data_bytes + scale_bytes
+        return recv_bytes
+
     config = deep_ep.Config(24, 8, buffer_size)
 
-    # BF16 dispatch tuning
-    tune_args_bf16 = {
+    quant_recv_bytes = calculate_recv_bytes(
+        dispatch_bf16_recv_bytes, dispatch_quant_mode
+    )
+    tune_args_quant = {
         "x": x,
         "config": config,
         "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -295,43 +332,15 @@ def test_main(
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
+        **quant_dispatch_kwargs,
     }
-    t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
+    t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
     if local_rank == 0:
         print(
-            f"[tuning] Dispatch (BF16, raw_bytes={dispatch_bf16_recv_bytes/1e9:.3f}GB) "
-            f"raw_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
+            f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
             flush=True,
         )
-
-    # Quantized dispatch tuning (int8)
-    if dispatch_quant_mode not in ("bf16", None):
-        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        if dispatch_quant_mode == "int8":
-            quant_data_bytes = num_recv_tokens * hidden
-            quant_scale_bytes = num_recv_tokens * 4
-        else:
-            raise ValueError(
-                f"Unsupported quant_mode for bandwidth calculation: {dispatch_quant_mode}"
-            )
-        quant_recv_bytes = quant_data_bytes + quant_scale_bytes
-        tune_args_quant = {
-            "x": x,
-            "config": config,
-            "num_tokens_per_rank": ref_num_tokens_per_rank,
-            "is_token_in_rank": ref_is_token_in_rank,
-            "num_tokens_per_expert": ref_num_tokens_per_expert,
-            "topk_idx": topk_idx,
-            "topk_weights": topk_weights,
-            "use_fp8": (quant_type != "bf16"),
-        }
-        t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
-        if local_rank == 0:
-            print(
-                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
-                f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
-                flush=True,
-            )
 
     dispatch_args = {
         "x": x,
@@ -341,7 +350,7 @@ def test_main(
         "config": config,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
-        "use_fp8": (quant_type != "bf16"),
+        **quant_dispatch_kwargs,
     }
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
@@ -420,11 +429,28 @@ if __name__ == "__main__":
         help="Whether to enable dynamic tokens for testing",
     )
     parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default="bf16",
-        help="quant type: bf16, int8",
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use use_mxfp8=True bool flag for normal dispatch. "
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
+        "Mutually exclusive with --quant-type.",
+    )
+    parser.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use use_mxfp4=True bool flag for normal dispatch. "
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
+        "Mutually exclusive with --quant-type.",
+    )
+    parser.add_argument(
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use use_fp8=True bool flag for normal dispatch. Architecture-aware: "
+        "A5 -> not supported, A2/A3 -> int8 (with warning). "
+        "Mutually exclusive with --quant-type.",
     )
     args = parser.parse_args()
 

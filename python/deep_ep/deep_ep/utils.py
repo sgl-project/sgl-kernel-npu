@@ -52,8 +52,7 @@ def _resolve_quant_mode(
 
     Priority:
     1. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags (table lookup).
-    2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
-    3. ``None`` (BF16, no quantization).
+    2. ``None`` (BF16, no quantization).
     """
     if sum([use_fp8, use_mxfp8, use_mxfp4]) > 1:
         raise ValueError("at most one of use_mxfp8, use_mxfp4, use_fp8 can be True")

@@ -495,6 +495,27 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         device = x.device
         hidden = x.size(1)
         aligned_num_tokens = num_max_dispatch_tokens_per_rank
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode is None:
+            quant_mode = "bf16"
+        if quant_mode not in VALID_QUANT_MODES:
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
+                f"Only 'bf16' , 'mx_fp8_e4m3(A5)', 'mx_fp4_e2m1(A5)' and 'int8(A3)' are supported."
+            )
+        hidden_shape = x.shape
+
+        quant_mode_type = {
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "mx_fp8_e4m3": torch.float8_e4m3fn,
+            "mx_fp4_e2m1": torch_npu.float4_e2m1fn_x2,
+        }[quant_mode]
         num_tokens = x.size(0)
         padding_size = aligned_num_tokens - num_tokens
         x_padding = torch.zeros(
@@ -548,7 +569,21 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         recv_x = recv_all.reshape(
             num_local_experts * group_size * expert_capacity, hidden
         )
-        recv_x_out = (torch_npu.npu_dynamic_quant(recv_x)) if use_fp8 else recv_x
+        recv_x_out = recv_x
+        if quant_mode != "bf16":
+            recv_x_scale = (
+                torch_npu.npu_dynamic_quant(recv_x)
+                if quant_mode == "int8"
+                else torch_npu.npu_dynamic_mx_quant(recv_x, dst_type=quant_mode_type)
+            )
+            recv_x_out = (
+                recv_x_scale[0].view(
+                    torch.float4_e2m1fn_x2
+                    if quant_mode_type == torch_npu.float4_e2m1fn_x2
+                    else quant_mode_type
+                ),
+                recv_x_scale[1],
+            )
 
         packed_recv_count = torch.full(
             (num_local_experts,),
