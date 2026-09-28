@@ -23,9 +23,9 @@ Device part code:
 
 constexpr int32_t BUFFER_NUM = 2; /* tensor num for each queue */
 
-class KernalHelloworld {
+class KernelHelloworld {
 public:
-    __aicore__ inline KernalHelloworld() {}
+    __aicore__ inline KernelHelloworld() {}
 
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, GM_ADDR z, uint32_t totalLength)
     {
@@ -93,7 +93,7 @@ private:
 
 extern "C" __global__ __aicore__ void helloworld(GM_ADDR x, GM_ADDR y, GM_ADDR z, uint32_t totalLength)
 {
-    KernalHelloworld op;
+    KernelHelloworld op;
     op.Init(x, y, z, totalLength);
     op.Process();
 }
