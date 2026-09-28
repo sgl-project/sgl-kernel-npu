@@ -16,6 +16,7 @@ if [ -z "$BASE_LIBS_PATH" ]; then
 else
     export ASCEND_HOME_PATH=$BASE_LIBS_PATH
 fi
+export ASCEND_CANN_PACKAGE_PATH=${ASCEND_CANN_PACKAGE_PATH:-$ASCEND_HOME_PATH}
 echo "using ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
 script_path=$(realpath $(dirname $0))
 
