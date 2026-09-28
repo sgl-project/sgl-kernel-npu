@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe operator aclnn api header file
- * Author: Wang Qiankun
- * Create: 2025-07-19
- * Note: this file was generated automatically do not change it.
- * History: 2025-07-19 create FusedDeepMoe operator aclnn api header file
- */
-
 #ifndef FUSED_DEEP_MOE
 #define FUSED_DEEP_MOE
 

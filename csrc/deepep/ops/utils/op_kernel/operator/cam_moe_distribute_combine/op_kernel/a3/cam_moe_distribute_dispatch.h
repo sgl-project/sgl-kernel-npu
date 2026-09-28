@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: CamMoeDistributeDispatch operator kernel function header file, for a3
- * Author: WANG Qiankun
- * Create: 2025-05-29
- * Note:
- * History: 2025-05-29 create CamMoeDistributeDispatch operator kernel function header file, for a3
- */
-
 #ifndef CAM_MOE_DISTRIBUTE_DISPATCH_H
 #define CAM_MOE_DISTRIBUTE_DISPATCH_H
 #define OPT_RANK_OFFSET 512

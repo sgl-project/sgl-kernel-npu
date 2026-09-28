@@ -57,21 +57,23 @@ public:
         if (coreIdx_ < restNum) {
             ++tempTokens_;
         }
-        topkIdx32AlignIntLen_ = Ceil(tempTokens_ * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN;
+        topkIdx32AlignIntLen_ =
+            Ceil(static_cast<uint64_t>(tempTokens_) * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN;
         numTokensPerRank32AlignIntLen_ = Ceil(numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
         numTokensPerExpert32AlignIntLen_ = Ceil(numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
-        isTokenInRank32AlignIntLen_ = Ceil(tempTokens_ * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
+        isTokenInRank32AlignIntLen_ =
+            Ceil(static_cast<uint64_t>(tempTokens_) * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
 
         if (coreIdx_ < restNum) {
-            topkIdxOffset_ = coreIdx_ * tempTokens_ * numTopk_ * sizeof(int64_t);
-            sendIdxOffset_ = coreIdx_ * tempTokens_ * numTopk_ * sizeof(T);
-            isTokenOffset_ = coreIdx_ * tempTokens_ * numRanks_ * sizeof(T);
-            tokenIdxOffset_ = coreIdx_ * tempTokens_ * sizeof(T);
+            topkIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numTopk_ * sizeof(int64_t);
+            sendIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numTopk_ * sizeof(T);
+            isTokenOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numRanks_ * sizeof(T);
+            tokenIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * sizeof(T);
         } else {
-            topkIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(int64_t);
-            sendIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(T);
-            isTokenOffset_ = (restNum + coreIdx_ * tempTokens_) * numRanks_ * sizeof(T);
-            tokenIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * sizeof(T);
+            topkIdxOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numTopk_ * sizeof(int64_t);
+            sendIdxOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numTopk_ * sizeof(T);
+            isTokenOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numRanks_ * sizeof(T);
+            tokenIdxOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * sizeof(T);
         }
 
         tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData);
@@ -105,19 +107,22 @@ public:
                 if (coreIdx_ < restNum) {
                     tempTokens_++;
                 }
-                topkIdx32AlignIntLen_ = Ceil(tempTokens_ * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN;
-                isTokenInRank32AlignIntLen_ = Ceil(tempTokens_ * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
+                topkIdx32AlignIntLen_ =
+                    Ceil(static_cast<uint64_t>(tempTokens_) * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN;
+                isTokenInRank32AlignIntLen_ =
+                    Ceil(static_cast<uint64_t>(tempTokens_) * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
 
                 if (coreIdx_ < restNum) {
-                    topkIdxOffset_ = coreIdx_ * tempTokens_ * numTopk_ * sizeof(int64_t);
-                    sendIdxOffset_ = coreIdx_ * tempTokens_ * numTopk_ * sizeof(T);
-                    isTokenOffset_ = coreIdx_ * tempTokens_ * numRanks_ * sizeof(T);
-                    tokenIdxOffset_ = coreIdx_ * tempTokens_ * sizeof(T);
+                    topkIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numTopk_ * sizeof(int64_t);
+                    sendIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numTopk_ * sizeof(T);
+                    isTokenOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * numRanks_ * sizeof(T);
+                    tokenIdxOffset_ = static_cast<int64_t>(coreIdx_) * tempTokens_ * sizeof(T);
                 } else {
-                    topkIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(int64_t);
-                    sendIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(T);
-                    isTokenOffset_ = (restNum + coreIdx_ * tempTokens_) * numRanks_ * sizeof(T);
-                    tokenIdxOffset_ = (restNum + coreIdx_ * tempTokens_) * sizeof(T);
+                    topkIdxOffset_ =
+                        (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numTopk_ * sizeof(int64_t);
+                    sendIdxOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numTopk_ * sizeof(T);
+                    isTokenOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * numRanks_ * sizeof(T);
+                    tokenIdxOffset_ = (restNum + static_cast<int64_t>(coreIdx_) * tempTokens_) * sizeof(T);
                 }
             }
 
@@ -129,8 +134,8 @@ public:
                 continue;
             }
 
-            int64_t round_topkIdx_offset = r * perRoundTokens_ * numTopk_ * sizeof(int64_t);
-            int64_t round_sendIdx_offset = r * perRoundTokens_ * numTopk_ * sizeof(T);
+            int64_t round_topkIdx_offset = static_cast<int64_t>(r) * perRoundTokens_ * numTopk_ * sizeof(int64_t);
+            int64_t round_sendIdx_offset = static_cast<int64_t>(r) * perRoundTokens_ * numTopk_ * sizeof(T);
 
             sendTokenIdxSmallGM_.SetGlobalBuffer(
                 (__gm__ T *)(sendTokenIdxSmall_ + round_sendIdx_offset + sendIdxOffset_));
@@ -138,7 +143,8 @@ public:
             numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)(numTokensPerExpert_ + numExperts_ * r * sizeof(T)));
             // tokens * rank;
             isTokenInRankGM_.SetGlobalBuffer(
-                (__gm__ T *)(isTokenInRank_ + r * perRoundTokens_ * numRanks_ * sizeof(T) + isTokenOffset_));
+                (__gm__ T *)(isTokenInRank_ + static_cast<int64_t>(r) * perRoundTokens_ * numRanks_ * sizeof(T) +
+                             isTokenOffset_));
 
             const DataCopyExtParams dataCopyParams{1U, topkIdx32AlignIntLen_, 0U, 0U, 0U};
             const DataCopyPadExtParams<int64_t> padParams{false, 0U, 0U, 0U};
@@ -152,7 +158,8 @@ public:
             SyncFunc<AscendC::HardEvent::V_S>();
             SyncFunc<AscendC::HardEvent::V_MTE3>();
             const DataCopyExtParams clearGmParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
-            DataCopyPad(tempExpertGM_[coreIdx_ * numExperts_], numTokensPerExpertTensor, clearGmParams);
+            DataCopyPad(tempExpertGM_[static_cast<int64_t>(coreIdx_) * numExperts_], numTokensPerExpertTensor,
+                        clearGmParams);
             PipeBarrier<PIPE_MTE3>();
             SyncAll<true>();
 
@@ -184,7 +191,8 @@ public:
             AscendC::SetAtomicAdd<T>();
             const DataCopyExtParams tempExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
             for (int i = coreIdx_ + 1; i < aivNum_; ++i) {
-                DataCopyPad(tempExpertGM_[i * numExperts_], numTokensPerExpertTensor, tempExpertDataCopyParams);
+                DataCopyPad(tempExpertGM_[static_cast<int64_t>(i) * numExperts_], numTokensPerExpertTensor,
+                            tempExpertDataCopyParams);
             }
             sendSize = numRanks_ * sizeof(T);
             const DataCopyExtParams numTokensPerRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
@@ -197,8 +205,8 @@ public:
             SyncAll<true>();
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
             const DataCopyPadExtParams<T> tempPadParams{false, 0U, 0U, 0U};
-            DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[coreIdx_ * numExperts_], tempExpertDataCopyParams,
-                        tempPadParams);
+            DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[static_cast<int64_t>(coreIdx_) * numExperts_],
+                        tempExpertDataCopyParams, tempPadParams);
             SyncFunc<AscendC::HardEvent::MTE2_S>();
             for (int i = 0; i < tempTokens_; ++i) {
                 for (int j = 0; j < numTopk_; ++j) {

@@ -1,13 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
 /*!
  * \file moe_distribute_combine_a5.h
  * \brief
@@ -441,12 +431,12 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
             for (int i = 0; i < localExpertNum_; ++i) {
                 idx = i * epWorldSize_ + epRankId_;
                 count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-                localDataSize += count * perTokenSize_;
+                localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
             }
         } else {
             idx = epRankId_;
             count = idx > 0 ? (inputCountLT_(idx) - inputCountLT_(idx - 1)) : inputCountLT_(idx);
-            localDataSize += count * perTokenSize_;
+            localDataSize += static_cast<uint64_t>(count) * perTokenSize_;
         }
 
         hcclHandleId_ = hccl_.AlltoAllvWrite<true>(sendBufGM_, sendOffsetGM_, sendSizeGM_, recvOffset_, localDataSize);

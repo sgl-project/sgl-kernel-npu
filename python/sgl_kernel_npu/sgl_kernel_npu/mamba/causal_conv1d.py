@@ -352,12 +352,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
         x_base_1d = x_base
         o_base_1d = o_ptr + o_offset + idx_feats * stride_o_dim
 
-        # accumulator preload (bias)
-        acc_preload = acc_bias
-
         # compute each token; keep tl.range so varlen can use seqlen_run as runtime trip count (like original)
         for idx_token in tl.range(seqlen_run):
-            acc = acc_preload
+            acc = tl.zeros((BLOCK_N,), dtype=tl.float32)
 
             # same selection logic as original (unrolled by KERNEL_WIDTH)
             matrix_w = w_col0
@@ -438,6 +435,11 @@ def _causal_conv1d_update_kernel_npu_tiled(
 
                 acc += matrix_x.to(tl.float32) * matrix_w  # [BLOCK_N]
 
+            if HAS_BIAS:
+                acc += acc_bias
+
+            acc = acc.to(tl.float16, fp_downcast_rounding="rtne")
+
             # roll history window
             if KERNEL_WIDTH == 2:
                 col0 = matrix_x
@@ -461,6 +463,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                 col4 = matrix_x
 
             if SILU_ACTIVATION:
+                acc = acc.to(tl.float32)
                 acc = acc / (1.0 + tl.exp(-acc))
 
             # store output
@@ -1256,7 +1259,14 @@ def torch_causal_conv1d_update_npu(
     else:
         conv_state_update = hidden_states_new[:, :, -state_len:]
 
-    out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
+    out = torch.sum(
+        hidden_states_new.to(torch.float32) * weight.to(torch.float32),
+        dim=-1,
+        keepdim=True,
+    )
+    if bias is not None:
+        out = out + bias.to(torch.float32)[None, :, None]
+    out = out.to(hidden_state.dtype)
     if activation in ["silu", "swish"]:
         out = F.silu(out)
     out = out.to(hidden_state.dtype)

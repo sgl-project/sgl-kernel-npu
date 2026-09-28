@@ -271,6 +271,85 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         _assert_close_fp32(out_k, fk_e, atol=2e-2)
         _assert_close_fp32(out_v, fv_e, atol=2e-2, rtol=2e-2)
 
+    def _run_case_grid_arms(
+        self,
+        bsz: int,
+        q_hidden_size: int,
+        kv_hidden_size: int,
+        head_dim: int,
+        rope_dim: int,
+    ):
+        """The wide grid (B >= wide_grid_min_tokens) must agree with the per-head grid.
+
+        Both arms run the same kernel; only the launch grid differs. V is a plain copy so it
+        is bit-identical; Q/K RMSNorm reduces over head_dim either way, so any difference is a
+        reassociation worth at most one bf16 ULP (relative 2**-7). Measured: Q and V are
+        bit-identical, K differs on < 0.001% of elements by exactly 1 ULP.
+        """
+        eps = 1e-6
+        max_pos = 2048
+        rope_theta = 10000.0
+        torch.manual_seed(0)
+
+        qkv = torch.randn(
+            bsz,
+            q_hidden_size + kv_hidden_size * 2,
+            dtype=self.dtype,
+            device=self.device,
+        )
+        positions = torch.randint(
+            0, max_pos, (bsz,), dtype=torch.int64, device=self.device
+        )
+        cos_sin_cache = _make_cos_sin_cache(
+            max_pos, rope_dim, rope_theta, torch.float32, self.device
+        )
+        q_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
+        k_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
+
+        def run(wide_grid_min_tokens: int):
+            return split_qkv_rmsnorm_rope_pos_cache_half_npu(
+                qkv,
+                positions,
+                cos_sin_cache,
+                q_hidden_size,
+                kv_hidden_size,
+                head_dim,
+                eps=eps,
+                q_weight=q_weight,
+                k_weight=k_weight,
+                rope_dim=rope_dim,
+                wide_grid_min_tokens=wide_grid_min_tokens,
+            )
+
+        nq, nk, nv = run(bsz + 1)  # per-head grid
+        wq, wk, wv = run(0)  # wide grid
+
+        torch.testing.assert_close(wv.cpu(), nv.cpu(), atol=0, rtol=0)
+        one_bf16_ulp = 2**-7
+        _assert_close_fp32(wq, nq, atol=1e-6, rtol=one_bf16_ulp)
+        _assert_close_fp32(wk, nk, atol=1e-6, rtol=one_bf16_ulp)
+
+    def test_grid_arms_agree_above_threshold(self):
+        """Batch above the default threshold: wide grid vs per-head grid."""
+        self._run_case_grid_arms(
+            bsz=4096,
+            q_hidden_size=2048,
+            kv_hidden_size=512,
+            head_dim=128,
+            rope_dim=64,
+        )
+
+    def test_wide_grid_vs_golden(self):
+        """Batch above the default threshold takes the wide grid; still matches golden."""
+        self._run_case_graph(
+            bsz=2048,
+            q_hidden_size=2048,
+            kv_hidden_size=512,
+            head_dim=128,
+            rope_dim=64,
+            use_qk_norm=True,
+        )
+
     def test_with_qk_norm_full_rope(self):
         """rope_dim == head_dim; fused op in NPU graph."""
         self._run_case_graph(

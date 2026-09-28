@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
 #pragma once
 #include "../../catlass/act/act.hpp"
 #include "../../catlass/act/arch/resource.hpp"
@@ -83,7 +74,7 @@ public:
     using TileStrideMul = Tile::TileStrideMul<ArchTag, float, ChunkTileShape, ChunkTileShape::COLUMN, TileShape::COLUMN,
                                               ChunkTileShape::COLUMN>;
 
-    static_assert(UB_STAGES <= 2, "UB stages too large, event id is not enough.");
+    static_assert(UB_STAGES > 0 && UB_STAGES <= 2, "UB stages must be in (0, 2].");
 
     static_assert((UB_STAGES * (TileShape::COUNT * sizeof(ElementC) + TileShape::COLUMN * sizeof(ElementScale) +
                                 TileShape::ROW * sizeof(ElementPerTokenScale) + TileShape::COUNT * sizeof(ElementD)) +

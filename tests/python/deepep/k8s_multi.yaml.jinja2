@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: rings-config-ascend-sglang-test
+  name: rings-config-ascend-sglang-test-{{ run_id }}
   namespace: {{ name_space }}
   labels:
     ring-controller.atlas: ascend-1980
@@ -23,7 +23,7 @@ data: {}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: ascend-sglang-configmap-access
+  name: ascend-sglang-configmap-access-{{ run_id }}
   namespace: {{ name_space }}
 rules:
 - apiGroups: [""]
@@ -35,7 +35,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ascend-sglang-configmap-binding
+  name: ascend-sglang-configmap-binding-{{ run_id }}
   namespace: {{ name_space }}
 subjects:
 - kind: ServiceAccount
@@ -43,14 +43,14 @@ subjects:
   namespace: {{ name_space }}
 roleRef:
   kind: Role
-  name: ascend-sglang-configmap-access
+  name: ascend-sglang-configmap-access-{{ run_id }}
   apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: ascend-sglang-pod-access
+  name: ascend-sglang-pod-access-{{ run_id }}
   namespace: {{ name_space }}
 rules:
 - apiGroups: [""]
@@ -61,7 +61,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ascend-sglang-pod-binding
+  name: ascend-sglang-pod-binding-{{ run_id }}
   namespace: {{ name_space }}
 subjects:
 - kind: ServiceAccount
@@ -69,7 +69,7 @@ subjects:
   namespace: {{ name_space }}
 roleRef:
   kind: Role
-  name: ascend-sglang-pod-access
+  name: ascend-sglang-pod-access-{{ run_id }}
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -167,7 +167,7 @@ spec:
             claimName: sgl-project-sglang-hk001
         - name: ascend-910-config
           configMap:
-            name: rings-config-ascend-sglang-test
+            name: rings-config-ascend-sglang-test-{{ run_id }}
         - name: ascend-driver
           hostPath:
             path: /usr/local/Ascend/driver
