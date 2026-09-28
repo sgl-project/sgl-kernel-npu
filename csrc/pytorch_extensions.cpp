@@ -321,7 +321,9 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("kda_decode", TORCH_FN(sglang::npu_kernel::kda_decode));
+#endif
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 
