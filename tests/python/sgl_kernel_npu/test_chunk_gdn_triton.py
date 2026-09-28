@@ -4,12 +4,14 @@ from typing import Optional
 
 import pytest
 import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
+import sgl_kernel_npu.fla.chunk as chunk_module
 import torch
 import torch.nn.functional as F
 import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.chunk import (
     chunk_gated_delta_rule_fwd,
     chunk_gated_delta_rule_native,
+    chunk_gated_delta_rule_npu,
 )
 from utils import require_npu_op
 
@@ -177,3 +179,275 @@ def test_chunk_varlen(
 
     assert_close("o", ref, tri, 0.005)
     assert_close("ht", ref_ht, tri_ht, 0.005)
+
+
+def make_indexed_gdn_case(seed, sequence_lengths=(64, 64), pool_size=6):
+    """Build one small varlen case shared by the indexed-state tests."""
+    torch.manual_seed(seed)
+    os.environ["TRITON_F32_DEFAULT"] = "ieee"
+    num_value_heads, num_key_heads, head_dim = 4, 2, 128
+    total_tokens = sum(sequence_lengths)
+    offsets = [0]
+    for length in sequence_lengths:
+        offsets.append(offsets[-1] + length)
+
+    q = torch.randn(
+        1, total_tokens, num_key_heads, head_dim, dtype=torch.bfloat16, device=device
+    )
+    inputs = {
+        "q": q,
+        "k": torch.randn_like(q),
+        "v": torch.randn(
+            1,
+            total_tokens,
+            num_value_heads,
+            head_dim,
+            dtype=torch.bfloat16,
+            device=device,
+        ),
+        "g": F.logsigmoid(
+            torch.randn(
+                1, total_tokens, num_value_heads, dtype=torch.float32, device=device
+            )
+        ),
+        "beta": torch.sigmoid(
+            torch.randn(
+                1,
+                total_tokens,
+                num_value_heads,
+                dtype=torch.bfloat16,
+                device=device,
+            )
+        ),
+        "output_final_state": True,
+        "cu_seqlens": torch.tensor(offsets, dtype=torch.long, device=device),
+    }
+    state_pool = (
+        torch.randn(
+            pool_size,
+            num_value_heads,
+            head_dim,
+            head_dim,
+            dtype=torch.bfloat16,
+            device=device,
+        )
+        * 0.01
+    )
+    return inputs, state_pool
+
+
+def test_chunk_varlen_indexed_state_pool_inplace():
+    """Indexed state I/O matches the legacy gather + scatter path exactly."""
+    inputs, initial_pool = make_indexed_gdn_case(1234, pool_size=17)
+    pool_size = initial_pool.shape[0]
+    state_indices = torch.tensor([3, 13], dtype=torch.long, device=device)
+
+    legacy_pool = initial_pool.clone()
+    legacy_out, legacy_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=legacy_pool[state_indices],
+        use_qk_l2norm_in_kernel=True,
+    )
+    legacy_pool[state_indices] = legacy_final.to(legacy_pool.dtype)
+
+    direct_pool = initial_pool.clone()
+    direct_out, direct_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=direct_pool,
+        initial_state_indices=state_indices,
+        inplace_final_state=True,
+        use_qk_l2norm_in_kernel=True,
+    )
+    torch.npu.synchronize()
+
+    assert direct_final is None
+    torch.testing.assert_close(direct_out, legacy_out, rtol=0, atol=0)
+    torch.testing.assert_close(
+        direct_pool[state_indices], legacy_pool[state_indices], rtol=0, atol=0
+    )
+
+    untouched = torch.ones(pool_size, dtype=torch.bool, device=device)
+    untouched[state_indices] = False
+    torch.testing.assert_close(
+        direct_pool[untouched], initial_pool[untouched], rtol=0, atol=0
+    )
+
+
+def test_chunk_varlen_indexed_state_pool_returns_compact_final_state():
+    """Indexed reads with non-inplace output must write compact final state."""
+    inputs, initial_pool = make_indexed_gdn_case(5678, pool_size=17)
+    state_indices = torch.tensor([3, 13], dtype=torch.long, device=device)
+    initial_pool_before = initial_pool.clone()
+
+    expected_out, expected_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=initial_pool[state_indices],
+        use_qk_l2norm_in_kernel=True,
+    )
+    actual_out, actual_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=initial_pool,
+        initial_state_indices=state_indices,
+        inplace_final_state=False,
+        use_qk_l2norm_in_kernel=True,
+    )
+    torch.npu.synchronize()
+
+    assert actual_final.shape == (
+        len(state_indices),
+        *initial_pool.shape[1:],
+    )
+    torch.testing.assert_close(actual_out, expected_out, rtol=0, atol=0)
+    torch.testing.assert_close(actual_final, expected_final, rtol=0, atol=0)
+    torch.testing.assert_close(initial_pool, initial_pool_before, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    ("indices", "message"),
+    [
+        (torch.tensor([0], dtype=torch.int64), "at least one entry per sequence"),
+        (torch.tensor([0, 1], dtype=torch.float32), "int32 or int64"),
+    ],
+)
+def test_chunk_varlen_indexed_state_pool_validates_indices(indices, message):
+    inputs, state_pool = make_indexed_gdn_case(9012)
+
+    with pytest.raises(ValueError, match=message):
+        chunk_gated_delta_rule_npu(
+            **inputs,
+            initial_state=state_pool,
+            initial_state_indices=indices.to(device),
+        )
+
+
+@pytest.mark.parametrize("invalid_slot", [-1, 6])
+def test_chunk_varlen_indexed_state_pool_invalid_slots_are_safe(invalid_slot):
+    inputs, state_pool = make_indexed_gdn_case(9012)
+    pool_size = state_pool.shape[0]
+    state_indices = torch.tensor([invalid_slot, 3], dtype=torch.long, device=device)
+    reference_initial = torch.stack([torch.zeros_like(state_pool[0]), state_pool[3]])
+    expected_out, expected_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=reference_initial,
+    )
+
+    before = state_pool.clone()
+    actual_out, actual_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=state_pool,
+        initial_state_indices=state_indices,
+        inplace_final_state=False,
+    )
+    torch.npu.synchronize()
+    torch.testing.assert_close(actual_out, expected_out, rtol=0, atol=0)
+    torch.testing.assert_close(
+        actual_final[0], torch.zeros_like(actual_final[0]), rtol=0, atol=0
+    )
+    torch.testing.assert_close(actual_final[1], expected_final[1], rtol=0, atol=0)
+    torch.testing.assert_close(state_pool, before, rtol=0, atol=0)
+
+    inplace_pool = before.clone()
+    actual_out, actual_final, _ = chunk_gated_delta_rule_npu(
+        **inputs,
+        initial_state=inplace_pool,
+        initial_state_indices=state_indices,
+        inplace_final_state=True,
+    )
+    torch.npu.synchronize()
+    torch.testing.assert_close(actual_out, expected_out, rtol=0, atol=0)
+    assert actual_final is None
+    torch.testing.assert_close(
+        inplace_pool[3], expected_final[1].to(inplace_pool.dtype), rtol=0, atol=0
+    )
+    untouched = torch.ones(pool_size, dtype=torch.bool, device=device)
+    untouched[3] = False
+    torch.testing.assert_close(
+        inplace_pool[untouched], before[untouched], rtol=0, atol=0
+    )
+
+
+def test_mega_gdn_indexed_state_pool_invalid_slots_are_safe(monkeypatch):
+    monkeypatch.setenv("GDN_USE_MEGA_GDN", "1")
+    state_pool = torch.arange(6 * 1 * 2 * 2, device=device, dtype=torch.bfloat16).view(
+        6, 1, 2, 2
+    )
+    state_indices = torch.tensor([-1, 3], device=device)
+    cu_seqlens = torch.tensor([0, 0, 1], dtype=torch.long, device=device)
+    q = torch.zeros(1, 1, 1, 2, dtype=torch.bfloat16, device=device)
+    v = torch.zeros_like(q)
+    g = torch.zeros(1, 1, 1, dtype=torch.float32, device=device)
+    beta = torch.ones(1, 1, 1, dtype=torch.bfloat16, device=device)
+    produced_final = torch.stack(
+        [torch.full_like(state_pool[0], 11), torch.full_like(state_pool[0], 22)]
+    ).to(torch.float32)
+    gathered_states = []
+
+    def fake_mega(
+        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+    ):
+        gathered_states.append(initial_state.clone())
+        return g, v, None, produced_final.clone(), None, None, None
+
+    monkeypatch.setattr(chunk_module, "run_mega_chunk_gdn", fake_mega)
+
+    before = state_pool.clone()
+    _, compact_final, _ = chunk_gated_delta_rule_npu(
+        q,
+        q,
+        v,
+        g,
+        beta,
+        initial_state=state_pool,
+        initial_state_indices=state_indices,
+        output_final_state=True,
+        cu_seqlens=cu_seqlens,
+    )
+
+    torch.testing.assert_close(
+        gathered_states[-1][0], torch.zeros_like(state_pool[0]), rtol=0, atol=0
+    )
+    torch.testing.assert_close(gathered_states[-1][1], state_pool[3], rtol=0, atol=0)
+    torch.testing.assert_close(
+        compact_final[0], torch.zeros_like(compact_final[0]), rtol=0, atol=0
+    )
+    torch.testing.assert_close(compact_final[1], produced_final[1], rtol=0, atol=0)
+    torch.testing.assert_close(state_pool, before, rtol=0, atol=0)
+
+    inplace_pool = before.clone()
+    _, returned_final, _ = chunk_gated_delta_rule_npu(
+        q,
+        q,
+        v,
+        g,
+        beta,
+        initial_state=inplace_pool,
+        initial_state_indices=state_indices,
+        output_final_state=True,
+        inplace_final_state=True,
+        cu_seqlens=cu_seqlens,
+    )
+
+    assert returned_final is None
+    torch.testing.assert_close(
+        inplace_pool[3], produced_final[1].to(inplace_pool.dtype), rtol=0, atol=0
+    )
+    untouched = torch.ones(inplace_pool.shape[0], dtype=torch.bool, device=device)
+    untouched[3] = False
+    torch.testing.assert_close(
+        inplace_pool[untouched], before[untouched], rtol=0, atol=0
+    )
+
+
+def test_chunk_varlen_indexed_inplace_rejects_noncontiguous_state_pool():
+    inputs, state_pool = make_indexed_gdn_case(7890, pool_size=4)
+    # Match the speculative NPU pool layout produced by transpose(-1, -2).
+    state_pool = state_pool.transpose(-1, -2)
+    assert not state_pool.is_contiguous()
+
+    with pytest.raises(ValueError, match="requires a contiguous initial_state"):
+        chunk_gated_delta_rule_npu(
+            **inputs,
+            initial_state=state_pool,
+            initial_state_indices=torch.tensor([0, 1], device=device),
+            inplace_final_state=True,
+        )
