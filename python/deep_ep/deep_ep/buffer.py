@@ -99,7 +99,6 @@ class Buffer:
 
         # Initialize low latency mode strategy
         self._init_low_latency_strategy(low_latency_strategy)
-        self._mega_moe_symm_buffers = {}
 
     def _init_normal_strategy(self, strategy: Union[str, NormalStrategy]):
         """Initialize normal mode communication strategy"""
@@ -954,7 +953,12 @@ class Buffer:
                 dispatch_quant_mode,
                 dispatch_quant_out_dtype,
             )
-            symm_buffer = self._mega_moe_symm_buffers.get(cache_key)
+            mega_moe_symm_buffers = getattr(self, "_mega_moe_symm_buffers", None)
+            if mega_moe_symm_buffers is None:
+                mega_moe_symm_buffers = {}
+                self._mega_moe_symm_buffers = mega_moe_symm_buffers
+
+            symm_buffer = mega_moe_symm_buffers.get(cache_key)
             if symm_buffer is None:
                 symm_buffer = get_symm_buffer_for_mega_moe(
                     self.group,
@@ -967,7 +971,7 @@ class Buffer:
                     dispatch_quant_mode=dispatch_quant_mode,
                     dispatch_quant_out_dtype=dispatch_quant_out_dtype,
                 )
-                self._mega_moe_symm_buffers[cache_key] = symm_buffer
+                mega_moe_symm_buffers[cache_key] = symm_buffer
 
             num_tokens = x.size(0)
             if num_tokens > num_max_dispatch_tokens_per_rank:
