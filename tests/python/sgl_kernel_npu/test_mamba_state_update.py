@@ -5,10 +5,82 @@ import pytest
 import torch
 from sgl_kernel_npu.mamba.mamba_state_update_triton import (
     conv_state_rollback,
+    copy_mamba_slots,
     move_intermediate_cache,
 )
 
 device = "npu"
+
+
+@torch.no_grad
+def test_copy_mamba_slots():
+    torch.manual_seed(7)
+    states = torch.randn(3, 17, 4, 16, 16, device=device, dtype=torch.bfloat16)
+    original = states.clone()
+    src = torch.tensor([2, 5, 9], device=device, dtype=torch.int32)
+    dst = torch.tensor([11, 13, 15], device=device, dtype=torch.int32)
+
+    expected = original.clone()
+    expected[:, dst.to(torch.long)] = expected[:, src.to(torch.long)]
+    copy_mamba_slots(states, src, dst)
+    torch.npu.synchronize()
+
+    torch.testing.assert_close(states, expected, rtol=0, atol=0)
+    untouched = torch.ones(states.shape[1], dtype=torch.bool, device=device)
+    untouched[dst.to(torch.long)] = False
+    torch.testing.assert_close(
+        states[:, untouched], original[:, untouched], rtol=0, atol=0
+    )
+
+
+@torch.no_grad
+def test_copy_mamba_slots_accepts_noncontiguous_indices():
+    torch.manual_seed(8)
+    states = torch.randn(2, 17, 3, 8, 8, device=device, dtype=torch.bfloat16)
+    original = states.clone()
+    src = torch.tensor([2, 0, 5, 0, 9, 0], device=device, dtype=torch.int32)[::2]
+    dst = torch.tensor([11, 0, 13, 0, 15, 0], device=device, dtype=torch.int64)[::2]
+    assert not src.is_contiguous()
+    assert not dst.is_contiguous()
+
+    expected = original.clone()
+    expected[:, dst.to(torch.long)] = expected[:, src.to(torch.long)]
+    copy_mamba_slots(states, src, dst)
+    torch.npu.synchronize()
+
+    torch.testing.assert_close(states, expected, rtol=0, atol=0)
+
+
+@torch.no_grad
+@pytest.mark.parametrize(
+    ("src_factory", "dst_factory", "message"),
+    [
+        (
+            lambda: torch.tensor([0, 1], device=device, dtype=torch.int32),
+            lambda: torch.tensor([2], device=device, dtype=torch.int32),
+            "same length",
+        ),
+        (
+            lambda: torch.tensor([0, 1], device=device, dtype=torch.float32),
+            lambda: torch.tensor([2, 3], device=device, dtype=torch.int32),
+            "src_indices must use int32 or int64",
+        ),
+        (
+            lambda: torch.tensor([0, 1], device=device, dtype=torch.int32),
+            lambda: torch.tensor([2, 3], device=device, dtype=torch.float32),
+            "dst_indices must use int32 or int64",
+        ),
+        (
+            lambda: torch.tensor([0, 1], device=device, dtype=torch.int32),
+            lambda: torch.tensor([2, 3], device="cpu", dtype=torch.int32),
+            "must be on the same device",
+        ),
+    ],
+)
+def test_copy_mamba_slots_validates_inputs(src_factory, dst_factory, message):
+    states = torch.empty(2, 4, 2, 8, 8, device=device, dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match=message):
+        copy_mamba_slots(states, src_factory(), dst_factory())
 
 
 def get_abs_err(x, y):
