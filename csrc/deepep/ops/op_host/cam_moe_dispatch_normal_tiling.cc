@@ -605,6 +605,11 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint32_t quantMode = NO_SCALES;
     uint32_t localMoeExpertNum = 1;
     OP_LOGI(nodeName, "Enter CamMoeDispatchNormal tiling check func.");
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    const bool isA5 = (socVersion == "Ascend950");
 
     // 获取入参属性
     OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp, groupTp) != ge::GRAPH_SUCCESS,
@@ -649,9 +654,10 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
         round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
     uint64_t perHalfDataSize = maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch);
-    uint64_t reservedSize = tilingData->camMoeDispatchNormalInfo.isHybridDeployment
-                                ? Moe::A3WindowLayout::kPerHalfReservedSize
-                                : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t reservedSize =
+        tilingData->camMoeDispatchNormalInfo.isHybridDeployment
+            ? (isA5 ? Moe::A5WindowLayout::kPerHalfReservedSize : Moe::A3WindowLayout::kPerHalfReservedSize)
+            : Moe::A3WindowLayout::kLegacyNormalDataOffset;
     uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
@@ -673,11 +679,6 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint32_t tpWorldSize = tilingData->camMoeDispatchNormalInfo.tpWorldSize;
     uint64_t tilingKey = INIT_TILINGKEY;
     CalTilingKey(tilingKey, quantMode, tpWorldSize);
-
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
 
     if (socVersion == "Ascend950") {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;

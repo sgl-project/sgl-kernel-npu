@@ -713,6 +713,7 @@ class Buffer:
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         """
         A low-latency implementation for combine.
@@ -733,6 +734,8 @@ class Buffer:
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.
                 If you do not set this flag, the kernel will ensure the data's arrival.
             out: the in-place output tensor, if set, the kernel will write the result to this tensor and return it directly.
+            use_mxfp8: quantize combine communication internally as MXFP8 E4M3 with
+                one E8M0 scale per 32 hidden elements.
 
         Returns:
             combined_x: the reduced token tensor, with shape `[num_combined_tokens, hidden]` and type `torch.bfloat16`.
@@ -749,6 +752,7 @@ class Buffer:
             async_finish=async_finish,
             return_recv_hook=return_recv_hook,
             out=out,
+            use_mxfp8=use_mxfp8,
         )
 
     def begin_profile(
