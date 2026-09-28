@@ -620,19 +620,18 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
         AddApeToScore(srcLocal, apeUb, sliceInfo, dDealSize);
         PipeBarrier<PIPE_V>();
     }
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        // Ring buffer: SaveState is deferred to the kernel-level SyncAll
-        // (CommitState) so every ReadState observes the old history. With the
-        // real A5 ring (c4 ring_size=8, c128=128) a write can land on the same
-        // ring row another slice still needs to read, both within a slice and
-        // across slices.
-        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                            static_cast<uint32_t>(IS_SCORE));
-    } else {
+    if constexpr (COMP::cacheMode != CACHE_MODE::EXPLICIT) {
         SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
-        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                            static_cast<uint32_t>(IS_SCORE));
     }
+    // EXPLICIT locations can map the history head and the new tail onto the same
+    // physical ring rows, so the commit is deferred to the kernel-level SyncAll
+    // (CommitState) for every ratio: the ReadState below must observe the old
+    // history.
+    event_t eventId_V_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE2));
+    SetFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
+    WaitFlag<HardEvent::V_MTE2>(eventId_V_MTE2);
+    ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
+                        static_cast<uint32_t>(IS_SCORE));
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
         uint32_t nextC1V1DbIdx = (info.c1v1DbIdx + 1) % constInfo_.dbWorkspaceRatio;
@@ -642,11 +641,17 @@ __aicore__ inline void CompressorBlockVector<COMP>::OverLap(
     if (sliceInfo.compressTcSize > 0) {
         PadAlign(dstLocal, srcLocal, sliceInfo, dStartIdx, dDealSize);
         if constexpr (COMP::coff == COFF::OVERLAP) {
+            event_t eventId_MTE3_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_MTE2));
+            SetFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
+            WaitFlag<HardEvent::MTE3_MTE2>(eventId_MTE3_MTE2);
             GlobalTensor<T> curCacheTcGm = cacheTcGm[info.c1v1DbIdx * cmpRatio_ * constInfo_.headDim];
             LoadFromWorkSpace(dstLocal, curCacheTcGm, srcGm, srcLocal, sliceInfo, loopInfo, dStartIdx, globalSeqIdx,
                               dDealSize);
         }
     }
+    event_t eventId_MTE2_V = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE2_V));
+    SetFlag<HardEvent::MTE2_V>(eventId_MTE2_V);
+    WaitFlag<HardEvent::MTE2_V>(eventId_MTE2_V);
 }
 
 template <typename COMP>
@@ -762,24 +767,37 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
             curSeqIdx += copyRowCount;
         }
     } else {
+        // EXPLICIT: state_block_table maps each compressed position to a flat
+        // slot index; decompose into (block, row) over the 3-D state_cache.
         uint32_t curSeqIdx = startSeqIdx;
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
-        uint64_t idInBlockTable = blockTableGm.GetValue(batchIdx);
+        uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
+        int64_t tableColumn =
+            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+            static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
-            uint64_t remainRowCnt = curSeqIdx % constInfo_.blockSize;
-            uint32_t copyRowCount = constInfo_.blockSize - remainRowCnt;
-            if (copyFinishRowCnt + copyRowCount > seqCnt) {
-                copyRowCount = seqCnt - copyFinishRowCnt;
+            uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
+            uint32_t copyRowCount = 1;
+            while (copyFinishRowCnt + copyRowCount < seqCnt) {
+                uint64_t nextStateLoc =
+                    static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
+                if (nextStateLoc != stateLoc + copyRowCount) {
+                    break;
+                }
+                copyRowCount++;
             }
-            uint64_t stateOffset = idInBlockTable * constInfo_.stateCacheStrideDim0 +
-                                   remainRowCnt * 2 * coff_ * constInfo_.headDim +
+            uint64_t blockIdx = stateLoc / constInfo_.blockSize;
+            uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
+                                   rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
 
             DataCopyWithInputQue(output[copyFinishRowCnt * coff_ * dDealSize], state[stateOffset], copyRowCount,
                                  dDealSize, coff_ * constInfo_.headDim * 2, coff_ * dDealSize);
             copyFinishRowCnt += copyRowCount;
             curSeqIdx += copyRowCount;
+            tableColumn += copyRowCount;
         }
     }
 }
@@ -820,21 +838,32 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
         uint32_t curSeqIdx = startSeqIdx;
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
-        uint64_t idInBlockTable = blockTableGm.GetValue(batchIdx);
+        uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
+        int64_t tableColumn =
+            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+            static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
-            uint64_t remainRowCnt = curSeqIdx % constInfo_.blockSize;
-            uint32_t copyRowCount = constInfo_.blockSize - remainRowCnt;
-            if (copyFinishRowCnt + copyRowCount > seqCnt) {
-                copyRowCount = seqCnt - copyFinishRowCnt;
+            uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
+            uint32_t copyRowCount = 1;
+            while (copyFinishRowCnt + copyRowCount < seqCnt) {
+                uint64_t nextStateLoc =
+                    static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
+                if (nextStateLoc != stateLoc + copyRowCount) {
+                    break;
+                }
+                copyRowCount++;
             }
-            uint64_t stateOffset = idInBlockTable * constInfo_.stateCacheStrideDim0 +
-                                   remainRowCnt * 2 * coff_ * constInfo_.headDim +
+            uint64_t blockIdx = stateLoc / constInfo_.blockSize;
+            uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
+                                   rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
             DataCopyWithOutputQue(state[stateOffset], input[copyFinishRowCnt * coff_ * dDealSize], copyRowCount,
                                   dDealSize, coff_ * dDealSize, coff_ * constInfo_.headDim * 2);
 
             copyFinishRowCnt += copyRowCount;
             curSeqIdx += copyRowCount;
+            tableColumn += copyRowCount;
         }
     }
 }
@@ -850,7 +879,7 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
     uint32_t endSeqIdx = startSeqIdx + sliceInfo.validSeqCnt;
     uint64_t srcBaseOffset = sliceInfo.dealedSeqCnt * coff_ * dDealSize;
 
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
         // Rows strictly before the compress boundary become c-state and do not
         // need to stay in the raw ring -- EXCEPT during MTP verify, where a
         // partially-accepted round must be able to re-compress from the
@@ -867,6 +896,47 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
             compressSeqIdx > (coff_ - 1U) * cmpRatio_ ? compressSeqIdx - (coff_ - 1U) * cmpRatio_ : 0U;
         if (pad != 0U) {
             writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
+        }
+        if constexpr (COMP::coff == COFF::OVERLAP) {
+            // A resume at a state page boundary re-reads the page's trailing
+            // ringSize positions from the ring. They sit mid-call, so the tail
+            // clip below never writes them. Detect them with a ringSize
+            // look-ahead: inside a page q and q+ringSize share a row, past the
+            // page end they differ. Distinct residues => one writer per row.
+            const uint32_t ringSize = constInfo_.blockSize;
+            const uint64_t sliceBaseOffset = srcBaseOffset;
+            const uint32_t sliceStart = startSeqIdx;
+            const uint32_t scanEnd = batchEnd > ringSize ? min(endSeqIdx, batchEnd - ringSize) : 0U;
+            const uint64_t tableBaseOffset = sliceInfo.bIdx * constInfo_.maxBlockNumPerBatch;
+            const int64_t column0 =
+                static_cast<int64_t>(coff_ * cmpRatio_) + static_cast<int64_t>(sliceStart) - GetStartPos(sliceInfo.bIdx);
+            uint32_t runStart = 0U;
+            for (uint32_t curSeqIdx = sliceStart; curSeqIdx < scanEnd; ++curSeqIdx) {
+                const int64_t column = column0 + static_cast<int64_t>(curSeqIdx - sliceStart);
+                const uint64_t row = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + column));
+                const uint64_t rowAhead = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + column + ringSize));
+                if (rowAhead != row) {
+                    if (runStart == 0U) {
+                        runStart = curSeqIdx;
+                    }
+                    continue;
+                }
+                if (runStart != 0U) {
+                    const uint64_t runBaseOffset = sliceBaseOffset + (runStart - sliceStart) * coff_ * dDealSize;
+                    WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset], sliceInfo.bIdx, runStart, curSeqIdx,
+                                      dStartIdx, dDealSize, stateIdx);
+                    WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset + dDealSize], sliceInfo.bIdx,
+                                      runStart, curSeqIdx, dStartIdx + constInfo_.headDim, dDealSize, stateIdx);
+                    runStart = 0U;
+                }
+            }
+            if (runStart != 0U) {
+                const uint64_t runBaseOffset = sliceBaseOffset + (runStart - sliceStart) * coff_ * dDealSize;
+                WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset], sliceInfo.bIdx, runStart, scanEnd,
+                                  dStartIdx, dDealSize, stateIdx);
+                WriteToCacheState(stateGm, blockTableGm, srcLocal[runBaseOffset + dDealSize], sliceInfo.bIdx, runStart,
+                                  scanEnd, dStartIdx + constInfo_.headDim, dDealSize, stateIdx);
+            }
         }
         if (endSeqIdx <= writeSeqStartIdx) {
             return;
