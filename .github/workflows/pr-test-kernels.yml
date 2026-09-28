@@ -112,6 +112,7 @@ jobs:
               - csrc/lora/**
               - csrc/apply_token_bitmask/**
               - csrc/helloworld/**
+              - csrc/elu/**
               - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
               - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
               - tests/python/sgl_kernel_npu/test_swiglu_quant.py
@@ -120,6 +121,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_qkvzba_split_reshape_cat.py
               - tests/python/sgl_kernel_npu/test_lora_kernels.py
               - tests/python/sgl_kernel_npu/test_hello_world.py
+              - tests/python/sgl_kernel_npu/test_elu.py
               - tests/python/sgl_kernel_npu/test_gmm_wfp8a16.py
               - tests/python/sgl_kernel_npu/test_mm_wfp8a16.py
             common:
