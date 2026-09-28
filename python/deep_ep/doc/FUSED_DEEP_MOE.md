@@ -153,7 +153,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 
 - Constraints follow the `aclnnDispatchFFNCombine` path and differ from `FUSED_DEEP_MOE`.
 - Shared expert is not supported.
-- Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
+- Only SwiGLU is supported. Selecting `activation="situ"` raises `ValueError`.
 
 #### For `fuse_mode=MEGA_MOE` (mode=3)
 
@@ -344,7 +344,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
-- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
+- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `ValueError`。
 
 #### 对于 `fuse_mode=MEGA_MOE`（mode=3）
 

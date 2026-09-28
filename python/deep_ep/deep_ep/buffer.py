@@ -853,8 +853,8 @@ class Buffer:
                 FuseMode is not exported from the package's top-level `__init__.py`;
                 import it via `from deep_ep.buffer import FuseMode` or use integer
                 values 1, 2, or 3 directly.
-            activation: activation used after GMM1. DeepEP supports `"swiglu"` and
-                `"situ"`; SiTU requires FUSED_DEEP_MOE. MegaMoe additionally supports
+            activation: activation used after GMM1. FUSED_DEEP_MOE and MegaMoe
+                support `"swiglu"` and `"situ"`; MegaMoe additionally supports
                 `"swiglu_gpt_oss"`.
             beta: SiTU gate soft-saturation bound. `None` uses the kernel default.
             linear_beta: SiTU up-projection soft-saturation bound. A positive value
@@ -885,6 +885,21 @@ class Buffer:
                   each local expert on this rank;
                 - MEGA_MOE: `expert_token_nums`, shape `[num_local_experts]`.
         """
+        supported_activations = {
+            FuseMode.FUSED_DEEP_MOE: {"swiglu", "situ"},
+            FuseMode.DISPATCH_FFN_COMBINE: {"swiglu"},
+            FuseMode.MEGA_MOE: {"swiglu", "situ", "swiglu_gpt_oss"},
+        }
+        if (
+            fuse_mode in supported_activations
+            and activation not in supported_activations[fuse_mode]
+        ):
+            raise ValueError(
+                f"Unsupported activation {activation!r} for "
+                f"{FuseMode(fuse_mode).name}; expected one of "
+                f"{sorted(supported_activations[fuse_mode])}"
+            )
+
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
             output, ep_recv_count = self.runtime.fused_deep_moe(
@@ -905,10 +920,6 @@ class Buffer:
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
-            if activation == "situ":
-                raise NotImplementedError(
-                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
-                )
             # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(
@@ -943,6 +954,11 @@ class Buffer:
             dispatch_quant_mode = 2 if quant_mode == 1 else 0
             dispatch_quant_out_dtype = torch.int8 if dispatch_quant_mode == 2 else None
             hidden = x.size(1)
+            if not isinstance(gmm2_weight, list) or len(gmm2_weight) == 0:
+                raise ValueError(
+                    "FuseMode.MEGA_MOE requires gmm2_weight to be a non-empty "
+                    "list of per-expert tensors"
+                )
             intermediate_hidden = gmm2_weight[0].shape[-2]
             cache_key = (
                 num_experts,
@@ -986,7 +1002,6 @@ class Buffer:
                 device=x.device,
             )
             x_active_mask[:num_tokens] = 1
-            topk_ids = topk_idx.int()
             if num_tokens < num_max_dispatch_tokens_per_rank:
                 padding_size = num_max_dispatch_tokens_per_rank - num_tokens
                 x = torch.cat(
