@@ -50,8 +50,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     // stride, so every other element lands on the high half of an fp32 word, which is that
     // value's own bfloat16 truncation. The state is corrupted while the numbers stay in range,
     // so callers see degraded output rather than a failure.
-    TORCH_CHECK(mix_qkv.scalar_type() == at::kBFloat16, "mix_qkv must be bfloat16, got ",
-                mix_qkv.scalar_type());
+    TORCH_CHECK(mix_qkv.scalar_type() == at::kBFloat16, "mix_qkv must be bfloat16, got ", mix_qkv.scalar_type());
     TORCH_CHECK(beta.scalar_type() == at::kBFloat16, "beta must be bfloat16, got ", beta.scalar_type());
     TORCH_CHECK(recurrent_state.scalar_type() == at::kBFloat16, "recurrent_state must be bfloat16, got ",
                 recurrent_state.scalar_type());

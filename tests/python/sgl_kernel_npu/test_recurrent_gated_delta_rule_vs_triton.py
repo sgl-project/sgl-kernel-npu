@@ -74,9 +74,9 @@ def make_inputs(b, mtp, nk, nv, dk, dv, seed, device):
 
     # Batch i owns the scratch block [i*mtp, (i+1)*mtp); both sides seed from
     # ssm_state_indices[i, 0].
-    seed_pool = torch.randn(
-        slots, nv, dv, dk, dtype=torch.bfloat16, device=device
-    ) * 0.1
+    seed_pool = (
+        torch.randn(slots, nv, dv, dk, dtype=torch.bfloat16, device=device) * 0.1
+    )
     cache_indices = torch.arange(b, dtype=torch.int32, device=device)
     offsets = torch.arange(mtp, dtype=torch.int32, device=device)
     ssm_state_indices = (cache_indices[:, None] * mtp + offsets[None, :]).contiguous()
