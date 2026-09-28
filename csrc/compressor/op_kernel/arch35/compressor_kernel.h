@@ -445,18 +445,19 @@ __aicore__ inline void CompressorKernel<COMP>::InitWorkspace(__gm__ uint8_t *wor
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, bool isNeedExcute)
 {
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
-        // wait every AIV finished the previous generation of mm1[dbIdx] (bypass DCache)
-        uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
-        uint32_t aivNum = tilingData_->workspaceParams.aivNum;
-        __gm__ uint32_t *readGenBase = (__gm__ uint32_t *)readGenGm.GetPhyAddr();
-        for (uint32_t a = 0; a < aivNum; ++a) {
-            while (AscendC::ReadGmByPassDCache(readGenBase + (a * constInfo.dbWorkspaceRatio + info.cubeDbIdx)) < gen) {
-            }
-        }
-    }
+    // The readGen release wait ("every AIV finished the previous generation of
+    // mm1[dbIdx]", slot-major readGen[dbIdx][aiv]) is handed to blockCube_.ComputeMm1
+    // and issued there in the x-load window (after the x MTE2 issue, before its wait)
+    // so it overlaps the MTE2 transfer instead of running before the call. The local
+    // AI Core's two AIVs are polled there as well: the SYNC_MODE2 wait below only
+    // guarantees "this slot was released once", not the generation.
     CrossCoreWaitFlag<SYNC_MODE2, PIPE_FIX>(SYNC_V1_C1_FLAG + info.cubeDbIdx);
     if (isNeedExcute) {
+        if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+            uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
+            blockCube_.SetReadGenPoll((__gm__ uint32_t *)readGenGm.GetPhyAddr(), gen, info.cubeDbIdx,
+                                      tilingData_->workspaceParams.aivNum);
+        }
         blockCube_.ComputeMm1(info);
     }
     CrossCoreSetFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
@@ -477,7 +478,8 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
         blockVec_.CommitState(info);
         // AIV publishes the generation it just finished (bypass DCache)
         AscendC::WriteGmByPassDCache(
-            (__gm__ uint32_t *)readGenGm.GetPhyAddr() + GetBlockIdx() * constInfo.dbWorkspaceRatio + info.c1v1DbIdx,
+            (__gm__ uint32_t *)readGenGm.GetPhyAddr() +
+                (info.c1v1DbIdx * tilingData_->workspaceParams.aivNum + GetBlockIdx()),
             (vec1Loop - 1) / constInfo.dbWorkspaceRatio + 1U);
     }
     CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + info.c1v1DbIdx);
