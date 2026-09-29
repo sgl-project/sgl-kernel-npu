@@ -214,8 +214,12 @@ def chunk_gated_delta_rule_fwd(
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
     if _use_mega_gdn():
+        # At default SUPPRESS_LEVEL the serving stack keeps only o/final_state/h,
+        # so skip the A_inv/w/v_new casts inside the wrapper (~1.5 GB/layer
+        # copies at 128k tokens).
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
-            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens,
+            return_internals=SUPPRESS_LEVEL >= 3,
         )
         if SUPPRESS_LEVEL < 3:
             return g, o, A, final_state, None, h, None
