@@ -936,6 +936,11 @@ class Buffer:
             )
             return output, expert_token_nums
         elif fuse_mode == FuseMode.MEGA_MOE:
+            if quant_mode not in (0, 1):
+                raise ValueError(
+                    "FuseMode.MEGA_MOE only supports quant_mode 0 or 1, "
+                    f"got {quant_mode}"
+                )
             # Lazy import: mega_moe is JIT-built (requires ninja), so importing it at
             # module level would break other fused modes on environments without ninja.
             try:
