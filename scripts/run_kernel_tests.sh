@@ -78,6 +78,7 @@ SPECULATIVE_TESTS=(
 )
 
 MAMBA_TESTS=(
+    test_qwen3_8_flash_next_short_conv.py
     test_conv1d_prefill.py
     test_conv1d_update.py
     test_mamba_conv.py
