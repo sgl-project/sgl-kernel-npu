@@ -342,6 +342,13 @@ def chunk_gated_delta_rule_npu(
     assert (
         q.dtype != torch.float32
     ), "ChunkGatedDeltaRuleFunction does not support float32. Please use bfloat16."
+    # fused_gdn_gating_npu returns (T, H) g/beta.
+    # expand to (1, T, H) to match q/k/v's [B, T, H, D] layout
+    # for the head_first=False path.
+    if len(beta.shape) == 2:
+        beta = beta.unsqueeze(0)
+    if len(g.shape) == 2:
+        g = g.unsqueeze(0)
     assert (
         len(beta.shape) == 3
     ), "beta must be of shape [B, T, H] if head_first=False, or [B, H, T] otherwise."
