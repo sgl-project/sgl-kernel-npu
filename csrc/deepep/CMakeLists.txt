@@ -89,6 +89,7 @@ target_link_libraries(deep_ep_cpp PRIVATE
     hccl
     torch_npu
     opapi
+    nnopbase
 )
 
 message(STATUS "TARGET_INSTALL_DIR = ${TARGET_INSTALL_DIR}")

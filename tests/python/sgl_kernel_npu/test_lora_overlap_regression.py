@@ -8,6 +8,35 @@ import torch_npu  # noqa: F401
 
 
 class TestLoRAOverlapKernels(unittest.TestCase):
+    def test_expand_rounds_midpoints_to_even(self):
+        # Use exactly representable products whose sums lie halfway between
+        # output values. Random inputs can miss CAST_ROUND vs CAST_RINT ties.
+        for dtype, mantissa_bits in ((torch.float16, 10), (torch.bfloat16, 7)):
+            with self.subTest(dtype=dtype):
+                rank, width = 16, 128
+                ulp = 2.0**-mantissa_bits
+                mid = torch.zeros(1, rank)
+                mid[0, :2] = 1
+                weights = torch.zeros(1, width, rank, dtype=dtype)
+                weights[0, :, 0] = torch.tensor(
+                    [1, 1 + ulp, -1, -1 - ulp], dtype=dtype
+                ).repeat(width // 4)
+                weights[0, :, 1] = torch.tensor(
+                    [ulp / 2, ulp / 2, -ulp / 2, -ulp / 2], dtype=dtype
+                ).repeat(width // 4)
+                expected = (mid @ weights[0].float().T).to(dtype)
+                actual = torch.zeros_like(expected, device="npu")
+                torch.ops.npu.sgemmv_expand(
+                    mid.npu(),
+                    weights.npu(),
+                    torch.tensor([0], dtype=torch.int32, device="npu"),
+                    torch.tensor([1], dtype=torch.int32, device="npu"),
+                    torch.tensor([rank], dtype=torch.int32, device="npu"),
+                    torch.tensor([0, width], dtype=torch.int32, device="npu"),
+                    actual,
+                )
+                torch.testing.assert_close(actual.cpu(), expected, atol=0, rtol=0)
+
     def test_padded_ranks_and_fused_slices(self):
         torch.set_num_threads(1)
         for dtype in (torch.float16, torch.bfloat16):
@@ -70,9 +99,10 @@ class TestLoRAOverlapKernels(unittest.TestCase):
             a.npu(),
             npu_indices,
             npu_lengths,
-            npu_ranks * slices,
+            npu_ranks,
             torch.tensor(scales, dtype=torch.float16, device="npu"),
             actual_mid,
+            slices,
         )
         torch.ops.npu.sgemmv_expand(
             actual_mid,

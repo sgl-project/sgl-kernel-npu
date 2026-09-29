@@ -263,6 +263,7 @@ private:
         AscendC::PipeBarrier<PIPE_V>();
 
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.AllocTensor<Y_T>();
+        // Match the round-to-nearest-even conversion used by the torch reference.
         Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_RINT, numElements);
         AscendC::PipeBarrier<PIPE_V>();
 
