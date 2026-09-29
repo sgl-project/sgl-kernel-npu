@@ -885,20 +885,20 @@ class Buffer:
                   each local expert on this rank;
                 - MEGA_MOE: `expert_token_nums`, shape `[num_local_experts]`.
         """
-        supported_activations = {
-            FuseMode.FUSED_DEEP_MOE: {"swiglu", "situ"},
-            FuseMode.DISPATCH_FFN_COMBINE: {"swiglu"},
-            FuseMode.MEGA_MOE: {"swiglu", "situ", "swiglu_gpt_oss"},
-        }
-        if (
-            fuse_mode in supported_activations
-            and activation not in supported_activations[fuse_mode]
-        ):
-            raise ValueError(
-                f"Unsupported activation {activation!r} for "
-                f"{FuseMode(fuse_mode).name}; expected one of "
-                f"{sorted(supported_activations[fuse_mode])}"
-            )
+        # supported_activations = {
+        #     FuseMode.FUSED_DEEP_MOE: {"swiglu", "situ"},
+        #     FuseMode.DISPATCH_FFN_COMBINE: {"swiglu"},
+        #     FuseMode.MEGA_MOE: {"swiglu", "situ", "swiglu_gpt_oss"},
+        # }
+        # if (
+        #     fuse_mode in supported_activations
+        #     and activation not in supported_activations[fuse_mode]
+        # ):
+        #     raise ValueError(
+        #         f"Unsupported activation {activation!r} for "
+        #         f"{FuseMode(fuse_mode).name}; expected one of "
+        #         f"{sorted(supported_activations[fuse_mode])}"
+        #     )
 
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
