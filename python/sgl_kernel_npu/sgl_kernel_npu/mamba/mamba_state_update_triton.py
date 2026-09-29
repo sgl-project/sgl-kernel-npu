@@ -50,15 +50,15 @@ def move_cache_dynamic_last_kernel_h_block(
     k_offsets = tl.arange(0, BLOCK_K)
 
     # Process each layer
-    for l in range(num_layers):
+    for layer in range(num_layers):
         src_base_addr = (
             src_cache_ptr
-            + tl.cast(l, tl.int64) * layer_stride
+            + tl.cast(layer, tl.int64) * layer_stride
             + tl.cast(src_idx_val, tl.int64) * size_stride
         )
         dst_base_addr = (
             dst_cache_ptr
-            + tl.cast(l, tl.int64) * dst_layer_stride
+            + tl.cast(layer, tl.int64) * dst_layer_stride
             + tl.cast(dst_idx_val, tl.int64) * dst_size_stride
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
@@ -189,10 +189,7 @@ def move_cache_dynamic_last_kernel_h_block_kda(
         + tl.cast(pid_layer, tl.int64) * dst_layer_stride
         + tl.cast(dst_idx_val, tl.int64) * dst_size_stride
     )
-    src_addr = (
-        src_base_addr
-        + tl.cast(last_step_val, tl.int64) * draft_stride
-    )
+    src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
     for h_start in range(0, h_dim, H_BLOCK_SIZE):
         h_real = h_start + h_offsets
@@ -404,16 +401,16 @@ def conv_state_rollback(
 
 @triton.jit
 def _conv_state_rollback_kernel_kda(
-        conv_states_ptr,
-        state_indices_ptr,
-        step_indices_ptr,
-        draft_token_num,
-        num_dims: tl.constexpr,
-        conv_window_size: tl.constexpr,
-        layer_stride: tl.constexpr,
-        req_stride: tl.constexpr,
-        window_stride: tl.constexpr,
-        dim_stride: tl.constexpr,
+    conv_states_ptr,
+    state_indices_ptr,
+    step_indices_ptr,
+    draft_token_num,
+    num_dims: tl.constexpr,
+    conv_window_size: tl.constexpr,
+    layer_stride: tl.constexpr,
+    req_stride: tl.constexpr,
+    window_stride: tl.constexpr,
+    dim_stride: tl.constexpr,
 ):
     """
     Triton kernel for rolling back conv states after MTP verification.
@@ -461,15 +458,13 @@ def _conv_state_rollback_kernel_kda(
         window_idx = conv_window_size - shift - 1 - window_idx1
 
         # Calculate source and destination pointers
-        src_offset = (
-                base_offset + window_idx * window_stride + dim_offsets * dim_stride
-        )
+        src_offset = base_offset + window_idx * window_stride + dim_offsets * dim_stride
         src_ptr = conv_states_ptr + src_offset
 
         dst_offset = (
-                base_offset
-                + (window_idx + shift) * window_stride
-                + dim_offsets * dim_stride
+            base_offset
+            + (window_idx + shift) * window_stride
+            + dim_offsets * dim_stride
         )
         dst_ptr = conv_states_ptr + dst_offset
 
@@ -479,10 +474,10 @@ def _conv_state_rollback_kernel_kda(
 
 
 def conv_state_rollback_kda(
-        conv_states: torch.Tensor,  # [num_layers, pool_size, conv_window_size, num_dims]
-        state_indices: torch.Tensor,  # [num_requests]
-        step_indices: torch.Tensor,  # [num_requests]
-        draft_token_num: int,
+    conv_states: torch.Tensor,  # [num_layers, pool_size, conv_window_size, num_dims]
+    state_indices: torch.Tensor,  # [num_requests]
+    step_indices: torch.Tensor,  # [num_requests]
+    draft_token_num: int,
 ):
     """
     Roll back conv states after MTP verification using Triton kernel.
@@ -535,5 +530,3 @@ def conv_state_rollback_kda(
     )
 
     return conv_states
-
-
