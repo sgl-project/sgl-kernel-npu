@@ -21,6 +21,8 @@ constexpr uint32_t COMBINE_STATE_OFFSET = 64U * 1024U;  // 本卡状态空间偏
 constexpr uint8_t EP_DOMAIN = 0;
 constexpr uint8_t TP_DOMAIN = 1;
 constexpr uint32_t FLOAT_PER_UB_ALIGN = 8U;
+constexpr float STATE_SUM_COMPLETE = 8.0F;
+constexpr float STATE_SUM_TOLERANCE = 0.5F;
 constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
 constexpr uint64_t STATE_WIN_OFFSET = 1100UL * 1024UL;  // 预留50KB存放72*512的magic数据
 constexpr uint64_t STATE_HCCL_OFFSET = 32UL;
@@ -1597,8 +1599,8 @@ __aicore__ inline bool MoeDistributeCombineV2A5<A5CombineTemplateArgs>::WaitOneT
         SyncFunc<AscendC::HardEvent::V_S>();
 
         const float stateSum = stateSumTensor.GetValue(0);
-        if (stateSum >= static_cast<float>(FLOAT_PER_UB_ALIGN) - 0.5F &&
-            stateSum <= static_cast<float>(FLOAT_PER_UB_ALIGN) + 0.5F) {
+        if (stateSum >= STATE_SUM_COMPLETE - STATE_SUM_TOLERANCE &&
+            stateSum <= STATE_SUM_COMPLETE + STATE_SUM_TOLERANCE) {
             // Only the AIV owning this token/top-k task clears this slot, so
             // no cross-AIV state race is introduced by the asynchronous path.
             DataCopy<float>(stateGMTensor, stateResetTensor_, FLOAT_PER_UB_ALIGN);
