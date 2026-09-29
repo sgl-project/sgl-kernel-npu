@@ -1185,8 +1185,7 @@ __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ExpertAl
     } else {
         if constexpr (IsMxfp8Quant) {
             gmTpSendCountTensor_ = gmTpSendCountQueue_.AllocTensor<ExpandXType>();
-            LocalTensor<uint8_t> inputBytes = gmTpSendCountTensor_.template ReinterpretCast<uint8_t>();
-            Duplicate(inputBytes, static_cast<uint8_t>(0), mxInputAlignBytes_);
+            Duplicate(gmTpSendCountTensor_, static_cast<ExpandXType>(0), mxInputAlignBytes_ / sizeof(ExpandXType));
             SyncFunc<AscendC::HardEvent::V_MTE2>();
             DataCopyPad(gmTpSendCountTensor_, expandXGM_[tokenGMOffset], expandXCopyParams, copyPadExtParams);
             gmTpSendCountQueue_.EnQue(gmTpSendCountTensor_);
