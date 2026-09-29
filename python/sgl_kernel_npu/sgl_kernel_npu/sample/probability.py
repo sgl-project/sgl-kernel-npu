@@ -1,6 +1,18 @@
+import os
 from typing import Union
 
 import torch
+
+
+def _use_triton(probs: torch.Tensor) -> bool:
+    return (
+        os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON", "1") == "1"
+        and probs.device.type == "npu"
+        and probs.dtype == torch.float32
+        and probs.is_contiguous()
+        and probs.shape[0] > 0
+        and 1 <= probs.shape[-1] <= 2**23
+    )
 
 
 def _encode_keep_keys(sorted_probs: torch.Tensor, sorted_indices: torch.Tensor):
@@ -71,6 +83,16 @@ def top_k_renorm_prob(
     top_ks = _as_batch_threshold(top_ks, probs, torch.long, "top_ks").clamp(
         min=1, max=vocab_size
     )
+    if _use_triton(probs):
+        from .probability_triton import filter_and_renorm
+
+        return filter_and_renorm(
+            probs,
+            sorted_probs,
+            sorted_indices,
+            top_ks,
+            division=os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON_DIV", "native"),
+        )
     positions = torch.arange(vocab_size, device=probs.device).view(1, -1)
     sorted_probs.masked_fill_(positions >= top_ks.view(-1, 1), 0.0)
     return _renorm_from_sorted_probs(probs, sorted_probs, sorted_indices)
@@ -89,5 +111,16 @@ def top_p_renorm_prob(
         min=0.0, max=1.0
     )
     cumulative_probs = sorted_probs.cumsum(dim=-1)
+    if _use_triton(probs):
+        from .probability_triton import filter_and_renorm
+
+        return filter_and_renorm(
+            probs,
+            sorted_probs,
+            sorted_indices,
+            top_ps,
+            cumulative_probs,
+            division=os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON_DIV", "native"),
+        )
     sorted_probs.masked_fill_(cumulative_probs - sorted_probs > top_ps.view(-1, 1), 0.0)
     return _renorm_from_sorted_probs(probs, sorted_probs, sorted_indices)
