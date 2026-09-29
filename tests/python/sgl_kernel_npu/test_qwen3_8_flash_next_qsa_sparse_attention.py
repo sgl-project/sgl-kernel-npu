@@ -208,3 +208,151 @@ def test_real_wide_pool_graph():
         expected = torch.zeros_like(q)
         expected[1] = (1 + last) / 2
         torch.testing.assert_close(out, expected, atol=0, rtol=0)
+
+
+def _inputs(rows, width, gaps=False):
+    generator = torch.Generator().manual_seed(29472 + rows + width + int(gaps))
+
+    def positive(shape):
+        return (
+            (torch.rand(shape, generator=generator) * 0.25 + 0.125).bfloat16().to("npu")
+        )
+
+    if gaps:
+        q = positive((2 * rows + 1, 3, 272))[1::2, :, :256]
+        slots = torch.full(
+            (2 * rows + 1, width + 9), -(2**31), dtype=torch.int32, device="npu"
+        )[1::2, 3 : width + 3]
+        assert q.stride(0) > 3 * q.stride(1) and q.stride(1) > 256
+        assert slots.stride(0) > width and slots.stride(1) == 1
+        assert q.storage_offset() > 0 and slots.storage_offset() > 0
+    else:
+        q = positive((rows, 3, 256))
+        slots = torch.full((rows, width), -(2**31), dtype=torch.int32, device="npu")
+        assert q.is_contiguous() and slots.is_contiguous()
+    k = positive((65, 1, 256))[1:]
+    v = torch.randn((65, 1, 256), generator=generator).bfloat16().to("npu")[1:]
+    assert k.is_contiguous() and v.is_contiguous()
+    assert k.storage_offset() > 0 and v.storage_offset() > 0
+    # Row zero remains empty throughout every graph, despite its nonfinite Q.
+    q[0] = float("nan")
+    return q, k, v, slots
+
+
+def _assert_direct(impl, args):
+    dispatch = impl.dispatch_info(*args)
+    assert dispatch["path"] == "grouped_direct", dispatch
+    assert dispatch["splits"] == 1 and dispatch["block"] == 32, dispatch
+    assert dispatch["offset_bits"] == 32 and dispatch["scratch_bytes"] == 0, dispatch
+
+
+def _capture(impl, args):
+    _assert_direct(impl, args)
+    for _ in range(2):
+        impl.sparse_attention(*args)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = impl.sparse_attention(*args)
+    return graph, output
+
+
+def _run_pair(impl, args, graph, graph_output, pointers):
+    _assert_direct(impl, args)
+    before = [x.cpu().clone() for x in args]
+    eager = impl.sparse_attention(*args)
+    graph.replay()
+    torch.npu.synchronize()
+    for out in (eager, graph_output):
+        assert out.shape == args[0].shape and out.dtype == torch.bfloat16
+        assert out.device == args[0].device and out.is_contiguous()
+    eager_cpu, graph_cpu = eager.cpu(), graph_output.cpu()
+    # Identical inputs must produce identical eager/replay values, including anomalies.
+    torch.testing.assert_close(graph_cpu, eager_cpu, atol=0, rtol=0, equal_nan=True)
+    assert pointers == [x.data_ptr() for x in args]
+    for original, current in zip(before, args):
+        torch.testing.assert_close(
+            current.cpu(), original, atol=0, rtol=0, equal_nan=True
+        )
+    return (eager_cpu, graph_cpu), before
+
+
+def _check_finite(out, expected, slots):
+    assert torch.isfinite(out).all()
+    torch.testing.assert_close(out, expected, atol=0.02, rtol=0.02)
+    empty = (slots < 0).all(1)
+    assert torch.equal(out[empty], torch.zeros_like(out[empty]))
+
+
+@pytest.mark.parametrize("rows", [32, 33])
+@pytest.mark.parametrize("target", [0, 1, 2], ids=["q", "k", "v"])
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), -float("inf")],
+    ids=["nan", "posinf", "neginf"],
+)
+def test_direct_live_anomaly_isolation(rows, target, value):
+    args = _inputs(rows, 2051)
+    q, k, v, slots = args
+    # Unused physical slot zero is nonfinite; padding must never read it into output.
+    k[0], v[0] = float("nan"), float("inf")
+    for column, physical in ((0, 2), (2, 3), (31, 4), (96, 5)):
+        slots[1:, column] = physical
+    # Only row one uses physical row one. Other active rows must stay finite.
+    slots[1, 0] = slots[1, 31] = 1
+    assert (slots[:, 32:96] < 0).all()  # Internal empty tiles before a later live tile.
+    assert (slots[:, 97:] < 0).all()  # Empty suffix after the mixed live tiles.
+    expected = oracle(*args)
+    assert torch.isfinite(expected).all()
+    original_target = args[target][1].clone()
+    graph, graph_output = _capture(impl, args)
+    pointers = [x.data_ptr() for x in args]
+    healthy = [0, *range(2, rows)]
+    for state in ("finite", "anomaly", "recovered", "empty_anomaly"):
+        if state in ("anomaly", "empty_anomaly"):
+            args[target][1] = value
+        elif state == "recovered":
+            args[target][1].copy_(original_target)
+        if state == "empty_anomaly":
+            slots.fill_(-(2**31))
+        outputs, before = _run_pair(impl, args, graph, graph_output, pointers)
+        for out in outputs:
+            if state == "anomaly":
+                # The contract exposes nonfinite results; it does not prescribe NaN/Inf signs.
+                assert (~torch.isfinite(out[1])).any(dim=1).all()
+                _check_finite(out[healthy], expected[healthy], before[3][healthy])
+            elif state == "empty_anomaly":
+                assert torch.equal(out, torch.zeros_like(out))
+            else:
+                _check_finite(out, expected, before[3])
+
+
+@pytest.mark.parametrize("rows", [32, 33])
+@pytest.mark.parametrize("width", [1025, 2051, 2054, 2055, 8195])
+@pytest.mark.parametrize("gaps", [False, True], ids=["packed", "gaps_offsets"])
+def test_direct_scan_boundaries_widths_and_graph_updates(rows, width, gaps):
+    args = _inputs(rows, width, gaps)
+    slots = args[3]
+    # Capture empty once, then reuse this graph for all live-boundary movements.
+    graph, graph_output = _capture(impl, args)
+    pointers = [x.data_ptr() for x in args]
+    # Zero-based last positions cover both sides of 256/512, the final column,
+    # forward/backward moves and the partial final scan block for every width.
+    positions = (None, width - 1, 255, 256, 511, 512, 257, 254, width - 2, 0, None)
+    for last in positions:
+        host_slots = torch.full((rows, width), -(2**31), dtype=torch.int32)
+        if last is not None:
+            columns = sorted({c for c in (0, 2, 31, last) if c <= last})
+            for index, column in enumerate(columns):
+                host_slots[1:, column] = (torch.arange(1, rows) * 7 + index * 11) % 64
+            host_slots[1, last] = 0  # Physical slot zero is a valid selection.
+            if last >= 255:
+                assert (host_slots[1:, 32:64] < 0).all()
+                assert (host_slots[1:, last] >= 0).all()
+            assert (host_slots[:, last + 1 :] < 0).all()
+        slots.copy_(host_slots)
+        # Full-row independent FP64 oracle, directly rounded to BF16.
+        expected = oracle(*args)
+        outputs, before = _run_pair(impl, args, graph, graph_output, pointers)
+        for out in outputs:
+            _check_finite(out, expected, before[3])

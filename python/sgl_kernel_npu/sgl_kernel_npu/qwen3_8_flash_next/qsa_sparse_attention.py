@@ -110,7 +110,15 @@ def _sparse_partials(
 
 @triton.jit
 def _update_head(
-    keys, values, query, valid, maximum, total, numerator, SCALE: tl.constexpr
+    keys,
+    values,
+    query,
+    valid,
+    maximum,
+    total,
+    numerator,
+    SCALE: tl.constexpr,
+    MASK_WEIGHTS: tl.constexpr = True,
 ):
     scores = tl.sum(keys * query[None, :], 1) * SCALE
     scores = tl.where(scores == -float("inf"), float("nan"), scores)
@@ -118,7 +126,11 @@ def _update_head(
     next_max = tl.maximum(maximum, tl.max(scores, 0))
     safe_max = tl.where(next_max == -float("inf"), 0, next_max)
     correction = tl.exp(maximum - safe_max)
-    weights = tl.where(valid, tl.exp(scores - safe_max), 0)
+    # Padding scores already have zero exponential weight for finite live tiles.
+    # Valid anomalies still propagate through live weights and accumulators.
+    weights = tl.exp(scores - safe_max)
+    if MASK_WEIGHTS:
+        weights = tl.where(valid, weights, 0)
     numerator = numerator * correction + tl.sum(weights[:, None] * values, 0)
     total = total * correction + tl.sum(weights, 0)
     return next_max, total, numerator
@@ -191,22 +203,52 @@ def _grouped_partials(
     a0 = tl.full((DIM,), 0, tl.float32)
     a1 = tl.full((DIM,), 0, tl.float32)
     a2 = tl.full((DIM,), 0, tl.float32)
-    for tile in range(TILES):
+    if SPLITS == 1:
+        # Locate the last live slot without assuming a valid prefix.
+        # Every replay reads current slots, including fully padded rows.
+        last_valid = tl.full((), 0, tl.int32)
+        scan = tl.full((), (TILES * BLOCK + 255) // 256 - 1, tl.int32)
+        while (scan >= 0) & (last_valid == 0):
+            offsets = scan * 256 + tl.arange(0, 256)
+            scan_cols = split * TILES * BLOCK + offsets
+            scan_slots = tl.load(
+                Slots + row * SLOT_ROW + scan_cols * SLOT_COL,
+                (scan_cols < WIDTH) & (offsets < TILES * BLOCK),
+                other=-1,
+            )
+            last_valid = tl.maximum(
+                last_valid, tl.max(tl.where(scan_slots >= 0, offsets + 1, 0), 0)
+            )
+            scan -= 1
+        active_tiles = tl.cdiv(last_valid, BLOCK)
+    else:
+        active_tiles = TILES
+    for tile in range(active_tiles):
         cols = (split * TILES + tile) * BLOCK + tl.arange(0, BLOCK)
         slots = tl.load(
             Slots + row * SLOT_ROW + cols * SLOT_COL, cols < WIDTH, other=-1
         )
         valid = (cols < WIDTH) & (slots >= 0)
-        safe_slots = tl.maximum(slots, 0).to(tl.int32)
-        keys = tl.load(
-            K + safe_slots[:, None] * K_ROW + dims[None, :], valid[:, None], other=0
-        ).to(tl.float32)
-        values = tl.load(
-            V + safe_slots[:, None] * V_ROW + dims[None, :], valid[:, None], other=0
-        ).to(tl.float32)
-        m0, s0, a0 = _update_head(keys, values, q0, valid, m0, s0, a0, SCALE)
-        m1, s1, a1 = _update_head(keys, values, q1, valid, m1, s1, a1, SCALE)
-        m2, s2, a2 = _update_head(keys, values, q2, valid, m2, s2, a2, SCALE)
+        # An empty tile leaves every online-softmax state unchanged. Inspect
+        # live slots on device: padding can occur before later valid tiles.
+        # This also avoids gather copies introduced before mask selection.
+        if tl.max(slots, 0) >= 0:
+            safe_slots = tl.maximum(slots, 0).to(tl.int32)
+            keys = tl.load(
+                K + safe_slots[:, None] * K_ROW + dims[None, :], valid[:, None], other=0
+            ).to(tl.float32)
+            values = tl.load(
+                V + safe_slots[:, None] * V_ROW + dims[None, :], valid[:, None], other=0
+            ).to(tl.float32)
+            m0, s0, a0 = _update_head(
+                keys, values, q0, valid, m0, s0, a0, SCALE, SPLITS != 1
+            )
+            m1, s1, a1 = _update_head(
+                keys, values, q1, valid, m1, s1, a1, SCALE, SPLITS != 1
+            )
+            m2, s2, a2 = _update_head(
+                keys, values, q2, valid, m2, s2, a2, SCALE, SPLITS != 1
+            )
     _store_head(
         Partial,
         Maxima,
@@ -557,6 +599,12 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
     write output directly; otherwise store FP32 maximum, normalizer and a
     256-element weighted numerator for each (query row, head, split).
 
+    Direct three-head reuse scans live slots backward in bounded blocks to locate
+    the final valid selection. Only the verified padding suffix is excluded.
+    Split paths retain their full tile range. In either path, entirely padded
+    tiles skip K/V and softmax updates;
+    later valid tiles, internal holes and graph slot updates remain supported.
+
     Flatten query rows and heads into R*Hq items. Each launch handles at most
     floor(65535/L) items, rounded down to a multiple of three for reuse.
     The first-stage grid is (items/3,L) for reuse or (items,L) for generic;
@@ -661,6 +709,8 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
                 block,
                 start // 3,
                 enable_fp_fusion=False,
+                # Direct prefill favors lower buffer pressure; split schedules keep pipelining.
+                multibuffer=splits != 1,
             )
         else:
             _sparse_partials[(count, splits)](
