@@ -908,6 +908,10 @@ class Buffer:
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            if activation == "situ":
+                raise NotImplementedError(
+                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
+                )
             # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(

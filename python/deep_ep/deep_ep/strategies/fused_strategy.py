@@ -167,7 +167,6 @@ class MegaMoeFusedStrategy(FusedEPStrategy):
             x_active_mask=x_active_mask,
             activation={
                 "situ": "situglu",
-                "swiglu": "swiglu",
             }.get(activation, activation),
             activation_params=activation_params,
         )

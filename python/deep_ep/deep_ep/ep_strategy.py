@@ -29,12 +29,11 @@ class LowLatencyStrategy:
 
 
 class FusedStrategy:
-    DEEP_EP = "deep_ep"
     MEGA_MOE = "mega_moe"
 
     @classmethod
     def get_all_strategies(cls) -> list:
-        return [cls.DEEP_EP, cls.MEGA_MOE]
+        return [cls.MEGA_MOE]
 
 
 VALID_QUANT_MODES = frozenset(
