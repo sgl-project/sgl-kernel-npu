@@ -102,6 +102,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_pto.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_triton.py
+              - tests/python/sgl_kernel_npu/test_l2norm.py
               - tests/python/sgl_kernel_npu/test_recurrent_gated_delta_rule.py
               - tests/python/sgl_kernel_npu/test_fused_gdn_gating_without_sigmoid.py
               - tests/python/sgl_kernel_npu/test_solve_tril.py
