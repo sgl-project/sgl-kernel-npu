@@ -199,11 +199,23 @@ Quantization modes in `low_latency_dispatch`. For the `default` strategy, the ef
 
 ### Fused MoE
 
-The `fused_deep_moe` API fuses dispatch + expert FFN computation + combine into a single operator call, significantly reducing communication overhead and end-to-end latency.
+Three fuse modes are available via the `FuseMode` enum:
 
-Two fuse modes are available via the `FuseMode` enum:
 - `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine via staged CamMoe communication with cross-core barriers.
 - `FuseMode.DISPATCH_FFN_COMBINE`: Integrated routing + FFN + combine with embedded HCCL communication, no cross-core barriers.
+- `FuseMode.MEGA_MOE`: Atlas A3 MegaMoe fusion via `cann_ops_transformer.ops.mega_moe`.
+
+Backend highlights:
+
+- On A5, `FuseMode.FUSED_DEEP_MOE` supports SwiGLU and SiTU; on Atlas A3, use `FuseMode.MEGA_MOE` for SiTU.
+- `FuseMode.DISPATCH_FFN_COMBINE` supports SwiGLU only; selecting `activation="situ"` raises `NotImplementedError`.
+- `FuseMode.MEGA_MOE` supports `"swiglu"` and `"situ"`; it maps SiTU to the MegaMoe `situglu` activation and forwards `beta` and `linear_beta`.
+- MegaMoe supports only `quant_mode=0` (non-quantized dispatch) and `quant_mode=1` (INT8 dispatch).
+- MegaMoe requires per-local-expert weight lists. Its token capacity is `num_max_dispatch_tokens_per_rank`; inputs shorter than that capacity are padded and masked.
+- `l1_bias` / `l2_bias` are consumed only by MegaMoe, for A8W4-INT compensation.
+
+For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
+missing, only calls using that mode fail; the DeepEP modes still work.
 
 Quantization modes (`quant_mode`):
 - `0`: No quantization (BF16 weights)
@@ -485,9 +497,23 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 `fused_deep_moe` API 将 dispatch + 专家 FFN 计算 + combine 融合为单次算子调用，显著降低通信开销和端到端延迟。
 
-通过 `FuseMode` 枚举提供两种融合模式：
+通过 `FuseMode` 枚举提供三种融合模式：
+
 - `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合，通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。
 - `FuseMode.DISPATCH_FFN_COMBINE`：集成路由 + FFN + combine，HCCL 通信内嵌于 GMM kernel 中，无跨核 barrier。
+- `FuseMode.MEGA_MOE`：通过 `cann_ops_transformer.ops.mega_moe` 实现的 Atlas A3 MegaMoe 融合路径。
+
+模式差异要点：
+
+- 在 A5 上，`FuseMode.FUSED_DEEP_MOE` 支持 SwiGLU 和 SiTU；在 Atlas A3 上使用 SiTU 时，应选择 `FuseMode.MEGA_MOE`。
+- `FuseMode.DISPATCH_FFN_COMBINE` 仅支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
+- `FuseMode.MEGA_MOE` 支持 `"swiglu"` 和 `"situ"`；SiTU 会映射为 MegaMoe 的 `situglu`，并透传 `beta` 与 `linear_beta`。
+- MegaMoe 仅支持 `quant_mode=0`（非量化 dispatch）和 `quant_mode=1`（INT8 dispatch）。
+- MegaMoe 要求每个本地 expert 使用一个权重 Tensor 列表；其 token 容量为 `num_max_dispatch_tokens_per_rank`，输入不足该容量时会 padding 并使用 active mask。
+- `l1_bias` / `l2_bias` 仅由 MegaMoe 使用，用于 A8W4-INT 补偿。
+
+如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
+只有使用该模式的调用会报错，DeepEP 模式不受影响。
 
 量化模式（`quant_mode`）：
 - `0`：无量化（BF16 权重）
