@@ -11,7 +11,6 @@
 namespace {
 
 constexpr uint32_t kTopk = 2048;
-constexpr uint32_t kCacheCapacity = 4096;
 constexpr uint32_t kBytesPerInt = sizeof(int32_t);
 constexpr uint32_t kScalarBlockElements = 32 / kBytesPerInt;
 
@@ -23,46 +22,6 @@ constexpr uint32_t kScanScratchOffset = 3 * kTopk * kBytesPerInt;
 constexpr uint32_t kVictimOffset = 4 * kTopk * kBytesPerInt;
 constexpr uint32_t kGatherOffsetOffset = 5 * kTopk * kBytesPerInt;
 constexpr uint32_t kVectorScratchOffset = 6 * kTopk * kBytesPerInt;
-
-// The persistent pairs are already ordered by descending age. Five
-// capacity-sized vectors plus two packed bit masks are sufficient for a fully
-// vectorized stable compaction. After compaction, all vectors above the LRU
-// pair are dead and become the seven-vector top-k victim scratch arena.
-constexpr uint32_t kCompactSlotsOffset = 0;
-constexpr uint32_t kCompactStampsOffset =
-    kCompactSlotsOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kCompactPositionMaskOffset =
-    kCompactStampsOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kCompactGatherOffsetsOffset =
-    kCompactPositionMaskOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kCompactHitFlagsOffset =
-    kCompactGatherOffsetsOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kPatternBytes = kCacheCapacity / 8;
-constexpr uint32_t kPatternWords = kPatternBytes / sizeof(uint32_t);
-constexpr uint32_t kNonHitPatternOffset =
-    kCompactHitFlagsOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kHitPatternOffset = kNonHitPatternOffset + kPatternBytes;
-constexpr uint32_t kCompactStageABytes =
-    kHitPatternOffset + kPatternBytes;
-constexpr uint32_t kCompactVictimScratchOffset =
-    kCompactStampsOffset + kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kCompactVictimStageBytes =
-    kCompactVictimScratchOffset + 7 * kTopk * kBytesPerInt;
-constexpr uint32_t kCompactWritebackStageBytes =
-    5 * kCacheCapacity * kBytesPerInt;
-constexpr uint32_t kCompactWorkUbBytes =
-    kCompactStageABytes > kCompactVictimStageBytes ?
-        (kCompactStageABytes > kCompactWritebackStageBytes ?
-            kCompactStageABytes : kCompactWritebackStageBytes) :
-        (kCompactVictimStageBytes > kCompactWritebackStageBytes ?
-            kCompactVictimStageBytes : kCompactWritebackStageBytes);
-constexpr uint32_t kMissCountStagingOffset =
-    kCompactVictimScratchOffset + kVectorScratchOffset;
-
-static_assert(kCompactWorkUbBytes == 90112, "unexpected compact UB layout size");
-static_assert(kPatternBytes % 32 == 0, "gather patterns must be UB-aligned");
-static_assert(kMissCountStagingOffset + 32 <= kCompactWorkUbBytes,
-              "miss-count staging exceeds compact UB arena");
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncPipes()
@@ -136,8 +95,53 @@ __aicore__ inline void CopyRowOut(const AscendC::GlobalTensor<T> &dst, const Asc
     AscendC::DataCopyPad(dst, src, copyParams);
 }
 
+template <uint32_t kCacheCapacity>
 class KernelFusedTimestampLruMetadataUpdate
 {
+    // The persistent pairs are already ordered by descending age. Five
+    // capacity-sized vectors plus two packed bit masks are sufficient for a
+    // fully vectorized stable compaction. After compaction, all vectors above
+    // the LRU pair become the seven-vector top-k victim scratch arena.
+    static constexpr uint32_t kCompactSlotsOffset = 0;
+    static constexpr uint32_t kCompactStampsOffset =
+        kCompactSlotsOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kCompactPositionMaskOffset =
+        kCompactStampsOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kCompactGatherOffsetsOffset =
+        kCompactPositionMaskOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kCompactHitFlagsOffset =
+        kCompactGatherOffsetsOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kPatternBytes = kCacheCapacity / 8;
+    static constexpr uint32_t kPatternWords =
+        kPatternBytes / sizeof(uint32_t);
+    static constexpr uint32_t kNonHitPatternOffset =
+        kCompactHitFlagsOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kHitPatternOffset =
+        kNonHitPatternOffset + kPatternBytes;
+    static constexpr uint32_t kCompactStageABytes =
+        kHitPatternOffset + kPatternBytes;
+    static constexpr uint32_t kCompactVictimScratchOffset =
+        kCompactStampsOffset + kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kCompactVictimStageBytes =
+        kCompactVictimScratchOffset + 7 * kTopk * kBytesPerInt;
+    static constexpr uint32_t kCompactWritebackStageBytes =
+        5 * kCacheCapacity * kBytesPerInt;
+    static constexpr uint32_t kCompactWorkUbBytes =
+        kCompactStageABytes > kCompactVictimStageBytes ?
+            (kCompactStageABytes > kCompactWritebackStageBytes ?
+                kCompactStageABytes : kCompactWritebackStageBytes) :
+            (kCompactVictimStageBytes > kCompactWritebackStageBytes ?
+                kCompactVictimStageBytes : kCompactWritebackStageBytes);
+    static constexpr uint32_t kMissCountStagingOffset =
+        kCompactVictimScratchOffset + kVectorScratchOffset;
+
+    static_assert(kCacheCapacity >= kTopk,
+                  "cache capacity must hold one complete top-k result");
+    static_assert(kPatternBytes % 32 == 0,
+                  "gather patterns must be UB-aligned");
+    static_assert(kMissCountStagingOffset + 32 <= kCompactWorkUbBytes,
+                  "miss-count staging exceeds compact UB arena");
+
 public:
     __aicore__ inline KernelFusedTimestampLruMetadataUpdate() {}
 
@@ -520,33 +524,91 @@ private:
     uint32_t probationAge = 0;
 };
 
+template <uint32_t kCacheCapacity>
+__aicore__ inline void RunFusedTimestampLruMetadataUpdate(
+    GM_ADDR reqIndices, GM_ADDR topkIndices, GM_ADDR deviceTokenPos,
+    GM_ADDR hitPositionMask, GM_ADDR deviceLruSlots,
+    GM_ADDR deviceLruSlotStamps, GM_ADDR victimSlots, GM_ADDR missCounts,
+    uint32_t batchSize, uint32_t requestRows, uint32_t maxContextLen,
+    uint32_t stampMax, uint32_t probationAge, uint32_t workUbBytes,
+    AscendC::TPipe *pipe)
+{
+    KernelFusedTimestampLruMetadataUpdate<kCacheCapacity> kernel;
+    kernel.Init(reqIndices, topkIndices, deviceTokenPos, hitPositionMask,
+                deviceLruSlots, deviceLruSlotStamps, victimSlots, missCounts,
+                batchSize, requestRows, maxContextLen, stampMax, probationAge,
+                workUbBytes, pipe);
+    kernel.Process();
+}
+
 }  // namespace
 
 extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update(
     GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR device_token_pos,
     GM_ADDR hit_position_mask, GM_ADDR device_lru_slots, GM_ADDR device_lru_slot_stamps,
     GM_ADDR victim_slots, GM_ADDR miss_counts, uint32_t batch_size, uint32_t request_rows,
-    uint32_t max_context_len, uint32_t stamp_max, uint32_t work_ub_bytes)
+    uint32_t cache_capacity, uint32_t max_context_len, uint32_t stamp_max,
+    uint32_t work_ub_bytes)
 {
     AscendC::TPipe pipe;
-    KernelFusedTimestampLruMetadataUpdate kernel;
-    kernel.Init(req_indices, topk_indices, device_token_pos, hit_position_mask, device_lru_slots,
-                device_lru_slot_stamps, victim_slots, miss_counts, batch_size, request_rows,
-                max_context_len, stamp_max, static_cast<uint32_t>(0), work_ub_bytes, &pipe);
-    kernel.Process();
+    if (cache_capacity == 2048) {
+        RunFusedTimestampLruMetadataUpdate<2048>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, 0,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 4096) {
+        RunFusedTimestampLruMetadataUpdate<4096>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, 0,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 6144) {
+        RunFusedTimestampLruMetadataUpdate<6144>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, 0,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 8192) {
+        RunFusedTimestampLruMetadataUpdate<8192>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, 0,
+            work_ub_bytes, &pipe);
+    }
 }
 
 extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update_with_probation(
     GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR device_token_pos,
     GM_ADDR hit_position_mask, GM_ADDR device_lru_slots, GM_ADDR device_lru_slot_stamps,
     GM_ADDR victim_slots, GM_ADDR miss_counts, uint32_t batch_size, uint32_t request_rows,
-    uint32_t max_context_len, uint32_t stamp_max, uint32_t probation_age,
-    uint32_t work_ub_bytes)
+    uint32_t cache_capacity, uint32_t max_context_len, uint32_t stamp_max,
+    uint32_t probation_age, uint32_t work_ub_bytes)
 {
     AscendC::TPipe pipe;
-    KernelFusedTimestampLruMetadataUpdate kernel;
-    kernel.Init(req_indices, topk_indices, device_token_pos, hit_position_mask, device_lru_slots,
-                device_lru_slot_stamps, victim_slots, miss_counts, batch_size, request_rows,
-                max_context_len, stamp_max, probation_age, work_ub_bytes, &pipe);
-    kernel.Process();
+    if (cache_capacity == 2048) {
+        RunFusedTimestampLruMetadataUpdate<2048>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 4096) {
+        RunFusedTimestampLruMetadataUpdate<4096>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 6144) {
+        RunFusedTimestampLruMetadataUpdate<6144>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            work_ub_bytes, &pipe);
+    } else if (cache_capacity == 8192) {
+        RunFusedTimestampLruMetadataUpdate<8192>(
+            req_indices, topk_indices, device_token_pos, hit_position_mask,
+            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
+            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            work_ub_bytes, &pipe);
+    }
 }

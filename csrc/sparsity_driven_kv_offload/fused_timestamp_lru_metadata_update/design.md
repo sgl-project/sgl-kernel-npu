@@ -13,7 +13,7 @@ This AIV-only operator is specialized for the sparse KV configuration used by
 SGLang NPU DSA:
 
 - `topk = 2048`
-- `cache_capacity = 4096`
+- `cache_capacity ∈ {2048, 4096, 6144, 8192}`
 - all metadata uses contiguous `int32`
 - valid request IDs start at row `0`
 - one AIV owns one request row during victim selection (grid-stride when
@@ -23,14 +23,14 @@ SGLang NPU DSA:
 The selection operator returns `victim_slots[B, 2048]` and
 `miss_counts[B]`, and updates these tensors in place:
 
-- `device_lru_slots[R, 4096]`
-- `device_lru_slot_stamps[R, 4096]`
+- `device_lru_slots[R, cache_capacity]`
+- `device_lru_slot_stamps[R, cache_capacity]`
 
 The following `parallel_lru_metadata_write` operator consumes both outputs and
 updates these tensors in place:
 
 - `slot_map[R_map, W]`
-- `device_slot_tokens[R, 4096]`
+- `device_slot_tokens[R, cache_capacity]`
 
 `device_lru_slots[row, i]` and `device_lru_slot_stamps[row, i]` are an aligned
 pair. The persistent pair array is ordered by descending stamp: oldest first,
@@ -38,7 +38,7 @@ most recently hit/filled last.
 
 ## 2. Per-request algorithm
 
-1. Load `lru_slots`, `lru_stamps`, and the 4096-entry physical-slot hit mask
+1. Load `lru_slots`, `lru_stamps`, and the capacity-sized physical-slot hit mask
    produced by `slot_map_lookup` into UB.
 2. Saturating SIMD increment:
    `stamp = min(stamp, stamp_max - 1) + 1`.
@@ -88,7 +88,7 @@ already guaranteed by the upstream top-k selector.
 ## 3. UB plan
 
 The host reads the platform UB size, reserves 8 KiB for pipe overhead, and
-allocates an exact 90,112-byte (88 KiB) work arena for either LRU variant:
+allocates an exact capacity-dependent work arena for either LRU variant:
 
 | Region | Bytes | Lifetime |
 |---|---:|---|
@@ -99,18 +99,21 @@ allocates an exact 90,112-byte (88 KiB) work arena for either LRU variant:
 | packed hit/non-hit masks | 1,024 | `CompareScalar` → `GatherMask` |
 | seven top-k vectors | 57,344 | victim plan; overlays the dead mask/offset/flag area |
 
-The vector stable-compaction stage peaks at 82,944 bytes. The victim stage retains
-only the 32 KiB LRU pair and overlays seven 8 KiB vectors above it, peaking at
-90,112 bytes. Including the pipe reserve, the host-side UB requirement drops
-from 155,648 bytes to 98,304 bytes. The layout scales linearly: at
-`cache_capacity=8192`, the projected peak is 165,888 bytes (162 KiB), or
-174,080 bytes including the same reserve, so this part of the design fits a
-192 KiB UB. Capacity remains fixed at 4096 in the current operator interface;
-the 8192 change requires the host shape contract and companion metadata kernel
-to be updated separately. The parallel metadata kernel uses about 6.1 KiB of
-UB per AIV: 512 bytes for two prefetched input tiles, 4,352 bytes for two
-sparse-write records, 1,312 bytes for reverse-map lines/Gather metadata, and
-32 bytes for the constant `-1` DMA source.
+The stage sizes are `20.25 * cache_capacity` bytes for stable compaction,
+`8 * cache_capacity + 57,344` bytes for victim selection, and
+`20 * cache_capacity` bytes for writeback. The host allocates the maximum:
+
+| Cache capacity | Work arena | With 8 KiB reserve |
+|---:|---:|---:|
+| 2,048 | 73,728 | 81,920 |
+| 4,096 | 90,112 | 98,304 |
+| 6,144 | 124,416 | 132,608 |
+| 8,192 | 165,888 | 174,080 |
+
+The 8,192-capacity plan fits a 192 KiB UB. The parallel metadata kernel uses
+about 6.1 KiB of UB per AIV: 512 bytes for two prefetched input tiles,
+4,352 bytes for two sparse-write records, 1,312 bytes for reverse-map
+lines/Gather metadata, and 32 bytes for the constant `-1` DMA source.
 
 ## 4. Stream contract
 
@@ -131,7 +134,7 @@ are left undefined and are ignored by the refill valid mask.
 ## 5. Invariants and validation
 
 - Request IDs in one launch are unique; valid IDs lie in `[0, R)`.
-- `lru_slots` is a permutation of `[0, 4096)`.
+- `lru_slots` is a permutation of `[0, cache_capacity)`.
 - stamps lie in `[0, stamp_max]` and are non-increasing after writeback.
 - `probation_age` lies in `[0, stamp_max]`.
 - `slot_map[token] == slot` iff `device_slot_tokens[slot] == token` for occupied

@@ -22,12 +22,26 @@ namespace npu_kernel {
 namespace {
 
 constexpr uint32_t kFixedTopk = 2048;
-constexpr uint32_t kFixedCacheCapacity = 4096;
+constexpr uint32_t kCacheCapacityUnit = 2048;
+constexpr uint32_t kMinCacheCapacity = kCacheCapacityUnit;
+constexpr uint32_t kMaxCacheCapacity = 4 * kCacheCapacityUnit;
 constexpr uint32_t kMetadataTilesPerBatch = 64;
 constexpr uint32_t kAlignment = 8;
 constexpr uint32_t kPipeReserveBytes = 8 * 1024;
-constexpr uint32_t kRequiredWorkUbBytes = 90112;
 constexpr uint64_t kUint32Max = std::numeric_limits<uint32_t>::max();
+
+uint32_t GetRequiredWorkUbBytes(uint32_t cacheCapacity)
+{
+    constexpr uint32_t kBytesPerInt = sizeof(int32_t);
+    const uint32_t patternBytes = cacheCapacity / 8;
+    const uint32_t compactStageABytes =
+        5 * cacheCapacity * kBytesPerInt + 2 * patternBytes;
+    const uint32_t victimStageBytes =
+        2 * cacheCapacity * kBytesPerInt + 7 * kFixedTopk * kBytesPerInt;
+    const uint32_t writebackStageBytes =
+        5 * cacheCapacity * kBytesPerInt;
+    return std::max({compactStageABytes, victimStageBytes, writebackStageBytes});
+}
 
 void CheckNpuTensor(const at::Tensor &tensor, const char *name)
 {
@@ -89,14 +103,16 @@ std::tuple<at::Tensor, at::Tensor> FusedTimestampLruMetadataUpdateImpl(
 
     TORCH_CHECK(batchSize64 > 0, "batch size must be positive");
     TORCH_CHECK(topk64 == kFixedTopk, "fused timestamp LRU requires topk=", kFixedTopk, ", got ", topk64);
-    TORCH_CHECK(cacheCapacity64 == kFixedCacheCapacity,
-                "fused timestamp LRU requires cache capacity=", kFixedCacheCapacity, ", got ", cacheCapacity64);
+    TORCH_CHECK(cacheCapacity64 >= kMinCacheCapacity && cacheCapacity64 <= kMaxCacheCapacity &&
+                    cacheCapacity64 % kCacheCapacityUnit == 0,
+                "fused timestamp LRU requires cache capacity in {2048, 4096, 6144, 8192}, got ",
+                cacheCapacity64);
     TORCH_CHECK(topk_indices.size(0) == batchSize64, "topk_indices dim0 must match req_indices");
     TORCH_CHECK(device_token_pos.sizes() == topk_indices.sizes(),
                 "device_token_pos shape must match topk_indices");
     TORCH_CHECK(hit_position_mask.size(0) == batchSize64 &&
-                    hit_position_mask.size(1) == kFixedCacheCapacity,
-                "hit_position_mask shape must be [batch, ", kFixedCacheCapacity, "]");
+                    hit_position_mask.size(1) == cacheCapacity64,
+                "hit_position_mask shape must be [batch, cache_capacity]");
     TORCH_CHECK(device_lru_slot_stamps.sizes() == device_lru_slots.sizes(),
                 "device_lru_slot_stamps shape must match device_lru_slots");
     TORCH_CHECK(max_context_len > 0 && max_context_len <= std::numeric_limits<int32_t>::max(),
@@ -114,11 +130,13 @@ std::tuple<at::Tensor, at::Tensor> FusedTimestampLruMetadataUpdateImpl(
     CheckFitsUint32(requestRows64, "request rows");
     CheckFitsUint32(max_context_len, "max_context_len");
     CheckFitsUint32(stamp_max, "stamp_max");
-    TORCH_CHECK(static_cast<uint64_t>(requestRows64) * kFixedCacheCapacity <= kUint32Max,
+    TORCH_CHECK(static_cast<uint64_t>(requestRows64) * static_cast<uint64_t>(cacheCapacity64) <=
+                    kUint32Max,
                 "device LRU storage exceeds the kernel uint32 address range");
     TORCH_CHECK(static_cast<uint64_t>(batchSize64) * kFixedTopk <= kUint32Max,
                 "batch output storage exceeds the kernel uint32 address range");
-    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * kFixedCacheCapacity <= kUint32Max,
+    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * static_cast<uint64_t>(cacheCapacity64) <=
+                    kUint32Max,
                 "hit_position_mask storage exceeds the kernel uint32 address range");
 
     auto platform = platform_ascendc::PlatformAscendCManager::GetInstance();
@@ -126,13 +144,13 @@ std::tuple<at::Tensor, at::Tensor> FusedTimestampLruMetadataUpdateImpl(
     TORCH_CHECK(maxAivCoreNum > 0, "failed to get the available AIV core count");
     uint64_t ubSize = 0;
     platform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
-    TORCH_CHECK(ubSize >= static_cast<uint64_t>(kRequiredWorkUbBytes + kPipeReserveBytes),
-                "fused timestamp LRU requires at least ", kRequiredWorkUbBytes + kPipeReserveBytes,
+    const uint32_t cacheCapacity = static_cast<uint32_t>(cacheCapacity64);
+    const uint32_t workUbBytes = GetRequiredWorkUbBytes(cacheCapacity);
+    TORCH_CHECK(ubSize >= static_cast<uint64_t>(workUbBytes + kPipeReserveBytes),
+                "fused timestamp LRU requires at least ", workUbBytes + kPipeReserveBytes,
                 " bytes of UB, got ", ubSize);
     // Allocate only the verified arena instead of consuming all UB left after
     // the pipe reserve. Both LRU variants share the same compact memory plan.
-    const uint32_t workUbBytes = kRequiredWorkUbBytes;
-
     const uint32_t batchSize = static_cast<uint32_t>(batchSize64);
     const uint32_t requestRows = static_cast<uint32_t>(requestRows64);
     const uint32_t maxContextLen = static_cast<uint32_t>(max_context_len);
@@ -160,13 +178,13 @@ std::tuple<at::Tensor, at::Tensor> FusedTimestampLruMetadataUpdateImpl(
         EXEC_KERNEL_CMD(fused_timestamp_lru_metadata_update_with_probation, effectiveBlockDim,
                         req_indices, topk_indices, device_token_pos, hit_position_mask,
                         device_lru_slots, device_lru_slot_stamps, victimSlots, missCounts,
-                        batchSize, requestRows, maxContextLen, stampMax, probationAge,
+                        batchSize, requestRows, cacheCapacity, maxContextLen, stampMax, probationAge,
                         workUbBytes);
     } else {
         EXEC_KERNEL_CMD(fused_timestamp_lru_metadata_update, effectiveBlockDim, req_indices, topk_indices,
                         device_token_pos, hit_position_mask, device_lru_slots, device_lru_slot_stamps,
-                        victimSlots, missCounts, batchSize, requestRows, maxContextLen, stampMax,
-                        workUbBytes);
+                        victimSlots, missCounts, batchSize, requestRows, cacheCapacity, maxContextLen,
+                        stampMax, workUbBytes);
     }
     return std::make_tuple(victimSlots, missCounts);
 }
@@ -224,6 +242,7 @@ void parallel_lru_metadata_write(
 
     const int64_t batchSize64 = req_indices.size(0);
     const int64_t requestRows64 = device_slot_tokens.size(0);
+    const int64_t cacheCapacity64 = device_slot_tokens.size(1);
     const int64_t slotMapRows64 = slot_map.size(0);
     const int64_t slotMapWidth64 = slot_map.size(1);
 
@@ -233,8 +252,10 @@ void parallel_lru_metadata_write(
     TORCH_CHECK(victim_slots.sizes() == topk_indices.sizes(),
                 "victim_slots shape must match topk_indices");
     TORCH_CHECK(miss_counts.size(0) == batchSize64, "miss_counts shape must be [batch]");
-    TORCH_CHECK(device_slot_tokens.size(1) == kFixedCacheCapacity,
-                "device_slot_tokens width must be ", kFixedCacheCapacity);
+    TORCH_CHECK(cacheCapacity64 >= kMinCacheCapacity && cacheCapacity64 <= kMaxCacheCapacity &&
+                    cacheCapacity64 % kCacheCapacityUnit == 0,
+                "device_slot_tokens width must be in {2048, 4096, 6144, 8192}, got ",
+                cacheCapacity64);
     TORCH_CHECK(slotMapRows64 >= requestRows64,
                 "slot_map must have at least as many rows as device_slot_tokens");
     TORCH_CHECK(max_context_len > 0 && max_context_len <= slotMapWidth64,
@@ -250,7 +271,8 @@ void parallel_lru_metadata_write(
     CheckFitsUint32(max_context_len, "max_context_len");
     TORCH_CHECK(static_cast<uint64_t>(slotMapRows64) * static_cast<uint64_t>(slotMapWidth64) <= kUint32Max,
                 "slot_map storage exceeds the kernel uint32 address range");
-    TORCH_CHECK(static_cast<uint64_t>(requestRows64) * kFixedCacheCapacity <= kUint32Max,
+    TORCH_CHECK(static_cast<uint64_t>(requestRows64) * static_cast<uint64_t>(cacheCapacity64) <=
+                    kUint32Max,
                 "device_slot_tokens storage exceeds the kernel uint32 address range");
     TORCH_CHECK(static_cast<uint64_t>(batchSize64) * kFixedTopk <= kUint32Max,
                 "batch metadata storage exceeds the kernel uint32 address range");
@@ -261,6 +283,7 @@ void parallel_lru_metadata_write(
 
     const uint32_t batchSize = static_cast<uint32_t>(batchSize64);
     const uint32_t requestRows = static_cast<uint32_t>(requestRows64);
+    const uint32_t cacheCapacity = static_cast<uint32_t>(cacheCapacity64);
     const uint32_t slotMapWidth = static_cast<uint32_t>(slotMapWidth64);
     const uint32_t maxContextLen = static_cast<uint32_t>(max_context_len);
     const uint32_t metadataTaskCount = batchSize * kMetadataTilesPerBatch;
@@ -280,7 +303,7 @@ void parallel_lru_metadata_write(
 
     EXEC_KERNEL_CMD(parallel_lru_metadata_write, effectiveBlockDim, slot_map, req_indices, topk_indices,
                     victim_slots, miss_counts, device_slot_tokens, batchSize, requestRows,
-                    slotMapWidth, maxContextLen);
+                    cacheCapacity, slotMapWidth, maxContextLen);
 }
 
 }  // namespace npu_kernel

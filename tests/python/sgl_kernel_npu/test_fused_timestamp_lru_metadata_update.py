@@ -472,6 +472,88 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             self.slot_tokens, expected_slot_tokens, "device_slot_tokens"
         )
 
+    def test_capacity_8192_matches_cpu_reference(self):
+        capacity = 8192
+        req_indices = torch.tensor([0], dtype=torch.int32, device="npu")
+        slot_map = torch.full(
+            (2, self.MAX_CONTEXT_LEN), -1, dtype=torch.int32, device="npu"
+        )
+        slot_tokens = torch.full(
+            (1, capacity), -1, dtype=torch.int32, device="npu"
+        )
+        lru_slots = torch.cat(
+            (
+                torch.arange(7001, capacity, dtype=torch.int32, device="npu"),
+                torch.arange(0, 7001, dtype=torch.int32, device="npu"),
+            )
+        ).unsqueeze(0)
+        lru_stamps = torch.arange(
+            capacity - 1, -1, -1, dtype=torch.int32, device="npu"
+        ).unsqueeze(0)
+
+        slot_tokens[0, 7000] = 10
+        slot_tokens[0, 7001] = 20
+        slot_map[0, 10] = 7000
+        slot_map[0, 20] = 7001
+        topk = torch.full(
+            (1, self.TOPK), -1, dtype=torch.int32, device="npu"
+        )
+        topk[0, :3] = torch.tensor(
+            [10, 6000, 6001], dtype=torch.int32, device="npu"
+        )
+        _, device_pos, hit_position_mask = slot_map_lookup(
+            slot_map, req_indices, topk, pos_mask_size=capacity
+        )
+
+        (
+            expected_victims,
+            expected_slot_map,
+            expected_lru_slots,
+            expected_lru_stamps,
+            expected_slot_tokens,
+        ) = reference_fused_timestamp_lru_metadata_update(
+            slot_map,
+            req_indices,
+            topk,
+            device_pos,
+            lru_slots,
+            lru_stamps,
+            slot_tokens,
+            max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=1024,
+        )
+
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
+            req_indices,
+            topk,
+            device_pos,
+            hit_position_mask,
+            lru_slots,
+            lru_stamps,
+            max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=1024,
+        )
+        parallel_lru_metadata_write(
+            slot_map,
+            req_indices,
+            topk,
+            victims,
+            miss_counts,
+            slot_tokens,
+            max_context_len=self.MAX_CONTEXT_LEN,
+        )
+        torch.npu.synchronize()
+
+        self.assert_tensor_equal(victims, expected_victims, "victim_slots")
+        self.assert_tensor_equal(slot_map, expected_slot_map, "slot_map")
+        self.assert_tensor_equal(lru_slots, expected_lru_slots, "device_lru_slots")
+        self.assert_tensor_equal(
+            lru_stamps, expected_lru_stamps, "device_lru_slot_stamps"
+        )
+        self.assert_tensor_equal(
+            slot_tokens, expected_slot_tokens, "device_slot_tokens"
+        )
+
     def test_stamp_saturates(self):
         self.lru_stamps.fill_(7)
         victims, *_ = self._run([10, 40], stamp_max=7)

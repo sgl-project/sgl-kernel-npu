@@ -19,7 +19,6 @@
 namespace {
 
 constexpr uint32_t kTopk = 2048;
-constexpr uint32_t kCacheCapacity = 4096;
 constexpr uint32_t kTileElements = 32;
 constexpr uint32_t kTilesPerBatch = kTopk / kTileElements;
 constexpr uint32_t kBytesPerInt = sizeof(int32_t);
@@ -67,11 +66,12 @@ public:
     __aicore__ inline void Init(
         GM_ADDR slotMap, GM_ADDR reqIndices, GM_ADDR topkIndices,
         GM_ADDR victimSlots, GM_ADDR missCounts, GM_ADDR deviceSlotTokens,
-        uint32_t batchSize, uint32_t requestRows, uint32_t slotMapWidth,
-        uint32_t maxContextLen, AscendC::TPipe *pipe)
+        uint32_t batchSize, uint32_t requestRows, uint32_t cacheCapacity,
+        uint32_t slotMapWidth, uint32_t maxContextLen, AscendC::TPipe *pipe)
     {
         this->batchSize = batchSize;
         this->requestRows = requestRows;
+        this->cacheCapacity = cacheCapacity;
         this->slotMapWidth = slotMapWidth;
         this->maxContextLen = maxContextLen;
 
@@ -90,7 +90,7 @@ public:
             (__gm__ int32_t *)missCounts, batchSize);
         deviceSlotTokensGm.SetGlobalBuffer(
             (__gm__ int32_t *)deviceSlotTokens,
-            static_cast<uint64_t>(requestRows) * kCacheCapacity);
+            static_cast<uint64_t>(requestRows) * cacheCapacity);
 
         pipe->InitBuffer(
             inputQueue, kBufferNum, kInputElements * kBytesPerInt);
@@ -249,12 +249,12 @@ private:
             oldTokenBuf.Get<int32_t>();
 
         const uint32_t slotTokenRowOffset =
-            requestRow * kCacheCapacity;
+            requestRow * cacheCapacity;
         uint32_t validVictimCount = 0;
         for (uint32_t i = 0; i < kTileElements; ++i) {
             const int32_t victim = victimsLocal.GetValue(i);
             if (victim < 0 ||
-                static_cast<uint32_t>(victim) >= kCacheCapacity) {
+                static_cast<uint32_t>(victim) >= cacheCapacity) {
                 oldTokenOffsets.SetValue(
                     i, kSentinelLineOffsetBytes);
                 continue;
@@ -303,7 +303,7 @@ private:
         for (uint32_t i = 0; i < kTileElements; ++i) {
             const int32_t victim = victimsLocal.GetValue(i);
             if (victim < 0 ||
-                static_cast<uint32_t>(victim) >= kCacheCapacity) {
+                static_cast<uint32_t>(victim) >= cacheCapacity) {
                 continue;
             }
 
@@ -341,7 +341,7 @@ private:
         const uint32_t slotMapRowOffset =
             requestRow * slotMapWidth;
         const uint32_t slotTokenRowOffset =
-            requestRow * kCacheCapacity;
+            requestRow * cacheCapacity;
 
         for (uint32_t i = 0; i < writeCount; ++i) {
             const uint32_t stagingIndex =
@@ -403,6 +403,7 @@ private:
 
     uint32_t batchSize = 0;
     uint32_t requestRows = 0;
+    uint32_t cacheCapacity = 0;
     uint32_t slotMapWidth = 0;
     uint32_t maxContextLen = 0;
 };
@@ -413,8 +414,8 @@ extern "C" __global__ __aicore__ void parallel_lru_metadata_write(
     GM_ADDR slot_map, GM_ADDR req_indices, GM_ADDR topk_indices,
     GM_ADDR victim_slots, GM_ADDR miss_counts,
     GM_ADDR device_slot_tokens, uint32_t batch_size,
-    uint32_t request_rows, uint32_t slot_map_width,
-    uint32_t max_context_len)
+    uint32_t request_rows, uint32_t cache_capacity,
+    uint32_t slot_map_width, uint32_t max_context_len)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     AscendC::TPipe pipe;
@@ -422,6 +423,6 @@ extern "C" __global__ __aicore__ void parallel_lru_metadata_write(
     kernel.Init(
         slot_map, req_indices, topk_indices, victim_slots,
         miss_counts, device_slot_tokens, batch_size,
-        request_rows, slot_map_width, max_context_len, &pipe);
+        request_rows, cache_capacity, slot_map_width, max_context_len, &pipe);
     kernel.Process();
 }

@@ -5,6 +5,9 @@ from typing import Optional, Sequence, Tuple, Union
 import torch
 
 
+_SUPPORTED_LRU_CACHE_CAPACITIES = (2048, 4096, 6144, 8192)
+
+
 def _ctype_for_dtype(dtype: torch.dtype):
     if dtype in (torch.float16, torch.bfloat16):
         return ctypes.c_uint16
@@ -222,15 +225,29 @@ def _validate_fused_timestamp_lru_inputs(
             "fused timestamp LRU requires topk_indices shape [batch, 2048], "
             f"got {tuple(topk_indices.shape)}"
         )
-    if device_lru_slots.dim() != 2 or device_lru_slots.size(1) != 4096:
+    if (
+        device_lru_slots.dim() != 2
+        or device_lru_slots.size(1) not in _SUPPORTED_LRU_CACHE_CAPACITIES
+    ):
         raise ValueError(
             "fused timestamp LRU requires device_lru_slots shape "
-            f"[request_rows, 4096], got {tuple(device_lru_slots.shape)}"
+            "[request_rows, cache_capacity] with cache_capacity in "
+            f"{_SUPPORTED_LRU_CACHE_CAPACITIES}, got "
+            f"{tuple(device_lru_slots.shape)}"
         )
-    if hit_position_mask.shape != (topk_indices.size(0), 4096):
+    if device_lru_slot_stamps.shape != device_lru_slots.shape:
+        raise ValueError(
+            "device_lru_slot_stamps shape must match device_lru_slots, got "
+            f"{tuple(device_lru_slot_stamps.shape)} and "
+            f"{tuple(device_lru_slots.shape)}"
+        )
+    cache_capacity = device_lru_slots.size(1)
+    if hit_position_mask.shape != (topk_indices.size(0), cache_capacity):
         raise ValueError(
             "fused timestamp LRU requires hit_position_mask shape "
-            f"[batch, 4096], got {tuple(hit_position_mask.shape)}"
+            "[batch, cache_capacity], got "
+            f"{tuple(hit_position_mask.shape)} with "
+            f"cache_capacity={cache_capacity}"
         )
 
 
@@ -247,9 +264,9 @@ def fused_timestamp_lru_metadata_update(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Select timestamp-LRU victims and update the ordered LRU state.
 
-    The operator is specialized for ``topk=2048`` and ``cache_capacity=4096``.
-    ``hit_position_mask`` is the 4096-entry mask returned by
-    ``slot_map_lookup(..., pos_mask_size=4096)``.
+    The operator is specialized for ``topk=2048`` and supports cache capacities
+    ``2048``, ``4096``, ``6144``, and ``8192``. ``hit_position_mask`` is the
+    capacity-sized mask returned by ``slot_map_lookup``.
     ``device_lru_slots`` and ``device_lru_slot_stamps`` are aligned pairs in
     descending timestamp order and are updated in place. The returned tuple is
     ``(victim_slots, miss_counts)``. ``victim_slots`` contains one physical
@@ -370,6 +387,16 @@ def parallel_lru_metadata_write(
         raise ValueError(
             "miss_counts shape must be [batch], got "
             f"{tuple(miss_counts.shape)}"
+        )
+    if (
+        device_slot_tokens.dim() != 2
+        or device_slot_tokens.size(1) not in _SUPPORTED_LRU_CACHE_CAPACITIES
+    ):
+        raise ValueError(
+            "device_slot_tokens must have shape "
+            "[request_rows, cache_capacity] with cache_capacity in "
+            f"{_SUPPORTED_LRU_CACHE_CAPACITIES}, got "
+            f"{tuple(device_slot_tokens.shape)}"
         )
     torch.ops.npu.parallel_lru_metadata_write(
         slot_map,
