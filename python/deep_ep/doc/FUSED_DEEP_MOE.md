@@ -37,7 +37,7 @@ Three fuse modes are available via the `FuseMode` enum:
 > ```
 > Or use integer values directly: `fuse_mode=1` (FUSED_DEEP_MOE), `fuse_mode=2` (DISPATCH_FFN_COMBINE), or `fuse_mode=3` (MEGA_MOE).
 
-#### Key Differences Between DeepEP Fuse Modes
+#### Key Differences Between Fuse Modes
 
 | Aspect | `FUSED_DEEP_MOE` (mode=1) | `DISPATCH_FFN_COMBINE` (mode=2) |
 |--------|---------------------------|---------------------------------|
@@ -66,10 +66,9 @@ def fused_deep_moe(
     activation: Optional[str] = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
-    profile_enable: bool = False,
-    *,
     l1_bias: Optional[TensorOrTensors] = None,
     l2_bias: Optional[TensorOrTensors] = None,
+    profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -88,7 +87,7 @@ def fused_deep_moe(
 | **num_experts** | `int` | Scalar | Total number of global experts. The existing A5 fused path and `MEGA_MOE` require it to be divisible by the process-group size. |
 | **quant_mode** | `int` | Scalar, default `1` | The DeepEP modes keep their existing semantics. `MEGA_MOE` maps `0` to non-quantized dispatch and `1` to INT8 dispatch; weight dtype and optional biases distinguish W8 from W4. The A5 fused path continues to follow its current weight-quantization contract. |
 | **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Selects `FUSED_DEEP_MOE`, `DISPATCH_FFN_COMBINE`, or `MEGA_MOE`. |
-| **activation** | `Optional[str]` | Scalar, default `"swiglu"` | The DeepEP modes support `"swiglu"` and `"situ"`; SiTU requires `FUSED_DEEP_MOE`. `MEGA_MOE` supports `"swiglu"`, `"swiglu_gpt_oss"`, and `"situ"`. |
+| **activation** | `Optional[str]` | Scalar, default `"swiglu"` | On A5, `FUSED_DEEP_MOE` supports `"situ"` and `"swiglu"`; `DISPATCH_FFN_COMBINE` supports only `"swiglu"`; on Atlas A3, `MEGA_MOE` supports `"situ"` and `"swiglu"`. |
 | **beta** | `Optional[float]` | Scalar, default `4.0` | Soft-saturation bound for the SiTU gate branch. `None` uses the internal default `4.0`. It must be greater than zero when SiTU is selected. |
 | **linear_beta** | `Optional[float]` | Scalar, default `25.0` | Optional soft-saturation bound for the SiTU up branch. A positive value enables the transformation; `None` leaves the up branch unchanged. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
@@ -113,7 +112,7 @@ activated_up = up                                    # linear_beta is None
 situ(gate, up) = activated_gate * activated_up
 ```
 
-Example:
+Example: this SiTU call uses `FUSED_DEEP_MOE` on A5. On Atlas A3, select `fuse_mode=FuseMode.MEGA_MOE` for SiTU.
 
 ```python
 output, expert_token_nums = buffer.fused_deep_moe(
@@ -146,14 +145,14 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - On **A5**, `num_max_dispatch_tokens_per_rank >= bs`.
 - On **A5 MXFP4** paths, `hidden` and `gmm1_hidden` must be even.
 - On **A5 MXFP4** paths, quantized weights in `FRACTAL_NZ` format are not supported currently.
-- SiTU is supported by `FUSED_DEEP_MOE` on both A3 and A5.
+- SiTU is supported by `FUSED_DEEP_MOE` on **A5** and by `MEGA_MOE` on **Atlas A3**.
 - For SiTU, `beta` must be greater than zero. When `linear_beta` is provided, it must also be greater than zero.
 
 #### For `fuse_mode=DISPATCH_FFN_COMBINE` (mode=2)
 
 - Constraints follow the `aclnnDispatchFFNCombine` path and differ from `FUSED_DEEP_MOE`.
 - Shared expert is not supported.
-- Only SwiGLU is supported. Selecting `activation="situ"` raises `ValueError`.
+- Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
 
 #### For `fuse_mode=MEGA_MOE` (mode=3)
 
@@ -161,7 +160,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - Requires one weight tensor per local expert.
 - `num_experts` must be divisible by the process-group size.
 - `num_max_dispatch_tokens_per_rank` must be at least the local token count and cannot exceed 4096 on Atlas A3.
-- Supports `"swiglu"`, `"swiglu_gpt_oss"`, and `"situ"`.
+- Supports `"swiglu"` and `"situ"`.
 - A16W16 uses `quant_mode=0` without scales or biases.
 - A8W8 uses `quant_mode=1` with scales and without biases.
 - A8W4 uses `quant_mode=1` with scales and compensation biases.
@@ -217,7 +216,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 > ```
 > 或者直接使用整数：`fuse_mode=1`（FUSED_DEEP_MOE）、`fuse_mode=2`（DISPATCH_FFN_COMBINE）或 `fuse_mode=3`（MEGA_MOE）。
 
-#### 两种 DeepEP 融合模式的关键差异
+#### 融合模式的关键差异
 
 | 维度 | `FUSED_DEEP_MOE`（mode=1） | `DISPATCH_FFN_COMBINE`（mode=2） |
 |------|---------------------------|---------------------------------|
@@ -246,10 +245,9 @@ def fused_deep_moe(
     activation: Optional[str] = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
-    profile_enable: bool = False,
-    *,
     l1_bias: Optional[TensorOrTensors] = None,
     l2_bias: Optional[TensorOrTensors] = None,
+    profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -268,7 +266,7 @@ def fused_deep_moe(
 | **num_experts** | `int` | 标量 | 全局 expert 总数。现有 A5 fused 路径和 `MEGA_MOE` 都要求它能被进程组大小整除。 |
 | **quant_mode** | `int` | 标量，默认 `1` | 两个 DeepEP 模式保持原有语义。`MEGA_MOE` 将 `0` 映射为非量化 dispatch，将 `1` 映射为 INT8 dispatch；权重 dtype 和可选 bias 用于区分 W8 与 W4。A5 现有 fused 路径继续遵循自身的权重量化契约。 |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 选择 `FUSED_DEEP_MOE`、`DISPATCH_FFN_COMBINE` 或 `MEGA_MOE`。 |
-| **activation** | `Optional[str]` | 标量，默认 `"swiglu"` | DeepEP 模式支持 `"swiglu"` 和 `"situ"`，SiTU 要求使用 `FUSED_DEEP_MOE`；`MEGA_MOE` 支持 `"swiglu"`、`"swiglu_gpt_oss"` 和 `"situ"`。 |
+| **activation** | `Optional[str]` | 标量，默认 `"swiglu"` | 在 A5 上，`FUSED_DEEP_MOE` 支持 `"situ"` 和 `"swiglu"`；`DISPATCH_FFN_COMBINE` 仅支持 `"swiglu"`；在 Atlas A3 上，`MEGA_MOE` 支持 `"situ"` 和 `"swiglu"`。 |
 | **beta** | `Optional[float]` | 标量，默认 `4.0` | SiTU gate 分支的软饱和边界。`None` 使用内部默认值 `4.0`。选择 SiTU 时该值必须大于零。 |
 | **linear_beta** | `Optional[float]` | 标量，默认 `25.0` | SiTU up 分支可选的软饱和边界。正数表示启用该变换；`None` 表示 up 分支保持不变。 |
 | **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
@@ -293,7 +291,7 @@ activated_up = up                                    # linear_beta 为 None
 situ(gate, up) = activated_gate * activated_up
 ```
 
-调用示例：
+调用示例：该 SiTU 调用在 A5 上使用 `FUSED_DEEP_MOE`；在 Atlas A3 上使用 SiTU 时，应选择 `fuse_mode=FuseMode.MEGA_MOE`。
 
 ```python
 output, expert_token_nums = buffer.fused_deep_moe(
@@ -337,14 +335,14 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - 在 **A5** 上，`num_max_dispatch_tokens_per_rank >= bs`。
 - 在 **A5 MXFP4** 路径上，`hidden` 和 `gmm1_hidden` 还必须为偶数。
 - 在 **A5 MXFP4** 路径上，量化权重当前暂不支持 `FRACTAL_NZ` 格式。
-- A3 和 A5 的 `FUSED_DEEP_MOE` 都支持 SiTU。
+- 在 **A5** 上，`FUSED_DEEP_MOE` 支持 SiTU；在 **Atlas A3** 上，`MEGA_MOE` 支持 SiTU。
 - 使用 SiTU 时，`beta` 必须大于零；提供 `linear_beta` 时，该值也必须大于零。
 
 #### 对于 `fuse_mode=DISPATCH_FFN_COMBINE`（mode=2）
 
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
-- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `ValueError`。
+- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
 
 #### 对于 `fuse_mode=MEGA_MOE`（mode=3）
 
@@ -352,7 +350,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - 要求每个本地 expert 对应一个权重 Tensor。
 - `num_experts` 必须能被进程组大小整除。
 - `num_max_dispatch_tokens_per_rank` 必须不小于本地 token 数，且 Atlas A3 上不能超过 4096。
-- 支持 `"swiglu"`、`"swiglu_gpt_oss"` 和 `"situ"`。
+- 支持 `"swiglu"` 和 `"situ"`。
 - A16W16 使用 `quant_mode=0`，不传 scale 和 bias。
 - A8W8 使用 `quant_mode=1`，需要 scale，不传 bias。
 - A8W4 使用 `quant_mode=1`，需要 scale 和补偿 bias。
