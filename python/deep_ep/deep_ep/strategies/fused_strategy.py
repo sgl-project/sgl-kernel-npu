@@ -6,7 +6,6 @@ import torch
 
 from ..ep_strategy import FusedEPStrategy, register_fused_strategy
 
-
 TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
 
 
@@ -39,10 +38,7 @@ class MegaMoeFusedStrategy(FusedEPStrategy):
         # mega_moe is JIT-built (requires ninja), so keep the import lazy. This
         # lets callers use the other fused modes without the optional dependency.
         try:
-            from cann_ops_transformer.ops import (
-                get_symm_buffer_for_mega_moe,
-                mega_moe,
-            )
+            from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
         except (ImportError, RuntimeError) as e:
             raise RuntimeError(
                 "Failed to import `cann_ops_transformer.ops.mega_moe`, which "
