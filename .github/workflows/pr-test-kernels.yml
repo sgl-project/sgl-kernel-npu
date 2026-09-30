@@ -106,6 +106,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_fused_gdn_gating_without_sigmoid.py
               - tests/python/sgl_kernel_npu/test_solve_tril.py
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
+              - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
             fused:
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**
