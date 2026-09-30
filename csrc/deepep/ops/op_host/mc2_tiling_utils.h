@@ -22,7 +22,8 @@ class Mc2TilingUtils
 public:
     static bool IsHybridDeployment()
     {
-        return getenv("DEEPEP_HYBRID_DEPLOYMENT") != nullptr;
+        const char *hybridDeployment = getenv("DEEPEP_HYBRID_DEPLOYMENT");
+        return hybridDeployment != nullptr && hybridDeployment[0] == '1' && hybridDeployment[1] == '\0';
     }
 
     static uint64_t GetMaxWindowSize()

@@ -40,6 +40,7 @@ def test(
     use_fp8: bool = False,
     use_mxfp4: bool = False,
     use_mxfp8: bool = False,
+    combine_use_mxfp8: bool = False,
     local_rank: int = 0,
 ):
     torch.manual_seed(seed + rank)
@@ -259,6 +260,7 @@ def test(
                 zero_copy=False,
                 return_recv_hook=return_recv_hook,
                 out=out,
+                use_mxfp8=combine_use_mxfp8,
             )
 
             if do_check:
@@ -285,7 +287,9 @@ def test(
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )
-                threshold = get_diff_threshold(dispatch_quant_mode)
+                threshold = get_diff_threshold(
+                    "mx_fp8_e4m3" if combine_use_mxfp8 else dispatch_quant_mode
+                )
                 assert diff < threshold, f"Error: {diff=}, {threshold=}"
                 hash_value ^= hash_tensor(combined_x)
                 if local_rank == 0:
@@ -316,10 +320,11 @@ def test(
             handle,
             zero_copy=zero_copy,
             return_recv_hook=return_recv_hook,
+            use_mxfp8=combine_use_mxfp8,
         )
 
     # Calculate bandwidth
-    num_mxfp8_bytes = hidden + hidden // 32 + 16
+    num_mxfp8_bytes = ((hidden + 255) // 256) * 256 + 2 * ((hidden + 31) // 32 + 1) // 2
     num_mxfp4_bytes = hidden // 2 + hidden // 32 + 16
     num_fp8_bytes = hidden + hidden // 128 * 4 + 16
     num_bf16_bytes = hidden * 2
@@ -334,7 +339,9 @@ def test(
             num_dispatch_comm_bytes += num_fp8_bytes * num_selections
         else:
             num_dispatch_comm_bytes += num_bf16_bytes * num_selections
-        num_combine_comm_bytes += num_bf16_bytes * num_selections
+        num_combine_comm_bytes += (
+            num_mxfp8_bytes if combine_use_mxfp8 else num_bf16_bytes
+        ) * num_selections
 
     # Dispatch + combine testing
     avg_t, min_t, max_t = bench(
@@ -460,6 +467,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         use_fp8=args.use_fp8,
         use_mxfp4=args.use_mxfp4,
         use_mxfp8=args.use_mxfp8,
+        combine_use_mxfp8=args.combine_use_mxfp8,
         local_rank=local_rank,
     )
 
@@ -482,6 +490,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             use_fp8=args.use_fp8,
             use_mxfp4=args.use_mxfp4,
             use_mxfp8=args.use_mxfp8,
+            combine_use_mxfp8=args.combine_use_mxfp8,
             local_rank=local_rank,
         )
         for i in range(20):
@@ -501,6 +510,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     use_fp8=args.use_fp8,
                     use_mxfp4=args.use_mxfp4,
                     use_mxfp8=args.use_mxfp8,
+                    combine_use_mxfp8=args.combine_use_mxfp8,
                     local_rank=local_rank,
                 )
                 == ref_hash
@@ -570,6 +580,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Use use_mxfp8=True for default low-latency dispatch. "
         "A5 -> mx_fp8_e4m3; A2/A3 is not supported.",
+    )
+    parser.add_argument(
+        "--combine-use-mxfp8",
+        action="store_true",
+        help="Use internal MXFP8 E4M3 communication for A5 standard-EP low-latency combine.",
     )
     args = parser.parse_args()
 

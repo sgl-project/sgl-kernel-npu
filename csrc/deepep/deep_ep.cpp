@@ -1026,7 +1026,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
     const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
-    const std::optional<at::Tensor> &out)
+    const std::optional<at::Tensor> &out, bool use_mxfp8)
 {
     // Tensor checks
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous() and x.scalar_type() == at::kBFloat16);
@@ -1056,7 +1056,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int64_t expert_shared_type = 0;
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     int64_t out_dtype = 0;
-    int64_t comm_quant_mode = 0;
+    constexpr int64_t MXFP8_E4M3_COMM_QUANT = 3;
+    int64_t comm_quant_mode = use_mxfp8 ? MXFP8_E4M3_COMM_QUANT : 0;
     int64_t group_list_type = 0;
     bool isLayered = false;
     char *comm_alg;

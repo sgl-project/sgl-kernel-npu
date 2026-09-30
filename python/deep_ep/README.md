@@ -225,7 +225,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | `MOE_ENABLE_CCU` | `0` | Set to `1` to use `comm_alg="ccu"` in default low-latency strategy. |
 | `HCCL_BUFFSIZE` | `200` (MB) | HCCL buffer size in MB. **Must be set** when using DeepEP on A2. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value. |
 | `DEEPEP_HCCL_BUFFSIZE` | — | Reserved. Takes priority over `HCCL_BUFFSIZE` if set. DeepEP reads this for preliminary validation only; actual HCCL buffer must be configured by the framework (e.g., SGLang). |
-| `DEEPEP_HYBRID_DEPLOYMENT` | — | Set this when one process uses both Normal and Low-Latency APIs against the same EP group. Its presence enables an isolated hybrid window layout for the two modes. Set it before every rank process starts and keep it identical on all ranks in the EP group. Leave it unset when the process uses only one mode. |
+| `DEEPEP_HYBRID_DEPLOYMENT` | `0` | Set to `1` when one process uses both Normal and Low-Latency APIs against the same EP group, enabling an isolated hybrid window layout for the two modes. `0` or an unset variable disables hybrid deployment. Set it before every rank process starts and keep it identical on all ranks in the EP group. |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | "Ant moving home" feature: number of dispatch rounds per rank. Range [1, 256]. Must be set together with `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS`. |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | "Ant moving home" feature: tokens per round per rank. Range [32, 8192]. Product with `ROUND` must be ≤ 131072. |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | Set to `1` to enable "ant moving home" in the combine phase. |
@@ -509,7 +509,7 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | `MOE_ENABLE_CCU` | `0` | 设为 `1` 时 default low-latency 策略使用 `comm_alg="ccu"`。 |
 | `HCCL_BUFFSIZE` | `200`（MB） | HCCL 缓冲区大小（MB）。A2 使用 DeepEP 时**必须设置**。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。 |
 | `DEEPEP_HCCL_BUFFSIZE` | — | 预留字段，优先级高于 `HCCL_BUFFSIZE`。DeepEP 仅用于初步校验，实际 HCCL 缓冲需由框架（如 SGLang）配置。 |
-| `DEEPEP_HYBRID_DEPLOYMENT` | — | 同一进程在同一 EP group 上同时使用 Normal 和 Low-Latency 接口时设置。变量存在即启用两种模式隔离的 hybrid window 布局。必须在各 rank 进程启动前设置，且同一 EP group 的所有 rank 必须保持一致。进程仅使用一种模式时无需设置。 |
+| `DEEPEP_HYBRID_DEPLOYMENT` | `0` | 同一进程在同一 EP group 上同时使用 Normal 和 Low-Latency 接口时设置为 `1`，启用两种模式隔离的 hybrid window 布局。设置为 `0` 或未设置时不启用混部。必须在各 rank 进程启动前设置，且同一 EP group 的所有 rank 必须保持一致。 |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | 蚂蚁搬家特性：每 rank 发送轮数。范围 [1, 256]。需与 `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` 同时设置。 |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | 蚂蚁搬家特性：每轮每 rank 发送 token 数。范围 [32, 8192]。与 `ROUND` 的乘积需 ≤ 131072。 |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | 设为 `1` 在 combine 阶段启用蚂蚁搬家。 |
