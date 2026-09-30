@@ -98,6 +98,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+        ${PROJECT_OP_SRC_BASE}/kda_decode/op_host/kda_decode.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
@@ -349,11 +350,33 @@ ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
     "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
 )
 
+set(KDA_DECODE_KERNEL_TARGETS)
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    set(KDA_DECODE_KERNEL_TARGETS kda_decode_kernel)
+    ascendc_library(kda_decode_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/kda_decode/op_kernel/kda_decode.cpp
+    )
+    ascendc_include_directories(kda_decode_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/kda_decode/op_kernel
+        ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+        ${ASCEND_INCLUDE_DIR}
+        ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_INCLUDE_DIR}/experiment/msprof
+    )
+    ascendc_compile_definitions(kda_decode_kernel PRIVATE
+        -DKDA_KERNEL_NAME=launch_kda_decode
+        -DGDN_D=128
+        -DKDA_V=128
+        -DKDA_BV=128
+    )
+endif()
+
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
+        ${KDA_DECODE_KERNEL_TARGETS}
         sparse_flash_attention_kernel
         workspace_kernel
         no_workspace_kernel
