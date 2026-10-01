@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 export OPS_PROJECT_NAME=aclnnInner
 
