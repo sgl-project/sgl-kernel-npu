@@ -684,7 +684,7 @@ private:
         __gm__ float *flagPtr = workspaceInfo.ptrSoftFlagBase;
         AscendC::GlobalTensor<float> flagGM;
         flagGM.SetGlobalBuffer(flagPtr);
-        int32_t flagBufferSize = max(4, params.EP) * FLAGSTRIDE;
+        int64_t flagBufferSize = static_cast<int64_t>(max(4, params.EP)) * static_cast<int64_t>(FLAGSTRIDE);
         AscendC::LocalTensor<float> dstValueBuffer = resource.ubBuf.template GetBufferByByte<float>(flagBufferSize);
         AscendC::LocalTensor<float> sharedTmpBuffer =
             resource.ubBuf.template GetBufferByByte<float>((flagBufferSize + 64));

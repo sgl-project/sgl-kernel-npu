@@ -74,7 +74,7 @@ public:
     using TileStrideMul = Tile::TileStrideMul<ArchTag, float, ChunkTileShape, ChunkTileShape::COLUMN, TileShape::COLUMN,
                                               ChunkTileShape::COLUMN>;
 
-    static_assert(UB_STAGES <= 2, "UB stages too large, event id is not enough.");
+    static_assert(UB_STAGES > 0 && UB_STAGES <= 2, "UB stages must be in (0, 2].");
 
     static_assert((UB_STAGES * (TileShape::COUNT * sizeof(ElementC) + TileShape::COLUMN * sizeof(ElementScale) +
                                 TileShape::ROW * sizeof(ElementPerTokenScale) + TileShape::COUNT * sizeof(ElementD)) +

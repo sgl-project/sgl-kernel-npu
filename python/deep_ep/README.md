@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-blue)]()
-[![CANN](https://img.shields.io/badge/CANN-8.5%2B%20%7C%209.0-green)]()
+[![CANN](https://img.shields.io/badge/CANN-9.0.0%20%7C%209.1.0-green)]()
 [![Python](https://img.shields.io/badge/Python-3.9%2B-yellow)]()
 
 English | [中文](#中文)
@@ -27,13 +27,12 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 
 ### Software and Hardware
 
-Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (supports CANN 9.0).
+Supported Hardware Models: Atlas A2, A3 (support CANN 9.0.0 and 9.1.0), and Atlas A5 (supports CANN 9.0.0 and 9.1.0; current A5 CI covers 9.1.0).
 
 Platform: aarch64/x86
 
 Supporting Software:
-- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 8.5.0 and later versions (refer to the [CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit) to install the CANN development kit package, as well as the supporting firmware and drivers)
-- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 9.0.0 or 9.1.0, with firmware and dependencies matching the selected CANN release.
 - Python >= 3.9, Recommendation: Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -168,30 +167,35 @@ buffer.dispatch(x=data, quant_mode="int8", ...)
 
 # Scalar FP8 per-token quantization (A5 only)
 buffer.dispatch(x=data, quant_mode="pertoken_fp8_e4m3", ...)
+# or: buffer.dispatch(x=data, use_fp8=True, ...)  # auto-detects A5 vs A2/A3
 
 # MXFP8 per-block quantization (A5 only)
 buffer.dispatch(x=data, quant_mode="mx_fp8_e4m3", ...)
+# or: buffer.dispatch(x=data, use_mxfp8=True, ...)
 
 # MXFP4 quantization (A5 only)
 buffer.dispatch(x=data, quant_mode="mx_fp4_e2m1", ...)
+# or: buffer.dispatch(x=data, use_mxfp4=True, ...)
 ```
 
-> **Quantization selection priority:** `quant_mode` (explicit) > `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var > BF16. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority) for details and per-path differences.
+> **Quantization selection priority:** `use_fp8`/`use_mxfp4`/`use_mxfp8` bool flags (architecture-aware) > `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var (deprecated) > BF16. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority) for details.
 
 #### Low-Latency Mode (Decode)
 
 Low-latency MoE dispatch and combine kernels for inference decode:
 - **A3**: Supports `default`, `ops`, and `alltoall` strategies. `ops` strategy supports `comm_alg` options: `hierarchy`, `fullmesh_v1`, `fullmesh_v2`, `ccu`.
-- **A5**: Supports `default` and `ops` strategies with scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`) and MXFP8 per-block quantization (`quant_mode="mx_fp8_e4m3"`).
+- **A5**: Supports `default` and `ops` strategies with scalar FP8 per-token quantization (`use_fp8=True`) and MXFP8 per-block quantization (`use_mxfp8=True`).
 - **A2 Intranode**: Supports up to `bs=512` for low_latency dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS + RDMA) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=512`.
 
-Quantization modes in `low_latency_dispatch`. The `quant_mode` string parameter is only effective on the `default` strategy; `ops` and `alltoall` strategies use legacy `use_fp8`/`use_ue8m0`/`use_mxfp4` booleans:
-- **BF16**: `quant_mode=None` (default strategy) or `use_fp8=False` (ops/alltoall) — no quantization, bfloat16 communication.
-- **INT8**: `quant_mode="int8"` (default) or `use_fp8=True` (ops/alltoall) — per-token INT8 with `float32` scales. INT8 payload on all platforms (A2/A3/A5). Available on all strategies.
-- **Scalar FP8 per-token**: `quant_mode="pertoken_fp8_e4m3"` — per-token FP8 dynamic quantization with `float32` scales. **A5 only**; `default` strategy only.
-- **MXFP8 per-block**: `quant_mode="mx_fp8_e4m3"` or `"mx_fp8_e5m2"` (default) or `use_ue8m0=True` (ops, e4m3 only) — per-block quantization, `float8_e4m3fn`/`float8_e5m2` data + `float8_e8m0fnu` scales. **A5 only**; `default` supports both e4m3/e5m2; `ops` supports e4m3 only; `alltoall` not supported.
-- **MXFP4 per-block**: `quant_mode="mx_fp4_e2m1"` — per-block quantization, `float4_e2m1fn_x2` data + `float8_e8m0fnu` scales. **A5 only**; `default` strategy only.
+Quantization modes in `low_latency_dispatch`. For the `default` strategy, the effective mode is architecture-aware and selected with `use_fp8`, `use_mxfp4`, or `use_mxfp8`. The `ops` and `alltoall` strategies retain their legacy boolean behavior:
+- **BF16**: all quantization booleans disabled — no quantization, bfloat16 communication.
+- **INT8**: on A2/A3, `use_fp8=True` selects INT8. The deprecated environment-variable fallback also selects INT8.
+- **Scalar FP8 per-token**: `use_fp8=True` on A5 — FP8 data with per-token `float32` scales. **A5 only**; `default` strategy only.
+- **MXFP8 per-block**: `use_mxfp8=True`, or the legacy `use_fp8=True, use_ue8m0=True` combination — FP8 data with per-block E8M0 scales. **A5 only** for the architecture-aware path.
+- **MXFP4 per-block**: `use_mxfp4=True` — packed FP4 data with per-block E8M0 scales. **A5 only**; selection on A2/A3 raises `NotImplementedError`.
+
+> **Low-latency quantization selection priority:** `use_mxfp4` > `use_mxfp8` (including the legacy `use_fp8=True, use_ue8m0=True` alias) > `use_fp8` > deprecated `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` fallback > BF16. Device architecture is detected when `Buffer` is initialized. Note that `use_fp8` defaults to `True`, so callers must pass `use_fp8=False` to reach the environment-variable or BF16 fallback.
 
 ### Fused MoE
 
@@ -213,7 +217,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated for `default` strategy.** INT8 quantization is now specified via `quant_mode="int8"` parameter in `dispatch()`. For `alltoall` strategy, this env var is still the only way to enable INT8. MXFP8/MXFP4 per-block quantization (A5 only, intranode only) is specified via `quant_mode` parameter (e.g., `quant_mode="mx_fp8_e4m3"`); see [Normal Mode quantization](#normal-mode-prefill--training) for supported values. |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Backward-compatible INT8 fallback for normal dispatch when no explicit mode is set and for default low-latency dispatch when no boolean selector takes effect. In low-latency dispatch, `use_fp8` must be set to `False` before this fallback is reachable. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in `low_latency_dispatch` (BF16 dispatch). Set to `1` to disable; only effective in decode phase. **Configured by SGLang framework**, not read by deep_ep directly. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
@@ -221,6 +225,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | `MOE_ENABLE_CCU` | `0` | Set to `1` to use `comm_alg="ccu"` in default low-latency strategy. |
 | `HCCL_BUFFSIZE` | `200` (MB) | HCCL buffer size in MB. **Must be set** when using DeepEP on A2. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value. |
 | `DEEPEP_HCCL_BUFFSIZE` | — | Reserved. Takes priority over `HCCL_BUFFSIZE` if set. DeepEP reads this for preliminary validation only; actual HCCL buffer must be configured by the framework (e.g., SGLang). |
+| `DEEPEP_HYBRID_DEPLOYMENT` | — | Set this when one process uses both Normal and Low-Latency APIs against the same EP group. Its presence enables an isolated hybrid window layout for the two modes. Set it before every rank process starts and keep it identical on all ranks in the EP group. Leave it unset when the process uses only one mode. |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | "Ant moving home" feature: number of dispatch rounds per rank. Range [1, 256]. Must be set together with `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS`. |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | "Ant moving home" feature: tokens per round per rank. Range [32, 8192]. Product with `ROUND` must be ≤ 131072. |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | Set to `1` to enable "ant moving home" in the combine phase. |
@@ -251,10 +256,17 @@ For detailed A2 usage, see [A2_DEEPEP](doc/A2_DEEPEP.md).
 
 - Pure HCCS communication for both intranode and internode. No hierarchical implementation needed.
 - Supports `ops` strategy with multiple `comm_alg` options for low-latency mode.
+- When the same process invokes both Normal and Low-Latency APIs for one EP group, enable the hybrid window layout before launching every rank:
+
+```bash
+export DEEPEP_HYBRID_DEPLOYMENT=1
+```
+
+  All ranks in the EP group must use the same setting. There is no need to set this variable for a process that uses only Normal APIs or only Low-Latency APIs.
 
 #### A5
 
-- Supports CANN 9.0.
+- Supports CANN 9.0.0 and 9.1.0; current A5 CI validates 9.1.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
 - Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`), MXFP8 per-block quantization, and MXFP4 per-block quantization in normal dispatch.
 
@@ -272,9 +284,17 @@ python3 tests/python/deepep/test_intranode.py --num-processes=8
 python3 tests/python/deepep/test_low_latency.py --num-processes=8
 python3 tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
-# A2 dual-node internode test (set primary node IP in run_test_internode.sh first)
+# Manual A2 dual-node test (CI disabled; see CI status below); set primary node IP first
 bash tests/python/deepep/run_test_internode.sh
 ```
+
+### CI coverage and A2 multi-node status
+
+- The [PR workflow](../../.github/workflows/pr-test-deepep-npu.yml) validates A2/A3 on CANN 9.0.0 and 9.1.0, and A5 on 9.1.0. The [daily workflow](../../.github/workflows/daily-build-test.yml) covers A2/A3 on 9.0.0 and 9.1.0.
+- CANN 8.5.0 runners were retired and its test matrices removed in August 2026. Compatibility with 8.5.0 is no longer verified.
+- **A2 multi-node CI has been disabled since September 2, 2026**. The node pool shrank from four to two nodes, leaving insufficient capacity for CI. The dedicated `a2-internode-test.yml` and daily `multi-node-internode` job were removed.
+- `test_internode_a2.py`, `run_test_internode.sh`, the reusable `internode.yml`, and hierarchical/non-hierarchical communication and HCCL tuning instructions remain available for manual validation and future restoration. They do not imply active A2 multi-node CI coverage.
+- **Recommended restoration conditions:** provide sufficient schedulable A2 multi-node resources (or optimize scheduling/resource usage to fit the available pool), validate connectivity and the selected CANN environment, pass the retained multi-node tests, then restore the dedicated and daily jobs. Until then, validate A2 multi-node changes manually in the target environment.
 
 ### FAQ
 
@@ -309,13 +329,12 @@ DeepEP-Ascend 采用**策略式架构**，通过环境变量灵活选择通信�
 
 ### 软硬件配套说明
 
-硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 8.5 和 CANN 9.0，Atlas A5 适配 CANN 9.0。
+硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 9.0.0 和 9.1.0，Atlas A5 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 
 平台：aarch64/x86
 
 配套软件：
-- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版 8.5.0 及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装 CANN 开发套件包以及配套固件和驱动）
-- 安装 CANN 软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- 驱动 Ascend HDK 25.1.RC1.1、CANN 社区版 9.0.0 或 9.1.0，并安装与所选版本配套的固件和依赖。
 - Python >= 3.9，推荐 Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -443,22 +462,24 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | Scalar FP8 | `"pertoken_fp8_e4m3"` | `float8_e4m3fn` | `float32` | per-token | 仅 A5 |
 | MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
 
-> **量化选择优先级：** `quant_mode`（显式）> `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量 > BF16。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)（含各路径差异）。
+> **量化选择优先级：** `use_fp8`/`use_mxfp4`/`use_mxfp8` 布尔标志（架构感知）> `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量（已弃用）> BF16。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)（含各路径差异）。
 
 #### Low-Latency 模式（Decode）
 
 面向推理 Decode 阶段的低时延 MoE dispatch/combine 通信内核：
 - **A3**：支持 `default`、`ops`、`alltoall` 策略。`ops` 策略支持 `comm_alg` 选项：`hierarchy`、`fullmesh_v1`、`fullmesh_v2`、`ccu`。
-- **A5**：支持 `default` 和 `ops` 策略，支持 scalar FP8 per-token 量化（`quant_mode="pertoken_fp8_e4m3"`）和 MXFP8 per-block 量化（`quant_mode="mx_fp8_e4m3"`）。
+- **A5**：支持 `default` 和 `ops` 策略，支持 scalar FP8 per-token 量化（`use_fp8=True`）和 MXFP8 per-block 量化（`use_mxfp8=True`）。
 - **A2 单机**：low_latency dispatch/combine 最大支持 `bs=512`。
 - **A2 双机**：分层（HCCS + RDMA）或不分层（纯 RDMA）实现。最大支持 `bs=512`。
 
-low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default` 策略生效；`ops` 和 `alltoall` 策略使用旧参数 `use_fp8`/`use_ue8m0`/`use_mxfp4`：
-- **BF16**：`quant_mode=None`（default）或 `use_fp8=False`（ops/alltoall）— 不量化，bfloat16 通信。
-- **INT8**：`quant_mode="int8"`（default）或 `use_fp8=True`（ops/alltoall）— per-token INT8 + `float32` 缩放因子。全平台（A2/A3/A5）均为 INT8 载荷。全策略支持。
-- **Scalar FP8 per-token**：`quant_mode="pertoken_fp8_e4m3"` — per-token FP8 动态量化 + `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
-- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"`（default）或 `use_ue8m0=True`（ops，仅 e4m3）— per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 支持 e4m3/e5m2；`ops` 仅 e4m3；`alltoall` 不支持。
-- **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` — per-block 量化，`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+`low_latency_dispatch` 量化模式：`default` 策略会结合设备架构，通过 `use_fp8`、`use_mxfp4` 或 `use_mxfp8` 解析最终模式；`ops` 和 `alltoall` 策略保留原有布尔参数行为：
+- **BF16**：关闭全部量化布尔参数——不量化，使用 bfloat16 通信。
+- **INT8**：A2/A3 上的 `use_fp8=True` 选择 INT8；已弃用的环境变量回退也会选择 INT8。
+- **Scalar FP8 per-token**：在 A5 上设置 `use_fp8=True`——FP8 数据配合 per-token `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+- **MXFP8 per-block**：`use_mxfp8=True`，或旧式组合 `use_fp8=True, use_ue8m0=True`——FP8 数据配合 per-block E8M0 缩放因子。架构感知路径**仅 A5**支持。
+- **MXFP4 per-block**：`use_mxfp4=True`——packed FP4 数据配合 per-block E8M0 缩放因子。**仅 A5**；A2/A3 上选择会抛出 `NotImplementedError`。
+
+> **Low-latency 量化选择优先级：** `use_mxfp4` > `use_mxfp8`（包括兼容组合 `use_fp8=True, use_ue8m0=True`）> `use_fp8` > 已弃用的 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 回退 > BF16。设备架构在 `Buffer` 初始化时检测。注意 `use_fp8` 默认值为 `True`，调用方必须显式传入 `use_fp8=False` 才能进入环境变量或 BF16 回退。
 
 ### 融合 MoE
 
@@ -480,7 +501,7 @@ low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default`
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DEEP_USE_MODE` | `default` | Normal 模式策略 and Low-latency 模式策略：`default`、`ops` 或 `alltoall`。 |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **对 `default` 策略已弃用。** INT8 量化现通过 `dispatch()` 的 `quant_mode="int8"` 参数指定。对于 `alltoall` 策略，此环境变量仍是启用 INT8 的唯一方式。MXFP8/MXFP4 per-block 量化（仅 A5，仅 intranode）通过 `quant_mode` 参数指定（如 `quant_mode="mx_fp8_e4m3"`），支持的值见 [Normal 模式量化](#normal-模式prefill--训练)。 |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **已弃用。** normal dispatch 未设置显式模式、default low-latency dispatch 未启用布尔选择参数时，提供向后兼容的 INT8 回退。low-latency dispatch 需先设置 `use_fp8=False` 才能进入该回退。 |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | 在 `low_latency_dispatch` 中关闭量化（BF16 dispatch）。设为 `1` 关闭量化；仅在 Decode 阶段生效。**由 SGLang 框架配置**，deep_ep 不直接读取。 |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | dispatch 返回的 `num_recv_tokens_per_expert_list` 类型：`1` = 各专家 token 数，`0` = 前缀和。 |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | 共享专家 rank 数（ops 策略使用）。 |
@@ -488,6 +509,7 @@ low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default`
 | `MOE_ENABLE_CCU` | `0` | 设为 `1` 时 default low-latency 策略使用 `comm_alg="ccu"`。 |
 | `HCCL_BUFFSIZE` | `200`（MB） | HCCL 缓冲区大小（MB）。A2 使用 DeepEP 时**必须设置**。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。 |
 | `DEEPEP_HCCL_BUFFSIZE` | — | 预留字段，优先级高于 `HCCL_BUFFSIZE`。DeepEP 仅用于初步校验，实际 HCCL 缓冲需由框架（如 SGLang）配置。 |
+| `DEEPEP_HYBRID_DEPLOYMENT` | — | 同一进程在同一 EP group 上同时使用 Normal 和 Low-Latency 接口时设置。变量存在即启用两种模式隔离的 hybrid window 布局。必须在各 rank 进程启动前设置，且同一 EP group 的所有 rank 必须保持一致。进程仅使用一种模式时无需设置。 |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | 蚂蚁搬家特性：每 rank 发送轮数。范围 [1, 256]。需与 `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` 同时设置。 |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | 蚂蚁搬家特性：每轮每 rank 发送 token 数。范围 [32, 8192]。与 `ROUND` 的乘积需 ≤ 131072。 |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | 设为 `1` 在 combine 阶段启用蚂蚁搬家。 |
@@ -518,10 +540,17 @@ low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default`
 
 - 纯 HCCS 通信（节点内和节点间）。无需分层实现。
 - Low-latency 模式支持 `ops` 策略及多种 `comm_alg` 选项。
+- 同一进程在一个 EP group 上同时调用 Normal 和 Low-Latency 接口时，需在每个 rank 进程启动前启用 hybrid window 布局：
+
+```bash
+export DEEPEP_HYBRID_DEPLOYMENT=1
+```
+
+  同一 EP group 的所有 rank 必须使用相同配置。进程仅调用 Normal 接口或仅调用 Low-Latency 接口时，无需设置该变量。
 
 #### A5
 
-- 适配 CANN 9.0。
+- 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 - 构建命令：`bash build.sh -a deepep Ascend950`。
 - 支持 scalar FP8 per-token 量化（`quant_mode="pertoken_fp8_e4m3"`）、MXFP8 per-block 量化和 MXFP4 per-block 量化（normal dispatch）。
 
@@ -539,9 +568,16 @@ python3 tests/python/deepep/test_intranode.py --num-processes=8
 python3 tests/python/deepep/test_low_latency.py --num-processes=8
 python3 tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
-# A2 双机跨节点测试（需先设置 run_test_internode.sh 中的主节点 IP）
+# A2 双机手动测试（CI 已停用，见 CI 状态说明；需先设置主节点 IP）
 bash tests/python/deepep/run_test_internode.sh
 ```
+
+### CI 覆盖范围与 A2 多机状态
+
+- [PR 工作流](../../.github/workflows/pr-test-deepep-npu.yml) 在 A2/A3 上验证 CANN 9.0.0、9.1.0，在 A5 上验证 9.1.0；[每日工作流](../../.github/workflows/daily-build-test.yml) 覆盖 A2/A3 的 9.0.0、9.1.0。
+- CANN 8.5.0 runner 已下线，测试矩阵于 2026 年 8 月移除，不再验证 8.5.0 的兼容性。
+- **A2 多机 CI 自 2026-09-02 起停用**。节点池从 4 个缩减为 2 个，资源不足以支撑 CI，已删除独立的 `a2-internode-test.yml` 和每日流水线的 `multi-node-internode` job。
+- 保留 `test_internode_a2.py`、`run_test_internode.sh`、可复用的 `internode.yml`，以及分层/不分层通信、HCCL 调优说明，供手动验证及后续恢复使用；这些资料不代表 A2 多机仍有 CI 覆盖。
 
 ### 常见问题
 

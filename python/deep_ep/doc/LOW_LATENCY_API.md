@@ -35,6 +35,7 @@ def low_latency_dispatch(
     async_finish: bool = False,
     return_recv_hook: bool = False,
     topk_weights: Optional[torch.Tensor] = None,
+    use_mxfp8: bool = False,
 ) -> Tuple[
     Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
 ]
@@ -49,19 +50,20 @@ def low_latency_dispatch(
 | **num_max_dispatch_tokens_per_rank** | `int` | Yes | – | Maximum number of tokens to dispatch per rank. All ranks must hold the same value. |
 | **num_experts** | `int` | Yes | – | Total number of experts. |
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | No | `None` | Shape `[num_local_experts]`, cumulative expert count for online EP load balance monitoring. Not needed on DeepEP-Ascend. |
-| **use_fp8** | `bool` | No | `True` | On NPU, enables per-token dynamic quantization (quant_mode=2). Communication data is INT8 with per-token `float32` scales. |
+| **use_fp8** | `bool` | No | `True` | Selects `pertoken_fp8_e4m3` on A5 and `int8` on A2/A3. |
 | **round_scale** | `bool` | No | `False` | Whether to round scaling factors into powers of 2. Used together with `use_ue8m0`. |
-| **use_ue8m0** | `bool` | No | `False` | On NPU, triggers MXFP8 per-block quantization (quant_mode=3). Data format: `float8_e4m3fn`, scales: `float8_e8m0fnu` (one scale per 32-element block). Requires `use_fp8=True`. Only available on A5. Not supported on `alltoall` strategy. |
-| **use_mxfp4** | `bool` | No | `False` | On NPU, triggers MXFP4 per-block quantization (quant_mode=4). Data format: `float4_e2m1fn_x2`, scales: `float8_e8m0fnu` (one scale per 32-element block). Requires `use_fp8=True`. Only available on A5 and only supported on `default` strategy (ops/alltoall strategies silently ignore this flag). |
+| **use_ue8m0** | `bool` | No | `False` | Legacy MXFP8 selector. `use_fp8=True, use_ue8m0=True` is treated as `use_mxfp8=True`. |
+| **use_mxfp4** | `bool` | No | `False` | Selects `mx_fp4_e2m1` on A5. Raises `NotImplementedError` on A2/A3. |
 | **async_finish** | `bool` | No | `False` | If set, the current stream will not wait for the communication kernel to finish. Not needed on DeepEP-Ascend. |
 | **return_recv_hook** | `bool` | No | `False` | If set, returns a receiving hook. The kernel will only issue RDMA requests without actually receiving data; you must call the hook to ensure data arrival. Not needed on DeepEP-Ascend. |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | No | `None` | Top-k weights corresponding to `topk_idx`. |
+| **use_mxfp8** | `bool` | No | `False` | Selects `mx_fp8_e4m3` on A5. Raises `NotImplementedError` on A2/A3. |
 
 ### Return Values
 
 | Return Value | Type | Description |
 |--------------|------|-------------|
-| **recv_x** | `Tuple[torch.Tensor, torch.Tensor]` or `torch.Tensor` | Received tokens. Format depends on quantization mode:<br>- **BF16** (`use_fp8=False`): single tensor `[num_max_tokens, hidden]`, dtype `torch.bfloat16`.<br>- **FP8 per-token** (`use_fp8=True, use_ue8m0=False`): tuple `(int8_data, float32_scales)`. Data shape `[num_max_tokens, hidden]` (`torch.int8`), scales shape `[num_max_tokens]` (`torch.float32`).<br>- **MXFP8 per-block** (`use_fp8=True, use_ue8m0=True`, A5 only): tuple `(float8_e4m3fn_data, float8_e8m0fnu_scales)`. Data shape `[num_max_tokens, hidden]`, scales shape `[num_max_tokens * hidden / 32]` (one scale per 32-element block).<br>- **MXFP4 per-block** (`use_fp8=True, use_mxfp4=True`, A5 only, `default` strategy only): tuple `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`. Data shape `[num_max_tokens, hidden / 2]`, scales shape `[num_max_tokens * hidden / 32]`.<br>Not all tokens are valid; only the first `recv_count` tokens per expert contain meaningful data. |
+| **recv_x** | `Tuple[torch.Tensor, torch.Tensor]` or `torch.Tensor` | Received tokens. Format depends on the resolved mode:<br>- **BF16**: single tensor `[num_max_tokens, hidden]`, dtype `torch.bfloat16`.<br>- **INT8**: tuple `(int8_data, float32_scales)`, with one scale per token.<br>- **Per-token FP8** (`pertoken_fp8_e4m3`, A5): tuple `(float8_e4m3fn_data, float32_scales)`, with one scale per token.<br>- **MXFP8** (A5): tuple `(float8_data, float8_e8m0fnu_scales)`, with one scale per 32 elements.<br>- **MXFP4** (A5): tuple `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`, with one scale per 32 elements.<br>Not all tokens are valid; only the first `recv_count` tokens per expert contain meaningful data. |
 | **recv_count** | `torch.Tensor` (`int64`) | Shape `[num_local_experts]`, number of tokens each expert actually received. |
 | **handle** | `Tuple` | Communication handle for `low_latency_combine`. Must be passed unchanged. |
 | **event** | `EventOverlap` | Event after kernel execution (valid only if `async_finish=True`). Not needed on DeepEP-Ascend. |
@@ -75,6 +77,20 @@ def low_latency_dispatch(
 - **num_experts**: `(0, 512]`.
 - **HCCL_BUFFSIZE**: Check before calling. Default 200 MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**: A2 series internode: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`.
+
+### Quantization Selection Priority
+
+For the `default` strategy, `utils._resolve_low_latency_quant_mode()` resolves the mode in this order:
+
+1. Bool flags in the order `use_mxfp4` > `use_mxfp8` > `use_fp8`:
+   - `use_mxfp4=True`: A5 → `mx_fp4_e2m1`; A2/A3 → `NotImplementedError`.
+   - `use_mxfp8=True`: A5 → `mx_fp8_e4m3`; A2/A3 → `NotImplementedError`.
+   - `use_fp8=True`: A5 → `pertoken_fp8_e4m3`; A2/A3 → `int8`.
+   - The legacy `use_fp8=True, use_ue8m0=True` combination is treated as `use_mxfp8=True`.
+2. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, as a deprecated compatibility fallback.
+3. `None`, meaning BF16 without quantization.
+
+`use_fp8` defaults to `True`, so callers must pass `use_fp8=False` before the environment-variable or BF16 fallback can be reached. The `ops` and `alltoall` strategies retain their legacy boolean behavior.
 
 ---
 
@@ -155,6 +171,7 @@ def low_latency_dispatch(
     async_finish: bool = False,
     return_recv_hook: bool = False,
     topk_weights: Optional[torch.Tensor] = None,
+    use_mxfp8: bool = False,
 ) -> Tuple[
     Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
 ]
@@ -169,19 +186,20 @@ def low_latency_dispatch(
 | **num_max_dispatch_tokens_per_rank** | `int` | ✅ | – | 每个 rank 最大分发 token 数，所有 rank 必须相同。 |
 | **num_experts** | `int` | ✅ | – | 专家总数。 |
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | ❌ | `None` | 形状 `[num_local_experts]`，累计 expert 接收统计，用于在线 EP 负载均衡监控。DeepEP-Ascend 不需要。 |
-| **use_fp8** | `bool` | ❌ | `True` | NPU 上启用 per-token 动态量化（quant_mode=2），通信数据为 INT8，缩放因子为 per-token `float32`。 |
+| **use_fp8** | `bool` | ❌ | `True` | A5 上选择 `pertoken_fp8_e4m3`，A2/A3 上选择 `int8`。 |
 | **round_scale** | `bool` | ❌ | `False` | 是否将缩放因子四舍五入为 2 的次幂。与 `use_ue8m0` 配合使用。 |
-| **use_ue8m0** | `bool` | ❌ | `False` | NPU 上触发 MXFP8 per-block 量化（quant_mode=3），数据格式为 `float8_e4m3fn`，缩放因子为 `float8_e8m0fnu`（每 32 个元素一个 scale）。需 `use_fp8=True`。仅 A5 支持。`alltoall` 策略不支持。 |
-| **use_mxfp4** | `bool` | ❌ | `False` | NPU 上触发 MXFP4 per-block 量化（quant_mode=4），数据格式为 `float4_e2m1fn_x2`，缩放因子为 `float8_e8m0fnu`（每 32 个元素一个 scale）。需 `use_fp8=True`。仅 A5 支持，且仅 `default` 策略支持（ops/alltoall 策略会静默忽略此参数）。 |
+| **use_ue8m0** | `bool` | ❌ | `False` | 旧版 MXFP8 选择参数。`use_fp8=True, use_ue8m0=True` 等价于 `use_mxfp8=True`。 |
+| **use_mxfp4** | `bool` | ❌ | `False` | A5 上选择 `mx_fp4_e2m1`；A2/A3 上抛出 `NotImplementedError`。 |
 | **async_finish** | `bool` | ❌ | `False` | 若设置，当前 stream 不会等待通信 kernel 完成。DeepEP-Ascend 不需要。 |
 | **return_recv_hook** | `bool` | ❌ | `False` | 若设置，返回接收钩子；kernel 只发 RDMA 请求不接收数据，必须调用钩子确保数据到达。DeepEP-Ascend 不需要。 |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | ❌ | `None` | 对应 `topk_idx` 的 top-k 权重。 |
+| **use_mxfp8** | `bool` | ❌ | `False` | A5 上选择 `mx_fp8_e4m3`；A2/A3 上抛出 `NotImplementedError`。 |
 
 ### 返回值说明
 
 | 返回值 | 类型 | 说明 |
 |--------|------|------|
-| **recv_x** | `Tuple[torch.Tensor, torch.Tensor]` 或 `torch.Tensor` | 接收的 token。格式取决于量化模式：<br>- **BF16**（`use_fp8=False`）：单个 tensor `[num_max_tokens, hidden]`，dtype `torch.bfloat16`。<br>- **FP8 per-token**（`use_fp8=True, use_ue8m0=False`）：元组 `(int8_data, float32_scales)`。数据形状 `[num_max_tokens, hidden]`（`torch.int8`），scales 形状 `[num_max_tokens]`（`torch.float32`）。<br>- **MXFP8 per-block**（`use_fp8=True, use_ue8m0=True`，仅 A5）：元组 `(float8_e4m3fn_data, float8_e8m0fnu_scales)`。数据形状 `[num_max_tokens, hidden]`，scales 形状 `[num_max_tokens * hidden / 32]`（每 32 个元素一个 scale）。<br>- **MXFP4 per-block**（`use_fp8=True, use_mxfp4=True`，仅 A5，仅 `default` 策略）：元组 `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`。数据形状 `[num_max_tokens, hidden / 2]`，scales 形状 `[num_max_tokens * hidden / 32]`。<br>并非所有 token 都有效，仅每个 expert 前 `recv_count` 个 token 含有意义数据。 |
+| **recv_x** | `Tuple[torch.Tensor, torch.Tensor]` 或 `torch.Tensor` | 接收的 token，格式取决于解析后的模式：<br>- **BF16**：单个 `[num_max_tokens, hidden]` 的 `bfloat16` tensor。<br>- **INT8**：tuple `(int8_data, float32_scales)`，每个 token 一个 scale。<br>- **Per-token FP8**（`pertoken_fp8_e4m3`，仅 A5）：tuple `(float8_e4m3fn_data, float32_scales)`，每个 token 一个 scale。<br>- **MXFP8**（仅 A5）：tuple `(float8_data, float8_e8m0fnu_scales)`，每 32 个元素一个 scale。<br>- **MXFP4**（仅 A5）：tuple `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`，每 32 个元素一个 scale。<br>并非所有 token 都有效，仅每个 expert 前 `recv_count` 个 token 含有意义数据。 |
 | **recv_count** | `torch.Tensor` (`int64`) | 形状 `[num_local_experts]`，每个 expert 实际接收的 token 数。 |
 | **handle** | `Tuple` | 供 `low_latency_combine` 使用的通信句柄，必须原样传递。 |
 | **event** | `EventOverlap` | kernel 执行后的事件（仅在 `async_finish=True` 时有效）。DeepEP-Ascend 不需要。 |
@@ -195,6 +213,20 @@ def low_latency_dispatch(
 - **num_experts**：`(0, 512]`。
 - **HCCL_BUFFSIZE**：调用接口前需检查，默认 200 MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**：A2 系列双机场景需配置 `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`。
+
+### 量化模式选择优先级
+
+对于 `default` 策略，`utils._resolve_low_latency_quant_mode()` 按以下顺序解析：
+
+1. 按 `use_mxfp4` > `use_mxfp8` > `use_fp8` 的顺序处理布尔标志：
+   - `use_mxfp4=True`：A5 → `mx_fp4_e2m1`；A2/A3 → `NotImplementedError`。
+   - `use_mxfp8=True`：A5 → `mx_fp8_e4m3`；A2/A3 → `NotImplementedError`。
+   - `use_fp8=True`：A5 → `pertoken_fp8_e4m3`；A2/A3 → `int8`。
+   - 旧式组合 `use_fp8=True, use_ue8m0=True` 等价于 `use_mxfp8=True`。
+2. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`，作为已弃用的兼容回退。
+3. `None`，表示不量化的 BF16。
+
+`use_fp8` 默认值为 `True`，因此调用方必须传入 `use_fp8=False` 才能进入环境变量或 BF16 回退。`ops` 和 `alltoall` 策略保留原有的布尔参数行为。
 
 ---
 

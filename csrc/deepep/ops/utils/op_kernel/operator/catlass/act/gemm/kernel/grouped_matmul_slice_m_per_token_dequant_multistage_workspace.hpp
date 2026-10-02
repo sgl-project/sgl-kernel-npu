@@ -179,8 +179,8 @@ public:
                 stageId = (stageId + 1 < WORKSPACE_STAGES) ? (stageId + 1) : 0;
             }
 
-            gmGroupOffsetA += inGroupProblemShape.m() * inGroupProblemShape.k();
-            gmGroupOffsetB += inGroupProblemShape.k() * inGroupProblemShape.n();
+            gmGroupOffsetA += static_cast<int64_t>(inGroupProblemShape.m()) * inGroupProblemShape.k();
+            gmGroupOffsetB += static_cast<int64_t>(inGroupProblemShape.k()) * inGroupProblemShape.n();
             startCoreIdx = (startCoreIdx + coreLoops) % coreNum;
         }
 
@@ -263,7 +263,7 @@ public:
 
                 gmGroupOffsetScale += inGroupProblemShape.n();
                 gmGroupOffsetPerTokenScale += inGroupProblemShape.m();
-                gmGroupOffsetD += inGroupProblemShape.m() * inGroupProblemShape.n();
+                gmGroupOffsetD += static_cast<int64_t>(inGroupProblemShape.m()) * inGroupProblemShape.n();
 
                 startCoreIdx = (startCoreIdx + coreLoops) % coreNum;
             }

@@ -177,18 +177,24 @@ __aicore__ inline void MoeV2FullLoadQuantBase::ComputeExpertTokenCountOrCumsum()
         int32_t curExpertId = expandedExpertIdx.GetValue(i);
         tokenCount++;
         while (lastExpertId < curExpertId) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            }
             if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_COUNT) {
                 tokenCount = 1;
             }
             lastExpertId++;
         }
     }
-    expertTokensCount.SetValue(lastExpertId, tokenCount);
+    if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+        expertTokensCount.SetValue(lastExpertId, tokenCount);
+    }
     if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_CUMSUM) {
         lastExpertId++;
         while (lastExpertId < this->expertNum) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount);
+            if (lastExpertId >= 0) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount);
+            }
             lastExpertId++;
         }
     }

@@ -88,9 +88,11 @@ __aicore__ inline void MoeV2SrcToDstOp::CopyOut()
     DataCopyParams intriParams;
     intriParams.blockCount = 1;
     intriParams.blockLen = sizeof(int32_t);
-    uint32_t outOffset;
     for (int64_t idx = 0; idx < currentLoopRows; idx++) {
-        outOffset = inLocal.GetValue(idx);
+        int32_t outOffset = inLocal.GetValue(idx);
+        if (!(0 <= outOffset && outOffset < this->totalLength)) {
+            continue;
+        }
         DataCopyPad(expandSrcToDstRowGm[outOffset], outLocal[idx * INT32_ONE_BLOCK_NUM], intriParams);
     }
 

@@ -417,10 +417,6 @@ def conv_state_rollback(
     state_indices = state_indices.to(torch.int32).contiguous()
     step_indices = step_indices.to(torch.int32).contiguous()
 
-    # Ensure conv_states is contiguous
-    if not conv_states.is_contiguous():
-        conv_states = conv_states.contiguous()
-
     # Grid over all requests
     grid = (num_requests,)
 

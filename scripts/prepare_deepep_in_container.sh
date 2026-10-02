@@ -1,6 +1,7 @@
 set -e
 
 BUILD_ARGS=""
+SOC_VERSION=""
 SKIP_BUILD=false
 
 while getopts ":a:s" opt; do
@@ -23,12 +24,17 @@ while getopts ":a:s" opt; do
 done
 
 shift $((OPTIND -1))
+SOC_VERSION="${1:-}"
 
 cd ${GITHUB_WORKSPACE}
 
 if [ "$SKIP_BUILD" = false ]; then
     if [ -n "$BUILD_ARGS" ]; then
-        bash build.sh -a "$BUILD_ARGS"
+        if [ -n "$SOC_VERSION" ]; then
+            bash build.sh -a "$BUILD_ARGS" "$SOC_VERSION"
+        else
+            bash build.sh -a "$BUILD_ARGS"
+        fi
     else
         bash build.sh
     fi

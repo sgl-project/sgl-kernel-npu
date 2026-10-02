@@ -18,6 +18,7 @@ DEEPEP_IS_A5_BUILD="OFF"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
+BUILD_CATLASS_MODULE="${BUILD_CATLASS_MODULE:-OFF}"
 
 DEBUG_MODE="OFF"
 ASC_CMAKE_DIR=""
@@ -39,24 +40,36 @@ Usage:
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
 
-Targets:
+TARGET:
+    all            (default) Build all modules.
     deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
 
-Chip mapping:
-    A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
-    A3  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
-    A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
-
-Compatible commands:
-    ./build.sh -a deepep2                     # Explicit A2 build
-    ./build.sh -a deepep Ascend950            # Explicit A5 build
+SOC_VERSION:
+    Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
+    Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
+    Ascend950           A5 chip. Valid for deepep only.
+    Ascend950PR_9599    A5 chip. Valid for kernels.
+    (omitted)           all: defaults to Ascend910_9382.
+                        deepep: auto-detect via npu-smi, fallback to Ascend910_9382.
+                        deepep2: defaults to Ascend910B1.
+                        kernels: defaults to Ascend910_9382.
+                        all: defaults to Ascend910_9382.
 
 Options:
     -d             Enable debug logging.
     -h             Show this help.
+
+Examples:
+    ./build.sh                                  # all modules, A3
+    ./build.sh -a deepep                        # auto-detect chip
+    ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
+    ./build.sh -a deepep2                       # A2 DeepEP
+    ./build.sh -a kernels                       # sgl_kernel_npu, A3
+    ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
+    ./build.sh -a memory-saver                  # torch_memory_saver
 EOF
 }
 
@@ -203,7 +216,8 @@ function configure_soc_version()
         kernels )
             SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                die "Target 'kernels' requires an AscendC-supported SoC name instead of the DeepEP alias Ascend950."
+                die "Target 'kernels' requires an AscendC-supported SoC name instead of the DeepEP alias Ascend950." \
+                    "Verified: Ascend950PR_9599"
             fi
             CMAKE_SOC_VERSION="$SOC_VERSION"
             ;;
@@ -217,12 +231,16 @@ function configure_soc_version()
 
     if [[ "$SOC_VERSION" == "Ascend950" ]]; then
         DEEPEP_IS_A5_BUILD="ON"
+        export ASCEND_COMPUTE_UNIT="ascend950"
+    else
+        unset ASCEND_COMPUTE_UNIT
     fi
 
     echo "Build target: $BUILD_TARGET"
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
+        echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
@@ -364,6 +382,7 @@ function build_cmake_modules()
         "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
         "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
         "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"
+        "-DBUILD_CATLASS_MODULE=${BUILD_CATLASS_MODULE:-OFF}"
     )
 
     if [[ -n "$ASC_CMAKE_DIR" ]]; then

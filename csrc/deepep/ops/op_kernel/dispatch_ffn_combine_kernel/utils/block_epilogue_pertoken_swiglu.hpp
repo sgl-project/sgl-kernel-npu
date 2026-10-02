@@ -219,6 +219,9 @@ public:
 
             // TODO: compare the efficiency of the two calculation methods
             ElementPerTokenScale GMubDequantScale = ubReduceMax.GetValue(0);
+            if (GMubDequantScale == 0.f) {
+                GMubDequantScale = 1.f;
+            }
             AscendC::SetFlag<AscendC::HardEvent::S_V>(0);
 
             auto ubPerTokenScaleOutputOffset = loopIdx - loopStartIdx;
