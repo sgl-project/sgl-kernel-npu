@@ -19,8 +19,8 @@
 namespace sglang {
 namespace npu_kernel {
 
-at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim,
-                     bool isUpddate)
+at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint64_t cacheLocCount,
+                     uint32_t &blockDim, bool isUpddate)
 {
     auto batchSize = reqPoolIndices.sizes()[0];
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
@@ -56,7 +56,11 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
     tillingData->offsetCountAlignInt64 = host_utils::alinInt64Count(batchSize);
     tillingData->offsetColAlignInt64 = tillingData->offsetCountAlignInt64 * sizeof(int64_t);
 
-    tillingData->cacheLocSize = batchSize * MAX_STEP;
+    // The kernel loads cacheLocSize int32 from out_cache_loc and stores them all back, so it has
+    // to be the tensor's own length; batchSize * MAX_STEP overruns every caller that packs fewer
+    // than MAX_STEP entries per row. The store puts back what the load read, so the overrun stays
+    // silent until the tensor ends an allocator block whose neighbour is unmapped.
+    tillingData->cacheLocSize = cacheLocCount;
     tillingData->cacheLocCountAlignInt32 = host_utils::alinInt32Count(tillingData->cacheLocSize);
     tillingData->cacheLocAlignInt32 = tillingData->cacheLocCountAlignInt32 * sizeof(int32_t);
 
@@ -76,6 +80,8 @@ HOST_API void checkParams(const at::Tensor &reqPoolIndices, const at::Tensor &to
                           const at::Tensor &endOffset, const at::Tensor &outCacheLoc)
 {
     auto reqIdxType = reqPoolIndices.options().dtype();
+    // The kernel addresses out_cache_loc as one flat int32 run of outCacheLoc.numel().
+    TORCH_CHECK(outCacheLoc.is_contiguous(), "outCacheLoc must be contiguous");
     if ((reqIdxType != at::kInt && reqIdxType != at::kLong) || tokenPool.options().dtype() != at::kInt ||
         startOffset.options().dtype() != at::kLong || endOffset.options().dtype() != at::kLong ||
         outCacheLoc.options().dtype() != at::kInt) {
@@ -92,7 +98,8 @@ HOST_API at::Tensor cache_loc_assign(const at::Tensor &reqPoolIndices, const at:
     checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
     uint32_t blockDim;
     uint32_t cacheAssignMode = 0;
-    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, false);
+    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0],
+                                        static_cast<uint64_t>(outCacheLoc.numel()), blockDim, false);
 
     EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
                     tilingTensor, cacheAssignMode);
@@ -106,7 +113,8 @@ HOST_API at::Tensor cache_loc_update(const at::Tensor &reqPoolIndices, const at:
     checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
     uint32_t blockDim;
     uint32_t cacheAssignMode = 1;
-    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, true);
+    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0],
+                                        static_cast<uint64_t>(outCacheLoc.numel()), blockDim, true);
 
     EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
                     tilingTensor, cacheAssignMode);

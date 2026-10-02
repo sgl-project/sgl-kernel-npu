@@ -60,6 +60,7 @@ ATTENTION_TESTS=(
 CACHE_TESTS=(
     test_alloc_extend_slot.py
     test_cache_assign.py
+    test_cache_loc_bounds.py
     test_cache_update.py
     test_inplace_assign_cache.py
     test_lightning_indexer.py
@@ -119,6 +120,7 @@ SMALL_BATCH_TESTS=(
     test_split_qkv_rmsnorm_rope.py
     test_alloc_extend_slot.py
     test_cache_assign.py
+    test_cache_loc_bounds.py
     test_cache_update.py
 )
 
