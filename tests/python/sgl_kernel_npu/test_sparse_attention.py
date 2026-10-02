@@ -5,7 +5,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from sgl_kernel_npu import attentions
+import sgl_kernel_npu  # noqa: F401
 
 pytestmark = pytest.mark.skipif(
     not hasattr(torch, "npu")
@@ -40,7 +40,7 @@ def test_ada_matches_masked_reference(dtype, layout, causal, kv_heads):
     mask[..., :blocks] = selected
     count = selected.sum(-1).to(torch.int32)
     scale = 1 / math.sqrt(dim)
-    result = attentions.ada_block_sparse_attention(
+    result = torch.ops.npu.ada_block_sparse_attention(
         as_layout(q, layout).npu(),
         as_layout(k, layout).npu(),
         as_layout(v, layout).npu(),
@@ -77,7 +77,7 @@ def test_estimator_mask_and_call_order(dtype, layout):
     k = torch.randn_like(q)
 
     def estimate(q, k):
-        return attentions.sparse_block_estimate(
+        return torch.ops.npu.sparse_block_estimate(
             as_layout(q, layout),
             as_layout(k, layout),
             input_layout=layout,

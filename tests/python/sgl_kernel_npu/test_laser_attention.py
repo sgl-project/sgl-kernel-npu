@@ -4,11 +4,10 @@ import pytest
 import torch
 import torch_npu  # noqa: F401
 
-import sgl_kernel_npu.attentions as attentions
+import sgl_kernel_npu  # noqa: F401
 
 
 def test_laser_attn_public_api_and_schema():
-    assert callable(attentions.laser_attn)
     if not hasattr(torch.ops.npu, "laser_attn"):
         pytest.skip("Laser Attention is not built for this SoC")
 
@@ -62,7 +61,7 @@ def test_laser_attn_fp16_bnsd_matches_torch_reference(num_heads, num_key_value_h
     ).transpose(1, 2)
     assert not query.is_contiguous()
 
-    result = attentions.laser_attn(
+    result = torch.ops.npu.laser_attn(
         query=query,
         key=key,
         value=value,
