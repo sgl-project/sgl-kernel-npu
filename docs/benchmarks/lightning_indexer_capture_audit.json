@@ -1,0 +1,66 @@
+[
+  {
+    "capture": "case_01.pt",
+    "request": 0,
+    "rows": 6,
+    "keys": 1,
+    "sequence_length": 6,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_02.pt",
+    "request": 0,
+    "rows": 16384,
+    "keys": 4096,
+    "sequence_length": 16384,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_03.pt",
+    "request": 0,
+    "rows": 16384,
+    "keys": 8192,
+    "sequence_length": 32768,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_04.pt",
+    "request": 0,
+    "rows": 3387,
+    "keys": 9038,
+    "sequence_length": 36155,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_05.pt",
+    "request": 0,
+    "rows": 4621,
+    "keys": 10179,
+    "sequence_length": 40717,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_06.pt",
+    "request": 0,
+    "rows": 6745,
+    "keys": 10710,
+    "sequence_length": 42841,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_07.pt",
+    "request": 0,
+    "rows": 7810,
+    "keys": 10976,
+    "sequence_length": 43906,
+    "all_ordered_indices_equal": true
+  },
+  {
+    "capture": "case_08.pt",
+    "request": 0,
+    "rows": 8313,
+    "keys": 11102,
+    "sequence_length": 44409,
+    "all_ordered_indices_equal": true
+  }
+]
