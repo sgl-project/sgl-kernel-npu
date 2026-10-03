@@ -144,6 +144,7 @@ LLM_SHAPES = [
     ("base", (1, 32000)),
     ("base", (8, 32000)),
     ("large", (2, 128256)),
+    ("large-single-row", (1, 151936)),
     ("common", (16, 32000)),
 ]
 
@@ -163,7 +164,7 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
 
     @torch.no_grad()
     def test_llm_shapes(self):
-        """LLM inference typical shapes x 3 dtypes = 21 cases."""
+        """LLM inference typical shapes x 3 dtypes = 24 cases."""
         passed, total = 0, 0
         for dtype in SUPPORTED_DTYPES:
             for tag, (batch, vocab) in LLM_SHAPES:
@@ -404,23 +405,11 @@ if __name__ == "__main__":
             "test_with_indices",
             "test_indices_all_rows",
         ]:
-            suite.addTests(
-                loader.loadTestsFromName(
-                    f"test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.{name}"
-                )
-            )
+            suite.addTest(TestApplyTokenBitmaskFunction(name))
     elif args.category == "llm":
-        suite.addTests(
-            loader.loadTestsFromName(
-                "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_llm_shapes"
-            )
-        )
+        suite.addTest(TestApplyTokenBitmaskFunction("test_llm_shapes"))
     elif args.category == "general":
-        suite.addTests(
-            loader.loadTestsFromName(
-                "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_general_shapes"
-            )
-        )
+        suite.addTest(TestApplyTokenBitmaskFunction("test_general_shapes"))
     else:
         suite.addTests(loader.loadTestsFromTestCase(TestApplyTokenBitmaskFunction))
 
@@ -433,3 +422,5 @@ if __name__ == "__main__":
         print(f"{'='*60}")
     else:
         print(f"\n{len(result.failures)} failures, {len(result.errors)} errors")
+
+    sys.exit(0 if result.wasSuccessful() else 1)
