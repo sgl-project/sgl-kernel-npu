@@ -100,6 +100,7 @@ jobs:
               - csrc/tri_inv/**
               - python/sgl_kernel_npu/sgl_kernel_npu/fla/**
               - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
+              - tests/python/sgl_kernel_npu/test_gate_multiply.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_pto.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_triton.py
               - tests/python/sgl_kernel_npu/test_recurrent_gated_delta_rule.py
