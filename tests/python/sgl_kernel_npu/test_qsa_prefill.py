@@ -148,6 +148,30 @@ class TestQsaPrefill(unittest.TestCase):
         torch.npu.synchronize()
         self.assertTrue(torch.equal(out, ref))
 
+    def test_interleaved_tiling_shapes_and_scale(self):
+        # These row counts previously collided in a hash-only prototype cache.
+        # Use empty base selections and nonzero causal tails to keep this
+        # regression independent of model weights and large KV fixtures.
+        fixtures = []
+        for rows, scale in ((3387, 1 / 16), (1691, 1 / 16), (1691, 1 / 8)):
+            cpu = self.inputs(rows, 67, "empty")
+            ref = self.reference(*cpu, 67, 0, scale)
+            q, k, v, blocks, table = [x.npu() for x in cpu]
+            req = torch.tensor([0], dtype=torch.int64, device="npu")
+            args = (q, k, v, blocks, table, req, 67, 0, scale)
+            out, _, base_out, lse = qsa_prefill(*args, return_details=True)
+            torch.npu.synchronize()
+            self.assertTrue(torch.equal(base_out, torch.zeros_like(base_out)))
+            self.assertTrue(torch.isneginf(lse).all())
+            rel = (out.cpu().float() - ref).norm() / ref.norm().clamp_min(1e-20)
+            self.assertLess(rel.item(), 0.01)
+            fixtures.append((args, out.clone()))
+        for _ in range(3):
+            queued = [(qsa_prefill(*args), ref) for args, ref in fixtures]
+            torch.npu.synchronize()
+            for out, ref in queued:
+                self.assertTrue(torch.equal(out, ref))
+
     def test_zero_rows_and_invalid_arguments(self):
         q, k, v, blocks, table = [x.npu() for x in self.inputs(0, 67, "shared")]
         req = torch.tensor([0], dtype=torch.int64, device="npu")
