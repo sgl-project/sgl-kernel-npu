@@ -69,6 +69,7 @@ jobs:
               - csrc/cache_location_assign/**
               - csrc/assign_cache_op/**
               - csrc/lightning_indexer/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/indexer/lightning_indexer_prefill.py
               - csrc/transfer_kv_dim_exchange/**
               - python/sgl_kernel_npu/sgl_kernel_npu/mem_cache/**
               - python/sgl_kernel_npu/sgl_kernel_npu/kvcacheio/**
@@ -77,6 +78,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_cache_update.py
               - tests/python/sgl_kernel_npu/test_inplace_assign_cache.py
               - tests/python/sgl_kernel_npu/test_lightning_indexer.py
+              - tests/python/sgl_kernel_npu/test_lightning_indexer_prefill.py
               - tests/python/sgl_kernel_npu/test_transfer_kv_dim_exchange.py
             speculative:
               - csrc/build_tree/**
