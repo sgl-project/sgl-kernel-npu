@@ -29,14 +29,16 @@ def move_cache_dynamic_last_kernel_h_block(
     draft_stride,
     dst_layer_stride,
     dst_size_stride,
-    h_dim,
-    dim_v,
-    dim_k,
+    elem_per_entry,
     num_layers,
-    H_BLOCK_SIZE: tl.constexpr,
-    BLOCK_V: tl.constexpr,  # Block size for dim_v
-    BLOCK_K: tl.constexpr,  # Block size for dim_k
+    BLOCK_SIZE: tl.constexpr,
 ):
+    """Flat 1D tiling variant that copies H*V*K elements in BLOCK_SIZE chunks.
+
+    This avoids materializing a large 3D [H, V, K] tile in the NPU Unified
+    Buffer, which overflows for models with large head_dim * state_size (e.g.
+    Qwen3.6-35B-A3B with V=128, K=128).
+    """
     valid_id = tl.program_id(0)
 
     # Load actual indices
@@ -45,9 +47,6 @@ def move_cache_dynamic_last_kernel_h_block(
     last_step_val = tl.load(last_steps_ptr + valid_id)
     if last_step_val < 0:
         return
-    h_offsets = tl.arange(0, H_BLOCK_SIZE)
-    v_offsets = tl.arange(0, BLOCK_V)
-    k_offsets = tl.arange(0, BLOCK_K)
 
     # Process each layer
     for l in range(num_layers):
@@ -63,24 +62,22 @@ def move_cache_dynamic_last_kernel_h_block(
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
-        # Process h dimension in blocks
-        for h_start in range(0, h_dim, H_BLOCK_SIZE):
-            h_real = h_start + h_offsets
-            h_mask = h_real < h_dim
+        # Flat 1D copy over H*V*K elements
+        for offset in range(0, elem_per_entry, BLOCK_SIZE):
+            offsets = offset + tl.arange(0, BLOCK_SIZE)
+            mask = offsets < elem_per_entry
+            data = tl.load(src_addr + offsets, mask=mask, other=0)
+            tl.store(dst_base_addr + offsets, data, mask=mask)
 
-            v_mask = v_offsets < dim_v
-            k_mask = k_offsets < dim_k
 
-            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
-
-            linear_offset = (
-                h_real[:, None, None] * dim_v * dim_k
-                + v_offsets[None, :, None] * dim_k
-                + k_offsets[None, None, :]
-            )
-
-            src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
-            tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
+def _dst_entry_is_contiguous(t: torch.Tensor, entry_start_dim: int) -> bool:
+    """Check whether trailing dims from entry_start_dim are contiguous."""
+    expected = 1
+    for i in range(t.ndim - 1, entry_start_dim - 1, -1):
+        if t.shape[i] != 1 and t.stride(i) != expected:
+            return False
+        expected *= t.shape[i]
+    return True
 
 
 def move_intermediate_cache(
@@ -100,8 +97,19 @@ def move_intermediate_cache(
         dst_indices_tensor: Valid destination indices tensor
         src_indices_tensor: Valid source indices tensor
         last_steps_tensor: Last steps tensor
-        h_block_size: Block size for h dimension processing
+        h_block_size: Unused, kept for API compatibility
     """
+    # Route to KDA variant when destination entry dims are non-contiguous
+    # (e.g. transposed (-1, -2) layouts) — flat 1D copy is invalid there.
+    if not _dst_entry_is_contiguous(ssm_states, 2):
+        return move_intermediate_cache_kda(
+            ssm_states,
+            intermediate_state_cache,
+            dst_indices_tensor,
+            src_indices_tensor,
+            last_steps_tensor,
+        )
+
     L, S, D, H, V, K = intermediate_state_cache.shape
 
     strides = intermediate_state_cache.stride()
@@ -120,8 +128,12 @@ def move_intermediate_cache(
         last_steps_tensor
     ), "Source indices lengths must match"
 
+    elem_per_entry = H * V * K
+
     # Grid: one thread per valid index
     grid = (len(dst_indices_tensor),)
+
+    BLOCK_SIZE = 1024
 
     move_cache_dynamic_last_kernel_h_block[grid](
         dst_cache_ptr=ssm_states,
@@ -134,13 +146,9 @@ def move_intermediate_cache(
         draft_stride=draft_stride,
         dst_layer_stride=dst_layer_stride,
         dst_size_stride=dst_size_stride,
-        h_dim=H,
-        dim_v=V,
-        dim_k=K,
+        elem_per_entry=elem_per_entry,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,  # Process 2 h elements per block
-        BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
-        BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
+        BLOCK_SIZE=BLOCK_SIZE,
     )
 
     return ssm_states
@@ -164,17 +172,17 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     h_dim,
     dim_v,
     dim_k,
+    elem_per_entry,
+    vk,
     num_layers,
-    H_BLOCK_SIZE: tl.constexpr,
-    BLOCK_V: tl.constexpr,
-    BLOCK_K: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
 ):
-    """KDA-specific mover that respects non-contiguous destination strides.
+    """KDA-specific mover with flat 1D tiling for NPU UB safety.
 
     On NPU the temporal state (dst) is transposed (-1, -2), so its
-    (H, V, K) layout differs from the source. This kernel indexes the
-    destination through its real per-element strides and splits dim_v
-    into BLOCK_V-sized chunks to keep the on-chip tile within budget.
+    (H, V, K) layout differs from the source. This kernel uses flat 1D
+    element indices decoded into (h, v, k) coordinates, keeping the
+    on-chip tile to BLOCK_SIZE elements to avoid UB overflow.
     """
     valid_id = tl.program_id(0)
 
@@ -183,8 +191,6 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     last_step_val = tl.load(last_steps_ptr + valid_id)
     if last_step_val < 0:
         return
-    h_offsets = tl.arange(0, H_BLOCK_SIZE)
-    k_offsets = tl.arange(0, BLOCK_K)
 
     for l in range(num_layers):
         src_base_addr = (
@@ -199,36 +205,23 @@ def move_cache_dynamic_last_kernel_h_block_kda(
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
-        for h_start in range(0, h_dim, H_BLOCK_SIZE):
-            h_real = h_start + h_offsets
-            h_mask = h_real < h_dim
-            k_mask = k_offsets < dim_k
+        # Flat 1D iteration; decode each element index into (h, v, k)
+        for offset in range(0, elem_per_entry, BLOCK_SIZE):
+            flat = offset + tl.arange(0, BLOCK_SIZE)
+            mask = flat < elem_per_entry
 
-            for v_start in range(0, dim_v, BLOCK_V):
-                v_offsets = v_start + tl.arange(0, BLOCK_V)
-                v_mask = v_offsets < dim_v
+            h = flat // vk
+            rem = flat % vk
+            v = rem // dim_k
+            k = rem % dim_k
 
-                mask = (
-                    h_mask[:, None, None]
-                    & v_mask[None, :, None]
-                    & k_mask[None, None, :]
-                )
+            # src is contiguous in (H, V, K)
+            src_off = h * dim_v * dim_k + v * dim_k + k
+            # dst uses real per-element strides
+            dst_off = h * dst_h_stride + v * dst_v_stride + k * dst_k_stride
 
-                # src is contiguous in (H, V, K) -> flat offset.
-                src_linear_offset = (
-                    h_real[:, None, None] * dim_v * dim_k
-                    + v_offsets[None, :, None] * dim_k
-                    + k_offsets[None, None, :]
-                )
-                # dst uses its real per-element strides.
-                dst_linear_offset = (
-                    h_real[:, None, None] * dst_h_stride
-                    + v_offsets[None, :, None] * dst_v_stride
-                    + k_offsets[None, None, :] * dst_k_stride
-                )
-
-                src_block = tl.load(src_addr + src_linear_offset, mask=mask, other=0)
-                tl.store(dst_base_addr + dst_linear_offset, src_block, mask=mask)
+            data = tl.load(src_addr + src_off, mask=mask, other=0)
+            tl.store(dst_base_addr + dst_off, data, mask=mask)
 
 
 def move_intermediate_cache_kda(
@@ -274,6 +267,8 @@ def move_intermediate_cache_kda(
 
     grid = (len(dst_indices_tensor),)
 
+    BLOCK_SIZE = 1024
+
     move_cache_dynamic_last_kernel_h_block_kda[grid](
         dst_cache_ptr=ssm_states,
         src_cache_ptr=intermediate_state_cache,
@@ -291,10 +286,10 @@ def move_intermediate_cache_kda(
         h_dim=H,
         dim_v=V,
         dim_k=K,
+        elem_per_entry=H * V * K,
+        vk=V * K,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,
-        BLOCK_V=64,
-        BLOCK_K=triton.next_power_of_2(K),
+        BLOCK_SIZE=BLOCK_SIZE,
     )
 
     return ssm_states
@@ -307,15 +302,19 @@ def _conv_state_rollback_kernel(
     step_indices_ptr,
     draft_token_num,
     num_layers,
-    num_dims: tl.constexpr,
+    num_dims,
     conv_window_size: tl.constexpr,
-    layer_stride: tl.constexpr,
-    req_stride: tl.constexpr,
-    window_stride: tl.constexpr,
-    dim_stride: tl.constexpr,
+    layer_stride,
+    req_stride,
+    window_stride,
+    dim_stride,
+    BLOCK_SIZE: tl.constexpr,
 ):
     """
     Triton kernel for rolling back conv states after MTP verification.
+
+    Uses flat 1D tiling over the dim axis to avoid allocating a large
+    tl.arange(0, num_dims) tile in the NPU Unified Buffer.
 
     Args:
         conv_states_ptr: Pointer to conv states tensor [num_layers, pool_size, conv_window_size, num_dims]
@@ -329,6 +328,7 @@ def _conv_state_rollback_kernel(
         req_stride: Stride for request dimension
         window_stride: Stride for window dimension
         dim_stride: Stride for dimension dimension
+        BLOCK_SIZE: Tile width for dim iteration
     """
     pid_req = tl.program_id(0)
 
@@ -346,9 +346,6 @@ def _conv_state_rollback_kernel(
     if shift <= 0:
         return
 
-    # Generate dimension offsets once
-    dim_offsets = tl.arange(0, num_dims)
-
     # Process each layer
     for layer in range(num_layers):
         # Calculate base offset for this request and layer
@@ -359,22 +356,19 @@ def _conv_state_rollback_kernel(
         for window_idx1 in range(0, conv_window_size - shift):
             window_idx = conv_window_size - shift - 1 - window_idx1
 
-            # Calculate source and destination pointers
-            src_offset = (
-                base_offset + window_idx * window_stride + dim_offsets * dim_stride
-            )
-            src_ptr = conv_states_ptr + src_offset
+            src_base = base_offset + window_idx * window_stride
+            dst_base = base_offset + (window_idx + shift) * window_stride
 
-            dst_offset = (
-                base_offset
-                + (window_idx + shift) * window_stride
-                + dim_offsets * dim_stride
-            )
-            dst_ptr = conv_states_ptr + dst_offset
+            # Tile over dim axis in BLOCK_SIZE chunks
+            for d_off in range(0, num_dims, BLOCK_SIZE):
+                dim_offsets = d_off + tl.arange(0, BLOCK_SIZE)
+                mask = dim_offsets < num_dims
 
-            # Load and store all dimensions at once
-            data = tl.load(src_ptr)
-            tl.store(dst_ptr, data)
+                src_ptr = conv_states_ptr + src_base + dim_offsets * dim_stride
+                dst_ptr = conv_states_ptr + dst_base + dim_offsets * dim_stride
+
+                data = tl.load(src_ptr, mask=mask, other=0)
+                tl.store(dst_ptr, data, mask=mask)
 
 
 def conv_state_rollback(
@@ -420,6 +414,8 @@ def conv_state_rollback(
     # Grid over all requests
     grid = (num_requests,)
 
+    BLOCK_SIZE = 1024
+
     _conv_state_rollback_kernel[grid](
         conv_states,
         state_indices,
@@ -432,6 +428,7 @@ def conv_state_rollback(
         req_stride,
         window_stride,
         dim_stride,
+        BLOCK_SIZE,
     )
 
     return conv_states
