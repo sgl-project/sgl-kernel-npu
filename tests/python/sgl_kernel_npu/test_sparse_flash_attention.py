@@ -67,6 +67,10 @@ def _call(inputs, *, return_softmax_lse=False):
     )
 
 
+def _is_a5():
+    return torch.npu.is_available() and "950" in torch.npu.get_device_name(0)
+
+
 def _dense_reference(inputs):
     query = torch.cat((inputs["query"], inputs["query_rope"]), dim=-1).float()
     key_nope = inputs["key"]
@@ -137,6 +141,58 @@ def test_dsa_dcp_lse_matches_dense_reference():
 
     torch.testing.assert_close(output, _dense_reference(inputs), rtol=1e-2, atol=1e-2)
     torch.testing.assert_close(actual_lse, expected_lse, rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.skipif(not _is_a5(), reason="Regression for the A5 SFA kernel")
+@pytest.mark.parametrize("selected_count", [0, 1, 127, 128, 129, 257])
+def test_dsa_dcp_padded_indices_lse_on_a5(selected_count):
+    torch.manual_seed(928)
+    device = torch.device("npu:0")
+    heads, kv_length, capacity = 64, 512, 2048
+    query = torch.randn(1, heads, 512, dtype=torch.bfloat16, device=device)
+    query_rope = torch.randn(1, heads, 64, dtype=torch.bfloat16, device=device)
+    key = torch.randn(kv_length, 512, dtype=torch.bfloat16)
+    key_rope = torch.randn(kv_length, 64, dtype=torch.bfloat16)
+    selected = torch.randperm(kv_length)[:selected_count].sort().values
+    indices = torch.full((1, 1, capacity), -1, dtype=torch.int32)
+    indices[0, 0, :selected_count] = selected.int()
+
+    output, maximum, total = torch.ops.npu.sgl_sparse_flash_attention(
+        query=query,
+        key=key.reshape(4, 128, 1, 512).to(device),
+        value=key.reshape(4, 128, 1, 512).to(device),
+        sparse_indices=indices.to(device),
+        scale_value=1.0 / 24,
+        sparse_block_size=1,
+        block_table=torch.arange(4, dtype=torch.int32).reshape(1, -1).to(device),
+        actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32, device=device),
+        actual_seq_lengths_kv=torch.tensor(
+            [kv_length], dtype=torch.int32, device=device
+        ),
+        query_rope=query_rope,
+        key_rope=key_rope.reshape(4, 128, 1, 64).to(device),
+        layout_query="TND",
+        layout_kv="PA_BSND",
+        sparse_mode=0,
+        attention_mode=2,
+        return_softmax_lse=True,
+    )
+    torch.npu.synchronize()
+
+    output = output.cpu().float().reshape(heads, 512)
+    lse = (maximum.cpu().float() + total.cpu().float().log()).reshape(heads)
+    if selected_count == 0:
+        assert torch.count_nonzero(output) == 0
+        assert torch.isneginf(lse).all()
+        return
+
+    logits = (
+        query.cpu()[0].float() @ key[selected].float().T
+        + query_rope.cpu()[0].float() @ key_rope[selected].float().T
+    ) / 24
+    expected = logits.softmax(-1) @ key[selected].float()
+    torch.testing.assert_close(output, expected, atol=0.03, rtol=0.01)
+    torch.testing.assert_close(lse, logits.logsumexp(-1), atol=0.005, rtol=0.001)
 
 
 def test_dsa_dcp_lse_npu_graph_replay_matches_reference():

@@ -87,7 +87,7 @@ at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
 
 void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y);
+                   at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
 
 at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
                          at::Tensor &lora_indices, at::Tensor &seq_len,
@@ -101,7 +101,14 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+at::Tensor recurrent_gated_delta_rule(
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+    c10::optional<at::Tensor> cache_indices_opt,
+    c10::optional<at::Tensor> num_accepted_tokens_opt,
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
     const at::Tensor &sparse_indices, double scale_value,
@@ -114,6 +121,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
     int64_t attention_mode, bool return_softmax_lse);
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
@@ -137,14 +145,6 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
                             const at::Tensor &tensor_b, at::Tensor &tensor_c,
                             c10::optional<c10::string_view> format_mode,
                             c10::optional<c10::string_view> quant_mode);
-
-at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
-    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
-    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
-    c10::optional<at::Tensor> cache_indices_opt,
-    c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
 void mega_chunk_gdn(
     const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
@@ -276,6 +276,13 @@ at::Tensor sparse_attention_score(
     int64_t num_key_value_heads, double scale_value, int64_t block_size,
     int64_t top_k, int64_t inner_precise);
 
+std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &beta,
+    const c10::optional<at::Tensor> &initial_state,
+    const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state);
 at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
     const std::string &layout_q, const std::string &layout_kv,
