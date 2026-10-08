@@ -922,6 +922,37 @@ class TestCompressor(unittest.TestCase):
         )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
+    def test_ring_real_c4_hd128_hit_path(self):
+        # Indexer c4 uses head_dim=128 (tiling scenario {4,2,128}), a DIFFERENT
+        # D-axis split (dBaseNum=headDim/dBaseSize=2) than the attention c4
+        # {4,2,512} (dBaseNum=8). The measured A5 hit/miss divergence is
+        # idx=1 (indexer) only, so pin the indexer width at the cache-hit
+        # boundary against the same production SWA state table that the
+        # attention case uses (test_ring_real_c4_production_swa_table_page_tail_state,
+        # head_dim=512). Reverse-foresight: if the head_dim=128 kernel path is
+        # the culprit this MUST fail where the head_dim=512 case passes.
+        if not _is_arch35():
+            self.skipTest("A5 explicit state table only")
+        start_pos, seq_len, swa_page_size, ring_size = 16384, 256, 128, 8
+        p = _make_inputs(
+            [start_pos],
+            seq_len,
+            2,
+            4,
+            128,
+            1024,
+            2,
+            "TH",
+            torch.bfloat16,
+            1,
+            16,
+            ring_size=ring_size,
+        )
+        p["block_table"] = _build_production_swa_state_loc_table(
+            p["start_pos"], [seq_len], swa_page_size, ring_size, 2, 4
+        )
+        self._assert_ok(_run_case(p, 2, 4, 128, 2, torch.bfloat16))
+
     def _cpu_phase(self, p, starts, seq_len, kv_state, score_state, coff, ratio,
                    ring_size, swa_page_size=128):
         table = _build_production_swa_state_loc_table(
