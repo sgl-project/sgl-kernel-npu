@@ -1126,17 +1126,136 @@ class TestCompressor(unittest.TestCase):
         rows_resume = state_resume.cpu().reshape(-1, 2 * coff * head_dim)[
             block136 * ring_size:(block136 + 1) * ring_size
         ]
-        if not torch.equal(rows_full, rows_resume):
+
+        # CPU reference for BOTH scenarios over the same initial state pool,
+        # so the failure output names which NPU path is wrong (vs the CPU
+        # reference) instead of only the first full-vs-resume difference.
+        def _ref_rows(phases):
+            kv_state = p_full["kv_state"].clone()
+            score_state = p_full["score_state"].clone()
+            for p in phases:
+                _reference_compressor(
+                    p["x"],
+                    p["wkv"],
+                    p["wgate"],
+                    kv_state,
+                    score_state,
+                    torch.zeros_like(kv_state, dtype=torch.bool),
+                    torch.zeros_like(score_state, dtype=torch.bool),
+                    p["ape"],
+                    p["norm_weight"],
+                    p["rope_sin"],
+                    p["rope_cos"],
+                    block_table=p["block_table"],
+                    cu_seqlens=p["cu_seqlens"].tolist(),
+                    seqused=p["seqused"],
+                    start_pos=p["start_pos"],
+                    rope_head_dim=64,
+                    cmp_ratio=ratio,
+                    coff=coff,
+                    norm_eps=1e-6,
+                    rotary_mode=2,
+                    cache_mode=2,
+                )
+            return torch.cat([kv_state, score_state], dim=-1).reshape(
+                -1, 2 * coff * head_dim
+            )[block136 * ring_size:(block136 + 1) * ring_size]
+
+        ref_full = _ref_rows([p_full])
+        ref_resume = _ref_rows([p_prefix, p_suffix])
+
+        state_tol = 1e-2  # same tolerance as the sibling state write-back checks
+        full_eq_resume = torch.equal(rows_full, rows_resume)
+        full_eq_ref = (rows_full - ref_full).abs().max().item() < state_tol
+        resume_eq_ref = (rows_resume - ref_resume).abs().max().item() < state_tol
+        print(
+            f"[block136] full==resume: {full_eq_resume} | "
+            f"full==ref_full (tol {state_tol:g}): {full_eq_ref} | "
+            f"resume==ref_resume (tol {state_tol:g}): {resume_eq_ref}",
+            flush=True,
+        )
+        print(
+            "block136 per-ring-row verdicts (rows "
+            f"{block136 * ring_size}..{block136 * ring_size + ring_size - 1}; "
+            f"ref comparisons within tol {state_tol:g}):",
+            flush=True,
+        )
+        for r in range(ring_size):
+            row = block136 * ring_size + r
+            row_full_eq_resume = torch.equal(rows_full[r], rows_resume[r])
+            row_full_eq_ref = (
+                (rows_full[r] - ref_full[r]).abs().max().item() < state_tol
+            )
+            row_resume_eq_ref = (
+                (rows_resume[r] - ref_resume[r]).abs().max().item() < state_tol
+            )
+            print(
+                f"  row {row} (pos {block136 * swa_page_size + r}): "
+                f"full==resume {row_full_eq_resume} | "
+                f"full==ref {row_full_eq_ref} | resume==ref {row_resume_eq_ref}",
+                flush=True,
+            )
+        for label, a, b, tol in (
+            ("full!=resume", rows_full, rows_resume, None),
+            ("full!=ref_full", rows_full, ref_full, state_tol),
+            ("resume!=ref_resume", rows_resume, ref_resume, state_tol),
+        ):
+            if tol is None:
+                idx = (a != b).flatten().nonzero()
+            else:
+                idx = ((a - b).abs() > tol).flatten().nonzero()
+            if idx.numel() == 0:
+                print(f"  first {label}: (none)", flush=True)
+                continue
+            row_in_block, channel = divmod(idx[0].item(), 2 * coff * head_dim)
+            print(
+                f"  first {label} at position "
+                f"{block136 * swa_page_size + row_in_block} (ring row "
+                f"{block136 * ring_size + row_in_block}, channel {channel}): "
+                f"full={rows_full[row_in_block, channel].item():.6f} "
+                f"resume={rows_resume[row_in_block, channel].item():.6f} "
+                f"ref_full={ref_full[row_in_block, channel].item():.6f} "
+                f"ref_resume={ref_resume[row_in_block, channel].item():.6f}",
+                flush=True,
+            )
+
+        if not full_eq_resume:
             first = (rows_full != rows_resume).flatten().nonzero()[0].item()
             row_in_block, channel = divmod(first, 2 * coff * head_dim)
+            if full_eq_ref and not resume_eq_ref:
+                culprit = (
+                    "RESUME (prefix+suffix) path is wrong: full prefill "
+                    "matches the CPU reference, resume does not"
+                )
+            elif not full_eq_ref and resume_eq_ref:
+                culprit = (
+                    "FULL-prefill path is wrong: resume matches the CPU "
+                    "reference, full does not"
+                )
+            else:
+                culprit = (
+                    f"full matches CPU reference: {full_eq_ref}; resume "
+                    f"matches CPU reference: {resume_eq_ref} "
+                    "(neither or both match)"
+                )
             self.fail(
                 "block 136 compress-state diverges between full prefill and "
                 "resumed suffix (README §205): first differing position "
                 f"{block136 * swa_page_size + row_in_block} (ring row "
                 f"{block136 * ring_size + row_in_block}, channel {channel}); "
                 "confirmed device divergence starts at decode step 17534 = "
-                "block-relative row 6"
+                f"block-relative row 6; vs CPU reference: {culprit}"
             )
+        self.assertLess(
+            (rows_full - ref_full).abs().max().item(),
+            state_tol,
+            "full prefill block136 state diverges from CPU reference",
+        )
+        self.assertLess(
+            (rows_resume - ref_resume).abs().max().item(),
+            state_tol,
+            "resume (prefix+suffix) block136 state diverges from CPU reference",
+        )
 
     def _cpu_phase(self, p, starts, seq_len, kv_state, score_state, coff, ratio,
                    ring_size, swa_page_size=128):
