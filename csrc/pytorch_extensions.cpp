@@ -213,7 +213,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bool causal=True, bool keep_sink=True, bool keep_recent=True, float row_sparse=1) -> (Tensor, Tensor)");
 #endif
 
-    m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def(
         "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
         "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
@@ -336,18 +335,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
 
-    m.impl("softfp8_w8a16_grouped_matmul", TORCH_FN(sglang::npu_kernel::softfp8_w8a16_grouped_matmul));
-#endif
-
-    m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
-
 #ifdef SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION
     m.impl("laser_attn", TORCH_FN(sglang::npu_kernel::laser_attn));
     m.impl("ada_block_sparse_attention", TORCH_FN(sglang::npu_kernel::ada_block_sparse_attention));
     m.impl("sparse_block_estimate", TORCH_FN(sglang::npu_kernel::sparse_block_estimate));
 #endif
 
-    m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {

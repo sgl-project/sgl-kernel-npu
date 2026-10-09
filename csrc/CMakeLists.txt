@@ -324,6 +324,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
 
+endif()
+
 # These kernels use the A2/A3 implementation. Do not compile or register them
 # for A5 (or other SoCs), whose kernel APIs and scheduling differ.
 set(ATTENTION_KERNEL_TARGETS)
@@ -370,12 +372,6 @@ else()
     message(STATUS "Skipping laser_attention, ada_block_sparse_attention and sparse_block_estimate for ${SOC_VERSION}")
 endif()
 
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
-ascendc_library(mega_chunk_gdn_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
-endif()
-
 # Sparse Flash Attention has arch22 (A2/A3) and arch35 (A5) implementations.
 ascendc_library(sparse_flash_attention_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sparse_flash_attention.cpp
@@ -383,7 +379,6 @@ ascendc_library(sparse_flash_attention_kernel STATIC
 ascendc_include_directories(sparse_flash_attention_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common
-    ${PROJECT_OP_SRC_BASE}/attentions/csrc/ops/utils/inc/kernel
     ${PROJECT_OP_SRC_BASE}/utils/kernel
 )
 ascendc_compile_definitions(sparse_flash_attention_kernel PRIVATE
@@ -406,7 +401,6 @@ if(ATTENTION_KERNEL_TARGETS)
 endif()
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
         ${ATTENTION_KERNEL_TARGETS}
         ${A3_ONLY_KERNEL_TARGETS}
         sparse_flash_attention_kernel

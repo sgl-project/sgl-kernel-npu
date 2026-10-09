@@ -14,7 +14,8 @@
 #define SPARSE_BLOCK_ESTIMATE_H
 
 #include "exe_graph/runtime/tiling_context.h"
-#include "tiling_data_compat.h"
+#include <cstdio>
+#include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
 
 namespace optiling {
@@ -30,16 +31,23 @@ struct SparseBlockEstimateCompileInfo {
     size_t defaultSysWorkspaceSize;
 };
 
-SGL_BEGIN_TILING_DATA_DEF(SparseBlockEstimateSeqParams)              // 不同的核心的首尾
+BEGIN_TILING_DATA_DEF(SparseBlockEstimateSeqParams)              // 不同的核心的首尾
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreHeadNumTail);        // coreNStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualS1);               // coreNEnd
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualCoreNums);         // coreSidStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, singleCoreHeadNumSize);  // coreSidEnd
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosStart);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
+// Keep array-setter diagnostics local: some CANN builds export the
+// base std::string logger only with the old libstdc++ ABI.
+private:
+    static void GeLogError(const char *message)
+    {
+        std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
+    }
 END_TILING_DATA_DEF;
 
-SGL_BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)
+BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)
 TILING_DATA_FIELD_DEF(uint32_t, actualCoreNums);  // 分核后实际使用核心数量
 TILING_DATA_FIELD_DEF(uint32_t, coreNumAic);
 TILING_DATA_FIELD_DEF(uint32_t, batchSize);
