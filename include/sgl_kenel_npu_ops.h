@@ -15,6 +15,8 @@ namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
+at::Tensor elu(const at::Tensor &x, double alpha);
+
 at::Tensor cache_loc_assign(const at::Tensor &req_indices,
                             const at::Tensor &token_pool,
                             const at::Tensor &start_offset,
