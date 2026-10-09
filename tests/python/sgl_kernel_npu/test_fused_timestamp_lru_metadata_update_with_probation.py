@@ -300,6 +300,78 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         self.assertEqual(self.slot_map[0, 70].item(), 0)
         self.assertEqual(self.slot_tokens[0, 0].item(), 70)
 
+    def test_variable_topk_matches_cpu_reference(self):
+        topk_width = 1024
+        req_indices = torch.tensor([1], dtype=torch.int32, device="npu")
+        topk = torch.full(
+            (1, topk_width), -1, dtype=torch.int32, device="npu"
+        )
+        topk[0, :3] = torch.tensor(
+            [10, 40, 41], dtype=torch.int32, device="npu"
+        )
+        device_pos = torch.full_like(topk, -1)
+        device_pos[0, 0] = 0
+        hit_position_mask = torch.zeros(
+            (1, self.CAPACITY), dtype=torch.int32, device="npu"
+        )
+        hit_position_mask[0, 0] = 1
+
+        slot_map_before = self.slot_map.clone()
+        lru_slots_before = self.lru_slots.clone()
+        lru_stamps_before = self.lru_stamps.clone()
+        slot_tokens_before = self.slot_tokens.clone()
+        (
+            expected_victims,
+            expected_slot_map,
+            expected_lru_slots,
+            expected_lru_stamps,
+            expected_slot_tokens,
+        ) = reference_fused_timestamp_lru_metadata_update_with_probation(
+            slot_map_before,
+            req_indices,
+            topk,
+            device_pos,
+            lru_slots_before,
+            lru_stamps_before,
+            slot_tokens_before,
+            max_context_len=self.MAX_CONTEXT_LEN,
+        )
+
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
+            req_indices,
+            topk,
+            device_pos,
+            hit_position_mask,
+            self.lru_slots,
+            self.lru_stamps,
+            max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=0,
+        )
+        parallel_lru_metadata_write(
+            self.slot_map,
+            req_indices,
+            topk,
+            victims,
+            miss_counts,
+            self.slot_tokens,
+            max_context_len=self.MAX_CONTEXT_LEN,
+        )
+        torch.npu.synchronize()
+
+        self.assert_tensor_equal(victims, expected_victims, "victim_slots")
+        self.assert_tensor_equal(self.slot_map, expected_slot_map, "slot_map")
+        self.assert_tensor_equal(
+            self.lru_slots, expected_lru_slots, "device_lru_slots"
+        )
+        self.assert_tensor_equal(
+            self.lru_stamps,
+            expected_lru_stamps,
+            "device_lru_slot_stamps",
+        )
+        self.assert_tensor_equal(
+            self.slot_tokens, expected_slot_tokens, "device_slot_tokens"
+        )
+
     def test_exactly_fifty_percent_hit_rate(self):
         hit_count = self.TOPK // 2
         miss_count = self.TOPK - hit_count

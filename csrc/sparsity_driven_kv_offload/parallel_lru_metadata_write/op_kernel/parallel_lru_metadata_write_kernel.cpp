@@ -3,7 +3,7 @@
 //
 // Parallel sparse metadata writes for timestamp-LRU refill. The preceding
 // victim-selection kernel produces victim_slots and miss_counts on the same
-// stream. Each request is divided into 64 independent 32-entry tiles so one
+// stream. Each request is divided into independent 32-entry tiles so one
 // request can use many AIVs when it contains many misses.
 //
 // The tile path is pipelined through:
@@ -18,9 +18,7 @@
 
 namespace {
 
-constexpr uint32_t kTopk = 2048;
 constexpr uint32_t kTileElements = 32;
-constexpr uint32_t kTilesPerBatch = kTopk / kTileElements;
 constexpr uint32_t kBytesPerInt = sizeof(int32_t);
 constexpr uint32_t kScalarBlockElements = 32 / kBytesPerInt;
 constexpr uint32_t kSlotLineElements = kScalarBlockElements;
@@ -44,8 +42,6 @@ constexpr uint32_t kWriteOldTokenOffset =
 constexpr uint32_t kWriteRecordElements =
     kWriteOldTokenOffset + kTileElements;
 
-static_assert(kTopk % kTileElements == 0,
-              "top-k must divide into complete metadata tiles");
 static_assert((kWriteRecordElements * kBytesPerInt) % 32 == 0,
               "write-record buffers must be 32-byte aligned");
 
@@ -67,11 +63,14 @@ public:
         GM_ADDR slotMap, GM_ADDR reqIndices, GM_ADDR topkIndices,
         GM_ADDR victimSlots, GM_ADDR missCounts, GM_ADDR deviceSlotTokens,
         uint32_t batchSize, uint32_t requestRows, uint32_t cacheCapacity,
-        uint32_t slotMapWidth, uint32_t maxContextLen, AscendC::TPipe *pipe)
+        uint32_t topk, uint32_t slotMapWidth, uint32_t maxContextLen,
+        AscendC::TPipe *pipe)
     {
         this->batchSize = batchSize;
         this->requestRows = requestRows;
         this->cacheCapacity = cacheCapacity;
+        this->topk = topk;
+        this->tilesPerBatch = topk / kTileElements;
         this->slotMapWidth = slotMapWidth;
         this->maxContextLen = maxContextLen;
 
@@ -82,10 +81,10 @@ public:
             (__gm__ int32_t *)reqIndices, batchSize);
         topkIndicesGm.SetGlobalBuffer(
             (__gm__ int32_t *)topkIndices,
-            static_cast<uint64_t>(batchSize) * kTopk);
+            static_cast<uint64_t>(batchSize) * topk);
         victimSlotsGm.SetGlobalBuffer(
             (__gm__ int32_t *)victimSlots,
-            static_cast<uint64_t>(batchSize) * kTopk);
+            static_cast<uint64_t>(batchSize) * topk);
         missCountsGm.SetGlobalBuffer(
             (__gm__ int32_t *)missCounts, batchSize);
         deviceSlotTokensGm.SetGlobalBuffer(
@@ -134,7 +133,7 @@ public:
 
         const uint32_t workerIdx = AscendC::GetBlockIdx();
         const uint32_t workerNum = AscendC::GetBlockNum();
-        const uint32_t taskCount = batchSize * kTilesPerBatch;
+        const uint32_t taskCount = batchSize * tilesPerBatch;
 
         for (uint32_t task = workerIdx; task < taskCount;
              task += workerNum) {
@@ -206,7 +205,7 @@ private:
     __aicore__ inline bool BuildTileTask(
         uint32_t task, uint32_t &requestRow, uint32_t &gmOffset)
     {
-        const uint32_t batchIdx = task / kTilesPerBatch;
+        const uint32_t batchIdx = task / tilesPerBatch;
         AscendC::LocalTensor<int32_t> taskScalars =
             taskScalarBuf.Get<int32_t>();
         AscendC::DataCopyExtParams oneIntParams{
@@ -229,9 +228,9 @@ private:
 
         requestRow = static_cast<uint32_t>(reqId);
         const uint32_t tileIdx =
-            task - batchIdx * kTilesPerBatch;
+            task - batchIdx * tilesPerBatch;
         gmOffset =
-            batchIdx * kTopk + tileIdx * kTileElements;
+            batchIdx * topk + tileIdx * kTileElements;
         return true;
     }
 
@@ -437,6 +436,8 @@ private:
     uint32_t batchSize = 0;
     uint32_t requestRows = 0;
     uint32_t cacheCapacity = 0;
+    uint32_t topk = 0;
+    uint32_t tilesPerBatch = 0;
     uint32_t slotMapWidth = 0;
     uint32_t maxContextLen = 0;
 };
@@ -448,7 +449,7 @@ extern "C" __global__ __aicore__ void parallel_lru_metadata_write(
     GM_ADDR victim_slots, GM_ADDR miss_counts,
     GM_ADDR device_slot_tokens, uint32_t batch_size,
     uint32_t request_rows, uint32_t cache_capacity,
-    uint32_t slot_map_width, uint32_t max_context_len)
+    uint32_t topk, uint32_t slot_map_width, uint32_t max_context_len)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     AscendC::TPipe pipe;
@@ -456,6 +457,6 @@ extern "C" __global__ __aicore__ void parallel_lru_metadata_write(
     kernel.Init(
         slot_map, req_indices, topk_indices, victim_slots,
         miss_counts, device_slot_tokens, batch_size,
-        request_rows, cache_capacity, slot_map_width, max_context_len, &pipe);
+        request_rows, cache_capacity, topk, slot_map_width, max_context_len, &pipe);
     kernel.Process();
 }

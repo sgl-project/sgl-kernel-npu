@@ -19,21 +19,21 @@ namespace npu_kernel {
 
 namespace {
 
-constexpr uint32_t kFixedTopk = 2048;
 constexpr uint32_t kCacheCapacityUnit = 2048;
 constexpr uint32_t kMinCacheCapacity = kCacheCapacityUnit;
 constexpr uint32_t kMaxCacheCapacity = 4 * kCacheCapacityUnit;
+constexpr uint32_t kTopkAlignment = 32;
 constexpr uint32_t kPipeReserveBytes = 8 * 1024;
 constexpr uint64_t kUint32Max = std::numeric_limits<uint32_t>::max();
 
-uint32_t GetRequiredWorkUbBytes(uint32_t cacheCapacity)
+uint32_t GetRequiredWorkUbBytes(uint32_t cacheCapacity, uint32_t topk)
 {
     constexpr uint32_t kBytesPerInt = sizeof(int32_t);
     const uint32_t patternBytes = cacheCapacity / 8;
     const uint32_t compactStageABytes =
         5 * cacheCapacity * kBytesPerInt + 2 * patternBytes;
     const uint32_t victimStageBytes =
-        2 * cacheCapacity * kBytesPerInt + 7 * kFixedTopk * kBytesPerInt;
+        2 * cacheCapacity * kBytesPerInt + 7 * topk * kBytesPerInt;
     const uint32_t writebackStageBytes =
         5 * cacheCapacity * kBytesPerInt;
     return std::max({compactStageABytes, victimStageBytes, writebackStageBytes});
@@ -97,7 +97,11 @@ std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_prob
     const int64_t topk64 = topk_indices.size(1);
 
     TORCH_CHECK(batchSize64 > 0, "batch size must be positive");
-    TORCH_CHECK(topk64 == kFixedTopk, "fused timestamp LRU requires topk=", kFixedTopk, ", got ", topk64);
+    TORCH_CHECK(topk64 > 0 && topk64 <= cacheCapacity64 &&
+                    topk64 % kTopkAlignment == 0,
+                "fused timestamp LRU requires topk in (0, cache_capacity] and a multiple of ",
+                kTopkAlignment, ", got topk=", topk64,
+                " with cache_capacity=", cacheCapacity64);
     TORCH_CHECK(cacheCapacity64 >= kMinCacheCapacity && cacheCapacity64 <= kMaxCacheCapacity &&
                     cacheCapacity64 % kCacheCapacityUnit == 0,
                 "fused timestamp LRU requires cache capacity in {2048, 4096, 6144, 8192}, got ",
@@ -126,7 +130,7 @@ std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_prob
     TORCH_CHECK(static_cast<uint64_t>(requestRows64) * static_cast<uint64_t>(cacheCapacity64) <=
                     kUint32Max,
                 "device LRU storage exceeds the kernel uint32 address range");
-    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * kFixedTopk <= kUint32Max,
+    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * static_cast<uint64_t>(topk64) <= kUint32Max,
                 "batch output storage exceeds the kernel uint32 address range");
     TORCH_CHECK(static_cast<uint64_t>(batchSize64) * static_cast<uint64_t>(cacheCapacity64) <=
                     kUint32Max,
@@ -141,7 +145,8 @@ std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_prob
     uint64_t ubSize = 0;
     platform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     const uint32_t cacheCapacity = static_cast<uint32_t>(cacheCapacity64);
-    const uint32_t workUbBytes = GetRequiredWorkUbBytes(cacheCapacity);
+    const uint32_t topk = static_cast<uint32_t>(topk64);
+    const uint32_t workUbBytes = GetRequiredWorkUbBytes(cacheCapacity, topk);
     TORCH_CHECK(ubSize >= static_cast<uint64_t>(workUbBytes + kPipeReserveBytes),
                 "fused timestamp LRU requires at least ", workUbBytes + kPipeReserveBytes,
                 " bytes of UB, got ", ubSize);
@@ -171,8 +176,8 @@ std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_prob
     EXEC_KERNEL_CMD(fused_timestamp_lru_metadata_update_with_probation, effectiveBlockDim,
                     req_indices, topk_indices, device_token_pos, hit_position_mask,
                     device_lru_slots, device_lru_slot_stamps, victimSlots, missCounts,
-                    batchSize, requestRows, cacheCapacity, maxContextLen, stampMax, probationAge,
-                    workUbBytes);
+                    batchSize, requestRows, cacheCapacity, topk, maxContextLen, stampMax,
+                    probationAge, workUbBytes);
     return std::make_tuple(victimSlots, missCounts);
 }
 

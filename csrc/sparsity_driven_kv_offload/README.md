@@ -60,10 +60,12 @@ The fused LRU operator consumes this mask with `N=cache_capacity`. Reusing the
 lookup result lets it preserve the already-sorted LRU order with an in-place
 stable vector compaction (`CompareScalar` + `GatherMask`), without building
 float sort keys or running a full-record sort.
+Its top-k width is selected at runtime; it must be a positive multiple of 32
+and no larger than `cache_capacity`.
 It returns `(victim_slots, miss_counts)`. Call
 `parallel_lru_metadata_write` after it on the same stream; that kernel divides
-each request into 64 tiles so miss-related slot-map and reverse-map writes can
-use all available AIVs. Its two-entry input and output queues overlap sparse
+each request into 32-entry tiles so miss-related slot-map and reverse-map
+writes can use all available AIVs. Its two-entry input and output queues overlap sparse
 MTE3 writes from one tile with reverse-map reads and Gather work for the next.
 
 The focused timestamp-LRU benchmark reports the latency of victim selection

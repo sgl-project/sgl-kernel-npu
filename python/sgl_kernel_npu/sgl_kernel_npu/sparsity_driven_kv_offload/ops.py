@@ -6,6 +6,7 @@ import torch
 
 
 _SUPPORTED_LRU_CACHE_CAPACITIES = (2048, 4096, 6144, 8192)
+_LRU_TOPK_ALIGNMENT = 32
 
 
 def _ctype_for_dtype(dtype: torch.dtype):
@@ -220,10 +221,16 @@ def _validate_fused_timestamp_lru_inputs(
         raise ValueError(
             f"hit_position_mask must be int32, got {hit_position_mask.dtype}"
         )
-    if topk_indices.dim() != 2 or topk_indices.size(1) != 2048:
+    if topk_indices.dim() != 2:
         raise ValueError(
-            "fused timestamp LRU requires topk_indices shape [batch, 2048], "
+            "fused timestamp LRU requires topk_indices to be 2-D, "
             f"got {tuple(topk_indices.shape)}"
+        )
+    topk = topk_indices.size(1)
+    if topk <= 0 or topk % _LRU_TOPK_ALIGNMENT != 0:
+        raise ValueError(
+            "fused timestamp LRU requires topk to be positive and a multiple "
+            f"of {_LRU_TOPK_ALIGNMENT}, got {topk}"
         )
     if (
         device_lru_slots.dim() != 2
@@ -242,6 +249,11 @@ def _validate_fused_timestamp_lru_inputs(
             f"{tuple(device_lru_slots.shape)}"
         )
     cache_capacity = device_lru_slots.size(1)
+    if topk > cache_capacity:
+        raise ValueError(
+            "fused timestamp LRU requires topk <= cache_capacity, got "
+            f"topk={topk} and cache_capacity={cache_capacity}"
+        )
     if hit_position_mask.shape != (topk_indices.size(0), cache_capacity):
         raise ValueError(
             "fused timestamp LRU requires hit_position_mask shape "
@@ -270,8 +282,9 @@ def fused_timestamp_lru_metadata_update_with_probation(
     so a one-time miss does not immediately receive the same MRU status as a
     hit. Passing ``probation_age=0`` inserts new fills at MRU age zero.
 
-    The operator is specialized for ``topk=2048`` and supports cache capacities
-    ``2048``, ``4096``, ``6144``, and ``8192``. It returns
+    ``topk`` may vary per launch, must be a positive multiple of 32, and must
+    not exceed the cache capacity. Supported cache capacities are ``2048``,
+    ``4096``, ``6144``, and ``8192``. The operator returns
     ``(victim_slots, miss_counts)`` and updates the LRU slot/stamp tensors in
     place. Valid request rows in one launch must be unique.
     """
@@ -330,10 +343,16 @@ def parallel_lru_metadata_write(
     for name, tensor in tensors.items():
         if tensor.dtype != torch.int32:
             raise ValueError(f"{name} must be int32, got {tensor.dtype}")
-    if topk_indices.dim() != 2 or topk_indices.size(1) != 2048:
+    if topk_indices.dim() != 2:
         raise ValueError(
-            "parallel LRU metadata write requires topk_indices shape "
-            f"[batch, 2048], got {tuple(topk_indices.shape)}"
+            "parallel LRU metadata write requires topk_indices to be 2-D, "
+            f"got {tuple(topk_indices.shape)}"
+        )
+    topk = topk_indices.size(1)
+    if topk <= 0 or topk % _LRU_TOPK_ALIGNMENT != 0:
+        raise ValueError(
+            "parallel LRU metadata write requires topk to be positive and a "
+            f"multiple of {_LRU_TOPK_ALIGNMENT}, got {topk}"
         )
     if victim_slots.shape != topk_indices.shape:
         raise ValueError(
@@ -354,6 +373,12 @@ def parallel_lru_metadata_write(
             "[request_rows, cache_capacity] with cache_capacity in "
             f"{_SUPPORTED_LRU_CACHE_CAPACITIES}, got "
             f"{tuple(device_slot_tokens.shape)}"
+        )
+    cache_capacity = device_slot_tokens.size(1)
+    if topk > cache_capacity:
+        raise ValueError(
+            "parallel LRU metadata write requires topk <= cache_capacity, got "
+            f"topk={topk} and cache_capacity={cache_capacity}"
         )
     torch.ops.npu.parallel_lru_metadata_write(
         slot_map,

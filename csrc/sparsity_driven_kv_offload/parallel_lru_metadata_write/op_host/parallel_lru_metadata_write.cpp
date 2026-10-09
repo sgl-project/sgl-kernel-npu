@@ -18,11 +18,10 @@ namespace npu_kernel {
 
 namespace {
 
-constexpr uint32_t kFixedTopk = 2048;
 constexpr uint32_t kCacheCapacityUnit = 2048;
 constexpr uint32_t kMinCacheCapacity = kCacheCapacityUnit;
 constexpr uint32_t kMaxCacheCapacity = 4 * kCacheCapacityUnit;
-constexpr uint32_t kMetadataTilesPerBatch = 64;
+constexpr uint32_t kMetadataTileElements = 32;
 constexpr uint32_t kAlignment = 8;
 constexpr uint64_t kUint32Max = std::numeric_limits<uint32_t>::max();
 
@@ -87,11 +86,16 @@ void parallel_lru_metadata_write(
     const int64_t cacheCapacity64 = device_slot_tokens.size(1);
     const int64_t slotMapRows64 = slot_map.size(0);
     const int64_t slotMapWidth64 = slot_map.size(1);
+    const int64_t topk64 = topk_indices.size(1);
 
     TORCH_CHECK(batchSize64 > 0, "batch size must be positive");
-    TORCH_CHECK(topk_indices.size(0) == batchSize64 &&
-                    topk_indices.size(1) == kFixedTopk,
-                "topk_indices shape must be [batch, ", kFixedTopk, "]");
+    TORCH_CHECK(topk_indices.size(0) == batchSize64,
+                "topk_indices dim0 must match req_indices");
+    TORCH_CHECK(topk64 > 0 && topk64 <= cacheCapacity64 &&
+                    topk64 % kMetadataTileElements == 0,
+                "parallel LRU metadata write requires topk in (0, cache_capacity] and a multiple of ",
+                kMetadataTileElements, ", got topk=", topk64,
+                " with cache_capacity=", cacheCapacity64);
     TORCH_CHECK(victim_slots.sizes() == topk_indices.sizes(),
                 "victim_slots shape must match topk_indices");
     TORCH_CHECK(miss_counts.size(0) == batchSize64,
@@ -125,7 +129,7 @@ void parallel_lru_metadata_write(
                         static_cast<uint64_t>(cacheCapacity64) <=
                     kUint32Max,
                 "device_slot_tokens storage exceeds the kernel uint32 address range");
-    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * kFixedTopk <= kUint32Max,
+    TORCH_CHECK(static_cast<uint64_t>(batchSize64) * static_cast<uint64_t>(topk64) <= kUint32Max,
                 "batch metadata storage exceeds the kernel uint32 address range");
 
     auto platform = platform_ascendc::PlatformAscendCManager::GetInstance();
@@ -140,9 +144,13 @@ void parallel_lru_metadata_write(
     const uint32_t batchSize = static_cast<uint32_t>(batchSize64);
     const uint32_t requestRows = static_cast<uint32_t>(requestRows64);
     const uint32_t cacheCapacity = static_cast<uint32_t>(cacheCapacity64);
+    const uint32_t topk = static_cast<uint32_t>(topk64);
     const uint32_t slotMapWidth = static_cast<uint32_t>(slotMapWidth64);
     const uint32_t maxContextLen = static_cast<uint32_t>(max_context_len);
-    const uint32_t metadataTaskCount = batchSize * kMetadataTilesPerBatch;
+    const uint32_t metadataTilesPerBatch = topk / kMetadataTileElements;
+    TORCH_CHECK(static_cast<uint64_t>(batchSize) * metadataTilesPerBatch <= kUint32Max,
+                "metadata task count exceeds the kernel uint32 range");
+    const uint32_t metadataTaskCount = batchSize * metadataTilesPerBatch;
     uint32_t effectiveBlockDim =
         block_dim > 0 ? static_cast<uint32_t>(block_dim)
                       : std::min(metadataTaskCount, maxAivCoreNum);
@@ -158,7 +166,7 @@ void parallel_lru_metadata_write(
 
     EXEC_KERNEL_CMD(parallel_lru_metadata_write, effectiveBlockDim, slot_map,
                     req_indices, topk_indices, victim_slots, miss_counts,
-                    device_slot_tokens, batchSize, requestRows, cacheCapacity,
+                    device_slot_tokens, batchSize, requestRows, cacheCapacity, topk,
                     slotMapWidth, maxContextLen);
 }
 

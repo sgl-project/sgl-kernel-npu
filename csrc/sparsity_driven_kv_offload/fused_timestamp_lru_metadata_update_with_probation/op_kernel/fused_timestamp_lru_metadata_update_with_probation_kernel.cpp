@@ -10,18 +10,17 @@
 
 namespace {
 
-constexpr uint32_t kTopk = 2048;
 constexpr uint32_t kBytesPerInt = sizeof(int32_t);
 constexpr uint32_t kScalarBlockElements = 32 / kBytesPerInt;
 
-// Relative offsets inside the victim-selection scratch arena.
-constexpr uint32_t kTopkTokenOffset = 0;
-constexpr uint32_t kTopkDevicePosOffset = kTopk * kBytesPerInt;
-constexpr uint32_t kMissFlagOffset = 2 * kTopk * kBytesPerInt;
-constexpr uint32_t kScanScratchOffset = 3 * kTopk * kBytesPerInt;
-constexpr uint32_t kVictimOffset = 4 * kTopk * kBytesPerInt;
-constexpr uint32_t kGatherOffsetOffset = 5 * kTopk * kBytesPerInt;
-constexpr uint32_t kVectorScratchOffset = 6 * kTopk * kBytesPerInt;
+// Vector indices inside the runtime-sized victim-selection scratch arena.
+constexpr uint32_t kTopkTokenVector = 0;
+constexpr uint32_t kTopkDevicePosVector = 1;
+constexpr uint32_t kMissFlagVector = 2;
+constexpr uint32_t kScanScratchVector = 3;
+constexpr uint32_t kVictimVector = 4;
+constexpr uint32_t kGatherOffsetVector = 5;
+constexpr uint32_t kVectorScratchVector = 6;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncPipes()
@@ -123,29 +122,10 @@ class KernelFusedTimestampLruMetadataUpdateWithProbation
         kCompactHitFlagsOffset + kCacheCapacity * kBytesPerInt;
     static constexpr uint32_t kHitPatternOffset =
         kNonHitPatternOffset + kPatternBytes;
-    static constexpr uint32_t kCompactStageABytes =
-        kHitPatternOffset + kPatternBytes;
     static constexpr uint32_t kCompactVictimScratchOffset =
         kCompactStampsOffset + kCacheCapacity * kBytesPerInt;
-    static constexpr uint32_t kCompactVictimStageBytes =
-        kCompactVictimScratchOffset + 7 * kTopk * kBytesPerInt;
-    static constexpr uint32_t kCompactWritebackStageBytes =
-        5 * kCacheCapacity * kBytesPerInt;
-    static constexpr uint32_t kCompactWorkUbBytes =
-        kCompactStageABytes > kCompactVictimStageBytes ?
-            (kCompactStageABytes > kCompactWritebackStageBytes ?
-                kCompactStageABytes : kCompactWritebackStageBytes) :
-            (kCompactVictimStageBytes > kCompactWritebackStageBytes ?
-                kCompactVictimStageBytes : kCompactWritebackStageBytes);
-    static constexpr uint32_t kMissCountStagingOffset =
-        kCompactVictimScratchOffset + kVectorScratchOffset;
-
-    static_assert(kCacheCapacity >= kTopk,
-                  "cache capacity must hold one complete top-k result");
     static_assert(kPatternBytes % 32 == 0,
                   "gather patterns must be UB-aligned");
-    static_assert(kMissCountStagingOffset + 32 <= kCompactWorkUbBytes,
-                  "miss-count staging exceeds compact UB arena");
 
 public:
     __aicore__ inline KernelFusedTimestampLruMetadataUpdateWithProbation() {}
@@ -155,21 +135,22 @@ public:
                                 GM_ADDR deviceLruSlots, GM_ADDR deviceLruSlotStamps,
                                 GM_ADDR victimSlots, GM_ADDR missCounts,
                                 uint32_t batchSize, uint32_t requestRows,
-                                uint32_t maxContextLen, uint32_t stampMax, uint32_t probationAge,
-                                uint32_t workUbBytes,
+                                uint32_t topk, uint32_t maxContextLen,
+                                uint32_t stampMax, uint32_t probationAge, uint32_t workUbBytes,
                                 AscendC::TPipe *pipe)
     {
         this->batchSize = batchSize;
         this->requestRows = requestRows;
+        this->topk = topk;
         this->maxContextLen = maxContextLen;
         this->stampMax = stampMax;
         this->probationAge = probationAge;
 
         reqIndicesGm.SetGlobalBuffer((__gm__ int32_t *)reqIndices, batchSize);
         topkIndicesGm.SetGlobalBuffer((__gm__ int32_t *)topkIndices,
-                                     static_cast<uint64_t>(batchSize) * kTopk);
+                                     static_cast<uint64_t>(batchSize) * topk);
         deviceTokenPosGm.SetGlobalBuffer((__gm__ int32_t *)deviceTokenPos,
-                                        static_cast<uint64_t>(batchSize) * kTopk);
+                                        static_cast<uint64_t>(batchSize) * topk);
         hitPositionMaskGm.SetGlobalBuffer((__gm__ int32_t *)hitPositionMask,
                                          static_cast<uint64_t>(batchSize) * kCacheCapacity);
         deviceLruSlotsGm.SetGlobalBuffer((__gm__ int32_t *)deviceLruSlots,
@@ -177,10 +158,10 @@ public:
         deviceLruSlotStampsGm.SetGlobalBuffer((__gm__ int32_t *)deviceLruSlotStamps,
                                              static_cast<uint64_t>(requestRows) * kCacheCapacity);
         victimSlotsGm.SetGlobalBuffer((__gm__ int32_t *)victimSlots,
-                                     static_cast<uint64_t>(batchSize) * kTopk);
+                                     static_cast<uint64_t>(batchSize) * topk);
         missCountsGm.SetGlobalBuffer((__gm__ int32_t *)missCounts, batchSize);
 
-        // The host verifies the selected compile-time memory plan against the
+        // The host verifies the selected runtime memory plan against the
         // current platform before launching the kernel.
         pipe->InitBuffer(workBuf, workUbBytes);
     }
@@ -195,11 +176,16 @@ public:
     }
 
 private:
+    __aicore__ inline uint32_t TopkVectorOffset(uint32_t vectorIndex) const
+    {
+        return kCompactVictimScratchOffset + vectorIndex * topk * kBytesPerInt;
+    }
+
     __aicore__ inline void ProcessRequest(uint32_t batchIdx)
     {
         AscendC::LocalTensor<int32_t> staging =
             workBuf.GetWithOffset<int32_t>(kScalarBlockElements,
-                                           kMissCountStagingOffset);
+                                           TopkVectorOffset(kVectorScratchVector));
         CopyRowIn(staging, reqIndicesGm[batchIdx], 1);
         SyncMte2ToScalar();
         const int32_t reqId = staging.GetValue(0);
@@ -314,19 +300,19 @@ private:
     __aicore__ inline uint32_t BuildVictimPlan(uint32_t batchIdx)
     {
         AscendC::LocalTensor<int32_t> topkTokens =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kTopkTokenOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kTopkTokenVector));
         AscendC::LocalTensor<int32_t> devicePos =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kTopkDevicePosOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kTopkDevicePosVector));
         AscendC::LocalTensor<int32_t> missFlag =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kMissFlagOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kMissFlagVector));
         AscendC::LocalTensor<int32_t> scanScratch =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kScanScratchOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kScanScratchVector));
         AscendC::LocalTensor<int32_t> victims =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kVictimOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kVictimVector));
         AscendC::LocalTensor<int32_t> gatherOffsets =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kGatherOffsetOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kGatherOffsetVector));
         AscendC::LocalTensor<int32_t> vectorScratch =
-            workBuf.GetWithOffset<int32_t>(kTopk, kCompactVictimScratchOffset + kVectorScratchOffset);
+            workBuf.GetWithOffset<int32_t>(topk, TopkVectorOffset(kVectorScratchVector));
         AscendC::LocalTensor<int32_t> lruSlots =
             workBuf.GetWithOffset<int32_t>(kCacheCapacity, kCompactSlotsOffset);
 
@@ -334,81 +320,82 @@ private:
         // gatherOffsets regions. Ensure the final stage-A Gather has finished
         // reading those regions before MTE2 starts overwriting them.
         SyncVectorToMte2();
-        CopyRowIn(topkTokens, topkIndicesGm[batchIdx * kTopk], kTopk);
-        CopyRowIn(devicePos, deviceTokenPosGm[batchIdx * kTopk], kTopk);
+        CopyRowIn(topkTokens, topkIndicesGm[batchIdx * topk], topk);
+        CopyRowIn(devicePos, deviceTokenPosGm[batchIdx * topk], topk);
         SyncMte2ToVector();
 
         // missFlag = valid_topk && (device_pos == -1), expressed entirely as
         // clamped int32 SIMD arithmetic.
-        AscendC::Adds(missFlag, devicePos, static_cast<int32_t>(1), kTopk);
-        AscendC::Maxs(missFlag, missFlag, static_cast<int32_t>(0), kTopk);
-        AscendC::Mins(missFlag, missFlag, static_cast<int32_t>(1), kTopk);
-        AscendC::Duplicate(scanScratch, static_cast<int32_t>(1), kTopk);
-        AscendC::Sub(missFlag, scanScratch, missFlag, kTopk);
+        AscendC::Adds(missFlag, devicePos, static_cast<int32_t>(1), topk);
+        AscendC::Maxs(missFlag, missFlag, static_cast<int32_t>(0), topk);
+        AscendC::Mins(missFlag, missFlag, static_cast<int32_t>(1), topk);
+        AscendC::Duplicate(scanScratch, static_cast<int32_t>(1), topk);
+        AscendC::Sub(missFlag, scanScratch, missFlag, topk);
 
-        AscendC::Adds(scanScratch, topkTokens, static_cast<int32_t>(1), kTopk);
-        AscendC::Maxs(scanScratch, scanScratch, static_cast<int32_t>(0), kTopk);
-        AscendC::Mins(scanScratch, scanScratch, static_cast<int32_t>(1), kTopk);
-        AscendC::Duplicate(vectorScratch, static_cast<int32_t>(maxContextLen), kTopk);
-        AscendC::Sub(vectorScratch, vectorScratch, topkTokens, kTopk);
-        AscendC::Maxs(vectorScratch, vectorScratch, static_cast<int32_t>(0), kTopk);
-        AscendC::Mins(vectorScratch, vectorScratch, static_cast<int32_t>(1), kTopk);
-        AscendC::Min(scanScratch, scanScratch, vectorScratch, kTopk);
-        AscendC::Min(missFlag, missFlag, scanScratch, kTopk);
+        AscendC::Adds(scanScratch, topkTokens, static_cast<int32_t>(1), topk);
+        AscendC::Maxs(scanScratch, scanScratch, static_cast<int32_t>(0), topk);
+        AscendC::Mins(scanScratch, scanScratch, static_cast<int32_t>(1), topk);
+        AscendC::Duplicate(vectorScratch, static_cast<int32_t>(maxContextLen), topk);
+        AscendC::Sub(vectorScratch, vectorScratch, topkTokens, topk);
+        AscendC::Maxs(vectorScratch, vectorScratch, static_cast<int32_t>(0), topk);
+        AscendC::Mins(vectorScratch, vectorScratch, static_cast<int32_t>(1), topk);
+        AscendC::Min(scanScratch, scanScratch, vectorScratch, topk);
+        AscendC::Min(missFlag, missFlag, scanScratch, topk);
         AscendC::PipeBarrier<PIPE_V>();
 
         // Hillis-Steele inclusive scan. Gather supplies a zero-padded shifted
         // vector on platforms where scatter is unavailable.
-        for (uint32_t step = 1; step < kTopk; step <<= 1) {
-            AscendC::CreateVecIndex(gatherOffsets, static_cast<int32_t>(0), kTopk);
-            AscendC::Adds(gatherOffsets, gatherOffsets, -static_cast<int32_t>(step), kTopk);
-            AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), kTopk);
-            AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), kTopk);
+        for (uint32_t step = 1; step < topk; step <<= 1) {
+            AscendC::CreateVecIndex(gatherOffsets, static_cast<int32_t>(0), topk);
+            AscendC::Adds(gatherOffsets, gatherOffsets, -static_cast<int32_t>(step), topk);
+            AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), topk);
+            AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), topk);
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::Gather(scanScratch, missFlag, gatherOffsets.ReinterpretCast<uint32_t>(),
-                            static_cast<uint32_t>(0), kTopk);
+                            static_cast<uint32_t>(0), topk);
             AscendC::Duplicate(scanScratch, static_cast<int32_t>(0), step);
             AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Add(missFlag, missFlag, scanScratch, kTopk);
+            AscendC::Add(missFlag, missFlag, scanScratch, topk);
             AscendC::PipeBarrier<PIPE_V>();
         }
 
         SyncVectorToScalar();
-        const uint32_t missCount = static_cast<uint32_t>(missFlag.GetValue(kTopk - 1));
+        const uint32_t missCount = static_cast<uint32_t>(missFlag.GetValue(topk - 1));
 
         // Gather the r-th oldest eligible slot for the r-th miss, then restore
         // -1 in hit/invalid positions without a scatter operation.
-        AscendC::Adds(gatherOffsets, missFlag, static_cast<int32_t>(-1), kTopk);
-        AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), kTopk);
-        AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), kTopk);
+        AscendC::Adds(gatherOffsets, missFlag, static_cast<int32_t>(-1), topk);
+        AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), topk);
+        AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), topk);
         AscendC::Gather(victims, lruSlots, gatherOffsets.ReinterpretCast<uint32_t>(),
-                        static_cast<uint32_t>(0), kTopk);
+                        static_cast<uint32_t>(0), topk);
         AscendC::PipeBarrier<PIPE_V>();
 
         // Recover the original 0/1 miss vector as scan[i] - scan[i-1].
-        AscendC::CreateVecIndex(gatherOffsets, static_cast<int32_t>(0), kTopk);
-        AscendC::Adds(gatherOffsets, gatherOffsets, static_cast<int32_t>(-1), kTopk);
-        AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), kTopk);
-        AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), kTopk);
+        AscendC::CreateVecIndex(gatherOffsets, static_cast<int32_t>(0), topk);
+        AscendC::Adds(gatherOffsets, gatherOffsets, static_cast<int32_t>(-1), topk);
+        AscendC::Maxs(gatherOffsets, gatherOffsets, static_cast<int32_t>(0), topk);
+        AscendC::Muls(gatherOffsets, gatherOffsets, static_cast<int32_t>(kBytesPerInt), topk);
         AscendC::Gather(scanScratch, missFlag, gatherOffsets.ReinterpretCast<uint32_t>(),
-                        static_cast<uint32_t>(0), kTopk);
+                        static_cast<uint32_t>(0), topk);
         AscendC::Duplicate(scanScratch, static_cast<int32_t>(0), 1);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::Sub(scanScratch, missFlag, scanScratch, kTopk);
-        AscendC::Adds(victims, victims, static_cast<int32_t>(1), kTopk);
-        AscendC::Mul(victims, victims, scanScratch, kTopk);
-        AscendC::Adds(victims, victims, static_cast<int32_t>(-1), kTopk);
+        AscendC::Sub(scanScratch, missFlag, scanScratch, topk);
+        AscendC::Adds(victims, victims, static_cast<int32_t>(1), topk);
+        AscendC::Mul(victims, victims, scanScratch, topk);
+        AscendC::Adds(victims, victims, static_cast<int32_t>(-1), topk);
         AscendC::PipeBarrier<PIPE_V>();
 
         SyncVectorToMte3();
-        CopyRowOut(victimSlotsGm[batchIdx * kTopk], victims, kTopk);
+        CopyRowOut(victimSlotsGm[batchIdx * topk], victims, topk);
         return missCount;
     }
 
     __aicore__ inline void WriteMissCount(uint32_t batchIdx, uint32_t missCount)
     {
         AscendC::LocalTensor<int32_t> staging =
-            workBuf.GetWithOffset<int32_t>(kScalarBlockElements, kMissCountStagingOffset);
+            workBuf.GetWithOffset<int32_t>(kScalarBlockElements,
+                                           TopkVectorOffset(kVectorScratchVector));
         SyncVectorToScalar();
         staging.SetValue(0, static_cast<int32_t>(missCount));
         SyncScalarToMte3();
@@ -529,6 +516,7 @@ private:
 
     uint32_t batchSize = 0;
     uint32_t requestRows = 0;
+    uint32_t topk = 0;
     uint32_t maxContextLen = 0;
     uint32_t stampMax = 0;
     uint32_t probationAge = 0;
@@ -539,14 +527,14 @@ __aicore__ inline void RunFusedTimestampLruMetadataUpdateWithProbation(
     GM_ADDR reqIndices, GM_ADDR topkIndices, GM_ADDR deviceTokenPos,
     GM_ADDR hitPositionMask, GM_ADDR deviceLruSlots,
     GM_ADDR deviceLruSlotStamps, GM_ADDR victimSlots, GM_ADDR missCounts,
-    uint32_t batchSize, uint32_t requestRows, uint32_t maxContextLen,
+    uint32_t batchSize, uint32_t requestRows, uint32_t topk, uint32_t maxContextLen,
     uint32_t stampMax, uint32_t probationAge, uint32_t workUbBytes,
     AscendC::TPipe *pipe)
 {
     KernelFusedTimestampLruMetadataUpdateWithProbation<kCacheCapacity> kernel;
     kernel.Init(reqIndices, topkIndices, deviceTokenPos, hitPositionMask,
                 deviceLruSlots, deviceLruSlotStamps, victimSlots, missCounts,
-                batchSize, requestRows, maxContextLen, stampMax, probationAge,
+                batchSize, requestRows, topk, maxContextLen, stampMax, probationAge,
                 workUbBytes, pipe);
     kernel.Process();
 }
@@ -557,7 +545,7 @@ extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update_with_p
     GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR device_token_pos,
     GM_ADDR hit_position_mask, GM_ADDR device_lru_slots, GM_ADDR device_lru_slot_stamps,
     GM_ADDR victim_slots, GM_ADDR miss_counts, uint32_t batch_size, uint32_t request_rows,
-    uint32_t cache_capacity, uint32_t max_context_len, uint32_t stamp_max,
+    uint32_t cache_capacity, uint32_t topk, uint32_t max_context_len, uint32_t stamp_max,
     uint32_t probation_age, uint32_t work_ub_bytes)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
@@ -566,25 +554,25 @@ extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update_with_p
         RunFusedTimestampLruMetadataUpdateWithProbation<2048>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            batch_size, request_rows, topk, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 4096) {
         RunFusedTimestampLruMetadataUpdateWithProbation<4096>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            batch_size, request_rows, topk, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 6144) {
         RunFusedTimestampLruMetadataUpdateWithProbation<6144>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            batch_size, request_rows, topk, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 8192) {
         RunFusedTimestampLruMetadataUpdateWithProbation<8192>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, probation_age,
+            batch_size, request_rows, topk, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     }
 }
