@@ -1031,6 +1031,113 @@ class TestCompressor(unittest.TestCase):
         sdiff = (state_npu.cpu() - expected).abs().max().item()
         self.assertLess(sdiff, 1e-2, "head_dim=128 state write-back incl. mid-call page tails")
 
+    def test_compressor_resume_boundary_state(self):
+        # TestCompressorResumeBoundaryState — README §205
+        # (sgl-scripts/DSV4-A5/hit_miss_divergence): on arch35
+        # (cache_mode=2/EXPLICIT, cmp_ratio=4, coff=2) a resumed suffix
+        # (start_pos=16384, cached prefix) computes DIFFERENT compress-state
+        # CONTENT for the c4 block spanning the resume boundary (block 136,
+        # positions 17408..17535) than a full prefill of the same sequence --
+        # device-measured first divergence at decode step 17534. Root is
+        # operator-side state-history (ReadState OVERLAP left-fill /
+        # headHolderSeqCnt boundary carry / SaveState under large bStartPos,
+        # compressor_block_vec.h:1005), NOT addressing: both scenarios here
+        # use the same production SWA state table, so any block-136 divergence
+        # is exactly that state-history bug. Reverse-control (README §9): on a
+        # fixed kernel the two scenarios MUST produce byte-identical block-136
+        # rows; on HEAD they must differ.
+        if not _is_arch35():
+            self.skipTest("A5 explicit state table only")
+        coff, ratio, head_dim, hidden = 2, 4, 128, 1024
+        swa_page_size, ring_size = 128, 8
+        resume_pos, full_len = 16384, 17536
+        # block 136 = positions [17408, 17536); state_loc =
+        # (pos // swa_page_size) * ring_size + pos % ring_size, so its rows are
+        # the flat state rows [136 * ring_size, 137 * ring_size).
+        block136 = 136
+
+        p_full = _make_inputs(
+            [0], full_len, coff, ratio, head_dim, hidden, 2, "TH",
+            torch.bfloat16, 1, 16, ring_size=ring_size, total_seq=full_len,
+        )
+        p_full["block_table"] = _build_production_swa_state_loc_table(
+            p_full["start_pos"], [full_len], swa_page_size, ring_size, coff, ratio
+        )
+        p_prefix = _make_inputs(
+            [0], resume_pos, coff, ratio, head_dim, hidden, 2, "TH",
+            torch.bfloat16, 1, 16, ring_size=ring_size, total_seq=full_len,
+        )
+        p_prefix["block_table"] = _build_production_swa_state_loc_table(
+            p_prefix["start_pos"], [resume_pos], swa_page_size, ring_size, coff, ratio
+        )
+        p_suffix = _make_inputs(
+            [resume_pos], full_len - resume_pos, coff, ratio, head_dim, hidden, 2, "TH",
+            torch.bfloat16, 1, 16, ring_size=ring_size, total_seq=full_len,
+        )
+        p_suffix["block_table"] = _build_production_swa_state_loc_table(
+            p_suffix["start_pos"], [full_len - resume_pos], swa_page_size, ring_size, coff, ratio
+        )
+        # Same weights and same tokens: the suffix must be the exact tail of
+        # the full sequence, so only the call chunking differs between the two
+        # scenarios (mirrors the hit path: prefix from cache, suffix prefill).
+        for p in (p_prefix, p_suffix):
+            for name in ("wkv", "wgate", "ape", "norm_weight"):
+                p[name] = p_full[name]
+        p_prefix["x"] = p_full["x"][:resume_pos].clone()
+        p_suffix["x"] = p_full["x"][resume_pos:].clone()
+
+        def _run(state, p):
+            torch.ops.npu.compressor(
+                p["x"].npu(),
+                p["wkv"].npu(),
+                p["wgate"].npu(),
+                state,
+                p["ape"].npu(),
+                p["norm_weight"].npu(),
+                p["rope_sin"].npu(),
+                p["rope_cos"].npu(),
+                state_block_table=p["block_table"].npu(),
+                cu_seqlens=p["cu_seqlens"].npu(),
+                seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
+                start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+                state_cache_stride_dim0=0,
+            )
+
+        # Scenario 1 (miss): full prefill [0, N) in a single call.
+        state_full = p_full["state_cache"].clone().npu()
+        _run(state_full, p_full)
+        # Scenario 2 (hit): prefix [0, 16384) then suffix [16384, N) against
+        # the same state pool, so the suffix's OVERLAP left-fill reads the
+        # prefix history exactly as the cached-prefix path does.
+        state_resume = p_full["state_cache"].clone().npu()
+        _run(state_resume, p_prefix)
+        _run(state_resume, p_suffix)
+        torch_npu.npu.synchronize()
+
+        rows_full = state_full.cpu().reshape(-1, 2 * coff * head_dim)[
+            block136 * ring_size:(block136 + 1) * ring_size
+        ]
+        rows_resume = state_resume.cpu().reshape(-1, 2 * coff * head_dim)[
+            block136 * ring_size:(block136 + 1) * ring_size
+        ]
+        if not torch.equal(rows_full, rows_resume):
+            first = (rows_full != rows_resume).flatten().nonzero()[0].item()
+            row_in_block, channel = divmod(first, 2 * coff * head_dim)
+            self.fail(
+                "block 136 compress-state diverges between full prefill and "
+                "resumed suffix (README §205): first differing position "
+                f"{block136 * swa_page_size + row_in_block} (ring row "
+                f"{block136 * ring_size + row_in_block}, channel {channel}); "
+                "confirmed device divergence starts at decode step 17534 = "
+                "block-relative row 6"
+            )
+
     def _cpu_phase(self, p, starts, seq_len, kv_state, score_state, coff, ratio,
                    ring_size, swa_page_size=128):
         table = _build_production_swa_state_loc_table(
