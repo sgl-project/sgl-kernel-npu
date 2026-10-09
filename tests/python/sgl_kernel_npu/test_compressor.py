@@ -1175,6 +1175,15 @@ class TestCompressor(unittest.TestCase):
             flush=True,
         )
         print(
+            f"[block136] max-abs-diff full~resume: "
+            f"{(rows_full - rows_resume).abs().max().item():.3e} | "
+            f"full~ref_full: "
+            f"{(rows_full - ref_full).abs().max().item():.3e} | "
+            f"resume~ref_resume: "
+            f"{(rows_resume - ref_resume).abs().max().item():.3e}",
+            flush=True,
+        )
+        print(
             "block136 per-ring-row verdicts (rows "
             f"{block136 * ring_size}..{block136 * ring_size + ring_size - 1}; "
             f"ref comparisons within tol {state_tol:g}):",
@@ -1189,10 +1198,28 @@ class TestCompressor(unittest.TestCase):
             row_resume_eq_ref = (
                 (rows_resume[r] - ref_resume[r]).abs().max().item() < state_tol
             )
+            row_full_resume_d = (rows_full[r] - rows_resume[r]).abs().max().item()
+            row_full_ref_d = (rows_full[r] - ref_full[r]).abs().max().item()
+            row_resume_ref_d = (rows_resume[r] - ref_resume[r]).abs().max().item()
             print(
                 f"  row {row} (pos {block136 * swa_page_size + r}): "
                 f"full==resume {row_full_eq_resume} | "
                 f"full==ref {row_full_eq_ref} | resume==ref {row_resume_eq_ref}",
+                flush=True,
+            )
+            print(
+                f"    max-abs-diff full~resume: {row_full_resume_d:.3e} | "
+                f"full~ref_full: {row_full_ref_d:.3e} | "
+                f"resume~ref_resume: {row_resume_ref_d:.3e}",
+                flush=True,
+            )
+        # Rows 1092..1095 are the ones the device divergence is concentrated
+        # in; report their full-vs-resume MAX-ABS-DIFF explicitly (scientific).
+        for row in range(1092, 1096):
+            r = row - block136 * ring_size
+            diff = (rows_full[r] - rows_resume[r]).abs().max().item()
+            print(
+                f"  [block136] row {row} MAXABS full~resume: {diff:.3e}",
                 flush=True,
             )
         for label, a, b, tol in (
@@ -1212,10 +1239,10 @@ class TestCompressor(unittest.TestCase):
                 f"  first {label} at position "
                 f"{block136 * swa_page_size + row_in_block} (ring row "
                 f"{block136 * ring_size + row_in_block}, channel {channel}): "
-                f"full={rows_full[row_in_block, channel].item():.6f} "
-                f"resume={rows_resume[row_in_block, channel].item():.6f} "
-                f"ref_full={ref_full[row_in_block, channel].item():.6f} "
-                f"ref_resume={ref_resume[row_in_block, channel].item():.6f}",
+                f"full={rows_full[row_in_block, channel].item():.9e} "
+                f"resume={rows_resume[row_in_block, channel].item():.9e} "
+                f"ref_full={ref_full[row_in_block, channel].item():.9e} "
+                f"ref_resume={ref_resume[row_in_block, channel].item():.9e}",
                 flush=True,
             )
 
