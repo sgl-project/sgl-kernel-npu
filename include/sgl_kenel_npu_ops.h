@@ -347,18 +347,9 @@ void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
                      int64_t block_dim);
 
 /**
- * @brief Select timestamp-LRU victims and update all cache metadata in place.
+ * @brief Timestamp-LRU update with probationary age for newly filled slots.
  *
  * Returns (victim_slots[batch, 2048], miss_counts[batch]).
- */
-std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update(
-    const at::Tensor &req_indices, const at::Tensor &topk_indices,
-    const at::Tensor &device_token_pos, const at::Tensor &hit_position_mask,
-    at::Tensor &device_lru_slots, at::Tensor &device_lru_slot_stamps,
-    int64_t max_context_len, int64_t stamp_max, int64_t block_dim);
-
-/**
- * @brief Timestamp-LRU update with probationary age for newly filled slots.
  */
 std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_probation(
     const at::Tensor &req_indices, const at::Tensor &topk_indices,

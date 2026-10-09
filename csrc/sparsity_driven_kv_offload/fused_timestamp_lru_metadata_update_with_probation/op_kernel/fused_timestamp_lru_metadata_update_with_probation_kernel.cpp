@@ -36,6 +36,11 @@ __aicore__ inline void SyncMte2ToVector()
     SyncPipes<AscendC::HardEvent::MTE2_V>();
 }
 
+__aicore__ inline void SyncMte2ToScalar()
+{
+    SyncPipes<AscendC::HardEvent::MTE2_S>();
+}
+
 __aicore__ inline void SyncVectorToMte2()
 {
     SyncPipes<AscendC::HardEvent::V_MTE2>();
@@ -96,7 +101,7 @@ __aicore__ inline void CopyRowOut(const AscendC::GlobalTensor<T> &dst, const Asc
 }
 
 template <uint32_t kCacheCapacity>
-class KernelFusedTimestampLruMetadataUpdate
+class KernelFusedTimestampLruMetadataUpdateWithProbation
 {
     // The persistent pairs are already ordered by descending age. Five
     // capacity-sized vectors plus two packed bit masks are sufficient for a
@@ -143,7 +148,7 @@ class KernelFusedTimestampLruMetadataUpdate
                   "miss-count staging exceeds compact UB arena");
 
 public:
-    __aicore__ inline KernelFusedTimestampLruMetadataUpdate() {}
+    __aicore__ inline KernelFusedTimestampLruMetadataUpdateWithProbation() {}
 
     __aicore__ inline void Init(GM_ADDR reqIndices, GM_ADDR topkIndices,
                                 GM_ADDR deviceTokenPos, GM_ADDR hitPositionMask,
@@ -192,7 +197,12 @@ public:
 private:
     __aicore__ inline void ProcessRequest(uint32_t batchIdx)
     {
-        const int32_t reqId = reqIndicesGm.GetValue(batchIdx);
+        AscendC::LocalTensor<int32_t> staging =
+            workBuf.GetWithOffset<int32_t>(kScalarBlockElements,
+                                           kMissCountStagingOffset);
+        CopyRowIn(staging, reqIndicesGm[batchIdx], 1);
+        SyncMte2ToScalar();
+        const int32_t reqId = staging.GetValue(0);
         // Negative sentinel and out-of-range request rows are masked by the
         // caller. Leave their victim output undefined and skip all GM writes.
         if (reqId < 0 || static_cast<uint32_t>(reqId) >= requestRows) {
@@ -525,7 +535,7 @@ private:
 };
 
 template <uint32_t kCacheCapacity>
-__aicore__ inline void RunFusedTimestampLruMetadataUpdate(
+__aicore__ inline void RunFusedTimestampLruMetadataUpdateWithProbation(
     GM_ADDR reqIndices, GM_ADDR topkIndices, GM_ADDR deviceTokenPos,
     GM_ADDR hitPositionMask, GM_ADDR deviceLruSlots,
     GM_ADDR deviceLruSlotStamps, GM_ADDR victimSlots, GM_ADDR missCounts,
@@ -533,7 +543,7 @@ __aicore__ inline void RunFusedTimestampLruMetadataUpdate(
     uint32_t stampMax, uint32_t probationAge, uint32_t workUbBytes,
     AscendC::TPipe *pipe)
 {
-    KernelFusedTimestampLruMetadataUpdate<kCacheCapacity> kernel;
+    KernelFusedTimestampLruMetadataUpdateWithProbation<kCacheCapacity> kernel;
     kernel.Init(reqIndices, topkIndices, deviceTokenPos, hitPositionMask,
                 deviceLruSlots, deviceLruSlotStamps, victimSlots, missCounts,
                 batchSize, requestRows, maxContextLen, stampMax, probationAge,
@@ -543,41 +553,6 @@ __aicore__ inline void RunFusedTimestampLruMetadataUpdate(
 
 }  // namespace
 
-extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update(
-    GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR device_token_pos,
-    GM_ADDR hit_position_mask, GM_ADDR device_lru_slots, GM_ADDR device_lru_slot_stamps,
-    GM_ADDR victim_slots, GM_ADDR miss_counts, uint32_t batch_size, uint32_t request_rows,
-    uint32_t cache_capacity, uint32_t max_context_len, uint32_t stamp_max,
-    uint32_t work_ub_bytes)
-{
-    AscendC::TPipe pipe;
-    if (cache_capacity == 2048) {
-        RunFusedTimestampLruMetadataUpdate<2048>(
-            req_indices, topk_indices, device_token_pos, hit_position_mask,
-            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, 0,
-            work_ub_bytes, &pipe);
-    } else if (cache_capacity == 4096) {
-        RunFusedTimestampLruMetadataUpdate<4096>(
-            req_indices, topk_indices, device_token_pos, hit_position_mask,
-            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, 0,
-            work_ub_bytes, &pipe);
-    } else if (cache_capacity == 6144) {
-        RunFusedTimestampLruMetadataUpdate<6144>(
-            req_indices, topk_indices, device_token_pos, hit_position_mask,
-            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, 0,
-            work_ub_bytes, &pipe);
-    } else if (cache_capacity == 8192) {
-        RunFusedTimestampLruMetadataUpdate<8192>(
-            req_indices, topk_indices, device_token_pos, hit_position_mask,
-            device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
-            batch_size, request_rows, max_context_len, stamp_max, 0,
-            work_ub_bytes, &pipe);
-    }
-}
-
 extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update_with_probation(
     GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR device_token_pos,
     GM_ADDR hit_position_mask, GM_ADDR device_lru_slots, GM_ADDR device_lru_slot_stamps,
@@ -585,27 +560,28 @@ extern "C" __global__ __aicore__ void fused_timestamp_lru_metadata_update_with_p
     uint32_t cache_capacity, uint32_t max_context_len, uint32_t stamp_max,
     uint32_t probation_age, uint32_t work_ub_bytes)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     AscendC::TPipe pipe;
     if (cache_capacity == 2048) {
-        RunFusedTimestampLruMetadataUpdate<2048>(
+        RunFusedTimestampLruMetadataUpdateWithProbation<2048>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
             batch_size, request_rows, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 4096) {
-        RunFusedTimestampLruMetadataUpdate<4096>(
+        RunFusedTimestampLruMetadataUpdateWithProbation<4096>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
             batch_size, request_rows, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 6144) {
-        RunFusedTimestampLruMetadataUpdate<6144>(
+        RunFusedTimestampLruMetadataUpdateWithProbation<6144>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
             batch_size, request_rows, max_context_len, stamp_max, probation_age,
             work_ub_bytes, &pipe);
     } else if (cache_capacity == 8192) {
-        RunFusedTimestampLruMetadataUpdate<8192>(
+        RunFusedTimestampLruMetadataUpdateWithProbation<8192>(
             req_indices, topk_indices, device_token_pos, hit_position_mask,
             device_lru_slots, device_lru_slot_stamps, victim_slots, miss_counts,
             batch_size, request_rows, max_context_len, stamp_max, probation_age,

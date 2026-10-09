@@ -104,6 +104,8 @@ public:
         pipe->InitBuffer(
             oldTokenBuf, kTileElements * kBytesPerInt);
         pipe->InitBuffer(minusOneBuf, 32);
+        pipe->InitBuffer(
+            taskScalarBuf, 2 * kScalarBlockElements * kBytesPerInt);
     }
 
     __aicore__ inline void Process()
@@ -205,10 +207,23 @@ private:
         uint32_t task, uint32_t &requestRow, uint32_t &gmOffset)
     {
         const uint32_t batchIdx = task / kTilesPerBatch;
-        const int32_t reqId = reqIndicesGm.GetValue(batchIdx);
+        AscendC::LocalTensor<int32_t> taskScalars =
+            taskScalarBuf.Get<int32_t>();
+        AscendC::DataCopyExtParams oneIntParams{
+            1, sizeof(int32_t), 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int32_t> noPadParams{
+            false, 0, 0, 0};
+        AscendC::DataCopyPad(
+            taskScalars, reqIndicesGm[batchIdx],
+            oneIntParams, noPadParams);
+        AscendC::DataCopyPad(
+            taskScalars[kScalarBlockElements], missCountsGm[batchIdx],
+            oneIntParams, noPadParams);
+        SyncPipes<AscendC::HardEvent::MTE2_S>();
+        const int32_t reqId = taskScalars.GetValue(0);
         if (reqId < 0 ||
             static_cast<uint32_t>(reqId) >= requestRows ||
-            missCountsGm.GetValue(batchIdx) == 0) {
+            taskScalars.GetValue(kScalarBlockElements) == 0) {
             return false;
         }
 
@@ -224,12 +239,16 @@ private:
     {
         AscendC::LocalTensor<int32_t> input =
             inputQueue.AllocTensor<int32_t>();
-        AscendC::DataCopy(
+        AscendC::DataCopyExtParams tileCopyParams{
+            1, kTileElements * kBytesPerInt, 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int32_t> noPadParams{
+            false, 0, 0, 0};
+        AscendC::DataCopyPad(
             input[kInputTopkOffset],
-            topkIndicesGm[gmOffset], kTileElements);
-        AscendC::DataCopy(
+            topkIndicesGm[gmOffset], tileCopyParams, noPadParams);
+        AscendC::DataCopyPad(
             input[kInputVictimOffset],
-            victimSlotsGm[gmOffset], kTileElements);
+            victimSlotsGm[gmOffset], tileCopyParams, noPadParams);
         inputQueue.EnQue(input);
     }
 
@@ -248,8 +267,17 @@ private:
         AscendC::LocalTensor<int32_t> oldTokens =
             oldTokenBuf.Get<int32_t>();
 
+        // The queue's VECIN dependency covers vector consumers. This tile is
+        // inspected through scalar GetValue calls first, so establish the
+        // matching MTE2-to-scalar dependency explicitly.
+        SyncPipes<AscendC::HardEvent::MTE2_S>();
+
         const uint32_t slotTokenRowOffset =
             requestRow * cacheCapacity;
+        AscendC::DataCopyExtParams slotLineCopyParams{
+            1, kSlotLineElements * kBytesPerInt, 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int32_t> noPadParams{
+            false, 0, 0, 0};
         uint32_t validVictimCount = 0;
         for (uint32_t i = 0; i < kTileElements; ++i) {
             const int32_t victim = victimsLocal.GetValue(i);
@@ -271,11 +299,11 @@ private:
                 i * kSlotLineElements;
             oldTokenOffsets.SetValue(
                 i, (ubLineBase + lineLane) * kBytesPerInt);
-            AscendC::DataCopy(
+            AscendC::DataCopyPad(
                 oldTokenLines[ubLineBase],
                 deviceSlotTokensGm[
                     slotTokenRowOffset + gmLineBase],
-                kSlotLineElements);
+                slotLineCopyParams, noPadParams);
         }
 
         if (validVictimCount == 0) {
@@ -336,6 +364,9 @@ private:
     {
         AscendC::LocalTensor<int32_t> writeRecord =
             writeQueue.DeQue<int32_t>();
+        // ComputeTile populates the write record with scalar SetValue calls;
+        // wait for those writes before MTE3 consumes the record.
+        SyncPipes<AscendC::HardEvent::S_MTE3>();
         AscendC::DataCopyExtParams oneIntParams{
             1, sizeof(int32_t), 0, 0, 0};
         const uint32_t slotMapRowOffset =
@@ -393,6 +424,8 @@ private:
         AscendC::TPosition::VECCALC> oldTokenBuf;
     AscendC::TBuf<
         AscendC::TPosition::VECCALC> minusOneBuf;
+    AscendC::TBuf<
+        AscendC::TPosition::VECCALC> taskScalarBuf;
 
     AscendC::GlobalTensor<int32_t> slotMapGm;
     AscendC::GlobalTensor<int32_t> reqIndicesGm;

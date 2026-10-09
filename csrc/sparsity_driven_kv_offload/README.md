@@ -12,7 +12,6 @@ adapter.
 | `shm_allocator` | Allocates host-backed storage and registers it with the NPU, exposing a stable device-visible address. |
 | `unidex_copy` | Performs masked indexed row copies for D2D, H2D, and D2H KV movement. |
 | `slot_map_lookup` | Resolves sparse top-k logical KV positions against the device-resident slot map. |
-| `fused_timestamp_lru_metadata_update` | Selects LRU victims and updates the ordered LRU state. |
 | `fused_timestamp_lru_metadata_update_with_probation` | Selects LRU victims while inserting new fills at a configurable probation age. |
 | `parallel_lru_metadata_write` | Applies sparse slot-map and reverse-map updates across AIVs. |
 
@@ -39,7 +38,7 @@ The canonical Python API is:
 ```python
 from sgl_kernel_npu.sparsity_driven_kv_offload import (
     create_shm_tensor,
-    fused_timestamp_lru_metadata_update,
+    fused_timestamp_lru_metadata_update_with_probation,
     free_shm,
     parallel_lru_metadata_write,
     slot_map_lookup,
@@ -57,10 +56,10 @@ outside `[0, N)` are not written. `N` must be a multiple of 8 to support
 aligned atomic mask updates. Omitting `pos_mask_size` preserves the legacy
 two-output return value.
 
-The fused LRU operator consumes this mask with `N=4096`. Reusing the lookup
-result lets it preserve the already-sorted LRU order with an in-place stable
-vector compaction (`CompareScalar` + `GatherMask`), without building float sort
-keys or running a full-record sort.
+The fused LRU operator consumes this mask with `N=cache_capacity`. Reusing the
+lookup result lets it preserve the already-sorted LRU order with an in-place
+stable vector compaction (`CompareScalar` + `GatherMask`), without building
+float sort keys or running a full-record sort.
 It returns `(victim_slots, miss_counts)`. Call
 `parallel_lru_metadata_write` after it on the same stream; that kernel divides
 each request into 64 tiles so miss-related slot-map and reverse-map writes can
@@ -71,7 +70,7 @@ The focused timestamp-LRU benchmark reports the latency of victim selection
 and parallel metadata writing separately:
 
 ```bash
-python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update.py \
+python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update_with_probation.py \
     --batch-sizes 1 8 32 --hit-rates 0.0 0.5 1.0
 ```
 

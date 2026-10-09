@@ -251,53 +251,6 @@ def _validate_fused_timestamp_lru_inputs(
         )
 
 
-def fused_timestamp_lru_metadata_update(
-    req_indices: torch.Tensor,
-    topk_indices: torch.Tensor,
-    device_token_pos: torch.Tensor,
-    hit_position_mask: torch.Tensor,
-    device_lru_slots: torch.Tensor,
-    device_lru_slot_stamps: torch.Tensor,
-    max_context_len: int,
-    stamp_max: int = (1 << 24) - 1,
-    block_dim: int = 0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Select timestamp-LRU victims and update the ordered LRU state.
-
-    The operator is specialized for ``topk=2048`` and supports cache capacities
-    ``2048``, ``4096``, ``6144``, and ``8192``. ``hit_position_mask`` is the
-    capacity-sized mask returned by ``slot_map_lookup``.
-    ``device_lru_slots`` and ``device_lru_slot_stamps`` are aligned pairs in
-    descending timestamp order and are updated in place. The returned tuple is
-    ``(victim_slots, miss_counts)``. ``victim_slots`` contains one physical
-    victim per miss, or ``-1`` for hit/invalid top-k positions of valid
-    requests. Output rows for invalid request IDs are undefined and must be
-    ignored by the caller's valid mask.
-
-    Request IDs start at row 0. Valid request rows in one launch must be unique
-    because one AIV owns each row.
-    """
-    _validate_fused_timestamp_lru_inputs(
-        req_indices,
-        topk_indices,
-        device_token_pos,
-        hit_position_mask,
-        device_lru_slots,
-        device_lru_slot_stamps,
-    )
-    return torch.ops.npu.fused_timestamp_lru_metadata_update(
-        req_indices,
-        topk_indices,
-        device_token_pos,
-        hit_position_mask,
-        device_lru_slots,
-        device_lru_slot_stamps,
-        int(max_context_len),
-        int(stamp_max),
-        int(block_dim),
-    )
-
-
 def fused_timestamp_lru_metadata_update_with_probation(
     req_indices: torch.Tensor,
     topk_indices: torch.Tensor,
@@ -315,8 +268,12 @@ def fused_timestamp_lru_metadata_update_with_probation(
     Hits are reset to age zero. Each newly filled miss slot starts at
     ``probation_age`` and is stably inserted into the descending-age LRU order,
     so a one-time miss does not immediately receive the same MRU status as a
-    hit. Passing ``probation_age=0`` is behaviorally compatible with
-    :func:`fused_timestamp_lru_metadata_update`.
+    hit. Passing ``probation_age=0`` inserts new fills at MRU age zero.
+
+    The operator is specialized for ``topk=2048`` and supports cache capacities
+    ``2048``, ``4096``, ``6144``, and ``8192``. It returns
+    ``(victim_slots, miss_counts)`` and updates the LRU slot/stamp tensors in
+    place. Valid request rows in one launch must be unique.
     """
     _validate_fused_timestamp_lru_inputs(
         req_indices,
@@ -359,8 +316,8 @@ def parallel_lru_metadata_write(
 ) -> None:
     """Apply victim metadata updates across all available AIVs.
 
-    This must run after ``fused_timestamp_lru_metadata_update`` on the same
-    stream, or after an explicit dependency on its outputs.
+    This must run after ``fused_timestamp_lru_metadata_update_with_probation``
+    on the same stream, or after an explicit dependency on its outputs.
     """
     tensors = {
         "slot_map": slot_map,

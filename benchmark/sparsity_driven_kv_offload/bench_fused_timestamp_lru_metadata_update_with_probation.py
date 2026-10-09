@@ -5,14 +5,14 @@ restored before the start event, so reset copies are excluded from latency.
 
 Examples:
     # Default case: batch size 32 with an exact 50% hit rate.
-    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update.py
+    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update_with_probation.py
 
     # One batch size and several hit rates.
-    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update.py \
+    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update_with_probation.py \
         --batch-size 32 --hit-rates 0.0 0.5 1.0
 
     # Sweep batch sizes with a manually selected AIV block count.
-    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update.py \
+    python benchmark/sparsity_driven_kv_offload/bench_fused_timestamp_lru_metadata_update_with_probation.py \
         --batch-sizes 1 8 16 32 --block-dim 8 --iters 100
 """
 
@@ -25,7 +25,7 @@ import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
 from sgl_kernel_npu.sparsity_driven_kv_offload import (
-    fused_timestamp_lru_metadata_update,
+    fused_timestamp_lru_metadata_update_with_probation,
     parallel_lru_metadata_write,
 )
 
@@ -43,6 +43,7 @@ class BenchmarkCase:
     miss_count: int
     max_context_len: int
     stamp_max: int
+    probation_age: int
     block_dim: int
     metadata_block_dim: int
     slot_map: torch.Tensor
@@ -69,6 +70,7 @@ def make_case(
     hit_rate,
     max_context_len,
     stamp_max,
+    probation_age,
     block_dim,
     metadata_block_dim,
     seed,
@@ -85,6 +87,8 @@ def make_case(
             f"[{CACHE_CAPACITY + 1}, {DEFAULT_STAMP_MAX}] so this benchmark "
             "can construct unique LRU ages"
         )
+    if not 0 <= probation_age <= stamp_max:
+        raise ValueError("probation_age must be in [0, stamp_max]")
     if block_dim < 0:
         raise ValueError("block_dim must be non-negative")
     if metadata_block_dim < 0:
@@ -153,6 +157,7 @@ def make_case(
         miss_count=miss_count,
         max_context_len=max_context_len,
         stamp_max=stamp_max,
+        probation_age=probation_age,
         block_dim=block_dim,
         metadata_block_dim=metadata_block_dim,
         slot_map=slot_map,
@@ -189,7 +194,7 @@ def restore_metadata_state(case):
 
 
 def run_selection_kernel(case):
-    return fused_timestamp_lru_metadata_update(
+    return fused_timestamp_lru_metadata_update_with_probation(
         case.req_indices,
         case.topk_indices,
         case.device_token_pos,
@@ -197,6 +202,7 @@ def run_selection_kernel(case):
         case.lru_slots,
         case.lru_stamps,
         max_context_len=case.max_context_len,
+        probation_age=case.probation_age,
         stamp_max=case.stamp_max,
         block_dim=case.block_dim,
     )
@@ -246,7 +252,10 @@ def build_expected(case):
     expected_stamp_by_slot = torch.arange(
         CACHE_CAPACITY + 1, 1, -1, dtype=torch.int32
     )
-    expected_stamp_by_slot[: case.hit_count + case.miss_count] = 0
+    expected_stamp_by_slot[: case.hit_count] = 0
+    expected_stamp_by_slot[
+        case.hit_count : case.hit_count + case.miss_count
+    ] = case.probation_age
     return (
         expected_victims,
         expected_slot_map,
@@ -414,6 +423,7 @@ def print_result(
         f"batch_size={case.batch_size}, hit_rate={actual_hit_rate:.6f}, "
         f"hits_per_request={case.hit_count}, "
         f"misses_per_request={case.miss_count}, "
+        f"probation_age={case.probation_age}, "
         f"selection_block_dim={case.block_dim}, "
         f"metadata_block_dim={case.metadata_block_dim}"
     )
@@ -423,7 +433,7 @@ def print_result(
         "timing=npu_event, per-kernel state reset=excluded"
     )
     print_kernel_result(
-        "fused_timestamp_lru_metadata_update",
+        "fused_timestamp_lru_metadata_update_with_probation",
         case,
         selection_samples,
     )
@@ -464,12 +474,14 @@ def parse_args():
     )
     parser.add_argument("--max-context-len", type=int, default=8192)
     parser.add_argument("--stamp-max", type=int, default=DEFAULT_STAMP_MAX)
+    parser.add_argument("--probation-age", type=int, default=0)
     parser.add_argument(
         "--block-dim",
         type=int,
         default=0,
         help=(
-            "AIV count for fused_timestamp_lru_metadata_update; 0 uses "
+            "AIV count for fused_timestamp_lru_metadata_update_with_probation; "
+            "0 uses "
             "min(batch_size, available AIV cores)."
         ),
     )
@@ -510,6 +522,8 @@ def validate_args(args):
         raise ValueError("all batch sizes must be positive")
     if any(not 0.0 <= hit_rate <= 1.0 for hit_rate in hit_rates):
         raise ValueError("all hit rates must be in [0, 1]")
+    if not 0 <= args.probation_age <= args.stamp_max:
+        raise ValueError("probation_age must be in [0, stamp_max]")
     return batch_sizes, hit_rates
 
 
@@ -527,6 +541,7 @@ def main():
                 hit_rate=hit_rate,
                 max_context_len=args.max_context_len,
                 stamp_max=args.stamp_max,
+                probation_age=args.probation_age,
                 block_dim=args.block_dim,
                 metadata_block_dim=args.metadata_block_dim,
                 seed=args.seed,

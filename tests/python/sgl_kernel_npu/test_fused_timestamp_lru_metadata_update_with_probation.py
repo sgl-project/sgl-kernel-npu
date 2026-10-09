@@ -4,14 +4,13 @@ import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
 from sgl_kernel_npu.sparsity_driven_kv_offload import (
-    fused_timestamp_lru_metadata_update,
     fused_timestamp_lru_metadata_update_with_probation,
     parallel_lru_metadata_write,
     slot_map_lookup,
 )
 
 
-def reference_fused_timestamp_lru_metadata_update(
+def reference_fused_timestamp_lru_metadata_update_with_probation(
     slot_map,
     req_indices,
     topk_indices,
@@ -100,7 +99,7 @@ def reference_fused_timestamp_lru_metadata_update(
     )
 
 
-class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
+class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
     TOPK = 2048
     CAPACITY = 4096
     MAX_CONTEXT_LEN = 8192
@@ -179,7 +178,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
         unused_row_stamps = self.lru_stamps[0].clone()
         unused_row_tokens = self.slot_tokens[0].clone()
 
-        victims, miss_counts = fused_timestamp_lru_metadata_update(
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
             req_indices,
             topk,
             device_pos,
@@ -187,6 +186,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             self.lru_slots,
             self.lru_stamps,
             max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=0,
             stamp_max=stamp_max,
         )
         parallel_lru_metadata_write(
@@ -275,7 +275,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             pos_mask_size=self.CAPACITY,
         )
 
-        victims, miss_counts = fused_timestamp_lru_metadata_update(
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
             req_indices,
             topk,
             device_pos,
@@ -283,6 +283,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             self.lru_slots,
             self.lru_stamps,
             max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=0,
         )
         parallel_lru_metadata_write(
             self.slot_map,
@@ -349,7 +350,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             expected_lru_slots,
             expected_lru_stamps,
             expected_slot_tokens,
-        ) = reference_fused_timestamp_lru_metadata_update(
+        ) = reference_fused_timestamp_lru_metadata_update_with_probation(
             slot_map_before,
             req_indices,
             topk,
@@ -360,7 +361,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             max_context_len=self.MAX_CONTEXT_LEN,
         )
 
-        victims, miss_counts = fused_timestamp_lru_metadata_update(
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
             req_indices,
             topk,
             device_pos,
@@ -368,6 +369,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             self.lru_slots,
             self.lru_stamps,
             max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=0,
         )
         parallel_lru_metadata_write(
             self.slot_map,
@@ -426,7 +428,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             expected_lru_slots,
             expected_lru_stamps,
             expected_slot_tokens,
-        ) = reference_fused_timestamp_lru_metadata_update(
+        ) = reference_fused_timestamp_lru_metadata_update_with_probation(
             slot_map_before,
             req_indices,
             topk,
@@ -437,7 +439,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             max_context_len=self.MAX_CONTEXT_LEN,
         )
 
-        victims, miss_counts = fused_timestamp_lru_metadata_update(
+        victims, miss_counts = fused_timestamp_lru_metadata_update_with_probation(
             req_indices,
             topk,
             device_pos,
@@ -445,6 +447,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             self.lru_slots,
             self.lru_stamps,
             max_context_len=self.MAX_CONTEXT_LEN,
+            probation_age=0,
             block_dim=1,
         )
         parallel_lru_metadata_write(
@@ -511,7 +514,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             expected_lru_slots,
             expected_lru_stamps,
             expected_slot_tokens,
-        ) = reference_fused_timestamp_lru_metadata_update(
+        ) = reference_fused_timestamp_lru_metadata_update_with_probation(
             slot_map,
             req_indices,
             topk,
@@ -590,7 +593,7 @@ class TestFusedTimestampLruMetadataUpdate(unittest.TestCase):
             expected_lru_slots,
             expected_lru_stamps,
             expected_slot_tokens,
-        ) = reference_fused_timestamp_lru_metadata_update(
+        ) = reference_fused_timestamp_lru_metadata_update_with_probation(
             slot_map_before,
             req_indices,
             topk,

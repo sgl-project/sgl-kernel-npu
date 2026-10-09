@@ -218,12 +218,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int pos_mask_size=0, int block_dim=0) -> ()");
 
     m.def(
-        "fused_timestamp_lru_metadata_update(Tensor req_indices, Tensor topk_indices, "
-        "Tensor device_token_pos, Tensor hit_position_mask, Tensor(a!) device_lru_slots, "
-        "Tensor(b!) device_lru_slot_stamps, int max_context_len, "
-        "int stamp_max=16777215, int block_dim=0) -> (Tensor, Tensor)");
-
-    m.def(
         "fused_timestamp_lru_metadata_update_with_probation(Tensor req_indices, Tensor topk_indices, "
         "Tensor device_token_pos, Tensor hit_position_mask, Tensor(a!) device_lru_slots, "
         "Tensor(b!) device_lru_slot_stamps, int max_context_len, int probation_age, "
@@ -386,9 +380,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
-
-    m.impl("fused_timestamp_lru_metadata_update",
-           TORCH_FN(sglang::npu_kernel::fused_timestamp_lru_metadata_update));
 
     m.impl("fused_timestamp_lru_metadata_update_with_probation",
            TORCH_FN(sglang::npu_kernel::fused_timestamp_lru_metadata_update_with_probation));
