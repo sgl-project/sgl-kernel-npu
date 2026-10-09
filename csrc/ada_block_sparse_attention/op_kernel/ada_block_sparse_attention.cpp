@@ -33,7 +33,7 @@ __aicore__ inline void RunAdaBlockSparseAttention(GM_ADDR query, GM_ADDR key, GM
     REGIST_MATMUL_OBJ(&pipe, GetSysWorkSpacePtr(), op.mm, &tilingData.bmm1TilingDataRect, op.bmm2,
                       &tilingData.bmm2TilingDataRect);
     op.Init(query, key, value, sparseMask, sparseCntTable, nullptr, nullptr, actualSeqLengths, actualSeqLengthsKV,
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, attentionOut, nullptr, GetUserWorkspace(workspace),
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, attentionOut, nullptr, workspace,
             &tilingData, tiling, &pipe);
     op.Process();
 }
@@ -41,11 +41,13 @@ __aicore__ inline void RunAdaBlockSparseAttention(GM_ADDR query, GM_ADDR key, GM
 extern "C" __global__ __aicore__ void ada_block_sparse_attention(GM_ADDR query, GM_ADDR key, GM_ADDR value,
                                                                  GM_ADDR actualSeqLengths, GM_ADDR actualSeqLengthsKV,
                                                                  GM_ADDR sparseMask, GM_ADDR sparseCntTable,
-                                                                 GM_ADDR attentionOut, GM_ADDR workspace,
-                                                                 GM_ADDR tiling, uint64_t tilingKey)
+                                                                 GM_ADDR attentionOut, uint64_t tilingKey,
+                                                                 GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    SetSysWorkspace(workspace);
+    // HAVE_WORKSPACE + HAVE_TILING requires workspace and tiling to be the
+    // final two arguments. The generated wrapper initializes system workspace
+    // and passes the user workspace to this entry point.
 #define RUN_ADA(...)                                                                                             \
     RunAdaBlockSparseAttention<__VA_ARGS__>(query, key, value, actualSeqLengths, actualSeqLengthsKV, sparseMask, \
                                             sparseCntTable, attentionOut, workspace, tiling)

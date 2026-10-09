@@ -356,8 +356,8 @@ sparse_block_estimate(const at::Tensor &query, const at::Tensor &key, c10::Optio
     auto kvLengthsDevice = device_lengths(kvLengths);
     void *qLengthsPtr = data_or_null(qLengthsDevice);
     void *kvLengthsPtr = data_or_null(kvLengthsDevice);
-    EXEC_KERNEL_CMD(sparse_block_estimate, coresAic, q, k, qLengthsPtr, kvLengthsPtr, mask, count, workspace,
-                    tilingTensor, tilingKey);
+    EXEC_KERNEL_CMD(sparse_block_estimate, coresAic, q, k, qLengthsPtr, kvLengthsPtr, mask, count, tilingKey,
+                    workspace, tilingTensor);
     return {mask, count};
 }
 

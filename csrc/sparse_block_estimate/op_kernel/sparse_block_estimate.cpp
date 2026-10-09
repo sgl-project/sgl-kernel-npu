@@ -29,7 +29,7 @@ __aicore__ inline void RunSparseBlockEstimate(GM_ADDR q, GM_ADDR k, GM_ADDR actu
     }
     SparseBlockEstimate<Type> op;
     REGIST_MATMUL_OBJ(&op.pipe, GetSysWorkSpacePtr(), op.mm, &tilingData.cubeTilingData);
-    op.Init(q, k, actualSeqLengths, actualSeqLengthsKV, sparseMask, sparseCountTable, GetUserWorkspace(workspace),
+    op.Init(q, k, actualSeqLengths, actualSeqLengthsKV, sparseMask, sparseCountTable, workspace,
             tilingData);
     op.InitBuffers();
     op.Process();
@@ -37,11 +37,13 @@ __aicore__ inline void RunSparseBlockEstimate(GM_ADDR q, GM_ADDR k, GM_ADDR actu
 
 extern "C" __global__ __aicore__ void sparse_block_estimate(GM_ADDR q, GM_ADDR k, GM_ADDR actualSeqLengths,
                                                             GM_ADDR actualSeqLengthsKV, GM_ADDR sparseMask,
-                                                            GM_ADDR sparseCountTable, GM_ADDR workspace, GM_ADDR tiling,
-                                                            uint64_t tilingKey)
+                                                            GM_ADDR sparseCountTable, uint64_t tilingKey,
+                                                            GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    SetSysWorkspace(workspace);
+    // HAVE_WORKSPACE + HAVE_TILING requires workspace and tiling to be the
+    // final two arguments. The generated wrapper initializes system workspace
+    // and passes the user workspace to this entry point.
 #define RUN_ESTIMATE(...)                                                                                         \
     RunSparseBlockEstimate<__VA_ARGS__>(q, k, actualSeqLengths, actualSeqLengthsKV, sparseMask, sparseCountTable, \
                                         workspace, tiling)

@@ -281,7 +281,7 @@ HOST_API at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at
     void *qLengthsPtr = data_or_null(qLengthsDevice);
     void *kvLengthsPtr = data_or_null(kvLengthsDevice);
     EXEC_KERNEL_CMD(ada_block_sparse_attention, blockDim, q, k, v, qLengthsPtr, kvLengthsPtr, mask, count, output,
-                    workspace, tilingTensor, tilingKey);
+                    tilingKey, workspace, tilingTensor);
     return output.view(query.sizes());
 }
 
