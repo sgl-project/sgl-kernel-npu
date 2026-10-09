@@ -125,8 +125,8 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
 
     auto wTensor = context->GetInputShape(WEIGHT_INDEX);
     OP_TILING_CHECK(wTensor == nullptr, OP_LOGE(nodeName, "wTensor is nullptr."), return ge::GRAPH_FAILED);
-    uint32_t expertPerRank = wTensor->GetStorageShape().GetDim(0);
-    uint32_t N = wTensor->GetStorageShape().GetDim(2);
+    uint32_t expertPerRank = wTensor->GetOriginShape().GetDim(0);
+    uint32_t N = wTensor->GetOriginShape().GetDim(2);
 
     uint32_t topK = expertIdxTensor->GetStorageShape().GetDim(1);
     uint32_t listLen = 1;  // 重要，传一个大tensor时使用
@@ -237,6 +237,12 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     bool expertTokensBeforeCapacityFlag = false;
     int64_t quantMode = 1;
     uint32_t aivNumInitRouting = 2 * BLOCK_NUM;
+#if defined(__DAV_C310__)
+    // Routing and the mixed AIC/AIV kernel must launch the same number of
+    // workers. A5 is not the A3 configuration of 20 AICs / 40 AIVs.
+    aivNumInitRouting = aivNum;
+    ubSize = info.totalUbSize - 256;
+#endif
     moeInitRoutingQuantV2TilingBase.DoTiling(info.M, info.K, info.topK, expertCapacity, expertNum, activeNum,
                                              dropPadMode, expertTokensCountOrCumsumFlag, expertTokensBeforeCapacityFlag,
                                              inuptXDtypeSize, quantMode, scaleDim0, aivNumInitRouting, ubSize);
@@ -259,6 +265,13 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     tilingData->cocTiling.initRoutingQuantTilingKey = initRoutingQuantTilingKey;
 
     uint64_t maxWindowSize = GetMaxWindowSize();
+#if defined(__DAV_C310__)
+    // Match the data-window prefix reserved by CANN's A5 HCCL accessors.
+    uint64_t reservedWindowSize = MB_SIZE + (info.worldSize - 1) * 1024UL;
+    OP_TILING_CHECK(maxWindowSize <= reservedWindowSize,
+                    OP_LOGE(nodeName, "HCCL window is smaller than the A5 state area."), return ge::GRAPH_FAILED);
+    maxWindowSize = (maxWindowSize - reservedWindowSize) / 512 * 512;
+#endif
     uint64_t actualSize = static_cast<uint64_t>(info.M) * info.topK * info.K * sizeof(int8_t) * 3 + 10 * MB_SIZE;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
@@ -294,6 +307,9 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint32_t opType = 8U;
     std::string algConfig = "AlltoAll=level0:fullmesh;level1:pairwise";
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(group, opType, algConfig);
+#if defined(__DAV_C310__)
+    mc2CcTilingConfig.SetCommEngine(3);
+#endif
     mc2CcTilingConfig.GetTiling(tilingData->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tilingData->mc2CcTiling);
 
