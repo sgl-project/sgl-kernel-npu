@@ -353,10 +353,8 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = info.hStart;
     uint32_t hSize = info.dealKSize;
-    // [bitwise determinism] Fixed canonical K-block start: a core-dependent stagger would make the mm1
-    // accumulation order (and hence the written compress-state) depend on which core handles the call,
-    // leaving a residual bitwise diff across call splittings. Pin hIdxStart to 0.
-    uint32_t hIdxStart = 0;
+    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
+                         K_L1_BASE;  // the h loop start differs within each group of cores
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction

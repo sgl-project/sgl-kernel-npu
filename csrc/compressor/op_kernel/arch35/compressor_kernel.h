@@ -208,29 +208,23 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::SplitK()
 {
-    // [bitwise determinism] Never split K. The K-axis split (retained below for revert) changes the mm1
-    // reduction order depending on call length (full prefill vs prefix+suffix), so the same absolute position
-    // writes bitwise-different compress-state -> index-K flips across the cache-hit boundary. Forcing kBaseNum
-    // == 1 keeps the accumulation order call- and core-independent (trades short-call AIC utilization for
-    // determinism). kBaseNum is seeded to 1 in InitTilingData and left untouched here.
-    // --- original K-split decision (commented out for revert) ---
-    // uint32_t mSize = 0;
-    // for (uint32_t i = 0; i < constInfo.batchSize; i++) {
-    //     uint32_t bSeqUsed = tools_.GetSeqLength(i);
-    //     // get the size of m
-    //     mSize += bSeqUsed;
-    // }
-    //
-    // uint32_t mBaseNum = CeilDivT(mSize, constInfo.mBaseSize);
-    // if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum) {
-    //     constInfo.kBaseNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
-    //     uint32_t kAlignSize = CeilDivT(
-    //         Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
-    //     constInfo.kBaseSize = Trunc(kAlignSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T)));
-    //     // when splitting the m axis cannot fill all cores, do not split the m axis (splitting m is a bit complex)
-    //     constInfo.mGroupNum = 1;     // all cores act as one group for m-axis processing
-    //     constInfo.mCurGroupIdx = 0;  // only one group
-    // }
+    uint32_t mSize = 0;
+    for (uint32_t i = 0; i < constInfo.batchSize; i++) {
+        uint32_t bSeqUsed = tools_.GetSeqLength(i);
+        // get the size of m
+        mSize += bSeqUsed;
+    }
+
+    uint32_t mBaseNum = CeilDivT(mSize, constInfo.mBaseSize);
+    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum) {
+        constInfo.kBaseNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
+        uint32_t kAlignSize = CeilDivT(
+            Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
+        constInfo.kBaseSize = Trunc(kAlignSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T)));
+        // when splitting the m axis cannot fill all cores, do not split the m axis (splitting m is a bit complex)
+        constInfo.mGroupNum = 1;     // all cores act as one group for m-axis processing
+        constInfo.mCurGroupIdx = 0;  // only one group
+    }
     // fixed for each round; after precomputation the main loop reuses it directly
     if (constInfo.kBaseNum > 1) {
         kStartIdx_ = constInfo.aiCoreIdx / constInfo.dBasicBlockNum;
