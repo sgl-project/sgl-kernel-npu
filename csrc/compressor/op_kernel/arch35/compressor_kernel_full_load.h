@@ -39,7 +39,8 @@ public:
                                 __gm__ uint8_t *stateCache, __gm__ uint8_t *ape, __gm__ uint8_t *normWeight,
                                 __gm__ uint8_t *ropeSin, __gm__ uint8_t *ropeCos, __gm__ uint8_t *stateBlockTable,
                                 __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
-                                __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *workspace);
+                                __gm__ uint8_t *isPrefixSuffix, __gm__ uint8_t *cmpKvOut,
+                                __gm__ uint8_t *workspace);
     __aicore__ inline void Process();
 
 private:
@@ -118,7 +119,8 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::Init(__gm__ uint8_t *x, _
                                                             __gm__ uint8_t *ropeSin, __gm__ uint8_t *ropeCos,
                                                             __gm__ uint8_t *stateBlockTable, __gm__ uint8_t *cuSeqlens,
                                                             __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
-                                                            __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *workspace)
+                                                            __gm__ uint8_t *isPrefixSuffix, __gm__ uint8_t *cmpKvOut,
+                                                            __gm__ uint8_t *workspace)
 {
     if ASCEND_IS_AIV {
         constInfo.aiCoreIdx = GetBlockIdx() / 2;
@@ -130,7 +132,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::Init(__gm__ uint8_t *x, _
     // init tools
     tools_.toolParams_.seqSize = tilingData_->baseParams.seqSize;
     tools_.toolParams_.cmpRatio = tilingData_->baseParams.cmpRatio;
-    tools_.Init(startPos, seqUsed, cuSeqlens);
+    tools_.Init(startPos, seqUsed, cuSeqlens, isPrefixSuffix);
 
     // remove invalid batches at the tail
     for (; constInfo.batchSize > 0; --constInfo.batchSize) {

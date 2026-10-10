@@ -102,6 +102,8 @@ void CompressorTiling::ConvertOptionalParams(sglang::ge_helper::TilingContext &c
     compressorContext.seqUsed.shape = context.GetOptionalInputShape(SEQ_USED_INPUT_INDEX);
     compressorContext.startPos.desc = context.GetOptionalInputDesc(START_POS_INPUT_INDEX);
     compressorContext.startPos.shape = context.GetOptionalInputShape(START_POS_INPUT_INDEX);
+    compressorContext.isPrefixSuffix.desc = context.GetOptionalInputDesc(IS_PREFIX_SUFFIX_INPUT_INDEX);
+    compressorContext.isPrefixSuffix.shape = context.GetOptionalInputShape(IS_PREFIX_SUFFIX_INPUT_INDEX);
 }
 
 ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContext &context,
@@ -432,6 +434,7 @@ ge::graphStatus CompressorTiling::CheckSinglePara() const
         ge::GRAPH_SUCCESS != CheckSingleParaRopeSin() || ge::GRAPH_SUCCESS != CheckSingleParaRopeCos() ||
         ge::GRAPH_SUCCESS != CheckSingleParaStateBlockTable() || ge::GRAPH_SUCCESS != CheckSingleParaCuSeqlens() ||
         ge::GRAPH_SUCCESS != CheckSingleParaSeqused() || ge::GRAPH_SUCCESS != CheckSingleParaStartPos() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaIsPrefixSuffix() ||
         ge::GRAPH_SUCCESS != CheckSingleParaCmpKv() || ge::GRAPH_SUCCESS != CheckSingleParaRopeHeadDim() ||
         ge::GRAPH_SUCCESS != CheckSingleParaCmpRatio() || ge::GRAPH_SUCCESS != CheckSingleParaCoff() ||
         ge::GRAPH_SUCCESS != CheckSingleParaNormEps() || ge::GRAPH_SUCCESS != CheckSingleParaRotaryMode() ||
@@ -704,6 +707,18 @@ ge::graphStatus CompressorTiling::CheckSingleParaStartPos() const
     return ge::GRAPH_SUCCESS;
 }
 
+ge::graphStatus CompressorTiling::CheckSingleParaIsPrefixSuffix() const
+{
+    if (context_->isPrefixSuffix.desc == nullptr) {
+        return ge::GRAPH_SUCCESS;
+    }
+    if (ge::GRAPH_SUCCESS != CheckDtypeSupport(context_->isPrefixSuffix.desc, IS_PREFIX_SUFFIX_NAME) ||
+        ge::GRAPH_SUCCESS != CheckDimNumSupport(context_->isPrefixSuffix.shape, IS_PREFIX_SUFFIX_NAME)) {
+        return ge::GRAPH_FAILED;
+    }
+    return ge::GRAPH_SUCCESS;
+}
+
 ge::graphStatus CompressorTiling::CheckSingleParaCmpKv() const
 {
     if (context_->cmpKv.desc == nullptr) {
@@ -894,6 +909,8 @@ ge::graphStatus CompressorTiling::CheckShapeConsistency() const
                                                       "batchSize", baseParams_->batchSize) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("startPos", context_->startPos.shape, COMPRESSOR_DIM_INDEX_0,
                                                       "batchSize", baseParams_->batchSize) ||
+        ge::GRAPH_SUCCESS != LogErrorShapeConsistency("isPrefixSuffix", context_->isPrefixSuffix.shape,
+                                                      COMPRESSOR_DIM_INDEX_0, "batchSize", baseParams_->batchSize) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("wkv", context_->wkv.shape, COMPRESSOR_DIM_INDEX_1, "hiddenSize",
                                                       baseParams_->hiddenSize) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("wgate", context_->wgate.shape, COMPRESSOR_DIM_INDEX_1,

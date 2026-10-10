@@ -33,10 +33,12 @@ class CompressorTools
 public:
     __aicore__ inline CompressorTools() {}
 
-    __aicore__ inline void Init(__gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos);
+    __aicore__ inline void Init(__gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
+                                __gm__ uint8_t *isPrefixSuffix);
 
     __aicore__ inline uint32_t GetSeqUsed(uint32_t bIdx);
     __aicore__ inline uint32_t GetStartPos(uint32_t bIdx);
+    __aicore__ inline uint32_t GetIsPrefixSuffix(uint32_t bIdx);
     __aicore__ inline uint32_t GetSeqLength(uint32_t bIdx);
     __aicore__ inline uint32_t GetTIdxByBatch(uint32_t bIdx);
 
@@ -46,14 +48,16 @@ public:
 
 private:
     bool isExistStartPos_ = false;
+    bool isExistIsPrefixSuffix_ = false;
     GlobalTensor<int32_t> cuSeqlensGm_;
     GlobalTensor<int32_t> sequsedGm_;
     GlobalTensor<int32_t> startPosGm_;
+    GlobalTensor<int32_t> isPrefixSuffixGm_;
 };
 
 template <typename COMP>
 __aicore__ inline void CompressorTools<COMP>::Init(__gm__ uint8_t *startPos, __gm__ uint8_t *seqUsed,
-                                                   __gm__ uint8_t *cuSeqlens)
+                                                   __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *isPrefixSuffix)
 {
     isExistStartPos_ = (startPos != nullptr);
     if (isExistStartPos_) {
@@ -63,6 +67,11 @@ __aicore__ inline void CompressorTools<COMP>::Init(__gm__ uint8_t *startPos, __g
     isExistSeqUsed_ = (seqUsed != nullptr);
     if (isExistSeqUsed_) {
         sequsedGm_.SetGlobalBuffer((__gm__ int32_t *)seqUsed);
+    }
+
+    isExistIsPrefixSuffix_ = (isPrefixSuffix != nullptr);
+    if (isExistIsPrefixSuffix_) {
+        isPrefixSuffixGm_.SetGlobalBuffer((__gm__ int32_t *)isPrefixSuffix);
     }
 
     if constexpr (COMP::xLayout == X_LAYOUT::TH) {
@@ -89,6 +98,19 @@ __aicore__ inline uint32_t CompressorTools<COMP>::GetStartPos(uint32_t bIdx)
 {
     if (isExistStartPos_) {
         return (uint32_t)startPosGm_.GetValue(bIdx);
+    } else {
+        return 0;
+    }
+}
+
+template <typename COMP>
+__aicore__ inline uint32_t CompressorTools<COMP>::GetIsPrefixSuffix(uint32_t bIdx)
+{
+    // Per-batch request-level flag: 1 iff that request's prefix was restored
+    // from the radix cache. Absent input (empty tensor) => 0, so the gate is off
+    // and the original MISS code path runs verbatim.
+    if (isExistIsPrefixSuffix_) {
+        return (uint32_t)isPrefixSuffixGm_.GetValue(bIdx);
     } else {
         return 0;
     }

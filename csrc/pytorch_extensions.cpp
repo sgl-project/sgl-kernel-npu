@@ -113,7 +113,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
         "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
         "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
-        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
+        "Tensor? start_pos=None, Tensor? is_prefix_suffix=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
         "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
         "int state_cache_stride_dim0=0) -> Tensor");
 

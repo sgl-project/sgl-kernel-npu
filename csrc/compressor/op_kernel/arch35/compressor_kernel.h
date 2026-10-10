@@ -40,7 +40,7 @@ public:
                                 __gm__ uint8_t *stateCache, __gm__ uint8_t *ape, __gm__ uint8_t *normWeight,
                                 __gm__ uint8_t *ropeSin, __gm__ uint8_t *ropeCos, __gm__ uint8_t *stateBlockTable,
                                 __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
-                                __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *workspace);
+                                __gm__ uint8_t *isPrefixSuffix, __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *workspace);
     __aicore__ inline void Process();
 
 private:
@@ -49,6 +49,10 @@ private:
     // ================================Process functions================================
     __aicore__ inline void InitTilingData();
     __aicore__ inline void SplitK();
+    // true iff ANY request in the batch has its prefix restored from the radix
+    // cache (is_prefix_suffix != 0); the request-level gate the kernel cannot
+    // derive from shape/x/carry alone.
+    __aicore__ inline bool IsPrefixSuffixCall();
     // get the number of base blocks
     __aicore__ inline uint32_t GetLoopTimes();
     __aicore__ inline void SkipInvalidBatch(BatchInfo &batchInfo);
@@ -125,8 +129,8 @@ __aicore__ inline void CompressorKernel<COMP>::Init(__gm__ uint8_t *x, __gm__ ui
                                                     __gm__ uint8_t *normWeight, __gm__ uint8_t *ropeSin,
                                                     __gm__ uint8_t *ropeCos, __gm__ uint8_t *stateBlockTable,
                                                     __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed,
-                                                    __gm__ uint8_t *startPos, __gm__ uint8_t *cmpKvOut,
-                                                    __gm__ uint8_t *workspace)
+                                                    __gm__ uint8_t *startPos, __gm__ uint8_t *isPrefixSuffix,
+                                                    __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *workspace)
 {
     if ASCEND_IS_AIV {
         constInfo.aiCoreIdx = GetBlockIdx() / 2;
@@ -137,7 +141,7 @@ __aicore__ inline void CompressorKernel<COMP>::Init(__gm__ uint8_t *x, __gm__ ui
     // init tools
     tools_.toolParams_.seqSize = tilingData_->baseParams.seqSize;
     tools_.toolParams_.cmpRatio = tilingData_->baseParams.cmpRatio;
-    tools_.Init(startPos, seqUsed, cuSeqlens);
+    tools_.Init(startPos, seqUsed, cuSeqlens, isPrefixSuffix);
 
     // remove invalid batches at the tail
     for (; constInfo.batchSize > 0; --constInfo.batchSize) {
@@ -207,8 +211,36 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
 }
 
 template <typename COMP>
+__aicore__ inline bool CompressorKernel<COMP>::IsPrefixSuffixCall()
+{
+    for (uint32_t i = 0; i < constInfo.batchSize; i++) {
+        if (tools_.GetIsPrefixSuffix(i) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::SplitK()
 {
+    // MISS-safe gate (Option B): when any request in the batch had its prefix
+    // restored from the radix cache (is_prefix_suffix != 0), force the
+    // single-group / no-K-split path so the HIT decode computation is
+    // deterministic and independent of the token-count-dependent K split. When
+    // the gate is false (all zeros / absent input), this branch is NOT taken and
+    // the original code path below runs verbatim => the MISS output is
+    // byte-preserved by construction.
+    if (IsPrefixSuffixCall()) {
+        constInfo.kBaseNum = 1;
+        constInfo.mGroupNum = 1;
+        constInfo.mCurGroupIdx = 0;
+        kStartIdx_ = 0;
+        dealKSize_ = constInfo.hSize;
+        hStart_ = 0;
+        return;
+    }
+
     uint32_t mSize = 0;
     for (uint32_t i = 0; i < constInfo.batchSize; i++) {
         uint32_t bSeqUsed = tools_.GetSeqLength(i);

@@ -82,9 +82,10 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
                                const at::Tensor &rope_sin, const at::Tensor &rope_cos,
                                const c10::optional<at::Tensor> &state_block_table,
                                const c10::optional<at::Tensor> &cu_seqlens, const c10::optional<at::Tensor> &seqused,
-                               const c10::optional<at::Tensor> &start_pos, int64_t rope_head_dim, int64_t cmp_ratio,
-                               int64_t coff, double norm_eps, int64_t rotary_mode, int64_t cache_mode,
-                               int64_t state_cache_stride_dim0)
+                               const c10::optional<at::Tensor> &start_pos,
+                               const c10::optional<at::Tensor> &is_prefix_suffix, int64_t rope_head_dim,
+                               int64_t cmp_ratio, int64_t coff, double norm_eps, int64_t rotary_mode,
+                               int64_t cache_mode, int64_t state_cache_stride_dim0)
 {
     using namespace optiling;
     TORCH_CHECK(x.device().type() == DEVICE_TYPE, "compressor: x must be an NPU tensor");
@@ -131,6 +132,7 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     context->RegisterTensor(cu_seqlens, true);
     context->RegisterTensor(seqused, true);
     context->RegisterTensor(start_pos, true);
+    context->RegisterTensor(is_prefix_suffix, true);
     context->RegisterTensor(cmp_kv, false);
 
     // ---- 4) tiling ----
@@ -201,9 +203,14 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     at::Tensor startPosT = start_pos.has_value()
                                ? start_pos.value()
                                : at::empty({0}, at::TensorOptions().dtype(at::kInt).device(x.options().device()));
+    at::Tensor isPrefixSuffixT =
+        is_prefix_suffix.has_value()
+            ? is_prefix_suffix.value()
+            : at::empty({0}, at::TensorOptions().dtype(at::kInt).device(x.options().device()));
 
     EXEC_KERNEL_CMD(compressor, blockDim, x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos,
-                    stateBlockTable, cuSeqlensT, seqUsedT, startPosT, cmp_kv, state_cache, workspace, tilingTensor);
+                    stateBlockTable, cuSeqlensT, seqUsedT, startPosT, isPrefixSuffixT, cmp_kv, state_cache, workspace,
+                    tilingTensor);
     return cmp_kv;
 }
 }  // namespace npu_kernel
