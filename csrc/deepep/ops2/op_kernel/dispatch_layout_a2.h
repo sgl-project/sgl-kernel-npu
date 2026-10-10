@@ -121,6 +121,8 @@ public:
             MultiCoreCompute();
         } else {
             SyncAll<true>();
+            // Match the active cores' scratch-to-output reuse barrier.
+            SyncAll<true>();
         }
     }
 
@@ -257,6 +259,10 @@ private:
         DataCopyPad(tempServerGM_[coreIdx_ * serverNum_], tempServerTensor, tempServerDataCopyParams);
         SyncFunc<AscendC::HardEvent::MTE3_V>();
         SyncFunc<AscendC::HardEvent::MTE3_S>();
+        // tempExpertGM_ and tempServerGM_ alias expertRankTokenIdxGM_.
+        // Every core must finish reading and clearing its prefix scratch before
+        // any core writes the final per-expert token offsets into that storage.
+        SyncAll<true>();
         for (int j = 0; j < serverNum_; ++j) {
             int value = localTokenServerUniqCountTensor.GetValue(j);
             tempServerTensor.SetValue(j, value);
