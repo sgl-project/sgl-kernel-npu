@@ -779,6 +779,11 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
         while (copyFinishRowCnt < seqCnt) {
             uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
             uint32_t copyRowCount = 1;
+            // EXPLICIT uses a flat slot layout (stateCacheStrideDim0 ==
+            // blockSize * 2 * coff * headDim): consecutive slot indices are
+            // memory-contiguous even across a block boundary, so the run-merge
+            // test `nextStateLoc == stateLoc + copyRowCount` is exact and no
+            // CONTINUOUS-style per-block row clamp is needed here.
             while (copyFinishRowCnt + copyRowCount < seqCnt) {
                 uint64_t nextStateLoc =
                     static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
@@ -856,6 +861,11 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
         while (copyFinishRowCnt < seqCnt) {
             uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
             uint32_t copyRowCount = 1;
+            // EXPLICIT uses a flat slot layout (stateCacheStrideDim0 ==
+            // blockSize * 2 * coff * headDim): consecutive slot indices are
+            // memory-contiguous even across a block boundary, so the run-merge
+            // test `nextStateLoc == stateLoc + copyRowCount` is exact and no
+            // CONTINUOUS-style per-block row clamp is needed here.
             while (copyFinishRowCnt + copyRowCount < seqCnt) {
                 uint64_t nextStateLoc =
                     static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn + copyRowCount));
@@ -918,6 +928,16 @@ __aicore__ inline void CompressorBlockVector<COMP>::SaveState(const LocalTensor<
             compressSeqIdx > (coff_ - 1U) * cmpRatio_ ? compressSeqIdx - (coff_ - 1U) * cmpRatio_ : 0U;
         if (pad != 0U) {
             writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
+        }
+        // [C1] Prefix-cache suffix path: persist the FULL trailing ringSize rows of
+        // the last page so a page-boundary resume never re-reads an unwritten tail.
+        // Gated on the request-level flag (Option B, edb6398) so the MISS full
+        // prefill keeps its 4-row tail clip byte-for-byte (README §212/§230).
+        if constexpr (COMP::coff == COFF::OVERLAP) {
+            if (tools_.GetIsPrefixSuffix(sliceInfo.bIdx) != 0U) {
+                const uint32_t ringSize = constInfo_.blockSize;
+                writeSeqStartIdx = batchEnd > ringSize ? batchEnd - ringSize : 0U;
+            }
         }
         if constexpr (COMP::coff == COFF::OVERLAP) {
             // A resume at a state page boundary re-reads the page's trailing
