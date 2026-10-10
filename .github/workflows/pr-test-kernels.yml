@@ -54,6 +54,9 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/qsa_*.py
+              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_qsa_*.py
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
@@ -87,6 +90,9 @@ jobs:
               - tests/python/sgl_kernel_npu/test_apply_token_bitmask.py
               - tests/python/sgl_kernel_npu/test_argmax_softmax_prob.py
             mamba:
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/short_conv.py
+              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_short_conv.py
               - csrc/causal_conv1d/**
               - csrc/causal_conv1d_update/**
               - python/sgl_kernel_npu/sgl_kernel_npu/mamba/**
@@ -107,6 +113,10 @@ jobs:
               - tests/python/sgl_kernel_npu/test_solve_tril.py
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
             fused:
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/hc.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/hc_core.py
+              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_hc.py
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**
               - csrc/lora/**
