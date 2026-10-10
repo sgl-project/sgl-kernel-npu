@@ -1,6 +1,5 @@
 import os
-from enum import IntEnum
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import deep_ep_cpp
 import torch
@@ -9,18 +8,18 @@ import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
 from .ep_strategy import (
+    FusedEPCommStrategy,
+    FuseMode,
     LowLatencyStrategy,
     NormalStrategy,
     StrategyMap,
+    get_fused_strategy_for_mode,
     get_low_latency_strategy,
     get_normal_strategy,
 )
 from .utils import EventOverlap, _resolve_quant_mode, log_parameters
 
-
-class FuseMode(IntEnum):
-    FUSED_DEEP_MOE = 1
-    DISPATCH_FFN_COMBINE = 2
+TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
 
 
 class Buffer:
@@ -96,6 +95,9 @@ class Buffer:
         # Initialize low latency mode strategy
         self._init_low_latency_strategy(low_latency_strategy)
 
+        # Initialize fused MoE strategy
+        self._init_fused_strategy()
+
     def _init_normal_strategy(self, strategy: Union[str, NormalStrategy]):
         """Initialize normal mode communication strategy"""
         if isinstance(strategy, NormalStrategy):
@@ -124,6 +126,14 @@ class Buffer:
             init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)
+
+    def _init_fused_strategy(self) -> None:
+        """Initialize one strategy for each fused MoE mode."""
+        self._fused_strategies: Dict[FuseMode, FusedEPCommStrategy] = {}
+        for fuse_mode in FuseMode:
+            strategy_cls = get_fused_strategy_for_mode(fuse_mode)
+            strategy = strategy_cls(runtime=self.runtime, group=self.group)
+            self._fused_strategies[fuse_mode] = strategy
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -771,10 +781,10 @@ class Buffer:
         x: torch.Tensor,
         topk_idx: torch.Tensor,
         topk_weights: torch.Tensor,
-        gmm1_permuted_weight: torch.Tensor,
-        gmm1_permuted_weight_scale: torch.Tensor,
-        gmm2_weight: torch.Tensor,
-        gmm2_weight_scale: torch.Tensor,
+        gmm1_permuted_weight: TensorOrTensors,
+        gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+        gmm2_weight: TensorOrTensors,
+        gmm2_weight_scale: Optional[TensorOrTensors],
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
         quant_mode: int = 1,
@@ -782,18 +792,23 @@ class Buffer:
         activation: Optional[str] = "swiglu",
         beta: Optional[float] = 4.0,
         linear_beta: Optional[float] = 25.0,
+        l1_bias: Optional[TensorOrTensors] = None,
+        l2_bias: Optional[TensorOrTensors] = None,
         profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
 
-        Two fuse modes are available via the FuseMode enum:
+        Three fuse modes are available via the FuseMode enum:
         - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
           InitRouting + AllToAll + GMM1 + DequantActivationQuant + GMM2 + Dequant
           + Unpermute/Combine in a single AscendC kernel.
         - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
           InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
           + Combine in a single AscendC kernel, using a different internal fusion strategy.
+        - FuseMode.MEGA_MOE (3): Fusion via `cann_ops_transformer.ops.mega_moe`.
+          Dispatch + GMM1 + activation + quant + GMM2 + Combine handled by the
+          mega_moe op, with an HCCL symmetric buffer managed by its strategy.
 
         Arguments:
             x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
@@ -807,32 +822,44 @@ class Buffer:
                 For FUSED_DEEP_MOE mode, requires tile-N permuted layout to fit
                 Grouped MatMul (see `reshape_fusion_gmm_weight` in test code for
                 reference implementation). For DISPATCH_FFN_COMBINE mode, standard
-                NZ format without permutation.
+                NZ format without permutation. For MEGA_MOE mode, a `list[Tensor]`
+                of per-expert weights in mega_moe layout.
             gmm1_permuted_weight_scale: quantization scale tensor for the first stage.
                 For FUSED_DEEP_MOE mode, `torch.float32` dtype (auto-converted to
                 float internally). For DISPATCH_FFN_COMBINE mode, `torch.int64` dtype
                 (float32 scale values reinterpreted as int64 bit patterns; NOT
                 auto-converted by this method — the caller must perform the conversion).
             gmm2_weight: weight tensor for the second stage (down-projection).
+                For MEGA_MOE mode, requires a non-empty `list[Tensor]` of
+                per-expert tensors in mega_moe layout.
             gmm2_weight_scale: quantization scale tensor for the second stage.
                 Same dtype rules as gmm1_permuted_weight_scale.
             num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
                 number of tokens to dispatch per rank, used for buffer/memory allocation.
                 For DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
-                dispatch (typically max_bs * num_ranks * topk). All ranks must hold the
-                same value.
+                dispatch (typically max_bs * num_ranks * topk). For MEGA_MOE mode, the
+                capacity that inputs are padded to (with an active mask marking real
+                tokens). All ranks must hold the same value.
             num_experts: the total number of global experts.
             quant_mode: quantization mode. Supported values: 0 = no quantization (BF16),
                 1 = INT8 (default). FP8 will be supported in A5 release.
             fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
-                values 1 or 2 directly.
+                values 1, 2 or 3 directly.
             activation: activation used after GMM1. ``"swiglu"`` selects
-                SwiGLU (default); ``"situ"`` selects SiTU.
+                SwiGLU (default); ``"situ"`` selects SiTU. For MEGA_MOE mode,
+                ``"situ"`` is mapped to ``"situglu"``; other values are passed
+                through to the mega_moe op and validated against its own
+                whitelist. DISPATCH_FFN_COMBINE uses SwiGLU and rejects SiTU.
             beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
             linear_beta: SiTU up-projection soft-saturation bound. A positive
                 value enables the transform; ``None`` leaves the up branch unchanged.
+                Both are forwarded to MEGA_MOE only for SiTU.
+            l1_bias: optional bias for the first GMM stage. Only consumed by
+                MEGA_MOE mode.
+            l2_bias: optional bias for the second GMM stage. Only consumed by
+                MEGA_MOE mode.
             profile_enable: whether to enable fused-kernel profiling (default: False).
 
         Notes:
@@ -856,45 +883,33 @@ class Buffer:
                 expert_token_nums: `torch.Tensor`, a 1D tensor of type `torch.int32`,
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
+
+            For fuse_mode=MEGA_MOE:
+                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output
+                    (sliced back from the padded capacity).
+                expert_token_nums: `torch.Tensor`, shape `[num_local_experts]`,
+                    indicating the number of tokens received by each local expert
+                    on this rank.
         """
-        topk_ids = topk_idx.int()
-        if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            output, ep_recv_count = self.runtime.fused_deep_moe(
-                x,
-                topk_ids,
-                gmm1_permuted_weight,
-                gmm1_permuted_weight_scale,
-                gmm2_weight,
-                gmm2_weight_scale,
-                topk_weights,
-                num_max_dispatch_tokens_per_rank,
-                num_experts,
-                quant_mode,
-                profile_enable,
-                activation,
-                beta,
-                linear_beta,
-            )
-            return output, ep_recv_count
-        elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
-            if activation == "situ":
-                raise NotImplementedError(
-                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
-                )
-            # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
-            max_output_size = num_max_dispatch_tokens_per_rank
-            output, expert_token_nums = self.runtime.dispatch_ffn_combine(
-                x,
-                topk_ids,
-                gmm1_permuted_weight,
-                gmm1_permuted_weight_scale,
-                gmm2_weight,
-                gmm2_weight_scale,
-                topk_weights,
-                max_output_size,
-                num_experts,
-                quant_mode,
-            )
-            return output, expert_token_nums
-        else:
+
+        if fuse_mode not in self._fused_strategies:
             raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
+
+        return self._fused_strategies[fuse_mode].fused_moe(
+            x=x,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            gmm1_permuted_weight=gmm1_permuted_weight,
+            gmm1_permuted_weight_scale=gmm1_permuted_weight_scale,
+            gmm2_weight=gmm2_weight,
+            gmm2_weight_scale=gmm2_weight_scale,
+            num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            num_experts=num_experts,
+            quant_mode=quant_mode,
+            activation=activation,
+            beta=beta,
+            linear_beta=linear_beta,
+            l1_bias=l1_bias,
+            l2_bias=l2_bias,
+            profile_enable=profile_enable,
+        )
