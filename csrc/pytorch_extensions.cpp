@@ -214,8 +214,19 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
-        "Tensor(a!) token_on_device, Tensor(b!) device_token_pos, "
-        "int block_dim=0) -> ()");
+        "Tensor(a!) token_on_device, Tensor(b!) device_token_pos, Tensor(c!) position_mask, "
+        "int pos_mask_size=0, int block_dim=0) -> ()");
+
+    m.def(
+        "fused_timestamp_lru_metadata_update_with_probation(Tensor req_indices, Tensor topk_indices, "
+        "Tensor device_token_pos, Tensor hit_position_mask, Tensor(a!) device_lru_slots, "
+        "Tensor(b!) device_lru_slot_stamps, int max_context_len, int probation_age, "
+        "int stamp_max=16777215, int block_dim=0) -> (Tensor, Tensor)");
+
+    m.def(
+        "parallel_lru_metadata_write(Tensor(a!) slot_map, Tensor req_indices, "
+        "Tensor topk_indices, Tensor victim_slots, Tensor miss_counts, "
+        "Tensor(b!) device_slot_tokens, int max_context_len, int block_dim=0) -> ()");
 
     m.def("shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
 
@@ -371,6 +382,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
+
+    m.impl("fused_timestamp_lru_metadata_update_with_probation",
+           TORCH_FN(sglang::npu_kernel::fused_timestamp_lru_metadata_update_with_probation));
+
+    m.impl("parallel_lru_metadata_write",
+           TORCH_FN(sglang::npu_kernel::parallel_lru_metadata_write));
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS

@@ -334,13 +334,36 @@ void unidex_copy(const at::Tensor &src, at::Tensor &dst,
  * Outputs (pre-allocated, written in place):
  *   token_on_device[bs, topk]: int32 indicator, 1 for hit and 0 for miss
  *   device_token_pos[bs, topk]: int32 slot position, or -1 for a miss
+ *   position_mask[bs, pos_mask_size]: int32 indicator, 1 when a hit uses that
+ *     position. pos_mask_size must be a multiple of 8. A zero value disables
+ *     position-mask writes.
  *
  * block_dim=0 selects the default block count.
  */
 void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
                      const at::Tensor &topk_indices,
                      at::Tensor &token_on_device, at::Tensor &device_token_pos,
+                     at::Tensor &position_mask, int64_t pos_mask_size,
                      int64_t block_dim);
+
+/**
+ * @brief Timestamp-LRU update with probationary age for newly filled slots.
+ *
+ * Returns (victim_slots[batch, 2048], miss_counts[batch]).
+ */
+std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_probation(
+    const at::Tensor &req_indices, const at::Tensor &topk_indices,
+    const at::Tensor &device_token_pos, const at::Tensor &hit_position_mask,
+    at::Tensor &device_lru_slots, at::Tensor &device_lru_slot_stamps,
+    int64_t max_context_len, int64_t probation_age, int64_t stamp_max,
+    int64_t block_dim);
+
+/** Write the sparse slot map and reverse map updates selected by the LRU op. */
+void parallel_lru_metadata_write(
+    at::Tensor &slot_map, const at::Tensor &req_indices,
+    const at::Tensor &topk_indices, const at::Tensor &victim_slots,
+    const at::Tensor &miss_counts, at::Tensor &device_slot_tokens,
+    int64_t max_context_len, int64_t block_dim);
 
 /**
  * @brief Create host shared memory and register it to the NPU device.
