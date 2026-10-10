@@ -66,12 +66,15 @@ private:
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
     {
         return (GM_ADDR)(GetBaseWindAddrByRankId(epWinContext_, rankId, epRankId_) + winDataSizeOffset_ +
-                         Moe::NOTIFY_DISPATCH_BUFF_OFFSET);
+                         Moe::A5WindowLayout::kNotifyDispatchSize);
     }
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
     {
-        return GetStateAddrByRankId(rankId) + COMBINE_STATE_WIN_OFFSET;
+        uint64_t dataOffset = isHybridDeployment_
+                                  ? Moe::A5WindowLayout::kDataOffset - Moe::A5WindowLayout::kNotifyDispatchSize
+                                  : COMBINE_STATE_WIN_OFFSET;
+        return GetStateAddrByRankId(rankId) + dataOffset;
     }
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
@@ -103,6 +106,7 @@ private:
     uint32_t magic_{0};
     uint64_t winDataSizeOffset_{0};
     uint64_t baseWindSize_{0};
+    bool isHybridDeployment_{false};
     uint32_t selfSendCnt_{0};
     uint32_t hRecvXTypeLen_{0};
     uint32_t tokenIdx32AlignLen_{0};
@@ -188,6 +192,7 @@ CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNo
     epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
+    isHybridDeployment_ = tilingData->camMoeCombineNormalInfo.isHybridDeployment;
     baseWindSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
 }
 

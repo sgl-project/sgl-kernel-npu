@@ -42,7 +42,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("internode_dispatch", &deep_ep::Buffer::internode_dispatch)
         .def("internode_combine", &deep_ep::Buffer::internode_combine)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
-        .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
+        .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine, py::arg("x"), py::arg("topk_idx"),
+             py::arg("topk_weights"), py::arg("src_info"), py::arg("layout_range"),
+             py::arg("num_max_dispatch_tokens_per_rank"), py::arg("num_experts"), py::arg("packed_recv_count"),
+             py::arg("zero_copy"), py::arg("async"), py::arg("return_recv_hook"), py::arg("out"),
+             py::arg("use_mxfp8") = false)
         .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe, py::arg("x"), py::arg("expert_ids"),
              py::arg("gmm1_permuted_weight"), py::arg("gmm1_permuted_weight_scale"), py::arg("gmm2_weight"),
              py::arg("gmm2_weight_scale"), py::arg("expert_scales_optional"),

@@ -238,6 +238,7 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
         async_finish: bool,
         return_recv_hook: bool,
         out: Optional[torch.Tensor],
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         """LowLatency combine"""
         pass

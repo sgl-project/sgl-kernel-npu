@@ -11,12 +11,24 @@ namespace CamMoeCombineNormalMultiRoundImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
+#ifdef __DAV_C310__
+constexpr uint64_t STATE_WIN_SIZE = Moe::A5WindowLayout::kNormalCombineStateSize;
+constexpr uint64_t NORMAL_NOTIFY_STATE_OFFSET = Moe::A5WindowLayout::kNotifyDispatchSize;
+#else
 constexpr uint64_t STATE_WIN_SIZE = Moe::A3WindowLayout::kNormalCombineStateSize;
+constexpr uint64_t NORMAL_NOTIFY_STATE_OFFSET = Moe::A3WindowLayout::kNotifyDispatchSize;
+#endif
 constexpr uint64_t STATE_WIN_SIZE_HALF = STATE_WIN_SIZE / 2;
 #ifdef __DAV_C310__
 constexpr uint64_t MAGIC_WIN_OFFSET = 1100UL * 1024UL;
+constexpr uint64_t HYBRID_DATA_EXTRA_OFFSET =
+    Moe::A5WindowLayout::kLlSelectorMetadataSize + Moe::A5WindowLayout::kLlStateSize +
+    Moe::A5WindowLayout::kLlSelectorMetadataSize + Moe::A5WindowLayout::kLlStateSize;
 #else
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
+constexpr uint64_t HYBRID_DATA_EXTRA_OFFSET =
+    Moe::A3WindowLayout::kLlSelectorMetadataSize + Moe::A3WindowLayout::kLlStateSize +
+    Moe::A3WindowLayout::kLlSelectorMetadataSize + Moe::A3WindowLayout::kLlStateSize;
 #endif
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET + Moe::ROUND_STATE_MAX_SIZE * 2UL;  // 458*1024
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
@@ -76,15 +88,14 @@ private:
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
     {
         return GetBaseWindAddrByRankId(epWinContext_, rankId, epRankId_) + winDataSizeOffset_ +
-               Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
+               NORMAL_NOTIFY_STATE_OFFSET;
     }
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
     {
         uint64_t dataOffset = STATE_WIN_SIZE + roundMagic_ * combineDataBuffSize_;
         if (isHybridDeployment_) {
-            dataOffset += Moe::A3WindowLayout::kLlSelectorMetadataSize + Moe::A3WindowLayout::kLlStateSize +
-                          Moe::A3WindowLayout::kLlSelectorMetadataSize + Moe::A3WindowLayout::kLlStateSize;
+            dataOffset += HYBRID_DATA_EXTRA_OFFSET;
         }
         return GetStateAddrByRankId(rankId) + dataOffset;
     }
