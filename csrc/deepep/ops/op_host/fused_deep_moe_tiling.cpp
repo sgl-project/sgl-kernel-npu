@@ -78,12 +78,12 @@ constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 7;
 constexpr uint32_t MIN_BATCH_SIZE = 1;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
 constexpr uint32_t MAX_MOE_EXERT_NUM = 512;
-constexpr uint32_t SUPPORT_TOP_K = 12;
+constexpr uint32_t SUPPORT_TOP_K = 16;
 constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t MIN_TOKEN_LENGTH = 512;
-constexpr uint32_t MAX_TOKEN_LENGTH = 7168;
+constexpr uint32_t MAX_TOKEN_LENGTH = 8192;
 constexpr uint32_t MIN_GMM1_HIDDEN = 1024;
-constexpr uint32_t MAX_GMM1_HIDDEN = 6144;
+constexpr uint32_t MAX_GMM1_HIDDEN = 7168;
 }  // namespace
 
 namespace optiling {

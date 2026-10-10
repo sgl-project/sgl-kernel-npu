@@ -65,6 +65,10 @@ const char *GetStageName(uint64_t stageId)
             return "weight_sum_reduce_permute";
         case ProfileStage::WeightSumClean:
             return "weight_sum_clean";
+        case ProfileStage::DispatchRecvCount:
+            return "dispatch_recv_count";
+        case ProfileStage::DispatchRecvGroups:
+            return "dispatch_recv_groups";
         default:
             return "unknown";
     }
@@ -122,7 +126,7 @@ std::string GetPrivateDataJson(uint64_t stageId, uint64_t occurrenceId, const Ca
 Cam::ProfileStageLayout BuildStageLayout(uint32_t groupCountCapacity)
 {
     EP_HOST_ASSERT_S(groupCountCapacity >= 1U && groupCountCapacity <= Cam::PROFILE_MAX_GROUP_COUNT_CAPACITY,
-                     "groupCountCapacity must be in [1, 64].");
+                     "groupCountCapacity must be in [1, 256].");
     Cam::ProfileStageLayout layout{};
     layout.stageCount = static_cast<uint16_t>(kStageCount);
     layout.activeStageCapacity = static_cast<uint16_t>(Cam::PROFILE_ACTIVE_STAGE_CAPACITY);
@@ -157,6 +161,12 @@ Cam::ProfileStageLayout BuildStageLayout(uint32_t groupCountCapacity)
     EP_HOST_ASSERT_S(
         Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::WeightSumClean), 1U),
         "invalid weight sum clean occurrence capacity.");
+    EP_HOST_ASSERT_S(
+        Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::DispatchRecvCount), 1U),
+        "invalid dispatch receive count occurrence capacity.");
+    EP_HOST_ASSERT_S(
+        Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::DispatchRecvGroups), 1U),
+        "invalid dispatch receive groups occurrence capacity.");
     return layout;
 }
 

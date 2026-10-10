@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from enum import IntEnum
 from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
@@ -26,6 +27,22 @@ class LowLatencyStrategy:
     @classmethod
     def get_all_strategies(cls) -> list:
         return [cls.DEFAULT, cls.OPS, cls.ALLTOALL]
+
+
+class FuseMode(IntEnum):
+    FUSED_DEEP_MOE = 1
+    DISPATCH_FFN_COMBINE = 2
+    MEGA_MOE = 3
+
+
+class FusedStrategy:
+    FUSED_DEEP_MOE = "fused_deep_moe"
+    DISPATCH_FFN_COMBINE = "dispatch_ffn_combine"
+    MEGA_MOE = "mega_moe"
+
+    @classmethod
+    def get_all_strategies(cls) -> list:
+        return [cls.FUSED_DEEP_MOE, cls.DISPATCH_FFN_COMBINE, cls.MEGA_MOE]
 
 
 VALID_QUANT_MODES = frozenset(
@@ -113,7 +130,7 @@ class EPCommStrategy(ABC):
 
     @abstractmethod
     def get_supported_modes(self) -> List[str]:
-        """Get list of supported modes ['normal', 'low_latency']"""
+        """Get the supported modes, such as normal, low_latency, or fused."""
         pass
 
 
@@ -226,6 +243,33 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
         pass
 
 
+class FusedEPCommStrategy(EPCommStrategy):
+    """Fused EP communication strategies base class."""
+
+    @abstractmethod
+    def fused_moe(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight,
+        gmm1_permuted_weight_scale,
+        gmm2_weight,
+        gmm2_weight_scale,
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        quant_mode: int,
+        activation: Optional[str],
+        beta: Optional[float],
+        linear_beta: Optional[float],
+        l1_bias,
+        l2_bias,
+        profile_enable: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Execute one fused MoE step and return ``(output, expert_token_nums)``."""
+        pass
+
+
 # ==================== Strategy Registry ====================
 
 # Normal mode strategy registry
@@ -233,6 +277,9 @@ _NORMAL_STRATEGY_REGISTRY: Dict[str, Type[NormalEPCommStrategy]] = {}
 
 # Low latency mode strategy registry
 _LOW_LATENCY_STRATEGY_REGISTRY: Dict[str, Type[LowLatencyEPCommStrategy]] = {}
+
+# Fused mode strategy registry
+_FUSED_STRATEGY_REGISTRY: Dict[str, Type[FusedEPCommStrategy]] = {}
 
 
 def register_normal_strategy(name: str):
@@ -271,3 +318,32 @@ def get_low_latency_strategy(name: str) -> Type[LowLatencyEPCommStrategy]:
             f"Unknown low latency strategy: {name}. Available: {list(_LOW_LATENCY_STRATEGY_REGISTRY.keys())}"
         )
     return _LOW_LATENCY_STRATEGY_REGISTRY[name]
+
+
+def register_fused_strategy(name: str):
+    """Decorator to register a fused mode strategy."""
+
+    def decorator(cls: Type[FusedEPCommStrategy]):
+        _FUSED_STRATEGY_REGISTRY[name] = cls
+        return cls
+
+    return decorator
+
+
+def get_fused_strategy(name: str) -> Type[FusedEPCommStrategy]:
+    """Get a fused mode strategy class by name."""
+    if name not in _FUSED_STRATEGY_REGISTRY:
+        raise ValueError(
+            f"Unknown fused strategy: {name}. Available: {list(_FUSED_STRATEGY_REGISTRY.keys())}"
+        )
+    return _FUSED_STRATEGY_REGISTRY[name]
+
+
+def get_fused_strategy_for_mode(fuse_mode: FuseMode) -> Type[FusedEPCommStrategy]:
+    """Resolve a fused mode to its registered strategy class."""
+    strategy_names = {
+        FuseMode.FUSED_DEEP_MOE: FusedStrategy.FUSED_DEEP_MOE,
+        FuseMode.DISPATCH_FFN_COMBINE: FusedStrategy.DISPATCH_FFN_COMBINE,
+        FuseMode.MEGA_MOE: FusedStrategy.MEGA_MOE,
+    }
+    return get_fused_strategy(strategy_names[fuse_mode])

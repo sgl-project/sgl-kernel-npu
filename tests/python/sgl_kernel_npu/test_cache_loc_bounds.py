@@ -56,6 +56,21 @@ def run(bs, step, req_dtype, at_block_end, seed=0):
     assert torch.equal(
         out.cpu(), golden.cpu()
     ), f"cache_loc_update mismatch: bs={bs} step={step} dtype={req_dtype}"
+    # Exercise the other entry point with new values, not a no-op round trip.
+    out.add_(1)
+    expected_pool = pool.clone()
+    for row, begin, finish in zip(
+        req.cpu().tolist(), start.cpu().tolist(), end.cpu().tolist()
+    ):
+        expected_pool[row, begin:finish] += 1
+    torch.ops.npu.cache_loc_assign(req, pool, start, end, out)
+    torch.npu.synchronize()
+    assert torch.equal(
+        pool.cpu(), expected_pool.cpu()
+    ), f"cache_loc_assign mismatch: bs={bs} step={step} dtype={req_dtype}"
+    assert torch.equal(
+        out.cpu(), golden.cpu() + 1
+    ), "cache_loc_assign modified its input"
     print(
         f"  bs={bs:4d} step={step:2d} {str(req_dtype).split('.')[-1]:>5s} "
         f"out={n:5d} int32 (kernel must not touch {bs * MAX_STEP:5d}) "
@@ -67,8 +82,9 @@ if __name__ == "__main__":
     # step < MAX_STEP is the overrun regime: the kernel would read and store back
     # bs * MAX_STEP entries for a tensor holding bs * step.
     print("out_cache_loc pinned at the end of its own block:")
-    for bs, step in [(1, 4), (9, 4), (15, 4), (16, 4), (64, 1), (300, 2)]:
-        run(bs, step, torch.int64, at_block_end=True)
+    for req_dtype in (torch.int64, torch.int32):
+        for bs, step in [(1, 4), (9, 4), (15, 4), (16, 4), (64, 1), (300, 2)]:
+            run(bs, step, req_dtype, at_block_end=True)
     print("out_cache_loc in a fresh block, both index dtypes:")
     for req_dtype in (torch.int64, torch.int32):
         for bs, step in [(15, 4), (37, 3), (128, MAX_STEP)]:
