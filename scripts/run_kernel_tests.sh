@@ -81,6 +81,7 @@ MAMBA_TESTS=(
 )
 
 FLA_TESTS=(
+    test_gate_multiply.py
     test_gated_delta_ascendc_tri_inv.py
     test_chunk_gdn_pto.py
     test_chunk_gdn_triton.py
