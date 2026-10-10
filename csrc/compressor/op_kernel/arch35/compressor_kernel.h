@@ -49,9 +49,6 @@ private:
     // ================================Process functions================================
     __aicore__ inline void InitTilingData();
     __aicore__ inline void SplitK();
-    // HIT/suffix-prefill gate (README §215 "gate bSeqUsed>1"): true iff any batch has
-    // start_pos > 0 && seqused > 1. MISS (start_pos==0) and DECODE (seqused==1) return false.
-    __aicore__ inline bool IsSuffixPrefillCall();
     // get the number of base blocks
     __aicore__ inline uint32_t GetLoopTimes();
     __aicore__ inline void SkipInvalidBatch(BatchInfo &batchInfo);
@@ -210,32 +207,8 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
 }
 
 template <typename COMP>
-__aicore__ inline bool CompressorKernel<COMP>::IsSuffixPrefillCall()
-{
-    for (uint32_t bIdx = 0; bIdx < constInfo.batchSize; ++bIdx) {
-        if (tools_.GetStartPos(bIdx) > 0 && tools_.GetSeqUsed(bIdx) > 1) {
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::SplitK()
 {
-    if (IsSuffixPrefillCall()) {
-        // HIT/suffix-prefill path (README §215/§225 gate): force a single full-K
-        // accumulation so the mm1 reduction order is independent of the call shape.
-        // MISS (start_pos==0) and DECODE (seqused==1) never enter here, so their
-        // code path is byte-for-byte unchanged.
-        constInfo.kBaseNum = 1;
-        constInfo.kBaseSize = 0;
-        kStartIdx_ = 0;
-        dealKSize_ = constInfo.hSize;
-        hStart_ = 0;
-        return;
-    }
-
     uint32_t mSize = 0;
     for (uint32_t i = 0; i < constInfo.batchSize; i++) {
         uint32_t bSeqUsed = tools_.GetSeqLength(i);

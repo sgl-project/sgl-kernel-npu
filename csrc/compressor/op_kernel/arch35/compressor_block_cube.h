@@ -48,9 +48,6 @@ private:
     using X_T = typename AscendC::Conditional<COMP::xDtype == X_DTYPE::BF16, bfloat16_t, half>::type;
 
     __aicore__ inline uint32_t GetMSize(const RunInfo &info, uint32_t coffId);
-    // HIT/suffix-prefill gate (README §215 "gate bSeqUsed>1"): true iff any batch has
-    // start_pos > 0 && seqused > 1. MISS (start_pos==0) and DECODE (seqused==1) return false.
-    __aicore__ inline bool IsSuffixPrefillCall();
     __aicore__ inline void CopyXGmToL1(const RunInfo &info, LocalTensor<X_T> xL1Tensor, uint32_t hIdx, uint32_t kBase);
     __aicore__ inline void CopyWeightGmToL1(LocalTensor<X_T> wL1Tensor, uint32_t hIdx, uint32_t kBase, uint32_t coffId);
     __aicore__ inline void LoadAToL0(const RunInfo &info, LocalTensor<X_T> aL0Tensor, LocalTensor<X_T> xL1Tensor,
@@ -345,17 +342,6 @@ __aicore__ inline uint32_t CompressorBlockCube<COMP>::GetMSize(const RunInfo &in
 }
 
 template <typename COMP>
-__aicore__ inline bool CompressorBlockCube<COMP>::IsSuffixPrefillCall()
-{
-    for (uint32_t bIdx = 0; bIdx < constInfo_.batchSize; ++bIdx) {
-        if (tools_.GetStartPos(bIdx) > 0 && tools_.GetSeqUsed(bIdx) > 1) {
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename COMP>
 __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info)
 {
     static constexpr uint32_t K_L1_BASE = 256;
@@ -367,14 +353,8 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = info.hStart;
     uint32_t hSize = info.dealKSize;
-    // core-stagger rotation; disabled for HIT/suffix-prefill so the K-block accumulation
-    // order is position-deterministic (README §215/§225 gate). MISS/DECODE keep the
-    // original staggered start, byte-for-byte unchanged.
-    uint32_t hIdxStart = 0U;
-    if (!IsSuffixPrefillCall()) {
-        hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                    K_L1_BASE;  // the h loop start differs within each group of cores
-    }
+    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
+                         K_L1_BASE;  // the h loop start differs within each group of cores
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction
