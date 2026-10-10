@@ -193,6 +193,26 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+#ifdef SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION
+    m.def(
+        "laser_attn(Tensor query, Tensor key, Tensor value, "
+        "Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? drop_mask=None, "
+        "float scale_value=1.0, int head_num=2, str input_layout='BNSD', "
+        "float keep_prob=1.0, int pre_tokens=2147483647, int next_tokens=1, "
+        "bool is_highPrecision=True) -> (Tensor, Tensor)");
+    m.def(
+        "ada_block_sparse_attention(Tensor query, Tensor key, Tensor value, Tensor sparse_mask, "
+        "Tensor sparse_count_table, str input_layout='BNSD', int sparse_size=128, int num_heads=1, "
+        "int num_key_value_heads=1, float scale_value=1, bool causal=True, int inner_precise=1, "
+        "int pre_tokens=214748647, int next_tokens=0, int[]? actual_seq_lengths=None, "
+        "int[]? actual_seq_lengths_kv=None) -> Tensor");
+    m.def(
+        "sparse_block_estimate(Tensor query, Tensor key, int[]? actual_seq_lengths=None, "
+        "int[]? actual_seq_lengths_kv=None, str input_layout='BNSD', int stride=8, int sparse_size=128, "
+        "int num_heads=1, int num_key_value_heads=1, float scale_value=1, float threshold=1, "
+        "bool causal=True, bool keep_sink=True, bool keep_recent=True, float row_sparse=1) -> (Tensor, Tensor)");
+#endif
+
     m.def(
         "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
         "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
@@ -314,6 +334,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
+
+#ifdef SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION
+    m.impl("laser_attn", TORCH_FN(sglang::npu_kernel::laser_attn));
+    m.impl("ada_block_sparse_attention", TORCH_FN(sglang::npu_kernel::ada_block_sparse_attention));
+    m.impl("sparse_block_estimate", TORCH_FN(sglang::npu_kernel::sparse_block_estimate));
+#endif
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 

@@ -201,6 +201,27 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
     c10::string_view layout_kv, bool return_softmax_lse);
 
+at::Tensor ada_block_sparse_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
+    std::string input_layout, int64_t sparse_size, int64_t num_heads,
+    int64_t num_key_value_heads, double scale_value, bool causal, int64_t inner_precise,
+    int64_t pre_tokens, int64_t next_tokens, c10::OptionalIntArrayRef actual_seq_lengths,
+    c10::OptionalIntArrayRef actual_seq_lengths_kv);
+
+std::tuple<at::Tensor, at::Tensor> sparse_block_estimate(
+    const at::Tensor &query, const at::Tensor &key, c10::OptionalIntArrayRef actual_seq_lengths,
+    c10::OptionalIntArrayRef actual_seq_lengths_kv, std::string input_layout, int64_t stride,
+    int64_t sparse_size, int64_t num_heads, int64_t num_key_value_heads, double scale_value,
+    double threshold, bool causal, bool keep_sink, bool keep_recent, double row_sparse);
+
+std::tuple<at::Tensor, at::Tensor> laser_attn(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &atten_mask, const c10::optional<at::Tensor> &alibi_mask,
+    const c10::optional<at::Tensor> &drop_mask, double scale_value, int64_t head_num,
+    const std::string &input_layout, double keep_prob, int64_t pre_tokens, int64_t next_tokens,
+    bool is_highPrecision);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
