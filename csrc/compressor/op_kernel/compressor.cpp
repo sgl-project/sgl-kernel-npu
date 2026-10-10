@@ -64,7 +64,7 @@ using namespace Compressor;
     do {                                                                                                           \
         templateClass<COMPType<__VA_ARGS__>> op(&pipe, tilingData);                                                \
         op.Init(x, wKv, wGate, stateCache, ape, normWeight, ropeSin, ropeCos, stateBlockTable, cuSeqlens, seqUsed, \
-                startPos, cmpKvOut, workspace);                                                                    \
+                startPos, isPrefixSuffix, cmpKvOut, workspace);                                                   \
         op.Process();                                                                                              \
     } while (0)
 
@@ -92,8 +92,8 @@ using namespace Compressor;
 extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape,
                                                  GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
                                                  GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed,
-                                                 GM_ADDR startPos, GM_ADDR cmpKvOut, GM_ADDR stateCacheOut,
-                                                 GM_ADDR workspace, GM_ADDR tiling)
+                                                 GM_ADDR startPos, GM_ADDR isPrefixSuffix, GM_ADDR cmpKvOut,
+                                                 GM_ADDR stateCacheOut, GM_ADDR workspace, GM_ADDR tiling)
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);

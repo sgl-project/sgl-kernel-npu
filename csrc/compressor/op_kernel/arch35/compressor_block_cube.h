@@ -48,6 +48,10 @@ private:
     using X_T = typename AscendC::Conditional<COMP::xDtype == X_DTYPE::BF16, bfloat16_t, half>::type;
 
     __aicore__ inline uint32_t GetMSize(const RunInfo &info, uint32_t coffId);
+    // true iff ANY request in the batch has its prefix restored from the radix
+    // cache (is_prefix_suffix != 0); mirrors CompressorKernel::IsPrefixSuffixCall
+    // so the cube's staggered-h start can be gated without reaching the kernel.
+    __aicore__ inline bool IsPrefixSuffixCall();
     __aicore__ inline void CopyXGmToL1(const RunInfo &info, LocalTensor<X_T> xL1Tensor, uint32_t hIdx, uint32_t kBase);
     __aicore__ inline void CopyWeightGmToL1(LocalTensor<X_T> wL1Tensor, uint32_t hIdx, uint32_t kBase, uint32_t coffId);
     __aicore__ inline void LoadAToL0(const RunInfo &info, LocalTensor<X_T> aL0Tensor, LocalTensor<X_T> xL1Tensor,
@@ -342,6 +346,17 @@ __aicore__ inline uint32_t CompressorBlockCube<COMP>::GetMSize(const RunInfo &in
 }
 
 template <typename COMP>
+__aicore__ inline bool CompressorBlockCube<COMP>::IsPrefixSuffixCall()
+{
+    for (uint32_t i = 0; i < constInfo_.batchSize; i++) {
+        if (tools_.GetIsPrefixSuffix(i) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename COMP>
 __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info)
 {
     static constexpr uint32_t K_L1_BASE = 256;
@@ -353,8 +368,18 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = info.hStart;
     uint32_t hSize = info.dealKSize;
-    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                         K_L1_BASE;  // the h loop start differs within each group of cores
+    // Stagger gates: the staggered h start is forced to 0 so every group computes
+    // the same K-order when either gate is true:
+    //   - Option A (README §232, env SGLANG_DSV4_FORCE_KSINGLE): global
+    //     shape-invariance; changes MISS by ~1e-8 (README §211/§212) => env-gated;
+    //   - Option B (MISS-safe): a HIT request's prefix was restored from the radix
+    //     cache (is_prefix_suffix != 0).
+    // When both are false/absent the original staggered start is used verbatim =>
+    // MISS output is byte-preserved.
+    uint32_t hIdxStart = (constInfo_.forceKSingle || IsPrefixSuffixCall()) ? 0U
+                                                                           : (constInfo_.aiCoreIdx %
+                                                                              constInfo_.dBasicBlockNum) *
+                                                                                 K_L1_BASE;  // the h loop start differs within each group of cores
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction
