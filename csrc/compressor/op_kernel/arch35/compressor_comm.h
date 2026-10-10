@@ -185,6 +185,8 @@ struct ConstInfo {
     uint32_t blockNum = 0;
     uint32_t blockSize = 0;
     uint32_t maxBlockNumPerBatch = 0;
+    // env-gated kernel-side stateLoc diagnostic (host reads SGL_DSV4_STATELOC_DUMP)
+    bool statLocDump = false;
 
     // workSpace
     uint32_t dbWorkspaceRatio = 1;

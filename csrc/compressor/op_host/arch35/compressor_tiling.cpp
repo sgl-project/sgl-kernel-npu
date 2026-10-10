@@ -22,6 +22,7 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
+#include <cstdlib>
 #define OP_LOGI(...)  // keep it empty to avoid log flooding
 
 // plog write (weak symbol, resolved at runtime by libascendalog/libunified_dlog)
@@ -198,6 +199,7 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
     pageAttentionParams_->blockSize = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
     pageAttentionParams_->maxBlockNumPerBatch =
         context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
+    pageAttentionParams_->statLocDump = (getenv("SGL_DSV4_STATELOC_DUMP") != nullptr);
 
     return ge::GRAPH_SUCCESS;
 }

@@ -57,6 +57,7 @@ struct CompressorPageAttentionParams {
     uint32_t blockNum = 0;
     uint32_t blockSize = 1;
     uint32_t maxBlockNumPerBatch = 1;
+    bool statLocDump = false;  // env-gated kernel-side stateLoc dump (SGL_DSV4_STATELOC_DUMP)
 };
 
 struct CompressorInnerSplitParams {

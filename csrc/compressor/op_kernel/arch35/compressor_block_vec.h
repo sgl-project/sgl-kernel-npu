@@ -789,6 +789,14 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
             }
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            if (constInfo_.statLocDump) {
+                for (uint32_t r = 0; r < copyRowCount; ++r) {
+                    AscendC::PRINTF("[KSTATELOC] op=R %u %u %d %u %u %u\n", batchIdx, curSeqIdx + r,
+                                    tableColumn + static_cast<int64_t>(r), stateLoc + static_cast<uint64_t>(r),
+                                    (stateLoc + static_cast<uint64_t>(r)) / constInfo_.blockSize,
+                                    (stateLoc + static_cast<uint64_t>(r)) % constInfo_.blockSize);
+                }
+            }
             uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
                                    rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
@@ -855,6 +863,14 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
             }
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
+            if (constInfo_.statLocDump) {
+                for (uint32_t r = 0; r < copyRowCount; ++r) {
+                    AscendC::PRINTF("[KSTATELOC] op=W %u %u %d %u %u %u\n", batchIdx, curSeqIdx + r,
+                                    tableColumn + static_cast<int64_t>(r), stateLoc + static_cast<uint64_t>(r),
+                                    (stateLoc + static_cast<uint64_t>(r)) / constInfo_.blockSize,
+                                    (stateLoc + static_cast<uint64_t>(r)) % constInfo_.blockSize);
+                }
+            }
             uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
                                    rowIdx * 2 * coff_ * constInfo_.headDim +
                                    stateIdx * coff_ * constInfo_.headDim + dStartIdx;
@@ -1016,6 +1032,10 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadState(const LocalTensor<
             uint32_t endSeqIdx =
                 min(Trunc(sliceInfo.bStartPos + sliceInfo.sIdx + sliceInfo.validSeqCnt, cmpRatio_) - cmpRatio_,
                     sliceInfo.bStartPos);
+            if (constInfo_.statLocDump) {
+                AscendC::PRINTF("[KSTATELOC] op=L %u %u %u %u %d\n", sliceInfo.bIdx, startSeqIdx, endSeqIdx,
+                                dStartIdx, static_cast<int32_t>(isFirst));
+            }
             uint64_t dstBaseOffset = sliceInfo.compressoredScCnt * cmpRatio_ * coff_ * dDealSize;
             if (isFirst) {
                 dstBaseOffset += cmpRatio_ * coff_ * dDealSize;
