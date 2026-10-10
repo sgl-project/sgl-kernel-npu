@@ -368,13 +368,18 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = info.hStart;
     uint32_t hSize = info.dealKSize;
-    // MISS-safe gate (Option B): for a HIT (prefix restored from the radix cache)
-    // the staggered h start is forced to 0 so every group computes the same
-    // K-order; when the gate is false (all zeros / absent input) the original
-    // staggered start is used verbatim => MISS output is byte-preserved.
-    uint32_t hIdxStart = IsPrefixSuffixCall() ? 0U
-                                              : (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                                                    K_L1_BASE;  // the h loop start differs within each group of cores
+    // Stagger gates: the staggered h start is forced to 0 so every group computes
+    // the same K-order when either gate is true:
+    //   - Option A (README §232, env SGLANG_DSV4_FORCE_KSINGLE): global
+    //     shape-invariance; changes MISS by ~1e-8 (README §211/§212) => env-gated;
+    //   - Option B (MISS-safe): a HIT request's prefix was restored from the radix
+    //     cache (is_prefix_suffix != 0).
+    // When both are false/absent the original staggered start is used verbatim =>
+    // MISS output is byte-preserved.
+    uint32_t hIdxStart = (constInfo_.forceKSingle || IsPrefixSuffixCall()) ? 0U
+                                                                           : (constInfo_.aiCoreIdx %
+                                                                              constInfo_.dBasicBlockNum) *
+                                                                                 K_L1_BASE;  // the h loop start differs within each group of cores
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction

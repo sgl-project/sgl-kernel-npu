@@ -1269,6 +1269,14 @@ __aicore__ inline void CompressorBlockVector<COMP>::CalcGroupInfo(const Vec1RunI
 {
     uint32_t aiCoreNum = constInfo_.usedCoreNum * 2;
     splitInfo.dBaseSize = constInfo_.headDim / min(FloorPow2(aiCoreNum), CeilPow2(CeilDivT(aiCoreNum, info.dealTcNum)));
+    // TODO(Option A / README §232, A3): force vec1 dBaseSize to a shape-invariant
+    // value (independent of dealTcNum and kBaseNum) so the vec1 d-axis split is
+    // deterministic. NOT enabled — the current token-count-dependent dBase is
+    // preserved verbatim (MISS byte-preserved). Enable only together with the
+    // A1/A2 K-single gate, accepting the ~1e-8 regression (README §211/§212).
+    // if (constInfo_.forceKSingle) {
+    //     splitInfo.dBaseSize = constInfo_.headDim / FloorPow2(aiCoreNum);
+    // }
     // clamp the upper bound to maxDealColNum (ensuring 32B alignment, dSplitSize not exceeding dBaseSize)
     uint32_t maxDealColNum = BUFFER_SIZE_BYTE_32K / (cmpRatio_ * coff_ * sizeof(T));
     splitInfo.dBaseSize = min(splitInfo.dBaseSize, FloorPow2(Trunc(maxDealColNum, FP32_BLOCK_ELEMENT_NUM)));

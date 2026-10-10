@@ -187,6 +187,8 @@ struct ConstInfo {
     uint32_t maxBlockNumPerBatch = 0;
     // env-gated kernel-side stateLoc diagnostic (host reads SGL_DSV4_STATELOC_DUMP)
     bool statLocDump = false;
+    // env-gated global K-single determinism gate (host reads SGLANG_DSV4_FORCE_KSINGLE)
+    bool forceKSingle = false;
 
     // workSpace
     uint32_t dbWorkspaceRatio = 1;

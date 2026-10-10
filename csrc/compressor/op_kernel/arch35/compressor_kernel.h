@@ -204,6 +204,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
     constInfo.maxBlockNumPerBatch = tilingData_->pageAttentionParams.maxBlockNumPerBatch;
     constInfo.statLocDump = tilingData_->pageAttentionParams.statLocDump;
+    constInfo.forceKSingle = tilingData_->pageAttentionParams.forceKSingle;
 
     constInfo.nSize = tilingData_->baseParams.nSize;
     constInfo.vec1TailCacheSize = tilingData_->workspaceParams.vec1TailCacheSize;
@@ -224,6 +225,23 @@ __aicore__ inline bool CompressorKernel<COMP>::IsPrefixSuffixCall()
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::SplitK()
 {
+    // Determinism-only gate (Option A / README §232): global shape-invariance,
+    // env-gated by SGLANG_DSV4_FORCE_KSINGLE. When set on the host, force the
+    // single-group / no-K-split path unconditionally so the K-order is
+    // independent of the token-count-dependent K-split/stagger. This changes the
+    // MISS output by ~1e-8 by design (README §211 T5 GREEN / §212 online still
+    // diverged => net regression), hence env-gated only; default off preserves
+    // the original path verbatim.
+    if (constInfo.forceKSingle) {
+        constInfo.kBaseNum = 1;
+        constInfo.mGroupNum = 1;
+        constInfo.mCurGroupIdx = 0;
+        kStartIdx_ = 0;
+        dealKSize_ = constInfo.hSize;
+        hStart_ = 0;
+        return;
+    }
+
     // MISS-safe gate (Option B): when any request in the batch had its prefix
     // restored from the radix cache (is_prefix_suffix != 0), force the
     // single-group / no-K-split path so the HIT decode computation is

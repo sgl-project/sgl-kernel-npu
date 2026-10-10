@@ -202,6 +202,12 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
     pageAttentionParams_->maxBlockNumPerBatch =
         context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
     pageAttentionParams_->statLocDump = (getenv("SGL_DSV4_STATELOC_DUMP") != nullptr);
+    // Option A (README §232): global shape-invariance, determinism-only gate.
+    // When set, force a single K-split group so the computation is independent of
+    // the token-count-dependent K-split/stagger. This changes the MISS output by
+    // ~1e-8 by design (README §211 T5 GREEN / §212 online still diverged => net
+    // regression), hence env-gated only; default off preserves the original path.
+    pageAttentionParams_->forceKSingle = (getenv("SGLANG_DSV4_FORCE_KSINGLE") != nullptr);
 
     return ge::GRAPH_SUCCESS;
 }
