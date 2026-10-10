@@ -181,6 +181,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
     m.def(
+        "kda_decode(Tensor q, Tensor k, Tensor v, Tensor A_log, Tensor a, "
+        "Tensor dt_bias, Tensor b, Tensor(a!) state, Tensor(b!) out, "
+        "Tensor state_indices, Tensor cu_seqlens, float scale, bool use_qk_l2norm, "
+        "float softplus_beta, float softplus_threshold) -> ()");
+
+    m.def(
         "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "
         "Tensor block_table, Tensor? select_num_idx=None, Tensor? q_dequant_scale=None, "
         "Tensor? k_dequant_scale=None, Tensor? v_dequant_scale=None, "
@@ -314,6 +320,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("kda_decode", TORCH_FN(sglang::npu_kernel::kda_decode));
+#endif
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 
