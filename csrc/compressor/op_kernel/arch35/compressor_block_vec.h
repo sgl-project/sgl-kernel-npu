@@ -789,7 +789,8 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
             }
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
-            if (constInfo_.statLocDump) {
+            // S232: only emit for the block136 tail window to avoid log flood.
+            if (constInfo_.statLocDump && curSeqIdx >= 17528U && curSeqIdx < 17536U) {
                 for (uint32_t r = 0; r < copyRowCount; ++r) {
                     uint64_t sl = stateLoc + static_cast<uint64_t>(r);
                     AscendC::printf("[KSTATELOC] op=R %u %u %d %u %u %u\n",
@@ -865,7 +866,8 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
             }
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
-            if (constInfo_.statLocDump) {
+            // S232: only emit for the block136 tail window to avoid log flood.
+            if (constInfo_.statLocDump && curSeqIdx >= 17528U && curSeqIdx < 17536U) {
                 for (uint32_t r = 0; r < copyRowCount; ++r) {
                     uint64_t sl = stateLoc + static_cast<uint64_t>(r);
                     AscendC::printf("[KSTATELOC] op=W %u %u %d %u %u %u\n",
@@ -1036,7 +1038,8 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadState(const LocalTensor<
             uint32_t endSeqIdx =
                 min(Trunc(sliceInfo.bStartPos + sliceInfo.sIdx + sliceInfo.validSeqCnt, cmpRatio_) - cmpRatio_,
                     sliceInfo.bStartPos);
-            if (constInfo_.statLocDump) {
+            // S232: gate op=L to the block136 tail window too.
+            if (constInfo_.statLocDump && startSeqIdx >= 17528U && startSeqIdx < 17536U) {
                 AscendC::printf("[KSTATELOC] op=L %u %u %u %u %d\n", sliceInfo.bIdx, startSeqIdx, endSeqIdx,
                                 dStartIdx, static_cast<int32_t>(isFirst));
             }
