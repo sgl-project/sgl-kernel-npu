@@ -1,6 +1,44 @@
+import os
 from typing import Union
 
 import torch
+
+
+def _use_triton(probs: torch.Tensor) -> bool:
+    return (
+        os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON", "1") == "1"
+        and probs.device.type == "npu"
+        and probs.dtype == torch.float32
+        and probs.is_contiguous()
+        and probs.shape[0] > 0
+        and 1 <= probs.shape[-1] <= 2**23
+    )
+
+
+def _encode_keep_keys(sorted_probs: torch.Tensor, sorted_indices: torch.Tensor):
+    """Pack each token ID and its nonzero keep bit into one exact FP32 integer.
+
+    Contract: indices come from a full row sort; masked sorted_probs contains
+    either that token's original probability or zero. This is not a general
+    scatter replacement. No float probability values are packed into the key.
+    """
+    if sorted_indices.shape[-1] > 2**23:
+        raise ValueError("Packed keep keys require vocab_size <= 2**23")
+    keys = sorted_indices.to(torch.float32).mul_(2.0)
+    keys.add_(sorted_probs.ne(0).to(torch.float32))
+    return keys
+
+
+def _write_from_ordered_keys(probs, ordered_keys, denominator):
+    # Keys are now 2*j or 2*j+1 at vocabulary position j. Recover the mask
+    # with contiguous elementwise operations; no gather/scatter/modulo needed.
+    base_keys = (
+        torch.arange(probs.shape[-1], device=probs.device, dtype=torch.float32)
+        .mul_(2.0)
+        .view(1, -1)
+    )
+    output = probs.masked_fill(ordered_keys == base_keys, 0.0)
+    return output.div_(denominator)
 
 
 def _renorm_from_sorted_probs(
@@ -8,10 +46,13 @@ def _renorm_from_sorted_probs(
     sorted_probs: torch.Tensor,
     sorted_indices: torch.Tensor,
 ) -> torch.Tensor:
-    sorted_probs.div_(sorted_probs.sum(dim=-1, keepdim=True).clamp_min_(1e-20))
-    return torch.zeros_like(probs).scatter_(
-        dim=-1, index=sorted_indices, src=sorted_probs
-    )
+    # Keep the original reduction order and clamp to preserve normalization.
+    denominator = sorted_probs.sum(dim=-1, keepdim=True).clamp_min_(1e-20)
+    keys = _encode_keep_keys(sorted_probs, sorted_indices)
+    # Sorting VALUES carries the keep bit into vocabulary order. The returned
+    # sort indices are unused, so no full-vocabulary indexed read/write follows.
+    ordered_keys = keys.sort(dim=-1).values
+    return _write_from_ordered_keys(probs, ordered_keys, denominator)
 
 
 def _as_batch_threshold(
@@ -42,6 +83,16 @@ def top_k_renorm_prob(
     top_ks = _as_batch_threshold(top_ks, probs, torch.long, "top_ks").clamp(
         min=1, max=vocab_size
     )
+    if _use_triton(probs):
+        from .probability_triton import filter_and_renorm
+
+        return filter_and_renorm(
+            probs,
+            sorted_probs,
+            sorted_indices,
+            top_ks,
+            division=os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON_DIV", "native"),
+        )
     positions = torch.arange(vocab_size, device=probs.device).view(1, -1)
     sorted_probs.masked_fill_(positions >= top_ks.view(-1, 1), 0.0)
     return _renorm_from_sorted_probs(probs, sorted_probs, sorted_indices)
@@ -60,5 +111,16 @@ def top_p_renorm_prob(
         min=0.0, max=1.0
     )
     cumulative_probs = sorted_probs.cumsum(dim=-1)
+    if _use_triton(probs):
+        from .probability_triton import filter_and_renorm
+
+        return filter_and_renorm(
+            probs,
+            sorted_probs,
+            sorted_indices,
+            top_ps,
+            cumulative_probs,
+            division=os.environ.get("SGL_KERNEL_NPU_SAMPLING_TRITON_DIV", "native"),
+        )
     sorted_probs.masked_fill_(cumulative_probs - sorted_probs > top_ps.view(-1, 1), 0.0)
     return _renorm_from_sorted_probs(probs, sorted_probs, sorted_indices)
