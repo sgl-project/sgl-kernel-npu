@@ -75,15 +75,22 @@ def test_model_contract(heads, kv_heads, width):
         torch.testing.assert_close(x, original, atol=0, rtol=0, equal_nan=True)
 
 
-@pytest.mark.parametrize("rows", [1, 2, 7, 8, 31, 32, 33, 128])
-def test_split_boundaries(rows):
+@pytest.mark.parametrize(
+    "rows,splits",
+    [(1, 16), (2, 16), (3, 8), (7, 8), (8, 4), (31, 4), (32, 1), (33, 1), (128, 1)],
+)
+def test_split_boundaries(rows, splits):
     args = inputs(rows=rows)
+    info = impl.dispatch_info(*args)
+    assert info["splits"] == splits
+    assert info["path"].startswith("grouped_")
     check(args, impl.sparse_attention(*args))
 
 
 @pytest.mark.parametrize("heads,kv_heads", [(24, 2), (12, 1), (6, 1), (3, 1)])
-def test_graph_updates(heads, kv_heads):
-    args = inputs(heads=heads, kv_heads=kv_heads, width=2055, gaps=True)
+@pytest.mark.parametrize("rows", [2, 4])
+def test_graph_updates(heads, kv_heads, rows):
+    args = inputs(rows=rows, heads=heads, kv_heads=kv_heads, width=2055, gaps=True)
     for _ in range(2):
         impl.sparse_attention(*args)
     torch.npu.synchronize()
@@ -194,7 +201,9 @@ def test_real_wide_pool_graph():
     v[0], v[-1] = 1, 3
     slots = torch.full((2, 2051), -1, device="npu", dtype=torch.int32)
     slots[1, 0], slots[1, 1] = 0, n - 1
-    assert impl.dispatch_info(q, k, v, slots)["offset_bits"] == 64
+    info = impl.dispatch_info(q, k, v, slots)
+    assert info["offset_bits"] == 64
+    assert info["path"] == "split" and info["splits"] == 8
     for _ in range(2):
         impl.sparse_attention(q, k, v, slots)
     torch.npu.synchronize()

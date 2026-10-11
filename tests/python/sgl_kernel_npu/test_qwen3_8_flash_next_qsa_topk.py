@@ -138,7 +138,9 @@ def test_model_large_prefill(k, rows, width):
 
 
 @pytest.mark.parametrize("k", [512, 2048])
-@pytest.mark.parametrize("shape", [(4, 8193), (129, 4096), (257, 131073), (3, 262145)])
+@pytest.mark.parametrize(
+    "shape", [(4, 8193), (129, 4096), (256, 16384), (257, 131073), (3, 262145)]
+)
 def test_model_replay_individual_inputs(k, shape):
     rows, width = shape
     backing = torch.randn(rows, width + 19, device="npu")
@@ -288,8 +290,22 @@ def test_model_reject_metadata(kind):
         (0, 4096, 512, "shortcut"),
         (8, 256, 512, "shortcut"),
         (8, 4096, 512, "tiled"),
-        (2047, 16384, 512, "tiled"),
+        (2047, 16384, 512, "hybrid"),
         (2048, 16384, 512, "hybrid"),
+        (255, 16384, 512, "tiled"),
+        (256, 16384, 512, "hybrid"),
+        (257, 16384, 512, "hybrid"),
+        (4096, 1024, 512, "tiled"),
+        (2049, 2047, 512, "tiled"),
+        (2047, 2048, 512, "tiled"),
+        (2048, 2048, 512, "hybrid"),
+        (2049, 2048, 512, "hybrid"),
+        (2048, 2048, 2048, "shortcut"),
+        (1023, 4096, 512, "tiled"),
+        (1024, 4096, 512, "hybrid"),
+        (1025, 4096, 512, "hybrid"),
+        (128, 65536, 512, "tiled"),
+        (128, 262144, 512, "hybrid"),
         (2, 262144, 2048, "tiled"),
         (2, 262145, 2048, "hybrid"),
     ],

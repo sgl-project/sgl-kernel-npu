@@ -366,12 +366,12 @@ def _configuration(q, k, v, slots):
     if _CONFIG_OVERRIDE is not None:
         return _CONFIG_OVERRIDE
     rows = q.shape[0]
-    if rows != 1 and rows < 8:
+    if rows not in (1, 2) and rows < 8:
         return 32, 8
     # Probe a conservative 32-split address bound before choosing a schedule.
     # The wrapper checks the selected launch configuration again.
     if _use_grouped(q, k, False) and not _wide_offsets(q, k, v, slots, 32, 32):
-        if rows == 1:
+        if rows <= 2:
             return 32, 16
         if rows >= 32:
             return 32, 1
@@ -555,6 +555,7 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
 
         Q                 K/V                    slots          path / splits
         [1,3,256]         [4096,1,256]            [1,2051]       1 / 16
+        [2,3,256]         [4096,1,256]            [2,2051]       1 / 16
         [8,3,256]         [4096,1,256]            [8,2055]       1 / 4
         [4096,3,256]      [4096,1,256]            [4096,2051]    1 / 1
         [32,24,256]       [4096,2,256]            [32,2051]      2
@@ -586,11 +587,13 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
     Tiles, splits and row chunks
     ---------------------------
     BLOCK=32 selection columns. Normally, safe three-head inputs use:
-        R=1 / 2..7 / 8..31 / >=32  ->  L=16 / 8 / 4 / 1 splits.
+        R=1..2 / 3..7 / 8..31 / >=32  ->  L=16 / 8 / 4 / 1 splits.
     Few query rows need KV-axis parallelism; more rows need less scratch and
     merging. The scheduler first probes a conservative 32-split address bound
-    (except R=2..7, which selects 8). If that probe fails it keeps 8 splits;
+    (except R=3..7, which selects 8). If that probe fails it keeps 8 splits;
     the final address check decides reuse versus wide execution. Wide uses 8.
+    R=2 benefits from 16 splits on the three-head reuse path, but measured
+    wide-address cases regress with 16; the address guard must remain in place.
     These are tuning choices within one algorithm, not correctness boundaries
     or universal optima. Hybrid row chunks are described in torch_attention.py.
 

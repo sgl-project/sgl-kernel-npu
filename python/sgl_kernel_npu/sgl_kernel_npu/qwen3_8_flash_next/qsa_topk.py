@@ -15,6 +15,9 @@ IMPLEMENTATION_VERSION = "qsa-model-v1"
 MAX_WIDTH = 2**24
 WORKSPACE_BYTES = 128 * 1024 * 1024
 TILED_MAX_WIDTH = 262144
+HYBRID_MIN_ROWS = 256
+HYBRID_MIN_COLUMNS = 2048
+HYBRID_MIN_BYTES = 16 * 1024 * 1024
 
 
 def select_implementation(rows, columns, topk):
@@ -24,12 +27,16 @@ def select_implementation(rows, columns, topk):
     Reject M>2**24 before choosing even the empty case. Return "shortcut" for
     R=0 or M<=K, but fast_topk handles these differently: R=0 only creates an
     empty [0,K] output; nonempty M<=K launches ordered-index/padding writes.
-    Otherwise choose tiled if M<=262144 and R*M*4<128 MiB; choose hybrid for
-    every other supported shape. R*M*4 is logical FP32 input size, excluding
+    Otherwise choose hybrid if ANY of these conditions holds:
+    - M>262144;
+    - R*M*4>=128 MiB;
+    - R>=256 AND M>=2048 AND R*M*4>=16 MiB.
+    All remaining shapes use tiled. R*M*4 is logical FP32 input size, excluding
     gaps in score.stride(0). No lengths, starts or scores are read on the host.
 
-    These two thresholds preserve the measured coarse policy, not a semantic
-    boundary or a proven optimal crossover. Individual L<=K rows still take
+    The row/column guards avoid switching small-row or narrow matrices solely
+    on total size. These are coarse tuning choices, not semantic boundaries
+    or a proven optimal crossover. Individual L<=K rows still take
     short-row handling inside tiled/hybrid; their values do not change this
     host dispatch. See fast_topk for examples, chunking and exact computation.
     """
@@ -37,7 +44,16 @@ def select_implementation(rows, columns, topk):
         raise ValueError(f"score width exceeds supported maximum {MAX_WIDTH}")
     if rows == 0 or columns <= topk:
         return "shortcut"
-    if columns > TILED_MAX_WIDTH or rows * columns * 4 >= WORKSPACE_BYTES:
+    score_bytes = rows * columns * 4
+    if (
+        columns > TILED_MAX_WIDTH
+        or score_bytes >= WORKSPACE_BYTES
+        or (
+            rows >= HYBRID_MIN_ROWS
+            and columns >= HYBRID_MIN_COLUMNS
+            and score_bytes >= HYBRID_MIN_BYTES
+        )
+    ):
         return "hybrid"
     return "tiled"
 
@@ -458,15 +474,22 @@ def fast_topk(score, lengths, topk, row_starts=None):
         [0,4096]; 512           shortcut: empty      [0,512]
         [8,256]; 512            shortcut: M<=K       [8,512]
         [8,4096]; 512           tiled                [8,512]
+        [4096,1024]; 512        tiled (narrow)       [4096,512]
+        [2047,16384]; 512       hybrid (combined)    [2047,512]
         [2048,16384]; 512       hybrid (128 MiB)     [2048,512]
         [2,262145]; 2048        hybrid (width)       [2,2048]
 
     After metadata checks, R=0 returns an empty tensor with no kernel launch.
     For nonempty M<=K, the shape and caller bounds imply every L<=K: launch
     ordered relative-index/padding writes using lengths, without reading
-    scores or starts. Otherwise tiled requires M<=262144 AND R*M*4<128 MiB;
-    all other supported shapes use hybrid. The limits are coarse scheduling
-    policies, not mathematical semantics or proven optimal performance points.
+    scores or starts. Otherwise hybrid is selected for M>262144, R*M*4>=128 MiB,
+    or the conjunction R>=256 AND M>=2048 AND R*M*4>=16 MiB. All other shapes
+    use tiled. See select_implementation for the centralized threshold policy.
+    These are coarse scheduling choices, not mathematical semantics or proven
+    optimal performance points. The combined condition improves measured large
+    packed-prefill cases, but hybrid needs more temporary memory and can lose
+    to tiled in graph replay with short valid intervals. It does not inspect
+    those intervals on the host or change the 128 MiB pack-allocation budget.
     A row with L<=K inside a wider matrix is also short, but cannot trigger
     the host shape shortcut: tiled/hybrid handle it internally on the device.
 
