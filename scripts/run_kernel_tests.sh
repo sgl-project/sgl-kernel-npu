@@ -49,6 +49,7 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    test_qsa_prefill.py
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
