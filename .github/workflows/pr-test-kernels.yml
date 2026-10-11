@@ -79,6 +79,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_lightning_indexer.py
               - tests/python/sgl_kernel_npu/test_transfer_kv_dim_exchange.py
             speculative:
+              - tests/python/sgl_kernel_npu/test_speculative_probability.py
               - csrc/build_tree/**
               - python/sgl_kernel_npu/sgl_kernel_npu/sample/**
               - python/sgl_kernel_npu/sgl_kernel_npu/speculative/**

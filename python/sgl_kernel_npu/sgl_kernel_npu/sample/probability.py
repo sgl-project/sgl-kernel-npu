@@ -9,6 +9,10 @@ def _renorm_from_sorted_probs(
     sorted_indices: torch.Tensor,
 ) -> torch.Tensor:
     sorted_probs.div_(sorted_probs.sum(dim=-1, keepdim=True).clamp_min_(1e-20))
+    if probs.device.type == "npu":
+        from .probability_scatter import scatter_nonzero_sorted_probs
+
+        return scatter_nonzero_sorted_probs(probs, sorted_probs, sorted_indices)
     return torch.zeros_like(probs).scatter_(
         dim=-1, index=sorted_indices, src=sorted_probs
     )
