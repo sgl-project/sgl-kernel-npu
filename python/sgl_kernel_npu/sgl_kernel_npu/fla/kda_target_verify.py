@@ -7,13 +7,7 @@ import triton.language as tl
 
 @triton.autotune(
     configs=[
-        triton.Config(
-            {"BV": bv, "multibuffer": multibuffer},
-            # Keep the backend defaults for all other compiler options.
-            num_warps=None,
-            num_stages=None,
-            num_ctas=None,
-        )
+        triton.Config({"BV": bv, "multibuffer": multibuffer})
         for bv in (64, 128)
         for multibuffer in (False, True)
     ],
@@ -23,9 +17,6 @@ import triton.language as tl
         "H_V",
         "K",
         "V",
-        "STEPS",
-        "BK",
-        "GATES_ARE_PREACTIVATED",
     ],
 )
 @triton.jit
@@ -528,12 +519,10 @@ def kda_target_verify_npu(
         kernel = _kda_target_verify_kernel
         launch_options = {}
     else:
-        # Bypass autotune for other dimensions, preserving their launch options.
+        # Bypass autotune for other dimensions.
         kernel = _kda_target_verify_kernel.fn
         launch_options = {
             "BV": min(64, triton.next_power_of_2(value_dim)),
-            "num_warps": 1,
-            "num_stages": 3,
             "multibuffer": False,
         }
     grid = lambda meta: (batch, h_v, triton.cdiv(value_dim, meta["BV"]))
