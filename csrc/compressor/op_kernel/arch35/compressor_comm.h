@@ -129,6 +129,9 @@ struct BatchInfo {
     uint32_t seqUsedCnt = 0;
     uint32_t headHolderSeq = 0;
     uint32_t bStartPos = 0;
+    // §237(1): bStartPos residue within the mBaseSize grid (bStartPos & (mBaseSize-1));
+    // anchors the M-axis base block on ABSOLUTE position. 0 when aligned (MISS).
+    uint32_t mBaseResidue = 0;
     uint32_t bIdx = 0;
     uint32_t sIdx = 0;
 };
