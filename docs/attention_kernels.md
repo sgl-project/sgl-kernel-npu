@@ -38,6 +38,9 @@ on the same NPU. K and V must have identical shapes. MHA, MQA and GQA use
 
 All dimensions must be positive; empty inputs are unsupported.
 
+BSH and BSND inputs are converted to contiguous BNSD internally. Ada returns
+its output in the original layout. This path adds layout-conversion copies.
+
 ## Laser Attention (`torch.ops.npu.laser_attn`)
 
 | Input / parameter | Constraint |
@@ -47,9 +50,9 @@ All dimensions must be positive; empty inputs are unsupported.
 | `input_layout` | `"BNSD"` only |
 | Sequence lengths | Both `Sq` and `Skv` must be multiples of 256; K/V lengths must match |
 | `head_num` | Must equal `Nq`; `Nq` must be divisible by `Nkv` |
-| `head_dim` | Must be divisible by 128 |
+| `head_dim` | Must equal 128 |
 | `scale_value` | Finite scalar, normally `1 / sqrt(128)`; the default is `1.0`, not an inferred scale |
-| Result | `(softmax_log_max_sum, attention_out)` |
+| Result | `(softmax_log_max_sum, attention_out)`; the first tensor is an uninitialized compatibility placeholder and must not be read |
 
 ## Ada Block Sparse Attention (`torch.ops.npu.ada_block_sparse_attention`)
 
@@ -71,7 +74,7 @@ Let `R = ceil(Sq / sparse_size)`, `C = ceil(Skv / sparse_size)` and
 | `inner_precise` | Use `1` (default) |
 | `pre_tokens`, `next_tokens` | Nonnegative int32 values; retain the defaults unless deliberately configuring an attention window |
 | `actual_seq_lengths`, `actual_seq_lengths_kv` | Unsupported; leave as `None` |
-| Result | `(attention_out, softmax_log_max_sum)` |
+| Result | `(attention_out, softmax_log_max_sum)`; softmax_log_max_sum is empty placeholder |
 
 ### Block mask and counts
 
@@ -114,9 +117,9 @@ definitions as above.
 | Result | `(sparse_mask, sparse_count_table)`: int8 `[B, Nq, R, Cp]` and int32 `[B, Nq, R]`, on Q's device |
 
 When the retained-fraction limit applies (rows with at least ten valid key
-blocks), `floor(valid_key_blocks * row_sparse)` must be at least one. Otherwise,
-the kernel can read index `-1` when selecting its cutoff. The host checks
-finiteness but does not enforce these semantic ranges. Sink/diagonal retention,
+blocks), the cutoff rank is `max(1, floor(valid_key_blocks * row_sparse))`.
+The host enforces `threshold` and `row_sparse` in `(0, 1]` and rejects causal
+calls whose actual Q length exceeds the actual KV length in any batch. Sink/diagonal retention,
 tied scores and the absence of this limit for rows with fewer than ten valid
 blocks mean that `row_sparse` does not guarantee exact final sparsity.
 
@@ -126,5 +129,5 @@ On A2/A3, build and run:
 
 ```bash
 pytest -q tests/python/sgl_kernel_npu/test_laser_attention.py \
-          tests/python/sgl_kernel_npu/test_sparse_attention.py
+          tests/python/sgl_kernel_npu/test_ada_block_sparse_attention.py
 ```

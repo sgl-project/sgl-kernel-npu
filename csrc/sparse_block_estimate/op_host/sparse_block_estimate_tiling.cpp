@@ -194,10 +194,12 @@ inline void check_pair(const at::Tensor &q, const at::Tensor &k, const InputShap
                 "incompatible query and key/value shapes");
 }
 
-inline at::Tensor normalize(const at::Tensor &x, const std::string &layout)
+// Use the BNSD kernel path until native BSH/BSND indexing is validated.
+inline at::Tensor normalize(const at::Tensor &x, const std::string &layout, int64_t heads)
 {
-    auto result = x.contiguous();
-    return layout == "BSND" ? result.view({x.size(0), x.size(1), x.size(2) * x.size(3)}) : result;
+    if (layout == "BNSD") return x.contiguous();
+    auto bsnd = layout == "BSH" ? x.reshape({x.size(0), x.size(1), heads, x.size(2) / heads}) : x;
+    return bsnd.transpose(1, 2).contiguous();
 }
 
 inline at::IntArrayRef check_lengths(c10::OptionalIntArrayRef lengths, const InputShape &shape)
@@ -281,15 +283,24 @@ sparse_block_estimate(const at::Tensor &query, const at::Tensor &key, c10::Optio
     check_pair(query, key, qs, ks);
     checked_int(stride, "stride");
     checked_int(sparse_size, "sparse_size");
-    TORCH_CHECK(sparse_size >= 128 && sparse_size <= 512 && sparse_size % 128 == 0 && sparse_size % stride == 0,
-                "sparse_size must be a multiple of 128 in [128, 512] and divisible by stride");
+    TORCH_CHECK(sparse_size == 128, "only sparse_size=128 is supported");
+    TORCH_CHECK(sparse_size % stride == 0, "stride must divide sparse_size");
     TORCH_CHECK(std::isfinite(scale_value) && std::isfinite(threshold) && std::isfinite(row_sparse),
                 "scale_value, threshold and row_sparse must be finite");
+    TORCH_CHECK(threshold > 0.0 && threshold <= 1.0, "threshold must be in (0, 1]");
+    TORCH_CHECK(row_sparse > 0.0 && row_sparse <= 1.0, "row_sparse must be in (0, 1]");
     auto qLengths = check_lengths(actual_seq_lengths, qs);
     auto kvLengths = check_lengths(actual_seq_lengths_kv, ks);
-    auto q = normalize(query, input_layout);
-    auto k = normalize(key, input_layout);
-    if (input_layout == "BSND") input_layout = "BSH";
+    if (causal) {
+        for (int64_t i = 0; i < qs.batch; ++i) {
+            const auto qLen = qLengths.empty() ? qs.sequence : qLengths[qLengths.size() == 1 ? 0 : i];
+            const auto kvLen = kvLengths.empty() ? ks.sequence : kvLengths[kvLengths.size() == 1 ? 0 : i];
+            TORCH_CHECK(qLen <= kvLen, "causal sparse_block_estimate requires Q length <= KV length per batch");
+        }
+    }
+    auto q = normalize(query, input_layout, num_heads);
+    auto k = normalize(key, input_layout, num_key_value_heads);
+    input_layout = "BNSD";
     const uint32_t coresAic = platform->GetCoreNumAic();
     const uint32_t coresAiv = platform->GetCoreNumAiv();
     optiling::SparseBlockEstimateTilingData tiling;

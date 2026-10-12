@@ -70,10 +70,12 @@ inline void check_pair(const at::Tensor &q, const at::Tensor &k, const InputShap
                 "incompatible query and key/value shapes");
 }
 
-inline at::Tensor normalize(const at::Tensor &x, const std::string &layout)
+// Use the BNSD kernel path until native BSH/BSND indexing is validated.
+inline at::Tensor normalize(const at::Tensor &x, const std::string &layout, int64_t heads)
 {
-    auto result = x.contiguous();
-    return layout == "BSND" ? result.view({x.size(0), x.size(1), x.size(2) * x.size(3)}) : result;
+    if (layout == "BNSD") return x.contiguous();
+    auto bsnd = layout == "BSH" ? x.reshape({x.size(0), x.size(1), heads, x.size(2) / heads}) : x;
+    return bsnd.transpose(1, 2).contiguous();
 }
 
 inline gert::StorageShape storage_shape(at::IntArrayRef sizes)
@@ -179,8 +181,7 @@ HOST_API at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at
     TORCH_CHECK(key.sizes() == value.sizes(), "key and value shapes must match");
     TORCH_CHECK(std::isfinite(scale_value), "scale_value must be finite");
     int32_t sparseSize = checked_int(sparse_size, "sparse_size");
-    TORCH_CHECK(sparseSize >= 128 && sparseSize <= 512 && sparseSize % 128 == 0,
-                "sparse_size must be a multiple of 128 in [128, 512]");
+    TORCH_CHECK(sparseSize == 128, "only sparse_size=128 is supported");
     TORCH_CHECK(inner_precise >= 0 && inner_precise <= 3, "inner_precise must be in [0, 3]");
     TORCH_CHECK(pre_tokens >= 0 && pre_tokens <= INT32_MAX && next_tokens >= 0 && next_tokens <= INT32_MAX,
                 "pre_tokens and next_tokens must fit in a nonnegative int32");
@@ -196,9 +197,9 @@ HOST_API at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at
     auto kvLengths = check_lengths(actual_seq_lengths_kv, ks);
     auto qLengthTensor = length_tensor(qLengths);
     auto kvLengthTensor = length_tensor(kvLengths);
-    auto q = normalize(query, input_layout);
-    auto k = normalize(key, input_layout);
-    auto v = normalize(value, input_layout);
+    auto q = normalize(query, input_layout, num_heads);
+    auto k = normalize(key, input_layout, num_key_value_heads);
+    auto v = normalize(value, input_layout, num_key_value_heads);
     auto mask = sparse_mask.contiguous();
     auto count = sparse_count_table.contiguous();
     auto output = at::empty_like(q);
@@ -206,7 +207,8 @@ HOST_API at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at
     auto kShape = storage_shape(k.sizes());
     auto vShape = storage_shape(v.sizes());
     auto maskShape = storage_shape(mask.sizes());
-    if (input_layout == "BSND") input_layout = "BSH";
+    const auto outputLayout = input_layout;
+    input_layout = "BNSD";
 
     optiling::AdaBlockSparseAttentionCompileInfo info{};
     info.aicNum = platform->GetCoreNumAic();
@@ -282,7 +284,10 @@ HOST_API at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at
     void *kvLengthsPtr = data_or_null(kvLengthsDevice);
     EXEC_KERNEL_CMD(ada_block_sparse_attention, blockDim, q, k, v, qLengthsPtr, kvLengthsPtr, mask, count, output,
                     tilingKey, workspace, tilingTensor);
-    return output.view(query.sizes());
+    if (outputLayout != "BNSD") {
+        return output.transpose(1, 2).contiguous().view(query.sizes());
+    }
+    return output;
 }
 
 }  // namespace sglang::npu_kernel

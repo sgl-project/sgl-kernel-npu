@@ -35,6 +35,7 @@ namespace {
 
 constexpr int64_t kMaxToken = std::numeric_limits<int32_t>::max();
 constexpr int64_t kBlockSide = 128;
+constexpr int64_t kSequenceAlignment = 256;
 constexpr int64_t kTilingAlignment = 32;
 constexpr int64_t kMaxCachedTilings = 1024;
 static_assert(sizeof(LaserAttentionTilingData) == 80, "unexpected Laser Attention tiling ABI");
@@ -103,8 +104,8 @@ void check_inputs(const at::Tensor &query, const at::Tensor &key, const at::Tens
                 "laser_attn requires head dimension 128");
     TORCH_CHECK(query.size(1) % key.size(1) == 0, "query head count must be divisible by the key/value head count");
     TORCH_CHECK(headNum == query.size(1), "head_num must match query.size(1)");
-    TORCH_CHECK(query.size(2) % kBlockSide == 0 && key.size(2) % kBlockSide == 0,
-                "query and key/value sequence lengths must be multiples of 128");
+    TORCH_CHECK(query.size(2) % kSequenceAlignment == 0 && key.size(2) % kSequenceAlignment == 0,
+                "query and key/value sequence lengths must be multiples of 256");
 
     checked_int32(query.size(0), "batch size");
     checked_int32(query.size(1), "head count");
@@ -278,6 +279,8 @@ HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(const at::Tensor &query, 
     void *alibiMaskPtr = alibiMask.defined() ? alibiMask.data_ptr() : nullptr;
     void *dropMaskPtr = dropMask.defined() ? dropMask.data_ptr() : nullptr;
 
+    // Compatibility placeholder: the forward kernel does not write this tensor.
+    // Its values are undefined; callers must use only attentionOut.
     auto softmaxLogMaxSum = at::empty({query.size(0), query.size(1), query.size(2)}, query.options().dtype(at::kFloat));
     auto attentionOut = at::empty(query.sizes(), query.options().dtype(at::kFloat));
 

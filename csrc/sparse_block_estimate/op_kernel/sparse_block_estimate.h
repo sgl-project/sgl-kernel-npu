@@ -985,6 +985,8 @@ public:
             }
             if ((cnt > actColCount * this->rowSparse) && actColCount >= 10) {  // 10: 有效列数
                 auto kk = static_cast<int32_t>(actColCount * this->rowSparse);
+                // Keep at least one ranked block before adding sink/diagonal blocks.
+                if (kk < 1) kk = 1;
                 scoreGuard = static_cast<float>(sortedValueLocal.GetValue(kk - 1));
             }
             scoreGuard -= EPS;
