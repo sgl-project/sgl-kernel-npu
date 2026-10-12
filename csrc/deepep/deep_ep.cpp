@@ -968,18 +968,18 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     std::optional<EventHandle> event;
     bool isLayered = false;
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
-        const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
-        const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
-        if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
-            strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
-            isLayered = true;
-            int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
-            ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
-        }
+    const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
+    const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
+    if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
+        strcmp(hcclIntraRoceEnable, "0") == 0) {
+        isLayered = true;
+        int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
+        ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
     }
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (isLayered) {
+        comm_alg = "hierarchy";
+    } else if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
     } else if (isCcu == 1) {
         comm_alg = "ccu";
@@ -1067,16 +1067,17 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor shared_expert_x{nullptr};
     at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
     std::optional<EventHandle> event;
-    if (soc_version == op::SocVersion::ASCEND910B) {
-        const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
-        const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
-        if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
-            strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
-            isLayered = true;
-        }
+
+    const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
+    const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
+    if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
+        strcmp(hcclIntraRoceEnable, "0") == 0) {
+        isLayered = true;
     }
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (isLayered) {
+        comm_alg = "hierarchy";
+    } else if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
     } else if (isCcu == 1) {
         comm_alg = "ccu";
