@@ -33,8 +33,8 @@ __aicore__ inline void RunAdaBlockSparseAttention(GM_ADDR query, GM_ADDR key, GM
     REGIST_MATMUL_OBJ(&pipe, GetSysWorkSpacePtr(), op.mm, &tilingData.bmm1TilingDataRect, op.bmm2,
                       &tilingData.bmm2TilingDataRect);
     op.Init(query, key, value, sparseMask, sparseCntTable, nullptr, nullptr, actualSeqLengths, actualSeqLengthsKV,
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, attentionOut, nullptr, workspace,
-            &tilingData, tiling, &pipe);
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, attentionOut, nullptr, workspace, &tilingData, tiling,
+            &pipe);
     op.Process();
 }
 

@@ -101,8 +101,7 @@ void check_inputs(const at::Tensor &query, const at::Tensor &key, const at::Tens
     TORCH_CHECK(key.size(2) == value.size(2), "key and value sequence lengths must match");
     TORCH_CHECK(query.size(3) == kBlockSide && key.size(3) == kBlockSide && value.size(3) == kBlockSide,
                 "laser_attn requires head dimension 128");
-    TORCH_CHECK(query.size(1) % key.size(1) == 0,
-                "query head count must be divisible by the key/value head count");
+    TORCH_CHECK(query.size(1) % key.size(1) == 0, "query head count must be divisible by the key/value head count");
     TORCH_CHECK(headNum == query.size(1), "head_num must match query.size(1)");
     TORCH_CHECK(query.size(2) % kBlockSide == 0 && key.size(2) % kBlockSide == 0,
                 "query and key/value sequence lengths must be multiples of 128");
@@ -131,10 +130,9 @@ void check_optional_mask(const c10::optional<at::Tensor> &mask, const at::Tensor
     TORCH_CHECK(mask->scalar_type() == dtype, name, " has an unsupported dtype");
 }
 
-LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at::Tensor &key,
-                                               const at::Tensor &value, double scaleValue, int64_t headNum,
-                                               double keepProb, int64_t preTokens, int64_t nextTokens,
-                                               bool isHighPrecision)
+LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                                              double scaleValue, int64_t headNum, double keepProb, int64_t preTokens,
+                                              int64_t nextTokens, bool isHighPrecision)
 {
     auto platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     TORCH_CHECK(platform != nullptr, "failed to get the AscendC platform");
@@ -185,8 +183,7 @@ LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at:
     const uint64_t groupNum = checked_mul(static_cast<uint64_t>(tiling.coreGroupNum),
                                           static_cast<uint64_t>(tiling.coreNumPerGroup), "workspace");
     const uint64_t cubeWorkspace = checked_mul(groupNum, 128ULL * 128ULL * 32ULL * 2ULL * 4ULL, "workspace");
-    const uint64_t vectorWorkspace =
-        checked_mul(groupNum, 256ULL * 128ULL * 8ULL * 2ULL * 4ULL * 2ULL, "workspace");
+    const uint64_t vectorWorkspace = checked_mul(groupNum, 256ULL * 128ULL * 8ULL * 2ULL * 4ULL * 2ULL, "workspace");
     const uint64_t rowCount = checked_mul(
         checked_mul(static_cast<uint64_t>(tiling.batchSize), static_cast<uint64_t>(tiling.headNum), "workspace"),
         static_cast<uint64_t>(tiling.seqSize), "workspace");
@@ -204,9 +201,8 @@ LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at:
 
 at::Tensor copy_tiling_to_device(const LaserAttentionTilingData &tilingData)
 {
-    constexpr int64_t tilingSize =
-        (static_cast<int64_t>(sizeof(LaserAttentionTilingData)) + kTilingAlignment - 1) / kTilingAlignment *
-        kTilingAlignment;
+    constexpr int64_t tilingSize = (static_cast<int64_t>(sizeof(LaserAttentionTilingData)) + kTilingAlignment - 1) /
+                                   kTilingAlignment * kTilingAlignment;
     auto cpuTiling = at::zeros({tilingSize}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(LaserAttentionTilingData));
     return TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
@@ -214,9 +210,8 @@ at::Tensor copy_tiling_to_device(const LaserAttentionTilingData &tilingData)
 
 at::Tensor get_tiling_tensor(const LaserAttentionTilingData &tilingData, const at::Tensor &query)
 {
-    constexpr int64_t tilingSize =
-        (static_cast<int64_t>(sizeof(LaserAttentionTilingData)) + kTilingAlignment - 1) / kTilingAlignment *
-        kTilingAlignment;
+    constexpr int64_t tilingSize = (static_cast<int64_t>(sizeof(LaserAttentionTilingData)) + kTilingAlignment - 1) /
+                                   kTilingAlignment * kTilingAlignment;
     const int64_t deviceIndex = query.get_device();
     int currentDevice = 0;
     c10_npu::GetDevice(&currentDevice);
@@ -259,11 +254,13 @@ at::Tensor prepare_optional_mask(const c10::optional<at::Tensor> &mask)
 
 }  // namespace
 
-HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    const c10::optional<at::Tensor> &attenMaskOpt, const c10::optional<at::Tensor> &alibiMaskOpt,
-    const c10::optional<at::Tensor> &dropMaskOpt, double scaleValue, int64_t headNum,
-    const std::string &inputLayout, double keepProb, int64_t preTokens, int64_t nextTokens, bool isHighPrecision)
+HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(const at::Tensor &query, const at::Tensor &key,
+                                                       const at::Tensor &value,
+                                                       const c10::optional<at::Tensor> &attenMaskOpt,
+                                                       const c10::optional<at::Tensor> &alibiMaskOpt,
+                                                       const c10::optional<at::Tensor> &dropMaskOpt, double scaleValue,
+                                                       int64_t headNum, const std::string &inputLayout, double keepProb,
+                                                       int64_t preTokens, int64_t nextTokens, bool isHighPrecision)
 {
     check_inputs(query, key, value, headNum, inputLayout, scaleValue, keepProb, preTokens, nextTokens);
     check_optional_mask(attenMaskOpt, query, at::kHalf, "atten_mask");
@@ -281,12 +278,11 @@ HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(
     void *alibiMaskPtr = alibiMask.defined() ? alibiMask.data_ptr() : nullptr;
     void *dropMaskPtr = dropMask.defined() ? dropMask.data_ptr() : nullptr;
 
-    auto softmaxLogMaxSum = at::empty({query.size(0), query.size(1), query.size(2)},
-                                      query.options().dtype(at::kFloat));
+    auto softmaxLogMaxSum = at::empty({query.size(0), query.size(1), query.size(2)}, query.options().dtype(at::kFloat));
     auto attentionOut = at::empty(query.sizes(), query.options().dtype(at::kFloat));
 
-    const auto config = make_launch_config(query, key, value, scaleValue, headNum, keepProb, preTokens, nextTokens,
-                                           isHighPrecision);
+    const auto config =
+        make_launch_config(query, key, value, scaleValue, headNum, keepProb, preTokens, nextTokens, isHighPrecision);
     const uint32_t blockDim = config.blockDim;
     auto tilingTensor = get_tiling_tensor(config.tilingData, query);
     auto workspace = at::empty({config.workspaceSize}, query.options().dtype(at::kByte));

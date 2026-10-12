@@ -41,10 +41,10 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
 // Keep array-setter diagnostics local: some CANN builds export the
 // base std::string logger only with the old libstdc++ ABI.
 private:
-    static void GeLogError(const char *message)
-    {
-        std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-    }
+static void GeLogError(const char *message)
+{
+    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
+}
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)

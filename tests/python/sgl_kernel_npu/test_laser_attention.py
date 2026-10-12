@@ -1,10 +1,14 @@
-import math
-
 import pytest
+import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
 
-import sgl_kernel_npu  # noqa: F401
+pytestmark = pytest.mark.skipif(
+    not hasattr(torch, "npu")
+    or not torch.npu.is_available()
+    or not hasattr(torch.ops.npu, "laser_attn"),
+    reason="Laser Attention requires a build for Ascend A2/A3 and an NPU",
+)
 
 
 def test_laser_attn_public_api_and_schema():
@@ -41,9 +45,9 @@ def test_laser_attn_public_api_and_schema():
 def test_laser_attn_fp16_bnsd_matches_torch_reference(num_heads, num_key_value_heads):
     batch_size, seq_len, head_dim = 1, 2048, 128
     query_shape = (batch_size, num_heads, seq_len, head_dim)
-    scale = 1.0 / math.sqrt(head_dim)
+    scale = 1.0 / head_dim ** (0.5)
 
-    torch.manual_seed(0)
+    torch.manual_seed(42)
     query = torch.randn(
         (batch_size, seq_len, num_heads, head_dim),
         device="npu",

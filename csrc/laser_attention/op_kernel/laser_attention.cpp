@@ -17,9 +17,10 @@
 
 using namespace AscendC;
 
-extern "C" __global__ __aicore__ void laser_attention(
-    GM_ADDR q_gm, GM_ADDR k_gm, GM_ADDR v_gm, GM_ADDR atten_mask_gm, GM_ADDR alibi_mask_gm, GM_ADDR drop_mask_gm,
-    GM_ADDR softmax_log_max_sum_gm, GM_ADDR attention_out_gm, GM_ADDR workspace, GM_ADDR tiling_para_gm)
+extern "C" __global__ __aicore__ void laser_attention(GM_ADDR q_gm, GM_ADDR k_gm, GM_ADDR v_gm, GM_ADDR atten_mask_gm,
+                                                      GM_ADDR alibi_mask_gm, GM_ADDR drop_mask_gm,
+                                                      GM_ADDR softmax_log_max_sum_gm, GM_ADDR attention_out_gm,
+                                                      GM_ADDR workspace, GM_ADDR tiling_para_gm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     const auto tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::LaserAttentionTilingData *>(tiling_para_gm);
@@ -34,9 +35,9 @@ extern "C" __global__ __aicore__ void laser_attention(
     int32_t s2 = tiling_data->kSeqLength;
     int32_t d = tiling_data->headDim;
     int32_t g = tiling_data->headGroupSize;
-    int32_t qkTriangle = tiling_data->isTriangle;  // 需要换成bool值
-    int32_t sparseMode = tiling_data->sparseMode;  // sparseMode: 0:dense, 1:sparse
-    int32_t windowLen = tiling_data->windowLen;    // sparse场景下，滑动窗口的长度
+    int32_t qkTriangle = tiling_data->isTriangle;        // 需要换成bool值
+    int32_t sparseMode = tiling_data->sparseMode;        // sparseMode: 0:dense, 1:sparse
+    int32_t windowLen = tiling_data->windowLen;          // sparse场景下，滑动窗口的长度
     int32_t maskSeqLength = tiling_data->maskSeqLength;  // attention mask 的 length
     float scale = tiling_data->scale;
     auto aicNum = y * f;

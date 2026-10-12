@@ -29,8 +29,7 @@ __aicore__ inline void RunSparseBlockEstimate(GM_ADDR q, GM_ADDR k, GM_ADDR actu
     }
     SparseBlockEstimate<Type> op;
     REGIST_MATMUL_OBJ(&op.pipe, GetSysWorkSpacePtr(), op.mm, &tilingData.cubeTilingData);
-    op.Init(q, k, actualSeqLengths, actualSeqLengthsKV, sparseMask, sparseCountTable, workspace,
-            tilingData);
+    op.Init(q, k, actualSeqLengths, actualSeqLengthsKV, sparseMask, sparseCountTable, workspace, tilingData);
     op.InitBuffers();
     op.Process();
 }
