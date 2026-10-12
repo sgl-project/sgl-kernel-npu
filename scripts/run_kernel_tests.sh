@@ -88,6 +88,7 @@ FLA_TESTS=(
     test_fused_gdn_gating_without_sigmoid.py
     test_solve_tril.py
     test_triangular_inverse.py
+    test_l2norm_boundaries.py
 )
 
 FUSED_TESTS=(
