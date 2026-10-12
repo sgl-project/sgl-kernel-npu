@@ -8,7 +8,10 @@ import pytest
 import torch
 import torch.nn.functional as F
 import torch_npu  # noqa: F401  Register NPU before importing the Triton module.
-from sgl_kernel_npu.fla.kda_target_verify import kda_target_verify_npu
+from sgl_kernel_npu.fla.kda_target_verify import (
+    _kda_target_verify_kernel,
+    kda_target_verify_npu,
+)
 
 pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="requires an NPU")
 
@@ -391,18 +394,29 @@ def test_kda_target_verify_inferred_gate_mode(gate_mode):
     _check_result(output, kwargs, inputs, expected)
 
 
-def test_kda_target_verify_graph():
+@pytest.mark.parametrize("batch,steps", [(8, 4), (4, 8), (8, 8)])
+@pytest.mark.parametrize(
+    "scale_mode", ["omitted", "explicit"], ids=["without-scale", "with-scale"]
+)
+def test_kda_target_verify_graph(batch, steps, scale_mode):
     kwargs, inputs = _make_case(
-        8, 4, "framework", "preactivated", "omitted", torch.float32
+        batch, steps, "framework", "preactivated", scale_mode, torch.float32
     )
     expected = _reference(inputs)
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())
-    # Compile and allocate before capture, using the same stream as capture.
+    # Native autotune, compilation and allocation finish before capture.
     with torch.npu.stream(stream):
         for _ in range(3):
             kda_target_verify_npu(**kwargs)
     torch.npu.synchronize()
+    best = _kda_target_verify_kernel.best_config.kwargs
+    print(
+        f"\n[autotune] {torch.npu.get_device_name(kwargs['q'].device)} "
+        f"B={batch} S={steps} "
+        f"{'with' if scale_mode == 'explicit' else 'without'} scale: "
+        f"BV={best['BV']}, multibuffer={best['multibuffer']}"
+    )
     graph = torch.npu.NPUGraph()
     with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
         output = kda_target_verify_npu(**kwargs)
