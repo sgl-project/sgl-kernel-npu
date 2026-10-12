@@ -209,38 +209,17 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::SplitK()
 {
-    uint32_t mSize = 0;
-    for (uint32_t i = 0; i < constInfo.batchSize; i++) {
-        uint32_t bSeqUsed = tools_.GetSeqLength(i);
-        // get the size of m
-        mSize += bSeqUsed;
-    }
-
-    uint32_t mBaseNum = CeilDivT(mSize, constInfo.mBaseSize);
-    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum) {
-        constInfo.kBaseNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
-        uint32_t kAlignSize = CeilDivT(
-            Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
-        constInfo.kBaseSize = Trunc(kAlignSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T)));
-        // when splitting the m axis cannot fill all cores, do not split the m axis (splitting m is a bit complex)
-        constInfo.mGroupNum = 1;     // all cores act as one group for m-axis processing
-        constInfo.mCurGroupIdx = 0;  // only one group
-    }
-    // fixed for each round; after precomputation the main loop reuses it directly
-    if (constInfo.kBaseNum > 1) {
-        kStartIdx_ = constInfo.aiCoreIdx / constInfo.dBasicBlockNum;
-        if (constInfo.curGroupIdx + 1 < constInfo.coreGroupNum) {
-            dealKSize_ = constInfo.kBaseSize;
-            hStart_ = kStartIdx_ * dealKSize_;
-        } else {
-            dealKSize_ = kStartIdx_ < constInfo.coreGroupNum ? constInfo.hSize - kStartIdx_ * constInfo.kBaseSize : 0;
-            hStart_ = kStartIdx_ * constInfo.kBaseSize;
-        }
-    } else {
-        kStartIdx_ = 0;
-        dealKSize_ = constInfo.hSize;
-        hStart_ = kStartIdx_ * dealKSize_;
-    }
+    // README §235.4: the compressor must be shape-invariant UNCONDITIONALLY.
+    // Force the single-group / no-K-split path regardless of the call's token
+    // count, so the mm1 K-axis reduction order no longer depends on the
+    // token-count-dependent K-split/stagger (MISS 17523 vs HIT 1139 / decode 1).
+    // The ~1e-8 MISS change is accepted by design.
+    constInfo.kBaseNum = 1;
+    constInfo.mGroupNum = 1;
+    constInfo.mCurGroupIdx = 0;
+    kStartIdx_ = 0;
+    dealKSize_ = constInfo.hSize;
+    hStart_ = 0;
 }
 
 template <typename COMP>

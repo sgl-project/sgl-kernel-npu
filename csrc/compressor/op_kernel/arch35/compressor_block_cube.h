@@ -353,8 +353,9 @@ __aicore__ inline void CompressorBlockCube<COMP>::ComputeMm1(const RunInfo &info
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = info.hStart;
     uint32_t hSize = info.dealKSize;
-    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                         K_L1_BASE;  // the h loop start differs within each group of cores
+    // README §235.4: shape-invariant unconditionally — force the h loop start to
+    // 0 so the K-axis accumulation order does not depend on the core index.
+    uint32_t hIdxStart = 0U;
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction
