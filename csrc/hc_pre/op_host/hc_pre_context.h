@@ -37,7 +37,7 @@ public:
         tilingKey = value;
     }
     template <typename T>
-    void SaveTilingData(const T &data)
+    void SaveTilingData(T &data)
     {
         TORCH_CHECK(data.GetDataSize() == serialized.size(), "hc_pre: unexpected tiling data size");
         data.SaveToBuffer(serialized.data(), serialized.size());
