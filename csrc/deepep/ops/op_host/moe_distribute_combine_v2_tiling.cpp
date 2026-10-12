@@ -68,6 +68,7 @@ constexpr uint32_t INT8_COMM_QUANT = 2U;
 constexpr uint64_t INIT_TILINGKEY = 10000;
 constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
+constexpr uint64_t TILING_KEY_A5_LAYERED = 53000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
 constexpr uint64_t TILINGKEY_TP_WORLD_SIZE = 100;
@@ -1125,6 +1126,7 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     OP_TILING_CHECK(commAlgPtr == nullptr, OP_LOGE(nodeName, "commAlgPtr is nullptr."), return ge::GRAPH_FAILED);
     bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
+    bool isLayered = strcmp(commAlgPtr, "hierarchy") == 0;
     OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
     std::string groupEp = "";
     std::string groupTp = "";
@@ -1148,16 +1150,32 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-    SetHCommCfg(context, tilingData, groupEp, groupTp);
+    if (isLayered) {
+        // A5 layered: use BatchWrite hierarchy + AIV_ENGINE
+        uint32_t opType = 18;  // BatchWrite
+        std::string algConfig = "BatchWrite=level1:hierarchy";
+        AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType, algConfig);
+        mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);
+        mc2CcTilingConfig.GetTiling(tilingData->mc2InitTiling);
+        mc2CcTilingConfig.GetTiling(tilingData->mc2CcTiling1);
+    } else {
+        SetHCommCfg(context, tilingData, groupEp, groupTp);
+    }
     OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
                     OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
 
     if (socVersion == "Ascend950") {
-        tilingKey = ccuFlag ? TILING_KEY_CCU_TYPE : TILING_KEY_A5_TYPE;
+        if (isLayered) {
+            tilingKey = TILING_KEY_A5_LAYERED;
+        } else {
+            tilingKey = ccuFlag ? TILING_KEY_CCU_TYPE : TILING_KEY_A5_TYPE;
+        }
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }
-    CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
+    if (!isLayered) {
+        CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
+    }
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
 
