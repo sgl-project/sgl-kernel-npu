@@ -371,7 +371,7 @@ def split_qkv_rmsnorm_rope_kernel(
 kernels = {}
 
 
-def split_qkv_rmsnorm_rope(
+def _split_qkv_rmsnorm_rope_impl(
     input,
     sin,
     cos,
@@ -743,3 +743,40 @@ def split_qkvgate_gemma_rmsnorm_rope(
     )
 
     return q_output, k_output, v_output, gate_output
+
+# Compile boundary only. Original Triton kernels and launch implementation above
+# remain unchanged; no assume_constant_result or driver monkey-patching.
+@torch.library.custom_op("sgl_kernel_npu::split_qkv_rmsnorm_rope", mutates_args=())
+def split_qkv_rmsnorm_rope(
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    eps: float | None = None,
+    q_weight: torch.Tensor | None = None,
+    k_weight: torch.Tensor | None = None,
+    q_bias: torch.Tensor | None = None,
+    k_bias: torch.Tensor | None = None,
+    is_neox_style: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    return _split_qkv_rmsnorm_rope_impl(
+        input, sin, cos, q_hidden_size, kv_hidden_size, head_dim,
+        eps, q_weight, k_weight, q_bias, k_bias, is_neox_style,
+    )
+
+
+@split_qkv_rmsnorm_rope.register_fake
+def _split_qkv_rmsnorm_rope_fake(
+    input, sin, cos, q_hidden_size, kv_hidden_size, head_dim,
+    eps=None, q_weight=None, k_weight=None, q_bias=None, k_bias=None,
+    is_neox_style=True,
+):
+    # Separate fresh contiguous outputs match the real allocation contract.
+    rows = input.shape[0]
+    return (
+        torch.empty((rows, q_hidden_size), device=input.device, dtype=input.dtype),
+        torch.empty((rows, kv_hidden_size), device=input.device, dtype=input.dtype),
+        torch.empty((rows, kv_hidden_size), device=input.device, dtype=input.dtype),
+    )

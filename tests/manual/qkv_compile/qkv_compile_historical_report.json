@@ -1,0 +1,225 @@
+{
+  "schema": "(Tensor input, Tensor sin, Tensor cos, SymInt q_hidden_size, SymInt kv_hidden_size, SymInt head_dim, float? eps=None, Tensor? q_weight=None, Tensor? k_weight=None, Tensor? q_bias=None, Tensor? k_bias=None, bool is_neox_style=True) -> (Tensor, Tensor, Tensor)",
+  "device": "npu:0",
+  "torch": "2.10.0+cpu",
+  "sources": {
+    "original": {
+      "sha256": "0eb733b26d2f26939c04e670f614d7dcd76e464fef7df44f12eee7e67ca774a4"
+    },
+    "candidate": {
+      "sha256": "e0e1d617fe75546b11e4bff72a7d9b14d0738e671c34e9986a53d91eb279f220"
+    },
+    "inputs": {
+      "sha256": "6873e87935c387a8697320f23910c46e3161f1fcd291a277858eb4a528c4007e"
+    }
+  },
+  "cases": [
+    {
+      "index": 0,
+      "shape": [
+        1,
+        4096
+      ],
+      "input_unchanged": true,
+      "comparisons": [
+        {
+          "mode": "custom_eager",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        }
+      ],
+      "opcheck": {
+        "test_schema": "SUCCESS",
+        "test_faketensor": "SUCCESS",
+        "test_aot_dispatch_dynamic": "SUCCESS"
+      }
+    },
+    {
+      "index": 1,
+      "shape": [
+        2,
+        4096
+      ],
+      "input_unchanged": true,
+      "comparisons": [
+        {
+          "mode": "custom_eager",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        }
+      ],
+      "opcheck": {
+        "test_schema": "SUCCESS",
+        "test_faketensor": "SUCCESS",
+        "test_aot_dispatch_dynamic": "SUCCESS"
+      }
+    },
+    {
+      "index": 2,
+      "shape": [
+        16,
+        4096
+      ],
+      "input_unchanged": true,
+      "comparisons": [
+        {
+          "mode": "custom_eager",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "custom_eager",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 0,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 1,
+          "equal": true,
+          "maxdiff": 0.0
+        },
+        {
+          "mode": "compiled_repeat",
+          "output": 2,
+          "equal": true,
+          "maxdiff": 0.0
+        }
+      ],
+      "opcheck": {
+        "test_schema": "SUCCESS",
+        "test_faketensor": "SUCCESS",
+        "test_aot_dispatch_dynamic": "SUCCESS"
+      }
+    }
+  ]
+}

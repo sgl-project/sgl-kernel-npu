@@ -1,0 +1,135 @@
+{
+  "scope": "supplemental contracts; synthetic fixed-shape replay, not service acceptance",
+  "candidate_sha256": "a4ac7b8d5a5d5087a992654d473c565b3c974c12289aa3ecbc087090659d5971",
+  "qkv_same_graph": [
+    {
+      "scale": 1.0,
+      "outputs": [
+        {
+          "shape": [
+            2,
+            2048
+          ],
+          "stride": [
+            2048,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        }
+      ],
+      "equal": true,
+      "no_alias": true
+    },
+    {
+      "scale": 0.5,
+      "outputs": [
+        {
+          "shape": [
+            2,
+            2048
+          ],
+          "stride": [
+            2048,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        }
+      ],
+      "equal": true,
+      "no_alias": true
+    },
+    {
+      "scale": 1.0,
+      "outputs": [
+        {
+          "shape": [
+            2,
+            2048
+          ],
+          "stride": [
+            2048,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        },
+        {
+          "shape": [
+            2,
+            1024
+          ],
+          "stride": [
+            1024,
+            1
+          ],
+          "dtype": "torch.bfloat16",
+          "device": "npu:0"
+        }
+      ],
+      "equal": true,
+      "no_alias": true
+    }
+  ]
+}
