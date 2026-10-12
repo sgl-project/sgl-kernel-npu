@@ -15,6 +15,9 @@
 #include "lib/matmul_intf.h"
 
 #include "tensorutils.h"
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+#include "arch35/recurrent_gated_delta_rule_regbase.h"
+#endif
 
 using namespace matmul;
 using namespace AscendC;
@@ -170,20 +173,26 @@ public:
         kInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(MAX_MTP * alignK_), buffOffset);
         buffOffset += kSize;
 
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        // Ascend 950 normalizes q/k in registers and needs neither qTempInUb/kTempInUb nor qSumLocal/kSumLocal.
+#else
         qTempInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(MAX_MTP * alignK_), buffOffset);
         buffOffset += kSize;
         kTempInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(MAX_MTP * alignK_), buffOffset);
         buffOffset += kSize;
+#endif
 
         stateInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(alignK_ * vStep_), buffOffset);
         buffOffset += cubeSize;
         broadTmpInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(alignK_ * vStep_), buffOffset);
         buffOffset += cubeSize;
 
+#if !(defined(__CCE_AICORE__) && __CCE_AICORE__ == 310)
         qSumLocal = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(sumLocalNum), buffOffset);
         buffOffset += sumLocalNum * sizeof(float);
         kSumLocal = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(sumLocalNum), buffOffset);
         buffOffset += sumLocalNum * sizeof(float);
+#endif
 
         betaInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(betaUbNum), buffOffset);
 
@@ -263,6 +272,7 @@ private:
         AscendC::PipeBarrier<PIPE_V>();
     }
 
+#if !(defined(__CCE_AICORE__) && __CCE_AICORE__ == 310)
     /**
      * Note: This method is specifically designed and invoked only when
      * curSingleV == 64 and alignK_ == 128.
@@ -319,9 +329,13 @@ private:
         PipeBarrier<PIPE_V>();
         ResetMask();
     }
+#endif
 
     __aicore__ inline void kL2Norm(uint32_t seqLen)
     {
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        RecurrentGatedDeltaRuleRegbase::L2NormalizeRowsRegbase(kInUb, seqLen, alignK_, realK_, EPSILON_FOR_STABILITY);
+#else
         Mul<float>(kTempInUb, kInUb, kInUb, seqLen * alignK_);
         PipeBarrier<PIPE_V>();
 
@@ -349,10 +363,14 @@ private:
 
             Muls<float>(kInUb[offset], kInUb[offset], inv_norm, realK_);
         }
+#endif
     }
 
     __aicore__ inline void qL2Norm(uint32_t seqLen)
     {
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        RecurrentGatedDeltaRuleRegbase::L2NormalizeRowsRegbase(qInUb, seqLen, alignK_, realK_, EPSILON_FOR_STABILITY);
+#else
         Mul<float>(qTempInUb, qInUb, qInUb, seqLen * alignK_);
         PipeBarrier<PIPE_V>();
 
@@ -380,6 +398,7 @@ private:
 
             Muls<float>(qInUb[offset], qInUb[offset], inv_norm, realK_);
         }
+#endif
     }
 
     __aicore__ inline void Compute(uint32_t curSingleV, uint64_t curQKOffset, uint64_t curVOffset, uint64_t seq_i,
@@ -445,6 +464,10 @@ private:
         }
         AscendC::PipeBarrier<PIPE_V>();
 
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        RecurrentGatedDeltaRuleRegbase::RowDotRegbase(deltaInUb, stateInUb, kInUb[curQKOffset], curSingleV, alignK_,
+                                                      realK_);
+#else
         for (uint32_t i = 0; i < alignK_ / VEC_FLOAT; i++) {
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
@@ -460,6 +483,7 @@ private:
         } else {
             ReduceSum<float, Pattern::Reduce::AR, true>(deltaInUb, broadTmpInUb, stateShape, true);
         }
+#endif
         AscendC::PipeBarrier<PIPE_V>();
         Sub<float>(deltaInUb, vInUb[curVOffset], deltaInUb, curSingleV);
         AscendC::PipeBarrier<PIPE_V>();
@@ -479,6 +503,11 @@ private:
             qkvcopyFlag_ = true;
         }
 
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        RecurrentGatedDeltaRuleRegbase::RankOneUpdateRegbase(stateInUb, deltaInUb, kInUb[curQKOffset], curSingleV,
+                                                             alignK_, realK_);
+        AscendC::PipeBarrier<PIPE_V>();
+#else
         Brcb(broadTmpInUb, deltaInUb, curSingleV / 8, {1, NUM_DBLK_FLOAT});
         AscendC::PipeBarrier<PIPE_V>();
 
@@ -489,6 +518,7 @@ private:
                                            curSingleV, {1, 0, 1, 16, 1, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
+#endif
 
         out_empty_Attn.wait();
 
@@ -501,6 +531,10 @@ private:
 
         CopyOutState(curStateOutOffset, curSingleV);
 
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+        RecurrentGatedDeltaRuleRegbase::RowDotRegbase(attnInUb, stateInUb, qInUb[curQKOffset], curSingleV, alignK_,
+                                                      realK_);
+#else
         for (uint32_t i = 0; i < alignK_ / VEC_FLOAT; i++) {
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
@@ -516,6 +550,7 @@ private:
         } else {
             ReduceSum<float, Pattern::Reduce::AR, true>(attnInUb, broadTmpInUb, stateShape, true);
         }
+#endif
         AscendC::PipeBarrier<PIPE_V>();
         Cast(attnOutLocal, attnInUb, AscendC::RoundMode::CAST_RINT, curSingleV);
         out_ready_Attn.set();

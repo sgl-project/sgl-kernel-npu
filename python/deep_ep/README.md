@@ -99,8 +99,9 @@ DeepEP-Ascend employs a **strategy-based architecture** where communication impl
 | **Buffer** | `buffer.py` | Main entry point. Initializes communication buffer and delegates to strategy objects. |
 | **NormalStrategy** | `ep_strategy.py` / `strategies/normal_strategy.py` | Normal mode dispatch/combine strategies (default, alltoall). |
 | **LowLatencyStrategy** | `ep_strategy.py` / `strategies/low_latency_strategy.py` | Low-latency mode dispatch/combine strategies (default, ops, alltoall). |
+| **FusedStrategy** | `ep_strategy.py` / `strategies/fused_strategy.py` | Fused MoE mode strategies (fused_deep_moe, dispatch_ffn_combine, mega_moe). |
 | **EventOverlap** | `utils.py` | Event synchronization utility for async operations. |
-| **FuseMode** | `buffer.py` | Enum for fused MoE computation modes. |
+| **FuseMode** | `ep_strategy.py` (re-exported via `buffer.py`) | Enum for fused MoE computation modes. |
 
 #### Strategy Selection
 
@@ -199,11 +200,23 @@ Quantization modes in `low_latency_dispatch`. For the `default` strategy, the ef
 
 ### Fused MoE
 
-The `fused_deep_moe` API fuses dispatch + expert FFN computation + combine into a single operator call, significantly reducing communication overhead and end-to-end latency.
+Three fuse modes are available via the `FuseMode` enum:
 
-Two fuse modes are available via the `FuseMode` enum:
 - `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine via staged CamMoe communication with cross-core barriers.
 - `FuseMode.DISPATCH_FFN_COMBINE`: Integrated routing + FFN + combine with embedded HCCL communication, no cross-core barriers.
+- `FuseMode.MEGA_MOE`: Atlas A3 MegaMoe fusion via `cann_ops_transformer.ops.mega_moe`.
+
+Backend highlights:
+
+- On A5, `FuseMode.FUSED_DEEP_MOE` supports SwiGLU and SiTU; on Atlas A3, use `FuseMode.MEGA_MOE` for SiTU.
+- `FuseMode.DISPATCH_FFN_COMBINE` supports SwiGLU only; selecting `activation="situ"` raises `NotImplementedError`.
+- `FuseMode.MEGA_MOE` supports `"swiglu"` and `"situ"`; it maps SiTU to the MegaMoe `situglu` activation and forwards `beta` and `linear_beta`.
+- MegaMoe supports only `quant_mode=0` (non-quantized dispatch) and `quant_mode=1` (INT8 dispatch).
+- MegaMoe requires per-local-expert weight lists. Its token capacity is `num_max_dispatch_tokens_per_rank`; inputs shorter than that capacity are padded and masked.
+- `l1_bias` / `l2_bias` are consumed only by MegaMoe, for A8W4-INT compensation.
+
+For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
+missing, only calls using that mode fail; the DeepEP modes still work.
 
 Quantization modes (`quant_mode`):
 - `0`: No quantization (BF16 weights)
@@ -225,7 +238,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | `MOE_ENABLE_CCU` | `0` | Set to `1` to use `comm_alg="ccu"` in default low-latency strategy. |
 | `HCCL_BUFFSIZE` | `200` (MB) | HCCL buffer size in MB. **Must be set** when using DeepEP on A2. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value. |
 | `DEEPEP_HCCL_BUFFSIZE` | — | Reserved. Takes priority over `HCCL_BUFFSIZE` if set. DeepEP reads this for preliminary validation only; actual HCCL buffer must be configured by the framework (e.g., SGLang). |
-| `DEEPEP_HYBRID_DEPLOYMENT` | — | Set this when one process uses both Normal and Low-Latency APIs against the same EP group. Its presence enables an isolated hybrid window layout for the two modes. Set it before every rank process starts and keep it identical on all ranks in the EP group. Leave it unset when the process uses only one mode. |
+| `DEEPEP_HYBRID_DEPLOYMENT` | `0` | Set to `1` when one process uses both Normal and Low-Latency APIs against the same EP group, enabling an isolated hybrid window layout for the two modes. `0` or an unset variable disables hybrid deployment. Set it before every rank process starts and keep it identical on all ranks in the EP group. |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | "Ant moving home" feature: number of dispatch rounds per rank. Range [1, 256]. Must be set together with `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS`. |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | "Ant moving home" feature: tokens per round per rank. Range [32, 8192]. Product with `ROUND` must be ≤ 131072. |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | Set to `1` to enable "ant moving home" in the combine phase. |
@@ -404,8 +417,9 @@ DeepEP-Ascend 采用**策略式架构**，通信实现被抽象为可互换的�
 | **Buffer** | `buffer.py` | 主入口。初始化通信缓冲区并委托给策略对象。 |
 | **NormalStrategy** | `ep_strategy.py` / `strategies/normal_strategy.py` | Normal 模式 dispatch/combine 策略（default、alltoall）。 |
 | **LowLatencyStrategy** | `ep_strategy.py` / `strategies/low_latency_strategy.py` | Low-latency 模式 dispatch/combine 策略（default、ops、alltoall）。 |
+| **FusedStrategy** | `ep_strategy.py` / `strategies/fused_strategy.py` | 融合 MoE 模式策略（fused_deep_moe、dispatch_ffn_combine、mega_moe）。 |
 | **EventOverlap** | `utils.py` | 异步操作的事件同步工具。 |
-| **FuseMode** | `buffer.py` | 融合 MoE 计算模式的枚举。 |
+| **FuseMode** | `ep_strategy.py`（经 `buffer.py` 再导出） | 融合 MoE 计算模式的枚举。 |
 
 #### 策略选择
 
@@ -485,9 +499,23 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 `fused_deep_moe` API 将 dispatch + 专家 FFN 计算 + combine 融合为单次算子调用，显著降低通信开销和端到端延迟。
 
-通过 `FuseMode` 枚举提供两种融合模式：
+通过 `FuseMode` 枚举提供三种融合模式：
+
 - `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合，通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。
 - `FuseMode.DISPATCH_FFN_COMBINE`：集成路由 + FFN + combine，HCCL 通信内嵌于 GMM kernel 中，无跨核 barrier。
+- `FuseMode.MEGA_MOE`：通过 `cann_ops_transformer.ops.mega_moe` 实现的 Atlas A3 MegaMoe 融合路径。
+
+模式差异要点：
+
+- 在 A5 上，`FuseMode.FUSED_DEEP_MOE` 支持 SwiGLU 和 SiTU；在 Atlas A3 上使用 SiTU 时，应选择 `FuseMode.MEGA_MOE`。
+- `FuseMode.DISPATCH_FFN_COMBINE` 仅支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
+- `FuseMode.MEGA_MOE` 支持 `"swiglu"` 和 `"situ"`；SiTU 会映射为 MegaMoe 的 `situglu`，并透传 `beta` 与 `linear_beta`。
+- MegaMoe 仅支持 `quant_mode=0`（非量化 dispatch）和 `quant_mode=1`（INT8 dispatch）。
+- MegaMoe 要求每个本地 expert 使用一个权重 Tensor 列表；其 token 容量为 `num_max_dispatch_tokens_per_rank`，输入不足该容量时会 padding 并使用 active mask。
+- `l1_bias` / `l2_bias` 仅由 MegaMoe 使用，用于 A8W4-INT 补偿。
+
+如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
+只有使用该模式的调用会报错，DeepEP 模式不受影响。
 
 量化模式（`quant_mode`）：
 - `0`：无量化（BF16 权重）
@@ -509,7 +537,7 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | `MOE_ENABLE_CCU` | `0` | 设为 `1` 时 default low-latency 策略使用 `comm_alg="ccu"`。 |
 | `HCCL_BUFFSIZE` | `200`（MB） | HCCL 缓冲区大小（MB）。A2 使用 DeepEP 时**必须设置**。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。 |
 | `DEEPEP_HCCL_BUFFSIZE` | — | 预留字段，优先级高于 `HCCL_BUFFSIZE`。DeepEP 仅用于初步校验，实际 HCCL 缓冲需由框架（如 SGLang）配置。 |
-| `DEEPEP_HYBRID_DEPLOYMENT` | — | 同一进程在同一 EP group 上同时使用 Normal 和 Low-Latency 接口时设置。变量存在即启用两种模式隔离的 hybrid window 布局。必须在各 rank 进程启动前设置，且同一 EP group 的所有 rank 必须保持一致。进程仅使用一种模式时无需设置。 |
+| `DEEPEP_HYBRID_DEPLOYMENT` | `0` | 同一进程在同一 EP group 上同时使用 Normal 和 Low-Latency 接口时设置为 `1`，启用两种模式隔离的 hybrid window 布局。设置为 `0` 或未设置时不启用混部。必须在各 rank 进程启动前设置，且同一 EP group 的所有 rank 必须保持一致。 |
 | `DEEPEP_NORMAL_LONG_SEQ_ROUND` | `1` | 蚂蚁搬家特性：每 rank 发送轮数。范围 [1, 256]。需与 `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` 同时设置。 |
 | `DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS` | `8192` | 蚂蚁搬家特性：每轮每 rank 发送 token 数。范围 [32, 8192]。与 `ROUND` 的乘积需 ≤ 131072。 |
 | `DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ` | `0` | 设为 `1` 在 combine 阶段启用蚂蚁搬家。 |

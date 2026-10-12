@@ -77,7 +77,13 @@ using namespace AscendC;
                                       BaseApi::SFAVectorService<__VA_ARGS__>>::type;                                \
         templateClass<CubeBlockType, VecBlockType> op;                                                              \
         tilingdataClass tiling_data_in;                                                                             \
-        GET_TILING_DATA_WITH_STRUCT(tilingdataClass, tiling_data_in, tiling);                                       \
+        const __gm__ uint32_t *tiling_data_gm = reinterpret_cast<const __gm__ uint32_t *>(tiling);                  \
+        uint32_t *tiling_data_local = reinterpret_cast<uint32_t *>(&tiling_data_in);                                \
+        static_assert(sizeof(tilingdataClass) % sizeof(uint32_t) == 0);                                             \
+        _Pragma("unroll") for (uint32_t i = 0; i < sizeof(tilingdataClass) / sizeof(uint32_t); ++i)                 \
+        {                                                                                                           \
+            tiling_data_local[i] = tiling_data_gm[i];                                                               \
+        }                                                                                                           \
         const tilingdataClass *__restrict tilingData = &tiling_data_in;                                             \
         op.Init(query, key, value, sparseIndices, actualSeqLengthsQuery, actualSeqLengthsKV, blocktable, queryRope, \
                 keyRope, attentionOut, softmaxMax, softmaxSum, user, tilingData, tiling, &tPipe);                   \
