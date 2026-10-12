@@ -133,6 +133,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         topk_ids = topk_idx.int()
 
@@ -159,6 +160,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             async_finish,
             return_recv_hook,
             out,
+            use_mxfp8,
         )
 
         tensors_to_record = (
@@ -310,6 +312,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
@@ -338,6 +341,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expand_scales=expand_scales,
             x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            comm_quant_mode=3 if use_mxfp8 else 0,
         )
 
         event = EventOverlap(EventHandle())
@@ -585,7 +589,12 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish=False,
         return_recv_hook=False,
         out=None,
+        use_mxfp8=False,
     ):
+        if use_mxfp8:
+            raise NotImplementedError(
+                "low_latency_combine(use_mxfp8=True) is only supported by the A5 default and ops strategies"
+            )
         expanded_row_idx = handle[0]
         expert_capacity = handle[1]
         hidden = handle[2]
