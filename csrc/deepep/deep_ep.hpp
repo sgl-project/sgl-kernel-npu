@@ -122,7 +122,7 @@ public:
         const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
         const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
-        const std::optional<at::Tensor> &out);
+        const std::optional<at::Tensor> &out, bool use_mxfp8 = false);
 
     std::vector<at::Tensor> fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds,
                                            const at::Tensor &gmm1PermutedWeight,
