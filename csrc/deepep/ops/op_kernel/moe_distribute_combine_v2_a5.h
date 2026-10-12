@@ -105,8 +105,7 @@ private:
 #endif
     __aicore__ inline void ProcessConstantExpert(uint32_t tokenIndex, uint32_t const_expert_idx, float scaleVal);
     __aicore__ inline void ProcessCopyExpert(uint32_t tokenIndex, float scaleVal);
-    __aicore__ inline void ProcessMoeExpert(uint32_t tokenIndexOffset, uint32_t topkId, float scaleVal,
-                                            uint32_t sourceRank);
+    __aicore__ inline void ProcessMoeExpert(uint32_t tokenIndexOffset, uint32_t topkId, float scaleVal);
     __aicore__ inline void ProcessExpert(uint32_t tokenIndex, uint32_t processLen);
     __aicore__ inline bool WaitOneTopK(uint32_t tokenIndex, uint32_t topkId);
     __aicore__ inline void InitAsyncOutputEarly();
@@ -1408,8 +1407,7 @@ __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ProcessC
 template <A5CombineTemplateClass>
 __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ProcessMoeExpert(uint32_t tokenIndexOffset,
                                                                                          uint32_t topkId,
-                                                                                         float scaleVal,
-                                                                                         uint32_t sourceRank)
+                                                                                         float scaleVal)
 {
     uint32_t processLen = axisH_;
     const DataCopyExtParams xScaleCopyParams{1U, static_cast<uint32_t>(tokenScaleCnt_ * sizeof(ExpandXType)), 0U, 0U,
@@ -1499,16 +1497,7 @@ __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ProcessE
                 }
             }
             scaleVal = expertScalesLocal_.GetValue(index);
-            uint32_t sourceRank = 0U;
-#ifdef __DAV_C310__
-            if constexpr (IsMxfp8Quant) {
-                DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
-                    expertIdsGM_[tokenIndex * axisK_ + topkId]);
-                uint32_t expertId = static_cast<uint32_t>(expertIdsGM_.GetValue(tokenIndex * axisK_ + topkId));
-                sourceRank = (moeExpertPerRankNum_ == 0U) ? 0U : expertId / moeExpertPerRankNum_;
-            }
-#endif
-            ProcessMoeExpert(tokenIndexOffset, topkId, scaleVal, sourceRank);
+            ProcessMoeExpert(tokenIndexOffset, topkId, scaleVal);
             index++;
         }
     } else {
@@ -1527,8 +1516,7 @@ __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ProcessE
             scaleVal = expertScalesLocal_.GetValue(index);
 
             if (expert_id < moeExpertNum_) {
-                uint32_t sourceRank = (moeExpertPerRankNum_ == 0U) ? 0U : expert_id / moeExpertPerRankNum_;
-                ProcessMoeExpert(tokenIndexOffset, topkId, scaleVal, sourceRank);
+                ProcessMoeExpert(tokenIndexOffset, topkId, scaleVal);
                 index++;
             } else if (expert_id < moeExpertNum_ + zeroExpertNum_) {
                 // 零专家不需要任何操作
@@ -1648,12 +1636,11 @@ __aicore__ inline void MoeDistributeCombineV2A5<A5CombineTemplateArgs>::ProcessA
     PipeBarrier<PIPE_V>();
 
     if (expertId < moeExpertNum_) {
-        const uint32_t sourceRank = (moeExpertPerRankNum_ == 0U) ? 0U : expertId / moeExpertPerRankNum_;
         // 仅等待该topk的数据到达
         if (!WaitOneTopK(tokenIndex, topkId)) {
             return;
         }
-        ProcessMoeExpert(tokenIndex * (axisK_ + sharedExpertNum_), topkId, scaleVal, sourceRank);
+        ProcessMoeExpert(tokenIndex * (axisK_ + sharedExpertNum_), topkId, scaleVal);
     } else if (expertId < moeExpertNum_ + zeroExpertNum_ + copyExpertNum_) {
         ProcessCopyExpert(tokenIndex, scaleVal);
     } else if (expertId < moeExpertNum_ + zeroExpertNum_ + copyExpertNum_ + constExpertNum_) {
