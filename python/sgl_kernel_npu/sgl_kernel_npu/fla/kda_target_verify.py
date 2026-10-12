@@ -17,7 +17,30 @@ import triton.language as tl
         for bv in (64, 128)
         for multibuffer in (False, True)
     ],
-    key=[],
+    key=[
+        "stride_q_token",
+        "stride_q_head",
+        "stride_q_dim",
+        "stride_k_token",
+        "stride_k_head",
+        "stride_k_dim",
+        "stride_v_token",
+        "stride_v_head",
+        "stride_v_dim",
+        "stride_a_token",
+        "stride_a_head",
+        "stride_a_dim",
+        "stride_b_token",
+        "stride_b_head",
+        "H_Q",
+        "H_K",
+        "H_V",
+        "K",
+        "V",
+        "STEPS",
+        "BK",
+        "GATES_ARE_PREACTIVATED",
+    ],
 )
 @triton.jit
 def _kda_target_verify_kernel(
