@@ -1446,20 +1446,7 @@ __aicore__ inline Vec2SplitInfo CompressorBlockVector<COMP>::SplitCoreV2(const V
         preScCnt -= curScNum;
     }
 
-    // §237.5: anchor the written compressed-OUTPUT slot on the ABSOLUTE
-    // compressed position so the same absolute position always maps to the same
-    // output row, independent of the CALL shape (full-prefill MISS vs
-    // prefix+suffix HIT). `info.compressedId - info.dealScSize` is the
-    // CALL-LOCAL count of compressed tokens emitted before this round (seeded
-    // from 0 per call); adding `absScBase` re-bases that call-local count onto
-    // the absolute compressed lattice. This flows into the Vec2 iterator's
-    // `padScIdx` -> `CopyFinalResultOut` out offset (and the aligned RoPE
-    // index), the "write-loc" the device [KSTATELOC-W] verdict flags as
-    // inconsistent (same seq -> multiple out).
-    // MISS-preservation: bStartPos == 0 => absScBase == 0 => the original
-    // call-local path is byte-for-byte unchanged.
-    uint32_t absScBase = Trunc(GetStartPos(info.bStart), cmpRatio_) / cmpRatio_;
-    splitInfo.dealedScCnt = absScBase + info.compressedId - info.dealScSize;
+    splitInfo.dealedScCnt = info.compressedId - info.dealScSize;
 
     return splitInfo;
 }

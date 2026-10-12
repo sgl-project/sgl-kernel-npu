@@ -1380,18 +1380,7 @@ __aicore__ inline Vec2SplitInfo CompressorBlockVectorFullLoad<COMP>::SplitCoreV2
         preScCnt -= curScNum;
     }
 
-    // §237.5 (mirror of the NORMAL template): anchor the written compressed
-    // output slot on the ABSOLUTE compressed position instead of the CALL-local
-    // origin, so a given absolute position maps to the same output row for a
-    // full-prefill MISS and a prefix+suffix HIT.
-    // MISS-preservation: startPos == 0 => absScBase == 0 => original path.
-    // NOTE: the FULL_LOAD template is only ever selected for BSH (see
-    // compressor_tiling: layout==BSH && seqSize<=FULL_LOAD_MAX_SEQ_SIZE &&
-    // tokenSize<=FULL_LOAD_MAX_TOKEN_SIZE) where the Vec2 iterator derives
-    // padScIdx per batch from bOutputScLen; the anchor is kept here for
-    // template parity/defence so both templates share the same invariant.
-    uint32_t absScBase = Trunc(GetStartPos(splitInfo.curBStart), cmpRatio_) / cmpRatio_;
-    splitInfo.dealedScCnt = absScBase;
+    splitInfo.dealedScCnt = 0;
 
     return splitInfo;
 }
