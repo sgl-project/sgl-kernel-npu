@@ -215,8 +215,11 @@ __aicore__ inline void CompressorKernel<COMP>::SplitK()
     // token-count-dependent K-split/stagger (MISS 17523 vs HIT 1139 / decode 1).
     // The ~1e-8 MISS change is accepted by design.
     constInfo.kBaseNum = 1;
-    constInfo.mGroupNum = 1;
-    constInfo.mCurGroupIdx = 0;
+    // NOTE: do NOT force mGroupNum/mCurGroupIdx here. The original kernel only
+    // sets them to 1/0 inside the K-split branch; forcing them unconditionally
+    // disables the M-axis grouping for EVERY call (including the full-prefill
+    // MISS) and destabilises it. §235.4 / 71650f6-equivalent: leave the M-grouping
+    // to CalcSplitCoreInfo and only pin the K axis.
     kStartIdx_ = 0;
     dealKSize_ = constInfo.hSize;
     hStart_ = 0;
