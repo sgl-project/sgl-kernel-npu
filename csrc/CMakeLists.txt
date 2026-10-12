@@ -55,6 +55,8 @@ message(STATUS "SGL_KERNEL_ENABLE_A5_ONLY_OPS=${SGL_KERNEL_ENABLE_A5_ONLY_OPS} (
 # host side files
 set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
+    ${PROJECT_OP_SRC_BASE}/hc_pre/op_host/hc_pre.cpp
+    ${PROJECT_OP_SRC_BASE}/hc_pre/op_host/hc_pre_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
@@ -349,12 +351,23 @@ ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
     "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
 )
 
+# hc_pre keeps the upstream manual synchronization and mixed cube/vector task.
+ascendc_library(hc_pre_kernel STATIC ${PROJECT_OP_SRC_BASE}/hc_pre/op_kernel/hc_pre.cpp)
+ascendc_include_directories(hc_pre_kernel PRIVATE ${PROJECT_OP_SRC_BASE}/hc_pre/op_kernel)
+ascendc_compile_definitions(hc_pre_kernel PRIVATE -DHAVE_WORKSPACE -DHAVE_TILING)
+ascendc_compile_options(hc_pre_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+    "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+)
+
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         sparse_flash_attention_kernel
+        hc_pre_kernel
         workspace_kernel
         no_workspace_kernel
         chunk_kda_fwd_kernel

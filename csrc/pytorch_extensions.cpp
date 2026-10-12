@@ -21,6 +21,11 @@
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
+    m.def("npu_hc_pre_v2(Tensor x, Tensor hc_fn, Tensor hc_scale, Tensor hc_base, int hc_mult, "
+          "int hc_sinkhorn_iters, float norm_eps, float hc_eps) -> (Tensor y, Tensor post, Tensor comb_frag)");
+    m.def("npu_hc_pre_v3(Tensor x, Tensor hc_fn, Tensor hc_scale, Tensor hc_base, Tensor? pre_mix=None, *, "
+          "int hc_mult=4, int hc_sinkhorn_iters=20, float norm_eps=1e-6, float hc_eps=1e-6) "
+          "-> (Tensor y, Tensor post, Tensor comb_frag, Tensor pre)");
     m.def("sgl_kernel_npu_print_version() -> ()", []() { printf("%s\n", LIB_VERSION_FULL); });
     m.def("sgl_kernel_npu_version() -> str", []() { return std::string("") + LIB_VERSION; });
 
@@ -276,6 +281,8 @@ TORCH_LIBRARY_IMPL(npu, CatchAll, m)
 
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
+    m.impl("npu_hc_pre_v2", TORCH_FN(sglang::npu_kernel::npu_hc_pre_v2_npu));
+    m.impl("npu_hc_pre_v3", TORCH_FN(sglang::npu_kernel::npu_hc_pre_v3_npu));
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
 
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
@@ -416,5 +423,13 @@ namespace {
 TORCH_LIBRARY_IMPL(npu, CPU, m)
 {
     m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv_metadata_host));
+}
+}  // namespace
+
+namespace {
+TORCH_LIBRARY_IMPL(npu, Meta, m)
+{
+    m.impl("npu_hc_pre_v2", TORCH_FN(sglang::npu_kernel::npu_hc_pre_meta));
+    m.impl("npu_hc_pre_v3", TORCH_FN(sglang::npu_kernel::npu_hc_pre_v3_meta));
 }
 }  // namespace
