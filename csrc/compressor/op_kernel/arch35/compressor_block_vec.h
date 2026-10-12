@@ -1541,19 +1541,7 @@ __aicore__ inline void CompressorBlockVector<COMP>::CalRope(const LocalTensor<X_
         ropeSliceIterator.GetSlice();
         if (sliceInfo.curDealScNum > 0) {
             uint32_t computeSize = sliceInfo.curDealScNum * constInfo_.ropeHeadDim;
-            // Root cause (sgl-scripts README §237.8 root-cause / §237.9 fix landing; device verdict [IDXIN-ROPE] knorm_same=True
-            // klog_diff=True => ROPE-PHASE): on the TH layout padScIdx is call-local (Reset sets it
-            // to dealedScCnt, compressor_tools.h:855), so a prefix-cache HIT (start pos != 0) rotates
-            // index-K with a call-relative phase and diverges from the MISS full-prefill (start pos 0)
-            // -- a pure rotation, norm-preserving. Anchor the RoPE phase on the ABSOLUTE compressed
-            // slot for TH only. BSH's padScIdx is already batch-base-inclusive (tools.h:853), so it is
-            // left untouched (byte-unchanged). With start pos 0 GetStartPos()==0 -> ropeScIdx==padScIdx,
-            // so the MISS path is byte-identical. The OUTPUT slot (CopyFinalResultOut) stays call-local.
-            uint64_t ropeScIdx = sliceInfo.padScIdx;
-            if constexpr (COMP::xLayout == X_LAYOUT::TH) {
-                ropeScIdx += static_cast<uint64_t>(GetStartPos(sliceInfo.bIdx) / cmpRatio_);
-            }
-            uint64_t SinCosOffset = ropeScIdx * constInfo_.ropeHeadDim;
+            uint64_t SinCosOffset = sliceInfo.padScIdx * constInfo_.ropeHeadDim;
 
             // sin and cos each take half; in practice each uses at most 16K, total 32K
             LocalTensor<T> cosUb = inputQue2.AllocTensor<T>();
