@@ -355,8 +355,11 @@ __aicore__ inline void CompressorBlockCubeFullLoad<COMP>::ComputeMm1(const RunIn
     // hSize is a multiple of K_SIZE=512
     uint32_t hStart = constInfo_.kStart;
     uint32_t hSize = constInfo_.kEnd - constInfo_.kStart;
-    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                         K_L1_BASE;  // the h loop start differs within each group of cores
+    // MISS-safe defensive pin: force the mm1 K-loop to start at hIdxStart=0
+    // (drop the per-core-group stagger) so the FULL_LOAD K reduction order is
+    // shape-invariant. FULL_LOAD is runtime-unreachable via sglang and only
+    // compile-instantiated for TH; this does NOT change NORMAL behavior.
+    uint32_t hIdxStart = 0U;
     uint32_t kSize = K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_L1_BASE) {
         // staggered movement in the h direction

@@ -190,6 +190,9 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
     constInfo.maxBlockNumPerBatch = tilingData_->pageAttentionParams.maxBlockNumPerBatch;
     constInfo.statLocDump = tilingData_->pageAttentionParams.statLocDump;
+    // S232: additive/MISS-safe probe window for [KSTATELOC] (defaults unchanged).
+    constInfo.statLocMin = tilingData_->pageAttentionParams.statLocMin;
+    constInfo.statLocMax = tilingData_->pageAttentionParams.statLocMax;
 
     constInfo.nSize = tilingData_->baseParams.nSize;
     constInfo.vec1TailCacheSize = tilingData_->workspaceParams.vec1TailCacheSize;
@@ -204,6 +207,16 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.mLoopNum = tilingData_->baseParams.mLoopNum;
     constInfo.kBaseNum = tilingData_->baseParams.kBaseNum;
     constInfo.kBaseSize = tilingData_->baseParams.kBaseSize;
+
+    // MISS-safe defensive pin: force the single-group / no-K-split FULL_LOAD
+    // path (K order shape-invariant), mirroring CompressorKernel::SplitK. The
+    // field set from tiling is overwritten on purpose. FULL_LOAD is
+    // runtime-unreachable via sglang but compile-instantiated for TH; this does
+    // NOT change NORMAL behavior.
+    constInfo.kStart = 0U;
+    constInfo.kEnd = constInfo.hSize;
+    constInfo.kBaseNum = 1U;
+    constInfo.kBaseSize = constInfo.hSize;
 }
 
 template <typename COMP>

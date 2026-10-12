@@ -200,6 +200,16 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
     pageAttentionParams_->maxBlockNumPerBatch =
         context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
     pageAttentionParams_->statLocDump = (getenv("SGL_DSV4_STATELOC_DUMP") != nullptr);
+    // S232: additive/MISS-safe [KSTATELOC] probe-window override. Defaults are the
+    // constInfo initializers (17528/17536); only touched when the env is set.
+    const char *statLocMinEnv = getenv("SGL_DSV4_STATELOC_MIN");
+    const char *statLocMaxEnv = getenv("SGL_DSV4_STATELOC_MAX");
+    if (statLocMinEnv != nullptr) {
+        pageAttentionParams_->statLocMin = static_cast<uint32_t>(std::strtoul(statLocMinEnv, nullptr, 10));
+    }
+    if (statLocMaxEnv != nullptr) {
+        pageAttentionParams_->statLocMax = static_cast<uint32_t>(std::strtoul(statLocMaxEnv, nullptr, 10));
+    }
 
     return ge::GRAPH_SUCCESS;
 }

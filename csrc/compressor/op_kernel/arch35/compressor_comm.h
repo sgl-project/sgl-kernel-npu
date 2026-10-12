@@ -187,6 +187,11 @@ struct ConstInfo {
     uint32_t maxBlockNumPerBatch = 0;
     // env-gated kernel-side stateLoc diagnostic (host reads SGL_DSV4_STATELOC_DUMP)
     bool statLocDump = false;
+    // S232 probe window: [KSTATELOC] only fires for compressed positions in
+    // [statLocMin, statLocMax). Purely additive / MISS-safe; host-plumbed from
+    // SGL_DSV4_STATELOC_MIN / SGL_DSV4_STATELOC_MAX (defaults 17528/17536).
+    uint32_t statLocMin = 17528U;
+    uint32_t statLocMax = 17536U;
 
     // workSpace
     uint32_t dbWorkspaceRatio = 1;

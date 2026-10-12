@@ -790,7 +790,7 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadFromCacheState(const Loc
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
             // S232: only emit for the block136 tail window to avoid log flood.
-            if (constInfo_.statLocDump && curSeqIdx >= 17528U && curSeqIdx < 17536U) {
+            if (constInfo_.statLocDump && curSeqIdx >= constInfo_.statLocMin && curSeqIdx < constInfo_.statLocMax) {
                 for (uint32_t r = 0; r < copyRowCount; ++r) {
                     uint64_t sl = stateLoc + static_cast<uint64_t>(r);
                     AscendC::printf("[KSTATELOC] op=R %u %u %d %u %u %u\n",
@@ -867,14 +867,19 @@ __aicore__ inline void CompressorBlockVector<COMP>::WriteToCacheState(const Glob
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
             // S232: only emit for the block136 tail window to avoid log flood.
-            if (constInfo_.statLocDump && curSeqIdx >= 17528U && curSeqIdx < 17536U) {
+            if (constInfo_.statLocDump && curSeqIdx >= constInfo_.statLocMin && curSeqIdx < constInfo_.statLocMax) {
                 for (uint32_t r = 0; r < copyRowCount; ++r) {
                     uint64_t sl = stateLoc + static_cast<uint64_t>(r);
-                    AscendC::printf("[KSTATELOC] op=W %u %u %d %u %u %u\n",
+                    // S232: append the WRITTEN-OUTPUT compressed slot anchor
+                    // (absolute compressed position curSeqIdx) so the klog lets a
+                    // caller compare write-loc (out=) against the read page (op=R).
+                    // Purely additive / MISS-safe.
+                    AscendC::printf("[KSTATELOC] op=W %u %u %d %u %u %u out=%u\n",
                                     static_cast<uint32_t>(batchIdx), static_cast<uint32_t>(curSeqIdx + r),
                                     static_cast<int32_t>(tableColumn + static_cast<int64_t>(r)),
                                     static_cast<uint32_t>(sl), static_cast<uint32_t>(sl / constInfo_.blockSize),
-                                    static_cast<uint32_t>(sl % constInfo_.blockSize));
+                                    static_cast<uint32_t>(sl % constInfo_.blockSize),
+                                    static_cast<uint32_t>(curSeqIdx));
                 }
             }
             uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
@@ -1039,7 +1044,8 @@ __aicore__ inline void CompressorBlockVector<COMP>::ReadState(const LocalTensor<
                 min(Trunc(sliceInfo.bStartPos + sliceInfo.sIdx + sliceInfo.validSeqCnt, cmpRatio_) - cmpRatio_,
                     sliceInfo.bStartPos);
             // S232: gate op=L to the block136 tail window too.
-            if (constInfo_.statLocDump && startSeqIdx >= 17528U && startSeqIdx < 17536U) {
+            if (constInfo_.statLocDump && startSeqIdx >= constInfo_.statLocMin &&
+                startSeqIdx < constInfo_.statLocMax) {
                 AscendC::printf("[KSTATELOC] op=L %u %u %u %u %d\n", sliceInfo.bIdx, startSeqIdx, endSeqIdx,
                                 dStartIdx, static_cast<int32_t>(isFirst));
             }
