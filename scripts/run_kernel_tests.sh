@@ -67,6 +67,7 @@ CACHE_TESTS=(
 )
 
 SPECULATIVE_TESTS=(
+    test_speculative_probability.py
     test_build_tree.py
     test_verify_tree.py
     test_apply_token_bitmask.py
