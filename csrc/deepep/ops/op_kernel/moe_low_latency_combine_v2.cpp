@@ -2,6 +2,7 @@
 #include "moe_distribute_combine_v2_tiling.h"
 #include "moe_distribute_combine_v2.h"
 #include "moe_distribute_combine_v2_a5.h"
+#include "moe_distribute_combine_a5_layered.h"
 #ifdef __DAV_C310__
 #include "moe_distribute_combine_v2_ccu.h"
 using namespace MoeDistributeCombineA5CCUImpl;
@@ -10,6 +11,7 @@ using namespace MoeDistributeCombineA5CCUImpl;
 using namespace AscendC;
 using namespace MoeDistributeCombineV2Impl;
 using namespace MoeDistributeCombineV2A5Impl;
+using namespace MoeDistributeCombineA5LayeredImpl;
 
 namespace {
 template <TemplateMC2TypeClass>
@@ -77,6 +79,18 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
                 elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe,
                 &tilingData);
         op.Process();
+    } else if (TILING_KEY_IS(53000)) {  // A5 layered bf16 non-quant
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeCombineA5Layered<DTYPE_EXPAND_X, int32_t> op;
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
+                    tilingGM, contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low and does not support A5 layered mode.\n");
+        }
     }
 #ifdef __DAV_C310__
     if (TILING_KEY_IS(60000)) {
