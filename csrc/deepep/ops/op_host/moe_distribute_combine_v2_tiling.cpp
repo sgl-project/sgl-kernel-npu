@@ -65,6 +65,7 @@ constexpr uint32_t ATTR_CONST_EXPERT_NUM_INDEX = 17;
 
 // tiling key
 constexpr uint32_t INT8_COMM_QUANT = 2U;
+constexpr uint32_t MXFP8_E4M3_COMM_QUANT = 3U;
 constexpr uint64_t INIT_TILINGKEY = 10000;
 constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
@@ -1173,6 +1174,9 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }
+    OP_TILING_CHECK(commQuantMode == MXFP8_E4M3_COMM_QUANT && socVersion != "Ascend950",
+                    OP_LOGE(nodeName, "MXFP8 low-latency combine is supported only on Ascend950/A5."),
+                    return ge::GRAPH_FAILED);
     if (!isLayered) {
         CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
     }
