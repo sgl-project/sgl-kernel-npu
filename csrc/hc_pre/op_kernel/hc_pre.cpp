@@ -32,9 +32,10 @@
 
 using namespace AscendC;
 
+// HAVE_WORKSPACE/HAVE_TILING require workspace and tiling to be the last two arguments.
 extern "C" __global__ __aicore__ void hc_pre(GM_ADDR x, GM_ADDR hc_fn, GM_ADDR hc_scale, GM_ADDR hc_base,
                                              GM_ADDR pre_mix, GM_ADDR y, GM_ADDR post, GM_ADDR comb_frag,
-                                             GM_ADDR pre, GM_ADDR workspace, GM_ADDR tiling, uint64_t tilingKey)
+                                             GM_ADDR pre, uint64_t tilingKey, GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     if (workspace == nullptr) {

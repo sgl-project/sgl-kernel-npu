@@ -139,8 +139,8 @@ run_hc_pre_fusion(const at::Tensor &x, const at::Tensor &hc_fn, const at::Tensor
     auto preMixLaunch = pre_mix.value_or(at::Tensor());
     void *preMixPtr = preMixLaunch.defined() ? preMixLaunch.data_ptr() : nullptr;
     auto blockDim = hcContext->blockDim;
-    EXEC_KERNEL_CMD(hc_pre, blockDim, x, hc_fn, hc_scale, hc_base, preMixPtr, y, post, comb_frag, pre, workspace,
-                    tilingTensor, hcContext->tilingKey);
+    EXEC_KERNEL_CMD(hc_pre, blockDim, x, hc_fn, hc_scale, hc_base, preMixPtr, y, post, comb_frag, pre,
+                    hcContext->tilingKey, workspace, tilingTensor);
 
     return std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>(y, post, comb_frag, pre);
 }
