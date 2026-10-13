@@ -247,6 +247,7 @@ struct CompressorContext {
     const int *rotaryMode;
     const int *cacheMode;
     const int *stateCacheStrideDim0;
+    int batchConsistency = 0;
     TemplateId templateId;
 
     ge::DataType dtype = ge::DT_BF16;

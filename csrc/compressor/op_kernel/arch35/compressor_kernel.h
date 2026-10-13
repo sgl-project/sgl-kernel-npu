@@ -195,6 +195,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
     constInfo.stateCacheStrideDim0 = tilingData_->baseParams.stateCacheStrideDim0;
     constInfo.reciprocalD = tilingData_->baseParams.reciprocalD;
     constInfo.usedCoreNum = tilingData_->baseParams.usedCoreNum;
+    constInfo.batchConsistency = tilingData_->baseParams.batchConsistency;
 
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
@@ -216,7 +217,8 @@ __aicore__ inline void CompressorKernel<COMP>::SplitK()
     }
 
     uint32_t mBaseNum = CeilDivT(mSize, constInfo.mBaseSize);
-    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum) {
+    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum &&
+        constInfo.batchConsistency != BATCH_CONSISTENCY) {
         constInfo.kBaseNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
         uint32_t kAlignSize = CeilDivT(
             Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
