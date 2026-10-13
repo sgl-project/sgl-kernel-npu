@@ -31,8 +31,8 @@ def attention_sinks_kernel(
 
     start_page_num = 0
     start_kv_len = 0
-    if sliding_window_size != -1 and kv_seq_len > sliding_window_size:
-        start_kv_len = (kv_seq_len - sliding_window_size).to(tl.int32)
+    if sliding_window_size != -1:
+        start_kv_len = max((kv_seq_len - 1 - sliding_window_size).to(tl.int32), 0)
         start_page_num = start_kv_len // PAGE_SIZE
 
     cur_page_start = i_s * MAX_BLOCKS
@@ -99,6 +99,12 @@ def attention_sinks_triton(
     q_head_num,
     k_head_num,
 ):
+    """Apply causal attention with a virtual sink logit per query head.
+
+    ``sliding_window_size`` is the inclusive left extent, excluding the current
+    token: 127 attends to at most 128 tokens, 0 attends only to the current token,
+    and -1 disables the window.
+    """
     S = query.shape[0]
     D = query.shape[-1] // q_head_num
     PAGE_SIZE = k_cache.shape[1]
@@ -175,10 +181,10 @@ def attention_sinks_prefill_kernel(
 
         start_page_num = 0
         if sliding_window_size != -1:
-            start_kv_len = max((kv_seq_len - sliding_window_size).to(tl.int32), 0)
+            start_kv_len = max((kv_seq_len - 1 - sliding_window_size).to(tl.int32), 0)
             start_page_num = start_kv_len // PAGE_SIZE
             start_kv_len_block = max(
-                (kv_seq_len_block - sliding_window_size).to(tl.int32), 0
+                (kv_seq_len_block - 1 - sliding_window_size).to(tl.int32), 0
             )
 
         cur_page_start = i_b * MAX_BLOCKS
@@ -251,6 +257,12 @@ def attention_sinks_prefill_triton(
     q_head_num,
     k_head_num,
 ):
+    """Apply causal attention with a virtual sink logit per query head.
+
+    ``sliding_window_size`` is the inclusive left extent, excluding the current
+    token: 127 attends to at most 128 tokens, 0 attends only to the current token,
+    and -1 disables the window.
+    """
     S = query.shape[0]
     D = query.shape[-1] // q_head_num
     PAGE_SIZE = k_cache.shape[1]
