@@ -25,14 +25,23 @@ def _reference(probs, threshold, top_p):
     return torch.zeros_like(probs).scatter_(-1, indices, values)
 
 
-@pytest.mark.parametrize("vocab", [4, 97, 2051, 154880, 248320])
+@pytest.mark.parametrize(
+    "rows,vocab",
+    [
+        (7, 4),
+        (7, 97),
+        (7, 2051),
+        (7, 154880),
+        (7, 248320),
+        (216, 154880),
+        (216, 248320),
+    ],
+)
 @pytest.mark.parametrize("top_p", [False, True])
 @pytest.mark.parametrize("scalar", [False, True])
-def test_fused_renorm_shared_sort(probability, vocab, top_p, scalar):
-    from sgl_kernel_npu.sample.probability_triton import filter_and_renorm
-
+def test_fused_renorm_shared_sort(probability, rows, vocab, top_p, scalar):
     gen = torch.Generator().manual_seed(17)
-    probs = torch.softmax(torch.randn(7, vocab, generator=gen), -1).npu()
+    probs = torch.softmax(torch.randn(rows, vocab, generator=gen), -1).npu()
     probs[0].fill_(1.0 / vocab)
     probs[1].zero_()
     probs[2].zero_()
@@ -46,8 +55,9 @@ def test_fused_renorm_shared_sort(probability, vocab, top_p, scalar):
     else:
         threshold = torch.tensor([1, 2, 3, vocab - 1, vocab, 1, vocab], device="npu")
         cumulative = None
+    threshold = threshold.repeat((rows + 6) // 7)[:rows]
     if scalar:
-        threshold = threshold[3].expand(7)
+        threshold = threshold[3].expand(rows)
     filtered = values.clone()
     if top_p:
         filtered.masked_fill_(cumulative - filtered > threshold[:, None], 0.0)
@@ -57,17 +67,15 @@ def test_fused_renorm_shared_sort(probability, vocab, top_p, scalar):
     filtered.div_(filtered.sum(-1, keepdim=True).clamp_min_(1e-20))
     # Reuse the same sort permutation to avoid tie-order ambiguity.
     expected = torch.zeros_like(probs).scatter_(-1, indices, filtered)
-    actual = filter_and_renorm(probs, values, indices, threshold, cumulative)
+    actual = probability.filter_and_renorm(
+        probs, values, indices, threshold, cumulative
+    )
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     torch.testing.assert_close(probs, original, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("scalar_kind", ["python", "tensor", "rows"])
-def test_public_top_k_then_top_p(probability, scalar_kind, monkeypatch):
-    # Legacy switches must not affect the only implementation.
-    monkeypatch.setenv("SGL_KERNEL_NPU_SAMPLING_TRITON", "0")
-    monkeypatch.setenv("SGL_KERNEL_NPU_SAMPLING_TRITON_DIV", "native")
-    monkeypatch.setenv("SGL_KERNEL_NPU_SAMPLING_AIR", "1")
+def test_public_top_k_then_top_p(probability, scalar_kind):
     probs = torch.arange(1, 195, dtype=torch.float32, device="npu").reshape(2, 97)
     probs /= probs.sum(-1, keepdim=True)
     if scalar_kind == "python":
@@ -122,9 +130,10 @@ def test_validation_and_empty_batch(probability):
             fn(p, torch.ones(2, 1))
 
 
-def test_graph_replay_with_changed_inputs(probability):
-    probs = torch.softmax(torch.randn(4, 2051, device="npu"), -1)
-    ps = torch.tensor([0, 0.5, 0.95, 1], device="npu")
+@pytest.mark.parametrize("rows,vocab", [(4, 2051), (216, 154880), (216, 248320)])
+def test_graph_replay_with_changed_inputs(probability, rows, vocab):
+    probs = torch.softmax(torch.randn(rows, vocab, device="npu"), -1)
+    ps = torch.tensor([0, 0.5, 0.95, 1], device="npu").repeat((rows + 3) // 4)[:rows]
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())
     with torch.npu.stream(stream):
