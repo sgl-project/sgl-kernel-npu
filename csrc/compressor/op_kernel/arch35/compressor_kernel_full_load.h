@@ -185,6 +185,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.stateCacheStrideDim0 = tilingData_->baseParams.stateCacheStrideDim0;
     constInfo.reciprocalD = tilingData_->baseParams.reciprocalD;
     constInfo.usedCoreNum = tilingData_->baseParams.usedCoreNum;
+    constInfo.batchConsistency = tilingData_->baseParams.batchConsistency;
 
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
@@ -207,16 +208,6 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.mLoopNum = tilingData_->baseParams.mLoopNum;
     constInfo.kBaseNum = tilingData_->baseParams.kBaseNum;
     constInfo.kBaseSize = tilingData_->baseParams.kBaseSize;
-
-    // MISS-safe defensive pin: force the single-group / no-K-split FULL_LOAD
-    // path (K order shape-invariant), mirroring CompressorKernel::SplitK. The
-    // field set from tiling is overwritten on purpose. FULL_LOAD is
-    // runtime-unreachable via sglang but compile-instantiated for TH; this does
-    // NOT change NORMAL behavior.
-    constInfo.kStart = 0U;
-    constInfo.kEnd = constInfo.hSize;
-    constInfo.kBaseNum = 1U;
-    constInfo.kBaseSize = constInfo.hSize;
 }
 
 template <typename COMP>

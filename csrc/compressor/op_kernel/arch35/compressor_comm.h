@@ -163,6 +163,7 @@ struct ConstInfo {
     uint32_t kStart = 0;
     uint32_t kEnd = 0;
     uint32_t mLoopNum = 0;
+    uint32_t batchConsistency = 0;  // BATCH_CONSISTENCY => shape-invariant K reduction (no K-split / no h-stagger)
     uint32_t bIdxOfLastTc = 0;
     uint32_t sIdxOfLastTc = 0;
     uint32_t mGroupNum = 0;
