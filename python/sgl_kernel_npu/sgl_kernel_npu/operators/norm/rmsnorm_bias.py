@@ -36,7 +36,7 @@ def rmsnorm_bias(
 
     Inputs are forwarded to the selected implementation without validation.
     The default preserves the original Triton implementation.
-    torch_native currently supports only the non-quantized operation.
+    Both implementations provide optional saturating int8 quantization.
     This example provides explicit selection only (no auto policy).
     """
     impl = get_impl("norm.rmsnorm_bias", implementation)
