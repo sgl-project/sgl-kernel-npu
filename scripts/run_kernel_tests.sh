@@ -58,6 +58,7 @@ ATTENTION_TESTS=(
 )
 
 CACHE_TESTS=(
+    test_lightning_indexer_prefill.py
     test_alloc_extend_slot.py
     test_cache_assign.py
     test_cache_update.py
