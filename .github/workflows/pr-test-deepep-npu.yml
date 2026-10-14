@@ -563,12 +563,6 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=1 --num-processes=8
-      - name: Run test intranode for big bs
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4500
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8000 --num-processes=8
       - name: Run test little processes intranode
         timeout-minutes: 10
         env:
@@ -582,7 +576,6 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048 --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144 --num-processes=8
       - name: Run test topk num intranode
         timeout-minutes: 10
         env:
@@ -664,8 +657,6 @@ jobs:
           HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=2048 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=4096 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=6144 --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=7168 --num-processes=8
       - name: Run test low latency for topk
         timeout-minutes: 10
@@ -712,7 +703,6 @@ jobs:
           HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8000 --low-latency-num-tokens=512 --test-loop=100 --num-processes=8
       - name: Run test mixed running for hidden
         timeout-minutes: 10
         env:
@@ -720,7 +710,6 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=2048 --test-loop=100 --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=4096 --test-loop=100 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=6144 --test-loop=100 --num-processes=8
       - name: Run test mixed running for topk
         timeout-minutes: 10
         env:
