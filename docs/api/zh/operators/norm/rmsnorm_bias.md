@@ -11,7 +11,7 @@
 
 ## 函数原型
 
-默认选项为 `auto`，当前与 `triton` 注册到同一个入口函数。 不传 `implementation` 或显式传入 `"auto"` 时均使用 Triton。
+默认选项为 `auto`，当前与 `triton` 注册到同一个入口函数。 不传 `impl` 或显式传入 `"auto"` 时均使用 Triton。
 
 ```python
 from sgl_kernel_npu.operators.norm import rmsnorm_bias
@@ -24,7 +24,7 @@ def rmsnorm_bias(
     quant_scale=None,
     quant_offset=None,
     *,
-    implementation="auto",
+    impl="auto",
 ):
     ...
 ```
@@ -62,7 +62,7 @@ $$
 | `eps` | `float` | — | — | 必填 | 加到均方值上的稳定项，建议为有限正数，如 `1e-6`。 |
 | `quant_scale` | `torch.Tensor` 或 `None` | `[H]` 或 — | 浮点，推荐 `torch.float32` | `None` | 非 None 时启用量化，必须提供 quant_offset；与 input 同设备，Triton 要求连续。 |
 | `quant_offset` | `torch.Tensor` 或 `None` | `[H]` 或 — | 浮点，推荐 `torch.float32` | `None` | 量化加法偏移；与 input 同设备，Triton 要求连续。scale 为 None 时忽略此参数。 |
-| `implementation` | `str` | — | — | `"auto"` | 仅限关键字参数；可选 `"auto"`、`"triton"`、`"torch_native"`。`auto` 当前选择 Triton 实现。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字参数；可选 `"auto"`、`"triton"`、`"torch_native"`。`auto` 当前选择 Triton 实现。 |
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |
 | --- | --- | --- | --- | --- |
@@ -93,11 +93,11 @@ x = torch.randn(4, 1024, device="npu", dtype=torch.float32)
 weight = torch.randn(1024, device="npu", dtype=torch.float32)
 bias = torch.randn(1024, device="npu", dtype=torch.float32)
 
-print(list_impls("norm.rmsnorm_bias"))  # ['auto', 'torch_native', 'triton']
+print(list_impls(rmsnorm_bias))  # ['auto', 'torch_native', 'triton']
 y_default = rmsnorm_bias(x, weight, bias, 1e-6)  # 默认 auto，使用 Triton
-y_auto = rmsnorm_bias(x, weight, bias, 1e-6, implementation="auto")
-y_triton = rmsnorm_bias(x, weight, bias, 1e-6, implementation="triton")
-y_native = rmsnorm_bias(x, weight, bias, 1e-6, implementation="torch_native")
+y_auto = rmsnorm_bias(x, weight, bias, 1e-6, impl="auto")
+y_triton = rmsnorm_bias(x, weight, bias, 1e-6, impl="triton")
+y_native = rmsnorm_bias(x, weight, bias, 1e-6, impl="torch_native")
 torch.testing.assert_close(y_default, y_triton, rtol=0, atol=0)
 torch.testing.assert_close(y_auto, y_triton, rtol=0, atol=0)
 torch.testing.assert_close(y_triton, y_native, rtol=1e-4, atol=1e-4)

@@ -11,7 +11,7 @@
 
 ## Signature
 
-The default option is `auto`, currently registered to the same entry point as `triton`. Omitting `implementation` or passing `"auto"` selects Triton.
+The default option is `auto`, currently registered to the same entry point as `triton`. Omitting `impl` or passing `"auto"` selects Triton.
 
 ```python
 from sgl_kernel_npu.operators.norm import rmsnorm_bias
@@ -24,7 +24,7 @@ def rmsnorm_bias(
     quant_scale=None,
     quant_offset=None,
     *,
-    implementation="auto",
+    impl="auto",
 ):
     ...
 ```
@@ -62,7 +62,7 @@ The tables describe the recommended calling convention and current implementatio
 | `eps` | `float` | — | — | Required | Stability term added to the mean square; a finite positive value such as `1e-6` is recommended. |
 | `quant_scale` | `torch.Tensor` or `None` | `[H]` or — | Floating point; `torch.float32` recommended | `None` | Enables quantization when not None; quant_offset must also be provided. Must be on the same device as input; Triton requires contiguous storage. |
 | `quant_offset` | `torch.Tensor` or `None` | `[H]` or — | Floating point; `torch.float32` recommended | `None` | Additive quantization offset, on the same device as input; Triton requires contiguous storage. Ignored when quant_scale is None. |
-| `implementation` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"triton"`, or `"torch_native"`. `auto` currently selects the Triton implementation. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"triton"`, or `"torch_native"`. `auto` currently selects the Triton implementation. |
 
 | Return value | Type | Shape | Dtype | Description and constraints |
 | --- | --- | --- | --- | --- |
@@ -93,11 +93,11 @@ x = torch.randn(4, 1024, device="npu", dtype=torch.float32)
 weight = torch.randn(1024, device="npu", dtype=torch.float32)
 bias = torch.randn(1024, device="npu", dtype=torch.float32)
 
-print(list_impls("norm.rmsnorm_bias"))  # ['auto', 'torch_native', 'triton']
+print(list_impls(rmsnorm_bias))  # ['auto', 'torch_native', 'triton']
 y_default = rmsnorm_bias(x, weight, bias, 1e-6)  # Default auto selects Triton
-y_auto = rmsnorm_bias(x, weight, bias, 1e-6, implementation="auto")
-y_triton = rmsnorm_bias(x, weight, bias, 1e-6, implementation="triton")
-y_native = rmsnorm_bias(x, weight, bias, 1e-6, implementation="torch_native")
+y_auto = rmsnorm_bias(x, weight, bias, 1e-6, impl="auto")
+y_triton = rmsnorm_bias(x, weight, bias, 1e-6, impl="triton")
+y_native = rmsnorm_bias(x, weight, bias, 1e-6, impl="torch_native")
 torch.testing.assert_close(y_default, y_triton, rtol=0, atol=0)
 torch.testing.assert_close(y_auto, y_triton, rtol=0, atol=0)
 torch.testing.assert_close(y_triton, y_native, rtol=1e-4, atol=1e-4)
