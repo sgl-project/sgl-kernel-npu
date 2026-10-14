@@ -54,11 +54,13 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
+              - csrc/qsa_prefill/**
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
               - tests/python/sgl_kernel_npu/test_decode_attention.py
+              - tests/python/sgl_kernel_npu/test_qsa_prefill.py
               - tests/python/sgl_kernel_npu/test_mla_preprocess.py
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope.py
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
