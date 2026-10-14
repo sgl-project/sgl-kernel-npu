@@ -146,6 +146,57 @@ def move_intermediate_cache(
     return ssm_states
 
 
+def copy_mamba_slots(
+    states: torch.Tensor,
+    src_indices: torch.Tensor,
+    dst_indices: torch.Tensor,
+    h_block_size: int = 2,
+):
+    """Copy full recurrent-state slots in one indexed NPU kernel.
+
+    ``states`` uses the standard contiguous ``[layers, slots, H, V, K]``
+    layout. Source and destination slot sets must be disjoint: unlike PyTorch's
+    gather-then-scatter expression this kernel reads and writes the pool in one
+    pass, so cross-pair overlap would race. Radix-cache copy-on-write satisfies
+    this invariant by copying checkpoints into freshly allocated active slots.
+
+    The implementation reuses the verified intermediate-state mover by exposing
+    the source pool through a length-one draft-step view. No state-sized gather
+    or temporary tensor is materialized.
+    """
+    if states.ndim != 5:
+        raise ValueError(f"states must be 5D [L, S, H, V, K], got {states.ndim}D")
+    if src_indices.ndim != 1 or dst_indices.ndim != 1:
+        raise ValueError("src_indices and dst_indices must be 1D")
+    if src_indices.numel() != dst_indices.numel():
+        raise ValueError("src_indices and dst_indices must have the same length")
+    if src_indices.dtype not in (torch.int32, torch.int64):
+        raise ValueError("src_indices must use int32 or int64")
+    if dst_indices.dtype not in (torch.int32, torch.int64):
+        raise ValueError("dst_indices must use int32 or int64")
+    if src_indices.device != states.device or dst_indices.device != states.device:
+        raise ValueError(
+            "src_indices, dst_indices, and states must be on the same device"
+        )
+    if src_indices.numel() == 0 or states.numel() == 0:
+        return states
+    if not states[0, 0].is_contiguous():
+        raise ValueError("each Mamba state slot must be contiguous")
+
+    # The mover loads indices as ptr + row and does not accept index strides.
+    src_indices = src_indices.contiguous()
+    dst_indices = dst_indices.contiguous()
+    zero_steps = torch.zeros_like(src_indices, dtype=torch.int32)
+    return move_intermediate_cache(
+        states,
+        states.unsqueeze(2),
+        dst_indices,
+        src_indices,
+        zero_steps,
+        h_block_size=h_block_size,
+    )
+
+
 @triton.jit
 def move_cache_dynamic_last_kernel_h_block_kda(
     dst_cache_ptr,
