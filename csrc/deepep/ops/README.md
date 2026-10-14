@@ -48,11 +48,27 @@ cmake --build build_a2 --target package -j4
 Install the generated `.run` into a new private directory, **not** the shared
 CANN installation. Set `ASCEND_CUSTOM_OPP_PATH` to its `vendors/fuseep_a2`
 directory and prepend its `op_api/lib` to `LD_LIBRARY_PATH`. When an installed
-DeepEP package prepends its own vendor library, an explicit
-`LD_PRELOAD=$ASCEND_CUSTOM_OPP_PATH/op_api/lib/libcust_opapi.so` selects the
-experimental operator. This operator-only library does not contain the stock
+DeepEP package prepends its own vendor library, set
+`FUSEEP_A2_OPAPI_LIBRARY=$ASCEND_CUSTOM_OPP_PATH/op_api/lib/libcust_opapi.so`
+to its absolute path. The regression harness loads it with `RTLD_LOCAL` before
+importing DeepEP, checks that name-based lookup resolves the same FuseEP API
+symbols, and retains the handles in each worker. **Do not use `LD_PRELOAD`:**
+global preloading caused an invalid-pointer abort during deterministic operator
+registration in the full-model runtime. The environment variable is consumed by
+this test harness, not automatically by arbitrary applications; applications
+need equivalent loading before custom-op imports. This operator-only library does not contain the stock
 dispatch/combine APIs, so generate the unfused reference in a separate process
 without those overrides. Do not use this override as a general runtime install.
+
+Mode 2's capacity argument bounds **received token-expert assignments**, not
+source tokens. The tests allocate `tokens_per_rank * world_size * top_k`, a
+conservative bound even when all ranks send to one destination. Use the same
+bound for the buffer size hint and fused call. A capacity of 128 inherited
+from a serving default was insufficient for B16 prefill in our full-model
+diagnostic; using the configured token bound restored repeatability. This is
+a caller configuration requirement, not a new kernel default. Serving stacks
+should reject workloads exceeding their configured bound rather than silently
+reuse an undersized workspace.
 
 ### Correctness regression
 
@@ -63,9 +79,11 @@ export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3
 export MASTER_ADDR=127.0.0.1 MASTER_PORT=30371 WORLD_SIZE=1 RANK=0
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 # Stock A2 dispatch/combine environment, without the private library override:
+unset FUSEEP_A2_OPAPI_LIBRARY LD_PRELOAD
 python tests/python/deepep/test_dispatch_ffn_combine_a2.py \
   --reference-dir /tmp/fuseep-a2-reference --write-reference
 # In the private A2 operator environment described above:
+export FUSEEP_A2_OPAPI_LIBRARY="$ASCEND_CUSTOM_OPP_PATH/op_api/lib/libcust_opapi.so"
 python tests/python/deepep/test_dispatch_ffn_combine_a2.py \
   --reference-dir /tmp/fuseep-a2-reference
 python tests/python/deepep/test_dispatch_ffn_combine_a2.py \
@@ -91,7 +109,16 @@ and 100 graph replays/rank passed; reference mean absolute error was
 with no count errors or changed outputs. The original sparse-tail validation
 did not exercise graph replay; the regression above additionally requests it.
 
-Full-model validation, A3 regression, multi-node/multiFlag transport validation,
+Additional isolated-container diagnostics with Qwen3-30B-A3B W8A8, TP=EP=4
+passed repeated output-token equality and bounded prefill/decode graph-replay
+audits: four B16 requests with 128 input and 16 output tokens matched the fused
+eager-prefill control. Changed-input tests on uniform 128-token and alternating
+112/144-token layouts also passed eager-control/replay output equality. These
+tests use an isolated operator build and runtime compatibility hooks; they do
+**not** validate this exact upstream build recipe or establish unfused numerical
+equivalence. Full-model unfused-reference validation remains pending.
+
+A3 regression, multi-node/multiFlag transport validation,
 rebuilding the upstream-integrated package and running the new regression harness,
 other shapes/dtypes, and performance evaluation remain pending. No broad A2
 compatibility or performance claim is made. The original test processes also

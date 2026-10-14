@@ -11,6 +11,13 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 import torch_npu
+
+from fuseep_a2_loader import load_private_opapi
+
+# Execute in the parent and every spawned worker before DeepEP/custom-op imports.
+if os.environ.get('FUSEEP_A2_OPAPI_LIBRARY'):
+    load_private_opapi(os.environ['FUSEEP_A2_OPAPI_LIBRARY'])
+
 from deep_ep import Buffer
 from test_dispatch_ffn_combine import (
     baseline_test,
@@ -28,10 +35,12 @@ def worker(local_rank, args):
     assert world == 4
     torch_npu.npu.config.allow_internal_format = True
     n, hidden, width, experts, topk = args.tokens, 2048, 1536, 128, 8
+    # Mode 2 bounds received token-expert assignments, not source tokens.
+    receive_capacity = n * topk * world
     buffer = Buffer(
         group,
         num_rdma_bytes=Buffer.get_low_latency_rdma_size_hint(
-            n * topk * world, hidden, world, experts
+            receive_capacity, hidden, world, experts
         ),
         low_latency_mode=True,
         num_qps_per_rank=32,
@@ -77,7 +86,7 @@ def worker(local_rank, args):
 
         def call():
             return buffer.fused_deep_moe(
-                x, ids, gates, *fused, n * topk * world, experts, 1, 2
+                x, ids, gates, *fused, receive_capacity, experts, 1, 2
             )
 
         first, error = None, None
@@ -118,6 +127,8 @@ if __name__ == '__main__':
     parser.add_argument('--graph-replays', type=int, default=100)
     parser.add_argument('--sparse-case', choices=['one', 'empty'])
     args = parser.parse_args()
+    if bool(os.environ.get('FUSEEP_A2_OPAPI_LIBRARY')) == args.write_reference:
+        parser.error('Set FUSEEP_A2_OPAPI_LIBRARY for fused tests only; unset it for reference generation')
     if args.tokens < 8 or args.repeats < 2 or args.graph_replays < 1:
         parser.error('tokens >= 8, repeats >= 2 and graph-replays >= 1 required')
     selected = os.environ.get('ASCEND_RT_VISIBLE_DEVICES', '').split(',')
