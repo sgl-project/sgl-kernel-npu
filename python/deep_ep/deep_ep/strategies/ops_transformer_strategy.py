@@ -169,33 +169,34 @@ class OpsTransformerNormalStrategy(NormalEPCommStrategy):
             topk_idx, bins=num_experts, min=0, max=num_experts
         )
 
-        # Global per-expert histogram via all-gather
+        # Global per-expert histogram (for internal use: num_max_tokens_per_rank)
         num_global_tokens_per_expert = self._gather_along_first_dim(
             num_tokens_per_expert_local, self.group
-        )
-
-        # Per-rank token counts (global)
-        num_tokens_per_rank = num_global_tokens_per_expert.reshape(
-            group_size, num_local_experts
-        ).sum(dim=1)
-
-        # Determine num_max_tokens_per_rank (must be consistent across ranks)
-        self._num_max_tokens_per_rank = int(num_tokens_per_rank.max().item())
+        ).reshape(group_size, num_experts).sum(dim=0)
 
         # is_token_in_rank: [num_tokens, num_ranks] bool
         is_token_in_rank = torch.zeros(
-            (topk_idx.size(0), group_size), dtype=torch.bool, device=device
+            (topk_idx.size(0), group_size), dtype=torch.int32, device=device
         )
         for r in range(group_size):
             lo = r * num_local_experts
             hi = lo + num_local_experts
             mask = (topk_idx >= lo) & (topk_idx < hi)
-            is_token_in_rank[:, r] = mask.any(dim=-1)
+            is_token_in_rank[:, r] = mask.any(dim=-1).to(torch.int32)
+
+        # Per-rank token counts (unique tokens sent to each rank)
+        num_tokens_per_rank = is_token_in_rank.sum(dim=0)
+
+        # Determine num_max_tokens_per_rank from global per-rank totals
+        global_per_rank = num_global_tokens_per_expert.reshape(
+            group_size, num_local_experts
+        ).sum(dim=1)
+        self._num_max_tokens_per_rank = int(global_per_rank.max().item())
 
         return (
-            num_tokens_per_rank,
+            num_tokens_per_rank.to(torch.int32),
             None,  # num_tokens_per_rdma_rank — N/A for ops-transformer
-            num_global_tokens_per_expert,
+            num_tokens_per_expert_local.to(torch.int32),
             is_token_in_rank,
             EventOverlap(),
         )
