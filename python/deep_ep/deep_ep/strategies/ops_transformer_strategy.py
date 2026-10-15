@@ -262,6 +262,10 @@ class OpsTransformerNormalStrategy(NormalEPCommStrategy):
 
         self._ensure_elastic_buffer(hidden, num_topk, num_experts, nmt)
 
+        # ElasticBuffer's moe_ep_dispatch operator requires int32 topk_idx
+        if topk_idx is not None and topk_idx.dtype != torch.int32:
+            topk_idx = topk_idx.to(torch.int32)
+
         # Build x argument: tuple (data, scales) for quant, plain tensor for bf16
         ep_x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
         if scales is not None:
