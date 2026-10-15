@@ -14,6 +14,10 @@
  */
 
 #include "kernel_operator.h"
+
+// BiSheng also parses this file for the host launch stub. MicroAPI is only
+// available in the AI Core pass, so keep the implementation headers there.
+#ifdef __CCE_AICORE__
 #include "lib/matmul_intf.h"
 #include "kv_quant_sparse_attn_sharedkv_tiling_data.h"
 #include "arch35/kv_quant_sparse_attn_sharedkv_scfa_kernel.h"
@@ -85,6 +89,7 @@ __aicore__ inline void LoadKvQuantTilingData(
         op.Process();                                                                             \
     } while (0)
 #endif
+#endif  // __CCE_AICORE__
 
 extern "C" __global__ __aicore__ void
 kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
@@ -94,6 +99,7 @@ kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
                        GM_ADDR sinks, GM_ADDR metadata, GM_ADDR attentionOut, GM_ADDR softmax_lse,
                        GM_ADDR workspace, GM_ADDR tiling)
 {
+#ifdef __CCE_AICORE__
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
 
     TPipe tPipe;
@@ -127,4 +133,5 @@ kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
             break;
     }
 #undef KV_QUANT_CASE
+#endif  // __CCE_AICORE__
 }
