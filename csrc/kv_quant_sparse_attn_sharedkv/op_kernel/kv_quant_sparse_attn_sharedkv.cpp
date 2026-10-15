@@ -87,12 +87,12 @@ __aicore__ inline void LoadKvQuantTilingData(
 #endif
 
 extern "C" __global__ __aicore__ void
-kv_quant_sparse_attn_sharedkv(__gm__ uint8_t *query, __gm__ uint8_t *oriKV, __gm__ uint8_t *cmpKV,
-                       __gm__ uint8_t *oriSparseIndices, __gm__ uint8_t *cmpSparseIndices, __gm__ uint8_t* oriBlockTable,
-                       __gm__ uint8_t* cmpBlockTable, __gm__ uint8_t *cuSeqlensQ, __gm__ uint8_t *cuSeqlensOriKv,
-                       __gm__ uint8_t *cuSeqlensCmpKv, __gm__ uint8_t *seqUsedQ, __gm__ uint8_t *seqUsedKV,
-                       __gm__ uint8_t *sinks, __gm__ uint8_t *metadata, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmax_lse,
-                       __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
+kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
+                       GM_ADDR oriSparseIndices, GM_ADDR cmpSparseIndices, GM_ADDR oriBlockTable,
+                       GM_ADDR cmpBlockTable, GM_ADDR cuSeqlensQ, GM_ADDR cuSeqlensOriKv,
+                       GM_ADDR cuSeqlensCmpKv, GM_ADDR seqUsedQ, GM_ADDR seqUsedKV,
+                       GM_ADDR sinks, GM_ADDR metadata, GM_ADDR attentionOut, GM_ADDR softmax_lse,
+                       GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
 

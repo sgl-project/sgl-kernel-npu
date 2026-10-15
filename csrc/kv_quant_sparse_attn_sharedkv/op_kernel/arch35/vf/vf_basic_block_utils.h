@@ -15,7 +15,11 @@
 #ifndef VF_BASIC_BLOCK_UTILS_H
 #define VF_BASIC_BLOCK_UTILS_H
 
+#if ASC_DEVKIT_MAJOR >= 9
+#include "kernel_basic_intf.h"
+#else
 #include "kernel_operator.h"
+#endif
 
 namespace SCFaVectorApi {
 constexpr uint32_t floatRepSize = 64;
