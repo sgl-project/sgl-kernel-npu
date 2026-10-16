@@ -125,9 +125,9 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
         default:
             // Host GenTilingKey restricts to compiled keys; reaching here means either the
             // host/kernel key sets drifted, or the tiling struct was overwritten on device.
-            AscendC::PRINTF("[compressor] UNHANDLED tilingKey=%lu batch=%u seq=%u core=%u blk=%u\n", (unsigned long)key,
+            AscendC::printf("[compressor] UNHANDLED tilingKey=%llu batch=%u seq=%u core=%u\n", (unsigned long long)key,
                             tilingData->baseParams.batchSize, tilingData->baseParams.seqSize,
-                            tilingData->baseParams.usedCoreNum, (unsigned)AscendC::GetBlockIdx());
+                            tilingData->baseParams.usedCoreNum);
             AscendC::Trap();
     }
 }
