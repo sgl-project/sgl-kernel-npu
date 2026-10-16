@@ -198,7 +198,8 @@ std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
     void *cuSeqlensCmpKvPtr = OptionalDataPtr(cu_seqlens_cmp_kv);
     void *sequsedQPtr = OptionalDataPtr(seqused_q);
 
-    EXEC_KERNEL_CMD(kv_quant_sparse_attn_sharedkv, tiling.GetBlockDim(), q, *ori_kv,
+    const uint32_t blockDim = tiling.GetBlockDim();
+    EXEC_KERNEL_CMD(kv_quant_sparse_attn_sharedkv, blockDim, q, *ori_kv,
                     cmpKvPtr, oriSparseIndicesPtr, cmpSparseIndicesPtr, *ori_block_table,
                     cmpBlockTablePtr, cuSeqlensQPtr, cuSeqlensOriKvPtr, cuSeqlensCmpKvPtr,
                     sequsedQPtr, *seqused_kv, *sinks, *metadata,
