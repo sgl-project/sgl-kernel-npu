@@ -1,0 +1,109 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+/*!
+ * \file hc_pre.cpp
+ * \brief
+ */
+
+#include "hc_pre_tiling_data.h"
+#include "kernel_operator.h"
+#include "kernel_operator_intf.h"
+
+#if defined(__DAV_C310__)
+#include "hc_pre_m_k_split_core_arch35.h"
+#include "hc_pre_m_k_split_core_premix_arch35.h"
+#include "hc_pre_m_split_core_arch35.h"
+#include "hc_pre_m_split_core_premix_arch35.h"
+#include "hc_pre_base_arch35.h"
+#else
+    #include "lib/matmul_intf.h"
+    #include "hc_pre_m_k_split_core.h"
+    #include "hc_pre_base.h"
+    using namespace HcPre;
+#endif
+
+using namespace AscendC;
+
+// HAVE_WORKSPACE/HAVE_TILING require workspace and tiling to be the last two arguments.
+extern "C" __global__ __aicore__ void hc_pre(GM_ADDR x, GM_ADDR hc_fn, GM_ADDR hc_scale, GM_ADDR hc_base,
+                                             GM_ADDR pre_mix, GM_ADDR y, GM_ADDR post, GM_ADDR comb_frag,
+                                             GM_ADDR pre, uint64_t tilingKey, GM_ADDR workspace, GM_ADDR tiling)
+{
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
+    if (workspace == nullptr) {
+        return;
+    }
+
+    GM_ADDR userWs = GetUserWorkspace(workspace);
+    if (userWs == nullptr) {
+        return;
+    }
+    TPipe pipe;
+
+    HcPreTilingData tiling_data_in;
+    const __gm__ uint32_t *tilingGm = reinterpret_cast<const __gm__ uint32_t *>(tiling);
+    uint32_t *tilingLocal = reinterpret_cast<uint32_t *>(&tiling_data_in);
+    for (uint32_t i = 0; i < sizeof(HcPreTilingData) / sizeof(uint32_t); ++i) {
+        tilingLocal[i] = tilingGm[i];
+    }
+    const HcPreTilingData *__restrict tilingData = &tiling_data_in;
+
+    // 950PR 950DT
+#if defined(__DAV_C310__)
+        if (tilingKey == 1000) {
+            HcPreNs::HcPreMKSplitCorePart1<bfloat16_t> op;
+            op.Init(x, hc_fn, userWs, tilingData, &pipe);
+            op.Process();
+            pipe.Destroy();
+
+            TPipe pipeStage2;
+            HcPreNs::HcPreMKSplitCorePart2<bfloat16_t> op2;
+            op2.Init(x, hc_scale, hc_base, y, post, comb_frag, pre, userWs, tilingData, &pipeStage2);
+            op2.Process();
+            pipeStage2.Destroy();
+        } else if (tilingKey == 1002) {
+            HcPreNs::HcPreMKSplitCorePremixPart1<bfloat16_t> op;
+            op.Init(x, hc_fn, pre_mix, y, userWs, tilingData, &pipe);
+            op.Process();
+            pipe.Destroy();
+
+            TPipe pipeStage2;
+            HcPreNs::HcPreMKSplitCorePremixPart2<bfloat16_t> op2;
+            op2.Init(x, hc_scale, hc_base, pre_mix, y, post, comb_frag, pre, userWs, tilingData, &pipeStage2);
+            op2.Process();
+            pipeStage2.Destroy();
+        } else if (tilingKey == 1001) {
+            HcPreNs::HcPreMSplitCoreArch35<bfloat16_t> op;
+            op.Init(x, hc_fn, hc_scale, hc_base, y, post, comb_frag, pre, tilingData, &pipe);
+            op.Process();
+        } else if (tilingKey == 1003) {
+            HcPreNs::HcPreMSplitCorePremixArch35<bfloat16_t> op;
+            op.Init(x, hc_fn, hc_scale, hc_base, pre_mix, y, post, comb_frag, pre, tilingData, &pipe);
+            op.Process();
+        }
+#else
+      // A3
+        if (tilingKey == 0) {
+            HcPre::HcPreMembaseKSplitCorePart1<bfloat16_t> op;
+            op.Init(x, hc_fn, userWs, tilingData, &pipe);
+            op.Process();
+
+            pipe.Destroy();
+
+            TPipe pipeStage2;
+            HcPre::HcPreMembaseKSplitCorePart2<bfloat16_t> op2;
+            op2.Init(x, hc_scale, hc_base, y, post, comb_frag, pre_mix, pre, userWs, tilingData, &pipeStage2);
+            op2.Process();
+
+            pipeStage2.Destroy();
+        }
+#endif
+}
