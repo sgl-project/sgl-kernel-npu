@@ -19,6 +19,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 
 const uint32_t CMP_MAX_AIC_CORE_NUM = 36;  // A5 maximum number of cores (arch35)
+constexpr uint32_t BATCH_CONSISTENCY = 3;  // batch-consistency mode: no K-split / no h-stagger (shape-invariant)
 
 namespace optiling {
 struct CompressorSplitCoreParams {
@@ -50,6 +51,7 @@ struct CompressorBaseParams {
     uint32_t kBaseSize = 0;
     uint32_t coreGroupNum = 0;
     uint32_t mLoopNum = 0;
+    uint32_t batchConsistency = 0;  // BATCH_CONSISTENCY => shape-invariant K reduction (no K-split / no h-stagger)
     CompressorSplitCoreParams splitCoreParam[CMP_MAX_AIC_CORE_NUM];
 };
 
@@ -57,6 +59,11 @@ struct CompressorPageAttentionParams {
     uint32_t blockNum = 0;
     uint32_t blockSize = 1;
     uint32_t maxBlockNumPerBatch = 1;
+    bool statLocDump = false;  // env-gated kernel-side stateLoc dump (SGL_DSV4_STATELOC_DUMP)
+    // S232 [KSTATELOC] probe window; additive/MISS-safe. Host env:
+    // SGL_DSV4_STATELOC_MIN / SGL_DSV4_STATELOC_MAX (defaults 17528/17536).
+    uint32_t statLocMin = 17528U;
+    uint32_t statLocMax = 17536U;
 };
 
 struct CompressorInnerSplitParams {
