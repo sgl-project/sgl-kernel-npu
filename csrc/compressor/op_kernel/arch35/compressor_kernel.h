@@ -200,10 +200,6 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
     constInfo.maxBlockNumPerBatch = tilingData_->pageAttentionParams.maxBlockNumPerBatch;
-    constInfo.statLocDump = tilingData_->pageAttentionParams.statLocDump;
-    // S232: additive/MISS-safe probe window for [KSTATELOC] (defaults unchanged).
-    constInfo.statLocMin = tilingData_->pageAttentionParams.statLocMin;
-    constInfo.statLocMax = tilingData_->pageAttentionParams.statLocMax;
 
     constInfo.nSize = tilingData_->baseParams.nSize;
     constInfo.vec1TailCacheSize = tilingData_->workspaceParams.vec1TailCacheSize;
@@ -267,10 +263,6 @@ __aicore__ inline void CompressorKernel<COMP>::SkipInvalidBatch(BatchInfo &batch
         batchInfo.bStartPos = tools_.GetStartPos(batchInfo.bIdx);
         batchInfo.sIdx = 0;
         batchInfo.headHolderSeq = batchInfo.bStartPos & (constInfo.cmpRatio - 1);
-        // §237(1): residue of the call's absolute M-axis origin within the
-        // mBaseSize grid. 0 for an aligned origin (MISS / bStartPos==0), in
-        // which case the anchored cap in SkipOneLoop is byte-identical to the
-        // legacy call-origin path.
         batchInfo.mBaseResidue = batchInfo.bStartPos & (constInfo.mBaseSize - 1);
         batchInfo.tcNum = (batchInfo.bStartPos + batchInfo.seqCnt + constInfo.cmpRatio - 1) / constInfo.cmpRatio -
                           batchInfo.bStartPos / constInfo.cmpRatio;
@@ -364,12 +356,6 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
     uint32_t totalDataSize = constInfo.mGroupNum * constInfo.mBaseSize - quota;
     // 2. Start offset of the current group
     uint32_t currentGroupStart = constInfo.mCurGroupIdx * constInfo.mBaseSize;
-    // §237(1): anchor the mBaseSize grid on the ABSOLUTE position instead of the
-    // call origin, so a given absolute token lands in the same base block for
-    // MISS (bStartPos==0) and HIT (bStartPos>0). A non-aligned bStartPos
-    // shortens its FIRST base block to the absolute mBaseSize grid.
-    // MISS byte-preserved: bStartPos==0 => mBaseResidue==0 => cap==mBaseSize
-    // (identical to the legacy path).
     uint32_t absResidue = (batchInfo.bIdx == 0U) ? batchInfo.mBaseResidue : 0U;
 
     // 3. Safety check

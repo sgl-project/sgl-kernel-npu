@@ -129,8 +129,6 @@ struct BatchInfo {
     uint32_t seqUsedCnt = 0;
     uint32_t headHolderSeq = 0;
     uint32_t bStartPos = 0;
-    // §237(1): bStartPos residue within the mBaseSize grid (bStartPos & (mBaseSize-1));
-    // anchors the M-axis base block on ABSOLUTE position. 0 when aligned (MISS).
     uint32_t mBaseResidue = 0;
     uint32_t bIdx = 0;
     uint32_t sIdx = 0;
@@ -189,13 +187,6 @@ struct ConstInfo {
     uint32_t blockNum = 0;
     uint32_t blockSize = 0;
     uint32_t maxBlockNumPerBatch = 0;
-    // env-gated kernel-side stateLoc diagnostic (host reads SGL_DSV4_STATELOC_DUMP)
-    bool statLocDump = false;
-    // S232 probe window: [KSTATELOC] only fires for compressed positions in
-    // [statLocMin, statLocMax). Purely additive / MISS-safe; host-plumbed from
-    // SGL_DSV4_STATELOC_MIN / SGL_DSV4_STATELOC_MAX (defaults 17528/17536).
-    uint32_t statLocMin = 17528U;
-    uint32_t statLocMax = 17536U;
 
     // workSpace
     uint32_t dbWorkspaceRatio = 1;

@@ -190,10 +190,6 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
     constInfo.maxBlockNumPerBatch = tilingData_->pageAttentionParams.maxBlockNumPerBatch;
-    constInfo.statLocDump = tilingData_->pageAttentionParams.statLocDump;
-    // S232: additive/MISS-safe probe window for [KSTATELOC] (defaults unchanged).
-    constInfo.statLocMin = tilingData_->pageAttentionParams.statLocMin;
-    constInfo.statLocMax = tilingData_->pageAttentionParams.statLocMax;
 
     constInfo.nSize = tilingData_->baseParams.nSize;
     constInfo.vec1TailCacheSize = tilingData_->workspaceParams.vec1TailCacheSize;
