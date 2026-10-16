@@ -54,7 +54,11 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
-              - csrc/attentions/**
+              - csrc/laser_attention/**
+              - csrc/ada_block_sparse_attention/**
+              - csrc/sparse_block_estimate/**
+              - tests/python/sgl_kernel_npu/test_laser_attention.py
+              - tests/python/sgl_kernel_npu/test_ada_block_sparse_attention.py
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
