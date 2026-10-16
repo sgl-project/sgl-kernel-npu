@@ -6,7 +6,10 @@ endif()
 message(STATUS "ASCEND include path: ${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch")
 
 set(_DISPATCH_FFN_INC_OPTS)
-if (EXISTS ${CMAKE_SOURCE_DIR}/third_party/catlass/include)
+if(DEEPEP_FUSEEP_A2)
+    list(APPEND _DISPATCH_FFN_INC_OPTS
+        -DDEEPEP_FUSEEP_A2=1 -I${DEEPEP_CATLASS_INCLUDE_DIR})
+elseif (EXISTS ${CMAKE_SOURCE_DIR}/third_party/catlass/include)
     list(APPEND _DISPATCH_FFN_INC_OPTS -I${CMAKE_SOURCE_DIR}/third_party/catlass/include)
 else()
     message(FATAL_ERROR "dependency catlass is missing")
