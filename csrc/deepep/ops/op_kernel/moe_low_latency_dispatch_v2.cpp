@@ -3,6 +3,7 @@
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "moe_distribute_dispatch_tiling.h"
 #include "moe_distribute_dispatch_v2_a5.h"
+#include "moe_distribute_dispatch_a5_layered.h"
 #ifdef __DAV_C310__
 #include "moe_distribute_dispatch_v2_ccu.h"
 using namespace MoeDistributeDispatchA5CCUImpl;
@@ -11,6 +12,7 @@ using namespace MoeDistributeDispatchA5CCUImpl;
 using namespace AscendC;
 using namespace MoeDistributeDispatchV2Impl;
 using namespace MoeDistributeDispatchV2A5Impl;
+using namespace MoeDistributeDispatchA5LayeredImpl;
 
 /*
  * Tilingkey说明
@@ -63,6 +65,20 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(53000)) {  // A5 layered bf16 non-quant
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeDispatchA5Layered<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
+            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low and does not support A5 layered mode.\n");
+        }
         return;
     }
 #ifdef __DAV_C310__
@@ -162,6 +178,20 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
         op.Process();
         return;
     }
+    if (TILING_KEY_IS(53003)) {  // A5 layered mxfp8
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeDispatchA5Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
+            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low and does not support A5 layered mode.\n");
+        }
+        return;
+    }
 #endif
 #elif (ORIG_DTYPE_EXPAND_X == DT_FLOAT4_E2M1 || ORIG_DTYPE_EXPAND_X == DT_FLOAT4_E1M2)
 #ifdef __DAV_C310__
@@ -171,6 +201,20 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(53004)) {  // A5 layered mxfp4
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
+        if (dataplaneMode == DataplaneMode::AIV) {
+            MoeDistributeDispatchA5Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
+            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
+            op.Process();
+        } else {
+            assert(false, "The driver version is too low and does not support A5 layered mode.\n");
+        }
         return;
     }
 #endif
