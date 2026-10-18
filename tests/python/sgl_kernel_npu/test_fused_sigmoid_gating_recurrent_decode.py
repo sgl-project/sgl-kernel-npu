@@ -130,11 +130,11 @@ def _reference_update(
             slot = cache_indices[t].item()
             h_state = ssm_states[slot, i_hv].clone()
             h_state *= g_val.exp()
-            v_t = v_t - (h_state * k_t[:, None]).sum(dim=0)
+            v_t = v_t - (h_state * k_t[None, :]).sum(dim=1)
             v_t = v_t * beta_val
-            h_state += k_t[:, None] * v_t[None, :]
+            h_state += k_t[None, :] * v_t[:, None]
             ssm_states[slot, i_hv] = h_state
-            out[0, t, i_hv, :] = (h_state * q_t[:, None]).sum(dim=0)
+            out[0, t, i_hv, :] = (h_state * q_t[None, :]).sum(dim=1)
     return out
 
 
