@@ -5,7 +5,7 @@ import deep_ep
 import torch
 import torch.distributed as dist
 from test_common import normal_test
-from utils import calc_diff, init_dist, per_token_cast_back
+from utils import calc_diff, get_diff_threshold, init_dist, per_token_cast_back
 
 RANK_OFFSET = 128
 
@@ -92,9 +92,12 @@ def low_latency_test(
     )
     assert torch.isnan(combined_x).sum().item() == 0
     if dispatch_use_fp8:
-        assert diff < 1e-4, f"Error: {diff=}"
+        # Quantization-aware threshold consistent with the other low-latency
+        # fp8 tests (utils.DIFF_THRESHOLDS["fp8"]); the previous hard-coded
+        # 1e-4 was stricter than every other fp8 test in the repo.
+        assert diff < get_diff_threshold("pertoken_fp8_e4m3"), f"Error: {diff=}"
     else:
-        assert diff < 1e-5, f"Error: {diff=}"
+        assert diff < get_diff_threshold("bf16"), f"Error: {diff=}"
 
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
