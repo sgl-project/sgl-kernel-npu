@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from sgl_kernel_npu.mamba.causal_conv1d import (
     PAD_SLOT_ID,
+    causal_conv1d_fn_npu,
     causal_conv1d_update_npu,
     causal_conv1d_update_v2,
 )
@@ -33,6 +34,56 @@ def assert_close(prefix, ref, tri, ratio, warning=False, err_atol=1e-6):
         return
     else:
         assert error_rate < ratio, msg
+
+
+def test_causal_conv1d_fn_prefill_uses_cpu_seq_lens():
+    torch.manual_seed(42)
+    dtype = torch.float32
+    dim = 4
+    width = 3
+    seq_lens_cpu = [2, 3]
+
+    x = torch.randn(dim, sum(seq_lens_cpu), dtype=dtype, device=device)
+    weight = torch.randn(dim, width, dtype=dtype, device=device)
+    bias = torch.randn(dim, dtype=dtype, device=device)
+    conv_states = torch.randn(
+        len(seq_lens_cpu), dim, width - 1, dtype=dtype, device=device
+    )
+    conv_states_ref = conv_states.clone()
+    cache_indices = torch.arange(len(seq_lens_cpu), dtype=torch.long, device=device)
+    has_initial_state = torch.tensor([True, False], device=device)
+
+    expected_chunks = []
+    offset = 0
+    for i, seq_len in enumerate(seq_lens_cpu):
+        chunk = causal_conv1d_fn_npu(
+            x[..., offset : offset + seq_len],
+            weight,
+            bias,
+            query_start_loc=torch.tensor([0, seq_len], device=device),
+            cache_indices=torch.tensor([0], device=device),
+            has_initial_state=has_initial_state[i : i + 1],
+            conv_states=conv_states_ref[i : i + 1],
+            activation="silu",
+        )
+        expected_chunks.append(chunk)
+        offset += seq_len
+    expected = torch.cat(expected_chunks, dim=-1)
+
+    actual = causal_conv1d_fn_npu(
+        x,
+        weight,
+        bias,
+        query_start_loc=None,
+        cache_indices=cache_indices,
+        has_initial_state=has_initial_state,
+        conv_states=conv_states,
+        activation="silu",
+        seq_lens_cpu=seq_lens_cpu,
+    )
+
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(conv_states, conv_states_ref)
 
 
 def _causal_conv1d_update_ref(
