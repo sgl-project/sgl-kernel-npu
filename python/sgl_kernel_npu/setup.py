@@ -85,5 +85,7 @@ setuptools.setup(
     url="https://github.com/sgl-project/sgl-kernel-npu/",
     license="BSD 3 License",
     python_requires=">=3.7",
+    # PTO-ISA based kernels such as fused chunk-GDN kernel is in a separate pto-kernels wheel.
+    extras_require={"mega_gdn": ["pto-kernels==0.2.0"]},
     package_data={"sgl_kernel_npu": ["lib/**", "VERSION"]},
 )

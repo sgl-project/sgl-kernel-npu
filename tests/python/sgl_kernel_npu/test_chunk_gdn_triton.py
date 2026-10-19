@@ -13,7 +13,10 @@ from sgl_kernel_npu.fla.chunk import (
 )
 from utils import require_npu_op
 
-pytestmark = require_npu_op("mega_chunk_gdn")
+# The Triton path this test exercises needs torch.ops.npu.triangular_inverse,
+# which is A3-only. It used to gate on mega_chunk_gdn as a proxy for the same
+# build; that op now ships in the pto-kernels wheel instead.
+pytestmark = require_npu_op("triangular_inverse")
 
 LAUNCH_MIN = 2
 LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling
