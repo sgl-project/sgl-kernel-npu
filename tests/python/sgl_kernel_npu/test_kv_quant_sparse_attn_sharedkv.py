@@ -71,6 +71,49 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
             raise unittest.SkipTest("the quantized kernel requires Ascend 950")
         torch_npu.npu.set_device(0)
 
+    def test_public_schema(self):
+        schema = torch.ops.npu.kv_quant_sparse_attn_sharedkv.default._schema
+        arguments = {argument.name: argument for argument in schema.arguments}
+
+        self.assertEqual(schema.arguments[0].name, "q")
+        self.assertFalse(schema.arguments[0].kwarg_only)
+        self.assertEqual(len(schema.returns), 2)
+        for name in (
+            "ori_kv",
+            "cmp_kv",
+            "ori_sparse_indices",
+            "cmp_sparse_indices",
+            "ori_block_table",
+            "cmp_block_table",
+            "metadata",
+        ):
+            with self.subTest(argument=name):
+                self.assertIn(name, arguments)
+                self.assertTrue(arguments[name].kwarg_only)
+                self.assertIsNone(arguments[name].default_value)
+
+        for name, default in (
+            ("kv_quant_mode", 1),
+            ("tile_size", 64),
+            ("rope_head_dim", 64),
+            ("softmax_scale", 1.0),
+            ("cmp_ratio", 1),
+            ("ori_win_left", 127),
+            ("ori_win_right", 0),
+            ("layout_q", "BSND"),
+            ("layout_kv", "PA_ND"),
+            ("return_softmax_lse", False),
+        ):
+            with self.subTest(argument=name):
+                self.assertIn(name, arguments)
+                self.assertTrue(arguments[name].kwarg_only)
+                self.assertEqual(arguments[name].default_value, default)
+
+    def test_rejects_fp16_query(self):
+        q = torch.zeros((1, 1, 64, 512), dtype=torch.float16, device="npu:0")
+        with self.assertRaisesRegex(RuntimeError, "q must be bfloat16"):
+            torch.ops.npu.kv_quant_sparse_attn_sharedkv(q)
+
     def _run_sparse_case(self, physical_slots, block_count):
         device = torch.device("npu:0")
         block_size = 16
