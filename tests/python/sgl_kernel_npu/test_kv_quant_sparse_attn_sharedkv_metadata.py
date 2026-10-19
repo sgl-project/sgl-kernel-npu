@@ -1,6 +1,11 @@
-"""A5 metadata layout, scheduling, input validation, and optional AICPU parity."""
+"""A5 metadata layout, scheduling, input validation, and optional AICPU parity.
+
+Select the NPU with NPU_DEVICE (default: 0), for example:
+    NPU_DEVICE=2 python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv_metadata.py -v
+"""
 
 import importlib
+import os
 import unittest
 
 import sgl_kernel_npu  # noqa: F401 - registers the custom operator
@@ -16,9 +21,11 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
     def setUpClass(cls):
         if not torch_npu.npu.is_available():
             raise unittest.SkipTest("an Ascend NPU is required")
-        if "950" not in torch_npu.npu.get_device_name(0).lower():
+        device_index = int(os.environ.get("NPU_DEVICE", "0"))
+        torch_npu.npu.set_device(device_index)
+        cls.device = torch.device(f"npu:{device_index}")
+        if "950" not in torch_npu.npu.get_device_name(device_index).lower():
             raise unittest.SkipTest("the quantized kernel requires Ascend 950")
-        torch_npu.npu.set_device(0)
 
     @staticmethod
     def _metadata(
@@ -48,7 +55,7 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
         return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**arguments)
 
     def _assert_valid_schedule(self, metadata, batch_size):
-        self.assertEqual(metadata.device.type, "npu")
+        self.assertEqual(metadata.device, self.device)
         self.assertEqual(metadata.dtype, torch.int32)
         self.assertEqual(tuple(metadata.shape), (1024,))
 
@@ -70,7 +77,7 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
         cu_q = torch.tensor([0, 1], dtype=torch.int32)
         seq_kv = torch.tensor([128], dtype=torch.int32)
         metadata = self._metadata(64, cu_q, seq_kv)
-        self.assertEqual(metadata.device.type, "npu")
+        self.assertEqual(metadata.device, self.device)
         self.assertEqual(metadata.dtype, torch.int32)
         self.assertEqual(metadata.numel(), 1024)
         host = metadata.cpu()
@@ -188,8 +195,8 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
                 num_heads_kv=1,
                 head_dim=512,
                 kv_quant_mode=1,
-                cu_seqlens_q=cu_q.npu(),
-                seqused_kv=seq_kv.npu(),
+                cu_seqlens_q=cu_q.to(self.device),
+                seqused_kv=seq_kv.to(self.device),
                 batch_size=seq_kv.numel(),
                 max_seqlen_q=1,
                 max_seqlen_kv=int(seq_kv.max()),
@@ -203,7 +210,7 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
                 layout_kv="PA_ND",
                 has_ori_kv=True,
                 has_cmp_kv=has_cmp_kv,
-                device="npu",
+                device=str(self.device),
             )
 
         # A small known-valid decode checks whether the installed reference can

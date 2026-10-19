@@ -3,9 +3,13 @@
 Single-core fixtures isolate the main kernel, while the multi-batch case uses
 the real metadata builder. The reference reconstructs the dequantized KV cache
 on the CPU and computes attention with PyTorch.
+
+Select the NPU with NPU_DEVICE (default: 0), for example:
+    NPU_DEVICE=2 python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv.py -v
 """
 
 import math
+import os
 import unittest
 
 import sgl_kernel_npu  # noqa: F401 - registers the custom operators
@@ -88,9 +92,11 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
     def setUpClass(cls):
         if not torch_npu.npu.is_available():
             raise unittest.SkipTest("an Ascend NPU is required")
-        if "950" not in torch_npu.npu.get_device_name(0).lower():
+        device_index = int(os.environ.get("NPU_DEVICE", "0"))
+        torch_npu.npu.set_device(device_index)
+        cls.device = torch.device(f"npu:{device_index}")
+        if "950" not in torch_npu.npu.get_device_name(device_index).lower():
             raise unittest.SkipTest("the quantized kernel requires Ascend 950")
-        torch_npu.npu.set_device(0)
 
     def test_public_schema(self):
         schema = torch.ops.npu.kv_quant_sparse_attn_sharedkv.default._schema
@@ -131,12 +137,12 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
                 self.assertEqual(arguments[name].default_value, default)
 
     def test_rejects_fp16_query(self):
-        q = torch.zeros((1, 1, 64, 512), dtype=torch.float16, device="npu:0")
+        q = torch.zeros((1, 1, 64, 512), dtype=torch.float16, device=self.device)
         with self.assertRaisesRegex(RuntimeError, "q must be bfloat16"):
             torch.ops.npu.kv_quant_sparse_attn_sharedkv(q)
 
     def _make_paged_swa_inputs(self, q_length, ori_win_left):
-        device = torch.device("npu:0")
+        device = self.device
         block_count, block_size, kv_length = 20, 16, 256
         scale = 1.0 / math.sqrt(512)
         packed_cpu, kv_reference = _packed_kv_and_reference(block_count, block_size)
@@ -164,6 +170,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
             has_ori_kv=True,
             has_cmp_kv=False,
         )
+        self.assertEqual(metadata.device, device)
         inputs = {
             "q": q_cpu.to(device),
             "ori_kv": packed_cpu.to(device),
@@ -232,7 +239,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
             int(block_table[0, window_start // block_size]) * block_size
             + window_start % block_size
         )
-        probe_q = kv_reference[probe_slot].to("npu:0").view(1, 1, 1, 512)
+        probe_q = kv_reference[probe_slot].to(self.device).view(1, 1, 1, 512)
         expected_outputs = []
         for sign in (-2.0, 2.0):
             inputs["q"].copy_((probe_q * sign).expand_as(inputs["q"]))
@@ -259,7 +266,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         self.assertEqual(lse.numel(), 0)
 
     def _run_sparse_case(self, physical_slots, block_count):
-        device = torch.device("npu:0")
+        device = self.device
         block_size = 16
         kv_length = block_count * block_size
         scale = 1.0 / math.sqrt(512)
@@ -323,7 +330,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         self._run_sparse_case(physical_slots, block_count=16)
 
     def test_tnd_multi_batch_128_heads_with_generated_metadata(self):
-        device = torch.device("npu:0")
+        device = self.device
         block_size, block_count = 16, 24
         kv_lengths_cpu = torch.tensor([256, 320], dtype=torch.int32)
         cu_seqlens_q_cpu = torch.tensor([0, 1, 2], dtype=torch.int32)
@@ -360,7 +367,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
             has_ori_kv=True,
             has_cmp_kv=False,
         )
-        self.assertEqual(metadata.device.type, "npu")
+        self.assertEqual(metadata.device, device)
         self.assertEqual(metadata.shape, (1024,))
 
         # Sparse indices are physical slots; deliberately use non-identity
