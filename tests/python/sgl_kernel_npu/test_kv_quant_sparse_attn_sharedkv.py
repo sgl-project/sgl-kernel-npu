@@ -1,8 +1,9 @@
+
 """Numerical correctness tests for quantized sparse shared-KV attention.
 
-As in test_sparse_attn_sharedkv.py, a single-core metadata fixture isolates
-the main kernel from the separate metadata builder. The reference reconstructs
-the dequantized KV cache on the CPU and computes attention with PyTorch.
+Single-core fixtures isolate the main kernel, while the multi-batch case uses
+the real metadata builder. The reference reconstructs the dequantized KV cache
+on the CPU and computes attention with PyTorch.
 """
 
 import math
@@ -134,6 +135,84 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         torch.manual_seed(20261017)
         physical_slots = torch.randperm(256)[:129].sort().values.to(torch.int32)
         self._run_sparse_case(physical_slots, block_count=16)
+
+    def test_tnd_multi_batch_128_heads_with_generated_metadata(self):
+        device = torch.device("npu:0")
+        block_size, block_count = 16, 24
+        kv_lengths_cpu = torch.tensor([256, 320], dtype=torch.int32)
+        cu_seqlens_q_cpu = torch.tensor([0, 1, 2], dtype=torch.int32)
+        scale = 1.0 / math.sqrt(512)
+        packed_cpu, kv_reference = _packed_kv_and_reference(block_count, block_size)
+
+        torch.manual_seed(20261018)
+        q_cpu = (torch.randn(2, 128, 512) * 0.1 + 0.05).to(torch.bfloat16)
+        physical_slots = [
+            torch.randperm(256)[:129].sort().values.to(torch.int32),
+            (torch.randperm(320)[:137] + 64).sort().values.to(torch.int32),
+        ]
+        sparse_indices = torch.full((2, 1, 512), -1, dtype=torch.int32)
+        for batch_idx, slots in enumerate(physical_slots):
+            sparse_indices[batch_idx, 0, : slots.numel()] = slots
+
+        metadata = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(
+            num_heads_q=128,
+            num_heads_kv=1,
+            head_dim=512,
+            layout_q="TND",
+            layout_kv="PA_ND",
+            cu_seqlens_q=cu_seqlens_q_cpu,
+            seqused_kv=kv_lengths_cpu,
+            batch_size=2,
+            max_seqlen_q=1,
+            max_seqlen_kv=320,
+            cmp_topk=0,
+            cmp_ratio=1,
+            ori_mask_mode=4,
+            cmp_mask_mode=3,
+            ori_win_left=319,
+            ori_win_right=0,
+            has_ori_kv=True,
+            has_cmp_kv=False,
+        )
+        self.assertEqual(metadata.device.type, "npu")
+        self.assertEqual(metadata.shape, (1024,))
+
+        # Sparse indices are physical slots; deliberately use non-identity
+        # block tables so a mistaken page-table lookup changes the result.
+        logical_blocks = 320 // block_size
+        block_ids = torch.arange(logical_blocks, dtype=torch.int32)
+        block_tables = torch.stack((block_ids.roll(3), block_ids.roll(7)))
+        actual, lse = torch.ops.npu.kv_quant_sparse_attn_sharedkv(
+            q_cpu.to(device),
+            ori_kv=packed_cpu.to(device),
+            ori_sparse_indices=sparse_indices.to(device),
+            ori_block_table=block_tables.to(device),
+            cu_seqlens_q=cu_seqlens_q_cpu.to(device),
+            seqused_kv=kv_lengths_cpu.to(device),
+            sinks=torch.full((128,), -1.0e4, dtype=torch.float32, device=device),
+            metadata=metadata,
+            softmax_scale=scale,
+            cmp_ratio=1,
+            ori_win_left=319,
+            ori_win_right=0,
+            layout_q="TND",
+            layout_kv="PA_ND",
+        )
+        torch_npu.npu.synchronize()
+
+        expected = torch.cat(
+            [
+                _reference_sparse_attention(
+                    q_cpu[batch_idx : batch_idx + 1], kv_reference, slots, scale
+                )
+                for batch_idx, slots in enumerate(physical_slots)
+            ]
+        )
+        self.assertEqual(actual.shape, q_cpu.shape)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
+        self.assertEqual(lse.dtype, torch.float32)
+        self.assertEqual(lse.numel(), 0)
 
 
 if __name__ == "__main__":
