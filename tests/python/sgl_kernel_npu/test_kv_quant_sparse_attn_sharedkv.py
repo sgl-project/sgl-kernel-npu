@@ -1,4 +1,3 @@
-
 """Numerical correctness tests for quantized sparse shared-KV attention.
 
 Single-core fixtures isolate the main kernel, while the multi-batch case uses
