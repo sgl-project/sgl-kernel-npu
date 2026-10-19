@@ -62,6 +62,27 @@ def _reference_sparse_attention(q, kv, physical_slots, scale):
     return torch.matmul(torch.softmax(scores, dim=-1), selected_kv).unsqueeze(0)
 
 
+def _reference_paged_swa(
+    q, kv, block_table, kv_length, block_size, scale, ori_win_left, ori_win_right
+):
+    """Apply the logical window, then resolve rows through the page table."""
+    q_length = q.shape[1]
+    outputs = []
+    for query_idx in range(q_length):
+        aligned_kv_idx = kv_length - q_length + query_idx
+        left = max(aligned_kv_idx - ori_win_left, 0)
+        right = min(aligned_kv_idx + ori_win_right, kv_length - 1)
+        logical_slots = torch.arange(left, right + 1)
+        physical_slots = (
+            block_table[0, logical_slots // block_size].long() * block_size
+            + logical_slots % block_size
+        )
+        selected_kv = kv[physical_slots].float()
+        scores = torch.matmul(q[0, query_idx].float(), selected_kv.T) * scale
+        outputs.append(torch.matmul(torch.softmax(scores, dim=-1), selected_kv))
+    return torch.stack(outputs, dim=0).unsqueeze(0)
+
+
 class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -113,6 +134,129 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         q = torch.zeros((1, 1, 64, 512), dtype=torch.float16, device="npu:0")
         with self.assertRaisesRegex(RuntimeError, "q must be bfloat16"):
             torch.ops.npu.kv_quant_sparse_attn_sharedkv(q)
+
+    def _make_paged_swa_inputs(self, q_length, ori_win_left):
+        device = torch.device("npu:0")
+        block_count, block_size, kv_length = 20, 16, 256
+        scale = 1.0 / math.sqrt(512)
+        packed_cpu, kv_reference = _packed_kv_and_reference(block_count, block_size)
+        # All logical pages are valid, but none uses its own page number.
+        block_table = torch.arange(16, dtype=torch.int32).roll(5).unsqueeze(0)
+        torch.manual_seed(20261019 + q_length)
+        q_cpu = (torch.randn(1, q_length, 64, 512) * 0.1 + 0.05).to(torch.bfloat16)
+        kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32)
+        metadata = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(
+            num_heads_q=64,
+            num_heads_kv=1,
+            head_dim=512,
+            layout_q="BSND",
+            layout_kv="PA_ND",
+            seqused_kv=kv_length_cpu,
+            batch_size=1,
+            max_seqlen_q=q_length,
+            max_seqlen_kv=kv_length,
+            cmp_topk=0,
+            cmp_ratio=1,
+            ori_mask_mode=4,
+            cmp_mask_mode=3,
+            ori_win_left=ori_win_left,
+            ori_win_right=0,
+            has_ori_kv=True,
+            has_cmp_kv=False,
+        )
+        inputs = {
+            "q": q_cpu.to(device),
+            "ori_kv": packed_cpu.to(device),
+            "ori_block_table": block_table.to(device),
+            "seqused_kv": kv_length_cpu.to(device),
+            "sinks": torch.full((64,), -1.0e4, dtype=torch.float32, device=device),
+            "metadata": metadata,
+            "softmax_scale": scale,
+            "cmp_ratio": 1,
+            "ori_win_left": ori_win_left,
+            "ori_win_right": 0,
+            "layout_q": "BSND",
+            "layout_kv": "PA_ND",
+        }
+        return inputs, q_cpu, kv_reference, block_table, kv_length, block_size
+
+    def _assert_paged_swa(self, q_length, ori_win_left):
+        inputs, q_cpu, kv_reference, block_table, kv_length, block_size = (
+            self._make_paged_swa_inputs(q_length, ori_win_left)
+        )
+        actual, lse = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        expected = _reference_paged_swa(
+            q_cpu,
+            kv_reference,
+            block_table,
+            kv_length,
+            block_size,
+            inputs["softmax_scale"],
+            ori_win_left,
+            inputs["ori_win_right"],
+        )
+        self.assertEqual(actual.shape, q_cpu.shape)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
+        self.assertEqual(lse.dtype, torch.float32)
+        self.assertEqual(lse.numel(), 0)
+
+    def test_swa_bsnd_pa_nd_bf16(self):
+        self._assert_paged_swa(q_length=1, ori_win_left=127)
+
+    def test_swa_bsnd_pa_nd_eager_prefill(self):
+        # A zero-left window makes the two query tokens read distinct KV rows.
+        self._assert_paged_swa(q_length=2, ori_win_left=0)
+
+    def test_swa_bsnd_pa_nd_npu_graph(self):
+        inputs, _, kv_reference, block_table, kv_length, block_size = (
+            self._make_paged_swa_inputs(q_length=1, ori_win_left=127)
+        )
+        # Warm up tiling outside capture, then keep every graph input alive.
+        torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+
+        graph = torch_npu.npu.NPUGraph()
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(
+            graph, stream=capture_stream, auto_dispatch_capture=True
+        ):
+            graph_out, lse = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+
+        # Make the two replay queries point toward and away from a visible KV
+        # row so stale graph inputs produce a clearly different result.
+        window_start = kv_length - 1 - inputs["ori_win_left"]
+        probe_slot = (
+            int(block_table[0, window_start // block_size]) * block_size
+            + window_start % block_size
+        )
+        probe_q = kv_reference[probe_slot].to("npu:0").view(1, 1, 1, 512)
+        expected_outputs = []
+        for sign in (-2.0, 2.0):
+            inputs["q"].copy_((probe_q * sign).expand_as(inputs["q"]))
+            graph.replay()
+            torch_npu.npu.synchronize()
+            expected = _reference_paged_swa(
+                inputs["q"].cpu(),
+                kv_reference,
+                block_table,
+                kv_length,
+                block_size,
+                inputs["softmax_scale"],
+                inputs["ori_win_left"],
+                inputs["ori_win_right"],
+            )
+            torch.testing.assert_close(
+                graph_out.cpu().float(), expected, rtol=2e-2, atol=2e-2
+            )
+            expected_outputs.append(expected)
+        self.assertGreater(
+            (expected_outputs[0] - expected_outputs[1]).abs().max().item(), 0.05
+        )
+        self.assertEqual(lse.dtype, torch.float32)
+        self.assertEqual(lse.numel(), 0)
 
     def _run_sparse_case(self, physical_slots, block_count):
         device = torch.device("npu:0")
