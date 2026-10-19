@@ -13,6 +13,16 @@
 
 namespace sglang {
 namespace npu_kernel {
+void plan_sparse_kv_cache(const at::Tensor &source_to_slot,
+                          const at::Tensor &slot_to_source,
+                          const at::Tensor &req_ids,
+                          const at::Tensor &topk_input,
+                          at::Tensor &topk_src_ids, at::Tensor &topk_dst_slots,
+                          at::Tensor &topk_miss_counts,
+                          at::Tensor &miss_src_ids, at::Tensor &miss_dst_slots,
+                          at::Tensor &miss_counts, int64_t max_context_len,
+                          int64_t cache_capacity);
+
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
 at::Tensor cache_loc_assign(const at::Tensor &req_indices,
@@ -120,6 +130,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     c10::string_view layout_query, c10::string_view layout_kv,
     int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
     int64_t attention_mode, bool return_softmax_lse);
+
+void fused_scatter_copy_sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &query_rope,
+    at::Tensor &combined_hbm_cache, const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_kv, const at::Tensor &num_cache_tokens,
+    const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids,
+    const at::Tensor &miss_dst_slots, const at::Tensor &miss_counts,
+    const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>

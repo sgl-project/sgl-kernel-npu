@@ -150,6 +150,19 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
+    m.def(
+        "plan_sparse_kv_cache(Tensor(a!) source_to_slot, Tensor(b!) slot_to_source, "
+        "Tensor req_ids, Tensor topk_input, Tensor(c!) topk_src_ids, Tensor(d!) topk_dst_slots, "
+        "Tensor(e!) topk_miss_counts, Tensor(f!) miss_src_ids, Tensor(g!) miss_dst_slots, Tensor(h!) miss_counts, "
+        "int max_context_len, int cache_capacity) -> ()");
+
+    m.def(
+        "fused_scatter_copy_sparse_flash_attention(Tensor query, Tensor query_rope, "
+        "Tensor(a!) combined_hbm_cache, Tensor actual_seq_lengths_query, Tensor actual_seq_lengths_kv, "
+        "Tensor num_cache_tokens, Tensor topk_src_ids, Tensor topk_dst_slots, Tensor topk_miss_counts, "
+        "Tensor miss_src_ids, Tensor miss_dst_slots, Tensor miss_counts, Tensor hbm_block_table, "
+        "Tensor dram_block_table, int dram_kv_dev_ptr, Tensor(b!) attention_out, float scale_value) -> ()");
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -366,6 +379,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("plan_sparse_kv_cache", TORCH_FN(sglang::npu_kernel::plan_sparse_kv_cache));
+    m.impl("fused_scatter_copy_sparse_flash_attention",
+           TORCH_FN(sglang::npu_kernel::fused_scatter_copy_sparse_flash_attention));
+#endif
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
