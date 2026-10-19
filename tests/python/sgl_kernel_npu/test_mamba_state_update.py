@@ -6,6 +6,7 @@ import torch
 from sgl_kernel_npu.mamba.mamba_state_update_triton import (
     conv_state_rollback,
     move_intermediate_cache,
+    move_intermediate_cache_kda,
 )
 
 device = "npu"
@@ -262,6 +263,90 @@ def test_move_intermediate_cache_mask_and_physical_layout():
         dst_indices,
         src_indices,
         last_steps,
+    )
+
+    assert torch.equal(dst_storage, expected_storage)
+    assert torch.all(dst_storage[:, dst_indices[1].long()] == -7)
+
+
+@pytest.mark.parametrize(
+    ("L", "S", "D", "H", "V", "K", "num_valid", "dtype"),
+    [
+        pytest.param(
+            *test,
+            id="L{0}_S{1}_D{2}_H{3}_V{4}_K{5}_valid{6}_{7}".format(*test),
+        )
+        for test in [
+            (2, 10, 4, 4, 128, 128, 8, torch.bfloat16),
+            (4, 20, 3, 8, 64, 64, 15, torch.bfloat16),
+        ]
+    ],
+)
+@torch.no_grad
+def test_move_intermediate_cache_kda(
+    L: int,
+    S: int,
+    D: int,
+    H: int,
+    V: int,
+    K: int,
+    num_valid: int,
+    dtype: torch.dtype,
+):
+    """Test move_intermediate_cache_kda with transposed (non-contiguous) destination."""
+    torch.manual_seed(42)
+    src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=dtype)
+
+    dst_storage = torch.randn(L, S, H, K, V, device=device, dtype=dtype)
+    dst_cache = dst_storage.transpose(-1, -2)
+    assert not dst_cache.is_contiguous()
+
+    expected_storage = dst_storage.clone()
+    expected = expected_storage.transpose(-1, -2)
+
+    population = range(S)
+    valid_indices = random.sample(population, num_valid)
+    last_step_pos = [random.randint(0, D - 1) for _ in range(num_valid)]
+    dst_indices_tensor = torch.tensor(valid_indices, device=device, dtype=torch.int32)
+    src_indices_tensor = torch.arange(num_valid, device=device, dtype=torch.int32)
+    last_steps_tensor = torch.tensor(last_step_pos, device=device, dtype=torch.int32)
+
+    for i in range(num_valid):
+        expected[:, valid_indices[i]] = src_cache[:, i, last_step_pos[i]]
+
+    move_intermediate_cache_kda(
+        dst_cache,
+        src_cache,
+        dst_indices_tensor,
+        src_indices_tensor,
+        last_steps_tensor,
+    )
+
+    assert_close("kda_move", expected_storage, dst_storage, 1e-3)
+
+
+@torch.no_grad
+def test_move_intermediate_cache_routes_to_kda_for_noncontiguous():
+    """move_intermediate_cache must auto-route to KDA for transposed dst."""
+    L, S, D, H, V, K = 2, 4, 3, 2, 32, 16
+    src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=torch.bfloat16)
+
+    dst_storage = torch.full(
+        (L, S + 2, H, K, V), -7, device=device, dtype=torch.bfloat16
+    )
+    dst_cache = dst_storage.transpose(-1, -2)
+    assert not dst_cache.is_contiguous()
+    expected_storage = dst_storage.clone()
+
+    dst_indices = torch.tensor([0, 3, 5], device=device, dtype=torch.int32)
+    src_indices = torch.tensor([1, 2, 3], device=device, dtype=torch.int32)
+    last_steps = torch.tensor([2, -1, 0], device=device, dtype=torch.int32)
+    expected_storage[:, dst_indices[[0, 2]].long()] = src_cache[
+        :, src_indices[[0, 2]].long(), last_steps[[0, 2]].long()
+    ].reshape(L, 2, H, K, V)
+
+    move_intermediate_cache(
+        dst_cache, src_cache, dst_indices, src_indices, last_steps
     )
 
     assert torch.equal(dst_storage, expected_storage)
