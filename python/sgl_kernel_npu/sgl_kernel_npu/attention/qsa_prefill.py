@@ -11,17 +11,24 @@ import triton.language as tl
 
 
 @triton.jit(do_not_specialize=[4])
-def _pack(Q, B, C, QQ, R):
+def _pack(
+    Q, B, C, QQ, R, H: tl.constexpr, KV: tl.constexpr, WRITE_Q: tl.constexpr = True
+):
     p = tl.program_id(0)
     kv = tl.program_id(1)
     part = tl.program_id(2)
-    idx = tl.arange(0, 16384)
-    head_local = idx // 256
-    dim = idx % 256
-    row = 16 * p + part * 8 + head_local // 8
-    head = kv * 8 + head_local % 8
-    x = tl.load(Q + (row * 16 + head) * 256 + dim, row < R, other=0)
-    tl.store(QQ + (p * 256 + kv * 128 + part * 64) * 256 + idx, x)
+    if WRITE_Q:
+        # Keep gather indices and the equality flags within the A3 UB budget.
+        idx = tl.arange(0, 8192)
+        head_local = idx // 256
+        dim = idx % 256
+        group: tl.constexpr = H // KV
+        local_head = part * 32 + head_local
+        row = 16 * p + local_head // group
+        head = kv * group + local_head % group
+        valid = local_head < 16 * group
+        x = tl.load(Q + (row * H + head) * 256 + dim, valid & (row < R), other=0)
+        tl.store(QQ + (p * 16 * H + kv * 16 * group + part * 32) * 256 + idx, x, valid)
     if (kv == 0) & (part == 0):
         j = tl.arange(0, 512)
         b0 = tl.load(B + (16 * p + 0) * 512 + j, 16 * p + 0 < R, other=-1)
@@ -89,14 +96,18 @@ def _tail_merge(
     SCALE: tl.constexpr,
     R,
     GRID: tl.constexpr,
+    H: tl.constexpr,
+    KV: tl.constexpr,
 ):
     kv = tl.program_id(1)
     d = tl.arange(0, 256)
     t = tl.arange(0, 4)
-    h = tl.arange(0, 8)
+    group: tl.constexpr = H // KV
+    h = tl.arange(0, triton.next_power_of_2(group))
+    valid_head = h < group
     req = tl.load(REQ).to(tl.int64)
     for row in range(tl.program_id(0), R, GRID):
-        head = kv * 8 + h
+        head = kv * group + h
         visible = BASE + row.to(tl.int32) + 1
         rem = ((visible % 4) + 4) % 4
         pos = visible - rem + t
@@ -105,15 +116,19 @@ def _tail_merge(
         slot = tl.load(T + req * STRIDE + safe_pos, valid, other=-1)
         valid = valid & (slot >= 0) & (slot < CAP)
         slot = tl.where(valid, slot, 0)
-        q = tl.load(Q + (row * 16 + head[:, None]) * 256 + d[None, :]).to(tl.float32)
+        q = tl.load(
+            Q + (row * H + head[:, None]) * 256 + d[None, :],
+            valid_head[:, None],
+            other=0,
+        ).to(tl.float32)
         k = tl.load(
-            K + (slot[:, None] * 2 + kv) * 256 + d[None, :], valid[:, None], other=0
+            K + (slot[:, None] * KV + kv) * 256 + d[None, :], valid[:, None], other=0
         ).to(tl.float32)
         logits = tl.sum(k[None, :, :] * q[:, None, :], 2) * SCALE
         logits = tl.where(valid[None, :], logits, -float("inf"))
-        pair_head = kv * 128 + (row % 16) * 8 + h
-        off = (row // 16) * 256 + pair_head
-        lse = tl.load(L + off)
+        pair_head = kv * 16 * group + (row % 16) * group + h
+        off = (row // 16) * 16 * H + pair_head
+        lse = tl.load(L + off, valid_head, other=-float("inf"))
         peak = tl.maximum(lse, tl.max(logits, 1))
         peak = tl.where(peak == -float("inf"), 0.0, peak)
         w = tl.exp(logits - peak[:, None])
@@ -121,13 +136,17 @@ def _tail_merge(
         denominator = bw + tl.sum(w, 1)
         denominator = tl.where(denominator > 0, denominator, 1.0)
         value = tl.load(
-            V + (slot[:, None] * 2 + kv) * 256 + d[None, :], valid[:, None], other=0
+            V + (slot[:, None] * KV + kv) * 256 + d[None, :], valid[:, None], other=0
         ).to(tl.float32)
-        base_out = tl.load(O + off[:, None] * 256 + d[None, :]).to(tl.float32)
+        base_out = tl.load(
+            O + off[:, None] * 256 + d[None, :], valid_head[:, None], other=0
+        ).to(tl.float32)
         out = (
             bw[:, None] * base_out + tl.sum(w[:, :, None] * value[None, :, :], 1)
         ) / denominator[:, None]
-        tl.store(Y + (row * 16 + head[:, None]) * 256 + d[None, :], out)
+        tl.store(
+            Y + (row * H + head[:, None]) * 256 + d[None, :], out, valid_head[:, None]
+        )
 
 
 def qsa_prefill(
@@ -135,7 +154,8 @@ def qsa_prefill(
 ):
     """BF16 D256 ratio-4 prefill over 512 selected logical blocks per query.
 
-    Q is [R,16,256], K/V [capacity,2,256]. Every nonnegative selected
+    Q is [R,H,256], K/V [capacity,KV,256], with (H,KV) in
+    {(16,2), (8,1), (6,1), (2,1)}. Every nonnegative selected
     block expands into four token positions through the request table. Each
     query independently appends its causal remainder (0--3 tokens). Invalid
     blocks/physical slots are omitted; order and duplicates are preserved.
@@ -143,10 +163,13 @@ def qsa_prefill(
     length/base are CPU metadata; this API does no device-to-host reads.
     The function does not run the indexer or select Top-K.
     """
-    if q.ndim != 3 or q.shape[1:] != (16, 256):
-        raise ValueError("QSA prefill requires Q [R,16,256]")
-    if k.ndim != 3 or k.shape[1:] != (2, 256) or v.shape != k.shape:
-        raise ValueError("QSA prefill requires K,V [capacity,2,256]")
+    if q.ndim != 3 or q.shape[2] != 256:
+        raise ValueError("QSA prefill requires Q [R,H,256]")
+    if k.ndim != 3 or k.shape[2] != 256 or v.shape != k.shape:
+        raise ValueError("QSA prefill requires K,V [capacity,KV,256]")
+    h, kv = q.shape[1], k.shape[1]
+    if (h, kv) not in ((16, 2), (8, 1), (6, 1), (2, 1)):
+        raise ValueError("unsupported Q/KV heads: expected 16/2, 8/1, 6/1 or 2/1")
     if any(x.dtype != torch.bfloat16 for x in (q, k, v)):
         raise ValueError("QSA prefill requires BF16 Q/K/V")
     if q.device.type != "npu" or any(
@@ -180,27 +203,35 @@ def qsa_prefill(
         raise ValueError("nonempty sequences require a nonempty cache")
     r = q.shape[0]
     if length == 0 or r == 0:
-        counts = torch.zeros((r * 16,), device=q.device, dtype=torch.int32)
-        packed = torch.empty(((r + 15) // 16, 256, 256), device=q.device, dtype=q.dtype)
-        if r:
-            _pack[((r + 15) // 16, 2, 2)](q, blocks, counts, packed, r)
         out = torch.zeros_like(q)
-        if return_details:
-            return (
-                out,
-                counts,
-                torch.zeros_like(packed),
-                torch.full(
-                    ((r + 15) // 16, 256),
-                    -float("inf"),
-                    device=q.device,
-                    dtype=torch.float32,
-                ),
+        if not return_details:
+            return out
+        counts = torch.zeros((r * 16,), device=q.device, dtype=torch.int32)
+        packed_out = torch.zeros(
+            ((r + 15) // 16, 16 * h, 256), device=q.device, dtype=torch.float32
+        )
+        if r:
+            # Only sharing flags are useful for an empty sequence. Avoid an
+            # unused packed-Q allocation whose queued write could outlive it.
+            _pack[((r + 15) // 16, 1, 1)](
+                q, blocks, counts, packed_out, r, h, kv, False
             )
-        return out
+        return (
+            out,
+            counts,
+            packed_out,
+            torch.full(
+                ((r + 15) // 16, 16 * h),
+                -float("inf"),
+                device=q.device,
+                dtype=torch.float32,
+            ),
+        )
     counts = torch.empty((r * 16,), device=q.device, dtype=torch.int32)
-    packed = torch.empty(((r + 15) // 16, 256, 256), device=q.device, dtype=q.dtype)
-    _pack[((r + 15) // 16, 2, 2)](q, blocks, counts, packed, r)
+    packed = torch.empty(((r + 15) // 16, 16 * h, 256), device=q.device, dtype=q.dtype)
+    _pack[((r + 15) // 16, kv, triton.cdiv(16 * (h // kv), 32))](
+        q, blocks, counts, packed, r, h, kv
+    )
     starts, runs, counts = torch.ops.npu.qsa_prefill_prepare(
         blocks, table, req, counts, length, base, k.shape[0]
     )
@@ -208,7 +239,7 @@ def qsa_prefill(
         packed, k, v, starts, runs, counts, scale
     )
     out = torch.empty_like(q)
-    _tail_merge[(256, 2)](
+    _tail_merge[(256, kv)](
         q,
         k,
         v,
@@ -224,6 +255,8 @@ def qsa_prefill(
         scale,
         r,
         256,
+        h,
+        kv,
         enable_fp_fusion=False,
     )
     return (out, counts, base_out, lse) if return_details else out

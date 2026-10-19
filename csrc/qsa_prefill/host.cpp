@@ -34,9 +34,12 @@ std::tuple<at::Tensor, at::Tensor> QsaRuns(const at::Tensor &q, const at::Tensor
     CheckTensor(slots, q, at::kInt);
     CheckTensor(runs, q, at::kInt);
     CheckTensor(counts, q, at::kInt);
-    TORCH_CHECK(q.dim() == 3 && q.size(1) == 256 && q.size(2) == 256, "packed Q must be [G,256,256]");
-    TORCH_CHECK(k.dim() == 3 && k.size(0) > 0 && k.size(1) == 2 && k.size(2) == 256 && v.sizes() == k.sizes(),
-                "K,V must be [capacity,2,256]");
+    TORCH_CHECK(q.dim() == 3 && q.size(2) == 256, "packed Q must be [G,16*H,256]");
+    TORCH_CHECK(k.dim() == 3 && k.size(0) > 0 && k.size(2) == 256 && v.sizes() == k.sizes(),
+                "K,V must be [capacity,KV,256]");
+    TORCH_CHECK((q.size(1) == 256 && k.size(1) == 2) ||
+                    (k.size(1) == 1 && (q.size(1) == 128 || q.size(1) == 96 || q.size(1) == 32)),
+                "unsupported packed Q/KV heads");
     TORCH_CHECK(slots.dim() == 2 && slots.size(1) == 2064 && (slots.size(0) + 15) / 16 == q.size(0),
                 "prepared slots must be [R,2064]");
     TORCH_CHECK(runs.sizes() == slots.sizes() && counts.dim() == 1 && counts.numel() == slots.size(0) * 16,
@@ -44,28 +47,28 @@ std::tuple<at::Tensor, at::Tensor> QsaRuns(const at::Tensor &q, const at::Tensor
     TORCH_CHECK(std::isfinite(scale) && scale > 0, "scale must be positive and finite");
     TORCH_CHECK(q.size(0) <= INT32_MAX / 2 && k.size(0) <= INT32_MAX, "tensor extent exceeds int32 indexing");
     auto out = at::zeros(q.sizes(), q.options().dtype(at::kFloat));
-    auto lse = at::full({q.size(0), 256}, -INFINITY, q.options().dtype(at::kFloat));
+    auto lse = at::full({q.size(0), q.size(1)}, -INFINITY, q.options().dtype(at::kFloat));
     if (!q.size(0)) return {out, lse};
     auto platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     TORCH_CHECK(static_cast<uint32_t>(platform->GetSocVersion()) != 4, "QSA prefill requires arch22 hardware");
     const uint32_t cores =
-        std::min(static_cast<uint32_t>(q.size(0) * 2), static_cast<uint32_t>(platform->GetCoreNumAic()));
+        std::min(static_cast<uint32_t>(q.size(0) * k.size(1)), static_cast<uint32_t>(platform->GetCoreNumAic()));
     using Tiling = sglang::SAHost::SATilingData;
     Tiling t{};
     t.batch = 1;
-    t.numHeads = 256;
-    t.kvHeads = 2;
+    t.numHeads = q.size(1);
+    t.kvHeads = k.size(1);
     t.embeddingSize = 256;
     t.blockSize = 256;
     t.topK = 2064;
     t.maxBlocksPerBatch = k.size(0);
     t.totalQTokens = q.size(0);
-    t.totalTaskNum = q.size(0) * 2;
-    t.firstBatchTaskNum = 2;
+    t.totalTaskNum = q.size(0) * k.size(1);
+    t.firstBatchTaskNum = k.size(1);
     t.scaleValue = scale;
     t.maxQSeqlen = slots.size(0);
     t.tilingKey = 20002;
-    t.groupSize = 128;
+    t.groupSize = q.size(1) / k.size(1);
     t.mm1OutSize = static_cast<uint64_t>(cores) * 32768 * 4 * 3;
     t.smOnlineOutSize = static_cast<uint64_t>(cores) * 32768 * 2 * 3;
     t.mm2OutSize = t.mm1OutSize;
@@ -89,19 +92,22 @@ std::tuple<at::Tensor, at::Tensor> QsaRuns(const at::Tensor &q, const at::Tensor
     t.pL1BufNum = 3;
     // Cache immutable tiling by full values and device, never by a hash alone.
     // Graph callers warm the shape first; replay performs no host copy.
-    using Key = std::tuple<int, int64_t, int64_t, int64_t, double>;
+    using Key = std::tuple<int, int64_t, int64_t, int64_t, int64_t, int64_t, double>;
     static std::map<Key, at::Tensor> cache;
     static std::mutex mutex;
     at::Tensor tiling;
     {
         std::lock_guard<std::mutex> lock(mutex);
-        Key key{q.get_device(), q.size(0), k.size(0), slots.size(0), scale};
+        Key key{q.get_device(), q.size(0), q.size(1), k.size(0), k.size(1), slots.size(0), scale};
         auto it = cache.find(key);
         if (it == cache.end()) {
-            auto buffer = at::empty({static_cast<int64_t>(sizeof(t))}, q.options().dtype(at::kByte));
-            auto status = aclrtMemcpy(buffer.data_ptr(), sizeof(t), &t, sizeof(t), ACL_MEMCPY_HOST_TO_DEVICE);
-            TORCH_CHECK(status == ACL_SUCCESS, "QSA tiling copy failed: ", status);
-            it = cache.emplace(key, buffer).first;
+            // Use PyTorch's queued copy: a direct aclrtMemcpy can race with
+            // pending writes to storage reused by the caching allocator.
+            auto cpu =
+                at::empty({static_cast<int64_t>(sizeof(t))}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+            std::memcpy(cpu.data_ptr(), &t, sizeof(t));
+            // Complete initialization before another stream can reuse this entry.
+            it = cache.emplace(key, cpu.to(q.device(), at::kByte, false, true)).first;
         }
         tiling = it->second;
     }

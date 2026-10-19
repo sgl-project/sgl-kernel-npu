@@ -152,6 +152,7 @@ public:
         coreIdx = AscendC::GetBlockIdx();
 #endif
 
+        const uint32_t headsPerQuery = groupSize_ / 16;
         uint32_t groupSize = groupSize_;
         int64_t strideQO = qHeads_ * embed_;
         int64_t strideKVBlock = static_cast<int64_t>(blockSize_) * kvHeads_ * embed_;
@@ -174,9 +175,9 @@ public:
                 bool shared2 =
                     sub % 2 == 0 && sub + 1 < queries && gSelectNumIdx.GetValue(originalRow * 16 + 8 + sub / 2) != 0;
                 step = shared16 ? 16 : (shared8 ? 8 : (shared4 ? 4 : (shared2 ? 2 : 1)));
-                groupSize = step * 8;
+                groupSize = step * headsPerQuery;
                 uint32_t descriptorRow = originalRow + sub;
-                uint32_t qHeadStart = kvHeadIdx * 128 + sub * 8;
+                uint32_t qHeadStart = kvHeadIdx * groupSize_ + sub * headsPerQuery;
                 uint32_t batchIdx = 0;
                 uint32_t qTokenInBatch = qToken;
                 uint32_t qSeqlen = totalTaskNum_ / kvHeads_;
