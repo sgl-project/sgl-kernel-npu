@@ -19,6 +19,21 @@ with `max_seqlen_q` and TND with `cu_seqlens_q`, and uses `seqused_kv` or
 cost path. The source AICPU implementation does not enable cross-core Flash
 Decode splitting, and neither does this host implementation.
 
+## Reusing the existing CANN metadata in SGLang
+
+SGLang already calls `torch.ops.custom.npu_kv_quant_sparse_attn_sharedkv_metadata`
+with NPU sequence-length tensors. The migrated A5 attention kernel retains the
+source kernel's `int32[1024]` metadata layout, so reusing that CANN producer is
+the preferred integration path when its output is compatible. It avoids a
+per-step NPU-to-CPU length transfer or CPU scheduling plus a host-to-NPU copy.
+The host operator above remains useful independently of that CANN dependency.
+
+Run `test_tnd_consumes_sglang_cann_metadata` to check C1 decode and prefill
+attention using the CANN producer directly. The test requires the SGLang CANN
+metadata op; a skip means compatibility has not been verified. C4/C128
+compressed attention and NPU graph replay still need end-to-end validation
+before changing SGLang's operator selection in production.
+
 On an Ascend 950 machine, build the `kernels` wheel and run:
 
 ```bash

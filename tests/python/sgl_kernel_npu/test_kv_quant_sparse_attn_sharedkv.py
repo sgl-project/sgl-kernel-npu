@@ -216,6 +216,65 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         # A zero-left window makes the two query tokens read distinct KV rows.
         self._assert_paged_swa(q_length=2, ori_win_left=0)
 
+    def test_tnd_consumes_sglang_cann_metadata(self):
+        """Exercise the migrated kernel with SGLang's existing A5 metadata op."""
+        try:
+            cann_op = torch.ops.custom.npu_kv_quant_sparse_attn_sharedkv_metadata
+        except AttributeError:
+            self.skipTest("SGLang CANN metadata op is not installed")
+
+        for q_length in (1, 2):
+            with self.subTest(q_length=q_length):
+                inputs, q_cpu, kv_reference, block_table, kv_length, block_size = (
+                    self._make_paged_swa_inputs(
+                        q_length=q_length, ori_win_left=127
+                    )
+                )
+                cu_q = torch.tensor([0, q_length], dtype=torch.int32, device=self.device)
+                inputs["q"] = inputs["q"].squeeze(0).contiguous()
+                inputs["cu_seqlens_q"] = cu_q
+                inputs["layout_q"] = "TND"
+                inputs["metadata"] = cann_op(
+                    num_heads_q=64,
+                    num_heads_kv=1,
+                    head_dim=512,
+                    kv_quant_mode=1,
+                    tile_size=64,
+                    rope_head_dim=64,
+                    cu_seqlens_q=cu_q,
+                    seqused_kv=inputs["seqused_kv"],
+                    batch_size=1,
+                    max_seqlen_q=q_length,
+                    max_seqlen_kv=kv_length,
+                    cmp_topk=0,
+                    cmp_ratio=1,
+                    ori_mask_mode=4,
+                    cmp_mask_mode=3,
+                    ori_win_left=127,
+                    ori_win_right=0,
+                    layout_q="TND",
+                    layout_kv="PA_ND",
+                    has_ori_kv=True,
+                    has_cmp_kv=False,
+                )
+                actual, _ = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+                expected = _reference_paged_swa(
+                    q_cpu,
+                    kv_reference,
+                    block_table,
+                    kv_length,
+                    block_size,
+                    inputs["softmax_scale"],
+                    inputs["ori_win_left"],
+                    inputs["ori_win_right"],
+                )
+                torch.testing.assert_close(
+                    actual.cpu().float(),
+                    expected.squeeze(0),
+                    rtol=2e-2,
+                    atol=2e-2,
+                )
+
     def test_swa_bsnd_pa_nd_npu_graph(self):
         inputs, _, kv_reference, block_table, kv_length, block_size = (
             self._make_paged_swa_inputs(q_length=1, ori_win_left=127)
