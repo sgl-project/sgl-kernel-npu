@@ -22,7 +22,7 @@ aclError TorchMemorySaver::malloc(void **ptr, int device, size_t size,
     const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
     allocation_metadata_.emplace(
         *ptr, AllocationMetadata{size, device, allocHandle, tag,
-                                 enable_cpu_backup, nullptr});
+                                 enable_cpu_backup, nullptr, false});
   }
 #ifdef TMS_DEBUG_LOG
   std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.cuda_malloc "
@@ -46,10 +46,14 @@ aclError TorchMemorySaver::free(void *ptr) {
   static constexpr int32_t kSyncTimeoutMs = 3000;
   int ret = aclrtSynchronizeDeviceWithTimeout(kSyncTimeoutMs);
   SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtSynchronizeDeviceWithTimeout failed.");
-  ret = aclrtUnmapMem(ptr);
-  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtUnmapMem failed.");
-  ret = aclrtFreePhysical(metadata.allocHandle);
-  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreePhysical failed.");
+  if (!metadata.is_paused) {
+    // A paused allocation is already unmapped and its physical pages are
+    // already released; only the virtual reservation and cpu_backup remain.
+    ret = aclrtUnmapMem(ptr);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtUnmapMem failed.");
+    ret = aclrtFreePhysical(metadata.allocHandle);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreePhysical failed.");
+  }
   ret = aclrtReleaseMemAddress(ptr);
   SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtReleaseMemAddress failed.");
 
@@ -70,11 +74,21 @@ aclError TorchMemorySaver::free(void *ptr) {
 
 void TorchMemorySaver::pause(const std::string &tag) {
   const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
+
+  // Wait for in-flight kernels before backing up
+  static constexpr int32_t kSyncTimeoutMs = 3000;
+  int sync_ret = aclrtSynchronizeDeviceWithTimeout(kSyncTimeoutMs);
+  SIMPLE_CHECK(sync_ret == ACL_SUCCESS,
+               "aclrtSynchronizeDeviceWithTimeout failed.");
+
   for (auto it = allocation_metadata_.begin(); it != allocation_metadata_.end();
        ++it) {
     void *ptr = it->first;
     AllocationMetadata &metadata = it->second;
     if (!tag.empty() && metadata.tag != tag) {
+      continue;
+    }
+    if (metadata.is_paused) {
       continue;
     }
 
@@ -84,14 +98,16 @@ void TorchMemorySaver::pause(const std::string &tag) {
       }
       SIMPLE_CHECK(metadata.cpu_backup != nullptr,
                    "cpu_backup should not be nullptr");
-      aclrtMemcpy(metadata.cpu_backup, metadata.size, ptr, metadata.size,
-                  ACL_MEMCPY_DEVICE_TO_HOST);
+      int ret = aclrtMemcpy(metadata.cpu_backup, metadata.size, ptr,
+                            metadata.size, ACL_MEMCPY_DEVICE_TO_HOST);
+      SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtMemcpy D2H failed.");
     }
 
     int ret = aclrtUnmapMem(ptr);
     SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtUnmapMem failed.");
     ret = aclrtFreePhysical(metadata.allocHandle);
     SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreePhysical failed.");
+    metadata.is_paused = true;
 
 #ifdef TMS_DEBUG_LOG
     std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.pause"
@@ -116,18 +132,23 @@ void TorchMemorySaver::resume(const std::string &tag) {
     if (!tag.empty() && metadata.tag != tag) {
       continue;
     }
+    if (!metadata.is_paused) {
+      continue;
+    }
 
     aclrtDrvMemHandle newAllocHandle;
     CANNUtils::cann_mem_create(&newAllocHandle, metadata.size, metadata.device);
 
-    aclrtMapMem(ptr, metadata.size, 0, newAllocHandle, 0);
+    int ret = aclrtMapMem(ptr, metadata.size, 0, newAllocHandle, 0);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtMapMem failed.");
 
     if (metadata.enable_cpu_backup) {
       SIMPLE_CHECK(metadata.cpu_backup != nullptr,
                    "cpu_backup should not be nullptr");
       // TODO may use cudaMemcpyAsync if needed
-      aclrtMemcpy(ptr, metadata.size, metadata.cpu_backup, metadata.size,
-                  ACL_MEMCPY_HOST_TO_DEVICE);
+      ret = aclrtMemcpy(ptr, metadata.size, metadata.cpu_backup, metadata.size,
+                        ACL_MEMCPY_HOST_TO_DEVICE);
+      SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtMemcpy H2D failed.");
       // maybe we can free host memory if needed (currently keep it there to
       // reduce re-alloc time)
     }
@@ -143,5 +164,6 @@ void TorchMemorySaver::resume(const std::string &tag) {
 #endif
 
     metadata.allocHandle = newAllocHandle;
+    metadata.is_paused = false;
   }
 }

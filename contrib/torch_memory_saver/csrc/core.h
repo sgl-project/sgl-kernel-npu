@@ -13,6 +13,7 @@ struct AllocationMetadata {
   std::string tag;
   bool enable_cpu_backup;
   void *cpu_backup;
+  bool is_paused;
 };
 
 class TorchMemorySaver {
