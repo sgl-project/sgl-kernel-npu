@@ -7,7 +7,7 @@ import importlib
 
 import torch
 
-from . import _backend
+from .. import _backend
 
 if _backend != "mindiesd":
     raise RuntimeError(
