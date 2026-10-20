@@ -38,11 +38,17 @@ def eagle_quant_block_sparse_attention(
 
     The caller owns quantization, sparse block selection and tensor layout.
     A5/950 validation is restricted to D=128; the MIX kernel has a known D=64
-    accuracy issue. General argument validation belongs to the official operator.
+    accuracy issue. INT8 inputs require all three quantization scales.
+    Other argument validation belongs to the official operator.
     Do not read softmax_lse unless softmax_lse_flag requests its computation.
     """
     if query.shape[-1] != 128:
         raise ValueError("A5/950 EQBSA currently supports only head dimension D=128.")
+    # The INT8 kernel reads all three scales; the raw schema marks them optional.
+    if query.dtype == torch.int8 and (
+        query_scale is None or key_scale is None or value_scale is None
+    ):
+        raise ValueError("INT8 EQBSA requires query_scale, key_scale and value_scale.")
     return _eqbsa(
         query,
         key,
