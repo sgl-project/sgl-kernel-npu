@@ -5,7 +5,7 @@ import random
 import pytest
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.sample.verify_tree_greedy import verify_tree_greedy
+from sgl_kernel_npu.sample.verify_ngram_tree_greedy import verify_ngram_tree_greedy
 from sgl_kernel_npu.speculative import reconstruct_indices_from_tree_mask_triton
 
 
@@ -62,8 +62,8 @@ def test_reconstruct_legal_ancestry(bs, d, kind):
 @pytest.mark.parametrize("accept_width", [3, 4])
 @pytest.mark.parametrize("permuted", [False, True])
 def test_greedy_follows_branch_and_stops_at_leaf(accept_width, permuted):
-    # Root 5 -> {10, 20}; 20 -> 30. The old array scan rejected the second
-    # child and accepted siblings after reaching the first child's leaf.
+    # Root 5 -> {10, 20}; 20 -> 30. NGRAM must follow a matching sibling
+    # branch and stop when the accepted branch reaches a leaf.
     candidates = torch.tensor([[5, 10, 20, 30]] * 3, device="npu")
     targets = torch.tensor([[20, 77, 30, 99], [10, 20, 30, 99], [88, 77, 66, 55]])
     mapping = torch.tensor([0, 2, 1, 3] if permuted else [0, 1, 2, 3])
@@ -75,7 +75,7 @@ def test_greedy_follows_branch_and_stops_at_leaf(accept_width, permuted):
     predicts = torch.full((12,), -1, dtype=torch.int32, device="npu")
     accept = torch.full((3, accept_width), -1, dtype=torch.int32, device="npu")
     lengths = torch.zeros(3, dtype=torch.int32, device="npu")
-    verify_tree_greedy(
+    verify_ngram_tree_greedy(
         predicts,
         accept,
         lengths,
@@ -101,7 +101,7 @@ def test_greedy_single_root():
     predicts = torch.full((2,), -1, dtype=torch.int32, device="npu")
     accept = torch.full((2, 1), -1, dtype=torch.int32, device="npu")
     lengths = torch.zeros(2, dtype=torch.int32, device="npu")
-    verify_tree_greedy(
+    verify_ngram_tree_greedy(
         predicts,
         accept,
         lengths,
