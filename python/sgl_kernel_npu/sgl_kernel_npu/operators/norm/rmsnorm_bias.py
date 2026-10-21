@@ -12,7 +12,7 @@ _torch_native_fn = None
 def _triton_impl(input, norm_weight, norm_bias, eps, quant_scale, quant_offset):
     global _triton_fn
     if _triton_fn is None:
-        from ...implemention.triton.norm.rmsnorm_bias import rmsnorm_bias
+        from ...implementation.triton.norm.rmsnorm_bias import rmsnorm_bias
 
         _triton_fn = rmsnorm_bias
 
@@ -23,7 +23,7 @@ def _triton_impl(input, norm_weight, norm_bias, eps, quant_scale, quant_offset):
 def _torch_native_impl(input, norm_weight, norm_bias, eps, quant_scale, quant_offset):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implemention.torch_native.norm.rmsnorm_bias import rmsnorm_bias
+        from ...implementation.torch_native.norm.rmsnorm_bias import rmsnorm_bias
 
         _torch_native_fn = rmsnorm_bias
 
