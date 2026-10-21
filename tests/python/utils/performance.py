@@ -1,15 +1,14 @@
 """NPU profiling, optional CSV results and automatic pytest reporting."""
 
 import csv
-import math
 import json
+import math
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from pathlib import Path
 from itertools import count
-import re
+from pathlib import Path
 from uuid import uuid4
-
 
 _REPORT_CONTEXT = ContextVar("performance_report_context", default=None)
 _ENABLE_PERF = ContextVar("enable_performance", default=None)
@@ -19,8 +18,13 @@ _PROFILE_SEQUENCE = count(1)
 
 @contextmanager
 def performance_context(
-    test_case, parameters, record_property, *, enable_perf=None,
-    prof_dir=None, csv_path=None,
+    test_case,
+    parameters,
+    record_property,
+    *,
+    enable_perf=None,
+    prof_dir=None,
+    csv_path=None,
 ):
     token = _REPORT_CONTEXT.set((test_case, dict(parameters), record_property))
     perf_token = _ENABLE_PERF.set(enable_perf)
@@ -66,8 +70,11 @@ def read_device_time_us(directory, active):
 def flatten_profile_directory(directory):
     """Remove a single profiler-generated host directory, retaining all contents."""
     directory = Path(directory)
-    runs = [path for path in directory.iterdir()
-            if path.is_dir() and path.name.endswith("_ascend_pt")]
+    runs = [
+        path
+        for path in directory.iterdir()
+        if path.is_dir() and path.name.endswith("_ascend_pt")
+    ]
     if len(runs) != 1:
         return
     run = runs[0]
@@ -81,15 +88,22 @@ def flatten_profile_directory(directory):
 
 def profile_case_name(parameters, impl):
     """Order profiles by creation, followed by compact values and a unique ID."""
+
     def safe(value):
         if isinstance(value, (tuple, list)):
             return "x".join(safe(item) for item in value)
-        return re.sub(r"[^A-Za-z0-9.-]+", "-", str(value).removeprefix("torch.")).strip("-")
+        return re.sub(r"[^A-Za-z0-9.-]+", "-", str(value).removeprefix("torch.")).strip(
+            "-"
+        )
 
-    params = "-".join(
-        safe(value) for key, value in sorted(parameters.items())
-        if key != "impl_pair"
-    ) or "default"
+    params = (
+        "-".join(
+            safe(value)
+            for key, value in sorted(parameters.items())
+            if key != "impl_pair"
+        )
+        or "default"
+    )
     # Bound the component length for filesystems with a 255-byte name limit.
     return f"{next(_PROFILE_SEQUENCE):06d}-{params[:160]}-{safe(impl)[:40]}-{uuid4().hex[:8]}"
 
@@ -108,15 +122,23 @@ def benchmark_npu(executor, directory, warmup=5, active=5):
     with torch_npu.profiler.profile(
         activities=[torch_npu.profiler.ProfilerActivity.NPU],
         schedule=torch_npu.profiler.schedule(
-            wait=0, warmup=warmup, active=active, repeat=1, skip_first=0,
+            wait=0,
+            warmup=warmup,
+            active=active,
+            repeat=1,
+            skip_first=0,
         ),
         on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(str(directory)),
-        record_shapes=False, profile_memory=False, with_stack=False,
-        with_flops=False, with_modules=False,
+        record_shapes=False,
+        profile_memory=False,
+        with_stack=False,
+        with_flops=False,
+        with_modules=False,
         experimental_config=torch_npu.profiler._ExperimentalConfig(
             profiler_level=torch_npu.profiler.ProfilerLevel.Level2,
             aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization,
-            l2_cache=False, data_simplification=False,
+            l2_cache=False,
+            data_simplification=False,
         ),
     ) as profiler:
         for _ in range(warmup + active):
@@ -147,7 +169,13 @@ def write_result(path, **result):
 
 
 def check_performance(
-    executor, csv_path=None, *, enable_perf=None, prof_dir=None, warmup=5, active=5,
+    executor,
+    csv_path=None,
+    *,
+    enable_perf=None,
+    prof_dir=None,
+    warmup=5,
+    active=5,
 ):
     """Profile an executor returned by check_accuracy; optionally append CSV.
 
@@ -185,11 +213,18 @@ def check_performance(
     test_case, parameters, record = context if context else ("", {}, None)
     function_name = re.sub(r"[^A-Za-z0-9_.-]", "_", executor.func.__name__)
     run_id = profile_case_name(parameters, executor.impl)
-    profile_root = Path.cwd() / "profilings" if prof_dir is None else Path(prof_dir).expanduser().resolve()
+    profile_root = (
+        Path.cwd() / "profilings"
+        if prof_dir is None
+        else Path(prof_dir).expanduser().resolve()
+    )
     profiling_dir = profile_root / f"prof_{function_name}" / run_id
     print(f"Profiling output: {profiling_dir}")
     average_us = benchmark_npu(
-        executor, profiling_dir, warmup=warmup, active=active,
+        executor,
+        profiling_dir,
+        warmup=warmup,
+        active=active,
     )
     result = {
         "test_case": test_case,

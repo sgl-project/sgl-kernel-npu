@@ -1,8 +1,8 @@
 """Initial accuracy thresholds, to be validated on supported NPU generations."""
 
-from dataclasses import dataclass
-from collections.abc import Mapping
 import math
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -11,7 +11,9 @@ class AccuracyStandard:
     rtol: float
 
     def __post_init__(self):
-        if any(not math.isfinite(value) or value < 0 for value in (self.atol, self.rtol)):
+        if any(
+            not math.isfinite(value) or value < 0 for value in (self.atol, self.rtol)
+        ):
             raise ValueError("atol and rtol must be finite and nonnegative")
 
 
@@ -31,10 +33,14 @@ def get_standard(dtype, standard=None):
     """Resolve a dtype-string override, falling back to the shared defaults."""
     if standard is not None:
         if not isinstance(standard, Mapping):
-            raise TypeError("standard must map dtype strings to AccuracyStandard values")
+            raise TypeError(
+                "standard must map dtype strings to AccuracyStandard values"
+            )
         for key, value in standard.items():
             if not isinstance(key, str) or not isinstance(value, AccuracyStandard):
-                raise TypeError("standard must map dtype strings to AccuracyStandard values")
+                raise TypeError(
+                    "standard must map dtype strings to AccuracyStandard values"
+                )
         if dtype in standard:
             return standard[dtype]
     return DEFAULT_STANDARDS.get(dtype)

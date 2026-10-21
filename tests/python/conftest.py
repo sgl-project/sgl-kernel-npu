@@ -1,8 +1,9 @@
 """Fixtures for the new public-interface tests; no global device side effects."""
 
-import pytest
 from argparse import ArgumentTypeError
 from pathlib import Path
+
+import pytest
 
 from tests.python.utils.common import use_impls
 from tests.python.utils.performance import performance_context
@@ -24,44 +25,64 @@ def parse_bool_switch(value):
 def pytest_addoption(parser):
     group = parser.getgroup("operator implementations")
     group.addoption(
-        "--prof-dir", default=None,
+        "--prof-dir",
+        default=None,
         help="Profiling root; overrides code settings (default: cwd/profilings).",
     )
     group.addoption(
-        "--csv-path", default=None,
+        "--csv-path",
+        default=None,
         help="Append performance results to this CSV; overrides code settings.",
     )
     group.addoption(
-        "--impl", default="auto",
+        "--impl",
+        default="auto",
         help="Implementation to validate and benchmark (default: auto).",
     )
     group.addoption(
-        "--impl-ref", default="torch_native",
+        "--impl-ref",
+        default="torch_native",
         help="Implementation used for accuracy comparison (default: torch_native).",
     )
     group.addoption(
-        "--npu-device", type=int, default=None,
+        "--npu-device",
+        type=int,
+        default=None,
         help="Visible logical NPU index; omitted means keep the current NPU.",
     )
     group.addoption(
-        "--enable-perf", nargs="?", const=True, default=None, type=parse_bool_switch,
+        "--enable-perf",
+        nargs="?",
+        const=True,
+        default=None,
+        type=parse_bool_switch,
         help="Override all case settings: --enable-perf[=true|false]; omitted uses code settings.",
     )
 
     group.addoption(
-        "--skip-acc-check", nargs="?", const=True, default=None, type=parse_bool_switch,
+        "--skip-acc-check",
+        nargs="?",
+        const=True,
+        default=None,
+        type=parse_bool_switch,
         help="Override accuracy skipping: --skip-acc-check[=true|false]; default: False.",
     )
 
 
 def pytest_generate_tests(metafunc):
-    if is_public_interface_test(metafunc.definition.path) and "impl_pair" in metafunc.fixturenames:
+    if (
+        is_public_interface_test(metafunc.definition.path)
+        and "impl_pair" in metafunc.fixturenames
+    ):
         pair = (
             metafunc.config.getoption("impl"),
             metafunc.config.getoption("impl_ref"),
         )
         metafunc.parametrize(
-            "impl_pair", [pair], indirect=True, ids=[f"{pair[0]}-vs-{pair[1]}"],
+            "impl_pair",
+            [pair],
+            indirect=True,
+            ids=[f"{pair[0]}-vs-{pair[1]}"],
         )
 
 
@@ -71,7 +92,8 @@ def configure_npu(request):
 
     config = request.config
     workers = getattr(config, "workerinput", {}).get(
-        "workercount", config.getoption("numprocesses", default=0),
+        "workercount",
+        config.getoption("numprocesses", default=0),
     )
     index = config.getoption("npu_device")
     try:
@@ -83,7 +105,9 @@ def configure_npu(request):
     if not torch.npu.is_available():
         pytest.skip("An Ascend NPU is required")
     if index is not None and index >= torch.npu.device_count():
-        raise pytest.UsageError(f"--npu-device={index} is outside the visible NPU range")
+        raise pytest.UsageError(
+            f"--npu-device={index} is outside the visible NPU range"
+        )
     with use_npu_device(torch, index):
         yield
 
@@ -104,9 +128,12 @@ def configure_public_interface_test(request, impl_pair):
     record_property = request.getfixturevalue("record_property")
     parameters = getattr(getattr(request.node, "callspec", None), "params", {})
     with use_impls(
-        *impl_pair, skip_acc_check=request.config.getoption("skip_acc_check"),
+        *impl_pair,
+        skip_acc_check=request.config.getoption("skip_acc_check"),
     ), performance_context(
-        request.node.nodeid, parameters, record_property,
+        request.node.nodeid,
+        parameters,
+        record_property,
         enable_perf=request.config.getoption("enable_perf"),
         prof_dir=request.config.getoption("prof_dir"),
         csv_path=request.config.getoption("csv_path"),

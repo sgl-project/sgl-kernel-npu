@@ -3,7 +3,6 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-
 _IMPL_PAIR = ContextVar("test_impl_pair", default=("auto", "torch_native"))
 _SKIP_ACC_CHECK = ContextVar("skip_accuracy_check", default=None)
 
@@ -32,7 +31,10 @@ def use_impls(impl, impl_ref, *, skip_acc_check=None):
 
 def require_distinct_impls(operator, impl, impl_ref):
     """Reject unknown names and aliases of the same registered entry point."""
-    from sgl_kernel_npu.operators.utils.registry import get_impl, UnsupportedGenerationError
+    from sgl_kernel_npu.operators.utils.registry import (
+        UnsupportedGenerationError,
+        get_impl,
+    )
 
     unsupported = None
     try:
@@ -54,7 +56,10 @@ def require_distinct_impls(operator, impl, impl_ref):
 
 def require_test_impl(operator, impl):
     """Resolve only the DUT when accuracy comparison is disabled."""
-    from sgl_kernel_npu.operators.utils.registry import get_impl, UnsupportedGenerationError
+    from sgl_kernel_npu.operators.utils.registry import (
+        UnsupportedGenerationError,
+        get_impl,
+    )
 
     try:
         return get_impl(operator, impl)

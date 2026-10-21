@@ -1,9 +1,15 @@
 """Shared accuracy checks for outputs from different backends."""
 
-import torch
 from functools import partial
 
-from .common import get_skip_acc_check, get_test_impls, require_distinct_impls, require_test_impl
+import torch
+
+from .common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_distinct_impls,
+    require_test_impl,
+)
 from .standards import get_standard
 
 
@@ -16,9 +22,9 @@ def assert_accuracy(result, result_ref, standard=None, *, path="output"):
     Unsupported output types raise TypeError instead of silently passing.
     """
     if isinstance(result, torch.Tensor) or isinstance(result_ref, torch.Tensor):
-        assert isinstance(result, torch.Tensor) and isinstance(result_ref, torch.Tensor), (
-            f"{path}: Tensor/non-Tensor mismatch"
-        )
+        assert isinstance(result, torch.Tensor) and isinstance(
+            result_ref, torch.Tensor
+        ), f"{path}: Tensor/non-Tensor mismatch"
         assert result.shape == result_ref.shape, f"{path}: shape mismatch"
         assert result.dtype == result_ref.dtype, f"{path}: dtype mismatch"
         assert result.device == result_ref.device, f"{path}: device mismatch"
@@ -30,14 +36,18 @@ def assert_accuracy(result, result_ref, standard=None, *, path="output"):
         else:
             atol, rtol = 0, 0
         torch.testing.assert_close(
-            result.detach(), result_ref.detach(), atol=atol, rtol=rtol,
-            equal_nan=False, msg=lambda message: f"{path}: {message}",
+            result.detach(),
+            result_ref.detach(),
+            atol=atol,
+            rtol=rtol,
+            equal_nan=False,
+            msg=lambda message: f"{path}: {message}",
         )
         return
 
-    assert type(result) is type(result_ref), (
-        f"{path}: type mismatch ({type(result).__name__} vs {type(result_ref).__name__})"
-    )
+    assert type(result) is type(
+        result_ref
+    ), f"{path}: type mismatch ({type(result).__name__} vs {type(result_ref).__name__})"
     if isinstance(result_ref, (tuple, list)):
         assert len(result) == len(result_ref), f"{path}: length mismatch"
         for index, (value, other) in enumerate(zip(result, result_ref)):
@@ -45,15 +55,23 @@ def assert_accuracy(result, result_ref, standard=None, *, path="output"):
     elif isinstance(result_ref, dict):
         assert result.keys() == result_ref.keys(), f"{path}: dictionary keys mismatch"
         for key in result_ref:
-            assert_accuracy(result[key], result_ref[key], standard, path=f"{path}[{key!r}]")
+            assert_accuracy(
+                result[key], result_ref[key], standard, path=f"{path}[{key!r}]"
+            )
     elif isinstance(result_ref, (float, complex)):
         tolerance = get_standard("torch.float32", standard)
         torch.testing.assert_close(
-            result, result_ref, atol=tolerance.atol, rtol=tolerance.rtol,
-            equal_nan=False, msg=lambda message: f"{path}: {message}",
+            result,
+            result_ref,
+            atol=tolerance.atol,
+            rtol=tolerance.rtol,
+            equal_nan=False,
+            msg=lambda message: f"{path}: {message}",
         )
     elif result_ref is None or isinstance(result_ref, (bool, int, str, bytes)):
-        assert result == result_ref, f"{path}: value mismatch ({result!r} vs {result_ref!r})"
+        assert (
+            result == result_ref
+        ), f"{path}: value mismatch ({result!r} vs {result_ref!r})"
     else:
         raise TypeError(f"{path}: unsupported output type {type(result_ref).__name__}")
 
@@ -96,7 +114,9 @@ def check_accuracy(
             impl_ref = default_impl_ref
     kwargs = dict(kwargs or {})
     if "impl" in kwargs:
-        raise ValueError("Select impl via check_accuracy or test configuration, not operator kwargs")
+        raise ValueError(
+            "Select impl via check_accuracy or test configuration, not operator kwargs"
+        )
     args = tuple(args)
     executor = partial(operator, *args, **kwargs, impl=impl)
     executor.impl = impl
