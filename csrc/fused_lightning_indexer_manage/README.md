@@ -37,8 +37,11 @@ and on the same NPU. Per request, native queries occupy one contiguous range
 of 1..14 rows; the SGLang integration currently uses Q1 only.
 
 `cache_slots_pool` is persistent encoded state, not an ordinary slot-index
-array. States -3, -2 and -1 select non-offload, first-fill/reset and steady
-paths. Miss source/slot arrays have shape `[B, 32768]`; only the prefix given
+array. `request_state` values -3, -2 and -1 select non-offload, first-fill/reset
+and steady paths. The -1 path assumes existing resident data; it does not
+cold-fill an empty main-KV resident buffer. SGLang enters the sparse route
+from a short request with -2, which the graph-transition tests exercise.
+Miss source/slot arrays have shape `[B, 32768]`; only the prefix given
 by `miss_counts` is valid. Capacity is a multiple of 128 in [2048, 32640].
 Source capacity is the block-table width times 128 and is at most 2**21.
 These device-resident metadata values must satisfy the upstream protocol.
@@ -66,7 +69,8 @@ short sequences and graph replay. The benchmark measures native launch time,
 not model TPOT or H2D overlap.
 
 Native validation on 217, 2026-10-21: the normal A3 kernel wheel builds with
-CANN 9.1, torch 2.10.0 and torch_npu 2.10.0.post6. All 10 native tests pass.
+CANN 9.1, torch 2.10.0 and torch_npu 2.10.0.post6. All 12 native tests pass
+on 217, including graph entry from non-offload into cold reset at C=2048/4096.
 The SGLang production host allocator path also passes graph replay, request
 reuse, padding, new-visible-page TopK and bitwise selected-KV checks. Attention
 outputs match the same-policy reference at rtol=0.01/atol=0.002 on that fixed
@@ -76,11 +80,30 @@ the adapted device entry SHA256 is
 `3bb654ecfb9278cd56ecc1bc2c2fc74dede0c287ced181f3749cb0f216eb8778`.
 No external LIM probe or custom vendor library is loaded by those tests.
 
-Checkpoint-backed model accuracy, latency and HBM require separate A/B runs;
-these operator checks do not establish those benefits. Earlier 151/217 model
-measurements used the external aclnn probe and must not be attributed to this
-new launch path. Copy-SFA fusion and the previously observed long-generation
-numerical divergence are outside this migration.
+Separate checkpoint-backed GLM-5.2-W4A8 A/B runs on 217 use this same normal
+library and SGLang runtime 611760f1, with TP16/EP16 and BF16 KV. LIM C4096
+TPOT is 118.510/127.061/123.482 ms for 8K->128 B1, 32K->512 B1 and 8K->128
+B4; C2048 gives 123.423/135.411/134.488 ms. The full-HBM baseline is
+47.976/48.273/49.727 ms. At 32K B1, median chip sampled peak HBM is
+57031.0 MiB full HBM, 50390.5 MiB C4096 and 47337.5 MiB C2048. These are
+whole-device observations in accepted timing windows, not exact watermarks.
+Thus HBM is reduced, but the complete offload path remains much slower than
+full HBM despite improving over the ordinary same-policy LI/manage reference.
+
+Custom long-prompt quality is 30/32 full HBM, 28/32 same-policy reference,
+30/32 LIM C4096 and 28/32 LIM C2048. Fixed-history, full-vocabulary KL uses
+32 samples x 512 positions per path. Reference self-repeat mean KL is
+0.00613559; reference -> LIM C4096/C2048 means are 0.00961504/0.01028223.
+These results do not establish numerical equivalence or general quality
+parity. A fresh decode trace records 126 native LIM calls and 468 five-copy/
+SFA groups; all copy/SFA tasks use stream 187, with consumer overlap 0/468.
+Copy-SFA fusion is not implemented by this operator.
+
+Full results and reproduction tools are in the SGLang integration branch,
+`benchmark/hisparse/LIM_NATIVE_217_RESULTS.txt` and `LIM_VALIDATION.txt`:
+https://github.com/McZyWu/sgl-sglang/tree/feat/ascend-lim-kv-offload/benchmark/hisparse
+Earlier external aclnn-probe measurements retain their own provenance and
+must not be attributed to this direct launch path.
 
 ## Provenance
 
