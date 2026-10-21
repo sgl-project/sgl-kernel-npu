@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/vllm-project/vllm-ascend",
+  "commit": "3326f350c0de30a5170b86ecfce851322e3216e6",
+  "unchanged_device_headers": {
+    "fused_lightning_indexer_manage_constants.h": "78fb9724396690e27e9a9603193d67954d5245ac9210ebc2ea9080a687b8e65c",
+    "fused_lightning_indexer_manage_union.h": "d394140db6313559066e9b155a7b1f45b78d897520c3ee9ed265f9d1ce2e4ec2",
+    "fused_lightning_indexer_manage_workspace.h": "354ce00b93d6c84a05eac8a6e81a20f3102951d259b6fa2b9ee293d50e86c4d9",
+    "lightning_indexer_common.h": "ce8cc08d6228a7c3f49c32418767c331ab7559150e1d4af537d5163db640421d",
+    "lightning_indexer_kernel.h": "dd480e52169e186fbcf0d8289569aa4ba1cdb43c5bb4b0564dc7bead426e6e68",
+    "lightning_indexer_service_cube.h": "3119d14f6a9243a5453745bfcd7710032d0aba286afe9e808344d57bc67f312a",
+    "lightning_indexer_service_vector.h": "6bf39b702e419a10e92be4540449f4826ae96e05ddc1adbaa2ffac0e10c4d0a1",
+    "lightning_indexer_vector.h": "d6eee291976b3e29b66983ab43a0f031a2b5a6a85eee55b5e927a57281696bce"
+  },
+  "adapted_entry_original_sha256": "c0cc0dad33d9bf6865aac3079a41cc6bc84ccb407283cffefbbacd75debc157c",
+  "adaptations": [
+    "Direct AscendC entry instead of generated aclnn template dispatch",
+    "Shared explicit POD tiling with runtime dtype",
+    "Host launch integrated into sgl_kernel_npu; no custom vendor package or libcust_opapi dependency"
+  ]
+}

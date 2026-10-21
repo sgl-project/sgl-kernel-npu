@@ -188,6 +188,18 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
         "int top_k=16, int inner_precise=0) -> Tensor");
     m.def(
+        "fused_lightning_indexer_manage("
+        "Tensor index_weights, Tensor query_dequant_scale, Tensor query, "
+        "Tensor index_key_dequant_scale, Tensor index_key_cache, "
+        "Tensor index_block_table, Tensor actual_seq_lengths_query, "
+        "Tensor actual_seq_lengths_key, Tensor offload_seq_lengths_key, "
+        "Tensor num_cache_tokens, Tensor request_state, Tensor req_pool_entries, "
+        "Tensor(a!) cache_slots_pool, Tensor(b!) topk_src_ids, "
+        "Tensor(c!) topk_dst_slots, Tensor(d!) topk_miss_counts, "
+        "Tensor(e!) miss_src_ids, Tensor(f!) miss_dst_slots, "
+        "Tensor(g!) miss_counts) -> ()");
+
+    m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
         "str? layout_query=None, str? layout_key=None, "
@@ -381,6 +393,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("fused_lightning_indexer_manage", TORCH_FN(sglang::npu_kernel::fused_lightning_indexer_manage));
 
     m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
 

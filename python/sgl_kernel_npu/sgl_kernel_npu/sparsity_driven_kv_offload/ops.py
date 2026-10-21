@@ -156,3 +156,52 @@ def slot_map_lookup(
         block_dim,
     )
     return token_on_device, device_token_pos
+
+
+def fused_lightning_indexer_manage(
+    index_weights,
+    query_dequant_scale,
+    query,
+    index_key_dequant_scale,
+    index_key_cache,
+    index_block_table,
+    actual_seq_lengths_query,
+    actual_seq_lengths_key,
+    offload_seq_lengths_key,
+    num_cache_tokens,
+    request_state,
+    req_pool_entries,
+    cache_slots_pool,
+    topk_src_ids,
+    topk_dst_slots,
+    topk_miss_counts,
+    miss_src_ids,
+    miss_dst_slots,
+    miss_counts,
+):
+    """Produce TopK/cache plans in place using the wheel's native A2/A3 LIM.
+
+    All 19 tensors are preallocated NPU tensors. Main KV payload copies and
+    attention remain separate operations. No custom vendor installation is used.
+    """
+    torch.ops.npu.fused_lightning_indexer_manage(
+        index_weights,
+        query_dequant_scale,
+        query,
+        index_key_dequant_scale,
+        index_key_cache,
+        index_block_table,
+        actual_seq_lengths_query,
+        actual_seq_lengths_key,
+        offload_seq_lengths_key,
+        num_cache_tokens,
+        request_state,
+        req_pool_entries,
+        cache_slots_pool,
+        topk_src_ids,
+        topk_dst_slots,
+        topk_miss_counts,
+        miss_src_ids,
+        miss_dst_slots,
+        miss_counts,
+    )

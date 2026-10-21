@@ -93,6 +93,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
+        ${PROJECT_OP_SRC_BASE}/fused_lightning_indexer_manage/op_host/fused_lightning_indexer_manage.cpp
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
@@ -323,6 +324,26 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -cce-vf-remove-membar=false
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
+
+    # LIM is built into the normal wheel, without an aclnn custom vendor.
+    ascendc_library(fused_lightning_indexer_manage_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/fused_lightning_indexer_manage/op_kernel/fused_lightning_indexer_manage.cpp
+    )
+    ascendc_include_directories(fused_lightning_indexer_manage_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/fused_lightning_indexer_manage/op_kernel
+        ${PROJECT_OP_SRC_BASE}/fused_lightning_indexer_manage/op_kernel/upstream
+    )
+    ascendc_compile_definitions(fused_lightning_indexer_manage_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(fused_lightning_indexer_manage_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        "SHELL:-mllvm -cce-vf-remove-membar=false"
+        "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS fused_lightning_indexer_manage_kernel)
 
 endif()
 

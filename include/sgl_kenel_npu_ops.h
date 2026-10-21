@@ -161,6 +161,19 @@ void mega_chunk_gdn(
     int64_t block_dim, int64_t batch_size, int64_t seq_len,
     int64_t total_tokens, int64_t num_matrices);
 
+void fused_lightning_indexer_manage(
+    const at::Tensor &index_weights, const at::Tensor &query_dequant_scale,
+    const at::Tensor &query, const at::Tensor &index_key_dequant_scale,
+    const at::Tensor &index_key_cache, const at::Tensor &index_block_table,
+    const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_key,
+    const at::Tensor &offload_seq_lengths_key,
+    const at::Tensor &num_cache_tokens, const at::Tensor &request_state,
+    const at::Tensor &req_pool_entries, at::Tensor cache_slots_pool,
+    at::Tensor topk_src_ids, at::Tensor topk_dst_slots,
+    at::Tensor topk_miss_counts, at::Tensor miss_src_ids,
+    at::Tensor miss_dst_slots, at::Tensor miss_counts);
+
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,
