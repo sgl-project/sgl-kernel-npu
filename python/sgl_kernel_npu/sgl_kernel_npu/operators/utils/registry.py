@@ -23,6 +23,7 @@ class UnsupportedGenerationError(RuntimeError):
             f"generation={hardware.generation.value}; supported generations={supported}"
         )
 
+
 _IMPLS = {}
 _DECLARATIONS = {}
 _UNSUPPORTED_IMPLS = {}
@@ -43,10 +44,13 @@ def _classify(key, declaration, hardware):
 
 def register_operator(op_name):
     """Associate a public function object with its unique operator name."""
+
     def decorator(fn):
         with _LOCK:
             if fn in _OPERATOR_NAMES:
-                raise ValueError("Public operator function already registered: {}".format(fn))
+                raise ValueError(
+                    "Public operator function already registered: {}".format(fn)
+                )
             if op_name in _OPERATOR_NAMES.values():
                 raise ValueError("Duplicate public operator name: {}".format(op_name))
             _OPERATOR_NAMES[fn] = op_name
@@ -62,7 +66,9 @@ def get_op_name(operator):
     return _OPERATOR_NAMES[operator]
 
 
-def register_impl(op_name, impl, *, supported_generations=None, excluded_generations=None):
+def register_impl(
+    op_name, impl, *, supported_generations=None, excluded_generations=None
+):
     """Classify support using import-time hardware, without importing the backend.
 
     Omit both lists to support all known generations. Only one may be supplied;
@@ -71,13 +77,20 @@ def register_impl(op_name, impl, *, supported_generations=None, excluded_generat
     if supported_generations is not None and excluded_generations is not None:
         raise ValueError("Set only supported_generations or excluded_generations")
     known = frozenset(Generation)
-    values = supported_generations if supported_generations is not None else excluded_generations
+    values = (
+        supported_generations
+        if supported_generations is not None
+        else excluded_generations
+    )
     if values is not None:
         values = frozenset(values)
         if any(not isinstance(value, Generation) for value in values):
             raise ValueError("Generation lists must contain Generation enum members")
-    supported = (values if supported_generations is not None
-                 else known - (values if values is not None else frozenset()))
+    supported = (
+        values
+        if supported_generations is not None
+        else known - (values if values is not None else frozenset())
+    )
 
     def decorator(fn):
         key = (op_name, impl)
@@ -87,7 +100,9 @@ def register_impl(op_name, impl, *, supported_generations=None, excluded_generat
             # Aliases of one callable must carry the same support declaration.
             for (name, _), (entry, generations) in _DECLARATIONS.items():
                 if name == op_name and entry is fn and generations != supported:
-                    raise ValueError("Aliases of an implementation must have identical support")
+                    raise ValueError(
+                        "Aliases of an implementation must have identical support"
+                    )
             _DECLARATIONS[key] = (fn, supported)
             _classify(key, (fn, supported), _HARDWARE)
         return fn
@@ -115,7 +130,9 @@ def get_impl_by_name(op_name, impl):
     except KeyError:
         pass
     if key in _UNSUPPORTED_IMPLS:
-        raise UnsupportedGenerationError(op_name, impl, _HARDWARE, _UNSUPPORTED_IMPLS[key])
+        raise UnsupportedGenerationError(
+            op_name, impl, _HARDWARE, _UNSUPPORTED_IMPLS[key]
+        )
     raise ImplementationNotFoundError(
         "Unknown impl {!r} for {}; declared: {}".format(
             impl, op_name, list_impls_by_name(op_name)

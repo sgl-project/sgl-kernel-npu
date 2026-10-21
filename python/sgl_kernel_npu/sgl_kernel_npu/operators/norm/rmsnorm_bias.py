@@ -2,7 +2,6 @@
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-
 _triton_fn = None
 _torch_native_fn = None
 
@@ -17,9 +16,7 @@ def _triton_impl(input, norm_weight, norm_bias, eps, quant_scale, quant_offset):
 
         _triton_fn = rmsnorm_bias
 
-    return _triton_fn(
-        input, norm_weight, norm_bias, eps, quant_scale, quant_offset
-    )
+    return _triton_fn(input, norm_weight, norm_bias, eps, quant_scale, quant_offset)
 
 
 @register_impl("norm.rmsnorm_bias", "torch_native")
