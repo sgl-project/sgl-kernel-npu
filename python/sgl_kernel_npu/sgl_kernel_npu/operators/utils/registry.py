@@ -25,21 +25,14 @@ class UnsupportedGenerationError(RuntimeError):
 
 
 _IMPLS = {}
-_DECLARATIONS = {}
+# Every declared (op_name, impl) keeps its remaining unregistered generations,
+# including an empty set when all known generations have an entry.
 _UNSUPPORTED_IMPLS = {}
 _OPERATOR_NAMES = {}
 # All visible cards must belong to one generation. Import requires an NPU;
 # detection failures propagate here, not during operator execution.
 _HARDWARE = get_hardware()
 _LOCK = RLock()
-
-
-def _classify(key, declaration, hardware):
-    fn, supported = declaration
-    if hardware.generation in supported:
-        _IMPLS[key] = fn
-    else:
-        _UNSUPPORTED_IMPLS[key] = supported
 
 
 def register_operator(op_name):
@@ -73,6 +66,9 @@ def register_impl(
 
     Omit both lists to support all known generations. Only one may be supplied;
     members must be Generation values. Empty support means no generations.
+    One impl name may have multiple entries with disjoint support ranges.
+    The current generation's entry is selected at registration, not at lookup.
+    Different impl names have independent support declarations.
     """
     if supported_generations is not None and excluded_generations is not None:
         raise ValueError("Set only supported_generations or excluded_generations")
@@ -95,16 +91,17 @@ def register_impl(
     def decorator(fn):
         key = (op_name, impl)
         with _LOCK:
-            if key in _DECLARATIONS:
-                raise ValueError("Duplicate impl: {}".format(key))
-            # Aliases of one callable must carry the same support declaration.
-            for (name, _), (entry, generations) in _DECLARATIONS.items():
-                if name == op_name and entry is fn and generations != supported:
-                    raise ValueError(
-                        "Aliases of an implementation must have identical support"
+            unsupported = _UNSUPPORTED_IMPLS.get(key, known)
+            overlap = (known - unsupported) & supported
+            if overlap:
+                raise ValueError(
+                    "Duplicate impl: {}; overlapping generations={}".format(
+                        key, sorted(g.value for g in overlap)
                     )
-            _DECLARATIONS[key] = (fn, supported)
-            _classify(key, (fn, supported), _HARDWARE)
+                )
+            _UNSUPPORTED_IMPLS[key] = unsupported - supported
+            if _HARDWARE.generation in supported:
+                _IMPLS[key] = fn
         return fn
 
     return decorator
@@ -118,7 +115,7 @@ def list_impls_by_name(op_name):
     Registration does not imply availability on the current device.
     """
     with _LOCK:
-        keys = tuple(_DECLARATIONS)
+        keys = tuple(_UNSUPPORTED_IMPLS)
     return sorted(name for op, name in keys if op == op_name)
 
 
@@ -131,7 +128,7 @@ def get_impl_by_name(op_name, impl):
         pass
     if key in _UNSUPPORTED_IMPLS:
         raise UnsupportedGenerationError(
-            op_name, impl, _HARDWARE, _UNSUPPORTED_IMPLS[key]
+            op_name, impl, _HARDWARE, frozenset(Generation) - _UNSUPPORTED_IMPLS[key]
         )
     raise ImplementationNotFoundError(
         "Unknown impl {!r} for {}; declared: {}".format(
