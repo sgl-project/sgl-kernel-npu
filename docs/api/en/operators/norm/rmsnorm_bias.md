@@ -4,8 +4,8 @@
 
 | Implementation | A2 | A3 | A5 |
 | --- | --- | --- | --- |
-| `triton` | Unverified | Unverified | Unverified |
-| `torch_native` | Unverified | Unverified | Unverified |
+| `triton` | Unverified | Supported | Unverified |
+| `torch_native` | Unverified | Supported | Unverified |
 | `tilelang` | Not implemented | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented | Not implemented |
 
@@ -48,7 +48,7 @@ Q_{ij} = \operatorname{cast}^{\mathrm{saturate}}_{\mathrm{int8}}
 \left(Y_{ij}s_j+o_j\right)
 $$
 
-Here, $s$ is `quant_scale` and $o$ is `quant_offset`. The torch_native implementation truncates toward zero and saturates to `[-128, 127]`, following the [Triton Ascend conversion tests](https://github.com/triton-lang/triton-ascend/blob/main/third_party/ascend/unittest/pytest_ut/test_cast_full.py). Equivalence on the target NPU environment remains to be verified.
+Here, $s$ is `quant_scale` and $o$ is `quant_offset`. The torch_native implementation truncates toward zero and saturates to `[-128, 127]`, following the [Triton Ascend conversion tests](https://github.com/triton-lang/triton-ascend/blob/main/third_party/ascend/unittest/pytest_ut/test_cast_full.py).
 
 ## Parameters and return value
 
@@ -56,7 +56,7 @@ The tables describe the recommended calling convention and current implementatio
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
-| `input` | `torch.Tensor` | `[B, H]` | Floating point; tested with `torch.float32` | Required | Input to normalize; use `B > 0, H > 0`. Triton requires a contiguous two-dimensional NPU tensor. |
+| `input` | `torch.Tensor` | `[B, H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | Input to normalize; use `B > 0, H > 0`. Triton requires a contiguous two-dimensional NPU tensor. |
 | `norm_weight` | `torch.Tensor` | `[H]` | Floating point; preferably the same as input | Required | Per-channel multiplicative weight, on the same device as input. Triton reads it as a contiguous vector. |
 | `norm_bias` | `torch.Tensor` | `[H]` | Floating point; preferably the same as input | Required | Per-channel additive bias, on the same device as input. Triton reads it as a contiguous vector. |
 | `eps` | `float` | — | — | Required | Stability term added to the mean square; a finite positive value such as `1e-6` is recommended. |
@@ -78,7 +78,7 @@ Use finite inputs and quantization intermediates; cross-backend NaN conversion b
 ## torch_native backend
 
 - Uses PyTorch operations for non-quantized and int8-quantized output, keeping intermediates in float32 until quantization; supports non-contiguous inputs.
-- Follows the same computation flow and quantization branch condition. Reduction order and fused multiply-add operations may cause numerical differences; bitwise equality near quantization boundaries is not guaranteed. The new quantization tests await NPU validation.
+- Follows the same computation flow and quantization branch condition. Reduction order and fused multiply-add operations may cause numerical differences; bitwise equality near quantization boundaries is not guaranteed.
 
 ## Example
 

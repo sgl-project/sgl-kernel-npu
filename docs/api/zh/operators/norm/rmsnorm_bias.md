@@ -4,8 +4,8 @@
 
 | implemention | A2 | A3 | A5 |
 | --- | --- | --- | --- |
-| `triton` | 待验证 | 待验证 | 待验证 |
-| `torch_native` | 待验证 | 待验证 | 待验证 |
+| `triton` | 待验证 | 支持 | 待验证 |
+| `torch_native` | 待验证 | 支持 | 待验证 |
 | `tilelang` | 未实现 | 未实现 | 未实现 |
 | `ascendc` | 未实现 | 未实现 | 未实现 |
 
@@ -48,7 +48,7 @@ Q_{ij} = \operatorname{cast}^{\mathrm{saturate}}_{\mathrm{int8}}
 \left(Y_{ij}s_j+o_j\right)
 $$
 
-其中 $s$ 为 `quant_scale`，$o$ 为 `quant_offset`。torch_native 采用向零截断并饱和到 `[-128, 127]`，参考 [Triton Ascend 转换测试](https://github.com/triton-lang/triton-ascend/blob/main/third_party/ascend/unittest/pytest_ut/test_cast_full.py)；目标环境的一致性待 NPU 对比验证。
+其中 $s$ 为 `quant_scale`，$o$ 为 `quant_offset`。torch_native 采用向零截断并饱和到 `[-128, 127]`，参考 [Triton Ascend 转换测试](https://github.com/triton-lang/triton-ascend/blob/main/third_party/ascend/unittest/pytest_ut/test_cast_full.py)。
 
 ## 参数与返回值
 
@@ -56,7 +56,7 @@ $$
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `input` | `torch.Tensor` | `[B, H]` | 浮点；已测试 `torch.float32` | 必填 | 待归一化输入；按 `B > 0, H > 0` 调用。Triton 要求 NPU 上的连续二维 tensor。 |
+| `input` | `torch.Tensor` | `[B, H]` | `torch.float32`、`torch.float16`、`torch.bfloat16` | 必填 | 待归一化输入；按 `B > 0, H > 0` 调用。Triton 要求 NPU 上的连续二维 tensor。 |
 | `norm_weight` | `torch.Tensor` | `[H]` | 浮点，建议与 input 相同 | 必填 | 每个通道的乘法权重；与 input 位于同一设备。Triton 按连续向量读取。 |
 | `norm_bias` | `torch.Tensor` | `[H]` | 浮点，建议与 input 相同 | 必填 | 每个通道的加法偏置；与 input 位于同一设备。Triton 按连续向量读取。 |
 | `eps` | `float` | — | — | 必填 | 加到均方值上的稳定项，建议为有限正数，如 `1e-6`。 |
@@ -78,7 +78,7 @@ $$
 ## torch_native 后端
 
 - 使用 PyTorch 运算，支持非量化和 int8 量化；量化前保持 float32 中间结果，支持非连续输入。
-- 对齐计算流程和量化分支条件；归约顺序及乘加融合可能造成数值差异，量化边界附近不保证逐位一致。量化新增测试待 NPU 验证。
+- 对齐计算流程和量化分支条件；归约顺序及乘加融合可能造成数值差异，量化边界附近不保证逐位一致。
 
 ## 调用示例
 
