@@ -183,3 +183,34 @@ including failures, so legacy and CPU helper tests are not affected.
 Multiple xdist workers are rejected; use serial pytest or `-n 1`. There is no
 round-robin allocation or automatic selection of an idle card. Separate pytest
 processes still need external coordination to avoid sharing a busy NPU.
+
+## Hardware generation support
+
+The registry maps exact SoC names to `Generation.A2`, `A3`, or `A5` in
+`operators/utils/generation.py`. Unknown models fail explicitly; extend the
+mapping after verification. All cards on the process's machine must share one
+generation. Importing the registry detects hardware immediately; import fails
+if hardware cannot be identified. Registration classifies each implementation
+immediately, and lookups never initialize hardware. Backend implementation
+imports remain lazy. Import an operator's module completely before querying it.
+
+Implementations may declare `supported_generations={Generation.A3}` or
+`excluded_generations={Generation.A5}` in `register_impl`, but not both.
+Omitting both supports all known generations; aliases must declare identical
+support. `list_impls` still lists all declared implementations, including those
+unavailable on this hardware.
+
+`check_accuracy` skips only when the tested `impl` is unsupported on this
+generation and the reference resolves successfully. Missing implementations,
+unsupported references, and hardware detection errors fail the test. Reference
+errors take priority over a tested-implementation skip. Use `pytest -rs` to see
+skip reasons, including the SoC, generation, operator and implementation.
+With `skip_acc_check=True`, only the tested implementation is resolved.
+Backend import errors and execution failures are never converted into skips.
+
+Local CPU-only policy checks in the Git-excluded `tests/unit` directory
+(requires pytest, but no torch or NPU; only available when the local test file exists):
+
+```bash
+python -m unittest discover -s tests/unit -p test_generation_registry.py -v
+```

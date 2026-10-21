@@ -32,12 +32,33 @@ def use_impls(impl, impl_ref, *, skip_acc_check=None):
 
 def require_distinct_impls(operator, impl, impl_ref):
     """Reject unknown names and aliases of the same registered entry point."""
-    from sgl_kernel_npu.operators.utils.registry import get_impl
+    from sgl_kernel_npu.operators.utils.registry import get_impl, UnsupportedGenerationError
 
-    actual_entry = get_impl(operator, impl)
+    unsupported = None
+    try:
+        actual_entry = get_impl(operator, impl)
+    except UnsupportedGenerationError as error:
+        unsupported = error
+    # Reference errors take priority over a DUT generation skip.
     comparison_entry = get_impl(operator, impl_ref)
+    if unsupported is not None:
+        import pytest
+
+        pytest.skip(str(unsupported))
     if actual_entry is comparison_entry:
         raise ValueError(
             f"{operator!r}: {impl!r} and {impl_ref!r} resolve to the "
             "same registered entry; choose two different implementations"
         )
+
+
+def require_test_impl(operator, impl):
+    """Resolve only the DUT when accuracy comparison is disabled."""
+    from sgl_kernel_npu.operators.utils.registry import get_impl, UnsupportedGenerationError
+
+    try:
+        return get_impl(operator, impl)
+    except UnsupportedGenerationError as error:
+        import pytest
+
+        pytest.skip(str(error))

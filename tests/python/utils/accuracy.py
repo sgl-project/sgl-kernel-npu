@@ -3,7 +3,7 @@
 import torch
 from functools import partial
 
-from .common import get_skip_acc_check, get_test_impls, require_distinct_impls
+from .common import get_skip_acc_check, get_test_impls, require_distinct_impls, require_test_impl
 from .standards import get_standard
 
 
@@ -103,9 +103,7 @@ def check_accuracy(
     executor.impl_ref = impl_ref
     executor.accuracy_checked = False
     if skip_acc_check:
-        from sgl_kernel_npu.operators.utils.registry import get_impl
-
-        get_impl(operator, impl)
+        require_test_impl(operator, impl)
         print(f"Accuracy check skipped: {operator.__name__} [{impl}]")
         return executor
     require_distinct_impls(operator, impl, impl_ref)
