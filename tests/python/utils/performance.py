@@ -156,6 +156,8 @@ def check_performance(
     The optional summary CSV is written only when csv_path is provided.
     An explicit --enable-perf=true/false overrides the code's enable_perf.
     Explicit --prof-dir and --csv-path override the corresponding code paths.
+    Results include accuracy_checked: True only when the executor records a
+    successful accuracy check; skipped or missing status is recorded as False.
     If neither is specified, performance is disabled. Disabled calls return
     None without profiling or writing files.
     """
@@ -194,6 +196,7 @@ def check_performance(
         "operator": op_name,
         "impl": executor.impl,
         "impl_ref": executor.impl_ref,
+        "accuracy_checked": getattr(executor, "accuracy_checked", False) is True,
         "parameters": json.dumps(parameters, default=str, sort_keys=True),
         "profiling_dir": str(profiling_dir),
         "average_device_task_us": average_us,
@@ -209,6 +212,6 @@ def check_performance(
             record(key, value)
     print(
         f"{test_case or op_name} [{executor.impl} vs {executor.impl_ref}]: "
-        f"{average_us:.3f} us"
+        f"{average_us:.3f} us, accuracy_checked={result['accuracy_checked']}"
     )
     return result

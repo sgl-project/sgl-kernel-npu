@@ -1,5 +1,3 @@
-"""Public RMSNorm+bias: each case validates accuracy before profiling."""
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -8,8 +6,22 @@ from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
 
+# Shapes selected for performance collection.
+perf_shape = [
+    (1, 4096),
+    (16, 7168),
+]
+
+
 def generate_test_data(shape, dtype, mode, seed=42):
-    """Create all inputs directly on NPU; never stage tensors on CPU."""
+    """Create NPU inputs using the device context supplied by conftest.
+
+    normal: random input/weight/bias exercises general affine RMSNorm.
+    zero: zero variance exercises eps and should leave only the bias.
+    offset_only: offset without scale must not enable quantization.
+    quantized: signed values exercise truncation and int8 saturation, including
+        masked tails when H is not a multiple of the 1024-element output tile.
+    """
     torch.npu.manual_seed(seed)
     x = torch.randn(shape, dtype=dtype)
     weight = torch.randn(shape[1], dtype=dtype)
@@ -36,8 +48,24 @@ def generate_test_data(shape, dtype, mode, seed=42):
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape", [(1, 1024), (7, 1536), (32, 4096)])
-@pytest.mark.parametrize("mode", ["normal", "zero", "offset_only", "quantized"])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((1, 4096), id="qwen3-8b-1x4096"),  # Single-token decode.
+        pytest.param((16, 7168), id="deepseek-v3-16x7168"),  # Batched decode.
+        pytest.param((1, 1), id="edge-1x1"),  # Minimum nonempty reduction.
+        pytest.param((7, 1025), id="edge-7x1025"),  # Odd rows and a one-element tile tail.
+    ],
+)
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "normal",       # General RMSNorm + nonzero affine bias.
+        "zero",         # Zero variance must stay finite and preserve bias.
+        "offset_only",  # No scale means offset is ignored, output keeps dtype.
+        "quantized",    # Int8 truncation, saturation and tiled-output tail mask.
+    ],
+)
 @pytest.mark.parametrize("eps", [1e-6, 1e-5])
 def test_rmsnorm_bias(
     shape,
@@ -51,5 +79,9 @@ def test_rmsnorm_bias(
         rmsnorm_bias,
         args=(x, weight, bias, eps, scale, offset),
     )
-
-    check_performance(executor)
+    enable_perf = (
+        shape in perf_shape
+        and dtype == torch.float16
+        and mode == "quantized"
+    )
+    check_performance(executor, enable_perf=enable_perf)
