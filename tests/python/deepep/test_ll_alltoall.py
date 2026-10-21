@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import sys
 import time
 from functools import partial
 
@@ -25,6 +26,11 @@ def get_alltoall_quant_config(quant_type: str):
         return True, False, False
     if quant_type == "bf16":
         return False, False, False
+    if quant_type == "pertoken_fp8_e4m3":
+        print("[ERROR] AlltoAll strategy does not support pertoken_fp8_e4m3. "
+              "Use --quant-type mx_fp8_e4m3 or --quant-type mx_fp4_e2m1 instead.",
+              file=sys.stderr)
+        sys.exit(1)
     raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
 
