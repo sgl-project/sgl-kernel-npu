@@ -1,216 +1,156 @@
-# Public-interface tests
+# Operator tests
 
-```text
-operators/             # Mirror exported operators; test public entry points only
-  norm/test_rmsnorm_bias.py
-functional/            # Reserved for functional/modules tests
-utils/
-  accuracy.py          # Recursive assertions and check_accuracy
-  standards.py         # Explicit accuracy thresholds
-  performance.py       # NPU profiling and per-case CSV output
-  common.py            # Shared impl-selection checks
-  device.py            # Scoped NPU defaults and serial execution policy
-```
+## Run tests
 
-Legacy tests and their original utils.py remain under sgl_kernel_npu/ unchanged.
-New tests import helpers through tests.python.utils to avoid legacy utils imports.
-The shared conftest.py applies automatic device and reporting setup only to
-operators/ and functional/. New tests must not import implementations directly.
-
-## RMSNorm example
+Run from the repository root with the current `sgl_kernel_npu` installed,
+`torch_npu`, Triton-Ascend and an available NPU.
 
 ```bash
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py -v -s -x
+# Accuracy only.
+python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
 
-# Override either side without rebuilding.
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py -v -s -x \
-  --impl=triton --impl-ref=torch_native
+# Use each case's performance selection and save results.
+python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py \
+  --prof-dir=results/profilings --csv-path=results/performance.csv -v -s
 ```
 
-Requires a built/installed sgl_kernel_npu, torch_npu, Triton-Ascend and an NPU.
-No NPU means skip; a broken installed operator or profiler fails the test.
-Default comparison: auto (currently Triton) against torch_native. The two pytest
-options select one pair per run, included in case IDs and performance reports.
-Only --impl is benchmarked; --impl-ref provides the
-comparison output. Unknown/unavailable implementations fail without fallback;
-aliases of the same registered entry (such as auto vs triton) are rejected.
-The identity check cannot detect a future dynamic dispatcher selecting the same
-backend internally; that will require resolved-backend metadata.
-Cases cover FP32/FP16/BF16, multiple shapes, eps=1e-6/1e-5, zero input, ignored
-offset and int8 quantization.
+| Option | Usage |
+| --- | --- |
+| `--impl`, `--impl-ref` | Tested and reference implementations; defaults: `auto`, `torch_native`. Only `impl` is benchmarked. |
+| `--enable-perf=true/false` | Enable/disable performance for all cases; overrides code settings. Omit to use each case's `enable_perf`, defaulting to False. |
+| `--skip-acc-check=true/false` | Skip/require accuracy checks; overrides code settings. Default: False. |
+| `--prof-dir` | Profiling root; overrides `prof_dir`. Default: `./profilings`. |
+| `--csv-path` | Append summary CSV; overrides `csv_path`. No CSV is written unless a path is supplied. |
+| `--npu-device=0` | Select a visible logical NPU; omitted means the current NPU. |
 
-`generate_test_data` creates every input tensor directly on NPU. Each case compares
-the selected backends through the public interface. No standalone reference is used.
-Performance is disabled when neither CLI nor code enables it. When enabled, collection runs **only after
-accuracy passes**. Use `-x` to stop the
-entire run on the first failure. Shared atol/rtol values in `utils/standards.py`
-are both 1e-5 for FP32, 1e-3 for FP16 and 5e-2 for BF16; int8 comparison is exact.
-INT8/INT32/INT64 defaults are explicitly listed with atol=rtol=0.
-Custom `standard` uses the same dictionary format, not a single threshold object:
+Paths alone do not enable performance. Skipping accuracy does not enable it either;
+if both checks are disabled, the operator is not executed. Use serial pytest or
+`-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
+
+## Write a test
+
+Place tests in `operators/<module>/test_<operator>.py`, matching the public API.
+Import operators from `sgl_kernel_npu.operators`, not backend implementations.
+The shared `conftest.py` configures the default NPU device for these tests;
+no device, impl, `tmp_path` or `record_property` fixture arguments are needed.
+
+- Generate inputs in a separate function; parameterize shape, dtype, mode and operator options.
+- Include production shapes from actual SGLang calls, accounting for reshaping and sharding. Label the model and scenario. If only model dimensions are borrowed, say so.
+- Add uncommon legal edge cases: minimum inputs, unaligned dimensions and block tails. Explain the purpose of each mode.
+- Check accuracy first, then performance. Select performance shapes with a separate `perf_shape` list.
+
+Minimal non-quantized example:
+
+```python
+import pytest
+
+torch = pytest.importorskip("torch")
+
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
+
+perf_shape = [(1, 4096)]
+
+
+def generate_test_data(shape, dtype):
+    torch.npu.manual_seed(42)
+    return (
+        torch.randn(shape, dtype=dtype),
+        torch.randn(shape[1], dtype=dtype),
+        torch.randn(shape[1], dtype=dtype),
+    )
+
+
+@pytest.mark.parametrize("shape", [
+    pytest.param((1, 4096), id="qwen3-8b-width"),  # Borrowed model width, not a traced call.
+    pytest.param((7, 1025), id="edge-tail"),  # Unaligned reduction and odd rows.
+])
+@pytest.mark.parametrize("dtype", [torch.float16])
+@pytest.mark.parametrize("eps", [1e-6])
+def test_rmsnorm_bias(
+    shape,
+    dtype,
+    eps,
+):
+    from sgl_kernel_npu.operators.norm import rmsnorm_bias
+
+    x, weight, bias = generate_test_data(shape, dtype)
+    executor = check_accuracy(rmsnorm_bias, args=(x, weight, bias, eps))
+    check_performance(executor, enable_perf=shape in perf_shape)
+```
+
+See [the RMSNorm test](operators/norm/test_rmsnorm_bias.py) for additional modes.
+
+## Core helpers
+
+### `check_accuracy` and accuracy standards
+
+`check_accuracy(operator, args=(), kwargs=None, ...)` compares two implementations
+and returns a zero-argument executor for performance collection. Use `kwargs` for
+keyword-only operator parameters. Explicit `impl` / `impl_ref` arguments override
+the corresponding test option; otherwise the configured defaults are used.
+
+The reference must be independent: aliases such as RMSNorm's `auto` and `triton`
+cannot be compared. If `torch_native` is unavailable, select another registered
+reference with `--impl-ref` or `impl_ref=`, or use the lower-level helpers below.
+
+Tensor, tuple/list and dict outputs are compared recursively; corresponding
+Tensors must have matching shape, dtype and device. Inputs are shared, so in-place
+or stateful operators require a separate input-isolation/reset strategy.
+
+Default atol/rtol: FP32 `1e-5`, FP16 `1e-3`, BF16 `5e-2`; integers compare exactly.
+Override selected output dtypes with a dictionary; omitted dtypes keep defaults:
 
 ```python
 from tests.python.utils.standards import AccuracyStandard
 
-standard = {
-    "torch.float32": AccuracyStandard(atol=1e-4, rtol=1e-4),
-    "torch.float16": AccuracyStandard(atol=2e-3, rtol=2e-3),
-    "torch.int32": AccuracyStandard(atol=0, rtol=0),
-}
-executor = check_accuracy(operator, args=inputs, standard=standard)
+executor = check_accuracy(
+    operator,
+    args=inputs,
+    kwargs=keyword_inputs,
+    standard={"torch.float32": AccuracyStandard(atol=1e-4, rtol=1e-4)},
+)
 ```
 
-Overrides apply per output Tensor dtype, including nested outputs; missing keys
-retain defaults without mutating DEFAULT_STANDARDS. Python float/complex values
-use the float32 entry; Python integers and other discrete scalars stay exact.
-Backend agreement is a consistency check, not an independent correctness proof.
-`check_accuracy(operator, args, kwargs=..., impl=None, impl_ref=None)`
-checks registration, executes both public calls, validates nested outputs and
-returns a zero-argument executor only on success. Data generation and
-`check_performance(executor, ...)` remain explicit in each test. Inputs must not be
-mutated by the operator; in-place/stateful APIs need a separate input-reset design
-before using this helper. Accuracy checks only require corresponding output
-Tensors to be on the same device; they do not enforce an NPU output.
-Tests import check_accuracy directly; neither it nor impl/impl_ref is a test
-parameter. An autouse fixture in conftest.py scopes the CLI settings
-to each test using a ContextVar and restores them on teardown. check_accuracy
-reads those settings for each omitted name; explicitly supplied impl/impl_ref
-override the respective side. Its returned executor exposes impl/impl_ref for
-reporting without re-reading configuration in the test.
-Public interfaces use `@register_operator("domain.operator")` to associate the
-function object with its operator name. get_impl(operator, impl) and
-list_impls(operator) resolve that name internally; get_impl_by_name and
-list_impls_by_name retain the string-based APIs. Tests do not repeat the name.
-Unknown functions fail explicitly.
-register_impl still registers backend entry points independently. The public
-registration decorator returns the original function, without a wrapper.
-Quantized inputs deliberately
-avoid rounding boundaries while testing truncation and saturation.
+Use `skip_acc_check=True` to skip comparison unless overridden by the CLI.
+An unsupported tested generation skips the case; a missing implementation or
+unavailable reference fails. Inspect skip reasons with `-rs`.
 
-Profiling follows the NPU profiler approach in the supplied apply_attn_res.py:
-compile first, 5 warmup calls, 5 active calls, explicit synchronization, CSV export.
-The metric is summed device task duration / active calls, including all kernels
-of a composite impl. It is not end-to-end latency; no speed threshold
-is imposed yet. Only one export schema is summed (summary, otherwise statistic).
+### `check_performance`
 
-Performance tests require no tmp_path or record_property argument:
+Pass the executor returned by `check_accuracy`:
 
 ```python
-executor = check_accuracy(operator, args=inputs)
-check_performance(executor)  # Follow --enable-perf; otherwise disabled.
-# Per-case defaults, used only when the CLI switch is omitted:
-check_performance(executor, enable_perf=True)
-check_performance(executor, enable_perf=False)
-# Alternatively, explicitly request persistent CSV output:
-check_performance(executor, enable_perf=True, csv_path="results/performance.csv")
-# Or select the profiling root explicitly (independent of summary CSV output):
-check_performance(executor, enable_perf=True, prof_dir="results/profiles")
+result = check_performance(
+    executor,
+    enable_perf=True,
+    prof_dir="results/profilings",
+    csv_path="results/performance.csv",
+)
 ```
 
-Use one of these performance calls. Priority: explicit pytest --enable-perf >
-code enable_perf > False. CLI --enable-perf (or --enable-perf=true) enables all
-cases; --enable-perf=false disables all cases, overriding per-shape settings.
-Omitting the CLI switch preserves each case's code setting.
-A disabled call returns None, does not run the executor,
-does not record or print performance results, and creates no profiler/CSV files.
-Supplying csv_path or prof_dir alone does not enable performance collection.
-Paths can also be configured with --prof-dir and --csv-path. Each explicitly
-provided CLI path overrides its code argument; otherwise the code argument is
-used. Without either setting, profiling uses cwd/profilings and no summary CSV
-is written. Relative paths are resolved from the pytest working directory.
+This helper handles profiling, printing, pytest properties and optional CSV output.
+It returns a result dictionary, or None when disabled. Profiling files are retained
+under `<prof_dir>/prof_<function>/<case-run>/`; they are not automatically deleted.
+CSV times use three decimal places. Existing CSV columns must match; use a new file
+after schema changes. `accuracy_checked` records whether accuracy passed.
 
-```bash
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py --enable-perf -v -s -x
-# Disable performance for every case, even those enabled in code:
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py --enable-perf=false -v -s -x
-# Configure output paths without changing the test:
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py --enable-perf \
-  --prof-dir=results/profilings --csv-path=results/performance.csv -v -s -x
+The timing metric is average summed NPU task duration in microseconds, not
+end-to-end latency. `warmup` and `active` both default to 5 and can be overridden.
+
+### `assert_accuracy` and `benchmark_npu`
+
+For a custom comparison flow, call a trusted reference yourself, then use:
+
+```python
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.performance import benchmark_npu
+
+assert_accuracy(result, result_ref)  # Optional standard= uses the same dtype mapping.
+average_us = benchmark_npu(executor, directory="results/custom-profile-run-001")
 ```
 
-When enabled, profiler files are retained under
-`<current working directory>/profilings/prof_<function name>/<sequence>-<values>-<impl>-<unique-id>/`.
-The six-digit sequence starts at 000001 per process and preserves creation order
-when sorted by name within one run. Parameter values follow parameter-name order,
-without labels (for example, `000001-float16-1e-05-normal-1x1024-auto-a1b2c3d4`).
-After profiling completes, the single automatically generated `*_ascend_pt`
-host directory is flattened, so `ASCEND_PROFILER_OUTPUT` sits directly inside
-the case directory. All profiler contents are retained. Unexpected multiple
-host directories or name collisions are left intact to avoid overwriting data.
-Passing `prof_dir` replaces the `profilings` root, while retaining the function
-and run subdirectories. Relative paths resolve against the current working directory.
-Each call uses a fresh subdirectory to avoid mixing old
-measurements. Files are not automatically removed, including on failure.
-The profile path is printed before collection and included in successful reports.
-csv_path=None writes no summary CSV; a supplied path appends one row per case
-with a single header. Profiler files are saved regardless of csv_path.
-CSV device task durations are formatted to three decimal places (microseconds);
-the returned result retains the original numeric precision.
-Mismatched existing CSV columns raise an error instead of overwriting data.
-An autouse fixture supplies case IDs, parameters and pytest property recording.
-The helper returns the result dictionary and prints a concise summary (`-s`).
-Do not write the same CSV concurrently from separate pytest processes.
-Do not run performance tests concurrently on the same NPU.
-The accuracy-helper separation and dtype-specific standards follow the mojo test
-organization, without importing mojo or inheriting its global device settings.
-
-## Skipping accuracy checks
-
-`check_accuracy(..., skip_acc_check=True)` returns the executor without running
-either implementation or comparing outputs. The selected impl is validated;
-the reference impl is not required. The default is False (perform accuracy checks).
-An explicit CLI setting overrides the code setting in either direction:
-
-```bash
-# Profile without running the accuracy comparison:
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py --skip-acc-check --enable-perf -v -s
-# Force accuracy checks even when code requests skipping:
-python -m pytest tests/python/operators/norm/test_rmsnorm_bias.py --skip-acc-check=false -v -s
-```
-
-Skipping does not enable profiling. If profiling is also disabled, neither
-implementation executes. A skipped check is logged, not treated as accuracy
-validation; `executor.accuracy_checked` is False. Otherwise accuracy must pass
-before profiling can start. Data generation and NPU setup still occur.
-
-## Device selection
-
-New operator tests automatically set the default device to `"npu"`, preserving
-the process's current NPU selection. No device argument is needed in tests,
-data generators or accuracy checks. Use `--npu-device=1` to explicitly select
-visible logical device 1. Invalid indices fail; a missing NPU skips the tests.
-The default device and any explicit selection are restored after each case,
-including failures, so legacy and CPU helper tests are not affected.
-Multiple xdist workers are rejected; use serial pytest or `-n 1`. There is no
-round-robin allocation or automatic selection of an idle card. Separate pytest
-processes still need external coordination to avoid sharing a busy NPU.
-
-## Hardware generation support
-
-The registry maps exact SoC names to `Generation.A2`, `A3`, or `A5` in
-`operators/utils/generation.py`. Unknown models fail explicitly; extend the
-mapping after verification. All cards on the process's machine must share one
-generation. Importing the registry detects hardware immediately; import fails
-if hardware cannot be identified. Registration classifies each implementation
-immediately, and lookups never initialize hardware. Backend implementation
-imports remain lazy. Import an operator's module completely before querying it.
-
-Implementations may declare `supported_generations={Generation.A3}` or
-`excluded_generations={Generation.A5}` in `register_impl`, but not both.
-Omitting both supports all known generations; aliases must declare identical
-support. `list_impls` still lists all declared implementations, including those
-unavailable on this hardware.
-
-`check_accuracy` skips only when the tested `impl` is unsupported on this
-generation and the reference resolves successfully. Missing implementations,
-unsupported references, and hardware detection errors fail the test. Reference
-errors take priority over a tested-implementation skip. Use `pytest -rs` to see
-skip reasons, including the SoC, generation, operator and implementation.
-With `skip_acc_check=True`, only the tested implementation is resolved.
-Backend import errors and execution failures are never converted into skips.
-
-Local CPU-only policy checks in the Git-excluded `tests/unit` directory
-(requires pytest, but no torch or NPU; only available when the local test file exists):
-
-```bash
-python -m unittest discover -s tests/unit -p test_generation_registry.py -v
-```
+`executor` can be any zero-argument callable; `directory` must not already exist.
+These lower-level helpers do not handle implementation selection, generation skips,
+CLI switches or CSV reporting. Keep accuracy before profiling in custom flows too.

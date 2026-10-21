@@ -10,8 +10,7 @@ from tests.python.utils.performance import performance_context
 
 def is_public_interface_test(path):
     root = Path(__file__).resolve().parent
-    return any(Path(path).resolve().is_relative_to(root / directory)
-               for directory in ("operators", "functional"))
+    return Path(path).resolve().is_relative_to(root / "operators")
 
 
 def parse_bool_switch(value):
