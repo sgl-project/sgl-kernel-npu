@@ -117,6 +117,44 @@ def test_graph_replay_reads_current_state_and_keys():
     consume_plan(args, resident, 4096)
 
 
+@pytest.mark.parametrize("capacity", [2048, 4096])
+def test_graph_non_offload_to_offload_reset(capacity):
+    """Cold reset must not mistake identity metadata for populated resident KV."""
+    args, _ = make_case()
+    args[9].fill_(capacity)
+    args[7].fill_(384)
+    args[8].fill_(256)
+    args[10].fill_(-3)
+    set_hotset(args, 4096)
+    fused_lightning_indexer_manage(*args)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        fused_lightning_indexer_manage(*args)
+
+    resident = torch.full((1, capacity), -1, dtype=torch.int32)
+    args[7].fill_(8193)
+    args[8].fill_(8192)
+    # SGLang records last_prefix=-1 for non-offload rows, so entry into the
+    # sparse route uses -2. Native -1 instead assumes an existing resident map.
+    args[10].fill_(-2)
+    graph.replay()
+    consume_plan(args, resident, 4096)
+
+    # Repeat the lifecycle on the same captured addresses with a new hot set.
+    args[7].fill_(384)
+    args[8].fill_(256)
+    args[10].fill_(-3)
+    graph.replay()
+    args[7].fill_(8193)
+    args[8].fill_(8192)
+    args[10].fill_(-2)
+    set_hotset(args, 0)
+    resident.fill_(-1)
+    graph.replay()
+    consume_plan(args, resident, 0)
+
+
 def test_non_offload_short_row_and_invalid_dtype():
     args, _ = make_case()
     args[7].fill_(384)
