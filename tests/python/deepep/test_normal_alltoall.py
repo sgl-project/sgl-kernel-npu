@@ -1,7 +1,6 @@
 import argparse
 import os
 import random
-import sys
 import time
 from typing import Optional
 
@@ -190,9 +189,23 @@ def test_main(
     elif args.use_mxfp8:
         dispatch_quant_mode = "mx_fp8_e4m3"
     elif args.use_fp8:
-        print("[ERROR] AlltoAll strategy does not support pertoken_fp8_e4m3 (--use-fp8). "
-              "Use --use-mxfp8 (mx_fp8_e4m3) or --use-mxfp4 instead.", file=sys.stderr)
-        sys.exit(1)
+        try:
+            from deep_ep.utils import _resolve_quant_mode
+
+            resolved = _resolve_quant_mode(args.use_fp8, args.use_mxfp4, args.use_mxfp8)
+        except Exception:
+            resolved = "int8"
+        if resolved is None:
+            raise ValueError(
+                "use_fp8 is not supported on this device. "
+                "Use --use-mxfp8 or --use-mxfp4 instead."
+            )
+        dispatch_quant_mode = resolved
+        if resolved == "pertoken_fp8_e4m3":
+            raise ValueError(
+                "AlltoAll strategy does not support pertoken_fp8_e4m3 (--use-fp8) on A5. "
+                "Use --use-mxfp8 (mx_fp8_e4m3) or --use-mxfp4 instead."
+            )
     else:
         dispatch_quant_mode = "bf16"
     quant_dispatch_kwargs = {

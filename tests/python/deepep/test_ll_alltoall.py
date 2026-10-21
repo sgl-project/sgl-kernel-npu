@@ -1,7 +1,6 @@
 import argparse
 import os
 import random
-import sys
 import time
 from functools import partial
 
@@ -9,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.utils import _resolve_quant_mode
 from utils import (
     bench,
     bench_kineto,
@@ -26,10 +26,15 @@ def get_alltoall_quant_config(quant_type: str):
         return True, False, False
     if quant_type == "bf16" or quant_type == "no":
         return False, False, False
+    if quant_type == "mx_fp8_e4m3":
+        return False, True, False
+    if quant_type == "mx_fp4_e2m1":
+        return False, False, True
     if quant_type == "pertoken_fp8_e4m3":
-        print("[ERROR] AlltoAll strategy does not support pertoken_fp8_e4m3. "
-              "Use --use-mxfp8 or --use-mxfp4 instead.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(
+            "AlltoAll strategy does not support pertoken_fp8_e4m3 on A5. "
+            "Use --use-mxfp8 or --use-mxfp4 instead."
+        )
     raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
 
@@ -371,9 +376,8 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         buffer,
         seed=1,
         quant_type=(
-            "int8" if args.use_fp8
-            else "mx_fp8_e4m3" if args.use_mxfp8
-            else "mx_fp4_e2m1" if args.use_mxfp4
+            _resolve_quant_mode(args.use_fp8, args.use_mxfp4, args.use_mxfp8)
+            if args.use_fp8 or args.use_mxfp4 or args.use_mxfp8
             else "bf16"
         ),
         local_rank=local_rank,
@@ -411,19 +415,25 @@ if __name__ == "__main__":
         "--use-fp8",
         dest="use_fp8",
         action="store_true",
-        help="Use int8 per-token quantization.",
+        help="Use use_fp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> not supported (use --use-mxfp8 or --use-mxfp4), A2/A3 -> int8 (with warning). "
+        "Mutually exclusive with --quant-type.",
     )
     parser.add_argument(
         "--use-mxfp8",
         dest="use_mxfp8",
         action="store_true",
-        help="Use mx_fp8_e4m3 quantization (A5).",
+        help="Use use_mxfp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
+        "Mutually exclusive with --quant-type.",
     )
     parser.add_argument(
         "--use-mxfp4",
         dest="use_mxfp4",
         action="store_true",
-        help="Use mx_fp4_e2m1 quantization (A5).",
+        help="Use use_mxfp4=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
+        "Mutually exclusive with --quant-type.",
     )
     args = parser.parse_args()
 
