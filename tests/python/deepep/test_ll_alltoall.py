@@ -24,12 +24,11 @@ from utils import (
 def get_alltoall_quant_config(quant_type: str):
     if quant_type == "int8":
         return True, False, False
-    if quant_type == "bf16":
+    if quant_type == "bf16" or quant_type == "no":
         return False, False, False
     if quant_type == "pertoken_fp8_e4m3":
         print("[ERROR] AlltoAll strategy does not support pertoken_fp8_e4m3. "
-              "Use --quant-type mx_fp8_e4m3 or --quant-type mx_fp4_e2m1 instead.",
-              file=sys.stderr)
+              "Use --use-mxfp8 or --use-mxfp4 instead.", file=sys.stderr)
         sys.exit(1)
     raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
@@ -371,7 +370,12 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group,
         buffer,
         seed=1,
-        quant_type=args.quant_type,
+        quant_type=(
+            "int8" if args.use_fp8
+            else "mx_fp8_e4m3" if args.use_mxfp8
+            else "mx_fp4_e2m1" if args.use_mxfp4
+            else "bf16"
+        ),
         local_rank=local_rank,
     )
     dist.barrier()
@@ -404,12 +408,22 @@ if __name__ == "__main__":
         help="Enable dynamic and inconsistent num_tokens across different ranks",
     )
     parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default="bf16",
-        choices=["bf16", "int8", "mx_fp4_e2m1", "mx_fp8_e4m3", "mx_fp8_e5m2"],
-        help="Quantization type for dispatch: bf16, int8 (per-token), mx_fp4_e2m1, mx_fp8_e4m3, mx_fp8_e5m2",
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use int8 per-token quantization.",
+    )
+    parser.add_argument(
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use mx_fp8_e4m3 quantization (A5).",
+    )
+    parser.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use mx_fp4_e2m1 quantization (A5).",
     )
     args = parser.parse_args()
 
