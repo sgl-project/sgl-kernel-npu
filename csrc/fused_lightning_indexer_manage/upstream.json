@@ -15,6 +15,9 @@
   "adaptations": [
     "Direct AscendC entry instead of generated aclnn template dispatch",
     "Shared explicit POD tiling with runtime dtype",
-    "Host launch integrated into sgl_kernel_npu; no custom vendor package or libcust_opapi dependency"
+    "Host launch integrated into sgl_kernel_npu; no custom vendor package or libcust_opapi dependency",
+    "Read GM tiling scalar fields into local storage instead of invoking a cross-address-space copy constructor",
+    "Use GM_ADDR kernel parameters for the AscendC launch generator",
+    "Resolve EVENT_ID5 to the identical literal 5 for CANN host-only compilation without changing pinned headers"
   ]
 }

@@ -7,7 +7,11 @@
 #include "lib/matmul_intf.h"
 #include "fused_lightning_indexer_manage_tiling_data.h"
 #include "fused_lightning_indexer_manage_constants.h"
+// CANN's host-only AscendC pass omits EVENT_ID5. The existing LI kernel
+// uses the same literal event ID; keep the pinned upstream headers intact.
+#define EVENT_ID5 5U
 #include "lightning_indexer_kernel.h"
+#undef EVENT_ID5
 #include "fused_lightning_indexer_manage_union.h"
 #include "fused_lightning_indexer_manage_workspace.h"
 
@@ -214,13 +218,8 @@ __aicore__ inline bool FinalizeStandardCounts(__gm__ uint8_t *requestStateAddr, 
     return true;
 }
 
-#define LI_MTP_COPY_TILING()                                                                                     \
-    const auto tiling_data_in = *reinterpret_cast<const __gm__ FusedLightningIndexerManageTilingData *>(tiling); \
-    const FusedLightningIndexerManageTilingData *__restrict tiling_data = &tiling_data_in
-
 #define INVOKE_LI_MTP_TOPK(...)                                                                                        \
     do {                                                                                                               \
-        LI_MTP_COPY_TILING();                                                                                          \
         PrepareNonOffloadRows(requestState, reqPoolEntries, actualSeqLengthsQuery, actualSeqLengthsKey,                \
                               offloadSeqLengthsKey, cacheTokens, cacheSlots, tiling_data->bSize, tiling_data->tSize,   \
                               tiling_data->poolSize, tiling_data->cacheSlotsSize, &tPipe);                             \
@@ -265,13 +264,11 @@ __aicore__ inline bool FinalizeStandardCounts(__gm__ uint8_t *requestStateAddr, 
     } while (0)
 
 extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
-    __gm__ uint8_t *weights, __gm__ uint8_t *queryDequantScale, __gm__ uint8_t *query, __gm__ uint8_t *keyDequantScale,
-    __gm__ uint8_t *key, __gm__ uint8_t *blockTable, __gm__ uint8_t *actualSeqLengthsQuery,
-    __gm__ uint8_t *actualSeqLengthsKey, __gm__ uint8_t *offloadSeqLengthsKey, __gm__ uint8_t *cacheTokens,
-    __gm__ uint8_t *requestState, __gm__ uint8_t *reqPoolEntries, __gm__ uint8_t *cacheSlots,
-    __gm__ uint8_t *topkSourceIds, __gm__ uint8_t *topkSlots, __gm__ uint8_t *topkMissCounts,
-    __gm__ uint8_t *missSrcIds, __gm__ uint8_t *missDstSlots, __gm__ uint8_t *missCount, __gm__ uint8_t *cacheSlotsOut,
-    __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
+    GM_ADDR weights, GM_ADDR queryDequantScale, GM_ADDR query, GM_ADDR keyDequantScale, GM_ADDR key, GM_ADDR blockTable,
+    GM_ADDR actualSeqLengthsQuery, GM_ADDR actualSeqLengthsKey, GM_ADDR offloadSeqLengthsKey, GM_ADDR cacheTokens,
+    GM_ADDR requestState, GM_ADDR reqPoolEntries, GM_ADDR cacheSlots, GM_ADDR topkSourceIds, GM_ADDR topkSlots,
+    GM_ADDR topkMissCounts, GM_ADDR missSrcIds, GM_ADDR missDstSlots, GM_ADDR missCount, GM_ADDR cacheSlotsOut,
+    GM_ADDR workspace, GM_ADDR tiling)
 {
 #if (__CCE_AICORE__ == 310) || (defined __DAV_310R6__) || (__CCE_AICORE__ == 200)
 #else
@@ -284,7 +281,15 @@ extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
     __gm__ uint8_t *user = GetUserWorkspace(workspace);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     const auto *config = reinterpret_cast<const __gm__ FusedLightningIndexerManageTilingData *>(tiling);
-    if (config->dtype == 1U) {
+    // AscendC cannot invoke a local-memory copy constructor with a __gm__
+    // struct. Load scalar fields explicitly before passing local tiling to LI.
+    const FusedLightningIndexerManageTilingData tiling_data_in{
+        config->bSize,        config->tSize,     config->s2Size,
+        config->usedCoreNum,  config->blockSize, config->maxBlockNumPerBatch,
+        config->poolSize,     config->n1Size,    config->cacheSlotsSize,
+        config->scheduleMode, config->dtype,     {0U, 0U, 0U, 0U, 0U}};
+    const FusedLightningIndexerManageTilingData *__restrict tiling_data = &tiling_data_in;
+    if (tiling_data->dtype == 1U) {
         INVOKE_LI_MTP_TOPK(half, half);
     } else {
         INVOKE_LI_MTP_TOPK(bfloat16_t, bfloat16_t);

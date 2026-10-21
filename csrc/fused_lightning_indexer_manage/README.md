@@ -65,12 +65,22 @@ verify TopK/slot consistency across cold fill, steady misses, request reuse,
 short sequences and graph replay. The benchmark measures native launch time,
 not model TPOT or H2D overlap.
 
-Migration status: source provenance, torch ABI and Python checks are available
-without Ascend hardware. This direct-launch port has not yet been compiled
-or run on Ascend because the 217 test host was unreachable during delivery.
-Earlier 151/217 model measurements used the external aclnn probe and must not
-be attributed to this new launch path. Copy-SFA fusion and the previously
-observed long-generation numerical divergence are outside this migration.
+Native validation on 217, 2026-10-21: the normal A3 kernel wheel builds with
+CANN 9.1, torch 2.10.0 and torch_npu 2.10.0.post6. All 10 native tests pass.
+The SGLang production host allocator path also passes graph replay, request
+reuse, padding, new-visible-page TopK and bitwise selected-KV checks. Attention
+outputs match the same-policy reference at rtol=0.01/atol=0.002 on that fixed
+fixture. The loaded normal library SHA256 is
+`ff93127d1294ef50b848816ba4710d44ef950ad54e4dc6498e88f4805be827a8`;
+the adapted device entry SHA256 is
+`3bb654ecfb9278cd56ecc1bc2c2fc74dede0c287ced181f3749cb0f216eb8778`.
+No external LIM probe or custom vendor library is loaded by those tests.
+
+Checkpoint-backed model accuracy, latency and HBM require separate A/B runs;
+these operator checks do not establish those benefits. Earlier 151/217 model
+measurements used the external aclnn probe and must not be attributed to this
+new launch path. Copy-SFA fusion and the previously observed long-generation
+numerical divergence are outside this migration.
 
 ## Provenance
 
