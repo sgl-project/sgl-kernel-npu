@@ -1545,6 +1545,10 @@ def launch_case(
                 fused_out,
                 fused_counts,
             )
+            # Probe tensors are dead now; return their cached blocks to the
+            # driver before lazy HCCL initialization allocates its own buffers.
+            torch.npu.synchronize()
+            torch.npu.empty_cache()
     info_rank0(
         rank,
         f"iter={iteration} case={case_index} quant_mode={args.quant_mode} "
