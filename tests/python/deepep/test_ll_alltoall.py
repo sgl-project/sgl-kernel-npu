@@ -22,14 +22,15 @@ from utils import (
 
 
 def get_alltoall_quant_config(quant_type: str):
+    """Returns (use_fp8, use_ue8m0, use_mxfp4, use_mxfp8)."""
     if quant_type == "int8":
-        return True, False, False
+        return True, False, False, False
     if quant_type == "bf16" or quant_type == "no":
-        return False, False, False
+        return False, False, False, False
     if quant_type == "mx_fp8_e4m3":
-        return False, True, False
+        return False, True, False, True
     if quant_type == "mx_fp4_e2m1":
-        return False, False, True
+        return False, False, True, False
     if quant_type == "pertoken_fp8_e4m3":
         raise ValueError(
             "AlltoAll strategy does not support pertoken_fp8_e4m3 on A5. "
@@ -89,7 +90,7 @@ def test(
 
     quant_configs = [get_alltoall_quant_config(quant_type)]
 
-    for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
+    for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4, dispatch_use_mxfp8 in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             if local_rank == 0:
                 print(
@@ -107,6 +108,7 @@ def test(
                     round_scale=False,
                     use_ue8m0=dispatch_use_ue8m0,
                     use_mxfp4=dispatch_use_mxfp4,
+                    use_mxfp8=dispatch_use_mxfp8,
                     cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
@@ -263,7 +265,10 @@ def test(
         "topk_idx": topk_idx,
         "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
         "num_experts": num_experts,
-        "use_fp8": False,
+        "use_fp8": dispatch_use_fp8,
+        "use_ue8m0": dispatch_use_ue8m0,
+        "use_mxfp4": dispatch_use_mxfp4,
+        "use_mxfp8": dispatch_use_mxfp8,
         "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
         "topk_weights": topk_weights,
     }
