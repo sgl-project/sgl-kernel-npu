@@ -90,14 +90,19 @@ If you need to access Ascend NPU computing resources for development or testing,
 
 ## Quick Start
 
-Before building from source, initialize the submodule(s):
+Choose the build path:
+
+- **Existing whole-repository build:** `bash build.sh` (the default `LEGACY` mode). Initialize the submodules below first.
+- **Selected CANN operators:** explicitly choose a hardware family and registered operators, then build a `.run`, Torch libraries, or a bundled wheel. See the [end-to-end CANN build guide](python/sgl_kernel_npu/README.md#selected-cann-operator-builds). Only `apply_token_bitmask` is migrated so far; `all` selects supported migrated operators, not the entire legacy repository.
+
+Before the legacy whole-repository build, initialize the submodules:
 ```bash
 git submodule update --init --recursive
 ```
 
 DeepEP-Ascend: Ascend Implementation of DeepEP. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md)
 
-SGLang-Kernel-NPU: Other SGLang Kernels for Ascend NPU. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/sgl_kernel_npu/README.md)
+SGLang-Kernel-NPU: Other SGLang Kernels for Ascend NPU. [README](python/sgl_kernel_npu/README.md)
 
 
 ## DeepEP-Ascend Performance
