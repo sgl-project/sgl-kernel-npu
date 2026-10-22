@@ -2,9 +2,10 @@
 
 本目录验证公共算子框架及公共精度/性能测试工具：注册、查询、分发、导入隔离、代际管理、
 精度标准、输出比较、性能采集编排、数据解析和报告。
-当前基线：`Todobe:pr/tests-refactor`，提交 `5476535720de9fce53c625b7d5584d57d87c3bc7`。
-算子框架原有 70 条 UT 从 `codex/framework-ut-npu@ca965bb` 保留，新增精度工具 106 条。
-性能阶段新增 37 条 UT 和 1 条真实 NPU 采集测试，合计 213 条 UT + 1 条集成测试。
+当前基线：`sgl-project/sgl-kernel-npu:main`，提交 `df2b9f168ffb5635c62b6dc59d22c195ae1372c6`，
+已包含 #869 算子架构和 #870 测试架构重构。
+算子框架现为 75 条 UT，精度工具 106 条，性能工具 37 条，加 1 条真实 NPU 采集测试，
+合计 218 条 UT + 1 条集成测试。
 实现目录使用基线中的 `implementation/backend/module`。
 使用基线自带的公共精度工具和上层 conftest；operators 目录的自动上下文不作用于本目录，
 因此精度流程 UT 显式设置并恢复上下文。
@@ -64,7 +65,7 @@ python -m pytest tests/python/framework -v -rs --npu-device=0 \
 python -m pytest tests/python/framework --collect-only -q
 ```
 
-这里的环境缺失、包导入失败、`.so` 加载失败、未知 SoC 都应报告为错误，不以整批 skip
+这里的环境缺失、包导入失败、`.so` 加载失败、未知 ACL 架构都应报告为错误，不以整批 skip
 掩盖环境问题。框架测试使用当前 checkout 的源码，不从 site-packages 导入 operators，
 也不改写已安装包的搜索路径。
 
@@ -74,8 +75,8 @@ python -m pytest tests/python/framework --collect-only -q
 | --- | ---: | --- |
 | test_registry.py | 20 | 公共算子/实现注册、重复与冲突、精确查询、别名、枚举及状态保护 |
 | test_dispatch.py | 15 | 真实 RMSNorm 公共入口、默认/显式 impl、参数透传、错误不回退、新实现动态接入、双向切换时逐次检查缓存路由、参数和返回值 |
-| test_generation.py | 10 | 真实硬件识别、A2/A3/A5 型号映射、未知型号、成功缓存和失败重试 |
-| test_generation_registry.py | 18 | 支持/排除集合、空集合、类型校验、当前代际分类、别名范围一致性和注册原子性 |
+| test_generation.py | 10 | ACL架构ID 2201/3510映射、真实device0属性601查询、异常/返回码失败重试、成功缓存和未知架构 |
+| test_generation_registry.py | 23 | ARCH22/ARCH35分类、支持/排除集合、同impl跨架构分实现、重叠拒绝与原子性、别名独立范围、空声明扩展 |
 | test_imports.py | 7 | checkout 公共导出、模块导入注册、不提前导入 kernel、检测失败、注册隔离、缺依赖与恢复、旧安装包兼容 |
 | test_standards.py | 20 | 六种默认标准、局部覆盖与回退、非法容差/配置、未知 dtype |
 | test_accuracy.py | 49 | 真实 Tensor 的绝对/相对容差边界、整数/bool、元信息、嵌套结构和路径、Python 标量、NaN、缺标准及未知输出类型 |
@@ -84,7 +85,7 @@ python -m pytest tests/python/framework --collect-only -q
 | test_profile_data.py | 20 | summary汇总与statistic回退、非法报告/耗时、CSV追加和schema、目录整理、命名、active参数校验 |
 | test_benchmark_npu.py | 5 | 首次执行隔离、同步/step与采样协议、目录防覆盖、warmup/active前置校验 |
 | test_performance_integration.py | 1 | npu_integration标记；真实精度→profiler采集→CSV解析和报告，无性能阈值 |
-| 合计 | 214 | 90 个测试函数；数量来自 pytest collection，不表示已在 NPU 执行通过 |
+| 合计 | 219 | 92 个测试函数；数量来自 pytest collection，不表示已在 NPU 执行通过 |
 
 不同 backend 的路由、参数方式和异常分别测试，没有把所有维度做笛卡尔乘积。
 `test_backend` 是人为注册的替身，用于验证扩展机制，不是一个真实算子实现。
@@ -92,14 +93,15 @@ python -m pytest tests/python/framework --collect-only -q
 ## fixture 与 mock 边界
 
 1. session fixture 真实检查 NPU，选择设备，正常导入安装包及其原生库，读取实际设备名称。
-   代际映射和注册判断在当前 checkout 的 generation/registry 中执行。
+   ACL模块也是环境前置；架构映射和注册判断在当前 checkout 的 generation/registry 中执行。
 2. 每条 UT 在私有命名空间加载当前 checkout 的真实 framework 源码，隔离注册表和入口缓存。
    这一步只避免测试注册污染正常包；不提供无 NPU 运行模式。
 3. 一般注册/分发用例使用实际硬件识别；代际规则用例在导入私有 registry 前替换
-   `get_hardware()` 返回值。因此只需要一台受支持的 NPU 机器，就能验证 A2/A3/A5 的规则。
+   `get_hardware()` 返回值。因此只需要一台受支持的 NPU 机器，就能验证 ARCH22/ARCH35 的规则。
    这不证明 kernel 在其他代际硬件上能运行，也不模拟生产进程运行中切换代际。
 4. 硬件识别单元测试保留真实 `get_hardware()`，仅在指定用例中替换
-   `torch.npu.get_device_name()`，验证成功缓存、失败原因和重试；结束后恢复。
+   `acl.rt.get_device_info()`，验证参数(0,601)、成功缓存、异常/错误码和重试；结束后恢复。
+   实际查询固定为可见device0，是主线的同架构设备假设；`--npu-device`仍选择Tensor/性能测试设备。
 5. 分发测试保持真实公共函数和薄适配函数，只替换 implementation 叶子模块的 kernel。
    使用不同 sentinel 参数和返回对象检查目标、调用次数、参数和结果，不启动 Triton 编译或 NPU kernel。
 6. 临时模块、导入钩子和硬件替身在测试结束时清理，session 结束恢复显式切换前的设备。

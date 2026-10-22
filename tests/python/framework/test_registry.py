@@ -70,13 +70,13 @@ def test_impl_can_be_registered_before_public_operator(registry):
     assert registry.get_impl(operator, "triton") is backend
 
 
-# Verify duplicate implementation keys are rejected without overwriting the original entry.
+# Verify repeated all-generation registrations overlap and cannot overwrite the original entry.
 @pytest.mark.parametrize("reuse_callable", [False, True])
 def test_duplicate_impl_is_rejected_without_overwriting(registry, reuse_callable):
     original, replacement = Mock(), Mock()
     registry.register_impl("test.op", "triton")(original)
 
-    with pytest.raises(ValueError, match="Duplicate impl"):
+    with pytest.raises(ValueError, match="overlapping generations"):
         registry.register_impl("test.op", "triton")(
             original if reuse_callable else replacement
         )

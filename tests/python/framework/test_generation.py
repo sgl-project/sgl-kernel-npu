@@ -1,80 +1,89 @@
-"""SoC mapping and detection; device access is real unless explicitly replaced."""
+"""ACL architecture mapping and detection; device access is real unless replaced."""
 
 from unittest.mock import Mock
 
 import pytest
 
 
-# Verify representative supported SoC names map to the expected hardware generations.
-@pytest.mark.parametrize(
-    "soc, expected",
-    [("Ascend910B1", "A2"), ("Ascend910_9391", "A3"), ("Ascend950", "A5")],
-)
-def test_known_soc_maps_to_expected_generation(generation_module, soc, expected):
+# Verify validated ACL architecture IDs map to the expected architecture generations.
+@pytest.mark.parametrize("arch_id, expected", [(2201, "ARCH22"), (3510, "ARCH35")])
+def test_known_arch_maps_to_expected_generation(generation_module, arch_id, expected):
     assert (
-        generation_module.generation_from_soc(soc)
+        generation_module.generation_from_arch(arch_id)
         is generation_module.Generation[expected]
     )
 
 
-# Verify unknown or invalid SoC identifiers raise an error instead of guessing a generation.
+# Verify unknown or invalid architecture identifiers fail instead of guessing a generation.
 @pytest.mark.parametrize(
-    "soc", ["Ascend910B-unknown", None, []], ids=["unknown-model", "none", "unhashable"]
+    "arch_id", [-1, None, []], ids=["unknown-architecture", "none", "unhashable"]
 )
-def test_unknown_soc_is_not_guessed(generation_module, soc):
+def test_unknown_arch_is_not_guessed(generation_module, arch_id):
     with pytest.raises(generation_module.HardwareDetectionError) as caught:
-        generation_module.generation_from_soc(soc)
-    assert repr(soc) in str(caught.value)
+        generation_module.generation_from_arch(arch_id)
+    assert repr(arch_id) in str(caught.value)
 
 
-# Verify checkout hardware detection identifies the current NPU and resolves its generation.
+# Verify checkout detection agrees with the real ACL query on visible device zero.
 def test_real_npu_is_identified(npu_runtime, generation_module):
     hardware = generation_module.get_hardware()
-    assert hardware.soc_name == npu_runtime.torch.npu.get_device_name()
-    assert hardware.generation is generation_module.generation_from_soc(
-        hardware.soc_name
-    )
-    assert hardware.soc_name == npu_runtime.soc_name
+    arch_id, status = npu_runtime.acl.rt.get_device_info(0, 601)
+    assert status == 0
+    assert hardware.arch_id == arch_id
+    assert hardware.generation is generation_module.generation_from_arch(arch_id)
 
 
-# Verify successful hardware detection is cached without repeating the device query.
+# Verify successful detection caches the ACL result and uses device zero with attribute 601.
 def test_successful_detection_is_cached(npu_runtime, generation_module, monkeypatch):
-    read_name = Mock(return_value="Ascend910B1")
-    monkeypatch.setattr(npu_runtime.torch.npu, "get_device_name", read_name)
+    read_info = Mock(return_value=(2201, 0))
+    monkeypatch.setattr(npu_runtime.acl.rt, "get_device_info", read_info)
 
     first = generation_module.get_hardware()
     second = generation_module.get_hardware()
 
     assert first is second
-    assert first.generation is generation_module.Generation.A2
-    read_name.assert_called_once_with()
+    assert first.arch_id == 2201
+    assert first.generation is generation_module.Generation.ARCH22
+    read_info.assert_called_once_with(0, 601)
 
 
-# Verify device query failures preserve their cause and allow a successful cached retry.
-def test_device_read_failure_preserves_cause_and_can_retry(
-    npu_runtime, generation_module, monkeypatch
+# Verify ACL exceptions and error return codes are not cached and permit a successful retry.
+@pytest.mark.parametrize("failure", ["exception", "return-code"])
+def test_device_query_failure_can_retry_without_caching(
+    npu_runtime, generation_module, monkeypatch, failure
 ):
     error = RuntimeError("device query failed")
-    read_name = Mock(side_effect=[error, "Ascend910_9391"])
-    monkeypatch.setattr(npu_runtime.torch.npu, "get_device_name", read_name)
+    read_info = Mock(
+        side_effect=[error if failure == "exception" else (0, 17), (3510, 0)]
+    )
+    monkeypatch.setattr(npu_runtime.acl.rt, "get_device_info", read_info)
 
     with pytest.raises(generation_module.HardwareDetectionError) as caught:
         generation_module.get_hardware()
-    assert caught.value.__cause__ is error
+    if failure == "exception":
+        assert caught.value.__cause__ is error
+    else:
+        assert "device=0, error_code=17" in str(caught.value)
+        assert caught.value.__cause__ is None
     hardware = generation_module.get_hardware()
-    assert hardware.generation is generation_module.Generation.A3
+    assert hardware.arch_id == 3510
+    assert hardware.generation is generation_module.Generation.ARCH35
     assert generation_module.get_hardware() is hardware
-    assert read_name.call_count == 2
+    assert read_info.call_count == 2
+    assert all(
+        args == (0, 601) and not kwargs for args, kwargs in read_info.call_args_list
+    )
 
 
-# Verify an unknown SoC failure is not cached and detection can retry successfully.
-def test_unknown_soc_is_not_cached(npu_runtime, generation_module, monkeypatch):
-    read_name = Mock(side_effect=["unknown-soc", "Ascend950"])
-    monkeypatch.setattr(npu_runtime.torch.npu, "get_device_name", read_name)
+# Verify unknown architecture failures are not cached and detection retries the ACL query.
+def test_unknown_arch_is_not_cached(npu_runtime, generation_module, monkeypatch):
+    read_info = Mock(side_effect=[(-1, 0), (3510, 0)])
+    monkeypatch.setattr(npu_runtime.acl.rt, "get_device_info", read_info)
 
     with pytest.raises(generation_module.HardwareDetectionError):
         generation_module.get_hardware()
     assert (
-        generation_module.get_hardware().generation is generation_module.Generation.A5
+        generation_module.get_hardware().generation
+        is generation_module.Generation.ARCH35
     )
-    assert read_name.call_count == 2
+    assert read_info.call_count == 2

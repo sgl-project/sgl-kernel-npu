@@ -34,6 +34,7 @@ def npu_runtime(request):
             "Framework UT requires a single worker; remove -n or use -n 1."
         )
 
+    import acl
     import torch
     import torch_npu  # noqa: F401 -- registers torch.npu
 
@@ -58,6 +59,7 @@ def npu_runtime(request):
         # framework under test. package_factory loads operators from checkout;
         # an older installed package need not contain operators at all.
         yield SimpleNamespace(
+            acl=acl,
             torch=torch,
             package=package,
             soc_name=torch.npu.get_device_name(),
@@ -145,8 +147,8 @@ def registry_for_generation(package_factory, monkeypatch):
     def create(name):
         package = package_factory()
         generation = package.generation
-        soc = {"A2": "Ascend910B1", "A3": "Ascend910_9391", "A5": "Ascend950"}[name]
-        hardware = generation.Hardware(soc, generation.Generation[name])
+        arch_id = {"ARCH22": 2201, "ARCH35": 3510}[name]
+        hardware = generation.Hardware(arch_id, generation.Generation[name])
         detector = Mock(return_value=hardware)
         monkeypatch.setattr(generation, "get_hardware", detector)
         modules = package.load()

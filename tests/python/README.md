@@ -1,14 +1,14 @@
 # Operator tests
 
 Public framework and accuracy-helper unit tests are documented in
-[framework/README.md](framework/README.md). Run all 214 cases with:
+[framework/README.md](framework/README.md). Run all 219 cases with:
 
 ```bash
 python -m pytest tests/python/framework -v -rs -x --npu-device=0
 ```
 
 These tests require an NPU; one case collects a real profile for a lightweight
-test operator. Use `-m 'not npu_integration'` to run only the 213 unit tests.
+test operator. Use `-m 'not npu_integration'` to run only the 218 unit tests.
 
 ## Run tests
 
