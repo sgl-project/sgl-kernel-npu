@@ -674,9 +674,8 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::WriteToCacheState(co
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
         uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
-        int64_t tableColumn =
-            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
-            static_cast<int64_t>(GetStartPos(batchIdx));
+        int64_t tableColumn = static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+                              static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
             uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
             uint32_t copyRowCount = 1;
@@ -691,8 +690,7 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::WriteToCacheState(co
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
             uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
-                                   rowIdx * 2 * coff_ * constInfo_.headDim +
-                                   stateIdx * coff_ * constInfo_.headDim;
+                                   rowIdx * 2 * coff_ * constInfo_.headDim + stateIdx * coff_ * constInfo_.headDim;
             uint64_t ubOffset = copyFinishRowCnt * coff_ * dBaseSize;
             DataCopyWithOutputQue(state[stateOffset], input[ubOffset], copyRowCount, dDealSize, coff_ * dBaseSize,
                                   coff_ * constInfo_.headDim * 2);
@@ -737,9 +735,8 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ReadFromCacheState(
         uint32_t copyFinishRowCnt = 0;
         uint32_t seqCnt = endSeqIdx - startSeqIdx;
         uint64_t tableBaseOffset = batchIdx * constInfo_.maxBlockNumPerBatch;
-        int64_t tableColumn =
-            static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
-            static_cast<int64_t>(GetStartPos(batchIdx));
+        int64_t tableColumn = static_cast<int64_t>(coff_ * constInfo_.cmpRatio) + static_cast<int64_t>(curSeqIdx) -
+                              static_cast<int64_t>(GetStartPos(batchIdx));
         while (copyFinishRowCnt < seqCnt) {
             uint64_t stateLoc = static_cast<uint64_t>(blockTableGm.GetValue(tableBaseOffset + tableColumn));
             uint32_t copyRowCount = 1;
@@ -754,8 +751,8 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ReadFromCacheState(
             uint64_t blockIdx = stateLoc / constInfo_.blockSize;
             uint64_t rowIdx = stateLoc % constInfo_.blockSize;
             uint64_t stateOffset = blockIdx * constInfo_.stateCacheStrideDim0 +
-                                   rowIdx * 2 * coff_ * constInfo_.headDim +
-                                   stateIdx * coff_ * constInfo_.headDim + dStartIdx;
+                                   rowIdx * 2 * coff_ * constInfo_.headDim + stateIdx * coff_ * constInfo_.headDim +
+                                   dStartIdx;
 
             DataCopyWithInputQue(output[copyFinishRowCnt * coff_ * dDealSize], state[stateOffset], copyRowCount,
                                  dDealSize, coff_ * constInfo_.headDim * 2, coff_ * dDealSize);
