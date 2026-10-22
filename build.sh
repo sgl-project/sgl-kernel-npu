@@ -13,11 +13,8 @@ REQUESTED_SOC_VERSION=""
 SOC_VERSION=""
 CMAKE_SOC_VERSION="Ascend910_9382"
 SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
-DEEPEP_VARIANT="deepep"
-DEEPEP_IS_A5_BUILD="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
-BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
 BUILD_CATLASS_MODULE="${BUILD_CATLASS_MODULE:-OFF}"
@@ -37,8 +34,6 @@ function print_help()
     cat <<'EOF'
 Usage:
     ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2 or A3.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
-    ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or Ascend 950.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
     ./build.sh -a attentions                    Build attentions.
@@ -48,31 +43,28 @@ back to Ascend910_9382, the value every target used to default to.
 
 TARGET:
     all            (default) Build all modules.
-    deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
-    deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
     attentions     Build attentions only.
 
 SOC_VERSION:
-    Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
-    Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
-    Ascend950           Ascend 950 family alias. Valid for deepep/kernels.
+    Ascend910B1         A2 chip. Valid for all/kernels.
+    Ascend910_9382      A3 chip. Valid for all/kernels.
+    Ascend950           Ascend 950 family alias. Valid for kernels.
     Ascend950PR_9599    Concrete Ascend 950 compiler target. Valid for kernels.
-    (omitted)           all/deepep/kernels: auto-detect via npu-smi,
+    (omitted)           all/kernels: auto-detect via npu-smi,
                         fallback to Ascend910_9382.
-                        deepep2: defaults to Ascend910B1.
 
 SOC_VERSION aliases:
     910B | Ascend910B1                       A2, native Gemma provider
     910  | 910C | Ascend910_9382             A3, native Gemma provider
     950  | Ascend950 | Ascend950{PR,DT}_*    Ascend 950, ACLNN Gemma provider
 
-For kernels, generic and detected Ascend 950 names compile with Ascend950PR_9599, the
-target of the 950 release package. Pass a concrete Ascend950PR_* or
-Ascend950DT_* target to override it; every Ascend 950 form selects the Ascend950 wheel
-provider. The full build does not support Ascend 950: build deepep and kernels
-separately.
+For kernels, generic and detected Ascend 950 names compile with Ascend950PR_9599,
+the target of the 950 release package. Pass a concrete Ascend950PR_* or
+Ascend950DT_* target to override it; every Ascend 950 form selects the Ascend950
+wheel provider. The full build does not support Ascend 950: attentions only covers
+910-series compute units, so build the modules separately.
 
 Options:
     -d             Enable debug logging.
@@ -80,9 +72,6 @@ Options:
 
 Examples:
     ./build.sh                                  # all modules, A3
-    ./build.sh -a deepep                        # auto-detect chip
-    ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
-    ./build.sh -a deepep2                       # A2 DeepEP
     ./build.sh -a kernels                       # sgl_kernel_npu, A3
     ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
     ./build.sh -a memory-saver                  # torch_memory_saver
@@ -127,18 +116,8 @@ function configure_build_target()
     case "$BUILD_TARGET" in
         all )
             BUILD_ATTENTIONS_MODULE="ON"
-            BUILD_DEEPEP_MODULE="ON"
             BUILD_KERNELS_MODULE="ON"
             BUILD_MEMORY_SAVER_MODULE="ON"
-            DEEPEP_VARIANT="deepep"
-            ;;
-        deepep )
-            BUILD_DEEPEP_MODULE="ON"
-            DEEPEP_VARIANT="deepep"
-            ;;
-        deepep2 )
-            BUILD_DEEPEP_MODULE="ON"
-            DEEPEP_VARIANT="deepep2"
             ;;
         kernels )
             BUILD_KERNELS_MODULE="ON"
@@ -150,18 +129,16 @@ function configure_build_target()
             BUILD_ATTENTIONS_MODULE="ON"
             ;;
         * )
-            die "Invalid target '$BUILD_TARGET'. Allowed values: all|deepep|deepep2|kernels|memory-saver|attentions"
+            die "Invalid target '$BUILD_TARGET'. Allowed values: all|kernels|memory-saver|attentions"
             ;;
     esac
 }
 
-# $1: pass "strict" to abort when npu-smi reports a chip this script does not
-# recognize. deepep picks its ops variant from the SoC, so guessing wrong there
-# is worse than stopping; every other target falls back to the A3 target that
-# used to be their unconditional default.
+# A chip this script does not recognize falls back to the A3 target that used to
+# be the unconditional default, so a build that never failed before still cannot
+# fail here.
 function detect_soc_version()
 {
-    local strict="${1:-}"
     local board_info=""
 
     # Build containers may not expose an NPU. Preserve the existing A3 default
@@ -198,17 +175,13 @@ function detect_soc_version()
         return
     fi
 
-    if [[ "$strict" == "strict" ]]; then
-        die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
-    fi
-
     SOC_VERSION="Ascend910_9382"
     echo "Cannot recognize the NPU from npu-smi output; falling back to SOC_VERSION=$SOC_VERSION"
 }
 
 # Fold friendly product names onto canonical SoC names. Kernel-only builds keep
-# an explicit concrete Ascend 950 compiler target; all/deepep still consume the generic
-# Ascend950 family name.
+# an explicit concrete Ascend 950 compiler target; the full build keeps the
+# generic Ascend950 family name, which it rejects below.
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
@@ -237,9 +210,8 @@ function normalize_soc_version()
             ;;
         * )
             # Anything else is a concrete AscendC compiler target (Ascend910B2,
-            # Ascend910_9391, ...). Pass it through to CMake untouched, as the
-            # 'kernels' target always has; per-target validation below decides
-            # whether it is actually usable.
+            # Ascend910_9391, ...). Pass it through to CMake untouched; the
+            # AscendC toolchain rejects a target it cannot compile for.
             ;;
     esac
 }
@@ -247,21 +219,15 @@ function normalize_soc_version()
 function configure_soc_version()
 {
     case "$BUILD_TARGET" in
-        all | deepep | kernels )
+        all | kernels )
             # No SOC_VERSION given: ask the local NPU. detect_soc_version falls
             # back to the A3 target when npu-smi is absent, so build containers
             # without a device keep producing the same artifacts as before.
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
                 SOC_VERSION="$REQUESTED_SOC_VERSION"
-            elif [[ "$BUILD_TARGET" == "deepep" ]]; then
-                detect_soc_version strict
             else
                 detect_soc_version
             fi
-            ;;
-        deepep2 )
-            # A2-only by definition, so there is nothing to detect.
-            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910B1}"
             ;;
         memory-saver )
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
@@ -275,51 +241,28 @@ function configure_soc_version()
         normalize_soc_version
     fi
 
-    # 'all' and 'deepep' both build deep_ep, which supports only these three
-    # SoCs. 'kernels' deliberately has no allow-list: it forwards whatever the
-    # caller passed to the AscendC compiler, as it always has.
+    # 'kernels' has no allow-list: whatever the caller passed goes to the AscendC
+    # compiler. AscendC needs a concrete SoC, and csrc/CMakeLists.txt derives
+    # arch35 and the Ascend 950-only ops from it, so the generic Ascend950 family
+    # name becomes the release package's Ascend950PR_9599 (build_and_release.yml);
+    # explicit Ascend950PR_* and Ascend950DT_* values pass through unchanged.
+    #
+    # 'all' also builds attentions, whose AscendC ops cover only 910-series
+    # compute units (csrc/attentions/build/build_ops.sh pins
+    # 'ascend910;ascend910b;ascend910_93' and the build entry takes no SoC), so a
+    # full Ascend 950 build would silently ship an attentions package without any
+    # Ascend 950 op. Refuse the combination instead of mislabelling the output.
     case "$BUILD_TARGET" in
-        all | deepep )
-            case "$SOC_VERSION" in
-                Ascend910B1 )
-                    DEEPEP_VARIANT="deepep2"
-                    ;;
-                Ascend910_9382 | Ascend950 )
-                    DEEPEP_VARIANT="deepep"
-                    ;;
-                * )
-                    die "Target '$BUILD_TARGET' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
-                    ;;
-            esac
-            ;;
-        deepep2 )
-            if [[ "$SOC_VERSION" != "Ascend910B1" ]]; then
-                die "Target 'deepep2' supports only Ascend910B1 (A2)."
-            fi
-            ;;
-    esac
-
-    case "$BUILD_TARGET" in
-        deepep | deepep2 )
-            CMAKE_SOC_VERSION="Ascend910_9382"
-            ;;
         all )
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                # One CMake configure serves both modules, but deep_ep builds
-                # with the A3 SoC (see build_cmake_modules) while Ascend 950 kernels
-                # need a concrete Ascend 950 SoC, so no single configure fits Ascend 950.
                 die "The full build does not support Ascend 950." \
-                    "Run './build.sh -a deepep 950' and './build.sh -a kernels 950' separately."
+                    "attentions only covers 910-series compute units; run './build.sh -a kernels 950', './build.sh -a attentions' and './build.sh -a memory-saver' separately."
             fi
             CMAKE_SOC_VERSION="$SOC_VERSION"
             ;;
         kernels )
             CMAKE_SOC_VERSION="$SOC_VERSION"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                # AscendC needs a concrete SoC, and csrc/CMakeLists.txt derives
-                # arch35 and the Ascend 950-only ops from it. Match the 950 release
-                # package (build_and_release.yml); explicit Ascend950PR_* and
-                # Ascend950DT_* values pass through unchanged.
                 CMAKE_SOC_VERSION="Ascend950PR_9599"
             fi
             ;;
@@ -335,20 +278,8 @@ function configure_soc_version()
     esac
     export SGL_KERNEL_NPU_BUILD_TARGET
 
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" && "$SOC_VERSION" == "Ascend950" ]]; then
-        DEEPEP_IS_A5_BUILD="ON"
-        export ASCEND_COMPUTE_UNIT="ascend950"
-    else
-        unset ASCEND_COMPUTE_UNIT
-    fi
-
     echo "Build target: $BUILD_TARGET"
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
-        echo "DeepEP variant: $DEEPEP_VARIANT"
-        echo "DeepEP SOC_VERSION: $SOC_VERSION"
-        echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
-    fi
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
         echo "Wheel SOC_VERSION: $SGL_KERNEL_NPU_BUILD_TARGET"
     fi
@@ -453,32 +384,8 @@ function ensure_wheel_package()
     fi
 }
 
-function prepare_deepep_build()
-{
-    (
-        cd "$PROJECT_ROOT/csrc"
-        chmod +x deepep_cmake_build.sh
-        chmod +x deepep/build.sh
-        chmod +x deepep/compile_ascend_proj.sh
-
-        echo "./deepep_cmake_build.sh all $SOC_VERSION"
-        ./deepep_cmake_build.sh all "$SOC_VERSION"
-
-        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION $DEEPEP_VARIANT"
-        bash ./deepep/compile_ascend_proj.sh \
-            ./deepep \
-            "$SOC_VERSION" \
-            "$DEEPEP_VARIANT"
-    )
-}
-
-# The top-level CMake project builds two independently controlled components:
-# - BUILD_DEEPEP_MODULE=ON: the DeepEP host/pybind adapter (deep_ep_cpp)
-# - BUILD_KERNELS_MODULE=ON: the sgl_kernel_npu host library and AscendC kernels
-#
-# Ascend950 is a DeepEP build alias, but it is not accepted by AscendC's
-# host_config.cmake. Keep the top-level CMake SOC on the supported A3 value;
-# A5 host differences are enabled separately through DEEPEP_IS_A5_BUILD.
+# The top-level CMake project builds the sgl_kernel_npu host library and its
+# AscendC kernels, selected by BUILD_KERNELS_MODULE.
 function build_cmake_modules()
 {
     local cmake_args=(
@@ -486,8 +393,6 @@ function build_cmake_modules()
         "-DASCEND_HOME_PATH=$ASCEND_HOME_PATH"
         "-DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR"
         "-DSOC_VERSION=$CMAKE_SOC_VERSION"
-        "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
-        "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
         "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"
         "-DBUILD_CATLASS_MODULE=${BUILD_CATLASS_MODULE:-OFF}"
     )
@@ -508,40 +413,6 @@ function build_cmake_modules()
     cmake --build "$BUILD_DIR" --target install -j 16
 }
 
-function build_deepep_kernels()
-{
-    local kernel_dir=""
-    local custom_opp_dir="${PROJECT_ROOT}/python/deep_ep/deep_ep"
-    local custom_opp_file=""
-
-    if [[ "$DEEPEP_VARIANT" == "deepep2" ]]; then
-        kernel_dir="${PROJECT_ROOT}/csrc/deepep/ops2"
-    else
-        kernel_dir="${PROJECT_ROOT}/csrc/deepep/ops"
-    fi
-
-    (
-        cd "$kernel_dir"
-        chmod +x build.sh
-        ./build.sh
-
-        custom_opp_file="$(find ./build_out \
-            -maxdepth 1 \
-            -type f \
-            -name "custom_opp*.run" \
-            -print \
-            -quit)"
-        if [[ -z "$custom_opp_file" ]]; then
-            die "Cannot find custom_opp*.run under $kernel_dir/build_out"
-        fi
-
-        echo "Found run package: $custom_opp_file"
-        chmod +x "$custom_opp_file"
-        rm -rf "$custom_opp_dir/vendors"
-        "$custom_opp_file" --install-path="$custom_opp_dir"
-    )
-}
-
 function build_attentions_kernels()
 {
     (
@@ -549,19 +420,6 @@ function build_attentions_kernels()
         echo "Building attentions kernels"
         chmod +x build.sh
         ./build.sh
-    )
-}
-
-function make_deepep_package()
-{
-    (
-        cd "$PROJECT_ROOT/python/deep_ep"
-        cp -v "$OUTPUT_DIR"/lib/* "$PROJECT_ROOT/python/deep_ep/deep_ep/"
-        rm -rf build dist
-        python3 setup.py clean --all
-        python3 setup.py bdist_wheel
-        mv -v dist/deep_ep*.whl "$OUTPUT_DIR/"
-        rm -rf dist
     )
 }
 
@@ -616,14 +474,8 @@ function main()
     echo "CANN path: $ASCEND_HOME_PATH"
 
     # Build native components first. All module selection is controlled here.
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
-        prepare_deepep_build
-    fi
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         build_cmake_modules
-    fi
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
-        build_deepep_kernels
     fi
     if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
         build_attentions_kernels
@@ -632,9 +484,6 @@ function main()
     ensure_wheel_package
 
     # Package only the modules selected above.
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
-        make_deepep_package
-    fi
     if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         make_sgl_kernel_npu_package
     fi
