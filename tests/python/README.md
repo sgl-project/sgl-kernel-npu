@@ -114,8 +114,13 @@ executor = check_accuracy(
 ```
 
 Use `skip_acc_check=True` to skip comparison unless overridden by the CLI.
-An unsupported tested generation skips the case; a missing implementation or
-unavailable reference fails. Inspect skip reasons with `-rs`.
+An unsupported tested architecture (`arch22` or `arch35`) skips the case; a missing
+implementation or unavailable reference fails. Inspect skip reasons with `-rs`.
+Architecture detection runs when the operator registry is imported and uses
+`acl.rt.get_device_info(0, 601)`. Keep the CANN environment configured so Python
+can import `acl`; detection failures and unknown architectures fail rather than skip.
+All visible devices must share an architecture; `--npu-device` selects the test
+device but does not change the cached architecture.
 
 ### `check_performance`
 
