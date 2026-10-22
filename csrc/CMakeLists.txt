@@ -103,6 +103,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/cache_planner/op_host/cache_planner.cpp
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_copy_sfa.cpp
     )
 endif()
 # A5-only host sources
@@ -157,6 +159,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/cache_planner/op_kernel/cache_planner_kernel.cpp
     )
 endif()
 # catlass fp8 no-workspace kernels: double-gated
@@ -344,6 +347,23 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS fused_lightning_indexer_manage_kernel)
+    ascendc_library(fused_scatter_copy_sparse_flash_attention_combined_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel/fused_scatter_copy_sparse_flash_attention_combined.cpp
+    )
+    ascendc_include_directories(fused_scatter_copy_sparse_flash_attention_combined_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+        ${ASCEND_INCLUDE_DIR}
+    )
+    ascendc_compile_definitions(fused_scatter_copy_sparse_flash_attention_combined_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS fused_scatter_copy_sparse_flash_attention_combined_kernel)
 
 endif()
 
@@ -410,6 +430,9 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host

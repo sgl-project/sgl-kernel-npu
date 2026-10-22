@@ -13,12 +13,11 @@
 #include <acl/acl.h>
 #include <driver/ascend_hal_define.h>
 
-#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <sys/shm.h>
 
@@ -31,51 +30,33 @@ namespace {
 
 constexpr int kShmWriteOwn = 0600;
 
+enum class ShmRegisterBackend {
+    ACL,
+    HAL,
+};
+
 struct ShmEntry {
     void *host_ptr = nullptr;
     void *dev_ptr = nullptr;
     int shm_id = -1;
     uint64_t size = 0;
     int capacity = 0;
-    int device_id = -1;
+    int user_device_id = -1;
+    int driver_device_id = -1;
+    uint32_t register_flag = 0;
     ShmAllocatorMode mode = SHM_ALLOCATOR_MODE_PCIE_TH_DEV;
+    ShmRegisterBackend register_backend = ShmRegisterBackend::HAL;
     bool owns_host_memory = false;
     bool is_registered = false;
 };
 
 std::mutex g_mu;
 std::unordered_map<std::string, ShmEntry> g_entries;
-std::unordered_set<int> g_acl_initialized_devices;
 ShmAllocatorMode g_mode = SHM_ALLOCATOR_MODE_AUTO;
-
-bool HasPrefix(const std::string &s, const std::string &prefix)
-{
-    return s.rfind(prefix, 0) == 0;
-}
-
-ShmAllocatorMode DetectModeByEnv()
-{
-    const char *soc = std::getenv("SOC_VERSION");
-    if (soc == nullptr) {
-        soc = std::getenv("ASCEND_SOC_VERSION");
-    }
-    if (soc == nullptr) {
-        return SHM_ALLOCATOR_MODE_PCIE_TH_DEV;
-    }
-
-    std::string soc_name(soc);
-    if (HasPrefix(soc_name, "Ascend910_93") || HasPrefix(soc_name, "910_93")) {
-        return SHM_ALLOCATOR_MODE_SVM_MAP_DEV;
-    }
-    return SHM_ALLOCATOR_MODE_PCIE_TH_DEV;
-}
 
 ShmAllocatorMode ResolveMode()
 {
-    if (g_mode != SHM_ALLOCATOR_MODE_AUTO) {
-        return g_mode;
-    }
-    return DetectModeByEnv();
+    return g_mode;
 }
 
 uint32_t GetRegisterFlag(ShmAllocatorMode mode)
@@ -88,22 +69,16 @@ uint32_t GetRegisterFlag(ShmAllocatorMode mode)
 
 int EnsureAclDevice(int device_id)
 {
-    if (g_acl_initialized_devices.find(device_id) != g_acl_initialized_devices.end()) {
-        return 0;
-    }
-
     int32_t current_device = -1;
     aclError ret = aclrtGetDevice(&current_device);
     if (ret == ACL_ERROR_NONE) {
         if (current_device == device_id) {
-            g_acl_initialized_devices.insert(device_id);
             return 0;
         }
         ret = aclrtSetDevice(device_id);
         if (ret != ACL_ERROR_NONE) {
             return -2;
         }
-        g_acl_initialized_devices.insert(device_id);
         return 0;
     }
 
@@ -115,7 +90,6 @@ int EnsureAclDevice(int device_id)
     if (ret != ACL_ERROR_NONE) {
         return -2;
     }
-    g_acl_initialized_devices.insert(device_id);
     return 0;
 }
 
@@ -159,7 +133,7 @@ void FreeHostMemory(const ShmEntry &entry)
     }
 }
 
-int RegisterHostPtrLocked(const char *name, int device_id, void *host_ptr, uint64_t size, int capacity,
+int RegisterHostPtrLocked(const char *name, int user_device_id, void *host_ptr, uint64_t size, int capacity,
                           bool owns_host_memory, uint64_t *out_dev_ptr)
 {
     auto it = g_entries.find(name);
@@ -173,24 +147,59 @@ int RegisterHostPtrLocked(const char *name, int device_id, void *host_ptr, uint6
         }
     }
 
-    int ret = EnsureAclDevice(device_id);
+    int ret = EnsureAclDevice(user_device_id);
     if (ret != 0) {
         return ret;
     }
 
+    int32_t driver_device_id = -1;
     ShmAllocatorMode mode = ResolveMode();
+    // AUTO uses the public ACL registration API; HAL registration remains opt-in through shm_set_mode.
+    ShmRegisterBackend backend = mode == SHM_ALLOCATOR_MODE_AUTO ? ShmRegisterBackend::ACL : ShmRegisterBackend::HAL;
     void *dev_ptr = nullptr;
-    uint32_t flag = GetRegisterFlag(mode);
-    if (halHostRegister(host_ptr, size, flag, static_cast<UINT32>(device_id), &dev_ptr) != DRV_ERROR_NONE) {
-        return -4;
+    uint32_t flag = 0;
+    if (backend == ShmRegisterBackend::ACL) {
+        aclError register_ret = aclrtHostRegister(host_ptr, size, ACL_HOST_REGISTER_MAPPED, &dev_ptr);
+        if (register_ret != ACL_SUCCESS) {
+            std::fprintf(stderr,
+                         "[shm_allocator] aclrtHostRegister failed: ret=%d user_device_id=%d type=%u bytes=%llu\n",
+                         static_cast<int>(register_ret), user_device_id,
+                         static_cast<unsigned>(ACL_HOST_REGISTER_MAPPED), static_cast<unsigned long long>(size));
+            return -4;
+        }
+        flag = static_cast<uint32_t>(ACL_HOST_REGISTER_MAPPED);
+    } else {
+        aclError mapping_ret = aclrtGetLogicDevIdByUserDevId(user_device_id, &driver_device_id);
+        if (mapping_ret != ACL_ERROR_NONE || driver_device_id < 0) {
+            std::fprintf(stderr,
+                         "[shm_allocator] aclrtGetLogicDevIdByUserDevId failed: ret=%d user_device_id=%d "
+                         "driver_device_id=%d\n",
+                         static_cast<int>(mapping_ret), user_device_id, driver_device_id);
+            return -7;
+        }
+
+        flag = GetRegisterFlag(mode);
+        drvError_t register_ret =
+            halHostRegister(host_ptr, size, flag, static_cast<UINT32>(driver_device_id), &dev_ptr);
+        if (register_ret != DRV_ERROR_NONE) {
+            std::fprintf(stderr,
+                         "[shm_allocator] halHostRegister failed: ret=%d user_device_id=%d driver_device_id=%d "
+                         "flag=%u bytes=%llu\n",
+                         static_cast<int>(register_ret), user_device_id, driver_device_id, flag,
+                         static_cast<unsigned long long>(size));
+            return -4;
+        }
     }
 
     if (it != g_entries.end()) {
         it->second.dev_ptr = dev_ptr;
         it->second.size = size;
         it->second.capacity = capacity > 0 ? capacity : 1;
-        it->second.device_id = device_id;
+        it->second.user_device_id = user_device_id;
+        it->second.driver_device_id = driver_device_id;
+        it->second.register_flag = flag;
         it->second.mode = mode;
+        it->second.register_backend = backend;
         it->second.owns_host_memory = owns_host_memory || it->second.owns_host_memory;
         it->second.is_registered = true;
         *out_dev_ptr = reinterpret_cast<uint64_t>(dev_ptr);
@@ -203,8 +212,11 @@ int RegisterHostPtrLocked(const char *name, int device_id, void *host_ptr, uint6
     entry.shm_id = -1;
     entry.size = size;
     entry.capacity = capacity > 0 ? capacity : 1;
-    entry.device_id = device_id;
+    entry.user_device_id = user_device_id;
+    entry.driver_device_id = driver_device_id;
+    entry.register_flag = flag;
     entry.mode = mode;
+    entry.register_backend = backend;
     entry.owns_host_memory = owns_host_memory;
     entry.is_registered = true;
     g_entries.emplace(name, entry);
@@ -331,7 +343,7 @@ void *shm_get_host_ptr(const char *name)
     return it->second.host_ptr;
 }
 
-int shm_free_by_name(const char *name, int device_id)
+int shm_free_by_name(const char *name, int /*device_id*/)
 {
     if (name == nullptr) {
         return -1;
@@ -342,27 +354,68 @@ int shm_free_by_name(const char *name, int device_id)
     if (it == g_entries.end()) {
         return -2;
     }
-    if (it->second.is_registered &&
-        halHostUnregister(it->second.host_ptr, static_cast<UINT32>(device_id)) != DRV_ERROR_NONE) {
-        return -3;
+    if (it->second.is_registered) {
+        int unregister_status = 0;
+        int unregister_ret = 0;
+        if (it->second.register_backend == ShmRegisterBackend::ACL) {
+            unregister_status = EnsureAclDevice(it->second.user_device_id);
+            if (unregister_status == 0) {
+                unregister_ret = static_cast<int>(aclrtHostUnregister(it->second.host_ptr));
+            }
+        } else {
+            unregister_ret = static_cast<int>(
+                halHostUnregister(it->second.host_ptr, static_cast<UINT32>(it->second.driver_device_id)));
+            unregister_status = unregister_ret == DRV_ERROR_NONE ? 0 : -1;
+        }
+        if (unregister_status != 0 || unregister_ret != 0) {
+            std::fprintf(stderr,
+                         "[shm_allocator] unregister failed: backend=%s ret=%d status=%d user_device_id=%d "
+                         "driver_device_id=%d flag=%u bytes=%llu\n",
+                         it->second.register_backend == ShmRegisterBackend::ACL ? "acl" : "hal", unregister_ret,
+                         unregister_status, it->second.user_device_id, it->second.driver_device_id,
+                         it->second.register_flag, static_cast<unsigned long long>(it->second.size));
+            return -3;
+        }
     }
     FreeHostMemory(it->second);
     g_entries.erase(it);
     return 0;
 }
 
-int shm_free_all(int device_id)
+int shm_free_all(int /*device_id*/)
 {
     std::lock_guard<std::mutex> lock(g_mu);
-    for (auto &kv : g_entries) {
-        if (kv.second.is_registered) {
-            (void)halHostUnregister(kv.second.host_ptr, static_cast<UINT32>(device_id));
+    int ret = 0;
+    for (auto it = g_entries.begin(); it != g_entries.end();) {
+        if (it->second.is_registered) {
+            int unregister_status = 0;
+            int unregister_ret = 0;
+            if (it->second.register_backend == ShmRegisterBackend::ACL) {
+                unregister_status = EnsureAclDevice(it->second.user_device_id);
+                if (unregister_status == 0) {
+                    unregister_ret = static_cast<int>(aclrtHostUnregister(it->second.host_ptr));
+                }
+            } else {
+                unregister_ret = static_cast<int>(
+                    halHostUnregister(it->second.host_ptr, static_cast<UINT32>(it->second.driver_device_id)));
+                unregister_status = unregister_ret == DRV_ERROR_NONE ? 0 : -1;
+            }
+            if (unregister_status != 0 || unregister_ret != 0) {
+                std::fprintf(stderr,
+                             "[shm_allocator] unregister failed: backend=%s ret=%d status=%d user_device_id=%d "
+                             "driver_device_id=%d flag=%u bytes=%llu\n",
+                             it->second.register_backend == ShmRegisterBackend::ACL ? "acl" : "hal", unregister_ret,
+                             unregister_status, it->second.user_device_id, it->second.driver_device_id,
+                             it->second.register_flag, static_cast<unsigned long long>(it->second.size));
+                ret = -3;
+                ++it;
+                continue;
+            }
         }
-        FreeHostMemory(kv.second);
+        FreeHostMemory(it->second);
+        it = g_entries.erase(it);
     }
-    g_entries.clear();
-    g_acl_initialized_devices.erase(device_id);
-    return 0;
+    return ret;
 }
 
 }  // extern "C"

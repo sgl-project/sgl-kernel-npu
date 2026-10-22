@@ -18,9 +18,9 @@ extern "C" {
 #endif
 
 typedef enum ShmAllocatorMode {
-    SHM_ALLOCATOR_MODE_AUTO = 0,
-    SHM_ALLOCATOR_MODE_SVM_MAP_DEV = 1,
-    SHM_ALLOCATOR_MODE_PCIE_TH_DEV = 2
+    SHM_ALLOCATOR_MODE_AUTO = 0,         // Use ACL host registration (default).
+    SHM_ALLOCATOR_MODE_SVM_MAP_DEV = 1,  // Explicitly use HAL SVM registration.
+    SHM_ALLOCATOR_MODE_PCIE_TH_DEV = 2   // Explicitly use HAL PCIe-through registration.
 } ShmAllocatorMode;
 
 int shm_create(const char *name, uint64_t size, void **out_host_ptr);
