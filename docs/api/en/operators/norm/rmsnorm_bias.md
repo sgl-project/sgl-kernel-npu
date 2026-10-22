@@ -2,12 +2,12 @@
 
 ## Hardware support
 
-| Implementation | A2 | A3 | A5 |
-| --- | --- | --- | --- |
-| `triton` | Unverified | Supported | Unverified |
-| `torch_native` | Unverified | Supported | Unverified |
-| `tilelang` | Not implemented | Not implemented | Not implemented |
-| `ascendc` | Not implemented | Not implemented | Not implemented |
+| Implementation | arch22 | arch35 |
+| --- | --- | --- |
+| `triton` | Supported | Unverified |
+| `torch_native` | Supported | Unverified |
+| `tilelang` | Not implemented | Not implemented |
+| `ascendc` | Not implemented | Not implemented |
 
 ## Signature
 
