@@ -117,7 +117,7 @@ def test(
             )
             simulated_gemm_x = (
                 per_token_cast_back(*packed_recv_x)
-                if dispatch_use_fp8
+                if isinstance(packed_recv_x, tuple)
                 else packed_recv_x
             )
 
@@ -193,14 +193,22 @@ def test(
             topk_idx,
             aligned_num_tokens,
             num_experts,
-            use_fp8=False,
+            use_fp8=dispatch_use_fp8,
+            use_ue8m0=dispatch_use_ue8m0,
+            use_mxfp4=dispatch_use_mxfp4,
+            use_mxfp8=dispatch_use_mxfp8,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
         )
+        simulated_gemm_x_local = (
+            per_token_cast_back(*recv_x)
+            if isinstance(recv_x, tuple)
+            else recv_x
+        )
         combined_x, event, hook = buffer.low_latency_combine(
-            recv_x,
+            simulated_gemm_x_local,
             topk_idx,
             topk_weights,
             handle,
@@ -284,8 +292,13 @@ def test(
 
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
+    simulated_gemm_x_local = (
+        per_token_cast_back(*recv_x)
+        if isinstance(recv_x, tuple)
+        else recv_x
+    )
     combine_args = {
-        "x": recv_x,
+        "x": simulated_gemm_x_local,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
         "handle": handle,
@@ -416,29 +429,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
     )
-    parser.add_argument(
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
         "--use-fp8",
         dest="use_fp8",
         action="store_true",
         help="Use use_fp8=True bool flag for low-latency alltoall dispatch. "
-        "A5 -> not supported (use --use-mxfp8 or --use-mxfp4), A2/A3 -> int8 (with warning). "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> not supported (use --use-mxfp8 or --use-mxfp4), A2/A3 -> int8 (with warning).",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-mxfp8",
         dest="use_mxfp8",
         action="store_true",
         help="Use use_mxfp8=True bool flag for low-latency alltoall dispatch. "
-        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported.",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-mxfp4",
         dest="use_mxfp4",
         action="store_true",
         help="Use use_mxfp4=True bool flag for low-latency alltoall dispatch. "
-        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported.",
     )
     args = parser.parse_args()
 

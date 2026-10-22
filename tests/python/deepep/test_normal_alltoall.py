@@ -444,29 +444,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to enable dynamic tokens for testing",
     )
-    parser.add_argument(
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
         "--use-mxfp8",
         dest="use_mxfp8",
         action="store_true",
         help="Use use_mxfp8=True bool flag for normal dispatch. "
-        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported.",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-mxfp4",
         dest="use_mxfp4",
         action="store_true",
         help="Use use_mxfp4=True bool flag for normal dispatch. "
-        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported.",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-fp8",
         dest="use_fp8",
         action="store_true",
         help="Use use_fp8=True bool flag for normal dispatch. Architecture-aware: "
-        "A5 -> not supported, A2/A3 -> int8 (with warning). "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> not supported, A2/A3 -> int8 (with warning).",
     )
     args = parser.parse_args()
 
