@@ -19,7 +19,7 @@ class UnsupportedGenerationError(RuntimeError):
         self.supported_generations = supported_generations
         supported = sorted(g.value for g in supported_generations)
         super().__init__(
-            f"{op_name} [impl={impl}] does not support SoC={hardware.soc_name}, "
+            f"{op_name} [impl={impl}] does not support "
             f"generation={hardware.generation.value}; supported generations={supported}"
         )
 
