@@ -1282,7 +1282,8 @@ def check_a5_scale_sensitivity(
     # pair. Dividing weights by 2**delta while adding delta to E8M0 exponents
     # preserves the effective weights, including through the nonlinear L1 path.
     # A misplaced scale no longer cancels its corresponding weight adjustment.
-    generator = torch.Generator().manual_seed(args.seed + rank)
+    # init_dist sets the default device to NPU; keep the seeded draw on CPU.
+    generator = torch.Generator(device="cpu").manual_seed(args.seed + rank)
     fp4 = args.quant_mode in A5_FP4_WEIGHT_MODES
 
     def original_format(tensor, template, layer):
@@ -1303,7 +1304,7 @@ def check_a5_scale_sensitivity(
         base_weights, adjusted_weights, adjusted_scales = [], [], []
         for template, scale in zip(weights[weight_key], weights[scale_key]):
             delta = torch.randint(
-                0, 3, scale.shape, dtype=torch.uint8, generator=generator
+                0, 3, scale.shape, dtype=torch.uint8, device="cpu", generator=generator
             ).to(device)
             expanded = delta.flatten(-2).repeat_interleave(16 if fp4 else 32, dim=-1)
             bits = torch.randint(
