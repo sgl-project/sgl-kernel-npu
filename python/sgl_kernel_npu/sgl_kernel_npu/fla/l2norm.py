@@ -38,7 +38,7 @@ def l2norm_fwd_kernel1(
     tl.store(y + cols, b_y, mask=mask)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["NB", "T", "MBS"])
 def l2norm_fwd_kernel_opt(
     x,
     y,
