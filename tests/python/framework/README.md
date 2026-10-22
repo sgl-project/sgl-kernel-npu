@@ -1,8 +1,5 @@
 # 公共框架 UT（NPU 环境）
 
-完整的[实现结构、92个测试函数说明和逐参数覆盖表](UT_COVERAGE.md)见 `UT_COVERAGE.md`。
-发布分支：`cl-vv-h/sgl-kernel-npu:framework-ut-main-npu`。
-
 本目录验证公共算子框架及公共精度/性能测试工具：注册、查询、分发、导入隔离、代际管理、
 精度标准、输出比较、性能采集编排、数据解析和报告。
 当前基线：`sgl-project/sgl-kernel-npu:main`，提交 `df2b9f168ffb5635c62b6dc59d22c195ae1372c6`，
