@@ -1,5 +1,14 @@
 # Operator tests
 
+Public framework and accuracy-helper unit tests are documented in
+[framework/README.md](framework/README.md). Run all 176 cases with:
+
+```bash
+python -m pytest tests/python/framework -v -rs -x --npu-device=0
+```
+
+These unit tests require an NPU and do not benchmark production kernels.
+
 ## Run tests
 
 Run from the repository root with the current `sgl_kernel_npu` installed,
