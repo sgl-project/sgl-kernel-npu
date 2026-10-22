@@ -477,8 +477,8 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --use-fp8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type int8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type bf16
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --use-fp8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py
 
   test-build-deepep-a2:
     needs: get-changed-files
