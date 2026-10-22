@@ -4,7 +4,6 @@ project(sgl-kernel-npu LANGUAGES CXX)
 option(BUILD_PYTHON "build python SDK" ON)
 option(BUILD_TESTS  "build test or not" OFF)
 
-option(BUILD_DEEPEP_MODULE "build deepep" ON)
 option(BUILD_KERNELS_MODULE  "build kernels" ON)
 option(BUILD_CATLASS_MODULE  "build catlass ops within kernels" OFF)
 
@@ -70,8 +69,4 @@ endif()
 
 if (BUILD_KERNELS_MODULE)
     add_subdirectory(csrc)
-endif ()
-
-if (BUILD_DEEPEP_MODULE)
-    add_subdirectory(csrc/deepep)
 endif ()

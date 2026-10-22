@@ -5,7 +5,6 @@ on:
     branches: [ main ]
     paths:
       - "csrc/**"
-      - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
       - "build.sh"

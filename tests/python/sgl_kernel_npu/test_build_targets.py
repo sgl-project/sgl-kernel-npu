@@ -57,7 +57,6 @@ def resolve_soc(target, chip=None, requested_soc=""):
         source ./build.sh
         BUILD_TARGET={target}
         REQUESTED_SOC_VERSION="{requested_soc}"
-        BUILD_DEEPEP_MODULE=ON
         BUILD_KERNELS_MODULE=ON
         configure_soc_version
     """
@@ -201,20 +200,11 @@ def test_explicit_soc_version_skips_detection(requested_soc, wheel_target, cmake
 @pytest.mark.parametrize("requested_soc", ["", "Ascend950PR_9599"])
 @needs_posix_shell
 def test_full_build_rejects_ascend950(requested_soc):
-    """deep_ep needs the A3 CMake SoC and Ascend 950 kernels a concrete one."""
+    """attentions covers only 910-series compute units, so 'all' cannot target 950."""
     done = resolve_soc("all", chip="950", requested_soc=requested_soc)
 
     assert done.returncode != 0
     assert "The full build does not support Ascend 950" in done.stdout + done.stderr
-
-
-@needs_posix_shell
-def test_deepep_still_refuses_an_unrecognized_chip():
-    """deepep picks its ops variant from the SoC, so it must not guess."""
-    done = resolve_soc("deepep", chip="unknown")
-
-    assert done.returncode != 0
-    assert "Cannot determine the device type" in done.stdout + done.stderr
 
 
 def test_source_tree_keeps_providers_out_of_the_package():
