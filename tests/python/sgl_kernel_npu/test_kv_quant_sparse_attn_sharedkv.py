@@ -324,6 +324,85 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         self.assertEqual(lse.dtype, torch.float32)
         self.assertEqual(lse.numel(), 0)
 
+    def test_host_metadata_refreshes_graph_buffer(self):
+        inputs, q_cpu, kv_reference, block_table, _, block_size = (
+            self._make_paged_swa_inputs(q_length=1, ori_win_left=255)
+        )
+        q_cpu = torch.cat((q_cpu, q_cpu), dim=2)
+        inputs["q"] = q_cpu.to(self.device)
+        inputs["sinks"] = torch.full(
+            (128,), -1.0e4, dtype=torch.float32, device=self.device
+        )
+
+        def host_metadata(kv_length):
+            kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32)
+            return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(
+                num_heads_q=128,
+                num_heads_kv=1,
+                head_dim=512,
+                layout_q="BSND",
+                layout_kv="PA_ND",
+                seqused_kv=kv_length_cpu,
+                batch_size=1,
+                max_seqlen_q=1,
+                max_seqlen_kv=256,
+                ori_win_left=255,
+                has_ori_kv=True,
+                has_cmp_kv=False,
+                kv_quant_mode=1,
+                tile_size=64,
+                rope_head_dim=64,
+            )
+
+        inputs["metadata"] = host_metadata(256)
+        stable_metadata = inputs["metadata"]
+        stable_ptr = stable_metadata.data_ptr()
+
+        torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        graph = torch_npu.npu.NPUGraph()
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(
+            graph, stream=capture_stream, auto_dispatch_capture=True
+        ):
+            graph_out, _ = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+
+        schedules = []
+        expected_outputs = []
+        for kv_length in (128, 256):
+            # SGLang refreshes lengths and metadata before replay. The host
+            # producer reads CPU int32 lengths; the captured kernel reads NPU.
+            kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32)
+            inputs["seqused_kv"].copy_(kv_length_cpu.to(self.device))
+            fresh = host_metadata(kv_length)
+            stable_metadata.copy_(fresh)
+            torch_npu.npu.synchronize()
+            graph.replay()
+            torch_npu.npu.synchronize()
+
+            expected = _reference_paged_swa(
+                q_cpu,
+                kv_reference,
+                block_table,
+                kv_length,
+                block_size,
+                inputs["softmax_scale"],
+                inputs["ori_win_left"],
+                inputs["ori_win_right"],
+            )
+            torch.testing.assert_close(
+                graph_out.cpu().float(), expected, rtol=2e-2, atol=2e-2
+            )
+            self.assertEqual(stable_metadata.data_ptr(), stable_ptr)
+            schedules.append(stable_metadata.cpu().clone())
+            expected_outputs.append(expected)
+
+        self.assertFalse(torch.equal(schedules[0], schedules[1]))
+        self.assertGreater(
+            (expected_outputs[0] - expected_outputs[1]).abs().max().item(), 1e-3
+        )
+
     def _run_sparse_case(self, physical_slots, block_count):
         device = self.device
         block_size = 16

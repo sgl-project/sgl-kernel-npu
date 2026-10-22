@@ -4,6 +4,9 @@
 `int32[1024]` task table consumed by the Ascend 950
 `kv_quant_sparse_attn_sharedkv` kernel. Sequence-length inputs are contiguous
 CPU `int32` vectors. The result is copied to the current NPU device.
+The operator also accepts SGLang's `kv_quant_mode=1`, `tile_size=64`, and
+`rope_head_dim=64` keyword arguments. Other values are rejected because this
+metadata implementation only supports that quantized A5 configuration.
 
 The layout follows the vLLM Ascend A5 operator at commit `683b6c009d`:
 36 cube-core slots of 9 integers, then 72 vector-core slots of 8 integers.
@@ -27,6 +30,10 @@ source kernel's `int32[1024]` metadata layout, so reusing that CANN producer is
 the preferred integration path when its output is compatible. It avoids a
 per-step NPU-to-CPU length transfer or CPU scheduling plus a host-to-NPU copy.
 The host operator above remains useful independently of that CANN dependency.
+When using it with SGLang, the caller must supply its CPU sequence-length
+mirrors. For NPU graph replay, generate fresh metadata before replay and copy
+it into the stable NPU metadata tensor captured by the graph. The host metadata
+operator itself is called outside graph capture.
 
 Run `test_tnd_consumes_sglang_cann_metadata` to check C1 decode and prefill
 attention using the CANN producer directly. The test requires the SGLang CANN

@@ -50,9 +50,41 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
             ori_win_right=0,
             has_ori_kv=True,
             has_cmp_kv=False,
+            kv_quant_mode=1,
+            tile_size=64,
+            rope_head_dim=64,
         )
         arguments.update(overrides)
         return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**arguments)
+
+    def test_host_schema_accepts_sglang_quant_kwargs(self):
+        schema = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host.default._schema
+        arguments = {argument.name: argument for argument in schema.arguments}
+        for name, value in (
+            ("kv_quant_mode", 1),
+            ("tile_size", 64),
+            ("rope_head_dim", 64),
+        ):
+            with self.subTest(argument=name):
+                self.assertEqual(arguments[name].default_value, value)
+
+        cu_q = torch.tensor([0, 1], dtype=torch.int32)
+        seq_kv = torch.tensor([128], dtype=torch.int32)
+        self._metadata(64, cu_q, seq_kv)
+        for name, value in (
+            ("kv_quant_mode", 0),
+            ("tile_size", 128),
+            ("rope_head_dim", 128),
+        ):
+            with self.subTest(argument=name):
+                with self.assertRaisesRegex(RuntimeError, "expected kv_quant_mode"):
+                    self._metadata(64, cu_q, seq_kv, **{name: value})
+
+    def test_still_requires_cpu_lengths(self):
+        cu_q = torch.tensor([0, 1], dtype=torch.int32, device=self.device)
+        seq_kv = torch.tensor([128], dtype=torch.int32)
+        with self.assertRaisesRegex(RuntimeError, "contiguous CPU int32"):
+            self._metadata(64, cu_q, seq_kv)
 
     def _assert_valid_schedule(self, metadata, batch_size):
         self.assertEqual(metadata.device, self.device)

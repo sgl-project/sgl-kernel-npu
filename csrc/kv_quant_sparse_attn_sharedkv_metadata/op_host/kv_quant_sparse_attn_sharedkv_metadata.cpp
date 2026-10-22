@@ -908,8 +908,12 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     const std::string &layout_kv, const c10::optional<at::Tensor> &cu_seqlens_q,
     const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size, int64_t max_seqlen_q, int64_t max_seqlen_kv,
     int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left,
-    int64_t ori_win_right, bool has_ori_kv, bool has_cmp_kv)
+    int64_t ori_win_right, bool has_ori_kv, bool has_cmp_kv, int64_t kv_quant_mode, int64_t tile_size,
+    int64_t rope_head_dim)
 {
+    TORCH_CHECK(kv_quant_mode == 1 && tile_size == 64 && rope_head_dim == 64,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: expected kv_quant_mode=1, tile_size=64, "
+                "rope_head_dim=64");
     constexpr auto MAX_I32 = static_cast<int64_t>(std::numeric_limits<int32_t>::max());
     int64_t resolvedBatchSize = batch_size;
     if (resolvedBatchSize == 0 && cu_seqlens_q.has_value()) {

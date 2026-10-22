@@ -253,7 +253,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int batch_size=0, int max_seqlen_q=0, int max_seqlen_kv=0, "
         "int cmp_topk=0, int cmp_ratio=1, int ori_mask_mode=4, int cmp_mask_mode=3, "
         "int ori_win_left=127, int ori_win_right=0, "
-        "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
+        "bool has_ori_kv=True, bool has_cmp_kv=True, "
+        "int kv_quant_mode=1, int tile_size=64, int rope_head_dim=64) -> Tensor");
 
     m.def(
         "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "

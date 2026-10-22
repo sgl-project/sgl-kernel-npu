@@ -241,7 +241,8 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     int64_t max_seqlen_q, int64_t max_seqlen_kv, int64_t cmp_topk,
     int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
     int64_t ori_win_left, int64_t ori_win_right, bool has_ori_kv,
-    bool has_cmp_kv);
+    bool has_cmp_kv, int64_t kv_quant_mode, int64_t tile_size,
+    int64_t rope_head_dim);
 
 void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
