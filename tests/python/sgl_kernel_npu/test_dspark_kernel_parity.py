@@ -274,13 +274,17 @@ def _case_commit_kv_proj(tc):
         torch.testing.assert_close(kv_got.float(), kv_ref.float(), rtol=2e-2, atol=2e-3)
     # fp8 blockwise weight dequant path (2x3 grid of 128x128 blocks).
     out_dim, in_dim, block = 192, 384, 128
-    w8 = torch.randn(out_dim, in_dim, device=DEVICE, generator=g).to(
-        torch.float8_e4m3fn
+    # A2/A3 cannot convert FP8 with native torch NPU ops; prepare on CPU.
+    w8 = (
+        torch.randn(out_dim, in_dim, device=DEVICE, generator=g)
+        .cpu()
+        .to(torch.float8_e4m3fn)
+        .to(DEVICE)
     )
     scale = torch.rand(2, 3, device=DEVICE, generator=g) + 0.5
     sf = scale.repeat_interleave(block, 0)[:out_dim]
     sf = sf.repeat_interleave(block, 1)[:, :in_dim]
-    expected = (w8.to(torch.float32) * sf).to(torch.bfloat16)
+    expected = (w8.cpu().float() * sf.cpu()).to(torch.bfloat16).to(DEVICE)
     stub = types.SimpleNamespace(weight=w8, weight_scale_inv=scale)
     tc._eq(dspark_draft_model._dequant_linear_weight(stub), expected)
 

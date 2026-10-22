@@ -145,7 +145,7 @@ def simulated_bonus_sample_graph(
     assert target_logits.stride(1) == 1
     device = target_logits.device
     vocab = target_logits.shape[1]
-    block = 4096
+    block = 1024
     nsplit = triton.next_power_of_2(triton.cdiv(vocab, block))
     part_val = torch.empty((bs, nsplit), dtype=torch.float32, device=device)
     part_idx = torch.empty((bs, nsplit), dtype=torch.int32, device=device)
@@ -187,7 +187,7 @@ def simulated_bonus_sample(
     assert target_logits.stride(1) == 1
     device = target_logits.device
     vocab = target_logits.shape[1]
-    block = 4096
+    block = 1024
     nsplit = triton.next_power_of_2(triton.cdiv(vocab, block))
     rows = bs * rows_per_request
     part_val = torch.empty((rows, nsplit), dtype=torch.float32, device=device)

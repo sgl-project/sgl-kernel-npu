@@ -50,7 +50,7 @@ def row_argmax(logits):
         width,
         logits.stride(0),
         logits.stride(1),
-        BLOCK=1024,
+        BLOCK=512,
         num_warps=1,
     )
     return out

@@ -19,14 +19,25 @@ def _dequant_kernel(
 ):
     for tile in range(tl.program_id(0), tl.cdiv(n, BLOCK), tl.num_programs(0)):
         x = tile * BLOCK + tl.arange(0, BLOCK)
-        value = tl.load(weight + x, x < n, other=0).to(tl.float32)
         if HAS_SCALE:
+            # Decode E4M3 bytes: A2/A3 do not support native FP8 conversion.
+            bits = tl.load(weight + x, x < n, other=0).to(tl.int32)
+            exponent = (bits >> 3) & 15
+            mantissa = bits & 7
+            normal = ((exponent + 120) << 23) | (mantissa << 20)
+            value = tl.where(
+                exponent == 0, mantissa * (2.0**-9), normal.to(tl.float32, bitcast=True)
+            )
+            value = tl.where((bits & 128) != 0, -value, value)
+            value = tl.where((bits & 127) == 127, float("nan"), value)
             sf = tl.load(
                 scale + x // width // 128 * scale_stride + x % width // 128,
                 x < n,
                 other=0,
             ).to(tl.float32)
             value *= sf
+        else:
+            value = tl.load(weight + x, x < n, other=0).to(tl.float32)
         tl.store(out + x, value, x < n)
 
 
@@ -52,7 +63,7 @@ def _dequant_linear_weight(linear, dtype=torch.bfloat16):
     out = torch.empty_like(weight, dtype=dtype)
     n = weight.numel()
     _dequant_kernel[max(1, min(get_device_properties()[1], triton.cdiv(n, 1024))),](
-        weight,
+        weight.view(torch.uint8) if has_scale else weight,
         scale,
         out,
         n,

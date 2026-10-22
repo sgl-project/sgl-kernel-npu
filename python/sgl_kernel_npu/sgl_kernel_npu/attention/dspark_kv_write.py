@@ -47,18 +47,23 @@ def _fused_kv_norm_rope_write_kernel(
         if write_row & (loc >= 0):
             pos = tl.load(pos_ptr + t).to(tl.int64)
             HALF: tl.constexpr = D // 2
-            half_ar = tl.arange(0, HALF)
             d_ar = tl.arange(0, D)
             if IS_NEOX:
-                off1 = half_ar
-                off2 = HALF + half_ar
+                partner = (d_ar + HALF) % D
+                rotary = d_ar % HALF
+                first = d_ar < HALF
             else:
-                off1 = 2 * half_ar
-                off2 = 2 * half_ar + 1
-            cos = tl.load(cos_sin_ptr + pos * D + half_ar).to(tl.float32)
-            sin = tl.load(cos_sin_ptr + pos * D + HALF + half_ar).to(tl.float32)
-            knw1 = tl.load(knw_ptr + l * D + off1).to(tl.float32)
-            knw2 = tl.load(knw_ptr + l * D + off2).to(tl.float32)
+                partner = d_ar ^ 1
+                rotary = d_ar // 2
+                first = (d_ar % 2) == 0
+            half_ar = tl.arange(0, HALF)
+            cos = tl.gather(tl.load(cos_sin_ptr + pos * D + half_ar), rotary, 0).to(
+                tl.float32
+            )
+            sin = tl.gather(
+                tl.load(cos_sin_ptr + pos * D + HALF + half_ar), rotary, 0
+            ).to(tl.float32)
+            knw = tl.load(knw_ptr + l * D + d_ar).to(tl.float32)
             k_buf = tl.load(meta_ptr + l * 4 + 0).to(tl.pointer_type(tl.bfloat16))
             v_buf = tl.load(meta_ptr + l * 4 + 1).to(tl.pointer_type(tl.bfloat16))
             ks0 = tl.load(meta_ptr + l * 4 + 2)
@@ -68,14 +73,10 @@ def _fused_kv_norm_rope_write_kernel(
                 k = tl.load(row + h * D + d_ar).to(tl.float32)
                 ms = tl.sum(k * k, 0) / D
                 inv = 1.0 / tl.sqrt(ms + EPS)
-                k1 = tl.load(row + h * D + off1).to(tl.float32) * inv * knw1
-                k2 = tl.load(row + h * D + off2).to(tl.float32) * inv * knw2
-                k1 = k1.to(tl.bfloat16).to(tl.float32)
-                k2 = k2.to(tl.bfloat16).to(tl.float32)
-                o1 = k1 * cos - k2 * sin
-                o2 = k2 * cos + k1 * sin
-                tl.store(k_buf + loc * ks0 + h * D + off1, o1.to(tl.bfloat16))
-                tl.store(k_buf + loc * ks0 + h * D + off2, o2.to(tl.bfloat16))
+                norm = (k * inv * knw).to(tl.bfloat16).to(tl.float32)
+                paired = tl.gather(norm, partner, 0)
+                rotated = norm * cos + tl.where(first, -paired, paired) * sin
+                tl.store(k_buf + loc * ks0 + h * D + d_ar, rotated.to(tl.bfloat16))
                 v = tl.load(row + KV + h * D + d_ar)
                 tl.store(v_buf + loc * vs0 + h * D + d_ar, v)
 

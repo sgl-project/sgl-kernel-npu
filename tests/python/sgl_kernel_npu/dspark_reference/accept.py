@@ -132,7 +132,7 @@ def accept_greedy(
     )
     cap_trim_lens = torch.zeros_like(correct_len)
     if cutoff_verify_lens is not None:
-        correct_len, cap_trim_lens = CapCorrectLen.execute(
+        correct_len, cap_trim_lens = CapCorrectLen.torch(
             correct_len=correct_len, verify_lens=cutoff_verify_lens
         )
         row_ids = torch.arange(bs, device=target_predict.device)

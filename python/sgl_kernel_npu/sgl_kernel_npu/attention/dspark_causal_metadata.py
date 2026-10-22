@@ -101,8 +101,8 @@ def expand_prefill_causally_triton(
     req_pool_indices_repeated = torch.empty(
         total_tokens, dtype=req_pool_indices.dtype, device=device
     )
-    # Bound the broadcast [token_tile, batch] intermediates to 16K elements.
-    BLOCK = min(256, max(1, 16384 // triton.next_power_of_2(max(bs, 1))))
+    # Leave UB space for broadcast intermediates and reduction scratch buffers.
+    BLOCK = min(256, max(1, 4096 // triton.next_power_of_2(max(bs, 1))))
     _expand_prefill_causally_kernel[
         max(1, min(get_device_properties()[1], triton.cdiv(total_tokens, BLOCK))),
     ](
