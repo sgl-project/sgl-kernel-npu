@@ -16,6 +16,8 @@ endfunction()
 # Paths are relative to the declaring CMake file, including when it is included
 # from another directory. Only handwritten inputs belong in these source lists;
 # generated SDK outputs will be described by the backend's build rules.
+# Derive SUPPORTED_SOCS and any per-architecture sources from the legacy build.
+# The current build target or validation machine must not redefine that scope.
 function(sgl_register_operator)
     cmake_parse_arguments(PARSE_ARGV 0 op ""
         "ID;EXECUTION_UNIT;CALL_MODE;CANN_OP_TYPE;TORCH_ADAPTER"

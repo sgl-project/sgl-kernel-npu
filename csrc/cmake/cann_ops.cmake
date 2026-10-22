@@ -21,16 +21,10 @@ function(sgl_generate_cann_interfaces output_dir)
     if(NOT COMMAND npu_op_code_gen)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
     endif()
-    set(definitions)
+    set(host_sources)
     foreach(id IN LISTS ARGN)
         sgl_get_operator(sources "${id}" HOST_SOURCES)
-        # Definitions must generate independently of Tiling implementation.
-        list(FILTER sources INCLUDE REGEX "_def[.]cpp$")
-        list(LENGTH sources count)
-        if(NOT count EQUAL 1)
-            message(FATAL_ERROR "${id} must declare exactly one *_def.cpp in HOST_SOURCES")
-        endif()
-        list(APPEND definitions ${sources})
+        list(APPEND host_sources ${sources})
     endforeach()
 
     set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
@@ -38,10 +32,10 @@ function(sgl_generate_cann_interfaces output_dir)
     file(WRITE "${config_dir}/sgl_operator_config.h"
         "#pragma once\n#define SGL_CANN_SOC_CONFIG \"${SGL_CANN_SOC}\"\n")
     # Opbuild executes during configuration. Track handwritten inputs for rebuilds.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${definitions}
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${host_sources}
         "${CMAKE_CURRENT_SOURCE_DIR}/sampling/apply_token_bitmask/op_host/apply_token_bitmask_tiling.h")
     npu_op_code_gen(
-        SRC ${definitions}
+        SRC ${host_sources}
         PACKAGE sgl_kernel_npu
         COMPILE_OPTIONS "-I${config_dir}"
         OUT_DIR "${output_dir}"
@@ -80,8 +74,10 @@ function(sgl_add_cann_kernels output_dir)
         get_filename_component(directory "${sources}" DIRECTORY)
         get_filename_component(filename "${sources}" NAME)
         file(RELATIVE_PATH relative_dir "${CMAKE_CURRENT_SOURCE_DIR}" "${directory}")
+        # Device selection is handled before this shared source mapping.
+        # COMPUTE_UNIT here requires a chip model, not a compute-unit family.
         npu_op_kernel_sources(sgl_cann_kernels OP_TYPE "${op_type}"
-            KERNEL_DIR "${relative_dir}" KERNEL_FILE "${filename}" COMPUTE_UNIT "${SGL_CANN_SOC}")
+            KERNEL_DIR "${relative_dir}" KERNEL_FILE "${filename}")
     endforeach()
     npu_op_kernel_library(sgl_cann_kernels SRC_BASE "${CMAKE_CURRENT_SOURCE_DIR}"
         TILING_LIBRARY sgl_cann_tiling)

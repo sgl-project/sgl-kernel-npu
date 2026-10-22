@@ -9,7 +9,7 @@ def main():
     fixtures = Path(__file__).resolve().parent / "fixtures/apply_token_bitmask"
     migrated = root / "csrc/sampling/apply_token_bitmask"
     original = (fixtures / "legacy_kernel.cpp").read_text().split('extern "C"')[0]
-    expected = original.replace('#include "kernel_operator.h"', '#pragma once\n\n#include "kernel_operator.h"')
+    expected = original
     # Only the CANN output address is added; every computational statement is retained.
     for before, after in (
         ("GM_ADDR bitmaskGmAddr, uint32_t numRows", "GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows"),
@@ -21,7 +21,10 @@ def main():
             raise RuntimeError(f"Legacy Kernel changed; review the migration comparison: {before}")
         expected = expected.replace(before, after)
     expected = expected.rstrip("\n") + "\n"
-    actual = (migrated / "op_kernel/apply_token_bitmask_impl.h").read_text()
+    source = (migrated / "op_kernel/apply_token_bitmask.cpp").read_text()
+    if source.count('extern "C"') != 1:
+        raise RuntimeError("Expected one CANN Kernel entry")
+    actual = source.split('extern "C"', 1)[0].rstrip("\n") + "\n"
     if actual != expected:
         difference = "".join(difflib.unified_diff(expected.splitlines(True), actual.splitlines(True)))
         raise RuntimeError(f"Kernel changed beyond the reviewed output binding:\n{difference}")

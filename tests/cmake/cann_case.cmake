@@ -43,21 +43,29 @@ if(CASE MATCHES "^header_")
     return()
 endif()
 
-# These names are CMake metadata fixtures, not NPU models or hardware claims.
-set(soc fixture_soc_a)
-set(confirmed_socs fixture_soc_a)
+# Exercise the real declaration without loading an SDK or claiming device support tests.
+set(soc ascend910_93)
+set(compatibility_args)
 set(operators apply_token_bitmask)
 set(stage CODEGEN)
 if(CASE STREQUAL "missing_soc")
     set(soc "")
-elseif(CASE STREQUAL "missing_confirmed_socs")
-    set(confirmed_socs "")
+elseif(CASE STREQUAL "a2_declarations")
+    set(soc ascend910b)
+elseif(CASE STREQUAL "a5_declarations")
+    set(soc ascend950)
+elseif(CASE STREQUAL "legacy_scope_cannot_narrow")
+    set(soc ascend950)
+    set(compatibility_args -DSGL_BITMASK_CONFIRMED_SOCS=ascend910_93)
+elseif(CASE STREQUAL "legacy_scope_cannot_expand")
+    set(soc fixture_soc_b)
+    set(compatibility_args -DSGL_BITMASK_CONFIRMED_SOCS=fixture_soc_b)
 elseif(CASE STREQUAL "unsupported_soc")
     set(soc fixture_soc_b)
 elseif(CASE STREQUAL "invalid_soc")
     set(soc "not a compute unit")
 elseif(CASE STREQUAL "multiple_targets")
-    set(soc "fixture_soc_a;fixture_soc_b")
+    set(soc "ascend910b;ascend910_93")
 elseif(CASE STREQUAL "unknown_operator")
     set(operators unknown_op)
 elseif(CASE STREQUAL "invalid_stage")
@@ -72,7 +80,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${source}" -B "${TEST_BINARY_DIR}"
         -DSGL_CANN_DECLARATIONS_ONLY=ON
         "-DSGL_CANN_SOC=${soc}"
-        "-DSGL_BITMASK_CONFIRMED_SOCS=${confirmed_socs}"
+        ${compatibility_args}
         "-DSGL_CANN_OPERATORS=${operators}"
         "-DSGL_CANN_BUILD_STAGE=${stage}"
         -DCMAKE_DISABLE_FIND_PACKAGE_ASC=TRUE
@@ -91,13 +99,16 @@ endif()
 
 # Inspect the production declaration, which now points to the CANN entry.
 include("${source}/cmake/operators.cmake")
-set(SGL_BITMASK_CONFIRMED_SOCS "${confirmed_socs}")
+# A stale override must not change the declaration's source support scope.
+set(SGL_BITMASK_CONFIRMED_SOCS ascend910_93)
 include("${source}/sampling/apply_token_bitmask/CMakeLists.txt")
 sgl_get_operator(op_type apply_token_bitmask CANN_OP_TYPE)
 sgl_get_operator(kernel apply_token_bitmask KERNEL_SOURCES)
 sgl_get_operator(adapter apply_token_bitmask TORCH_ADAPTER)
+sgl_get_operator(supported apply_token_bitmask SUPPORTED_SOCS)
 if(NOT op_type STREQUAL "SglApplyTokenBitMask"
    OR NOT kernel STREQUAL "${source}/sampling/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp"
-   OR NOT adapter STREQUAL "")
+   OR NOT adapter STREQUAL ""
+   OR NOT supported STREQUAL "ascend910b;ascend910_93;ascend950")
     message(FATAL_ERROR "Unexpected production declaration: ${op_type}; ${kernel}; ${adapter}")
 endif()

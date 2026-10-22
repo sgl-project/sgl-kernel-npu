@@ -39,11 +39,14 @@ function(add_cann_case name expected_error)
 endfunction()
 
 add_cann_case(declarations_only "")
+add_cann_case(a2_declarations "")
+add_cann_case(a5_declarations "")
+add_cann_case(legacy_scope_cannot_narrow "")
+add_cann_case(legacy_scope_cannot_expand "does not support requested SoC: fixture_soc_b")
 add_cann_case(tiling_declarations "")
 add_cann_case(kernel_declarations "")
 add_cann_case(invalid_stage "Unknown SGL_CANN_BUILD_STAGE: UNKNOWN")
 add_cann_case(missing_soc "SGL_CANN_SOC must be supplied explicitly")
-add_cann_case(missing_confirmed_socs "SGL_BITMASK_CONFIRMED_SOCS must be supplied explicitly")
 add_cann_case(unsupported_soc "does not support requested SoC: fixture_soc_b")
 add_cann_case(invalid_soc "Invalid CANN compute unit:")
 add_cann_case(multiple_targets "requires exactly one SGL_CANN_SOC")
@@ -51,3 +54,10 @@ add_cann_case(unknown_operator "Unknown operator ID: unknown_op")
 add_cann_case(header_discovery "")
 add_cann_case(header_missing "Expected one generated SglApplyTokenBitMask ACLNN header, found 0")
 add_cann_case(header_ambiguous "Expected one generated SglApplyTokenBitMask ACLNN header, found 2")
+foreach(soc IN ITEMS ascend910b ascend910_93 ascend950)
+    add_test(NAME cann.sdk_mapping_${soc}
+        COMMAND "${CMAKE_COMMAND}"
+            -S "${CMAKE_CURRENT_SOURCE_DIR}/kernel_sources"
+            -B "${CMAKE_CURRENT_BINARY_DIR}/cann-sdk-mapping-${soc}"
+            "-DSGL_CANN_SOC=${soc}")
+endforeach()
