@@ -1185,6 +1185,171 @@ def check_a5_call(
         raise AssertionError("A5 SymmBuffer was not reused across token lengths/scenes")
 
 
+def check_a5_scale_sensitivity(
+    args: argparse.Namespace,
+    rank: int,
+    fused_buffer: deep_ep.Buffer,
+    x: torch.Tensor,
+    topk_idx: torch.Tensor,
+    topk_weights: torch.Tensor,
+    max_num_tokens: int,
+    weights: dict,
+    case: dict,
+    reference_out: torch.Tensor,
+    reference_counts: torch.Tensor,
+):
+
+    def shifted_scales(scales, delta_for):
+        shifted = []
+        for scale in scales:
+            delta = delta_for(scale.size(-3)).to(torch.uint8)
+            broadcast = delta.view(*([1] * (scale.ndim - 3)), -1, 1, 1)
+            shifted.append((scale.view(torch.uint8) + broadcast).view(scale.dtype))
+        return shifted
+
+    def run_with(scales):
+        return run_fused_reference(
+            fused_buffer,
+            x,
+            topk_idx,
+            topk_weights,
+            max_num_tokens,
+            args.num_experts,
+            {**weights, **scales},
+            case["activation"],
+            case["beta"],
+            case["linear_beta"],
+        )
+
+    device = reference_out.device
+    channel_mask = torch.tensor(
+        [index % 11 == 0 or index % 13 == 3 for index in range(reference_out.size(-1))],
+        dtype=torch.bool,
+        device=device,
+    )
+    reference = reference_out.float()
+    signal = reference.norm().item()
+
+    # 只把被选中输出通道的 L2 scale 翻倍，其余通道必须保持原值。
+    doubled_out, doubled_counts = run_with(
+        {
+            "fused_l2_scales": shifted_scales(
+                weights["fused_l2_scales"], lambda _: channel_mask
+            )
+        }
+    )
+    torch.testing.assert_close(doubled_counts, reference_counts, rtol=0, atol=0)
+    doubled = doubled_out.float()
+    changed_signal = torch.where(channel_mask, reference, 0.0).norm().item()
+    if (
+        not bool(torch.isfinite(doubled_out).all())
+        or signal < 1e-6
+        or changed_signal < 1e-6
+    ):
+        raise AssertionError(
+            "A5 GMM2 E8M0 scale 通道校验前置条件失败: "
+            f"signal={signal}, changed_signal={changed_signal}"
+        )
+    changed_error = (
+        torch.where(channel_mask, doubled - 2 * reference, 0.0).norm().item()
+        / changed_signal
+    )
+    unchanged_error = (
+        torch.where(~channel_mask, doubled - reference, 0.0).norm().item() / signal
+    )
+    if changed_error >= 0.05 or unchanged_error >= 0.05:
+        raise AssertionError(
+            "A5 GMM2 E8M0 scale 通道校验失败: "
+            f"changed_error={changed_error}, unchanged_error={unchanged_error}"
+        )
+
+    # 整体抬高 L1 scale：激活是非线性的，只要求输出发生明显变化。
+    def all_ones(length):
+        return torch.ones(length, dtype=torch.uint8, device=device)
+
+    l1_out, l1_counts = run_with(
+        {"fused_l1_scales": shifted_scales(weights["fused_l1_scales"], all_ones)}
+    )
+    torch.testing.assert_close(l1_counts, reference_counts, rtol=0, atol=0)
+    l1_change = (l1_out.float() - reference).norm().item() / max(signal, 1e-6)
+    if not bool(torch.isfinite(l1_out).all()) or l1_change <= 0.05:
+        raise AssertionError(
+            "A5 GMM1 E8M0 scale 敏感性校验失败: "
+            f"signal={signal}, relative_change={l1_change}"
+        )
+
+    # Independently fingerprint experts and both 32-element blocks in each scale
+    # pair. Dividing weights by 2**delta while adding delta to E8M0 exponents
+    # preserves the effective weights, including through the nonlinear L1 path.
+    # A misplaced scale no longer cancels its corresponding weight adjustment.
+    generator = torch.Generator().manual_seed(args.seed + rank)
+    fp4 = args.quant_mode in A5_FP4_WEIGHT_MODES
+
+    def original_format(tensor, template, layer):
+        storage = torch_npu.get_npu_format(template)
+        if int(getattr(storage, "value", storage)) in (29, 50, 51):
+            if fp4 and (layer == 2 or args.quant_mode == "mx_fp8_e4m3_w4"):
+                return torch_npu.npu_format_cast(
+                    tensor,
+                    ACL_FORMAT_FRACTAL_NZ,
+                    customize_dtype=torch.float8_e4m3fn,
+                    input_dtype=torch_npu.float4_e2m1fn_x2,
+                )
+            return torch_npu.npu_format_cast(tensor, ACL_FORMAT_FRACTAL_NZ)
+        return tensor
+
+    for layer in (1, 2):
+        weight_key, scale_key = f"fused_l{layer}_weights", f"fused_l{layer}_scales"
+        base_weights, adjusted_weights, adjusted_scales = [], [], []
+        for template, scale in zip(weights[weight_key], weights[scale_key]):
+            delta = torch.randint(
+                0, 3, scale.shape, dtype=torch.uint8, generator=generator
+            ).to(device)
+            expanded = delta.flatten(-2).repeat_interleave(16 if fp4 else 32, dim=-1)
+            bits = torch.randint(
+                0, 256, template.shape, dtype=torch.uint8, device=device
+            )
+            if fp4:
+                # E2M1 magnitude codes 4, 2, 1 represent 2, 1, 0.5 exactly.
+                # Both nibbles in a byte belong to the same 32-element block.
+                magnitude = torch.full_like(expanded, 4) >> expanded
+                base = (bits & 0x88) | 0x44
+                adjusted = (bits & 0x88) | magnitude | (magnitude << 4)
+            else:
+                base = (bits & 1).float() * 0.25 - 0.125
+                adjusted = (base / (2.0 ** expanded.float())).to(template.dtype)
+                base = base.to(template.dtype)
+            base_weights.append(original_format(base, template, layer))
+            adjusted_weights.append(original_format(adjusted, template, layer))
+            adjusted_scales.append((scale.view(torch.uint8) + delta).view(scale.dtype))
+
+        base_out, base_counts = run_with({weight_key: base_weights})
+        expected = base_out.float().clone()
+        torch.testing.assert_close(base_counts, reference_counts, rtol=0, atol=0)
+        if not bool(torch.isfinite(expected).all()) or expected.norm().item() < 1e-6:
+            raise AssertionError(
+                f"A5 GMM{layer} scale indexing probe has no finite signal"
+            )
+        adjusted_out, adjusted_counts = run_with(
+            {weight_key: adjusted_weights, scale_key: adjusted_scales}
+        )
+        torch.testing.assert_close(adjusted_counts, reference_counts, rtol=0, atol=0)
+        torch.testing.assert_close(
+            adjusted_out.float(),
+            expected,
+            rtol=args.rtol,
+            atol=args.atol,
+            msg=f"A5 GMM{layer} E8M0 expert/block scale indexing mismatch",
+        )
+
+    info_rank0(
+        rank,
+        f"A5 E8M0 scale 校验通过: changed_error={changed_error}, "
+        f"unchanged_error={unchanged_error}, l1_change={l1_change}, "
+        "expert/block compensation passed for GMM1/GMM2",
+    )
+
+
 def run_fused_reference(
     buffer: deep_ep.Buffer,
     x: torch.Tensor,
@@ -1365,6 +1530,20 @@ def launch_case(
             fused_out,
             fused_counts,
         )
+        if case_index == 0:
+            check_a5_scale_sensitivity(
+                args,
+                rank,
+                fused_buffer,
+                x,
+                topk_idx,
+                topk_weights,
+                max_num_tokens,
+                weights,
+                case,
+                fused_out,
+                fused_counts,
+            )
     info_rank0(
         rank,
         f"iter={iteration} case={case_index} quant_mode={args.quant_mode} "
