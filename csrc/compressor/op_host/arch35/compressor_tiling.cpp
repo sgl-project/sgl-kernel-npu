@@ -22,6 +22,7 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
+#include <cstdlib>
 #define OP_LOGI(...)  // keep it empty to avoid log flooding
 
 // plog write (weak symbol, resolved at runtime by libascendalog/libunified_dlog)
@@ -128,6 +129,8 @@ ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContex
     compressorContext.rotaryMode = attrs->GetAttrPointer<int>(ROTARY_MODE_ATTR_INDEX);
     compressorContext.cacheMode = attrs->GetAttrPointer<int>(CACHE_MODE_ATTR_INDEX);
     compressorContext.stateCacheStrideDim0 = attrs->GetAttrPointer<int>(STATE_CACHE_STRIDE_DIM0_ATTR_INDEX);
+    compressorContext.batchConsistency =
+        (getenv("SGL_DSV4_COMPRESSOR_BATCH_CONSISTENCY") != nullptr) ? static_cast<int>(BATCH_CONSISTENCY) : 0;
 
     OP_CHECK_IF(context.GetWorkspaceSizes(1) == nullptr,
                 OPS_REPORT_VECTOR_INNER_ERR(context.GetNodeName(), "workSpaceSize got from ge is nullptr"),
@@ -184,6 +187,7 @@ ge::graphStatus CompressorTiling::SetBaseInfo()
     coff = static_cast<uint8_t>(*context_->coff);
     baseParams_->nSize = 2;  // 2: each core processes two basic blocks before the all-core sync
     baseParams_->usedCoreNum = aicNum_;
+    baseParams_->batchConsistency = static_cast<uint32_t>(context_->batchConsistency);
 
     OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u, stateCacheStrideDim0:%u",
             baseParams_->batchSize, baseParams_->tokenSize, baseParams_->cmpRatio, coff,
@@ -196,10 +200,8 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
 {
     pageAttentionParams_->blockNum = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_0);
     pageAttentionParams_->blockSize = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
-    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CONTINUOUS)) {
-        pageAttentionParams_->maxBlockNumPerBatch =
-            context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
-    }
+    pageAttentionParams_->maxBlockNumPerBatch =
+        context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -248,7 +250,8 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
         baseParams_->coreGroupNum = baseParams_->usedCoreNum / dBaseNum;
         baseParams_->kBaseNum = 1;
         baseParams_->kBaseSize = baseParams_->hiddenSize;
-        if ((dBaseNum * mBaseNum) < baseParams_->usedCoreNum) {
+        if ((dBaseNum * mBaseNum) < baseParams_->usedCoreNum &&
+            baseParams_->batchConsistency != BATCH_CONSISTENCY) {
             baseParams_->kBaseNum = baseParams_->usedCoreNum / dBaseNum;
             uint32_t kAlignSize = (baseParams_->hiddenSize + baseParams_->kBaseNum - 1) / baseParams_->kBaseNum;
             baseParams_->kBaseSize = kAlignSize / 16 * 16;  // k-split size must be 16-aligned
@@ -852,15 +855,6 @@ ge::graphStatus CompressorTiling::CheckFeature() const
         pageAttentionParams_->blockSize < MIN_BLOCK_SIZE,
         OP_LOGE(context_->opName, "blockSize should not be less than 1, but got %u", pageAttentionParams_->blockSize),
         return ge::GRAPH_FAILED);
-    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CYCLE)) {
-        OP_CHECK_IF(
-            pageAttentionParams_->blockNum < baseParams_->batchSize,
-            OP_LOGE(context_->opName,
-                    "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
-                    "but got %u",
-                    static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize, pageAttentionParams_->blockNum),
-            return ge::GRAPH_FAILED);
-    }
     uint64_t cacheStride =
         context_->stateCache.shape->GetShape().GetDim(1) * context_->stateCache.shape->GetShape().GetDim(2);
     OP_CHECK_IF(
