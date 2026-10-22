@@ -1,0 +1,1 @@
+"""MegaMoE registration tests."""
