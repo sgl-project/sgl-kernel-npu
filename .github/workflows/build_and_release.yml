@@ -55,11 +55,20 @@ jobs:
         run: |
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
-      - name: Build SGL-Kernel-NPU
+      - name: Build SGL-Kernel-NPU for 910b/a3
+        if: matrix.npu_hardware != '950'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a kernels
+          "
+
+      - name: Build SGL-Kernel-NPU for 950
+        if: matrix.npu_hardware == '950'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a kernels Ascend950PR_9599
           "
 
       - name: Build Attentions

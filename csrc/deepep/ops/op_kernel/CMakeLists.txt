@@ -21,6 +21,7 @@ if ("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     set(_A5_SYSTEM_MOE_BASE_COMMON_DIR "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ops_transformer/ascendc/common")
     set(_A5_SYSTEM_MOE_BASE_OP_KERNEL "${_A5_SYSTEM_MOE_BASE_COMMON_DIR}/op_kernel/moe_distribute_base.h")
     set(_A5_SYSTEM_MOE_BASE_INC_KERNEL "${_A5_SYSTEM_MOE_BASE_COMMON_DIR}/inc/kernel/moe_distribute_base.h")
+    set(_A5_SYSTEM_MOE_BASE_COMMON "${_A5_SYSTEM_MOE_BASE_COMMON_DIR}/moe_distribute_base.h")
 
     if (EXISTS "${_A5_SYSTEM_MOE_BASE_OP_KERNEL}")
         list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
@@ -28,10 +29,13 @@ if ("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     elseif(EXISTS "${_A5_SYSTEM_MOE_BASE_INC_KERNEL}")
         list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
             -DDEEPEP_A5_SYSTEM_MOE_BASE_USE_INC_KERNEL=1)
+    elseif(EXISTS "${_A5_SYSTEM_MOE_BASE_COMMON}")
+        list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
+            -DDEEPEP_A5_SYSTEM_MOE_BASE_USE_COMMON=1)
     else()
         message(FATAL_ERROR
             "Cannot find system moe_distribute_base.h for A5 fused. "
-            "Checked: ${_A5_SYSTEM_MOE_BASE_OP_KERNEL} and ${_A5_SYSTEM_MOE_BASE_INC_KERNEL}")
+            "Checked: ${_A5_SYSTEM_MOE_BASE_OP_KERNEL}, ${_A5_SYSTEM_MOE_BASE_INC_KERNEL} and ${_A5_SYSTEM_MOE_BASE_COMMON}")
     endif()
 
     list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS

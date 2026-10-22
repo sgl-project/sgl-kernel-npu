@@ -1,9 +1,18 @@
 #ifndef CATLASS_EPILOGUE_BLOCK_EPILOGUE_SILU_HALF_H
 #define CATLASS_EPILOGUE_BLOCK_EPILOGUE_SILU_HALF_H
 
+// Half-precision-aligned activation epilogues for the A5 (Ascend 950)
+// FusedDeepMoe GMM1 stage: the fp32 GEMM accumulator tile is rounded through
+// ElementI, the gate half (isLeft) is activated, and the up half only gets the
+// precision alignment. The gate * up multiplication stays in the downstream
+// quantize stage. The runtime activation path is selected directly from
+// params.activationType.
+
 #include "catlass/catlass.hpp"
 #include "catlass/arch/resource.hpp"
+#include "catlass/epilogue/block/block_epilogue.hpp"
 #include "../dispatch_policy.h"
+#include "../../../fused_deep_moe_a5_tiling.h"
 #include "catlass/gemm_coord.hpp"
 #include "catlass/matrix_coord.hpp"
 #include "catlass/layout/layout.hpp"
@@ -13,12 +22,19 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <uint32_t UB_STAGES_, class ElementC_, class ElementI_, class ElementD_, class TileShape_>
-class BlockEpilogue<EpilogueAtlasA5SiluHalf<UB_STAGES_>, ElementC_, ElementI_, ElementD_, TileShape_>
+// ---------------------------------------------------------------------------
+// Shared MTE2 / V / MTE3 pipeline skeleton for the A5 half-aligned activation
+// epilogues. Per epilogue tile: MTE2 loads the fp32 tile into ubC, V computes
+// the activation selected by activationType into ubD, MTE3 writes the result back to
+// GM. Per-stage HardEvents keep the engines from overtaking each other on the
+// recycled UB buffers; ubListId rotates across the UB_STAGES buffers.
+// ---------------------------------------------------------------------------
+template <class DispatchPolicy_, class ElementC_, class ElementI_, class ElementD_, class TileShape_>
+class BlockEpilogueActivationHalfBase
 {
 public:
     // Type aliases
-    using DispatchPolicy = EpilogueAtlasA5SiluHalf<UB_STAGES_>;
+    using DispatchPolicy = DispatchPolicy_;
     using ArchTag = typename DispatchPolicy::ArchTag;
     using ElementC = ElementC_;
     using LayoutC = typename layout::RowMajor;
@@ -36,24 +52,24 @@ public:
 
     using EpilogueTileSwizzle = Catlass::Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
-    // Check the element type of C and D
+    // Check the element type of C
     static_assert(std::is_same_v<ElementC, float>, "Element type of C must be float");
 
-    // Epilogue params definition
-    struct Params {
-        GM_ADDR ptrC;
-        LayoutC layoutC;
-        GM_ADDR ptrD;
-        LayoutD layoutD;
+    struct ActivationParams {
+        uint32_t activationType;
+        float beta;
+        float linearBeta;
+        bool hasLinearBeta;
 
         CATLASS_HOST_DEVICE
-        Params() {}
+        ActivationParams() {}
 
         CATLASS_HOST_DEVICE
-        Params(GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrD_, LayoutD layoutD_)
-            : ptrC(ptrC_), layoutC(layoutC_), ptrD(ptrD_), layoutD(layoutD_)
+        ActivationParams(uint32_t activationType_, float beta_, float linearBeta_, bool hasLinearBeta_)
+            : activationType(activationType_), beta(beta_), linearBeta(linearBeta_), hasLinearBeta(hasLinearBeta_)
         {}
     };
+    using Params = ActivationParams;
 
     CATLASS_DEVICE
     void UpdateParams(Params const &params_)
@@ -62,7 +78,7 @@ public:
     }
 
     CATLASS_DEVICE
-    BlockEpilogue(Arch::Resource<ArchTag> &resource)
+    BlockEpilogueActivationHalfBase(Arch::Resource<ArchTag> &resource, Params const &params_) : params(params_)
     {
         uint32_t ubOffset = 0;
         int32_t eventVMTE2 = 0;
@@ -88,7 +104,7 @@ public:
     }
 
     CATLASS_DEVICE
-    ~BlockEpilogue()
+    ~BlockEpilogueActivationHalfBase()
     {
         for (uint32_t i = 0; i < UB_STAGES; ++i) {
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(eventUbCVMTE2List[i]);
@@ -107,7 +123,6 @@ public:
         MatrixCoord actualBlockShape = actualBlockShapeMNK.GetCoordMN();
 
         auto ubTileStride = static_cast<uint32_t>(TileShape::COLUMN);
-        auto ubTileStrideRow = static_cast<uint32_t>(TileShape::ROW);
         auto tileShape = MakeCoord(TileShape::ROW, TileShape::COLUMN);
         EpilogueTileSwizzle epilogueTileSwizzle(actualBlockShape, tileShape);
         uint32_t tileLoops = epilogueTileSwizzle.GetLoops();
@@ -139,23 +154,14 @@ public:
 
             auto &ubI = ubIList[ubListId];
             auto &ubD = ubDList[ubListId];
+            // Half-precision alignment: round the fp32 accumulator through
+            // ElementI so both halves carry the same rounding as the real
+            // half-stored inference data path.
             Cast(ubI, ubC, AscendC::RoundMode::CAST_RINT, count);
             AscendC::PipeBarrier<PIPE_V>();
-            if (isLeft) {
-                Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
-                AscendC::PipeBarrier<PIPE_V>();
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
-                Muls(ubD, ubC, (ElementCompute)-1, count);
-                AscendC::PipeBarrier<PIPE_V>();
-                Exp(ubD, ubD, count);
-                AscendC::PipeBarrier<PIPE_V>();
-                Adds(ubD, ubD, (ElementCompute)1, count);
-                AscendC::PipeBarrier<PIPE_V>();
-                Div(ubD, ubC, ubD, count);
-            } else {
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
-                Cast(ubD, ubI, AscendC::RoundMode::CAST_NONE, count);
-            }
+
+            ComputeActivation(ubC, ubI, ubD, count, isLeft, eventUbDMTE3VList[ubListId]);
+
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventUbDVMTE3List[ubListId]);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventUbCVMTE2List[ubListId]);
             // build tensor D block in GM
@@ -174,6 +180,81 @@ public:
     }
 
 private:
+    CATLASS_DEVICE void ComputeActivation(AscendC::LocalTensor<ElementC> &ubC, AscendC::LocalTensor<ElementI> &ubI,
+                                          AscendC::LocalTensor<ElementD> &ubD, uint32_t count, bool isLeft,
+                                          int32_t eventUbDMTE3V)
+    {
+        if (params.activationType == Cam::ACTIVATION_SITU) {
+            ComputeSitu(ubC, ubI, ubD, count, isLeft, eventUbDMTE3V);
+        } else {
+            ComputeSilu(ubC, ubI, ubD, count, isLeft, eventUbDMTE3V);
+        }
+    }
+
+    CATLASS_DEVICE void ComputeSilu(AscendC::LocalTensor<ElementC> &ubC, AscendC::LocalTensor<ElementI> &ubI,
+                                    AscendC::LocalTensor<ElementD> &ubD, uint32_t count, bool isLeft,
+                                    int32_t eventUbDMTE3V)
+    {
+        if (isLeft) {
+            Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3V);
+            Muls(ubD, ubC, static_cast<ElementCompute>(-1.0F), count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Exp(ubD, ubD, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Adds(ubD, ubD, static_cast<ElementCompute>(1.0F), count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Div(ubD, ubC, ubD, count);
+        } else {
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3V);
+            Cast(ubD, ubI, AscendC::RoundMode::CAST_NONE, count);
+        }
+    }
+
+    CATLASS_DEVICE void ComputeSitu(AscendC::LocalTensor<ElementC> &ubC, AscendC::LocalTensor<ElementI> &ubI,
+                                    AscendC::LocalTensor<ElementD> &ubD, uint32_t count, bool isLeft,
+                                    int32_t eventUbDMTE3V)
+    {
+        if (isLeft) {
+            Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3V);
+
+            Muls(ubD, ubC, static_cast<ElementCompute>(1.0F / params.beta), count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Tanh(ubC, ubD, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Muls(ubD, ubC, static_cast<ElementCompute>(params.beta), count);
+            AscendC::PipeBarrier<PIPE_V>();
+
+            Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Muls(ubC, ubC, static_cast<ElementCompute>(-1.0F), count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Exp(ubC, ubC, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Adds(ubC, ubC, static_cast<ElementCompute>(1.0F), count);
+            AscendC::PipeBarrier<PIPE_V>();
+            Div(ubD, ubD, ubC, count);
+        } else {
+            if (params.hasLinearBeta) {
+                Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3V);
+
+                Muls(ubD, ubC, static_cast<ElementCompute>(1.0F / params.linearBeta), count);
+                AscendC::PipeBarrier<PIPE_V>();
+                Tanh(ubC, ubD, count);
+                AscendC::PipeBarrier<PIPE_V>();
+                Muls(ubD, ubC, static_cast<ElementCompute>(params.linearBeta), count);
+            } else {
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3V);
+                Cast(ubD, ubI, AscendC::RoundMode::CAST_NONE, count);
+            }
+        }
+    }
+
     Params params;
 
     AscendC::LocalTensor<ElementC> ubCList[UB_STAGES];
@@ -186,6 +267,22 @@ private:
     int32_t eventUbDVMTE3List[UB_STAGES];
 
     uint32_t ubListId{0};
+};
+
+template <uint32_t UB_STAGES_, class ElementC_, class ElementI_, class ElementD_, class TileShape_>
+class BlockEpilogue<EpilogueAtlasA5ActivationHalf<UB_STAGES_>, ElementC_, ElementI_, ElementD_, TileShape_>
+    : public BlockEpilogueActivationHalfBase<EpilogueAtlasA5ActivationHalf<UB_STAGES_>, ElementC_, ElementI_, ElementD_,
+                                             TileShape_>
+{
+public:
+    using Base = BlockEpilogueActivationHalfBase<EpilogueAtlasA5ActivationHalf<UB_STAGES_>, ElementC_, ElementI_,
+                                                 ElementD_, TileShape_>;
+    using Params = typename Base::Params;
+
+    static_assert(std::is_same_v<ElementD_, float>, "Element type of D must be float");
+
+    CATLASS_DEVICE
+    BlockEpilogue(Arch::Resource<Arch::Ascend950> &resource, Params const &params_) : Base(resource, params_) {}
 };
 
 }  // namespace Catlass::Epilogue::Block

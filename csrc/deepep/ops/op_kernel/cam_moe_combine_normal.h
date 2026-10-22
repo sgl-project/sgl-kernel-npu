@@ -11,7 +11,6 @@ namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;
@@ -71,7 +70,11 @@ private:
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
     {
-        return GetStateAddrByRankId(rankId) + COMBINE_STATE_WIN_OFFSET;
+        uint64_t dataOffset = Moe::A3WindowLayout::kNormalCombineStateSize;
+        if (isHybridDeployment_) {
+            dataOffset = Moe::A3WindowLayout::kDataOffset - Moe::A3WindowLayout::kNotifyDispatchSize;
+        }
+        return GetStateAddrByRankId(rankId) + dataOffset;
     }
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
@@ -112,6 +115,7 @@ private:
     uint32_t sendCostStatsBufSize_{0};
 
     bool isEnableDiagnose_{false};
+    bool isHybridDeployment_{false};
 
     TPipe *tpipe_{nullptr};
     TQue<QuePosition::VECIN, 1> weightedSumQueue_;
@@ -184,6 +188,7 @@ CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNorm
     epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
+    isHybridDeployment_ = tilingData->camMoeCombineNormalInfo.isHybridDeployment;
 }
 
 template <TemplateMC2TypeClass>

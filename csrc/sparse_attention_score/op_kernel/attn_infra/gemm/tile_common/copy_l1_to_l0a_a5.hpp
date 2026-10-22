@@ -14,7 +14,7 @@
 #include "../../../attn_infra/base_defs.hpp"
 #include "../../../attn_infra/arch/arch.hpp"
 #include "../../../attn_infra/gemm/tile_common/tile_copy_tla.hpp"
-#include "../../../tla/tensor.hpp"
+#include "../../../attn_tla/tensor.hpp"
 
 namespace NpuArch::Gemm::Tile {
 

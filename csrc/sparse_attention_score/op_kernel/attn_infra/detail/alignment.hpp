@@ -14,7 +14,12 @@
 #include <limits>
 
 #include "../../attn_infra/detail/macros.hpp"
-#include "../../tla/numeric/integral_constant.hpp"
+#include "../../attn_tla/numeric/integral_constant.hpp"
+
+// Keep these helpers inside NpuArch so they never collide with the identically
+// named global functions in third_party/catlass (catlass/detail/alignment.hpp)
+// when both header trees are visible to one translation unit.
+namespace NpuArch {
 
 template <uint32_t ALIGN, typename T>
 HOST_DEVICE constexpr T RoundDown(const T val)
@@ -118,5 +123,7 @@ HOST_DEVICE constexpr auto Min(T const &a, U const &b)
         return b;
     }
 }
+
+}  // namespace NpuArch
 
 #endif  // ALIGNMENT_HPP

@@ -605,6 +605,11 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint32_t quantMode = NO_SCALES;
     uint32_t localMoeExpertNum = 1;
     OP_LOGI(nodeName, "Enter CamMoeDispatchNormal tiling check func.");
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    const bool isA5 = (socVersion == "Ascend950");
 
     // 获取入参属性
     OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp, groupTp) != ge::GRAPH_SUCCESS,
@@ -615,6 +620,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     auto waitRecvcostStatsStorageShape = context->GetOutputShape(OUTPUT_WAIT_RECV_COST_INDEX);
     bool isEnableDiagnose = (waitRecvcostStatsStorageShape != nullptr);
     tilingData->camMoeDispatchNormalInfo.isEnableDiagnose = isEnableDiagnose;
+    tilingData->camMoeDispatchNormalInfo.isHybridDeployment = Mc2TilingUtils::IsHybridDeployment();
 
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(
@@ -647,16 +653,21 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     tokenNeedSizeCombine =
         round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
-    uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
-                           NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t perHalfDataSize = maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch);
+    uint64_t reservedSize =
+        tilingData->camMoeDispatchNormalInfo.isHybridDeployment
+            ? (isA5 ? Moe::A5WindowLayout::kPerHalfReservedSize : Moe::A3WindowLayout::kPerHalfReservedSize)
+            : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
-                            " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
-                            " + tokenNeedSizeCombine) + 4MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            " k = %lu, hybridDeployment=%d, perHalfDataSize=%lu, perHalfReservedSize=%lu, "
+                            "NEEDED_HCCL_BUFFSIZE((perHalfDataSize + perHalfReservedSize) * 2) = %luMB, "
+                            "HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
+                            tilingData->camMoeDispatchNormalInfo.isHybridDeployment, perHalfDataSize, reservedSize,
                             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
     tilingData->camMoeDispatchNormalInfo.totalWinSize = maxWindowSize;
@@ -668,11 +679,6 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint32_t tpWorldSize = tilingData->camMoeDispatchNormalInfo.tpWorldSize;
     uint64_t tilingKey = INIT_TILINGKEY;
     CalTilingKey(tilingKey, quantMode, tpWorldSize);
-
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
 
     if (socVersion == "Ascend950") {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;

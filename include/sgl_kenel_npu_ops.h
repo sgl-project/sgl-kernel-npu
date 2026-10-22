@@ -87,7 +87,7 @@ at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
 
 void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y);
+                   at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
 
 at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
                          at::Tensor &lora_indices, at::Tensor &seq_len,
@@ -100,6 +100,26 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
+
+at::Tensor recurrent_gated_delta_rule(
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+    c10::optional<at::Tensor> cache_indices_opt,
+    c10::optional<at::Tensor> num_accepted_tokens_opt,
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_indices, double scale_value,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    const c10::optional<at::Tensor> &query_rope,
+    const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
+    c10::string_view layout_query, c10::string_view layout_kv,
+    int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
+    int64_t attention_mode, bool return_softmax_lse);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
@@ -126,14 +146,6 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
                             c10::optional<c10::string_view> format_mode,
                             c10::optional<c10::string_view> quant_mode);
 
-at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
-    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
-    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
-    c10::optional<at::Tensor> cache_indices_opt,
-    c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
-
 void mega_chunk_gdn(
     const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
     const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
@@ -157,7 +169,6 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_query,
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
-
 #endif
 
 at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
@@ -206,6 +217,33 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
+
+std::tuple<at::Tensor, at::Tensor>
+situ_mxfp8_quant(const at::Tensor &x, const at::Tensor &group_list,
+                 int64_t group_list_type, double beta, double linear_beta);
+/**
+ * @brief Fused SwiGLU activation + quantization (A5 only).
+ *
+ * Halves x along its last dim into gate/up, applies SwiGLU, and quantizes the
+ * result. All three quant modes are supported: quant_mode 1 = per-128-element
+ * group scales (fp32), 2 = MX per-32 scales (e8m0), 3 = per-token (fp8, e8m0
+ * when ue8m0_scale is set).
+ *
+ * @param topk_weight      optional per-row weight applied before quantization
+ * @param group_index      optional per-group token counts (prefix sums); when
+ * present every core walks the whole list, so the launch uses tiling's coreNum
+ * @param dst_type         y's dtype: Float8_e4m3fn (default) or Float8_e5m2
+ * @param clamp_value      when non-zero, activates clamping of the SwiGLU
+ * result
+ * @return tuple of (y, scale, y_origin); y_origin is only meaningful when
+ * output_origin is set
+ */
+std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
+    const at::Tensor &x, const c10::optional<at::Tensor> &topk_weight,
+    const c10::optional<at::Tensor> &group_index,
+    c10::optional<at::ScalarType> dst_type, int64_t quant_mode,
+    int64_t group_size, bool round_scale, bool ue8m0_scale, bool output_origin,
+    int64_t group_list_type, double clamp_value);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -238,6 +276,13 @@ at::Tensor sparse_attention_score(
     int64_t num_key_value_heads, double scale_value, int64_t block_size,
     int64_t top_k, int64_t inner_precise);
 
+std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &beta,
+    const c10::optional<at::Tensor> &initial_state,
+    const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state);
 at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
     const std::string &layout_q, const std::string &layout_kv,
@@ -247,6 +292,23 @@ at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
     bool has_ori_kv, bool has_cmp_kv);
 
+std::tuple<at::Tensor, c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           at::Tensor, at::Tensor, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+           c10::optional<at::Tensor>>
+chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+              const at::Tensor &g, const at::Tensor &beta,
+              const c10::optional<at::Tensor> &aLog,
+              const c10::optional<at::Tensor> &dtBias,
+              const c10::optional<at::Tensor> &initialState,
+              const c10::optional<at::Tensor> &cuSeqlens,
+              const c10::optional<at::Tensor> &chunkIndices,
+              const std::string &layout, double scale, int64_t chunkSize,
+              bool safeGate, double lowerBound, bool useGateInKernel,
+              bool stateVFirst, bool outputFinalState, bool outputGk,
+              bool outputW, bool outputU, bool outputQG, bool outputKg,
+              bool outputVNew, bool outputH);
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 /**
  * @brief Sparse row copy: for each i where valid_mask[i] is true,

@@ -133,6 +133,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         topk_ids = topk_idx.int()
 
@@ -159,6 +160,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             async_finish,
             return_recv_hook,
             out,
+            use_mxfp8,
         )
 
         tensors_to_record = (
@@ -310,6 +312,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
@@ -338,6 +341,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expand_scales=expand_scales,
             x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            comm_quant_mode=3 if use_mxfp8 else 0,
         )
 
         event = EventOverlap(EventHandle())
@@ -495,6 +499,27 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         device = x.device
         hidden = x.size(1)
         aligned_num_tokens = num_max_dispatch_tokens_per_rank
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode is None:
+            quant_mode = "bf16"
+        if quant_mode not in VALID_QUANT_MODES:
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
+                f"Only 'bf16' , 'mx_fp8_e4m3(A5)', 'mx_fp4_e2m1(A5)' and 'int8(A3)' are supported."
+            )
+        hidden_shape = x.shape
+
+        quant_mode_type = {
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "mx_fp8_e4m3": torch.float8_e4m3fn,
+            "mx_fp4_e2m1": torch_npu.float4_e2m1fn_x2,
+        }[quant_mode]
         num_tokens = x.size(0)
         padding_size = aligned_num_tokens - num_tokens
         x_padding = torch.zeros(
@@ -548,7 +573,21 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         recv_x = recv_all.reshape(
             num_local_experts * group_size * expert_capacity, hidden
         )
-        recv_x_out = (torch_npu.npu_dynamic_quant(recv_x)) if use_fp8 else recv_x
+        recv_x_out = recv_x
+        if quant_mode != "bf16":
+            recv_x_scale = (
+                torch_npu.npu_dynamic_quant(recv_x)
+                if quant_mode == "int8"
+                else torch_npu.npu_dynamic_mx_quant(recv_x, dst_type=quant_mode_type)
+            )
+            recv_x_out = (
+                recv_x_scale[0].view(
+                    torch.float4_e2m1fn_x2
+                    if quant_mode_type == torch_npu.float4_e2m1fn_x2
+                    else quant_mode_type
+                ),
+                recv_x_scale[1],
+            )
 
         packed_recv_count = torch.full(
             (num_local_experts,),
@@ -585,7 +624,12 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish=False,
         return_recv_hook=False,
         out=None,
+        use_mxfp8=False,
     ):
+        if use_mxfp8:
+            raise NotImplementedError(
+                "low_latency_combine(use_mxfp8=True) is only supported by the A5 default and ops strategies"
+            )
         expanded_row_idx = handle[0]
         expert_capacity = handle[1]
         hidden = handle[2]

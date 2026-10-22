@@ -2,6 +2,7 @@
 #define __MC2_TILING_UTILS_H__
 
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -19,6 +20,12 @@
 class Mc2TilingUtils
 {
 public:
+    static bool IsHybridDeployment()
+    {
+        const char *hybridDeployment = getenv("DEEPEP_HYBRID_DEPLOYMENT");
+        return hybridDeployment != nullptr && hybridDeployment[0] == '1' && hybridDeployment[1] == '\0';
+    }
+
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;

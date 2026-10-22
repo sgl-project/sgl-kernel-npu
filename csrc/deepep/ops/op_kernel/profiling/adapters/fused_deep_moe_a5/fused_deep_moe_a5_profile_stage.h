@@ -14,8 +14,12 @@ enum class ProfileStage : uint32_t {
     StageBarrier = 5,
     Gmm2 = 6,
     Combine = 7,
-    WeightSum = 8,
-    Count = 9,
+    WeightSumAllToAllSend = 8,
+    WeightSumReducePermute = 9,
+    WeightSumClean = 10,
+    DispatchRecvCount = 11,
+    DispatchRecvGroups = 12,
+    Count = 13,
 };
 
 constexpr uint32_t kStageCount = static_cast<uint32_t>(ProfileStage::Count);

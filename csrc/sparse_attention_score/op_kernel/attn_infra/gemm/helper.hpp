@@ -15,7 +15,7 @@
 #include "../../attn_infra/base_defs.hpp"
 #include "../../attn_infra/layout/layout.hpp"
 #include "../../attn_infra/gemm/gemm_type.hpp"
-#include "../../tla/layout.hpp"
+#include "../../attn_tla/layout.hpp"
 
 namespace NpuArch::Gemm::helper {
 

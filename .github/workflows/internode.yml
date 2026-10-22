@@ -1,3 +1,8 @@
+# A2 multi-node callers were removed on 2026-09-02 (#768): reduced node pool.
+# This reusable workflow remains available for future restoration. Restore
+# capacity or optimize scheduling, validate connectivity/CANN and pass multi-node
+# tests before restoring dedicated/daily jobs. See
+# python/deep_ep/README.md#ci-coverage-and-a2-multi-node-status.
 name: 'internode (Ascend NPU)'
 
 on:

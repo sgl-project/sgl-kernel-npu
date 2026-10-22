@@ -4,7 +4,7 @@
 namespace Catlass::Epilogue {
 
 template <uint32_t UB_STAGES_>
-struct EpilogueAtlasA5SiluHalf {
+struct EpilogueAtlasA5ActivationHalf {
     using ArchTag = Arch::Ascend950;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
 };

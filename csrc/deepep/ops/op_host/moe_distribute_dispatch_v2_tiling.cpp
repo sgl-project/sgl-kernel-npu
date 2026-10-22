@@ -20,6 +20,7 @@
 #include "register/op_def_registry.h"
 #include "../op_kernel/moe_distribute_dispatch_tiling.h"
 #include "../op_kernel/moe_distribute_dispatch_v2_tiling.h"
+#include "tiling_args.h"
 #include "moe_distribute_dispatch_v2_ccu_tiling.h"
 #include "platform/platform_infos_def.h"
 
@@ -1210,11 +1211,34 @@ static ge::graphStatus CheckWinSize(const gert::TilingContext *context, MoeDistr
                                     const char *nodeName, const bool isSetCommAlg, uint32_t &localMoeExpertNum)
 {
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    const bool isA5 = (socVersion == "Ascend950");
+    tilingData.moeDistributeDispatchV2Info.isHybridDeployment = Mc2TilingUtils::IsHybridDeployment();
     uint32_t sharedExpertNum = tilingData.moeDistributeDispatchV2Info.sharedExpertNum;
     uint64_t h = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.h);
     uint64_t k = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.k);
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.epWorldSize);
     uint64_t maxBs = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.globalBs) / epWorldSize;
+    const uint64_t llMaxBs = isA5 ? Moe::A5WindowLayout::kLlMaxBs : Moe::A3WindowLayout::kLlMaxBs;
+    const uint64_t llStateEntrySize =
+        isA5 ? Moe::A5WindowLayout::kLlStateEntrySize : Moe::A3WindowLayout::kLlStateEntrySize;
+    const uint64_t llStateTimeoutOffset =
+        isA5 ? Moe::A5WindowLayout::kLlStateTimeoutOffset : Moe::A3WindowLayout::kLlStateTimeoutOffset;
+    const uint64_t hybridReservedSize =
+        isA5 ? Moe::A5WindowLayout::kPerHalfReservedSize : Moe::A3WindowLayout::kPerHalfReservedSize;
+    auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
+    const uint64_t aivNum = ascendcPlatform.GetCoreNumAiv();
+    OP_TILING_CHECK(isA5 && aivNum > Moe::A5WindowLayout::kAivCount,
+                    OP_LOGE(nodeName, "A5 AIV count exceeds selector metadata capacity, aivNum=%lu, limit=%lu.", aivNum,
+                            Moe::A5WindowLayout::kAivCount),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(maxBs > llMaxBs,
+                    OP_LOGE(nodeName, "maxBs exceeds the %s window layout limit, maxBs=%lu, limit=%lu.",
+                            isA5 ? "A5" : "A3", maxBs, llMaxBs),
+                    return ge::GRAPH_FAILED);
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     auto expandXDesc = context->GetOutputDesc(OUTPUT_EXPAND_X_INDEX);
@@ -1233,20 +1257,33 @@ static ge::graphStatus CheckWinSize(const gert::TilingContext *context, MoeDistr
     } else {
         tokenNeedSizeDispatch = ((tokenActualLen + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     }
-    uint64_t actualSize = ((maxBs * tokenNeedSizeDispatch * epWorldSize * static_cast<uint64_t>(localMoeExpertNum)) +
-                           (maxBs * tokenNeedSizeCombine * (k + static_cast<uint64_t>(sharedExpertNum)))) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t perHalfDataSize =
+        (maxBs * tokenNeedSizeDispatch * epWorldSize * static_cast<uint64_t>(localMoeExpertNum)) +
+        (maxBs * tokenNeedSizeCombine * (k + static_cast<uint64_t>(sharedExpertNum)));
+    uint64_t dispatchStateSize =
+        static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.moeExpertNum) * llStateEntrySize;
+    OP_TILING_CHECK(dispatchStateSize > llStateTimeoutOffset,
+                    OP_LOGE(nodeName, "V2 dispatch state overlaps timeout probe, needed=%lu, capacity=%lu.",
+                            dispatchStateSize, llStateTimeoutOffset),
+                    return ge::GRAPH_FAILED);
+    uint64_t reservedSize = tilingData.moeDistributeDispatchV2Info.isHybridDeployment ? hybridReservedSize : 0UL;
+    uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
         OP_LOGE(
             nodeName,
             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
             " localMoeExpertNum = %u, sharedExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
-            " k = %lu, NEEDED_HCCL_BUFFSIZE(((maxBs * tokenNeedSizeDispatch * ep_worldsize * localMoeExpertNum) +"
-            " (maxBs * tokenNeedSizeCombine * (k + sharedExpertNum))) * 2) = %luMB,"
+            " k = %lu, hybridDeployment=%d, dispatchStateSize=%lu, timeoutProbeOffset=%lu, "
+            "perHalfDataSize=%lu, perHalfReservedSize=%lu, "
+            "NEEDED_HCCL_BUFFSIZE((perHalfDataSize + perHalfReservedSize) * 2) = %luMB,"
             " HCCL_BUFFSIZE=%luMB.",
             maxBs, h, epWorldSize, localMoeExpertNum, sharedExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
-            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+            tilingData.moeDistributeDispatchV2Info.isHybridDeployment, dispatchStateSize,
+            tilingData.moeDistributeDispatchV2Info.isHybridDeployment
+                ? llStateTimeoutOffset
+                : Moe::A3WindowLayout::kLegacyLlStateTimeoutOffset,
+            perHalfDataSize, reservedSize, actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
     tilingData.moeDistributeDispatchV2Info.totalWinSize = maxWindowSize;
     OP_LOGD(nodeName, "windowSize = %lu", maxWindowSize);
@@ -1259,7 +1296,31 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
-    workSpaces[0] = SYSTEM_NEED_WORKSPACE + static_cast<size_t>(WORKSPACE_ELEMENT_OFFSET * aivNum * aivNum);
+    auto attrs = context->GetAttrs();
+    auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_WORLD_SIZE_INDEX);
+    auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARED_EXPERT_RANK_NUM_INDEX);
+    auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
+    OP_TILING_CHECK(epWorldSizePtr == nullptr || sharedExpertRankNumPtr == nullptr || moeExpertNumPtr == nullptr,
+                    OP_LOGE(nodeName, "expert workspace attributes are missing."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(*epWorldSizePtr <= 0 || *sharedExpertRankNumPtr < 0 || *moeExpertNumPtr <= 0 ||
+                        *sharedExpertRankNumPtr >= *epWorldSizePtr || *moeExpertNumPtr > MOE_EXPERT_MAX_NUM,
+                    OP_LOGE(nodeName, "invalid expert workspace attributes."), return ge::GRAPH_FAILED);
+
+    uint32_t epWorldSize = static_cast<uint32_t>(*epWorldSizePtr);
+    uint32_t sharedExpertRankNum = static_cast<uint32_t>(*sharedExpertRankNumPtr);
+    uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
+    uint32_t moeRankNum = epWorldSize - sharedExpertRankNum;
+    uint32_t localMoeExpertNum = (moeRankNum == 0U) ? 0U : moeExpertNum / moeRankNum;
+    // 接收计数和 cumsum 中间数据
+    uint64_t recvWorkspaceBytes = static_cast<uint64_t>(WORKSPACE_ELEMENT_OFFSET) * aivNum * aivNum;
+    // 保存每个本地专家的接收专家计数，512B对齐
+    uint64_t tokenMetaBytes = static_cast<uint64_t>(WORKSPACE_ELEMENT_OFFSET) * localMoeExpertNum;
+    // 用于保存 all-gather 场景下的额外 gather count
+    uint64_t gatherMetaBytes = WORKSPACE_ELEMENT_OFFSET;
+    // 对齐保护空间，不用于存放业务数据
+    uint64_t tokenMetaAlignSlack = WORKSPACE_ELEMENT_OFFSET - 1U;
+    workSpaces[0] = SYSTEM_NEED_WORKSPACE +
+                    static_cast<size_t>(recvWorkspaceBytes + tokenMetaAlignSlack + tokenMetaBytes + gatherMetaBytes);
     return ge::GRAPH_SUCCESS;
 }
 

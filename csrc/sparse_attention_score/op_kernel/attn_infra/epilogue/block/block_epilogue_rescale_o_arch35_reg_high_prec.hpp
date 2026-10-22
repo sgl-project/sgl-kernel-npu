@@ -17,8 +17,8 @@
 #include "../../../attn_infra/epilogue/tile_common/tile_copy.hpp"
 #include "../../../attn_infra/gemm_coord.hpp"
 #include "../../../attn_infra/matrix_coord.hpp"
-#include "../../../tla/tensor.hpp"
-#include "../../../tla/layout.hpp"
+#include "../../../attn_tla/tensor.hpp"
+#include "../../../attn_tla/layout.hpp"
 
 namespace NpuArch::Epilogue::Block {
 

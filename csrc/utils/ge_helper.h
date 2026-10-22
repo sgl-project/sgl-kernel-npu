@@ -2,6 +2,7 @@
 #define SGLANG_KERNEL_GE_HELPER_H
 #include <cstring>
 #include <cstdint>
+#include <functional>
 #include <any>
 #include <map>
 #include <mutex>
@@ -143,7 +144,22 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached and the 512-entry cache is full; "
                         "NPU graph capture cannot use a one-shot tiling address");
-            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            // Overflow: keep using at::empty, but reuse ONE held slab instead of
+            // allocating a throw-away block per call. A freed block can be handed to
+            // another tensor and overwritten before the kernel reads it; a slab held
+            // in DeviceCache for the process lifetime never can (the overflow path is
+            // eager-only, so there is no graph-capture re-map to worry about here).
+            // The tensor handed to the kernel is a non-allocator from_blob view of the
+            // slab, so the caching allocator does not own the address the kernel reads.
+            if (!cache.overflowBuffer.defined()) {
+                cache.overflowBuffer = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            }
+            // Hand the kernel a non-allocator (from_blob) view of the slab. The local
+            // reference keeps data_ptr<...>() a non-dependent expression, which GCC
+            // needs when it is written directly on a member of this template.
+            const at::Tensor &overflowSlab = cache.overflowBuffer;
+            auto tilingTensor = at::from_blob(overflowSlab.data_ptr<uint8_t>(), at::IntArrayRef(&tilingSize, 1),
+                                              at::TensorOptions().device(device).dtype(at::kByte));
             CopyTo_(tilingTensor, tilingData, opName);
             return tilingTensor;
         }
@@ -152,8 +168,13 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": run one eager warmup with the same configuration before NPU graph capture to initialize "
                         "the tiling cache");
-            cache.buffer =
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
+            // Allocate the persistent tiling buffer OUTSIDE the torch NPU caching
+            // allocator (aclrtMalloc + non-owning from_blob view). Its addresses are
+            // baked into captured NPU graphs, and torch-allocator-owned memory has
+            // been observed to get re-mapped/re-written by graph capture, which would
+            // corrupt the tiling between host write and device read. Dedicated GM is
+            // never touched by the allocator, so captured addresses keep their content.
+            cache.buffer = MakeBuffer_(device, tilingSize * MAX_TILING_CACHE_ENTRIES);
         } else {
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
@@ -169,6 +190,27 @@ public:
     }
 
 private:
+    // Allocate the persistent tiling buffer from dedicated GM via aclrtMalloc and
+    // wrap it in a non-owning from_blob view, so it never lives in (and is never
+    // re-mapped/re-written by) the torch NPU caching allocator or graph capture.
+    static at::Tensor MakeBuffer_(const c10::Device &device, int64_t bytes)
+    {
+        void *ptr = nullptr;
+        aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling buffer failed, acl error ",
+                    static_cast<int>(st));
+        auto del = [](void *p) {
+            if (p != nullptr) {
+                aclrtFree(p);
+            }
+        };
+        int64_t nbytes[] = {bytes};
+        int64_t bstrides[] = {1};
+        std::function<void(void *)> deleter = del;
+        return at::from_blob(ptr, at::IntArrayRef(nbytes, 1), at::IntArrayRef(bstrides, 1), deleter,
+                             at::TensorOptions().device(device).dtype(at::kByte));
+    }
+
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
     {
         // Upload on the torch_npu current stream so the H2D copy is ordered with the
@@ -182,6 +224,7 @@ private:
     }
     struct DeviceCache {
         at::Tensor buffer;
+        at::Tensor overflowBuffer;
         std::unordered_map<std::string, int64_t> slots;
         int64_t nextSlot = 0;
     };
@@ -279,6 +322,15 @@ public:
     }
 
     AttrDef &Int(int value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Int(int64_t value)
     {
         TORCH_CHECK(valueInitialized_ == false,
                     "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");

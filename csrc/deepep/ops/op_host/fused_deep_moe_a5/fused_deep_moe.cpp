@@ -121,6 +121,9 @@ public:
         this->Attr("moe_expert_num").Int();
         this->Attr("quant_mode").Int();
         this->Attr("global_bs").Int();
+        this->Attr("activation_type").AttrType(OPTIONAL).Int();
+        this->Attr("beta").AttrType(OPTIONAL).Float();
+        this->Attr("linear_beta").AttrType(OPTIONAL).Float();
         this->Attr("profile_enable").Int();
         this->Attr("profile_buffer_bytes").Int();
         this->Attr("profile_launch_id").Int();

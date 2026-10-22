@@ -13,6 +13,13 @@ bool IsActive()
 
 LaunchContext PrepareLaunch(int64_t numExperts, int64_t numRanks, bool profileEnable)
 {
+    // Avoid validating or constructing a profiling layout for ordinary fused
+    // launches.  In particular, large expert counts must not be rejected when
+    // profiling was not requested for this launch.
+    if (!profileEnable || !runtime::IsSessionActive()) {
+        return {};
+    }
+
     uint32_t groupCountCapacity = GetGroupCountCapacity(numExperts, numRanks);
     ProfileLaunchConfig launchConfig{};
     launchConfig.groupCountCapacity = groupCountCapacity;

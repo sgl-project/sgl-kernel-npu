@@ -27,6 +27,9 @@ struct MoeDistributeCombineV2Info {
     bool isExpertMask;      // input active mask 2dims or not
     bool hasSharedExpertX;  // input shared expert x or not
     bool hasElasticInfo;    // has elasticinfo or not
+    bool isHybridDeployment;
+    // A5 MXFP8 only: number of queue slots selected by host UB planning (1 or 2).
+    uint32_t a5MxCombineBufferNum;
     uint64_t totalUbSize;
     uint64_t totalWinSize;
     float armAvgFactor;

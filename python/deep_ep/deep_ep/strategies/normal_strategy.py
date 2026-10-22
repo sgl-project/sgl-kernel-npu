@@ -3,7 +3,6 @@ Normal mode EP communication strategies.
 All normal mode strategy implementations are in this file.
 """
 
-import os
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
@@ -115,6 +114,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
                 previous_event,
                 async_finish,
                 allocate_on_comm_stream,
+                quant_mode,
             )
 
         return self._intranode_dispatch(
@@ -160,50 +160,22 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Determine quant type from quant_mode
-        if quant_mode is None:
-            if isinstance(x, torch.Tensor):
-                # BF16 no quant
-                data = x
-                x_scales = None
-                quant_type = "bf16"
-                use_quant = False
-            elif isinstance(x, tuple) and len(x) == 2:
-                data, quant_type_tensor = x
-                if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                    quant_type = "mx_fp8_e4m3"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.float8_e5m2:
-                    quant_type = "mx_fp8_e5m2"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.int8:
-                    quant_type = "int8"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.float4_e2m1fn_x2:
-                    quant_type = "mx_fp4_e2m1"
-                    use_quant = True
-                else:
-                    raise TypeError(
-                        f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
-                    )
-                x_scales = None
-            else:
-                raise TypeError(f"Unsupported x type: {type(x)}")
-
-            if not use_quant:
-                use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-                if use_quant:
-                    quant_type = "int8"
+        # Resolve quant parameters from the (already-resolved) quant_mode.
+        # The Buffer layer resolves quant_mode from bool flags + device architecture,
+        # so we no longer inspect x[1].dtype for quantization type detection.
+        data = x[0] if isinstance(x, tuple) else x
+        x_scales = None
+        if quant_mode is None or quant_mode == "bf16":
+            quant_type = "bf16"
+            use_quant = False
         else:
-            # New API: explicit quant_mode
             if quant_mode not in VALID_QUANT_MODES:
                 raise ValueError(
-                    f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+                    f"Invalid quant_mode: {quant_mode}. "
+                    f"Valid options: {VALID_QUANT_MODES}"
                 )
-            data = x
-            x_scales = None
             quant_type = quant_mode
-            use_quant = quant_mode != "bf16"
+            use_quant = True
 
         if handle is not None:
             raise NotImplementedError(
@@ -285,6 +257,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         previous_event: Optional[EventOverlap],
         async_finish: bool,
         allocate_on_comm_stream: bool,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -294,7 +267,14 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         EventOverlap,
     ]:
         x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+
+        # Internode dispatch only supports BF16 and INT8 quantization.
+        if quant_mode is not None and quant_mode not in ("bf16", "int8"):
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by internode dispatch; "
+                f"only 'bf16' and 'int8' are supported."
+            )
+        use_quant = quant_mode == "int8"
 
         if handle is not None:
             raise NotImplementedError(
@@ -467,6 +447,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
     Internode and intranode use the same implementation.
     """
 
+    _SUPPORTED_QUANT_MODES = frozenset({"bf16", "int8", "mx_fp8_e4m3", "mx_fp4_e2m1"})
+
     def __init__(self, runtime, group: dist.ProcessGroup):
         super().__init__(group)
         self.runtime = runtime
@@ -610,25 +592,25 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         num_experts = layout["num_experts"]
         topk_idx_int = topk_idx.to(torch.int32)
 
-        # Determine quant type from quant_mode
-        VALID_QUANT_MODES = {
-            "bf16",
-            "int8",
-        }
-        if quant_mode is None:
-            quant_mode = "bf16"
-        if quant_mode not in VALID_QUANT_MODES:
+        if quant_mode not in self._SUPPORTED_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16' and 'int8' are supported; use the default strategy for "
-                f"FP8/FP4 modes."
+                f"Only 'bf16' , 'mx_fp8_e4m3(A5)', 'mx_fp4_e2m1(A5)' and 'int8(A3)' are supported."
             )
         hidden_shape = x.shape
 
-        use_quant = 1 if quant_mode == "int8" else -1
-        is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT")
-        if is_quant_env is not None and quant_mode is None:
-            use_quant = 1 if is_quant_env == "1" else -1
+        use_quant = {
+            "bf16": -1,
+            "int8": 1,
+            "mx_fp8_e4m3": 3,
+            "mx_fp4_e2m1": 9,
+        }[quant_mode]
+        quant_mode_type = {
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "mx_fp8_e4m3": torch.float8_e4m3fn,
+            "mx_fp4_e2m1": torch.float4_e2m1fn_x2,
+        }[quant_mode]
 
         (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
             torch_npu.npu_moe_init_routing_v2(
@@ -642,10 +624,19 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                 active_expert_range=[0, num_experts],
             )
         )
-
-        if use_quant == 1:
+        if use_quant != -1:
+            # During quantization performed by moe_init_routing_v2, the quantization parameters of the float8_e8m0fnu
+            # type are returned in mxfp8 mode, which does not match the input parameters supported by the alltoall
+            # communication operator used here. Therefore, hu needs to be forcibly converted to uint8.
             _, dynamic_scale_after_all2all, scale_handle = self._async_all_to_all(
-                dynamic_scale, output_splits, input_splits, self.group
+                (
+                    dynamic_scale.view(torch.uint8)
+                    if quant_mode != "int8"
+                    else dynamic_scale
+                ),
+                output_splits,
+                input_splits,
+                self.group,
             )
             scale_handle.wait()
             dynamic_scale.untyped_storage().resize_(0)
@@ -663,13 +654,32 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             global_tokens_indices = global_tokens_indices.reshape(
                 global_tokens_indices.size(0), 1
             )
-            if use_quant == 1:
-                dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(
-                    dynamic_scale_after_all2all.size(0), 1
+            if use_quant != -1:
+                dynamic_scale_after_all2all = (
+                    dynamic_scale_after_all2all.reshape(
+                        dynamic_scale_after_all2all.size(0), -1, 2
+                    )
+                    if quant_mode != "int8"
+                    else dynamic_scale_after_all2all
                 )
-                (dynamic_scale_after_routing, reversed_global_mapping, _, _) = (
+                (
+                    dispatch_out,
+                    reversed_global_mapping,
+                    _,
+                    dynamic_scale_after_routing,
+                ) = torch_npu.npu_moe_init_routing_v2(
+                    global_input_tokens,
+                    global_tokens_indices,
+                    scale=dynamic_scale_after_all2all,
+                    expert_num=num_local_experts,
+                    expert_tokens_num_flag=True,
+                    active_expert_range=[0, num_local_experts],
+                    x_dtype=quant_mode_type,
+                )
+            else:
+                (dispatch_out, reversed_global_mapping, _, _) = (
                     torch_npu.npu_moe_init_routing_v2(
-                        dynamic_scale_after_all2all,
+                        global_input_tokens,
                         global_tokens_indices,
                         quant_mode=-1,
                         expert_num=num_local_experts,
@@ -679,23 +689,11 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                         active_expert_range=[0, num_local_experts],
                     )
                 )
-                dynamic_scale_after_routing = dynamic_scale_after_routing.reshape(
-                    dynamic_scale_after_routing.size(0)
-                )
-            (dispatch_out, reversed_global_mapping, _, _) = (
-                torch_npu.npu_moe_init_routing_v2(
-                    global_input_tokens,
-                    global_tokens_indices,
-                    quant_mode=-1,
-                    expert_num=num_local_experts,
-                    expert_tokens_num_type=1,
-                    expert_tokens_num_flag=True,
-                    row_idx_type=0,
-                    active_expert_range=[0, num_local_experts],
-                )
-            )
         else:
             dispatch_out = global_input_tokens
+            dynamic_scale_after_routing = (
+                dynamic_scale_after_all2all if use_quant != -1 else None
+            )
             reversed_global_mapping = None
 
         num_recv_tokens_per_expert_list = (
@@ -713,8 +711,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "num_local_experts": num_local_experts,
         }
         recv_x = (
-            (dispatch_out, dynamic_scale_after_routing)
-            if use_quant == 1
+            (dispatch_out.view(quant_mode_type), dynamic_scale_after_routing)
+            if use_quant != -1
             else dispatch_out
         )
 
