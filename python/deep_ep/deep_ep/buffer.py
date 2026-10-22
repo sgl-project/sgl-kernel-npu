@@ -53,7 +53,7 @@ class Buffer:
                 to the number of local experts.
             allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
-            normal_strategy: the strategy to use for normal mode dispatch/combine, support: default, alltoall.
+            normal_strategy: the strategy to use for normal mode dispatch/combine, support: default, alltoall, ops_transformer.
             low_latency_strategy: the strategy to use for low latency mode dispatch/combine, support: default, ops.
         """
 
