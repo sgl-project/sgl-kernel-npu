@@ -17,14 +17,25 @@ from sgl_kernel_npu.fla.chunk_scaled_dot_kkt import (
 )
 from sgl_kernel_npu.fla.cumsum import chunk_local_cumsum
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
-from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
 
 
 def _use_mega_gdn():
-    return os.getenv("GDN_USE_MEGA_GDN", "0") == "1"
+    """Whether to take the fused mega chunk-GDN path.
+
+    The fused kernel ships in the optional ``pto-kernels`` wheel rather than
+    being compiled here, so it may simply be absent: the wheel is built per
+    SOC version. Requiring the import to succeed keeps the Triton path working
+    on installs without it.
+    """
+    if os.getenv("GDN_USE_MEGA_GDN", "0") != "1":
+        return False
+
+    from sgl_kernel_npu.fla import mega_chunk_gdn
+
+    return mega_chunk_gdn.is_available()
 
 
 def fast_inv_tril(A: torch.Tensor):
@@ -214,6 +225,8 @@ def chunk_gated_delta_rule_fwd(
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
     if _use_mega_gdn():
+        from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
+
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
             q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
         )

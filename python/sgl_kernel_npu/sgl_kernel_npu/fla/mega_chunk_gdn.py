@@ -7,6 +7,31 @@ HEAD_DIM = 128
 CHUNK_SIZE = 128
 
 
+@lru_cache(maxsize=1)
+def _pto_gdn_mega():
+    """Return the fused chunk-GDN entry point from the pto-kernels wheel.
+
+    The kernel used to be compiled in this repository and registered as
+    ``torch.ops.npu.mega_chunk_gdn``. It now ships prebuilt in the
+    ``pto-kernels`` wheel, which is an optional dependency: it is built per
+    SOC version, and the A2/A3 build is not interchangeable with an A5 one.
+    Callers must treat an ImportError as "fast path unavailable" and fall
+    back, which is what ``sgl_kernel_npu.fla.chunk`` does.
+    """
+    from pto_kernels import pto_gdn_mega
+
+    return pto_gdn_mega
+
+
+def is_available() -> bool:
+    """Whether the fused chunk-GDN kernel can be used on this install."""
+    try:
+        _pto_gdn_mega()
+    except ImportError:
+        return False
+    return True
+
+
 def _device_key(device: torch.device) -> tuple[str, int]:
     return device.type, 0 if device.index is None else device.index
 
@@ -152,42 +177,45 @@ def run_mega_chunk_gdn(
     o_workspace_gated = torch.zeros_like(o_workspace_qk)
     out = torch.empty_like(v)
 
-    torch.ops.npu.mega_chunk_gdn(
-        q,
-        k,
-        v,
-        g,
-        beta,
-        mask_lower,
-        mask_full,
-        minus_identity,
-        cu32,
-        out,
-        g_sum,
-        g_t,
-        beta_t,
-        A,
-        A_inv_f32,
-        A_inv,
-        w,
-        u,
-        h,
-        v_new,
-        final_state,
-        initial_state,
-        has_initial_state,
-        kkt_workspace,
-        wy_workspace_a1,
-        wy_workspace_a2,
-        h_workspace,
-        o_workspace_qk,
-        o_workspace_qs,
-        o_workspace_gated,
-        block_dim,
-        num_sequences,
-        total_tokens,
-        total_tokens,
-        num_matrices,
+    # Caller-allocates: every buffer above is written in place by the kernel.
+    # The allocation is expected to move into the wheel's C++ host wrapper in a
+    # later step, at which point this call loses most of its arguments.
+    _pto_gdn_mega()(
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
+        mask_lower=mask_lower,
+        mask_full=mask_full,
+        minus_identity=minus_identity,
+        cu_seqlens=cu32,
+        out=out,
+        g_sum=g_sum,
+        g_t=g_t,
+        beta_t=beta_t,
+        A=A,
+        A_inv_f32=A_inv_f32,
+        A_inv=A_inv,
+        w=w,
+        u=u,
+        s=h,
+        v_new=v_new,
+        final_state=final_state,
+        initial_state=initial_state,
+        has_initial_state=has_initial_state,
+        kkt_workspace=kkt_workspace,
+        wy_workspace_a1=wy_workspace_a1,
+        wy_workspace_a2=wy_workspace_a2,
+        h_workspace=h_workspace,
+        o_workspace_qk=o_workspace_qk,
+        o_workspace_qs=o_workspace_qs,
+        o_workspace_gated=o_workspace_gated,
+        block_dim=block_dim,
+        batch_size=num_sequences,
+        seq_len=total_tokens,
+        total_tokens=total_tokens,
+        num_matrices=num_matrices,
     )
 
     h = h.view(1, num_chunks, num_value_heads, head_dim, head_dim)

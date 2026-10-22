@@ -168,19 +168,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? format_mode=None, str? quant_mode=None) -> ()");
 
     m.def(
-        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
-        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
-        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
-        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
-        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
-        "Tensor initial_state, bool has_initial_state, "
-        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
-        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
-        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
-        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
-        "int seq_len, int total_tokens, int num_matrices) -> ()");
-
-    m.def(
         "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "
         "Tensor block_table, Tensor? select_num_idx=None, Tensor? q_dequant_scale=None, "
         "Tensor? k_dequant_scale=None, Tensor? v_dequant_scale=None, "
@@ -377,8 +364,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
-
-    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 

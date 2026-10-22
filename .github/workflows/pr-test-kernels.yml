@@ -96,7 +96,6 @@ jobs:
               - tests/python/sgl_kernel_npu/test_mamba_state_update.py
             fla:
               - csrc/recurrent_gated_delta_rule/**
-              - csrc/mega_chunk_gdn/**
               - csrc/tri_inv/**
               - python/sgl_kernel_npu/sgl_kernel_npu/fla/**
               - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
@@ -131,7 +130,6 @@ jobs:
               - scripts/prepare_kernel_tests.sh
               - scripts/run_kernel_tests.sh
               - .github/workflows/pr-test-kernels.yml
-              - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules
 

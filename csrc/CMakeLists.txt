@@ -97,7 +97,6 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
@@ -287,23 +286,6 @@ endif()
 # their compiler definitions/options apply to the whole AscendC target.
 set(A3_ONLY_KERNEL_TARGETS)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
-    ascendc_library(mega_chunk_gdn_kernel STATIC
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
-    )
-    ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-        ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
-        ${ASCEND_INCLUDE_DIR}
-        ${ASCEND_INCLUDE_DIR}/experiment/runtime
-        ${ASCEND_INCLUDE_DIR}/experiment/msprof
-    )
-    ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
-        -DGDN_KERNEL_NAME=launch_mega_kernel
-        -DGDN_D=128
-        -DGDN_C=128
-    )
-    list(APPEND A3_ONLY_KERNEL_TARGETS mega_chunk_gdn_kernel)
-
     ascendc_library(sparse_attn_sharedkv_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
     )
