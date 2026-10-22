@@ -69,6 +69,7 @@ def test_invalid_standard_mapping_is_rejected(overrides):
 
 # Require an explicit override when a dtype has no default standard.
 def test_unknown_dtype_has_no_default_standard():
-    assert get_standard("torch.float64") is None
+    unknown_dtype = "__framework_ut_unknown_dtype__"
+    assert get_standard(unknown_dtype) is None
     custom = AccuracyStandard(atol=0, rtol=0)
-    assert get_standard("torch.float64", {"torch.float64": custom}) is custom
+    assert get_standard(unknown_dtype, {unknown_dtype: custom}) is custom
