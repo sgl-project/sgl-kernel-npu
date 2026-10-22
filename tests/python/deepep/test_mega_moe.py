@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep.buffer import FuseMode
-from utils import bench, bench_kineto, calc_diff, init_dist
+from utils import bench, bench_kineto, calc_diff, init_dist, make_hccl_pg_options
 
 torch_npu.npu.config.allow_internal_format = True
 os.environ["MOE_EXPERT_TOKEN_NUMS_TYPE"] = "1"
@@ -2074,14 +2074,27 @@ def test_main(
 
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
-    rank, num_ranks, initial_group = init_dist(local_rank, num_local_ranks)
+    # A5 MegaMoe owns a separate SymmBuffer. Only MC2 needs the large HCCL
+    # data buffer; barriers and the MegaMoe groups use the normal 200 MiB.
+    hccl_buffer_size = 200 if args.quant_mode in A5_QUANT_MODES else None
+    rank, num_ranks, initial_group = init_dist(
+        local_rank, num_local_ranks, hccl_buffer_size=hccl_buffer_size
+    )
     ranks = list(range(num_ranks))
     if args.performance_only:
         baseline_group = None
         mega_group = initial_group
     else:
-        baseline_group = dist.new_group(ranks=ranks, backend="hccl")
-        mega_group = dist.new_group(ranks=ranks, backend="hccl")
+        baseline_group = dist.new_group(
+            ranks=ranks,
+            backend="hccl",
+            pg_options=make_hccl_pg_options(hccl_buffer_size),
+        )
+        mega_group = dist.new_group(
+            ranks=ranks,
+            backend="hccl",
+            pg_options=make_hccl_pg_options(hccl_buffer_size),
+        )
     mega_backend = mega_group._get_backend(torch.device("npu"))
     baseline_group_ep = ""
     if baseline_group is not None:
@@ -2095,9 +2108,16 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         and not args.performance_only
     ):
         # MC2 requires its own group, separate from the direct CANN MegaMoe reference.
-        args.a5_small_op_group_ep = initial_group._get_backend(
+        # Inherit HCCL_BUFFSIZE here, without the smaller control-group override.
+        small_op_group = dist.new_group(ranks=ranks, backend="hccl")
+        args.a5_small_op_group_ep = small_op_group._get_backend(
             torch.device("npu")
         ).get_hccl_comm_name(rank)
+        info_rank0(
+            rank,
+            f"A5 HCCL buffers: control/MegaMoe={hccl_buffer_size} MiB, "
+            f"MC2={os.environ.get('HCCL_BUFFSIZE', '200')} MiB",
+        )
 
     # if rank == 0:
     #     args.num_tokens = 32
