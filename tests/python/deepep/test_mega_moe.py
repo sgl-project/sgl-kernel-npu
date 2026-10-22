@@ -2,6 +2,7 @@ import argparse
 import os
 import random
 from functools import partial
+from itertools import product
 from typing import List, Optional
 
 import deep_ep
@@ -10,16 +11,26 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep.buffer import FuseMode
-from utils import bench_kineto, calc_diff, init_dist
+from utils import bench, bench_kineto, calc_diff, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
 os.environ["MOE_EXPERT_TOKEN_NUMS_TYPE"] = "1"
 
 ACL_FORMAT_FRACTAL_NZ = torch_npu.Format.FRACTAL_NZ
-SUPPORTED_QUANT_MODES = ("w4a8", "w8a8")
+A3_QUANT_MODES = ("w4a8", "w8a8")
+A5_QUANT_MODES = ("mx_fp8_e4m3", "mx_fp8_e5m2", "mx_fp4_e2m1", "mx_fp8_e4m3_w4")
+A5_FP4_WEIGHT_MODES = frozenset({"mx_fp4_e2m1", "mx_fp8_e4m3_w4"})
+A5_MC2_MAX_TOKENS = 512
+SUPPORTED_QUANT_MODES = A3_QUANT_MODES + A5_QUANT_MODES
 DIFF_THRESHOLDS = {
-    "w4a8": 5e-3,
-    "w8a8": 2e-3,
+    "w4a8": 1e-4,
+    "w8a8": 1e-4,
+    # A5 compares the wrapper with direct CANN on identical quantized inputs.
+    # These are wrapper-equivalence thresholds, not quantization-accuracy limits.
+    "mx_fp8_e4m3": 1e-5,
+    "mx_fp8_e5m2": 1e-5,
+    "mx_fp4_e2m1": 1e-5,
+    "mx_fp8_e4m3_w4": 1e-5,
 }
 EXPERT_TOKEN_NUMS_TYPE_CUMSUM = 0
 EXPERT_TOKEN_NUMS_TYPE_COUNT = 1
@@ -607,6 +618,130 @@ def build_w8a8_fused_scene_weights(source: dict, device: torch.device) -> dict:
     }
 
 
+def get_a5_quant_dtype(quant_mode: str):
+    # Keep these lookups lazy: older A3 PTA/PyTorch need not expose MXFP dtypes.
+    if quant_mode == "mx_fp4_e2m1":
+        dtype = getattr(torch_npu, "float4_e2m1fn_x2", None)
+        if type(dtype) is not int or dtype != 296:
+            raise RuntimeError("A5 MXFP4 requires torch_npu.float4_e2m1fn_x2=296")
+    elif quant_mode in ("mx_fp8_e4m3", "mx_fp8_e4m3_w4", "mx_fp8_e5m2"):
+        name = "float8_e5m2" if quant_mode == "mx_fp8_e5m2" else "float8_e4m3fn"
+        dtype = getattr(torch, name, None)
+        if dtype is None:
+            raise RuntimeError(f"A5 MegaMoe requires torch.{name}")
+    else:
+        raise ValueError(f"Unsupported A5 MegaMoe quant_mode: {quant_mode!r}")
+    return dtype
+
+
+def get_a5_weight_scenes(args: argparse.Namespace) -> list[tuple[str, str]]:
+    layouts = (
+        ("per-expert", "stacked")
+        if args.weight_layout == "all"
+        else (args.weight_layout,)
+    )
+    formats = {
+        "mx_fp8_e4m3": ("ND", "NZ"),
+        "mx_fp8_e5m2": ("ND",),
+        "mx_fp4_e2m1": ("NZ",),
+        "mx_fp8_e4m3_w4": ("NZ",),
+    }[args.quant_mode]
+    if args.weight_format != "all":
+        if args.weight_format not in formats:
+            raise ValueError(f"{args.quant_mode} does not support {args.weight_format}")
+        formats = (args.weight_format,)
+    return list(product(layouts, formats))
+
+
+def build_a5_case_matrix(args: argparse.Namespace, rank: int) -> list[dict]:
+    routing_dtypes = (
+        ("bf16", "fp32") if args.routing_dtype == "all" else (args.routing_dtype,)
+    )
+    token_lengths = (
+        (args.num_tokens,)
+        if args.enable_performance
+        else (args.num_tokens, max(1, args.num_tokens // 2))
+    )
+    return [
+        dict(
+            case,
+            routing_dtype=dtype,
+            num_tokens=tokens + rank * args.token_jitter,
+        )
+        for case, dtype, tokens in product(
+            build_case_matrix(args), routing_dtypes, token_lengths
+        )
+    ]
+
+
+def prepare_a5_scene_weights(
+    args: argparse.Namespace,
+    num_local_experts: int,
+    device: torch.device,
+    layout: str,
+    storage: str,
+) -> dict:
+    quant_dtype = get_a5_quant_dtype(args.quant_mode)
+    scale_dtype = getattr(torch, "float8_e8m0fnu", None)
+    if scale_dtype is None:
+        raise RuntimeError("A5 MegaMoe requires torch.float8_e8m0fnu")
+    fp4 = args.quant_mode in A5_FP4_WEIGHT_MODES
+    a8w4 = args.quant_mode == "mx_fp8_e4m3_w4"
+    prefix, count = (
+        ((num_local_experts,), 1) if layout == "stacked" else ((), num_local_experts)
+    )
+
+    def weight(rows, columns, second_layer):
+        shape = prefix + (rows, columns // (2 if fp4 else 1))
+        if fp4:
+            tensor = torch.randint(0, 256, shape, dtype=torch.uint8, device=device)
+        else:
+            tensor = (torch.randn(shape, device=device) * 0.125).to(quant_dtype)
+        if storage == "ND":
+            return tensor
+        try:
+            if fp4 and (second_layer or a8w4):
+                tensor = torch_npu.npu_format_cast(
+                    tensor,
+                    ACL_FORMAT_FRACTAL_NZ,
+                    customize_dtype=torch.float8_e4m3fn,
+                    input_dtype=torch_npu.float4_e2m1fn_x2,
+                )
+            else:
+                tensor = torch_npu.npu_format_cast(tensor, ACL_FORMAT_FRACTAL_NZ)
+        except (RuntimeError, TypeError) as exc:
+            raise RuntimeError(f"{args.quant_mode}/{layout}/{storage}: {exc}") from exc
+        expected_formats = (29, 50, 51) if fp4 and (second_layer or a8w4) else (29,)
+        actual_format = torch_npu.get_npu_format(tensor)
+        format_id = int(getattr(actual_format, "value", actual_format))
+        if format_id not in expected_formats:
+            raise RuntimeError(
+                f"{args.quant_mode} produced format {actual_format}, "
+                f"expected {expected_formats}"
+            )
+        return tensor
+
+    def scale(rows, columns):
+        shape = prefix + (rows, (columns + 63) // 64, 2)
+        return torch.full(shape, 127, dtype=torch.uint8, device=device).view(
+            scale_dtype
+        )
+
+    hidden, intermediate = args.hidden, args.moe_intermediate_size
+    return {
+        "fused_l1_weights": [
+            weight(2 * intermediate, hidden, False) for _ in range(count)
+        ],
+        "fused_l2_weights": [weight(hidden, intermediate, True) for _ in range(count)],
+        "fused_l1_scales": [scale(2 * intermediate, hidden) for _ in range(count)],
+        "fused_l2_scales": [scale(hidden, intermediate) for _ in range(count)],
+        "fused_l1_bias": None,
+        "fused_l2_bias": None,
+        "quant_mode": args.quant_mode,
+        "api_quant_mode": args.quant_mode,
+    }
+
+
 def prepare_scene_weights(
     hidden: int,
     intermediate_hidden: int,
@@ -615,10 +750,10 @@ def prepare_scene_weights(
     quant_mode: str,
     include_baseline: bool = True,
 ) -> dict:
-    if quant_mode not in SUPPORTED_QUANT_MODES:
+    if quant_mode not in A3_QUANT_MODES:
         raise ValueError(
             f"Unsupported quant_mode={quant_mode!r}; expected one of "
-            f"{SUPPORTED_QUANT_MODES}."
+            f"{A3_QUANT_MODES}."
         )
 
     # Generate all source weights and scales on CPU. For W4A8 in particular,
@@ -977,6 +1112,77 @@ def run_baseline_reference(
     )
 
 
+def run_a5_reference(
+    x: torch.Tensor,
+    topk_idx: torch.Tensor,
+    topk_weights: torch.Tensor,
+    weights: dict,
+    case: dict,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    from cann_ops_transformer.ops import mega_moe
+
+    activation_params = None
+    if case["activation"] == "situ":
+        activation_params = {"beta": case["beta"]}
+        if case["linear_beta"] is not None:
+            activation_params["linear_beta"] = case["linear_beta"]
+    weight_type = (
+        get_a5_quant_dtype("mx_fp4_e2m1")
+        if weights["quant_mode"] in A5_FP4_WEIGHT_MODES
+        else None
+    )
+    return mega_moe(
+        x=x,
+        topk_ids=topk_idx.int(),
+        topk_weights=topk_weights,
+        l1_weights=weights["fused_l1_weights"],
+        l2_weights=weights["fused_l2_weights"],
+        l1_weights_sf=weights["fused_l1_scales"],
+        l2_weights_sf=weights["fused_l2_scales"],
+        sym_buffer=weights["reference_buffer"],
+        x_active_mask=None,
+        activation="situglu" if case["activation"] == "situ" else case["activation"],
+        activation_params=activation_params,
+        weight1_type=weight_type,
+        weight2_type=weight_type,
+    )
+
+
+def check_a5_call(
+    args: argparse.Namespace,
+    rank: int,
+    fused_buffer: deep_ep.Buffer,
+    mega_group: dist.ProcessGroup,
+    x: torch.Tensor,
+    topk_idx: torch.Tensor,
+    weights: dict,
+    output: torch.Tensor,
+    counts: torch.Tensor,
+):
+    if output.shape != x.shape or not bool(torch.isfinite(output).all()):
+        raise AssertionError(
+            "A5 output must be finite and match the actual input shape"
+        )
+    expected_counts = torch.stack(
+        [(topk_idx == expert).sum() for expert in range(args.num_experts)]
+    ).int()
+    dist.all_reduce(expected_counts, group=mega_group)
+    local_experts = args.num_experts // mega_group.size()
+    torch.testing.assert_close(
+        counts,
+        expected_counts[rank * local_experts : (rank + 1) * local_experts],
+        rtol=0,
+        atol=0,
+    )
+    cache = fused_buffer._fused_strategies[FuseMode.MEGA_MOE]._mega_moe_symm_buffers
+    if len(cache) != 1:
+        raise AssertionError("A5 test must keep one SymmBuffer per communication group")
+    current = next(iter(cache.values()))
+    previous = weights["cache_state"].setdefault("buffer", current)
+    if current is not previous:
+        raise AssertionError("A5 SymmBuffer was not reused across token lengths/scenes")
+
+
 def run_fused_reference(
     buffer: deep_ep.Buffer,
     x: torch.Tensor,
@@ -1040,6 +1246,23 @@ def build_case_matrix(args: argparse.Namespace) -> list[dict]:
     return cases
 
 
+def make_case_inputs(args, weights, case, device):
+    num_tokens = case.get("num_tokens", args.num_tokens)
+    x = torch.randn((num_tokens, args.hidden), dtype=torch.bfloat16, device=device)
+    topk_idx, topk_weights = make_topk_inputs(
+        num_tokens, args.num_experts, args.num_topk, device
+    )
+    if args.quant_mode in A5_QUANT_MODES:
+        dtype = torch.bfloat16 if case["routing_dtype"] == "bf16" else torch.float32
+        topk_weights = torch.softmax(topk_weights, dim=-1).to(dtype)
+        capacity = weights["capacity"]
+    else:
+        max_num_tokens = torch.tensor(x.size(0), device=device, dtype=torch.int32)
+        dist.all_reduce(max_num_tokens, op=dist.ReduceOp.MAX)
+        capacity = int(max_num_tokens.item())
+    return x, topk_idx, topk_weights, capacity
+
+
 def prepare_performance_case(
     args: argparse.Namespace,
     weights: dict,
@@ -1050,19 +1273,16 @@ def prepare_performance_case(
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    x = torch.randn((args.num_tokens, args.hidden), dtype=torch.bfloat16, device=device)
-    topk_idx, topk_weights = make_topk_inputs(
-        args.num_tokens, args.num_experts, args.num_topk, device
+    x, topk_idx, topk_weights, max_num_tokens = make_case_inputs(
+        args, weights, case, device
     )
-    max_num_tokens = torch.tensor(x.size(0), device=device, dtype=torch.int32)
-    dist.all_reduce(max_num_tokens, op=dist.ReduceOp.MAX)
 
     return {
         "case": case,
         "x": x,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
-        "max_num_tokens": int(max_num_tokens.item()),
+        "max_num_tokens": max_num_tokens,
         "weights": weights,
     }
 
@@ -1088,29 +1308,30 @@ def launch_case(
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    x = torch.randn((args.num_tokens, args.hidden), dtype=torch.bfloat16, device=device)
-    topk_idx, topk_weights = make_topk_inputs(
-        args.num_tokens, args.num_experts, args.num_topk, device
+    x, topk_idx, topk_weights, max_num_tokens = make_case_inputs(
+        args, weights, case, device
     )
-    max_num_tokens = torch.tensor(x.size(0), device=device, dtype=torch.int32)
-    dist.all_reduce(max_num_tokens, op=dist.ReduceOp.MAX)
-    max_num_tokens = int(max_num_tokens.item())
-    baseline_out, baseline_counts = run_baseline_reference(
-        x,
-        topk_idx,
-        topk_weights,
-        max_num_tokens,
-        args.num_experts,
-        weights,
-        case["activation"],
-        case["beta"],
-        case["linear_beta"],
-        baseline_group_ep,
-        baseline_group,
-        num_ranks,
-        rank,
-        enable_dispatch_v2,
-    )
+    if args.quant_mode in A5_QUANT_MODES:
+        baseline_out, baseline_counts = run_a5_reference(
+            x, topk_idx, topk_weights, weights, case
+        )
+    else:
+        baseline_out, baseline_counts = run_baseline_reference(
+            x,
+            topk_idx,
+            topk_weights,
+            max_num_tokens,
+            args.num_experts,
+            weights,
+            case["activation"],
+            case["beta"],
+            case["linear_beta"],
+            baseline_group_ep,
+            baseline_group,
+            num_ranks,
+            rank,
+            enable_dispatch_v2,
+        )
     fused_out, fused_counts = run_fused_reference(
         fused_buffer,
         x,
@@ -1123,6 +1344,18 @@ def launch_case(
         case["beta"],
         case["linear_beta"],
     )
+    if args.quant_mode in A5_QUANT_MODES:
+        check_a5_call(
+            args,
+            rank,
+            fused_buffer,
+            mega_group,
+            x,
+            topk_idx,
+            weights,
+            fused_out,
+            fused_counts,
+        )
     info_rank0(
         rank,
         f"iter={iteration} case={case_index} quant_mode={args.quant_mode} "
@@ -1169,6 +1402,13 @@ def finalize_case(
     fused_out = launched_case["fused_out"]
     fused_counts = launched_case["fused_counts"]
 
+    if args.quant_mode in A5_QUANT_MODES:
+        if not bool(torch.isfinite(baseline_out).all()):
+            raise AssertionError("A5 reference output must be finite")
+        torch.testing.assert_close(
+            fused_out, baseline_out, rtol=args.rtol, atol=args.atol
+        )
+
     local_diff = calc_diff(
         baseline_out.float(),
         fused_out.float(),
@@ -1209,46 +1449,81 @@ def finalize_case(
         dist.barrier()
 
 
-def test_main(
-    args: argparse.Namespace,
-    rank: int,
-    num_ranks: int,
-    fused_buffer: deep_ep.Buffer,
-    baseline_group_ep: str,
-    mega_group_ep: str,
-    baseline_group: Optional[dist.ProcessGroup],
-    mega_group: dist.ProcessGroup,
-    enable_dispatch_v2: bool,
-):
-    if args.num_experts % num_ranks != 0:
-        raise ValueError("num_experts must be divisible by world_size.")
-    if args.enable_performance and args.performance_iters <= 0:
-        raise ValueError("--performance-iters must be greater than zero.")
-    if not args.performance_only and baseline_group is None:
-        raise RuntimeError("The accuracy path requires a baseline process group.")
+def make_a5_small_op_call(args, launched_case, group_ep, rank, num_ranks):
+    from test_fused_deep_moe_a5 import run_small_op_baseline
 
-    iterations = args.performance_iters if args.enable_performance else 1
-    cases = build_case_matrix(args)
-    device = torch.device(f"npu:{torch.npu.current_device()}")
-    num_local_experts = args.num_experts // num_ranks
-    torch.manual_seed(args.seed + rank)
-    random.seed(args.seed + rank)
-    np.random.seed(args.seed + rank)
-    weights = prepare_scene_weights(
-        args.hidden,
-        args.moe_intermediate_size,
-        num_local_experts,
-        device,
-        args.quant_mode,
-        include_baseline=not args.performance_only,
-    )
-    if args.performance_only:
-        info_rank0(rank, f"performance_only=True mega_group_ep={mega_group_ep}")
-    else:
-        info_rank0(
-            rank,
-            f"baseline_group_ep={baseline_group_ep} mega_group_ep={mega_group_ep}",
+    case, weights = launched_case["case"], launched_case["weights"]
+    inputs = {
+        "x": launched_case["x"],
+        "expert_ids": launched_case["topk_idx"],
+        "expert_scales": launched_case["topk_weights"].float(),
+        "x_active_mask": None,
+    }
+    # MegaMoe uses [E,N,K]; the GMM baseline uses [E,K,N]. Convert outside timing.
+    # Byte views preserve MX values when E8M0 transpose is unavailable in PTA.
+    for layer in (1, 2):
+        weight = weights[f"fused_l{layer}_weights"][0]
+        scale = weights[f"fused_l{layer}_scales"][0]
+        inputs[f"gmm{layer}_weight_q"] = (
+            weight.view(torch.uint8).transpose(-1, -2).contiguous().view(weight.dtype)
         )
+        inputs[f"gmm{layer}_weight_scale"] = (
+            scale.view(torch.uint8).transpose(-2, -3).contiguous().view(scale.dtype)
+        )
+    small_args = argparse.Namespace(
+        quant=args.quant_mode.removeprefix("mx_"),
+        num_experts=args.num_experts,
+        activation=case["activation"],
+        beta=case["beta"],
+        linear_beta=case["linear_beta"],
+        log_quant_dtypes=False,
+    )
+    # The CANN MC2 dispatch/combine pair accepts at most 512 tokens per rank.
+    # Prepare slices outside timing; each measured call processes the whole batch.
+    calls = []
+    for start in range(0, inputs["x"].size(0), A5_MC2_MAX_TOKENS):
+        chunk = dict(inputs)
+        for name in ("x", "expert_ids", "expert_scales"):
+            chunk[name] = inputs[name][start : start + A5_MC2_MAX_TOKENS]
+        calls.append(
+            partial(
+                run_small_op_baseline,
+                chunk,
+                group_ep,
+                rank,
+                num_ranks,
+                chunk["x"].size(0) * num_ranks,
+                small_args,
+            )
+        )
+    if len(calls) == 1:
+        return calls[0]
+
+    def run_chunks():
+        results = [call() for call in calls]
+        return (
+            torch.cat([output for output, _ in results], dim=0),
+            torch.stack([counts for _, counts in results]).sum(
+                dim=0, dtype=torch.int32
+            ),
+        )
+
+    return run_chunks
+
+
+def run_test_cases(
+    args,
+    rank,
+    num_ranks,
+    fused_buffer,
+    weights,
+    cases,
+    baseline_group_ep,
+    baseline_group,
+    mega_group,
+    enable_dispatch_v2,
+):
+    iterations = args.performance_iters if args.enable_performance else 1
     if args.enable_performance:
         if args.performance_only:
             launched_cases = [
@@ -1272,7 +1547,7 @@ def test_main(
             torch.npu.synchronize()
             dist.barrier()
         else:
-            # One accuracy pass per case, then kineto timing of the fused path.
+            # One accuracy pass per case before performance measurement.
             launched_cases = []
             for case_index, case in enumerate(cases):
                 launched_cases.append(
@@ -1298,9 +1573,65 @@ def test_main(
                 finalize_case(args, rank, launched_case, synchronize_ranks=False)
             dist.barrier()
 
-        # ----- Performance: aclnnMegaMoe end-to-end latency -----
+        # ----- Performance -----
         for launched_case in launched_cases:
             case = launched_case["case"]
+            if not args.performance_only:
+                small_batch_info = ""
+                call_args = (
+                    launched_case["x"],
+                    launched_case["topk_idx"],
+                    launched_case["topk_weights"],
+                    launched_case["max_num_tokens"],
+                    args.num_experts,
+                    launched_case["weights"],
+                    case["activation"],
+                    case["beta"],
+                    case["linear_beta"],
+                )
+                if args.quant_mode in A5_QUANT_MODES:
+                    small_fn = make_a5_small_op_call(
+                        args, launched_case, args.a5_small_op_group_ep, rank, num_ranks
+                    )
+                    small_chunks = (
+                        launched_case["x"].size(0) + A5_MC2_MAX_TOKENS - 1
+                    ) // A5_MC2_MAX_TOKENS
+                    small_batch_info = (
+                        f"small_ops_chunks={small_chunks}, "
+                        f"small_ops_chunk_limit={A5_MC2_MAX_TOKENS}, megamoe_chunks=1, "
+                    )
+                else:
+                    small_fn = partial(
+                        run_baseline_reference,
+                        *call_args,
+                        group_ep=baseline_group_ep,
+                        barrier_group=baseline_group,
+                        ep_world_size=num_ranks,
+                        ep_rank_id=rank,
+                        enable_dispatch_v2=enable_dispatch_v2,
+                    )
+                fused_fn = partial(run_fused_reference, fused_buffer, *call_args)
+                # Time both complete paths with NPU events and the same inputs.
+                # bench discards the first sample; retain performance_iters samples.
+                small_time, fused_time = (
+                    bench(
+                        fn,
+                        num_tests=args.performance_iters + 1,
+                        sync_fn=dist.barrier,
+                    )[0]
+                    for fn in (small_fn, fused_fn)
+                )
+                print(
+                    f"[Rank {rank}] small_ops_time={small_time * 1e6:.2f} us "
+                    f"megamoe_time={fused_time * 1e6:.2f} us "
+                    f"speedup={small_time / fused_time:.3f}x "
+                    f"(quant_mode={args.quant_mode}, activation={case['activation']}, "
+                    f"beta={case['beta']}, linear_beta={case['linear_beta']}, "
+                    f"{small_batch_info}"
+                    f"num_tokens={launched_case['x'].size(0)}, iters={args.performance_iters})",
+                    flush=True,
+                )
+                continue
             fused_time = bench_kineto(
                 partial(
                     run_fused_reference,
@@ -1323,7 +1654,7 @@ def test_main(
                 f"[Rank {rank}] megamoe_time= {fused_time * 1e6:.2f} us "
                 f"(quant_mode={args.quant_mode}, activation={case['activation']}, "
                 f"beta={case['beta']}, linear_beta={case['linear_beta']}, "
-                f"num_tokens={args.num_tokens}, iters={args.performance_iters})",
+                f"num_tokens={launched_case['x'].size(0)}, iters={args.performance_iters})",
                 flush=True,
             )
     else:
@@ -1347,6 +1678,201 @@ def test_main(
                         enable_dispatch_v2,
                     ),
                 )
+
+
+def validate_a5_args(args: argparse.Namespace, num_ranks: int):
+    if not (
+        2 <= num_ranks <= 1024
+        and num_ranks <= args.num_experts <= 2048
+        and args.num_experts % num_ranks == 0
+    ):
+        raise ValueError("A5 num_experts must be divisible by the EP size in [2,1024]")
+    if not 1 <= args.num_topk <= min(32, args.num_experts):
+        raise ValueError("A5 num_topk must be in [1,min(32,num_experts)]")
+    if not (1024 <= args.hidden <= 8192 and args.hidden % 64 == 0):
+        raise ValueError("A5 hidden must be in [1024,8192] and 64-aligned")
+    if not (
+        256 <= args.moe_intermediate_size <= 4096
+        and args.moe_intermediate_size % 128 == 0
+    ):
+        raise ValueError("A5 intermediate size must be in [256,4096] and 128-aligned")
+    if args.num_tokens < 1 or args.token_jitter < 0:
+        raise ValueError("A5 num_tokens must be positive and token_jitter non-negative")
+    if not (args.rtol >= 0 and args.atol >= 0):
+        raise ValueError("A5 rtol/atol must be non-negative")
+
+
+def run_a5_scenes(
+    args,
+    rank,
+    num_ranks,
+    fused_buffer,
+    baseline_group_ep,
+    baseline_group,
+    mega_group,
+    enable_dispatch_v2,
+):
+    from deep_ep.device_info import DEVICE_VERSION_TABLE, get_device_version
+
+    if DEVICE_VERSION_TABLE.get(get_device_version()) != "A5":
+        raise RuntimeError("MXFP MegaMoe tests require Ascend 950 (A5)")
+    validate_a5_args(args, num_ranks)
+    if args.enable_performance and not args.performance_only:
+        if (
+            args.quant_mode in A5_FP4_WEIGHT_MODES
+            or args.weight_layout != "stacked"
+            or args.weight_format != "ND"
+            or args.token_jitter != 0
+        ):
+            raise ValueError(
+                "A5 small-op performance comparison requires MXFP8, "
+                "--weight-layout stacked --weight-format ND --token-jitter 0"
+            )
+    scenes = get_a5_weight_scenes(args)
+    cases = build_a5_case_matrix(args, rank)
+    capacity = args.num_tokens + (num_ranks - 1) * args.token_jitter
+    dtype = get_a5_quant_dtype(args.quant_mode)
+    device = torch.device(f"npu:{torch.npu.current_device()}")
+    reference_buffer = None
+    cache_state = {}
+    executed, skipped = 0, []
+    try:
+        if not args.performance_only:
+            from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe
+
+            # Reuse the existing framework's isolated baseline/mega groups.
+            # One mode/configuration per invocation, one buffer per group.
+            if baseline_group is mega_group:
+                raise ValueError("A5 baseline and tested MegaMoe need separate groups")
+            reference_buffer = get_symm_buffer_for_mega_moe(
+                baseline_group,
+                num_experts=args.num_experts,
+                num_max_tokens_per_rank=capacity,
+                num_topk=args.num_topk,
+                hidden=args.hidden,
+                intermediate_hidden=args.moe_intermediate_size,
+                dispatch_quant_mode=4,
+                dispatch_quant_out_dtype=dtype,
+            )
+        for layout, storage in scenes:
+            torch.manual_seed(args.seed + rank)
+            weights, format_error = None, None
+            try:
+                weights = prepare_a5_scene_weights(
+                    args, args.num_experts // num_ranks, device, layout, storage
+                )
+            except RuntimeError as exc:
+                format_error = str(exc)
+            errors = [None] * num_ranks
+            dist.all_gather_object(errors, format_error, group=mega_group)
+            label = f"{args.quant_mode}/{layout}/{storage}"
+            if any(errors):
+                skipped.append(label)
+                warn_rank0(rank, f"SKIP {label}: {errors}")
+                continue
+            weights.update(
+                capacity=capacity,
+                reference_buffer=reference_buffer,
+                cache_state=cache_state,
+            )
+            info_rank0(rank, f"A5 scene={label}, capacity={capacity}")
+            run_test_cases(
+                args,
+                rank,
+                num_ranks,
+                fused_buffer,
+                weights,
+                cases,
+                baseline_group_ep,
+                baseline_group,
+                mega_group,
+                enable_dispatch_v2,
+            )
+            executed += 1
+        if not executed or (skipped and not args.allow_format_skips):
+            raise RuntimeError(
+                f"Incomplete A5 validation: executed_scenes={executed}, skipped={skipped}. "
+                "--allow-format-skips only permits a partial run."
+            )
+        completed_mode = (
+            "performance-only" if args.performance_only else "wrapper-equivalence"
+        )
+        info_rank0(
+            rank,
+            f"A5 {args.quant_mode} {completed_mode} completed: "
+            f"executed_scenes={executed}, skipped={skipped}",
+        )
+    finally:
+        try:
+            if reference_buffer is not None:
+                reference_buffer.destroy()
+        finally:
+            fused_buffer._fused_strategies[FuseMode.MEGA_MOE].destroy()
+
+
+def test_main(
+    args: argparse.Namespace,
+    rank: int,
+    num_ranks: int,
+    fused_buffer: deep_ep.Buffer,
+    baseline_group_ep: str,
+    mega_group_ep: str,
+    baseline_group: Optional[dist.ProcessGroup],
+    mega_group: dist.ProcessGroup,
+    enable_dispatch_v2: bool,
+):
+    if args.num_experts % num_ranks != 0:
+        raise ValueError("num_experts must be divisible by world_size.")
+    if args.enable_performance and args.performance_iters <= 0:
+        raise ValueError("--performance-iters must be greater than zero.")
+    if not args.performance_only and baseline_group is None:
+        raise RuntimeError("The accuracy path requires a baseline process group.")
+
+    if args.quant_mode in A5_QUANT_MODES:
+        run_a5_scenes(
+            args,
+            rank,
+            num_ranks,
+            fused_buffer,
+            baseline_group_ep,
+            baseline_group,
+            mega_group,
+            enable_dispatch_v2,
+        )
+        return
+    cases = build_case_matrix(args)
+    device = torch.device(f"npu:{torch.npu.current_device()}")
+    num_local_experts = args.num_experts // num_ranks
+    torch.manual_seed(args.seed + rank)
+    random.seed(args.seed + rank)
+    np.random.seed(args.seed + rank)
+    weights = prepare_scene_weights(
+        args.hidden,
+        args.moe_intermediate_size,
+        num_local_experts,
+        device,
+        args.quant_mode,
+        include_baseline=not args.performance_only,
+    )
+    if args.performance_only:
+        info_rank0(rank, f"performance_only=True mega_group_ep={mega_group_ep}")
+    else:
+        info_rank0(
+            rank,
+            f"baseline_group_ep={baseline_group_ep} mega_group_ep={mega_group_ep}",
+        )
+    run_test_cases(
+        args,
+        rank,
+        num_ranks,
+        fused_buffer,
+        weights,
+        cases,
+        baseline_group_ep,
+        baseline_group,
+        mega_group,
+        enable_dispatch_v2,
+    )
     completed_mode = "performance" if args.performance_only else "accuracy"
     info_rank0(
         rank,
@@ -1370,6 +1896,15 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         baseline_group_ep = baseline_backend.get_hccl_comm_name(rank)
     mega_group_ep = mega_backend.get_hccl_comm_name(rank)
     enable_dispatch_v2 = hasattr(torch_npu, "npu_moe_distribute_dispatch_v2")
+    if (
+        args.quant_mode in A5_QUANT_MODES
+        and args.enable_performance
+        and not args.performance_only
+    ):
+        # MC2 requires its own group, separate from the direct CANN MegaMoe reference.
+        args.a5_small_op_group_ep = initial_group._get_backend(
+            torch.device("npu")
+        ).get_hccl_comm_name(rank)
 
     # if rank == 0:
     #     args.num_tokens = 32
@@ -1399,9 +1934,12 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.destroy_process_group()
 
 
-if __name__ == "__main__":
+def build_parser():
     parser = argparse.ArgumentParser(
-        description="A3 quantized fused_deep_moe vs MC2 small-op accuracy test.",
+        description=(
+            "MegaMoe: A3 INT vs MC2 small-op accuracy; "
+            "A5 MXFP wrapper vs direct CANN equivalence."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -1489,7 +2027,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--activation",
         type=str,
-        default="situ",
+        default="swiglu",
         help="Comma-separated activation cases, such as situ or swiglu.",
     )
     parser.add_argument(
@@ -1513,7 +2051,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--enable-performance",
         action="store_true",
-        help="Run performance measurement after the accuracy checks.",
+        help=(
+            "Compare MegaMoe and the MC2 small-op chain after the accuracy checks. "
+            "A5 defaults to MXFP8 E4M3, 256 experts, topk=6, stacked ND weights, "
+            "FP32 routing and --token-jitter 0; explicit options take precedence."
+        ),
     )
     parser.add_argument(
         "--performance-only",
@@ -1529,7 +2071,62 @@ if __name__ == "__main__":
         default=30,
         help="Number of performance iterations.",
     )
+    parser.add_argument(
+        "--weight-layout",
+        choices=("all", "per-expert", "stacked"),
+        default="all",
+        help="A5 only: weight/scale TensorList layout(s).",
+    )
+    parser.add_argument(
+        "--weight-format",
+        choices=("all", "ND", "NZ"),
+        default="all",
+        help="A5 only: allowed weight storage format(s) for the selected MXFP mode.",
+    )
+    parser.add_argument(
+        "--routing-dtype",
+        choices=("all", "bf16", "fp32"),
+        default="all",
+        help="A5 only: routing weight dtype(s).",
+    )
+    parser.add_argument(
+        "--token-jitter",
+        type=int,
+        default=8,
+        help="A5 only: add rank * jitter tokens; reuse capacity for full/half lengths.",
+    )
+    parser.add_argument(
+        "--rtol", type=float, default=1e-3, help="A5 wrapper-equivalence rtol."
+    )
+    parser.add_argument(
+        "--atol", type=float, default=1e-2, help="A5 wrapper-equivalence atol."
+    )
+    parser.add_argument(
+        "--allow-format-skips",
+        action="store_true",
+        help="A5 only: permit partial format coverage; otherwise any SKIP fails the run.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = build_parser()
     args = parser.parse_args()
+    if args.enable_performance and not args.performance_only:
+        from deep_ep.device_info import DEVICE_VERSION_TABLE, get_device_version
+
+        if DEVICE_VERSION_TABLE.get(get_device_version()) == "A5":
+            parser.set_defaults(
+                quant_mode="mx_fp8_e4m3",
+                num_experts=256,
+                num_topk=6,
+                weight_layout="stacked",
+                weight_format="ND",
+                routing_dtype="fp32",
+                token_jitter=0,
+            )
+            # Reparse so explicit options override the platform defaults.
+            args = parser.parse_args()
     if args.performance_only:
         args.enable_performance = True
     if args.num_ranks_per_server is None:
