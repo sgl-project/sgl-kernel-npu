@@ -90,7 +90,12 @@ def test(
 
     quant_configs = [get_alltoall_quant_config(quant_type)]
 
-    for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4, dispatch_use_mxfp8 in quant_configs:
+    for (
+        dispatch_use_fp8,
+        dispatch_use_ue8m0,
+        dispatch_use_mxfp4,
+        dispatch_use_mxfp8,
+    ) in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             if local_rank == 0:
                 print(
@@ -203,9 +208,7 @@ def test(
             topk_weights=topk_weights,
         )
         simulated_gemm_x_local = (
-            per_token_cast_back(*recv_x)
-            if isinstance(recv_x, tuple)
-            else recv_x
+            per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x_local,
@@ -293,9 +296,7 @@ def test(
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
     simulated_gemm_x_local = (
-        per_token_cast_back(*recv_x)
-        if isinstance(recv_x, tuple)
-        else recv_x
+        per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
     )
     combine_args = {
         "x": simulated_gemm_x_local,
