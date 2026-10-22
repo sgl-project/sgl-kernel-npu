@@ -1648,7 +1648,7 @@ def make_a5_small_op_call(args, launched_case, group_ep, rank, num_ranks):
     case, weights = launched_case["case"], launched_case["weights"]
     inputs = {
         "x": launched_case["x"],
-        "expert_ids": launched_case["topk_idx"],
+        "expert_ids": launched_case["topk_idx"].int(),
         "expert_scales": launched_case["topk_weights"].float(),
         "x_active_mask": None,
     }
