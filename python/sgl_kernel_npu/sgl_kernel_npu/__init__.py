@@ -2,6 +2,11 @@ import os
 import pathlib
 from functools import lru_cache, wraps
 
+if (pathlib.Path(__file__).parent / "_cann").is_dir():
+    from ._cann_runtime import prepare
+
+    prepare()
+
 import torch
 import torch_npu
 

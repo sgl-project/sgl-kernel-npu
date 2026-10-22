@@ -605,6 +605,15 @@ function build_memory_saver_package()
 
 function main()
 {
+    case "${SGL_BUILD_MODE:-LEGACY}" in
+        LEGACY ) ;;
+        CANN )
+            python3 "$PROJECT_ROOT/python/sgl_kernel_npu/build_tools/cann.py" "$@"
+            return
+            ;;
+        * ) die "Unknown SGL_BUILD_MODE: $SGL_BUILD_MODE (expected LEGACY or CANN)" ;;
+    esac
+
     parse_arguments "$@"
     configure_build_target
     configure_soc_version
