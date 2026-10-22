@@ -4,6 +4,12 @@
 """python api for sgl_kernel_npu."""
 
 import os
+if os.environ.get("SGL_BUILD_MODE", "LEGACY") == "CANN":
+    from build_tools.torch_wheel import setup_cann
+
+    setup_cann()
+    raise SystemExit(0)
+
 from configparser import ConfigParser
 from pathlib import Path
 

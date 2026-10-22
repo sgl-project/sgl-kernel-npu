@@ -27,6 +27,7 @@ class CannBuildTests(unittest.TestCase):
         shutil.copy(ROOT / "csrc/CMakeLists.txt", self.root / "csrc")
         shutil.copytree(ROOT / "csrc/cmake", self.root / "csrc/cmake")
         shutil.copytree(ROOT / "csrc/sampling", self.root / "csrc/sampling")
+        shutil.copytree(ROOT / "csrc/aclnn_torch_adapter", self.root / "csrc/aclnn_torch_adapter")
         self.directory = self.root / "build/cann"
         self.fail_target = None
         self.fail_install = False

@@ -108,7 +108,7 @@ sgl_get_operator(adapter apply_token_bitmask TORCH_ADAPTER)
 sgl_get_operator(supported apply_token_bitmask SUPPORTED_SOCS)
 if(NOT op_type STREQUAL "SglApplyTokenBitMask"
    OR NOT kernel STREQUAL "${source}/sampling/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp"
-   OR NOT adapter STREQUAL ""
+   OR NOT adapter STREQUAL "${source}/aclnn_torch_adapter/apply_token_bitmask.cpp"
    OR NOT supported STREQUAL "ascend910b;ascend910_93;ascend950")
     message(FATAL_ERROR "Unexpected production declaration: ${op_type}; ${kernel}; ${adapter}")
 endif()

@@ -233,9 +233,20 @@ def main():
     parser.add_argument("--declarations-only", action="store_true",
                         help="validate selections without CANN or Torch (also works on macOS)")
     parser.add_argument("-j", "--jobs", type=int, help="maximum parallel build jobs")
+    parser.add_argument("--artifact", choices=("run", "torch", "wheel"), default="run",
+                        help="stop after the CANN installer, Torch libraries, or embedded-CANN wheel")
     args = parser.parse_args()
-    build_cann(args.soc, parse_operators(args.ops),
-               declarations_only=args.declarations_only, jobs=args.jobs)
+    if args.declarations_only and args.artifact != "run":
+        parser.error("--declarations-only cannot build Torch libraries or a wheel")
+    result = build_cann(args.soc, parse_operators(args.ops),
+                        declarations_only=args.declarations_only, jobs=args.jobs)
+    if args.artifact != "run":
+        sys.path.insert(0, str(PROJECT_ROOT / "python/sgl_kernel_npu"))
+        from build_tools.torch_wheel import build_torch, build_wheel
+
+        package = build_torch(result, args.soc, jobs=args.jobs)
+        if args.artifact == "wheel":
+            build_wheel(package)
 
 
 if __name__ == "__main__":

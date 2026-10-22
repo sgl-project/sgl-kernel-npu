@@ -31,6 +31,15 @@ def main():
 
     print("PASS: Kernel body preserved except for the reviewed CANN output binding")
 
+    legacy_host = (root / "csrc/apply_token_bitmask/op_host/apply_token_bitmask.cpp").read_text()
+    adapter = (root / "csrc/aclnn_torch_adapter/apply_token_bitmask.cpp").read_text()
+    for start, end in (("    // Input validation", "    // --- Tiling ---"),
+                       ("    // Copy results back", "}  // namespace npu_kernel")):
+        expected = legacy_host[legacy_host.index(start):legacy_host.index(end)]
+        if expected not in adapter:
+            raise RuntimeError("Torch adapter changed legacy behavior in section: " + start)
+    print("PASS: Torch input processing and copy-back are unchanged from the legacy Host")
+
 
 if __name__ == "__main__":
     main()
