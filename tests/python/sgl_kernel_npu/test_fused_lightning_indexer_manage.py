@@ -11,10 +11,10 @@ from utils import require_npu_op
 pytestmark = require_npu_op("fused_lightning_indexer_manage")
 
 
-def make_case(batch=1, heads=32, dtype=torch.bfloat16):
+def make_case(batch=1, heads=32, dtype=torch.bfloat16, source_capacity=8320):
     torch.npu.set_device(0)
     device = "npu:0"
-    capacity, prefix, source_capacity = 4096, 8192, 8320
+    capacity, prefix = 4096, 8192
     query = torch.zeros(batch, heads, 128, dtype=dtype, device=device)
     query[..., 0] = 1
     weights = torch.full((batch, heads), 1 / heads, dtype=dtype, device=device)
@@ -77,6 +77,24 @@ def consume_plan(args, resident, offset):
         torch.testing.assert_close(
             resident[row, slots[row].long()], ids[row], rtol=0, atol=0
         )
+
+
+@pytest.mark.parametrize(
+    "length", [2048, 2049, 2175, 2176, 4097, 32767, 32768, 32769, 36864]
+)
+def test_full_visible_q1_includes_partial_page_and_warm_new_token(length):
+    source_capacity = max(8320, (length + 2 + 127) // 128 * 128)
+    args, _ = make_case(batch=4, source_capacity=source_capacity)
+    args[9].fill_(2048)
+    resident = torch.full((4, 2048), -1, dtype=torch.int32)
+    for step in range(3):
+        visible = length + step
+        args[7].fill_(visible)
+        args[8].fill_(visible)
+        set_hotset(args, visible - 2048)
+        fused_lightning_indexer_manage(*args)
+        consume_plan(args, resident, visible - 2048)
+        args[10].fill_(-1)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])

@@ -46,6 +46,14 @@ by `miss_counts` is valid. Capacity is a multiple of 128 in [2048, 32640].
 Source capacity is the block-table width times 128 and is at most 2**21.
 These device-resident metadata values must satisfy the upstream protocol.
 
+The Copy-SFA integration additionally accepts the full visible sequence as
+the candidate length for Q1 with C=K=2048. This includes a partial final page;
+other route counts and capacities retain the page-aligned prefix contract.
+Short/nonresident rows still use state -3. A new resident row must use -2.
+The returned plans can be passed directly to combined-layout Copy-SFA after
+packing the valid miss prefix into contiguous `[B,2048]` buffers. No second
+residency planner may operate on the LIM slot map.
+
 The host performs shape/dtype checks without reading device scalar values.
 It chooses the same core schedule and workspace layout as the upstream MTP
 tiler, allocates workspace through torch_npu and directly launches Ascend C.

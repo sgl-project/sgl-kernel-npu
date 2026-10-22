@@ -811,14 +811,20 @@ private:
         const int32_t cacheValue = cacheTokensGm.GetValue(batch);
         const int32_t actualValue = actualSeqLengthsKeyGm.GetValue(batch);
         const uint32_t routes = queryEnd - queryStart;
+        // Copy-SFA consumes exactly K entries. Q1 with C=K may select over
+        // the complete visible sequence, including its partial final page.
+        // Other routes/capacities keep the original stable-prefix contract.
+        const bool fullVisibleQ1 = routes == 1U && cacheValue == static_cast<int32_t>(TOPK) &&
+                                   lengthValue == actualValue;
         if (row < 0 || static_cast<uint32_t>(row) >= poolSize ||
             lengthValue < static_cast<int32_t>(TOPK) ||
             static_cast<uint32_t>(lengthValue) > sourceCapacity ||
             cacheValue < static_cast<int32_t>(TOPK) || cacheValue > lengthValue ||
             actualValue < static_cast<int32_t>(routes) || lengthValue > actualValue ||
-            static_cast<uint32_t>(lengthValue) >
-                ((static_cast<uint32_t>(actualValue) - routes) / 128U) * 128U ||
-            (lengthValue & 127) != 0 || (cacheValue & 127) != 0) return false;
+            (!fullVisibleQ1 &&
+             (static_cast<uint32_t>(lengthValue) >
+                  ((static_cast<uint32_t>(actualValue) - routes) / 128U) * 128U ||
+              (lengthValue & 127) != 0)) || (cacheValue & 127) != 0) return false;
         if ((static_cast<uint32_t>(lengthValue) <= routes * TOPK && cacheValue != lengthValue) ||
             (static_cast<uint32_t>(lengthValue) > routes * TOPK &&
              (static_cast<uint32_t>(cacheValue) < routes * TOPK ||
@@ -1433,6 +1439,24 @@ private:
         PipeBarrier<PIPE_V>();
     }
 
+    __aicore__ inline void PadEvictKeys(LocalTensor<float> key, uint32_t valid)
+    {
+        if (valid >= EVICT_CHUNK) return;
+        // Vector destinations require a 32-byte UB address. A full-visible
+        // final page can end at any token, so scalar-fill its partial block
+        // before vector-filling the remaining aligned range.
+        const uint32_t aligned = (valid + 7U) & ~7U;
+        Sync<HardEvent::V_S>(HardEvent::V_S);
+        for (uint32_t index = valid; index < aligned; ++index) {
+            key.SetValue(index, INVALID_EVICT_KEY);
+        }
+        Sync<HardEvent::S_V>(HardEvent::S_V);
+        if (aligned < EVICT_CHUNK) {
+            Duplicate(key[aligned], INVALID_EVICT_KEY, EVICT_CHUNK - aligned);
+            PipeBarrier<PIPE_V>();
+        }
+    }
+
     // Build one 512-token victim block.  A valid key is the negated sum of
     // the four route scores, so a descending sort places the lowest aggregate
     // score first.  Tokens in any route TopK and uncached tokens are masked.
@@ -1564,10 +1588,7 @@ private:
         Select(key, invalidMask, invalidKey, key,
                SELMODE::VSEL_TENSOR_TENSOR_MODE, valid);
         PipeBarrier<PIPE_V>();
-        if (valid < EVICT_CHUNK) {
-            Duplicate(key[valid], INVALID_EVICT_KEY, EVICT_CHUNK - valid);
-            PipeBarrier<PIPE_V>();
-        }
+        PadEvictKeys(key, valid);
         SortEvictChunk(chunkPair, key, payload, sortTmp);
     }
 
@@ -1595,6 +1616,15 @@ private:
         LocalTensor<float> sortTmp =
             scratch[EVICT_CHUNK * (MAX_ROUTES + 6U)];
 
+        // Sub-block Compare/Select tails can retain predicate bits on C220.
+        // Compute one complete vector chunk, then explicitly invalidate the
+        // logical tail before sorting. Keep all GM reads bounded by valid.
+        constexpr uint32_t vectorCount = EVICT_CHUNK;
+        if (valid < EVICT_CHUNK) {
+            Duplicate(scratch, 0.0F, routeCount * EVICT_CHUNK);
+            Duplicate(slots.ReinterpretCast<float>(), -0.0F, EVICT_CHUNK);
+            Sync<HardEvent::V_MTE2>(HardEvent::V_MTE2);
+        }
         for (uint32_t route = 0U; route < routeCount; ++route) {
             LocalTensor<float> score = scratch[route * EVICT_CHUNK];
             DataCopyPad(
@@ -1616,13 +1646,13 @@ private:
                 1, static_cast<uint32_t>(valid * sizeof(int32_t)), 0, 0, 0},
             AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
         Sync<HardEvent::MTE2_V>(HardEvent::MTE2_V);
-        Adds(key, scratch, 0.0F, valid);
+        Adds(key, scratch, 0.0F, vectorCount);
         PipeBarrier<PIPE_V>();
         for (uint32_t route = 1U; route < routeCount; ++route) {
-            Add(key, key, scratch[route * EVICT_CHUNK], valid);
+            Add(key, key, scratch[route * EVICT_CHUNK], vectorCount);
             PipeBarrier<PIPE_V>();
         }
-        Muls(key, key, -1.0F, valid);
+        Muls(key, key, -1.0F, vectorCount);
         PipeBarrier<PIPE_V>();
         Duplicate(invalidKey, INVALID_EVICT_KEY, EVICT_CHUNK);
         PipeBarrier<PIPE_V>();
@@ -1632,23 +1662,23 @@ private:
         // reliably mask the standardized INT32_MIN sentinel on this target.
         LocalTensor<int32_t> slotSign = temp.ReinterpretCast<int32_t>();
         ShiftRight(slotSign.ReinterpretCast<uint32_t>(),
-                   slots.ReinterpretCast<uint32_t>(), 31U, valid);
+                   slots.ReinterpretCast<uint32_t>(), 31U, vectorCount);
         PipeBarrier<PIPE_V>();
-        CompareScalar(invalidMask, slotSign, 1, CMPMODE::EQ, valid);
+        CompareScalar(invalidMask, slotSign, 1, CMPMODE::EQ, vectorCount);
         PipeBarrier<PIPE_V>();
         Select(key, invalidMask, invalidKey, key,
-               SELMODE::VSEL_TENSOR_TENSOR_MODE, valid);
+               SELMODE::VSEL_TENSOR_TENSOR_MODE, vectorCount);
         PipeBarrier<PIPE_V>();
 
         // Reuse scores[0] as the running max threshold margin.  A nonnegative
         // margin means that at least one route protects this source.
-        Adds(scratch, scratch, -thresholds[0], valid);
+        Adds(scratch, scratch, -thresholds[0], vectorCount);
         PipeBarrier<PIPE_V>();
         for (uint32_t route = 1U; route < routeCount; ++route) {
             Adds(temp, scratch[route * EVICT_CHUNK], -thresholds[route],
-                 valid);
+                 vectorCount);
             PipeBarrier<PIPE_V>();
-            Max(scratch, scratch, temp, valid);
+            Max(scratch, scratch, temp, vectorCount);
             PipeBarrier<PIPE_V>();
         }
 
@@ -1662,26 +1692,23 @@ private:
             EVICT_CHUNK);
         PipeBarrier<PIPE_V>();
         if (longSource) {
-            TagLongEvictSource(key, start, valid);
+            TagLongEvictSource(key, start, vectorCount);
         }
         ShiftLeft(slots.ReinterpretCast<uint32_t>(),
                   slots.ReinterpretCast<uint32_t>(),
-                  PACKED_SOURCE_BITS, valid);
+                  PACKED_SOURCE_BITS, vectorCount);
         PipeBarrier<PIPE_V>();
         Add(payload.ReinterpretCast<int32_t>(),
-            payload.ReinterpretCast<int32_t>(), slots, valid);
+            payload.ReinterpretCast<int32_t>(), slots, vectorCount);
         PipeBarrier<PIPE_V>();
-        Muls(scratch, scratch, -1.0F, valid);
+        Muls(scratch, scratch, -1.0F, vectorCount);
         PipeBarrier<PIPE_V>();
-        CompareScalar(invalidMask, scratch, 0.0F, CMPMODE::LE, valid);
+        CompareScalar(invalidMask, scratch, 0.0F, CMPMODE::LE, vectorCount);
         PipeBarrier<PIPE_V>();
         Select(key, invalidMask, invalidKey, key,
-               SELMODE::VSEL_TENSOR_TENSOR_MODE, valid);
+               SELMODE::VSEL_TENSOR_TENSOR_MODE, vectorCount);
         PipeBarrier<PIPE_V>();
-        if (valid < EVICT_CHUNK) {
-            Duplicate(key[valid], INVALID_EVICT_KEY, EVICT_CHUNK - valid);
-            PipeBarrier<PIPE_V>();
-        }
+        PadEvictKeys(key, valid);
         SortEvictChunk(chunkPair, key, payload, sortTmp);
     }
 
