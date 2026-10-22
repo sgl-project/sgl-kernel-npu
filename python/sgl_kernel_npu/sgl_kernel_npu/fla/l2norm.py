@@ -93,7 +93,10 @@ def l2norm_fwd(
     if D <= 512:
         NB = triton.cdiv(T, 2048)
 
-        bt = 109
+        # Keep the tile no larger than the existing 109 x 128 configuration.
+        # Wider padded feature dimensions otherwise overflow UB with the FP32
+        # intermediates and multi-buffering used by the optimized kernel.
+        bt = min(109, (109 * 128) // BD)
         num_core = get_device_properties()[1]
         main_bs = triton.cdiv(T, num_core)
         grid = (num_core,)
