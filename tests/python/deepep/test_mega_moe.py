@@ -126,12 +126,13 @@ def make_topk_inputs(
     num_experts: int,
     num_topk: int,
     device: torch.device,
+    dtype: torch.dtype = torch.int32,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     scores = torch.randn((num_tokens, num_experts), dtype=torch.float32, device=device)
     topk_weights, topk_ids = torch.topk(
         scores, num_topk, dim=-1, largest=True, sorted=False
     )
-    return topk_ids.to(torch.int32), topk_weights
+    return topk_ids.to(dtype), topk_weights
 
 
 def pack_scale_to_uint64(scale: torch.Tensor) -> torch.Tensor:
@@ -723,9 +724,10 @@ def prepare_a5_scene_weights(
 
     def scale(rows, columns):
         shape = prefix + (rows, (columns + 63) // 64, 2)
-        return torch.full(shape, 127, dtype=torch.uint8, device=device).view(
-            scale_dtype
-        )
+        # Random E8M0 exponents in [2^-4, 2^4]: constant 127 (1.0) scales make
+        # dequantization a no-op, hiding ignored/mis-indexed scale bugs.
+        exponents = torch.randint(123, 132, shape, dtype=torch.uint8, device=device)
+        return exponents.view(scale_dtype)
 
     hidden, intermediate = args.hidden, args.moe_intermediate_size
     return {
@@ -1249,8 +1251,15 @@ def build_case_matrix(args: argparse.Namespace) -> list[dict]:
 def make_case_inputs(args, weights, case, device):
     num_tokens = case.get("num_tokens", args.num_tokens)
     x = torch.randn((num_tokens, args.hidden), dtype=torch.bfloat16, device=device)
+    # The A5 op documents int64 expert ids; cover both int32 (bf16 routing)
+    # and int64 (fp32 routing) so dtype-specific handling is exercised.
+    topk_dtype = (
+        torch.int64
+        if args.quant_mode in A5_QUANT_MODES and case["routing_dtype"] == "fp32"
+        else torch.int32
+    )
     topk_idx, topk_weights = make_topk_inputs(
-        num_tokens, args.num_experts, args.num_topk, device
+        num_tokens, args.num_experts, args.num_topk, device, topk_dtype
     )
     if args.quant_mode in A5_QUANT_MODES:
         dtype = torch.bfloat16 if case["routing_dtype"] == "bf16" else torch.float32
@@ -2112,7 +2121,7 @@ def build_parser():
 if __name__ == "__main__":
     parser = build_parser()
     args = parser.parse_args()
-    if args.enable_performance and not args.performance_only:
+    if args.enable_performance or args.performance_only:
         from deep_ep.device_info import DEVICE_VERSION_TABLE, get_device_version
 
         if DEVICE_VERSION_TABLE.get(get_device_version()) == "A5":
