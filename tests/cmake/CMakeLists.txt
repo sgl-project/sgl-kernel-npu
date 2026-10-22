@@ -28,6 +28,12 @@ add_operator_case(unknown_operator "Unknown operator ID: unknown_op")
 add_operator_case(unsupported_soc "does not support requested SoC: fixture_soc_c")
 add_operator_case(missing_selection_soc "Selection is missing required field: SOC")
 add_operator_case(duplicate_selection "Duplicate requested operator: fixture_op")
+add_operator_case(all_supported "")
+add_operator_case(all_filtered "")
+add_operator_case(multiple_selection "")
+add_operator_case(all_empty "No CANN operators support requested SoC: fixture_soc_z")
+add_operator_case(all_mixed "ALL cannot be combined with explicit operator IDs")
+add_operator_case(multiple_unsupported "does not support requested SoC: fixture_soc_a")
 
 function(add_cann_case name expected_error)
     add_test(NAME cann.${name}
@@ -61,3 +67,8 @@ foreach(soc IN ITEMS ascend910b ascend910_93 ascend950)
             -B "${CMAKE_CURRENT_BINARY_DIR}/cann-sdk-mapping-${soc}"
             "-DSGL_CANN_SOC=${soc}")
 endforeach()
+add_test(NAME cann.sdk_mapping_without_bitmask
+    COMMAND "${CMAKE_COMMAND}"
+        -S "${CMAKE_CURRENT_SOURCE_DIR}/kernel_sources"
+        -B "${CMAKE_CURRENT_BINARY_DIR}/cann-sdk-mapping-without-bitmask"
+        -DSGL_CANN_SOC=ascend910_93 -DTEST_WITHOUT_BITMASK=ON)

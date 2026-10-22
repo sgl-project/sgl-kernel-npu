@@ -24,7 +24,7 @@ endif()
 
 get_filename_component(source "${CMAKE_CURRENT_LIST_DIR}/../../csrc" ABSOLUTE)
 if(CASE MATCHES "^header_")
-    include("${source}/cmake/cann_ops.cmake")
+    include("${source}/../tests/csrc/check_bitmask_api.cmake")
     file(MAKE_DIRECTORY "${TEST_BINARY_DIR}")
     # Synthetic text tests header discovery only, never SDK generation or C++ ABI.
     file(WRITE "${TEST_BINARY_DIR}/aclnn_unrelated.h" "void unrelated();\n")

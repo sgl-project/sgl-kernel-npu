@@ -45,7 +45,18 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/check_bitmask_migration.py")
     add_test(NAME bitmask.package_verifier
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_cann_package.py")
+    add_test(NAME cann.build_orchestration
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_cann_build.py")
     return()
+endif()
+
+if(NOT "apply_token_bitmask" IN_LIST selected_operators)
+    return()
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/check_bitmask_api.cmake")
+sgl_find_bitmask_api_header(SGL_BITMASK_ACLNN_HEADER "${CMAKE_CURRENT_BINARY_DIR}/../autogen")
+if(TARGET sgl_cann_kernel_check)
+    add_custom_target(sgl_bitmask_kernel_check DEPENDS sgl_cann_kernel_check)
 endif()
 
 add_library(sgl_bitmask_api_check OBJECT check_apply_token_bitmask_api.cpp)

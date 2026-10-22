@@ -1,22 +1,5 @@
 include_guard(GLOBAL)
 
-function(sgl_find_bitmask_api_header output directory)
-    file(GLOB headers "${directory}/aclnn*.h")
-    set(matches)
-    foreach(header IN LISTS headers)
-        file(READ "${header}" contents)
-        if(contents MATCHES "aclnnSglApplyTokenBitMaskGetWorkspaceSize[ \t\r\n]*\\(")
-            list(APPEND matches "${header}")
-        endif()
-    endforeach()
-    list(LENGTH matches count)
-    if(NOT count EQUAL 1)
-        message(FATAL_ERROR "Expected one generated SglApplyTokenBitMask ACLNN header, found ${count} in ${directory}")
-    endif()
-    list(GET matches 0 header)
-    set(${output} "${header}" PARENT_SCOPE)
-endfunction()
-
 function(sgl_generate_cann_interfaces output_dir)
     if(NOT COMMAND npu_op_code_gen)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
@@ -25,24 +8,27 @@ function(sgl_generate_cann_interfaces output_dir)
     foreach(id IN LISTS ARGN)
         sgl_get_operator(sources "${id}" HOST_SOURCES)
         list(APPEND host_sources ${sources})
+        foreach(source IN LISTS sources)
+            get_filename_component(directory "${source}" DIRECTORY)
+            file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${directory}/*.h" "${directory}/*.hpp")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${headers})
+        endforeach()
     endforeach()
 
     set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     file(MAKE_DIRECTORY "${config_dir}")
-    file(WRITE "${config_dir}/sgl_operator_config.h"
+    file(CONFIGURE OUTPUT "${config_dir}/sgl_operator_config.h" CONTENT
         "#pragma once\n#define SGL_CANN_SOC_CONFIG \"${SGL_CANN_SOC}\"\n")
     # Opbuild executes during configuration. Track handwritten inputs for rebuilds.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${host_sources}
-        "${CMAKE_CURRENT_SOURCE_DIR}/sampling/apply_token_bitmask/op_host/apply_token_bitmask_tiling.h")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${host_sources})
+    file(REMOVE_RECURSE "${output_dir}")
+    file(MAKE_DIRECTORY "${output_dir}")
     npu_op_code_gen(
         SRC ${host_sources}
         PACKAGE sgl_kernel_npu
         COMPILE_OPTIONS "-I${config_dir}"
         OUT_DIR "${output_dir}"
     )
-    sgl_find_bitmask_api_header(header "${output_dir}")
-    set(SGL_BITMASK_ACLNN_HEADER "${header}" PARENT_SCOPE)
-    message(STATUS "Generated ACLNN header: ${header}")
 endfunction()
 
 function(sgl_add_cann_tiling)
@@ -85,5 +71,5 @@ function(sgl_add_cann_kernels output_dir)
     if(NOT TARGET binary)
         message(FATAL_ERROR "The SDK did not create the required binary build target")
     endif()
-    add_custom_target(sgl_bitmask_kernel_check DEPENDS binary sgl_cann_opapi sgl_cann_proto)
+    add_custom_target(sgl_cann_kernel_check DEPENDS binary sgl_cann_opapi sgl_cann_proto)
 endfunction()

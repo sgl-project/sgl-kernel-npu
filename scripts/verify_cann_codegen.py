@@ -12,6 +12,11 @@ import subprocess
 import sys
 
 
+# Reuse the production package inventory checks without importing Torch.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python/sgl_kernel_npu"))
+from build_tools.cann import find_run_package, inspect_installation
+
+
 def run(command, log_path, *, env=None, cwd=None):
     print(f"\n$ {shlex.join(command)}", flush=True)
     with log_path.open("w") as log:
@@ -25,52 +30,6 @@ def run(command, log_path, *, env=None, cwd=None):
         result = process.wait()
     if result:
         raise RuntimeError(f"Command failed ({result}); stop here and return {log_path}")
-
-
-def find_run_package(stage_build):
-    packages = sorted((stage_build / "package-stage").glob("*.run"))
-    if len(packages) != 1 or not packages[0].is_file() or not packages[0].stat().st_size:
-        raise RuntimeError(f"Expected one nonempty .run package in {stage_build / 'package-stage'}; found {packages}")
-    return packages[0]
-
-
-def inspect_installation(install_dir, stage_build, compute_unit):
-    vendor = install_dir / "vendors/sgl_kernel_npu"
-    tbe = vendor / "op_impl/ai_core/tbe"
-    libraries = [vendor / "op_api/lib/libcust_opapi.so"]
-    for directory, name in ((tbe / "op_tiling", "libcust_opmaster_rt2.0.so"),
-                            (vendor / "op_proto", "libcust_opsproto_rt2.0.so")):
-        matches = sorted(directory.rglob(name))
-        if len(matches) != 1:
-            raise RuntimeError(f"Expected one installed {name} under {directory}; found {matches}")
-        libraries.extend(matches)
-    for path in [*libraries, vendor / "bin/set_env.bash"]:
-        if not path.is_file() or not path.stat().st_size or not path.resolve().is_relative_to(install_dir.resolve()):
-            raise RuntimeError(f"Missing, empty or external installed file: {path}")
-
-    headers = sorted((stage_build / "autogen").glob("aclnn*.h"))
-    if not headers:
-        raise RuntimeError(f"No generated ACLNN headers in {stage_build / 'autogen'}")
-    # CMake may rewrite shared-library RPATHs when packaging; load those below.
-    pairs = [(path, vendor / "op_api/include" / path.name) for path in headers]
-    binary_root = stage_build / "sgl_cann_kernels/binary"
-    binaries = sorted((binary_root / compute_unit).rglob("*.o"))
-    metadata = sorted((binary_root / compute_unit).rglob("*.json"))
-    metadata += sorted((binary_root / "config" / compute_unit).rglob("*.json"))
-    if not binaries or not metadata:
-        raise RuntimeError(f"Missing compiled Kernel binaries or metadata for {compute_unit}")
-    pairs += [(path, tbe / "kernel" / path.relative_to(binary_root)) for path in binaries + metadata]
-    info = f"aic-{compute_unit}-ops-info.json"
-    pairs.append((stage_build / "sgl_cann_kernels/tbe/op_info_cfg/ai_core" / compute_unit / info,
-                  tbe / "config" / compute_unit / info))
-    for source, installed in pairs:
-        if not source.is_file() or not source.stat().st_size:
-            raise RuntimeError(f"Missing or empty build artifact: {source}")
-        if not installed.is_file() or not installed.resolve().is_relative_to(install_dir.resolve()):
-            raise RuntimeError(f"Missing or external installed artifact: {installed}")
-        if installed.read_bytes() != source.read_bytes():
-            raise RuntimeError(f"Installed artifact differs from this build: {installed}")
-    return vendor, libraries, [installed for _, installed in pairs]
 
 
 def verify_package(stage_build, run_build, logs, compute_unit):
