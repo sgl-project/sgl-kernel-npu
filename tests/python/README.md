@@ -1,13 +1,14 @@
 # Operator tests
 
 Public framework and accuracy-helper unit tests are documented in
-[framework/README.md](framework/README.md). Run all 176 cases with:
+[framework/README.md](framework/README.md). Run all 214 cases with:
 
 ```bash
 python -m pytest tests/python/framework -v -rs -x --npu-device=0
 ```
 
-These unit tests require an NPU and do not benchmark production kernels.
+These tests require an NPU; one case collects a real profile for a lightweight
+test operator. Use `-m 'not npu_integration'` to run only the 213 unit tests.
 
 ## Run tests
 
@@ -152,6 +153,8 @@ after schema changes. `accuracy_checked` records whether accuracy passed.
 
 The timing metric is average summed NPU task duration in microseconds, not
 end-to-end latency. `warmup` and `active` both default to 5 and can be overridden.
+Both must be positive Python integers; booleans and non-integers raise TypeError,
+and non-positive integers raise ValueError before the operator executes.
 
 ### `assert_accuracy` and `benchmark_npu`
 

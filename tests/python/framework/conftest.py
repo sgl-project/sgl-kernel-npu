@@ -11,6 +11,12 @@ from uuid import uuid4
 import pytest
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "npu_integration: collect real NPU profiling data (no profiler stub)"
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def npu_runtime(request):
     """Require a working NPU installation; never turn a broken setup into skips."""
@@ -225,3 +231,29 @@ def accuracy_case(operator_modules, accuracy_tools, npu_runtime, monkeypatch):
             op_name=op_name,
             check_accuracy=accuracy_tools.check_accuracy,
         )
+
+
+@pytest.fixture
+def performance_case(accuracy_case, monkeypatch, tmp_path):
+    """Keep real orchestration/reporting; substitute only the measurement boundary."""
+    from tests.python.utils import performance
+
+    monkeypatch.chdir(tmp_path)
+    case = accuracy_case
+    case.add_impl("dut")
+    case.executor = case.check_accuracy(
+        case.operator, args=(case.x,), impl="dut", impl_ref="ref", skip_acc_check=True
+    )
+    case.measurements = []
+
+    def benchmark(executor, directory, *, warmup, active):
+        directory = Path(directory)
+        case.measurements.append((executor, directory, warmup, active))
+        directory.mkdir(parents=True)
+        (directory / "synthetic-profile.txt").write_text("measurement stub\n")
+        return 12.5
+
+    monkeypatch.setattr(performance, "benchmark_npu", benchmark)
+    case.performance = performance
+    with performance.performance_context("", {}, None):
+        yield case

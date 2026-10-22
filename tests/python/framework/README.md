@@ -1,9 +1,10 @@
 # 公共框架 UT（NPU 环境）
 
-本目录验证公共算子框架及公共精度测试工具：注册、查询、分发、导入隔离、代际管理、
-精度标准、输出比较和 `check_accuracy` 执行流程。
+本目录验证公共算子框架及公共精度/性能测试工具：注册、查询、分发、导入隔离、代际管理、
+精度标准、输出比较、性能采集编排、数据解析和报告。
 当前基线：`Todobe:pr/tests-refactor`，提交 `5476535720de9fce53c625b7d5584d57d87c3bc7`。
 算子框架原有 70 条 UT 从 `codex/framework-ut-npu@ca965bb` 保留，新增精度工具 106 条。
+性能阶段新增 37 条 UT 和 1 条真实 NPU 采集测试，合计 213 条 UT + 1 条集成测试。
 实现目录使用基线中的 `implementation/backend/module`。
 使用基线自带的公共精度工具和上层 conftest；operators 目录的自动上下文不作用于本目录，
 因此精度流程 UT 显式设置并恢复上下文。
@@ -18,6 +19,21 @@ Python 框架统一从当前 checkout 加载；已安装包可以尚未包含新
 
 ```bash
 python -m pytest tests/python/framework -v -rs -x --npu-device=0
+```
+
+以上命令包含一次真实 profiler 采集。只运行 UT 或单独运行真实采集：
+
+```bash
+python -m pytest tests/python/framework -m 'not npu_integration' -v -rs -x --npu-device=0
+python -m pytest tests/python/framework -m npu_integration -v -rs -x --npu-device=0
+```
+
+只运行新增的 37 条性能 UT：
+
+```bash
+python -m pytest tests/python/framework/test_performance.py \
+  tests/python/framework/test_profile_data.py \
+  tests/python/framework/test_benchmark_npu.py -v -rs -x --npu-device=0
 ```
 
 只运行本次新增的精度工具 UT：
@@ -64,7 +80,11 @@ python -m pytest tests/python/framework --collect-only -q
 | test_standards.py | 20 | 六种默认标准、局部覆盖与回退、非法容差/配置、未知 dtype |
 | test_accuracy.py | 49 | 真实 Tensor 的绝对/相对容差边界、整数/bool、元信息、嵌套结构和路径、Python 标量、NaN、缺标准及未知输出类型 |
 | test_check_accuracy.py | 37 | ref→DUT 顺序、参数绑定、executor、真实精度失败、标准传递、配置优先级、skip、别名拒绝、实现缺失/代际异常、异常传播和上下文恢复 |
-| 合计 | 176 | 70 个测试函数；数量来自 pytest collection，不表示已在 NPU 执行通过 |
+| test_performance.py | 12 | 默认关闭、开关/路径覆盖、结果和精度状态、实际CSV/pytest报告、失败保留、上下文恢复 |
+| test_profile_data.py | 20 | summary汇总与statistic回退、非法报告/耗时、CSV追加和schema、目录整理、命名、active参数校验 |
+| test_benchmark_npu.py | 5 | 首次执行隔离、同步/step与采样协议、目录防覆盖、warmup/active前置校验 |
+| test_performance_integration.py | 1 | npu_integration标记；真实精度→profiler采集→CSV解析和报告，无性能阈值 |
+| 合计 | 214 | 90 个测试函数；数量来自 pytest collection，不表示已在 NPU 执行通过 |
 
 不同 backend 的路由、参数方式和异常分别测试，没有把所有维度做笛卡尔乘积。
 `test_backend` 是人为注册的替身，用于验证扩展机制，不是一个真实算子实现。
@@ -91,7 +111,13 @@ python -m pytest tests/python/framework --collect-only -q
    核对原因，因此用例通过意味着断言执行过，不是 UT 自身直接被跳过。
 9. 比较层临时移除 FP32 默认标准的场景由 monkeypatch 自动恢复；配置上下文由 `use_impls` 恢复，
    新算子注册随私有模块删除，不污染安装包的真实注册。
+10. `performance_case`复用真实精度fixture的注册与executor，临时替代benchmark_npu返回12.5；
+    输出路径使用tmp_path，报告、JSON、CSV均真实执行。此fixture不用于真实采集测试。
+11. benchmark协议UT只替代底层profiler API和同步调用，真实执行benchmark、目录整理和CSV解析。
+    数据工具UT使用实际临时文件。真实采集测试只使用accuracy_case，没有profiler替身。
 
-本批不修改公共工具或算子生产实现。容差边界使用的 0.125 等合成阈值仅验证比较逻辑，
-不是新的生产精度标准。性能、profiler、CSV、CLI parser、设备恢复 UT 留待后续批次。
+本批只修复公共性能工具的采样参数校验：warmup/active要求正Python整数，bool和其他类型报TypeError，
+非正整数报ValueError；benchmark在导入采集运行时、创建目录及执行算子之前校验。
+算子生产实现不修改。容差边界的合成阈值只验证比较逻辑，不是新精度标准；性能数据不做回退基线判定。
+CLI parser、设备恢复UT留待后续批次。
 真正的 kernel 精度与性能仍通过 operators 测试目录验证。
