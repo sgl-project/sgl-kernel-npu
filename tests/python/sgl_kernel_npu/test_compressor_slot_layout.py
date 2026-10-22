@@ -18,16 +18,6 @@ from test_compressor import _is_arch35, _make_inputs, _reference_compressor
 DEVICE_ID = 0
 torch_npu.npu.set_device(int(DEVICE_ID))
 
-# Kernel-side stateLoc diagnostic (sibling task bg_fc11899d). The host reads
-# SGL_DSV4_STATELOC_DUMP once at tiling time (csrc/compressor/op_host/arch35/
-# compressor_tiling.cpp) and gates [KSTATELOC] printf lines in ReadState
-# (op=L), ReadFromCacheState (op=R) and WriteToCacheState (op=W) of
-# arch35/compressor_block_vec.h. Set at import time so it is in effect before
-# the first op build in this process: one device run yields BOTH the slot-layout
-# reproduction AND the kernel's actual stateLoc/tableColumn for run A vs run B
-# (grep '[KSTATELOC]' from the captured log).
-os.environ.setdefault("SGL_DSV4_STATELOC_DUMP", "1")
-
 # --- fixed decode-step shape: the decode step that diverges online ---
 # README sgl-scripts/DSV4-A5/hit_miss_divergence §205/§206/§213/§220/§225:
 # block 136 = positions [17408, 17536); first divergent state row at position
@@ -131,8 +121,7 @@ def _load_real_inputs(path):
     value and the caller prints a LOUD warning. Returns a dict keyed by the
     canonical names below (only the keys present in the npz are included).
 
-    .npz schema (the device must dump these, coordinate with [KSTATELOC] /
-    SGL_DSV4_STATELOC_DUMP in compressor_block_vec.h):
+    .npz schema (the device run must dump these tensors):
         x            [1, hidden]   decode-token hidden state for position 17534
                                    (hidden=1024).
         x_cmp        [1, hidden]   decode-token hidden state for position 17535
@@ -312,11 +301,6 @@ class TestCompressorSlotLayout(unittest.TestCase):
         state rows for 1104..1111 / 1184..1191 (and 1112..1119). If unset, the
         test falls back to seeded synthetic and PRINTS A LOUD WARNING. The exact
         tensors the device must dump are documented in _load_real_inputs.
-
-        KSTATELOC: the test sets SGL_DSV4_STATELOC_DUMP=1 at import; capture the
-        run and `grep '\\[KSTATELOC\\]' <log>` to read the kernel's actual
-        stateLoc/tableColumn for run A vs run B (op=L read-left, op=R read,
-        op=W write).
 
         Op call shape + _make_inputs usage mirrored from test_compressor.py:
         the torch.ops.npu.compressor(...) argument order/attrs are copied from
@@ -560,12 +544,6 @@ class TestCompressorSlotLayout(unittest.TestCase):
             flush=True,
         )
         print(f"[SLOTLAYOUT-VERDICT] {verdict}", flush=True)
-        print(
-            "[KSTATELOC] kernel-side stateLoc diagnostic enabled "
-            "(SGL_DSV4_STATELOC_DUMP=1); grep the run log with "
-            "grep '[KSTATELOC]' to read op=L/R/W stateLoc/tableColumn for A vs B",
-            flush=True,
-        )
 
     def test_decode_slot_layout_batch2(self):
         """Optional batch=2 cross-check (README §226-6i): two decode requests
