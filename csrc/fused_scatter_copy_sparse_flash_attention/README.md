@@ -1,6 +1,6 @@
 # Copy-SFA for SGLang NPU sparse KV offload
 
-This folder contains the SGLang-specific fused cache-copy and sparse-attention path. Its public operator is a combined-cache Q1 decode wrapper; it does not provide the variable-width MTP API described by the upstream vLLM Ascend implementation.
+This folder contains the SGLang-specific fused cache-copy and sparse-attention path. The combined-cache operator accepts dynamic TND queries; SGLang's current LIM integration continues to use non-speculative Q1 with full-visible TopK selection.
 
 ## SGLang integration contract
 
@@ -8,15 +8,23 @@ The registered operator is `torch.ops.npu.fused_scatter_copy_sparse_flash_attent
 
 Supported integration scope:
 
-- Non-speculative Q1 decode: `query` is TND `[B, H, 512]`, `query_rope` is `[B, H, 64]`, and each request contributes one query row. MTP and multi-query rows are unsupported by the SGLang wrapper.
-- CKV 512, KPE 64, TopK/cache capacity 2048, page size 128, and one KV head. The HBM page table is `[B, 16]`; the DRAM table is `[B, dram_pages_per_request]`.
+- `query` is TND `[T, H, 512]`, `query_rope` is `[T, H, 64]`, and cumulative query lengths have one entry per request. The native host accepts `B <= T <= 16*B`; SGLang's framework route still requires `T=B` and disables speculation.
+- CKV 512, KPE 64, TopK 2048, page size 128, and one KV head. The HBM page table is `[B, hbm_pages_per_request]`; the DRAM table is `[B, dram_pages_per_request]`. The current framework uses resident capacity `C=2048` and 16 HBM pages per request.
 - FP16 or BF16 floating tensors; contiguous int32 metadata. Query, output, HBM cache, page tables, and metadata share one NPU. DRAM rows must be in the registered device-accessible host mapping used by the offload manager; arbitrary CPU allocations are unsupported.
-- `combined_hbm_cache` is contiguous `[R*16, 128, 1, 576]`, where `R` is the manager's request-row capacity. TopK source/destination arrays are `[B, 1, 2048]`; request miss source/destination arrays are `[B, 2048]`.
+- `combined_hbm_cache` is contiguous `[pages, 128, 1, 576]`. TopK source/destination arrays are `[T, 1, 2048]`; per-query TopK miss counts are `[T]`. Request-union miss source/destination arrays are contiguous `[B, M]`, with `[B]` miss counts. `M` may be 32768 to pass native LIM buffers directly without packing a strided prefix into a separate workspace.
 - `attention_out` is caller-allocated and matches `query` shape and dtype. Active source IDs, slots, and block-table entries must be valid.
 
 The SGLang path is enabled with both `SGLANG_NPU_ENABLE_SPARSE_KV_OFFLOAD=1` and `SGLANG_NPU_ENABLE_COPY_SFA=1`. Framework dispatch currently requires non-speculative Q1 decode, matching MLA/cache dimensions, and live sequence lengths of at least 2048 tokens (graph capture uses the framework's capture gate). Other calls use the existing attention path.
 
-For a graph batch containing padded rows, `actual_seq_lengths_query` remains the dense cumulative prefix `[1, 2, ..., B]` so each row keeps its output position. A padded row has zero KV/cache-token lengths, sentinel planner IDs/slots, and zero miss counts. The kernel writes zero output for that row and leaves its cache state untouched.
+For a Q1 graph batch containing padded rows, `actual_seq_lengths_query` remains the dense cumulative prefix `[1, 2, ..., B]` so each row keeps its output position. A padded row has zero KV/cache-token lengths and zero miss counts; its unused source/slot contents are not read. The kernel writes zero output for that row and leaves its cache state untouched.
+
+## LIM integration and dynamic TND changes
+
+The full-visible Q1 framework uses LIM as the only residency owner, passes its complete contiguous miss plan into Copy-SFA, and retains the partial-vector eviction fixes in the LIM operator. Dynamic TND, combined-tail row-stride handling and the dense `C=0` miss-count guard are adapted from JinyanYi/sgl-kernel-npu commit `ffe1d44` (branch head `e74d7dfff432725ecccbc58149c7fd2e228c6b6c`). This does not switch the framework to prefix-tail attention or enable model-level MTP.
+
+`tests/test_copy_sfa_dynamic_tnd.py` covers heterogeneous query counts/cache budgets, dense-to-sparse graph transitions, mixed first-fill/steady misses, tail page crossings and poisoned future tails. `tests/test_lim_copy_sfa.py` retains full-visible partial-page/padding/reuse coverage for both packed and direct 32768-wide miss plans.
+
+Validated on Ascend A3 host 217 on 2026-10-23: a full normal-wheel build with CANN 9.1 and torch/torch_npu 2.10 completed, and all 53 selected native LIM, cache-planner and Copy-SFA tests passed. This is operator validation; it does not establish model-level MTP support or a model performance improvement.
 
 ## Cache planner behavior
 
