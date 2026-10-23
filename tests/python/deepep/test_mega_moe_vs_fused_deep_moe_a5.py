@@ -228,30 +228,33 @@ def run_rank(local_rank, num_processes, num_tokens, args, results):
 
 
 def print_results(results, per_rank=False):
-    print("\nNPU Event latency, microseconds; Fused/Mega > 1 means MegaMoe is faster.")
-    print(
-        "| Tokens/rank | Fused rank-mean | Mega rank-mean | Fused/Mega | "
-        "Fused max-rank mean | Mega max-rank mean | Fused/Mega (max) |"
+    print("\nNPU Event latency (us); Fused/Mega > 1 means MegaMoe is faster.")
+    header = (
+        f"{'Tokens':>6}  {'Fused mean':>12}  {'Mega mean':>12}  "
+        f"{'Fused/Mega':>10}  {'Fused max':>12}  {'Mega max':>12}  "
+        f"{'Ratio(max)':>10}"
     )
-    print("|---:|---:|---:|---:|---:|---:|---:|")
+    print(header)
+    print("-" * len(header), flush=True)
     for tokens, ranks in results:
         fused = [rank[0][0] * 1e6 for rank in ranks]
         mega = [rank[1][0] * 1e6 for rank in ranks]
         print(
-            f"| {tokens} | {mean(fused):.2f} | {mean(mega):.2f} | "
-            f"{mean(fused) / mean(mega):.3f}x | {max(fused):.2f} | "
-            f"{max(mega):.2f} | {max(fused) / max(mega):.3f}x |",
+            f"{tokens:>6}  {mean(fused):>12.2f}  {mean(mega):>12.2f}  "
+            f"{mean(fused) / mean(mega):>10.3f}  {max(fused):>12.2f}  "
+            f"{max(mega):>12.2f}  {max(fused) / max(mega):>10.3f}",
             flush=True,
         )
     if per_rank:
-        print("\nPer-rank NPU Event latency (us):")
-        print("| Tokens/rank | Rank | Fused avg/min/max | Mega avg/min/max |")
-        print("|---:|---:|:---|:---|")
+        print("\nPer-rank NPU Event latency (us), avg/min/max:")
+        header = f"{'Tokens':>6}  {'Rank':>4}  {'Fused':>24}  {'Mega':>24}"
+        print(header)
+        print("-" * len(header), flush=True)
         for tokens, ranks in results:
             for rank, (fused, mega) in enumerate(ranks):
-                f = "/".join(f"{v * 1e6:.2f}" for v in fused)
-                m = "/".join(f"{v * 1e6:.2f}" for v in mega)
-                print(f"| {tokens} | {rank} | {f} | {m} |", flush=True)
+                f = "/".join(f"{value * 1e6:.2f}" for value in fused)
+                m = "/".join(f"{value * 1e6:.2f}" for value in mega)
+                print(f"{tokens:>6}  {rank:>4}  {f:>24}  {m:>24}", flush=True)
 
 
 def parse_args(argv=None):
