@@ -174,6 +174,8 @@ __aicore__ inline void MoeV2MrgsortOut::UpdateSortInfo()
 
 __aicore__ inline void MoeV2MrgsortOut::Extract()
 {
+    // Complete the merge (or single-list UB copy) before extracting its output.
+    PipeBarrier<PIPE_V>();
     AscendC::Extract(this->ubOutput1, this->ubOutput2, this->tempBuffer, Ceil(curLoopSortedNum, ONE_REPEAT_SORT_NUM));
     PipeBarrier<PIPE_V>();
     Muls(this->ubOutput1, this->ubOutput1, (float)-1, Align(curLoopSortedNum, sizeof(float)));
