@@ -1,15 +1,5 @@
 # Operator tests
 
-Public framework and accuracy-helper unit tests are documented in
-[framework/README.md](framework/README.md). Run all 219 cases with:
-
-```bash
-python -m pytest tests/python/framework -v -rs -x --npu-device=0
-```
-
-These tests require an NPU; one case collects a real profile for a lightweight
-test operator. Use `-m 'not npu_integration'` to run only the 218 unit tests.
-
 ## Run tests
 
 Run from the repository root with the current `sgl_kernel_npu` installed,
@@ -171,3 +161,52 @@ average_us = benchmark_npu(executor, directory="results/custom-profile-run-001")
 `executor` can be any zero-argument callable; `directory` must not already exist.
 These lower-level helpers do not handle implementation selection, generation skips,
 CLI switches or CSV reporting. Keep accuracy before profiling in custom flows too.
+
+# Framework tests
+
+Framework tests are separate from production operator accuracy/performance tests:
+
+```text
+framework/
+  conftest.py                  Shared NPU session and isolated source loading
+  operator_framework/          Registration, architecture, probe dispatch and imports
+  testing_framework/           Accuracy standards, comparison, performance and reporting
+  _support/probe.py            Test-only public entry and lazy backend adapters
+```
+
+Run from the repository root with pytest, a working NPU/torch_npu/ACL environment
+and an importable `sgl_kernel_npu` native runtime. Python framework modules are
+loaded from this checkout; the installed native package may predate `operators`.
+
+```bash
+# All 219 cases, including one real profiler integration.
+python -m pytest tests/python/framework -v -rs --npu-device=0
+
+# Run either area separately.
+python -m pytest tests/python/framework/operator_framework -v -rs --npu-device=0
+python -m pytest tests/python/framework/testing_framework -v -rs --npu-device=0
+
+# Unit tests only, or real profiler integration only.
+python -m pytest tests/python/framework -m 'not npu_integration' -v -rs --npu-device=0
+python -m pytest tests/python/framework -m npu_integration -v -s -rs --npu-device=0
+```
+
+There are 75 operator-framework cases, 143 testing-helper unit cases and one real
+NPU integration case. Use a single pytest process without parallel workers; add
+`-x` to stop on the first failure, or `--junitxml=framework-ut.xml` to save a report.
+These tests set their own implementation/accuracy/performance contexts; operator
+CLI selections do not rewrite their scenarios. Missing NPU/ACL/native prerequisites
+are errors rather than blanket skips.
+
+Operator-framework tests use a test-only probe, registered with the checkout's
+real registry, rather than a production RMSNorm operator. Only its backend leaves
+are replaced in routing tests. The public entry, lazy adapters and their caches
+are test support: they exercise an integration pattern, not a shared production
+dispatcher or production-kernel correctness. The mainline currently implements
+those adapters separately in each operator.
+
+Testing-helper cases register lightweight Python implementations using small NPU
+Tensors. Accuracy comparisons, registry lookups and report/CSV logic remain real.
+Most performance unit cases replace measurement or profiler boundaries; the
+`npu_integration` case uses real NPU execution and profiler collection. None of
+these cases establishes a historical performance-regression baseline.

@@ -9,35 +9,41 @@ import pytest
 
 
 # Verify checkout public exports and operator registration share the checkout registry.
-def test_checked_out_public_api_uses_the_same_registry(operator_modules, npu_runtime):
+def test_checked_out_public_api_uses_the_same_registry(
+    operator_modules, npu_runtime, probe_loader
+):
     registry = operator_modules.registry
-    rmsnorm_bias = operator_modules.import_module("operators.norm").rmsnorm_bias
+    module = probe_loader(operator_modules)
+    operator = module.probe
 
     assert (
         Path(registry.__file__).resolve().is_relative_to(npu_runtime.source.resolve())
     )
     assert operator_modules.public_api.get_impl is registry.get_impl
     assert operator_modules.public_api.list_impls is registry.list_impls
-    assert registry.get_op_name(rmsnorm_bias) == "norm.rmsnorm_bias"
-    assert registry.get_impl(rmsnorm_bias, "auto") is registry.get_impl(
-        rmsnorm_bias, "triton"
+    assert registry.get_op_name(operator) == module.OP_NAME
+    assert registry.get_impl(operator, "auto") is registry.get_impl(
+        operator, "backend_a"
     )
 
 
-# Verify public imports register once without importing backend kernel modules.
-def test_public_import_registers_without_importing_kernel_leaves(operator_modules):
-    norm = operator_modules.import_module("operators.norm")
-    module = operator_modules.import_module("operators.norm.rmsnorm_bias")
+# Verify importing the test-only probe registers once without importing backend leaves.
+def test_probe_import_registers_without_importing_backend_leaves(
+    operator_modules, probe_loader
+):
+    module = probe_loader(operator_modules)
     registry = operator_modules.registry
-    assert norm.rmsnorm_bias is module.rmsnorm_bias
-    assert registry.list_impls(norm.rmsnorm_bias) == ["auto", "torch_native", "triton"]
+    assert registry.get_op_name(module.probe) == module.OP_NAME
+    assert registry.list_impls(module.probe) == ["auto", "backend_a", "backend_b"]
     assert not any(
-        name.startswith(f"{operator_modules.namespace}.implementation")
+        name.startswith(f"{operator_modules.namespace}._probe_backends")
+        or name.startswith(f"{operator_modules.namespace}.implementation")
+        or name.startswith(f"{operator_modules.namespace}.operators.norm")
         for name in sys.modules
     )
-    again = operator_modules.import_module("operators.norm.rmsnorm_bias")
+    again = probe_loader(operator_modules)
     assert again is module
-    assert registry.list_impls(norm.rmsnorm_bias) == ["auto", "torch_native", "triton"]
+    assert registry.list_impls(module.probe) == ["auto", "backend_a", "backend_b"]
 
 
 # Verify hardware detection failure aborts registry import without caching a partial module.
@@ -81,31 +87,28 @@ def test_private_registrations_do_not_leak_to_other_modules(
 
 # Verify checkout operators work when the installed runtime has no operators package.
 def test_checkout_framework_does_not_require_installed_operators(
-    package_factory, monkeypatch
+    package_factory, monkeypatch, probe_loader
 ):
     # Reproduce an installed runtime predating the operators refactor. Any
     # attempt to import its public framework must fail; checkout imports work.
     monkeypatch.setitem(sys.modules, "sgl_kernel_npu.operators", None)
     modules = package_factory().load()
-    operator = modules.import_module("operators.norm").rmsnorm_bias
+    operator = probe_loader(modules).probe
 
-    assert modules.public_api.list_impls(operator) == ["auto", "torch_native", "triton"]
+    assert modules.public_api.list_impls(operator) == ["auto", "backend_a", "backend_b"]
     assert modules.public_api.get_impl(operator, "auto") is modules.public_api.get_impl(
-        operator, "triton"
+        operator, "backend_a"
     )
 
 
 # Verify missing dependencies affect only the selected backend and permit a later retry.
-@pytest.mark.parametrize("missing_impl", ["triton", "torch_native"])
+@pytest.mark.parametrize("missing_impl", ["backend_a", "backend_b"])
 def test_missing_backend_is_isolated_and_failed_import_can_retry(
-    operator_modules, rmsnorm_module, kernels, monkeypatch, missing_impl
+    operator_modules, probe_module, kernels, monkeypatch, missing_impl
 ):
-    name = (
-        f"{operator_modules.namespace}.implementation.{missing_impl}"
-        ".norm.rmsnorm_bias"
-    )
+    name = f"{operator_modules.namespace}._probe_backends.{missing_impl}"
     leaf = sys.modules[name]
-    other = "torch_native" if missing_impl == "triton" else "triton"
+    other = "backend_b" if missing_impl == "backend_a" else "backend_a"
     error = ModuleNotFoundError("optional backend unavailable", name=name)
 
     class MissingBackend(importlib.abc.MetaPathFinder):
@@ -114,26 +117,23 @@ def test_missing_backend_is_isolated_and_failed_import_can_retry(
                 raise error
             return None
 
-    values = (sentinel.input, sentinel.weight, sentinel.bias, 1e-6)
+    values = (sentinel.input, 4)
     with monkeypatch.context() as patch:
         patch.delitem(sys.modules, name)
         patch.setattr(sys, "meta_path", [MissingBackend(), *sys.meta_path])
         # An unselected missing dependency must not break the selected route.
-        assert (
-            rmsnorm_module.rmsnorm_bias(*values, impl=other)
-            is kernels[other].return_value
-        )
-        kernels[other].assert_called_once_with(*values, None, None)
+        assert probe_module.probe(*values, impl=other) is kernels[other].return_value
+        kernels[other].assert_called_once_with(*values, scale=1)
         with pytest.raises(ModuleNotFoundError) as caught:
-            rmsnorm_module.rmsnorm_bias(*values, impl=missing_impl)
+            probe_module.probe(*values, impl=missing_impl)
         assert caught.value is error
         kernels[missing_impl].assert_not_called()
         assert kernels[other].call_count == 1  # no fallback on failure
 
     assert sys.modules[name] is leaf
     assert (
-        rmsnorm_module.rmsnorm_bias(*values, impl=missing_impl)
+        probe_module.probe(*values, impl=missing_impl)
         is kernels[missing_impl].return_value
     )
-    kernels[missing_impl].assert_called_once_with(*values, None, None)
+    kernels[missing_impl].assert_called_once_with(*values, scale=1)
     assert kernels[other].call_count == 1
