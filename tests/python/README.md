@@ -168,7 +168,7 @@ Framework tests are separate from production operator accuracy/performance tests
 
 ```text
 framework/
-  conftest.py                  Shared NPU session and isolated source loading
+  conftest.py                  All fixtures shared by both test directories
   operator_framework/          Registration, architecture, probe dispatch and imports
   testing_framework/           Accuracy standards, comparison, performance and reporting
   _support/probe.py            Test-only public entry and lazy backend adapters
@@ -190,6 +190,9 @@ python -m pytest tests/python/framework/testing_framework -v -rs --npu-device=0
 python -m pytest tests/python/framework -m 'not npu_integration' -v -rs --npu-device=0
 python -m pytest tests/python/framework -m npu_integration -v -s -rs --npu-device=0
 ```
+
+Both subdirectories inherit fixtures from `framework/conftest.py`; they do not
+need their own conftest files. Non-autouse fixtures run only when requested.
 
 There are 75 operator-framework cases, 143 testing-helper unit cases and one real
 NPU integration case. Use a single pytest process without parallel workers; add
