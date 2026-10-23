@@ -168,10 +168,12 @@ Framework tests are separate from production operator accuracy/performance tests
 
 ```text
 framework/
-  conftest.py                  All fixtures shared by both test directories
+  conftest.py                  Shared NPU runtime and isolated source-module loading
   operator_framework/          Registration, architecture, probe dispatch and imports
+    conftest.py                Registry/generation fixtures and probe/backend setup
+    probe.py                   Test-only public entry and lazy backend adapters
   testing_framework/           Accuracy standards, comparison, performance and reporting
-  _support/probe.py            Test-only public entry and lazy backend adapters
+    conftest.py                Accuracy/performance fixtures and integration marker
 ```
 
 Run from the repository root with pytest, a working NPU/torch_npu/ACL environment
@@ -179,7 +181,7 @@ and an importable `sgl_kernel_npu` native runtime. Python framework modules are
 loaded from this checkout; the installed native package may predate `operators`.
 
 ```bash
-# All 219 cases, including one real profiler integration.
+# All 225 cases, including one real profiler integration.
 python -m pytest tests/python/framework -v -rs --npu-device=0
 
 # Run either area separately.
@@ -191,10 +193,11 @@ python -m pytest tests/python/framework -m 'not npu_integration' -v -rs --npu-de
 python -m pytest tests/python/framework -m npu_integration -v -s -rs --npu-device=0
 ```
 
-Both subdirectories inherit fixtures from `framework/conftest.py`; they do not
-need their own conftest files. Non-autouse fixtures run only when requested.
+Both subdirectories inherit `npu_runtime`, `package_factory` and `operator_modules`
+from `framework/conftest.py`. Area-specific fixtures live in each subdirectory's
+own `conftest.py`. Non-autouse fixtures run only when requested.
 
-There are 75 operator-framework cases, 143 testing-helper unit cases and one real
+There are 75 operator-framework cases, 149 testing-helper unit cases and one real
 NPU integration case. Use a single pytest process without parallel workers; add
 `-x` to stop on the first failure, or `--junitxml=framework-ut.xml` to save a report.
 These tests set their own implementation/accuracy/performance contexts; operator
@@ -203,8 +206,10 @@ are errors rather than blanket skips.
 
 Operator-framework tests use a test-only probe, registered with the checkout's
 real registry, rather than a production RMSNorm operator. Only its backend leaves
-are replaced in routing tests. The public entry, lazy adapters and their caches
-are test support: they exercise an integration pattern, not a shared production
+are replaced in routing tests. The probe remains a separate module so import tests
+can exercise module execution, registration and lazy loading. The public entry,
+lazy adapters and their caches are test support: they exercise an integration
+pattern, not a shared production
 dispatcher or production-kernel correctness. The mainline currently implements
 those adapters separately in each operator.
 
