@@ -16,7 +16,6 @@ SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
-BUILD_ATTENTIONS_MODULE="OFF"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
@@ -41,7 +40,6 @@ Usage:
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or Ascend 950.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
-    ./build.sh -a attentions                    Build attentions.
 
 Omitting SOC_VERSION auto-detects it with npu-smi; hosts without a device fall
 back to Ascend910_9382, the value every target used to default to.
@@ -52,7 +50,6 @@ TARGET:
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
-    attentions     Build attentions only.
 
 SOC_VERSION:
     Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
@@ -126,7 +123,6 @@ function configure_build_target()
 {
     case "$BUILD_TARGET" in
         all )
-            BUILD_ATTENTIONS_MODULE="ON"
             BUILD_DEEPEP_MODULE="ON"
             BUILD_KERNELS_MODULE="ON"
             BUILD_MEMORY_SAVER_MODULE="ON"
@@ -145,9 +141,6 @@ function configure_build_target()
             ;;
         memory-saver )
             BUILD_MEMORY_SAVER_MODULE="ON"
-            ;;
-        attentions )
-            BUILD_ATTENTIONS_MODULE="ON"
             ;;
         * )
             die "Invalid target '$BUILD_TARGET'. Allowed values: all|deepep|deepep2|kernels|memory-saver|attentions"
@@ -542,16 +535,6 @@ function build_deepep_kernels()
     )
 }
 
-function build_attentions_kernels()
-{
-    (
-        cd "$PROJECT_ROOT/csrc/attentions/build"
-        echo "Building attentions kernels"
-        chmod +x build.sh
-        ./build.sh
-    )
-}
-
 function make_deepep_package()
 {
     (
@@ -574,18 +557,6 @@ function make_sgl_kernel_npu_package()
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
         mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
-        rm -rf dist
-    )
-}
-
-function make_attentions_package()
-{
-    (
-        cd "$PROJECT_ROOT/python/attentions"
-        rm -rf dist
-        python3 setup.py clean --all
-        python3 setup.py bdist_wheel
-        mv -v dist/attentions*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )
 }
@@ -625,9 +596,6 @@ function main()
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         build_deepep_kernels
     fi
-    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
-        build_attentions_kernels
-    fi
 
     ensure_wheel_package
 
@@ -637,9 +605,6 @@ function main()
     fi
     if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         make_sgl_kernel_npu_package
-    fi
-    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
-        make_attentions_package
     fi
     if [[ "$BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then
         build_memory_saver_package
