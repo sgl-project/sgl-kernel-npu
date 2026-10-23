@@ -13,7 +13,7 @@ def tensor(runtime, values, dtype="float32", *, device=None):
     return torch.tensor(values, dtype=getattr(torch, dtype), device=device)
 
 
-# Exercise absolute and relative tolerances inside, on and outside the boundary.
+# Exercise separate and combined absolute/relative tolerances inside, on and outside the boundary.
 @pytest.mark.parametrize(
     "dtype, reference, actual, atol, rtol, passes",
     [
@@ -24,6 +24,9 @@ def tensor(runtime, values, dtype="float32", *, device=None):
         pytest.param("float32", 8, 8.5, 0, 0.125, True, id="rtol-inside"),
         pytest.param("float32", 8, 9, 0, 0.125, True, id="rtol-boundary"),
         pytest.param("float32", 8, 10, 0, 0.125, False, id="rtol-outside"),
+        pytest.param("float32", 8, 9.5, 1, 0.125, True, id="combined-inside"),
+        pytest.param("float32", 8, 10, 1, 0.125, True, id="combined-boundary"),
+        pytest.param("float32", 8, 10.5, 1, 0.125, False, id="combined-outside"),
         pytest.param("float16", 1, 1.0625, 0.125, 0, True, id="fp16-inside"),
         pytest.param("float16", 1, 1.25, 0.125, 0, False, id="fp16-outside"),
         pytest.param("bfloat16", 1, 1.0625, 0.125, 0, True, id="bf16-inside"),
