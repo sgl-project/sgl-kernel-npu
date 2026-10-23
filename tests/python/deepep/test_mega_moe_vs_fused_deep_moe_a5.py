@@ -130,6 +130,9 @@ def run_rank(local_rank, num_processes, num_tokens, args, results):
             raise RuntimeError("This comparison requires Ascend 950 (A5)")
         if args.num_experts % world_size:
             raise ValueError("num_experts must be divisible by the actual world size")
+        # CANN looks up an existing HCCL handle when creating its SymmBuffer.
+        # Initialize the lazy communicator before CANN queries its group name.
+        mega_group._get_backend(torch.device("npu")).get_hccl_comm_name(rank)
         from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
 
         fused_group = dist.new_group(
