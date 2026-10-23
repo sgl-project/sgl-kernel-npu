@@ -28,7 +28,7 @@ constexpr std::string_view POOL_KEY_INDEXER_OP_NAME = "aclnnPoolKeyIndexer";
 
 // aclnnPoolKeyIndexer: pool-level TopK over pooled keys, expanded to token
 // indices with the incomplete tail pool appended (invalid slots filled -1).
-// C prototype (docs/aclnnPoolKeyIndexer.md):
+// C prototype (vendor op docs, aclnnPoolKeyIndexer):
 //   GetWorkspaceSize(query, poolKey, weights, poolTailK, actualSeqLengthsQuery,
 //       actualSeqLengthsKey, blockTable, qDescale, kDescale, topk, poolSize,
 //       layoutQuery, layoutKey, maskMode, quantMode, returnValue, keyStride0,
@@ -45,6 +45,22 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
                             bool return_value, int64_t key_stride0)
 {
     TORCH_CHECK(quant_mode == -1, "pool_key_indexer binding only supports quant_mode=-1 (BF16/FP16)");
+    TORCH_CHECK(!return_value,
+                "pool_key_indexer: return_value=true is not supported by this binding; sparse values are "
+                "dropped because the schema returns only sparse indices");
+    TORCH_CHECK(query.dim() == 2 || query.dim() == 4, "pool_key_indexer: query must be 2-D (TND) or 4-D (BSND), got ",
+                query.dim(), " dims");
+    TORCH_CHECK(pool_size > 0, "pool_key_indexer: pool_size must be > 0, got ", pool_size);
+    TORCH_CHECK(topk >= pool_size, "pool_key_indexer: topk (", topk, ") must be >= pool_size (", pool_size, ")");
+    auto layout_ok = [](const std::string &layout) {
+        return layout.rfind("TND", 0) == 0 || layout.rfind("PA_", 0) == 0;
+    };
+    TORCH_CHECK(layout_ok(layout_q), "pool_key_indexer: unsupported layout_q '", layout_q, "' (expect TND* or PA_*)");
+    TORCH_CHECK(layout_ok(layout_k), "pool_key_indexer: unsupported layout_k '", layout_k, "' (expect TND* or PA_*)");
+    TORCH_CHECK(query.scalar_type() == at::kBFloat16 || query.scalar_type() == at::kHalf,
+                "pool_key_indexer: query must be BFloat16 or Half, got ", query.scalar_type());
+    TORCH_CHECK(pool_key.scalar_type() == query.scalar_type(), "pool_key_indexer: pool_key dtype must match query");
+    TORCH_CHECK(weights.scalar_type() == query.scalar_type(), "pool_key_indexer: weights dtype must match query");
     const at::Tensor &blockTable = c10::value_or_else(block_table, [] { return at::Tensor(); });
     auto actualSeqQ = actual_seq_q.value_or(at::IntArrayRef{});
     auto actualSeqK = actual_seq_k.value_or(at::IntArrayRef{});
@@ -57,27 +73,15 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
         std::vector<int64_t> indiceSize = {query.size(0), query.size(1), outCols};
         sparseIndices = at_npu::native::empty_with_format(indiceSize, query.options().dtype(at::kInt),
                                                           at_npu::native::get_npu_format(query));
-        if (return_value) {
-            std::vector<int64_t> valueSize = {query.size(0), query.size(1), topk / pool_size};
-            sparseValues = at_npu::native::empty_with_format(valueSize, query.options().dtype(at::kFloat),
-                                                             at_npu::native::get_npu_format(query));
-        }
     } else {
         std::vector<int64_t> indiceSize = {query.size(0), outCols};
         sparseIndices = at_npu::native::empty_with_format(indiceSize, query.options().dtype(at::kInt),
                                                           at_npu::native::get_npu_format(query));
-        if (return_value) {
-            std::vector<int64_t> valueSize = {query.size(0), topk / pool_size};
-            sparseValues = at_npu::native::empty_with_format(valueSize, query.options().dtype(at::kFloat),
-                                                             at_npu::native::get_npu_format(query));
-        }
     }
-    if (!return_value) {
-        // returnValue=false requires a (0,) empty tensor for sparseValuesOut.
-        std::vector<int64_t> emptySize = {0};
-        sparseValues = at_npu::native::empty_with_format(emptySize, query.options().dtype(at::kFloat),
-                                                         at_npu::native::get_npu_format(query));
-    }
+    // returnValue=false requires a (0,) empty tensor for sparseValuesOut.
+    std::vector<int64_t> emptySize = {0};
+    sparseValues = at_npu::native::empty_with_format(emptySize, query.options().dtype(at::kFloat),
+                                                     at_npu::native::get_npu_format(query));
 
     const char *layoutQPtr = layout_q.c_str();
     const char *layoutKPtr = layout_k.c_str();
