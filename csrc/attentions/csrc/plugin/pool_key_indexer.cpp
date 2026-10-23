@@ -53,10 +53,12 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
     TORCH_CHECK(pool_size > 0, "pool_key_indexer: pool_size must be > 0, got ", pool_size);
     TORCH_CHECK(topk >= pool_size, "pool_key_indexer: topk (", topk, ") must be >= pool_size (", pool_size, ")");
     auto layout_ok = [](const std::string &layout) {
-        return layout.rfind("TND", 0) == 0 || layout.rfind("PA_", 0) == 0;
+        return layout.rfind("TND", 0) == 0 || layout.rfind("PA_", 0) == 0 || layout.rfind("BSND", 0) == 0;
     };
-    TORCH_CHECK(layout_ok(layout_q), "pool_key_indexer: unsupported layout_q '", layout_q, "' (expect TND* or PA_*)");
-    TORCH_CHECK(layout_ok(layout_k), "pool_key_indexer: unsupported layout_k '", layout_k, "' (expect TND* or PA_*)");
+    TORCH_CHECK(layout_ok(layout_q), "pool_key_indexer: unsupported layout_q '", layout_q,
+                "' (expect TND*, PA_* or BSND*)");
+    TORCH_CHECK(layout_ok(layout_k), "pool_key_indexer: unsupported layout_k '", layout_k,
+                "' (expect TND*, PA_* or BSND*)");
     TORCH_CHECK(query.scalar_type() == at::kBFloat16 || query.scalar_type() == at::kHalf,
                 "pool_key_indexer: query must be BFloat16 or Half, got ", query.scalar_type());
     TORCH_CHECK(pool_key.scalar_type() == query.scalar_type(), "pool_key_indexer: pool_key dtype must match query");
