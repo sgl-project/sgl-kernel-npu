@@ -37,6 +37,8 @@ class _CopySfaCase:
         batch_req_ids: list[int],
         dtype,
         query_heads: int = 8,
+        capacity: int = 2048,
+        max_context_len: int = 8192,
     ):
         _, offload_ops = _require_npu()
         self.create_shm_tensor = offload_ops.create_shm_tensor
@@ -47,8 +49,9 @@ class _CopySfaCase:
         self.batch_req_ids = batch_req_ids
         self.row_for_request = {req_id: row for row, req_id in enumerate(batch_req_ids)}
         self.batch = len(batch_req_ids)
-        self.max_context_len = 8192
-        self.capacity = 2048
+        self.max_context_len = max_context_len
+        self.capacity = capacity
+        self.top_k = 2048
         self.page_size = 128
         self.dram_pages = self.max_context_len // self.page_size
         self.hbm_pages_per_request = self.capacity // self.page_size
@@ -96,10 +99,10 @@ class _CopySfaCase:
             batch_req_ids, dtype=torch.int32, device=self.device
         )
         self.topk_input = torch.zeros(
-            (self.batch, self.capacity), dtype=torch.int32, device=self.device
+            (self.batch, self.top_k), dtype=torch.int32, device=self.device
         )
         self.topk_src = torch.empty(
-            (self.batch, 1, self.capacity), dtype=torch.int32, device=self.device
+            (self.batch, 1, self.top_k), dtype=torch.int32, device=self.device
         )
         self.topk_dst = torch.empty_like(self.topk_src)
         self.topk_miss_counts = torch.empty(
@@ -183,7 +186,7 @@ class _CopySfaCase:
             )
 
     def set_sources(self, row: int, sources: list[int]):
-        assert len(sources) == self.capacity
+        assert len(sources) == self.top_k
         self.topk_input[row].copy_(
             torch.tensor(sources, dtype=torch.int32, device=self.device)
         )

@@ -47,11 +47,13 @@ Source capacity is the block-table width times 128 and is at most 2**21.
 These device-resident metadata values must satisfy the upstream protocol.
 
 The Copy-SFA integration additionally accepts the full visible sequence as
-the candidate length for Q1 with C=K=2048. This includes a partial final page;
-other route counts and capacities retain the page-aligned prefix contract.
+the candidate length for Q1 with K=2048 and C>=K. This includes a partial final
+page; other route counts retain the page-aligned prefix contract. Combined
+Copy-SFA currently accepts C=2048,4096,8192 while keeping attention TopK=2048.
 Short/nonresident rows still use state -3. A new resident row must use -2.
 The returned plans can be passed directly to combined-layout Copy-SFA after
-packing the valid miss prefix into contiguous `[B,2048]` buffers. No second
+packing the valid miss prefix into contiguous `[B,C]` buffers. A cold fill may
+contain C misses, including residents outside the K selected tokens. No second
 residency planner may operate on the LIM slot map.
 
 The host performs shape/dtype checks without reading device scalar values.
@@ -116,8 +118,10 @@ must not be attributed to this direct launch path.
 ## Provenance
 
 The device implementation comes from vllm-project/vllm-ascend commit
-`3326f350c0de30a5170b86ecfce851322e3216e6` (PR #16640). Eight headers under
-`op_kernel/upstream/` remain byte-identical; their hashes and entry adaptation
-are recorded in `upstream.json`. The new host path replaces the aclnn adapter,
+`3326f350c0de30a5170b86ecfce851322e3216e6` (PR #16640). Seven headers under
+`op_kernel/upstream/` remain byte-identical. The union header has local
+full-visible Q1 and eviction adaptations; its original and adapted hashes,
+and the entry adaptations, are recorded in `upstream.json`.
+The new host path replaces the aclnn adapter,
 generated operator package, and generated tiling registration. Upstream
 copyright notices are retained; Apache-2.0 and CANN-2.0 texts are in `licenses/`.

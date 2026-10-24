@@ -6,8 +6,15 @@ from test_copy_sfa_combined import _CopySfaCase
 
 
 @pytest.mark.parametrize("graph_replay", [False, True])
-def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
-    case = _CopySfaCase(2, [1, 2, 0], torch.bfloat16)
+@pytest.mark.parametrize("capacity", [2048, 4096, 8192])
+def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay, capacity):
+    case = _CopySfaCase(
+        2,
+        [1, 2, 0],
+        torch.bfloat16,
+        capacity=capacity,
+        max_context_len=167936,
+    )
     try:
         batch, heads, width = case.batch, 32, case.max_context_len
         device = case.device
@@ -18,10 +25,12 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
         )
         table = torch.stack(
             [
-                torch.arange(width // 128, dtype=torch.int32, device=device)
-                + req * (width // 128)
-                if req < 2
-                else torch.zeros(width // 128, dtype=torch.int32, device=device)
+                (
+                    torch.arange(width // 128, dtype=torch.int32, device=device)
+                    + req * (width // 128)
+                    if req < 2
+                    else torch.zeros(width // 128, dtype=torch.int32, device=device)
+                )
                 for req in case.batch_req_ids
             ]
         )
@@ -46,7 +55,7 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
                 case.actual_q,
                 lengths,
                 lengths,
-                torch.full_like(lengths, 2048),
+                torch.full_like(lengths, capacity),
                 states,
                 case.req_ids,
                 pool,
@@ -61,8 +70,8 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
             case.topk_src.copy_(torch.where(valid[:, None, None], ids, -1))
             case.topk_dst.copy_(torch.where(valid[:, None, None], slots, -1))
             case.topk_miss_counts.copy_(torch.where(valid, topk_counts, 0))
-            case.miss_src.copy_(torch.where(valid[:, None], miss_src[:, :2048], -1))
-            case.miss_dst.copy_(torch.where(valid[:, None], miss_dst[:, :2048], -1))
+            case.miss_src.copy_(torch.where(valid[:, None], miss_src[:, :capacity], -1))
+            case.miss_dst.copy_(torch.where(valid[:, None], miss_dst[:, :capacity], -1))
             case.miss_counts.copy_(torch.where(valid, miss_counts, 0))
             case._copy_sfa()
 
@@ -79,7 +88,7 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
                 )
             )
 
-        set_lengths(4097, 2049, reset=True)
+        set_lengths(2 * capacity + 1, capacity + 1, reset=True)
         enqueue()
         torch.npu.synchronize()
         graph = None
@@ -88,10 +97,13 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
             with torch.npu.graph(graph):
                 enqueue()
         for a, b, reset in (
-            (4097, 2049, True),
-            (4098, 2050, False),
-            (4225, 2177, False),
-            (3001, 2501, True),
+            (capacity, capacity, True),
+            (2 * capacity + 1, capacity + 1, True),
+            (2 * capacity + 2, capacity + 2, False),
+            (2 * capacity + 129, capacity + 129, False),
+            (capacity + 10, capacity + 257, True),
+            (163841, 163713, True),
+            (163842, 163714, False),
         ):
             set_lengths(a, b, reset)
             graph.replay() if graph is not None else enqueue()
@@ -100,11 +112,25 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
             for row, req in ((0, 1), (2, 0)):
                 assert set(case.topk_src[row, 0].cpu().tolist()) == set(expected[req])
                 physical = case.hbm.cpu().view(-1, 128, 576)
+                # A cold C>K plan must publish all C payloads, not just K.
+                count = case.miss_counts[row].item()
+                if reset:
+                    assert count == capacity
+                src = case.miss_src[row, :count].cpu().long()
+                dst = case.miss_dst[row, :count].cpu().long()
+                pages = case.hbm_block_table[row].cpu().long()[dst // 128]
+                torch.testing.assert_close(
+                    physical[pages, dst % 128],
+                    case.logical_kv[req, src],
+                    atol=0,
+                    rtol=0,
+                )
                 for src, slot in zip(
                     case.topk_src[row, 0].cpu().tolist(),
                     case.topk_dst[row, 0].cpu().tolist(),
                 ):
-                    page = req * 16 + ((slot // 128) * 7) % 16
+                    n = capacity // 128
+                    page = req * n + ((slot // 128) * 7) % n
                     torch.testing.assert_close(
                         physical[page, slot % 128],
                         case.logical_kv[req, src],
@@ -113,6 +139,6 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay):
                     )
             case.assert_attention(expected)
             case.assert_invalid_outputs()
-            assert torch.all(case.hbm[32:] == 19)
+            assert torch.all(case.hbm[2 * (capacity // 128) :] == 19)
     finally:
         case.close()

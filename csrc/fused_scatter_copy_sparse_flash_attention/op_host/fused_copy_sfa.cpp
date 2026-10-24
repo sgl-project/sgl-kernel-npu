@@ -16,7 +16,7 @@
 namespace sglang::npu_kernel {
 namespace {
 
-constexpr int64_t kCacheCapacity = 2048;
+constexpr int64_t kTopK = 2048;
 constexpr int64_t kPageSize = 128;
 constexpr int64_t kKvDim = 512;
 constexpr int64_t kRopeDim = 64;
@@ -70,31 +70,33 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(combined_hbm_cache.scalar_type() == query.scalar_type() && combined_hbm_cache.dim() == 4 &&
                     combined_hbm_cache.size(1) == kPageSize && combined_hbm_cache.size(2) == 1 &&
                     combined_hbm_cache.size(3) == kTokenStride && combined_hbm_cache.is_contiguous(),
-                "combined_hbm_cache must be [R*16, 128, 1, 576] and match query dtype");
-    TORCH_CHECK(combined_hbm_cache.size(0) % (kCacheCapacity / kPageSize) == 0,
-                "combined_hbm_cache page count must be divisible by 16");
+                "combined_hbm_cache must be [R*C/128, 128, 1, 576] and match query dtype");
     TORCH_CHECK(attention_out.sizes() == query.sizes() && attention_out.scalar_type() == query.scalar_type(),
                 "attention_out must match query shape and dtype");
     TORCH_CHECK(dram_kv_dev_ptr > 0, "dram_kv_dev_ptr must be a registered host pointer");
-    TORCH_CHECK(hbm_block_table.dim() == 2 && hbm_block_table.size(0) == query.size(0) &&
-                    hbm_block_table.size(1) == kCacheCapacity / kPageSize,
-                "hbm_block_table must be [B, 16]");
+    TORCH_CHECK(hbm_block_table.dim() == 2 && hbm_block_table.size(0) == query.size(0),
+                "hbm_block_table must be [B, C/128]");
+    const int64_t cacheCapacity = hbm_block_table.size(1) * kPageSize;
+    TORCH_CHECK(cacheCapacity == 2048 || cacheCapacity == 4096 || cacheCapacity == 8192,
+                "Copy-SFA cache capacity must be 2048, 4096 or 8192");
+    TORCH_CHECK(combined_hbm_cache.size(0) % hbm_block_table.size(1) == 0,
+                "combined_hbm_cache must contain complete C-token request rows");
     TORCH_CHECK(
         dram_block_table.dim() == 2 && dram_block_table.size(0) == query.size(0) && dram_block_table.size(1) > 0,
         "dram_block_table must be [B, dram_pages_per_request]");
     TORCH_CHECK(topk_src_ids.sizes() == topk_dst_slots.sizes() && topk_src_ids.dim() == 3 &&
                     topk_src_ids.size(0) == query.size(0) && topk_src_ids.size(1) == 1 &&
-                    topk_src_ids.size(2) == kCacheCapacity,
+                    topk_src_ids.size(2) == kTopK,
                 "top-k source and destination arrays must be [B, 1, 2048]");
     TORCH_CHECK(actual_seq_lengths_query.dim() == 1 && actual_seq_lengths_query.numel() == query.size(0),
                 "actual_seq_lengths_query must be cumulative Q1 lengths [B]");
     TORCH_CHECK(actual_seq_lengths_kv.dim() == 1 && actual_seq_lengths_kv.numel() == query.size(0),
-                "actual_seq_lengths_kv must contain one 2048 length per request [B]");
+                "actual_seq_lengths_kv must contain one cache length per request [B]");
     TORCH_CHECK(num_cache_tokens.dim() == 1 && num_cache_tokens.numel() == query.size(0),
                 "num_cache_tokens must be [B]");
     TORCH_CHECK(miss_src_ids.sizes() == miss_dst_slots.sizes() && miss_src_ids.dim() == 2 &&
-                    miss_src_ids.size(0) == query.size(0) && miss_src_ids.size(1) == kCacheCapacity,
-                "request miss arrays must be [B, 2048]");
+                    miss_src_ids.size(0) == query.size(0) && miss_src_ids.size(1) == cacheCapacity,
+                "request miss arrays must be [B, C]");
     TORCH_CHECK(topk_miss_counts.numel() == query.size(0) && miss_counts.numel() == query.size(0) &&
                     num_cache_tokens.numel() == query.size(0),
                 "per-request count arrays must have B elements");
@@ -166,8 +168,10 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(sfaData.GetDataSize() == sizeof(SparseFlashAttentionTilingDataMla),
                 "unexpected SFA tiling prefix size");
     sfaData.SaveToBuffer(reinterpret_cast<uint8_t *>(&fusedTilingData), sizeof(SparseFlashAttentionTilingDataMla));
-    fusedTilingData.copyCap = kCacheCapacity;
-    fusedTilingData.missCap = kCacheCapacity;
+    // Source-aware attention gathers K selected tokens. The request-level
+    // first-fill stage can populate all C resident slots, including C > K.
+    fusedTilingData.copyCap = kTopK;
+    fusedTilingData.missCap = static_cast<uint32_t>(cacheCapacity);
     fusedTilingData.hbmMaxBlockNum = static_cast<uint32_t>(hbm_block_table.size(1));
     fusedTilingData.dramMaxBlockNum = static_cast<uint32_t>(dram_block_table.size(1));
     std::array<uint8_t, sizeof(FusedCopySfaTilingData)> tilingBytes{};

@@ -3,7 +3,6 @@
   "commit": "3326f350c0de30a5170b86ecfce851322e3216e6",
   "unchanged_device_headers": {
     "fused_lightning_indexer_manage_constants.h": "78fb9724396690e27e9a9603193d67954d5245ac9210ebc2ea9080a687b8e65c",
-    "fused_lightning_indexer_manage_union.h": "d394140db6313559066e9b155a7b1f45b78d897520c3ee9ed265f9d1ce2e4ec2",
     "fused_lightning_indexer_manage_workspace.h": "354ce00b93d6c84a05eac8a6e81a20f3102951d259b6fa2b9ee293d50e86c4d9",
     "lightning_indexer_common.h": "ce8cc08d6228a7c3f49c32418767c331ab7559150e1d4af537d5163db640421d",
     "lightning_indexer_kernel.h": "dd480e52169e186fbcf0d8289569aa4ba1cdb43c5bb4b0564dc7bead426e6e68",
@@ -19,5 +18,15 @@
     "Read GM tiling scalar fields into local storage instead of invoking a cross-address-space copy constructor",
     "Use GM_ADDR kernel parameters for the AscendC launch generator",
     "Resolve EVENT_ID5 to the identical literal 5 for CANN host-only compilation without changing pinned headers"
-  ]
+  ],
+  "adapted_device_headers": {
+    "fused_lightning_indexer_manage_union.h": {
+      "original_sha256": "d394140db6313559066e9b155a7b1f45b78d897520c3ee9ed265f9d1ce2e4ec2",
+      "adapted_sha256_lf": "85165007e8be11ef51a410d6567b8d38e578524208e5cd9f5dae2e979d6ac122",
+      "adaptations": [
+        "Existing full-visible Q1 C=K integration and partial-vector eviction fix from86034b4",
+        "Permit full-visible Q1 selection with C>K; retain capacity, length and alignment validation"
+      ]
+    }
+  }
 }

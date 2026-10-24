@@ -811,11 +811,11 @@ private:
         const int32_t cacheValue = cacheTokensGm.GetValue(batch);
         const int32_t actualValue = actualSeqLengthsKeyGm.GetValue(batch);
         const uint32_t routes = queryEnd - queryStart;
-        // Copy-SFA consumes exactly K entries. Q1 with C=K may select over
-        // the complete visible sequence, including its partial final page.
-        // Other routes/capacities keep the original stable-prefix contract.
-        const bool fullVisibleQ1 = routes == 1U && cacheValue == static_cast<int32_t>(TOPK) &&
-                                   lengthValue == actualValue;
+        // Q1 selects K entries over the complete visible sequence, including
+        // its partial final page. Resident capacity C may exceed K; the checks
+        // below still require K <= C <= length and page-aligned C.
+        // Multi-query routes retain the original stable-prefix contract.
+        const bool fullVisibleQ1 = routes == 1U && lengthValue == actualValue;
         if (row < 0 || static_cast<uint32_t>(row) >= poolSize ||
             lengthValue < static_cast<int32_t>(TOPK) ||
             static_cast<uint32_t>(lengthValue) > sourceCapacity ||
