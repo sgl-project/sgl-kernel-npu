@@ -108,6 +108,14 @@ endif()
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_consistancy.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_existance.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_feature.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_single_para.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp
         ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_host/situ_mxfp8_quant.cpp
         ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_host/swiglu_group_quant.cpp
     )
@@ -326,6 +334,32 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
 
 endif()
 
+# Quantized SharedKV uses the Ascend 950 FP8 pipeline and has a separate
+# metadata ABI from the A3 sparse_attn_sharedkv operator.
+set(A5_ONLY_KERNEL_TARGETS)
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    ascendc_library(kv_quant_sparse_attn_sharedkv_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp
+    )
+    ascendc_include_directories(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/attentions/csrc/ops/utils/inc/kernel
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        "SHELL:-mllvm -cce-vf-remove-membar=false"
+        "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+    )
+    list(APPEND A5_ONLY_KERNEL_TARGETS kv_quant_sparse_attn_sharedkv_kernel)
+endif()
+
 # Sparse Flash Attention has arch22 (A2/A3) and arch35 (A5) implementations.
 ascendc_library(sparse_flash_attention_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sparse_flash_attention.cpp
@@ -354,6 +388,7 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
+        ${A5_ONLY_KERNEL_TARGETS}
         sparse_flash_attention_kernel
         workspace_kernel
         no_workspace_kernel
@@ -387,6 +422,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
