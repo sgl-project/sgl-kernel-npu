@@ -111,20 +111,13 @@ def _read_state_page_cache(
     if cache_mode == 2:
         state_flat = state.reshape(-1, state.shape[-1])
         for offset in range(seq_cnt):
-            if _is_arch35():
-                # A5 request-bank: one bank id per request, in-bank ring offset
-                # derived from the seq position (matches the arch35 kernel).
-                state_loc = int(block_table[b_idx]) * state.shape[1] + (
-                    (start_seq_idx + offset) % state.shape[1]
-                )
-            else:
-                state_loc = _explicit_state_loc(
-                    block_table,
-                    b_idx,
-                    start_seq_idx + offset,
-                    batch_start_pos,
-                    history_size,
-                )
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             result[offset] = state_flat[state_loc, d_start:d_end]
         return result
     finish_cnt = 0
@@ -162,18 +155,13 @@ def _write_state_page_cache(
         state_flat = state.reshape(-1, state.shape[-1])
         update_flat = update_position.reshape(-1, update_position.shape[-1])
         for offset in range(seq_cnt):
-            if _is_arch35():
-                state_loc = int(block_table[b_idx]) * state.shape[1] + (
-                    (start_seq_idx + offset) % state.shape[1]
-                )
-            else:
-                state_loc = _explicit_state_loc(
-                    block_table,
-                    b_idx,
-                    start_seq_idx + offset,
-                    batch_start_pos,
-                    history_size,
-                )
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             state_flat[state_loc] = sc_new_state[offset]
             update_flat[state_loc] = True
         return
@@ -335,6 +323,57 @@ def _reference_compressor(
                     batch_start_pos=batch_start_pos,
                     history_size=coff * cmp_ratio,
                 )
+
+            # Mirror the kernel's page-tail coverage: a resume at a state page
+            # boundary re-reads the page's trailing `ring` positions from the
+            # ring, and the tail clip above never writes them mid-call. Same
+            # ring-ahead predicate as the kernel: inside a page position q and
+            # q+ring share a ring row, past the page end they differ.
+            if cache_mode == 2 and coff == 2:
+                ring = kv_state.shape[1]
+                scan_end = min(end_seq_idx, batch_start_pos + batch_seq_used - ring)
+                for pos in range(start_seq_idx, scan_end):
+                    loc_here = _explicit_state_loc(
+                        block_table,
+                        b_idx,
+                        pos,
+                        batch_start_pos,
+                        coff * cmp_ratio,
+                    )
+                    loc_ahead = _explicit_state_loc(
+                        block_table,
+                        b_idx,
+                        pos + ring,
+                        batch_start_pos,
+                        coff * cmp_ratio,
+                    )
+                    if loc_ahead == loc_here:
+                        continue
+                    rel = start_offset + (pos - start_seq_idx)
+                    _write_state_page_cache(
+                        kv_state,
+                        update_kv,
+                        new_kv_state[rel : rel + 1, :],
+                        b_idx,
+                        pos,
+                        pos + 1,
+                        block_table,
+                        cache_mode=cache_mode,
+                        batch_start_pos=batch_start_pos,
+                        history_size=coff * cmp_ratio,
+                    )
+                    _write_state_page_cache(
+                        score_state,
+                        update_score,
+                        new_score_state[rel : rel + 1, :],
+                        b_idx,
+                        pos,
+                        pos + 1,
+                        block_table,
+                        cache_mode=cache_mode,
+                        batch_start_pos=batch_start_pos,
+                        history_size=coff * cmp_ratio,
+                    )
 
             if compress_flag:
                 sc_kv_state = np.zeros(
@@ -518,6 +557,7 @@ def _make_inputs(
     block_size=16,
     seed=20260813,
     ring_size=None,
+    total_seq=None,
 ):
     gen = torch.Generator().manual_seed(seed)
     ww = coff * head_dim
@@ -547,22 +587,21 @@ def _make_inputs(
             # for c4 = 8). Overrides the safe max() formula so wrap-around
             # write/read overlaps can be exercised.
             state_block_size = ring_size
-        if _is_arch35():
-            # A5 request-bank: one bank id per request; the kernel derives the
-            # in-bank ring offset from seq position itself.
-            bank_ids = torch.arange(batch, dtype=torch.int32)
-            block_table = bank_ids
-            block_num = max(int(bank_ids.max().item()) + 1, batch)
-        else:
-            capacities = [seq_len] * batch
-            block_table, block_num, _ = _build_explicit_state_loc_table(
-                start_pos,
-                capacities,
-                state_block_size,
-                coff,
-                cmp_ratio,
-                banks_per_batch=1,
-            )
+        capacities = [seq_len] * batch
+        # Enough banks so the explicit table never wraps: each block
+        # (position // state_block_size) gets its own bank, mirroring the A3 SWA
+        # mapping's unbounded page dimension. total_seq overrides the span for
+        # multi-round tests whose state buffer must cover the whole run.
+        total_pos = max(start_pos) + seq_len if total_seq is None else total_seq
+        banks_per_batch = (total_pos + state_block_size - 1) // state_block_size + 1
+        block_table, block_num, _ = _build_explicit_state_loc_table(
+            start_pos,
+            capacities,
+            state_block_size,
+            coff,
+            cmp_ratio,
+            banks_per_batch=banks_per_batch,
+        )
     else:
         max_block = (max(start_pos) + seq_len + block_size - 1) // block_size
         block_table = torch.zeros(batch, max_block, dtype=torch.int32)
@@ -733,6 +772,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 2, 8, 4, 8
+        total_seq = 16 + rounds * capacity
         p0 = _make_inputs(
             [8, 16],
             capacity,
@@ -746,11 +786,11 @@ class TestCompressor(unittest.TestCase):
             batch,
             16,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
-        block_table = p0["block_table"].npu()
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
@@ -773,7 +813,9 @@ class TestCompressor(unittest.TestCase):
                 16,
                 seed=3000 + r,
                 ring_size=ring_size,
+                total_seq=total_seq,
             )
+            block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
@@ -788,7 +830,7 @@ class TestCompressor(unittest.TestCase):
                 p0["norm_weight"],
                 p["rope_sin"],
                 p["rope_cos"],
-                block_table=p0["block_table"],
+                block_table=p["block_table"],
                 cu_seqlens=cu_list,
                 seqused=[capacity, capacity],
                 start_pos=starts,
@@ -840,6 +882,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         capacity, ring_size = 8, 8
+        total_seq = 8 + capacity
         p0 = _make_inputs(
             [8],
             capacity,
@@ -853,12 +896,12 @@ class TestCompressor(unittest.TestCase):
             1,
             16,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
         norm_npu = p0["norm_weight"].npu()
-        block_table = p0["block_table"].npu()
         init_kv = p0["kv_state"]
         init_score = p0["score_state"]
         init_state = p0["state_cache"].clone().npu()
@@ -882,7 +925,9 @@ class TestCompressor(unittest.TestCase):
                     16,
                     seed=4000 + accepted * 10 + r,
                     ring_size=ring_size,
+                    total_seq=total_seq,
                 )
+                block_table = p["block_table"].npu()
                 cu_t = p["cu_seqlens"].npu()
                 cu_list = p["cu_seqlens"].tolist()
                 update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
@@ -899,7 +944,7 @@ class TestCompressor(unittest.TestCase):
                     p0["norm_weight"],
                     p["rope_sin"],
                     p["rope_cos"],
-                    block_table=p0["block_table"],
+                    block_table=p["block_table"],
                     cu_seqlens=cu_list,
                     seqused=[valid],
                     start_pos=[start],
@@ -951,6 +996,7 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 256, 8, 2, 8
+        total_seq = 8 + (batch - 1) * capacity + rounds * capacity
         p0 = _make_inputs(
             list(range(8, 8 + batch * capacity, capacity)),
             capacity,
@@ -964,11 +1010,11 @@ class TestCompressor(unittest.TestCase):
             batch,
             ring_size,
             ring_size=ring_size,
+            total_seq=total_seq,
         )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
-        block_table = p0["block_table"].npu()
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
@@ -991,7 +1037,9 @@ class TestCompressor(unittest.TestCase):
                 ring_size,
                 seed=5000 + r,
                 ring_size=ring_size,
+                total_seq=total_seq,
             )
+            block_table = p["block_table"].npu()
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
@@ -1006,7 +1054,7 @@ class TestCompressor(unittest.TestCase):
                 p0["norm_weight"],
                 p["rope_sin"],
                 p["rope_cos"],
-                block_table=p0["block_table"],
+                block_table=p["block_table"],
                 cu_seqlens=cu_list,
                 seqused=[capacity] * batch,
                 start_pos=starts,
@@ -1782,9 +1830,11 @@ class TestCompressor(unittest.TestCase):
         ape = torch.randn(ratio, ww, generator=gen).float() * 0.01
         norm_weight = torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0
 
-        kv_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
-        sc_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
-        block_table = torch.arange(batch, dtype=torch.int32)
+        max_pos = start0 + (batch - 1) * ndraft + (steps - 1) * accept + ndraft
+        banks_per_batch = (max_pos + ring - 1) // ring + 1
+        block_num = batch * banks_per_batch + 1
+        kv_cpu = torch.randn(block_num, ring, ww, generator=gen).float() * 0.01
+        sc_cpu = torch.randn(block_num, ring, ww, generator=gen).float() * 0.01
         state_npu = torch.cat([kv_cpu, sc_cpu], dim=-1).clone().npu()
 
         rope_rows = min(batch * ndraft, batch * ndraft // ratio + batch)
@@ -1819,6 +1869,9 @@ class TestCompressor(unittest.TestCase):
                 torch.ones(rope_rows, 64)
                 + torch.randn(rope_rows, 64, generator=rng).float() * 0.01
             )
+            block_table = _build_explicit_state_loc_table(
+                committed, [ndraft] * batch, ring, coff, ratio, banks_per_batch
+            )[0]
 
             ref, ref_mask = _reference_compressor(
                 x,

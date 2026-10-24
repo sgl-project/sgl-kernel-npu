@@ -15,11 +15,12 @@ kernel computes a windowed score, applies a stable softmax over the compression
 window, produces a weighted sum of the window KV, then applies RMSNorm and RoPE
 to emit the compressed KV row.
 
-The operator also maintains a per-request rolling state (`state_cache`) used to
-carry the score/KV context across calls. With `cache_mode=2` the state is a
-per-request ring buffer addressed by a request bank id (`state_block_table`),
-which lets long decode runs and speculative (MTP) verify reuse one fixed bank
-per request without re-deriving state locations every step.
+The operator also maintains a rolling state (`state_cache`) used to carry the
+score/KV context across calls. With `cache_mode=2` the state is addressed through
+an explicit table (`state_block_table`): the host maps every logical position of
+the call to the physical state row that holds it, so long decode runs and
+speculative (MTP) verify reuse the same rows without re-deriving state locations
+every step. arch22 and arch35 share this ABI.
 
 ## Function Prototype
 
@@ -45,8 +46,10 @@ torch.ops.npu.compressor(
   rows.
 - **rope_head_dim** (`int`): required. RoPE head dimension (64 for DSV4).
 - **cmp_ratio** (`int`): required. Compression ratio, `4` or `128`.
-- **state_block_table** (`Tensor`): required. INT32 `[B]` request bank ids
-  (ring mode); each active request owns one bank.
+- **state_block_table** (`Tensor`): required. INT32 `[B, maxBlockNumPerBatch]`
+  explicit state-row table; column `c` of batch `b` is the physical row in
+  `state_cache` that holds that position's state. `maxBlockNumPerBatch` is
+  `coff * cmp_ratio + input capacity` for the call.
 - **cu_seqlens** (`Tensor`): required for TH. INT32 `[B + 1]` prefix sums of the
   per-batch input capacity.
 - **seqused** (`Tensor`): required. INT32 `[B]` number of valid tokens this call
@@ -56,9 +59,9 @@ torch.ops.npu.compressor(
 - **coff** (`int`): required. `1` or `2` (compression overlap).
 - **norm_eps** (`double`): required. RMSNorm epsilon.
 - **rotary_mode** (`int`): required. `2` (interleave) for DSV4.
-- **cache_mode** (`int`): required. `2` = ring (used by sglang): `CYCLE` on
-  arch35, `EXPLICIT` on arch22. `1` (paged/CONTINUOUS) exists in the kernel but
-  is not used by sglang.
+- **cache_mode** (`int`): required. `2` = `EXPLICIT` (used by sglang on both
+  arch22 and arch35): the state rows come from `state_block_table`. `1`
+  (`CONTINUOUS`, paged) exists in the kernel but is not used by sglang.
 - **state_cache_stride_dim0** (`int`): optional, default `0`. When `0`, the host
   derives it as `state_cache.size(1) * state_cache.size(2)`.
 
@@ -124,13 +127,12 @@ keys are not compiled in this build.
 
 ## arch22 vs arch35 Differences
 
-Both arch implementations share the public op signature and the `tilingKey` bit
-layout, but they differ in template selection, state-mode naming and vector
-kernels. sglang uses TH + `cache_mode=2` + `rotary_mode=2` on both.
+Both arch implementations share the public op signature, the `tilingKey` bit
+layout and the `EXPLICIT` state-table ABI, but they differ in template selection
+and vector kernels. sglang uses TH + `cache_mode=2` + `rotary_mode=2` on both.
 
 | Aspect | arch22 (A2/A3) | arch35 (A5) |
 | --- | --- | --- |
-| `cache_mode=2` name | `EXPLICIT` (ring) | `CYCLE` (ring) |
 | Default `templateId` | `PERF` (2) | `NORMAL` (0) |
 | High-perf template | `PERF` (`compressor_kernel_perf.h`), used for every non-empty call | `FULL_LOAD` (`compressor_kernel_full_load.h`), BSH + small batch only, unused by sglang |
 | Kernel body | `compressor_kernel_perf.h` / `block_*_perf.h` | `compressor_kernel.h` / `block_*.h` |
@@ -142,9 +144,9 @@ kernels. sglang uses TH + `cache_mode=2` + `rotary_mode=2` on both.
 
 Input handling that differs:
 
-- **`state_block_table`**: arch35 addresses one CYCLE ring bank per request
-  (`req_pool_indices`); arch22 uses the EXPLICIT ring table ABI, which the sglang
-  A3 backend builds explicitly.
+- **`state_block_table`**: both archs consume the same explicit table. The
+  sglang backend builds it from each request's SWA pages
+  (`translate_from_swa_loc_to_state_loc`).
 - **`state_cache_stride_dim0`**: derived by the host when `0`; both arch22 and
   arch35 validate that `state_cache` is contiguous on its first axis.
 - **`rotary_mode`**: sglang uses `2` on both; the host rejects other values (with
@@ -176,9 +178,9 @@ gmSize`, **not** `workspaceSize - libapiSize - genFlagsSize`. arch22 uses flags,
 not GM, so this tail is only reserved/cleared on arch35.
 
 **Why the dbIdx release side uses a GM generation counter instead of pure
-flags (CYCLE mode):**
+flags (EXPLICIT mode):**
 
-- **Need.** In CYCLE mode each db buffer (`dbIdx`, `dbWorkspaceRatio` of them) is
+- **Need.** In EXPLICIT mode each db buffer (`dbIdx`, `dbWorkspaceRatio` of them) is
   reused across many rounds/generations. The kernel must be able to express
   "this dbIdx is at generation N and may now be overwritten".
 - **Pure flags cannot express that.** (a) CrossCore flag ids are a limited
@@ -209,8 +211,8 @@ introduced on this branch while fixing the arch35 numerics (commits `00062f7`,
 - `SetInnerSplitInfo`: the `FULL_LOAD` branch computes the m/d/k core split.
 - `CheckFeature`: validates `state_cache` first-axis contiguity
   (`cacheStride == stateCacheStrideDim0`) on both arch22 and arch35.
-- `cache_mode=2` is `CYCLE`: one ring bank per request, addressed by
-  `state_block_table`.
+- `cache_mode=2` is `EXPLICIT`: the state rows come from `state_block_table`,
+  one row per logical position.
 
 **Kernel (arch35)**:
 
@@ -218,7 +220,24 @@ introduced on this branch while fixing the arch35 numerics (commits `00062f7`,
   (`vf_softmax.h`, `vf_rope.h`, `vf_rms_norm.h`, `vf_mul.h`, `vf_add.h`),
   enabled when `__CCE_AICORE__ == 310`.
 - `compressor_kernel.h` plus the `*_full_load.h` variants.
-- The `readGen` generation handshake and CYCLE ring addressing.
+- The `readGen` generation handshake and `EXPLICIT` state addressing.
+
+## `SGL_DSV4_COMPRESSOR_BATCH_CONSISTENCY` (arch35)
+
+Presence-only env flag. When it is set, the arch35 tiling and kernel stop
+deriving the split axis from the call shape:
+
+- `SplitK()` keeps `kBaseNum = 1`, so K is not split across cores.
+- `block_cube` / `block_vec` keep `hIdx = h` instead of the core-id staggered
+  `hIdxStaggered`.
+
+With the flag unset, the split and stagger behaviour is the previous one. Two
+changes from the same series are **not** gated by it:
+
+- `maxBlockNumPerBatch` always comes from `state_block_table`. Only
+  `CACHE_MODE::CONTINUOUS` changes behaviour, and sglang never sends it.
+- `SkipOneLoop()` keeps the first M block aligned to the request's absolute
+  start position via `mBaseResidue = bStartPos & (mBaseSize - 1)`, in every mode.
 
 ## Operator-specific Internals
 
@@ -242,9 +261,9 @@ code:
   for a captured graph).
 - **`readGen` generation handshake** — on arch35 the host zeroes the AIV
   double-buffer release counters before launch (see *arch35-only Additions*).
-- **`cache_mode=2` CYCLE ring** — per-request ring state addressed by
-  `state_block_table` bank ids; the arch35 vector path uses dedicated
-  micro-kernels under `op_kernel/arch35/vf/`.
+- **`cache_mode=2` `EXPLICIT` table** — per-position state rows addressed by
+  `state_block_table`; the arch35 vector path uses dedicated micro-kernels under
+  `op_kernel/arch35/vf/`.
 - **`EMPTY_X` template** — an empty-input call returns immediately without
   launching the compute path; padding/idle graph slots rely on `seqused = 0`
   rather than on `EMPTY_X`.
@@ -253,12 +272,12 @@ code:
 
 - `start_pos` must be the committed prefix length; `seqused` is the number of
   draft tokens for the call.
-- The ring size must cover the maximum draft width so pending tokens do not
-  overwrite state still needed for the committed history.
-- Rejected draft suffixes are not rolled back explicitly; the next call
-  overwrites them at the same absolute ring slot.
+- The ring rows behind a state block must cover the maximum draft width so
+  pending tokens do not overwrite state still needed for the committed history.
+- Rejected draft suffixes are not rolled back explicitly; the next call writes
+  the same rows through `state_block_table`.
 - Graph padding/idle slots must pass `seqused = 0` (and must not carry a stale
-  `start_pos`/bank id).
+  `start_pos`/table row).
 
 ## Constraints
 
