@@ -62,6 +62,19 @@ def summarize_value(value) -> str:
     return f"{type(value).__name__}({value})"
 
 
+def set_env_if_provided(name: str, value):
+    if value is not None:
+        os.environ[name] = str(value)
+
+
+def apply_runtime_env_from_args(args: argparse.Namespace):
+    set_env_if_provided("MASTER_ADDR", args.master_addr)
+    set_env_if_provided("MASTER_PORT", args.master_port)
+    set_env_if_provided("WORLD_SIZE", args.num_servers)
+    set_env_if_provided("RANK", args.server_index)
+    set_env_if_provided("HCCL_BUFFSIZE", args.hccl_buffsize)
+
+
 def parse_csv_list(raw: str) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
@@ -2318,15 +2331,7 @@ if __name__ == "__main__":
             "script starts one local worker per process."
         )
 
-    for env_name, env_value in (
-        ("MASTER_ADDR", args.master_addr),
-        ("MASTER_PORT", args.master_port),
-        ("WORLD_SIZE", args.num_servers),
-        ("RANK", args.server_index),
-        ("HCCL_BUFFSIZE", args.hccl_buffsize),
-    ):
-        if env_value is not None:
-            os.environ[env_name] = str(env_value)
+    apply_runtime_env_from_args(args)
     torch.multiprocessing.spawn(
         test_loop,
         args=(args.num_ranks_per_server, args),
