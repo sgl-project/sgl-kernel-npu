@@ -11,10 +11,11 @@ import torch
 import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
-from triton.language.extra.cann import libdevice
 
 # A 1024-word tile keeps the live Philox and reduction vectors within UB.
 _BLOCK = 1024
+# Without Philox temporaries, larger tiles reduce the number of partials on A3.
+_PRECOMPUTED_BLOCK = 4096
 _NO_INDEX = tl.constexpr(2147483647)
 # 2**-32: maps a 32-bit Philox word to a uniform in (0, 1].
 _UNIFORM_SCALE = tl.constexpr(2.3283064365386963e-10)
@@ -32,6 +33,16 @@ def _round_to_step_dtype(value, ROUND: tl.constexpr):
 
 
 @triton.jit
+def _negative_log1p_negative(uniform):
+    # Compensate the rounding of 1-u: the CANN libdevice log1p loses small u.
+    complement = 1.0 - uniform
+    correction = (1.0 - complement) - uniform
+    noise = -tl.log(complement) - correction / complement
+    noise = tl.where(complement == 0.0, float("inf"), noise)
+    return tl.where(uniform == 0.0, 0.0, noise)
+
+
+@triton.jit
 def _markov_sample_partial_kernel(
     B,
     X,
@@ -39,9 +50,11 @@ def _markov_sample_partial_kernel(
     OFFSET,
     L,
     P,
+    E,
     BS,
     XS,
     LS,
+    ES,
     WIDTH,
     PADDED,
     VOCAB_START,
@@ -55,6 +68,7 @@ def _markov_sample_partial_kernel(
     STORE: tl.constexpr,
     SELECT: tl.constexpr,
     SAMPLE: tl.constexpr,
+    USE_EXP_NOISE: tl.constexpr,
     PHILOX_ROUNDS: tl.constexpr,
 ):
     for task in range(tl.program_id(0), ROWS * PARTS, tl.num_programs(0)):
@@ -74,6 +88,8 @@ def _markov_sample_partial_kernel(
                 T,
                 OFFSET,
                 P,
+                E,
+                ES,
                 row,
                 part,
                 i,
@@ -84,6 +100,7 @@ def _markov_sample_partial_kernel(
                 VOCAB_START,
                 BLOCK,
                 SAMPLE,
+                USE_EXP_NOISE,
                 PHILOX_ROUNDS,
             )
 
@@ -94,6 +111,8 @@ def _select_block(
     T,
     OFFSET,
     P,
+    E,
+    ES,
     row,
     part,
     i,
@@ -104,6 +123,7 @@ def _select_block(
     VOCAB_START,
     BLOCK: tl.constexpr,
     SAMPLE: tl.constexpr,
+    USE_EXP_NOISE: tl.constexpr,
     PHILOX_ROUNDS: tl.constexpr,
 ):
     key = value
@@ -112,23 +132,25 @@ def _select_block(
     else:
         temperature = 0.0
     if temperature != 0.0:
-        # One Philox call yields four words; word k goes to token 4 * q + k.
-        quad = (part * BLOCK + VOCAB_START) // 4 + tl.arange(0, BLOCK // 4)
-        lane = tl.zeros([BLOCK // 4], tl.int64)
-        w0, w1, w2, w3 = tl.philox(
-            KEY,
-            quad.to(tl.uint32),
-            (lane + row).to(tl.uint32),
-            (lane + STEP).to(tl.uint32),
-            ((lane + tl.load(OFFSET)) & 0xFFFFFFFF).to(tl.uint32),
-            PHILOX_ROUNDS,
-        )
-        bits = tl.interleave(tl.interleave(w0, w2), tl.interleave(w1, w3))
-        # Triton-Ascend can sign-extend Philox uint32 words when widening.
-        bits = bits.to(tl.int64) & 0xFFFFFFFF
-        # Small words convert to FP32 exactly, so the winning small noise stays precise.
-        uniform = (bits.to(tl.float32) + 0.5) * _UNIFORM_SCALE
-        exp_noise = -libdevice.log1p(-uniform)
+        if USE_EXP_NOISE:
+            exp_noise = tl.load(E + row * ES + i, valid, 1.0)
+        else:
+            # One Philox call yields four words; word k goes to token 4 * q + k.
+            quad = (part * BLOCK + VOCAB_START) // 4 + tl.arange(0, BLOCK // 4)
+            lane = tl.zeros([BLOCK // 4], tl.int64)
+            w0, w1, w2, w3 = tl.philox(
+                KEY,
+                quad.to(tl.uint32),
+                (lane + row).to(tl.uint32),
+                (lane + STEP).to(tl.uint32),
+                ((lane + tl.load(OFFSET)) & 0xFFFFFFFF).to(tl.uint32),
+                PHILOX_ROUNDS,
+            )
+            bits = tl.interleave(tl.interleave(w0, w2), tl.interleave(w1, w3))
+            # Triton-Ascend can sign-extend Philox uint32 words when widening.
+            bits = bits.to(tl.int64) & 0xFFFFFFFF
+            uniform = (bits.to(tl.float32) + 0.5) * _UNIFORM_SCALE
+            exp_noise = _negative_log1p_negative(uniform)
         key = value / temperature - tl.log(exp_noise)
     nan = valid & (key != key)
     has_nan = tl.sum(nan.to(tl.int32), 0) > 0
@@ -179,13 +201,19 @@ def _launch_partial(
     step,
     step_dtype,
     has_sampled_rows,
+    exp_noise=None,
     vocab_start=0,
     select=True,
 ):
     # Returns the [rows, parts * 2] (value, index bits) candidates of each block.
     rows, padded = base_logits.shape
     # The padded width fixes the transport shape on every rank; WIDTH masks padding.
-    parts = triton.cdiv(padded, _BLOCK)
+    block = (
+        _BLOCK
+        if exp_noise is None
+        else min(_PRECOMPUTED_BLOCK, triton.next_power_of_2(padded))
+    )
+    parts = triton.cdiv(padded, block)
     assert parts > 0
     partial = torch.empty(
         (rows, parts, 2), device=base_logits.device, dtype=torch.float32
@@ -197,9 +225,11 @@ def _launch_partial(
         offset,
         base_logits if store is None else store,
         partial,
+        base_logits if exp_noise is None else exp_noise,
         0 if bias is None else bias.stride(0),
         base_logits.stride(0),
         0 if store is None else store.stride(0),
+        0 if exp_noise is None else exp_noise.stride(0),
         width,
         padded,
         vocab_start,
@@ -207,12 +237,13 @@ def _launch_partial(
         rows,
         key,
         step,
-        _BLOCK,
+        block,
         _ROUND_CODE[step_dtype],
         bias is not None,
         store is not None,
         select,
         has_sampled_rows is not False,
+        exp_noise is not None,
         _PHILOX_ROUNDS,
         num_warps=1,
     )
@@ -263,6 +294,7 @@ def markov_sample_step(
     gather_logits: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     logits_out: Optional[torch.Tensor] = None,
     has_sampled_rows: Optional[bool] = None,
+    exp_noise: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Add bias, round to step_dtype and select global token ids on NPU.
 
@@ -270,6 +302,12 @@ def markov_sample_step(
     bias covers valid columns of each padded base_logits shard. gather exchanges
     per-block candidates; when logits_out is kept, gather_logits exchanges the
     step logits instead. has_sampled_rows=False compiles a greedy-only kernel.
+
+    exp_noise optionally supplies precomputed FP32 Exp(1) samples. Generate them
+    before this call, for example with ``torch.empty(...).exponential_()`` on NPU,
+    to bypass Triton Philox. They must be positive, with unit column stride and
+    the same shape as base_logits (or logits_out for gathered kept logits).
+    The caller owns their RNG sequence; key/offset/step apply only without them.
     """
     _check(
         base_logits,
@@ -282,6 +320,15 @@ def markov_sample_step(
         gather_logits,
         logits_out,
     )
+    if exp_noise is not None:
+        noise_shape = (
+            logits_out.shape
+            if gather is not None and logits_out is not None
+            else base_logits.shape
+        )
+        assert exp_noise.shape == noise_shape
+        assert exp_noise.device == base_logits.device
+        assert exp_noise.dtype == torch.float32 and exp_noise.stride(1) == 1
     rows, width = bias.shape
     launch = functools.partial(
         _launch_partial,
@@ -291,6 +338,7 @@ def markov_sample_step(
         step=step,
         step_dtype=step_dtype,
         has_sampled_rows=has_sampled_rows,
+        exp_noise=exp_noise,
     )
     if gather is not None and logits_out is not None:
         local = torch.empty(
