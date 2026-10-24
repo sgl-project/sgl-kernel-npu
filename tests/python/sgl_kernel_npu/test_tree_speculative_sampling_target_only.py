@@ -461,6 +461,65 @@ def test_target_only_thresholds(threshold_single, threshold_acc):
     torch.testing.assert_close(npu_accept_num.cpu(), ref_accept_num, rtol=0, atol=0)
 
 
+@pytest.mark.parametrize(
+    "threshold_single,threshold_acc,expected_predicts,expected_accept_index,expected_accept_num",
+    [
+        pytest.param(1.0, 1.0, [2, -1], [[0, -1]], [0], id="defaults-reject"),
+        # With the shared coin .7, the cumulative arm is false (.7 > .6 / 1.0),
+        # but the single-token arm accepts (.6 >= .5). If the single threshold
+        # is ignored, this case produces the default rejection output instead.
+        pytest.param(0.5, 1.0, [1, 0], [[0, 1]], [1], id="single-only"),
+        # With the same shared coin .7, the single-token arm is false (.6 < 1.0).
+        # The cumulative arm accepts because .7 < .6 / .8 = .75. If the acc
+        # threshold is ignored, the candidate is rejected.
+        pytest.param(1.0, 0.8, [1, 0], [[0, 1]], [1], id="acc-only"),
+    ],
+)
+def test_target_only_thresholds_independently_change_acceptance(
+    threshold_single,
+    threshold_acc,
+    expected_predicts,
+    expected_accept_index,
+    expected_accept_num,
+):
+    """Each threshold independently changes a deterministic NPU decision."""
+    candidates = torch.tensor([[0, 1]], dtype=torch.int64)
+    retrive_index, next_token, next_sibling = make_chain_indices(1, 2, "cpu")
+    target_probs = torch.tensor(
+        [[[0.1, 0.6, 0.3], [0.8, 0.1, 0.1]]], dtype=torch.float32
+    )
+    uniforms = torch.tensor([[0.7, 0.5]], dtype=torch.float32)
+    # With the candidate rejected, .4 samples token 2 from residual mass
+    # [.1, 0, .3]; after acceptance, the bonus row samples token 0. Both coins
+    # are away from the CDF boundaries.
+    final_uniforms = torch.tensor([0.4], dtype=torch.float32)
+
+    predicts = torch.full((2,), -1, dtype=torch.int32, device="npu")
+    accept_index = torch.full((1, 2), -1, dtype=torch.int32, device="npu")
+    accept_token_num = torch.zeros((1,), dtype=torch.int32, device="npu")
+    target_probs_npu = target_probs.npu()
+    tree_speculative_sampling_target_only(
+        predicts,
+        accept_index,
+        accept_token_num,
+        candidates.npu(),
+        retrive_index.npu(),
+        next_token.npu(),
+        next_sibling.npu(),
+        uniforms.npu(),
+        final_uniforms.npu(),
+        target_probs_npu,
+        torch.empty_like(target_probs_npu),
+        threshold_single,
+        threshold_acc,
+        True,
+    )
+
+    assert predicts.cpu().tolist() == expected_predicts
+    assert accept_index.cpu().tolist() == expected_accept_index
+    assert accept_token_num.cpu().tolist() == expected_accept_num
+
+
 def run_benchmark(batch_size, num_draft_tokens, vocab_size, warmup, iterations):
     candidates = torch.randint(
         0,
