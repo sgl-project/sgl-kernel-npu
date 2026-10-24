@@ -2073,15 +2073,6 @@ def main():
         )
     if args.quant == "fp4_e2m1" and args.hidden % 2 != 0:
         parser.error("--hidden must be even when --quant is fp4_e2m1")
-    if args.event_timing and (
-        args.random_profile_cases
-        or args.fixed_profile_cases
-        or args.trace_dir is not None
-        or args.kernel_trace_dir is not None
-        or args.dump_profile_events
-    ):
-        parser.error("--event-timing cannot be combined with profiler-only options")
-
     torch.multiprocessing.spawn(
         run_rank, args=(args.num_processes, args), nprocs=args.num_processes
     )

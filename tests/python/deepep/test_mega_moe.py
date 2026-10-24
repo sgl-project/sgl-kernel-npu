@@ -21,6 +21,9 @@ A3_QUANT_MODES = ("w4a8", "w8a8")
 A5_QUANT_MODES = ("mx_fp8_e4m3", "mx_fp8_e5m2", "mx_fp4_e2m1", "mx_fp8_e4m3_w4")
 A5_FP4_WEIGHT_MODES = frozenset({"mx_fp4_e2m1", "mx_fp8_e4m3_w4"})
 A5_MC2_MAX_TOKENS = 512
+A5_ACCURACY_TOKEN_JITTER = 8
+A5_RTOL = 1e-3
+A5_ATOL = 1e-2
 SUPPORTED_QUANT_MODES = A3_QUANT_MODES + A5_QUANT_MODES
 DIFF_THRESHOLDS = {
     "w4a8": 1e-4,
@@ -57,19 +60,6 @@ def summarize_value(value) -> str:
         suffix = "" if len(value) <= 4 else ", ..."
         return f"{type(value).__name__}(len={len(value)}, items=[{', '.join(parts)}{suffix}])"
     return f"{type(value).__name__}({value})"
-
-
-def set_env_if_provided(name: str, value):
-    if value is not None:
-        os.environ[name] = str(value)
-
-
-def apply_runtime_env_from_args(args: argparse.Namespace):
-    set_env_if_provided("MASTER_ADDR", args.master_addr)
-    set_env_if_provided("MASTER_PORT", args.master_port)
-    set_env_if_provided("WORLD_SIZE", args.num_servers)
-    set_env_if_provided("RANK", args.server_index)
-    set_env_if_provided("HCCL_BUFFSIZE", args.hccl_buffsize)
 
 
 def parse_csv_list(raw: str) -> List[str]:
@@ -663,11 +653,12 @@ def build_a5_case_matrix(args: argparse.Namespace, rank: int) -> list[dict]:
         if args.enable_performance
         else (args.num_tokens, max(1, args.num_tokens // 2))
     )
+    token_jitter = 0 if args.enable_performance else A5_ACCURACY_TOKEN_JITTER
     return [
         dict(
             case,
             routing_dtype=dtype,
-            num_tokens=tokens + rank * args.token_jitter,
+            num_tokens=tokens + rank * token_jitter,
         )
         for case, dtype, tokens in product(
             build_case_matrix(args), routing_dtypes, token_lengths
@@ -1338,8 +1329,8 @@ def check_a5_scale_sensitivity(
         torch.testing.assert_close(
             adjusted_out.float(),
             expected,
-            rtol=args.rtol,
-            atol=args.atol,
+            rtol=A5_RTOL,
+            atol=A5_ATOL,
             msg=f"A5 GMM{layer} E8M0 expert/block scale indexing mismatch",
         )
 
@@ -1598,9 +1589,7 @@ def finalize_case(
     if args.quant_mode in A5_QUANT_MODES:
         if not bool(torch.isfinite(baseline_out).all()):
             raise AssertionError("A5 reference output must be finite")
-        torch.testing.assert_close(
-            fused_out, baseline_out, rtol=args.rtol, atol=args.atol
-        )
+        torch.testing.assert_close(fused_out, baseline_out, rtol=A5_RTOL, atol=A5_ATOL)
 
     local_diff = calc_diff(
         baseline_out.float(),
@@ -1889,10 +1878,8 @@ def validate_a5_args(args: argparse.Namespace, num_ranks: int):
         and args.moe_intermediate_size % 128 == 0
     ):
         raise ValueError("A5 intermediate size must be in [256,4096] and 128-aligned")
-    if args.num_tokens < 1 or args.token_jitter < 0:
-        raise ValueError("A5 num_tokens must be positive and token_jitter non-negative")
-    if not (args.rtol >= 0 and args.atol >= 0):
-        raise ValueError("A5 rtol/atol must be non-negative")
+    if args.num_tokens < 1:
+        raise ValueError("A5 num_tokens must be positive")
 
 
 def run_a5_scenes(
@@ -1915,15 +1902,15 @@ def run_a5_scenes(
             args.quant_mode in A5_FP4_WEIGHT_MODES
             or args.weight_layout != "stacked"
             or args.weight_format != "ND"
-            or args.token_jitter != 0
         ):
             raise ValueError(
                 "A5 small-op performance comparison requires MXFP8, "
-                "--weight-layout stacked --weight-format ND --token-jitter 0"
+                "--weight-layout stacked --weight-format ND"
             )
     scenes = get_a5_weight_scenes(args)
     cases = build_a5_case_matrix(args, rank)
-    capacity = args.num_tokens + (num_ranks - 1) * args.token_jitter
+    token_jitter = 0 if args.enable_performance else A5_ACCURACY_TOKEN_JITTER
+    capacity = args.num_tokens + (num_ranks - 1) * token_jitter
     dtype = get_a5_quant_dtype(args.quant_mode)
     device = torch.device(f"npu:{torch.npu.current_device()}")
     reference_buffer = None
@@ -1982,10 +1969,9 @@ def run_a5_scenes(
                 enable_dispatch_v2,
             )
             executed += 1
-        if not executed or (skipped and not args.allow_format_skips):
+        if not executed or skipped:
             raise RuntimeError(
-                f"Incomplete A5 validation: executed_scenes={executed}, skipped={skipped}. "
-                "--allow-format-skips only permits a partial run."
+                f"Incomplete A5 validation: executed_scenes={executed}, skipped={skipped}"
             )
         completed_mode = (
             "performance-only" if args.performance_only else "wrapper-equivalence"
@@ -2267,7 +2253,7 @@ def build_parser():
         help=(
             "Compare MegaMoe and the MC2 small-op chain after the accuracy checks. "
             "A5 defaults to MXFP8 E4M3, 256 experts, topk=6, stacked ND weights, "
-            "FP32 routing and --token-jitter 0; explicit options take precedence."
+            "and FP32 routing; token jitter is disabled for performance runs."
         ),
     )
     parser.add_argument(
@@ -2302,23 +2288,6 @@ def build_parser():
         default="all",
         help="A5 only: routing weight dtype(s).",
     )
-    parser.add_argument(
-        "--token-jitter",
-        type=int,
-        default=8,
-        help="A5 only: add rank * jitter tokens; reuse capacity for full/half lengths.",
-    )
-    parser.add_argument(
-        "--rtol", type=float, default=1e-3, help="A5 wrapper-equivalence rtol."
-    )
-    parser.add_argument(
-        "--atol", type=float, default=1e-2, help="A5 wrapper-equivalence atol."
-    )
-    parser.add_argument(
-        "--allow-format-skips",
-        action="store_true",
-        help="A5 only: permit partial format coverage; otherwise any SKIP fails the run.",
-    )
     return parser
 
 
@@ -2336,7 +2305,6 @@ if __name__ == "__main__":
                 weight_layout="stacked",
                 weight_format="ND",
                 routing_dtype="fp32",
-                token_jitter=0,
             )
             # Reparse so explicit options override the platform defaults.
             args = parser.parse_args()
@@ -2350,7 +2318,15 @@ if __name__ == "__main__":
             "script starts one local worker per process."
         )
 
-    apply_runtime_env_from_args(args)
+    for env_name, env_value in (
+        ("MASTER_ADDR", args.master_addr),
+        ("MASTER_PORT", args.master_port),
+        ("WORLD_SIZE", args.num_servers),
+        ("RANK", args.server_index),
+        ("HCCL_BUFFSIZE", args.hccl_buffsize),
+    ):
+        if env_value is not None:
+            os.environ[env_name] = str(env_value)
     torch.multiprocessing.spawn(
         test_loop,
         args=(args.num_ranks_per_server, args),
