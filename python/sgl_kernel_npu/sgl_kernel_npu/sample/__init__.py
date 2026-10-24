@@ -1,3 +1,4 @@
+from sgl_kernel_npu.sample.build_out_tokens import build_out_tokens
 from sgl_kernel_npu.sample.chain_speculative_sampling import (
     chain_speculative_sampling_triton,
 )
@@ -12,6 +13,7 @@ from sgl_kernel_npu.sample.tree_speculative_sampling_target_only import (
 )
 
 __all__ = [
+    "build_out_tokens",
     "compute_dflash_correct_drafts_and_bonus",
     "markov_greedy_step_triton",
     "row_argmax",
