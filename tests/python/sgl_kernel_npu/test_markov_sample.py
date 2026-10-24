@@ -120,7 +120,9 @@ def _call(impl, *, base, bias, temps, step_dtype, offset=7, step=2, **kwargs):
     )
 
 
-class TestMarkovSampleStep(unittest.TestCase):
+class TestMarkovSampleNumerics(unittest.TestCase):
+    """Rounding, padding, special values and CPU-reference agreement."""
+
     def test_triton_matches_torch_reference(self):
         g = torch.Generator(device=DEVICE).manual_seed(0)
         rows, padded, width = 64, 9000, 8990
@@ -213,197 +215,6 @@ class TestMarkovSampleStep(unittest.TestCase):
         expected[36] = 46701
         self.assertTrue(torch.equal(actual, expected))
 
-    def test_precomputed_noise_matches_reference(self):
-        g = torch.Generator(device=DEVICE).manual_seed(42)
-        for dtype in (torch.float32, torch.float16, torch.bfloat16):
-            for rows, padded, width in (
-                (3, 257, 251),
-                (8, 4097, 4091),
-                (64, 129280, 129277),
-            ):
-                with self.subTest(dtype=dtype, rows=rows, width=width):
-                    base = torch.randn(rows, padded, generator=g, device=DEVICE).to(
-                        dtype
-                    )
-                    bias = torch.randn(rows, width, generator=g, device=DEVICE).to(
-                        dtype
-                    )
-                    noise = torch.empty(rows, padded + 7, device=DEVICE).exponential_(
-                        generator=g
-                    )[:, :padded]
-                    temps = torch.linspace(0.2, 1.3, rows, device=DEVICE)
-                    temps[::2] = 0
-                    actual_logits = torch.empty_like(base)
-                    expected_logits = torch.empty_like(base)
-                    kwargs = dict(
-                        base=base,
-                        bias=bias,
-                        temps=temps,
-                        step_dtype=dtype,
-                        exp_noise=noise,
-                    )
-                    actual = _call(
-                        markov_sample_step, **kwargs, logits_out=actual_logits
-                    )
-                    expected = _call(
-                        reference_markov_sample_step,
-                        **kwargs,
-                        logits_out=expected_logits,
-                    )
-                    self.assertTrue(torch.equal(actual, expected))
-                    self.assertTrue(torch.equal(actual_logits, expected_logits))
-
-    def test_precomputed_noise_graph_reads_updated_values(self):
-        base = torch.zeros(3, 257, device=DEVICE)
-        noise = torch.ones_like(base)
-        kwargs = dict(
-            base_logits=base,
-            bias=base,
-            temperatures=torch.ones(3, device=DEVICE),
-            key=12345,
-            offset=_offset(7),
-            step=2,
-            step_dtype=torch.float32,
-            exp_noise=noise,
-        )
-        markov_sample_step(**kwargs)
-        stream = torch.npu.Stream()
-        stream.wait_stream(torch.npu.current_stream())
-        with torch.npu.stream(stream):
-            graph = torch.npu.NPUGraph()
-            with torch.npu.graph(graph):
-                output = markov_sample_step(**kwargs)
-        torch.npu.current_stream().wait_stream(stream)
-        for winner in (1, 128, 256):
-            noise.fill_(1.0)
-            noise[:, winner] = 1e-7
-            graph.replay()
-            self.assertTrue(
-                torch.equal(output.cpu(), torch.full((3,), winner, dtype=torch.int64))
-            )
-
-    def test_precomputed_native_rng_graph_advances(self):
-        base = torch.zeros(64, 257, device=DEVICE)
-        noise = torch.empty_like(base)
-        kwargs = dict(
-            base_logits=base,
-            bias=base,
-            temperatures=torch.ones(64, device=DEVICE),
-            key=12345,
-            offset=_offset(7),
-            step=2,
-            step_dtype=torch.float32,
-            exp_noise=noise,
-        )
-
-        def run():
-            noise.exponential_()
-            return markov_sample_step(**kwargs)
-
-        run()
-        stream = torch.npu.Stream()
-        stream.wait_stream(torch.npu.current_stream())
-        with torch.npu.stream(stream):
-            graph = torch.npu.NPUGraph()
-            try:
-                with torch.npu.graph(graph):
-                    output = run()
-            except RuntimeError as error:
-                if (
-                    "Cannot call NPUGeneratorImpl::philox_engine_inputs during NPU graph capture"
-                    in str(error)
-                ):
-                    self.skipTest(
-                        "This torch-npu build does not support capturing exponential_()"
-                    )
-                raise
-        torch.npu.current_stream().wait_stream(stream)
-        previous = None
-        for _ in range(3):
-            graph.replay()
-            current = noise.cpu()
-            if previous is not None:
-                self.assertFalse(torch.equal(current, previous))
-            previous = current
-            expected = reference_markov_sample_step(**kwargs)
-            self.assertTrue(torch.equal(output, expected))
-
-    def test_precomputed_noise_invalid_metadata(self):
-        base = torch.zeros(3, 257, device=DEVICE)
-        kwargs = dict(
-            base=base,
-            bias=base,
-            temps=torch.ones(3, device=DEVICE),
-            step_dtype=torch.float32,
-        )
-        for noise in (
-            torch.ones(3, 256, device=DEVICE),
-            torch.ones(3, 257, device=DEVICE, dtype=torch.float16),
-            torch.ones(3, 514, device=DEVICE)[:, ::2],
-            torch.ones(3, 257),
-        ):
-            with self.subTest(
-                shape=noise.shape, dtype=noise.dtype, device=noise.device
-            ):
-                with self.assertRaises(AssertionError):
-                    _call(markov_sample_step, **kwargs, exp_noise=noise)
-
-    def test_precomputed_noise_shards(self):
-        rows, shard = 3, 1024
-        width = 2 * shard - 3
-        base = torch.randn(rows, 2 * shard, device=DEVICE)
-        bias = torch.randn(rows, width, device=DEVICE)
-        noise = torch.empty_like(base).exponential_()
-        temps = torch.tensor([0.0, 0.7, 1.3], device=DEVICE)
-        full = _call(
-            reference_markov_sample_step,
-            base=base,
-            bias=bias,
-            temps=temps,
-            step_dtype=torch.float32,
-            exp_noise=noise,
-        )
-        partials = {}
-
-        def run(rank, gather):
-            start = rank * shard
-            return _call(
-                markov_sample_step,
-                base=base[:, start : start + shard],
-                bias=bias[:, start : start + shard],
-                temps=temps,
-                step_dtype=torch.float32,
-                vocab_start=start,
-                exp_noise=noise[:, start : start + shard],
-                gather=gather,
-            )
-
-        for rank in range(2):
-            run(rank, lambda partial, rank=rank: partials.setdefault(rank, partial))
-        stacked = torch.cat([partials[rank] for rank in range(2)])
-        for rank in range(2):
-            self.assertTrue(torch.equal(run(rank, lambda _: stacked), full))
-
-        value = base.clone()
-        value[:, :width] += bias
-        for rank in range(2):
-            out = torch.empty(rows, width, device=DEVICE)
-            start = rank * shard
-            actual = _call(
-                markov_sample_step,
-                base=base[:, start : start + shard],
-                bias=bias[:, start : start + shard],
-                temps=temps,
-                step_dtype=torch.float32,
-                vocab_start=start,
-                exp_noise=noise[:, :width],
-                logits_out=out,
-                gather=lambda _: self.fail("candidates gathered"),
-                gather_logits=lambda _: value,
-            )
-            self.assertTrue(torch.equal(actual, full))
-            self.assertTrue(torch.equal(out, value[:, :width]))
-
     def test_greedy_only_variant_matches_mixed_kernel(self):
         g = torch.Generator(device=DEVICE).manual_seed(3)
         base = torch.randn(16, 9000, generator=g, device=DEVICE).to(torch.bfloat16)
@@ -474,6 +285,44 @@ class TestMarkovSampleStep(unittest.TestCase):
         self.assertTrue(torch.equal(strided, contiguous))
         self.assertTrue(torch.equal(logits_block[:, 2], logits))
 
+    def test_small_batches_and_partial_blocks(self):
+        for rows, padded, width in [(1, 16, 15), (3, 97, 95)]:
+            base = torch.zeros(rows, padded, device=DEVICE)
+            bias = torch.zeros(rows, width, device=DEVICE)
+            temps = torch.ones(rows, device=DEVICE)
+            kwargs = dict(base=base, bias=bias, temps=temps, step_dtype=torch.float32)
+            actual = _call(markov_sample_step, **kwargs)
+            expected = _call(reference_markov_sample_step, **kwargs)
+            self.assertTrue(torch.equal(actual, expected))
+
+
+class TestMarkovSampleRNG(unittest.TestCase):
+    """Philox counter mapping, reproducibility and sampling distribution."""
+
+    def test_rng_key_and_counter_boundaries(self):
+        base = torch.zeros(16, 1031, device=DEVICE)
+        kwargs = dict(
+            base_logits=base,
+            bias=torch.zeros(16, 1027, device=DEVICE),
+            temperatures=torch.ones(16, device=DEVICE),
+            step_dtype=torch.float32,
+            vocab_start=100,
+        )
+        outputs = []
+        for key in (0, 12345, (1 << 32) + 12345):
+            for offset in (0, (1 << 32) - 1, 1 << 32, (1 << 32) + 7):
+                for step in (0, (1 << 32) - 1):
+                    with self.subTest(key=key, offset=offset, step=step):
+                        args = dict(kwargs, key=key, offset=_offset(offset), step=step)
+                        actual = markov_sample_step(**args)
+                        expected = reference_markov_sample_step(**args)
+                        self.assertTrue(torch.equal(actual, expected))
+                        self.assertTrue(torch.equal(markov_sample_step(**args), actual))
+                        if offset == 0 and step == 0:
+                            outputs.append(actual.cpu())
+        # Changing only the high key word must affect the sequence too.
+        self.assertFalse(torch.equal(outputs[1], outputs[2]))
+
     def test_sampling_follows_tempered_softmax(self):
         vocab, rows = 32, 1 << 16
         logits = torch.linspace(-3, 3, vocab, device=DEVICE)
@@ -517,6 +366,130 @@ class TestMarkovSampleStep(unittest.TestCase):
                 **kwargs,
             )
             self.assertLess((other == first).float().mean().item(), 0.01)
+
+
+class TestMarkovPrecomputedNoise(unittest.TestCase):
+    """Externally supplied noise and its metadata contract."""
+
+    def test_precomputed_noise_matches_reference(self):
+        g = torch.Generator(device=DEVICE).manual_seed(42)
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
+            for rows, padded, width in (
+                (3, 257, 251),
+                (8, 4097, 4091),
+                (64, 129280, 129277),
+            ):
+                with self.subTest(dtype=dtype, rows=rows, width=width):
+                    base = torch.randn(rows, padded, generator=g, device=DEVICE).to(
+                        dtype
+                    )
+                    bias = torch.randn(rows, width, generator=g, device=DEVICE).to(
+                        dtype
+                    )
+                    noise = torch.empty(rows, padded + 7, device=DEVICE).exponential_(
+                        generator=g
+                    )[:, :padded]
+                    temps = torch.linspace(0.2, 1.3, rows, device=DEVICE)
+                    temps[::2] = 0
+                    actual_logits = torch.empty_like(base)
+                    expected_logits = torch.empty_like(base)
+                    kwargs = dict(
+                        base=base,
+                        bias=bias,
+                        temps=temps,
+                        step_dtype=dtype,
+                        exp_noise=noise,
+                    )
+                    actual = _call(
+                        markov_sample_step, **kwargs, logits_out=actual_logits
+                    )
+                    expected = _call(
+                        reference_markov_sample_step,
+                        **kwargs,
+                        logits_out=expected_logits,
+                    )
+                    self.assertTrue(torch.equal(actual, expected))
+                    self.assertTrue(torch.equal(actual_logits, expected_logits))
+
+    def test_precomputed_noise_invalid_metadata(self):
+        base = torch.zeros(3, 257, device=DEVICE)
+        kwargs = dict(
+            base=base,
+            bias=base,
+            temps=torch.ones(3, device=DEVICE),
+            step_dtype=torch.float32,
+        )
+        for noise in (
+            torch.ones(3, 256, device=DEVICE),
+            torch.ones(3, 257, device=DEVICE, dtype=torch.float16),
+            torch.ones(3, 514, device=DEVICE)[:, ::2],
+            torch.ones(3, 257),
+        ):
+            with self.subTest(
+                shape=noise.shape, dtype=noise.dtype, device=noise.device
+            ):
+                with self.assertRaises(AssertionError):
+                    _call(markov_sample_step, **kwargs, exp_noise=noise)
+
+
+class TestMarkovSampleSharding(unittest.TestCase):
+    """Global token IDs and candidate/logit gather layouts."""
+
+    def test_precomputed_noise_shards(self):
+        rows, shard = 3, 1024
+        width = 2 * shard - 3
+        base = torch.randn(rows, 2 * shard, device=DEVICE)
+        bias = torch.randn(rows, width, device=DEVICE)
+        noise = torch.empty_like(base).exponential_()
+        temps = torch.tensor([0.0, 0.7, 1.3], device=DEVICE)
+        full = _call(
+            reference_markov_sample_step,
+            base=base,
+            bias=bias,
+            temps=temps,
+            step_dtype=torch.float32,
+            exp_noise=noise,
+        )
+        partials = {}
+
+        def run(rank, gather):
+            start = rank * shard
+            return _call(
+                markov_sample_step,
+                base=base[:, start : start + shard],
+                bias=bias[:, start : start + shard],
+                temps=temps,
+                step_dtype=torch.float32,
+                vocab_start=start,
+                exp_noise=noise[:, start : start + shard],
+                gather=gather,
+            )
+
+        for rank in range(2):
+            run(rank, lambda partial, rank=rank: partials.setdefault(rank, partial))
+        stacked = torch.cat([partials[rank] for rank in range(2)])
+        for rank in range(2):
+            self.assertTrue(torch.equal(run(rank, lambda _: stacked), full))
+
+        value = base.clone()
+        value[:, :width] += bias
+        for rank in range(2):
+            out = torch.empty(rows, width, device=DEVICE)
+            start = rank * shard
+            actual = _call(
+                markov_sample_step,
+                base=base[:, start : start + shard],
+                bias=bias[:, start : start + shard],
+                temps=temps,
+                step_dtype=torch.float32,
+                vocab_start=start,
+                exp_noise=noise[:, :width],
+                logits_out=out,
+                gather=lambda _: self.fail("candidates gathered"),
+                gather_logits=lambda _: value,
+            )
+            self.assertTrue(torch.equal(actual, full))
+            self.assertTrue(torch.equal(out, value[:, :width]))
 
     def test_sharded_vocab_matches_full_vocab(self):
         # Every rank must pick the full vocab's token: the noise is keyed by
@@ -609,15 +582,119 @@ class TestMarkovSampleStep(unittest.TestCase):
             self.assertTrue(torch.equal(tokens, full))
             self.assertTrue(torch.equal(logits_out, full_logits))
 
-    def test_small_batches_and_partial_blocks(self):
-        for rows, padded, width in [(1, 16, 15), (3, 97, 95)]:
-            base = torch.zeros(rows, padded, device=DEVICE)
-            bias = torch.zeros(rows, width, device=DEVICE)
-            temps = torch.ones(rows, device=DEVICE)
-            kwargs = dict(base=base, bias=bias, temps=temps, step_dtype=torch.float32)
-            actual = _call(markov_sample_step, **kwargs)
-            expected = _call(reference_markov_sample_step, **kwargs)
+
+class TestMarkovSampleGraph(unittest.TestCase):
+    """Graph replay with updated offsets or external noise buffers."""
+
+    def test_precomputed_noise_generated_outside_graph(self):
+        base = torch.zeros(16, 1031, device=DEVICE)
+        noise = torch.empty_like(base)
+        generator = torch.Generator(device=DEVICE).manual_seed(42)
+        kwargs = dict(
+            base_logits=base,
+            bias=torch.zeros(16, 1027, device=DEVICE),
+            temperatures=torch.ones(16, device=DEVICE),
+            key=12345,
+            offset=_offset(7),
+            step=2,
+            step_dtype=torch.float32,
+            exp_noise=noise,
+        )
+        noise.exponential_(generator=generator)
+        stream = torch.npu.Stream()
+        stream.wait_stream(torch.npu.current_stream())
+        with torch.npu.stream(stream):
+            for _ in range(3):
+                markov_sample_step(**kwargs)
+        torch.npu.current_stream().wait_stream(stream)
+        graph = torch.npu.NPUGraph()
+        with torch.npu.graph(graph, stream=stream):
+            output = markov_sample_step(**kwargs)
+        previous = None
+        for _ in range(3):
+            noise.exponential_(generator=generator)
+            graph.replay()
+            actual = output.cpu()
+            expected = reference_markov_sample_step(**kwargs).cpu()
             self.assertTrue(torch.equal(actual, expected))
+            if previous is not None:
+                self.assertFalse(torch.equal(actual, previous))
+            previous = actual
+
+    def test_precomputed_noise_graph_reads_updated_values(self):
+        base = torch.zeros(3, 257, device=DEVICE)
+        noise = torch.ones_like(base)
+        kwargs = dict(
+            base_logits=base,
+            bias=base,
+            temperatures=torch.ones(3, device=DEVICE),
+            key=12345,
+            offset=_offset(7),
+            step=2,
+            step_dtype=torch.float32,
+            exp_noise=noise,
+        )
+        markov_sample_step(**kwargs)
+        stream = torch.npu.Stream()
+        stream.wait_stream(torch.npu.current_stream())
+        with torch.npu.stream(stream):
+            graph = torch.npu.NPUGraph()
+            with torch.npu.graph(graph):
+                output = markov_sample_step(**kwargs)
+        torch.npu.current_stream().wait_stream(stream)
+        for winner in (1, 128, 256):
+            noise.fill_(1.0)
+            noise[:, winner] = 1e-7
+            graph.replay()
+            self.assertTrue(
+                torch.equal(output.cpu(), torch.full((3,), winner, dtype=torch.int64))
+            )
+
+    def test_precomputed_native_rng_graph_advances(self):
+        base = torch.zeros(64, 257, device=DEVICE)
+        noise = torch.empty_like(base)
+        kwargs = dict(
+            base_logits=base,
+            bias=base,
+            temperatures=torch.ones(64, device=DEVICE),
+            key=12345,
+            offset=_offset(7),
+            step=2,
+            step_dtype=torch.float32,
+            exp_noise=noise,
+        )
+
+        def run():
+            noise.exponential_()
+            return markov_sample_step(**kwargs)
+
+        run()
+        stream = torch.npu.Stream()
+        stream.wait_stream(torch.npu.current_stream())
+        with torch.npu.stream(stream):
+            graph = torch.npu.NPUGraph()
+            try:
+                with torch.npu.graph(graph):
+                    output = run()
+            except RuntimeError as error:
+                if (
+                    "Cannot call NPUGeneratorImpl::philox_engine_inputs during NPU graph capture"
+                    in str(error)
+                ):
+                    self.skipTest(
+                        "This torch-npu build does not support capturing exponential_()"
+                    )
+                raise
+        torch.npu.current_stream().wait_stream(stream)
+        previous = None
+        for _ in range(3):
+            graph.replay()
+            current = noise.cpu()
+            if previous is not None:
+                self.assertFalse(torch.equal(current, previous))
+            previous = current
+            expected = reference_markov_sample_step(**kwargs)
+            self.assertTrue(torch.equal(output, expected))
 
     def test_graph_replay_reads_updated_offset(self):
         base = torch.zeros(8, 2048, device=DEVICE)
