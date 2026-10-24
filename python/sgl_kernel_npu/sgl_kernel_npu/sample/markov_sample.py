@@ -308,6 +308,8 @@ def markov_sample_step(
     to bypass Triton Philox. They must be positive, with unit column stride and
     the same shape as base_logits (or logits_out for gathered kept logits).
     The caller owns their RNG sequence; key/offset/step apply only without them.
+    Capturing exponential_() requires support from the installed torch-npu build.
+    Otherwise, refresh exp_noise outside the graph before each replay.
     """
     _check(
         base_logits,

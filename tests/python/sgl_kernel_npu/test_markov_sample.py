@@ -305,8 +305,18 @@ class TestMarkovSampleStep(unittest.TestCase):
         stream.wait_stream(torch.npu.current_stream())
         with torch.npu.stream(stream):
             graph = torch.npu.NPUGraph()
-            with torch.npu.graph(graph):
-                output = run()
+            try:
+                with torch.npu.graph(graph):
+                    output = run()
+            except RuntimeError as error:
+                if (
+                    "Cannot call NPUGeneratorImpl::philox_engine_inputs during NPU graph capture"
+                    in str(error)
+                ):
+                    self.skipTest(
+                        "This torch-npu build does not support capturing exponential_()"
+                    )
+                raise
         torch.npu.current_stream().wait_stream(stream)
         previous = None
         for _ in range(3):
