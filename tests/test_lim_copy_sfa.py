@@ -6,14 +6,13 @@ from test_copy_sfa_combined import _CopySfaCase
 
 
 @pytest.mark.parametrize("graph_replay", [False, True])
+@pytest.mark.parametrize("direct_plan", [False, True])
 @pytest.mark.parametrize("capacity", [2048, 4096, 8192])
-def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay, capacity):
+def test_lim_copy_sfa_partial_page_padding_and_request_reuse(
+    graph_replay, direct_plan, capacity
+):
     case = _CopySfaCase(
-        2,
-        [1, 2, 0],
-        torch.bfloat16,
-        capacity=capacity,
-        max_context_len=167936,
+        2, [1, 2, 0], torch.bfloat16, capacity=capacity, max_context_len=167936
     )
     try:
         batch, heads, width = case.batch, 32, case.max_context_len
@@ -67,12 +66,25 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay, capac
                 miss_counts,
             )
             valid = lengths > 0
-            case.topk_src.copy_(torch.where(valid[:, None, None], ids, -1))
-            case.topk_dst.copy_(torch.where(valid[:, None, None], slots, -1))
-            case.topk_miss_counts.copy_(torch.where(valid, topk_counts, 0))
-            case.miss_src.copy_(torch.where(valid[:, None], miss_src[:, :capacity], -1))
-            case.miss_dst.copy_(torch.where(valid[:, None], miss_dst[:, :capacity], -1))
-            case.miss_counts.copy_(torch.where(valid, miss_counts, 0))
+            if direct_plan:
+                # Keep the native 32768-wide rows contiguous at B > 1.
+                case.topk_src, case.topk_dst = ids, slots
+                case.topk_miss_counts, case.miss_counts = topk_counts, miss_counts
+                case.miss_src, case.miss_dst = miss_src, miss_dst
+                topk_counts.masked_fill_(~valid, 0)
+                miss_counts.masked_fill_(~valid, 0)
+                ids.masked_fill_(~valid[:, None, None], -1)
+            else:
+                case.topk_src.copy_(torch.where(valid[:, None, None], ids, -1))
+                case.topk_dst.copy_(torch.where(valid[:, None, None], slots, -1))
+                case.topk_miss_counts.copy_(torch.where(valid, topk_counts, 0))
+                case.miss_src.copy_(
+                    torch.where(valid[:, None], miss_src[:, :capacity], -1)
+                )
+                case.miss_dst.copy_(
+                    torch.where(valid[:, None], miss_dst[:, :capacity], -1)
+                )
+                case.miss_counts.copy_(torch.where(valid, miss_counts, 0))
             case._copy_sfa()
 
         def set_lengths(a, b, reset=False):
@@ -138,7 +150,11 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(graph_replay, capac
                         rtol=0,
                     )
             case.assert_attention(expected)
-            case.assert_invalid_outputs()
+            if not direct_plan:
+                case.assert_invalid_outputs()
+            else:
+                assert torch.count_nonzero(case.attention_out[1]) == 0
+                assert case.miss_counts[1] == 0
             assert torch.all(case.hbm[2 * (capacity // 128) :] == 19)
     finally:
         case.close()

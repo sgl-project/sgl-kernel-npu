@@ -1508,17 +1508,32 @@ __aicore__ inline void SFAVectorService<SFAT>::MergeKvTailContiguous(const RunIn
         }
 
         DataCopyExtParams copyParams;
-        copyParams.blockCount = 1;
-        copyParams.blockLen = copyCount * constInfo.headDim * sizeof(KV_T);
-        copyParams.srcStride = 0;
-        copyParams.dstStride = 0;
         DataCopyPadExtParams<KV_T> padParams;
-        DataCopyPad(kvMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_CKV_UB_BANK_ELEMENTS],
-                    keyGm_[keyOffset * constInfo.headDim], copyParams, padParams);
+        if constexpr (SFAT::combinedKvStorage) {
+            // Tail tokens share combined CKV/KPE rows, so copy each plane with its row stride.
+            copyParams.blockCount = static_cast<uint16_t>(copyCount);
+            copyParams.blockLen = constInfo.headDim * sizeof(KV_T);
+            copyParams.srcStride = (constInfo.storageTokenStride - constInfo.headDim) * sizeof(KV_T);
+            copyParams.dstStride = 0;
+            DataCopyPad(kvMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_CKV_UB_BANK_ELEMENTS],
+                        keyGm_[keyOffset * constInfo.storageTokenStride], copyParams, padParams);
 
-        copyParams.blockLen = copyCount * constInfo.headDimRope * sizeof(KV_T);
-        DataCopyPad(ropeMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_KPE_UB_BANK_ELEMENTS],
-                    keyRopeGm_[keyOffset * constInfo.headDimRope], copyParams, padParams);
+            copyParams.blockLen = constInfo.headDimRope * sizeof(KV_T);
+            copyParams.srcStride = (constInfo.storageTokenStride - constInfo.headDimRope) * sizeof(KV_T);
+            DataCopyPad(ropeMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_KPE_UB_BANK_ELEMENTS],
+                        keyRopeGm_[keyOffset * constInfo.storageTokenStride], copyParams, padParams);
+        } else {
+            copyParams.blockCount = 1;
+            copyParams.blockLen = copyCount * constInfo.headDim * sizeof(KV_T);
+            copyParams.srcStride = 0;
+            copyParams.dstStride = 0;
+            DataCopyPad(kvMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_CKV_UB_BANK_ELEMENTS],
+                        keyGm_[keyOffset * constInfo.headDim], copyParams, padParams);
+
+            copyParams.blockLen = copyCount * constInfo.headDimRope * sizeof(KV_T);
+            DataCopyPad(ropeMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_KPE_UB_BANK_ELEMENTS],
+                        keyRopeGm_[keyOffset * constInfo.headDimRope], copyParams, padParams);
+        }
 
         mte2Size += copyCount;
         CopyOutMrgeResult(mte2Size, mte3Size, s2GmStartOffset, mergeMte3Idx, runInfo);
@@ -1823,7 +1838,9 @@ __aicore__ inline void SFAVectorService<SFAT>::MergeKv(const RunInfo &runInfo)
     const int64_t rangeStart = part == 0 ? 0 : s2Mid;
     const int64_t rangeEnd = part == 0 ? s2Mid : s2ProcessSize;
     if constexpr (SFAT::sourceAwareGather) {
-        const int32_t missCount = GetSourceAwareMissCount(runInfo);
+        // Dense C==0 requests have no sparse TopK work or source-aware misses.
+        // Avoid reading their per-query TopK miss-count metadata.
+        const int32_t missCount = runInfo.sparseTokenCount == 0 ? 0 : GetSourceAwareMissCount(runInfo);
         const int64_t virtualTileStart = static_cast<int64_t>(runInfo.s2Idx) * constInfo.s2BaseSize;
         if (virtualTileStart < runInfo.sparseTokenCount) {
             int64_t sourceTileStart = virtualTileStart;
