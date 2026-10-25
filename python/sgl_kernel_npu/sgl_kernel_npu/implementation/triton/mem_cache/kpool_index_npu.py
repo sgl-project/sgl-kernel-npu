@@ -10,9 +10,7 @@ import torch
 import triton
 import triton.language as tl
 
-# ═══════════════════════════════════════════════════════════════════════
-# 2. BF16 TRITON KERNEL
-# ═══════════════════════════════════════════════════════════════════════
+# BF16 Triton kernels
 
 
 @triton.jit
@@ -50,7 +48,7 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
     offs = tl.arange(0, BLOCK_D)
     dim_mask = offs < HEAD_DIM
 
-    # ── Load metadata ──
+    # Load metadata
     req_raw = tl.load(req_pool_indices_ptr + row)
     req_valid = (req_raw >= 0) & (req_raw < REQ_POOL_SIZE)
     req = tl.minimum(tl.maximum(req_raw, 0), REQ_POOL_SIZE - 1)
@@ -64,7 +62,7 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
     slot = safe_pos % POOL_SIZE
     phys_slot = safe_pos % TAIL_SIZE
 
-    # ── Load current key & score ──
+    # Load current key & score
     key = tl.load(
         key_ptr + row * key_stride_0 + offs,
         mask=dim_mask,
@@ -76,7 +74,7 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
         other=0.0,
     ).to(tl.float32)
 
-    # ── (B) Pool compression (only when pool is full) ──
+    # (B) Pool compression (only when pool is full)
     if pos_valid & (slot == POOL_SIZE - 1):
         pool_logical_start = safe_pos - slot
 
@@ -134,7 +132,7 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
         # BF16: no Hadamard, no FP8 quantize — just write directly
         compressed = (acc / denom).to(tl.bfloat16)
 
-        # ── Compute write location in buf ──
+        # Compute write location in buf
         pool_id = safe_pos // POOL_SIZE
         pool_page_group = pool_id // SLOTS_PER_PAGE
         token_page_row = pool_page_group * POOL_SIZE
@@ -154,7 +152,7 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
 
         tl.store(buf_bf16_ptr + out_k_offsets, compressed, mask=dim_mask)
 
-    # ── (A) Tail buffer update (ALWAYS) ──
+    # (A) Tail buffer update (ALWAYS)
     tail_k_offset = req * tail_k_stride_0 + phys_slot * tail_k_stride_1 + offs
     tail_score_offset = (
         req * tail_score_stride_0 + phys_slot * tail_score_stride_1 + offs
@@ -883,22 +881,22 @@ def kpool_write_tail_and_maybe_compress_npu(
 
 @triton.jit
 def _scatter_kpool_tail_updates_npu_kernel(
-    # --- chunk 张量指针 ---
+    # Chunk tensor pointers.
     chunk_k_ptr,
     chunk_score_ptr,
-    # --- tail 张量指针 (原地更新) ---
+    # Tail tensor pointers (updated in place).
     tail_k_ptr,
     tail_score_ptr,
-    # --- 元数据指针 ---
+    # Metadata pointers.
     req_pool_idx_ptr,
     dst_logical_start_ptr,
     chunk_src_start_ptr,
     n_write_ptr,
-    # --- stride 参数 ---
+    # Stride parameters.
     chunk_stride_0,
     tail_stride_0,
     tail_stride_1,
-    # --- shape 参数 ---
+    # Shape parameters.
     n_rows,
     POOL_SIZE: tl.constexpr,
     TAIL_SIZE: tl.constexpr,
@@ -906,31 +904,32 @@ def _scatter_kpool_tail_updates_npu_kernel(
     BLOCK_D: tl.constexpr,
     NUM_CORES: tl.constexpr,
 ):
-    """NPU 亲和 scatter 写入 kernel。
+    """Scatter chunk K/score rows into tail rings on NPU.
 
-    Grid: (NUM_CORES,) — 固定核数, 每个核跨步处理一组 row, 内层按 n_write[row] 迭代 slot。
-    每个工作项: 从 chunk 加载一行 K/Score (128×bf16), 写入 tail ring buffer 对应位置。
+    The fixed (NUM_CORES,) grid uses a grid-stride loop over rows, with an
+    inner loop over n_write[row] slots. Each work item loads one 128-element
+    BF16 K/score row from chunk and writes it to the tail ring.
     """
     pid = tl.program_id(0)
 
-    # ===== 每个核跨步处理一组 row =====
+    # Each core processes rows with a grid-stride loop.
     for row in range(pid, n_rows, NUM_CORES):
-        # ===== 加载该 row 的元数据 (仅一次) =====
+        # Load this row's metadata once.
         n_w = tl.load(n_write_ptr + row).to(tl.int32)
         req = tl.load(req_pool_idx_ptr + row).to(tl.int64)
         dst_start = tl.load(dst_logical_start_ptr + row).to(tl.int32)
         src_base = tl.load(chunk_src_start_ptr + row).to(tl.int64)
 
-        # ===== 遍历该 row 需要写入的 slot =====
+        # Iterate over the slots written by this row.
         for slot in range(n_w):
-            # ===== 计算 chunk 源行 & tail 物理 slot (环形取模) =====
+            # Compute the chunk source row and physical tail slot (ring modulo).
             src_row = src_base + slot.to(tl.int64)
             phys_slot = (dst_start + slot) % TAIL_SIZE
 
-            # ===== 计算 chunk 中偏移 =====
+            # Compute the offset in chunk.
             src_offset = src_row * chunk_stride_0.to(tl.int64)
 
-            # ===== Block Pointer 加载 chunk_k[src_row, :] =====
+            # Load chunk_k[src_row, :] with a block pointer.
             k_block = tl.make_block_ptr(
                 base=chunk_k_ptr + src_offset,
                 shape=(HEAD_DIM,),
@@ -939,9 +938,9 @@ def _scatter_kpool_tail_updates_npu_kernel(
                 block_shape=(HEAD_DIM,),
                 order=(0,),
             )
-            k = tl.load(k_block)  # [HEAD_DIM] bf16 整行 DMA
+            k = tl.load(k_block)  # [HEAD_DIM] BF16 full-row DMA
 
-            # ===== Block Pointer 加载 chunk_score[src_row, :] =====
+            # Load chunk_score[src_row, :] with a block pointer.
             s_block = tl.make_block_ptr(
                 base=chunk_score_ptr + src_offset,
                 shape=(HEAD_DIM,),
@@ -950,14 +949,14 @@ def _scatter_kpool_tail_updates_npu_kernel(
                 block_shape=(HEAD_DIM,),
                 order=(0,),
             )
-            s = tl.load(s_block)  # [HEAD_DIM] bf16 整行 DMA
+            s = tl.load(s_block)  # [HEAD_DIM] BF16 full-row DMA
 
-            # ===== 计算 tail 目标偏移 =====
+            # Compute the tail destination offset.
             dst_offset = req * tail_stride_0.to(tl.int64) + phys_slot.to(
                 tl.int64
             ) * tail_stride_1.to(tl.int64)
 
-            # ===== Block Pointer 存储 tail_k[req, phys_slot, :] =====
+            # Store tail_k[req, phys_slot, :] with a block pointer.
             tail_k_block = tl.make_block_ptr(
                 base=tail_k_ptr + dst_offset,
                 shape=(HEAD_DIM,),
@@ -968,7 +967,7 @@ def _scatter_kpool_tail_updates_npu_kernel(
             )
             tl.store(tail_k_block, k)
 
-            # ===== Block Pointer 存储 tail_score[req, phys_slot, :] =====
+            # Store tail_score[req, phys_slot, :] with a block pointer.
             tail_score_block = tl.make_block_ptr(
                 base=tail_score_ptr + dst_offset,
                 shape=(HEAD_DIM,),
@@ -991,9 +990,9 @@ def scatter_kpool_tail_updates_npu(
     chunk_src_start: torch.Tensor,
     n_write: torch.Tensor,
 ) -> None:
-    """NPU 亲和版 scatter_kpool_tail_updates — drop-in 替换 GPU 原始实现。
+    """NPU drop-in replacement for GPU scatter_kpool_tail_updates.
 
-    与 ``kpool_fp8_index.scatter_kpool_tail_updates`` 签名完全一致
+    The signature matches ``kpool_fp8_index.scatter_kpool_tail_updates`` exactly.
     """
     pool_size = pool.index_kpool
     n_rows = req_pool_idx.shape[0]

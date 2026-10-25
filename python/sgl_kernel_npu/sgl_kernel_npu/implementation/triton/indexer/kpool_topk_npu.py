@@ -104,7 +104,9 @@ def _expand_pool_topk_and_append_tail_batched_npu(
     Returns:
         Token indices shaped [num_q_padded, index_topk + pool_size - 1].
     """
-    from sgl_kernel_npu.mem_cache.kpool_index_npu import _default_triton_num_programs
+    from sgl_kernel_npu.implementation.triton.mem_cache.kpool_index_npu import (
+        _default_triton_num_programs,
+    )
 
     n_pool_topk = pool_indices.shape[1]
     tail_len = pool_size - 1

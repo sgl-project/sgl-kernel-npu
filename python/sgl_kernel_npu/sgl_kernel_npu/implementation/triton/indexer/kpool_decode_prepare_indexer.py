@@ -25,9 +25,7 @@ import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
-# ============================================================================
-# kernel 1: pure Cube GEMM for w_bf16
-# ============================================================================
+# Kernel 1: pure Cube GEMM for w_bf16
 
 
 @triton.jit
@@ -45,17 +43,20 @@ def _fused_decode_prepare_indexer_gemm_kernel(
 ):
     pid = tl.program_id(0)
 
-    # 算子类型: 纯 Cube (仅 tl.dot), 分核 num_aicore
-    # 分核: 沿 batch 分组跨步分配, BLOCK_B 个 batch 打包进 M 维 (避免 M=1 的 vector-matrix 低效)
-    # N_HEADS=32 极小且固定, BLOCK_N=N_HEADS 整块加载, 无 N 维 mask
-    # 权重 w_tile [N_HEADS, BLOCK_K] 不依赖 batch, 每个 K 循环只加载一次、被同组所有 batch 复用
+    # Pure Cube operator (tl.dot only), partitioned across num_aicore.
+    # Use a grid-stride loop over batch groups; pack BLOCK_B batches into the
+    # M dimension to avoid inefficient M=1 vector-matrix GEMMs.
+    # N_HEADS=32 is small and fixed; load BLOCK_N=N_HEADS in full, with no
+    # N-dimension mask.
+    # The w_tile [N_HEADS, BLOCK_K] is batch-independent; load it once per K
+    # iteration and reuse it for every batch in the group.
     NUM_B_BLOCKS = (N + BLOCK_B - 1) // BLOCK_B
     for block_idx in range(pid, NUM_B_BLOCKS, NUM_CORES):
         rows = block_idx * BLOCK_B + tl.arange(0, BLOCK_B)
         rows64 = rows.to(tl.int64)
         mask_b = rows < N
 
-        # a_block: x[rows, k0:k0+BLOCK_K] bf16, M 维尾块越界保护
+        # a_block: x[rows, k0:k0+BLOCK_K] bf16, with M-tail bounds checks.
         a_block = tl.make_block_ptr(
             base=x_ptr,
             shape=(N, HIDDEN_SIZE),
@@ -64,7 +65,7 @@ def _fused_decode_prepare_indexer_gemm_kernel(
             block_shape=(BLOCK_B, BLOCK_K),
             order=(1, 0),
         )
-        # w_block: W[n, k0:k0+BLOCK_K] fp32, 全 batch 共享, 仅沿 K 维 advance
+        # w_block: W[n, k0:k0+BLOCK_K] fp32, shared by all batches; advance only along K.
         w_block = tl.make_block_ptr(
             base=w_ptr,
             shape=(N_HEADS, HIDDEN_SIZE),
@@ -93,9 +94,7 @@ def _fused_decode_prepare_indexer_gemm_kernel(
         tl.store(w_out_ptrs, w_bf16, mask=mask_b[:, None])
 
 
-# ============================================================================
-# kernel 2: pure Vector for pool_seqlens + pool_block_tables
-# ============================================================================
+# Kernel 2: pure Vector for pool_seqlens + pool_block_tables
 
 
 @triton.jit
@@ -115,7 +114,7 @@ def _fused_decode_prepare_indexer_vv_kernel(
     N_POOL: tl.constexpr = NUM_BLOCKS // POOL_SIZE
     P_TOTAL: tl.constexpr = BLOCK_M_B // POOL_SIZE
 
-    # ===================== 段 A: pool_seqlens =====================
+    # Section A: pool_seqlens
     NUM_SEQ_BLOCKS = (N + BLOCK_M_A - 1) // BLOCK_M_A
     for block_idx in range(pid, NUM_SEQ_BLOCKS, NUM_CORES):
         rows = block_idx * BLOCK_M_A + tl.arange(0, BLOCK_M_A)
@@ -124,35 +123,36 @@ def _fused_decode_prepare_indexer_vv_kernel(
         pool_s = s // POOL_SIZE
         tl.store(pool_seqlens_ptr + rows, pool_s, mask=mask)
 
-    # ===================== 段 B: pool_block_tables =====================
-    # 把 [N, NUM_BLOCKS] 视为一整行 (N*NUM_BLOCKS 个元素), 按 BLOCK_M_B 分块.
-    # 每块连续 load 到 UB, 再 reshape+split 抽取 ::POOL_SIZE (等价 block_tables[:, ::POOL_SIZE]).
-    # 注: tl.gather 不支持 int32, tl.sum 对 int32 归约会出错, 故用纯布局操作 tl.split 抽取.
+    # Section B: pool_block_tables
+    # Treat [N, NUM_BLOCKS] as one flat row of N*NUM_BLOCKS elements, tiled by
+    # BLOCK_M_B. Load each tile contiguously into UB, then use reshape+split to
+    # extract ::POOL_SIZE (equivalent to block_tables[:, ::POOL_SIZE]).
+    # tl.gather does not support int32 and tl.sum fails for int32 reductions,
+    # so use the layout-only tl.split operation for extraction.
     NUM_TILES = (N * NUM_BLOCKS + BLOCK_M_B - 1) // BLOCK_M_B
 
     for tile_idx in range(pid, NUM_TILES, NUM_CORES):
-        # 1) 1D 连续 load BLOCK_M_B 个元素, 可合并访存
+        # 1) Contiguously load BLOCK_M_B elements as a 1D tile for coalesced access.
         offs_in = tile_idx * BLOCK_M_B + tl.arange(0, BLOCK_M_B)
         mask_in = offs_in < N * NUM_BLOCKS
         block = tl.load(
             block_tables_ptr + offs_in, mask=mask_in, other=0
         )  # [BLOCK_M_B]
 
-        # 2) reshape + split 抽取 ::4 (POOL_SIZE=4 固定: 两次 split 取偶数半)
+        # 2) Extract ::4 with reshape + split (POOL_SIZE=4 is hard-coded;
+        #    two splits select the even halves).
         block = tl.reshape(block, [P_TOTAL, 2, 2])
-        block, _ = tl.split(block)  # [P_TOTAL, 2], 每组 2 个取第 0 个 (::2)
-        block, _ = tl.split(block)  # [P_TOTAL], 再 ::2 得 ::4
+        block, _ = tl.split(block)  # [P_TOTAL, 2], select element 0 of each pair (::2)
+        block, _ = tl.split(block)  # [P_TOTAL], apply ::2 again to obtain ::4
         pt = block  # [P_TOTAL]
 
-        # 3) 1D 连续写回
+        # 3) Write the 1D tile back contiguously.
         offs_out = tile_idx * P_TOTAL + tl.arange(0, P_TOTAL)
         mask_out = offs_out < N * N_POOL
         tl.store(pool_block_tables_ptr + offs_out, pt, mask=mask_out)
 
 
-# ============================================================================
-# wrapper
-# ============================================================================
+# Wrapper
 
 
 def fused_decode_prepare_indexer(
@@ -210,7 +210,7 @@ def fused_decode_prepare_indexer(
     block_k = 256
     BLOCK_M_A = 128
     BLOCK_M_B = 4096
-    # GEMM (Cube) 用 num_aicore, VV (纯 Vector) 用 num_vectorcore
+    # GEMM (Cube) uses num_aicore; VV (pure Vector) uses num_vectorcore.
     num_aicore, num_vectorcore = get_device_properties()
 
     assert (
@@ -245,7 +245,8 @@ def fused_decode_prepare_indexer(
     )
 
     # 6. kernel 2 (pure Vector: pool_seqlens + pool_block_tables), grid=num_vectorcore
-    #    两 kernel 间无需显式同步 (HBM store→load 弱依赖, NPU 默认保序)
+    #    No explicit inter-kernel synchronization is needed (weak HBM
+    #    store->load dependency; NPU preserves ordering by default).
     _fused_decode_prepare_indexer_vv_kernel[(num_vectorcore,)](
         seqlens_32,
         block_tables,
