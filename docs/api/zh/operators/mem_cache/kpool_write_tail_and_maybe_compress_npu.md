@@ -53,7 +53,7 @@ def kpool_write_tail_and_maybe_compress_npu(
 | `req_pool_indices` | `torch.Tensor` | `[>= B]` | `torch.int64` | 必填 | 每个 batch 项对应的请求/环形缓冲行。 |
 | `write_start` | `torch.Tensor` | `[>= B]` | `torch.int32` 或 `torch.int64` | 必填 | 每个 batch 开始写入的逻辑 tail 位置。 |
 | `tail_logical_start` | `torch.Tensor` | `[>= B]` | `torch.int32` 或 `torch.int64` | 必填 | 候选待填满 pool 的逻辑起点。 |
-| `write_loc` | `torch.Tensor` | `[B, ceil(N / pool_size)]` | `torch.int64` | 必填 | 候选 cache 行；只读，最后一维 stride 必须为 1。 |
+| `write_loc` | `torch.Tensor` | `[B, ceil(N / pool_size)]` | `torch.int64` | 必填 | 候选 cache 行；只读，必须预先为连续张量。 |
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` 或 `torch.int64` | 必填 | token cache 位置；某 batch 的首项为 0 时跳过整个 batch。只读。 |
 | `num_draft_tokens` | `int` | — | — | 必填 | 静态 `N`；必须为正，且整除 `key.shape[0]`。 |
 | `effective_n_per_batch` | `torch.Tensor` 或 `None` | `[>= B]` 或 — | `torch.int32` 或 `torch.int64` | `None` | 可选有效 draft 数，只用于判断 pool 是否填满。 |
@@ -64,7 +64,7 @@ def kpool_write_tail_and_maybe_compress_npu(
 
 返回 `None`。`index_k_cache`、`tail_k`、`tail_score` 可变，其余参数只读。`key` 为空时直接返回，不启动 kernel。
 
-所有 tensor 必须位于同一 NPU，最终传给 kernel 的输入必须连续。可变状态必须预先连续；后端会在内部转换只读 forward 和 plan tensor，但 `write_loc` 在转换前也必须满足最后一维 stride 为 1。plan 取值、源位置和 cache 位置必须由上游保证有效。
+所有 tensor 必须位于同一 NPU，最终传给 kernel 的输入必须连续。可变状态必须预先连续；后端会在内部转换只读 forward 和 plan tensor。plan 取值、源位置和 cache 位置必须由上游保证有效。
 
 ## triton 后端
 

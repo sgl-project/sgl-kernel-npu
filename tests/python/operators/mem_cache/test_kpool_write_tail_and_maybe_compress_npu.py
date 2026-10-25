@@ -168,7 +168,6 @@ def _make_inputs(
             "req_pool_indices",
             "write_start",
             "tail_logical_start",
-            "write_loc",
             "out_cache_loc",
         ]
         if "effective_n_per_batch" in inputs:

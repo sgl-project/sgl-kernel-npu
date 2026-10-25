@@ -53,7 +53,7 @@ Pool boundaries crossed by `write_start + effective_n` are reduced with a dimens
 | `req_pool_indices` | `torch.Tensor` | `[>= B]` | `torch.int64` | Required | Request/ring row for each batch item. |
 | `write_start` | `torch.Tensor` | `[>= B]` | `torch.int32` or `torch.int64` | Required | Logical tail position at which each batch starts. |
 | `tail_logical_start` | `torch.Tensor` | `[>= B]` | `torch.int32` or `torch.int64` | Required | Logical start of the candidate completed pool. |
-| `write_loc` | `torch.Tensor` | `[B, ceil(N / pool_size)]` | `torch.int64` | Required | Candidate cache rows; read only. Its last stride must be 1. |
+| `write_loc` | `torch.Tensor` | `[B, ceil(N / pool_size)]` | `torch.int64` | Required | Candidate cache rows; read only and must be contiguous. |
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` or `torch.int64` | Required | Token cache locations; a zero first entry for a batch skips that whole batch. Read only. |
 | `num_draft_tokens` | `int` | — | — | Required | Static `N`; must be positive and divide `key.shape[0]`. |
 | `effective_n_per_batch` | `torch.Tensor` or `None` | `[>= B]` or — | `torch.int32` or `torch.int64` | `None` | Optional effective draft count used only for pool-completion decisions. |
@@ -64,7 +64,7 @@ Pool boundaries crossed by `write_start + effective_n` are reduced with a dimens
 
 Returns `None`. `index_k_cache`, `tail_k`, and `tail_score` are mutable; the other arguments are read only. An empty `key` tensor returns without launching the kernel.
 
-All tensors must be on the same NPU, and the final kernel inputs must be contiguous. Mutable state must already be contiguous. The backend makes the read-only forward and plan tensors contiguous internally, except that `write_loc` must also have last-dimension stride 1 before conversion. Plan values and source/cache locations must be valid upstream.
+All tensors must be on the same NPU, and the final kernel inputs must be contiguous. Mutable state must already be contiguous. The backend makes the read-only forward and plan tensors contiguous internally. Plan values and source/cache locations must be valid upstream.
 
 ## triton backend
 

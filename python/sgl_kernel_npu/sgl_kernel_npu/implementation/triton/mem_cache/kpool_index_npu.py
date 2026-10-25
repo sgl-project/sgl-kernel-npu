@@ -803,14 +803,13 @@ def kpool_write_tail_and_maybe_compress_npu(
         assert effective_n_per_batch.numel() >= batch_size
         assert effective_n_per_batch.dtype in (torch.int32, torch.int64)
 
-    # These forward and plan tensors are read-only and may be views.
+    # Normalize read-only inputs that may be views
     key = key.contiguous()
     score = score.contiguous()
     ape = ape.contiguous()
     req_pool_indices = req_pool_indices.contiguous()
     write_start = write_start.contiguous()
     tail_logical_start = tail_logical_start.contiguous()
-    write_loc = write_loc.contiguous()
     out_cache_loc = out_cache_loc.contiguous()
     if effective_n_per_batch is not None:
         effective_n_per_batch = effective_n_per_batch.contiguous()
