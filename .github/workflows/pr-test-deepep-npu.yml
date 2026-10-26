@@ -515,6 +515,10 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
+      - name: Align A5 accuracy thresholds with SR acceptance (1e-4)
+        run: |
+          sed -i 's/"fp8": 2e-3,/"fp8": 1e-4,/; s/"fp4": 4e-2,/"fp4": 1e-4,/' ${GITHUB_WORKSPACE}/tests/python/deepep/utils.py
+          grep -n -A5 "DIFF_THRESHOLDS = {" ${GITHUB_WORKSPACE}/tests/python/deepep/utils.py
       - name: Run A5 FusedMoe K3 orthogonal baseline (TC_A5FUSEDMOE_K3_001, 4 processes)
         if: always()
         timeout-minutes: 60
@@ -544,6 +548,8 @@ jobs:
           run_case a5k3_tc001_situ_fp4_nz  python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1 --weight-format NZ
           # determinism recheck: fixed profile (atol=0/rtol=0)
           run_case a5k3_tc001_fixed_profile_determinism python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1 --fixed-profile-cases
+          # stability recheck: rerun situ x fp4 with a different seed (case S8)
+          run_case a5k3_tc001_seed4096_stability python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1 --random-profile-seed 4096
           echo "================ A5 K3 TC001 CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
@@ -555,8 +561,9 @@ jobs:
         if: always()
         timeout-minutes: 60
         env:
-          # CI 40271643914: MC2 baseline needs 8543MB window at full-max (bs256 x topk16 x h8192 x 256 local experts)
-          HCCL_BUFFSIZE: 10000
+          # CI 40271643914: baseline needs 8543MB window at full-max; CI 40285353925: request 10000 (actual ~20000MB,
+          # 2x doubling observed) caused 14GiB weight alloc OOM on 123GB card -> request 5000 (actual ~10000MB >= 8543)
+          HCCL_BUFFSIZE: 5000
           HCCL_OP_EXPANSION_MODE: AIV
         run: |
           RESULT_FILE=${GITHUB_WORKSPACE}/a5_k3_tc002_results.txt
@@ -638,11 +645,12 @@ jobs:
           }
           SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_intranode.py
           # R=rounds, T=per-round tokens; only env vars differ between configs (4-card: 256%4=0)
-          run_case ant_tc001_R32_T2048  env DEEPEP_NORMAL_LONG_SEQ_ROUND=32  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=2048 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
-          run_case ant_tc001_R64_T1024  env DEEPEP_NORMAL_LONG_SEQ_ROUND=64  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=1024 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
-          run_case ant_tc001_R128_T512  env DEEPEP_NORMAL_LONG_SEQ_ROUND=128 DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=512  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
-          run_case ant_tc001_R8_T8192_per_round_max  env DEEPEP_NORMAL_LONG_SEQ_ROUND=8    DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=8192 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
-          run_case ant_tc001_R256_T256_rounds_max    env DEEPEP_NORMAL_LONG_SEQ_ROUND=256  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=256  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          # NOTE: no quant flags = bf16 default; --quant-type was removed by test architecture refactor (#870)
+          run_case ant_tc001_R32_T2048  env DEEPEP_NORMAL_LONG_SEQ_ROUND=32  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=2048 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8
+          run_case ant_tc001_R64_T1024  env DEEPEP_NORMAL_LONG_SEQ_ROUND=64  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=1024 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8
+          run_case ant_tc001_R128_T512  env DEEPEP_NORMAL_LONG_SEQ_ROUND=128 DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=512  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8
+          run_case ant_tc001_R8_T8192_per_round_max  env DEEPEP_NORMAL_LONG_SEQ_ROUND=8    DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=8192 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8
+          run_case ant_tc001_R256_T256_rounds_max    env DEEPEP_NORMAL_LONG_SEQ_ROUND=256  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=256  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8
           echo "================ A5 Ant TC001 CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
@@ -656,6 +664,9 @@ jobs:
         run: |
           RESULT_FILE=${GITHUB_WORKSPACE}/a5_ant_tc002_results.txt
           : > ${RESULT_FILE}
+          # CI 40285353925: main's regression script still passes --quant-type (removed by test refactor #870)
+          # -> patch it in CI before running (dev to fix the script on main)
+          sed -i 's/--num-topk="${num_topk}" \\/--num-topk="${num_topk}"/; /--quant-type=/d' ${GITHUB_WORKSPACE}/tests/python/deepep/run_a5_ant_migration_regression.sh
           if timeout 3480 bash ${GITHUB_WORKSPACE}/tests/python/deepep/run_a5_ant_migration_regression.sh; then
             echo "PASS  ant_tc002_regression_script" >> ${RESULT_FILE}
           else
