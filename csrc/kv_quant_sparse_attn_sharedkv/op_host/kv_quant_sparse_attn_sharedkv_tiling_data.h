@@ -50,5 +50,14 @@ constexpr uint32_t MakeKvQuantSparseAttnSharedkvDispatchKey(uint32_t qLayout, ui
     return (qLayout << 8U) | (mode << 4U) | static_cast<uint32_t>(splitG);
 }
 
+constexpr bool IsKvQuantSparseAttnSharedkvDispatchKeySupported(uint32_t key)
+{
+    const uint32_t qLayout = key >> 8U;
+    const uint32_t mode = (key >> 4U) & 0xFU;
+    const uint32_t splitG = key & 0xFU;
+    return qLayout <= 1U && mode <= 2U && splitG <= 1U &&
+           key == MakeKvQuantSparseAttnSharedkvDispatchKey(qLayout, mode, splitG != 0U);
+}
+
 }  // namespace optiling
 #endif

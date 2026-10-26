@@ -24,6 +24,7 @@ using optiling::KvQuantSASInfoParser;
 using optiling::KvQuantSASTilingCheck;
 using optiling::KvQuantSASTilingInfo;
 using optiling::KvQuantSparseAttnSharedkvTiling;
+using optiling::IsKvQuantSparseAttnSharedkvDispatchKeySupported;
 
 void CheckTensor(const at::Tensor &tensor, const at::Tensor &q, const char *name)
 {
@@ -190,6 +191,8 @@ std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
     kv_quant_sas_log::ClearLastError();
     TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, opName, ": tiling failed: ",
                 kv_quant_sas_log::LastError());
+    TORCH_CHECK(IsKvQuantSparseAttnSharedkvDispatchKeySupported(tiling.GetTilingKey()), opName,
+                ": unsupported dispatch key ", tiling.GetTilingKey());
 
     auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData());
     auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, q.options().dtype(at::kByte));

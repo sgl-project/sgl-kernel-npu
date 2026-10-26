@@ -883,7 +883,8 @@ HostTopology ResolveHostTopology()
                 "kv_quant_sparse_attn_sharedkv_metadata_host: vector core count query failed");
     TORCH_CHECK(aic > 0 && aic <= kv_quant_optiling::AIC_CORE_NUM && aiv > 0 &&
                     aiv <= kv_quant_optiling::AIV_CORE_NUM,
-                "kv_quant_sparse_attn_sharedkv_metadata_host: unsupported core topology");
+                "kv_quant_sparse_attn_sharedkv_metadata_host: unsupported core topology: AI cores=", aic,
+                ", vector cores=", aiv);
     const char *soc = aclrtGetSocName();
     TORCH_CHECK(soc != nullptr, "kv_quant_sparse_attn_sharedkv_metadata_host: SoC name query failed");
     return {static_cast<uint32_t>(aic), static_cast<uint32_t>(aiv), std::string(soc)};
@@ -921,17 +922,44 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     } else if (resolvedBatchSize == 0 && seqused_kv.has_value()) {
         resolvedBatchSize = seqused_kv->numel();
     }
-    TORCH_CHECK(resolvedBatchSize > 0 && resolvedBatchSize <= MAX_I32 && max_seqlen_q >= 0 &&
-                    max_seqlen_q <= MAX_I32 &&
-                    max_seqlen_kv >= 0 && max_seqlen_kv <= MAX_I32 && num_heads_q > 0 && num_heads_q <= MAX_I32 &&
+    TORCH_CHECK(resolvedBatchSize > 0 && resolvedBatchSize <= MAX_I32,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: batch_size must be in [1, INT32_MAX], got ",
+                resolvedBatchSize);
+    TORCH_CHECK(max_seqlen_q >= 0 && max_seqlen_q <= MAX_I32,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: max_seqlen_q must be in [0, INT32_MAX], got ",
+                max_seqlen_q);
+    TORCH_CHECK(max_seqlen_kv >= 0 && max_seqlen_kv <= MAX_I32,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: max_seqlen_kv must be in [0, INT32_MAX], got ",
+                max_seqlen_kv);
+    TORCH_CHECK(ori_win_left >= 0 && ori_win_left <= MAX_I32,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: ori_win_left must be in [0, INT32_MAX], got ",
+                ori_win_left);
+    TORCH_CHECK(ori_mask_mode == 0 || ori_mask_mode == 3 || ori_mask_mode == 4,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: ori_mask_mode must be 0, 3 or 4, got ",
+                ori_mask_mode);
+    TORCH_CHECK(num_heads_q > 0 && num_heads_q <= MAX_I32 &&
                     num_heads_kv > 0 && num_heads_kv <= MAX_I32 && head_dim > 0 && head_dim <= MAX_I32 &&
                     cmp_topk >= 0 && cmp_topk <= MAX_I32 && cmp_ratio >= -1 && cmp_ratio <= MAX_I32 &&
-                    ori_mask_mode >= 0 && ori_mask_mode <= MAX_I32 && cmp_mask_mode >= 0 && cmp_mask_mode <= MAX_I32 &&
-                    ori_win_left >= 0 && ori_win_left <= MAX_I32 && ori_win_right >= 0 && ori_win_right <= MAX_I32,
+                    cmp_mask_mode >= 0 && cmp_mask_mode <= MAX_I32 &&
+                    ori_win_right >= 0 && ori_win_right <= MAX_I32,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: invalid scalar argument");
     TORCH_CHECK(layout_q == "BSND" || layout_q == "TND",
                 "kv_quant_sparse_attn_sharedkv_metadata_host: layout_q must be BSND or TND");
     TORCH_CHECK(layout_kv == "PA_ND", "kv_quant_sparse_attn_sharedkv_metadata_host: layout_kv must be PA_ND");
+    TORCH_CHECK(num_heads_q == 64 || num_heads_q == 128,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: num_heads_q must be 64 or 128, got ", num_heads_q);
+    TORCH_CHECK(num_heads_kv == 1,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: num_heads_kv must be 1, got ", num_heads_kv);
+    TORCH_CHECK(head_dim == 512,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: head_dim must be 512, got ", head_dim);
+    if (has_cmp_kv) {
+        TORCH_CHECK(cmp_topk == 0 || cmp_topk == 512 || cmp_topk == 1024,
+                    "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_topk must be 0, 512 or 1024, got ",
+                    cmp_topk);
+        TORCH_CHECK(cmp_ratio == 4 || cmp_ratio == 128,
+                    "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_ratio must be 4 or 128 with cmp_kv, got ",
+                    cmp_ratio);
+    }
     TORCH_CHECK(layout_q != "TND" || cu_seqlens_q.has_value(),
                 "kv_quant_sparse_attn_sharedkv_metadata_host: cu_seqlens_q is required for TND");
     TORCH_CHECK(layout_q != "BSND" || max_seqlen_q > 0,
@@ -955,6 +983,14 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     }
 
     const HostTopology topo = ResolveHostTopology();
+    std::string socLower = topo.socVersion;
+    std::transform(socLower.begin(), socLower.end(), socLower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    TORCH_CHECK(socLower.find("ascend950") != std::string::npos,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: Ascend 950 is required, got ", topo.socVersion);
+    TORCH_CHECK(num_heads_q != 128 || ((topo.aicCoreNum & 1U) == 0U && (topo.aivCoreNum & 1U) == 0U),
+                "kv_quant_sparse_attn_sharedkv_metadata_host: 128 heads require even AI/vector core counts, got ",
+                topo.aicCoreNum, " and ", topo.aivCoreNum);
     auto options = at::TensorOptions().dtype(at::kInt).device(at::kCPU).pinned_memory(true);
     at::Tensor host = at::zeros({static_cast<int64_t>(kv_quant_optiling::SAS_META_SIZE)}, options);
     sgl_kernel_npu::kv_quant::KvQuantSparseAttnSharedkvMetadataHost scheduler;

@@ -63,7 +63,10 @@ ge::graphStatus KvQuantSASInfoParser::GetOpName()
 
 ge::graphStatus KvQuantSASInfoParser::GetNpuInfo()
 {
-    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    auto *platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    OP_CHECK_IF(platform == nullptr, OP_LOGE(opName_, "PlatformAscendCManager is null"),
+                return ge::GRAPH_FAILED);
+    auto &ascendcPlatform = *platform;
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
     OP_CHECK_IF(aicNum == 0 || aivNum == 0, OP_LOGE(opName_, "num of core obtained is 0."), return ge::GRAPH_FAILED);
@@ -522,7 +525,7 @@ void KvQuantSASInfoParser::GenerateInfo(KvQuantSASTilingInfo &sasInfo)
 ge::graphStatus KvQuantSASInfoParser::Parse(KvQuantSASTilingInfo &sasInfo)
 {
     if (context_ == nullptr) {
-        OP_LOGE("SparseFlashAttention", "tiling context is nullptr!");
+        OP_LOGE("KvQuantSparseAttnSharedkv", "tiling context is nullptr!");
         return ge::GRAPH_FAILED;
     }
 
@@ -577,7 +580,10 @@ ge::graphStatus KvQuantSparseAttnSharedkvTiling::DoOpTiling(KvQuantSASTilingInfo
         perfMode_ = SASTemplateMode::CFA_TEMPLATE_MODE;
     }
     // -------------set blockdim-----------------
-    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    auto *platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    OP_CHECK_IF(platform == nullptr, OP_LOGE(tilingInfo->opName, "PlatformAscendCManager is null"),
+                return ge::GRAPH_FAILED);
+    auto &ascendcPlatform = *platform;
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
     uint32_t blockDim = ascendcPlatform.CalcTschBlockDim(aivNum, aicNum, aivNum);
@@ -627,6 +633,9 @@ ge::graphStatus KvQuantSparseAttnSharedkvTiling::DoOpTiling(KvQuantSASTilingInfo
     uint32_t qLayout = static_cast<uint32_t>(tilingInfo->qLayout);
     tilingKey_ = MakeKvQuantSparseAttnSharedkvDispatchKey(
         qLayout, static_cast<uint32_t>(perfMode_), tilingInfo->gSize > 64);
+    OP_CHECK_IF(!IsKvQuantSparseAttnSharedkvDispatchKeySupported(tilingKey_),
+                OP_LOGE(tilingInfo->opName, "unsupported dispatch key %u", tilingKey_),
+                return ge::GRAPH_FAILED);
     tilingData_.dispatchKey = tilingKey_;
 
     return ge::GRAPH_SUCCESS;
