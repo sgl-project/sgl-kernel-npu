@@ -5,13 +5,15 @@ function(sgl_generate_cann_interfaces output_dir)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
     endif()
     set(host_sources)
+    set(tiling_headers)
     foreach(id IN LISTS ARGN)
         sgl_get_operator(sources "${id}" HOST_SOURCES)
         list(APPEND host_sources ${sources})
-        foreach(source IN LISTS sources)
+        sgl_get_operator(kernel_sources "${id}" KERNEL_SOURCES)
+        foreach(source IN LISTS sources kernel_sources)
             get_filename_component(directory "${source}" DIRECTORY)
             file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${directory}/*.h" "${directory}/*.hpp")
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${headers})
+            list(APPEND tiling_headers ${headers})
         endforeach()
     endforeach()
 
@@ -23,16 +25,49 @@ function(sgl_generate_cann_interfaces output_dir)
     endforeach()
     file(CONFIGURE OUTPUT "${config_dir}/sgl_operator_config.h" CONTENT
         "#pragma once\ninline constexpr const char* SGL_CANN_CONFIGS[] = {${configs}};\n")
-    # Opbuild executes during configuration. Track handwritten inputs for rebuilds.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${host_sources})
-    file(REMOVE_RECURSE "${output_dir}")
-    file(MAKE_DIRECTORY "${output_dir}")
-    npu_op_code_gen(
-        SRC ${host_sources}
-        PACKAGE sgl_kernel_npu
-        COMPILE_OPTIONS "-I${config_dir}"
-        OUT_DIR "${output_dir}"
-    )
+    # Regenerate SDK metadata only when its inputs change. Device .cpp changes
+    # remain ordinary Kernel build dependencies; shared tiling headers are tracked.
+    set(inputs ${host_sources} ${tiling_headers} "${config_dir}/sgl_operator_config.h"
+        "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
+    file(GLOB sdk_versions "${ASCEND_CANN_PACKAGE_PATH}/*version*" "${ASCEND_CANN_PACKAGE_PATH}/*/version.info")
+    foreach(version IN LISTS sdk_versions)
+        if(NOT IS_DIRECTORY "${version}")
+            list(APPEND inputs "${version}")
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES inputs)
+    list(SORT inputs)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${inputs})
+    set(signature "${ASCEND_CANN_PACKAGE_PATH};${SGL_CANN_COMPUTE_UNITS};${ARGN};${CMAKE_CXX_COMPILER}")
+    foreach(id IN LISTS ARGN)
+        foreach(field IN ITEMS CANN_OP_TYPE KERNEL_SOURCES KERNEL_COMPILE_OPTIONS)
+            sgl_get_operator(value "${id}" "${field}")
+            string(APPEND signature ";${id}:${field}:${value}")
+        endforeach()
+    endforeach()
+    foreach(input IN LISTS inputs)
+        file(SHA256 "${input}" digest)
+        string(APPEND signature ";${input}:${digest}")
+    endforeach()
+    string(SHA256 signature "${signature}")
+    set(stamp "${output_dir}/sgl-codegen.sha256")
+    set(previous "")
+    if(EXISTS "${stamp}")
+        file(READ "${stamp}" previous)
+    endif()
+    if(NOT signature STREQUAL previous OR NOT EXISTS "${output_dir}/op_proto.cc")
+        file(REMOVE_RECURSE "${output_dir}")
+        file(MAKE_DIRECTORY "${output_dir}")
+        npu_op_code_gen(SRC ${host_sources} PACKAGE sgl_kernel_npu
+            COMPILE_OPTIONS "-I${config_dir}" OUT_DIR "${output_dir}")
+        file(WRITE "${stamp}" "${signature}")
+    else()
+        # These are the codegen handoff properties consumed by the SDK's
+        # npu_op_kernel_* and npu_op_package_* functions on each configure.
+        set_property(GLOBAL PROPERTY ASCENDC_AUTO_GEN_PATH "${output_dir}")
+        set_property(GLOBAL PROPERTY _ASC_PKG_sgl_kernel_npu_CODE_GEN_DIRS "${output_dir}")
+    endif()
+
 endfunction()
 
 function(sgl_add_cann_tiling)
@@ -64,6 +99,13 @@ function(sgl_add_cann_kernels output_dir)
         get_filename_component(directory "${sources}" DIRECTORY)
         get_filename_component(filename "${sources}" NAME)
         file(RELATIVE_PATH relative_dir "${CMAKE_CURRENT_SOURCE_DIR}" "${directory}")
+        sgl_get_operator(options "${id}" KERNEL_COMPILE_OPTIONS)
+        if(options)
+            if(NOT COMMAND npu_op_kernel_options)
+                message(FATAL_ERROR "SDK lacks npu_op_kernel_options required by ${id}")
+            endif()
+            npu_op_kernel_options(sgl_cann_kernels "${op_type}" OPTIONS ${options})
+        endif()
         # Device selection is handled before this shared source mapping.
         # COMPUTE_UNIT here requires a chip model, not a compute-unit family.
         npu_op_kernel_sources(sgl_cann_kernels OP_TYPE "${op_type}"

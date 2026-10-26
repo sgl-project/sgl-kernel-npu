@@ -9,6 +9,7 @@
 // limitations under the License.
 
 #include "kernel_operator.h"
+#include "apply_token_bitmask_tiling.h"
 
 constexpr int32_t BUFFER_NUM = 2;
 constexpr uint32_t BITS_PER_INT32 = 32;
@@ -157,6 +158,7 @@ private:
 extern "C" __global__ __aicore__ void sgl_apply_token_bit_mask(
     GM_ADDR logits, GM_ADDR bitmask, GM_ADDR logitsRef, GM_ADDR workspace, GM_ADDR tiling)
 {
+    REGISTER_TILING_DEFAULT(optiling::SglApplyTokenBitMaskTilingData);
     GET_TILING_DATA(data, tiling);
     KernelApplyTokenBitmask<DTYPE_LOGITS> op;
     op.Init(logits, bitmask, logitsRef, data.numRows, data.vocabSize, data.logitsStride,

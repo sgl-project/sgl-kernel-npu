@@ -26,7 +26,7 @@ class CannBuildTests(unittest.TestCase):
         (self.root / "csrc").mkdir()
         shutil.copy(ROOT / "csrc/CMakeLists.txt", self.root / "csrc")
         shutil.copytree(ROOT / "csrc/cmake", self.root / "csrc/cmake")
-        shutil.copytree(ROOT / "csrc/sampling", self.root / "csrc/sampling")
+        shutil.copytree(ROOT / "csrc/sampler", self.root / "csrc/sampler")
         shutil.copytree(ROOT / "csrc/aclnn_torch_adapter", self.root / "csrc/aclnn_torch_adapter")
         self.directory = self.root / "build/cann"
         self.fail_target = None
@@ -39,17 +39,15 @@ class CannBuildTests(unittest.TestCase):
 
     def fixture_operator(self):
         # An extra declaration, never compiled as a real operator.
-        fixture = self.root / "csrc/sampling/fixture"
+        fixture = self.root / "csrc/sampler/fixture"
         fixture.mkdir()
         for name in ("host.cpp", "kernel.cpp"):
             (fixture / name).write_text("// Synthetic source path fixture.\n")
         (fixture / "CMakeLists.txt").write_text("""
-sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE CALL_MODE ACLNN
+sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     CANN_OP_TYPE FixtureOp SUPPORTED_ARCHS 2201
     HOST_SOURCES host.cpp KERNEL_SOURCES kernel.cpp)
 """)
-        with (self.root / "csrc/sampling/CMakeLists.txt").open("a") as stream:
-            stream.write("\nadd_subdirectory(fixture)\n")
 
     def test_real_declarations_without_sdk_or_torch(self):
         with patch.dict(os.environ, {"ASCEND_HOME_PATH": ""}):
@@ -138,6 +136,27 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE CALL_MODE ACLNN
         with self.assertRaisesRegex(RuntimeError, "symlinked build root"):
             self.build()
         self.assertTrue(outside.exists())
+
+    def test_unselected_aicpu_does_not_block_aicore(self):
+        self.fixture_operator()
+        path = self.root / "csrc/sampler/fixture/CMakeLists.txt"
+        path.write_text(path.read_text().replace("AICORE", "AICPU"))
+        result = self.build(operators=("apply_token_bitmask",))
+        self.assertEqual(result.operators, ("apply_token_bitmask",))
+        cann._remove_tree(self.directory)
+        with self.assertRaisesRegex(RuntimeError, "Command failed"):
+            self.build(operators=("fixture_op",))
+        self.assertIn("not implemented", (self.directory / "configure.log").read_text())
+
+    def test_arch_filter_and_explicit_unsupported_operator(self):
+        self.fixture_operator()
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = cann.build_cann("3510", source_root=self.root, declarations_only=True)
+        self.assertEqual(result.operators, ("apply_token_bitmask",))
+        cann._remove_tree(self.directory)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "Command failed"):
+            cann.build_cann("3510", ("fixture_op",), source_root=self.root, declarations_only=True)
+        self.assertIn("does not support requested ARCH", (self.directory / "configure.log").read_text())
 
     def fake_run(self, command, log_path, **kwargs):
         # Only verify orchestration order and arguments; no SDK or ELF behavior.

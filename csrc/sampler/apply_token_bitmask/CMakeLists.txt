@@ -3,9 +3,8 @@
 sgl_register_operator(
     ID apply_token_bitmask
     EXECUTION_UNIT AICORE
-    CALL_MODE ACLNN
     CANN_OP_TYPE SglApplyTokenBitMask
-    TORCH_ADAPTER ../../aclnn_torch_adapter/apply_token_bitmask.cpp
+    TORCH_ADAPTER torch_adapter.cpp
     SUPPORTED_ARCHS 2201 3510
     HOST_SOURCES op_host/apply_token_bitmask.cpp
     KERNEL_SOURCES op_kernel/apply_token_bitmask.cpp

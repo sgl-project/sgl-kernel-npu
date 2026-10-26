@@ -25,7 +25,8 @@ if(NOT IS_DIRECTORY "${SGL_CANN_VENDOR}/op_api/include")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/operators.cmake")
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../sampling" declarations)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/domains.cmake")
+sgl_add_operator_domains()
 sgl_select_operators(selected ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
 set(adapters)
 foreach(id IN LISTS selected)
@@ -41,7 +42,7 @@ foreach(target IN ITEMS sgl_kernel_npu sgl_kernel_npu_compare)
     target_compile_features(${target} PRIVATE cxx_std_17)
     target_compile_options(${target} PRIVATE ${torch_flags})
     target_include_directories(${target} PRIVATE
-        "${torch_npu_root}/include" "${sdk}/include" "${SGL_CANN_VENDOR}/op_api/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${torch_npu_root}/include" "${sdk}/include" "${SGL_CANN_VENDOR}/op_api/include"
         ${Python3_INCLUDE_DIRS})
     target_link_libraries(${target} PRIVATE ${TORCH_LIBRARIES} "${TORCH_NPU_LIBRARY}"
         "${ACL_LIBRARY}" "${NNOPBASE_LIBRARY}" ${CMAKE_DL_LIBS})

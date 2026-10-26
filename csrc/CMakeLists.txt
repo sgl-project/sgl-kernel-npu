@@ -18,7 +18,8 @@ set(SGL_CANN_OPERATORS "ALL" CACHE STRING "ALL or a semicolon-separated list of 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/architectures.cmake")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/operators.cmake")
-add_subdirectory(sampling)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/domains.cmake")
+sgl_add_operator_domains()
 sgl_select_operators(selected_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
 message(STATUS "Selected CANN operators: ${selected_operators}; ARCH: ${SGL_ARCH_VERSION}; SDK targets: ${SGL_CANN_COMPUTE_UNITS}")
 string(REPLACE ";" "\n" selection_text "${selected_operators}")

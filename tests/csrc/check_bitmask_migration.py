@@ -7,9 +7,10 @@ from pathlib import Path
 def main():
     root = Path(__file__).resolve().parents[2]
     fixtures = Path(__file__).resolve().parent / "fixtures/apply_token_bitmask"
-    migrated = root / "csrc/sampling/apply_token_bitmask"
+    migrated = root / "csrc/sampler/apply_token_bitmask"
     original = (fixtures / "legacy_kernel.cpp").read_text().split('extern "C"')[0]
-    expected = original
+    expected = original.replace('#include "kernel_operator.h"',
+                                '#include "kernel_operator.h"\n#include "apply_token_bitmask_tiling.h"')
     # Only the CANN output address is added; every computational statement is retained.
     for before, after in (
         ("GM_ADDR bitmaskGmAddr, uint32_t numRows", "GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows"),
@@ -32,7 +33,7 @@ def main():
     print("PASS: Kernel body preserved except for the reviewed CANN output binding")
 
     legacy_host = (root / "csrc/apply_token_bitmask/op_host/apply_token_bitmask.cpp").read_text()
-    adapter = (root / "csrc/aclnn_torch_adapter/apply_token_bitmask.cpp").read_text()
+    adapter = (root / "csrc/sampler/apply_token_bitmask/torch_adapter.cpp").read_text()
     for start, end in (("    // Input validation", "    // --- Tiling ---"),
                        ("    // Copy results back", "}  // namespace npu_kernel")):
         expected = legacy_host[legacy_host.index(start):legacy_host.index(end)]
