@@ -5,7 +5,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import get_test_impls
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
+
+# W: Q/Nt workload candidates; tail_rows=8 is an independent synthetic value.
+perf_shape = [(4096, 1024), (8192, 2048)]
 
 EXACT_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0, rtol=0),
@@ -101,6 +106,8 @@ def _create_test_inputs(
         (128, 640, 256, 4, 4, 128, torch.bfloat16),
         (128, 640, 256, 4, 12, 128, torch.bfloat16),
         (4, 32, 8, 4, 8, 128, torch.float16),
+        pytest.param(1024, 4096, 1024, 4, 8, 128, torch.bfloat16, id="W-q4096-nt1024"),
+        pytest.param(2048, 8192, 2048, 4, 8, 128, torch.bfloat16, id="W-q8192-nt2048"),
     ],
 )
 def test_scatter_kpool_tail_updates_npu(
@@ -149,6 +156,7 @@ def test_scatter_kpool_tail_updates_npu(
         n_write,
     )
     pool = SimpleNamespace(index_kpool=pool_size)
+    impl, _ = get_test_impls()
     scatter_kpool_tail_updates_npu(
         pool,
         chunk_k,
@@ -159,6 +167,7 @@ def test_scatter_kpool_tail_updates_npu(
         dst_logical_start,
         chunk_src_start,
         n_write,
+        impl=impl,
     )
 
     assert_accuracy(tail_k, tail_k_ref, EXACT_STANDARD, path="tail_k")
@@ -177,3 +186,33 @@ def test_scatter_kpool_tail_updates_npu(
         EXACT_STANDARD,
         path="tail_score_unchanged",
     )
+
+    snapshots = None
+    call_index = 0
+
+    def executor():
+        nonlocal snapshots, call_index
+        if snapshots is None:
+            snapshots = [
+                (initial_tail_k.clone(), initial_tail_score.clone()) for _ in range(11)
+            ]
+        perf_tail_k, perf_tail_score = snapshots[call_index]
+        call_index += 1
+        scatter_kpool_tail_updates_npu(
+            pool,
+            chunk_k,
+            chunk_score,
+            perf_tail_k,
+            perf_tail_score,
+            req_pool_idx,
+            dst_logical_start,
+            chunk_src_start,
+            n_write,
+            impl=impl,
+        )
+
+    executor.func = scatter_kpool_tail_updates_npu
+    executor.impl = impl
+    executor.impl_ref = "torch_reference"
+    executor.accuracy_checked = True
+    check_performance(executor, enable_perf=(total_tokens, n_rows) in perf_shape)

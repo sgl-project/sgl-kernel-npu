@@ -1,10 +1,16 @@
+from functools import partial
+
 import pytest
 
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import get_test_impls
+from tests.python.utils.performance import check_performance
 
 PAD_ROWS = 13
+# W: row-count candidates; P/C: pool width 512 and output width 2051.
+perf_shape = [(4096, 4096), (8192, 8192)]
 
 
 def _expand_pool_topk_and_append_tail_batched_torch(
@@ -53,6 +59,8 @@ def _expand_pool_topk_and_append_tail_batched_torch(
         (1024, 2048),
         (1035, 2048),
         (4095, 4096),
+        pytest.param(4096, 4096, id="W-glm53-flash-r4096-q4096"),
+        pytest.param(8192, 8192, id="W-glm53-flash-r8192-q8192"),
     ],
 )
 def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
@@ -70,6 +78,7 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
         1, total_rows + 1, dtype=torch.int32
     ) * pool_size + torch.randint(0, pool_size, (total_rows,), dtype=torch.int32)
 
+    impl, _ = get_test_impls()
     actual = expand_pool_topk_and_append_tail_batched_npu(
         pool_indices,
         seq_lens_per_token,
@@ -77,6 +86,7 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
         num_q_padded,
         pool_size,
         index_topk,
+        impl=impl,
     )
     expected = _expand_pool_topk_and_append_tail_batched_torch(
         pool_indices,
@@ -88,3 +98,19 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
 
     # Token indices and padded rows are integers and must match exactly.
     assert_accuracy(actual, expected)
+
+    executor = partial(
+        expand_pool_topk_and_append_tail_batched_npu,
+        pool_indices,
+        seq_lens_per_token,
+        n_real,
+        num_q_padded,
+        pool_size,
+        index_topk,
+        impl=impl,
+    )
+    executor.impl = impl
+    executor.impl_ref = "torch_reference"
+    executor.accuracy_checked = True
+    shape = (n_real, num_q_padded)
+    check_performance(executor, enable_perf=shape in perf_shape)

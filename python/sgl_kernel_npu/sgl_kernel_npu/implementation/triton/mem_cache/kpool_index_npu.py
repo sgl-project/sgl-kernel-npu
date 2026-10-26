@@ -163,11 +163,11 @@ def _kpool_decode_update_and_maybe_write_cache_bf16_kernel(
 
 
 def kpool_decode_update_and_maybe_write_cache_bf16(
-    buf: torch.Tensor,  # [num_pages, SLOTS_PER_PAGE * HEAD_DIM] bfloat16
+    buf: torch.Tensor,  # contiguous [num_pages, ..., HEAD_DIM] bfloat16 cache
     tail_k: torch.Tensor,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] bfloat16
-    tail_score: torch.Tensor,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] float32
+    tail_score: torch.Tensor,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] float32/bfloat16
     key: torch.Tensor,  # [batch, HEAD_DIM] bfloat16
-    slot_score: torch.Tensor,  # [batch, HEAD_DIM] float32
+    slot_score: torch.Tensor,  # [batch, HEAD_DIM] float32/bfloat16
     ape: torch.Tensor,  # [POOL_SIZE, HEAD_DIM] float32
     block_tables: torch.Tensor,  # [batch, BLOCK_TABLE_COLS] int32
     req_pool_indices: torch.Tensor,
@@ -200,11 +200,11 @@ def kpool_decode_update_and_maybe_write_cache_bf16(
 
     tail_size = tail_k.shape[1]
     req_pool_size = tail_k.shape[0]
-    buf_numel_per_page = buf.shape[1]
     block_table_cols = block_tables.shape[1]
 
     # Ensure contiguous
     buf = buf.contiguous()
+    buf_numel_per_page = buf.stride(0)
     tail_k = tail_k.contiguous()
     tail_score = tail_score.contiguous()
     key = key.contiguous()

@@ -5,7 +5,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import get_test_impls
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
+
+# W: Q candidates; Np is synthetic from full chunks, not a traced value. P/C: K=4.
+perf_shape = [(4096, 1024), (8192, 2048)]
 
 HEAD_DIM = 128
 PAGE_SIZE = 128
@@ -94,6 +99,7 @@ def _make_inputs(
     n_from_tail_values,
     score_dtype,
     use_write_mask,
+    total_tokens=None,
 ):
     assert len(n_from_tail_values) == n_pools
     assert all(0 <= value <= pool_size for value in n_from_tail_values)
@@ -107,8 +113,16 @@ def _make_inputs(
         chunk_src_starts.append(chunk_rows)
         chunk_rows += pool_size - n_tail
 
-    # Keep one sentinel row valid for pools assembled entirely from tail state.
-    chunk_rows += 1
+    if total_tokens is None:
+        # Keep one sentinel row valid for pools assembled entirely from tail state.
+        chunk_rows += 1
+    else:
+        chunk_rows = total_tokens
+        chunk_src_starts = [row * (total_tokens // n_pools) for row in range(n_pools)]
+        assert all(
+            start + pool_size - n_tail <= total_tokens
+            for start, n_tail in zip(chunk_src_starts, n_from_tail_values)
+        )
     n_requests = max(4, (n_pools + 1) // 2)
     cache_pages = max(2, (n_pools + PAGE_SIZE) // PAGE_SIZE)
     cache_rows = cache_pages * PAGE_SIZE
@@ -172,6 +186,7 @@ def _run_accuracy_case(
     use_write_mask=False,
     use_noncontiguous_dynamic_inputs=False,
     num_programs=None,
+    total_tokens=None,
 ):
     initial_cache, inputs = _make_inputs(
         seed=seed,
@@ -181,6 +196,7 @@ def _run_accuracy_case(
         n_from_tail_values=n_from_tail_values,
         score_dtype=score_dtype,
         use_write_mask=use_write_mask,
+        total_tokens=total_tokens,
     )
     if use_noncontiguous_dynamic_inputs:
         dynamic_names = ["chunk_k", "chunk_score", "ape", "loc"]
@@ -192,9 +208,11 @@ def _run_accuracy_case(
     expected_cache = initial_cache.clone()
     actual_cache = initial_cache.clone()
     kpool_assemble_softmax_write_cache_torch(index_k_cache=expected_cache, **inputs)
+    impl, _ = get_test_impls()
     operator(
         index_k_cache=actual_cache,
         num_programs=num_programs,
+        impl=impl,
         **inputs,
     )
 
@@ -210,6 +228,27 @@ def _run_accuracy_case(
             EXACT_STANDARD,
             path="inactive_cache",
         )
+
+    snapshots = None
+    call_index = 0
+
+    def executor():
+        nonlocal snapshots, call_index
+        if snapshots is None:
+            snapshots = [initial_cache.clone() for _ in range(11)]
+        operator(
+            index_k_cache=snapshots[call_index],
+            num_programs=num_programs,
+            impl=impl,
+            **inputs,
+        )
+        call_index += 1
+
+    executor.func = operator
+    executor.impl = impl
+    executor.impl_ref = "torch_reference"
+    executor.accuracy_checked = True
+    check_performance(executor, enable_perf=(total_tokens, n_pools) in perf_shape)
 
 
 @pytest.mark.parametrize(
@@ -270,4 +309,28 @@ def test_grid_stride_when_pools_exceed_programs():
         n_from_tail_values=[(row * 5) % 17 for row in range(n_pools)],
         score_dtype=torch.bfloat16,
         num_programs=3,
+    )
+
+
+@pytest.mark.parametrize(
+    "total_tokens,n_pools",
+    [
+        pytest.param(4096, 1024, id="W-extend-q4096-np1024"),
+        pytest.param(8192, 2048, id="W-extend-q8192-np2048"),
+    ],
+)
+def test_extend_workload_accuracy_and_performance(total_tokens, n_pools):
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_assemble_softmax_write_cache_npu,
+    )
+
+    _run_accuracy_case(
+        kpool_assemble_softmax_write_cache_npu,
+        seed=400,
+        n_pools=n_pools,
+        pool_size=4,
+        tail_size=5,
+        n_from_tail_values=[2] * n_pools,
+        score_dtype=torch.bfloat16,
+        total_tokens=total_tokens,
     )

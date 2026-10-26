@@ -5,7 +5,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import get_test_impls
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
+
+# W: target-verify batch/draft candidates; compression remains enabled.
+perf_shape = [(64, 4), (64, 5)]
 
 HEAD_DIM = 128
 PAGE_SIZE = 128
@@ -216,11 +221,13 @@ def _run_accuracy_case(
         tail_score=expected_tail_score,
         **inputs,
     )
+    impl, _ = get_test_impls()
     operator(
         index_k_cache=actual_cache,
         tail_k=actual_tail_k,
         tail_score=actual_tail_score,
         num_programs=num_programs,
+        impl=impl,
         **inputs,
     )
 
@@ -270,6 +277,40 @@ def _run_accuracy_case(
             EXACT_STANDARD,
             path=f"invalid_tail_score[{batch}]",
         )
+
+    assert inputs["write_loc"].is_contiguous()
+    snapshots = None
+    call_index = 0
+
+    def executor():
+        nonlocal snapshots, call_index
+        if snapshots is None:
+            snapshots = [
+                (
+                    initial_cache.clone(),
+                    initial_tail_k.clone(),
+                    initial_tail_score.clone(),
+                )
+                for _ in range(11)
+            ]
+        perf_cache, perf_tail_k, perf_tail_score = snapshots[call_index]
+        call_index += 1
+        operator(
+            index_k_cache=perf_cache,
+            tail_k=perf_tail_k,
+            tail_score=perf_tail_score,
+            num_programs=num_programs,
+            impl=impl,
+            **inputs,
+        )
+
+    executor.func = operator
+    executor.impl = impl
+    executor.impl_ref = "torch_reference"
+    executor.accuracy_checked = True
+    check_performance(
+        executor, enable_perf=(batch_size, num_draft_tokens) in perf_shape
+    )
 
 
 @pytest.mark.parametrize(
@@ -349,4 +390,27 @@ def test_multiple_completed_pools():
         score_dtype=torch.float32,
         effective_n_values=[10, 10, 9, 0],
         num_programs=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "batch_size,num_draft_tokens",
+    [
+        pytest.param(64, 4, id="W-target-verify-b64-n4"),
+        pytest.param(64, 5, id="W-target-verify-b64-n5"),
+    ],
+)
+def test_target_verify_workload_accuracy_and_performance(batch_size, num_draft_tokens):
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_write_tail_and_maybe_compress_npu,
+    )
+
+    _run_accuracy_case(
+        kpool_write_tail_and_maybe_compress_npu,
+        seed=500,
+        batch_size=batch_size,
+        num_draft_tokens=num_draft_tokens,
+        pool_size=4,
+        write_start_values=[row % 4 for row in range(batch_size)],
+        score_dtype=torch.bfloat16,
     )

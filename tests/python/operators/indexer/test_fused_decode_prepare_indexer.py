@@ -3,7 +3,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
+
+# P/C: hidden=4096 and heads=32; W/T: batch and page-table widths.
+perf_shape = [(16, 4096, 32, 64), (64, 4096, 32, 129)]
 
 BF16_GEMM_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=1e-2, rtol=1e-2),
@@ -18,6 +22,8 @@ BF16_GEMM_STANDARD = {
         pytest.param(1, 256, 1, 1, id="single-block-single-head"),
         pytest.param(2, 512, 16, 4, id="exact-pool-hidden512"),
         pytest.param(65, 512, 8, 7, id="multi-batch-nonmultiple-pool"),
+        pytest.param(16, 4096, 32, 64, id="T-glm53-flash-b16-m64"),
+        pytest.param(64, 4096, 32, 129, id="W-glm53-flash-b64-m129"),
     ],
 )
 def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_blocks):
@@ -35,7 +41,7 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
         batch_size, num_blocks
     )
 
-    check_accuracy(
+    executor = check_accuracy(
         fused_decode_prepare_indexer,
         args=(x, weights_proj_weight, seqlens_32, block_tables),
         kwargs={
@@ -47,3 +53,5 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
         impl_ref="torch_native",
         standard=BF16_GEMM_STANDARD,
     )
+    shape = (batch_size, hidden_size, n_heads, num_blocks)
+    check_performance(executor, enable_perf=shape in perf_shape)
