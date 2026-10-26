@@ -1,8 +1,8 @@
 name: Agentic Workflow (PR Review)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited]
   pull_request_review_comment:
     types: [created, edited]
 
@@ -10,6 +10,7 @@ jobs:
   pr_review:
     if: |
       github.actor != 'github-actions[bot]' &&
+      github.event.issue.pull_request != null &&
       (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))
 
     runs-on: ubuntu-latest
