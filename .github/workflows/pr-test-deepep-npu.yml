@@ -928,6 +928,317 @@ jobs:
           --num-tests 10 \
           --weight-format NZ
 
+  test-megamoe-a3-cann920:
+    name: MegaMoe SR cases (A3, CANN 9.2.0)
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-800t-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Install dependencies
+        # lmsysorg cann9.2.0-a3 image ships torch/torch_npu (py3.12), so only build
+        # tools and python test deps are installed here (npu_ci_install_dependency.sh
+        # currently supports 9.0.0/9.1.0 only)
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          apt update -y && apt install -y build-essential cmake ccache ninja-build
+          python3 -m pip install --no-cache-dir ninja pybind11 pyyaml decorator scipy attrs psutil
+      - name: Prepare Deepep
+        run: |
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Align MegaMoe thresholds with SR acceptance (1e-4)
+        run: |
+          sed -i 's/"w4a8": 5e-3,/"w4a8": 1e-4,/; s/"w8a8": 2e-3,/"w8a8": 1e-4,/' ${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py
+          grep -n -A3 "DIFF_THRESHOLDS = {" ${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py
+      - name: Run MegaMoe SR cases (fail-isolated, one failure does not stop the rest)
+        timeout-minutes: 120
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/megamoe_sr_results.txt
+          : > ${RESULT_FILE}
+          run_case() {
+            local name="$1"; shift
+            echo "===== CASE: $name ====="
+            if timeout 1800 "$@"; then
+              echo "PASS  $name" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py
+          # TC_MEGAMOE_A3_001: activation x quant-mode orthogonal baseline (2x2)
+          run_case mega_tc001_situ_w4a8_default    python3 ${SCRIPT} --num-processes 8 --activation situ
+          run_case mega_tc001_situ_w8a8            python3 ${SCRIPT} --num-processes 8 --num-experts 64 --quant-mode w8a8 --activation situ --hccl-buffsize 200
+          run_case mega_tc001_swiglu_w4a8          python3 ${SCRIPT} --num-processes 8 --num-experts 64 --quant-mode w4a8 --activation swiglu --hccl-buffsize 200
+          run_case mega_tc001_swiglu_w8a8          python3 ${SCRIPT} --num-processes 8 --num-experts 64 --quant-mode w8a8 --activation swiglu --hccl-buffsize 200
+          # TC_MEGAMOE_A3_002: single-dim maxima + all-dims-max worst combo
+          run_case mega_tc002_topk16               python3 ${SCRIPT} --num-processes 8 --num-experts 64 --num-topk 16 --quant-mode w4a8 --activation swiglu --hccl-buffsize 200
+          run_case mega_tc002_experts1024          python3 ${SCRIPT} --num-processes 8 --num-experts 1024 --hccl-buffsize 2000
+          run_case mega_tc002_hidden8192           python3 ${SCRIPT} --num-processes 8 --hidden 8192 --hccl-buffsize 200
+          run_case mega_tc002_intermediate3584     python3 ${SCRIPT} --num-processes 8 --moe-intermediate-size 3584 --hccl-buffsize 200
+          run_case mega_tc002_all_dims_max         python3 ${SCRIPT} --num-processes 8 --num-topk 16 --num-experts 1024 --hidden 8192 --moe-intermediate-size 3584 --hccl-buffsize 2000
+          # TC_MEGAMOE_A3_003: single-rank capacity boundary 4096 + overflow negative 4097
+          run_case mega_tc003_capacity_4096        python3 ${SCRIPT} --num-processes 8 --quant-mode w8a8 --activation swiglu --hidden 8192 --num-topk 16 --num-experts 256 --num-tokens 4096 --hccl-buffsize 2000
+          run_expect_fail mega_tc003_capacity_4097_negative python3 ${SCRIPT} --num-processes 8 --quant-mode w8a8 --activation swiglu --hidden 8192 --num-topk 16 --num-experts 256 --num-tokens 4097 --hccl-buffsize 2000
+          echo "================ MegaMoe SR CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some MegaMoe SR cases FAILED"
+            exit 1
+          fi
+          echo "All MegaMoe SR cases passed"
+
+  test-deepep-a5-sr-cases:
+    name: A5 SR cases - FusedMoe K3 + ant migration (4-card, CANN 9.1.0)
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-amd64-a5-4
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-950-ubuntu22.04-py3.12
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    strategy:
+      matrix:
+        cann_version: [9.1.0]
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a5-cann${{ matrix.cann_version }}-py3.12-sr-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+      - name: Prepare Deepep
+        run: |
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
+          fi
+      - name: Run A5 FusedMoe K3 orthogonal baseline (TC_A5FUSEDMOE_K3_001, 4 processes)
+        timeout-minutes: 60
+        env:
+          HCCL_BUFFSIZE: 4096
+          HCCL_OP_EXPANSION_MODE: AIV
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_k3_tc001_results.txt
+          : > ${RESULT_FILE}
+          run_case() {
+            local name="$1"; shift
+            echo "===== CASE: $name ====="
+            if timeout 1800 "$@"; then
+              echo "PASS  $name" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a5.py
+          COMMON="--num-warmups 2 --num-tests 5 --hidden 8192 --moe-intermediate-size 3584 --num-topk 16 --num-experts 1024 --num-tokens 64"
+          # activation(situ/swiglu) x quant(fp8_e4m3/fp4_e2m1) orthogonal matrix, 8-card design adapted to 4 cards
+          run_case a5k3_tc001_situ_fp8     python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp8_e4m3
+          run_case a5k3_tc001_situ_fp4     python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1
+          run_case a5k3_tc001_swiglu_fp8   python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation swiglu --quant fp8_e4m3
+          run_case a5k3_tc001_swiglu_fp4   python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation swiglu --quant fp4_e2m1
+          run_case a5k3_tc001_situ_fp4_nz  python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1 --weight-format NZ
+          # determinism recheck: fixed profile (atol=0/rtol=0)
+          run_case a5k3_tc001_fixed_profile_determinism python3 ${SCRIPT} --num-processes 4 ${COMMON} --activation situ --quant fp4_e2m1 --fixed-profile-cases
+          echo "================ A5 K3 TC001 CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 K3 TC001 cases FAILED"
+            exit 1
+          fi
+          echo "All A5 K3 TC001 cases passed"
+      - name: Run A5 FusedMoe K3 spec limits (TC_A5FUSEDMOE_K3_002, 4 processes)
+        timeout-minutes: 60
+        env:
+          HCCL_BUFFSIZE: 4096
+          HCCL_OP_EXPANSION_MODE: AIV
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_k3_tc002_results.txt
+          : > ${RESULT_FILE}
+          run_case() {
+            local name="$1"; shift
+            echo "===== CASE: $name ====="
+            if timeout 1800 "$@"; then
+              echo "PASS  $name" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a5.py
+          COMMON="--num-warmups 2 --num-tests 5 --hidden 8192 --moe-intermediate-size 3584 --num-topk 16 --num-experts 1024"
+          # worst combo: bs=256 maxed + local experts 1024/4=256 maxed (4-card topology is the true worst case)
+          run_case a5k3_tc002_full_max_fp8      python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 256 --activation swiglu --quant fp8_e4m3
+          run_case a5k3_tc002_full_max_situ_fp4 python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 256 --activation situ --quant fp4_e2m1
+          # local experts 256 boundary (SR: local experts <= 256)
+          run_case a5k3_tc002_local_experts_256_boundary python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 64 --activation swiglu --quant fp8_e4m3
+          # uneven token distribution 224+-32 jitter (8-card design adapted to 4 cards)
+          run_case a5k3_tc002_token_jitter      python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 224 --num-token-jitter 32 --activation swiglu --quant fp8_e4m3
+          echo "================ A5 K3 TC002 CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 K3 TC002 cases FAILED"
+            exit 1
+          fi
+          echo "All A5 K3 TC002 cases passed"
+      - name: Run A5 FusedMoe K3 negative guards (TC_A5FUSEDMOE_K3_003)
+        timeout-minutes: 30
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_k3_tc003_results.txt
+          : > ${RESULT_FILE}
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a5.py
+          # parser-level rejections (process never launched)
+          run_expect_fail a5k3_tc003_bs_257_rejected          python3 ${SCRIPT} --num-processes 4 --num-tokens 257
+          run_expect_fail a5k3_tc003_topk_17_rejected         python3 ${SCRIPT} --num-processes 4 --num-topk 17
+          run_expect_fail a5k3_tc003_hidden_8448_rejected     python3 ${SCRIPT} --num-processes 4 --hidden 8448
+          run_expect_fail a5k3_tc003_intermediate_4096_rejected python3 ${SCRIPT} --num-processes 4 --moe-intermediate-size 4096
+          run_expect_fail a5k3_tc003_experts_1030_not_divisible_rejected python3 ${SCRIPT} --num-processes 4 --num-experts 1030
+          # tiling-level rejections (op_host layer after process launch)
+          run_expect_fail a5k3_tc003_experts_2048_over_tiling_max_rejected python3 ${SCRIPT} --num-processes 4 --num-experts 2048 --num-warmups 2 --num-tests 5 --hidden 1024 --moe-intermediate-size 1024 --num-topk 8
+          run_expect_fail a5k3_tc003_local_experts_512_over_limit_rejected python3 ${SCRIPT} --num-processes 2 --num-experts 1024 --num-warmups 2 --num-tests 5 --hidden 1024 --moe-intermediate-size 1024 --num-topk 8
+          echo "================ A5 K3 TC003 CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 K3 TC003 cases FAILED"
+            exit 1
+          fi
+          echo "All A5 K3 TC003 cases passed"
+      - name: Run A5 ant migration R/T matrix (TC_ANTMIG_A5_001, 4 processes)
+        timeout-minutes: 150
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_ant_tc001_results.txt
+          : > ${RESULT_FILE}
+          run_case() {
+            local name="$1"; shift
+            echo "===== CASE: $name ====="
+            if timeout 1740 "$@"; then
+              echo "PASS  $name" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_intranode.py
+          # R=rounds, T=per-round tokens; only env vars differ between configs (4-card: 256%4=0)
+          run_case ant_tc001_R32_T2048  env DEEPEP_NORMAL_LONG_SEQ_ROUND=32  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=2048 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          run_case ant_tc001_R64_T1024  env DEEPEP_NORMAL_LONG_SEQ_ROUND=64  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=1024 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          run_case ant_tc001_R128_T512  env DEEPEP_NORMAL_LONG_SEQ_ROUND=128 DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=512  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          run_case ant_tc001_R8_T8192_per_round_max  env DEEPEP_NORMAL_LONG_SEQ_ROUND=8    DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=8192 DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          run_case ant_tc001_R256_T256_rounds_max    env DEEPEP_NORMAL_LONG_SEQ_ROUND=256  DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=256  DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1 HCCL_BUFFSIZE=2000 python3 ${SCRIPT} --num-processes 4 --num-tokens 65536 --hidden=7168 --num-experts=256 --num-topk=8 --quant-type=bf16
+          echo "================ A5 Ant TC001 CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 ant migration TC001 cases FAILED"
+            exit 1
+          fi
+          echo "All A5 ant migration TC001 cases passed"
+      - name: Run A5 ant migration regression script (TC_ANTMIG_A5_002)
+        timeout-minutes: 60
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_ant_tc002_results.txt
+          : > ${RESULT_FILE}
+          if timeout 3480 bash ${GITHUB_WORKSPACE}/tests/python/deepep/run_a5_ant_migration_regression.sh; then
+            echo "PASS  ant_tc002_regression_script" >> ${RESULT_FILE}
+          else
+            rc=$?
+            if [ "$rc" -eq 124 ]; then echo "FAIL  ant_tc002_regression_script (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  ant_tc002_regression_script (exit=$rc)" >> ${RESULT_FILE}; fi
+          fi
+          echo "================ A5 Ant TC002 CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "A5 ant migration regression script FAILED"
+            exit 1
+          fi
+          echo "A5 ant migration regression script passed"
+
   finish:
     if: always()
     needs:
@@ -935,6 +1246,8 @@ jobs:
       - test-all-build-moe
       - test-build-deepep-a2
       - test-deepep-a5
+      - test-megamoe-a3-cann920
+      - test-deepep-a5-sr-cases
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
