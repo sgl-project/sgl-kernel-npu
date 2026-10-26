@@ -47,6 +47,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_cann_package.py")
     add_test(NAME cann.build_orchestration
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_cann_build.py")
+    add_test(NAME bitmask.native_reference_and_dispatch
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_bitmask_reference.py")
     add_test(NAME cann.torch_wheel_packaging
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_torch_wheel_build.py")
     return()

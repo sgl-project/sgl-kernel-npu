@@ -117,6 +117,8 @@ def benchmark_npu(executor, directory, warmup=5, active=5):
         raise ValueError("warmup and active must be positive")
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
+    if hasattr(executor, "prepare_calls"):
+        executor.prepare_calls(1 + warmup + active)
     executor()
     torch.npu.synchronize()
     with torch_npu.profiler.profile(
