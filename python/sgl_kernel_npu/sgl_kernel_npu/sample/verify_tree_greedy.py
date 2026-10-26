@@ -15,6 +15,7 @@ def verify_tree_greedy_kernel(
     target_predict,
     num_draft_tokens: tl.constexpr,
     pad_num_draft_tokens: tl.constexpr,
+    accept_index_stride: tl.constexpr,
 ):
     """
     predicts: [tot_num_draft_tokens] -> ((bs * (self.spec_steps + 1))
@@ -37,6 +38,9 @@ def verify_tree_greedy_kernel(
     """
     req_idx = tl.program_id(0)
     row_offset = req_idx * num_draft_tokens
+    # accept_index is [bs, max_tree_depth], not [bs, num_draft_tokens]: with a
+    # tree the two differ, and using num_draft_tokens here wrote past the row.
+    ai_row = req_idx * accept_index_stride
     tokens_offset = tl.arange(0, pad_num_draft_tokens)
     mask_draft_mask = tokens_offset < num_draft_tokens
 
@@ -46,7 +50,7 @@ def verify_tree_greedy_kernel(
 
     # Node 0 is the root: already accepted from the previous iteration.
     last_accepted_idx = al.get_element(cur_retrive_index, (0,))
-    tl.store(accept_index + req_idx * num_draft_tokens, last_accepted_idx)
+    tl.store(accept_index + ai_row, last_accepted_idx)
 
     num_accepted = tl.full((), 0, tl.int32)
     path_active = tl.full((), 1, tl.int32)
@@ -76,9 +80,7 @@ def verify_tree_greedy_kernel(
                     tl.store(predicts + last_accepted_idx, target_token.to(tl.int32))
                     num_accepted += 1
                     tl.store(
-                        accept_index
-                        + req_idx * num_draft_tokens
-                        + num_accepted,
+                        accept_index + ai_row + num_accepted,
                         draft_idx.to(tl.int32),
                     )
                     last_accepted_idx = draft_idx
@@ -121,4 +123,5 @@ def verify_tree_greedy(
         target_predict=target_predict,
         num_draft_tokens=num_draft_tokens,
         pad_num_draft_tokens=triton.next_power_of_2(num_draft_tokens),
+        accept_index_stride=accept_index.shape[1],
     )
