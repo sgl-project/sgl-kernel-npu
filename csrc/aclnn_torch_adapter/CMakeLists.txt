@@ -37,7 +37,7 @@ foreach(id IN LISTS selected)
     list(APPEND adapters "${adapter}")
 endforeach()
 separate_arguments(torch_flags NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
-foreach(target IN ITEMS sgl_kernel_npu sgl_kernel_npu_compare)
+foreach(target IN ITEMS sgl_kernel_npu)
     add_library(${target} SHARED ${adapters})
     target_compile_features(${target} PRIVATE cxx_std_17)
     target_compile_options(${target} PRIVATE ${torch_flags})
@@ -50,7 +50,6 @@ foreach(target IN ITEMS sgl_kernel_npu sgl_kernel_npu_compare)
     # Do not bake the build machine's absolute directories into the wheel.
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF
         CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
-        LIBRARY_OUTPUT_DIRECTORY "${SGL_TORCH_PACKAGE}/lib"
+        LIBRARY_OUTPUT_DIRECTORY "${SGL_TORCH_LIBRARY_DIR}"
         SKIP_BUILD_RPATH ON INSTALL_RPATH "")
 endforeach()
-target_compile_definitions(sgl_kernel_npu_compare PRIVATE SGL_CANN_COMPARE)

@@ -3,6 +3,7 @@
 import builtins
 import contextlib
 import io
+import json
 import os
 from pathlib import Path
 import runpy
@@ -28,13 +29,20 @@ class TorchWheelTests(unittest.TestCase):
         self.root.mkdir()
         shutil.copy2(ROOT / "config.ini", self.root)
         shutil.copy2(ROOT / "setup.py", self.root)
+        (self.root / "csrc/cmake").mkdir(parents=True)
+        shutil.copy2(ROOT / "csrc/cmake/architectures.json", self.root / "csrc/cmake")
         self.python = self.root / "python/sgl_kernel_npu"
         shutil.copytree(ROOT / "python/sgl_kernel_npu/build_tools", self.python / "build_tools",
                         ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(ROOT / "python/sgl_kernel_npu/setup.py", self.python)
+        shutil.copytree(ROOT / "python/sgl_kernel_npu/target_providers", self.python / "target_providers")
         source = self.python / "sgl_kernel_npu"
         source.mkdir()
         shutil.copy2(ROOT / "python/sgl_kernel_npu/sgl_kernel_npu/__init__.py", source / "__init__.py")
+        (source / "operators/sampler").mkdir(parents=True)
+        (source / "operators/sampler/fixture.py").write_text("def example(): return 42\n")
+        (source / "implementation/triton").mkdir(parents=True)
+        (source / "implementation/triton/fixture.py").write_text("# Python implementation fixture\n")
         directory = self.root / "build/cann"
         self.vendor = directory / "installed/vendors/sgl_kernel_npu"
         for name in ("op_api/lib/libcust_opapi.so", "op_api/include/aclnn_fixture.h",
@@ -49,10 +57,12 @@ class TorchWheelTests(unittest.TestCase):
     def staged(self):
         torch_wheel.stage_runtime(self.vendor, self.package, self.root)
         (self.package / "lib").mkdir()
-        for name in ("libsgl_kernel_npu.so", "libsgl_kernel_npu_compare.so"):
+        for name in ("libsgl_kernel_npu.so",):
             (self.package / "lib" / name).write_bytes(b"synthetic Torch library\n")
         (self.package / "_cann/selected-operators.txt").write_text("apply_token_bitmask\n")
-        (self.package / "_cann/arch-version.txt").write_text("ascend910_93\n")
+        (self.package / "_cann/arch-version.txt").write_text("2201\n")
+        (self.package / "_build_manifest.json").write_text(json.dumps({
+            "selection_kind": "custom", "operators": ["apply_token_bitmask"], "arch_version": "2201"}))
 
     def test_missing_cann_cannot_start_torch(self):
         self.cann.vendor = None
@@ -123,16 +133,22 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR
    NOT EXISTS "${SGL_CANN_VENDOR}/op_api/lib/libcust_opapi.so")
   message(FATAL_ERROR "Coordinator lost the CANN build selection or vendor")
 endif()
-foreach(target IN ITEMS sgl_kernel_npu sgl_kernel_npu_compare)
+foreach(target IN ITEMS sgl_kernel_npu)
   add_library(${target} SHARED fixture.cpp)
-  set_target_properties(${target} PROPERTIES SUFFIX ".so" LIBRARY_OUTPUT_DIRECTORY "${SGL_TORCH_PACKAGE}/lib")
+  set_target_properties(${target} PROPERTIES SUFFIX ".so" LIBRARY_OUTPUT_DIRECTORY "${SGL_TORCH_LIBRARY_DIR}")
 endforeach()
 ''')
         with contextlib.redirect_stdout(io.StringIO()):
             result = torch_wheel.build_torch(self.cann, "2201", jobs=2, source_root=self.root)
         self.assertEqual(result, self.package)
-        self.assertTrue((result / "lib/libsgl_kernel_npu_compare.so").is_file())
+        self.assertFalse((result / "lib/libsgl_kernel_npu_compare.so").exists())
         self.assertEqual((result / "_cann/selected-operators.txt").read_text(), "apply_token_bitmask\n")
+        library = self.root / "build/torch/lib/libsgl_kernel_npu.so"
+        timestamp = library.stat().st_mtime_ns
+        with contextlib.redirect_stdout(io.StringIO()):
+            torch_wheel.build_torch(self.cann, "2201", jobs=2, source_root=self.root)
+        self.assertEqual(library.stat().st_mtime_ns, timestamp, "Unchanged Torch build relinked the library")
+
 
     def test_torch_build_failure_does_not_report_a_package(self):
         with patch.object(torch_wheel, "run", side_effect=RuntimeError("compile failed")):
@@ -154,6 +170,10 @@ endforeach()
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
             self.assertFalse(any("compare" in name for name in names))
+            self.assertIn("sgl_kernel_npu/operators/sampler/fixture.py", names)
+            self.assertIn("sgl_kernel_npu/implementation/triton/fixture.py", names)
+            self.assertIn("sgl_kernel_npu/norm/gemma_rmsnorm.py", names)
+            self.assertIn("1refactor2201custom", wheel.name)
             self.assertFalse(any(name.endswith(".run") for name in names))
             metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA")))
             self.assertIn(b"torch", metadata)
@@ -162,6 +182,22 @@ endforeach()
         (staged / "lib/libsgl_kernel_npu.so").write_bytes(b"wrong build")
         with self.assertRaisesRegex(RuntimeError, "differs from this build"):
             torch_wheel.verify_wheel(wheel, staged)
+
+    def test_custom_build_tag_is_order_independent(self):
+        manifest = {"selection_kind": "custom", "operators": ["b", "a"], "arch_version": "2201"}
+        tag = torch_wheel.wheel_build_tag(manifest)
+        manifest["operators"].reverse()
+        self.assertEqual(tag, torch_wheel.wheel_build_tag(manifest))
+        manifest["selection_kind"] = "all"
+        self.assertEqual(torch_wheel.wheel_build_tag(manifest), "1refactor2201all")
+
+    def test_restage_discards_stale_python_and_native_files(self):
+        self.staged()
+        stale = self.package / "operators/removed.py"
+        stale.write_text("# removed operator")
+        torch_wheel.stage_runtime(self.vendor, self.package, self.root)
+        self.assertFalse(stale.exists())
+        self.assertFalse((self.package / "lib").exists())
 
     def test_declarations_only_is_not_an_artifact(self):
         from build_tools.refactor import arguments

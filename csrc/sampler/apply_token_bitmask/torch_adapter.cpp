@@ -4,10 +4,19 @@
 #include "aclnn_runtime.h"
 #include "aclnn_sgl_apply_token_bit_mask.h"
 #include <torch/library.h>
+#include <c10/core/DeviceGuard.h>
+#include <limits>
 
 namespace {
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optional<at::Tensor> indices)
 {
+    TORCH_CHECK(logits.device().type() == c10::DeviceType::PrivateUse1, "logits must be on an NPU");
+    TORCH_CHECK(bitmask.device() == logits.device(), "logits and bitmask must be on the same NPU");
+    if (indices.has_value() && indices->defined() && indices->numel() > 0) {
+        TORCH_CHECK(indices->device().is_cpu() || indices->device() == logits.device(),
+                    "indices must be on CPU or the same NPU as logits");
+    }
+    const c10::DeviceGuard deviceGuard(logits.device());
     // Input validation
     TORCH_CHECK(logits.dim() == 2, "logits must be 2D, got ", logits.dim(), "D tensor");
     TORCH_CHECK(bitmask.dim() == 2, "bitmask must be 2D, got ", bitmask.dim(), "D tensor");
@@ -94,6 +103,8 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optio
     aclOpExecutor* executor = nullptr;
     auto status = query(logitsDesc.get(), maskDesc.get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "Bitmask workspace query failed: ", aclGetRecentErrMsg());
+    TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+                "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, workingLogits.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
     workingLogits.record_stream(stream);
@@ -122,22 +133,11 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optio
 
 }  // namespace
 
-#ifdef SGL_CANN_COMPARE
-TORCH_LIBRARY_FRAGMENT(sgl_kernel_npu_compare, m)
-{
-    m.def("apply_token_bitmask_cann(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
-}
-TORCH_LIBRARY_IMPL(sgl_kernel_npu_compare, PrivateUse1, m)
-{
-    m.impl("apply_token_bitmask_cann", &apply_token_bitmask);
-}
-#else
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
-    m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
+    m.def("apply_token_bitmask(Tensor(a!) logits, Tensor bitmask, Tensor? indices=None) -> Tensor(a!)");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("apply_token_bitmask", &apply_token_bitmask);
 }
-#endif

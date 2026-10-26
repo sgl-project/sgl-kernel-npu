@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "python/sgl_kernel_npu"
 
 if __name__ == "__main__":
     if os.environ.get("SGL_REFACTOR_STAGED_PACKAGE"):
-        from build_tools.torch_wheel import setup_cann
-        setup_cann()
+        from build_tools.torch_wheel import setup_refactor
+        setup_refactor()
     else:
         from build_tools.refactor import main
         try:

@@ -1,30 +1,10 @@
-"""NPU acceptance for the comparison extension or the installed CANN wheel."""
+"""57-case NPU acceptance for the installed REFACTOR wheel."""
 
-import argparse
 import importlib.metadata
-import os
 from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--compare-library", type=Path,
-                        help="load this new library alongside the installed legacy package")
-    args = parser.parse_args()
-    if args.compare_library:
-        library = args.compare_library.resolve(strict=True)
-        package = library.parent.parent
-        # Comparison setup belongs to this test, not the installed package API.
-        vendor = package / "_cann/vendors/sgl_kernel_npu"
-        opapi = vendor / "op_api/lib/libcust_opapi.so"
-        if not opapi.is_file():
-            raise RuntimeError("The comparison package is missing its CANN library: {}".format(opapi))
-        paths = os.environ.get("ASCEND_CUSTOM_OPP_PATH", "").split(os.pathsep)
-        os.environ["ASCEND_CUSTOM_OPP_PATH"] = os.pathsep.join(
-            [str(vendor)] + [path for path in paths if path and path != str(vendor)])
-        print("COMPARE_LIBRARY:", library)
-        print("CANN_VENDOR:", vendor)
-
     import torch
     import torch_npu
     import sgl_kernel_npu
@@ -32,18 +12,10 @@ def main():
     print("PACKAGE:", sgl_kernel_npu.__file__)
     print("PACKAGE_VERSION:", importlib.metadata.version("sgl_kernel_npu"))
     print("TORCH:", torch.__version__, "TORCH_NPU:", torch_npu.__version__)
-    if args.compare_library:
-        if (Path(sgl_kernel_npu.__file__).parent / "_cann").exists():
-            raise RuntimeError("Comparison requires the legacy package, not the new CANN wheel")
-        torch.ops.load_library(str(library))
-        new = torch.ops.sgl_kernel_npu_compare.apply_token_bitmask_cann
-        old = torch.ops.npu.apply_token_bitmask
-    else:
-        if not (Path(sgl_kernel_npu.__file__).parent / "_cann").is_dir():
-            raise RuntimeError("Wheel test imported a legacy or source-tree package")
-        print("CANN_VENDOR:", Path(sgl_kernel_npu.__file__).parent / "_cann/vendors/sgl_kernel_npu")
-        new = torch.ops.npu.apply_token_bitmask
-        old = None
+    if not (Path(sgl_kernel_npu.__file__).parent / "_cann").is_dir():
+        raise RuntimeError("Wheel test imported a legacy or source-tree package")
+    print("CANN_VENDOR:", Path(sgl_kernel_npu.__file__).parent / "_cann/vendors/sgl_kernel_npu")
+    new = torch.ops.npu.apply_token_bitmask
 
     generator = torch.Generator().manual_seed(20261022)
     modes = ("all_masked", "all_unmasked", "half_masked", "random")
@@ -73,7 +45,7 @@ def main():
         rows = torch.arange(batch) if indices is None or indices.numel() == 0 else indices.long()
         expected[rows] = expected[rows].masked_fill(~allowed[rows], float("-inf"))
         outputs = []
-        for implementation in ([old, new] if old is not None else [new]):
+        for implementation in [new]:
             values = logits.npu()
             bits = mask.npu()
             selected = indices.npu() if indices is not None else None
@@ -86,8 +58,6 @@ def main():
             if selected is not None:
                 assert torch.equal(selected.cpu(), indices), "indices was modified"
             outputs.append(result.cpu())
-        if old is not None:
-            check(outputs[1], outputs[0])
         count += 1
         print(f"PASS: shape={shape} dtype={dtype} mask={mode} indices={label}", flush=True)
 
@@ -100,7 +70,7 @@ def main():
         case((4, 320), dtype, "random", torch.arange(4, dtype=torch.int32), "all")
         case((4, 320), dtype, "random", torch.empty(0, dtype=torch.int32), "empty-means-all")
     torch.npu.synchronize()
-    kind = "same-process legacy/CANN" if old is not None else "installed CANN wheel"
+    kind = "installed REFACTOR wheel"
     print(f"PASS: {count}/57 {kind} cases")
 
 
