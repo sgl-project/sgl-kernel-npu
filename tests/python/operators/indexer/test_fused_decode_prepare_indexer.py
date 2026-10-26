@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.standards import AccuracyStandard
 
 BF16_GEMM_STANDARD = {
@@ -10,45 +10,20 @@ BF16_GEMM_STANDARD = {
 }
 
 
-def _fused_decode_prepare_indexer_torch(
-    x,
-    weights_proj_weight,
-    seqlens_32,
-    block_tables,
-    pool_size,
-    n_heads_pow,
-    softmax_scale,
-):
-    """Independent Torch reference, including right-side page-table padding."""
-    w = ((x.float() @ weights_proj_weight.T) * (n_heads_pow * softmax_scale)).to(
-        torch.bfloat16
-    )
-    pool_seqlens = torch.div(seqlens_32, pool_size, rounding_mode="floor").to(
-        torch.int32
-    )
-
-    batch_size, num_blocks = block_tables.shape
-    padded_blocks = -(-num_blocks // pool_size) * pool_size or pool_size
-    dummy = torch.zeros(
-        (batch_size, padded_blocks - num_blocks), dtype=block_tables.dtype
-    )
-    padded = torch.cat((block_tables, dummy), dim=-1)
-    pool_block_tables = padded.view(batch_size, padded_blocks // pool_size, pool_size)[
-        :, :, 0
-    ].contiguous()
-    return w, pool_seqlens, pool_block_tables
-
-
 @pytest.mark.parametrize(
-    "num_blocks", [5, 129], ids=["single-vv-tile", "cross-vv-tile"]
+    "batch_size,hidden_size,n_heads,num_blocks",
+    [
+        pytest.param(33, 256, 32, 5, id="single-vv-tile"),
+        pytest.param(33, 256, 32, 129, id="cross-vv-tile"),
+        pytest.param(1, 256, 1, 1, id="single-block-single-head"),
+        pytest.param(2, 512, 16, 4, id="exact-pool-hidden512"),
+        pytest.param(65, 512, 8, 7, id="multi-batch-nonmultiple-pool"),
+    ],
 )
-def test_fused_decode_prepare_indexer(num_blocks):
+def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_blocks):
     from sgl_kernel_npu.operators.indexer import fused_decode_prepare_indexer
 
     torch.manual_seed(1234)
-    batch_size = 33
-    hidden_size = 256
-    n_heads = 32
     pool_size = 4
     n_heads_pow = n_heads**-0.5
     softmax_scale = 128**-0.5
@@ -60,24 +35,15 @@ def test_fused_decode_prepare_indexer(num_blocks):
         batch_size, num_blocks
     )
 
-    actual = fused_decode_prepare_indexer(
-        x,
-        weights_proj_weight,
-        seqlens_32,
-        block_tables,
-        pool_size=pool_size,
-        n_heads_pow=n_heads_pow,
-        softmax_scale=softmax_scale,
+    check_accuracy(
+        fused_decode_prepare_indexer,
+        args=(x, weights_proj_weight, seqlens_32, block_tables),
+        kwargs={
+            "pool_size": pool_size,
+            "n_heads_pow": n_heads_pow,
+            "softmax_scale": softmax_scale,
+        },
+        impl="triton",
+        impl_ref="torch_native",
+        standard=BF16_GEMM_STANDARD,
     )
-    expected = _fused_decode_prepare_indexer_torch(
-        x,
-        weights_proj_weight,
-        seqlens_32,
-        block_tables,
-        pool_size,
-        n_heads_pow,
-        softmax_scale,
-    )
-
-    # BF16 GEMM uses an explicit tolerance; both integer outputs are exact.
-    assert_accuracy(actual, expected, BF16_GEMM_STANDARD)
