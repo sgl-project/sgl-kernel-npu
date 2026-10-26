@@ -179,11 +179,17 @@ std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
 
     KvQuantSASTilingInfo info;
     KvQuantSASInfoParser parser(context.get());
-    TORCH_CHECK(parser.Parse(info) == ge::GRAPH_SUCCESS, opName, ": parsing tiling inputs failed");
+    kv_quant_sas_log::ClearLastError();
+    TORCH_CHECK(parser.Parse(info) == ge::GRAPH_SUCCESS, opName, ": parsing tiling inputs failed: ",
+                kv_quant_sas_log::LastError());
     KvQuantSASTilingCheck checker(info);
-    TORCH_CHECK(checker.Process() == ge::GRAPH_SUCCESS, opName, ": tiling validation failed");
+    kv_quant_sas_log::ClearLastError();
+    TORCH_CHECK(checker.Process() == ge::GRAPH_SUCCESS, opName, ": tiling validation failed: ",
+                kv_quant_sas_log::LastError());
     KvQuantSparseAttnSharedkvTiling tiling(context.get());
-    TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, opName, ": tiling failed");
+    kv_quant_sas_log::ClearLastError();
+    TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, opName, ": tiling failed: ",
+                kv_quant_sas_log::LastError());
 
     auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData());
     auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, q.options().dtype(at::kByte));

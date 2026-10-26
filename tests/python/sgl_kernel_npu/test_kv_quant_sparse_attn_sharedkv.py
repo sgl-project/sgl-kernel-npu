@@ -141,6 +141,17 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "q must be bfloat16"):
             torch.ops.npu.kv_quant_sparse_attn_sharedkv(q)
 
+    def test_tiling_error_reports_invalid_head_count(self):
+        inputs, *_ = self._make_paged_swa_inputs(q_length=1, ori_win_left=127)
+        inputs["q"] = inputs["q"][:, :, :32, :].contiguous()
+        inputs["sinks"] = inputs["sinks"][:32].contiguous()
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"tiling validation failed: n1Size_ only support 64 and 128 now, "
+            r"but got 32",
+        ):
+            torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+
     def _make_paged_swa_inputs(self, q_length, ori_win_left):
         device = self.device
         block_count, block_size, kv_length = 20, 16, 256

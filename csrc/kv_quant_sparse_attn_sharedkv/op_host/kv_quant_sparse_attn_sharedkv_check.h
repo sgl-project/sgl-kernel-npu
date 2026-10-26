@@ -16,6 +16,8 @@
 #define KV_QUANT_SPARSE_ATTN_SHAREDKV_CHECK_H
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <iterator>
 #include <limits>
@@ -30,15 +32,52 @@
 #include "tiling/tiling_api.h"
 #include "ge_helper.h"
 
-// The direct-launch port reports a failed host check through its torch wrapper.
-#ifndef OP_LOGE
-#define OP_LOGE(opName, fmt, ...) ((void)0)
+// Preserve CANN tiling diagnostics when a check fails in the direct-launch path.
+// Keep informational messages opt-in to avoid logging on every inference step.
+namespace kv_quant_sas_log {
+inline std::string &LastError()
+{
+    static thread_local std::string error;
+    return error;
+}
+
+inline void ClearLastError()
+{
+    LastError().clear();
+}
+
+template <typename... Args>
+inline void Error(const char *opName, const char *format, Args... args)
+{
+    char message[1024];
+    std::snprintf(message, sizeof(message), format, args...);
+    LastError() = message;
+    std::fprintf(stderr, "[%s] %s\n", opName, message);
+}
+
+template <typename... Args>
+inline void Info(const char *opName, const char *format, Args... args)
+{
+    const char *enabled = std::getenv("SGL_KERNEL_KV_QUANT_SAS_LOG_INFO");
+    if (enabled == nullptr || enabled[0] != '1' || enabled[1] != '\0') {
+        return;
+    }
+    std::fprintf(stderr, "[%s] ", opName);
+    std::fprintf(stderr, format, args...);
+    std::fprintf(stderr, "\n");
+}
+}  // namespace kv_quant_sas_log
+
+#ifdef OP_LOGE
+#undef OP_LOGE
 #endif
-#ifndef OP_LOGI
-#define OP_LOGI(opName, fmt, ...) ((void)0)
+#define OP_LOGE(opName, ...) kv_quant_sas_log::Error(opName, __VA_ARGS__)
+#ifdef OP_LOGI
+#undef OP_LOGI
 #endif
+#define OP_LOGI(opName, ...) kv_quant_sas_log::Info(opName, __VA_ARGS__)
 #ifndef OPS_REPORT_VECTOR_INNER_ERR
-#define OPS_REPORT_VECTOR_INNER_ERR(opName, message) ((void)0)
+#define OPS_REPORT_VECTOR_INNER_ERR(opName, message) OP_LOGE(opName, "%s", message)
 #endif
 #ifndef OP_CHECK_IF
 #define OP_CHECK_IF(condition, logExpr, action) \
