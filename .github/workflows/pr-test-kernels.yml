@@ -179,7 +179,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -236,7 +236,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -293,7 +293,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -350,7 +350,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -407,7 +407,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -464,7 +464,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -521,7 +521,7 @@ jobs:
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'cann9.0.0-a3-20260915' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
