@@ -207,7 +207,7 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
     expected_out, expected_scratch, _ = _torch_target_verify_reference(
         x_before,
         conv_state_before,
-        weight,
+        weight.transpose(0, 1).contiguous(),
         None,
         "silu",
         conv_state_indices,

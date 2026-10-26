@@ -28,7 +28,7 @@ run_test() {
                     python3 -m pytest "$test_file" -q -x --enable-perf=false
             ) || exit_code=$?
         else
-            python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
+            python3 -m pytest "$test_file" -q -x || exit_code=$?
         fi
     else
         # Plain script (e.g. test_hello_world.py): run it directly
