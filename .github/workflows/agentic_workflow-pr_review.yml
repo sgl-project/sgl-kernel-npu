@@ -1,17 +1,25 @@
 name: Agentic Workflow (PR Review)
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
-    types: [created, edited]
+    types: [created]
   pull_request_review_comment:
-    types: [created, edited]
+    types: [created]
 
 jobs:
   pr_review:
     if: |
       github.actor != 'github-actions[bot]' &&
-      github.event.issue.pull_request != null &&
-      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))
+      (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null &&
+          (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+        (github.event_name == 'pull_request_review_comment' &&
+          (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')))
+      )
 
     runs-on: ubuntu-latest
 
@@ -21,12 +29,13 @@ jobs:
       pull-requests: write
 
     concurrency:
-      group: pr_review-${{ github.event.pull_request.number }}
+      group: pr_review-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: true
 
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: refs/pull/${{ github.event.issue.number || github.event.pull_request.number }}/merge
           persist-credentials: false
 
       - uses: anomalyco/opencode/github@latest
