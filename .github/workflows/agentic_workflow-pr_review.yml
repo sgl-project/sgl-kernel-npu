@@ -40,32 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: refs/pull/${{ github.event.issue.number || github.event.pull_request.number }}/merge
           persist-credentials: false
-
-      - name: Prepare PR diff
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > pr.diff
-
-      # Review-only guard rails for the agent, scoped to this runner only
-      # (global config, not the repo). Prevents a repeat of run 40301260130
-      # where the agent tried to `git commit` on the runner. Explicit "deny"
-      # rules are enforced even in non-interactive mode.
-      - name: Lock opencode to review-only permissions
-        run: |
-          mkdir -p ~/.config/opencode
-          cat > ~/.config/opencode/opencode.json <<'JSON'
-          {
-            "$schema": "https://opencode.ai/config.json",
-            "permission": {
-              "edit": "deny",
-              "bash": {
-                "git *": "deny"
-              }
-            }
-          }
-          JSON
 
       - uses: anomalyco/opencode/github@latest
         env:
@@ -76,8 +52,6 @@ jobs:
           model: zhipuai-coding-plan/glm-5.3-flash
           prompt: |
             Review this pull request (number ${{ github.event.issue.number || github.event.pull_request.number }}):
-            - The full PR diff is in the file `pr.diff` in the working directory — read it first.
-            - This is a read-only review task. Do NOT modify, create, or delete any files. Do NOT run any git commands (no git add, git commit, git push, git checkout, git stash, git config, etc.). Only read code and produce your review.
             - Check for code quality issues
             - Look for potential bugs
             - Suggest improvements
