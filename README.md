@@ -93,7 +93,7 @@ If you need to access Ascend NPU computing resources for development or testing,
 Choose the build path:
 
 - **Existing whole-repository build:** `bash build.sh` (the default `LEGACY` mode). Initialize the submodules below first.
-- **Selected CANN operators:** explicitly choose a hardware family and registered operators, then build a `.run`, Torch libraries, or a bundled wheel. See the [end-to-end CANN build guide](python/sgl_kernel_npu/README.md#selected-cann-operator-builds). Only `apply_token_bitmask` is migrated so far; `all` selects supported migrated operators, not the entire legacy repository.
+- **REFACTOR builds:** explicitly choose an architecture and migrated operators to build a CANN `.run` or complete wheel. See the [build and validation guide](python/sgl_kernel_npu/README.md#refactor-builds). Only `apply_token_bitmask` is migrated so far; `all` selects supported migrated operators, not the complete legacy native repository.
 
 Before the legacy whole-repository build, initialize the submodules:
 ```bash

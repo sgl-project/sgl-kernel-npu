@@ -20,9 +20,9 @@ class KernelApplyTokenBitmask
 public:
     __aicore__ inline KernelApplyTokenBitmask() {}
 
-    __aicore__ inline void Init(GM_ADDR logitsGmAddr, GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows, uint32_t vocabSize,
-                                uint32_t logitsStride, uint32_t bitmaskStride, uint32_t baseRows, uint32_t extraCores,
-                                uint32_t tileLength, uint32_t blockDim, uint32_t dtypeSize)
+    __aicore__ inline void Init(GM_ADDR logitsGmAddr, GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows,
+                                uint32_t vocabSize, uint32_t logitsStride, uint32_t bitmaskStride, uint32_t baseRows,
+                                uint32_t extraCores, uint32_t tileLength, uint32_t blockDim, uint32_t dtypeSize)
     {
         this->numRows = numRows;
         this->vocabSize = vocabSize;
@@ -155,13 +155,13 @@ private:
     uint32_t localRows;
 };
 
-extern "C" __global__ __aicore__ void sgl_apply_token_bit_mask(
-    GM_ADDR logits, GM_ADDR bitmask, GM_ADDR logitsRef, GM_ADDR workspace, GM_ADDR tiling)
+extern "C" __global__ __aicore__ void sgl_apply_token_bit_mask(GM_ADDR logits, GM_ADDR bitmask, GM_ADDR logitsRef,
+                                                               GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(optiling::SglApplyTokenBitMaskTilingData);
     GET_TILING_DATA(data, tiling);
     KernelApplyTokenBitmask<DTYPE_LOGITS> op;
-    op.Init(logits, bitmask, logitsRef, data.numRows, data.vocabSize, data.logitsStride,
-            data.bitmaskStride, data.baseRows, data.extraCores, data.tileLength, data.blockDim, data.dtypeSize);
+    op.Init(logits, bitmask, logitsRef, data.numRows, data.vocabSize, data.logitsStride, data.bitmaskStride,
+            data.baseRows, data.extraCores, data.tileLength, data.blockDim, data.dtypeSize);
     op.Process();
 }

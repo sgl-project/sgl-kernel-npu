@@ -101,7 +101,9 @@ class _FreshInputExecutor:
             try:
                 args, kwargs = next(self._prepared)
             except StopIteration as error:
-                raise RuntimeError("Prepared in-place inputs exhausted; prepare_calls before another benchmark") from error
+                raise RuntimeError(
+                    "Prepared in-place inputs exhausted; prepare_calls before another benchmark"
+                ) from error
         return self.func(*args, **kwargs, impl=self.impl)
 
 
@@ -152,7 +154,9 @@ def check_accuracy(
     args = tuple(args)
     if input_factory is not None:
         if args or kwargs or not callable(input_factory):
-            raise ValueError("input_factory must be callable and cannot be combined with args/kwargs")
+            raise ValueError(
+                "input_factory must be callable and cannot be combined with args/kwargs"
+            )
         executor = _FreshInputExecutor(operator, impl, input_factory)
     else:
         executor = partial(operator, *args, **kwargs, impl=impl)

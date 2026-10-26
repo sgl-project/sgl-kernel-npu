@@ -12,30 +12,35 @@
 
 namespace optiling {
 
-static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext* context)
+static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext *context)
 {
-    const auto* logits = context->GetInputShape(0);
-    const auto* bitmask = context->GetInputShape(1);
-    const auto* logitsDesc = context->GetInputDesc(0);
-    const auto* bitmaskDesc = context->GetInputDesc(1);
+    const auto *logits = context->GetInputShape(0);
+    const auto *bitmask = context->GetInputShape(1);
+    const auto *logitsDesc = context->GetInputDesc(0);
+    const auto *bitmaskDesc = context->GetInputDesc(1);
     if (!logits || !bitmask || !logitsDesc || !bitmaskDesc || !context->GetPlatformInfo()) {
         return ge::GRAPH_FAILED;
     }
-    const auto& logitsShape = logits->GetStorageShape();
-    const auto& bitmaskShape = bitmask->GetStorageShape();
+    const auto &logitsShape = logits->GetStorageShape();
+    const auto &bitmaskShape = bitmask->GetStorageShape();
     // Validate the existing Kernel's working-tensor contract, not the public Torch input.
-    if (logitsShape.GetDimNum() != 2 || bitmaskShape.GetDimNum() != 2 ||
-        logitsShape.GetDim(0) < 0 || logitsShape.GetDim(0) != bitmaskShape.GetDim(0) ||
-        logitsShape.GetDim(1) <= 0 || logitsShape.GetDim(1) % 256 != 0 ||
-        bitmaskShape.GetDim(1) < logitsShape.GetDim(1) / 32 || bitmaskDesc->GetDataType() != ge::DT_INT32) {
+    if (logitsShape.GetDimNum() != 2 || bitmaskShape.GetDimNum() != 2 || logitsShape.GetDim(0) < 0 ||
+        logitsShape.GetDim(0) != bitmaskShape.GetDim(0) || logitsShape.GetDim(1) <= 0 ||
+        logitsShape.GetDim(1) % 256 != 0 || bitmaskShape.GetDim(1) < logitsShape.GetDim(1) / 32 ||
+        bitmaskDesc->GetDataType() != ge::DT_INT32) {
         return ge::GRAPH_FAILED;
     }
     int64_t dtypeSize = 0;
     switch (logitsDesc->GetDataType()) {
-        case ge::DT_FLOAT: dtypeSize = 4; break;
+        case ge::DT_FLOAT:
+            dtypeSize = 4;
+            break;
         case ge::DT_FLOAT16:
-        case ge::DT_BF16: dtypeSize = 2; break;
-        default: return ge::GRAPH_FAILED;
+        case ge::DT_BF16:
+            dtypeSize = 2;
+            break;
+        default:
+            return ge::GRAPH_FAILED;
     }
     platform_ascendc::PlatformAscendC platform(context->GetPlatformInfo());
     uint64_t ubSize = 0;
@@ -46,8 +51,8 @@ static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext* context)
     const int64_t coreNum = platform.GetCoreNumAiv();
     constexpr uint64_t maxIndex = std::numeric_limits<uint32_t>::max();
     if (coreNum <= 0 || static_cast<uint64_t>(numIndices) > maxIndex ||
-        static_cast<uint64_t>(paddedVocabSize) > maxIndex ||
-        static_cast<uint64_t>(bitmaskStride) > maxIndex) return ge::GRAPH_FAILED;
+        static_cast<uint64_t>(paddedVocabSize) > maxIndex || static_cast<uint64_t>(bitmaskStride) > maxIndex)
+        return ge::GRAPH_FAILED;
     if (numIndices > 0 &&
         ((static_cast<uint64_t>(numIndices) * paddedVocabSize - 1) > maxIndex ||
          ((static_cast<uint64_t>(numIndices) - 1) * bitmaskStride + paddedVocabSize / 32 - 1) > maxIndex)) {
@@ -62,7 +67,7 @@ static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext* context)
     constexpr int32_t hostBufferNum = 2;
     uint64_t usableUb = (ubSize > 16384) ? (ubSize - 16384) : ubSize;
     int64_t bytesPerUnit = static_cast<int64_t>(hostBufferNum) *
-                          (2 * ALIGN_UNIT * dtypeSize + (ALIGN_UNIT / 32) * static_cast<int64_t>(sizeof(int32_t)));
+                           (2 * ALIGN_UNIT * dtypeSize + (ALIGN_UNIT / 32) * static_cast<int64_t>(sizeof(int32_t)));
     if (usableUb < static_cast<uint64_t>(bytesPerUnit)) return ge::GRAPH_FAILED;
     uint32_t tileLength =
         static_cast<uint32_t>((usableUb / static_cast<uint64_t>(bytesPerUnit)) * static_cast<uint64_t>(ALIGN_UNIT));
@@ -74,12 +79,12 @@ static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext* context)
     }
 
     if (static_cast<uint64_t>(paddedVocabSize) + tileLength - 1 > maxIndex) return ge::GRAPH_FAILED;
-    auto* raw = context->GetRawTilingData();
-    auto* workspace = context->GetWorkspaceSizes(1);
+    auto *raw = context->GetRawTilingData();
+    auto *workspace = context->GetWorkspaceSizes(1);
     if (!raw || !raw->GetData() || raw->GetCapacity() < sizeof(SglApplyTokenBitMaskTilingData) || !workspace) {
         return ge::GRAPH_FAILED;
     }
-    auto* tiling = context->GetTilingData<SglApplyTokenBitMaskTilingData>();
+    auto *tiling = context->GetTilingData<SglApplyTokenBitMaskTilingData>();
     if (!tiling) return ge::GRAPH_FAILED;
     tiling->numRows = static_cast<uint32_t>(numIndices);
     tiling->vocabSize = static_cast<uint32_t>(paddedVocabSize);
@@ -97,29 +102,29 @@ static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext* context)
     return ge::GRAPH_SUCCESS;
 }
 
-
 }  // namespace optiling
 
 namespace ops {
 
-static ge::graphStatus InferShape(gert::InferShapeContext* context)
+static ge::graphStatus InferShape(gert::InferShapeContext *context)
 {
-    const auto* input = context->GetInputShape(0);
-    auto* output = context->GetOutputShape(0);
+    const auto *input = context->GetInputShape(0);
+    auto *output = context->GetOutputShape(0);
     if (!input || !output) return ge::GRAPH_FAILED;
     *output = *input;
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferDataType(gert::InferDataTypeContext* context)
+static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(0));
     return ge::GRAPH_SUCCESS;
 }
 
-class SglApplyTokenBitMask : public OpDef {
+class SglApplyTokenBitMask : public OpDef
+{
 public:
-    explicit SglApplyTokenBitMask(const char* name) : OpDef(name)
+    explicit SglApplyTokenBitMask(const char *name) : OpDef(name)
     {
         // These are the working tensors prepared by the existing caller.
         this->Input("logits")
@@ -140,7 +145,7 @@ public:
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->SetInferShape(InferShape).SetInferDataType(InferDataType);
         this->AICore().SetTiling(optiling::TilingApplyTokenBitMask);
-        for (const auto* config : SGL_CANN_CONFIGS) {
+        for (const auto *config : SGL_CANN_CONFIGS) {
             this->AICore().AddConfig(config);
         }
     }

@@ -9,37 +9,75 @@ def main():
     fixtures = Path(__file__).resolve().parent / "fixtures/apply_token_bitmask"
     migrated = root / "csrc/sampler/apply_token_bitmask"
     original = (fixtures / "legacy_kernel.cpp").read_text().split('extern "C"')[0]
-    expected = original.replace('#include "kernel_operator.h"',
-                                '#include "kernel_operator.h"\n#include "apply_token_bitmask_tiling.h"')
+    expected = original.replace(
+        '#include "kernel_operator.h"',
+        '#include "kernel_operator.h"\n#include "apply_token_bitmask_tiling.h"',
+    )
     # Only the CANN output address is added; every computational statement is retained.
     for before, after in (
-        ("GM_ADDR bitmaskGmAddr, uint32_t numRows", "GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows"),
-        ("        bitmaskGm.SetGlobalBuffer", "        outputGm.SetGlobalBuffer((__gm__ T *)outputGmAddr);\n        bitmaskGm.SetGlobalBuffer"),
-        ("AscendC::DataCopy(logitsGm[outputGmOffset]", "AscendC::DataCopy(outputGm[outputGmOffset]"),
-        ("    AscendC::GlobalTensor<T> logitsGm;", "    AscendC::GlobalTensor<T> logitsGm;\n    AscendC::GlobalTensor<T> outputGm;"),
+        (
+            "GM_ADDR bitmaskGmAddr, uint32_t numRows",
+            "GM_ADDR bitmaskGmAddr, GM_ADDR outputGmAddr, uint32_t numRows",
+        ),
+        (
+            "        bitmaskGm.SetGlobalBuffer",
+            "        outputGm.SetGlobalBuffer((__gm__ T *)outputGmAddr);\n        bitmaskGm.SetGlobalBuffer",
+        ),
+        (
+            "AscendC::DataCopy(logitsGm[outputGmOffset]",
+            "AscendC::DataCopy(outputGm[outputGmOffset]",
+        ),
+        (
+            "    AscendC::GlobalTensor<T> logitsGm;",
+            "    AscendC::GlobalTensor<T> logitsGm;\n    AscendC::GlobalTensor<T> outputGm;",
+        ),
     ):
         if expected.count(before) != 1:
-            raise RuntimeError(f"Legacy Kernel changed; review the migration comparison: {before}")
+            raise RuntimeError(
+                f"Legacy Kernel changed; review the migration comparison: {before}"
+            )
         expected = expected.replace(before, after)
+    # Adding the output parameter reflows only the Init signature under the
+    # repository's clang-format rules; computational statements remain exact.
+    expected = expected.replace(
+        "GM_ADDR outputGmAddr, uint32_t numRows, uint32_t vocabSize,\n"
+        "                                uint32_t logitsStride, uint32_t bitmaskStride, uint32_t baseRows, uint32_t extraCores,\n"
+        "                                uint32_t tileLength, uint32_t blockDim, uint32_t dtypeSize)",
+        "GM_ADDR outputGmAddr, uint32_t numRows,\n"
+        "                                uint32_t vocabSize, uint32_t logitsStride, uint32_t bitmaskStride, uint32_t baseRows,\n"
+        "                                uint32_t extraCores, uint32_t tileLength, uint32_t blockDim, uint32_t dtypeSize)",
+    )
     expected = expected.rstrip("\n") + "\n"
     source = (migrated / "op_kernel/apply_token_bitmask.cpp").read_text()
     if source.count('extern "C"') != 1:
         raise RuntimeError("Expected one CANN Kernel entry")
     actual = source.split('extern "C"', 1)[0].rstrip("\n") + "\n"
     if actual != expected:
-        difference = "".join(difflib.unified_diff(expected.splitlines(True), actual.splitlines(True)))
-        raise RuntimeError(f"Kernel changed beyond the reviewed output binding:\n{difference}")
+        difference = "".join(
+            difflib.unified_diff(expected.splitlines(True), actual.splitlines(True))
+        )
+        raise RuntimeError(
+            f"Kernel changed beyond the reviewed output binding:\n{difference}"
+        )
 
     print("PASS: Kernel body preserved except for the reviewed CANN output binding")
 
-    legacy_host = (root / "csrc/apply_token_bitmask/op_host/apply_token_bitmask.cpp").read_text()
+    legacy_host = (
+        root / "csrc/apply_token_bitmask/op_host/apply_token_bitmask.cpp"
+    ).read_text()
     adapter = (root / "csrc/sampler/apply_token_bitmask/torch_adapter.cpp").read_text()
-    for start, end in (("    // Input validation", "    // --- Tiling ---"),
-                       ("    // Copy results back", "}  // namespace npu_kernel")):
-        expected = legacy_host[legacy_host.index(start):legacy_host.index(end)]
+    for start, end in (
+        ("    // Input validation", "    // --- Tiling ---"),
+        ("    // Copy results back", "}  // namespace npu_kernel"),
+    ):
+        expected = legacy_host[legacy_host.index(start) : legacy_host.index(end)]
         if expected not in adapter:
-            raise RuntimeError("Torch adapter changed legacy behavior in section: " + start)
-    print("PASS: Torch input processing and copy-back are unchanged from the legacy Host")
+            raise RuntimeError(
+                "Torch adapter changed legacy behavior in section: " + start
+            )
+    print(
+        "PASS: Torch input processing and copy-back are unchanged from the legacy Host"
+    )
 
 
 if __name__ == "__main__":

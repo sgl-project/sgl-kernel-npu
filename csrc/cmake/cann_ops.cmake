@@ -29,7 +29,10 @@ function(sgl_generate_cann_interfaces output_dir)
     # remain ordinary Kernel build dependencies; shared tiling headers are tracked.
     set(inputs ${host_sources} ${tiling_headers} "${config_dir}/sgl_operator_config.h"
         "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
-    file(GLOB sdk_versions "${ASCEND_CANN_PACKAGE_PATH}/*version*" "${ASCEND_CANN_PACKAGE_PATH}/*/version.info")
+    set(sdk_versions)
+    if(ASCEND_CANN_PACKAGE_PATH AND IS_DIRECTORY "${ASCEND_CANN_PACKAGE_PATH}")
+        file(GLOB sdk_versions "${ASCEND_CANN_PACKAGE_PATH}/*version*" "${ASCEND_CANN_PACKAGE_PATH}/*/version.info")
+    endif()
     foreach(version IN LISTS sdk_versions)
         if(NOT IS_DIRECTORY "${version}")
             list(APPEND inputs "${version}")

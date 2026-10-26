@@ -3,12 +3,12 @@
 import contextlib
 import io
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,15 +27,18 @@ class CannBuildTests(unittest.TestCase):
         shutil.copy(ROOT / "csrc/CMakeLists.txt", self.root / "csrc")
         shutil.copytree(ROOT / "csrc/cmake", self.root / "csrc/cmake")
         shutil.copytree(ROOT / "csrc/sampler", self.root / "csrc/sampler")
-        shutil.copytree(ROOT / "csrc/aclnn_torch_adapter", self.root / "csrc/aclnn_torch_adapter")
+        shutil.copytree(
+            ROOT / "csrc/aclnn_torch_adapter", self.root / "csrc/aclnn_torch_adapter"
+        )
         self.directory = self.root / "build/cann"
         self.fail_target = None
         self.fail_install = False
 
     def build(self, **kwargs):
         with contextlib.redirect_stdout(io.StringIO()):
-            return cann.build_cann("2201", source_root=self.root,
-                                   declarations_only=True, **kwargs)
+            return cann.build_cann(
+                "2201", source_root=self.root, declarations_only=True, **kwargs
+            )
 
     def fixture_operator(self):
         # An extra declaration, never compiled as a real operator.
@@ -43,11 +46,13 @@ class CannBuildTests(unittest.TestCase):
         fixture.mkdir()
         for name in ("host.cpp", "kernel.cpp"):
             (fixture / name).write_text("// Synthetic source path fixture.\n")
-        (fixture / "CMakeLists.txt").write_text("""
+        (fixture / "CMakeLists.txt").write_text(
+            """
 sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     CANN_OP_TYPE FixtureOp SUPPORTED_ARCHS 2201
     HOST_SOURCES host.cpp KERNEL_SOURCES kernel.cpp)
-""")
+"""
+        )
 
     def test_real_declarations_without_sdk_or_torch(self):
         with patch.dict(os.environ, {"ASCEND_HOME_PATH": ""}):
@@ -106,7 +111,9 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     def test_explicit_unknown_id_fails(self):
         with self.assertRaisesRegex(RuntimeError, "Command failed"):
             self.build(operators=("missing_op",))
-        self.assertIn("Unknown operator ID", (self.directory / "configure.log").read_text())
+        self.assertIn(
+            "Unknown operator ID", (self.directory / "configure.log").read_text()
+        )
 
     def test_all_unknown_hardware_fails(self):
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
@@ -116,7 +123,9 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     def test_switch_from_legacy_cache(self):
         build = self.root / "build"
         build.mkdir()
-        (build / "CMakeCache.txt").write_text("CMAKE_HOME_DIRECTORY:INTERNAL=" + str(self.root) + "\n")
+        (build / "CMakeCache.txt").write_text(
+            "CMAKE_HOME_DIRECTORY:INTERNAL=" + str(self.root) + "\n"
+        )
         (build / "old-library.so").touch()
         self.build()
         self.assertTrue((build / "old-library.so").exists())
@@ -125,7 +134,9 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     def test_unrelated_build_cache_is_not_deleted(self):
         build = self.root / "build"
         build.mkdir()
-        (build / "CMakeCache.txt").write_text("CMAKE_HOME_DIRECTORY:INTERNAL=/another/project\n")
+        (build / "CMakeCache.txt").write_text(
+            "CMAKE_HOME_DIRECTORY:INTERNAL=/another/project\n"
+        )
         self.build()
         self.assertTrue((build / "CMakeCache.txt").exists())
 
@@ -151,12 +162,21 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
     def test_arch_filter_and_explicit_unsupported_operator(self):
         self.fixture_operator()
         with contextlib.redirect_stdout(io.StringIO()):
-            result = cann.build_cann("3510", source_root=self.root, declarations_only=True)
+            result = cann.build_cann(
+                "3510", source_root=self.root, declarations_only=True
+            )
         self.assertEqual(result.operators, ("apply_token_bitmask",))
         cann._remove_tree(self.directory)
-        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "Command failed"):
-            cann.build_cann("3510", ("fixture_op",), source_root=self.root, declarations_only=True)
-        self.assertIn("does not support requested ARCH", (self.directory / "configure.log").read_text())
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(
+            RuntimeError, "Command failed"
+        ):
+            cann.build_cann(
+                "3510", ("fixture_op",), source_root=self.root, declarations_only=True
+            )
+        self.assertIn(
+            "does not support requested ARCH",
+            (self.directory / "configure.log").read_text(),
+        )
 
     def fake_run(self, command, log_path, **kwargs):
         # Only verify orchestration order and arguments; no SDK or ELF behavior.
@@ -164,7 +184,9 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
         self.calls.append((args, kwargs))
         log_path.write_text("synthetic command log\n")
         if "-S" in args:
-            self.directory.joinpath("selected-operators.txt").write_text("apply_token_bitmask\n")
+            self.directory.joinpath("selected-operators.txt").write_text(
+                "apply_token_bitmask\n"
+            )
         elif "--build" in args:
             target = args[args.index("--target") + 1]
             if target == self.fail_target:
@@ -172,7 +194,9 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
             if target == "sgl_cann_kernel_check":
                 self.kernel_built = True
             elif target == "package":
-                self.assertTrue(self.kernel_built, "Kernel compilation must finish before packaging")
+                self.assertTrue(
+                    self.kernel_built, "Kernel compilation must finish before packaging"
+                )
                 package = self.directory / "package-stage/fixture.run"
                 package.parent.mkdir()
                 package.write_text("synthetic installer")
@@ -187,13 +211,18 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
         sdk = self.root / "sdk"
         sdk.mkdir()
         vendor = self.directory / "installed/vendors/sgl_kernel_npu"
-        with patch.object(cann.platform, "system", return_value="Linux"), \
-                patch.dict(os.environ, {"ASCEND_HOME_PATH": str(sdk)}), \
-                patch.object(cann, "run", side_effect=self.fake_run), \
-                patch.object(cann, "inspect_installation", return_value=(vendor, [], [])) as inspect, \
-                contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(cann.platform, "system", return_value="Linux"), patch.dict(
+            os.environ, {"ASCEND_HOME_PATH": str(sdk)}
+        ), patch.object(cann, "run", side_effect=self.fake_run), patch.object(
+            cann, "inspect_installation", return_value=(vendor, [], [])
+        ) as inspect, contextlib.redirect_stdout(
+            io.StringIO()
+        ):
             result = cann.build_cann("2201", source_root=self.root, **kwargs)
-            self.assertEqual([call.args[-1] for call in inspect.call_args_list], ["ascend910b", "ascend910_93"])
+            self.assertEqual(
+                [call.args[-1] for call in inspect.call_args_list],
+                ["ascend910b", "ascend910_93"],
+            )
         return result
 
     def test_kernel_then_package_then_private_install(self):
@@ -201,12 +230,18 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
         self.assertEqual(len(self.calls), 4)
         self.assertIn("sgl_cann_kernel_check", self.calls[1][0])
         self.assertIn("package", self.calls[2][0])
-        self.assertIn("--install-path=" + str(self.directory / "installed"), self.calls[3][0])
-        self.assertEqual(result.vendor, self.directory / "installed/vendors/sgl_kernel_npu")
+        self.assertIn(
+            "--install-path=" + str(self.directory / "installed"), self.calls[3][0]
+        )
+        self.assertEqual(
+            result.vendor, self.directory / "installed/vendors/sgl_kernel_npu"
+        )
 
     def test_kernel_failure_does_not_package_or_install(self):
         self.fail_target = "sgl_cann_kernel_check"
-        with self.assertRaisesRegex(RuntimeError, "synthetic sgl_cann_kernel_check failure"):
+        with self.assertRaisesRegex(
+            RuntimeError, "synthetic sgl_cann_kernel_check failure"
+        ):
             self.full_build()
         self.assertEqual(len(self.calls), 2)
 
@@ -228,7 +263,8 @@ sgl_register_operator(ID fixture_op EXECUTION_UNIT AICORE
 
     def test_real_cmake_package_requires_explicit_kernel_build(self):
         # Exercise actual CMake commands with synthetic artifacts, not CANN code.
-        (self.root / "csrc/CMakeLists.txt").write_text('''
+        (self.root / "csrc/CMakeLists.txt").write_text(
+            """
 cmake_minimum_required(VERSION 3.20)
 project(orchestration_fixture LANGUAGES NONE)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt" "apply_token_bitmask\\n")
@@ -237,21 +273,27 @@ add_custom_target(sgl_cann_kernel_check
 add_custom_target(package
     COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/package.cmake"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-''')
-        (self.root / "csrc/package.cmake").write_text('''
+"""
+        )
+        (self.root / "csrc/package.cmake").write_text(
+            """
 if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/kernel.marker")
     message(FATAL_ERROR "Kernel artifact missing before packaging")
 endif()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package-stage")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/package-stage/fixture.run" "exit 0\\n")
-''')
+"""
+        )
         sdk = self.root / "sdk"
         sdk.mkdir()
         vendor = self.directory / "installed/vendors/sgl_kernel_npu"
-        with patch.object(cann.platform, "system", return_value="Linux"), \
-                patch.dict(os.environ, {"ASCEND_HOME_PATH": str(sdk)}), \
-                patch.object(cann, "inspect_installation", return_value=(vendor, [], [])), \
-                contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(cann.platform, "system", return_value="Linux"), patch.dict(
+            os.environ, {"ASCEND_HOME_PATH": str(sdk)}
+        ), patch.object(
+            cann, "inspect_installation", return_value=(vendor, [], [])
+        ), contextlib.redirect_stdout(
+            io.StringIO()
+        ):
             result = cann.build_cann("2201", source_root=self.root)
         self.assertTrue((self.directory / "kernel.marker").is_file())
         self.assertTrue(result.package.is_file())
@@ -274,23 +316,36 @@ class ShellDispatchTests(unittest.TestCase):
 
     def legacy_trace(self, mode):
         names = [
-            "parse_arguments", "configure_build_target", "configure_soc_version",
-            "setup_ascend_environment", "prepare_deepep_build", "build_cmake_modules",
-            "build_deepep_kernels", "build_attentions_kernels", "ensure_wheel_package",
-            "make_deepep_package", "make_sgl_kernel_npu_package", "make_attentions_package",
+            "parse_arguments",
+            "configure_build_target",
+            "configure_soc_version",
+            "setup_ascend_environment",
+            "prepare_deepep_build",
+            "build_cmake_modules",
+            "build_deepep_kernels",
+            "build_attentions_kernels",
+            "ensure_wheel_package",
+            "make_deepep_package",
+            "make_sgl_kernel_npu_package",
+            "make_attentions_package",
             "build_memory_saver_package",
         ]
         script = "source ./build.sh\n"
         for name in names:
-            script += name + '() { echo CALL:' + name + '; }\n'
+            script += name + "() { echo CALL:" + name + "; }\n"
         script += "BUILD_DEEPEP_MODULE=ON\nBUILD_KERNELS_MODULE=ON\n"
         script += "BUILD_ATTENTIONS_MODULE=ON\nBUILD_MEMORY_SAVER_MODULE=ON\nmain\n"
         env = os.environ.copy()
         env.pop("SGL_BUILD_MODE", None)
         if mode is not None:
             env["SGL_BUILD_MODE"] = mode
-        result = subprocess.run(["bash", "-c", script], cwd=self.root, env=env,
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=self.root,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
         return result, names
 
     def test_default_and_explicit_legacy_keep_all_steps(self):
@@ -298,8 +353,43 @@ class ShellDispatchTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 result, names = self.legacy_trace(mode)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual([line[5:] for line in result.stdout.splitlines()
-                                  if line.startswith("CALL:")], names)
+                self.assertEqual(
+                    [
+                        line[5:]
+                        for line in result.stdout.splitlines()
+                        if line.startswith("CALL:")
+                    ],
+                    names,
+                )
+
+    def test_independent_build_uses_its_own_cache_and_output(self):
+        directory = self.root / "build/independent/a3"
+        output = self.root / "output/deepep_a3"
+        script = """source ./build.sh
+setup_ascend_environment() { :; }
+ensure_wheel_package() { :; }
+prepare_deepep_build() { :; }
+build_cmake_modules() { echo "CACHE:$BUILD_DIR"; }
+build_deepep_kernels() { :; }
+make_deepep_package() { echo "WHEEL:$OUTPUT_DIR"; }
+build_refactor_auxiliary deepep Ascend910_9382
+"""
+        env = dict(
+            os.environ,
+            SGL_BUILD_MODE="REFACTOR",
+            SGL_REFACTOR_AUX_BUILD_DIR=str(directory),
+            SGL_REFACTOR_AUX_OUTPUT_DIR=str(output),
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CACHE:" + str(directory), result.stdout)
+        self.assertIn("WHEEL:" + str(output), result.stdout)
 
     def test_invalid_mode_stops_before_legacy(self):
         result, _ = self.legacy_trace("invalid")
@@ -310,34 +400,81 @@ class ShellDispatchTests(unittest.TestCase):
     def test_refactor_dispatch_skips_legacy_and_propagates_failure(self):
         module = self.root / "setup.py"
         module.parent.mkdir(parents=True, exist_ok=True)
-        module.write_text("import sys\nprint('REFACTOR_ARGS:', repr(sys.argv[1:]))\nsys.exit(7)\n")
+        module.write_text(
+            "import sys\nprint('REFACTOR_ARGS:', repr(sys.argv[1:]))\nsys.exit(7)\n"
+        )
         env = dict(os.environ, SGL_BUILD_MODE="REFACTOR")
-        result = subprocess.run(["bash", "build.sh", "--arch-version", "2201", "--ops", "apply_token_bitmask"],
-                                cwd=self.root, env=env, capture_output=True, text=True)
+        result = subprocess.run(
+            [
+                "bash",
+                "build.sh",
+                "--arch-version",
+                "2201",
+                "--ops",
+                "apply_token_bitmask",
+            ],
+            cwd=self.root,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 7)
-        self.assertIn("['--arch-version', '2201', '--ops', 'apply_token_bitmask']", result.stdout)
+        self.assertIn(
+            "['--arch-version', '2201', '--ops', 'apply_token_bitmask']", result.stdout
+        )
         self.assertNotIn("Output directory:", result.stdout)
 
 
 class RefactorArgumentsTests(unittest.TestCase):
     def test_defaults_and_explicit_selection(self):
         from build_tools.refactor import arguments
+
         args = arguments(["--arch-version", "2201"])
-        self.assertEqual((args.package, args.artifact, args.operators), ("kernels", "wheel", ("ALL",)))
-        args = arguments(["--arch-version", "3510", "--ops", "apply_token_bitmask", "--artifact", "run"])
+        self.assertEqual(
+            (args.package, args.artifact, args.operators),
+            ("kernels", "wheel", ("ALL",)),
+        )
+        args = arguments(
+            [
+                "--arch-version",
+                "3510",
+                "--ops",
+                "apply_token_bitmask",
+                "--artifact",
+                "run",
+            ]
+        )
         self.assertEqual(args.operators, ("apply_token_bitmask",))
 
     def test_invalid_combinations_fail_before_any_build(self):
         from build_tools.refactor import arguments
-        for argv in ([], ["--soc", "ascend910_93"], ["--arch-version", "2201", "--artifact", "torch"],
-                     ["--arch-version", "2201", "-a", "deepep", "--ops", "all"],
-                     ["--arch-version", "2201", "-a", "all", "--artifact", "run"],
-                     ["--arch-version", "3510", "-a", "all"]):
-            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+
+        for argv in (
+            [],
+            ["--soc", "ascend910_93"],
+            ["--arch-version", "2201", "--artifact", "torch"],
+            ["--arch-version", "2201", "-a", "deepep", "--ops", "all"],
+            ["--arch-version", "2201", "-a", "all", "--artifact", "run"],
+            ["--arch-version", "3510", "-a", "all"],
+            ["--arch-version", "2201", "--ops", ""],
+            ["--make_clean", "--ops", "apply_token_bitmask"],
+        ):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(
+                io.StringIO()
+            ), self.assertRaises(SystemExit):
                 arguments(argv)
 
+    def test_explicit_clean_alone_does_not_require_an_architecture(self):
+        from build_tools.refactor import arguments
+
+        args = arguments(["--make_clean"])
+        self.assertTrue(args.make_clean)
+        self.assertIsNone(args.arch_version)
+
     def test_architecture_scope_is_complete(self):
-        self.assertEqual(cann.architecture("2201")["compute_units"], ["ascend910b", "ascend910_93"])
+        self.assertEqual(
+            cann.architecture("2201")["compute_units"], ["ascend910b", "ascend910_93"]
+        )
         self.assertEqual(cann.architecture("3510")["compute_units"], ["ascend950"])
 
 

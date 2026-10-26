@@ -2,8 +2,13 @@
 set -e
 
 readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
-readonly BUILD_DIR="${PROJECT_ROOT}/build"
+if [[ "${SGL_BUILD_MODE:-LEGACY}" == "REFACTOR" && -n "${SGL_REFACTOR_AUX_BUILD_DIR:-}" ]]; then
+    readonly OUTPUT_DIR="${SGL_REFACTOR_AUX_OUTPUT_DIR:?Missing independent package output directory}"
+    readonly BUILD_DIR="$SGL_REFACTOR_AUX_BUILD_DIR"
+else
+    readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
+    readonly BUILD_DIR="${PROJECT_ROOT}/build"
+fi
 readonly DEFAULT_ASCEND_ROOT="/usr/local/Ascend/ascend-toolkit"
 
 export VERSION="${VERSION:-1.0.0}"
@@ -608,7 +613,7 @@ function build_memory_saver_package()
 # Reuse independently packaged components without invoking the legacy dispatcher.
 function build_refactor_auxiliary()
 {
-    local package="$1" target="$2" build_dir="$3" output_dir="$4"
+    local package="$1" target="$2"
     if [[ -n "$target" ]]; then
         parse_arguments -a "$package" "$target"
     else
@@ -616,8 +621,6 @@ function build_refactor_auxiliary()
     fi
     configure_build_target
     configure_soc_version
-    BUILD_DIR="$build_dir"
-    OUTPUT_DIR="$output_dir"
     setup_ascend_environment
     mkdir -p "$OUTPUT_DIR"
     ensure_wheel_package

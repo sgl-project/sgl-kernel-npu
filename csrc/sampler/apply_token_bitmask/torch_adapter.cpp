@@ -94,13 +94,13 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optio
 
     static auto query = reinterpret_cast<decltype(&aclnnSglApplyTokenBitMaskGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglApplyTokenBitMaskGetWorkspaceSize"));
-    static auto execute = reinterpret_cast<decltype(&aclnnSglApplyTokenBitMask)>(
-        sgl_cann::op_api_symbol("aclnnSglApplyTokenBitMask"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglApplyTokenBitMask)>(sgl_cann::op_api_symbol("aclnnSglApplyTokenBitMask"));
     auto aclDtype = dtype == at::kFloat ? ACL_FLOAT : (dtype == at::kHalf ? ACL_FLOAT16 : ACL_BF16);
     auto logitsDesc = sgl_cann::tensor_descriptor(workingLogits, aclDtype);
     auto maskDesc = sgl_cann::tensor_descriptor(workingBitmask, ACL_INT32);
     uint64_t workspaceSize = 0;
-    aclOpExecutor* executor = nullptr;
+    aclOpExecutor *executor = nullptr;
     auto status = query(logitsDesc.get(), maskDesc.get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "Bitmask workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
@@ -112,8 +112,8 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optio
     workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     // Tensor captures cover the host queue; record_stream covers asynchronous device use.
-    auto launch = [workingLogits, workingBitmask, workspace, logitsDesc, maskDesc,
-                   workspaceSize, executor, aclStream]() -> int {
+    auto launch = [workingLogits, workingBitmask, workspace, logitsDesc, maskDesc, workspaceSize, executor,
+                   aclStream]() -> int {
         auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "Bitmask ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;

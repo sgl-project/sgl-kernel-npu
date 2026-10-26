@@ -37,10 +37,16 @@ def performance_context(
         _REPORT_CONTEXT.reset(token)
 
 
+def _require_positive_integer(value, name):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be a positive integer")
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+
+
 def read_device_time_us(directory, active):
-    """Sum device task durations per call, not wall time or critical-path latency."""
-    if active <= 0:
-        raise ValueError("active must be positive")
+    """Sum task durations per call; active must be a positive Python integer."""
+    _require_positive_integer(active, "active")
     directory = Path(directory)
     files = sorted(directory.rglob("op_summary*.csv"))
     column = "Task Duration(us)"
@@ -109,12 +115,12 @@ def profile_case_name(parameters, impl):
 
 
 def benchmark_npu(executor, directory, warmup=5, active=5):
-    """Compile/warm up before collecting only this executor's NPU tasks."""
+    """Compile/warm up before collecting tasks; sampling counts require positive ints."""
+    _require_positive_integer(warmup, "warmup")
+    _require_positive_integer(active, "active")
     import torch
     import torch_npu
 
-    if warmup < 1 or active < 1:
-        raise ValueError("warmup and active must be positive")
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
     if hasattr(executor, "prepare_calls"):
