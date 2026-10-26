@@ -2,8 +2,8 @@
 
 import argparse
 import importlib.metadata
+import os
 from pathlib import Path
-import runpy
 
 
 def main():
@@ -14,7 +14,14 @@ def main():
     if args.compare_library:
         library = args.compare_library.resolve(strict=True)
         package = library.parent.parent
-        vendor = runpy.run_path(str(package / "_cann_runtime.py"))["prepare"]()
+        # Comparison setup belongs to this test, not the installed package API.
+        vendor = package / "_cann/vendors/sgl_kernel_npu"
+        opapi = vendor / "op_api/lib/libcust_opapi.so"
+        if not opapi.is_file():
+            raise RuntimeError("The comparison package is missing its CANN library: {}".format(opapi))
+        paths = os.environ.get("ASCEND_CUSTOM_OPP_PATH", "").split(os.pathsep)
+        os.environ["ASCEND_CUSTOM_OPP_PATH"] = os.pathsep.join(
+            [str(vendor)] + [path for path in paths if path and path != str(vendor)])
         print("COMPARE_LIBRARY:", library)
         print("CANN_VENDOR:", vendor)
 

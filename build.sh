@@ -499,7 +499,9 @@ function build_cmake_modules()
         )
     fi
 
-    rm -rf "$BUILD_DIR"
+    if [[ "${SGL_BUILD_MODE:-LEGACY}" == "LEGACY" ]]; then
+        rm -rf "$BUILD_DIR"
+    fi
     mkdir -p "$BUILD_DIR"
 
     cmake "${cmake_args[@]}" \
@@ -603,15 +605,44 @@ function build_memory_saver_package()
     )
 }
 
+# Reuse independently packaged components without invoking the legacy dispatcher.
+function build_refactor_auxiliary()
+{
+    local package="$1" target="$2" build_dir="$3" output_dir="$4"
+    if [[ -n "$target" ]]; then
+        parse_arguments -a "$package" "$target"
+    else
+        parse_arguments -a "$package"
+    fi
+    configure_build_target
+    configure_soc_version
+    BUILD_DIR="$build_dir"
+    OUTPUT_DIR="$output_dir"
+    setup_ascend_environment
+    mkdir -p "$OUTPUT_DIR"
+    ensure_wheel_package
+    case "$package" in
+        deepep | deepep2 )
+            prepare_deepep_build
+            build_cmake_modules
+            build_deepep_kernels
+            make_deepep_package
+            ;;
+        memory-saver ) build_memory_saver_package ;;
+        attentions ) build_attentions_kernels; make_attentions_package ;;
+        * ) die "Unsupported independent package: $package" ;;
+    esac
+}
+
 function main()
 {
     case "${SGL_BUILD_MODE:-LEGACY}" in
         LEGACY ) ;;
-        CANN )
-            python3 "$PROJECT_ROOT/python/sgl_kernel_npu/build_tools/cann.py" "$@"
+        REFACTOR )
+            python3 "$PROJECT_ROOT/setup.py" "$@"
             return
             ;;
-        * ) die "Unknown SGL_BUILD_MODE: $SGL_BUILD_MODE (expected LEGACY or CANN)" ;;
+        * ) die "Unknown SGL_BUILD_MODE: $SGL_BUILD_MODE (expected LEGACY or REFACTOR)" ;;
     esac
 
     parse_arguments "$@"

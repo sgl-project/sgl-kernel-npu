@@ -17,8 +17,12 @@ function(sgl_generate_cann_interfaces output_dir)
 
     set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     file(MAKE_DIRECTORY "${config_dir}")
+    set(configs "")
+    foreach(unit IN LISTS SGL_CANN_COMPUTE_UNITS)
+        string(APPEND configs "\"${unit}\",")
+    endforeach()
     file(CONFIGURE OUTPUT "${config_dir}/sgl_operator_config.h" CONTENT
-        "#pragma once\n#define SGL_CANN_SOC_CONFIG \"${SGL_CANN_SOC}\"\n")
+        "#pragma once\ninline constexpr const char* SGL_CANN_CONFIGS[] = {${configs}};\n")
     # Opbuild executes during configuration. Track handwritten inputs for rebuilds.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${host_sources})
     file(REMOVE_RECURSE "${output_dir}")

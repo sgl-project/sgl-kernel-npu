@@ -1,6 +1,6 @@
 """Build a CANN package independently of Torch; reusable by wheel build hooks."""
 
-import argparse
+import json
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -10,7 +10,6 @@ import shlex
 import shutil
 import stat
 import subprocess
-import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -22,6 +21,15 @@ class CannBuild:
     operators: tuple
     package: Path = None
     vendor: Path = None
+    arch_version: str = ""
+    selection_kind: str = "all"
+
+
+def architecture(arch_version, source_root=PROJECT_ROOT):
+    architectures = json.loads((Path(source_root) / "csrc/cmake/architectures.json").read_text())
+    if str(arch_version) not in architectures:
+        raise ValueError("--arch-version must be 2201 or 3510")
+    return architectures[str(arch_version)]
 
 
 def run(command, log_path, *, cwd=None, env=None):
@@ -81,11 +89,10 @@ def parse_operators(value):
     return operators
 
 
-def build_cann(soc, operators=("ALL",), *, declarations_only=False, jobs=None,
+def build_cann(arch_version, operators=("ALL",), *, declarations_only=False, jobs=None,
                source_root=PROJECT_ROOT, build_root=None):
     """Return this build's selected operators and, when built, installed vendor."""
-    if not re.fullmatch(r"[a-z][a-z0-9_]+", soc):
-        raise ValueError("--soc must be an explicit CANN series, for example ascend910_93")
+    compute_units = architecture(arch_version, source_root)["compute_units"]
     if jobs is not None and jobs < 1:
         raise ValueError("--jobs must be positive")
     source_root = Path(source_root).resolve()
@@ -105,16 +112,9 @@ def build_cann(soc, operators=("ALL",), *, declarations_only=False, jobs=None,
         sdk = str(sdk_path.resolve())
         env["ASCEND_HOME_PATH"] = sdk
 
-    # The old entry owns the whole build root. Reset its cache when switching.
-    legacy = _cache(build_root)
-    if legacy:
-        if legacy.get("CMAKE_HOME_DIRECTORY") != str(source_root):
-            raise RuntimeError("Unexpected CMake project in {}".format(build_root))
-        _remove_tree(build_root)
-
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc"),
-        "SGL_CANN_SOC": soc,
+        "SGL_ARCH_VERSION": str(arch_version),
         "SGL_CANN_OPERATORS": ";".join(operators),
         "SGL_CANN_DECLARATIONS_ONLY": "ON" if declarations_only else "OFF",
     }
@@ -123,34 +123,24 @@ def build_cann(soc, operators=("ALL",), *, declarations_only=False, jobs=None,
     cached = _cache(directory)
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked CANN directory: {}".format(directory))
-    if directory.exists() and (not cached or any(cached.get(k) != v for k, v in expected.items())):
-        _remove_tree(directory)
+    if cached and any(cached.get(k) != v for k, v in expected.items()):
+        raise RuntimeError("Build configuration changed; rerun with --make_clean")
     directory.mkdir(parents=True, exist_ok=True)
     command = [
         "cmake", "-S", source_root / "csrc", "-B", directory,
-        "-DSGL_CANN_SOC=" + soc, "-DSGL_CANN_OPERATORS=" + ";".join(operators),
+        "-DSGL_ARCH_VERSION=" + str(arch_version), "-DSGL_CANN_OPERATORS=" + ";".join(operators),
         "-DSGL_CANN_DECLARATIONS_ONLY=" + expected["SGL_CANN_DECLARATIONS_ONLY"],
         "-DSGL_CANN_BUILD_STAGE=KERNEL",
     ]
-    previous = _selection(directory)
-    try:
-        run(command, directory / "configure.log", cwd=source_root, env=env)
-    except RuntimeError:
-        # ALL can expand differently after another operator is registered.
-        # CMake writes the new selection and refuses to reuse the old package tree.
-        current = _selection(directory)
-        if not previous or not current or current == previous:
-            raise
-        _remove_tree(directory)
-        directory.mkdir()
-        run(command, directory / "configure.log", cwd=source_root, env=env)
+    run(command, directory / "configure.log", cwd=source_root, env=env)
     selected = _selection(directory)
     if not selected:
         raise RuntimeError("CMake did not produce a nonempty operator selection")
     print("SELECTED_OPERATORS: " + ",".join(selected), flush=True)
     if declarations_only:
         print("PASS: declarations only; no SDK compilation, package or NPU execution")
-        return CannBuild(directory, selected)
+        return CannBuild(directory, selected, arch_version=str(arch_version),
+                         selection_kind="all" if operators == ("ALL",) else "custom")
 
     # The SDK's package target does not build device binaries automatically.
     for target, log_name in (("sgl_cann_kernel_check", "kernel-build.log"),
@@ -165,11 +155,13 @@ def build_cann(soc, operators=("ALL",), *, declarations_only=False, jobs=None,
     installed.mkdir()
     run(["bash", package, "--quiet", "--install-path=" + str(installed)],
         directory / "install.log", cwd=installed, env=env)
-    vendor, _, _ = inspect_installation(installed, directory, soc)
+    for compute_unit in compute_units:
+        vendor, _, _ = inspect_installation(installed, directory, compute_unit)
     print("RUN_PACKAGE: " + str(package), flush=True)
     print("INSTALLED_VENDOR: " + str(vendor), flush=True)
     print("PASS: CANN package built and staged; no NPU execution or wheel build")
-    return CannBuild(directory, selected, package, vendor)
+    return CannBuild(directory, selected, package, vendor, str(arch_version),
+                     "all" if operators == ("ALL",) else "custom")
 
 
 def _inside(path, directory):
@@ -224,34 +216,3 @@ def inspect_installation(install_dir, stage_build, compute_unit):
         if installed.read_bytes() != source.read_bytes():
             raise RuntimeError(f"Installed artifact differs from this build: {installed}")
     return vendor, libraries, [installed for _, installed in pairs]
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--soc", required=True, help="explicit CANN series, e.g. ascend910_93")
-    parser.add_argument("--ops", default="all", help="all (default) or comma-separated operator IDs")
-    parser.add_argument("--declarations-only", action="store_true",
-                        help="validate selections without CANN or Torch (also works on macOS)")
-    parser.add_argument("-j", "--jobs", type=int, help="maximum parallel build jobs")
-    parser.add_argument("--artifact", choices=("run", "torch", "wheel"), default="run",
-                        help="stop after the CANN installer, Torch libraries, or embedded-CANN wheel")
-    args = parser.parse_args()
-    if args.declarations_only and args.artifact != "run":
-        parser.error("--declarations-only cannot build Torch libraries or a wheel")
-    result = build_cann(args.soc, parse_operators(args.ops),
-                        declarations_only=args.declarations_only, jobs=args.jobs)
-    if args.artifact != "run":
-        sys.path.insert(0, str(PROJECT_ROOT / "python/sgl_kernel_npu"))
-        from build_tools.torch_wheel import build_torch, build_wheel
-
-        package = build_torch(result, args.soc, jobs=args.jobs)
-        if args.artifact == "wheel":
-            build_wheel(package)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except (OSError, RuntimeError, ValueError) as error:
-        print("FAIL: {}".format(error), file=sys.stderr)
-        sys.exit(1)

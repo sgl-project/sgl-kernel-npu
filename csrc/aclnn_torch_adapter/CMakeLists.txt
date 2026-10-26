@@ -26,7 +26,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/operators.cmake")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../sampling" declarations)
-sgl_select_operators(selected SOC "${SGL_CANN_SOC}" OPERATORS ${SGL_CANN_OPERATORS})
+sgl_select_operators(selected ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
 set(adapters)
 foreach(id IN LISTS selected)
     sgl_get_operator(adapter "${id}" TORCH_ADAPTER)

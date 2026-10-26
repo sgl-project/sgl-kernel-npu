@@ -49,7 +49,9 @@ public:
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->SetInferShape(InferShape).SetInferDataType(InferDataType);
-        this->AICore().AddConfig(SGL_CANN_SOC_CONFIG);
+        for (const auto* config : SGL_CANN_CONFIGS) {
+            this->AICore().AddConfig(config);
+        }
     }
 };
 

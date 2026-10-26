@@ -13,13 +13,12 @@ from build_tools.cann import PROJECT_ROOT, _remove_tree, run
 def stage_runtime(vendor, package, source_root=PROJECT_ROOT):
     package.mkdir(parents=True, exist_ok=True)
     python_package = source_root / "python/sgl_kernel_npu/sgl_kernel_npu"
-    for name in ("__init__.py", "_cann_runtime.py"):
-        shutil.copy2(python_package / name, package / name)
+    shutil.copy2(python_package / "__init__.py", package / "__init__.py")
     # This is the expanded vendor, not the installer and not SDK libraries.
     shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
 
 
-def build_torch(cann, soc, *, jobs=None, source_root=PROJECT_ROOT):
+def build_torch(cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT):
     if cann.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
     source_root = Path(source_root).resolve()
@@ -30,10 +29,10 @@ def build_torch(cann, soc, *, jobs=None, source_root=PROJECT_ROOT):
     package = directory / "package/sgl_kernel_npu"
     stage_runtime(cann.vendor, package, source_root)
     (package / "_cann/selected-operators.txt").write_text("\n".join(cann.operators) + "\n")
-    (package / "_cann/soc.txt").write_text(soc + "\n")
+    (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     run(["cmake", "-S", source_root / "csrc/aclnn_torch_adapter", "-B", directory,
          "-DCMAKE_BUILD_TYPE=Release",
-         "-DPython3_EXECUTABLE=" + sys.executable, "-DSGL_CANN_SOC=" + soc,
+         "-DPython3_EXECUTABLE=" + sys.executable, "-DSGL_ARCH_VERSION=" + arch_version,
          "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
          "-DSGL_CANN_VENDOR=" + str(cann.vendor), "-DSGL_TORCH_PACKAGE=" + str(package)],
         directory / "configure.log", cwd=source_root)
@@ -74,11 +73,11 @@ def build_wheel(package, *, source_root=PROJECT_ROOT):
     staged = directory / "package/sgl_kernel_npu"
     shutil.copytree(package, staged, ignore=shutil.ignore_patterns("libsgl_kernel_npu_compare.so", "__pycache__"))
     dist = directory / "dist"
-    env = dict(os.environ, SGL_BUILD_MODE="CANN", SGL_CANN_STAGED_PACKAGE=str(staged))
+    env = dict(os.environ, SGL_BUILD_MODE="REFACTOR", SGL_REFACTOR_STAGED_PACKAGE=str(staged))
     run([sys.executable, "setup.py", "egg_info", "--egg-base", directory,
          "build", "--build-base", directory / "setuptools",
          "bdist_wheel", "--bdist-dir", directory / "bdist", "--dist-dir", dist],
-        directory / "build.log", cwd=source_root / "python/sgl_kernel_npu", env=env)
+        directory / "build.log", cwd=source_root, env=env)
     wheels = list(dist.glob("*.whl"))
     if len(wheels) != 1:
         raise RuntimeError("Expected exactly one wheel in {}".format(dist))
@@ -96,9 +95,9 @@ def setup_cann():
     import torch
     import torch_npu
 
-    value = os.environ.get("SGL_CANN_STAGED_PACKAGE")
+    value = os.environ.get("SGL_REFACTOR_STAGED_PACKAGE")
     if not value:
-        raise RuntimeError("Use SGL_BUILD_MODE=CANN bash build.sh --soc <series> --artifact wheel")
+        raise RuntimeError("Use SGL_BUILD_MODE=REFACTOR bash build.sh --arch-version <2201|3510>")
     package = Path(value).resolve()
     if not (package / "lib/libsgl_kernel_npu.so").is_file():
         raise RuntimeError("Missing staged Torch library: {}".format(package))

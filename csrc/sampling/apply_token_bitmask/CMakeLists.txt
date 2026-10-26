@@ -6,7 +6,7 @@ sgl_register_operator(
     CALL_MODE ACLNN
     CANN_OP_TYPE SglApplyTokenBitMask
     TORCH_ADAPTER ../../aclnn_torch_adapter/apply_token_bitmask.cpp
-    SUPPORTED_SOCS ascend910b ascend910_93 ascend950
+    SUPPORTED_ARCHS 2201 3510
     HOST_SOURCES op_host/apply_token_bitmask.cpp
     KERNEL_SOURCES op_kernel/apply_token_bitmask.cpp
 )
