@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# PR CI supplies an explicit plan; daily/manual group execution remains supported.
+if [[ "${1:-}" == "--selection" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    exec python3 "$SCRIPT_DIR/run_selected_kernel_tests.py" "${2:?selection JSON required}" "${3:?module required}"
+fi
+
 # High precision mode for CANN operators (may help with quantization precision)
 export ACL_OP_SELECT_IMPL_MODE=high_precision
 
