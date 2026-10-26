@@ -229,7 +229,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int batch_size=0, int cmp_topk=0, int cmp_ratio=-1, "
         "int ori_mask_mode=4, int cmp_mask_mode=3, "
         "int ori_win_left=127, int ori_win_right=0, "
-        "bool has_ori_kv=True, bool has_cmp_kv=False) -> Tensor");
+        "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
