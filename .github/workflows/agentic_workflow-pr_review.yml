@@ -16,15 +16,20 @@ jobs:
         github.event_name == 'pull_request' ||
         (github.event_name == 'issue_comment' &&
           github.event.issue.pull_request != null &&
+          (github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR') &&
           (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
         (github.event_name == 'pull_request_review_comment' &&
+          (github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR') &&
           (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')))
       )
 
     runs-on: ubuntu-latest
 
     permissions:
-      id-token: write
       contents: read
       pull-requests: write
 
@@ -35,8 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: refs/pull/${{ github.event.issue.number || github.event.pull_request.number }}/merge
           persist-credentials: false
+
+      - name: Prepare PR diff
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > pr.diff
 
       - uses: anomalyco/opencode/github@latest
         env:
@@ -46,7 +56,8 @@ jobs:
           use_github_token: true
           model: zhipuai-coding-plan/glm-5.3-flash
           prompt: |
-            Review this pull request:
+            Review this pull request (number ${{ github.event.issue.number || github.event.pull_request.number }}):
+            - The full PR diff is in the file `pr.diff` in the working directory — read it first.
             - Check for code quality issues
             - Look for potential bugs
             - Suggest improvements
