@@ -124,6 +124,7 @@ def _expand_pool_topk_and_append_tail_batched_npu(
     assert num_q_padded >= n_real
     assert pool_indices.dtype == torch.int32
     assert seq_lens_per_token.dtype == torch.int32
+    assert seq_lens_per_token.is_contiguous(), "seq_lens_per_token must be contiguous"
     assert n_pool_topk * pool_size == index_topk
 
     # Prefill padding rows with -1 and align the physical column count.

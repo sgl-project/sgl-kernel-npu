@@ -5,7 +5,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -205,29 +209,32 @@ def _run_accuracy_case(
         for name in dynamic_names:
             inputs[name] = _make_noncontiguous(inputs[name])
 
-    expected_cache = initial_cache.clone()
-    actual_cache = initial_cache.clone()
-    kpool_assemble_softmax_write_cache_torch(index_k_cache=expected_cache, **inputs)
     impl, _ = get_test_impls()
-    operator(
-        index_k_cache=actual_cache,
-        num_programs=num_programs,
-        impl=impl,
-        **inputs,
-    )
-
-    assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
-    write_mask = inputs.get("write_mask")
-    if write_mask is not None:
-        inactive_locs = inputs["loc"][~write_mask]
-        initial_2d = initial_cache.view(-1, HEAD_DIM)
-        actual_2d = actual_cache.view(-1, HEAD_DIM)
-        assert_accuracy(
-            actual_2d.index_select(0, inactive_locs),
-            initial_2d.index_select(0, inactive_locs),
-            EXACT_STANDARD,
-            path="inactive_cache",
+    require_test_impl(operator, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        expected_cache = initial_cache.clone()
+        actual_cache = initial_cache.clone()
+        kpool_assemble_softmax_write_cache_torch(index_k_cache=expected_cache, **inputs)
+        operator(
+            index_k_cache=actual_cache,
+            num_programs=num_programs,
+            impl=impl,
+            **inputs,
         )
+
+        assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
+        write_mask = inputs.get("write_mask")
+        if write_mask is not None:
+            inactive_locs = inputs["loc"][~write_mask]
+            initial_2d = initial_cache.view(-1, HEAD_DIM)
+            actual_2d = actual_cache.view(-1, HEAD_DIM)
+            assert_accuracy(
+                actual_2d.index_select(0, inactive_locs),
+                initial_2d.index_select(0, inactive_locs),
+                EXACT_STANDARD,
+                path="inactive_cache",
+            )
 
     snapshots = None
     call_index = 0
@@ -247,7 +254,7 @@ def _run_accuracy_case(
     executor.func = operator
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(total_tokens, n_pools) in perf_shape)
 
 

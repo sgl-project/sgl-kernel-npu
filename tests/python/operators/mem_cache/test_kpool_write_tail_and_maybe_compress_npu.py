@@ -5,7 +5,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -208,75 +212,80 @@ def _run_accuracy_case(
         invalid_batches=invalid_batches,
         use_noncontiguous_inputs=use_noncontiguous_inputs,
     )
-    expected_cache = initial_cache.clone()
-    expected_tail_k = initial_tail_k.clone()
-    expected_tail_score = initial_tail_score.clone()
-    actual_cache = initial_cache.clone()
-    actual_tail_k = initial_tail_k.clone()
-    actual_tail_score = initial_tail_score.clone()
-
-    kpool_write_tail_and_maybe_compress_torch(
-        index_k_cache=expected_cache,
-        tail_k=expected_tail_k,
-        tail_score=expected_tail_score,
-        **inputs,
-    )
     impl, _ = get_test_impls()
-    operator(
-        index_k_cache=actual_cache,
-        tail_k=actual_tail_k,
-        tail_score=actual_tail_score,
-        num_programs=num_programs,
-        impl=impl,
-        **inputs,
-    )
+    require_test_impl(operator, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        expected_cache = initial_cache.clone()
+        expected_tail_k = initial_tail_k.clone()
+        expected_tail_score = initial_tail_score.clone()
+        actual_cache = initial_cache.clone()
+        actual_tail_k = initial_tail_k.clone()
+        actual_tail_score = initial_tail_score.clone()
 
-    assert_accuracy(actual_tail_k, expected_tail_k, EXACT_STANDARD, path="tail_k")
-    assert_accuracy(
-        actual_tail_score,
-        expected_tail_score,
-        EXACT_STANDARD,
-        path="tail_score",
-    )
-    assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
-
-    inactive_locs = []
-    write_loc = inputs["write_loc"]
-    max_closed_pools = write_loc.shape[1]
-    for batch, start in enumerate(write_start_values):
-        valid = batch not in invalid_batches
-        gate_n = (
-            num_draft_tokens
-            if effective_n_values is None
-            else effective_n_values[batch]
+        kpool_write_tail_and_maybe_compress_torch(
+            index_k_cache=expected_cache,
+            tail_k=expected_tail_k,
+            tail_score=expected_tail_score,
+            **inputs,
         )
-        gate_n = max(0, min(gate_n, num_draft_tokens))
-        completed = (start + gate_n) // pool_size - start // pool_size
-        first_inactive = completed if valid else 0
-        inactive_locs.extend(write_loc[batch, first_inactive:max_closed_pools].tolist())
+        operator(
+            index_k_cache=actual_cache,
+            tail_k=actual_tail_k,
+            tail_score=actual_tail_score,
+            num_programs=num_programs,
+            impl=impl,
+            **inputs,
+        )
 
-    if inactive_locs:
-        inactive_index = torch.tensor(inactive_locs, dtype=torch.int64)
+        assert_accuracy(actual_tail_k, expected_tail_k, EXACT_STANDARD, path="tail_k")
         assert_accuracy(
-            actual_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
-            initial_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
+            actual_tail_score,
+            expected_tail_score,
             EXACT_STANDARD,
-            path="inactive_cache",
+            path="tail_score",
         )
+        assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
 
-    for batch in invalid_batches:
-        assert_accuracy(
-            actual_tail_k[batch],
-            initial_tail_k[batch],
-            EXACT_STANDARD,
-            path=f"invalid_tail_k[{batch}]",
-        )
-        assert_accuracy(
-            actual_tail_score[batch],
-            initial_tail_score[batch],
-            EXACT_STANDARD,
-            path=f"invalid_tail_score[{batch}]",
-        )
+        inactive_locs = []
+        write_loc = inputs["write_loc"]
+        max_closed_pools = write_loc.shape[1]
+        for batch, start in enumerate(write_start_values):
+            valid = batch not in invalid_batches
+            gate_n = (
+                num_draft_tokens
+                if effective_n_values is None
+                else effective_n_values[batch]
+            )
+            gate_n = max(0, min(gate_n, num_draft_tokens))
+            completed = (start + gate_n) // pool_size - start // pool_size
+            first_inactive = completed if valid else 0
+            inactive_locs.extend(
+                write_loc[batch, first_inactive:max_closed_pools].tolist()
+            )
+
+        if inactive_locs:
+            inactive_index = torch.tensor(inactive_locs, dtype=torch.int64)
+            assert_accuracy(
+                actual_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
+                initial_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
+                EXACT_STANDARD,
+                path="inactive_cache",
+            )
+
+        for batch in invalid_batches:
+            assert_accuracy(
+                actual_tail_k[batch],
+                initial_tail_k[batch],
+                EXACT_STANDARD,
+                path=f"invalid_tail_k[{batch}]",
+            )
+            assert_accuracy(
+                actual_tail_score[batch],
+                initial_tail_score[batch],
+                EXACT_STANDARD,
+                path=f"invalid_tail_score[{batch}]",
+            )
 
     assert inputs["write_loc"].is_contiguous()
     snapshots = None
@@ -307,7 +316,7 @@ def _run_accuracy_case(
     executor.func = operator
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     check_performance(
         executor, enable_perf=(batch_size, num_draft_tokens) in perf_shape
     )

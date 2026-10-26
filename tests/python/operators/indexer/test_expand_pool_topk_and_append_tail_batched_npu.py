@@ -5,7 +5,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 PAD_ROWS = 13
@@ -79,25 +83,28 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
     ) * pool_size + torch.randint(0, pool_size, (total_rows,), dtype=torch.int32)
 
     impl, _ = get_test_impls()
-    actual = expand_pool_topk_and_append_tail_batched_npu(
-        pool_indices,
-        seq_lens_per_token,
-        n_real,
-        num_q_padded,
-        pool_size,
-        index_topk,
-        impl=impl,
-    )
-    expected = _expand_pool_topk_and_append_tail_batched_torch(
-        pool_indices,
-        seq_lens_per_token,
-        n_real,
-        num_q_padded,
-        pool_size,
-    )
+    require_test_impl(expand_pool_topk_and_append_tail_batched_npu, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        actual = expand_pool_topk_and_append_tail_batched_npu(
+            pool_indices,
+            seq_lens_per_token,
+            n_real,
+            num_q_padded,
+            pool_size,
+            index_topk,
+            impl=impl,
+        )
+        expected = _expand_pool_topk_and_append_tail_batched_torch(
+            pool_indices,
+            seq_lens_per_token,
+            n_real,
+            num_q_padded,
+            pool_size,
+        )
 
-    # Token indices and padded rows are integers and must match exactly.
-    assert_accuracy(actual, expected)
+        # Token indices and padded rows are integers and must match exactly.
+        assert_accuracy(actual, expected)
 
     executor = partial(
         expand_pool_topk_and_append_tail_batched_npu,
@@ -111,6 +118,21 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
     )
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     shape = (n_real, num_q_padded)
     check_performance(executor, enable_perf=shape in perf_shape)
+
+
+def test_expand_rejects_noncontiguous_seq_lens():
+    from sgl_kernel_npu.operators.indexer import (
+        expand_pool_topk_and_append_tail_batched_npu,
+    )
+
+    pool_indices = torch.zeros(2, 4, dtype=torch.int32)
+    base = torch.tensor([8, 8], dtype=torch.int32)
+    seq_lens = torch.stack((base, base), dim=1)[:, 0]
+    assert not seq_lens.is_contiguous()
+    with pytest.raises(AssertionError, match="seq_lens_per_token must be contiguous"):
+        expand_pool_topk_and_append_tail_batched_npu(
+            pool_indices, seq_lens, 2, 2, 4, 16
+        )

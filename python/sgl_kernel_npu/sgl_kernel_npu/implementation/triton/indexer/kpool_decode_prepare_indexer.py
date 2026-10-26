@@ -193,6 +193,10 @@ def fused_decode_prepare_indexer(
         block_tables.shape[0] == N
     ), f"block_tables.shape[0]={block_tables.shape[0]} != N={N}"
     NUM_BLOCKS = block_tables.shape[1]
+    assert x.is_contiguous(), "x must be contiguous"
+    assert weights_proj_weight.is_contiguous(), "weights_proj_weight must be contiguous"
+    assert seqlens_32.is_contiguous(), "seqlens_32 must be contiguous"
+    assert block_tables.is_contiguous(), "block_tables must be contiguous"
     # The split-based ::pool extraction below needs a pool_size-multiple
     # width. Short decode sequences (e.g. a 1-block warmup request) can leave
     # the table narrower than pool_size; pad with dummy pages — entries past

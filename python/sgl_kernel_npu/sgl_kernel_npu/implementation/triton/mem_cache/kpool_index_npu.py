@@ -202,11 +202,12 @@ def kpool_decode_update_and_maybe_write_cache_bf16(
     req_pool_size = tail_k.shape[0]
     block_table_cols = block_tables.shape[1]
 
-    # Ensure contiguous
-    buf = buf.contiguous()
+    # In-place outputs must not be silently replaced by contiguous copies.
+    assert buf.is_contiguous(), "buf must be contiguous"
+    assert tail_k.is_contiguous(), "tail_k must be contiguous"
+    assert tail_score.is_contiguous(), "tail_score must be contiguous"
     buf_numel_per_page = buf.stride(0)
-    tail_k = tail_k.contiguous()
-    tail_score = tail_score.contiguous()
+    assert buf_numel_per_page == slots_per_page * head_dim
     key = key.contiguous()
     slot_score = slot_score.contiguous()
     ape = ape.contiguous()
@@ -997,6 +998,21 @@ def scatter_kpool_tail_updates_npu(
     n_rows = req_pool_idx.shape[0]
     if n_rows == 0:
         return
+
+    assert chunk_k.ndim == 2 and chunk_k.shape[1] == INDEX_HEAD_DIM
+    assert chunk_score.shape == chunk_k.shape
+    assert tail_k.ndim == 3 and tail_k.shape[2] == INDEX_HEAD_DIM
+    assert tail_score.shape == tail_k.shape
+    assert tail_k.is_contiguous(), "tail_k must be contiguous"
+    assert tail_score.is_contiguous(), "tail_score must be contiguous"
+    for name, tensor in (
+        ("req_pool_idx", req_pool_idx),
+        ("dst_logical_start", dst_logical_start),
+        ("chunk_src_start", chunk_src_start),
+        ("n_write", n_write),
+    ):
+        assert tensor.ndim == 1 and tensor.shape[0] == n_rows, name
+        assert tensor.is_contiguous(), f"{name} must be contiguous"
 
     chunk_k = chunk_k.contiguous()
     chunk_score = chunk_score.contiguous()

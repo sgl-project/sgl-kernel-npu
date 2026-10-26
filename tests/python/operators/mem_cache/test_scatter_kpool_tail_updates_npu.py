@@ -5,7 +5,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -141,51 +145,53 @@ def test_scatter_kpool_tail_updates_npu(
     )
     initial_tail_k = tail_k.clone()
     initial_tail_score = tail_score.clone()
-    tail_k_ref = tail_k.clone()
-    tail_score_ref = tail_score.clone()
-
-    written = _scatter_kpool_tail_updates_torch(
-        pool_size,
-        chunk_k,
-        chunk_score,
-        tail_k_ref,
-        tail_score_ref,
-        req_pool_idx,
-        dst_logical_start,
-        chunk_src_start,
-        n_write,
-    )
     pool = SimpleNamespace(index_kpool=pool_size)
     impl, _ = get_test_impls()
-    scatter_kpool_tail_updates_npu(
-        pool,
-        chunk_k,
-        chunk_score,
-        tail_k,
-        tail_score,
-        req_pool_idx,
-        dst_logical_start,
-        chunk_src_start,
-        n_write,
-        impl=impl,
-    )
+    require_test_impl(scatter_kpool_tail_updates_npu, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        tail_k_ref = tail_k.clone()
+        tail_score_ref = tail_score.clone()
+        written = _scatter_kpool_tail_updates_torch(
+            pool_size,
+            chunk_k,
+            chunk_score,
+            tail_k_ref,
+            tail_score_ref,
+            req_pool_idx,
+            dst_logical_start,
+            chunk_src_start,
+            n_write,
+        )
+        scatter_kpool_tail_updates_npu(
+            pool,
+            chunk_k,
+            chunk_score,
+            tail_k,
+            tail_score,
+            req_pool_idx,
+            dst_logical_start,
+            chunk_src_start,
+            n_write,
+            impl=impl,
+        )
 
-    assert_accuracy(tail_k, tail_k_ref, EXACT_STANDARD, path="tail_k")
-    assert_accuracy(tail_score, tail_score_ref, EXACT_STANDARD, path="tail_score")
+        assert_accuracy(tail_k, tail_k_ref, EXACT_STANDARD, path="tail_k")
+        assert_accuracy(tail_score, tail_score_ref, EXACT_STANDARD, path="tail_score")
 
-    unchanged = ~written
-    assert_accuracy(
-        tail_k[unchanged],
-        initial_tail_k[unchanged],
-        EXACT_STANDARD,
-        path="tail_k_unchanged",
-    )
-    assert_accuracy(
-        tail_score[unchanged],
-        initial_tail_score[unchanged],
-        EXACT_STANDARD,
-        path="tail_score_unchanged",
-    )
+        unchanged = ~written
+        assert_accuracy(
+            tail_k[unchanged],
+            initial_tail_k[unchanged],
+            EXACT_STANDARD,
+            path="tail_k_unchanged",
+        )
+        assert_accuracy(
+            tail_score[unchanged],
+            initial_tail_score[unchanged],
+            EXACT_STANDARD,
+            path="tail_score_unchanged",
+        )
 
     snapshots = None
     call_index = 0
@@ -214,5 +220,17 @@ def test_scatter_kpool_tail_updates_npu(
     executor.func = scatter_kpool_tail_updates_npu
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(total_tokens, n_rows) in perf_shape)
+
+
+def test_scatter_rejects_noncontiguous_tail():
+    from sgl_kernel_npu.operators.mem_cache import scatter_kpool_tail_updates_npu
+
+    inputs = list(_create_test_inputs(1, 4, 1, 4, 4, 128, torch.bfloat16))
+    tail_k = inputs[2]
+    inputs[2] = torch.stack((tail_k, tail_k), dim=-1)[..., 0]
+    assert not inputs[2].is_contiguous()
+    pool = SimpleNamespace(index_kpool=4)
+    with pytest.raises(AssertionError, match="tail_k must be contiguous"):
+        scatter_kpool_tail_updates_npu(pool, *inputs)

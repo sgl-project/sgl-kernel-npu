@@ -3,7 +3,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -120,6 +124,10 @@ def test_decode_cache_write():
         kpool_decode_update_and_maybe_write_cache_bf16,
     )
 
+    impl, _ = get_test_impls()
+    require_test_impl(kpool_decode_update_and_maybe_write_cache_bf16, impl)
+    if get_skip_acc_check() is True:
+        return
     torch.manual_seed(42)
     pool_size = 4
     tail_size = pool_size + 1
@@ -169,6 +177,7 @@ def test_decode_cache_write():
         pool_size=pool_size,
         slots_per_page=slots_per_page,
         head_dim=head_dim,
+        impl=impl,
     )
     kpool_decode_update_and_maybe_write_cache_bf16_torch(
         buf_ref,
@@ -240,23 +249,26 @@ def _run_production_layout_case(batch, block_table_cols):
         "head_dim": head_dim,
     }
 
-    buf = initial_buf.clone()
-    tail_k = initial_tail_k.clone()
-    tail_score = initial_tail_score.clone()
-    buf_ref = initial_buf.clone()
-    tail_k_ref = initial_tail_k.clone()
-    tail_score_ref = initial_tail_score.clone()
-    kpool_decode_update_and_maybe_write_cache_bf16(
-        buf, tail_k, tail_score, *inputs, **kwargs
-    )
-    kpool_decode_update_and_maybe_write_cache_bf16_torch(
-        buf_ref, tail_k_ref, tail_score_ref, *inputs, **kwargs
-    )
-    _assert_decode_outputs(
-        (buf, tail_k, tail_score), (buf_ref, tail_k_ref, tail_score_ref)
-    )
-
     impl, _ = get_test_impls()
+    require_test_impl(kpool_decode_update_and_maybe_write_cache_bf16, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        buf = initial_buf.clone()
+        tail_k = initial_tail_k.clone()
+        tail_score = initial_tail_score.clone()
+        buf_ref = initial_buf.clone()
+        tail_k_ref = initial_tail_k.clone()
+        tail_score_ref = initial_tail_score.clone()
+        kpool_decode_update_and_maybe_write_cache_bf16(
+            buf, tail_k, tail_score, *inputs, **kwargs, impl=impl
+        )
+        kpool_decode_update_and_maybe_write_cache_bf16_torch(
+            buf_ref, tail_k_ref, tail_score_ref, *inputs, **kwargs
+        )
+        _assert_decode_outputs(
+            (buf, tail_k, tail_score), (buf_ref, tail_k_ref, tail_score_ref)
+        )
+
     snapshots = None
     call_index = 0
 
@@ -286,7 +298,7 @@ def _run_production_layout_case(batch, block_table_cols):
     executor.func = kpool_decode_update_and_maybe_write_cache_bf16
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(batch, block_table_cols) in perf_shape)
 
 
@@ -301,11 +313,41 @@ def test_decode_cache_write_production_4d_bf16(batch, block_table_cols):
     _run_production_layout_case(batch, block_table_cols)
 
 
+def test_decode_rejects_noncontiguous_inplace_cache():
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_decode_update_and_maybe_write_cache_bf16,
+    )
+
+    base = torch.zeros(2, 64, 1, 128, dtype=torch.bfloat16)
+    buf = torch.stack((base, base), dim=-1)[..., 0]
+    assert not buf.is_contiguous()
+    with pytest.raises(AssertionError, match="buf must be contiguous"):
+        kpool_decode_update_and_maybe_write_cache_bf16(
+            buf,
+            torch.zeros(1, 5, 128, dtype=torch.bfloat16),
+            torch.zeros(1, 5, 128, dtype=torch.bfloat16),
+            torch.zeros(1, 128, dtype=torch.bfloat16),
+            torch.zeros(1, 128, dtype=torch.bfloat16),
+            torch.zeros(4, 128, dtype=torch.float32),
+            torch.zeros(1, 64, dtype=torch.int32),
+            torch.zeros(1, dtype=torch.int32),
+            torch.tensor([3], dtype=torch.int32),
+            torch.tensor([4], dtype=torch.int32),
+            torch.ones(1, dtype=torch.int32),
+            pool_size=4,
+            slots_per_page=64,
+        )
+
+
 def test_invalid_cache_loc():
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_decode_update_and_maybe_write_cache_bf16,
     )
 
+    impl, _ = get_test_impls()
+    require_test_impl(kpool_decode_update_and_maybe_write_cache_bf16, impl)
+    if get_skip_acc_check() is True:
+        return
     torch.manual_seed(99)
     pool_size = 4
     tail_size = 5
@@ -348,6 +390,7 @@ def test_invalid_cache_loc():
         pool_size=pool_size,
         slots_per_page=slots_per_page,
         head_dim=head_dim,
+        impl=impl,
     )
     kpool_decode_update_and_maybe_write_cache_bf16_torch(
         buf_ref,

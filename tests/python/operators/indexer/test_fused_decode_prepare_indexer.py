@@ -55,3 +55,16 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
     )
     shape = (batch_size, hidden_size, n_heads, num_blocks)
     check_performance(executor, enable_perf=shape in perf_shape)
+
+
+def test_fused_decode_prepare_rejects_noncontiguous_block_tables():
+    from sgl_kernel_npu.operators.indexer import fused_decode_prepare_indexer
+
+    x = torch.randn(1, 256, dtype=torch.bfloat16)
+    weights = torch.randn(32, 256, dtype=torch.float32)
+    seqlens = torch.tensor([4], dtype=torch.int32)
+    base = torch.arange(4, dtype=torch.int32).view(1, 4)
+    block_tables = torch.stack((base, base), dim=-1)[..., 0]
+    assert not block_tables.is_contiguous()
+    with pytest.raises(AssertionError, match="block_tables must be contiguous"):
+        fused_decode_prepare_indexer(x, weights, seqlens, block_tables)

@@ -3,7 +3,11 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -117,6 +121,10 @@ def _torch_target_verify_reference(
 def test_causal_conv1d_target_verify_linear_npu():
     from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
 
+    impl, _ = get_test_impls()
+    require_test_impl(causal_conv1d_target_verify_npu, impl)
+    if get_skip_acc_check() is True:
+        return
     torch.npu.manual_seed(101)
     batch, dim, steps, width = 2, 3, 4, 4
     x = torch.randn(batch, dim, steps, dtype=torch.bfloat16)
@@ -151,6 +159,7 @@ def test_causal_conv1d_target_verify_linear_npu():
         conv_state_indices=conv_state_indices,
         intermediate_conv_window=intermediate_conv_window,
         intermediate_state_indices=intermediate_state_indices,
+        impl=impl,
     )
 
     assert out.data_ptr() == x.data_ptr()
@@ -198,49 +207,55 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
             scratch_base.transpose(-1, -2),
         )
 
-    x, conv_state, intermediate_conv_window = make_views(
-        initial_x_base.clone(), initial_scratch_base.clone()
-    )
-    assert x.stride(1) == 1 and not x.is_contiguous()
-    x_before = initial_x_base.transpose(1, 2).clone()
-    conv_state_before = conv_state.clone()
-    expected_out, expected_scratch, _ = _torch_target_verify_reference(
-        x_before,
-        conv_state_before,
-        weight.transpose(0, 1).contiguous(),
-        None,
-        "silu",
-        conv_state_indices,
-        initial_scratch_base.transpose(-1, -2),
-        intermediate_state_indices,
-    )
-
+    conv_state = conv_state_base.transpose(-1, -2)
     impl, _ = get_test_impls()
-    out = causal_conv1d_target_verify_npu(
-        x=x,
-        conv_state=conv_state,
-        weight=weight,
-        bias=None,
-        activation="silu",
-        conv_state_indices=conv_state_indices,
-        intermediate_conv_window=intermediate_conv_window,
-        intermediate_state_indices=intermediate_state_indices,
-        impl=impl,
-    )
-    assert out.data_ptr() == x.data_ptr()
-    assert_accuracy(out, expected_out, BF16_STANDARD, path="production_linear.output")
-    assert_accuracy(
-        intermediate_conv_window,
-        expected_scratch,
-        EXACT_BF16_STANDARD,
-        path="production_linear.scratch",
-    )
-    assert_accuracy(
-        conv_state,
-        conv_state_before,
-        EXACT_BF16_STANDARD,
-        path="production_linear.conv_state",
-    )
+    require_test_impl(causal_conv1d_target_verify_npu, impl)
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        x, conv_state, intermediate_conv_window = make_views(
+            initial_x_base.clone(), initial_scratch_base.clone()
+        )
+        assert x.stride(1) == 1 and not x.is_contiguous()
+        x_before = initial_x_base.transpose(1, 2).clone()
+        conv_state_before = conv_state.clone()
+        expected_out, expected_scratch, _ = _torch_target_verify_reference(
+            x_before,
+            conv_state_before,
+            weight.transpose(0, 1).contiguous(),
+            None,
+            "silu",
+            conv_state_indices,
+            initial_scratch_base.transpose(-1, -2),
+            intermediate_state_indices,
+        )
+
+        out = causal_conv1d_target_verify_npu(
+            x=x,
+            conv_state=conv_state,
+            weight=weight,
+            bias=None,
+            activation="silu",
+            conv_state_indices=conv_state_indices,
+            intermediate_conv_window=intermediate_conv_window,
+            intermediate_state_indices=intermediate_state_indices,
+            impl=impl,
+        )
+        assert out.data_ptr() == x.data_ptr()
+        assert_accuracy(
+            out, expected_out, BF16_STANDARD, path="production_linear.output"
+        )
+        assert_accuracy(
+            intermediate_conv_window,
+            expected_scratch,
+            EXACT_BF16_STANDARD,
+            path="production_linear.scratch",
+        )
+        assert_accuracy(
+            conv_state,
+            conv_state_before,
+            EXACT_BF16_STANDARD,
+            path="production_linear.conv_state",
+        )
 
     snapshots = None
     call_index = 0
@@ -270,13 +285,17 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
     executor.func = causal_conv1d_target_verify_npu
     executor.impl = impl
     executor.impl_ref = "torch_reference"
-    executor.accuracy_checked = True
+    executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(batch, dim, steps) in perf_shape)
 
 
 def test_causal_conv1d_target_verify_tree_npu():
     from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
 
+    impl, _ = get_test_impls()
+    require_test_impl(causal_conv1d_target_verify_npu, impl)
+    if get_skip_acc_check() is True:
+        return
     torch.npu.manual_seed(202)
     batch, dim, steps, width = 1, 2, 5, 3
     x = torch.randn(batch, dim, steps, dtype=torch.bfloat16)
@@ -321,6 +340,7 @@ def test_causal_conv1d_target_verify_tree_npu():
         retrieve_next_token=retrieve_next_token,
         retrieve_next_sibling=retrieve_next_sibling,
         retrieve_parent_token=retrieve_parent_token,
+        impl=impl,
     )
 
     assert out.data_ptr() != x.data_ptr()
