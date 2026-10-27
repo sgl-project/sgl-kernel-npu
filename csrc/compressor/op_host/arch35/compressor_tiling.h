@@ -220,7 +220,7 @@ const std::vector<int> CACHE_MODE{1, 2};
 
 enum class ROTARY_MODE : uint8_t { HALF = 1, INTERLEAVE = 2 };
 
-enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, CYCLE = 2 };
+enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, EXPLICIT = 2 };
 
 struct CompressorContext {
     const char *opName;
@@ -247,6 +247,7 @@ struct CompressorContext {
     const int *rotaryMode;
     const int *cacheMode;
     const int *stateCacheStrideDim0;
+    int batchConsistency = 0;
     TemplateId templateId;
 
     ge::DataType dtype = ge::DT_BF16;
