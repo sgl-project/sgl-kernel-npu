@@ -1,13 +1,11 @@
-# rmsnorm_without_weight
+# fused_rmsnorm_without_weight
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Unverified | Unverified |
-| `tilelang` | Not implemented | Not implemented |
-| `ascendc` | Not implemented | Not implemented |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 

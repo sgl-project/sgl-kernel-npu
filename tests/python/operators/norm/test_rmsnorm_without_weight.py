@@ -44,6 +44,9 @@ def generate_test_data(shape, dtype, mode, seed=42):
         pytest.param((2, 1, 4096), id="ltx2-video-2x1x4096"),  # Video width.
         pytest.param((1, 1, 2048), id="edge-single-token"),  # Minimum token count.
         pytest.param((1, 65, 2048), id="edge-65-tokens"),  # One token past block_l=64.
+        pytest.param(
+            (64, 4, 2048), id="big-batch-64x4x2048"
+        ),  # 64 batches exceed the vector core count; row tasks loop over the grid.
     ],
 )
 @pytest.mark.parametrize(

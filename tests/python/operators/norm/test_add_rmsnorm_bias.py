@@ -73,6 +73,9 @@ def generate_test_data(shape, dtype, mode, seed=42):
         pytest.param(
             (7, 2049), id="edge-7x2049"
         ),  # Odd rows and a one-element tile tail.
+        pytest.param(
+            (128, 4096), id="big-batch-128x4096"
+        ),  # Batch larger than the vector core count; rows loop over the grid.
     ],
 )
 @pytest.mark.parametrize(

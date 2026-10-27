@@ -1,13 +1,11 @@
-# rmsnorm_without_weight
+# fused_rmsnorm_without_weight
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 待验证 |
-| `torch_native` | 待验证 | 待验证 |
-| `tilelang` | 未实现 | 未实现 |
-| `ascendc` | 未实现 | 未实现 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
