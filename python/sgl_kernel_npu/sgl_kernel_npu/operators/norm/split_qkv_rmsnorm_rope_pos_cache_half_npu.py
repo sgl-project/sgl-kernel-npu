@@ -63,27 +63,7 @@ def _triton_impl(
         split_qkv_rmsnorm_rope_half_pos_cache_kernel,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._qkv_inputs import prepare_position_cache
 
-    positions, cos_sin_cache, rope_dim = prepare_position_cache(
-        input_tensor,
-        positions,
-        cos_sin_cache,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        rope_dim,
-        eps,
-        q_weight,
-        k_weight,
-        q_bias,
-        k_bias,
-    )
-    input_tensor = input_tensor.contiguous()
-    q_weight, k_weight, q_bias, k_bias = (
-        value.contiguous() if value is not None else None
-        for value in (q_weight, k_weight, q_bias, k_bias)
-    )
     _, num_vectorcore = get_device_properties()
     assert input_tensor.dim() == 2
     B, total_hidden = input_tensor.shape

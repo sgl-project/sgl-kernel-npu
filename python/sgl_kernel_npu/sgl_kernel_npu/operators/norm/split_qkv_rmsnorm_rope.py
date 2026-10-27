@@ -25,21 +25,7 @@ def _triton_impl(
         split_qkv_rmsnorm_rope_kernel,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._qkv_inputs import prepare_qkv
 
-    input, sin, cos, q_weight, k_weight, q_bias, k_bias = prepare_qkv(
-        input,
-        sin,
-        cos,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        eps,
-        q_weight,
-        k_weight,
-        q_bias,
-        k_bias,
-    )
     _, num_vectorcore = get_device_properties()
 
     KV_BLOCK_SIZE = head_dim
@@ -107,21 +93,8 @@ def _torch_native_impl(
     k_bias=None,
     is_neox_style=True,
 ):
-    from ._qkv_inputs import prepare_qkv
 
-    input, sin, cos, q_weight, k_weight, q_bias, k_bias = prepare_qkv(
-        input,
-        sin,
-        cos,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        eps,
-        q_weight,
-        k_weight,
-        q_bias,
-        k_bias,
-    )
+    assert q_hidden_size % kv_hidden_size == 0
     from ...implementation.torch_native.norm.split_qkv_rmsnorm_rope import (
         split_qkv_rmsnorm_rope,
     )

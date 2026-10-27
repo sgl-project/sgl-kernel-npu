@@ -11,9 +11,6 @@ def _triton_impl(input):
     from ...implementation.triton.norm.l1_norm import l1_norm_kernel
     from ...utils.triton_utils import get_device_properties
 
-    if input.ndim != 2 or input.shape[-1] == 0:
-        raise ValueError("input must have shape [rows, positive hidden]")
-    input = input.contiguous()
     batch_size = input.shape[0]
     hidden_size = input.shape[1]
     output = torch.empty(
@@ -30,8 +27,6 @@ def _triton_impl(input):
 def _torch_native_impl(input):
     from ...implementation.torch_native.norm.l1_norm import l1_norm
 
-    if input.ndim != 2 or input.shape[-1] == 0:
-        raise ValueError("input must have shape [rows, positive hidden]")
     return l1_norm(input)
 
 

@@ -71,21 +71,7 @@ def _triton_impl(
         _split_qkv_and_compute_local_qk_var_kernel,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._tp_norm_inputs import prepare_inputs
 
-    input, cos, sin, q_weight, k_weight = prepare_inputs(
-        input,
-        cos,
-        sin,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        q_weight,
-        k_weight,
-        rotary_dim,
-        tp_world,
-        tp_group,
-    )
     KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
     assert KV_BLOCK_SIZE == head_dim
     assert q_hidden_size % kv_hidden_size == 0
@@ -170,21 +156,9 @@ def _torch_native_impl(
         apply_global,
         compute_local,
     )
-    from ._tp_norm_inputs import prepare_inputs
 
-    input, cos, sin, q_weight, k_weight = prepare_inputs(
-        input,
-        cos,
-        sin,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        q_weight,
-        k_weight,
-        rotary_dim,
-        tp_world,
-        tp_group,
-    )
+    assert head_dim == 1 << (head_dim - 1).bit_length()
+    assert q_hidden_size % kv_hidden_size == 0
     batch = input.shape[0]
     q = torch.empty((batch, q_hidden_size), device=input.device, dtype=input.dtype)
     k = torch.empty((batch, kv_hidden_size), device=input.device, dtype=input.dtype)

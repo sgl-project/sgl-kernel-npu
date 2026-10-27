@@ -19,9 +19,7 @@ def _triton_impl(
         l2norm_fwd_kernel_opt,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._l2norm_inputs import prepare_input
 
-    x = prepare_input(x)
     x_shape_og = x.shape
     x = x.view(-1, x.shape[-1])
     if output_dtype is None:
@@ -38,9 +36,6 @@ def _triton_impl(
 
     if D > BD:
         raise RuntimeError("This layer doesn't support feature dim >= 64KB.")
-
-    if T == 0:
-        return y.view(x_shape_og)
 
     if D <= 512:
         NB = triton.cdiv(T, 2048)
@@ -85,12 +80,9 @@ def _torch_native_impl(
     x: torch.Tensor, eps: float = 1e-06, output_dtype: Optional[torch.dtype] = None
 ):
     from ...implementation.torch_native.norm.l2norm import l2norm_fwd
-    from ._l2norm_inputs import prepare_input
 
-    x = prepare_input(x)
     shape = x.shape
-    rows = x.numel() // x.shape[-1]
-    flat = x.reshape(rows, x.shape[-1])
+    flat = x.view(-1, x.shape[-1])
     output = torch.empty_like(
         flat, dtype=x.dtype if output_dtype is None else output_dtype
     )

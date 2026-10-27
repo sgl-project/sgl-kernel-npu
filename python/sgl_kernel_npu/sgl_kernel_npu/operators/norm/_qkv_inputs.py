@@ -1,92 +1,6 @@
-"""Metadata checks and input preparation for the public QKV adapters.
-
-Checks use tensor metadata only; the position-cache path keeps clamping on device
-so preparing a Triton call does not introduce a host synchronization into graphs.
-"""
+"""Reference tensor views and the original position-cache input preparation."""
 
 import torch
-
-
-def _validate_layout(input, q_hidden_size, kv_hidden_size, head_dim, *, gemma=False):
-    if input.ndim != 2:
-        raise ValueError("input must be a 2-D concatenated QKV tensor")
-    if head_dim <= 0 or q_hidden_size <= 0 or kv_hidden_size <= 0:
-        raise ValueError("head_dim and Q/KV widths must be positive")
-    if (
-        q_hidden_size % kv_hidden_size
-        or q_hidden_size % head_dim
-        or kv_hidden_size % head_dim
-    ):
-        raise ValueError(
-            "Q/KV widths must contain complete heads and Q must be a multiple of KV"
-        )
-    expected = (2 if gemma else 1) * q_hidden_size + 2 * kv_hidden_size
-    if input.shape[1] != expected:
-        raise ValueError("input width does not match the concatenated Q/K/V layout")
-
-
-def _validate_weights(input, head_dim, eps, q_weight, k_weight, q_bias, k_bias):
-    if eps is not None:
-        for name, value in (("q_weight", q_weight), ("k_weight", k_weight)):
-            if value is None or value.numel() < head_dim:
-                raise ValueError(
-                    f"{name} must have at least head_dim={head_dim} elements when eps is set"
-                )
-            if value.device != input.device:
-                raise ValueError(f"{name} must be on the input device")
-    # The original kernel uses q_bias to enable both Q and K bias loads.
-    if q_bias is not None:
-        for name, value in (("q_bias", q_bias), ("k_bias", k_bias)):
-            if value is None or value.numel() < head_dim:
-                raise ValueError(
-                    f"{name} must have at least head_dim={head_dim} elements when q_bias is set"
-                )
-            if value.device != input.device:
-                raise ValueError(f"{name} must be on the input device")
-
-
-def prepare_qkv(
-    input,
-    sin,
-    cos,
-    q_hidden_size,
-    kv_hidden_size,
-    head_dim,
-    eps,
-    q_weight,
-    k_weight,
-    q_bias,
-    k_bias,
-    *,
-    rope_dim=None,
-    gemma=False,
-):
-    _validate_layout(input, q_hidden_size, kv_hidden_size, head_dim, gemma=gemma)
-    if sin.ndim == 0 or cos.ndim == 0:
-        raise ValueError("sin and cos must have a rotary dimension")
-    rope_dim = sin.shape[-1] if rope_dim is None else rope_dim
-    if rope_dim < 0 or rope_dim % 2 or rope_dim > head_dim:
-        raise ValueError("rope_dim must be even and within head_dim")
-    if (
-        sin.shape[-1] != rope_dim
-        or cos.shape[-1] != rope_dim
-        or sin.numel() != input.shape[0] * rope_dim
-        or cos.numel() != input.shape[0] * rope_dim
-    ):
-        raise ValueError("sin/cos must contain one rope_dim row per input token")
-    if sin.device != input.device or cos.device != input.device:
-        raise ValueError("sin/cos must be on the input device")
-    if gemma:
-        if head_dim & (head_dim - 1):
-            raise ValueError("Gemma head_dim must be a power of two")
-        if eps is None or q_weight is None or k_weight is None:
-            raise ValueError("Gemma normalization requires eps and both weights")
-    _validate_weights(input, head_dim, eps, q_weight, k_weight, q_bias, k_bias)
-    # Native kernels use flat pointer offsets, not arbitrary tensor strides.
-    return tuple(
-        v.contiguous() if v is not None else None
-        for v in (input, sin, cos, q_weight, k_weight, q_bias, k_bias)
-    )
 
 
 def prepare_position_cache(
@@ -103,32 +17,50 @@ def prepare_position_cache(
     q_bias,
     k_bias,
 ):
-    _validate_layout(input_tensor, q_hidden_size, kv_hidden_size, head_dim)
-    rope_dim = head_dim if rope_dim is None else rope_dim
-    if head_dim & (head_dim - 1) or rope_dim < 0 or rope_dim % 2 or rope_dim > head_dim:
-        raise ValueError(
-            "head_dim must be a power of two and rope_dim must be even within it"
-        )
-    if (
-        positions.numel() != input_tensor.shape[0]
-        or positions.device != input_tensor.device
-    ):
-        raise ValueError(
-            "positions must contain one index per token on the input device"
-        )
-    if (
-        cos_sin_cache.ndim != 2
-        or cos_sin_cache.shape[0] < 1
-        or cos_sin_cache.shape[1] < rope_dim
-        or cos_sin_cache.device != input_tensor.device
-    ):
-        raise ValueError(
-            "cos_sin_cache must have nonempty rows and at least rope_dim columns on the input device"
-        )
-    _validate_weights(input_tensor, head_dim, eps, q_weight, k_weight, q_bias, k_bias)
-    if positions.dtype not in (torch.int32, torch.int64):
-        positions = positions.to(torch.int32)
-    return positions.contiguous(), cos_sin_cache.contiguous(), rope_dim
+    assert input_tensor.dim() == 2
+    B, total_hidden = input_tensor.shape
+    if rope_dim is None:
+        rope_dim = head_dim
+    assert rope_dim % 2 == 0 and rope_dim <= head_dim
+    expected_total = q_hidden_size + 2 * kv_hidden_size
+    assert total_hidden == expected_total
+    pos = positions
+    assert pos.numel() == B, f"positions must be [B], got numel={pos.numel()} B={B}"
+    if pos.dtype not in (torch.int32, torch.int64):
+        pos = pos.to(torch.int32)
+    pos = pos.contiguous()
+    cache = cos_sin_cache.contiguous()
+    max_seq = cache.shape[0]
+    assert max_seq >= 1, "cos_sin_cache must be non-empty"
+    assert (
+        1 << (head_dim - 1).bit_length()
+    ) == head_dim, "this kernel assumes head_dim is power-of-2"
+    assert q_hidden_size % kv_hidden_size == 0
+    bias = q_bias is not None
+    norms = eps is not None
+    if norms:
+        if q_weight is None or q_weight.numel() < head_dim:
+            raise ValueError(
+                f"When using RMSNorm (eps is not None), q_weight must have at least head_dim={head_dim} elements, "
+                f"got {q_weight.numel() if q_weight is not None else 0}."
+            )
+        if k_weight is None or k_weight.numel() < head_dim:
+            raise ValueError(
+                f"When using RMSNorm (eps is not None), k_weight must have at least head_dim={head_dim} elements, "
+                f"got {k_weight.numel() if k_weight is not None else 0}."
+            )
+    if bias:
+        if q_bias is None or q_bias.numel() < head_dim:
+            raise ValueError(
+                f"When using bias (q_bias provided), q_bias must have at least head_dim={head_dim} elements, "
+                f"got {q_bias.numel() if q_bias is not None else 0}."
+            )
+        if k_bias is None or k_bias.numel() < head_dim:
+            raise ValueError(
+                f"When using bias (k_bias provided), k_bias must have at least head_dim={head_dim} elements, "
+                f"got {k_bias.numel() if k_bias is not None else 0}."
+            )
+    return pos, cache, rope_dim
 
 
 def split_qkv_inputs(input, q_hidden_size, kv_hidden_size, head_dim):

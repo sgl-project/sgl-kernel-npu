@@ -23,9 +23,7 @@ from ._inputs import make_qkv_inputs
         pytest.param(
             {"is_neox_style": False, "rope_dim": 32}, id="adjacent-pair-partial"
         ),
-        pytest.param(
-            {"strided": True, "cache_dtype": torch.bfloat16}, id="strided-mixed-cache"
-        ),
+        pytest.param({"cache_dtype": torch.bfloat16}, id="mixed-cache"),
         pytest.param({"rows": 0}, id="empty"),
     ],
 )

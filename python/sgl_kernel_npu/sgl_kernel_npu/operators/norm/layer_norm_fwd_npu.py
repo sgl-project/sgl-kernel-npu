@@ -25,9 +25,7 @@ def _triton_impl(
         _layer_norm_fwd_1pass_kernel_npu,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._gated_norm_inputs import validate_inputs
 
-    validate_inputs(x, weight, bias, z, out, group_size)
     M, N = x.shape
     if group_size is None:
         group_size = N
@@ -63,9 +61,6 @@ def _triton_impl(
 
     # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
     BLOCK_M = 48
-    if M == 0:
-        return out, mean, rstd
-
     _, num_vectorcore = get_device_properties()
     num_blocks_m = min(triton.cdiv(M, BLOCK_M), num_vectorcore)
 

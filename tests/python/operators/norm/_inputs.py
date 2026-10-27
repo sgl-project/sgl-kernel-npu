@@ -19,18 +19,13 @@ def make_qkv_inputs(
     bias=False,
     is_neox_style=True,
     cache_dtype=torch.float32,
-    strided=False,
 ):
     """Use representative head layouts; these are not captured production calls."""
     seed_inputs()
     rope_dim = head_dim if rope_dim is None else rope_dim
     q_width, kv_width = q_heads * head_dim, kv_heads * head_dim
     width = q_width + 2 * kv_width
-    x = (
-        torch.randn(rows, 2 * width, dtype=dtype)[:, ::2]
-        if strided
-        else torch.randn(rows, width, dtype=dtype)
-    )
+    x = torch.randn(rows, width, dtype=dtype)
     frequencies = 10000.0 ** (-torch.arange(0, rope_dim, 2).float() / rope_dim)
     angles = torch.arange(rows).float()[:, None] * frequencies[None, :]
     full_angles = torch.cat((angles, angles), dim=-1)

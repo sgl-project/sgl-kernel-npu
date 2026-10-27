@@ -19,11 +19,7 @@ def _triton_impl(
 
     from ...implementation.triton.norm.rmsnorm_bias import rmsnorm_bias_kernel
     from ...utils.triton_utils import get_device_properties
-    from ._rmsnorm_bias_inputs import prepare_inputs
 
-    input, norm_weight, norm_bias, quant_scale, quant_offset = prepare_inputs(
-        input, norm_weight, norm_bias, quant_scale, quant_offset
-    )
     _, num_vectorcore = get_device_properties()
 
     batch_size = input.shape[0]
@@ -41,9 +37,6 @@ def _triton_impl(
         output = torch.empty(
             batch_size, hidden_size, device=input.device, dtype=input.dtype
         )
-
-    if batch_size == 0:
-        return output
 
     rmsnorm_bias_kernel[(n_rows,)](
         input,
@@ -68,11 +61,7 @@ def _torch_native_impl(
     input, norm_weight, norm_bias, eps, quant_scale=None, quant_offset=None
 ):
     from ...implementation.torch_native.norm.rmsnorm_bias import rmsnorm_bias
-    from ._rmsnorm_bias_inputs import prepare_inputs
 
-    input, norm_weight, norm_bias, quant_scale, quant_offset = prepare_inputs(
-        input, norm_weight, norm_bias, quant_scale, quant_offset
-    )
     return rmsnorm_bias(input, norm_weight, norm_bias, eps, quant_scale, quant_offset)
 
 

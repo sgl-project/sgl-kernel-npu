@@ -25,23 +25,7 @@ def _triton_impl(
         split_qkvgate_gemma_rmsnorm_rope_kernel,
     )
     from ...utils.triton_utils import get_device_properties
-    from ._qkv_inputs import prepare_qkv
 
-    input, sin, cos, q_weight, k_weight, _, _ = prepare_qkv(
-        input,
-        sin,
-        cos,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        eps,
-        q_weight,
-        k_weight,
-        None,
-        None,
-        rope_dim=rope_dim,
-        gemma=True,
-    )
     _, num_vectorcore = get_device_properties()
 
     KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
@@ -105,23 +89,9 @@ def _torch_native_impl(
     q_weight,
     k_weight,
 ):
-    from ._qkv_inputs import prepare_qkv
 
-    input, sin, cos, q_weight, k_weight, _, _ = prepare_qkv(
-        input,
-        sin,
-        cos,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        eps,
-        q_weight,
-        k_weight,
-        None,
-        None,
-        rope_dim=rope_dim,
-        gemma=True,
-    )
+    assert head_dim == 1 << (head_dim - 1).bit_length()
+    assert q_hidden_size % kv_hidden_size == 0
     from ...implementation.torch_native.norm.split_qkvgate_gemma_rmsnorm_rope import (
         split_qkvgate_gemma_rmsnorm_rope,
     )
