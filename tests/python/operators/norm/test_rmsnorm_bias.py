@@ -51,11 +51,7 @@ def generate_test_data(shape, dtype, mode, seed=42):
     return x, weight, bias, scale, offset
 
 
-@pytest.mark.parametrize(
-    "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
-    ids=["fp32", "fp16", "bf16"],
-)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
     "shape",
     [
@@ -77,7 +73,6 @@ def generate_test_data(shape, dtype, mode, seed=42):
     ],
 )
 @pytest.mark.parametrize("eps", [1e-6, 1e-5])
-# Compare affine RMSNorm and optional saturating quantization through the public implementations.
 def test_rmsnorm_bias(
     shape,
     dtype,
@@ -90,8 +85,6 @@ def test_rmsnorm_bias(
     executor = check_accuracy(
         rmsnorm_bias,
         args=(x, weight, bias, eps, scale, offset),
-        impl="triton",
-        impl_ref="torch_native",
     )
     enable_perf = shape in perf_shape and dtype == torch.float16 and mode == "quantized"
     check_performance(executor, enable_perf=enable_perf)
