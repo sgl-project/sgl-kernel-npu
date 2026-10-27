@@ -15,6 +15,7 @@ import unittest
 import sgl_kernel_npu  # noqa: F401 - registers the custom operators
 import torch
 import torch_npu
+from sgl_kernel_npu.operators.attention import kv_quant_sparse_attn_sharedkv
 
 
 def _single_core_metadata(device):
@@ -199,6 +200,8 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
             self._make_paged_swa_inputs(q_length, ori_win_left)
         )
         actual, lse = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        public, _ = kv_quant_sparse_attn_sharedkv(**inputs, impl="auto")
+        independent, _ = kv_quant_sparse_attn_sharedkv(**inputs, impl="torch_native")
         torch_npu.npu.synchronize()
         expected = _reference_paged_swa(
             q_cpu,
@@ -213,6 +216,10 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         self.assertEqual(actual.shape, q_cpu.shape)
         self.assertEqual(actual.dtype, torch.bfloat16)
         torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
+        torch.testing.assert_close(public, actual, rtol=2e-2, atol=2e-2)
+        torch.testing.assert_close(
+            independent.cpu().float(), expected, rtol=2e-2, atol=2e-2
+        )
         self.assertEqual(lse.dtype, torch.float32)
         self.assertEqual(lse.numel(), 0)
 
