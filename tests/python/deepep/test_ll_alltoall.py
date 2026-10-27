@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.utils import _resolve_quant_mode
 from utils import (
     bench,
     bench_kineto,
@@ -21,10 +22,20 @@ from utils import (
 
 
 def get_alltoall_quant_config(quant_type: str):
+    """Returns (use_fp8, use_ue8m0, use_mxfp4, use_mxfp8)."""
     if quant_type == "int8":
-        return True, False, False
-    if quant_type == "bf16":
-        return False, False, False
+        return True, False, False, False
+    if quant_type == "bf16" or quant_type == "no":
+        return False, False, False, False
+    if quant_type == "mx_fp8_e4m3":
+        return False, True, False, True
+    if quant_type == "mx_fp4_e2m1":
+        return False, False, True, False
+    if quant_type == "pertoken_fp8_e4m3":
+        raise ValueError(
+            "AlltoAll strategy does not support pertoken_fp8_e4m3 on A5. "
+            "Use --use-mxfp8 or --use-mxfp4 instead."
+        )
     raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
 
@@ -79,7 +90,12 @@ def test(
 
     quant_configs = [get_alltoall_quant_config(quant_type)]
 
-    for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
+    for (
+        dispatch_use_fp8,
+        dispatch_use_ue8m0,
+        dispatch_use_mxfp4,
+        dispatch_use_mxfp8,
+    ) in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             if local_rank == 0:
                 print(
@@ -97,6 +113,7 @@ def test(
                     round_scale=False,
                     use_ue8m0=dispatch_use_ue8m0,
                     use_mxfp4=dispatch_use_mxfp4,
+                    use_mxfp8=dispatch_use_mxfp8,
                     cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
@@ -105,7 +122,7 @@ def test(
             )
             simulated_gemm_x = (
                 per_token_cast_back(*packed_recv_x)
-                if dispatch_use_fp8
+                if isinstance(packed_recv_x, tuple)
                 else packed_recv_x
             )
 
@@ -181,14 +198,20 @@ def test(
             topk_idx,
             aligned_num_tokens,
             num_experts,
-            use_fp8=False,
+            use_fp8=dispatch_use_fp8,
+            use_ue8m0=dispatch_use_ue8m0,
+            use_mxfp4=dispatch_use_mxfp4,
+            use_mxfp8=dispatch_use_mxfp8,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
         )
+        simulated_gemm_x_local = (
+            per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
+        )
         combined_x, event, hook = buffer.low_latency_combine(
-            recv_x,
+            simulated_gemm_x_local,
             topk_idx,
             topk_weights,
             handle,
@@ -253,7 +276,10 @@ def test(
         "topk_idx": topk_idx,
         "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
         "num_experts": num_experts,
-        "use_fp8": False,
+        "use_fp8": dispatch_use_fp8,
+        "use_ue8m0": dispatch_use_ue8m0,
+        "use_mxfp4": dispatch_use_mxfp4,
+        "use_mxfp8": dispatch_use_mxfp8,
         "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
         "topk_weights": topk_weights,
     }
@@ -269,8 +295,11 @@ def test(
 
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
+    simulated_gemm_x_local = (
+        per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
+    )
     combine_args = {
-        "x": recv_x,
+        "x": simulated_gemm_x_local,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
         "handle": handle,
@@ -365,7 +394,11 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group,
         buffer,
         seed=1,
-        quant_type=args.quant_type,
+        quant_type=(
+            _resolve_quant_mode(args.use_fp8, args.use_mxfp4, args.use_mxfp8)
+            if args.use_fp8 or args.use_mxfp4 or args.use_mxfp8
+            else "bf16"
+        ),
         local_rank=local_rank,
     )
     dist.barrier()
@@ -397,13 +430,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
     )
-    parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default="bf16",
-        choices=["bf16", "int8", "mx_fp4_e2m1", "mx_fp8_e4m3", "mx_fp8_e5m2"],
-        help="Quantization type for dispatch: bf16, int8 (per-token), mx_fp4_e2m1, mx_fp8_e4m3, mx_fp8_e5m2",
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use use_fp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> not supported (use --use-mxfp8 or --use-mxfp4), A2/A3 -> int8 (with warning).",
+    )
+    quant_group.add_argument(
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use use_mxfp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported.",
+    )
+    quant_group.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use use_mxfp4=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported.",
     )
     args = parser.parse_args()
 
