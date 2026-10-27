@@ -43,12 +43,13 @@ constexpr int64_t ROW_PARALLEL_THRESHOLD = 4096;
 constexpr int ROW_PARALLEL_MAX_THREADS = 16;
 
 bool KvQuantSparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t *seqUsedKv, int32_t batchSize,
-                                         int32_t maxSeqLenQ, int32_t maxSeqLenKv, int32_t queryHeadNum, int32_t kvHeadNum,
-                                         int32_t headDim, uint32_t aicCoreNum,
-                                         uint32_t aivCoreNum, const std::string &socVersion, int32_t cmpTopK,
-                                         int32_t cmpRatio, int32_t oriMaskMode, int32_t cmpMaskMode, int64_t winLeft,
-                                         int64_t winRight, const std::string &layoutQuery, const std::string &layoutKv,
-                                         bool hasOriKv, bool hasCmpKv, int32_t *metaData)
+                                                int32_t maxSeqLenQ, int32_t maxSeqLenKv, int32_t queryHeadNum,
+                                                int32_t kvHeadNum, int32_t headDim, uint32_t aicCoreNum,
+                                                uint32_t aivCoreNum, const std::string &socVersion, int32_t cmpTopK,
+                                                int32_t cmpRatio, int32_t oriMaskMode, int32_t cmpMaskMode,
+                                                int64_t winLeft, int64_t winRight, const std::string &layoutQuery,
+                                                const std::string &layoutKv, bool hasOriKv, bool hasCmpKv,
+                                                int32_t *metaData)
 {
     cacheReady_ = false;
     actSeqLenQ_ = cuSeqLenQ;
@@ -233,9 +234,9 @@ int64_t KvQuantSparseAttnSharedkvMetadataHost::CmpCalcCost(uint32_t basicM, uint
     return static_cast<int64_t>(6U * cmpAlignBasicM + 10U * cmpAlignBasicS2);
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::CalcCostTable(uint32_t s1NormalSize, uint32_t s2NormalSize, uint32_t s1GTailSize,
-                                                   uint32_t winS2TailSize, uint32_t cmpS2TailSize,
-                                                   BlockCost<int64_t> &typeCost)
+void KvQuantSparseAttnSharedkvMetadataHost::CalcCostTable(uint32_t s1NormalSize, uint32_t s2NormalSize,
+                                                          uint32_t s1GTailSize, uint32_t winS2TailSize,
+                                                          uint32_t cmpS2TailSize, BlockCost<int64_t> &typeCost)
 {
     typeCost[WIN_NORMAL_BLOCK][WIN_NORMAL_BLOCK] = WinCalcCost(s1NormalSize, s2NormalSize);
     typeCost[WIN_TAIL_BLOCK][WIN_NORMAL_BLOCK] = (s1GTailSize == 0U) ? 0U : WinCalcCost(s1GTailSize, s2NormalSize);
@@ -284,7 +285,7 @@ Range<int64_t> KvQuantSparseAttnSharedkvMetadataHost::CalcS2TokenRange(uint32_t 
 }
 
 void KvQuantSparseAttnSharedkvMetadataHost::CalcBatchCache(uint32_t bIdx, const SplitContext &splitContext,
-                                                    BatchCache &batchCache)
+                                                           BatchCache &batchCache)
 {
     (void)splitContext;
     batchCache.bIdx = bIdx;
@@ -295,7 +296,7 @@ void KvQuantSparseAttnSharedkvMetadataHost::CalcBatchCache(uint32_t bIdx, const 
 }
 
 void KvQuantSparseAttnSharedkvMetadataHost::CalcWinS1GCache(S1GCache &s1GCache, const SplitInfo &splitInfo,
-                                                     const BlockCost<int64_t> &typeCost)
+                                                            const BlockCost<int64_t> &typeCost)
 {
     if (s1GCache.winS2Start >= s1GCache.winS2End) {
         s1GCache.winS1GBlock = 0;
@@ -324,7 +325,7 @@ void KvQuantSparseAttnSharedkvMetadataHost::CalcWinS1GCache(S1GCache &s1GCache, 
 }
 
 void KvQuantSparseAttnSharedkvMetadataHost::CalcCmpS1GCache(S1GCache &s1GCache, const SplitInfo &splitInfo,
-                                                     const BlockCost<int64_t> &typeCost)
+                                                            const BlockCost<int64_t> &typeCost)
 {
     if (s1GCache.cmpS2Start >= s1GCache.cmpS2End) {
         s1GCache.cmpS1GBlock = 0;
@@ -353,7 +354,7 @@ void KvQuantSparseAttnSharedkvMetadataHost::CalcCmpS1GCache(S1GCache &s1GCache, 
 }
 
 void KvQuantSparseAttnSharedkvMetadataHost::CalcBlockRangeAndTailSize(Range<int64_t> &oriS2TokenRange,
-                                                               const BatchCache &batchCache, S1GCache &s1GCache)
+                                                                      const BatchCache &batchCache, S1GCache &s1GCache)
 {
     int64_t oriS2FirstToken = oriS2TokenRange.first;
     int64_t oriS2LastToken = oriS2TokenRange.second;
@@ -401,8 +402,8 @@ void KvQuantSparseAttnSharedkvMetadataHost::GatherWinAndCmpCache(S1GCache &s1GCa
 
 // Compute one row's cost state with a caller-provided typeCost scratch.
 void KvQuantSparseAttnSharedkvMetadataHost::ComputeS1GCache(uint32_t s1GIdx, const SplitContext &splitContext,
-                                                     const BatchCache &batchCache, BlockCost<int64_t> &typeCost,
-                                                     S1GCache &out)
+                                                            const BatchCache &batchCache, BlockCost<int64_t> &typeCost,
+                                                            S1GCache &out)
 {
     const SplitInfo &splitInfo = splitContext.splitInfo;
     if (splitInfo.s1GBaseNum[batchCache.bIdx] == 0) {
@@ -481,7 +482,8 @@ const S1GCache &KvQuantSparseAttnSharedkvMetadataHost::GetS1GCache(uint32_t s1GI
     return rowCache_[idx];
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::CalcBatchCost(uint32_t bIdx, const SplitContext &splitContext, CostInfo &costInfo)
+void KvQuantSparseAttnSharedkvMetadataHost::CalcBatchCost(uint32_t bIdx, const SplitContext &splitContext,
+                                                          CostInfo &costInfo)
 {
     const SplitInfo &splitInfo = splitContext.splitInfo;
     costInfo.bN2CostOfEachBatch[bIdx] = 0;
@@ -519,7 +521,8 @@ void KvQuantSparseAttnSharedkvMetadataHost::CalcCostInfo(SplitContext &splitCont
     }
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::AssignByBatch(const SplitContext &splitContext, AssignContext &assignContext)
+void KvQuantSparseAttnSharedkvMetadataHost::AssignByBatch(const SplitContext &splitContext,
+                                                          AssignContext &assignContext)
 {
     if (assignContext.isFinished) {
         return;
@@ -591,7 +594,8 @@ int64_t KvQuantSparseAttnSharedkvMetadataHost::CalcCurBlockCost(AssignContext &a
     return curCost;
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::AssignByBlock(const SplitContext &splitContext, AssignContext &assignContext)
+void KvQuantSparseAttnSharedkvMetadataHost::AssignByBlock(const SplitContext &splitContext,
+                                                          AssignContext &assignContext)
 {
     if (assignContext.isFinished || !supportFd_) {
         return;
@@ -613,7 +617,8 @@ void KvQuantSparseAttnSharedkvMetadataHost::AssignByBlock(const SplitContext &sp
     (void)sc;
 }
 
-bool KvQuantSparseAttnSharedkvMetadataHost::IsNeedRecordFDInfo(const AssignContext &assignContext, const SplitResult &splitRes)
+bool KvQuantSparseAttnSharedkvMetadataHost::IsNeedRecordFDInfo(const AssignContext &assignContext,
+                                                               const SplitResult &splitRes)
 {
     if (assignContext.curCoreIdx == 0U) {
         return false;
@@ -628,8 +633,8 @@ bool KvQuantSparseAttnSharedkvMetadataHost::IsNeedRecordFDInfo(const AssignConte
     return true;
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::RecordFDInfo(const SplitContext &splitContext, const AssignContext &assignContext,
-                                                  SplitResult &result)
+void KvQuantSparseAttnSharedkvMetadataHost::RecordFDInfo(const SplitContext &splitContext,
+                                                         const AssignContext &assignContext, SplitResult &result)
 {
     const SplitInfo &splitInfo = splitContext.splitInfo;
     uint32_t splitBIdx = result.bN2End[assignContext.curCoreIdx - 1U] / kvHeadNum_;
@@ -705,8 +710,8 @@ void KvQuantSparseAttnSharedkvMetadataHost::ForceAssign(const SplitContext &spli
     UpdateCursor(splitContext, assignContext);
 }
 
-void KvQuantSparseAttnSharedkvMetadataHost::AssignBlocksToCore(const SplitContext &splitContext, AssignContext &assignContext,
-                                                        SplitResult &result)
+void KvQuantSparseAttnSharedkvMetadataHost::AssignBlocksToCore(const SplitContext &splitContext,
+                                                               AssignContext &assignContext, SplitResult &result)
 {
     const CostInfo &costInfo = splitContext.costInfo;
     int64_t avgCost = assignContext.unassignedCost / (aicCoreNum_ - assignContext.curCoreIdx);
@@ -739,7 +744,7 @@ void KvQuantSparseAttnSharedkvMetadataHost::AssignBlocksToCore(const SplitContex
 }
 
 void KvQuantSparseAttnSharedkvMetadataHost::CalcSplitPlan(int64_t costLimit, const SplitContext &splitContext,
-                                                   SplitResult &result)
+                                                          SplitResult &result)
 {
     const CostInfo &costInfo = splitContext.costInfo;
     if (aicCoreNum_ == 0U) {
@@ -816,7 +821,8 @@ bool KvQuantSparseAttnSharedkvMetadataHost::BalanceSchedule(SplitResult &splitRe
 
 bool KvQuantSparseAttnSharedkvMetadataHost::GenMetaData(SplitResult &splitRes)
 {
-    kv_quant_optiling::detail::SasMetaData *metaDataPtr = reinterpret_cast<kv_quant_optiling::detail::SasMetaData *>(metaData_);
+    kv_quant_optiling::detail::SasMetaData *metaDataPtr =
+        reinterpret_cast<kv_quant_optiling::detail::SasMetaData *>(metaData_);
     auto writeCore = [&](size_t physicalCore, size_t logicalCore) {
         auto &entry = metaDataPtr->faMetadata[physicalCore];
         entry[kv_quant_optiling::FA_CORE_ENABLE_INDEX] = logicalCore < splitRes.usedCoreNum ? 1U : 0U;
@@ -832,8 +838,7 @@ bool KvQuantSparseAttnSharedkvMetadataHost::GenMetaData(SplitResult &splitRes)
         entry[kv_quant_optiling::FA_BN2_END_INDEX] = splitRes.bN2End[logicalCore];
         entry[kv_quant_optiling::FA_M_END_INDEX] = splitRes.gS1End[logicalCore];
         entry[kv_quant_optiling::FA_S2_END_INDEX] = splitRes.s2End[logicalCore];
-        entry[kv_quant_optiling::FA_FIRST_FD_DATA_WORKSPACE_IDX_INDEX] =
-            splitRes.firstFdDataWorkspaceIdx[logicalCore];
+        entry[kv_quant_optiling::FA_FIRST_FD_DATA_WORKSPACE_IDX_INDEX] = splitRes.firstFdDataWorkspaceIdx[logicalCore];
     };
     for (size_t i = 0; i < aicCoreNum_; ++i) {
         if (isN128_) {
@@ -874,15 +879,15 @@ struct HostTopology {
 HostTopology ResolveHostTopology()
 {
     int32_t device = 0;
-    TORCH_CHECK(aclrtGetDevice(&device) == ACL_SUCCESS, "kv_quant_sparse_attn_sharedkv_metadata_host: no current device");
+    TORCH_CHECK(aclrtGetDevice(&device) == ACL_SUCCESS,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: no current device");
     int64_t aic = 0;
     int64_t aiv = 0;
     TORCH_CHECK(aclGetDeviceCapability(device, ACL_DEVICE_INFO_AI_CORE_NUM, &aic) == ACL_SUCCESS,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: AI core count query failed");
     TORCH_CHECK(aclGetDeviceCapability(device, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &aiv) == ACL_SUCCESS,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: vector core count query failed");
-    TORCH_CHECK(aic > 0 && aic <= kv_quant_optiling::AIC_CORE_NUM && aiv > 0 &&
-                    aiv <= kv_quant_optiling::AIV_CORE_NUM,
+    TORCH_CHECK(aic > 0 && aic <= kv_quant_optiling::AIC_CORE_NUM && aiv > 0 && aiv <= kv_quant_optiling::AIV_CORE_NUM,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: unsupported core topology: AI cores=", aic,
                 ", vector cores=", aiv);
     const char *soc = aclrtGetSocName();
@@ -898,19 +903,21 @@ const int32_t *CheckHostInt32(const c10::optional<at::Tensor> &input, int64_t ex
     const at::Tensor &tensor = *input;
     TORCH_CHECK(tensor.device().is_cpu() && tensor.scalar_type() == at::kInt && tensor.is_contiguous() &&
                     tensor.dim() == 1 && tensor.numel() == expectedSize,
-                "kv_quant_sparse_attn_sharedkv_metadata_host: ", name,
-                " must be a contiguous CPU int32 vector with ", expectedSize, " elements");
+                "kv_quant_sparse_attn_sharedkv_metadata_host: ", name, " must be a contiguous CPU int32 vector with ",
+                expectedSize, " elements");
     return static_cast<const int32_t *>(tensor.const_data_ptr());
 }
 }  // namespace
 
-at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
-    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim, const std::string &layout_q,
-    const std::string &layout_kv, const c10::optional<at::Tensor> &cu_seqlens_q,
-    const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size, int64_t max_seqlen_q, int64_t max_seqlen_kv,
-    int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left,
-    int64_t ori_win_right, bool has_ori_kv, bool has_cmp_kv, int64_t kv_quant_mode, int64_t tile_size,
-    int64_t rope_head_dim)
+at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+                                                       const std::string &layout_q, const std::string &layout_kv,
+                                                       const c10::optional<at::Tensor> &cu_seqlens_q,
+                                                       const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+                                                       int64_t max_seqlen_q, int64_t max_seqlen_kv, int64_t cmp_topk,
+                                                       int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+                                                       int64_t ori_win_left, int64_t ori_win_right, bool has_ori_kv,
+                                                       bool has_cmp_kv, int64_t kv_quant_mode, int64_t tile_size,
+                                                       int64_t rope_head_dim)
 {
     TORCH_CHECK(kv_quant_mode == 1 && tile_size == 64 && rope_head_dim == 64,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: expected kv_quant_mode=1, tile_size=64, "
@@ -935,29 +942,28 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
                 "kv_quant_sparse_attn_sharedkv_metadata_host: ori_win_left must be in [0, INT32_MAX], got ",
                 ori_win_left);
     TORCH_CHECK(ori_mask_mode == 0 || ori_mask_mode == 3 || ori_mask_mode == 4,
-                "kv_quant_sparse_attn_sharedkv_metadata_host: ori_mask_mode must be 0, 3 or 4, got ",
-                ori_mask_mode);
-    TORCH_CHECK(num_heads_q > 0 && num_heads_q <= MAX_I32 &&
-                    num_heads_kv > 0 && num_heads_kv <= MAX_I32 && head_dim > 0 && head_dim <= MAX_I32 &&
-                    cmp_topk >= 0 && cmp_topk <= MAX_I32 && cmp_ratio >= -1 && cmp_ratio <= MAX_I32 &&
-                    cmp_mask_mode >= 0 && cmp_mask_mode <= MAX_I32 &&
-                    ori_win_right >= 0 && ori_win_right <= MAX_I32,
+                "kv_quant_sparse_attn_sharedkv_metadata_host: ori_mask_mode must be 0, 3 or 4, got ", ori_mask_mode);
+    TORCH_CHECK(num_heads_q > 0 && num_heads_q <= MAX_I32 && num_heads_kv > 0 && num_heads_kv <= MAX_I32 &&
+                    head_dim > 0 && head_dim <= MAX_I32 && cmp_topk >= 0 && cmp_topk <= MAX_I32 && cmp_ratio >= -1 &&
+                    cmp_ratio <= MAX_I32 && cmp_mask_mode >= 0 && cmp_mask_mode <= MAX_I32 && ori_win_right >= 0 &&
+                    ori_win_right <= MAX_I32,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: invalid scalar argument");
     TORCH_CHECK(layout_q == "BSND" || layout_q == "TND",
                 "kv_quant_sparse_attn_sharedkv_metadata_host: layout_q must be BSND or TND");
     TORCH_CHECK(layout_kv == "PA_ND", "kv_quant_sparse_attn_sharedkv_metadata_host: layout_kv must be PA_ND");
     TORCH_CHECK(num_heads_q == 64 || num_heads_q == 128,
                 "kv_quant_sparse_attn_sharedkv_metadata_host: num_heads_q must be 64 or 128, got ", num_heads_q);
-    TORCH_CHECK(num_heads_kv == 1,
-                "kv_quant_sparse_attn_sharedkv_metadata_host: num_heads_kv must be 1, got ", num_heads_kv);
-    TORCH_CHECK(head_dim == 512,
-                "kv_quant_sparse_attn_sharedkv_metadata_host: head_dim must be 512, got ", head_dim);
+    TORCH_CHECK(num_heads_kv == 1, "kv_quant_sparse_attn_sharedkv_metadata_host: num_heads_kv must be 1, got ",
+                num_heads_kv);
+    TORCH_CHECK(head_dim == 512, "kv_quant_sparse_attn_sharedkv_metadata_host: head_dim must be 512, got ", head_dim);
     if (has_cmp_kv) {
-        TORCH_CHECK(cmp_topk == 0 || cmp_topk == 512 || cmp_topk == 1024,
-                    "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_topk must be 0, 512 or 1024, got ",
-                    cmp_topk);
+        TORCH_CHECK(
+            cmp_topk == 0 || cmp_topk == 512 || cmp_topk == 1024,
+            "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_topk must be 0, 512 or 1024, got ",
+            cmp_topk);
         TORCH_CHECK(cmp_ratio == 4 || cmp_ratio == 128,
-                    "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_ratio must be 4 or 128 with cmp_kv, got ",
+                    "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed: cmp_ratio must be 4 or 128 "
+                    "with cmp_kv, got ",
                     cmp_ratio);
     }
     TORCH_CHECK(layout_q != "TND" || cu_seqlens_q.has_value(),
@@ -994,13 +1000,13 @@ at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     auto options = at::TensorOptions().dtype(at::kInt).device(at::kCPU).pinned_memory(true);
     at::Tensor host = at::zeros({static_cast<int64_t>(kv_quant_optiling::SAS_META_SIZE)}, options);
     sgl_kernel_npu::kv_quant::KvQuantSparseAttnSharedkvMetadataHost scheduler;
-    const bool ok = scheduler.Run(
-        cuQ, seqKv, static_cast<int32_t>(resolvedBatchSize), static_cast<int32_t>(max_seqlen_q),
-        static_cast<int32_t>(max_seqlen_kv), static_cast<int32_t>(num_heads_q), static_cast<int32_t>(num_heads_kv),
-        static_cast<int32_t>(head_dim), topo.aicCoreNum, topo.aivCoreNum, topo.socVersion,
-        static_cast<int32_t>(cmp_topk), static_cast<int32_t>(cmp_ratio), static_cast<int32_t>(ori_mask_mode),
-        static_cast<int32_t>(cmp_mask_mode), ori_win_left, ori_win_right, layout_q, layout_kv, has_ori_kv,
-        has_cmp_kv, host.data_ptr<int32_t>());
+    const bool ok =
+        scheduler.Run(cuQ, seqKv, static_cast<int32_t>(resolvedBatchSize), static_cast<int32_t>(max_seqlen_q),
+                      static_cast<int32_t>(max_seqlen_kv), static_cast<int32_t>(num_heads_q),
+                      static_cast<int32_t>(num_heads_kv), static_cast<int32_t>(head_dim), topo.aicCoreNum,
+                      topo.aivCoreNum, topo.socVersion, static_cast<int32_t>(cmp_topk), static_cast<int32_t>(cmp_ratio),
+                      static_cast<int32_t>(ori_mask_mode), static_cast<int32_t>(cmp_mask_mode), ori_win_left,
+                      ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, host.data_ptr<int32_t>());
     TORCH_CHECK(ok, "kv_quant_sparse_attn_sharedkv_metadata_host: A5 scheduling failed");
     return host.to(at::Device("npu"), /*non_blocking=*/true);
 }

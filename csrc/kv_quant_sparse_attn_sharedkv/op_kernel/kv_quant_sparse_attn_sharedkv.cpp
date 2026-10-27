@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
- /*!
+/*!
  * \file kv_quant_sparse_attn_sharedkv.cpp
  * \brief
  */
@@ -29,8 +29,8 @@ using namespace AscendC;
 // The vector-side implementation keeps a pointer to tiling data in local
 // memory. Copy scalar fields from GM, as in the other A5 kernels, rather than
 // passing a __gm__ pointer to a function expecting a local pointer.
-__aicore__ inline void LoadKvQuantTilingData(
-    optiling::KvQuantSparseAttnSharedkvTilingData &local, __gm__ uint8_t *tiling)
+__aicore__ inline void LoadKvQuantTilingData(optiling::KvQuantSparseAttnSharedkvTilingData &local,
+                                             __gm__ uint8_t *tiling)
 {
     const auto *gm = reinterpret_cast<const __gm__ optiling::KvQuantSparseAttnSharedkvTilingData *>(tiling);
     local.dispatchKey = gm->dispatchKey;
@@ -62,42 +62,44 @@ __aicore__ inline void LoadKvQuantTilingData(
 #endif
 
 #if defined(__DAV_C310_CUBE__)
-#define SAS_OP_IMPL(templateClass, tilingdataClass, ...)                                          \
-    do {                                                                                          \
-        using CubeBlockType = typename std::conditional<g_coreType == AscendC::AIC,               \
-            BaseApi::SCFABlockCube<__VA_ARGS__>, BaseApi::SCFABlockCubeDummy<__VA_ARGS__>>::type; \
-        using VecBlockType = typename std::conditional<g_coreType == AscendC::AIC,                \
-            BaseApi::SCFABlockVecDummy<__VA_ARGS__>, BaseApi::SCFABlockVec<__VA_ARGS__>>::type;   \
-        templateClass<CubeBlockType, VecBlockType> op;                                            \
-        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable, cuSeqlensQ,  \
-                seqUsedQ, seqUsedKV, sinks, metadata, attentionOut, user, nullptr, &tPipe);    \
-        op.Process();                                                                             \
+#define SAS_OP_IMPL(templateClass, tilingdataClass, ...)                                                           \
+    do {                                                                                                           \
+        using CubeBlockType =                                                                                      \
+            typename std::conditional<g_coreType == AscendC::AIC, BaseApi::SCFABlockCube<__VA_ARGS__>,             \
+                                      BaseApi::SCFABlockCubeDummy<__VA_ARGS__>>::type;                             \
+        using VecBlockType =                                                                                       \
+            typename std::conditional<g_coreType == AscendC::AIC, BaseApi::SCFABlockVecDummy<__VA_ARGS__>,         \
+                                      BaseApi::SCFABlockVec<__VA_ARGS__>>::type;                                   \
+        templateClass<CubeBlockType, VecBlockType> op;                                                             \
+        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable, cuSeqlensQ, \
+                seqUsedQ, seqUsedKV, sinks, metadata, attentionOut, user, nullptr, &tPipe);                        \
+        op.Process();                                                                                              \
     } while (0)
 #else
-#define SAS_OP_IMPL(templateClass, tilingdataClass, ...)                                          \
-    do {                                                                                          \
-        using CubeBlockType = typename std::conditional<g_coreType == AscendC::AIC,               \
-            BaseApi::SCFABlockCube<__VA_ARGS__>, BaseApi::SCFABlockCubeDummy<__VA_ARGS__>>::type; \
-        using VecBlockType = typename std::conditional<g_coreType == AscendC::AIC,                \
-            BaseApi::SCFABlockVecDummy<__VA_ARGS__>, BaseApi::SCFABlockVec<__VA_ARGS__>>::type;   \
-        templateClass<CubeBlockType, VecBlockType> op;                                            \
-        tilingdataClass tilingDataIn;                                                              \
-        LoadKvQuantTilingData(tilingDataIn, tiling);                                               \
-        const tilingdataClass *tilingData = &tilingDataIn;                                         \
-        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable, cuSeqlensQ,  \
-                seqUsedQ, seqUsedKV, sinks, metadata, attentionOut, user, tilingData, &tPipe); \
-        op.Process();                                                                             \
+#define SAS_OP_IMPL(templateClass, tilingdataClass, ...)                                                           \
+    do {                                                                                                           \
+        using CubeBlockType =                                                                                      \
+            typename std::conditional<g_coreType == AscendC::AIC, BaseApi::SCFABlockCube<__VA_ARGS__>,             \
+                                      BaseApi::SCFABlockCubeDummy<__VA_ARGS__>>::type;                             \
+        using VecBlockType =                                                                                       \
+            typename std::conditional<g_coreType == AscendC::AIC, BaseApi::SCFABlockVecDummy<__VA_ARGS__>,         \
+                                      BaseApi::SCFABlockVec<__VA_ARGS__>>::type;                                   \
+        templateClass<CubeBlockType, VecBlockType> op;                                                             \
+        tilingdataClass tilingDataIn;                                                                              \
+        LoadKvQuantTilingData(tilingDataIn, tiling);                                                               \
+        const tilingdataClass *tilingData = &tilingDataIn;                                                         \
+        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable, cuSeqlensQ, \
+                seqUsedQ, seqUsedKV, sinks, metadata, attentionOut, user, tilingData, &tPipe);                     \
+        op.Process();                                                                                              \
     } while (0)
 #endif
 #endif  // __CCE_AICORE__
 
-extern "C" __global__ __aicore__ void
-kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
-                       GM_ADDR oriSparseIndices, GM_ADDR cmpSparseIndices, GM_ADDR oriBlockTable,
-                       GM_ADDR cmpBlockTable, GM_ADDR cuSeqlensQ, GM_ADDR cuSeqlensOriKv,
-                       GM_ADDR cuSeqlensCmpKv, GM_ADDR seqUsedQ, GM_ADDR seqUsedKV,
-                       GM_ADDR sinks, GM_ADDR metadata, GM_ADDR attentionOut, GM_ADDR softmax_lse,
-                       GM_ADDR workspace, GM_ADDR tiling)
+extern "C" __global__ __aicore__ void kv_quant_sparse_attn_sharedkv(
+    GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV, GM_ADDR oriSparseIndices, GM_ADDR cmpSparseIndices,
+    GM_ADDR oriBlockTable, GM_ADDR cmpBlockTable, GM_ADDR cuSeqlensQ, GM_ADDR cuSeqlensOriKv, GM_ADDR cuSeqlensCmpKv,
+    GM_ADDR seqUsedQ, GM_ADDR seqUsedKV, GM_ADDR sinks, GM_ADDR metadata, GM_ADDR attentionOut, GM_ADDR softmax_lse,
+    GM_ADDR workspace, GM_ADDR tiling)
 {
 #ifdef __CCE_AICORE__
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
@@ -109,12 +111,11 @@ kv_quant_sparse_attn_sharedkv(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
     // build exports one launch symbol, so select the same specializations here.
     // The key is the first field of the host/device shared tiling buffer.
     const auto *tilingData = reinterpret_cast<const __gm__ optiling::KvQuantSparseAttnSharedkvTilingData *>(tiling);
-#define KV_QUANT_CASE(layout, mode, split)                                                         \
-    case ((layout << 8) | (mode << 4) | split):                                                     \
-        SAS_OP_IMPL(BaseApi::KvQuantSparseAttnSharedkvScfa, optiling::KvQuantSparseAttnSharedkvTilingData, \
-                    bfloat16_t, fp8_e4m3fn_t, float, bfloat16_t, 0, true,                         \
-                    static_cast<SAS_LAYOUT>(layout), SAS_LAYOUT::PA_ND,                            \
-                    static_cast<SASTemplateMode>(mode), split);                                    \
+#define KV_QUANT_CASE(layout, mode, split)                                                                             \
+    case ((layout << 8) | (mode << 4) | split):                                                                        \
+        SAS_OP_IMPL(BaseApi::KvQuantSparseAttnSharedkvScfa, optiling::KvQuantSparseAttnSharedkvTilingData, bfloat16_t, \
+                    fp8_e4m3fn_t, float, bfloat16_t, 0, true, static_cast<SAS_LAYOUT>(layout), SAS_LAYOUT::PA_ND,      \
+                    static_cast<SASTemplateMode>(mode), split);                                                        \
         break
     switch (tilingData->dispatchKey) {
         KV_QUANT_CASE(0, 0, 0);

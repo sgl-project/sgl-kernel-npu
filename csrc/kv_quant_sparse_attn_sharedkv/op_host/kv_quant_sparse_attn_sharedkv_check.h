@@ -120,11 +120,7 @@ struct SASTilingOptionalParaInfo {
     const gert::Tensor *tensor;
 };
 
-enum class SASLayout : uint32_t {
-    BSND = 0,
-    TND = 1,
-    PA_ND = 2
-};
+enum class SASLayout : uint32_t { BSND = 0, TND = 1, PA_ND = 2 };
 
 enum class SASAxis : uint32_t {
     B = 0,
@@ -133,21 +129,13 @@ enum class SASAxis : uint32_t {
     D = 3,
     K = 3,  // sparse_indices的K和key的D枚举值相同，表达相同位置, 最后一维
     T = 5,
-    Bn = 6, // block number
-    Bs = 7 // block size
+    Bn = 6,  // block number
+    Bs = 7   // block size
 };
 
-enum class SASTemplateMode : uint32_t {
-    SWA_TEMPLATE_MODE = 0,
-    CFA_TEMPLATE_MODE = 1,
-    SCFA_TEMPLATE_MODE = 2
-};
+enum class SASTemplateMode : uint32_t { SWA_TEMPLATE_MODE = 0, CFA_TEMPLATE_MODE = 1, SCFA_TEMPLATE_MODE = 2 };
 
-enum class KvStorageMode : uint32_t {
-    BATCH_CONTINUOUS = 0,
-    TENSOR_LIST = 1,
-    PAGE_ATTENTION = 2
-};
+enum class KvStorageMode : uint32_t { BATCH_CONTINUOUS = 0, TENSOR_LIST = 1, PAGE_ATTENTION = 2 };
 
 struct KvQuantSASTilingShapeCompareParam {
     int64_t B = 1;
@@ -216,42 +204,42 @@ constexpr uint32_t NUM_BYTES_FLOAT = 4;
 constexpr uint32_t NUM_BYTES_FLOAT16 = 2;
 constexpr uint32_t NUM_BYTES_BF16 = 2;
 constexpr uint32_t BYTE_BLOCK = 32;
-const uint32_t QSFA_MAX_AIC_CORE_NUM = 26; // 25 + 1 保证数组8字节对齐
+const uint32_t QSFA_MAX_AIC_CORE_NUM = 26;  // 25 + 1 保证数组8字节对齐
 
 const std::map<ge::DataType, std::string> DATATYPE_TO_STRING_MAP = {
-    {ge::DT_UNDEFINED, "DT_UNDEFINED"},           // Used to indicate a DataType field has not been set.
-    {ge::DT_FLOAT, "DT_FLOAT"},                   // float type
-    {ge::DT_FLOAT16, "DT_FLOAT16"},               // fp16 type
-    {ge::DT_INT8, "DT_INT8"},                     // int8 type
-    {ge::DT_INT16, "DT_INT16"},                   // int16 type
-    {ge::DT_UINT16, "DT_UINT16"},                 // uint16 type
-    {ge::DT_UINT8, "DT_UINT8"},                   // uint8 type
-    {ge::DT_INT32, "DT_INT32"},                   // uint32 type
-    {ge::DT_INT64, "DT_INT64"},                   // int64 type
-    {ge::DT_UINT32, "DT_UINT32"},                 // unsigned int32
-    {ge::DT_UINT64, "DT_UINT64"},                 // unsigned int64
-    {ge::DT_BOOL, "DT_BOOL"},                     // bool type
-    {ge::DT_DOUBLE, "DT_DOUBLE"},                 // double type
-    {ge::DT_DUAL, "DT_DUAL"},                     // dual output type
-    {ge::DT_DUAL_SUB_INT8, "DT_DUAL_SUB_INT8"},   // dual output int8 type
-    {ge::DT_DUAL_SUB_UINT8, "DT_DUAL_SUB_UINT8"}, // dual output uint8 type
-    {ge::DT_COMPLEX32, "DT_COMPLEX32"},           // complex32 type
-    {ge::DT_COMPLEX64, "DT_COMPLEX64"},           // complex64 type
-    {ge::DT_COMPLEX128, "DT_COMPLEX128"},         // complex128 type
-    {ge::DT_QINT8, "DT_QINT8"},                   // qint8 type
-    {ge::DT_QINT16, "DT_QINT16"},                 // qint16 type
-    {ge::DT_QINT32, "DT_QINT32"},                 // qint32 type
-    {ge::DT_QUINT8, "DT_QUINT8"},                 // quint8 type
-    {ge::DT_QUINT16, "DT_QUINT16"},               // quint16 type
-    {ge::DT_RESOURCE, "DT_RESOURCE"},             // resource type
-    {ge::DT_STRING_REF, "DT_STRING_REF"},         // string ref type
-    {ge::DT_STRING, "DT_STRING"},                 // string type
-    {ge::DT_VARIANT, "DT_VARIANT"},               // dt_variant type
-    {ge::DT_BF16, "DT_BFLOAT16"},                 // dt_bfloat16 type
-    {ge::DT_INT4, "DT_INT4"},                     // dt_variant type
-    {ge::DT_UINT1, "DT_UINT1"},                   // dt_variant type
-    {ge::DT_INT2, "DT_INT2"},                     // dt_variant type
-    {ge::DT_UINT2, "DT_UINT2"}                    // dt_variant type
+    {ge::DT_UNDEFINED, "DT_UNDEFINED"},            // Used to indicate a DataType field has not been set.
+    {ge::DT_FLOAT, "DT_FLOAT"},                    // float type
+    {ge::DT_FLOAT16, "DT_FLOAT16"},                // fp16 type
+    {ge::DT_INT8, "DT_INT8"},                      // int8 type
+    {ge::DT_INT16, "DT_INT16"},                    // int16 type
+    {ge::DT_UINT16, "DT_UINT16"},                  // uint16 type
+    {ge::DT_UINT8, "DT_UINT8"},                    // uint8 type
+    {ge::DT_INT32, "DT_INT32"},                    // uint32 type
+    {ge::DT_INT64, "DT_INT64"},                    // int64 type
+    {ge::DT_UINT32, "DT_UINT32"},                  // unsigned int32
+    {ge::DT_UINT64, "DT_UINT64"},                  // unsigned int64
+    {ge::DT_BOOL, "DT_BOOL"},                      // bool type
+    {ge::DT_DOUBLE, "DT_DOUBLE"},                  // double type
+    {ge::DT_DUAL, "DT_DUAL"},                      // dual output type
+    {ge::DT_DUAL_SUB_INT8, "DT_DUAL_SUB_INT8"},    // dual output int8 type
+    {ge::DT_DUAL_SUB_UINT8, "DT_DUAL_SUB_UINT8"},  // dual output uint8 type
+    {ge::DT_COMPLEX32, "DT_COMPLEX32"},            // complex32 type
+    {ge::DT_COMPLEX64, "DT_COMPLEX64"},            // complex64 type
+    {ge::DT_COMPLEX128, "DT_COMPLEX128"},          // complex128 type
+    {ge::DT_QINT8, "DT_QINT8"},                    // qint8 type
+    {ge::DT_QINT16, "DT_QINT16"},                  // qint16 type
+    {ge::DT_QINT32, "DT_QINT32"},                  // qint32 type
+    {ge::DT_QUINT8, "DT_QUINT8"},                  // quint8 type
+    {ge::DT_QUINT16, "DT_QUINT16"},                // quint16 type
+    {ge::DT_RESOURCE, "DT_RESOURCE"},              // resource type
+    {ge::DT_STRING_REF, "DT_STRING_REF"},          // string ref type
+    {ge::DT_STRING, "DT_STRING"},                  // string type
+    {ge::DT_VARIANT, "DT_VARIANT"},                // dt_variant type
+    {ge::DT_BF16, "DT_BFLOAT16"},                  // dt_bfloat16 type
+    {ge::DT_INT4, "DT_INT4"},                      // dt_variant type
+    {ge::DT_UINT1, "DT_UINT1"},                    // dt_variant type
+    {ge::DT_INT2, "DT_INT2"},                      // dt_variant type
+    {ge::DT_UINT2, "DT_UINT2"}                     // dt_variant type
 };
 
 const std::map<SASLayout, std::vector<SASAxis>> SAS_LAYOUT_AXIS_MAP = {
@@ -282,7 +270,7 @@ struct KvQuantSASParaInfo {
     SASTilingOptionalParaInfo cmpBlockTable = {nullptr, nullptr};
     SASTilingOptionalParaInfo cuSeqLensQ = {nullptr, nullptr};
     SASTilingOptionalParaInfo cuSeqLensOriKv = {nullptr, nullptr};
-     SASTilingOptionalParaInfo cuSeqLensCmpKv = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cuSeqLensCmpKv = {nullptr, nullptr};
     SASTilingOptionalParaInfo seqUsedQ = {nullptr, nullptr};
     SASTilingOptionalParaInfo sequsedKv = {nullptr, nullptr};
     SASTilingOptionalParaInfo sinks = {nullptr, nullptr};
@@ -305,7 +293,8 @@ struct KvQuantSASParaInfo {
 };
 
 // -----------算子Tiling入参信息类---------------
-class KvQuantSASTilingInfo {
+class KvQuantSASTilingInfo
+{
 public:
     const char *opName = nullptr;
     KvQuantSASParaInfo opParamInfo;
@@ -319,7 +308,7 @@ public:
     int64_t s2Size = 0;
     uint32_t gSize = 0;
     uint32_t qkHeadDim = 0;
-    uint32_t qTSize = 0; // 仅TND时生效
+    uint32_t qTSize = 0;  // 仅TND时生效
 
     uint32_t actualLenDimsQ = 0;
     uint32_t maxActualseq = 0;
@@ -371,7 +360,8 @@ public:
     SASLayout outLayout = SASLayout::BSND;
 };
 
-class KvQuantSASInfoParser {
+class KvQuantSASInfoParser
+{
 public:
     explicit KvQuantSASInfoParser(ge_helper::TilingContext *context) : context_(context) {}
     ~KvQuantSASInfoParser() = default;
@@ -380,8 +370,8 @@ public:
     ge::graphStatus CheckRequiredAttrExistence() const;
     ge::graphStatus CheckRequiredParaExistence() const;
 
-    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor,
-        SASLayout &layout, const std::string &name) const;
+    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor, SASLayout &layout,
+                                        const std::string &name) const;
     ge::graphStatus GetActualSeqLenQSize(uint32_t &size);
     ge::graphStatus GetOpName();
     ge::graphStatus GetNpuInfo();
@@ -422,7 +412,7 @@ public:
 
     bool HasAxis(const SASAxis &axis, const SASLayout &layout, const gert::Shape &shape) const;
     size_t GetAxisIdx(const SASAxis &axis, const SASLayout &layout) const;
-    uint32_t GetAxisNum(const gert::Shape &shape, const SASAxis &axis,const SASLayout &layout) const;
+    uint32_t GetAxisNum(const gert::Shape &shape, const SASAxis &axis, const SASLayout &layout) const;
     static constexpr int64_t invalidDimValue_ = std::numeric_limits<int64_t>::min();
 
     // BaseParams
@@ -474,7 +464,8 @@ public:
     uint32_t oriSparseIndexWidth_ = 0;
 };
 
-class KvQuantSASTilingCheck {
+class KvQuantSASTilingCheck
+{
 public:
     explicit KvQuantSASTilingCheck(const KvQuantSASTilingInfo &sasInfo) : sasInfo_(sasInfo) {};
     ~KvQuantSASTilingCheck() = default;
@@ -484,29 +475,30 @@ private:
     void Init();
     bool HasAxis(const SASAxis &axis, const SASLayout &layout, const gert::Shape &shape) const;
     size_t GetAxisIdx(const SASAxis &axis, const SASLayout &layout) const;
-    uint32_t GetAxisNum(const gert::Shape &shape, const SASAxis &axis,const SASLayout &layout) const;
+    uint32_t GetAxisNum(const gert::Shape &shape, const SASAxis &axis, const SASLayout &layout) const;
     static constexpr int64_t invalidDimValue_ = std::numeric_limits<int64_t>::min();
 
-    void LogErrorDtypeSupport(const std::vector<ge::DataType> &expectDtypeList,
-        const ge::DataType &actualDtype, const std::string &name) const;
-    ge::graphStatus CheckDtypeSupport(const gert::CompileTimeTensorDesc *desc,
-        const std::string &name) const;
-    template <typename T> void LogErrorNumberSupport(const std::vector<T> &expectNumberList,
-        const T &actualValue, const std::string &name, const std::string subName) const;
-    template <typename T> void LogErrorDimNumSupport(const std::vector<T> &expectNumberList,
-        const T &actualValue, const std::string &name) const;
-    ge::graphStatus CheckDimNumSupport(const gert::StorageShape *shape,
-        const std::vector<size_t> &expectDimNumList, const std::string &name) const;
+    void LogErrorDtypeSupport(const std::vector<ge::DataType> &expectDtypeList, const ge::DataType &actualDtype,
+                              const std::string &name) const;
+    ge::graphStatus CheckDtypeSupport(const gert::CompileTimeTensorDesc *desc, const std::string &name) const;
+    template <typename T>
+    void LogErrorNumberSupport(const std::vector<T> &expectNumberList, const T &actualValue, const std::string &name,
+                               const std::string subName) const;
+    template <typename T>
+    void LogErrorDimNumSupport(const std::vector<T> &expectNumberList, const T &actualValue,
+                               const std::string &name) const;
+    ge::graphStatus CheckDimNumSupport(const gert::StorageShape *shape, const std::vector<size_t> &expectDimNumList,
+                                       const std::string &name) const;
     ge::graphStatus CheckShapeNumSupport(const gert::StorageShape *shape,
-        const std::vector<int64_t> &expectShapeNumList, const std::string &name) const;
-    ge::graphStatus CheckDimNumInLayoutSupport(const SASLayout &layout,
-        const gert::StorageShape *shape, const std::string &name) const;
-    void LogErrorLayoutSupport(const std::vector<SASLayout> &expectLayoutList,
-        const SASLayout &actualLayout, const std::string &name) const;
-    ge::graphStatus GetExpectedShape(gert::Shape &shapeExpected,
-    const KvQuantSASTilingShapeCompareParam &param, const SASLayout &layout) const;
-    ge::graphStatus CompareShape(KvQuantSASTilingShapeCompareParam &param,
-        const gert::Shape &shape, const SASLayout &layout, const std::string &name) const;
+                                         const std::vector<int64_t> &expectShapeNumList, const std::string &name) const;
+    ge::graphStatus CheckDimNumInLayoutSupport(const SASLayout &layout, const gert::StorageShape *shape,
+                                               const std::string &name) const;
+    void LogErrorLayoutSupport(const std::vector<SASLayout> &expectLayoutList, const SASLayout &actualLayout,
+                               const std::string &name) const;
+    ge::graphStatus GetExpectedShape(gert::Shape &shapeExpected, const KvQuantSASTilingShapeCompareParam &param,
+                                     const SASLayout &layout) const;
+    ge::graphStatus CompareShape(KvQuantSASTilingShapeCompareParam &param, const gert::Shape &shape,
+                                 const SASLayout &layout, const std::string &name) const;
     ge::graphStatus CheckLayoutSupport(const SASLayout &actualLayout, const std::string &name) const;
     ge::graphStatus CheckSingleParaQuery() const;
     ge::graphStatus CheckSingleParaKey() const;
@@ -526,8 +518,8 @@ private:
     ge::graphStatus CheckCmpSparseIndicesExistence();
     ge::graphStatus CheckParaExistence();
     ge::graphStatus CheckCmpRatioExistence();
-    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor,
-        const SASLayout &layout, const std::string &name) const;
+    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor, const SASLayout &layout,
+                                        const std::string &name) const;
     ge::graphStatus CheckSWAExistence();
     ge::graphStatus CheckCFAExistence();
     ge::graphStatus CheckSCFAExistence();
@@ -541,8 +533,8 @@ private:
     ge::graphStatus CheckTopK();
     ge::graphStatus CheckTopkShape();
     ge::graphStatus CheckBlockTable() const;
-    ge::graphStatus CheckDTypeConsistency(const ge::DataType &actualDtype,
-    const ge::DataType &expectDtype, const std::string &name) const;
+    ge::graphStatus CheckDTypeConsistency(const ge::DataType &actualDtype, const ge::DataType &expectDtype,
+                                          const std::string &name) const;
 
     ge::graphStatus CheckAttenOut();
     ge::graphStatus CheckAttenOutShape();
@@ -579,8 +571,8 @@ private:
     uint32_t qkHeadDim_ = 0;
     uint32_t vHeadDim_ = 0;
     int64_t ropeHeadDim_ = 0;
-    uint32_t qTSize_ = 0; // 仅TND时生效
-    uint32_t kvTSize_ = 0; // 仅TND时生效
+    uint32_t qTSize_ = 0;   // 仅TND时生效
+    uint32_t kvTSize_ = 0;  // 仅TND时生效
     KvStorageMode kvStorageMode_ = KvStorageMode::BATCH_CONTINUOUS;
     uint32_t sparseBlockCount_ = 0;
     uint32_t sparseBlockSize_ = 0;
@@ -641,5 +633,5 @@ private:
     gert::Shape topkShapeCmp_{};
     gert::Shape attenOutShapeCmp_{};
 };
-} // namespace optiling
-#endif // KVQUANT_SPARSE_ATTN_SHAREDKV_TILING_H
+}  // namespace optiling
+#endif  // KVQUANT_SPARSE_ATTN_SHAREDKV_TILING_H

@@ -23,15 +23,7 @@
 
 using namespace AscendC;
 
-enum class SAS_LAYOUT {
-    BSND = 0,
-    TND = 1,
-    PA_ND = 2
-};
+enum class SAS_LAYOUT { BSND = 0, TND = 1, PA_ND = 2 };
 
-enum class SASTemplateMode {
-    SWA_TEMPLATE_MODE = 0,
-    CFA_TEMPLATE_MODE = 1,
-    SCFA_TEMPLATE_MODE = 2
-};
-#endif // KV_QUANT_SPARSE_FLASH_ATTENTION_COMMON_H
+enum class SASTemplateMode { SWA_TEMPLATE_MODE = 0, CFA_TEMPLATE_MODE = 1, SCFA_TEMPLATE_MODE = 2 };
+#endif  // KV_QUANT_SPARSE_FLASH_ATTENTION_COMMON_H

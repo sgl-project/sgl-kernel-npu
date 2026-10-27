@@ -19,8 +19,8 @@
 using namespace ge;
 using namespace AscendC;
 using std::map;
-using std::string;
 using std::pair;
+using std::string;
 namespace optiling {
 
 struct SASCompileInfo {
@@ -31,7 +31,7 @@ struct SASCompileInfo {
 ge::graphStatus KvQuantSASInfoParser::CheckRequiredInOutExistence() const
 {
     OP_CHECK_IF(opParamInfo_.q.shape == nullptr, OP_LOGE(opName_, "Shape of tensor q is nullptr"),
-               return ge::GRAPH_FAILED);
+                return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -43,8 +43,7 @@ ge::graphStatus KvQuantSASInfoParser::CheckRequiredAttrExistence() const
 
 ge::graphStatus KvQuantSASInfoParser::CheckRequiredParaExistence() const
 {
-    if (CheckRequiredInOutExistence() != ge::GRAPH_SUCCESS ||
-        CheckRequiredAttrExistence() != ge::GRAPH_SUCCESS) {
+    if (CheckRequiredInOutExistence() != ge::GRAPH_SUCCESS || CheckRequiredAttrExistence() != ge::GRAPH_SUCCESS) {
         return ge::GRAPH_FAILED;
     }
 
@@ -64,8 +63,7 @@ ge::graphStatus KvQuantSASInfoParser::GetOpName()
 ge::graphStatus KvQuantSASInfoParser::GetNpuInfo()
 {
     auto *platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    OP_CHECK_IF(platform == nullptr, OP_LOGE(opName_, "PlatformAscendCManager is null"),
-                return ge::GRAPH_FAILED);
+    OP_CHECK_IF(platform == nullptr, OP_LOGE(opName_, "PlatformAscendCManager is null"), return ge::GRAPH_FAILED);
     auto &ascendcPlatform = *platform;
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
@@ -87,7 +85,7 @@ void KvQuantSASInfoParser::GetOptionalInputParaInfo()
     opParamInfo_.cmpKv.tensor = context_->GetOptionalInputTensor(CMP_KV_INDEX);
     opParamInfo_.cmpKv.desc = context_->GetOptionalInputDesc(CMP_KV_INDEX);
     opParamInfo_.oriSparseIndices.tensor = context_->GetOptionalInputTensor(ORI_SPARSE_INDICES_INDEX);
-     opParamInfo_.oriSparseIndices.desc = context_->GetOptionalInputDesc(ORI_SPARSE_INDICES_INDEX);
+    opParamInfo_.oriSparseIndices.desc = context_->GetOptionalInputDesc(ORI_SPARSE_INDICES_INDEX);
     opParamInfo_.cmpSparseIndices.tensor = context_->GetOptionalInputTensor(CMP_SPARSE_INDICES_INDEX);
     opParamInfo_.cmpSparseIndices.desc = context_->GetOptionalInputDesc(CMP_SPARSE_INDICES_INDEX);
     opParamInfo_.oriBlockTable.tensor = context_->GetOptionalInputTensor(ORI_BLOCK_TABLE_INDEX);
@@ -127,7 +125,7 @@ ge::graphStatus KvQuantSASInfoParser::GetAttrParaInfo()
 {
     auto attrs = context_->GetAttrs();
     OP_CHECK_IF(attrs == nullptr, OPS_REPORT_VECTOR_INNER_ERR(context_->GetNodeName(), "attrs got from ge is nullptr"),
-               return ge::GRAPH_FAILED);
+                return ge::GRAPH_FAILED);
 
     OP_LOGI(context_->GetNodeName(), "GetAttrParaInfo start");
     opParamInfo_.kvQuantMode = attrs->GetAttrPointer<int64_t>(ATTR_KV_QUANT_SCALE_INDEX);
@@ -177,8 +175,8 @@ ge::graphStatus KvQuantSASInfoParser::GetQueryAndOutLayout()
     // 获取q和attnOut的Layout基准值
     // layoutQuery: {qLayout, outLayout}
     const map<string, pair<SASLayout, SASLayout>> layoutMap = {
-        {"BSND",        {SASLayout::BSND,    SASLayout::BSND}},
-        {"TND",         {SASLayout::TND,     SASLayout::TND }},
+        {"BSND", {SASLayout::BSND, SASLayout::BSND}},
+        {"TND", {SASLayout::TND, SASLayout::TND}},
     };
 
     std::string layout(opParamInfo_.layoutQ);
@@ -196,7 +194,7 @@ ge::graphStatus KvQuantSASInfoParser::GetQueryAndOutLayout()
 ge::graphStatus KvQuantSASInfoParser::GetKvLayout()
 {
     const map<string, SASLayout> layoutKVMap = {
-        {"PA_ND",     SASLayout::PA_ND},
+        {"PA_ND", SASLayout::PA_ND},
     };
 
     std::string layout(opParamInfo_.layoutKv);
@@ -214,17 +212,17 @@ ge::graphStatus KvQuantSASInfoParser::GetKvLayout()
 
 bool KvQuantSASInfoParser::HasAxis(const SASAxis &axis, const SASLayout &layout, const gert::Shape &shape) const
 {
-    const auto& layoutIt = SAS_LAYOUT_AXIS_MAP.find(layout);
+    const auto &layoutIt = SAS_LAYOUT_AXIS_MAP.find(layout);
     if (layoutIt == SAS_LAYOUT_AXIS_MAP.end()) {
         return false;
     }
 
-    const std::vector<SASAxis>& axes = layoutIt->second;
-    const auto& axisIt = std::find(axes.begin(), axes.end(), axis);
+    const std::vector<SASAxis> &axes = layoutIt->second;
+    const auto &axisIt = std::find(axes.begin(), axes.end(), axis);
     if (axisIt == axes.end()) {
         return false;
     }
-    const auto& dimIt = SAS_LAYOUT_DIM_MAP.find(layout);
+    const auto &dimIt = SAS_LAYOUT_DIM_MAP.find(layout);
     if (dimIt == SAS_LAYOUT_DIM_MAP.end() || dimIt->second != shape.GetDimNum()) {
         return false;
     }
@@ -233,12 +231,12 @@ bool KvQuantSASInfoParser::HasAxis(const SASAxis &axis, const SASLayout &layout,
 
 size_t KvQuantSASInfoParser::GetAxisIdx(const SASAxis &axis, const SASLayout &layout) const
 {
-    const std::vector<SASAxis>& axes = SAS_LAYOUT_AXIS_MAP.find(layout)->second;
-    const auto& axisIt = std::find(axes.begin(), axes.end(), axis);
+    const std::vector<SASAxis> &axes = SAS_LAYOUT_AXIS_MAP.find(layout)->second;
+    const auto &axisIt = std::find(axes.begin(), axes.end(), axis);
     return std::distance(axes.begin(), axisIt);
 }
 
-uint32_t KvQuantSASInfoParser::GetAxisNum(const gert::Shape &shape, const SASAxis &axis,const SASLayout &layout) const
+uint32_t KvQuantSASInfoParser::GetAxisNum(const gert::Shape &shape, const SASAxis &axis, const SASLayout &layout) const
 {
     return HasAxis(axis, layout, shape) ? shape.GetDim(GetAxisIdx(axis, layout)) : invalidDimValue_;
 }
@@ -288,18 +286,17 @@ ge::graphStatus KvQuantSASInfoParser::GetGSize()
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus KvQuantSASInfoParser::GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor,
-    SASLayout &layout, const std::string &name) const
+ge::graphStatus KvQuantSASInfoParser::GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor, SASLayout &layout,
+                                                          const std::string &name) const
 {
     if ((tensor == nullptr)) {
-        OP_LOGE(opName_, "when layout of q is %s, %s must be provided.",
-            KvQuantSASLayoutToSerialString(layout).c_str(), name.c_str());
+        OP_LOGE(opName_, "when layout of q is %s, %s must be provided.", KvQuantSASLayoutToSerialString(layout).c_str(),
+                name.c_str());
         return ge::GRAPH_FAILED;
     }
     int64_t shapeSize = tensor->GetShapeSize();
     if (shapeSize <= 0) {
-        OP_LOGE(opName_, "the shape size of %s is %ld, it should be greater than 0.",
-            name.c_str(), shapeSize);
+        OP_LOGE(opName_, "the shape size of %s is %ld, it should be greater than 0.", name.c_str(), shapeSize);
         return ge::GRAPH_FAILED;
     }
     size = static_cast<uint32_t>(shapeSize);
@@ -318,7 +315,7 @@ ge::graphStatus KvQuantSASInfoParser::GetBatchSize()
     // 2、TND时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组的长度为B轴大小
     if (qLayout_ == SASLayout::TND) {
         return GetActualSeqLenQSize(bSize_);
-    } else { // BSND
+    } else {  // BSND
         bSize_ = GetAxisNum(qShape_, SASAxis::B, qLayout_);
         return ge::GRAPH_SUCCESS;
     }
@@ -341,7 +338,7 @@ ge::graphStatus KvQuantSASInfoParser::GetS1Size()
     if (qLayout_ == SASLayout::TND) {
         s1Size_ = GetAxisNum(qShape_, SASAxis::T, qLayout_);
         return ge::GRAPH_SUCCESS;
-    } else { // BSND
+    } else {  // BSND
         s1Size_ = GetAxisNum(qShape_, SASAxis::S, qLayout_);
     }
     return ge::GRAPH_SUCCESS;
@@ -350,7 +347,8 @@ ge::graphStatus KvQuantSASInfoParser::GetS1Size()
 ge::graphStatus KvQuantSASInfoParser::GetMaxBlockNumPerBatch()
 {
     if (opParamInfo_.oriBlockTable.tensor == nullptr) {
-        OP_LOGE(opName_, "the layout_kv is %s, blockTable must be provided.", KvQuantSASLayoutToSerialString(kvLayout_).c_str());
+        OP_LOGE(opName_, "the layout_kv is %s, blockTable must be provided.",
+                KvQuantSASLayoutToSerialString(kvLayout_).c_str());
         return ge::GRAPH_FAILED;
     }
     uint32_t oriDimNum = opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDimNum();
@@ -359,8 +357,8 @@ ge::graphStatus KvQuantSASInfoParser::GetMaxBlockNumPerBatch()
         return ge::GRAPH_FAILED;
     }
     if (opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDim(1) <= 0) {
-        OP_LOGE(opName_, "%s's second dimension(%ld) should be greater than 0",
-            ORI_BLOCK_TABLE_NAME.c_str(), opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDim(1));
+        OP_LOGE(opName_, "%s's second dimension(%ld) should be greater than 0", ORI_BLOCK_TABLE_NAME.c_str(),
+                opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDim(1));
         return ge::GRAPH_FAILED;
     }
     oriMaxBlockNumPerBatch_ = opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDim(1);
@@ -372,8 +370,8 @@ ge::graphStatus KvQuantSASInfoParser::GetMaxBlockNumPerBatch()
             return ge::GRAPH_FAILED;
         }
         if (opParamInfo_.cmpBlockTable.tensor->GetStorageShape().GetDim(1) <= 0) {
-            OP_LOGE(opName_, "%s's second dimension(%ld) should be greater than 0",
-                CMP_BLOCK_TABLE_NAME.c_str(), opParamInfo_.cmpBlockTable.tensor->GetStorageShape().GetDim(1));
+            OP_LOGE(opName_, "%s's second dimension(%ld) should be greater than 0", CMP_BLOCK_TABLE_NAME.c_str(),
+                    opParamInfo_.cmpBlockTable.tensor->GetStorageShape().GetDim(1));
             return ge::GRAPH_FAILED;
         }
         cmpMaxBlockNumPerBatch_ = opParamInfo_.cmpBlockTable.tensor->GetStorageShape().GetDim(1);
@@ -431,32 +429,34 @@ ge::graphStatus KvQuantSASInfoParser::GetActualseqInfo()
         actualLenDimsKV_ = opParamInfo_.sequsedKv.tensor->GetShapeSize();
     }
     if (opParamInfo_.cuSeqLensQ.tensor != nullptr) {
-        actualLenDimsQ_ = opParamInfo_.cuSeqLensQ.tensor->GetShapeSize(); // cuSeqLensQ shape is B+1
+        actualLenDimsQ_ = opParamInfo_.cuSeqLensQ.tensor->GetShapeSize();  // cuSeqLensQ shape is B+1
     }
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus KvQuantSASInfoParser::GetDSizeQ() {
+ge::graphStatus KvQuantSASInfoParser::GetDSizeQ()
+{
     dSizeQ_ = GetAxisNum(qShape_, SASAxis::D, qLayout_);
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus KvQuantSASInfoParser::GetDSizeKV() {
+ge::graphStatus KvQuantSASInfoParser::GetDSizeKV()
+{
     dSizeKV_ = GetAxisNum(oriKvShape_, SASAxis::D, kvLayout_);
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus KvQuantSASInfoParser::GetSinks()
 {
-    if(opParamInfo_.sequsedKv.tensor != nullptr){
+    if (opParamInfo_.sequsedKv.tensor != nullptr) {
         uint32_t oriDimNum = opParamInfo_.oriBlockTable.tensor->GetStorageShape().GetDimNum();
-        if(oriDimNum != DIM_NUM_ONE){
+        if (oriDimNum != DIM_NUM_ONE) {
             OP_LOGE(opName_, "the dim num of sinks is %u, it should be %u.", oriDimNum, DIM_NUM_ONE);
             return ge::GRAPH_FAILED;
         }
 
         int64_t oriDimension = opParamInfo_.sequsedKv.tensor->GetStorageShape().GetDim(0);
-        if(oriDimension != gSize_){
+        if (oriDimension != gSize_) {
             OP_LOGE(opName_, "sinks's dimension(%ld) should be equal to query head num(%u).", oriDimension, gSize_);
             return ge::GRAPH_FAILED;
         }
@@ -490,9 +490,9 @@ void KvQuantSASInfoParser::GenerateInfo(KvQuantSASTilingInfo &sasInfo)
     sasInfo.dSizeV = 512;
     sasInfo.dSizeVInput = dSizeKV_;
 
-    sasInfo.totalBlockNum = (opParamInfo_.oriKv.tensor != nullptr) ?
-        opParamInfo_.oriKv.tensor->GetStorageShape().GetDim(0) : 0;
-    sasInfo.sparseBlockSize = 1; // 写死为1
+    sasInfo.totalBlockNum =
+        (opParamInfo_.oriKv.tensor != nullptr) ? opParamInfo_.oriKv.tensor->GetStorageShape().GetDim(0) : 0;
+    sasInfo.sparseBlockSize = 1;  // 写死为1
     sasInfo.oriBlockSize = oriBlockSize_;
     sasInfo.cmpBlockSize = cmpBlockSize_;
     sasInfo.blockTypeSize = sizeof(float);
@@ -529,31 +529,21 @@ ge::graphStatus KvQuantSASInfoParser::Parse(KvQuantSASTilingInfo &sasInfo)
         return ge::GRAPH_FAILED;
     }
 
-    if (ge::GRAPH_SUCCESS != GetOpName() ||
-        ge::GRAPH_SUCCESS != GetNpuInfo() ||
-        ge::GRAPH_SUCCESS != GetOpParaInfo() ||
+    if (ge::GRAPH_SUCCESS != GetOpName() || ge::GRAPH_SUCCESS != GetNpuInfo() || ge::GRAPH_SUCCESS != GetOpParaInfo() ||
         ge::GRAPH_SUCCESS != CheckRequiredParaExistence()) {
         return ge::GRAPH_FAILED;
     }
 
-    if (ge::GRAPH_SUCCESS != GetInOutDataType() ||
-        ge::GRAPH_SUCCESS != GetQueryAndOutLayout() ||
+    if (ge::GRAPH_SUCCESS != GetInOutDataType() || ge::GRAPH_SUCCESS != GetQueryAndOutLayout() ||
         ge::GRAPH_SUCCESS != GetKvLayout()) {
         return ge::GRAPH_FAILED;
     }
 
     SetSASShape();
-    if (
-        ge::GRAPH_SUCCESS != GetN1Size() ||
-        ge::GRAPH_SUCCESS != GetN2Size() ||
-        ge::GRAPH_SUCCESS != GetGSize() ||
-        ge::GRAPH_SUCCESS != GetBatchSize() ||
-        ge::GRAPH_SUCCESS != GetQTSize() ||
-        ge::GRAPH_SUCCESS != GetS1Size() ||
-        ge::GRAPH_SUCCESS != GetS2Size() ||
-        ge::GRAPH_SUCCESS != GetQkHeadDim() ||
-        ge::GRAPH_SUCCESS != GetSparseBlockCount() ||
-        ge::GRAPH_SUCCESS != GetDSizeQ() ||
+    if (ge::GRAPH_SUCCESS != GetN1Size() || ge::GRAPH_SUCCESS != GetN2Size() || ge::GRAPH_SUCCESS != GetGSize() ||
+        ge::GRAPH_SUCCESS != GetBatchSize() || ge::GRAPH_SUCCESS != GetQTSize() || ge::GRAPH_SUCCESS != GetS1Size() ||
+        ge::GRAPH_SUCCESS != GetS2Size() || ge::GRAPH_SUCCESS != GetQkHeadDim() ||
+        ge::GRAPH_SUCCESS != GetSparseBlockCount() || ge::GRAPH_SUCCESS != GetDSizeQ() ||
         ge::GRAPH_SUCCESS != GetDSizeKV()) {
         return ge::GRAPH_FAILED;
     }
@@ -571,8 +561,8 @@ ge::graphStatus KvQuantSparseAttnSharedkvTiling::DoOpTiling(KvQuantSASTilingInfo
 {
     if (tilingInfo->opParamInfo.cmpKv.tensor == nullptr) {
         OP_CHECK_IF(tilingInfo->opParamInfo.cmpSparseIndices.tensor != nullptr,
-            OP_LOGE("KvQuantSparseAttnSharedkv", "cmpSparseIndices must be empty when cmpKv is not provided."),
-            return ge::GRAPH_FAILED);
+                    OP_LOGE("KvQuantSparseAttnSharedkv", "cmpSparseIndices must be empty when cmpKv is not provided."),
+                    return ge::GRAPH_FAILED);
         perfMode_ = SASTemplateMode::SWA_TEMPLATE_MODE;
     } else if (tilingInfo->opParamInfo.cmpSparseIndices.tensor != nullptr) {
         perfMode_ = SASTemplateMode::SCFA_TEMPLATE_MODE;
@@ -592,9 +582,9 @@ ge::graphStatus KvQuantSparseAttnSharedkvTiling::DoOpTiling(KvQuantSASTilingInfo
 
     // -------------set workspacesize-----------------
     constexpr uint32_t TRIPLE_BUFFER_NUM = 3;
-    constexpr uint32_t S2_BASE_SIZE = 128;            // S2轴基本块大小
+    constexpr uint32_t S2_BASE_SIZE = 128;  // S2轴基本块大小
     constexpr uint32_t D_SIZE = 512;
-    constexpr uint32_t VEC_RES_ELEM_SIZE = 2;        // 2: fp16/bf16
+    constexpr uint32_t VEC_RES_ELEM_SIZE = 2;  // 2: fp16/bf16
     size_t userWorkspaceSize = 0;
     if (tilingInfo->gSize > 64) {
         userWorkspaceSize = S2_BASE_SIZE * D_SIZE * VEC_RES_ELEM_SIZE * TRIPLE_BUFFER_NUM * (aicNum >> 1);
@@ -631,14 +621,13 @@ ge::graphStatus KvQuantSparseAttnSharedkvTiling::DoOpTiling(KvQuantSASTilingInfo
     // -------------set tilingkey-----------------
     // DT_Q, DT_KV, DT_OUT, PAGE_ATTENTION, FLASH_DECODE, LAYOUT_T, KV_LAYOUT_T
     uint32_t qLayout = static_cast<uint32_t>(tilingInfo->qLayout);
-    tilingKey_ = MakeKvQuantSparseAttnSharedkvDispatchKey(
-        qLayout, static_cast<uint32_t>(perfMode_), tilingInfo->gSize > 64);
+    tilingKey_ =
+        MakeKvQuantSparseAttnSharedkvDispatchKey(qLayout, static_cast<uint32_t>(perfMode_), tilingInfo->gSize > 64);
     OP_CHECK_IF(!IsKvQuantSparseAttnSharedkvDispatchKeySupported(tilingKey_),
-                OP_LOGE(tilingInfo->opName, "unsupported dispatch key %u", tilingKey_),
-                return ge::GRAPH_FAILED);
+                OP_LOGE(tilingInfo->opName, "unsupported dispatch key %u", tilingKey_), return ge::GRAPH_FAILED);
     tilingData_.dispatchKey = tilingKey_;
 
     return ge::GRAPH_SUCCESS;
 }
 
-} // namespace optiling
+}  // namespace optiling

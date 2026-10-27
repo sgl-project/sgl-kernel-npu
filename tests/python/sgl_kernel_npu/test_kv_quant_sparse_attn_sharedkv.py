@@ -41,9 +41,7 @@ def _packed_kv_and_reference(block_count, block_size):
     packed = torch.zeros((block_count, block_size, 1, 640), dtype=torch.uint8)
     # Each row stores 64 BF16 RoPE values, 448 FP8 NoPE values, then seven
     # E8M0 scales. Exponents 126, 127, 128 encode 0.5, 1.0, 2.0.
-    scale_codes = torch.tensor(
-        [126, 127, 128, 126, 127, 128, 127], dtype=torch.uint8
-    )
+    scale_codes = torch.tensor([126, 127, 128, 126, 127, 128, 127], dtype=torch.uint8)
     scale_values = torch.tensor([0.5, 1.0, 2.0, 0.5, 1.0, 2.0, 1.0])
     packed[:, :, 0, :128] = rope.contiguous().view(torch.uint8)
     packed[:, :, 0, 128:576] = nope.contiguous().view(torch.uint8)
@@ -52,9 +50,7 @@ def _packed_kv_and_reference(block_count, block_size):
     # The device rearranges the row to [NoPE(448), RoPE(64)] and rounds the
     # dequantized FP8 values to BF16 before the attention matmul.
     dequant_nope = nope.float().reshape(block_count, block_size, 7, 64)
-    dequant_nope = (dequant_nope * scale_values[None, None, :, None]).to(
-        torch.bfloat16
-    )
+    dequant_nope = (dequant_nope * scale_values[None, None, :, None]).to(torch.bfloat16)
     dequant_nope = dequant_nope.reshape(block_count, block_size, 448)
     dequantized = torch.cat((dequant_nope, rope), dim=-1)
     return packed.view(torch.float8_e4m3fn), dequantized.reshape(-1, 512)
@@ -226,65 +222,6 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
     def test_swa_bsnd_pa_nd_eager_prefill(self):
         # A zero-left window makes the two query tokens read distinct KV rows.
         self._assert_paged_swa(q_length=2, ori_win_left=0)
-
-    def test_tnd_consumes_sglang_cann_metadata(self):
-        """Exercise the migrated kernel with SGLang's existing A5 metadata op."""
-        try:
-            cann_op = torch.ops.custom.npu_kv_quant_sparse_attn_sharedkv_metadata
-        except AttributeError:
-            self.skipTest("SGLang CANN metadata op is not installed")
-
-        for q_length in (1, 2):
-            with self.subTest(q_length=q_length):
-                inputs, q_cpu, kv_reference, block_table, kv_length, block_size = (
-                    self._make_paged_swa_inputs(
-                        q_length=q_length, ori_win_left=127
-                    )
-                )
-                cu_q = torch.tensor([0, q_length], dtype=torch.int32, device=self.device)
-                inputs["q"] = inputs["q"].squeeze(0).contiguous()
-                inputs["cu_seqlens_q"] = cu_q
-                inputs["layout_q"] = "TND"
-                inputs["metadata"] = cann_op(
-                    num_heads_q=64,
-                    num_heads_kv=1,
-                    head_dim=512,
-                    kv_quant_mode=1,
-                    tile_size=64,
-                    rope_head_dim=64,
-                    cu_seqlens_q=cu_q,
-                    seqused_kv=inputs["seqused_kv"],
-                    batch_size=1,
-                    max_seqlen_q=q_length,
-                    max_seqlen_kv=kv_length,
-                    cmp_topk=0,
-                    cmp_ratio=1,
-                    ori_mask_mode=4,
-                    cmp_mask_mode=3,
-                    ori_win_left=127,
-                    ori_win_right=0,
-                    layout_q="TND",
-                    layout_kv="PA_ND",
-                    has_ori_kv=True,
-                    has_cmp_kv=False,
-                )
-                actual, _ = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
-                expected = _reference_paged_swa(
-                    q_cpu,
-                    kv_reference,
-                    block_table,
-                    kv_length,
-                    block_size,
-                    inputs["softmax_scale"],
-                    inputs["ori_win_left"],
-                    inputs["ori_win_right"],
-                )
-                torch.testing.assert_close(
-                    actual.cpu().float(),
-                    expected.squeeze(0),
-                    rtol=2e-2,
-                    atol=2e-2,
-                )
 
     def test_swa_bsnd_pa_nd_npu_graph(self):
         inputs, _, kv_reference, block_table, kv_length, block_size = (

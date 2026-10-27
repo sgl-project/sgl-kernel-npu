@@ -57,7 +57,7 @@ constexpr uint32_t FD_M_NUM_INDEX = 6;
  * @return 返回属性的绝对索引
  */
 #ifdef __CCE_AICORE__
-__aicore__ inline uint32_t GetAttrAbsIndex(uint32_t coreIdx, uint32_t metaIdx, bool isAIV=false)
+__aicore__ inline uint32_t GetAttrAbsIndex(uint32_t coreIdx, uint32_t metaIdx, bool isAIV = false)
 {
     if (isAIV) {
         return FA_METADATA_SIZE * AIC_CORE_NUM + FD_METADATA_SIZE * coreIdx + metaIdx;
@@ -68,13 +68,13 @@ __aicore__ inline uint32_t GetAttrAbsIndex(uint32_t coreIdx, uint32_t metaIdx, b
 #endif
 
 namespace detail {
-    struct SasMetaData {
-        uint32_t faMetadata[AIC_CORE_NUM][FA_METADATA_SIZE];
-        uint32_t fdMetadata[AIV_CORE_NUM][FD_METADATA_SIZE];
-    };
+struct SasMetaData {
+    uint32_t faMetadata[AIC_CORE_NUM][FA_METADATA_SIZE];
+    uint32_t fdMetadata[AIV_CORE_NUM][FD_METADATA_SIZE];
 };
+};  // namespace detail
 
 static_assert(SAS_META_SIZE * sizeof(SAS_METADATA_T) >= sizeof(detail::SasMetaData));
-};
+};  // namespace optiling
 
-#endif // KV_QUANT_SPARSE_ATTN_SHAREDKV_METADATA_H
+#endif  // KV_QUANT_SPARSE_ATTN_SHAREDKV_METADATA_H

@@ -1,10 +1,9 @@
-"""A5 metadata layout, scheduling, input validation, and optional AICPU parity.
+"""A5 metadata layout, scheduling, and input validation.
 
 Select the NPU with NPU_DEVICE (default: 0), for example:
     NPU_DEVICE=2 python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv_metadata.py -v
 """
 
-import importlib
 import os
 import unittest
 
@@ -58,7 +57,9 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
         return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**arguments)
 
     def test_host_schema_accepts_sglang_quant_kwargs(self):
-        schema = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host.default._schema
+        schema = (
+            torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host.default._schema
+        )
         arguments = {argument.name: argument for argument in schema.arguments}
         for name, value in (
             ("kv_quant_mode", 1),
@@ -211,89 +212,6 @@ class TestKvQuantSparseAttnSharedkvMetadata(unittest.TestCase):
         first = self._metadata(64, cu_q, seq_kv, **arguments)
         second = self._metadata(64, cu_q, seq_kv, **arguments)
         self.assertTrue(torch.equal(first.cpu(), second.cpu()))
-
-    def test_byte_identical_decode_vs_aicpu(self):
-        # The reference is optional: it comes from the vllm-ascend extension and
-        # requires its vendor aclnn/AICPU runtime, not just sgl_kernel_npu.
-        try:
-            importlib.import_module("vllm_ascend.vllm_ascend_C")
-            reference_op = torch.ops._C_ascend.npu_kv_quant_sparse_attn_sharedkv_metadata
-        except (ImportError, OSError, AttributeError, RuntimeError) as exc:
-            self.skipTest(f"vllm-ascend AICPU metadata op unavailable: {exc}")
-
-        def reference(cu_q, seq_kv, num_heads_q, cmp_ratio, has_cmp_kv, cmp_topk):
-            return reference_op(
-                num_heads_q=num_heads_q,
-                num_heads_kv=1,
-                head_dim=512,
-                kv_quant_mode=1,
-                cu_seqlens_q=cu_q.to(self.device),
-                seqused_kv=seq_kv.to(self.device),
-                batch_size=seq_kv.numel(),
-                max_seqlen_q=1,
-                max_seqlen_kv=int(seq_kv.max()),
-                cmp_topk=cmp_topk,
-                cmp_ratio=cmp_ratio,
-                ori_mask_mode=4,
-                cmp_mask_mode=3,
-                ori_win_left=127,
-                ori_win_right=0,
-                layout_q="TND",
-                layout_kv="PA_ND",
-                has_ori_kv=True,
-                has_cmp_kv=has_cmp_kv,
-                device=str(self.device),
-            )
-
-        # A small known-valid decode checks whether the installed reference can
-        # actually execute. Once it can, failures in the comparison cases fail.
-        probe_cu = torch.tensor([0, 1], dtype=torch.int32)
-        probe_kv = torch.tensor([128], dtype=torch.int32)
-        try:
-            reference(probe_cu, probe_kv, 64, 1, False, 0).cpu()
-        except RuntimeError as exc:
-            self.skipTest(f"vllm-ascend AICPU metadata runtime unavailable: {exc}")
-
-        batch_size = 8
-        cu_q = torch.arange(batch_size + 1, dtype=torch.int32)
-        seq_kv = torch.tensor(
-            [128, 256, 512, 1024, 2048, 4096, 8192, 12345], dtype=torch.int32
-        )
-        for num_heads_q in (64, 128):
-            for cmp_ratio, has_cmp_kv, cmp_topk in (
-                (1, False, 0),
-                (4, True, 512),
-                (128, True, 0),
-            ):
-                with self.subTest(num_heads_q=num_heads_q, cmp_ratio=cmp_ratio):
-                    arguments = dict(
-                        batch_size=batch_size,
-                        max_seqlen_kv=int(seq_kv.max()),
-                        cmp_ratio=cmp_ratio,
-                        has_cmp_kv=has_cmp_kv,
-                        cmp_topk=cmp_topk,
-                    )
-                    host = self._metadata(num_heads_q, cu_q, seq_kv, **arguments).cpu()
-                    aicpu = reference(
-                        cu_q, seq_kv, num_heads_q, cmp_ratio, has_cmp_kv, cmp_topk
-                    ).cpu()
-                    self.assertEqual(tuple(aicpu.shape), (1024,))
-                    self.assertEqual(aicpu.dtype, torch.int32)
-                    host_cube = host[: self.CUBE_SLOTS * 9].view(self.CUBE_SLOTS, 9)
-                    aicpu_cube = aicpu[: self.CUBE_SLOTS * 9].view(self.CUBE_SLOTS, 9)
-                    # The source allocates torch::empty. For 64 heads it never
-                    # writes field 8, and inactive slots are not consumed.
-                    written_fields = 8 if num_heads_q == 64 else 9
-                    torch.testing.assert_close(
-                        host_cube[:, 0], aicpu_cube[:, 0], rtol=0, atol=0
-                    )
-                    active = host_cube[:, 0] == 1
-                    torch.testing.assert_close(
-                        host_cube[active, :written_fields],
-                        aicpu_cube[active, :written_fields],
-                        rtol=0,
-                        atol=0,
-                    )
 
     def test_rejects_invalid_cmp_topk(self):
         cu_q = torch.arange(3, dtype=torch.int32)

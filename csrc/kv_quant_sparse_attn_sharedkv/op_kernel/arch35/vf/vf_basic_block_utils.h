@@ -86,5 +86,5 @@ constexpr static AscendC::MicroAPI::CastTrait castTraitRintThree = {
     AscendC::MicroAPI::MaskMergeMode::ZEROING,
     AscendC::RoundMode::CAST_RINT,
 };
-}
-#endif // VF_BASIC_BLOCK_UTILS_H
+}  // namespace SCFaVectorApi
+#endif  // VF_BASIC_BLOCK_UTILS_H

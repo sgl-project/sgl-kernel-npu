@@ -27,7 +27,8 @@ namespace optiling {
 std::string KvQuantSASLayoutToSerialString(SASLayout layout);
 
 // ---------------算子Tiling类---------------
-class KvQuantSparseAttnSharedkvTiling {
+class KvQuantSparseAttnSharedkvTiling
+{
 public:
     explicit KvQuantSparseAttnSharedkvTiling(ge_helper::TilingContext *context) : context_(context)
     {
@@ -35,9 +36,18 @@ public:
         std::memset(static_cast<void *>(&tilingData_), 0, sizeof(tilingData_));
     }
     ge::graphStatus DoOpTiling(KvQuantSASTilingInfo *tilingInfo);
-    const KvQuantSparseAttnSharedkvTilingData &GetTilingData() const { return tilingData_; }
-    uint32_t GetBlockDim() const { return blockDim_; }
-    uint32_t GetTilingKey() const { return tilingKey_; }
+    const KvQuantSparseAttnSharedkvTilingData &GetTilingData() const
+    {
+        return tilingData_;
+    }
+    uint32_t GetBlockDim() const
+    {
+        return blockDim_;
+    }
+    uint32_t GetTilingKey() const
+    {
+        return tilingKey_;
+    }
 
 private:
     ge_helper::TilingContext *context_ = nullptr;
@@ -50,5 +60,5 @@ private:
     KvQuantSASTilingInfo *sasInfo_ = nullptr;
 };
 
-}
+}  // namespace optiling
 #endif

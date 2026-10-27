@@ -27,8 +27,7 @@ static constexpr uint32_t SHAPE_AXIS_DIM_3 = 3U;
 static constexpr uint32_t SHAPE_AXIS_DIM_4 = 4U;
 
 // ----------------------------------------------GmLayout--------------------------------
-enum class GmFormat
-{
+enum class GmFormat {
     BSNGD = 0,
     BNGSD = 1,
     NGBSD = 2,
@@ -46,8 +45,7 @@ enum class GmFormat
 };
 
 template <GmFormat FORMAT>
-struct GmLayout {
-};
+struct GmLayout {};
 
 template <>
 struct GmLayout<GmFormat::BSNGD> {
@@ -55,7 +53,8 @@ struct GmLayout<GmFormat::BSNGD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, g, s, d);
         uint64_t dStride = 1;
         uint64_t gStride = dStride * d;
@@ -72,7 +71,8 @@ struct GmLayout<GmFormat::BNGSD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, g, s, d);
         uint64_t dStride = 1;
         uint64_t sStride = dStride * d;
@@ -89,7 +89,8 @@ struct GmLayout<GmFormat::NGBSD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, g, s, d);
         uint64_t dStride = 1;
         uint64_t sStride = dStride * d;
@@ -106,7 +107,8 @@ struct GmLayout<GmFormat::TNGD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t g, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t g, uint32_t d)
+    {
         shape = AscendC::MakeShape(t, n, g, d);
         uint64_t dStride = 1;
         uint64_t gStride = dStride * d;
@@ -122,7 +124,8 @@ struct GmLayout<GmFormat::NGTD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t g, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t g, uint32_t d)
+    {
         shape = AscendC::MakeShape(t, n, g, d);
         uint64_t dStride = 1;
         uint64_t tStride = dStride * d;
@@ -138,7 +141,8 @@ struct GmLayout<GmFormat::BSND> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, s, d);
         uint64_t dStride = 1;
         uint64_t nStride = dStride * d;
@@ -154,7 +158,8 @@ struct GmLayout<GmFormat::BNSD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, s, d);
         uint64_t dStride = 1;
         uint64_t sStride = dStride * d;
@@ -170,7 +175,8 @@ struct GmLayout<GmFormat::TND> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t d)
+    {
         shape = AscendC::MakeShape(t, n, d);
         uint64_t dStride = 1;
         uint64_t nStride = dStride * d;
@@ -185,7 +191,8 @@ struct GmLayout<GmFormat::NTD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t t, uint32_t n, uint32_t d)
+    {
         shape = AscendC::MakeShape(t, n, d);
         uint64_t dStride = 1;
         uint64_t tStride = dStride * d;
@@ -200,7 +207,8 @@ struct GmLayout<GmFormat::PA_BNBSND> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d)
+    {
         shape = AscendC::MakeShape(n, blockSize, d);
         uint64_t dStride = 1;
         uint64_t nStride = dStride * d;
@@ -216,7 +224,8 @@ struct GmLayout<GmFormat::PA_BNNBSD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d)
+    {
         shape = AscendC::MakeShape(n, blockSize, d);
         uint64_t dStride = 1;
         uint64_t bsStride = dStride * d;
@@ -232,7 +241,8 @@ struct GmLayout<GmFormat::PA_NZ> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d1, uint32_t d0) {
+    __aicore__ inline void MakeLayout(uint32_t n, uint32_t blockSize, uint32_t d1, uint32_t d0)
+    {
         shape = AscendC::MakeShape(n, d1, blockSize, d0);
         uint64_t d0Stride = 1;
         uint64_t bsStride = d0Stride * d0;
@@ -249,7 +259,8 @@ struct GmLayout<GmFormat::SBNGD> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t g, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, g, s, d);
         uint64_t dStride = 1;
         uint64_t gStride = dStride * d;
@@ -266,7 +277,8 @@ struct GmLayout<GmFormat::SBND> {
     AscendC::Stride<uint64_t, uint64_t, uint64_t, uint64_t> stride;
 
     __aicore__ inline GmLayout() = default;
-    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d) {
+    __aicore__ inline void MakeLayout(uint32_t b, uint32_t n, uint32_t s, uint32_t d)
+    {
         shape = AscendC::MakeShape(b, n, s, d);
         uint64_t dStride = 1;
         uint64_t nStride = dStride * d;
@@ -277,18 +289,18 @@ struct GmLayout<GmFormat::SBND> {
 };
 
 // ----------------------------------------------ActualSeqLensParser--------------------------------
-enum class ActualSeqLensMode
-{
+enum class ActualSeqLensMode {
     BY_BATCH = 0,
     ACCUM = 1,
 };
 
 template <ActualSeqLensMode MODE>
-class ActualSeqLensParser {
-};
+class ActualSeqLensParser
+{};
 
 template <>
-class ActualSeqLensParser<ActualSeqLensMode::ACCUM> {
+class ActualSeqLensParser<ActualSeqLensMode::ACCUM>
+{
 public:
     __aicore__ inline ActualSeqLensParser() = default;
 
@@ -312,13 +324,15 @@ public:
     {
         return actualSeqLengthsGm.GetValue(actualLenDims - 1);
     }
+
 private:
     GlobalTensor<int32_t> actualSeqLengthsGm;
     uint32_t actualLenDims;
 };
 
 template <>
-class ActualSeqLensParser<ActualSeqLensMode::BY_BATCH> {
+class ActualSeqLensParser<ActualSeqLensMode::BY_BATCH>
+{
 public:
     __aicore__ inline ActualSeqLensParser() = default;
 
@@ -339,6 +353,7 @@ public:
         }
         return actualSeqLengthsGm.GetValue(bIdx);
     }
+
 private:
     GlobalTensor<int32_t> actualSeqLengthsGm;
     uint32_t actualLenDims;
@@ -346,7 +361,8 @@ private:
 };
 
 // ----------------------------------------------BlockTableParser--------------------------------
-class BlockTableParser {
+class BlockTableParser
+{
 public:
     __aicore__ inline BlockTableParser() = default;
 
@@ -360,14 +376,14 @@ public:
     {
         return blockTableGm.GetValue(bIdx * maxblockNumPerBatch + blockIdxInBatch);
     }
+
 private:
     GlobalTensor<int32_t> blockTableGm;
     uint32_t maxblockNumPerBatch;
 };
 
 // ----------------------------------------------GmLayoutParams--------------------------------
-enum class FormatCategory
-{
+enum class FormatCategory {
     GM_Q_OUT_BNGSD = 0,
     GM_Q_OUT_TND = 1,
     GM_KV_BNSD = 2,
@@ -728,8 +744,8 @@ struct OffsetCalculatorImpl<FORMAT, FormatCategory::GM_KV_PA_BNBD> {
 
     __aicore__ inline uint64_t GetOffset(uint32_t bIdx, uint32_t n2Idx, uint32_t s2Idx, uint32_t dIdx)
     {
-        uint64_t blockIdxInBatch = s2Idx / GetBlockSize(); // 获取block table上的索引
-        uint64_t bsIdx = s2Idx % GetBlockSize();           // 获取在单个块上超出的行数
+        uint64_t blockIdxInBatch = s2Idx / GetBlockSize();  // 获取block table上的索引
+        uint64_t bsIdx = s2Idx % GetBlockSize();            // 获取在单个块上超出的行数
         int32_t blockIdx = blockTableParser.GetBlockIdx(bIdx, blockIdxInBatch);
         uint64_t offset =
             blockIdx * GetStrideBlockNum() + n2Idx * GetStrideN2() + bsIdx * GetStrideBlockSize() + dIdx * GetStrideD();
@@ -790,14 +806,14 @@ struct OffsetCalculatorImpl<FORMAT, FormatCategory::GM_KV_PA_NZ> {
 
     __aicore__ inline uint64_t GetOffset(uint32_t bIdx, uint32_t n2Idx, uint32_t s2Idx, uint32_t dIdx)
     {
-        uint64_t blockIdxInBatch = s2Idx / GetBlockSize(); // 获取block table上的索引
-        uint64_t bsIdx = s2Idx % GetBlockSize();           // 获取在单个块上超出的行数
+        uint64_t blockIdxInBatch = s2Idx / GetBlockSize();  // 获取block table上的索引
+        uint64_t bsIdx = s2Idx % GetBlockSize();            // 获取在单个块上超出的行数
         int32_t blockIdx = blockTableParser.GetBlockIdx(bIdx, blockIdxInBatch);
 
         uint32_t d1Idx = dIdx / GetD0();
         uint32_t d0Idx = dIdx % GetD0();
-        uint64_t offset = blockIdx * GetStrideBlockNum() + n2Idx * GetStrideN2() +
-                          d1Idx * GetStrideD1() + bsIdx * GetStrideBlockSize() + d0Idx * GetStrideD0();
+        uint64_t offset = blockIdx * GetStrideBlockNum() + n2Idx * GetStrideN2() + d1Idx * GetStrideD1() +
+                          bsIdx * GetStrideBlockSize() + d0Idx * GetStrideD0();
         return offset;
     }
 
@@ -850,8 +866,7 @@ struct OffsetCalculatorImpl<FORMAT, FormatCategory::GM_KV_PA_NZ> {
 };
 
 template <GmFormat FORMAT>
-struct OffsetCalculator : public OffsetCalculatorImpl<FORMAT, GmLayoutParams<FORMAT>::CATEGORY> {
-};
+struct OffsetCalculator : public OffsetCalculatorImpl<FORMAT, GmLayoutParams<FORMAT>::CATEGORY> {};
 
 // ----------------------------------------------CopyQueryGmToL1--------------------------------
 template <typename Q_T, GmFormat FORMAT>
@@ -860,10 +875,7 @@ struct FaGmTensor {
     OffsetCalculator<FORMAT> offsetCalculator;
 };
 
-enum class L1Format
-{
-    NZ = 0
-};
+enum class L1Format { NZ = 0 };
 
 template <typename Q_T, L1Format FORMAT>
 struct FaL1Tensor {

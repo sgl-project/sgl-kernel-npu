@@ -226,12 +226,11 @@ std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
     const c10::optional<at::Tensor> &seqused_q,
     const c10::optional<at::Tensor> &seqused_kv,
     const c10::optional<at::Tensor> &sinks,
-    const c10::optional<at::Tensor> &metadata,
-    int64_t kv_quant_mode, int64_t tile_size, int64_t rope_head_dim,
-    double softmax_scale, int64_t cmp_ratio, int64_t ori_mask_mode,
-    int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
-    c10::string_view layout_q, c10::string_view layout_kv,
-    bool return_softmax_lse);
+    const c10::optional<at::Tensor> &metadata, int64_t kv_quant_mode,
+    int64_t tile_size, int64_t rope_head_dim, double softmax_scale,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
 
 at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
     int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
