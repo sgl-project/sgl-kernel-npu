@@ -2,7 +2,7 @@
 
 import torch
 
-from ...utils.rope import validate_rope_inputs
+from ...triton.utils.rope_utils import validate_rope_inputs
 
 
 def fused_rope_qk_mqa(query, key, cos_sin, rotary_dim, is_neox_style):
