@@ -50,8 +50,10 @@ $$
 
 ## torch_native 后端
 
-- 先将输入转为 FP32，再执行 `values / values.sum(dim=-1, keepdim=True)`。
-- 保持带符号行和及零分母语义，可用于精度对照。
+- 沿用旧测试 golden：`values = input.to(torch.float32).cpu().numpy()`，随后执行 `values / values.sum(axis=-1, keepdims=True)`。
+- 将 NumPy 结果转换为 FP32 Tensor，并放回输入设备，保持公共返回值约定。
+- 需要 NumPy；NPU 输入会发生设备到 CPU 及结果回传的数据拷贝，用于精度参考，不适合放在 NPU graph 捕获中执行。
+- 保持带符号行和及零分母语义，不添加绝对值、epsilon 或 NaN/Inf 修正。
 
 ## 调用示例
 

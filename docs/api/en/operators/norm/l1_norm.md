@@ -50,8 +50,10 @@ The public entry point adds neither input validation nor contiguous copies. Trit
 
 ## torch_native backend
 
-- Converts the input to FP32, then computes `values / values.sum(dim=-1, keepdim=True)`.
-- Preserves signed row sums and zero-denominator behavior for accuracy comparisons.
+- Follows the original test golden: `values = input.to(torch.float32).cpu().numpy()`, then `values / values.sum(axis=-1, keepdims=True)`.
+- Converts the NumPy result to an FP32 Tensor and returns it to the input device, preserving the public return contract.
+- Requires NumPy. NPU input is copied to the CPU and results are copied back. This accuracy reference is unsuitable for execution inside NPU graph capture.
+- Preserves signed row sums and zero-denominator behavior without adding absolute values, epsilon or NaN/Inf corrections.
 
 ## Example
 
