@@ -1,12 +1,10 @@
 """Shared accuracy checks for outputs from different backends."""
 
-from functools import partial
-
 import torch
 
 from .common import (
     get_skip_acc_check,
-    get_test_impls,
+    make_executor,
     require_distinct_impls,
     require_test_impl,
 )
@@ -76,37 +74,6 @@ def assert_accuracy(result, result_ref, standard=None, *, path="output"):
         raise TypeError(f"{path}: unsupported output type {type(result_ref).__name__}")
 
 
-class _FreshInputExecutor:
-    """Prepare independent inputs before profiling an in-place operator."""
-
-    def __init__(self, operator, impl, input_factory):
-        self.func = operator
-        self.impl = impl
-        self.input_factory = input_factory
-        self._prepared = None
-
-    def _inputs(self):
-        args, kwargs = self.input_factory()
-        if "impl" in kwargs:
-            raise ValueError("input_factory must not supply impl")
-        return tuple(args), dict(kwargs)
-
-    def prepare_calls(self, count):
-        self._prepared = iter([self._inputs() for _ in range(count)])
-
-    def __call__(self):
-        if self._prepared is None:
-            args, kwargs = self._inputs()
-        else:
-            try:
-                args, kwargs = next(self._prepared)
-            except StopIteration as error:
-                raise RuntimeError(
-                    "Prepared in-place inputs exhausted; prepare_calls before another benchmark"
-                ) from error
-        return self.func(*args, **kwargs, impl=self.impl)
-
-
 def check_accuracy(
     operator,
     args=(),
@@ -116,14 +83,11 @@ def check_accuracy(
     impl_ref=None,
     standard=None,
     skip_acc_check=False,
-    input_factory=None,
 ):
     """Validate two public-interface implementations and return an executor.
 
-    The operator must accept impl as a keyword. By default it must not mutate
-    args/kwargs, which are shared by both calls and later benchmark iterations.
-    For in-place operators, input_factory returns fresh (args, kwargs) per call;
-    do not also pass args/kwargs. Profiling prepares all inputs before timing.
+    The operator must accept impl as a keyword and not mutate its inputs.
+    args/kwargs are shared by both calls and later benchmark iterations.
     Corresponding output Tensors must be on the same device, regardless of type.
     No performance measurement runs here; errors propagate to the test.
     Each omitted implementation name comes from the current test configuration.
@@ -140,38 +104,17 @@ def check_accuracy(
         skip_acc_check = cli_skip
     if not isinstance(skip_acc_check, bool):
         raise TypeError("skip_acc_check must be bool")
-    if impl is None or impl_ref is None:
-        default_impl, default_impl_ref = get_test_impls()
-        if impl is None:
-            impl = default_impl
-        if impl_ref is None:
-            impl_ref = default_impl_ref
-    kwargs = dict(kwargs or {})
-    if "impl" in kwargs:
-        raise ValueError(
-            "Select impl via check_accuracy or test configuration, not operator kwargs"
-        )
-    args = tuple(args)
-    if input_factory is not None:
-        if args or kwargs or not callable(input_factory):
-            raise ValueError(
-                "input_factory must be callable and cannot be combined with args/kwargs"
-            )
-        executor = _FreshInputExecutor(operator, impl, input_factory)
-    else:
-        executor = partial(operator, *args, **kwargs, impl=impl)
-    executor.impl = impl
-    executor.impl_ref = impl_ref
-    executor.accuracy_checked = False
+    executor = make_executor(
+        operator, args=args, kwargs=kwargs, impl=impl, impl_ref=impl_ref
+    )
+    impl, impl_ref = executor.impl, executor.impl_ref
     if skip_acc_check:
         require_test_impl(operator, impl)
         print(f"Accuracy check skipped: {operator.__name__} [{impl}]")
         return executor
     require_distinct_impls(operator, impl, impl_ref)
-    if input_factory is not None:
-        result_ref = _FreshInputExecutor(operator, impl_ref, input_factory)()
-    else:
-        result_ref = operator(*args, **kwargs, impl=impl_ref)
+    ref_kwargs = {**executor.keywords, "impl": impl_ref}
+    result_ref = operator(*executor.args, **ref_kwargs)
     result = executor()
     assert_accuracy(result, result_ref, standard)
     executor.accuracy_checked = True
