@@ -7,7 +7,7 @@ import triton.language as tl
 
 
 @triton.jit
-def l2norm_fwd_kernel1(
+def l2norm_fwd_kernel(
     x,
     y,
     D,

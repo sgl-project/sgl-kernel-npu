@@ -15,7 +15,7 @@ def _triton_impl(
     import triton
 
     from ...implementation.triton.norm.l2norm import (
-        l2norm_fwd_kernel1,
+        l2norm_fwd_kernel,
         l2norm_fwd_kernel_opt,
     )
     from ...utils.triton_utils import get_device_properties
@@ -62,7 +62,7 @@ def _triton_impl(
             num_stages=3,
         )
     else:
-        l2norm_fwd_kernel1[(T,)](
+        l2norm_fwd_kernel[(T,)](
             x,
             y,
             eps=eps,
