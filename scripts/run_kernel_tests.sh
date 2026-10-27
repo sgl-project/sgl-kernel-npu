@@ -27,7 +27,7 @@ run_test() {
     elif grep -q 'def test_' "$test_file"; then
         # Pytest-style test without __main__: collect and run it with pytest.
         # Direct 'python3 file.py' would only import and falsely pass.
-        python3 -m pytest "$test_file" -q -x || exit_code=$?
+        python3 -m pytest "$test_file" -q --maxfail=0 --continue-on-collection-errors || exit_code=$?
     else
         # Plain script (e.g. test_hello_world.py): run it directly
         python3 "$test_file" || exit_code=$?

@@ -33,6 +33,8 @@ def run(plan, module, root, cann):
     legacy = [t for t in tests if t not in public]
     failures = []
     env = dict(os.environ, ACL_OP_SELECT_IMPL_MODE="high_precision")
+    # Finish all collected cases, even when defaults in PYTEST_ADDOPTS use -x.
+    # Collection errors still fail the run but do not suppress valid tests.
     if public:
         code = subprocess.run(
             [
@@ -47,7 +49,8 @@ def run(plan, module, root, cann):
                 "--npu-device=0",
                 "-v",
                 "-rs",
-                "-x",
+                "--maxfail=0",
+                "--continue-on-collection-errors",
                 f"--junitxml={reports / ('public-' + module + '.xml')}",
             ],
             cwd=root,
@@ -78,7 +81,8 @@ def run(plan, module, root, cann):
                 "pytest",
                 path.name,
                 "-q",
-                "-x",
+                "--maxfail=0",
+                "--continue-on-collection-errors",
                 f"--junitxml={report}",
             ]
         )

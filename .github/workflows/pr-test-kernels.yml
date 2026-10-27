@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install selector dependencies
-        run: python3 -m pip install PyYAML==6.0.2
+        run: python3 -m pip install PyYAML==6.0.2 pytest==9.1.1
 
       - name: Test selection and execution logic (CPU only)
         run: python3 -m unittest discover -s tests/ci -v

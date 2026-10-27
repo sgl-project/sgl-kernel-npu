@@ -108,7 +108,14 @@ norm-job-only edits select norm. There are no PR-number or branch-name exception
 
 The runner preserves public accuracy options and legacy script/pytest semantics,
 continues to the legacy checks after a public failure, and returns failure if any
-selected check fails. Pytest writes JUnit XML; standalone scripts get one JUnit
+selected check fails. Pytest uses `--maxfail=0` instead of `-x`, so assertion or
+fixture failures do not suppress subsequent cases or parameter combinations.
+`--continue-on-collection-errors` also runs valid collected tests when another
+file cannot be collected; the collection error still fails CI. This applies to
+both selected execution and the original positional group interface. Standalone
+scripts continue to the next file after a nonzero exit; their internal control
+flow is unchanged. Cancellation, process crashes and job timeouts can still
+interrupt execution. Pytest writes JUnit XML; standalone scripts get one JUnit
 case recording their process exit status. All seven jobs upload reports with
 `always()`, including partial reports on failure. The finish job depends on both
 the selector and test jobs, and fails on failure/cancellation. No test execution
@@ -121,7 +128,7 @@ manifest (the existing smoke test is included in the PR fused group).
 ## Local validation
 
 ```bash
-python3 -m pip install PyYAML==6.0.2
+python3 -m pip install PyYAML==6.0.2 pytest==9.1.1
 python3 -m unittest discover -s tests/ci -v
 python3 scripts/select_kernel_tests.py --base upstream/main --head HEAD
 python3 scripts/select_kernel_tests.py --full --output /tmp/kernel-tests.json
