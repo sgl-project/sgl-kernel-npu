@@ -232,17 +232,18 @@ def _causal_conv1d_target_verify_npu_kernel(
                                 other=0.0,
                             ).to(conv_state_ptr.dtype.element_ty)
                         else:
+                            # Use vector selects: scalar control flow around them can
+                            # hang triton-ascend 3.2.1.dev with CANN 9.0.
                             if KERNEL_WIDTH == 2:
                                 value = history0
                             elif KERNEL_WIDTH == 3:
-                                value = history1 if ancestor_idx == 0 else history0
+                                value = tl.where(ancestor_idx == 0, history1, history0)
                             else:
-                                if ancestor_idx == 0:
-                                    value = history2
-                                elif ancestor_idx == -1:
-                                    value = history1
-                                else:
-                                    value = history0
+                                value = tl.where(
+                                    ancestor_idx == 0,
+                                    history2,
+                                    tl.where(ancestor_idx == -1, history1, history0),
+                                )
                             ancestor_idx = ancestor_idx - 1
 
                 if SILU_ACTIVATION:
