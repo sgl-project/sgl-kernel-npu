@@ -79,8 +79,21 @@ def fused_decode_prepare_indexer(
 ):
     """Prepare decode weights, pooled lengths and pooled page tables.
 
-    Returns ``(w_bf16, pool_seqlens, pool_block_tables)``. ``impl`` accepts
-    ``auto``, ``triton`` or ``torch_native``; ``auto`` selects Triton.
+    ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
+
+    Args:
+        x: torch.Tensor, shape [N, HIDDEN_SIZE], dtype torch.bfloat16. Decode hidden states.
+        weights_proj_weight: torch.Tensor, shape [N_HEADS, HIDDEN_SIZE], dtype torch.float32. ReplicatedLinear projection weight.
+        seqlens_32: torch.Tensor, shape [N], dtype torch.int32. Real KV length for each request.
+        block_tables: torch.Tensor, shape [N, NUM_BLOCKS], dtype torch.int32. Contiguous token-page table.
+        pool_size: int, shape —, dtype —. Pooling width; the current kernel requires exactly 4.
+        n_heads_pow: float, shape —, dtype —. First factor in the combined projection scale.
+        softmax_scale: float, shape —, dtype —. Second factor in the combined projection scale.
+        impl: Backend name: auto, triton or torch_native.
+
+    Returns:
+        BF16 weights [B, N], int32 pooled lengths [B], and int32 pooled
+        page table [B, ceil(M / pool_size)]. Inputs remain read-only.
     """
     impl_fn = get_impl_by_name("indexer.fused_decode_prepare_indexer", impl)
     return impl_fn(

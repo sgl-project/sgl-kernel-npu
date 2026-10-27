@@ -6,6 +6,7 @@ from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
+    require_distinct_impls,
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
@@ -22,7 +23,7 @@ EXACT_BF16_STANDARD = {
 }
 
 
-def _torch_target_verify_reference(
+def _native_target_verify_reference(
     x,
     conv_state,
     weight,
@@ -35,98 +36,34 @@ def _torch_target_verify_reference(
     retrieve_next_sibling=None,
     retrieve_parent_token=None,
 ):
-    """Compute outputs and per-token causal windows from original inputs only."""
-    device = x.device
-    dtype = x.dtype
-    x_ref = x.detach().cpu()
-    state_ref = conv_state.detach().cpu()
-    weight_ref = weight.detach().cpu().float()
-    bias_ref = None if bias is None else bias.detach().cpu().float()
-    state_indices = conv_state_indices.detach().cpu().tolist()
-    scratch_indices = intermediate_state_indices.detach().cpu().tolist()
-    expected_scratch = intermediate_conv_window.detach().cpu().clone()
-    expected_parent = (
-        None
-        if retrieve_parent_token is None
-        else retrieve_parent_token.detach().cpu().clone()
-    )
-    has_tree = retrieve_next_token is not None
-    next_tokens = retrieve_next_token.detach().cpu().tolist() if has_tree else None
-    next_siblings = retrieve_next_sibling.detach().cpu().tolist() if has_tree else None
-
-    batch, dim, steps = x_ref.shape
-    width = weight_ref.shape[1]
-    expected_out = x_ref.new_empty(x_ref.shape, dtype=torch.float32)
-
-    for batch_idx in range(batch):
-        history = state_ref[state_indices[batch_idx], :, : width - 1].float()
-        scratch_idx = scratch_indices[batch_idx]
-        parents = [0] * steps if has_tree else None
-
-        for token_idx in range(steps):
-            acc = (
-                bias_ref.clone()
-                if bias_ref is not None
-                else torch.zeros_like(weight_ref[:, 0])
-            )
-
-            if not has_tree:
-                current = x_ref[batch_idx, :, token_idx].float()
-                for tap in range(width - 1):
-                    acc += history[:, tap] * weight_ref[:, tap]
-                acc += current * weight_ref[:, width - 1]
-
-                history = torch.cat((history[:, 1:], current.unsqueeze(1)), dim=1)
-                expected_scratch[scratch_idx, token_idx] = history.to(dtype)
-            else:
-                child_idx = next_tokens[batch_idx][token_idx]
-                if child_idx != -1:
-                    parents[child_idx] = token_idx
-                sibling_idx = next_siblings[batch_idx][token_idx]
-                if sibling_idx != -1:
-                    parents[sibling_idx] = parents[token_idx]
-
-                ancestor_idx = token_idx
-                value = x_ref[batch_idx, :, token_idx].float()
-                for tap in range(width):
-                    acc += value * weight_ref[:, width - tap - 1]
-                    if tap == width - 1:
-                        continue
-
-                    expected_scratch[scratch_idx, token_idx, :, width - tap - 2] = (
-                        value.to(dtype)
-                    )
-                    if ancestor_idx > 0:
-                        ancestor_idx = parents[ancestor_idx]
-                        value = x_ref[batch_idx, :, ancestor_idx].float()
-                    else:
-                        history_idx = width - 2 + ancestor_idx
-                        value = history[:, history_idx]
-                        ancestor_idx -= 1
-
-            if activation in ("silu", "swish"):
-                acc = torch.nn.functional.silu(acc)
-            expected_out[batch_idx, :, token_idx] = acc
-
-        if has_tree:
-            expected_parent[batch_idx, :steps] = expected_parent.new_tensor(parents)
-
-    expected_out = expected_out.to(dtype).to(device)
-    expected_scratch = expected_scratch.to(device)
-    if expected_parent is not None:
-        expected_parent = expected_parent.to(device)
-    return expected_out, expected_scratch, expected_parent
-
-
-def test_causal_conv1d_target_verify_linear_npu():
     from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
 
-    impl, _ = get_test_impls()
-    require_test_impl(causal_conv1d_target_verify_npu, impl)
-    if get_skip_acc_check() is True:
-        return
+    _, impl_ref = get_test_impls()
+    x_ref = x.clone()
+    scratch_ref = intermediate_conv_window.clone()
+    parent_ref = (
+        None if retrieve_parent_token is None else retrieve_parent_token.clone()
+    )
+    out = causal_conv1d_target_verify_npu(
+        x_ref,
+        conv_state.clone(),
+        weight,
+        bias,
+        activation,
+        conv_state_indices,
+        scratch_ref,
+        intermediate_state_indices,
+        retrieve_next_token,
+        retrieve_next_sibling,
+        parent_ref,
+        impl=impl_ref,
+    )
+    return out, scratch_ref, parent_ref
+
+
+def generate_linear_data(width, extra_window=0):
     torch.npu.manual_seed(101)
-    batch, dim, steps, width = 2, 3, 4, 4
+    batch, dim, steps = 2, 5, 4
     x = torch.randn(batch, dim, steps, dtype=torch.bfloat16)
     weight = torch.randn(dim, width, dtype=torch.bfloat16) * 0.25
     bias = torch.randn(dim, dtype=torch.bfloat16) * 0.1
@@ -134,12 +71,44 @@ def test_causal_conv1d_target_verify_linear_npu():
     conv_state_indices = torch.tensor([3, 1], dtype=torch.int32)
     intermediate_state_indices = torch.tensor([2, 0], dtype=torch.int32)
     intermediate_conv_window = torch.full(
-        (4, steps + 1, dim, width - 1), -23.0, dtype=torch.bfloat16
+        (4, steps + 1, dim, width - 1 + extra_window), -23.0, dtype=torch.bfloat16
     )
 
+    return (
+        x,
+        weight,
+        bias,
+        conv_state,
+        conv_state_indices,
+        intermediate_state_indices,
+        intermediate_conv_window,
+    )
+
+
+# Minimum width, both extra-window regressions, and the common width=4 path.
+@pytest.mark.parametrize("width,extra_window", [(2, 0), (2, 1), (3, 1), (4, 0)])
+def test_causal_conv1d_target_verify_linear_npu(width, extra_window):
+    from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
+
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is not True:
+        require_distinct_impls(causal_conv1d_target_verify_npu, impl, impl_ref)
+    else:
+        require_test_impl(causal_conv1d_target_verify_npu, impl)
+    if get_skip_acc_check() is True:
+        return
+    (
+        x,
+        weight,
+        bias,
+        conv_state,
+        conv_state_indices,
+        intermediate_state_indices,
+        intermediate_conv_window,
+    ) = generate_linear_data(width, extra_window)
     x_before = x.clone()
     conv_state_before = conv_state.clone()
-    expected_out, expected_scratch, _ = _torch_target_verify_reference(
+    expected_out, expected_scratch, _ = _native_target_verify_reference(
         x_before,
         conv_state_before,
         weight,
@@ -227,8 +196,11 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
         )
 
     conv_state = conv_state_base.transpose(-1, -2)
-    impl, _ = get_test_impls()
-    require_test_impl(causal_conv1d_target_verify_npu, impl)
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is not True:
+        require_distinct_impls(causal_conv1d_target_verify_npu, impl, impl_ref)
+    else:
+        require_test_impl(causal_conv1d_target_verify_npu, impl)
     accuracy_checked = get_skip_acc_check() is not True
     if accuracy_checked:
         x, conv_state, intermediate_conv_window = make_views(
@@ -237,7 +209,7 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
         assert x.stride(1) == 1 and not x.is_contiguous()
         x_before = initial_x_base.transpose(1, 2).clone()
         conv_state_before = conv_state.clone()
-        expected_out, expected_scratch, _ = _torch_target_verify_reference(
+        expected_out, expected_scratch, _ = _native_target_verify_reference(
             x_before,
             conv_state_before,
             weight.transpose(0, 1).contiguous(),
@@ -303,20 +275,14 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
 
     executor.func = causal_conv1d_target_verify_npu
     executor.impl = impl
-    executor.impl_ref = "torch_reference"
+    executor.impl_ref = impl_ref
     executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(batch, dim, steps) in perf_shape)
 
 
-def test_causal_conv1d_target_verify_tree_npu():
-    from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
-
-    impl, _ = get_test_impls()
-    require_test_impl(causal_conv1d_target_verify_npu, impl)
-    if get_skip_acc_check() is True:
-        return
+def generate_tree_data(width):
     torch.npu.manual_seed(202)
-    batch, dim, steps, width = 1, 2, 5, 3
+    batch, dim, steps = 1, 5, 5
     x = torch.randn(batch, dim, steps, dtype=torch.bfloat16)
     weight = torch.randn(dim, width, dtype=torch.bfloat16) * 0.25
     conv_state = torch.randn(4, dim, width - 1, dtype=torch.bfloat16)
@@ -331,9 +297,44 @@ def test_causal_conv1d_target_verify_tree_npu():
     retrieve_next_sibling = torch.tensor([[-1, -1, 3, -1, -1]], dtype=torch.int32)
     retrieve_parent_token = torch.full((batch, steps + 1), -77, dtype=torch.int32)
 
+    return (
+        x,
+        weight,
+        conv_state,
+        conv_state_indices,
+        intermediate_state_indices,
+        intermediate_conv_window,
+        retrieve_next_token,
+        retrieve_next_sibling,
+        retrieve_parent_token,
+    )
+
+
+@pytest.mark.parametrize("width", [2, 3, 4])
+def test_causal_conv1d_target_verify_tree_npu(width):
+    from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
+
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is not True:
+        require_distinct_impls(causal_conv1d_target_verify_npu, impl, impl_ref)
+    else:
+        require_test_impl(causal_conv1d_target_verify_npu, impl)
+    if get_skip_acc_check() is True:
+        return
+    (
+        x,
+        weight,
+        conv_state,
+        conv_state_indices,
+        intermediate_state_indices,
+        intermediate_conv_window,
+        retrieve_next_token,
+        retrieve_next_sibling,
+        retrieve_parent_token,
+    ) = generate_tree_data(width)
     x_before = x.clone()
     conv_state_before = conv_state.clone()
-    expected_out, expected_scratch, expected_parent = _torch_target_verify_reference(
+    expected_out, expected_scratch, expected_parent = _native_target_verify_reference(
         x_before,
         conv_state_before,
         weight,

@@ -30,13 +30,15 @@ def build_pooled_page_table_64(
 ) -> torch.Tensor:
     """Pack each logical pool page into its first token page.
 
+    ``auto`` selects Torch native.
+
     Args:
-        page_table_64 (torch.Tensor): Token-page table grouped along its last dimension.
-        pool_size (int): Number of token pages in one logical pool page.
-        impl (str): Implementation name: ``auto`` or ``torch_native``.
+        page_table_64: torch.Tensor, shape [..., NUM_BLOCKS], dtype The backend does not restrict it; use an integer page-ID dtype. Token-page table. The last dimension is sampled.
+        pool_size: int, shape —, dtype —. Number of token pages represented by one pool page. Must be positive and divide the backend constant BLOCK_SIZE_K = 128.
+        impl: Backend name: auto or torch_native.
 
     Returns:
-        torch.Tensor: The first token-page entry from each pool group.
+        Page table with last axis selected at pool_size intervals.
     """
     impl_fn = get_impl_by_name("mem_cache.build_pooled_page_table_64", impl)
     return impl_fn(page_table_64, pool_size)

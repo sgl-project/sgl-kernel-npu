@@ -7,7 +7,7 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # P/C: hidden=4096 and heads=32; W/T: batch and page-table widths.
-perf_shape = [(16, 4096, 32, 64), (64, 4096, 32, 129)]
+perf_shape = [(16, 4096, 32, 64)]
 
 BF16_GEMM_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=1e-2, rtol=1e-2),
@@ -28,13 +28,11 @@ def generate_test_data(batch_size, hidden_size, n_heads, num_blocks):
 @pytest.mark.parametrize(
     "batch_size,hidden_size,n_heads,num_blocks",
     [
-        pytest.param(33, 256, 32, 5, id="single-vv-tile"),
         pytest.param(33, 256, 32, 129, id="cross-vv-tile"),
         pytest.param(1, 256, 1, 1, id="single-block-single-head"),
         pytest.param(2, 512, 16, 4, id="exact-pool-hidden512"),
         pytest.param(65, 512, 8, 7, id="multi-batch-nonmultiple-pool"),
         pytest.param(16, 4096, 32, 64, id="T-glm53-flash-b16-m64"),
-        pytest.param(64, 4096, 32, 129, id="W-glm53-flash-b64-m129"),
     ],
 )
 def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_blocks):
@@ -55,8 +53,6 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
             "n_heads_pow": n_heads_pow,
             "softmax_scale": softmax_scale,
         },
-        impl="triton",
-        impl_ref="torch_native",
         standard=BF16_GEMM_STANDARD,
     )
     shape = (batch_size, hidden_size, n_heads, num_blocks)

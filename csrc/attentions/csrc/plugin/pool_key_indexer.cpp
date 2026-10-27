@@ -48,8 +48,9 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
     TORCH_CHECK(!return_value,
                 "pool_key_indexer: return_value=true is not supported by this binding; sparse values are "
                 "dropped because the schema returns only sparse indices");
-    TORCH_CHECK(query.dim() == 2 || query.dim() == 4, "pool_key_indexer: query must be 2-D (TND) or 4-D (BSND), got ",
-                query.dim(), " dims");
+    TORCH_CHECK(query.dim() == 2 || query.dim() == 3 || query.dim() == 4,
+                "pool_key_indexer: query must be 2-D (flattened TND), 3-D (TND) or 4-D (BSND), got ", query.dim(),
+                " dims");
     TORCH_CHECK(pool_size > 0, "pool_key_indexer: pool_size must be > 0, got ", pool_size);
     TORCH_CHECK(topk >= pool_size, "pool_key_indexer: topk (", topk, ") must be >= pool_size (", pool_size, ")");
     auto layout_ok = [](const std::string &layout) {

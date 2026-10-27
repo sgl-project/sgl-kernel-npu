@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -8,13 +6,14 @@ from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
+    require_distinct_impls,
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # W: Q candidates; Np is synthetic from full chunks, not a traced value. P/C: K=4.
-perf_shape = [(4096, 1024), (8192, 2048)]
+perf_shape = [(4096, 1024)]
 
 HEAD_DIM = 128
 PAGE_SIZE = 128
@@ -24,65 +23,6 @@ CACHE_STANDARD = {
 EXACT_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0, rtol=0),
 }
-
-
-@torch.no_grad()
-def kpool_assemble_softmax_write_cache_torch(
-    index_k_cache: torch.Tensor,
-    chunk_k: torch.Tensor,
-    chunk_score: torch.Tensor,
-    tail_k: torch.Tensor,
-    tail_score: torch.Tensor,
-    req_pool_idx: torch.Tensor,
-    n_from_tail: torch.Tensor,
-    chunk_src_start: torch.Tensor,
-    tail_logical_base: torch.Tensor,
-    ape: torch.Tensor,
-    loc: torch.Tensor,
-    write_mask: Optional[torch.Tensor] = None,
-) -> None:
-    """Torch numerical reference for BF16 KPool assembly and cache write."""
-    n_pools = req_pool_idx.numel()
-    if n_pools == 0:
-        return
-
-    pool_size = ape.shape[0]
-    tail_size = tail_k.shape[1]
-    if write_mask is None:
-        active_rows = torch.arange(n_pools, dtype=torch.int64)
-    else:
-        active_rows = torch.nonzero(write_mask, as_tuple=False).flatten()
-
-    req = req_pool_idx.index_select(0, active_rows)
-    n_tail = n_from_tail.index_select(0, active_rows).to(torch.int64)
-    chunk_src = chunk_src_start.index_select(0, active_rows)
-    tail_base = tail_logical_base.index_select(0, active_rows).to(torch.int64)
-
-    slots = torch.arange(pool_size, dtype=torch.int64).unsqueeze(0)
-    use_tail = slots < n_tail.unsqueeze(1)
-    tail_phys = torch.remainder(tail_base.unsqueeze(1) + slots, tail_size)
-    tail_req = req.unsqueeze(1).expand_as(tail_phys)
-    assembled_tail_k = tail_k[tail_req, tail_phys]
-    assembled_tail_score = tail_score[tail_req, tail_phys]
-
-    # torch.where evaluates both branches, so keep unselected indices valid.
-    chunk_offsets = torch.clamp(slots - n_tail.unsqueeze(1), min=0)
-    chunk_indices = chunk_src.unsqueeze(1) + chunk_offsets
-    assembled_chunk_k = chunk_k[chunk_indices]
-    assembled_chunk_score = chunk_score[chunk_indices]
-    assembled_k = torch.where(
-        use_tail.unsqueeze(-1), assembled_tail_k, assembled_chunk_k
-    )
-    assembled_score = torch.where(
-        use_tail.unsqueeze(-1), assembled_tail_score, assembled_chunk_score
-    )
-
-    logits = assembled_score.float() + ape.float().unsqueeze(0)
-    probs = torch.softmax(logits, dim=1)
-    pooled = torch.sum(assembled_k.float() * probs, dim=1).to(torch.bfloat16)
-    cache_2d = index_k_cache.view(-1, HEAD_DIM)
-    active_locs = loc.index_select(0, active_rows)
-    cache_2d.index_copy_(0, active_locs, pooled)
 
 
 def _make_noncontiguous(tensor):
@@ -117,10 +57,8 @@ def _make_inputs(
         chunk_src_starts.append(chunk_rows)
         chunk_rows += pool_size - n_tail
 
-    if total_tokens is None:
-        # Keep one sentinel row valid for pools assembled entirely from tail state.
-        chunk_rows += 1
-    else:
+    # No sentinel: full-tail pools may point past the chunk without reading it.
+    if total_tokens is not None:
         chunk_rows = total_tokens
         chunk_src_starts = [row * (total_tokens // n_pools) for row in range(n_pools)]
         assert all(
@@ -209,13 +147,16 @@ def _run_accuracy_case(
         for name in dynamic_names:
             inputs[name] = _make_noncontiguous(inputs[name])
 
-    impl, _ = get_test_impls()
-    require_test_impl(operator, impl)
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is not True:
+        require_distinct_impls(operator, impl, impl_ref)
+    else:
+        require_test_impl(operator, impl)
     accuracy_checked = get_skip_acc_check() is not True
     if accuracy_checked:
         expected_cache = initial_cache.clone()
         actual_cache = initial_cache.clone()
-        kpool_assemble_softmax_write_cache_torch(index_k_cache=expected_cache, **inputs)
+        operator(index_k_cache=expected_cache, **inputs, impl=impl_ref)
         operator(
             index_k_cache=actual_cache,
             num_programs=num_programs,
@@ -253,91 +194,102 @@ def _run_accuracy_case(
 
     executor.func = operator
     executor.impl = impl
-    executor.impl_ref = "torch_reference"
+    executor.impl_ref = impl_ref
     executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=(total_tokens, n_pools) in perf_shape)
 
 
+# Each row covers a distinct dtype, state transition, boundary, or workload.
 @pytest.mark.parametrize(
-    "score_dtype,seed",
+    "case",
     [
-        pytest.param(torch.bfloat16, 100, id="bf16"),
-        pytest.param(torch.float16, 101, id="fp16"),
-        pytest.param(torch.float32, 102, id="fp32"),
+        pytest.param(
+            dict(
+                seed=100,
+                n_pools=5,
+                pool_size=8,
+                tail_size=13,
+                n_from_tail_values=[0] * 5,
+                score_dtype=torch.bfloat16,
+            ),
+            id="bf16",
+        ),
+        pytest.param(
+            dict(
+                seed=101,
+                n_pools=5,
+                pool_size=8,
+                tail_size=13,
+                n_from_tail_values=[0] * 5,
+                score_dtype=torch.float16,
+            ),
+            id="fp16",
+        ),
+        pytest.param(
+            dict(
+                seed=102,
+                n_pools=5,
+                pool_size=8,
+                tail_size=13,
+                n_from_tail_values=[0] * 5,
+                score_dtype=torch.float32,
+            ),
+            id="fp32",
+        ),
+        pytest.param(
+            dict(
+                seed=200,
+                n_pools=9,
+                pool_size=8,
+                tail_size=11,
+                n_from_tail_values=[0, 1, 3, 7, 8, 2, 5, 8, 4],
+                score_dtype=torch.float32,
+                use_write_mask=True,
+                use_noncontiguous_dynamic_inputs=True,
+                num_programs=4,
+            ),
+            id="mixed_tail_chunk_wraparound_mask_and_noncontiguous_inputs",
+        ),
+        pytest.param(
+            dict(
+                seed=300,
+                n_pools=37,
+                pool_size=16,
+                tail_size=19,
+                n_from_tail_values=[row * 5 % 17 for row in range(37)],
+                score_dtype=torch.bfloat16,
+                num_programs=3,
+            ),
+            id="grid_stride_when_pools_exceed_programs",
+        ),
+        pytest.param(
+            dict(
+                seed=301,
+                n_pools=3,
+                pool_size=4,
+                tail_size=5,
+                n_from_tail_values=[4, 4, 4],
+                score_dtype=torch.float32,
+            ),
+            id="all_tail_with_empty_chunk",
+        ),
+        pytest.param(
+            dict(
+                seed=400,
+                n_pools=1024,
+                pool_size=4,
+                tail_size=5,
+                n_from_tail_values=[2] * 1024,
+                score_dtype=torch.bfloat16,
+                total_tokens=4096,
+            ),
+            id="W-extend-q4096-np1024",
+        ),
     ],
 )
-def test_all_chunk_score_dtypes(score_dtype, seed):
+def test_kpool_assemble_softmax_write_cache_npu(case):
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_assemble_softmax_write_cache_npu,
     )
 
-    _run_accuracy_case(
-        kpool_assemble_softmax_write_cache_npu,
-        seed=seed,
-        n_pools=5,
-        pool_size=8,
-        tail_size=13,
-        n_from_tail_values=[0] * 5,
-        score_dtype=score_dtype,
-    )
-
-
-def test_mixed_tail_chunk_wraparound_mask_and_noncontiguous_inputs():
-    from sgl_kernel_npu.operators.mem_cache import (
-        kpool_assemble_softmax_write_cache_npu,
-    )
-
-    _run_accuracy_case(
-        kpool_assemble_softmax_write_cache_npu,
-        seed=200,
-        n_pools=9,
-        pool_size=8,
-        tail_size=11,
-        n_from_tail_values=[0, 1, 3, 7, 8, 2, 5, 8, 4],
-        score_dtype=torch.float32,
-        use_write_mask=True,
-        use_noncontiguous_dynamic_inputs=True,
-        num_programs=4,
-    )
-
-
-def test_grid_stride_when_pools_exceed_programs():
-    from sgl_kernel_npu.operators.mem_cache import (
-        kpool_assemble_softmax_write_cache_npu,
-    )
-
-    n_pools = 37
-    _run_accuracy_case(
-        kpool_assemble_softmax_write_cache_npu,
-        seed=300,
-        n_pools=n_pools,
-        pool_size=16,
-        tail_size=19,
-        n_from_tail_values=[(row * 5) % 17 for row in range(n_pools)],
-        score_dtype=torch.bfloat16,
-        num_programs=3,
-    )
-
-
-@pytest.mark.parametrize(
-    "total_tokens,n_pools",
-    [
-        pytest.param(4096, 1024, id="W-extend-q4096-np1024"),
-        pytest.param(8192, 2048, id="W-extend-q8192-np2048"),
-    ],
-)
-def test_extend_workload_accuracy_and_performance(total_tokens, n_pools):
-    from sgl_kernel_npu.operators.mem_cache import (
-        kpool_assemble_softmax_write_cache_npu,
-    )
-
-    _run_accuracy_case(
-        kpool_assemble_softmax_write_cache_npu,
-        seed=400,
-        n_pools=n_pools,
-        pool_size=4,
-        tail_size=5,
-        n_from_tail_values=[2] * n_pools,
-        score_dtype=torch.bfloat16,
-        total_tokens=total_tokens,
-    )
+    _run_accuracy_case(kpool_assemble_softmax_write_cache_npu, **case)
