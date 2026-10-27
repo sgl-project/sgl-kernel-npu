@@ -1,1 +1,0 @@
-"""AscendC sampling implementations."""

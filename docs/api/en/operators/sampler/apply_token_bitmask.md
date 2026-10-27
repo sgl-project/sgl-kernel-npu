@@ -2,9 +2,12 @@
 
 ## Architecture support
 
-`SUPPORTED_ARCHS = [2201, 3510]`. Implementation scope and runtime validation are separate.
+Generation names follow the shared operators framework: `arch22` and `arch35`.
+Their architecture IDs are `2201` and `3510`, respectively; the build declaration
+uses `SUPPORTED_ARCHS 2201 3510`. Implementation scope and runtime validation are
+separate.
 
-| Implementation | 2201 | 3510 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | Implemented; refactor requires NPU validation | Implemented; requires NPU validation |
 | `torch_native` | Implemented; requires NPU validation | Implemented; requires NPU validation |

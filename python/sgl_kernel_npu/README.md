@@ -30,8 +30,10 @@ validation**. Portable tests do not establish hardware compatibility.
 `--arch-version` is mandatory; no machine detection or public SoC argument is
 used. `2201` builds all SDK targets mapped to that architecture, covering both
 hardware families in 2201. `3510` builds the corresponding newer architecture.
-The mapping is centralized in `csrc/cmake/architectures.json`; declarations and
-API documentation use `SUPPORTED_ARCHS 2201 3510`.
+The SDK target mapping is centralized in `csrc/cmake/architectures.json`;
+build declarations use `SUPPORTED_ARCHS 2201 3510`. API documentation follows
+the operators framework's generation names, `arch22` and `arch35`, which map to
+architecture IDs `2201` and `3510`, respectively.
 
 Examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix if
 your checkout is elsewhere. Initialize the SDK using its actual installed path:

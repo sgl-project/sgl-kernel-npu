@@ -100,7 +100,7 @@ class PublicDispatchTests(unittest.TestCase):
             "sgl_kernel_npu.operators.sampler"
         ).apply_token_bitmask
         self.adapter = importlib.import_module(
-            "sgl_kernel_npu.implementation.ascendc.sampler.apply_token_bitmask"
+            "sgl_kernel_npu.operators.sampler.apply_token_bitmask"
         )
         self.adapter._operator.cache_clear()
         self.addCleanup(self.adapter._operator.cache_clear)
@@ -140,7 +140,7 @@ class PublicDispatchTests(unittest.TestCase):
             (root / "_build_manifest.json").write_text(
                 '{"operators": [], "arch_version": "2201"}'
             )
-            fake_source = root / "implementation/ascendc/sampler/apply_token_bitmask.py"
+            fake_source = root / "operators/sampler/apply_token_bitmask.py"
             with patch.object(self.adapter, "__file__", str(fake_source)):
                 with self.assertRaisesRegex(RuntimeError, "does not include"):
                     self.operator(None, None)
