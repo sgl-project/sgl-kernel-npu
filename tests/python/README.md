@@ -28,6 +28,12 @@ Paths alone do not enable performance. Skipping accuracy does not enable it eith
 if both checks are disabled, the operator is not executed. Use serial pytest or
 `-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
 
+`attentions/test_pool_key_indexer.py` requires a separately built `attentions`
+extension and the `aclnnPoolKeyIndexer` vendor op. It tests the public Python
+operator with `--impl=auto` (default) or `--impl=aclnn`; both select the native
+binding. Its six cases use an independent ranked fixture rather than
+`--impl-ref`, and performance uses the shared `check_performance` helper.
+
 ## Write a test
 
 Place tests in `operators/<module>/test_<operator>.py`, matching the public API.
@@ -36,6 +42,13 @@ The shared `conftest.py` configures the default NPU device for these tests;
 no device, impl, `tmp_path` or `record_property` fixture arguments are needed.
 
 - Generate inputs in a separate function; parameterize shape, dtype, mode and operator options.
+- Name the input generator `generate_test_data`. Keep the accuracy/performance
+  flow in the test itself rather than extracting a runner used by only one test.
+- Number each parameter row with a `# Case NN: ...` comment describing its purpose.
+- Mark in-place/stateful tests and list the mutated inputs. Use isolated DUT and
+  reference copies with `assert_accuracy`; use `check_accuracy` for ordinary
+  out-of-place tests. Special cases such as raw bindings or independent slicing
+  references may compare directly with `assert_accuracy`; explain why in a comment.
 - Include production shapes from actual SGLang calls, accounting for reshaping and sharding. Label the model and scenario. If only model dimensions are borrowed, say so.
 - Add uncommon legal edge cases: minimum inputs, unaligned dimensions and block tails. Explain the purpose of each mode.
 - Check accuracy first, then performance. Select performance shapes with a separate `perf_shape` list.

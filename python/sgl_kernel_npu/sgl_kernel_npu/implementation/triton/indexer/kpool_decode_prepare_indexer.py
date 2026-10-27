@@ -233,7 +233,7 @@ def fused_decode_prepare_indexer(
     assert (
         BLOCK_M_B % pool_size == 0
     ), f"BLOCK_M_B={BLOCK_M_B} not divisible by pool_size={pool_size}"
-    assert pool_size == 4, f"pool_size={pool_size} must be 4 (split 抽取硬编码为 ::4)"
+    assert pool_size == 4, f"pool_size={pool_size} must be 4"
 
     # 3. output tensors
     w_bf16 = torch.empty((N, N_HEADS), dtype=torch.bfloat16, device=x.device)

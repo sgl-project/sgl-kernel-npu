@@ -24,10 +24,15 @@ def generate_test_data(n_real, n_pool_topk=512, pool_size=4):
 @pytest.mark.parametrize(
     "n_real,num_q_padded,n_pool_topk,pool_size",
     [
+        # Case 01: 4095 valid rows plus one padded row.
         (4095, 4096, 512, 4),
+        # Case 02: Typical 4096 valid rows without padding; also profile.
         pytest.param(4096, 4096, 512, 4, id="W-glm53-flash-r4096-q4096"),
+        # Case 03: One selected pool with padded query rows.
         pytest.param(1, 4, 1, 2, id="edge-one-pool-padding"),
+        # Case 04: Small top-k with pool2 and padding.
         pytest.param(5, 8, 8, 2, id="edge-small-topk-pool2"),
+        # Case 05: Pool8 expansion with a tail and padding.
         pytest.param(7, 8, 16, 8, id="edge-pool8-tail"),
     ],
 )
@@ -53,6 +58,7 @@ def test_expand_pool_topk_and_append_tail_batched_npu(
     )
 
 
+# Case 06: Reject noncontiguous sequence lengths.
 def test_expand_rejects_noncontiguous_seq_lens():
     from sgl_kernel_npu.operators.indexer import (
         expand_pool_topk_and_append_tail_batched_npu,

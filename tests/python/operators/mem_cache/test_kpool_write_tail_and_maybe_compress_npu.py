@@ -1,3 +1,6 @@
+# In-place Operator
+"""In-place draft tail writes/compression with explicit unchanged-row checks."""
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -27,24 +30,22 @@ EXACT_STANDARD = {
 }
 
 
-def _make_noncontiguous(tensor):
-    result = torch.stack((tensor, tensor), dim=-1)[..., 0]
-    assert result.shape == tensor.shape and not result.is_contiguous()
-    return result
-
-
-def _make_inputs(
+def generate_test_data(
     *,
-    seed,
-    batch_size,
-    num_draft_tokens,
-    pool_size,
-    write_start_values,
-    score_dtype,
+    seed=100,
+    batch_size=4,
+    num_draft_tokens=2,
+    pool_size=4,
+    write_start_values=None,
+    score_dtype=torch.bfloat16,
     effective_n_values=None,
     invalid_batches=(),
     use_noncontiguous_inputs=False,
+    num_programs=None,
 ):
+    """Return operator kwargs and protected row IDs in the [-1, 128] view."""
+    if write_start_values is None:
+        write_start_values = [2, 3, 6, 7]
     assert len(write_start_values) == batch_size
     if effective_n_values is not None:
         assert len(effective_n_values) == batch_size
@@ -92,6 +93,10 @@ def _make_inputs(
         out_cache_loc[start : start + num_draft_tokens] = 0
 
     inputs = {
+        "index_k_cache": initial_cache,
+        "tail_k": initial_tail_k,
+        "tail_score": initial_tail_score,
+        "num_programs": num_programs,
         "key": key.contiguous(),
         "score": score.contiguous(),
         "ape": ape.contiguous(),
@@ -120,192 +125,58 @@ def _make_inputs(
         if "effective_n_per_batch" in inputs:
             dynamic_names.append("effective_n_per_batch")
         for name in dynamic_names:
-            inputs[name] = _make_noncontiguous(inputs[name])
+            tensor = inputs[name]
+            inputs[name] = torch.stack((tensor, tensor), dim=-1)[..., 0]
+            assert not inputs[name].is_contiguous()
 
-    return initial_cache, initial_tail_k, initial_tail_score, inputs
-
-
-def _run_accuracy_case(
-    operator,
-    *,
-    seed,
-    batch_size,
-    num_draft_tokens,
-    pool_size,
-    write_start_values,
-    score_dtype,
-    effective_n_values=None,
-    invalid_batches=(),
-    use_noncontiguous_inputs=False,
-    num_programs=None,
-):
-    initial_cache, initial_tail_k, initial_tail_score, inputs = _make_inputs(
-        seed=seed,
-        batch_size=batch_size,
-        num_draft_tokens=num_draft_tokens,
-        pool_size=pool_size,
-        write_start_values=write_start_values,
-        score_dtype=score_dtype,
-        effective_n_values=effective_n_values,
-        invalid_batches=invalid_batches,
-        use_noncontiguous_inputs=use_noncontiguous_inputs,
+    # effective_n gates completed pools only; all draft tokens still write tail.
+    inactive_cache_rows = []
+    for batch, start in enumerate(write_start_values):
+        effective = (
+            num_draft_tokens
+            if effective_n_values is None
+            else effective_n_values[batch]
+        )
+        completed = (
+            start + max(0, min(effective, num_draft_tokens))
+        ) // pool_size - start // pool_size
+        first_inactive = 0 if batch in invalid_batches else completed
+        inactive_cache_rows.extend(
+            batch * max_closed_pools + slot + 3
+            for slot in range(first_inactive, max_closed_pools)
+        )
+    invalid_tail_rows = torch.tensor(
+        [
+            batch * tail_size + slot
+            for batch in invalid_batches
+            for slot in range(tail_size)
+        ],
+        dtype=torch.int64,
     )
-    impl, impl_ref = get_test_impls()
-    if get_skip_acc_check() is not True:
-        require_distinct_impls(operator, impl, impl_ref)
-    else:
-        require_test_impl(operator, impl)
-    accuracy_checked = get_skip_acc_check() is not True
-    if accuracy_checked:
-        expected_cache = initial_cache.clone()
-        expected_tail_k = initial_tail_k.clone()
-        expected_tail_score = initial_tail_score.clone()
-        actual_cache = initial_cache.clone()
-        actual_tail_k = initial_tail_k.clone()
-        actual_tail_score = initial_tail_score.clone()
-
-        operator(
-            index_k_cache=expected_cache,
-            tail_k=expected_tail_k,
-            tail_score=expected_tail_score,
-            **inputs,
-            impl=impl_ref,
-        )
-        operator(
-            index_k_cache=actual_cache,
-            tail_k=actual_tail_k,
-            tail_score=actual_tail_score,
-            num_programs=num_programs,
-            impl=impl,
-            **inputs,
-        )
-
-        assert_accuracy(actual_tail_k, expected_tail_k, EXACT_STANDARD, path="tail_k")
-        assert_accuracy(
-            actual_tail_score,
-            expected_tail_score,
-            EXACT_STANDARD,
-            path="tail_score",
-        )
-        assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
-
-        inactive_locs = []
-        write_loc = inputs["write_loc"]
-        max_closed_pools = write_loc.shape[1]
-        for batch, start in enumerate(write_start_values):
-            valid = batch not in invalid_batches
-            gate_n = (
-                num_draft_tokens
-                if effective_n_values is None
-                else effective_n_values[batch]
-            )
-            gate_n = max(0, min(gate_n, num_draft_tokens))
-            completed = (start + gate_n) // pool_size - start // pool_size
-            first_inactive = completed if valid else 0
-            inactive_locs.extend(
-                write_loc[batch, first_inactive:max_closed_pools].tolist()
-            )
-
-        if inactive_locs:
-            inactive_index = torch.tensor(inactive_locs, dtype=torch.int64)
-            assert_accuracy(
-                actual_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
-                initial_cache.view(-1, HEAD_DIM).index_select(0, inactive_index),
-                EXACT_STANDARD,
-                path="inactive_cache",
-            )
-
-        for batch in invalid_batches:
-            assert_accuracy(
-                actual_tail_k[batch],
-                initial_tail_k[batch],
-                EXACT_STANDARD,
-                path=f"invalid_tail_k[{batch}]",
-            )
-            assert_accuracy(
-                actual_tail_score[batch],
-                initial_tail_score[batch],
-                EXACT_STANDARD,
-                path=f"invalid_tail_score[{batch}]",
-            )
-
+    unchanged = {
+        "index_k_cache": torch.tensor(inactive_cache_rows, dtype=torch.int64),
+        "tail_k": invalid_tail_rows,
+        "tail_score": invalid_tail_rows,
+    }
     assert inputs["write_loc"].is_contiguous()
-    snapshots = None
-    call_index = 0
-
-    def executor():
-        nonlocal snapshots, call_index
-        if snapshots is None:
-            snapshots = [
-                (
-                    initial_cache.clone(),
-                    initial_tail_k.clone(),
-                    initial_tail_score.clone(),
-                )
-                for _ in range(11)
-            ]
-        perf_cache, perf_tail_k, perf_tail_score = snapshots[call_index]
-        call_index += 1
-        operator(
-            index_k_cache=perf_cache,
-            tail_k=perf_tail_k,
-            tail_score=perf_tail_score,
-            num_programs=num_programs,
-            impl=impl,
-            **inputs,
-        )
-
-    executor.func = operator
-    executor.impl = impl
-    executor.impl_ref = impl_ref
-    executor.accuracy_checked = accuracy_checked
-    check_performance(
-        executor, enable_perf=(batch_size, num_draft_tokens) in perf_shape
-    )
+    return inputs, unchanged
 
 
 # Each row covers a distinct dtype, state transition, boundary, or workload.
 @pytest.mark.parametrize(
     "case",
     [
-        pytest.param(
-            dict(
-                seed=100,
-                batch_size=4,
-                num_draft_tokens=2,
-                pool_size=4,
-                write_start_values=[2, 3, 6, 7],
-                score_dtype=torch.bfloat16,
-            ),
-            id="bf16",
-        ),
-        pytest.param(
-            dict(
-                seed=101,
-                batch_size=4,
-                num_draft_tokens=2,
-                pool_size=4,
-                write_start_values=[2, 3, 6, 7],
-                score_dtype=torch.float16,
-            ),
-            id="fp16",
-        ),
-        pytest.param(
-            dict(
-                seed=102,
-                batch_size=4,
-                num_draft_tokens=2,
-                pool_size=4,
-                write_start_values=[2, 3, 6, 7],
-                score_dtype=torch.float32,
-            ),
-            id="fp32",
-        ),
+        # Case 01: BF16 scores: tail writes and completed-pool compression.
+        pytest.param(dict(score_dtype=torch.bfloat16), id="bf16"),
+        # Case 02: FP16 scores: tail writes and completed-pool compression.
+        pytest.param(dict(seed=101, score_dtype=torch.float16), id="fp16"),
+        # Case 03: FP32 scores: tail writes and completed-pool compression.
+        pytest.param(dict(seed=102, score_dtype=torch.float32), id="fp32"),
+        # Case 04: Incomplete pools and an invalid batch must not write cache.
         pytest.param(
             dict(
                 seed=200,
                 batch_size=5,
-                num_draft_tokens=2,
                 pool_size=8,
                 write_start_values=[0, 5, 6, 7, 6],
                 score_dtype=torch.float32,
@@ -314,6 +185,7 @@ def _run_accuracy_case(
             ),
             id="no_compression_and_invalid_batch",
         ),
+        # Case 05: Effective draft counts 0..4, strided inputs and grid stride.
         pytest.param(
             dict(
                 seed=300,
@@ -321,19 +193,17 @@ def _run_accuracy_case(
                 num_draft_tokens=4,
                 pool_size=8,
                 write_start_values=[batch * 3 % 24 for batch in range(17)],
-                score_dtype=torch.bfloat16,
                 effective_n_values=[batch % 5 for batch in range(17)],
                 use_noncontiguous_inputs=True,
                 num_programs=3,
             ),
             id="effective_n_noncontiguous_and_grid_stride",
         ),
+        # Case 06: Ten draft tokens can close multiple pools; zero effective count too.
         pytest.param(
             dict(
                 seed=400,
-                batch_size=4,
                 num_draft_tokens=10,
-                pool_size=4,
                 write_start_values=[0, 3, 6, 7],
                 score_dtype=torch.float32,
                 effective_n_values=[10, 10, 9, 0],
@@ -341,22 +211,76 @@ def _run_accuracy_case(
             ),
             id="multiple_completed_pools",
         ),
+        # Case 07: Typical target verify: B64, four draft tokens; also profile.
         pytest.param(
             dict(
                 seed=500,
                 batch_size=64,
                 num_draft_tokens=4,
-                pool_size=4,
                 write_start_values=[row % 4 for row in range(64)],
-                score_dtype=torch.bfloat16,
             ),
             id="W-target-verify-b64-n4",
         ),
     ],
 )
 def test_kpool_write_tail_and_maybe_compress_npu(case):
+    """In-place: write cache/tails; preserve incomplete pools and invalid requests."""
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_write_tail_and_maybe_compress_npu,
     )
 
-    _run_accuracy_case(kpool_write_tail_and_maybe_compress_npu, **case)
+    # Inputs: named operator arguments and independent unchanged-row checks.
+    inputs, unchanged = generate_test_data(**case)
+    state_names = ("index_k_cache", "tail_k", "tail_score")
+    # Accuracy: isolate DUT/reference state for this in-place operator.
+    impl, impl_ref = get_test_impls()
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        require_distinct_impls(kpool_write_tail_and_maybe_compress_npu, impl, impl_ref)
+    else:
+        require_test_impl(kpool_write_tail_and_maybe_compress_npu, impl)
+
+    if accuracy_checked:
+        actual = dict(inputs, **{name: inputs[name].clone() for name in state_names})
+        reference = dict(inputs, **{name: inputs[name].clone() for name in state_names})
+        kpool_write_tail_and_maybe_compress_npu(**reference, impl=impl_ref)
+        kpool_write_tail_and_maybe_compress_npu(**actual, impl=impl)
+        for name in state_names:
+            standard = CACHE_STANDARD if name == "index_k_cache" else EXACT_STANDARD
+            assert_accuracy(actual[name], reference[name], standard, path=name)
+        # Independent invariant: untouched rows must match the original exactly.
+        for name, rows in unchanged.items():
+            assert_accuracy(
+                actual[name].view(-1, HEAD_DIM).index_select(0, rows),
+                inputs[name].view(-1, HEAD_DIM).index_select(0, rows),
+                EXACT_STANDARD,
+                path=f"{name}.unchanged",
+            )
+
+    shape = (inputs["tail_k"].shape[0], inputs["num_draft_tokens"])
+    # Read/write tail state needs fresh inputs; allocate all copies before profiling.
+    warmup, active = 5, 5
+    states = None
+
+    # Closure for in place operator. Refresh buffer to keep every iter equivalent
+    def executor():
+        nonlocal states
+        if states is None:
+            states = iter(
+                [
+                    dict(inputs, **{name: inputs[name].clone() for name in state_names})
+                    for _ in range(1 + warmup + active)
+                ]
+            )
+        return kpool_write_tail_and_maybe_compress_npu(**next(states), impl=impl)
+
+    executor.func = kpool_write_tail_and_maybe_compress_npu
+    executor.impl = impl
+    executor.impl_ref = impl_ref
+    executor.accuracy_checked = accuracy_checked
+    check_performance(
+        executor,
+        enable_perf=shape in perf_shape,
+        warmup=warmup,
+        active=active,
+    )

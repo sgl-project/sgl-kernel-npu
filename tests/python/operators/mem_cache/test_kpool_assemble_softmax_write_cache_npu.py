@@ -1,3 +1,7 @@
+# In-place Operator
+"""In-place cache assembly; isolated accuracy copies, reusable performance output."""
+
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -25,26 +29,22 @@ EXACT_STANDARD = {
 }
 
 
-def _make_noncontiguous(tensor):
-    if tensor.ndim == 1:
-        result = torch.stack((tensor, tensor), dim=1)[:, 0]
-    else:
-        result = tensor.transpose(0, 1).contiguous().transpose(0, 1)
-    assert result.shape == tensor.shape and not result.is_contiguous()
-    return result
-
-
-def _make_inputs(
+def generate_test_data(
     *,
-    seed,
-    n_pools,
-    pool_size,
-    tail_size,
-    n_from_tail_values,
-    score_dtype,
-    use_write_mask,
+    seed=100,
+    n_pools=5,
+    pool_size=8,
+    tail_size=13,
+    n_from_tail_values=None,
+    score_dtype=torch.bfloat16,
+    use_write_mask=False,
     total_tokens=None,
+    use_noncontiguous_dynamic_inputs=False,
+    num_programs=None,
 ):
+    """Return operator kwargs and protected row IDs in the [-1, 128] view."""
+    if n_from_tail_values is None:
+        n_from_tail_values = [0] * n_pools
     assert len(n_from_tail_values) == n_pools
     assert all(0 <= value <= pool_size for value in n_from_tail_values)
     assert max(n_from_tail_values) <= tail_size
@@ -100,6 +100,8 @@ def _make_inputs(
         )
 
     inputs = {
+        "index_k_cache": initial_cache.contiguous(),
+        "num_programs": num_programs,
         "chunk_k": chunk_k.contiguous(),
         "chunk_score": chunk_score.contiguous(),
         "tail_k": tail_k.contiguous(),
@@ -113,134 +115,39 @@ def _make_inputs(
     }
     if write_mask is not None:
         inputs["write_mask"] = write_mask.contiguous()
-    return initial_cache.contiguous(), inputs
-
-
-def _run_accuracy_case(
-    operator,
-    *,
-    seed,
-    n_pools,
-    pool_size,
-    tail_size,
-    n_from_tail_values,
-    score_dtype,
-    use_write_mask=False,
-    use_noncontiguous_dynamic_inputs=False,
-    num_programs=None,
-    total_tokens=None,
-):
-    initial_cache, inputs = _make_inputs(
-        seed=seed,
-        n_pools=n_pools,
-        pool_size=pool_size,
-        tail_size=tail_size,
-        n_from_tail_values=n_from_tail_values,
-        score_dtype=score_dtype,
-        use_write_mask=use_write_mask,
-        total_tokens=total_tokens,
-    )
     if use_noncontiguous_dynamic_inputs:
         dynamic_names = ["chunk_k", "chunk_score", "ape", "loc"]
         if "write_mask" in inputs:
             dynamic_names.append("write_mask")
         for name in dynamic_names:
-            inputs[name] = _make_noncontiguous(inputs[name])
-
-    impl, impl_ref = get_test_impls()
-    if get_skip_acc_check() is not True:
-        require_distinct_impls(operator, impl, impl_ref)
-    else:
-        require_test_impl(operator, impl)
-    accuracy_checked = get_skip_acc_check() is not True
-    if accuracy_checked:
-        expected_cache = initial_cache.clone()
-        actual_cache = initial_cache.clone()
-        operator(index_k_cache=expected_cache, **inputs, impl=impl_ref)
-        operator(
-            index_k_cache=actual_cache,
-            num_programs=num_programs,
-            impl=impl,
-            **inputs,
-        )
-
-        assert_accuracy(actual_cache, expected_cache, CACHE_STANDARD, path="cache")
-        write_mask = inputs.get("write_mask")
-        if write_mask is not None:
-            inactive_locs = inputs["loc"][~write_mask]
-            initial_2d = initial_cache.view(-1, HEAD_DIM)
-            actual_2d = actual_cache.view(-1, HEAD_DIM)
-            assert_accuracy(
-                actual_2d.index_select(0, inactive_locs),
-                initial_2d.index_select(0, inactive_locs),
-                EXACT_STANDARD,
-                path="inactive_cache",
+            tensor = inputs[name]
+            inputs[name] = (
+                torch.stack((tensor, tensor), dim=1)[:, 0]
+                if tensor.ndim == 1
+                else tensor.transpose(0, 1).contiguous().transpose(0, 1)
             )
-
-    snapshots = None
-    call_index = 0
-
-    def executor():
-        nonlocal snapshots, call_index
-        if snapshots is None:
-            snapshots = [initial_cache.clone() for _ in range(11)]
-        operator(
-            index_k_cache=snapshots[call_index],
-            num_programs=num_programs,
-            impl=impl,
-            **inputs,
-        )
-        call_index += 1
-
-    executor.func = operator
-    executor.impl = impl
-    executor.impl_ref = impl_ref
-    executor.accuracy_checked = accuracy_checked
-    check_performance(executor, enable_perf=(total_tokens, n_pools) in perf_shape)
+            assert not inputs[name].is_contiguous()
+    unchanged = {}
+    if write_mask is not None:
+        unchanged["index_k_cache"] = inputs["loc"][~inputs["write_mask"]]
+    return inputs, unchanged
 
 
 # Each row covers a distinct dtype, state transition, boundary, or workload.
 @pytest.mark.parametrize(
     "case",
     [
-        pytest.param(
-            dict(
-                seed=100,
-                n_pools=5,
-                pool_size=8,
-                tail_size=13,
-                n_from_tail_values=[0] * 5,
-                score_dtype=torch.bfloat16,
-            ),
-            id="bf16",
-        ),
-        pytest.param(
-            dict(
-                seed=101,
-                n_pools=5,
-                pool_size=8,
-                tail_size=13,
-                n_from_tail_values=[0] * 5,
-                score_dtype=torch.float16,
-            ),
-            id="fp16",
-        ),
-        pytest.param(
-            dict(
-                seed=102,
-                n_pools=5,
-                pool_size=8,
-                tail_size=13,
-                n_from_tail_values=[0] * 5,
-                score_dtype=torch.float32,
-            ),
-            id="fp32",
-        ),
+        # Case 01: Pure chunk pooling with BF16 scores.
+        pytest.param(dict(score_dtype=torch.bfloat16), id="bf16"),
+        # Case 02: Pure chunk pooling with FP16 scores.
+        pytest.param(dict(seed=101, score_dtype=torch.float16), id="fp16"),
+        # Case 03: Pure chunk pooling with FP32 scores.
+        pytest.param(dict(seed=102, score_dtype=torch.float32), id="fp32"),
+        # Case 04: Mixed tail/chunk, ring wraparound, write mask and strided inputs.
         pytest.param(
             dict(
                 seed=200,
                 n_pools=9,
-                pool_size=8,
                 tail_size=11,
                 n_from_tail_values=[0, 1, 3, 7, 8, 2, 5, 8, 4],
                 score_dtype=torch.float32,
@@ -250,6 +157,7 @@ def _run_accuracy_case(
             ),
             id="mixed_tail_chunk_wraparound_mask_and_noncontiguous_inputs",
         ),
+        # Case 05: 37 pools with 3 programs: exercise the grid-stride loop.
         pytest.param(
             dict(
                 seed=300,
@@ -257,11 +165,11 @@ def _run_accuracy_case(
                 pool_size=16,
                 tail_size=19,
                 n_from_tail_values=[row * 5 % 17 for row in range(37)],
-                score_dtype=torch.bfloat16,
                 num_programs=3,
             ),
             id="grid_stride_when_pools_exceed_programs",
         ),
+        # Case 06: All-tail pools with an empty chunk: do not read chunk storage.
         pytest.param(
             dict(
                 seed=301,
@@ -273,6 +181,7 @@ def _run_accuracy_case(
             ),
             id="all_tail_with_empty_chunk",
         ),
+        # Case 07: Typical extend: Q4096, 1024 pools, pool4; also profile this case.
         pytest.param(
             dict(
                 seed=400,
@@ -280,7 +189,6 @@ def _run_accuracy_case(
                 pool_size=4,
                 tail_size=5,
                 n_from_tail_values=[2] * 1024,
-                score_dtype=torch.bfloat16,
                 total_tokens=4096,
             ),
             id="W-extend-q4096-np1024",
@@ -288,8 +196,51 @@ def _run_accuracy_case(
     ],
 )
 def test_kpool_assemble_softmax_write_cache_npu(case):
+    """In-place: write cache, preserving mask-disabled rows exactly."""
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_assemble_softmax_write_cache_npu,
     )
 
-    _run_accuracy_case(kpool_assemble_softmax_write_cache_npu, **case)
+    # Inputs: named operator arguments and independent unchanged-row checks.
+    inputs, unchanged = generate_test_data(**case)
+    state_names = ("index_k_cache",)
+    # Accuracy: isolate DUT/reference state for this in-place operator.
+    impl, impl_ref = get_test_impls()
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        require_distinct_impls(kpool_assemble_softmax_write_cache_npu, impl, impl_ref)
+    else:
+        require_test_impl(kpool_assemble_softmax_write_cache_npu, impl)
+
+    if accuracy_checked:
+        actual = dict(inputs, **{name: inputs[name].clone() for name in state_names})
+        reference = dict(inputs, **{name: inputs[name].clone() for name in state_names})
+        kpool_assemble_softmax_write_cache_npu(**reference, impl=impl_ref)
+        kpool_assemble_softmax_write_cache_npu(**actual, impl=impl)
+        assert_accuracy(
+            actual["index_k_cache"],
+            reference["index_k_cache"],
+            CACHE_STANDARD,
+            path="cache",
+        )
+        # Independent invariant: untouched rows must match the original exactly.
+        for name, rows in unchanged.items():
+            assert_accuracy(
+                actual[name].view(-1, HEAD_DIM).index_select(0, rows),
+                inputs[name].view(-1, HEAD_DIM).index_select(0, rows),
+                EXACT_STANDARD,
+                path=f"{name}.unchanged",
+            )
+
+    # Output-buffer reuse: old cache values are never read by this operator.
+    # This benchmark overwrites one buffer, rather than rotating fresh buffers.
+    # Closure for in place operator. Refresh buffer to keep every iter equivalent
+    def executor():
+        return kpool_assemble_softmax_write_cache_npu(**inputs, impl=impl)
+
+    executor.func = kpool_assemble_softmax_write_cache_npu
+    executor.impl = impl
+    executor.impl_ref = impl_ref
+    executor.accuracy_checked = accuracy_checked
+    shape = (inputs["chunk_k"].shape[0], inputs["n_from_tail"].numel())
+    check_performance(executor, enable_perf=shape in perf_shape)

@@ -28,10 +28,15 @@ def generate_test_data(batch_size, hidden_size, n_heads, num_blocks):
 @pytest.mark.parametrize(
     "batch_size,hidden_size,n_heads,num_blocks",
     [
+        # Case 01: Cross the vector tile and retain a page-table grouping tail.
         pytest.param(33, 256, 32, 129, id="cross-vv-tile"),
+        # Case 02: Minimum batch, single head and single page-table element.
         pytest.param(1, 256, 1, 1, id="single-block-single-head"),
+        # Case 03: Hidden512 and an exact page-table group.
         pytest.param(2, 512, 16, 4, id="exact-pool-hidden512"),
+        # Case 04: Multiple batch tiles and a partial page-table group.
         pytest.param(65, 512, 8, 7, id="multi-batch-nonmultiple-pool"),
+        # Case 05: Typical B16/H4096/32 heads/M64; also profile.
         pytest.param(16, 4096, 32, 64, id="T-glm53-flash-b16-m64"),
     ],
 )
@@ -59,6 +64,7 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
     check_performance(executor, enable_perf=shape in perf_shape)
 
 
+# Case 06: Reject noncontiguous block tables.
 def test_fused_decode_prepare_rejects_noncontiguous_block_tables():
     from sgl_kernel_npu.operators.indexer import fused_decode_prepare_indexer
 

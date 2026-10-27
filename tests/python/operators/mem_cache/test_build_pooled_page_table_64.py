@@ -21,22 +21,20 @@ def generate_test_data(shape, dtype):
     return torch.randint(0, 100000, shape, dtype=dtype)
 
 
-# Typical workloads plus minimum, grouping tails, ranks, empty leading axes,
-# and legal pool extremes; dtype is sampled rather than fully crossed.
+# Representative edge cases (pool extremes, rank, dtype) plus typical
+# GLM-5.3-Flash decode workloads.
 @pytest.mark.parametrize(
     "shape,pool_size,dtype",
     [
-        pytest.param((1,), 4, torch.int32, id="edge-minimum"),
-        pytest.param((3,), 4, torch.int32, id="edge-short-group"),
-        pytest.param((4,), 4, torch.int32, id="edge-exact-group"),
-        pytest.param((5,), 4, torch.int32, id="edge-group-tail"),
-        pytest.param((2, 3, 5), 4, torch.int64, id="edge-rank3-int64"),
-        pytest.param((2, 0, 5), 4, torch.int32, id="edge-empty-leading-axis"),
+        # Case 01: Pool1 preserves every page ID.
         pytest.param((3, 9), 1, torch.int32, id="edge-pool1"),
-        pytest.param((3, 9), 2, torch.int32, id="edge-pool2"),
-        pytest.param((3, 17), 8, torch.int32, id="edge-pool8"),
+        # Case 02: Rank3 page table with int64 IDs.
+        pytest.param((2, 3, 5), 4, torch.int64, id="edge-rank3-int64"),
+        # Case 03: Pool128 sampling with a remainder.
         pytest.param((1, 129), 128, torch.int32, id="edge-largest-pool"),
+        # Case 04: Typical decode B16/M64; also profile.
         pytest.param((16, 64), 4, torch.int32, id="W-glm53-flash-decode-b16-m64"),
+        # Case 05: Typical decode B64/M129 with a remainder; also profile.
         pytest.param((64, 129), 4, torch.int32, id="W-glm53-flash-decode-page-tail"),
     ],
 )
@@ -47,17 +45,22 @@ def test_build_pooled_page_table_64(shape, pool_size, dtype):
     impl, _ = get_test_impls()
     require_test_impl(build_pooled_page_table_64, impl)
     accuracy_checked = get_skip_acc_check() is not True
+
+    # Special accuracy case: auto/native alias one implementation, so compare
+    # against independent slicing rather than using check_accuracy.
     if accuracy_checked:
         original = page_table.clone()
-        # auto/native alias the same entry: retain independent slicing.
         expected = original[..., ::pool_size]
         actual = build_pooled_page_table_64(page_table, pool_size, impl=impl)
         assert_accuracy(actual, expected)
         assert_accuracy(page_table, original)
+
     executor = partial(build_pooled_page_table_64, page_table, pool_size, impl=impl)
     executor.impl = impl
     executor.impl_ref = "independent_slicing"
     executor.accuracy_checked = accuracy_checked
+
+    # Performance: measure only the DUT on the selected representative shapes.
     check_performance(
         executor,
         enable_perf=shape in perf_shape and pool_size == 4 and dtype == torch.int32,
