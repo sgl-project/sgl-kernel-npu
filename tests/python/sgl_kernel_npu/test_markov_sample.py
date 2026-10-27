@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
-from sgl_kernel_npu.sample import markov_sample_step
+from sgl_kernel_npu.sample import markov_sample_step_triton
 from sgl_kernel_npu.sample.markov_sample import _negative_log1p_negative
 
 DEVICE = torch.device("npu")
@@ -140,7 +140,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
             temps[::2] = 0.0
             out = {}
             for name, impl in [
-                ("triton", markov_sample_step),
+                ("triton", markov_sample_step_triton),
                 ("torch", reference_markov_sample_step),
             ]:
                 logits = torch.empty(rows, padded, dtype=step_dtype, device=DEVICE)
@@ -205,7 +205,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         base[36, 128206] = 0.0
         base[36, 46701] = 4.8
         actual = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=base,
             bias=torch.zeros_like(base),
             temps=torch.ones(37, device=DEVICE),
@@ -221,8 +221,8 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         bias = torch.randn(16, 8990, generator=g, device=DEVICE).to(torch.bfloat16)
         temps = torch.zeros(16, device=DEVICE)
         kwargs = dict(base=base, bias=bias, temps=temps, step_dtype=torch.bfloat16)
-        mixed = _call(markov_sample_step, **kwargs)
-        for impl in (markov_sample_step, reference_markov_sample_step):
+        mixed = _call(markov_sample_step_triton, **kwargs)
+        for impl in (markov_sample_step_triton, reference_markov_sample_step):
             greedy_only = _call(impl, has_sampled_rows=False, **kwargs)
             self.assertTrue(torch.equal(greedy_only, mixed))
 
@@ -236,7 +236,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         base[3, 15] = 100.0
         bias = torch.zeros(4, 15, device=DEVICE)
         temps = torch.zeros(4, device=DEVICE)
-        for impl in (markov_sample_step, reference_markov_sample_step):
+        for impl in (markov_sample_step_triton, reference_markov_sample_step):
             tokens = _call(
                 impl, base=base, bias=bias, temps=temps, step_dtype=torch.float32
             )
@@ -247,7 +247,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         base = torch.zeros(2, 9000, device=DEVICE)
         base[:, 1000] = base[:, 5000] = 5.0
         bias = torch.zeros(2, 9000, device=DEVICE)
-        for impl in (markov_sample_step, reference_markov_sample_step):
+        for impl in (markov_sample_step_triton, reference_markov_sample_step):
             tokens = _call(
                 impl,
                 base=base,
@@ -266,7 +266,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         temps[:3] = 0.0
         logits_block = torch.empty(8, 5, 6000, device=DEVICE)
         strided = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=block[:, 2],
             bias=bias,
             temps=temps,
@@ -275,7 +275,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
         )
         logits = torch.empty(8, 6000, device=DEVICE)
         contiguous = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=block[:, 2].contiguous(),
             bias=bias,
             temps=temps,
@@ -291,7 +291,7 @@ class TestMarkovSampleNumerics(unittest.TestCase):
             bias = torch.zeros(rows, width, device=DEVICE)
             temps = torch.ones(rows, device=DEVICE)
             kwargs = dict(base=base, bias=bias, temps=temps, step_dtype=torch.float32)
-            actual = _call(markov_sample_step, **kwargs)
+            actual = _call(markov_sample_step_triton, **kwargs)
             expected = _call(reference_markov_sample_step, **kwargs)
             self.assertTrue(torch.equal(actual, expected))
 
@@ -314,10 +314,10 @@ class TestMarkovSampleRNG(unittest.TestCase):
                 for step in (0, (1 << 32) - 1):
                     with self.subTest(key=key, offset=offset, step=step):
                         args = dict(kwargs, key=key, offset=_offset(offset), step=step)
-                        actual = markov_sample_step(**args)
+                        actual = markov_sample_step_triton(**args)
                         expected = reference_markov_sample_step(**args)
                         self.assertTrue(torch.equal(actual, expected))
-                        self.assertTrue(torch.equal(markov_sample_step(**args), actual))
+                        self.assertTrue(torch.equal(markov_sample_step_triton(**args), actual))
                         if offset == 0 and step == 0:
                             outputs.append(actual.cpu())
         # Changing only the high key word must affect the sequence too.
@@ -332,7 +332,7 @@ class TestMarkovSampleRNG(unittest.TestCase):
             temps = torch.full((rows,), temperature, device=DEVICE)
             for noise in (None, torch.empty_like(base).exponential_()):
                 tokens = _call(
-                    markov_sample_step,
+                    markov_sample_step_triton,
                     base=base,
                     bias=bias,
                     temps=temps,
@@ -349,7 +349,7 @@ class TestMarkovSampleRNG(unittest.TestCase):
         bias = torch.zeros(rows, vocab, device=DEVICE)
         temps = torch.ones(rows, device=DEVICE)
         first = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=base,
             bias=bias,
             temps=temps,
@@ -358,7 +358,7 @@ class TestMarkovSampleRNG(unittest.TestCase):
         self.assertGreater(first.unique().numel(), rows // 2)
         for kwargs in ({"offset": 8}, {"step": 3}):
             other = _call(
-                markov_sample_step,
+                markov_sample_step_triton,
                 base=base,
                 bias=bias,
                 temps=temps,
@@ -401,7 +401,7 @@ class TestMarkovPrecomputedNoise(unittest.TestCase):
                         exp_noise=noise,
                     )
                     actual = _call(
-                        markov_sample_step, **kwargs, logits_out=actual_logits
+                        markov_sample_step_triton, **kwargs, logits_out=actual_logits
                     )
                     expected = _call(
                         reference_markov_sample_step,
@@ -429,7 +429,7 @@ class TestMarkovPrecomputedNoise(unittest.TestCase):
                 shape=noise.shape, dtype=noise.dtype, device=noise.device
             ):
                 with self.assertRaises(AssertionError):
-                    _call(markov_sample_step, **kwargs, exp_noise=noise)
+                    _call(markov_sample_step_triton, **kwargs, exp_noise=noise)
 
 
 class TestMarkovSampleSharding(unittest.TestCase):
@@ -455,7 +455,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
         def run(rank, gather):
             start = rank * shard
             return _call(
-                markov_sample_step,
+                markov_sample_step_triton,
                 base=base[:, start : start + shard],
                 bias=bias[:, start : start + shard],
                 temps=temps,
@@ -477,7 +477,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
             out = torch.empty(rows, width, device=DEVICE)
             start = rank * shard
             actual = _call(
-                markov_sample_step,
+                markov_sample_step_triton,
                 base=base[:, start : start + shard],
                 bias=bias[:, start : start + shard],
                 temps=temps,
@@ -501,7 +501,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
         temps = torch.rand(rows, generator=g, device=DEVICE)
         temps[:8] = 0.0
         full = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=base[:, : bias.shape[1]].contiguous(),
             bias=bias,
             temps=temps,
@@ -517,7 +517,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
         def run(rank, gather):
             start, shard_base = shards[rank]
             return _call(
-                markov_sample_step,
+                markov_sample_step_triton,
                 base=shard_base,
                 bias=bias[:, start : start + shard].contiguous(),
                 temps=temps,
@@ -544,7 +544,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
         temps[:8] = 0.0
         full_logits = torch.empty(rows, vocab, device=DEVICE)
         full = _call(
-            markov_sample_step,
+            markov_sample_step_triton,
             base=base[:, :vocab].contiguous(),
             bias=bias,
             temps=temps,
@@ -557,7 +557,7 @@ class TestMarkovSampleSharding(unittest.TestCase):
             start = rank * shard
             logits_out = torch.empty(rows, vocab, device=DEVICE)
             tokens = _call(
-                markov_sample_step,
+                markov_sample_step_triton,
                 base=base[:, start : start + shard].contiguous(),
                 bias=bias[:, start : start + shard].contiguous(),
                 temps=temps,
@@ -605,11 +605,11 @@ class TestMarkovSampleGraph(unittest.TestCase):
         stream.wait_stream(torch.npu.current_stream())
         with torch.npu.stream(stream):
             for _ in range(3):
-                markov_sample_step(**kwargs)
+                markov_sample_step_triton(**kwargs)
         torch.npu.current_stream().wait_stream(stream)
         graph = torch.npu.NPUGraph()
         with torch.npu.graph(graph, stream=stream):
-            output = markov_sample_step(**kwargs)
+            output = markov_sample_step_triton(**kwargs)
         previous = None
         for _ in range(3):
             noise.exponential_(generator=generator)
@@ -634,13 +634,13 @@ class TestMarkovSampleGraph(unittest.TestCase):
             step_dtype=torch.float32,
             exp_noise=noise,
         )
-        markov_sample_step(**kwargs)
+        markov_sample_step_triton(**kwargs)
         stream = torch.npu.Stream()
         stream.wait_stream(torch.npu.current_stream())
         with torch.npu.stream(stream):
             graph = torch.npu.NPUGraph()
             with torch.npu.graph(graph):
-                output = markov_sample_step(**kwargs)
+                output = markov_sample_step_triton(**kwargs)
         torch.npu.current_stream().wait_stream(stream)
         for winner in (1, 128, 256):
             noise.fill_(1.0)
@@ -666,7 +666,7 @@ class TestMarkovSampleGraph(unittest.TestCase):
 
         def run():
             noise.exponential_()
-            return markov_sample_step(**kwargs)
+            return markov_sample_step_triton(**kwargs)
 
         run()
         stream = torch.npu.Stream()
@@ -714,11 +714,11 @@ class TestMarkovSampleGraph(unittest.TestCase):
         stream.wait_stream(torch.npu.current_stream())
         with torch.npu.stream(stream):
             for _ in range(3):
-                markov_sample_step(**kwargs)
+                markov_sample_step_triton(**kwargs)
         stream.synchronize()
         graph = torch.npu.NPUGraph()
         with torch.npu.graph(graph, stream=stream):
-            actual = markov_sample_step(**kwargs)
+            actual = markov_sample_step_triton(**kwargs)
         for value in (7, 8):
             offset.fill_(value)
             expected = reference_markov_sample_step(**kwargs)

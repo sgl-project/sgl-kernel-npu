@@ -280,7 +280,7 @@ def _check(
             assert logits_out.shape[0] == base_logits.shape[0]
 
 
-def markov_sample_step(
+def markov_sample_step_triton(
     *,
     base_logits: torch.Tensor,
     bias: torch.Tensor,

@@ -37,7 +37,7 @@ def _build_out_tokens_kernel(
         tl.store(out + offsets, value, mask=valid)
 
 
-def build_out_tokens(
+def build_out_tokens_triton(
     *,
     draft_tokens: torch.Tensor,
     correct_len: torch.Tensor,

@@ -6,7 +6,7 @@ import torch
 from _sampling_test_utils import NPU_AVAILABLE, SamplingTestCase
 
 if NPU_AVAILABLE:
-    from sgl_kernel_npu.sample import build_out_tokens
+    from sgl_kernel_npu.sample import build_out_tokens_triton
 
 
 def reference_build_out_tokens(draft, lengths, bonus):
@@ -47,7 +47,7 @@ class TestBuildOutTokens(SamplingTestCase):
                                 lengths.npu(),
                                 bonus.npu(),
                             )
-                        actual = build_out_tokens(
+                        actual = build_out_tokens_triton(
                             draft_tokens=npu_draft,
                             correct_len=npu_lengths,
                             bonus=npu_bonus,
@@ -69,7 +69,7 @@ class TestBuildOutTokens(SamplingTestCase):
             torch.tensor([-7, 11], dtype=torch.int32),
         ):
             with self.subTest(bonus_dtype=bonus.dtype):
-                actual = build_out_tokens(
+                actual = build_out_tokens_triton(
                     draft_tokens=draft.npu(),
                     correct_len=lengths.npu(),
                     bonus=bonus.npu(),
@@ -82,7 +82,7 @@ class TestBuildOutTokens(SamplingTestCase):
 
     def test_empty_batch(self):
         for gamma in (0, 3):
-            actual = build_out_tokens(
+            actual = build_out_tokens_triton(
                 draft_tokens=torch.empty(0, gamma, dtype=torch.int64).npu(),
                 correct_len=torch.empty(0, dtype=torch.int32).npu(),
                 bonus=torch.empty(0, dtype=torch.int64).npu(),
@@ -107,12 +107,12 @@ class TestBuildOutTokens(SamplingTestCase):
         stream.wait_stream(torch.npu.current_stream())
         with torch.npu.stream(stream):
             for _ in range(3):
-                output = build_out_tokens(**kwargs)
+                output = build_out_tokens_triton(**kwargs)
         torch.npu.current_stream().wait_stream(stream)
         self.assert_output(output, reference_build_out_tokens(draft, lengths, bonus))
         graph = torch.npu.NPUGraph()
         with torch.npu.graph(graph, stream=stream):
-            output = build_out_tokens(**kwargs)
+            output = build_out_tokens_triton(**kwargs)
         for length in (0, gamma // 2, gamma):
             draft.add_(1)
             lengths.fill_(length)
@@ -144,7 +144,7 @@ class TestBuildOutTokens(SamplingTestCase):
         for index, change in enumerate(cases):
             with self.subTest(case=index):
                 with self.assertRaises(ValueError):
-                    build_out_tokens(**dict(kwargs, **change))
+                    build_out_tokens_triton(**dict(kwargs, **change))
 
 
 if __name__ == "__main__":
