@@ -50,9 +50,9 @@ The public entry point adds neither input validation nor contiguous copies. Trit
 
 ## torch_native backend
 
-- Computes `input / input.sum(dim=-1, keepdim=True)` directly with PyTorch on the input device, using PyTorch's default dtype behavior.
-- Converts the normalized result to FP32 to preserve the public return contract. It does not explicitly promote the input before normalization.
-- Provides an alternative operator implementation that can also be selected as the reference in backend comparison tests. It does not use CPU NumPy.
+- Follows the original test golden: `values = input.to(torch.float32).cpu().numpy()`, then `values / values.sum(axis=-1, keepdims=True)`.
+- Converts the NumPy result to an FP32 Tensor and returns it to the input device, preserving the public return contract.
+- Requires NumPy. NPU input is copied to the CPU and results are copied back. This accuracy reference is unsuitable for execution inside NPU graph capture.
 
 ## Example
 
