@@ -19,7 +19,7 @@ from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 apply_token_bitmask(logits, bitmask, indices=None, *, impl="auto")
 ```
 
-`auto` 与 `ascendc` 指向相同实现。未编入该原生算子、架构不匹配或实现名不存在时明确报错，不自动回退。`torch_native` 必须显式选择。安装的包仍可通过 `torch.ops.npu.apply_token_bitmask` 直接调用原生实现。
+`auto` 与 `ascendc` 都调用 `torch.ops.npu.apply_token_bitmask`。未注册该原生算子时，由 Torch 查找时报错，不自动回退；实现名不存在时，由公共注册工具报错。`torch_native` 必须显式选择。请安装与设备架构匹配的 wheel。安装的原生实现仍可通过 `torch.ops.npu.apply_token_bitmask` 直接调用。
 
 ## 参数与语义
 

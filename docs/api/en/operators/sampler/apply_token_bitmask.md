@@ -20,7 +20,7 @@ from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 apply_token_bitmask(logits, bitmask, indices=None, *, impl="auto")
 ```
 
-`auto` and `ascendc` resolve to the same implementation. An omitted native operator, mismatched architecture or unknown implementation produces an explicit error; there is no fallback. Select `torch_native` explicitly to use the reference. The installed native implementation remains callable through `torch.ops.npu.apply_token_bitmask`.
+`auto` and `ascendc` call `torch.ops.npu.apply_token_bitmask`. If the native operator is not registered, the Torch lookup fails; there is no fallback. Unknown implementation names are rejected by the shared registry. Select `torch_native` explicitly to use the reference. Install a wheel built for your device's architecture. The installed native implementation remains directly callable through `torch.ops.npu.apply_token_bitmask`.
 
 ## Parameters and semantics
 
