@@ -40,9 +40,7 @@ def test_executor_supports_inplace_operator_and_manual_accuracy_status():
         value.append(impl)
 
     value = []
-    executor = make_executor(
-        operator, args=(value,), impl="dut", accuracy_checked=True
-    )
+    executor = make_executor(operator, args=(value,), impl="dut", accuracy_checked=True)
     assert value == []
     assert executor.accuracy_checked is True
     assert executor() is None
