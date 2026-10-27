@@ -63,6 +63,7 @@ jobs:
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/indexer/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/indexer/**
               - tests/python/operators/indexer/**
               - tests/python/sgl_kernel_npu/test_decode_attention.py
               - tests/python/sgl_kernel_npu/test_mla_preprocess.py

@@ -34,6 +34,11 @@ operator with `--impl=auto` (default) or `--impl=aclnn`; both select the native
 binding. Its six cases use an independent ranked fixture rather than
 `--impl-ref`, and performance uses the shared `check_performance` helper.
 
+`indexer/test_expand_causal_seqlens.py` covers packed extend/target-verify
+metadata: seven out-of-place cases use `check_accuracy`, and one in-place case
+checks output-buffer reuse across changed query lengths. Its B64/Q4 and
+B1/Q4096 workloads are selected for performance collection by default.
+
 ## Write a test
 
 Place tests in `operators/<module>/test_<operator>.py`, matching the public API.

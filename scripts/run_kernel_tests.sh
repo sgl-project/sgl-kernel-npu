@@ -65,6 +65,7 @@ ATTENTION_TESTS=(
     test_fused_rope_qk_mqa.py
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_fused_decode_prepare_indexer.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_pool_topk_and_append_tail_batched_npu.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_causal_seqlens.py"
 )
 
 CACHE_TESTS=(
