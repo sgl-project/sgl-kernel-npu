@@ -4,11 +4,11 @@ torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
-from tests.python.utils.standards import AccuracyStandard
+from tests.python.utils.standards import get_standard
 
-# The legacy test covers BF16 inputs; its result and reference are FP32.
+# Both low-precision inputs use the FP16 default when comparing FP32 results.
 ACCURACY_STANDARD = {
-    "torch.float32": AccuracyStandard(atol=0, rtol=5e-3),
+    "torch.float32": get_standard("torch.float16"),
 }
 
 
@@ -30,7 +30,8 @@ def test_l1_norm(shape, dtype):
         args=(x,),
         impl="triton",
         impl_ref="torch_native",
-        standard=ACCURACY_STANDARD if dtype == torch.bfloat16 else None,
+        # Use the shared FP16 default for both FP16 and BF16 inputs.
+        standard=ACCURACY_STANDARD if dtype != torch.float32 else None,
     )
     result = executor()
     assert result.shape == x.shape and result.dtype == torch.float32

@@ -46,6 +46,7 @@ def test_l2norm_fwd(shape, eps, output_dtype, zero, dtype):
         args=(x, eps, output_dtype),
         impl="triton",
         impl_ref="torch_native",
+        # Reuse the accuracy standards from the legacy L2Norm tests.
         standard=ACCURACY_STANDARD,
     )
     result = executor()
