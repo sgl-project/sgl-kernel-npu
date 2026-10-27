@@ -4,6 +4,12 @@ torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
+
+# Preserve the legacy L1 tolerance for the FP32 result, including low-precision inputs.
+ACCURACY_STANDARD = {
+    "torch.float32": AccuracyStandard(atol=0, rtol=5e-3),
+}
 
 
 @pytest.mark.parametrize(
@@ -20,7 +26,11 @@ def test_l1_norm(shape, dtype):
     x = 0.5 + torch.rand(shape, dtype=dtype)
     x[:, 1::2] *= -0.25
     executor = check_accuracy(
-        l1_norm, args=(x,), impl="triton", impl_ref="torch_native"
+        l1_norm,
+        args=(x,),
+        impl="triton",
+        impl_ref="torch_native",
+        standard=ACCURACY_STANDARD,
     )
     result = executor()
     assert result.shape == x.shape and result.dtype == torch.float32

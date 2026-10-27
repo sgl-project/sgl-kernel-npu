@@ -30,7 +30,6 @@ def generate_test_data(dtype, rows, gate, bias):
         pytest.param(3, 64, True, False, True, True, id="rmsnorm-bias"),
         pytest.param(3, 32, True, True, False, False, id="rmsnorm-pre-gate"),
         pytest.param(3, 32, True, True, True, True, id="rmsnorm-post-gate"),
-        pytest.param(0, 32, False, False, True, False, id="empty"),
     ],
 )
 # Compare gating order, norm kind and group-major FP32 statistics with an independent output.

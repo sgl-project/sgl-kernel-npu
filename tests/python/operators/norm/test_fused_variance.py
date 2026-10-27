@@ -4,6 +4,13 @@ torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
+
+# Apply the legacy variance tolerance to the original and newly covered dtypes.
+ACCURACY_STANDARD = {
+    str(dtype): AccuracyStandard(atol=0, rtol=1e-3)
+    for dtype in (torch.float32, torch.float16, torch.bfloat16)
+}
 
 
 @pytest.mark.parametrize(
@@ -28,7 +35,11 @@ def test_fused_variance(shape, zero, dtype):
     torch.npu.manual_seed(42)
     x = torch.zeros(shape, dtype=dtype) if zero else torch.randn(shape, dtype=dtype)
     executor = check_accuracy(
-        fused_variance, args=(x,), impl="triton", impl_ref="torch_native"
+        fused_variance,
+        args=(x,),
+        impl="triton",
+        impl_ref="torch_native",
+        standard=ACCURACY_STANDARD,
     )
     result = executor()
     assert result.shape == (*shape[:-1], 1) and result.dtype == dtype
