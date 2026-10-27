@@ -85,10 +85,12 @@ FLA_TESTS=(
     test_gated_delta_ascendc_tri_inv.py
     test_chunk_gdn_pto.py
     test_chunk_gdn_triton.py
+    test_l2norm.py
     test_recurrent_gated_delta_rule.py
     test_fused_gdn_gating_without_sigmoid.py
     test_solve_tril.py
     test_triangular_inverse.py
+    test_l2norm_boundaries.py
 )
 
 FUSED_TESTS=(
