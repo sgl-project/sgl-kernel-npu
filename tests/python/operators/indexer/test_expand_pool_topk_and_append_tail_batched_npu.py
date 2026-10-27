@@ -56,6 +56,19 @@ def _expand_pool_topk_and_append_tail_batched_torch(
     return out
 
 
+def generate_test_data(n_real):
+    torch.manual_seed(20)
+    n_pool_topk = 512
+    pool_size = 4
+    index_topk = n_pool_topk * pool_size
+    total_rows = n_real + PAD_ROWS
+    pool_indices = torch.randint(0, 10000, (total_rows, n_pool_topk), dtype=torch.int32)
+    seq_lens_per_token = torch.arange(
+        1, total_rows + 1, dtype=torch.int32
+    ) * pool_size + torch.randint(0, pool_size, (total_rows,), dtype=torch.int32)
+    return pool_indices, seq_lens_per_token, pool_size, index_topk
+
+
 @pytest.mark.parametrize(
     "n_real,num_q_padded",
     [
@@ -72,15 +85,7 @@ def test_expand_pool_topk_and_append_tail_batched_npu(n_real, num_q_padded):
         expand_pool_topk_and_append_tail_batched_npu,
     )
 
-    torch.manual_seed(20)
-    n_pool_topk = 512
-    pool_size = 4
-    index_topk = n_pool_topk * pool_size
-    total_rows = n_real + PAD_ROWS
-    pool_indices = torch.randint(0, 10000, (total_rows, n_pool_topk), dtype=torch.int32)
-    seq_lens_per_token = torch.arange(
-        1, total_rows + 1, dtype=torch.int32
-    ) * pool_size + torch.randint(0, pool_size, (total_rows,), dtype=torch.int32)
+    pool_indices, seq_lens_per_token, pool_size, index_topk = generate_test_data(n_real)
 
     impl, _ = get_test_impls()
     require_test_impl(expand_pool_topk_and_append_tail_batched_npu, impl)

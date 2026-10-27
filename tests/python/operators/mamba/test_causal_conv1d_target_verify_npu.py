@@ -180,13 +180,7 @@ def test_causal_conv1d_target_verify_linear_npu():
     )
 
 
-@pytest.mark.parametrize(
-    "batch,dim,steps",
-    [pytest.param(64, 3072, 4, id="W-glm53-flash-linear-b64-c3072-d4")],
-)
-def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
-    from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
-
+def generate_test_data(batch, dim, steps):
     torch.npu.manual_seed(303)
     width = 4
     # P: KDA passes transposed views over channel-last physical storage.
@@ -198,6 +192,31 @@ def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
     weight = torch.randn(width, dim, dtype=torch.bfloat16) * 0.25
     conv_state_indices = torch.arange(batch, dtype=torch.int32).flip(0)
     intermediate_state_indices = torch.arange(batch, dtype=torch.int32)
+    return (
+        initial_x_base,
+        initial_scratch_base,
+        conv_state_base,
+        weight,
+        conv_state_indices,
+        intermediate_state_indices,
+    )
+
+
+@pytest.mark.parametrize(
+    "batch,dim,steps",
+    [pytest.param(64, 3072, 4, id="W-glm53-flash-linear-b64-c3072-d4")],
+)
+def test_causal_conv1d_target_verify_production_linear_npu(batch, dim, steps):
+    from sgl_kernel_npu.operators.mamba import causal_conv1d_target_verify_npu
+
+    (
+        initial_x_base,
+        initial_scratch_base,
+        conv_state_base,
+        weight,
+        conv_state_indices,
+        intermediate_state_indices,
+    ) = generate_test_data(batch, dim, steps)
     assert weight.is_contiguous()
 
     def make_views(x_base, scratch_base):

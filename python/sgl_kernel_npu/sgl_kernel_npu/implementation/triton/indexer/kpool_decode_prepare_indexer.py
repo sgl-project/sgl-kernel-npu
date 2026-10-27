@@ -185,9 +185,16 @@ def fused_decode_prepare_indexer(
     assert (
         HIDDEN_SIZE == W_HIDDEN
     ), f"x.shape[-1]={HIDDEN_SIZE} != weights_proj_weight.shape[-1]={W_HIDDEN}"
+    assert x.dtype == torch.bfloat16, f"x must be bf16, got {x.dtype}"
     assert (
         weights_proj_weight.dtype == torch.float32
     ), f"weights_proj_weight must be fp32, got {weights_proj_weight.dtype}"
+    assert (
+        seqlens_32.dtype == torch.int32
+    ), f"seqlens_32 must be int32, got {seqlens_32.dtype}"
+    assert (
+        block_tables.dtype == torch.int32
+    ), f"block_tables must be int32, got {block_tables.dtype}"
     assert seqlens_32.shape == (N,), f"seqlens_32 shape {seqlens_32.shape} != ({N},)"
     assert (
         block_tables.shape[0] == N

@@ -14,6 +14,17 @@ BF16_GEMM_STANDARD = {
 }
 
 
+def generate_test_data(batch_size, hidden_size, n_heads, num_blocks):
+    torch.manual_seed(1234)
+    x = torch.randn(batch_size, hidden_size, dtype=torch.bfloat16)
+    weights_proj_weight = torch.randn(n_heads, hidden_size, dtype=torch.float32)
+    seqlens_32 = torch.arange(batch_size, dtype=torch.int32) % 8 + 3
+    block_tables = torch.arange(batch_size * num_blocks, dtype=torch.int32).view(
+        batch_size, num_blocks
+    )
+    return x, weights_proj_weight, seqlens_32, block_tables
+
+
 @pytest.mark.parametrize(
     "batch_size,hidden_size,n_heads,num_blocks",
     [
@@ -29,16 +40,11 @@ BF16_GEMM_STANDARD = {
 def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_blocks):
     from sgl_kernel_npu.operators.indexer import fused_decode_prepare_indexer
 
-    torch.manual_seed(1234)
     pool_size = 4
     n_heads_pow = n_heads**-0.5
     softmax_scale = 128**-0.5
-
-    x = torch.randn(batch_size, hidden_size, dtype=torch.bfloat16)
-    weights_proj_weight = torch.randn(n_heads, hidden_size, dtype=torch.float32)
-    seqlens_32 = torch.arange(batch_size, dtype=torch.int32) % 8 + 3
-    block_tables = torch.arange(batch_size * num_blocks, dtype=torch.int32).view(
-        batch_size, num_blocks
+    x, weights_proj_weight, seqlens_32, block_tables = generate_test_data(
+        batch_size, hidden_size, n_heads, num_blocks
     )
 
     executor = check_accuracy(

@@ -201,11 +201,7 @@ def test_decode_cache_write():
     )
 
 
-def _run_production_layout_case(batch, block_table_cols):
-    from sgl_kernel_npu.operators.mem_cache import (
-        kpool_decode_update_and_maybe_write_cache_bf16,
-    )
-
+def generate_test_data(batch, block_table_cols):
     torch.manual_seed(420 + batch)
     pool_size = 4
     tail_size = pool_size + 1
@@ -248,7 +244,17 @@ def _run_production_layout_case(batch, block_table_cols):
         "slots_per_page": slots_per_page,
         "head_dim": head_dim,
     }
+    return initial_buf, initial_tail_k, initial_tail_score, inputs, kwargs
 
+
+def _run_production_layout_case(batch, block_table_cols):
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_decode_update_and_maybe_write_cache_bf16,
+    )
+
+    initial_buf, initial_tail_k, initial_tail_score, inputs, kwargs = (
+        generate_test_data(batch, block_table_cols)
+    )
     impl, _ = get_test_impls()
     require_test_impl(kpool_decode_update_and_maybe_write_cache_bf16, impl)
     accuracy_checked = get_skip_acc_check() is not True
