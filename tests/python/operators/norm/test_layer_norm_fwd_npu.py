@@ -5,11 +5,9 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 
-from ._inputs import seed_inputs
-
 
 def generate_test_data(dtype, rows, gate, bias):
-    seed_inputs()
+    torch.npu.manual_seed(42)
     # Unit last-dimension stride with a noncompact row pitch is supported.
     x = torch.randn(rows, 256, dtype=dtype)[:, :128]
     weight = (0.5 + torch.rand(128)).to(dtype)

@@ -5,8 +5,6 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
-from ._inputs import seed_inputs
-
 
 @pytest.mark.parametrize(
     "dtype",
@@ -27,7 +25,7 @@ from ._inputs import seed_inputs
 def test_fused_variance(shape, zero, dtype):
     from sgl_kernel_npu.operators.norm import fused_variance
 
-    seed_inputs()
+    torch.npu.manual_seed(42)
     x = torch.zeros(shape, dtype=dtype) if zero else torch.randn(shape, dtype=dtype)
     executor = check_accuracy(
         fused_variance, args=(x,), impl="triton", impl_ref="torch_native"

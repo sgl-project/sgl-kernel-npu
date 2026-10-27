@@ -5,8 +5,6 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 
-from ._inputs import seed_inputs
-
 
 @pytest.mark.parametrize(
     "dtype",
@@ -18,7 +16,7 @@ from ._inputs import seed_inputs
 def test_l1_norm(shape, dtype):
     from sgl_kernel_npu.operators.norm import l1_norm
 
-    seed_inputs()
+    torch.npu.manual_seed(42)
     x = 0.5 + torch.rand(shape, dtype=dtype)
     x[:, 1::2] *= -0.25
     executor = check_accuracy(
