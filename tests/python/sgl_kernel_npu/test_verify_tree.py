@@ -131,3 +131,79 @@ def test_verify_tree_greedy_simple():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+def test_verify_tree_greedy_matches_native_on_tree():
+    """The shipped Triton kernel must walk the tree, not the flat token order.
+
+    Same tree as ``test_verify_tree_greedy`` (root 0 -> {1 -> {2}, 3 -> {4 ->
+    {5}}}): the accepted path is 0 -> 3 -> 4 -> 5, which a flat ``i vs i-1``
+    scan cannot produce (it stops at i=1).
+    """
+    candidates = torch.tensor(
+        [[0, 1, 2, 3, 4, 5], [7, 8, 9, 10, 11, 12]],
+        dtype=torch.int64,
+        device="npu",
+    )
+    retrive_index = torch.tensor(
+        [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]],
+        dtype=torch.int64,
+        device="npu",
+    )
+    retrive_next_token = torch.tensor(
+        [[1, 2, -1, 4, 5, -1], [4, 2, 3, -1, 5, -1]],
+        dtype=torch.int64,
+        device="npu",
+    )
+    retrive_next_sibling = torch.tensor(
+        [[-1, 3, -1, -1, -1, -1], [-1, -1, -1, -1, 1, -1]],
+        dtype=torch.int64,
+        device="npu",
+    )
+
+    target_logits = torch.full((2, 6, 20), 1, dtype=torch.float32, device="npu")
+    target_logits[0, 0, 3] = 10
+    target_logits[0, 3, 4] = 10
+    target_logits[0, 4, 5] = 10
+    target_logits[1, 0, 11] = 10
+    target_logits[1, 4, 12] = 10
+    for i in range(target_logits.shape[0]):
+        for j in range(target_logits.shape[1]):
+            if torch.max(target_logits[i][j]) < 10:
+                target_logits[i][j][18] = 10
+    target_predict = torch.argmax(target_logits, dim=-1)
+
+    bs = candidates.shape[0]
+    num_spec_step = 4
+    predict_shape = (12,)
+
+    got = (
+        torch.full(predict_shape, -1, dtype=torch.int32, device="npu"),
+        torch.full((bs, num_spec_step), -1, dtype=torch.int32, device="npu"),
+        torch.zeros((bs,), dtype=torch.int32, device="npu"),
+    )
+    ref = (
+        torch.full(predict_shape, -1, dtype=torch.int32, device="npu"),
+        torch.full((bs, num_spec_step), -1, dtype=torch.int32, device="npu"),
+        torch.zeros((bs,), dtype=torch.int32, device="npu"),
+    )
+
+    verify_tree_greedy(
+        predicts=got[0],
+        accept_index=got[1],
+        accept_token_num=got[2],
+        candidates=candidates,
+        retrive_index=retrive_index,
+        retrive_next_token=retrive_next_token,
+        retrive_next_sibling=retrive_next_sibling,
+        target_predict=target_predict,
+    )
+    verify_tree_greedy_native(
+        ref[0], ref[1], ref[2],
+        candidates, retrive_index, retrive_next_token, retrive_next_sibling,
+        target_predict, topk=4,
+    )
+
+    assert got[1].tolist() == ref[1].tolist() == [[0, 3, 4, 5], [6, 10, 11, -1]]
+    assert got[2].tolist() == ref[2].tolist() == [3, 2]
+    assert torch.equal(got[0], ref[0])
+
