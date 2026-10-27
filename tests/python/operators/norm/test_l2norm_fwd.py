@@ -33,6 +33,29 @@ ACCURACY_STANDARD = {
         pytest.param((3, 1024), 0.0, torch.float16, False, id="kernel1-zero-epsilon"),
         pytest.param((3, 128), 1e-6, None, True, id="zero-input"),
         pytest.param((0, 128), 1e-6, None, False, id="empty"),
+        # Ascend GDN prefill passes contiguous Q/K as [tokens, key_heads / TP, 128].
+        # Qwen3-Next-80B-A3B and Qwen3.5-35B-A3B both have 16 key heads.
+        pytest.param(
+            (128, 16, 128),
+            1e-6,
+            None,
+            False,
+            id="qwen3-next-80b-a3b-prefill-t128-tp1",
+        ),
+        pytest.param(
+            (1024, 16, 128),
+            1e-6,
+            None,
+            False,
+            id="qwen3-5-35b-a3b-prefill-t1024-tp1",
+        ),
+        pytest.param(
+            (256, 4, 128),
+            1e-6,
+            None,
+            False,
+            id="qwen3-5-35b-a3b-prefill-t256-tp4",
+        ),
     ],
 )
 # Cover both native width branches, epsilon semantics, leading dimensions and output dtype.

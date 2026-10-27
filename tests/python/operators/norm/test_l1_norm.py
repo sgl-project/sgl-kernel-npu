@@ -20,14 +20,31 @@ INPUT_STANDARDS = {
     [torch.float32, torch.float16, torch.bfloat16],
     ids=["fp32", "fp16", "bf16"],
 )
-@pytest.mark.parametrize("shape", [(1, 8), (17, 16), (0, 8)])
-# Check signed-sum normalization and its FP32 output without near-zero random divisors.
-def test_l1_norm(shape, dtype):
+@pytest.mark.parametrize(
+    "shape,router_experts",
+    [
+        pytest.param((1, 8), None, id="shape0"),
+        pytest.param((17, 16), None, id="shape1"),
+        pytest.param((0, 8), None, id="shape2"),
+        # Qwen3-30B-A3B routes each token to 8 of 128 experts.
+        # Token counts below represent selected decode/prefill workloads.
+        pytest.param((1, 8), 128, id="qwen3-30b-a3b-decode-t1-top8"),
+        pytest.param((16, 8), 128, id="qwen3-30b-a3b-decode-t16-top8"),
+        pytest.param((256, 8), 128, id="qwen3-30b-a3b-prefill-t256-top8"),
+    ],
+)
+# Compare signed inputs and positive MoE routing weights while preserving FP32 output.
+def test_l1_norm(shape, router_experts, dtype):
     from sgl_kernel_npu.operators.norm import l1_norm
 
     torch.npu.manual_seed(42)
-    x = 0.5 + torch.rand(shape, dtype=dtype)
-    x[:, 1::2] *= -0.25
+    if router_experts is None:
+        x = 0.5 + torch.rand(shape, dtype=dtype)
+        x[:, 1::2] *= -0.25
+    else:
+        # Model routing weights are positive top-k softmax scores before renormalization.
+        logits = torch.randn(shape[0], router_experts, dtype=torch.float32)
+        x = logits.softmax(dim=-1).topk(shape[1], dim=-1).values.to(dtype)
     executor = check_accuracy(
         l1_norm,
         args=(x,),
