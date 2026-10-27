@@ -171,9 +171,7 @@ def build_wheel(package, *, source_root=PROJECT_ROOT):
     )
     dist = directory / "dist"
     manifest = json.loads((staged / "_build_manifest.json").read_text())
-    env = dict(
-        os.environ, SGL_BUILD_MODE="REFACTOR", SGL_REFACTOR_STAGED_PACKAGE=str(staged)
-    )
+    env = dict(os.environ, SGL_REFACTOR_STAGED_PACKAGE=str(staged))
     run(
         [
             sys.executable,
@@ -218,7 +216,7 @@ def setup_refactor():
     value = os.environ.get("SGL_REFACTOR_STAGED_PACKAGE")
     if not value:
         raise RuntimeError(
-            "Use SGL_BUILD_MODE=REFACTOR bash build.sh --arch-version <2201|3510>"
+            "Use the repository-root setup.py --arch-version <2201|3510>"
         )
     package = Path(value).resolve()
     if not (package / "lib/libsgl_kernel_npu.so").is_file():

@@ -92,8 +92,8 @@ If you need to access Ascend NPU computing resources for development or testing,
 
 Choose the build path:
 
-- **Existing whole-repository build:** `bash build.sh` (the default `LEGACY` mode). Initialize the submodules below first.
-- **REFACTOR builds:** explicitly choose an architecture and migrated operators to build a CANN `.run` or complete wheel. See the [build and validation guide](python/sgl_kernel_npu/README.md#refactor-builds). Only `apply_token_bitmask` is migrated so far; `all` selects supported migrated operators, not the complete legacy native repository.
+- **Existing build:** `bash build.sh`, with its existing package selection and SoC arguments. DeepEP and memory saver continue to use this entry. Initialize the submodules below first.
+- **REFACTOR build:** `python3 setup.py --arch-version 2201` builds only the new `sgl-kernel-npu` wheel, including Python implementations and selected migrated AscendC operators. See the [build guide](python/sgl_kernel_npu/README.md#refactor-builds) for operator selection and CANN `.run` packages. Only `apply_token_bitmask` is migrated so far; `--ops all` selects supported migrated operators, not all legacy native operators.
 
 Before the legacy whole-repository build, initialize the submodules:
 ```bash

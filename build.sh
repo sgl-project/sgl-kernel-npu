@@ -2,13 +2,8 @@
 set -e
 
 readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ "${SGL_BUILD_MODE:-LEGACY}" == "REFACTOR" && -n "${SGL_REFACTOR_AUX_BUILD_DIR:-}" ]]; then
-    readonly OUTPUT_DIR="${SGL_REFACTOR_AUX_OUTPUT_DIR:?Missing independent package output directory}"
-    readonly BUILD_DIR="$SGL_REFACTOR_AUX_BUILD_DIR"
-else
-    readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
-    readonly BUILD_DIR="${PROJECT_ROOT}/build"
-fi
+readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
+readonly BUILD_DIR="${PROJECT_ROOT}/build"
 readonly DEFAULT_ASCEND_ROOT="/usr/local/Ascend/ascend-toolkit"
 
 export VERSION="${VERSION:-1.0.0}"
@@ -504,9 +499,7 @@ function build_cmake_modules()
         )
     fi
 
-    if [[ "${SGL_BUILD_MODE:-LEGACY}" == "LEGACY" ]]; then
-        rm -rf "$BUILD_DIR"
-    fi
+    rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
     cmake "${cmake_args[@]}" \
@@ -610,44 +603,8 @@ function build_memory_saver_package()
     )
 }
 
-# Reuse independently packaged components without invoking the legacy dispatcher.
-function build_refactor_auxiliary()
-{
-    local package="$1" target="$2"
-    if [[ -n "$target" ]]; then
-        parse_arguments -a "$package" "$target"
-    else
-        parse_arguments -a "$package"
-    fi
-    configure_build_target
-    configure_soc_version
-    setup_ascend_environment
-    mkdir -p "$OUTPUT_DIR"
-    ensure_wheel_package
-    case "$package" in
-        deepep | deepep2 )
-            prepare_deepep_build
-            build_cmake_modules
-            build_deepep_kernels
-            make_deepep_package
-            ;;
-        memory-saver ) build_memory_saver_package ;;
-        attentions ) build_attentions_kernels; make_attentions_package ;;
-        * ) die "Unsupported independent package: $package" ;;
-    esac
-}
-
 function main()
 {
-    case "${SGL_BUILD_MODE:-LEGACY}" in
-        LEGACY ) ;;
-        REFACTOR )
-            python3 "$PROJECT_ROOT/setup.py" "$@"
-            return
-            ;;
-        * ) die "Unknown SGL_BUILD_MODE: $SGL_BUILD_MODE (expected LEGACY or REFACTOR)" ;;
-    esac
-
     parse_arguments "$@"
     configure_build_target
     configure_soc_version

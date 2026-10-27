@@ -2,196 +2,99 @@
 
 ## REFACTOR builds
 
-`bash build.sh` continues to use **LEGACY** by default, including its existing
-package selection, cleanup and invocation behavior. Opt into the new build with
-`SGL_BUILD_MODE=REFACTOR`. The repository-root `setup.py` builds the new
-`sgl-kernel-npu` distribution; `build.sh` also schedules independently packaged
-DeepEP, memory saver and attentions projects. The nested Python `setup.py`
-remains the LEGACY entry during migration.
+The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
+all Python interfaces and implementation sources, including Triton and Torch
+native, plus the migrated AscendC operators selected for this build. Only
+`apply_token_bitmask` has been migrated so far; `--ops all` does not include
+unmigrated legacy native operators.
 
-Only `apply_token_bitmask` has been migrated. REFACTOR compiles selected migrated
-native operators; it never mixes in unmigrated LEGACY native operators. It ships
-the complete Python interfaces, implementation sources and required shared
-modules. Thus a Python operator can be present while its AscendC implementation
-is absent from a custom wheel; selecting that implementation reports an error.
+The existing `build.sh` and nested Python `setup.py` keep their original build
+behavior. DeepEP, memory saver and attentions remain independent packages built
+through that existing entry. The new entry does not schedule or change them.
 
-### Environment and architecture
+### Build a wheel or CANN installer
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
-setuptools and wheel. `.run` builds do not require Torch. Runtime validation
-requires a supported NPU and matching driver/firmware.
+setuptools and wheel. CANN `.run` builds do not require Torch.
 
-The refactor acceptance environment is CANN 9.1.0, Torch 2.10.0 and torch_npu
-2.10.0.post6. The earlier engineering prototype was tested on one 2201 device;
-**the latest refactor still requires SDK builds, precision and performance
-validation**. Portable tests do not establish hardware compatibility.
-
-`--arch-version` is mandatory; no machine detection or public SoC argument is
-used. `2201` builds all SDK targets mapped to that architecture, covering both
-hardware families in 2201. `3510` builds the corresponding newer architecture.
-The SDK target mapping is centralized in `csrc/cmake/architectures.json`;
-build declarations use `SUPPORTED_ARCHS 2201 3510`. API documentation follows
-the operators framework's generation names, `arch22` and `arch35`, which map to
-architecture IDs `2201` and `3510`, respectively.
-
-Examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix if
-your checkout is elsewhere. Initialize the SDK using its actual installed path:
+The examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix
+with your checkout path and initialize the SDK from its installed location:
 
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-SGL_BUILD_MODE=REFACTOR bash /workspace/sgl-kernel-npu/build.sh \
-  --arch-version 2201 --ops apply_token_bitmask
-```
 
-### Select packages, operators and artifacts
+# Complete Python package and all supported migrated native operators.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201
+
+# One migrated native operator, packaged with the same Python sources.
+python3 /workspace/sgl-kernel-npu/setup.py \
+  --arch-version 2201 --ops apply_token_bitmask
+
+# CANN installer only, for direct ACLNN use; no Torch adapter or wheel.
+python3 /workspace/sgl-kernel-npu/setup.py \
+  --arch-version 2201 --ops apply_token_bitmask --artifact run
+```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `-a kernels/deepep/deepep2/memory-saver/attentions/all` | `kernels` | Independent distribution(s) to build. |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. |
-| `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated operators, or a strict explicit list. Unknown, repeated or unsupported IDs fail. Requires kernels. |
-| `--artifact run/wheel` | `wheel` | Native CANN installer or complete Python wheel. `run` is only valid with `-a kernels`. |
-| `-j N` / `--jobs N` | Build tool default | Positive parallelism limit for the CANN and Torch builds. |
-| `--make_clean` | Off | Clear REFACTOR intermediates; alone, clean and exit. With architecture/build options, clean then rebuild. |
-| `--declarations-only` | Off | Validate kernels selection without compiling or producing an artifact. |
+| `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
+| `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
+| `-j N` / `--jobs N` | Build tool default | Positive parallel compilation limit. |
+| `--make_clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
+| `--declarations-only` | Off | Validate architecture and operator selection without SDK compilation or packaging. |
+
+`2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
+`ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used
+only by this build. Operator declarations use `SUPPORTED_ARCHS 2201 3510`;
+API documentation follows the shared framework's `arch22` and `arch35` names.
+
+Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
+previous `sgl_kernel_npu-*.whl` files there before building; a run build removes
+previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place.
+
+### Incremental builds and cleanup
+
+Normal builds retain the CANN and Torch compiler caches. Changing architecture,
+operator selection, Python/Torch environment or SDK location requires an explicit
+clean build:
 
 ```bash
-# Direct ACLNN development: one migrated operator, no Torch build.
-SGL_BUILD_MODE=REFACTOR bash /workspace/sgl-kernel-npu/build.sh \
-  --arch-version 2201 --ops apply_token_bitmask --artifact run
-
-# All migrated operators supported by 3510, still a complete Python package.
-SGL_BUILD_MODE=REFACTOR bash /workspace/sgl-kernel-npu/build.sh \
-  --arch-version 3510 --ops all --make_clean
-
-# Equivalent root Python entry for the kernels distribution.
-python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 --ops all --make_clean
+python3 /workspace/sgl-kernel-npu/setup.py --make_clean
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 --ops all
 ```
 
-Final artifacts share `/workspace/sgl-kernel-npu/output/`. Before a wheel build,
-old wheels of the selected distribution are removed so failed builds cannot
-leave a misleading old wheel as the apparent result. Unselected distributions
-are retained. A run build similarly refreshes its installers.
+Cleanup removes `build/cann`, `build/torch` and `build/wheel`. Existing builds may
+still clear the shared `build/` directory; rerunning the new entry reconstructs
+its intermediates. Do not run both builds concurrently in one checkout.
 
-DeepEP reuses its existing builds and remains separately packaged: 2201 produces
-separate variants under `output/deepep_a2/` and `output/deepep_a3/`; 3510 uses
-`output/deepep_950/`. These variants share an installation identity and must not
-be installed together. `deepep2` selects only the existing 2201 variant.
-The existing attentions project has no 3510 build support, so requesting
-attentions, deepep2 or all with 3510 fails before building. Select supported
-packages explicitly. Independent projects retain their own build logic.
+### Installation and public API
 
-### Incremental builds and recovery
-
-CANN and Torch use `build/cann/` and `build/torch/`. Unchanged inputs reuse
-compiled objects; shared Tiling headers trigger metadata regeneration. Refreshing
-wheel/vendor staging does not erase the compiler cache. A changed architecture,
-operator set, Python/Torch environment or SDK location requires an explicit
-`--make_clean` instead of silently mixing incompatible artifacts. Toolchain or
-SDK upgrades should also start with `--make_clean`.
-
-LEGACY may still clear the shared `build/` directory. Running REFACTOR again
-reconstructs everything. Save any installers/wheels/baselines you need before
-switching builds. Concurrent builds against the same checkout are unsupported.
-
-### Wheel naming and installation
-
-The distribution remains `sgl-kernel-npu`, with import name `sgl_kernel_npu`.
-Standard wheel build tags identify the architecture and selection:
+The distribution name remains `sgl-kernel-npu`, imported as `sgl_kernel_npu`.
+Wheel build tags distinguish architecture and native operator selection:
 
 ```text
 sgl_kernel_npu-<version>-1refactor2201all-<python>-<abi>-<platform>.whl
 sgl_kernel_npu-<version>-1refactor2201custom<set-id>-<python>-<abi>-<platform>.whl
 ```
 
-Omitted `--ops` or `--ops all` means `all`; explicit IDs mean `custom`, even if
-currently equal to the complete migrated set. `_build_manifest.json` records the
-complete operator list, architecture, selection kind and SDK targets. The build
-tag is not a new package version. Use explicit reinstallation and start a new
-Python process when switching wheels; subset packages replace rather than extend
-each other.
+Omitted `--ops` or `--ops all` produces `all`; explicit IDs produce `custom`.
+The package's `_build_manifest.json` records the full selection and SDK targets.
+Subset wheels replace one another; they do not add operators to an existing
+installation. Reinstall explicitly and start a new Python process when switching:
 
 ```bash
 python3 -m pip install --force-reinstall --no-deps /workspace/sgl-kernel-npu/output/sgl_kernel_npu-*.whl
-python3 /workspace/sgl-kernel-npu/tests/python/sgl_kernel_npu/test_bitmask_cann.py
-python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/sampler -q \
-  --impl ascendc --impl-ref torch_native --enable-perf=false
+python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/sampler/test_apply_token_bitmask.py
 ```
 
-The wheel contains the expanded CANN vendor, formal Torch library and Python
-sources, not the SDK or the installer. Import sets up the vendor and loads the
-library. Public use:
-
-```python
-from sgl_kernel_npu.operators.sampler import apply_token_bitmask
-result = apply_token_bitmask(logits, bitmask, indices, impl="auto")
-```
-
-`auto` selects AscendC without fallback. Existing direct calls through
-`torch.ops.npu.apply_token_bitmask` remain available when this native operator is
-included. Both forms update logits in place and return its storage. See the
-[English API](../../docs/api/en/operators/sampler/apply_token_bitmask.md) and
-[中文 API](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
-
-### Direct ACLNN and staged SDK checks
-
-After a run or wheel build, the checked private vendor is under
-`build/cann/installed/vendors/sgl_kernel_npu`; the system OPP tree is unchanged.
-
-```bash
-cmake -S /workspace/sgl-kernel-npu/tests/csrc \
-  -B /workspace/sgl-kernel-npu/build/aclnn-test \
-  -DSGL_BITMASK_INSTALLED_VENDOR=/workspace/sgl-kernel-npu/build/cann/installed/vendors/sgl_kernel_npu
-cmake --build /workspace/sgl-kernel-npu/build/aclnn-test --target test_bitmask_aclnn
-ASCEND_CUSTOM_OPP_PATH=/workspace/sgl-kernel-npu/build/cann/installed/vendors/sgl_kernel_npu \
-  /workspace/sgl-kernel-npu/build/aclnn-test/test_bitmask_aclnn
-
-# Optional staged diagnosis, not required for ordinary builds.
-python3 /workspace/sgl-kernel-npu/tests/csrc/verify_cann_codegen.py \
-  --arch-version 2201 --through package
-```
-
-The direct ACLNN suite contains 48 cases; the installed-wheel suite contains 57.
-The public-interface suite additionally keeps LEGACY functional shapes. No test
-silently reduces an unsupported shape or dtype.
-
-### Precision and performance acceptance
-
-Use separate installations/processes for old and new wheels, with the same
-hardware, SDK and Torch versions. Build the old wheel from the recorded baseline
-commit `ecd3f947e9ed6cd512225c5030f2fd6deb63233c` using LEGACY. Run the validation
-script from the refactor checkout against that installed baseline; then install
-the REFACTOR wheel and run the second phase:
-
-```bash
-python3 /workspace/sgl-kernel-npu/tests/python/sgl_kernel_npu/benchmark_bitmask_migration.py \
-  --phase baseline --baseline /workspace/bitmask-baseline.pt --report /workspace/bitmask-baseline.json
-# Install the freshly built REFACTOR wheel in a new process/environment first.
-python3 /workspace/sgl-kernel-npu/tests/python/sgl_kernel_npu/benchmark_bitmask_migration.py \
-  --phase refactor --baseline /workspace/bitmask-baseline.pt --report /workspace/bitmask-refactor.json
-```
-
-The baseline file preserves the exact inputs and old results. Both builds are
-checked independently against Torch native and directly against each other.
-Mask positions, returned alias and unchanged inputs are checked. Existing
-atol/rtol 1e-2 is retained; unmasked values must be preserved exactly.
-
-Nine existing performance configurations retain all shapes/dtypes/index counts.
-End-to-end timing uses warmup 5, iterations 50, five independent rounds. Fresh
-inputs are prepared before timing; every call sees the original data. Both direct
-and public-interface latencies are reported for the refactor. No allowed slowdown
-percentage is introduced. Overlapping measurements or a slower median require
-retesting; they are not automatically accepted as noise.
-
-The shared profiler can be enabled with `--enable-perf=true`. Its default 5/5
-warmup/active result sums device task durations and is a diagnostic distinct from
-end-to-end latency. The test framework prepares in-place inputs before profiling.
-
-AICORE/ACLNN is the implemented CANN backend. `EXECUTION_UNIT AICPU` declarations
-are permitted, but selecting them fails until that backend is implemented.
-Other native operators remain on LEGACY. SDK/NPU validation of this refactor,
-full independent-package builds and performance non-regression are still required.
+The public entry is `sgl_kernel_npu.operators.sampler.apply_token_bitmask`.
+`impl="auto"` and `impl="ascendc"` call `torch.ops.npu.apply_token_bitmask`;
+`impl="torch_native"` selects the reference explicitly. There is no automatic
+fallback when the native operator is absent. See the API documentation in
+[English](../../docs/api/en/operators/sampler/apply_token_bitmask.md) or
+[Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
 
 ## Legacy build: software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products

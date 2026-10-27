@@ -1,7 +1,4 @@
 .vscode/
-.DS_Store
-# Local SDK reference snapshot; not a build dependency.
-/docs/references/asc-devkit-9.2.0/
 **/build/
 **/__pycache__/
 **/build_out/

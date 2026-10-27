@@ -51,7 +51,6 @@ def resolve_soc(target, chip=None, requested_soc=""):
     script = f"""
         set -e
         fake_bin="$(mktemp -d)"
-        trap 'rm -rf "$fake_bin"' EXIT
         {stub}
         export PATH="$fake_bin:/usr/bin:/bin"
         set +e
