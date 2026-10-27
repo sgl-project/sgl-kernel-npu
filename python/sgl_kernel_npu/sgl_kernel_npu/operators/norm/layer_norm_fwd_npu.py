@@ -1,4 +1,4 @@
-"""Public layer_norm_fwd_npu operator with parameter preparation in registered adapters."""
+"""Public gated normalization with shared checks and implementation-specific preparation."""
 
 import torch
 
@@ -29,24 +29,11 @@ def _triton_impl(
     M, N = x.shape
     if group_size is None:
         group_size = N
-    assert N % group_size == 0
     ngroups = N // group_size
 
-    assert x.stride(-1) == 1
-    if z is not None:
-        assert z.stride(-1) == 1
-        assert z.shape == (M, N)
-    assert weight.shape == (N,)
-    assert weight.stride(-1) == 1
-    if bias is not None:
-        assert bias.stride(-1) == 1
-        assert bias.shape == (N,)
     # allocate output
-    if out is not None:
-        assert out.shape == x.shape
-    else:
+    if out is None:
         out = torch.empty_like(x)
-    assert out.stride(-1) == 1
     mean = (
         torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
         if not is_rms_norm
@@ -56,8 +43,6 @@ def _triton_impl(
 
     MAX_FUSED_SIZE = 65536 // x.element_size()
     BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
-    if group_size > BLOCK_N:
-        raise RuntimeError("Feature dim too large.")
 
     # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
     BLOCK_M = 48
@@ -103,30 +88,26 @@ def _torch_native_impl(
     activation=None,
 ):
     from ...implementation.torch_native.norm.layernorm_gated import layer_norm_fwd_npu
-    from ._gated_norm_inputs import prepare_reference
 
-    inputs = prepare_reference(x, weight, bias, z, out, group_size, is_rms_norm)
-    (
-        groups,
-        weight_groups,
-        bias_groups,
-        z_groups,
-        output,
-        output_groups,
-        mean,
-        mean_groups,
-        rstd,
-        rstd_groups,
-    ) = inputs
+    rows, hidden = x.shape
+    size = hidden if group_size is None else group_size
+    groups = hidden // size
+    output = torch.empty_like(x) if out is None else out
+    mean = (
+        None
+        if is_rms_norm
+        else torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
+    )
+    rstd = torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
     # activation is accepted but ignored by the original kernel; gating is always SiLU.
     layer_norm_fwd_npu(
-        groups,
-        weight_groups,
-        bias_groups,
-        z_groups,
-        output_groups,
-        mean_groups,
-        rstd_groups,
+        x.reshape(rows, groups, size),
+        weight.reshape(1, groups, size),
+        None if bias is None else bias.reshape(1, groups, size),
+        None if z is None else z.reshape(rows, groups, size),
+        output.view(rows, groups, size),
+        None if mean is None else mean.view(groups, rows).transpose(0, 1),
+        rstd.view(groups, rows).transpose(0, 1),
         eps,
         norm_before_gate,
         is_rms_norm,
@@ -159,6 +140,26 @@ def layer_norm_fwd_npu(
     Return (out, mean, rstd), with FP32 statistics flattened in group-major
     order. mean is None for RMSNorm. A supplied out is written in place and
     returned by identity. impl selects auto (Triton), triton, or torch_native."""
+    rows, hidden = x.shape
+    size = hidden if group_size is None else group_size
+    assert hidden % size == 0
+    assert x.stride(-1) == 1
+    if z is not None:
+        assert z.stride(-1) == 1
+        assert z.shape == (rows, hidden)
+    assert weight.shape == (hidden,)
+    assert weight.stride(-1) == 1
+    if bias is not None:
+        assert bias.stride(-1) == 1
+        assert bias.shape == (hidden,)
+    if out is not None:
+        assert out.shape == x.shape
+        assert out.stride(-1) == 1
+    maximum = 65536 // x.element_size()
+    block = min(maximum, 1 << (size - 1).bit_length())
+    if size > block:
+        raise RuntimeError("Feature dim too large.")
+
     return get_impl_by_name("norm.layer_norm_fwd_npu", impl)(
         x,
         weight,
