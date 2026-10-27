@@ -7,6 +7,7 @@ from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
     require_distinct_impls,
+    require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 
@@ -60,9 +61,10 @@ def test_expand_causal_seqlens_reuses_outputs():
     """In-place: overwrite only the two supplied outputs; keep their identity."""
     from sgl_kernel_npu.operators.indexer import expand_causal_seqlens
 
-    if get_skip_acc_check() is True:
-        return  # This case checks storage reuse only; no profiling workload.
     impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is True:
+        require_test_impl(expand_causal_seqlens, impl)
+        return  # This case checks storage reuse only; no profiling workload.
     require_distinct_impls(expand_causal_seqlens, impl, impl_ref)
     outputs = (
         torch.full((5,), -1, dtype=torch.int32),
