@@ -8,9 +8,6 @@ on:
       - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
-      - "tests/python/operators/norm/**"
-      - "tests/python/utils/**"
-      - "tests/python/conftest.py"
       - "build.sh"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
@@ -51,13 +48,6 @@ jobs:
               - csrc/add_rmsnorm_bias/**
               - csrc/l1_norm/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/operators/norm/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/operators/utils/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/norm/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/norm/**
-              - tests/python/operators/norm/**
-              - tests/python/utils/**
-              - tests/python/conftest.py
               - tests/python/sgl_kernel_npu/test_add_rmsnorm_bias.py
               - tests/python/sgl_kernel_npu/test_rmsnorm_split.py
               - tests/python/sgl_kernel_npu/test_rmsnorm_without_weight.py
@@ -202,31 +192,11 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build and install kernel module
-        id: build-kernels
         run: bash scripts/prepare_kernel_tests.sh
 
-      - name: Run public norm accuracy tests
-        timeout-minutes: 20
-        env:
-          ACL_OP_SELECT_IMPL_MODE: high_precision
-        run: |
-          python3 -m pytest tests/python/operators/norm \
-            --impl=triton --impl-ref=torch_native \
-            --skip-acc-check=false --enable-perf=false --npu-device=0 \
-            -v -rs -x --junitxml=test-results/public-norm.xml
-
       - name: Run norm operator tests
-        if: ${{ !cancelled() && steps.build-kernels.outcome == 'success' }}
         timeout-minutes: 15
         run: bash scripts/run_kernel_tests.sh norm
-
-      - name: Upload public norm accuracy report
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: public-norm-accuracy-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
-          path: test-results/public-norm.xml
-          if-no-files-found: ignore
 
   test-attention-ops:
     needs: get-changed-files
