@@ -7,7 +7,6 @@ endif()
 cmake_minimum_required(VERSION 3.20)
 project(sgl_cann_ops LANGUAGES NONE)
 
-option(SGL_CANN_DECLARATIONS_ONLY "Validate declarations without loading CANN" OFF)
 set(SGL_CANN_BUILD_STAGE CODEGEN CACHE STRING "CANN checkpoint: CODEGEN, TILING or KERNEL")
 set_property(CACHE SGL_CANN_BUILD_STAGE PROPERTY STRINGS CODEGEN TILING KERNEL)
 if(NOT SGL_CANN_BUILD_STAGE MATCHES "^(CODEGEN|TILING|KERNEL)$")
@@ -41,13 +40,8 @@ if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
 
-if(SGL_CANN_DECLARATIONS_ONLY)
-    message(STATUS "Declarations validated only; no SDK code generation or compilation was performed")
-    return()
-endif()
-
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "CANN code generation requires Linux; use SGL_CANN_DECLARATIONS_ONLY on this host")
+    message(FATAL_ERROR "CANN code generation requires Linux")
 endif()
 if(NOT IS_DIRECTORY "$ENV{ASCEND_HOME_PATH}")
     message(FATAL_ERROR "ASCEND_HOME_PATH must point to the initialized CANN SDK")

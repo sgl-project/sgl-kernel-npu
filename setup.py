@@ -38,11 +38,6 @@ def arguments(argv=None):
         action="store_true",
         help="remove this build's intermediates; used alone, clean and exit",
     )
-    parser.add_argument(
-        "--declarations-only",
-        action="store_true",
-        help="validate operator selection without compiling or packaging",
-    )
     args = parser.parse_args(argv)
     if not args.arch_version and argv != ["--make_clean"]:
         parser.error("--arch-version is required")
@@ -67,19 +62,15 @@ def main(argv=None):
             return
 
     output = PROJECT_ROOT / "output"
-    if not args.declarations_only:
-        output.mkdir(exist_ok=True)
-        extension = "whl" if args.artifact == "wheel" else "run"
-        for path in output.glob(f"sgl_kernel_npu-*.{extension}"):
-            path.unlink()
+    output.mkdir(exist_ok=True)
+    extension = "whl" if args.artifact == "wheel" else "run"
+    for path in output.glob(f"sgl_kernel_npu-*.{extension}"):
+        path.unlink()
     result = build_cann(
         args.arch_version,
         args.operators,
-        declarations_only=args.declarations_only,
         jobs=args.jobs,
     )
-    if args.declarations_only:
-        return
     if args.artifact == "run":
         destination = (
             output / f"sgl_kernel_npu-{args.arch_version}-{result.selection_kind}.run"

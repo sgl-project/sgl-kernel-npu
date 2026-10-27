@@ -47,32 +47,29 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make_clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
 | `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
-| `-j N` / `--jobs N` | Build tool default | Positive parallel compilation limit. |
+| `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--make_clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
-| `--declarations-only` | Off | Validate architecture and operator selection without SDK compilation or packaging. |
 | `-h` / `--help` | Off | Print the supported options and exit without building. |
 
 `--ops` accepts comma-separated IDs; do not mix `all` with IDs or repeat an ID.
 It selects native operators only, not which Python modules enter the wheel.
-`--jobs` must be a positive integer. `run` and `wheel` are the only artifact
-choices; there is no separate `torch` artifact or independent-package selector.
+`-j N` and `--jobs N` are equivalent. They pass `--parallel N` to the CANN and
+Torch CMake builds. More simultaneous jobs can reduce build time but consume
+more CPU and memory. This setting does not change the operator's runtime
+parallelism or computation. Omit it to use the build tool's default.
+
+`run` and `wheel` are the only artifact choices; there is no separate `torch`
+artifact or independent-package selector. Operator declarations are checked as
+part of the normal build, without a separate check-only command.
 
 ```bash
 # Print help; no SDK or architecture argument is required.
 python3 /workspace/sgl-kernel-npu/setup.py --help
 
-# Check declarations only; this does not compile, package or execute an operator.
-python3 /workspace/sgl-kernel-npu/setup.py \
-  --arch-version 2201 --ops apply_token_bitmask --declarations-only
-
-# Clear the declaration-check cache and build a wheel in the same command.
+# Clear intermediates and build a wheel in the same command.
 python3 /workspace/sgl-kernel-npu/setup.py \
   --make_clean --arch-version 2201 --ops apply_token_bitmask --artifact wheel
 ```
-
-Declaration checks write CMake configuration under `build/cann`. Switching from
-`--declarations-only` to a real build requires `--make_clean`, just like changing
-the other cached build settings below.
 
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
 `ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used

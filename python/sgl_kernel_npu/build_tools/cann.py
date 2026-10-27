@@ -108,12 +108,11 @@ def build_cann(
     arch_version,
     operators=("ALL",),
     *,
-    declarations_only=False,
     jobs=None,
     source_root=PROJECT_ROOT,
     build_root=None,
 ):
-    """Return this build's selected operators and, when built, installed vendor."""
+    """Build and stage a CANN package for the selected operators."""
     compute_units = architecture(arch_version, source_root)["compute_units"]
     if jobs is not None and jobs < 1:
         raise ValueError("--jobs must be positive")
@@ -124,28 +123,22 @@ def build_cann(
     build_root = build_root.absolute()
     directory = build_root / "cann"
     env = os.environ.copy()
-    sdk = ""
-    if not declarations_only:
-        if platform.system() != "Linux":
-            raise RuntimeError(
-                "CANN compilation requires Linux; use --declarations-only on this host"
-            )
-        sdk_path = Path(env.get("ASCEND_HOME_PATH", ""))
-        if not env.get("ASCEND_HOME_PATH") or not sdk_path.is_dir():
-            raise RuntimeError(
-                "Initialize CANN first: ASCEND_HOME_PATH must point to the SDK"
-            )
-        sdk = str(sdk_path.resolve())
-        env["ASCEND_HOME_PATH"] = sdk
+    if platform.system() != "Linux":
+        raise RuntimeError("CANN compilation requires Linux")
+    sdk_path = Path(env.get("ASCEND_HOME_PATH", ""))
+    if not env.get("ASCEND_HOME_PATH") or not sdk_path.is_dir():
+        raise RuntimeError(
+            "Initialize CANN first: ASCEND_HOME_PATH must point to the SDK"
+        )
+    sdk = str(sdk_path.resolve())
+    env["ASCEND_HOME_PATH"] = sdk
 
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc"),
         "SGL_ARCH_VERSION": str(arch_version),
         "SGL_CANN_OPERATORS": ";".join(operators),
-        "SGL_CANN_DECLARATIONS_ONLY": "ON" if declarations_only else "OFF",
+        "SGL_CANN_SDK_ROOT": sdk,
     }
-    if not declarations_only:
-        expected["SGL_CANN_SDK_ROOT"] = sdk
     cached = _cache(directory)
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked CANN directory: {}".format(directory))
@@ -160,7 +153,6 @@ def build_cann(
         directory,
         "-DSGL_ARCH_VERSION=" + str(arch_version),
         "-DSGL_CANN_OPERATORS=" + ";".join(operators),
-        "-DSGL_CANN_DECLARATIONS_ONLY=" + expected["SGL_CANN_DECLARATIONS_ONLY"],
         "-DSGL_CANN_BUILD_STAGE=KERNEL",
     ]
     run(command, directory / "configure.log", cwd=source_root, env=env)
@@ -168,15 +160,6 @@ def build_cann(
     if not selected:
         raise RuntimeError("CMake did not produce a nonempty operator selection")
     print("SELECTED_OPERATORS: " + ",".join(selected), flush=True)
-    if declarations_only:
-        print("PASS: declarations only; no SDK compilation, package or NPU execution")
-        return CannBuild(
-            directory,
-            selected,
-            arch_version=str(arch_version),
-            selection_kind="all" if operators == ("ALL",) else "custom",
-        )
-
     # The SDK's package target does not build device binaries automatically.
     for target, log_name in (
         ("sgl_cann_kernel_check", "kernel-build.log"),
