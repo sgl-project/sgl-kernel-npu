@@ -24,6 +24,16 @@ BF16_STANDARD = {"torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=1e-2)}
 EXACT_BF16_STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0, rtol=0)}
 
 
+def clone_test_tensor(tensor):
+    """Copy storage before restoring this test's channel-last views."""
+    if tensor.is_contiguous():
+        return tensor.clone()
+    # CANN 9.0 clone can make a transposed view contiguous.
+    base = tensor.transpose(-1, -2)
+    assert base.is_contiguous()
+    return base.clone().transpose(-1, -2)
+
+
 def generate_test_data(
     width, extra_window=0, *, tree=False, channel_last=False, batch=2, dim=5, steps=4
 ):
@@ -122,16 +132,17 @@ def test_causal_conv1d_target_verify_linear_npu(case):
     # Accuracy: the original inputs stay untouched for state comparisons.
     if accuracy_checked:
         actual = {
-            name: value.clone() if isinstance(value, torch.Tensor) else value
+            name: clone_test_tensor(value) if isinstance(value, torch.Tensor) else value
             for name, value in inputs.items()
         }
         reference = {
-            name: value.clone() if isinstance(value, torch.Tensor) else value
+            name: clone_test_tensor(value) if isinstance(value, torch.Tensor) else value
             for name, value in inputs.items()
         }
         if case.get("channel_last", False):
             for name in ("x", "conv_state", "intermediate_conv_window"):
                 assert actual[name].stride() == inputs[name].stride()
+                assert reference[name].stride() == inputs[name].stride()
             reference["weight"] = inputs["weight"].transpose(0, 1).contiguous()
         expected_out = causal_conv1d_target_verify_npu(**reference, impl=impl_ref)
         out = causal_conv1d_target_verify_npu(**actual, impl=impl)
@@ -166,10 +177,10 @@ def test_causal_conv1d_target_verify_linear_npu(case):
                 [
                     dict(
                         inputs,
-                        x=inputs["x"].clone(),
-                        intermediate_conv_window=inputs[
-                            "intermediate_conv_window"
-                        ].clone(),
+                        x=clone_test_tensor(inputs["x"]),
+                        intermediate_conv_window=clone_test_tensor(
+                            inputs["intermediate_conv_window"]
+                        ),
                     )
                     for _ in range(1 + warmup + active)
                 ]
