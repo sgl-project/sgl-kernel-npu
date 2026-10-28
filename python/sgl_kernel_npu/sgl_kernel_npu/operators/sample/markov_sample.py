@@ -1,17 +1,13 @@
 """Public markov_sample operator and backend registration."""
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
+_torch_native_fn = None
 
 
-@register_impl(
-    "sample.markov_sample", "auto", supported_generations=[Generation.ARCH22]
-)
-@register_impl(
-    "sample.markov_sample", "triton", supported_generations=[Generation.ARCH22]
-)
+@register_impl("sample.markov_sample", "auto")
+@register_impl("sample.markov_sample", "triton")
 def _triton_impl(**kwargs):
     global _triton_fn
     if _triton_fn is None:
@@ -23,15 +19,16 @@ def _triton_impl(**kwargs):
     return _triton_fn(**kwargs)
 
 
-@register_impl(
-    "sample.markov_sample", "torch_native", supported_generations=[Generation.ARCH22]
-)
+@register_impl("sample.markov_sample", "torch_native")
 def _torch_native_impl(**kwargs):
-    from ...implementation.torch_native.sample.markov_sample import (
-        markov_sample_step_torch,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.sample.markov_sample import (
+            markov_sample_step_torch,
+        )
 
-    return markov_sample_step_torch(**kwargs)
+        _torch_native_fn = markov_sample_step_torch
+    return _torch_native_fn(**kwargs)
 
 
 @register_operator("sample.markov_sample")

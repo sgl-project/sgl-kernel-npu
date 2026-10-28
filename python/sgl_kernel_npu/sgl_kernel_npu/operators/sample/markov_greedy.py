@@ -1,19 +1,13 @@
 """Public markov_greedy operator and backend registration."""
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
-
 _torch_native_fn = None
 
 
-@register_impl(
-    "sample.markov_greedy", "auto", supported_generations=[Generation.ARCH22]
-)
-@register_impl(
-    "sample.markov_greedy", "triton", supported_generations=[Generation.ARCH22]
-)
+@register_impl("sample.markov_greedy", "auto")
+@register_impl("sample.markov_greedy", "triton")
 def _triton_impl(**kwargs):
     global _triton_fn
     if _triton_fn is None:
@@ -25,9 +19,7 @@ def _triton_impl(**kwargs):
     return _triton_fn(**kwargs)
 
 
-@register_impl(
-    "sample.markov_greedy", "torch_native", supported_generations=[Generation.ARCH22]
-)
+@register_impl("sample.markov_greedy", "torch_native")
 def _torch_native_impl(**kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:

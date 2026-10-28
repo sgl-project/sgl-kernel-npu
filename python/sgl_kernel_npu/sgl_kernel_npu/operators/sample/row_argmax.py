@@ -1,15 +1,13 @@
 """Public row_argmax operator and backend registration."""
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
-
 _torch_native_fn = None
 
 
-@register_impl("sample.row_argmax", "auto", supported_generations=[Generation.ARCH22])
-@register_impl("sample.row_argmax", "triton", supported_generations=[Generation.ARCH22])
+@register_impl("sample.row_argmax", "auto")
+@register_impl("sample.row_argmax", "triton")
 def _triton_impl(x):
     global _triton_fn
     if _triton_fn is None:
@@ -19,9 +17,7 @@ def _triton_impl(x):
     return _triton_fn(x)
 
 
-@register_impl(
-    "sample.row_argmax", "torch_native", supported_generations=[Generation.ARCH22]
-)
+@register_impl("sample.row_argmax", "torch_native")
 def _torch_native_impl(x):
     global _torch_native_fn
     if _torch_native_fn is None:
