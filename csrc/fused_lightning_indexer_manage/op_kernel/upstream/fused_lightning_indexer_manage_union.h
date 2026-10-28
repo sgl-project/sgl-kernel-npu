@@ -1054,7 +1054,18 @@ private:
         uint32_t unionCount = 0U;
         bool overflow = false;
         bool capturedOccurrences = false;
-        if (useMaturePairUnion) {
+        if (routeCount == 1U) {
+            // Q1 miss TopK is already a unique, source-ID-sorted prefix.
+            DataCopyPad(
+                unionSources,
+                topkSourcesGm[static_cast<uint64_t>(queryStart) * TOPK],
+                AscendC::DataCopyExtParams{
+                    1, static_cast<uint32_t>(lengths[0] * sizeof(int32_t)),
+                    0, 0, 0},
+                AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
+            Sync<HardEvent::MTE2_S>(HardEvent::MTE2_S);
+            unionCount = lengths[0];
+        } else if (useMaturePairUnion) {
             const uint64_t pairBase =
                 static_cast<uint64_t>(batch) * CAPACITY;
             for (uint32_t route = 0U; route < routeCount; ++route) {
@@ -1294,7 +1305,18 @@ private:
 
         LocalTensor<int32_t> topkDestinationRows = routeSources;
         bool topkDestinationsPublished = false;
-        if (capturedOccurrences) {
+        if (routeCount == 1U && updated == unionCount && unionCount > 0U) {
+            // With every Q1 miss assigned, the union destination order is the
+            // miss-prefix order and can be published directly.
+            Sync<HardEvent::S_MTE3>(HardEvent::S_MTE3);
+            DataCopyPad(
+                topkDestinationsGm[
+                    static_cast<uint64_t>(queryStart) * TOPK],
+                unionDestinations,
+                {1, static_cast<uint16_t>(updated * sizeof(int32_t)), 0, 0});
+            Sync<HardEvent::MTE3_S>(HardEvent::MTE3_S);
+            topkDestinationsPublished = true;
+        } else if (capturedOccurrences) {
             // unionDestinations occupies workspace's upper half.  Q5-Q7
             // destination rows extend past route 3 and would overwrite that
             // union-slot list before it is published to missDestinationsGm.
