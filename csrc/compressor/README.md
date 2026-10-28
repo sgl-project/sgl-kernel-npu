@@ -236,8 +236,8 @@ code:
   address. The buffer is allocated with `aclrtMalloc` (outside the torch caching
   allocator), because allocator-owned memory could be re-mapped/re-written by
   NPU graph capture between the host write and the device read. Once the 512
-  entries are full, an eager call falls back to a one-shot `at::empty` buffer
-  kept alive with `record_stream` until the current stream drains, while a
+  entries are full, an eager call reuses one additional persistent `at::empty`
+  slab, handed to the kernel as a non-allocator `from_blob` view, while a
   capture-time miss fails with a warmup error (a one-shot address is not safe
   for a captured graph).
 - **`readGen` generation handshake** — on arch35 the host zeroes the AIV

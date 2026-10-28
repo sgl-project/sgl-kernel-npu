@@ -5,6 +5,20 @@ import triton
 import triton.language as tl
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({"BV": bv, "multibuffer": multibuffer})
+        for bv in (64, 128)
+        for multibuffer in (False, True)
+    ],
+    key=[
+        "H_Q",
+        "H_K",
+        "H_V",
+        "K",
+        "V",
+    ],
+)
 @triton.jit
 def _kda_target_verify_kernel(
     A_log_ptr,
@@ -60,7 +74,7 @@ def _kda_target_verify_kernel(
     # Dimensions are compile-time constants: emit only the selected path.
     if K == 128 and V == 128:
         # A5's K=128 vector path operates naturally as two 64-element halves.
-        # One program covers each (batch, value-head).
+        # Each program covers BV rows of one (batch, value-head) state.
         offset_k0 = tl.arange(0, 64)
         offset_k1 = offset_k0 + 64
         offset_v = pid_v * BV + tl.arange(0, BV)
@@ -402,6 +416,10 @@ def kda_target_verify_npu(
     K=V=128 uses two K64 state halves and normalizes q/k with
     ``x * rsqrt(sum(x*x) + 1e-12)``. Other dimensions retain the original
     ``x / (sqrt(sum(x*x)) + 1e-6)`` normalization and computation.
+
+    K=V=128 autotunes BV=64/128 and multibuffer off/on. Warm up each input
+    configuration before graph capture. Autotune repeats the invocation, so
+    the intermediate state buffer must not alias the persistent state source.
     """
     if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
         raise ValueError("q, k, and v must have shape [1, tokens, heads, dim]")
@@ -498,13 +516,17 @@ def kda_target_verify_npu(
     if bk > 256:
         raise ValueError("key dimensions greater than 256 are unsupported")
     if key_dim == 128 and value_dim == 128:
-        bv = 128
-        launch_options = {"multibuffer": True}
+        kernel = _kda_target_verify_kernel
+        launch_options = {}
     else:
-        bv = min(64, triton.next_power_of_2(value_dim))
-        launch_options = {"num_warps": 1, "num_stages": 3, "multibuffer": False}
-    grid = (batch, h_v, triton.cdiv(value_dim, bv))
-    _kda_target_verify_kernel[grid](
+        # Bypass autotune for other dimensions.
+        kernel = _kda_target_verify_kernel.fn
+        launch_options = {
+            "BV": min(64, triton.next_power_of_2(value_dim)),
+            "multibuffer": False,
+        }
+    grid = lambda meta: (batch, h_v, triton.cdiv(value_dim, meta["BV"]))
+    kernel[grid](
         A_log,
         dt_bias,
         q,
@@ -548,7 +570,6 @@ def kda_target_verify_npu(
         V=value_dim,
         STEPS=cache_steps,
         BK=bk,
-        BV=bv,
         GATES_ARE_PREACTIVATED=gates_are_preactivated,
         **launch_options,
     )

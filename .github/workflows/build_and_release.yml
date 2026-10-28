@@ -24,8 +24,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        # TEMP: 950 (A5) temporarily removed for power maintenance; restore to [910b, a3, 950] once machines are back online.
-        npu_hardware: [910b, a3]
+        npu_hardware: [910b, a3, 950]
 
         exclude:
            - npu_hardware: 950
@@ -136,8 +135,7 @@ jobs:
     strategy:
       matrix:
         arch: [ x86_64, aarch64 ]
-        # TEMP: 950 (A5) temporarily removed for power maintenance; restore to [ 910b, a3, 950 ] once machines are back online.
-        npu_hardware: [ 910b, a3 ]
+        npu_hardware: [ 910b, a3, 950 ]
         exclude:
           - npu_hardware: 950
             cann_version: 9.0.0
@@ -232,8 +230,7 @@ jobs:
     strategy:
       matrix:
         arch: [ x86_64, aarch64 ]
-        # TEMP: 950 (A5) temporarily removed for power maintenance; restore to [ 910b, a3, 950 ] once machines are back online.
-        npu_hardware: [ 910b, a3 ]
+        npu_hardware: [ 910b, a3, 950 ]
         exclude:
           - npu_hardware: 950
             cann_version: 9.0.0
