@@ -60,6 +60,9 @@ jobs:
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/attention/**
+              - tests/python/operators/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/indexer/**

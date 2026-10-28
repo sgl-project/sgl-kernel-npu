@@ -57,6 +57,7 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_build_pooled_page_table_64.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
@@ -76,7 +77,6 @@ CACHE_TESTS=(
     test_inplace_assign_cache.py
     test_lightning_indexer.py
     test_transfer_kv_dim_exchange.py
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_build_pooled_page_table_64.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache_bf16.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_write_cache_npu.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress_npu.py"
