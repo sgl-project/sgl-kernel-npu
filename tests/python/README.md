@@ -30,53 +30,24 @@ if both checks are disabled, the operator is not executed. Use serial pytest or
 
 ### Supplementary checks
 
-Use `@pytest.mark.extra_checks` for supplementary operator checks. The repository's
-root `pytest.ini` registers this shared marker and sets
-`addopts = -m "not extra_checks"`, so these checks are excluded by default.
-Unselected cases are reported as `deselected`, rather than skipped: their test
-functions and device fixtures do not run, but test modules are still imported and
-collected and must satisfy their import dependencies.
+Tests marked with `@pytest.mark.extra_checks` are excluded by default. Use
+`-m extra_checks` to run only supplementary checks, or `-m ""` to run all tests.
 
-For RoPE, the default selection contains 64 accuracy/performance cases: 60 regular
-cases and 4 mixed-cache-dtype cases. The 84 supplementary cases are 60
-output-contract checks and 24 invalid-input checks. The complete suite contains
-148 cases; device availability and shared switches still affect execution.
-
-Run these commands from the repository root:
+For example, run the RoPE suite from the repository root:
 
 ```bash
-# Default: select 64 cases, deselect 84 supplementary checks.
-python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
-  --skip-acc-check=false --enable-perf=false -v -rs
+# Default cases.
+python -m pytest tests/python/operators/rope --enable-perf=false -v
 
-# Supplementary checks only: select 84 cases, deselect 64 regular cases.
-python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
-  -m extra_checks --skip-acc-check=false --enable-perf=false -v -rs
+# Supplementary checks only.
+python -m pytest tests/python/operators/rope -m extra_checks --enable-perf=false -v
 
-# Complete suite: select all 148 cases.
-python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
-  -m "" --skip-acc-check=false --enable-perf=false -v -rs
-
-# Select a single supplementary test function.
-python -m pytest \
-  tests/python/operators/rope/test_fused_rope_qk_mqa.py::test_fused_rope_qk_mqa_output_contract \
-  -m extra_checks --skip-acc-check=false --enable-perf=false -v -rs
+# All cases.
+python -m pytest tests/python/operators/rope -m "" --enable-perf=false -v
 ```
 
-Specifying a file, function or `-k` expression does not cancel the default marker
-filter. To select supplementary checks, also pass `-m extra_checks` or `-m ""`.
-An explicit `-m` overrides the configured marker expression; for example, use
-`-m "slow and not extra_checks"` to retain the exclusion while selecting slow tests.
-Use `-m ""` to clear only the marker filter; `-o addopts=""` would also clear other
-configured default options. Add `--collect-only -q` to inspect selection without
-running test fixtures; modules are still imported and collected.
-
-The normal accuracy-then-performance flow does not make an extra operator call
-for output-contract checks. Selected output-contract tests still skip when
-`--skip-acc-check=true`; this switch does not disable selected invalid-input tests.
-Output-contract and invalid-input tests never collect performance. Mixed-cache-dtype
-cases use the shared accuracy/performance helpers; their code defaults to
-`enable_perf=False`, which an explicit `--enable-perf=true` can override.
+Selecting a supplementary test by function path or `-k` still requires
+`-m extra_checks` or `-m ""`.
 
 ## Write a test
 
