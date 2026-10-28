@@ -9,6 +9,8 @@ output/
 **/extra-info/
 **/vendors/
 **/build_config.py
+# build.sh copies the root config.ini into the package before packaging.
+python/sgl_kernel_npu/sgl_kernel_npu/config.ini
 
 # Prerequisites
 *.d

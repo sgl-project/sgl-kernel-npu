@@ -6,12 +6,15 @@ public contract, parameter tables and hardware support matrix are in
 and its Chinese counterpart. This file documents the implementation and its
 validation.
 
-Only arch22 builds with the A3-only operator set expose
-`torch.ops.npu.qsa_prefill_prepare` and `torch.ops.npu.qsa_prefill_runs`. Both
-are internal helpers of the `ascendc` implementation: pass only metadata
-produced by that implementation, not hand-written run descriptors. Other
-dtypes, head layouts and compression ratios should use the caller's existing
-fallback.
+`SGL_KERNEL_ENABLE_A3_ONLY_OPS` gates these kernels. Despite the name it is an
+arch22-family toggle, on for every SoC outside the Ascend950 series, so an A2
+build contains them as well; only an Ascend950 build lacks
+`torch.ops.npu.qsa_prefill_prepare` and `torch.ops.npu.qsa_prefill_runs`.
+Measurements exist for A3 only, so the API pages mark A2 unverified. Both
+entry points are internal helpers of the `ascendc` implementation: pass only
+metadata produced by that implementation, not hand-written run descriptors.
+Other dtypes, head layouts and compression ratios should use the caller's
+existing fallback.
 
 ## Sources
 

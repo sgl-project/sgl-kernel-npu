@@ -2,18 +2,28 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
-| --- | --- | --- |
-| `ascendc` | Supported on A3-family builds | Not implemented |
-| `torch_native` | Supported | Unverified |
-| `triton` | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented |
+arch22 is split because the two members of that family are validated
+differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
-The `ascendc` implementation is registered for arch22 only. Its native helpers
-are compiled by the A3-only operator set, so an arch22 build without that
-target raises `AttributeError` on `torch.ops.npu.qsa_prefill_prepare`. Hardware
-validation used Ascend910_9382 and Ascend910_9362 (910C) with CANN 9.0.0/9.1.0,
-torch 2.10 and torch_npu 2.10. arch35 is not implemented.
+| Implementation | arch22 A3 | arch22 A2 | arch35 |
+| --- | --- | --- | --- |
+| `ascendc` | Supported | Unverified | Not implemented |
+| `torch_native` | Supported | Unverified | Unverified |
+| `triton` | Not implemented | Not implemented | Not implemented |
+| `tilelang` | Not implemented | Not implemented | Not implemented |
+
+The `ascendc` implementation is registered for arch22, which covers both A2
+and A3, and `SGL_KERNEL_ENABLE_A3_ONLY_OPS` compiles its kernels for every
+SoC outside the Ascend950 series. Nothing excludes A2: the kernels use
+`__CCE_AICORE__ == 220`, which both families report, the host guard rejects
+only Ascend950, and the launch geometry follows `GetCoreNumAic()`. A2 is
+marked unverified rather than unsupported because no A2 measurement exists
+yet, not because a limit is known. Only an Ascend950 build lacks the native
+helpers, and calling the operator there raises `AttributeError` on
+`torch.ops.npu.qsa_prefill_prepare`.
+
+Hardware validation used Ascend910_9382 and Ascend910_9362 (910C) with
+CANN 9.0.0/9.1.0, torch 2.10 and torch_npu 2.10. arch35 is not implemented.
 
 ## Signature
 

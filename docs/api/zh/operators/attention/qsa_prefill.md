@@ -2,15 +2,23 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
-| --- | --- | --- |
-| `ascendc` | 支持（A3 系列构建） | 未实现 |
-| `torch_native` | 支持 | 待验证 |
-| `triton` | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 |
+arch22 拆成两列，因为该家族的两个成员验证程度不同。A3 指 Ascend910_93 系列，
+A2 指 Ascend910B 系列。
 
-`ascendc` 实现仅注册到 arch22。其原生入口由 A3 专用算子集编译，若 arch22 构建未
-启用该目标，调用 `torch.ops.npu.qsa_prefill_prepare` 会抛出 `AttributeError`。
+| 实现 | arch22 A3 | arch22 A2 | arch35 |
+| --- | --- | --- | --- |
+| `ascendc` | 支持 | 待验证 | 未实现 |
+| `torch_native` | 支持 | 待验证 | 待验证 |
+| `triton` | 未实现 | 未实现 | 未实现 |
+| `tilelang` | 未实现 | 未实现 | 未实现 |
+
+`ascendc` 实现注册到 arch22，该代际同时包含 A2 与 A3；`SGL_KERNEL_ENABLE_A3_ONLY_OPS`
+会为 Ascend950 系列之外的所有 SoC 编译其 kernel。没有任何机制排除 A2：kernel 使用
+`__CCE_AICORE__ == 220`（两个家族都是该值），host 守卫只拒绝 Ascend950，下发规模按
+`GetCoreNumAic()` 自适应。A2 标为"待验证"而非"不支持"，是因为尚无 A2 实测数据，而
+不是已知存在限制。只有 Ascend950 构建不包含原生入口，在其上调用会在
+`torch.ops.npu.qsa_prefill_prepare` 抛出 `AttributeError`。
+
 硬件验证使用 Ascend910_9382 与 Ascend910_9362（910C），CANN 9.0.0/9.1.0，
 torch 2.10 与 torch_npu 2.10。arch35 未实现。
 

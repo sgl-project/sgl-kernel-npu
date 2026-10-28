@@ -118,12 +118,19 @@ def _tail_merge(
     GRID: tl.constexpr,
     H: tl.constexpr,
     KV: tl.constexpr,
+    GROUP_P2: tl.constexpr,
 ):
     kv = tl.program_id(1)
     d = tl.arange(0, 256)
     t = tl.arange(0, 4)
     group: tl.constexpr = H // KV
-    h = tl.arange(0, triton.next_power_of_2(group))
+    # tl.arange needs a power-of-two extent, so the caller passes
+    # next_power_of_2(H // KV) and valid_head masks the surplus lanes.
+    # Calling triton.next_power_of_2 inside the kernel works on triton-ascend
+    # 3.2.2 but raises on 3.2.1, the version CANN 9.0.0 installs: H // KV is a
+    # tl.constexpr there and the host helper calls arg.bit_length(), giving
+    # "'constexpr' object has no attribute 'bit_length'".
+    h = tl.arange(0, GROUP_P2)
     valid_head = h < group
     req = tl.load(REQ).to(tl.int64)
     for row in range(tl.program_id(0), R, GRID):
@@ -233,6 +240,7 @@ def merge_causal_tail(
         TAIL_MERGE_GRID,
         q.shape[1],
         k.shape[1],
+        triton.next_power_of_2(q.shape[1] // k.shape[1]),
         enable_fp_fusion=False,
     )
     return out
