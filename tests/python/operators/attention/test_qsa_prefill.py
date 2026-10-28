@@ -209,11 +209,6 @@ def test_qsa_prefill_queued_launches(shape, impl_pair):
     This flow is not expressible through check_accuracy: the block, table and
     request-row arguments are temporaries released as soon as each call
     returns, and the results are only compared after one synchronization.
-
-    These shapes occupy few AI cores. Queueing two launches that each occupy
-    every AI core without an intervening synchronization currently times out
-    the vector cores on CANN 9.1.0 with triton-ascend 3.2.2, so that pattern
-    is not exercised here.
     """
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
@@ -242,6 +237,99 @@ def test_qsa_prefill_queued_launches(shape, impl_pair):
     torch.npu.synchronize()
     for out in outputs:
         assert torch.equal(out, reference)
+
+
+@requires_native
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        pytest.param(((384, 16, 2), (384, 16, 2)), id="two-48-task-launches"),
+        pytest.param(((193, 16, 2), (1691, 16, 2)), id="26-then-212-tasks"),
+    ],
+)
+def test_qsa_prefill_queued_multi_launch(shapes, impl_pair):
+    """Launches queued without an intervening synchronization must complete.
+
+    Each of these shapes produces more tasks than the chip has AI cores, so a
+    core runs the native task loop several times. Queueing two such launches
+    used to time out the vector cores, because the packing kernel's
+    element-wise Q gather left them in a state the following cross-core kernel
+    could not synchronize with. The accuracy comparison runs per launch, then
+    both launches are queued together and checked for bitwise equality.
+    """
+    from sgl_kernel_npu.operators.attention import qsa_prefill
+
+    impl, impl_ref = impl_pair
+    calls = []
+    for shape in shapes:
+        rows = shape[0]
+        length = rows + 8192
+        args = (*generate_data(shape, "shared", length), length, length - rows)
+        result = qsa_prefill(*args, impl=impl)
+        assert_accuracy(result, qsa_prefill(*args, impl=impl_ref))
+        calls.append((args, result.clone()))
+    queued = [(qsa_prefill(*args, impl=impl), first) for args, first in calls]
+    torch.npu.synchronize()
+    for result, first in queued:
+        assert torch.equal(result, first)
+
+
+@requires_native
+@pytest.mark.parametrize(
+    "replay_mode",
+    [
+        pytest.param("fragmented", id="replay-fragmented"),
+        pytest.param("shared", id="replay-shared-after-capture"),
+        pytest.param("empty", id="replay-empty-base"),
+    ],
+)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((17, 16, 2), id="16x2"),
+        pytest.param((17, 8, 1), id="8x1"),
+        pytest.param((17, 6, 1), id="6x1"),
+        pytest.param((17, 2, 1), id="2x1"),
+    ],
+)
+def test_qsa_prefill_graph_replay(shape, replay_mode, impl_pair):
+    """Capture a warmed shape, then replay it over rewritten inputs.
+
+    Graph capture needs its own flow: the comparison runs after replaying the
+    captured launch over mutated device buffers, which check_accuracy's
+    repeated direct calls cannot express. The captured selection is always
+    fragmented so that replaying shared or empty selections changes the
+    sharing structure without recapturing.
+    """
+    from sgl_kernel_npu.operators.attention import qsa_prefill
+
+    impl, impl_ref = impl_pair
+    length = 257
+    base = length - shape[0]
+    q, k, v, blocks, table, request_row = generate_data(shape, "fragmented", length)
+    # Exercise a nonzero request row and a request table with a padded stride.
+    table = torch.cat((table, table, table[:, :1]), 1).repeat(2, 1)[:, :length]
+    request_row = torch.tensor([1], dtype=torch.int64)
+    args = (q, k, v, blocks, table, request_row, length, base)
+    for _ in range(3):
+        qsa_prefill(*args, impl=impl)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        out = qsa_prefill(*args, impl=impl)
+
+    replay = generate_data(shape, replay_mode, length, seed=20261028)
+    for device_tensor, replacement in zip((q, k, v, blocks), replay[:4]):
+        device_tensor.copy_(replacement)
+    table[1].copy_(replay[4][0])
+    graph.replay()
+    torch.npu.synchronize()
+    reference = qsa_prefill(
+        q, k, v, blocks, table, request_row, length, base, impl=impl_ref
+    )
+    assert_accuracy(out, reference)
+    # The captured launch and a fresh call must agree bit for bit.
+    assert torch.equal(out, qsa_prefill(*args, impl=impl))
 
 
 @requires_native

@@ -33,18 +33,23 @@ fallback.
    query groups. Packing, native task geometry and the tail merge use the
    actual local Q/KV counts; Q/K/V are not duplicated to emulate 16/2. Each
    original query keeps its independent causal tail.
-2. Prepare physical run descriptors once per actual sharing group. Verify every
+2. Pack Q with one contiguous 256-element copy per head row. Addressing a
+   whole 8192-element tile through a computed `(row * H + head) * 256 + dim`
+   index instead compiles to an element-wise gather, which dominates runtime,
+   cannot be captured in an NPU graph, and leaves the vector cores in a state
+   that deadlocks the following cross-core kernel when launches are queued.
+3. Prepare physical run descriptors once per actual sharing group. Verify every
    request-table slot before using a contiguous-copy fast path; fragmented,
    invalid and repeated slots preserve their original semantics.
-3. Load contiguous runs into L1 with ND-to-NZ copies. Reuse the group's Q in
+4. Load contiguous runs into L1 with ND-to-NZ copies. Reuse the group's Q in
    L1; use D256 cube tiles with 32-row L0 subdivisions.
-4. Keep base attention output and LSE in FP32 for the tail merge, then produce
+5. Keep base attention output and LSE in FP32 for the tail merge, then produce
    the final BF16 output. This is not bitwise equivalent to other attention
    implementations.
-5. Keep PRE_LAUNCH=2 with three GM workspace stages and the existing CrossCore
+6. Keep PRE_LAUNCH=2 with three GM workspace stages and the existing CrossCore
    pipeline. Pipeline-depth experiments without stable general gains are not
    included.
-6. Tiling is immutable and cached by full shape, scale, device and both local
+7. Tiling is immutable and cached by full shape, scale, device and both local
    head counts. First initialization uses a blocking PyTorch device copy so
    queued writes to reused allocator storage cannot overwrite the metadata.
 
@@ -65,12 +70,27 @@ python benchmark/attention/bench_qsa_prefill.py --rows 128 4621 16384 --iteratio
 The suite compares the Ascend C result with the independent `torch_native`
 reference over 16/8/4/2/1 sharing granularities, interior mismatches, invalid
 and duplicate selections, fragmented mappings, partial groups, lengths
-0/1/3/67, zero rows, tiling-cache reuse after allocator churn, warmed graph
-replay with rewritten inputs, unsupported layouts and sequential
-reconstruction of TP2/TP8 shards. These are operator checks; they do not
-establish model task accuracy.
+0/1/3/67, zero rows, tiling-cache reuse after allocator churn, launches
+queued without an intervening synchronization, warmed graph replay with
+rewritten inputs, unsupported layouts and sequential reconstruction of
+TP2/TP8 shards. These are operator checks; they do not establish model task
+accuracy.
 
 ### Operator measurements
+
+Current baseline for the shapes the test suite monitors, measured with the
+shared profiling utility on Ascend910_9382 + CANN 9.1.0 + torch-npu 2.10 +
+triton-ascend 3.2.2, 512 blocks per query, five warmup and five active
+iterations, average summed NPU task duration:
+
+| Query rows | Local Q/KV | Selection | Average device task |
+| --- | --- | --- | ---: |
+| 4621 | 16/2 | Fully shared | 3202.016 us |
+| 4621 | 16/2 | All different | 7929.967 us |
+| 4621 | 8/1 | Fully shared | 1773.227 us |
+| 4621 | 8/1 | All different | 4408.496 us |
+
+### Historical prototype comparison
 
 On Ascend910_9362 + CANN 9.0 + torch-npu 2.10, an alternating-order 20-sample
 comparison against a local independent-query D256 Ascend C prototype gives

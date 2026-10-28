@@ -25,17 +25,21 @@ def _pack(
     kv = tl.program_id(1)
     part = tl.program_id(2)
     if WRITE_Q:
-        # Keep gather indices and the equality flags within the A3 UB budget.
-        idx = tl.arange(0, 8192)
-        head_local = idx // 256
-        dim = idx % 256
+        # Copy one head row at a time. Source and destination rows are both 256
+        # contiguous elements, so deriving the row and head as scalars keeps
+        # every access affine. A single 8192-element gather over
+        # (row * H + head) * 256 + dim instead compiles to an element-wise
+        # gather that leaves the vector cores in a state which deadlocks a
+        # following cross-core kernel and cannot be captured in an NPU graph.
+        d = tl.arange(0, 256)
         group: tl.constexpr = H // KV
-        local_head = part * 32 + head_local
-        row = 16 * p + local_head // group
-        head = kv * group + local_head % group
-        valid = local_head < 16 * group
-        x = tl.load(Q + (row * H + head) * 256 + dim, valid & (row < R), other=0)
-        tl.store(QQ + (p * 16 * H + kv * 16 * group + part * 32) * 256 + idx, x, valid)
+        for part_head in range(32):
+            local_head = part * 32 + part_head
+            if local_head < 16 * group:
+                row = 16 * p + local_head // group
+                head = kv * group + local_head % group
+                x = tl.load(Q + (row * H + head) * 256 + d, row < R, other=0)
+                tl.store(QQ + (p * 16 * H + kv * 16 * group + local_head) * 256 + d, x)
     if (kv == 0) & (part == 0):
         j = tl.arange(0, 512)
         b0 = tl.load(B + (16 * p + 0) * 512 + j, 16 * p + 0 < R, other=-1)
