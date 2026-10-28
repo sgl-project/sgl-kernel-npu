@@ -1,0 +1,269 @@
+"""No-RoPE MLAProlog V4: C16 and ModelSlim static C8 cache contracts.
+
+The synthetic dimensions below satisfy the Ascend 950 MlaPrologV4WeightNz
+contract; they are not attributed to an unverified Kimi model configuration.
+Weights and activation scales follow SGLang's mode-3 MLAProlog inputs.
+The independent torch_native implementation is an accuracy reference on CPU;
+its transfers must not be reported as an NPU performance baseline.
+"""
+
+from functools import partial
+
+import pytest
+
+torch = pytest.importorskip("torch")
+
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
+from tests.python.utils.performance import benchmark_npu, check_performance
+from tests.python.utils.standards import AccuracyStandard
+
+# (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, side_dim).
+shape = (4096, 1536, 8, 192, 512, 64)
+page_size = 128
+perf_shape = [(1, "PA_BSND"), (17, "PA_BSND")]
+cache_cases = [(0, False), (3, False), (3, True)]
+_BF16_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
+_QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)}
+
+
+def generate_data(
+    tokens, weight_quant_mode, c8, cache_mode, query_norm_flag, *, padding=False
+):
+    """Create real NZ weights and distinct, nonconsecutive paged cache slots."""
+    import torch_npu
+
+    hidden, rank, heads, head_dim, latent, side = shape
+    generator = torch.Generator(device="cpu").manual_seed(42)
+
+    def random_bf16(*dims, scale=1.0):
+        value = torch.randn(dims, generator=generator, device="cpu") * scale
+        return value.to(torch.bfloat16).npu()
+
+    slots = ([127, 128, 0, 383] + list(range(256, 256 + tokens)))[:tokens]
+    if padding:
+        # CANN ScatterCache ignores negative slots; Q is still computed.
+        slots[-1] = -1
+    inputs = dict(
+        token_x=random_bf16(tokens, hidden),
+        weight_dq=random_bf16(hidden, rank, scale=hidden**-0.5),
+        weight_uq_qr=random_bf16(rank, heads * (head_dim + side), scale=rank**-0.5),
+        weight_uk=random_bf16(heads, head_dim, latent, scale=head_dim**-0.5),
+        weight_dkv_kr=random_bf16(hidden, latent + side, scale=hidden**-0.5),
+        rmsnorm_gamma_cq=1 + random_bf16(rank, scale=0.05),
+        rmsnorm_gamma_ckv=1 + random_bf16(latent, scale=0.05),
+        kv_cache=torch.full((3, page_size, 1, latent), 0.125).to(
+            torch.float8_e4m3fn if c8 else torch.bfloat16
+        ),
+        kr_cache=torch.full((3, page_size, 1, side), 0.125, dtype=torch.bfloat16),
+        # Exercise page edges, slot zero, the final slot, and unordered writes.
+        cache_index=torch.tensor(slots, dtype=torch.int64),
+        rope_sin=None,
+        rope_cos=None,
+        cache_mode=cache_mode,
+        query_norm_flag=query_norm_flag,
+        weight_quant_mode=weight_quant_mode,
+        kv_cache_quant_mode=1 if c8 else 0,
+        query_quant_mode=1 if c8 else 0,
+    )
+    if c8:
+        inputs["quant_scale_ckv"] = torch.tensor([32.0], dtype=torch.float32)
+    if weight_quant_mode == 3:
+        for name, scale_name in (
+            ("token_x", "dequant_scale_x"),
+            ("weight_dq", "dequant_scale_w_dq"),
+            ("weight_uq_qr", "dequant_scale_w_uq_qr"),
+            ("weight_dkv_kr", "dequant_scale_w_dkv_kr"),
+        ):
+            is_weight = name != "token_x"
+            value = inputs[name].T.contiguous() if is_weight else inputs[name]
+            quantized, scales = torch_npu.npu_dynamic_mx_quant(
+                value, axis=-1, dst_type=torch.float8_e4m3fn, block_size=32
+            )
+            inputs[name] = quantized.T.contiguous() if is_weight else quantized
+            inputs[scale_name] = (
+                scales.contiguous()
+                .reshape(value.shape[0], -1)
+                .view(torch.float8_e8m0fnu)
+            )
+    for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
+        inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
+    return inputs
+
+
+def _independent_cache(inputs):
+    return {
+        **inputs,
+        "kv_cache": inputs["kv_cache"].clone(),
+        "kr_cache": inputs["kr_cache"].clone(),
+    }
+
+
+def _cache_rows(cache, cache_mode):
+    """Decode the physical PA_NZ storage for slot-level assertions on CPU."""
+    cache = cache.cpu()
+    blocks, page, _, dim = cache.shape
+    if cache_mode == "PA_NZ":
+        c0 = 32 // cache.element_size()
+        cache = cache.reshape(blocks, dim // c0, page, c0).permute(0, 2, 1, 3)
+    return cache.reshape(blocks * page, dim)
+
+
+def _mx_scale(scales):
+    exponent = scales.cpu().view(torch.uint8)
+    assert torch.all(exponent != 255), "MXFP8 scales must be finite"
+    return torch.pow(2.0, exponent.float() - 127)
+
+
+def _check_contract(outputs, inputs):
+    assert isinstance(outputs, tuple) and len(outputs) == 5
+    tokens = inputs["token_x"].shape[0]
+    _, rank, heads, _, latent, side = shape
+    c8 = inputs["kv_cache_quant_mode"] == 1
+    mode3 = inputs["weight_quant_mode"] == 3
+    norm = inputs["query_norm_flag"]
+    expected = (
+        ((tokens, heads, latent), torch.float8_e4m3fn if c8 else torch.bfloat16),
+        ((tokens, heads, side), torch.bfloat16),
+        ((tokens, heads, 1) if c8 else (0,), torch.float32),
+        ((tokens, rank) if norm else (0,), inputs["weight_uq_qr"].dtype),
+        (
+            (tokens, rank // 32) if mode3 and norm else (0,),
+            torch.float8_e8m0fnu if mode3 else torch.float32,
+        ),
+    )
+    for output, (dims, dtype) in zip(outputs, expected):
+        assert tuple(output.shape) == dims
+        assert output.dtype == dtype
+        assert output.device == inputs["token_x"].device
+
+
+def _accuracy(outputs, expected, inputs, reference, before):
+    _check_contract(outputs, inputs)
+    _check_contract(expected, reference)
+    query = outputs[0].cpu().float()
+    query_ref = expected[0].cpu().float()
+    if inputs["kv_cache_quant_mode"] == 1:
+        # Check the public scale separately: a matching error in the FP8 value
+        # and reciprocal scale must not disappear in the reconstruction check.
+        assert_accuracy(
+            outputs[2], expected[2], _QUERY_SCALE_STANDARD, path="query_scale"
+        )
+        query *= outputs[2].cpu()
+        query_ref *= expected[2].cpu()
+    assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
+    assert_accuracy(outputs[1], expected[1], path="query_side")
+    if inputs["query_norm_flag"]:
+        norm, norm_ref = outputs[3].cpu().float(), expected[3].cpu().float()
+        if inputs["weight_quant_mode"] == 3:
+            norm = (
+                norm.reshape(norm.shape[0], -1, 32) * _mx_scale(outputs[4])[..., None]
+            )
+            norm_ref = (
+                norm_ref.reshape(norm_ref.shape[0], -1, 32)
+                * _mx_scale(expected[4])[..., None]
+            )
+        assert_accuracy(norm, norm_ref, _BF16_STANDARD, path="query_norm")
+    untouched = torch.ones(3 * page_size, dtype=torch.bool, device="cpu")
+    slots = inputs["cache_index"].cpu()
+    untouched[slots[slots >= 0]] = False
+    for name in ("kv_cache", "kr_cache"):
+        rows = _cache_rows(inputs[name], inputs["cache_mode"])
+        rows_ref = _cache_rows(reference[name], inputs["cache_mode"])
+        old_rows = _cache_rows(before[name], inputs["cache_mode"])
+        # Byte comparison also covers FP8 without requiring an FP8 compare kernel.
+        assert torch.equal(
+            rows.view(torch.uint8)[untouched], old_rows.view(torch.uint8)[untouched]
+        ), f"{name}: an unwritten slot changed"
+        value, value_ref = rows.float(), rows_ref.float()
+        if name == "kv_cache" and inputs["kv_cache_quant_mode"] == 1:
+            multiplier = inputs["quant_scale_ckv"].cpu()
+            value, value_ref = value / multiplier, value_ref / multiplier
+        assert_accuracy(value, value_ref, _BF16_STANDARD, path=name)
+
+
+@pytest.mark.parametrize(
+    "tokens,cache_mode,padding",
+    [
+        (1, "PA_BSND", False),
+        (4, "PA_NZ", False),
+        (17, "PA_BSND", False),
+        (5, "PA_BSND", True),
+    ],
+)
+@pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
+def test_mla_prolog(
+    tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
+):
+    from sgl_kernel_npu.operators.attention import mla_prolog
+
+    inputs = generate_data(
+        tokens,
+        weight_quant_mode,
+        c8,
+        cache_mode,
+        not c8 and tokens != 17,
+        padding=padding,
+    )
+    impl, impl_ref = get_test_impls()
+    checked = get_skip_acc_check() is not True
+    if checked:
+        require_distinct_impls(mla_prolog, impl, impl_ref)
+        before, reference = _independent_cache(inputs), _independent_cache(inputs)
+        pointers = [inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")]
+        expected = mla_prolog(**reference, impl=impl_ref)
+        outputs = mla_prolog(**inputs, impl=impl)
+        _accuracy(outputs, expected, inputs, reference, before)
+        assert pointers == [
+            inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")
+        ]
+    else:
+        require_test_impl(mla_prolog, impl)
+    # A CPU reference's transfer tasks are not an NPU compute baseline.
+    if impl == "torch_native":
+        return
+    executor = make_executor(mla_prolog, kwargs=inputs, accuracy_checked=checked)
+    measured = check_performance(
+        executor, enable_perf=(tokens, cache_mode) in perf_shape
+    )
+    if measured is not None:
+        from cann_ops_transformer import mla_prolog as cann_mla_prolog
+
+        # Repeated writes use the same valid slots. This compares device task
+        # durations, not Python dispatch overhead or end-to-end host latency.
+        direct_us = benchmark_npu(
+            partial(cann_mla_prolog, **inputs), tmp_path / "direct_cann"
+        )
+        record_property("direct_cann_average_device_task_us", direct_us)
+        print(f"Direct CANN average device task duration: {direct_us:.3f} us")
+
+
+@pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
+@pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
+def test_mla_prolog_direct_cann_parity(weight_quant_mode, c8, cache_mode):
+    if get_skip_acc_check() is True:
+        pytest.skip("Direct-CANN parity is disabled by --skip-acc-check=true")
+    from sgl_kernel_npu.operators.attention import mla_prolog
+
+    require_test_impl(mla_prolog, "cann")
+    from cann_ops_transformer import mla_prolog as cann_mla_prolog
+
+    inputs = generate_data(4, weight_quant_mode, c8, cache_mode, not c8)
+    direct = _independent_cache(inputs)
+    outputs = mla_prolog(**inputs, impl="cann")
+    expected = cann_mla_prolog(**direct)
+    _check_contract(outputs, inputs)
+    for actual, reference in zip(
+        (*outputs, inputs["kv_cache"], inputs["kr_cache"]),
+        (*expected, direct["kv_cache"], direct["kr_cache"]),
+    ):
+        assert actual.shape == reference.shape and actual.dtype == reference.dtype
+        assert torch.equal(
+            actual.cpu().view(torch.uint8), reference.cpu().view(torch.uint8)
+        )
