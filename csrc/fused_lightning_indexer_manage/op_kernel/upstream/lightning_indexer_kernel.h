@@ -129,6 +129,7 @@ protected:
     uint32_t aiCoreIdx = 0U;
     uint32_t usedCoreNum = 0U;
     uint32_t totalQueries = 0U;
+    bool fullVisible = false;
 
     LICommon::ConstInfo constInfo{};
     TempLoopInfo tempLoopInfo{};
@@ -167,6 +168,7 @@ __aicore__ inline void LIPreload<LIT>::InitTilingData(const FusedLightningIndexe
 {
     usedCoreNum = tilingData->usedCoreNum;
     totalQueries = tilingData->tSize;
+    fullVisible = tilingData->fullVisible != 0U;
     constInfo.batchSize = tilingData->bSize;
     constInfo.qHeadNum = constInfo.gSize = tilingData->n1Size;
     constInfo.kSeqSize = tilingData->s2Size;
@@ -556,6 +558,7 @@ __aicore__ inline void LIPreload<LIT>::CalcRunInfo(uint32_t loop, uint32_t s2Loo
     runInfo.actS1Size = tempLoopInfo.actS1Size;
     runInfo.actS2Size = tempLoopInfo.actS2Size;
     runInfo.causal = IsCausal(runInfo.bIdx);
+    runInfo.causalScore = runInfo.causal || fullVisible;
     // 计算实际基本块size
     runInfo.actMBaseSize = tempLoopInfo.actMBaseSize;
     runInfo.actualSingleProcessSInnerSize = constInfo.s2BaseSize;

@@ -178,6 +178,7 @@ def fused_lightning_indexer_manage(
     miss_src_ids,
     miss_dst_slots,
     miss_counts,
+    full_visible=False,
 ):
     """Produce TopK/cache plans in place using the wheel's native A2/A3 LIM.
 
@@ -204,4 +205,5 @@ def fused_lightning_indexer_manage(
         miss_src_ids,
         miss_dst_slots,
         miss_counts,
+        full_visible,
     )

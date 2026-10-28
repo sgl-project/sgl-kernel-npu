@@ -612,7 +612,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
     }
     // cuRealAcSeq: 当前基本块S1对应的AcSeq
     int32_t cuRealAcSeq = info.actS2Size;
-    if (info.causal) {
+    if (info.causalScore) {
         // attenMask true场景
         cuRealAcSeq = info.actS2Size - (info.actS1Size - cuS1BeginIdxPerAiv);
     }
@@ -633,7 +633,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
     // LD输出S1方向偏移，保证2个Vector输出的内容连续
     uint32_t ldS1Offset = (blockId_ % 2 == 0) ? s1BaseSize_ / 2 - cuS1ProcNumPerAiv : 0;
     for (int innerS1Idx = 0; innerS1Idx < cuS1ProcNumPerAiv; innerS1Idx++) {
-        if (info.causal) {
+        if (info.causalScore) {
             cuRealAcSeq += 1;
         }
         int32_t cuS2Len = cuBaseS2Idx + s2BaseSize_ >= cuRealAcSeq ? cuRealAcSeq - cuBaseS2Idx : s2BaseSize_;

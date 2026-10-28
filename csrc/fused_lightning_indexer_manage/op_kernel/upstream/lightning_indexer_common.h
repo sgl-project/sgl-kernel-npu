@@ -58,6 +58,7 @@ struct RunInfo {
     bool isLastS2InnerLoop;
     bool isAllLoopEnd = false;
     bool causal = false;
+    bool causalScore = false;
 };
 
 struct ConstInfo {

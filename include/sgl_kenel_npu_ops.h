@@ -139,7 +139,8 @@ void fused_scatter_copy_sparse_flash_attention(
     const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids,
     const at::Tensor &miss_dst_slots, const at::Tensor &miss_counts,
     const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
-    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value);
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value,
+    bool full_visible);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
@@ -192,7 +193,7 @@ void fused_lightning_indexer_manage(
     const at::Tensor &req_pool_entries, at::Tensor cache_slots_pool,
     at::Tensor topk_src_ids, at::Tensor topk_dst_slots,
     at::Tensor topk_miss_counts, at::Tensor miss_src_ids,
-    at::Tensor miss_dst_slots, at::Tensor miss_counts);
+    at::Tensor miss_dst_slots, at::Tensor miss_counts, bool full_visible);
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,

@@ -18,7 +18,8 @@ HOST_API void fused_lightning_indexer_manage(
     const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_key,
     const at::Tensor &offload_seq_lengths_key, const at::Tensor &num_cache_tokens, const at::Tensor &request_state,
     const at::Tensor &req_pool_entries, at::Tensor cache_slots_pool, at::Tensor topk_src_ids, at::Tensor topk_dst_slots,
-    at::Tensor topk_miss_counts, at::Tensor miss_src_ids, at::Tensor miss_dst_slots, at::Tensor miss_counts)
+    at::Tensor topk_miss_counts, at::Tensor miss_src_ids, at::Tensor miss_dst_slots, at::Tensor miss_counts,
+    bool full_visible)
 {
     constexpr int64_t kTopK = LIMConfig::TOPK;
     constexpr int64_t kMissCapacity = LIMConfig::MISS_CAPACITY;
@@ -134,6 +135,7 @@ HOST_API void fused_lightning_indexer_manage(
     tiling.n1Size = query.size(1);
     tiling.cacheSlotsSize = cache_slots_pool.size(1);
     tiling.scheduleMode = schedule;
+    tiling.fullVisible = full_visible ? 1U : 0U;
     tiling.dtype = query.scalar_type() == at::kHalf ? 1U : 27U;
     auto tilingTensor = ge_helper::TilingTensorCache<FusedLightningIndexerManageTilingData>::Get(
         tiling, "fused_lightning_indexer_manage");

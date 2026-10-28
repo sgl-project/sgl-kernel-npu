@@ -21,7 +21,8 @@ struct FusedLightningIndexerManageTilingData {
     uint32_t dtype;
     // Explicit zeroed fields keep every cache slot 32-byte aligned and avoid
     // unspecified padding bytes in the serialized tiling-cache key.
-    uint32_t reserved[5];
+    uint32_t fullVisible;
+    uint32_t reserved[4];
 };
 static_assert(offsetof(FusedLightningIndexerManageTilingData, dtype) == 40);
 static_assert(sizeof(FusedLightningIndexerManageTilingData) == 64);

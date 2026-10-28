@@ -256,7 +256,8 @@ __aicore__ inline bool FinalizeStandardCounts(__gm__ uint8_t *requestStateAddr, 
                                  actualSeqLengthsKey, requestState, cacheSlots, cacheTokens, reqPoolEntries,           \
                                  scoreScratch, thresholdScratch, routeMissCounts, missSrcIds, missDstSlots, missCount, \
                                  topkSourceIds, topkSlots, topkMissCounts, tiling_data->bSize, tiling_data->tSize,     \
-                                 tiling_data->s2Size, tiling_data->poolSize, tiling_data->cacheSlotsSize, &tPipe);     \
+                                 tiling_data->s2Size, tiling_data->poolSize, tiling_data->cacheSlotsSize,              \
+                                 tiling_data->fullVisible != 0U, &tPipe);                                              \
                     unionOp.Process(unionOwner, unionOwners);                                                          \
                 }                                                                                                      \
             }                                                                                                          \
@@ -287,7 +288,8 @@ extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
         config->bSize,        config->tSize,     config->s2Size,
         config->usedCoreNum,  config->blockSize, config->maxBlockNumPerBatch,
         config->poolSize,     config->n1Size,    config->cacheSlotsSize,
-        config->scheduleMode, config->dtype,     {0U, 0U, 0U, 0U, 0U}};
+        config->scheduleMode, config->dtype,     config->fullVisible,
+        {0U, 0U, 0U, 0U}};
     const FusedLightningIndexerManageTilingData *__restrict tiling_data = &tiling_data_in;
     if (tiling_data->dtype == 1U) {
         INVOKE_LI_MTP_TOPK(half, half);

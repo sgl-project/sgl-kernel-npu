@@ -381,7 +381,15 @@ __aicore__ inline void FusedScatterCopySparseFlashAttentionMla<SFAT>::GetSparseA
     } else {
         cacheTokenCount = cacheTokensGm.GetValue(bIdx);
     }
-    if (cacheTokenCount == 0) {
+    if (tilingData->fullVisible && visibleKvLen == 0) {
+        tempLoopInfo.tailSlotStart = -1;
+        tempLoopInfo.tailTokenCount = 0;
+        tempLoopInfo.sparseTokenCount = 0;
+    } else if (tilingData->fullVisible && cacheTokenCount >= static_cast<int32_t>(SFA_OFFLOAD_SPARSE_COMPUTE_COUNT)) {
+        tempLoopInfo.tailSlotStart = -1;
+        tempLoopInfo.tailTokenCount = 0;
+        tempLoopInfo.sparseTokenCount = SFA_OFFLOAD_SPARSE_COMPUTE_COUNT;
+    } else if (cacheTokenCount == 0) {
         tempLoopInfo.tailSlotStart = 0;
         tempLoopInfo.tailTokenCount = static_cast<uint32_t>(visibleKvLen);
         tempLoopInfo.sparseTokenCount = 0;

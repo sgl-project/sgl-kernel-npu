@@ -33,7 +33,7 @@
 #include "fused_copy_sfa_tiling_data.h"
 
 using FusedScatterCopySparseFlashAttentionTilingData = FusedCopySfaTilingData;
-using FusedScatterCopySparseFlashAttentionTilingDataMla = SparseFlashAttentionTilingDataMla;
+using FusedScatterCopySparseFlashAttentionTilingDataMla = FusedCopySfaTilingData;
 
 #include "sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h"
 #include "first_fill_scatter_copy_kernel.h"
@@ -56,7 +56,7 @@ RunFirstFillScatterCopy(__gm__ uint8_t *hbmKeyRope, __gm__ uint8_t *hbmKvCache, 
 }
 
 __aicore__ inline bool IsBatchFirstFill(__gm__ uint8_t *cacheTokens, __gm__ uint8_t *missCounts, uint32_t batchSize,
-                                        uint32_t missCap)
+                                        uint32_t missCap, bool fullVisible)
 {
     GlobalTensor<int32_t> cacheTokensGm;
     GlobalTensor<int32_t> missCountsGm;
@@ -71,7 +71,7 @@ __aicore__ inline bool IsBatchFirstFill(__gm__ uint8_t *cacheTokens, __gm__ uint
                    "miss_count exceeds the request-level input capacity.");
         // Padding rows have both counts set to zero. They must not select the
         // batch-wide first-fill path for otherwise steady requests.
-        if (cacheTokenCount > 0 && missCount >= cacheTokenCount) {
+        if (cacheTokenCount > 0 && (missCount >= cacheTokenCount || (fullVisible && missCount > 0))) {
             firstFill = true;
         }
     }
@@ -125,8 +125,8 @@ extern "C" __global__ __aicore__ void fused_scatter_copy_sparse_flash_attention_
 
     TPipe pipe;
     __gm__ uint8_t *attentionWorkspace = GetUserWorkspace(workspace);
-    const bool firstFill =
-        IsBatchFirstFill(cacheTokens, missCounts, fusedTiling->baseParams.batchSize, fusedTiling->missCap);
+    const bool firstFill = IsBatchFirstFill(cacheTokens, missCounts, fusedTiling->baseParams.batchSize,
+                                            fusedTiling->missCap, fusedTiling->fullVisible != 0U);
     if (firstFill) {
         if (isBf16) {
             RunFirstFillScatterCopy<bfloat16_t, true>(hbmKeyRope, key, dramKeyRope, dramKvCache, hbmBlockTable,
