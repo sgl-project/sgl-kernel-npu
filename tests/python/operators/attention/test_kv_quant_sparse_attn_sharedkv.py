@@ -21,6 +21,33 @@ def require_ascend950(configure_npu):
         pytest.skip("quantized shared-KV attention requires Ascend 950")
 
 
+@pytest.mark.parametrize(
+    ("public_name", "name", "expected_impls", "native_name"),
+    [
+        (
+            "kv_quant_sparse_attn_sharedkv",
+            "attention.kv_quant_sparse_attn_sharedkv",
+            {"auto", "ascendc", "torch_native"},
+            "kv_quant_sparse_attn_sharedkv",
+        ),
+        (
+            "kv_quant_sparse_attn_sharedkv_metadata_host",
+            "attention.kv_quant_sparse_attn_sharedkv_metadata_host",
+            {"auto", "host", "torch_native"},
+            "kv_quant_sparse_attn_sharedkv_metadata_host",
+        ),
+    ],
+)
+def test_public_registration(public_name, name, expected_impls, native_name):
+    from sgl_kernel_npu.operators import attention
+    from sgl_kernel_npu.operators.utils.registry import get_op_name, list_impls
+
+    operator = getattr(attention, public_name)
+    assert get_op_name(operator) == name
+    assert set(list_impls(operator)) == expected_impls
+    assert hasattr(torch.ops.npu, native_name)
+
+
 def generate_test_data(batch, query_len, heads, kv_len, seed=42):
     """Create packed FP8 KV with RoPE BF16, NoPE FP8 and seven E8M0 scales."""
     torch.manual_seed(seed)
@@ -96,25 +123,39 @@ def test_paged_swa(batch, query_len, heads, kv_len, window):
     )
 
 
-def test_host_metadata_public_api_matches_native_binding():
+@pytest.mark.parametrize(
+    ("layout", "heads", "has_cmp", "cmp_ratio", "kv_len"),
+    [
+        pytest.param("BSND", 64, False, 1, 128, id="decode-64-heads"),
+        pytest.param("TND", 64, True, 4, 128, id="compressed-64-heads"),
+        pytest.param("TND", 128, False, 1, 256, id="decode-128-heads"),
+    ],
+)
+def test_host_metadata_accuracy(layout, heads, has_cmp, cmp_ratio, kv_len):
     from sgl_kernel_npu.operators.attention import (
         kv_quant_sparse_attn_sharedkv_metadata_host,
     )
 
     kwargs = dict(
-        num_heads_q=64,
+        num_heads_q=heads,
         num_heads_kv=1,
         head_dim=512,
-        layout_q="TND",
+        layout_q=layout,
         layout_kv="PA_ND",
         cu_seqlens_q=torch.tensor([0, 1], dtype=torch.int32),
-        seqused_kv=torch.tensor([128], dtype=torch.int32),
+        seqused_kv=torch.tensor([kv_len], dtype=torch.int32),
         batch_size=1,
         max_seqlen_q=1,
-        max_seqlen_kv=128,
+        max_seqlen_kv=kv_len,
+        cmp_ratio=cmp_ratio,
         has_ori_kv=True,
-        has_cmp_kv=False,
+        has_cmp_kv=has_cmp,
     )
-    public = kv_quant_sparse_attn_sharedkv_metadata_host(**kwargs)
-    native = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**kwargs)
-    torch.testing.assert_close(public, native, rtol=0, atol=0)
+    executor = check_accuracy(
+        kv_quant_sparse_attn_sharedkv_metadata_host,
+        kwargs=kwargs,
+    )
+    check_performance(
+        executor,
+        enable_perf=layout == "BSND" and heads == 64,
+    )
