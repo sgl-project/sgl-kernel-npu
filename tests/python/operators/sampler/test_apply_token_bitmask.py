@@ -39,12 +39,8 @@ APPLY_TOKEN_BITMASK_STANDARD = {
 }
 
 
-@pytest.mark.parametrize("dtype", APPLY_TOKEN_BITMASK_DTYPES)
-@pytest.mark.parametrize("shape", APPLY_TOKEN_BITMASK_SHAPES)
-@pytest.mark.parametrize("mode", ["all_masked", "all_unmasked", "half_masked", "random"])
-def test_apply_token_bitmask(shape, dtype, mode):
-    from sgl_kernel_npu.operators.sampler import apply_token_bitmask
-
+def generate_test_data(shape, dtype, mode, selection="none"):
+    """Generate logits, bitmask, and optional row indices for bitmask tests."""
     generator = torch.Generator(device="cpu").manual_seed(20261022)
     logits = torch.randn(shape, generator=generator, device="cpu").to(dtype).npu()
     width = (shape[1] + 31) // 32
@@ -62,6 +58,27 @@ def test_apply_token_bitmask(shape, dtype, mode):
         bitmask = torch.full(
             (shape[0], width), value, dtype=torch.int32, device=logits.device
         )
+    choices = {
+        "none": None,
+        "subset": [0, 2, 5, 7],
+        "all": list(range(shape[0])),
+        "empty": [],
+    }
+    indices = (
+        None
+        if selection == "none"
+        else torch.tensor(choices[selection], dtype=torch.int32, device=logits.device)
+    )
+    return logits, bitmask, indices
+
+
+@pytest.mark.parametrize("dtype", APPLY_TOKEN_BITMASK_DTYPES)
+@pytest.mark.parametrize("shape", APPLY_TOKEN_BITMASK_SHAPES)
+@pytest.mark.parametrize("mode", ["all_masked", "all_unmasked", "half_masked", "random"])
+def test_apply_token_bitmask(shape, dtype, mode):
+    from sgl_kernel_npu.operators.sampler import apply_token_bitmask
+
+    logits, bitmask, _ = generate_test_data(shape, dtype, mode)
 
     impl, impl_ref = get_test_impls()
     skip_accuracy = bool(get_skip_acc_check())
@@ -102,27 +119,8 @@ def test_apply_token_bitmask(shape, dtype, mode):
 def test_apply_token_bitmask_boundaries(shape, dtype, selection):
     from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 
-    generator = torch.Generator(device="cpu").manual_seed(20261022)
-    logits = torch.randn(shape, generator=generator, device="cpu").to(dtype).npu()
-    width = (shape[1] + 31) // 32
-    bitmask = torch.randint(
-        -(2**31),
-        2**31,
-        (shape[0], width),
-        generator=generator,
-        dtype=torch.int32,
-        device="cpu",
-    ).npu()
-    choices = {
-        "none": None,
-        "subset": [0, 2, 5, 7],
-        "all": list(range(shape[0])),
-        "empty": [],
-    }
-    indices = (
-        None
-        if selection == "none"
-        else torch.tensor(choices[selection], dtype=torch.int32, device=logits.device)
+    logits, bitmask, indices = generate_test_data(
+        shape, dtype, mode="random", selection=selection
     )
 
     impl, impl_ref = get_test_impls()
