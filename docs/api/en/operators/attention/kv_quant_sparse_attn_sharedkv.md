@@ -19,8 +19,8 @@ output, empty_lse = kv_quant_sparse_attn_sharedkv(
 )
 ```
 
-The public attention API accepts the native operator's keyword arguments and
-an additional keyword-only `impl` selector. `auto` and `ascendc` call the
+The public attention API declares the native operator's parameters explicitly
+and adds a keyword-only `impl` selector. `auto` and `ascendc` call the
 existing `torch.ops.npu.kv_quant_sparse_attn_sharedkv` binding on Ascend 950.
 The independent `torch_native` implementation covers only BF16 BSND/PA_ND
 uncompressed paged sliding-window attention for accuracy validation. It copies
@@ -29,8 +29,9 @@ sparse-index and TND paths remain covered by the existing native tests.
 
 The host metadata API accepts CPU contiguous int32 sequence lengths and returns
 the int32[1024] schedule on NPU. Its `auto` and `host` implementations call
-`torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host`. Existing SGLang
-call sites can continue using both low-level `torch.ops.npu` names unchanged.
+`torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host`. The A5 DSpArk
+SGLang path uses these public functions; low-level `torch.ops.npu` bindings
+remain available for existing callers.
 
 ## Build status under the CANN refactor
 

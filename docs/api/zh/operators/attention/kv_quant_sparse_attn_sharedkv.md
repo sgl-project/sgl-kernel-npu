@@ -19,7 +19,7 @@ output, empty_lse = kv_quant_sparse_attn_sharedkv(
 )
 ```
 
-公开接口保留原生算子的关键字参数，另外提供仅限关键字的 `impl`。
+公开接口显式列出原生算子的参数，另外提供仅限关键字的 `impl`。
 `auto` 和 `ascendc` 在昇腾 950 上调用现有的
 `torch.ops.npu.kv_quant_sparse_attn_sharedkv`。独立的 `torch_native`
 参考实现只覆盖 BF16、BSND/PA_ND、未压缩 KV 的普通分页滑动窗口路径，
@@ -29,7 +29,8 @@ output, empty_lse = kv_quant_sparse_attn_sharedkv(
 metadata host 接口要求 CPU 上连续的 int32 序列长度，返回 NPU 上的
 int32[1024] 调度数据。`auto` 和 `host` 都调用原有
 `torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host`。SGLang
-现有的低层 `torch.ops.npu` 调用无需修改。
+的 A5 DSpArk 路径改用这两个公开函数；原有的低层 `torch.ops.npu`
+绑定仍供其他调用方使用。
 
 ## CANN 重构下的构建状态
 

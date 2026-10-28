@@ -15,7 +15,10 @@ import unittest
 import sgl_kernel_npu  # noqa: F401 - registers the custom operators
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import kv_quant_sparse_attn_sharedkv
+from sgl_kernel_npu.operators.attention import (
+    kv_quant_sparse_attn_sharedkv,
+    kv_quant_sparse_attn_sharedkv_metadata_host,
+)
 
 
 def _single_core_metadata(device):
@@ -291,7 +294,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
 
         def host_metadata(kv_length):
             kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32)
-            return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(
+            return kv_quant_sparse_attn_sharedkv_metadata_host(
                 num_heads_q=128,
                 num_heads_kv=1,
                 head_dim=512,
@@ -313,14 +316,14 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         stable_metadata = inputs["metadata"]
         stable_ptr = stable_metadata.data_ptr()
 
-        torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        kv_quant_sparse_attn_sharedkv(**inputs)
         torch_npu.npu.synchronize()
         graph = torch_npu.npu.NPUGraph()
         capture_stream = torch_npu.npu.Stream()
         with torch_npu.npu.graph(
             graph, stream=capture_stream, auto_dispatch_capture=True
         ):
-            graph_out, _ = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+            graph_out, _ = kv_quant_sparse_attn_sharedkv(**inputs)
         torch_npu.npu.synchronize()
 
         schedules = []
@@ -396,6 +399,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         }
 
         actual, lse = torch.ops.npu.kv_quant_sparse_attn_sharedkv(**inputs)
+        public, _ = kv_quant_sparse_attn_sharedkv(**inputs)
         torch_npu.npu.synchronize()
         expected = _reference_sparse_attention(
             q_cpu, kv_reference, physical_slots, scale
@@ -407,6 +411,7 @@ class TestKvQuantSparseAttnSharedkv(unittest.TestCase):
         self.assertGreater(expected.abs().max().item(), 0.05)
         self.assertGreater(actual_cpu.abs().max().item(), 0.05)
         torch.testing.assert_close(actual_cpu, expected, rtol=2e-2, atol=2e-2)
+        torch.testing.assert_close(public.cpu().float(), expected, rtol=2e-2, atol=2e-2)
         self.assertEqual(lse.dtype, torch.float32)
         self.assertEqual(lse.numel(), 0)
 
