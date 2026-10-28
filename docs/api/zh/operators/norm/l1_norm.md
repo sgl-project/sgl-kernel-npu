@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | A3 精度已验证 | 已注册，待验证 |
-| `torch_native` | A3 精度已验证 | 已注册，待验证 |
+| `triton` | A3 精度已验证 | A5 已验证 |
+| `torch_native` | A3 精度已验证 | A5 已验证 |
 
-FP32、FP16、BF16 用例已在 A3 的 CANN 9.0 和 9.1 环境通过（[CI 结果](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)）。该结果对应 wrapper 移动和 API 更名前的实现；本次目录调整仍需 NPU 复测。arch35 真机验证和性能测量尚未完成。
+FP32、FP16、BF16 用例已在 A3 的 CANN 9.0 和 9.1 环境通过（[CI 结果](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)）。该结果对应 wrapper 移动和 API 更名前的实现；本次目录调整仍需 NPU 复测。A5 真机已由算子贡献者验证；性能测量尚未完成。
 
 ## 函数原型
 

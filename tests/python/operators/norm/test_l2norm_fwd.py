@@ -34,9 +34,9 @@ def generate_test_data(shape, zero, dtype):
             (2, 3, 512), 1e-6, torch.float32, False, id="opt-boundary-fp32-output"
         ),
         pytest.param(
-            (17, 513), 1e-3, torch.bfloat16, False, id="kernel1-tail-bf16-output"
+            (17, 513), 1e-3, torch.bfloat16, False, id="kernel-tail-bf16-output"
         ),
-        pytest.param((3, 1024), 0.0, torch.float16, False, id="kernel1-zero-epsilon"),
+        pytest.param((3, 1024), 0.0, torch.float16, False, id="kernel-zero-epsilon"),
         pytest.param((3, 128), 1e-6, None, True, id="zero-input"),
         pytest.param((0, 128), 1e-6, None, False, id="empty"),
         # Ascend GDN prefill passes contiguous Q/K as [tokens, key_heads / TP, 128].
