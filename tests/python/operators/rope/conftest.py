@@ -8,7 +8,10 @@ def pytest_addoption(parser):
         "--run-rope-extra-checks",
         action="store_true",
         default=False,
-        help="Run supplementary RoPE output-contract and invalid-input checks.",
+        help=(
+            "Run supplementary RoPE output-contract, invalid-input "
+            "and mixed-cache-dtype checks."
+        ),
     )
 
 

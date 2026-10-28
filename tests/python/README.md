@@ -30,9 +30,10 @@ if both checks are disabled, the operator is not executed. Use serial pytest or
 
 ### RoPE supplementary checks
 
-The RoPE suite runs 64 accuracy/performance cases by default. Its 60 output-contract
-checks and 24 invalid-input checks are retained as separate tests and skipped
-before device setup unless `--run-rope-extra-checks` is supplied:
+The RoPE suite runs 60 accuracy/performance cases by default. Its 60 output-contract
+checks, 24 invalid-input checks and 4 mixed-cache-dtype cases are retained as
+separate tests and skipped before device setup unless `--run-rope-extra-checks`
+is supplied:
 
 ```bash
 python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
@@ -41,7 +42,8 @@ python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
 
 The default accuracy/performance cases do not make an extra operator call for
 output-contract checks. With `--skip-acc-check=true`, the optional output-contract
-tests are also skipped. Supplementary tests never collect performance.
+tests are also skipped. Output-contract and invalid-input tests never collect
+performance; mixed-cache-dtype cases follow the shared performance switch.
 
 ## Write a test
 

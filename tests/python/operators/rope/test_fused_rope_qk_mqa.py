@@ -230,6 +230,7 @@ def test_fused_rope_qk_mqa_output_contract(
     _check_output_contract(result, inputs, snapshots, rotary_dim, is_neox_style, mode)
 
 
+@pytest.mark.rope_extra_checks
 @pytest.mark.parametrize("is_neox_style", [True, False], ids=["neox", "gptj"])
 @pytest.mark.parametrize(
     "dtype,cache_dtype",
