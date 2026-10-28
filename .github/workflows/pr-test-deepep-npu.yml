@@ -450,6 +450,30 @@ jobs:
             exit 1
           fi
           echo "All MegaMoe SR cases passed"
+      - name: Experiment - retry 2 baseline-limited cases with num-processes 16 (record-only)
+        if: always()
+        timeout-minutes: 60
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/megamoe_np16_results.txt
+          : > ${RESULT_FILE}
+          run_case() {
+            local name="$1"; shift
+            echo "===== CASE: $name ====="
+            if timeout 1800 "$@"; then
+              echo "PASS  $name" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py
+          # probe: script default is --num-processes 16 (16-die runner); fewer local experts/rank
+          # (1024/16=64 vs 1024/8=128) may satisfy the MC2 baseline CheckInputParam constraint
+          run_case mega_exp_np16_all_dims_max   python3 ${SCRIPT} --num-processes 16 --num-topk 16 --num-experts 1024 --hidden 8192 --moe-intermediate-size 3584 --hccl-buffsize 2000
+          run_case mega_exp_np16_capacity_4096  python3 ${SCRIPT} --num-processes 16 --quant-mode w8a8 --activation swiglu --hidden 8192 --num-topk 16 --num-experts 256 --num-tokens 4096 --hccl-buffsize 2000
+          echo "================ MegaMoe np16 EXPERIMENT SUMMARY (record-only) ================"
+          cat ${RESULT_FILE}
+          echo "Experiment result recorded; verdict unchanged regardless of outcome"
 
   test-deepep-a5-sr-cases:
     name: A5 SR cases - FusedMoe K3 + ant migration (4-card, CANN 9.1.0)
