@@ -1,5 +1,7 @@
 """Public A5 quantized shared-KV attention APIs."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -17,8 +19,6 @@ _reference = None
     supported_generations={Generation.ARCH35},
 )
 def _ascendc_attention(q, **kwargs):
-    import torch
-
     return torch.ops.npu.kv_quant_sparse_attn_sharedkv(q, **kwargs)
 
 

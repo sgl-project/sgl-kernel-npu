@@ -119,12 +119,14 @@ On Ascend 950, run from the repository root:
 ```bash
 ./build.sh -a kernels Ascend950PR_9599
 python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu*.whl
-python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv_metadata.py
-python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv.py
+python -m pytest tests/python/operators/attention/ --npu-device=0 --enable-perf=false -v -s
 ```
 
 The main test packs nonzero BF16 RoPE values, FP8 NoPE values, and E8M0 scales
 into KV rows, then compares the BF16 output with an independent PyTorch
 reference. It checks noncontiguous physical slots, the `-1` terminator, and a
 selection that crosses the 128-row S2 tile boundary. The test requires Ascend
-950 and skips when that hardware is unavailable.
+950. The shared test framework selects the NPU using `--npu-device`.
+
+The public API is documented in
+[`docs/api/en/operators/attention/kv_quant_sparse_attn_sharedkv.md`](../../docs/api/en/operators/attention/kv_quant_sparse_attn_sharedkv.md).

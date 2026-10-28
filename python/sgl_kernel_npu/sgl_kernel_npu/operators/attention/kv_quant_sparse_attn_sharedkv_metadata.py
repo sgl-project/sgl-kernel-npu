@@ -1,5 +1,7 @@
 """Host metadata API for A5 quantized shared-KV attention."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -17,8 +19,6 @@ _metadata_reference = None
     supported_generations={Generation.ARCH35},
 )
 def _host_metadata(**kwargs):
-    import torch
-
     return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**kwargs)
 
 
@@ -67,7 +67,7 @@ def kv_quant_sparse_attn_sharedkv_metadata_host(
     """Build A5 metadata from CPU int32 lengths.
 
     torch_native independently constructs the single-request decode schedule;
-    other schedules use the host implementation.
+    other schedules require impl="host" or impl="auto".
     """
     kwargs = dict(
         num_heads_q=num_heads_q,

@@ -73,7 +73,7 @@ def kv_quant_sparse_attn_sharedkv(
             right = min(kv_length - 1, aligned + ori_win_right)
             if right < left:
                 continue
-            logical = torch.arange(left, right + 1)
+            logical = torch.arange(left, right + 1, device="cpu")
             physical = (
                 table[batch, logical // block_size].long() * block_size
                 + logical % block_size

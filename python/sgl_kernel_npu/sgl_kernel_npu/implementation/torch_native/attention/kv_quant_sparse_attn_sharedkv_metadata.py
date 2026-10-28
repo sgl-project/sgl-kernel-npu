@@ -61,7 +61,7 @@ def kv_quant_sparse_attn_sharedkv_metadata(**kwargs):
     ):
         raise NotImplementedError("Unsupported compressed-KV mode")
 
-    schedule = torch.zeros(1024, dtype=torch.int32)
+    schedule = torch.zeros(1024, dtype=torch.int32, device="cpu")
     schedule[0] = 1  # First cube core enabled.
     schedule[4] = 1  # Exclusive batch/head-group end.
     if heads == 128:

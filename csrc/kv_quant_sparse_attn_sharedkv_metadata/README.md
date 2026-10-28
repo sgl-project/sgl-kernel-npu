@@ -35,14 +35,12 @@ mirrors. For NPU graph replay, generate fresh metadata before replay and copy
 it into the stable NPU metadata tensor captured by the graph. The host metadata
 operator itself is called outside graph capture.
 
-Run `test_tnd_consumes_sglang_cann_metadata` to check C1 decode and prefill
-attention using the CANN producer directly. The test requires the SGLang CANN
-metadata op; a skip means compatibility has not been verified. C4/C128
-compressed attention and NPU graph replay still need end-to-end validation
-before changing SGLang's operator selection in production.
+External CANN metadata compatibility is not covered by the public API tests.
+C4/C128 compressed attention still needs end-to-end validation before changing
+SGLang operator selection in production.
 
 On an Ascend 950 machine, build the `kernels` wheel and run:
 
 ```bash
-python tests/python/sgl_kernel_npu/test_kv_quant_sparse_attn_sharedkv_metadata.py
+python -m pytest tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py --npu-device=0 --enable-perf=false -v -s
 ```

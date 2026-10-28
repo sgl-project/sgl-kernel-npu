@@ -1,0 +1,400 @@
+"""DeepSeek-V4-Flash sparse-slot and graph regressions via public operators.
+
+Small page-16 fixtures exercise physical slots, a 128-row tile tail and
+mixed request lengths. Graph checks compare replay outputs with CPU attention
+outside capture and verify that refreshed metadata retains its address.
+These custom flows complement the shared accuracy/performance tests.
+"""
+
+import math
+
+import pytest
+
+torch = pytest.importorskip("torch")
+torch_npu = pytest.importorskip("torch_npu")
+
+from sgl_kernel_npu.operators.attention import (
+    kv_quant_sparse_attn_sharedkv,
+    kv_quant_sparse_attn_sharedkv_metadata_host,
+)
+
+
+def _single_core_metadata(device):
+    """Assign the entire batch/query/KV range to cube core 0."""
+    metadata = torch.zeros(1024, dtype=torch.int32, device=device)
+    metadata[0] = 1
+    metadata[4] = 1
+    return metadata
+
+
+def _packed_kv_and_reference(block_count, block_size):
+    """Make valid 640-byte rows and the corresponding dequantized [slot, D]."""
+    torch.manual_seed(20261015)
+    block_bias = (
+        torch.arange(block_count, dtype=torch.float32, device="cpu")[:, None, None]
+        * 0.05
+    )
+    rope = (
+        torch.randn(block_count, block_size, 64, device="cpu") * 0.5 + block_bias
+    ).to(torch.bfloat16)
+    nope = (
+        torch.randn(block_count, block_size, 448, device="cpu") * 0.5 + block_bias
+    ).to(torch.float8_e4m3fn)
+    packed = torch.zeros(
+        (block_count, block_size, 1, 640), dtype=torch.uint8, device="cpu"
+    )
+    scale_codes = torch.tensor(
+        [126, 127, 128, 126, 127, 128, 127], dtype=torch.uint8, device="cpu"
+    )
+    scale_values = torch.tensor([0.5, 1.0, 2.0, 0.5, 1.0, 2.0, 1.0], device="cpu")
+    packed[:, :, 0, :128] = rope.contiguous().view(torch.uint8)
+    packed[:, :, 0, 128:576] = nope.contiguous().view(torch.uint8)
+    packed[:, :, 0, 576:583] = scale_codes
+    dequant_nope = nope.float().reshape(block_count, block_size, 7, 64)
+    dequant_nope = (dequant_nope * scale_values[None, None, :, None]).to(torch.bfloat16)
+    dequant_nope = dequant_nope.reshape(block_count, block_size, 448)
+    dequantized = torch.cat((dequant_nope, rope), dim=-1)
+    return (packed.view(torch.float8_e4m3fn), dequantized.reshape(-1, 512))
+
+
+def _reference_sparse_attention(q, kv, physical_slots, scale):
+    selected_kv = kv[physical_slots.long()].float()
+    scores = torch.matmul(q[0].float(), selected_kv.T) * scale
+    return torch.matmul(torch.softmax(scores, dim=-1), selected_kv).unsqueeze(0)
+
+
+def _reference_paged_swa(
+    q, kv, block_table, kv_length, block_size, scale, ori_win_left, ori_win_right
+):
+    """Apply the logical window, then resolve rows through the page table."""
+    q_length = q.shape[1]
+    outputs = []
+    for query_idx in range(q_length):
+        aligned_kv_idx = kv_length - q_length + query_idx
+        left = max(aligned_kv_idx - ori_win_left, 0)
+        right = min(aligned_kv_idx + ori_win_right, kv_length - 1)
+        logical_slots = torch.arange(left, right + 1, device="cpu")
+        physical_slots = (
+            block_table[0, logical_slots // block_size].long() * block_size
+            + logical_slots % block_size
+        )
+        selected_kv = kv[physical_slots].float()
+        scores = torch.matmul(q[0, query_idx].float(), selected_kv.T) * scale
+        outputs.append(torch.matmul(torch.softmax(scores, dim=-1), selected_kv))
+    return torch.stack(outputs, dim=0).unsqueeze(0)
+
+
+class TestKvQuantSparseAttnSharedkv:
+
+    @property
+    def device(self):
+        return torch.device("npu", torch.npu.current_device())
+
+    def test_rejects_fp16_query(self):
+        q = torch.zeros((1, 1, 64, 512), dtype=torch.float16, device=self.device)
+        with pytest.raises(RuntimeError, match="q must be bfloat16"):
+            kv_quant_sparse_attn_sharedkv(q)
+
+    def test_tiling_error_reports_invalid_head_count(self):
+        (inputs, *_) = self._make_paged_swa_inputs(q_length=1, ori_win_left=127)
+        inputs["q"] = inputs["q"][:, :, :32, :].contiguous()
+        inputs["sinks"] = inputs["sinks"][:32].contiguous()
+        with pytest.raises(
+            RuntimeError,
+            match="tiling validation failed: n1Size_ only support 64 and 128 now, but got 32",
+        ):
+            kv_quant_sparse_attn_sharedkv(**inputs)
+
+    def _make_paged_swa_inputs(self, q_length, ori_win_left):
+        device = self.device
+        (block_count, block_size, kv_length) = (20, 16, 256)
+        scale = 1.0 / math.sqrt(512)
+        (packed_cpu, kv_reference) = _packed_kv_and_reference(block_count, block_size)
+        block_table = (
+            torch.arange(16, dtype=torch.int32, device="cpu").roll(5).unsqueeze(0)
+        )
+        torch.manual_seed(20261019 + q_length)
+        q_cpu = (torch.randn(1, q_length, 64, 512, device="cpu") * 0.1 + 0.05).to(
+            torch.bfloat16
+        )
+        kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32, device="cpu")
+        metadata = kv_quant_sparse_attn_sharedkv_metadata_host(
+            num_heads_q=64,
+            num_heads_kv=1,
+            head_dim=512,
+            layout_q="BSND",
+            layout_kv="PA_ND",
+            seqused_kv=kv_length_cpu,
+            batch_size=1,
+            max_seqlen_q=q_length,
+            max_seqlen_kv=kv_length,
+            cmp_topk=0,
+            cmp_ratio=1,
+            ori_mask_mode=4,
+            cmp_mask_mode=3,
+            ori_win_left=ori_win_left,
+            ori_win_right=0,
+            has_ori_kv=True,
+            has_cmp_kv=False,
+        )
+        assert metadata.device == device
+        inputs = {
+            "q": q_cpu.to(device),
+            "ori_kv": packed_cpu.to(device),
+            "ori_block_table": block_table.to(device),
+            "seqused_kv": kv_length_cpu.to(device),
+            "sinks": torch.full((64,), -10000.0, dtype=torch.float32, device=device),
+            "metadata": metadata,
+            "softmax_scale": scale,
+            "cmp_ratio": 1,
+            "ori_win_left": ori_win_left,
+            "ori_win_right": 0,
+            "layout_q": "BSND",
+            "layout_kv": "PA_ND",
+        }
+        return (inputs, q_cpu, kv_reference, block_table, kv_length, block_size)
+
+    def test_swa_bsnd_pa_nd_npu_graph(self):
+        (inputs, _, kv_reference, block_table, kv_length, block_size) = (
+            self._make_paged_swa_inputs(q_length=1, ori_win_left=127)
+        )
+        kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        graph = torch_npu.npu.NPUGraph()
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(
+            graph, stream=capture_stream, auto_dispatch_capture=True
+        ):
+            (graph_out, lse) = kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        window_start = kv_length - 1 - inputs["ori_win_left"]
+        probe_slot = (
+            int(block_table[0, window_start // block_size]) * block_size
+            + window_start % block_size
+        )
+        probe_q = kv_reference[probe_slot].to(self.device).view(1, 1, 1, 512)
+        expected_outputs = []
+        for sign in (-2.0, 2.0):
+            inputs["q"].copy_((probe_q * sign).expand_as(inputs["q"]))
+            graph.replay()
+            torch_npu.npu.synchronize()
+            expected = _reference_paged_swa(
+                inputs["q"].cpu(),
+                kv_reference,
+                block_table,
+                kv_length,
+                block_size,
+                inputs["softmax_scale"],
+                inputs["ori_win_left"],
+                inputs["ori_win_right"],
+            )
+            torch.testing.assert_close(
+                graph_out.cpu().float(), expected, rtol=0.02, atol=0.02
+            )
+            expected_outputs.append(expected)
+        assert (expected_outputs[0] - expected_outputs[1]).abs().max().item() > 0.05
+        assert lse.dtype == torch.float32
+        assert lse.numel() == 0
+
+    def test_host_metadata_refreshes_graph_buffer(self):
+        (inputs, q_cpu, kv_reference, block_table, _, block_size) = (
+            self._make_paged_swa_inputs(q_length=1, ori_win_left=255)
+        )
+        q_cpu = torch.cat((q_cpu, q_cpu), dim=2)
+        inputs["q"] = q_cpu.to(self.device)
+        inputs["sinks"] = torch.full(
+            (128,), -10000.0, dtype=torch.float32, device=self.device
+        )
+
+        def host_metadata(kv_length):
+            kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32, device="cpu")
+            return kv_quant_sparse_attn_sharedkv_metadata_host(
+                num_heads_q=128,
+                num_heads_kv=1,
+                head_dim=512,
+                layout_q="BSND",
+                layout_kv="PA_ND",
+                seqused_kv=kv_length_cpu,
+                batch_size=1,
+                max_seqlen_q=1,
+                max_seqlen_kv=256,
+                ori_win_left=255,
+                has_ori_kv=True,
+                has_cmp_kv=False,
+                kv_quant_mode=1,
+                tile_size=64,
+                rope_head_dim=64,
+            )
+
+        inputs["metadata"] = host_metadata(256)
+        stable_metadata = inputs["metadata"]
+        stable_ptr = stable_metadata.data_ptr()
+        kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        graph = torch_npu.npu.NPUGraph()
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(
+            graph, stream=capture_stream, auto_dispatch_capture=True
+        ):
+            (graph_out, _) = kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        schedules = []
+        expected_outputs = []
+        for kv_length in (128, 256):
+            kv_length_cpu = torch.tensor([kv_length], dtype=torch.int32, device="cpu")
+            inputs["seqused_kv"].copy_(kv_length_cpu.to(self.device))
+            fresh = host_metadata(kv_length)
+            stable_metadata.copy_(fresh)
+            torch_npu.npu.synchronize()
+            graph.replay()
+            torch_npu.npu.synchronize()
+            expected = _reference_paged_swa(
+                q_cpu,
+                kv_reference,
+                block_table,
+                kv_length,
+                block_size,
+                inputs["softmax_scale"],
+                inputs["ori_win_left"],
+                inputs["ori_win_right"],
+            )
+            torch.testing.assert_close(
+                graph_out.cpu().float(), expected, rtol=0.02, atol=0.02
+            )
+            assert stable_metadata.data_ptr() == stable_ptr
+            schedules.append(stable_metadata.cpu().clone())
+            expected_outputs.append(expected)
+        assert not torch.equal(schedules[0], schedules[1])
+        assert (expected_outputs[0] - expected_outputs[1]).abs().max().item() > 0.001
+
+    def _run_sparse_case(self, physical_slots, block_count):
+        device = self.device
+        block_size = 16
+        kv_length = block_count * block_size
+        scale = 1.0 / math.sqrt(512)
+        (packed_cpu, kv_reference) = _packed_kv_and_reference(block_count, block_size)
+        torch.manual_seed(20261016)
+        q_cpu = (torch.randn(1, 64, 512, device="cpu") * 0.1 + 0.05).to(torch.bfloat16)
+        sparse_indices = torch.full((1, 1, 512), -1, dtype=torch.int32, device="cpu")
+        sparse_indices[0, 0, : physical_slots.numel()] = physical_slots
+        sparse_indices[0, 0, physical_slots.numel() + 1] = kv_length - 1
+        inputs = {
+            "q": q_cpu.to(device),
+            "ori_kv": packed_cpu.to(device),
+            "ori_sparse_indices": sparse_indices.to(device),
+            "ori_block_table": torch.arange(
+                block_count, dtype=torch.int32, device="cpu"
+            )
+            .roll(3)
+            .unsqueeze(0)
+            .to(device),
+            "cu_seqlens_q": torch.tensor([0, 1], dtype=torch.int32, device=device),
+            "seqused_q": torch.tensor([1], dtype=torch.int32, device=device),
+            "seqused_kv": torch.tensor([kv_length], dtype=torch.int32, device=device),
+            "sinks": torch.full((64,), -10000.0, dtype=torch.float32, device=device),
+            "metadata": _single_core_metadata(device),
+            "softmax_scale": scale,
+            "cmp_ratio": 1,
+            "ori_win_left": kv_length - 1,
+            "ori_win_right": 0,
+            "layout_q": "TND",
+            "layout_kv": "PA_ND",
+        }
+        (actual, lse) = kv_quant_sparse_attn_sharedkv(**inputs)
+        torch_npu.npu.synchronize()
+        expected = _reference_sparse_attention(
+            q_cpu, kv_reference, physical_slots, scale
+        )
+        assert actual.shape == q_cpu.shape
+        assert actual.dtype == torch.bfloat16
+        actual_cpu = actual.cpu().float()
+        assert expected.abs().max().item() > 0.05
+        assert actual_cpu.abs().max().item() > 0.05
+        torch.testing.assert_close(actual_cpu, expected, rtol=0.02, atol=0.02)
+        assert lse.dtype == torch.float32
+        assert lse.numel() == 0
+
+    def test_tnd_sparse_physical_slots(self):
+        physical_slots = torch.tensor([2, 19, 35, 52], dtype=torch.int32, device="cpu")
+        self._run_sparse_case(physical_slots, block_count=4)
+
+    def test_tnd_sparse_indices_cross_128_tile_boundary(self):
+        torch.manual_seed(20261017)
+        physical_slots = (
+            torch.randperm(256, device="cpu")[:129].sort().values.to(torch.int32)
+        )
+        self._run_sparse_case(physical_slots, block_count=16)
+
+    def test_tnd_multi_batch_128_heads_with_generated_metadata(self):
+        device = self.device
+        (block_size, block_count) = (16, 24)
+        kv_lengths_cpu = torch.tensor([256, 320], dtype=torch.int32, device="cpu")
+        cu_seqlens_q_cpu = torch.tensor([0, 1, 2], dtype=torch.int32, device="cpu")
+        scale = 1.0 / math.sqrt(512)
+        (packed_cpu, kv_reference) = _packed_kv_and_reference(block_count, block_size)
+        torch.manual_seed(20261018)
+        q_cpu = (torch.randn(2, 128, 512, device="cpu") * 0.1 + 0.05).to(torch.bfloat16)
+        physical_slots = [
+            torch.randperm(256, device="cpu")[:129].sort().values.to(torch.int32),
+            (torch.randperm(320, device="cpu")[:137] + 64)
+            .sort()
+            .values.to(torch.int32),
+        ]
+        sparse_indices = torch.full((2, 1, 512), -1, dtype=torch.int32, device="cpu")
+        for batch_idx, slots in enumerate(physical_slots):
+            sparse_indices[batch_idx, 0, : slots.numel()] = slots
+        metadata = kv_quant_sparse_attn_sharedkv_metadata_host(
+            num_heads_q=128,
+            num_heads_kv=1,
+            head_dim=512,
+            layout_q="TND",
+            layout_kv="PA_ND",
+            cu_seqlens_q=cu_seqlens_q_cpu,
+            seqused_kv=kv_lengths_cpu,
+            batch_size=2,
+            max_seqlen_q=1,
+            max_seqlen_kv=320,
+            cmp_topk=0,
+            cmp_ratio=1,
+            ori_mask_mode=4,
+            cmp_mask_mode=3,
+            ori_win_left=319,
+            ori_win_right=0,
+            has_ori_kv=True,
+            has_cmp_kv=False,
+        )
+        assert metadata.device == device
+        assert metadata.shape == (1024,)
+        logical_blocks = 320 // block_size
+        block_ids = torch.arange(logical_blocks, dtype=torch.int32, device="cpu")
+        block_tables = torch.stack((block_ids.roll(3), block_ids.roll(7)))
+        (actual, lse) = kv_quant_sparse_attn_sharedkv(
+            q_cpu.to(device),
+            ori_kv=packed_cpu.to(device),
+            ori_sparse_indices=sparse_indices.to(device),
+            ori_block_table=block_tables.to(device),
+            cu_seqlens_q=cu_seqlens_q_cpu.to(device),
+            seqused_kv=kv_lengths_cpu.to(device),
+            sinks=torch.full((128,), -10000.0, dtype=torch.float32, device=device),
+            metadata=metadata,
+            softmax_scale=scale,
+            cmp_ratio=1,
+            ori_win_left=319,
+            ori_win_right=0,
+            layout_q="TND",
+            layout_kv="PA_ND",
+        )
+        torch_npu.npu.synchronize()
+        expected = torch.cat(
+            [
+                _reference_sparse_attention(
+                    q_cpu[batch_idx : batch_idx + 1], kv_reference, slots, scale
+                )
+                for (batch_idx, slots) in enumerate(physical_slots)
+            ]
+        )
+        assert actual.shape == q_cpu.shape
+        assert actual.dtype == torch.bfloat16
+        torch.testing.assert_close(actual.cpu().float(), expected, rtol=0.02, atol=0.02)
+        assert lse.dtype == torch.float32
+        assert lse.numel() == 0
