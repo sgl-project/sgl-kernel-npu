@@ -1,0 +1,122 @@
+# kpool_decode_update_and_maybe_write_cache_bf16
+
+## 芯片支持
+
+| 实现 | arch22 | arch35 |
+| --- | --- | --- |
+| `triton` | 支持 | 未验证 |
+| `torch_native` | 支持 | 未验证 |
+
+## 函数原型
+
+```python
+import torch
+from sgl_kernel_npu.operators.mem_cache import kpool_decode_update_and_maybe_write_cache_bf16
+
+def kpool_decode_update_and_maybe_write_cache_bf16(
+    buf: torch.Tensor,
+    tail_k: torch.Tensor,
+    tail_score: torch.Tensor,
+    key: torch.Tensor,
+    slot_score: torch.Tensor,
+    ape: torch.Tensor,
+    block_tables: torch.Tensor,
+    req_pool_indices: torch.Tensor,
+    positions: torch.Tensor,
+    seq_lens: torch.Tensor,
+    out_cache_loc: torch.Tensor,
+    *,
+    pool_size: int,
+    slots_per_page: int,
+    head_dim: int = 128,
+    impl="auto",
+) -> None:
+    ...
+```
+
+`auto` 固定选择 `triton`，省略 impl 效果相同；不执行运行时后端回退。
+
+## 功能说明
+
+令 `K=pool_size`、`T=tail_k.shape[1]`、`S=slots_per_page`。有效行满足请求索引在 `[0,R)`、`out_cache_loc[row]!=0`、`0<=positions[row]<seq_lens[row]`；向 tail 的 `positions[row]%T` 槽写当前 key/score。无效行保持所有状态不变。
+
+当 `positions[row]%K==K-1` 时归约完整 pool；当前槽直接使用传入 key/score，其余槽从已初始化 tail 读取。令 `p=positions[row]//K`，页表列为 `clamp((p//S)*K,0,M-1)`，cache 写偏移为 `block_tables[row,col]*buf.stride(0)+(p%S)*head_dim`。`out_cache_loc` 只控制行有效性，不直接提供 pooled-cache 地址。
+
+逐通道 softmax pooling 使用 FP32，令 `a[j,d]=score[j,d]+ape[j,d]`、`m[d]=max_j a[j,d]`：
+
+$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
+
+不执行 Hadamard、FP8 量化或逐 slot scale 输出。
+
+## 参数与返回值
+
+| 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
+| --- | --- | --- | --- | --- | --- |
+| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16` | 必填 | 原地 cache；S=slots_per_page、D=head_dim，页 stride 必须等于 S*D。 |
+| `tail_k` | `torch.Tensor` | `[R, T, head_dim]` | `torch.bfloat16` | 必填 | 请求本地 key 环形缓冲；有效行原地更新。 |
+| `tail_score` | `torch.Tensor` | 与 `tail_k` 相同 | `torch.bfloat16` / `torch.float32` | 必填 | 配对 score；当前测试覆盖 BF16 与 FP32，归约用 FP32。 |
+| `key` | `torch.Tensor` | `[B, head_dim]` | `torch.bfloat16` | 必填 | 当前 decode key。 |
+| `slot_score` | `torch.Tensor` | `[B, head_dim]` | `torch.bfloat16` / `torch.float32` | 必填 | 配对 score；当前测试覆盖 BF16 与 FP32，归约用 FP32。 |
+| `ape` | `torch.Tensor` | `[pool_size, head_dim]` | `torch.float32` | 必填 | pool 位置的加性 score。 |
+| `block_tables` | `torch.Tensor` | `[B, BLOCK_TABLE_COLS]` | `torch.int32` | 必填 | token 页表，用于定位已填满 pool 的 cache 页。 |
+| `req_pool_indices` | `torch.Tensor` | `[>= B]` | 整数；wrapper 未显式检查 | 必填 | 每个 batch 项对应的请求/环形缓冲行。 |
+| `positions` | `torch.Tensor` | `[>= B]` | 整数；wrapper 未显式检查 | 必填 | 每个 batch 项的当前 token 位置。 |
+| `seq_lens` | `torch.Tensor` | `[>= B]` | 整数；wrapper 未显式检查 | 必填 | 每个 batch 项的序列长度。 |
+| `out_cache_loc` | `torch.Tensor` | `[>= B]` | 整数；wrapper 未显式检查 | 必填 | token cache 位置；某行对应项为 0 时跳过该行更新。只读。 |
+| `pool_size` | `int` | — | — | 必填 | 仅限关键字参数；一个 pool 的 token 数。 |
+| `slots_per_page` | `int` | — | — | 必填 | 仅限关键字参数；每个扁平 cache 页的 pool slot 数。 |
+| `head_dim` | `int` | — | — | `128` | 仅限关键字参数；通道宽度，必须等于 tail 的最后一维。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
+
+| 返回值 | 类型 | Shape | Dtype | 描述与约束 |
+| --- | --- | --- | --- | --- |
+| `None` | `NoneType` | — | — | 原地更新范围见功能说明。 |
+
+所有 tensor 位于同一 NPU。上游保证索引值域、容量与读入历史有效，避免原地状态的并发写冲突；wrapper 不完整检查所有值域。要求 pool_size、T、slots_per_page 为正且页表非空；仅 buf、tail_k、tail_score 被修改。
+
+## triton 后端
+
+每行一个 program，两遍稳定 softmax。buf、tail_k、tail_score 必须连续，非连续可变状态会报错；其余只读输入内部转连续。buf.stride(0) 必须为 slots_per_page*head_dim，允许相符的二维/四维布局；空 batch 直接返回。
+
+## torch_native 后端
+
+独立 PyTorch 按行处理、FP32 稳定 softmax 和页表地址写回。未复制所有 Triton 输入断言，调用方仍需满足公共布局约定。
+
+公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
+
+## 调用示例
+
+需已安装 sgl-kernel-npu、torch_npu 和 NPU 运行环境。本例显式选择 `torch_native`。 也可选择 `triton` 或 `auto`；比较后端时需隔离各自的可变状态。
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.mem_cache import kpool_decode_update_and_maybe_write_cache_bf16
+b, r, t, h = (1, 1, 4, 128)
+buf = torch.zeros(1, 8 * h, device='npu', dtype=torch.bfloat16)
+tail_k = torch.zeros(r, t, h, device='npu', dtype=torch.bfloat16)
+tail_score = torch.zeros(r, t, h, device='npu', dtype=torch.float32)
+key = torch.randn(b, h, device='npu', dtype=torch.bfloat16)
+slot_score = torch.zeros(b, h, device='npu', dtype=torch.float32)
+ape = torch.zeros(4, h, device='npu', dtype=torch.float32)
+block_tables = torch.zeros(b, 1, device='npu', dtype=torch.int32)
+metadata = dict(
+    req_pool_indices=torch.zeros(b, device='npu', dtype=torch.int32),
+    positions=torch.tensor([3], device='npu', dtype=torch.int32),
+    seq_lens=torch.tensor([4], device='npu', dtype=torch.int32),
+    out_cache_loc=torch.ones(b, device='npu', dtype=torch.int32),
+)
+kpool_decode_update_and_maybe_write_cache_bf16(
+    buf,
+    tail_k,
+    tail_score,
+    key,
+    slot_score,
+    ape,
+    block_tables,
+    **metadata,
+    pool_size=4,
+    slots_per_page=8,
+    impl='torch_native',
+)
+```
