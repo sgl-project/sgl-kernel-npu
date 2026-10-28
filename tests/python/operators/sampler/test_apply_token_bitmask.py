@@ -74,7 +74,9 @@ def generate_test_data(shape, dtype, mode, selection="none"):
 
 @pytest.mark.parametrize("dtype", APPLY_TOKEN_BITMASK_DTYPES)
 @pytest.mark.parametrize("shape", APPLY_TOKEN_BITMASK_SHAPES)
-@pytest.mark.parametrize("mode", ["all_masked", "all_unmasked", "half_masked", "random"])
+@pytest.mark.parametrize(
+    "mode", ["all_masked", "all_unmasked", "half_masked", "random"]
+)
 def test_apply_token_bitmask(shape, dtype, mode):
     from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 
