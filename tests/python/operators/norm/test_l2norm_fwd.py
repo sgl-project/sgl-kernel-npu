@@ -6,8 +6,8 @@ from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# Preserve the legacy tolerances selected by output dtype, including dtype overrides.
-ACCURACY_STANDARD = {
+# Standards are selected by output dtype, including dtype overrides.
+INPUT_STANDARDS = {
     "torch.float32": AccuracyStandard(atol=1e-6, rtol=1e-5),
     "torch.float16": AccuracyStandard(atol=1e-4, rtol=1e-3),
     "torch.bfloat16": AccuracyStandard(atol=1e-3, rtol=8e-3),
@@ -72,8 +72,7 @@ def test_l2norm_fwd(shape, eps, output_dtype, zero, dtype):
     executor = check_accuracy(
         l2norm_fwd,
         args=(x, eps, output_dtype),
-        # Reuse the accuracy standards from the legacy L2Norm tests.
-        standard=ACCURACY_STANDARD,
+        standard=INPUT_STANDARDS,
     )
     result = executor()
     assert result.shape == x.shape

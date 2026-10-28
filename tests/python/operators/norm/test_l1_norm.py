@@ -6,12 +6,10 @@ from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard, get_standard
 
-# Reuse the legacy BF16 L1Norm standard for both FP16 and BF16 inputs.
-LEGACY_LOW_PRECISION_STANDARD = AccuracyStandard(atol=0, rtol=5e-3)
 INPUT_STANDARDS = {
     torch.float32: get_standard("torch.float32"),
-    torch.float16: LEGACY_LOW_PRECISION_STANDARD,
-    torch.bfloat16: LEGACY_LOW_PRECISION_STANDARD,
+    torch.float16: AccuracyStandard(atol=0, rtol=5e-3),
+    torch.bfloat16: AccuracyStandard(atol=0, rtol=5e-3),
 }
 
 
