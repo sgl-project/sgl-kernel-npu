@@ -160,8 +160,54 @@ def _tail_merge(
         )
 
 
+# Head layouts the native pipeline launches directly.
+NATIVE_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (2, 1))
+# A sharing group of 16 queries occupies 16 * (H / KV) rows of the per-stage GM
+# workspace block, which holds 128 rows, so the native kernel requires
+# H / KV <= 8. Wider layouts are split into slices of this many query heads.
+SPLIT_QUERY_HEADS = 6
+
+
 def qsa_prefill(q, k, v, blocks, request_table, request_row, length, base, scale):
-    """Run the Ascend C base attention and merge each query's causal tail.
+    """Run base attention natively, splitting layouts the kernel cannot take.
+
+    Attention is independent per query head, so a layout whose queries per KV
+    head exceed the kernel's limit is evaluated as several native launches
+    over consecutive query-head slices and concatenated in head order. The
+    slices are copied because they are not contiguous; with more than one KV
+    head, each KV head is also copied once and reused across its slices.
+    """
+    heads, kv_heads = q.shape[1], k.shape[1]
+    if (heads, kv_heads) in NATIVE_HEAD_LAYOUTS:
+        return _launch(q, k, v, blocks, request_table, request_row, length, base, scale)
+    group = heads // kv_heads
+    parts = []
+    for kv_head in range(kv_heads):
+        if kv_heads == 1:
+            keys, values = k, v
+        else:
+            keys = k[:, kv_head : kv_head + 1].contiguous()
+            values = v[:, kv_head : kv_head + 1].contiguous()
+        for start in range(0, group, SPLIT_QUERY_HEADS):
+            head = kv_head * group + start
+            parts.append(
+                _launch(
+                    q[:, head : head + SPLIT_QUERY_HEADS].contiguous(),
+                    keys,
+                    values,
+                    blocks,
+                    request_table,
+                    request_row,
+                    length,
+                    base,
+                    scale,
+                )
+            )
+    return torch.cat(parts, dim=1)
+
+
+def _launch(q, k, v, blocks, request_table, request_row, length, base, scale):
+    """Run one native launch for a layout in NATIVE_HEAD_LAYOUTS.
 
     The public operator has already validated shapes, dtypes, the head layout,
     device placement, contiguity and the CPU metadata range. Tiling is

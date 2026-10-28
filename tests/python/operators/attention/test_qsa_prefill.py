@@ -13,6 +13,8 @@ from tests.python.utils.performance import check_performance
 perf_shape = [
     (4621, 16, 2),
     (4621, 8, 1),
+    (4621, 24, 2),
+    (4621, 12, 1),
 ]
 perf_mode = ("shared", "different")
 
@@ -94,6 +96,10 @@ def generate_data(shape, mode, length, seed=9302026):
         # Local head layouts of Whittle-Next and Qwen3.8-Flash-Next prefill.
         pytest.param((4621, 16, 2), id="whittle-tp1-4621x16x2"),
         pytest.param((4621, 8, 1), id="whittle-tp2-4621x8x1"),
+        # 24/2 and 12/1 exceed the kernel's queries per KV head and are
+        # evaluated as several native launches over query-head slices.
+        pytest.param((4621, 24, 2), id="qwen3.8-flash-next-tp1-4621x24x2"),
+        pytest.param((4621, 12, 1), id="qwen3.8-flash-next-tp2-4621x12x1"),
         pytest.param((1024, 2, 1), id="whittle-tp8-1024x2x1"),
         pytest.param((1024, 6, 1), id="qwen3.8-flash-next-tp4-1024x6x1"),
         pytest.param((1, 16, 2), id="edge-single-row"),
@@ -389,6 +395,7 @@ def test_qsa_prefill_shards_reconstruct_global_attention(tp, impl_pair):
         pytest.param((1, 6, 2), id="unsupported-6x2"),
         pytest.param((1, 16, 1), id="unsupported-16x1"),
         pytest.param((1, 8, 2), id="unsupported-8x2"),
+        pytest.param((1, 3, 1), id="unsupported-3x1"),
     ],
 )
 def test_qsa_prefill_rejects_head_layouts(shape):

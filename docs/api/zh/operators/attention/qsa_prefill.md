@@ -72,7 +72,7 @@ softmax 与 value 累加使用 float32，最终一次性舍入为 BF16。
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | 必填 | query；连续，位于 NPU 设备。`R == 0` 返回空结果。`(H, KV)` 必须为 `(16, 2)`、`(8, 1)`、`(6, 1)` 或 `(2, 1)`。 |
+| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | 必填 | query；连续，位于 NPU 设备。`R == 0` 返回空结果。`(H, KV)` 必须为 `(16, 2)`、`(8, 1)`、`(6, 1)`、`(2, 1)`、`(24, 2)` 或 `(12, 1)`。 |
 | `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | 必填 | key cache；连续，与 q 同设备。要求 `capacity < 2**31`，且 `length > 0` 时不可为空。 |
 | `v` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | 必填 | value cache；shape、dtype、设备与 `k` 相同且连续。 |
 | `blocks` | `torch.Tensor` | `[R, 512]` | `torch.int32` | 必填 | 每个 query 选中的逻辑 block；连续，与 q 同设备。负值以及位置达到 `length` 的 block 被忽略。 |
@@ -90,6 +90,9 @@ softmax 与 value 累加使用 float32，最终一次性舍入为 BF16。
 非法元数据在任何 kernel 下发之前抛出 `ValueError`。head 切分与 KV 复制由调用方
 负责：当 TP 大于全局 KV head 数时，需为该 rank 传入复制后的 KV head。
 
+对 24 Q / 2 KV 的模型（如 Qwen3.8-Flash-Next），本地布局为 TP1 `(24, 2)`、
+TP2 `(12, 1)`、TP4 `(6, 1)`。TP8 需要 `(3, 1)`，暂不支持。
+
 ## ascendc 后端
 
 - QK、online softmax、PV、rescale 流水线以及物理 run 准备由 Ascend C 实现，注册为
@@ -99,6 +102,11 @@ softmax 与 value 累加使用 float32，最终一次性舍入为 BF16。
   kernel 完成，因此该后端同时依赖两套运行时。只有选中 block 列表逐项同序相等的
   精确 16/8/4/2/1 query 分组才共享基础注意力计算。
 - 基础输出与 LSE 在尾部合并前保持 float32。结果与其他注意力实现不是逐位一致的。
+- 16 个 query 的共享组占用每级 GM workspace 块中 `16 * (H / KV)` 行，该块容纳
+  128 行，因此单次下发要求 `H / KV <= 8`。注意力按 query head 独立，所以
+  `(24, 2)` 与 `(12, 1)` 分别拆成 4 次和 2 次下发（每次 6 个 head 的连续切片），
+  再按 head 顺序拼接。这些切片需要拷贝，`(24, 2)` 还会为每个 KV head 各拷贝一次，
+  因此这两种布局比内核直接支持的布局慢。
 - tiling 不可变，按完整 shape、scale、设备以及两个本地 head 数缓存。图捕获之前需
   先预热对应 shape。
 - 长序列、共享选择的 prefill 明显快于独立 query 计算；较短或完全不共享的选择可能

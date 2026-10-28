@@ -77,7 +77,7 @@ selecting an implementation, so both backends reject the same inputs.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
-| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)` or `(2, 1)`. |
+| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)`, `(2, 1)`, `(24, 2)` or `(12, 1)`. |
 | `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Key cache; contiguous, on q's device. `capacity < 2**31`, and must be nonempty when `length > 0`. |
 | `v` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Value cache; same shape, dtype and device as `k`, contiguous. |
 | `blocks` | `torch.Tensor` | `[R, 512]` | `torch.int32` | Required | Selected logical blocks per query; contiguous, on q's device. Negative entries and blocks whose positions reach `length` are ignored. |
@@ -96,6 +96,10 @@ Invalid metadata raises `ValueError` before any kernel launch. The caller
 handles head sharding and KV replication: at a TP degree above the global KV
 head count, pass the replicated KV head for that rank.
 
+For a 24 Q / 2 KV model such as Qwen3.8-Flash-Next, the local layouts are
+`(24, 2)` at TP1, `(12, 1)` at TP2 and `(6, 1)` at TP4. TP8 would need
+`(3, 1)`, which is not supported.
+
 ## ascendc backend
 
 - The QK, online-softmax, PV and rescale pipeline and the physical run
@@ -108,6 +112,13 @@ head count, pass the replicated KV head for that rank.
   whose selected block lists are equal entry by entry, in the same order.
 - Base output and LSE stay in float32 through the tail merge. Results are not
   bitwise equal to other attention implementations.
+- A 16-query sharing group occupies `16 * (H / KV)` rows of the per-stage GM
+  workspace block, which holds 128 rows, so one launch requires `H / KV <= 8`.
+  Attention is independent per query head, so `(24, 2)` and `(12, 1)` are
+  evaluated as four and two launches over consecutive six-head slices and
+  concatenated in head order. Those slices are copied, and `(24, 2)` also
+  copies each KV head once, so these two layouts are slower than a layout the
+  kernel takes directly.
 - Tiling is immutable and cached by full shape, scale, device and both local
   head counts. Warm a shape before capturing it in an NPU graph.
 - Long shared prefills are considerably faster than independent-query
