@@ -24,7 +24,8 @@ fi
 MIRROR_HOST="${CI_MIRROR_HOST:-repo.huaweicloud.com}"
 sed -Ei "s@https?://(ports|archive)\.ubuntu\.com@https://${MIRROR_HOST}@g" /etc/apt/sources.list
 pip config set global.index-url "https://${MIRROR_HOST}/repository/pypi/simple"
-pip config set global.trusted-host "${MIRROR_HOST}"
+pip config set global.extra-index-url "https://pypi.tuna.tsinghua.edu.cn/simple"
+pip config set global.trusted-host "${MIRROR_HOST} pypi.tuna.tsinghua.edu.cn"
 
 pip3 install kubernetes
 pip3 install --no-deps xgrammar==0.1.25
