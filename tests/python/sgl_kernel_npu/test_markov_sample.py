@@ -6,8 +6,10 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.implementation.triton.sample.markov_sample import (
+    _negative_log1p_negative,
+)
 from sgl_kernel_npu.operators.sample import markov_sample as markov_sample_step_triton
-from sgl_kernel_npu.sample.markov_sample import _negative_log1p_negative
 
 DEVICE = torch.device("npu")
 _NO_INDEX = 2147483647

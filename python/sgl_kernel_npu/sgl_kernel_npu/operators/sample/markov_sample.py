@@ -23,6 +23,17 @@ def _triton_impl(**kwargs):
     return _triton_fn(**kwargs)
 
 
+@register_impl(
+    "sample.markov_sample", "torch_native", supported_generations=[Generation.ARCH22]
+)
+def _torch_native_impl(**kwargs):
+    from ...implementation.torch_native.sample.markov_sample import (
+        markov_sample_step_torch,
+    )
+
+    return markov_sample_step_torch(**kwargs)
+
+
 @register_operator("sample.markov_sample")
 def markov_sample(
     *,

@@ -50,12 +50,9 @@ def test_build_out_tokens(gamma):
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("rows,vocab", [(1, 513), (8, 4097)])
-def test_markov_sample(rows, vocab, dtype):
+@pytest.mark.parametrize("precomputed_noise", [True, False])
+def test_markov_sample(rows, vocab, dtype, precomputed_noise):
     from sgl_kernel_npu.operators.sample import markov_sample
-
-    from tests.python.sgl_kernel_npu.test_markov_sample import (
-        reference_markov_sample_step,
-    )
 
     kwargs = {
         "base_logits": torch.randn(rows, vocab, dtype=dtype),
@@ -65,13 +62,34 @@ def test_markov_sample(rows, vocab, dtype):
         "offset": torch.zeros(1, dtype=torch.int64),
         "step": 0,
         "step_dtype": dtype,
-        "exp_noise": torch.rand(rows, vocab, dtype=torch.float32) + 0.1,
+        "exp_noise": (
+            torch.rand(rows, vocab, dtype=torch.float32) + 0.1
+            if precomputed_noise
+            else None
+        ),
     }
     kwargs["temperatures"][::2] = 0
-    expected = reference_markov_sample_step(**kwargs)
-    actual = markov_sample(**kwargs)
-    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-    # Sampling has no registered torch_native backend; its CPU reference is
-    # checked above and cannot be used by the cross-backend executor.
-    executor = check_accuracy(markov_sample, kwargs=kwargs, skip_acc_check=True)
+    executor = check_accuracy(markov_sample, kwargs=kwargs)
     check_performance(executor, enable_perf=False)
+
+
+def test_markov_sample_kept_logits():
+    from sgl_kernel_npu.operators.sample import markov_sample
+
+    rows, vocab = 3, 513
+    kwargs = {
+        "base_logits": torch.randn(rows, vocab, dtype=torch.float16),
+        "bias": torch.randn(rows, vocab - 3, dtype=torch.float16),
+        "temperatures": torch.tensor([0.0, 0.7, 1.0], dtype=torch.float32),
+        "key": 12345,
+        "offset": torch.tensor([7], dtype=torch.int64),
+        "step": 2,
+        "step_dtype": torch.float16,
+    }
+    outputs = []
+    for impl in ("torch_native", "triton"):
+        logits = torch.empty_like(kwargs["base_logits"])
+        tokens = markov_sample(**kwargs, logits_out=logits, impl=impl)
+        outputs.append((tokens, logits))
+    torch.testing.assert_close(outputs[0][0], outputs[1][0], rtol=0, atol=0)
+    torch.testing.assert_close(outputs[0][1], outputs[1][1], rtol=0, atol=0)
