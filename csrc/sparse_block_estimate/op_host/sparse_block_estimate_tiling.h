@@ -18,6 +18,15 @@
 #include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
 
+// CANN array setters call a std::string logger that some releases export
+// only with the old libstdc++ ABI. Keep the literal diagnostic in the class.
+#define TILING_DATA_FIELD_LOGGER()                                     \
+private:                                                               \
+    static void GeLogError(const char *message)                        \
+    {                                                                  \
+        std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message); \
+    }
+
 namespace optiling {
 
 struct SparseBlockEstimateCompileInfo {
@@ -38,13 +47,7 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualCoreNums);         // coreSidStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, singleCoreHeadNumSize);  // coreSidEnd
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosStart);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(SparseBlockEstimateTilingData)
@@ -73,4 +76,6 @@ TILING_DATA_FIELD_DEF_STRUCT(TCubeTiling, cubeTilingData);
 END_TILING_DATA_DEF;
 
 }  // namespace optiling
+
+#undef TILING_DATA_FIELD_LOGGER
 #endif  // SPARSE_BLOCK_ESTIMATE_H

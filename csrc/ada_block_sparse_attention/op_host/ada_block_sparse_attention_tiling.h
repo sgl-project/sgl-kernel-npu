@@ -39,6 +39,15 @@
 #include "ada_block_sparse_attention_tiling_context.h"
 #include "ada_block_sparse_attention_tiling_struct.h"
 
+// CANN array setters call a std::string logger that some releases export
+// only with the old libstdc++ ABI. Keep the literal diagnostic in the class.
+#define TILING_DATA_FIELD_LOGGER()                                     \
+private:                                                               \
+    static void GeLogError(const char *message)                        \
+    {                                                                  \
+        std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message); \
+    }
+
 namespace optiling {
 BEGIN_TILING_DATA_DEF(PromptAttentionBaseParams)
 TILING_DATA_FIELD_DEF(uint8_t, causal);  // bool(uint8)
@@ -152,25 +161,13 @@ TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, actualCoreNums);         // coreSidStart
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, singleCoreHeadNumSize);  // coreSidEnd
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosStart);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 64, coreSeqPosEnd);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(PromptAttentionSplitCoreParams)
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 50, startBlkArray);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 50, endBlkArray);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(PromptAttentionSingleCoreParams)
@@ -293,13 +290,7 @@ TILING_DATA_FIELD_DEF(int64_t, totalSize);
 TILING_DATA_FIELD_DEF(int64_t, splitFactorSize);
 TILING_DATA_FIELD_DEF(int64_t, splitFactorTailSize);
 TILING_DATA_FIELD_DEF_ARR(int64_t, 48, sparseStartIdx);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(BSACoreParams)
@@ -465,13 +456,7 @@ TILING_DATA_FIELD_DEF(int64_t, splitFactorSize);
 TILING_DATA_FIELD_DEF(int64_t, splitFactorTailSize);
 TILING_DATA_FIELD_DEF_ARR(uint32_t, 48, bnStartIdx);
 TILING_DATA_FIELD_DEF_ARR(int64_t, 48, sparseStartIdx);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(DropmaskParamsRegbase)
@@ -488,13 +473,7 @@ TILING_DATA_FIELD_DEF(uint8_t, isOneN);
 TILING_DATA_FIELD_DEF_ARR(uint8_t, 2, rsvd);
 TILING_DATA_FIELD_DEF(int64_t, totalOutputSize);
 TILING_DATA_FIELD_DEF(int64_t, totalSoftMaxLseOutputSize);
-// Keep array-setter diagnostics local: some CANN builds export the
-// base std::string logger only with the old libstdc++ ABI.
-private:
-static void GeLogError(const char *message)
-{
-    std::fprintf(stderr, "[sgl_kernel_npu tiling] %s\n", message);
-}
+TILING_DATA_FIELD_LOGGER()
 END_TILING_DATA_DEF;
 
 BEGIN_TILING_DATA_DEF(FlashAttentionScoreSimplifiedTilingData)
@@ -830,5 +809,7 @@ protected:
 // end of class AdaBlockSparseAttention
 BSA_EXTERN_C ge::graphStatus TilingAdaBlockSparseAttention(gert::TilingContext *context);
 }  // namespace optiling
+
+#undef TILING_DATA_FIELD_LOGGER
 
 #endif  // AIR_CXX_RUNTIME_V2_OP_IMPL_SPARSEBSA_H_

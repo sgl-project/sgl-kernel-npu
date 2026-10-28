@@ -75,8 +75,7 @@ uint64_t checked_add(uint64_t lhs, uint64_t rhs, const char *name)
 }
 
 void check_inputs(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, int64_t headNum,
-                  const std::string &inputLayout, double scaleValue, double keepProb, int64_t preTokens,
-                  int64_t nextTokens)
+                  const std::string &inputLayout, double scaleValue, double keepProb, int64_t preTokens)
 {
     TORCH_CHECK(query.defined() && key.defined() && value.defined(), "query, key, and value must be defined");
     TORCH_CHECK(query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
@@ -114,7 +113,6 @@ void check_inputs(const at::Tensor &query, const at::Tensor &key, const at::Tens
     checked_int32(value.size(2), "value sequence length");
     checked_int32(headNum, "head_num");
     checked_int32(preTokens, "pre_tokens");
-    checked_int32(nextTokens, "next_tokens");
 
     TORCH_CHECK(std::isfinite(scaleValue), "scale_value must be finite");
     TORCH_CHECK(std::isfinite(keepProb) && keepProb > 0.0 && keepProb <= 1.0,
@@ -133,7 +131,7 @@ void check_optional_mask(const c10::optional<at::Tensor> &mask, const at::Tensor
 
 LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
                                               double scaleValue, int64_t headNum, double keepProb, int64_t preTokens,
-                                              int64_t nextTokens, bool isHighPrecision)
+                                              bool isHighPrecision)
 {
     auto platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     TORCH_CHECK(platform != nullptr, "failed to get the AscendC platform");
@@ -158,7 +156,6 @@ LaserAttentionLaunchConfig make_launch_config(const at::Tensor &query, const at:
     tiling.scale = static_cast<float>(scaleValue);
     tiling.keepProb = static_cast<float>(keepProb);
     tiling.preTokens = checked_int32(preTokens, "pre_tokens");
-    tiling.nextTokens = checked_int32(nextTokens, "next_tokens");
     tiling.isTriangle = 0;
     tiling.attenType = query.size(1) == key.size(1) ? 0 : 1;
     tiling.sparseMode = 0;
@@ -261,9 +258,9 @@ HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(const at::Tensor &query, 
                                                        const c10::optional<at::Tensor> &alibiMaskOpt,
                                                        const c10::optional<at::Tensor> &dropMaskOpt, double scaleValue,
                                                        int64_t headNum, const std::string &inputLayout, double keepProb,
-                                                       int64_t preTokens, int64_t nextTokens, bool isHighPrecision)
+                                                       int64_t preTokens, bool isHighPrecision)
 {
-    check_inputs(query, key, value, headNum, inputLayout, scaleValue, keepProb, preTokens, nextTokens);
+    check_inputs(query, key, value, headNum, inputLayout, scaleValue, keepProb, preTokens);
     check_optional_mask(attenMaskOpt, query, at::kHalf, "atten_mask");
     check_optional_mask(alibiMaskOpt, query, at::kHalf, "alibi_mask");
     check_optional_mask(dropMaskOpt, query, at::kByte, "drop_mask");
@@ -285,7 +282,7 @@ HOST_API std::tuple<at::Tensor, at::Tensor> laser_attn(const at::Tensor &query, 
     auto attentionOut = at::empty(query.sizes(), query.options().dtype(at::kFloat));
 
     const auto config =
-        make_launch_config(query, key, value, scaleValue, headNum, keepProb, preTokens, nextTokens, isHighPrecision);
+        make_launch_config(query, key, value, scaleValue, headNum, keepProb, preTokens, isHighPrecision);
     const uint32_t blockDim = config.blockDim;
     auto tilingTensor = get_tiling_tensor(config.tilingData, query);
     auto workspace = at::empty({config.workspaceSize}, query.options().dtype(at::kByte));

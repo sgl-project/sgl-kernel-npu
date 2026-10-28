@@ -193,12 +193,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
-#ifdef SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "laser_attn(Tensor query, Tensor key, Tensor value, "
         "Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? drop_mask=None, "
         "float scale_value=1.0, int head_num=2, str input_layout='BNSD', "
-        "float keep_prob=1.0, int pre_tokens=2147483647, int next_tokens=1, "
+        "float keep_prob=1.0, int pre_tokens=2147483647, "
         "bool is_highPrecision=True) -> (Tensor, Tensor)");
     m.def(
         "ada_block_sparse_attention(Tensor query, Tensor key, Tensor value, Tensor sparse_mask, "
@@ -335,7 +335,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
 
-#ifdef SGL_KERNEL_NPU_HAS_A2_A3_ATTENTION
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("laser_attn", TORCH_FN(sglang::npu_kernel::laser_attn));
     m.impl("ada_block_sparse_attention", TORCH_FN(sglang::npu_kernel::ada_block_sparse_attention));
     m.impl("sparse_block_estimate", TORCH_FN(sglang::npu_kernel::sparse_block_estimate));

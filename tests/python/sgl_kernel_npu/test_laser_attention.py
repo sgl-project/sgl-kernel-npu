@@ -29,7 +29,6 @@ def test_laser_attn_public_api_and_schema():
         "input_layout",
         "keep_prob",
         "pre_tokens",
-        "next_tokens",
         "is_highPrecision",
     ]
     assert len(schema.returns) == 2
@@ -77,7 +76,6 @@ def test_laser_attn_fp16_bnsd_matches_torch_reference(num_heads, num_key_value_h
         input_layout="BNSD",
         keep_prob=1.0,
         pre_tokens=2**31 - 1,
-        next_tokens=1,
         is_highPrecision=True,
     )
 
