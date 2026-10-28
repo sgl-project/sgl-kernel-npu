@@ -6,35 +6,39 @@ _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("attention.mix_fused", "auto")
-@register_impl("attention.mix_fused", "triton")
+@register_impl("hyper_conn.attn_residual_mix", "auto")
+@register_impl("hyper_conn.attn_residual_mix", "triton")
 def _triton_impl(prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.attention.mix_fused import mix_fused
+        from ...implementation.triton.hyper_conn.attn_residual_mix import (
+            attn_residual_mix,
+        )
 
-        _triton_fn = mix_fused
+        _triton_fn = attn_residual_mix
     return _triton_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )
 
 
-@register_impl("attention.mix_fused", "torch_native")
+@register_impl("hyper_conn.attn_residual_mix", "torch_native")
 def _torch_native_impl(
     prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.mix_fused import mix_fused
+        from ...implementation.torch_native.hyper_conn.attn_residual_mix import (
+            attn_residual_mix,
+        )
 
-        _torch_native_fn = mix_fused
+        _torch_native_fn = attn_residual_mix
     return _torch_native_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )
 
 
-@register_operator("attention.mix_fused")
-def mix_fused(
+@register_operator("hyper_conn.attn_residual_mix")
+def attn_residual_mix(
     prefix_sum,
     bank,
     num_valid_blocks,
@@ -62,7 +66,7 @@ def mix_fused(
         A nonempty result is newly allocated. With N=0, returns prefix_sum itself.
         All arithmetic intermediates are FP32. Inputs are not modified.
     """
-    impl_fn = get_impl_by_name("attention.mix_fused", impl)
+    impl_fn = get_impl_by_name("hyper_conn.attn_residual_mix", impl)
     return impl_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )

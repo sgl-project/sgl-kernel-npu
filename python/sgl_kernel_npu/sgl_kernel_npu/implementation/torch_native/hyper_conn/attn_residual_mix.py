@@ -2,10 +2,10 @@
 
 import torch
 
-from ...triton.utils.attn_residual_utils import validate_mix_inputs
+from ...triton.hyper_conn.attn_residual_utils import validate_mix_inputs
 
 
-def mix_fused(
+def attn_residual_mix(
     prefix_sum,
     bank,
     num_valid_blocks,

@@ -119,18 +119,20 @@ def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
         pytest.param((3, 0, 0, 64), "random", "padded", id="padded-empty-bank"),
     ],
 )
-def test_mix_fused(
+def test_attn_residual_mix(
     shape,
     dtype,
     mode,
     layout,
 ):
-    from sgl_kernel_npu.operators.attention import mix_fused
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
     inputs = generate_test_data(shape, dtype, mode, layout)
     snapshots = tuple(value.clone() for value in inputs)
     prefix, bank, weight = inputs
-    executor = check_accuracy(mix_fused, args=(prefix, bank, shape[2], weight, 1e-6))
+    executor = check_accuracy(
+        attn_residual_mix, args=(prefix, bank, shape[2], weight, 1e-6)
+    )
     # Preserve --skip-acc-check: contract checks must not trigger another call.
     if executor.accuracy_checked:
         _check_output_contract(executor(), inputs, snapshots, shape[2], mode)
@@ -149,48 +151,52 @@ def test_mix_fused(
         (torch.float16, torch.float32, torch.float16),
     ],
 )
-def test_mix_fused_mixed_dtypes(
+def test_attn_residual_mix_mixed_dtypes(
     prefix_dtype,
     bank_dtype,
     weight_dtype,
 ):
-    from sgl_kernel_npu.operators.attention import mix_fused
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
     prefix, bank, weight = generate_test_data((5, 4, 3, 64), prefix_dtype)
     executor = check_accuracy(
-        mix_fused,
+        attn_residual_mix,
         args=(prefix, bank.to(bank_dtype), 3, weight.to(weight_dtype), 1e-6),
     )
     check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.parametrize("epsilon", [1e-12, 1e-3, 1])
-def test_mix_fused_variance_epsilon(epsilon):
-    from sgl_kernel_npu.operators.attention import mix_fused
+def test_attn_residual_mix_variance_epsilon(epsilon):
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float32)
     prefix.mul_(1e-4)
     bank.mul_(1e-4)
-    executor = check_accuracy(mix_fused, args=(prefix, bank, 3, weight, epsilon))
+    executor = check_accuracy(
+        attn_residual_mix, args=(prefix, bank, 3, weight, epsilon)
+    )
     check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("input_device", ["cpu", "npu"])
 @pytest.mark.parametrize("capacity,valid_rows", [(0, 0), (5, 3)])
-def test_mix_fused_empty_tokens(
+def test_attn_residual_mix_empty_tokens(
     dtype,
     input_device,
     capacity,
     valid_rows,
 ):
-    from sgl_kernel_npu.operators.attention import mix_fused
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
     # Empty inputs bypass nonempty Triton stride/device launch restrictions.
     prefix = torch.empty(0, 6, dtype=dtype, device=input_device)[:, ::2]
     bank = torch.empty(0, capacity, 6, dtype=dtype, device=input_device)[..., ::2]
     weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
-    executor = check_accuracy(mix_fused, args=(prefix, bank, valid_rows, weight, 1e-6))
+    executor = check_accuracy(
+        attn_residual_mix, args=(prefix, bank, valid_rows, weight, 1e-6)
+    )
     if executor.accuracy_checked:
         assert executor() is prefix
     # There is no device task to profile, even when --enable-perf=true.
@@ -232,11 +238,11 @@ def test_mix_fused_empty_tokens(
         ("empty_device_mismatch", AssertionError),
     ],
 )
-def test_mix_fused_invalid_input(
+def test_attn_residual_mix_invalid_input(
     invalid_input,
     exception,
 ):
-    from sgl_kernel_npu.operators.attention import mix_fused
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float16)
     valid_rows, epsilon = 3, 1e-6
@@ -305,4 +311,4 @@ def test_mix_fused_invalid_input(
     else:
         raise AssertionError(f"Unhandled invalid input: {invalid_input}")
     with pytest.raises(exception):
-        mix_fused(prefix, bank, valid_rows, weight, epsilon, impl="triton")
+        attn_residual_mix(prefix, bank, valid_rows, weight, epsilon, impl="triton")

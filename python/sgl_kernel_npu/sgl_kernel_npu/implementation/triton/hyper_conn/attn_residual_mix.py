@@ -4,12 +4,12 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.attn_residual_utils import validate_mix_inputs
 from ..utils.triton_utils import get_device_properties
+from .attn_residual_utils import validate_mix_inputs
 
 
 @triton.jit(do_not_specialize=["N", "B"])
-def _mix_fused_kernel(
+def _attn_residual_mix_kernel(
     prefix_ptr,
     bank_ptr,
     cw_ptr,
@@ -87,7 +87,7 @@ def _mix_fused_kernel(
         )
 
 
-def mix_fused(
+def attn_residual_mix(
     prefix_sum: torch.Tensor,
     bank: torch.Tensor,
     num_valid_blocks: int,
@@ -122,7 +122,7 @@ def mix_fused(
 
     output = torch.empty_like(prefix_sum)
     _, num_vector_cores = get_device_properties()
-    _mix_fused_kernel[(num_vector_cores,)](
+    _attn_residual_mix_kernel[(num_vector_cores,)](
         prefix_sum,
         bank,
         combined_weight,
