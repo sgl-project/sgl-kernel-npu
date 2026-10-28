@@ -4,7 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.rope.rope_utils import validate_rope_inputs
+from .rope_utils import validate_rope_inputs
 
 
 @triton.jit
