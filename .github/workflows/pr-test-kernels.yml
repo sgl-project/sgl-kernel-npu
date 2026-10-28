@@ -99,6 +99,9 @@ jobs:
               - csrc/mega_chunk_gdn/**
               - csrc/tri_inv/**
               - python/sgl_kernel_npu/sgl_kernel_npu/fla/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/fla/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/fla/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/fla/**
               - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_pto.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_triton.py
@@ -108,6 +111,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_solve_tril.py
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
               - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
+              - tests/python/operators/fla/**
             fused:
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**

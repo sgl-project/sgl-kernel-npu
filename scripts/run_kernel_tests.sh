@@ -6,6 +6,10 @@ export ACL_OP_SELECT_IMPL_MODE=high_precision
 TEST_DIR="${GITHUB_WORKSPACE}/tests/python/sgl_kernel_npu"
 cd "$TEST_DIR" || { echo "Directory not found: $TEST_DIR"; exit 1; }
 
+# Public-interface operator tests import tests.python.utils and run from the
+# repository root, not from the legacy per-kernel test directory above.
+REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 PASSED=()
 FAILED=()
 
@@ -32,6 +36,27 @@ run_test() {
     else
         FAILED+=("$test_file")
         echo "FAILED: $test_file"
+    fi
+    echo ""
+}
+
+# Public-interface operator tests live under tests/python/operators and import
+# tests.python.utils, so they run from the repository root through pytest.
+# Direct 'python3 file.py' would only import the module and falsely pass.
+run_operator_test() {
+    local test_path="$1"
+    local exit_code=0
+    echo "=========================================="
+    echo "Running: $test_path"
+    echo "=========================================="
+    (cd "$REPO_ROOT" && python3 -m pytest "$test_path" \
+        --skip-acc-check=false --enable-perf=false -q -x -rs) || exit_code=$?
+    if [ "$exit_code" -eq 0 ]; then
+        PASSED+=("$test_path")
+        echo "PASSED: $test_path"
+    else
+        FAILED+=("$test_path")
+        echo "FAILED: $test_path"
     fi
     echo ""
 }
@@ -93,6 +118,11 @@ FLA_TESTS=(
     test_l2norm_boundaries.py
 )
 
+# Public-interface FLA operator tests, run from the repository root.
+FLA_OPERATOR_TESTS=(
+    tests/python/operators/fla/test_gate_multiply.py
+)
+
 FUSED_TESTS=(
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
@@ -128,12 +158,17 @@ SMALL_BATCH_TESTS=(
 
 TEST_GROUP="${1:-small}"
 
+# Public-interface operator tests run through run_operator_test; each group may
+# populate this in addition to its legacy per-kernel TESTS array.
+OPERATOR_TESTS=()
+
 case "$TEST_GROUP" in
     small)
         TESTS=("${SMALL_BATCH_TESTS[@]}")
         ;;
     all)
         TESTS=("${ALL_TESTS[@]}")
+        OPERATOR_TESTS=("${FLA_OPERATOR_TESTS[@]}")
         ;;
     smoke)
         TESTS=("${SMOKE_TESTS[@]}")
@@ -155,6 +190,7 @@ case "$TEST_GROUP" in
         ;;
     fla)
         TESTS=("${FLA_TESTS[@]}")
+        OPERATOR_TESTS=("${FLA_OPERATOR_TESTS[@]}")
         ;;
     fused)
         TESTS=("${FUSED_TESTS[@]}")
@@ -192,17 +228,23 @@ if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
     TESTS=("${FILTERED_TESTS[@]}")
 fi
 
-echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
+echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests, ${#OPERATOR_TESTS[@]} operator tests)"
 echo ""
 
 for test in "${TESTS[@]}"; do
     run_test "$test"
 done
 
+for operator_test in "${OPERATOR_TESTS[@]}"; do
+    run_operator_test "$operator_test"
+done
+
+TOTAL=$(( ${#TESTS[@]} + ${#OPERATOR_TESTS[@]} ))
+
 echo "=========================================="
 echo "Test Summary"
 echo "=========================================="
-echo "Total:  ${#TESTS[@]}"
+echo "Total:  ${TOTAL}"
 echo "Passed: ${#PASSED[@]}"
 echo "Failed: ${#FAILED[@]}"
 
