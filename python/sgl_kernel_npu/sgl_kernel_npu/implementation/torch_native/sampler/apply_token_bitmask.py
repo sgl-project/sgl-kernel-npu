@@ -35,7 +35,8 @@ def apply_token_bitmask(logits, bitmask, indices=None):
         padding = words.new_zeros((values.shape[0], width - words.shape[1]))
         words = torch.cat((words, padding), dim=1)
     columns = torch.arange(vocab, device=logits.device)
-    allowed = ((words[:, columns // 32].to(torch.int64) >> (columns % 32)) & 1).bool()
+    selected = torch.index_select(words, 1, columns // 32).to(torch.int64)
+    allowed = ((selected >> (columns % 32)) & 1).bool()
     values.masked_fill_(~allowed, float("-inf"))
     if has_indices:
         logits[rows] = values
