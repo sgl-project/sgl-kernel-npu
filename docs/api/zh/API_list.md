@@ -7,6 +7,7 @@
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
 | [fused_variance](operators/norm/fused_variance.md) | `triton`、`torch_native` |
 | [rmsnorm_bias](operators/norm/rmsnorm_bias.md) | `triton`、`torch_native` |
+| [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
