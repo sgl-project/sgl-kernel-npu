@@ -3,13 +3,19 @@
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_ATTN_OP = "attention.kv_quant_sparse_attn_sharedkv"
-_META_OP = "attention.kv_quant_sparse_attn_sharedkv_metadata_host"
 _reference = None
 
 
-@register_impl(_ATTN_OP, "auto", supported_generations={Generation.ARCH35})
-@register_impl(_ATTN_OP, "ascendc", supported_generations={Generation.ARCH35})
+@register_impl(
+    "attention.kv_quant_sparse_attn_sharedkv",
+    "auto",
+    supported_generations={Generation.ARCH35},
+)
+@register_impl(
+    "attention.kv_quant_sparse_attn_sharedkv",
+    "ascendc",
+    supported_generations={Generation.ARCH35},
+)
 def _ascendc_attention(q, **kwargs):
     import torch
 
@@ -17,7 +23,9 @@ def _ascendc_attention(q, **kwargs):
 
 
 @register_impl(
-    _ATTN_OP, "torch_native", supported_generations={Generation.ARCH35}
+    "attention.kv_quant_sparse_attn_sharedkv",
+    "torch_native",
+    supported_generations={Generation.ARCH35},
 )
 def _torch_native_attention(q, **kwargs):
     global _reference
@@ -30,7 +38,7 @@ def _torch_native_attention(q, **kwargs):
     return _reference(q, **kwargs)
 
 
-@register_operator(_ATTN_OP)
+@register_operator("attention.kv_quant_sparse_attn_sharedkv")
 def kv_quant_sparse_attn_sharedkv(
     q,
     *,
@@ -93,18 +101,27 @@ def kv_quant_sparse_attn_sharedkv(
         layout_kv=layout_kv,
         return_softmax_lse=return_softmax_lse,
     )
-    return get_impl_by_name(_ATTN_OP, impl)(q, **kwargs)
+    impl_fn = get_impl_by_name("attention.kv_quant_sparse_attn_sharedkv", impl)
+    return impl_fn(q, **kwargs)
 
 
-@register_impl(_META_OP, "auto", supported_generations={Generation.ARCH35})
-@register_impl(_META_OP, "host", supported_generations={Generation.ARCH35})
+@register_impl(
+    "attention.kv_quant_sparse_attn_sharedkv_metadata_host",
+    "auto",
+    supported_generations={Generation.ARCH35},
+)
+@register_impl(
+    "attention.kv_quant_sparse_attn_sharedkv_metadata_host",
+    "host",
+    supported_generations={Generation.ARCH35},
+)
 def _host_metadata(**kwargs):
     import torch
 
     return torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host(**kwargs)
 
 
-@register_operator(_META_OP)
+@register_operator("attention.kv_quant_sparse_attn_sharedkv_metadata_host")
 def kv_quant_sparse_attn_sharedkv_metadata_host(
     num_heads_q,
     num_heads_kv,
@@ -154,4 +171,7 @@ def kv_quant_sparse_attn_sharedkv_metadata_host(
         tile_size=tile_size,
         rope_head_dim=rope_head_dim,
     )
-    return get_impl_by_name(_META_OP, impl)(**kwargs)
+    impl_fn = get_impl_by_name(
+        "attention.kv_quant_sparse_attn_sharedkv_metadata_host", impl
+    )
+    return impl_fn(**kwargs)
