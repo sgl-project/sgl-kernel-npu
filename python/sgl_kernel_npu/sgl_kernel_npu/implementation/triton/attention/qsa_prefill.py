@@ -1,20 +1,29 @@
-"""Exact common-base sixteen-query grouping, with independent descriptors for unequal queries.
+"""Triton kernels for the D256 QSA prefill pipeline.
 
-Pairs share work only if every logical selected block is equal, in the same order.
-Causal tails remain per original query; duplicates are never removed.
+Two helpers surround the Ascend C main attention:
 
-The QK/online-softmax/PV/rescale pipeline and physical run preparation are
-Ascend C (``torch.ops.npu.qsa_prefill_prepare`` and
-``torch.ops.npu.qsa_prefill_runs``). Query packing, full selection equality
-and the per-query causal tail merge are Triton NPU kernels, so this
-implementation orchestrates both runtimes instead of forwarding a single
-native binding. The public operator validates the shared contract before
-calling in; see ``operators/attention/qsa_prefill.py``.
+- ``pack_queries`` reorders Q into the sixteen-query sharing-group layout the
+  native kernel reads and flags query groups whose selected blocks are equal
+  entry by entry, in the same order. Base attention is shared only within
+  exact 16/8/4/2/1 groups.
+- ``merge_causal_tail`` adds each query's independent causal remainder of 0--3
+  tokens to the float32 base output and LSE.
+
+The Ascend C entry point in ``operators/attention/qsa_prefill.py`` calls these
+between ``torch.ops.npu.qsa_prefill_prepare`` and
+``torch.ops.npu.qsa_prefill_runs``, so the complete implementation needs both
+runtimes.
 """
 
 import torch
 import triton
 import triton.language as tl
+
+HEAD_DIM = 256
+# Sixteen queries form one sharing group; the native kernel reads Q packed as
+# [groups, 16 * H, 256] and the tail merge walks the same grid.
+GROUP_QUERIES = 16
+TAIL_MERGE_GRID = 256
 
 
 @triton.jit(do_not_specialize=[4])
@@ -160,80 +169,53 @@ def _tail_merge(
         )
 
 
-# Head layouts the native pipeline launches directly.
-NATIVE_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (3, 1), (2, 1))
-# A sharing group of 16 queries occupies 16 * (H / KV) rows of the per-stage GM
-# workspace block, which holds 128 rows, so the native kernel requires
-# H / KV <= 8. Wider layouts are split into slices of this many query heads.
-SPLIT_QUERY_HEADS = 6
+def pack_queries(q, blocks, kv_heads):
+    """Pack Q per sharing group and flag groups with identical selections.
 
+    Args:
+        q (torch.Tensor): Queries of shape [R, H, 256], BF16, contiguous, NPU.
+        blocks (torch.Tensor): Selected logical blocks, int32 [R, 512].
+        kv_heads (int): Local KV head count; H must be a multiple of it.
 
-def qsa_prefill(q, k, v, blocks, request_table, request_row, length, base, scale):
-    """Run base attention natively, splitting layouts the kernel cannot take.
-
-    Attention is independent per query head, so a layout whose queries per KV
-    head exceed the kernel's limit is evaluated as several native launches
-    over consecutive query-head slices and concatenated in head order. The
-    slices are copied because they are not contiguous; with more than one KV
-    head, each KV head is also copied once and reused across its slices.
-    """
-    heads, kv_heads = q.shape[1], k.shape[1]
-    if (heads, kv_heads) in NATIVE_HEAD_LAYOUTS:
-        return _launch(q, k, v, blocks, request_table, request_row, length, base, scale)
-    group = heads // kv_heads
-    parts = []
-    for kv_head in range(kv_heads):
-        if kv_heads == 1:
-            keys, values = k, v
-        else:
-            keys = k[:, kv_head : kv_head + 1].contiguous()
-            values = v[:, kv_head : kv_head + 1].contiguous()
-        for start in range(0, group, SPLIT_QUERY_HEADS):
-            head = kv_head * group + start
-            parts.append(
-                _launch(
-                    q[:, head : head + SPLIT_QUERY_HEADS].contiguous(),
-                    keys,
-                    values,
-                    blocks,
-                    request_table,
-                    request_row,
-                    length,
-                    base,
-                    scale,
-                )
-            )
-    return torch.cat(parts, dim=1)
-
-
-def _launch(q, k, v, blocks, request_table, request_row, length, base, scale):
-    """Run one native launch for a layout in NATIVE_HEAD_LAYOUTS.
-
-    The public operator has already validated shapes, dtypes, the head layout,
-    device placement, contiguity and the CPU metadata range. Tiling is
-    immutable and cached natively by full shape/scale/device values, including
-    both local head counts. No device-to-host metadata read happens here.
+    Returns:
+        tuple: Packed Q of shape [ceil(R / 16), 16 * H, 256] with q's dtype,
+        and the int32 sharing flags of shape [R * 16] that
+        ``torch.ops.npu.qsa_prefill_prepare`` consumes at stride 16.
     """
     rows, heads = q.shape[0], q.shape[1]
-    kv_heads = k.shape[1]
-    if length == 0 or rows == 0:
-        # Without visible tokens every row's attention output is zero, and no
-        # packed-Q write is queued against storage the caller may reuse.
-        return torch.zeros_like(q)
-    groups = (rows + 15) // 16
-    counts = torch.empty((rows * 16,), device=q.device, dtype=torch.int32)
-    packed = torch.empty((groups, 16 * heads, 256), device=q.device, dtype=q.dtype)
-    _pack[(groups, kv_heads, triton.cdiv(16 * (heads // kv_heads), 32))](
+    groups = (rows + GROUP_QUERIES - 1) // GROUP_QUERIES
+    counts = torch.empty((rows * GROUP_QUERIES,), device=q.device, dtype=torch.int32)
+    packed = torch.empty(
+        (groups, GROUP_QUERIES * heads, HEAD_DIM), device=q.device, dtype=q.dtype
+    )
+    _pack[(groups, kv_heads, triton.cdiv(GROUP_QUERIES * (heads // kv_heads), 32))](
         q, blocks, counts, packed, rows, heads, kv_heads
     )
-    starts, runs, counts = torch.ops.npu.qsa_prefill_prepare(
-        blocks, request_table, request_row, counts, length, base, k.shape[0]
-    )
-    base_out, lse = torch.ops.npu.qsa_prefill_runs(
-        packed, k, v, starts, runs, counts, scale
-    )
+    return packed, counts
+
+
+def merge_causal_tail(
+    q, k, v, request_table, request_row, base_out, lse, length, base, scale
+):
+    """Merge each query's causal remainder into the float32 base attention.
+
+    Args:
+        q (torch.Tensor): Queries of shape [R, H, 256], BF16, contiguous, NPU.
+        k (torch.Tensor): Key cache of shape [capacity, KV, 256], BF16.
+        v (torch.Tensor): Value cache with k's shape, dtype and device.
+        request_table (torch.Tensor): Slot table, int32, unit column stride.
+        request_row (torch.Tensor): Contiguous int64 [1] row index.
+        base_out (torch.Tensor): Float32 base output from the native kernel.
+        lse (torch.Tensor): Float32 log-sum-exp from the native kernel.
+        length (int): Sequence length in tokens.
+        base (int): Logical position preceding q's first row.
+        scale (float): Logit multiplier.
+
+    Returns:
+        torch.Tensor: Newly allocated output with q's shape, dtype and device.
+    """
     out = torch.empty_like(q)
-    _tail_merge[(256, kv_heads)](
+    _tail_merge[(TAIL_MERGE_GRID, k.shape[1])](
         q,
         k,
         v,
@@ -247,10 +229,10 @@ def _launch(q, k, v, blocks, request_table, request_row, length, base, scale):
         base,
         k.shape[0],
         scale,
-        rows,
-        256,
-        heads,
-        kv_heads,
+        q.shape[0],
+        TAIL_MERGE_GRID,
+        q.shape[1],
+        k.shape[1],
         enable_fp_fusion=False,
     )
     return out

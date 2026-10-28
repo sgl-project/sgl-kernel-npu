@@ -12,8 +12,19 @@ proportional to rows x 2052 x KV x 256.
 
 import torch
 
-# Bound the float32 key/value gather per chunk to roughly 256 MiB.
+# Bound the gathered key and value tensors per chunk to roughly 256 MiB.
 _CHUNK_BYTES = 256 << 20
+
+
+def _chunk_rows(columns, dim, kv_heads):
+    """Rows per chunk, from the tensors held at once per (column, dim) pair.
+
+    Gathering keys and values keeps every KV head in bfloat16, 2 * kv_heads * 2
+    bytes, and the KV head being processed is also held as a float32 copy of
+    both, 2 * 4 bytes. The float32 logits and weights add group / dim of that,
+    which is under 5% at these shapes and is ignored.
+    """
+    return max(1, _CHUNK_BYTES // (columns * dim * (4 * kv_heads + 8)))
 
 
 def _selected_positions(blocks, length, base, rows_begin, device):
@@ -61,7 +72,7 @@ def qsa_prefill(q, k, v, blocks, request_table, request_row, length, base, scale
     # and accepts a request table whose rows are not unit-strided.
     table_row = request_table.index_select(0, request_row.reshape(1)).reshape(-1)
     columns = 4 * blocks.shape[1] + 4
-    chunk = max(1, _CHUNK_BYTES // (columns * dim * 12))
+    chunk = _chunk_rows(columns, dim, kv_heads)
     for begin in range(0, rows, chunk):
         end = min(begin + chunk, rows)
         positions, valid = _selected_positions(

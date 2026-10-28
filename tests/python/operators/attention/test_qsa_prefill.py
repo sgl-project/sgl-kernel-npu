@@ -108,6 +108,8 @@ def generate_data(shape, mode, length, seed=9302026):
         pytest.param((17, 8, 1), id="edge-partial-group-17"),
         pytest.param((16, 6, 1), id="edge-exact-group-16"),
         pytest.param((0, 16, 2), id="edge-zero-rows"),
+        pytest.param((0, 24, 2), id="edge-zero-rows-24x2-composed"),
+        pytest.param((17, 12, 1), id="edge-partial-group-17x12x1-composed"),
     ],
 )
 def test_qsa_prefill(shape, mode):
@@ -151,6 +153,8 @@ def test_qsa_prefill_short_sequences(length, mode):
         pytest.param((9, 8, 1), id="8x1"),
         pytest.param((9, 6, 1), id="6x1"),
         pytest.param((9, 3, 1), id="3x1"),
+        pytest.param((9, 24, 2), id="24x2-composed"),
+        pytest.param((9, 12, 1), id="12x1-composed"),
         pytest.param((9, 2, 1), id="2x1"),
     ],
 )
@@ -183,6 +187,8 @@ def test_qsa_prefill_tiling_after_allocator_reuse(shape, scale):
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
         pytest.param((17, 3, 1), id="3x1"),
+        pytest.param((17, 24, 2), id="24x2-composed"),
+        pytest.param((17, 12, 1), id="12x1-composed"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -210,6 +216,8 @@ def test_qsa_prefill_padded_request_table(shape, mode):
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
         pytest.param((17, 3, 1), id="3x1"),
+        pytest.param((17, 24, 2), id="24x2-composed"),
+        pytest.param((17, 12, 1), id="12x1-composed"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -301,6 +309,8 @@ def test_qsa_prefill_queued_multi_launch(shapes, impl_pair):
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
         pytest.param((17, 3, 1), id="3x1"),
+        pytest.param((17, 24, 2), id="24x2-composed"),
+        pytest.param((17, 12, 1), id="12x1-composed"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -346,31 +356,35 @@ def test_qsa_prefill_graph_replay(shape, replay_mode, impl_pair):
 
 @requires_native
 @pytest.mark.parametrize(
-    "tp",
+    "global_heads, tp",
     [
-        pytest.param(2, id="whittle-tp2-local-8x1"),
-        pytest.param(8, id="whittle-tp8-local-2x1"),
+        pytest.param(16, 2, id="whittle-tp2-local-8x1"),
+        pytest.param(16, 8, id="whittle-tp8-local-2x1"),
+        pytest.param(24, 4, id="qwen3.8-flash-next-tp4-local-6x1"),
+        pytest.param(24, 8, id="qwen3.8-flash-next-tp8-local-3x1"),
     ],
 )
-def test_qsa_prefill_shards_reconstruct_global_attention(tp, impl_pair):
-    """Concatenated per-rank shards must equal global 16/2 attention.
+def test_qsa_prefill_shards_reconstruct_global_attention(global_heads, tp, impl_pair):
+    """Concatenated per-rank shards must equal the global-layout result.
 
     Every rank runs sequentially on one NPU, so this checks KV replication and
     output head order rather than a distributed deployment. The global-head
     reference cannot come from a single sharded call, so this test compares a
-    manual concatenation instead of using check_accuracy. Only global layouts
-    the public operator accepts are used; the 6/1 local layout of
-    Qwen3.8-Flash-Next TP4 is covered by test_qsa_prefill.
+    manual concatenation instead of using check_accuracy. The 24-head global
+    layouts also exercise agreement between the composed reference path and
+    natively launched shards.
     """
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
-    global_heads, rows, length = 16, 17, 257
+    rows, length = 17, 257
     base = length - rows
     q, k, v, blocks, table, request_row = generate_data(
         (rows, global_heads, 2), "fragmented", length
     )
     impl, impl_ref = impl_pair
     local_heads = global_heads // tp
+    # Rank r owns query heads [r * local, (r + 1) * local) and the KV head
+    # those belong to, replicated when tp exceeds the global KV head count.
     shards = []
     for rank in range(tp):
         kv_head = rank // (tp // 2)
@@ -415,20 +429,30 @@ def test_qsa_prefill_rejects_head_layouts(shape):
 
 @requires_native
 @pytest.mark.parametrize(
-    "invalid",
+    "invalid, message",
     [
-        pytest.param("scale-zero", id="scale-zero"),
-        pytest.param("scale-nan", id="scale-nan"),
-        pytest.param("scale-inf", id="scale-inf"),
-        pytest.param("dtype-float32", id="dtype-float32"),
-        pytest.param("blocks-511", id="blocks-511-columns"),
-        pytest.param("length-past-table", id="length-past-table"),
-        pytest.param("request-row-int32", id="request-row-int32"),
-        pytest.param("q-noncontiguous", id="q-noncontiguous"),
+        pytest.param("scale-zero", "scale must be positive", id="scale-zero"),
+        pytest.param("scale-nan", "scale must be positive", id="scale-nan"),
+        pytest.param("scale-inf", "scale must be positive", id="scale-inf"),
+        pytest.param("dtype-float32", "requires BF16", id="dtype-float32"),
+        pytest.param("blocks-511", "blocks must be int32", id="blocks-511-columns"),
+        pytest.param(
+            "length-past-table", "length/base metadata", id="length-past-table"
+        ),
+        pytest.param(
+            "request-row-int32", "request row must be int64", id="request-row-int32"
+        ),
+        pytest.param("q-noncontiguous", "must be contiguous", id="q-noncontiguous"),
+        pytest.param("table-strided", "unit column stride", id="table-column-stride"),
+        pytest.param("empty-cache", "nonempty cache", id="empty-cache"),
     ],
 )
-def test_qsa_prefill_rejects_invalid_arguments(invalid):
-    """Every contract violation raises ValueError before any kernel launch."""
+def test_qsa_prefill_rejects_invalid_arguments(invalid, message):
+    """Every contract violation raises ValueError for its own reason.
+
+    The expected message is asserted so that a case cannot pass by raising
+    ValueError somewhere else.
+    """
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
     length = 67
@@ -452,7 +476,12 @@ def test_qsa_prefill_rejects_invalid_arguments(invalid):
         request_row = request_row.int()
     elif invalid == "q-noncontiguous":
         q = torch.randn(shape[0], shape[1], 512, dtype=torch.bfloat16)[:, :, :256]
+    elif invalid == "table-strided":
+        table = torch.arange(2 * length, dtype=torch.int32).reshape(2, length).t()
+    elif invalid == "empty-cache":
+        k = k[:0]
+        v = v[:0]
     else:
         raise ValueError(f"Unknown invalid case: {invalid}")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         qsa_prefill(q, k, v, blocks, table, request_row, length, base, scale)

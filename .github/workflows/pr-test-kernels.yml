@@ -60,7 +60,7 @@ jobs:
               - csrc/qsa_prefill/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/ascendc/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/attention/**
               - tests/python/operators/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py

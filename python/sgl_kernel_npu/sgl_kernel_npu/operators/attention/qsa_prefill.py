@@ -7,18 +7,19 @@ import torch
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_ascendc_fn = None
+_triton_helpers = None
 _torch_native_fn = None
 
-SUPPORTED_HEAD_LAYOUTS = (
-    (16, 2),
-    (8, 1),
-    (6, 1),
-    (3, 1),
-    (2, 1),
-    (24, 2),
-    (12, 1),
-)
+# Local (Q heads, KV heads) layouts the native kernel launches directly. A
+# sixteen-query sharing group occupies 16 * (H / KV) rows of the per-stage GM
+# workspace block, which holds 128 rows, so one launch needs H / KV <= 8.
+NATIVE_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (3, 1), (2, 1))
+# Query heads per launch for layouts above that limit, and the layouts served
+# that way. Attention is independent per query head, so these are evaluated as
+# several native launches over consecutive query-head slices.
+SPLIT_QUERY_HEADS = 6
+SPLIT_HEAD_LAYOUTS = ((24, 2), (12, 1))
+SUPPORTED_HEAD_LAYOUTS = NATIVE_HEAD_LAYOUTS + SPLIT_HEAD_LAYOUTS
 SELECTED_BLOCKS = 512
 HEAD_DIM = 256
 
@@ -36,9 +37,8 @@ def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, sca
         raise ValueError("QSA prefill requires K,V [capacity,KV,256]")
     heads, kv_heads = q.shape[1], k.shape[1]
     if (heads, kv_heads) not in SUPPORTED_HEAD_LAYOUTS:
-        raise ValueError(
-            "unsupported Q/KV heads: expected 16/2, 8/1, 6/1, 3/1, 2/1, " "24/2 or 12/1"
-        )
+        expected = ", ".join(f"{h}/{kv}" for h, kv in SUPPORTED_HEAD_LAYOUTS)
+        raise ValueError(f"unsupported Q/KV heads: expected one of {expected}")
     if any(x.dtype != torch.bfloat16 for x in (q, k, v)):
         raise ValueError("QSA prefill requires BF16 Q/K/V")
     if q.device.type != "npu" or any(
@@ -72,6 +72,46 @@ def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, sca
         raise ValueError("nonempty sequences require a nonempty cache")
 
 
+def _pack_and_merge():
+    """Import the Triton helpers once; registration must not import them."""
+    global _triton_helpers
+    if _triton_helpers is None:
+        from ...implementation.triton.attention.qsa_prefill import (
+            merge_causal_tail,
+            pack_queries,
+        )
+
+        _triton_helpers = (pack_queries, merge_causal_tail)
+
+    return _triton_helpers
+
+
+def _native_launch(q, k, v, blocks, request_table, request_row, length, base, scale):
+    """Run one native launch for a layout in NATIVE_HEAD_LAYOUTS.
+
+    Query packing, the selection equality check and the per-query causal tail
+    merge are Triton kernels; the QK, online-softmax, PV and rescale pipeline
+    and the physical run preparation are Ascend C. Tiling is immutable and
+    cached natively by full shape, scale and device, including both local head
+    counts. No device-to-host metadata read happens here.
+    """
+    if length == 0 or q.shape[0] == 0:
+        # Without visible tokens every row's output is zero, and no packed-Q
+        # write is queued against storage the caller may reuse.
+        return torch.zeros_like(q)
+    pack_queries, merge_causal_tail = _pack_and_merge()
+    packed, counts = pack_queries(q, blocks, k.shape[1])
+    starts, runs, counts = torch.ops.npu.qsa_prefill_prepare(
+        blocks, request_table, request_row, counts, length, base, k.shape[0]
+    )
+    base_out, lse = torch.ops.npu.qsa_prefill_runs(
+        packed, k, v, starts, runs, counts, scale
+    )
+    return merge_causal_tail(
+        q, k, v, request_table, request_row, base_out, lse, length, base, scale
+    )
+
+
 # Only arch22 builds with the A3-family target enabled register the native
 # helpers, so this implementation is not declared for arch35.
 @register_impl(
@@ -81,13 +121,41 @@ def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, sca
     "attention.qsa_prefill", "ascendc", supported_generations={Generation.ARCH22}
 )
 def _ascendc_impl(q, k, v, blocks, request_table, request_row, length, base, scale):
-    global _ascendc_fn
-    if _ascendc_fn is None:
-        from ...implementation.ascendc.attention.qsa_prefill import qsa_prefill
-
-        _ascendc_fn = qsa_prefill
-
-    return _ascendc_fn(q, k, v, blocks, request_table, request_row, length, base, scale)
+    heads, kv_heads = q.shape[1], k.shape[1]
+    if (heads, kv_heads) in NATIVE_HEAD_LAYOUTS:
+        return _native_launch(
+            q, k, v, blocks, request_table, request_row, length, base, scale
+        )
+    group = heads // kv_heads
+    if group % SPLIT_QUERY_HEADS or (SPLIT_QUERY_HEADS, 1) not in NATIVE_HEAD_LAYOUTS:
+        raise ValueError(
+            f"{heads}/{kv_heads} cannot be split into native launches of "
+            f"{SPLIT_QUERY_HEADS} query heads"
+        )
+    parts = []
+    for kv_head in range(kv_heads):
+        if kv_heads == 1:
+            keys, values = k, v
+        else:
+            # One copy per KV head, reused by all of its query-head slices.
+            keys = k[:, kv_head : kv_head + 1].contiguous()
+            values = v[:, kv_head : kv_head + 1].contiguous()
+        for start in range(0, group, SPLIT_QUERY_HEADS):
+            head = kv_head * group + start
+            parts.append(
+                _native_launch(
+                    q[:, head : head + SPLIT_QUERY_HEADS].contiguous(),
+                    keys,
+                    values,
+                    blocks,
+                    request_table,
+                    request_row,
+                    length,
+                    base,
+                    scale,
+                )
+            )
+    return torch.cat(parts, dim=1)
 
 
 @register_impl("attention.qsa_prefill", "torch_native")
@@ -153,12 +221,11 @@ def qsa_prefill(
         with q's dtype and device. Rows without visible tokens are zero.
         Inputs are not modified.
 
-    Supported local (H, KV) layouts are (16, 2), (8, 1), (6, 1), (3, 1),
-    (2, 1), (24, 2) and (12, 1). The Ascend C implementation evaluates the
-    last two as several launches over query-head slices, which copies those
-    slices.
-    The caller handles head sharding and KV replication; this operator
-    performs no distributed communication.
+    Supported local (H, KV) layouts are NATIVE_HEAD_LAYOUTS, which the kernel
+    takes directly, plus SPLIT_HEAD_LAYOUTS, which the Ascend C
+    implementation evaluates as several launches over query-head slices and
+    therefore copies those slices. The caller handles head sharding and KV
+    replication; this operator performs no distributed communication.
     """
     _check_inputs(q, k, v, blocks, request_table, request_row, length, base, scale)
     impl_fn = get_impl_by_name("attention.qsa_prefill", impl)

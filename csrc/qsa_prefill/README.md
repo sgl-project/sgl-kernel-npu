@@ -118,11 +118,9 @@ comparison against a local independent-query D256 Ascend C prototype gives
 
 The comparator is a retained local D256 prototype, not the upstream MiniMax
 operator or a CANN serving baseline. Short and unshared workloads regress, so
-this is an explicit API, not a default dispatch change. Raw samples and
-geometry are recorded in
-[the benchmark record](../../docs/benchmarks/qsa_prefill_910c.json); the TP
-head-layout record is in
-[the TP validation record](../../docs/benchmarks/qsa_prefill_tp_910c.json).
+this is an explicit API, not a default dispatch change. Raw samples are kept
+local; `benchmark/attention/bench_qsa_prefill.py` reproduces the event
+timings and the test suite reports the profiled baselines above.
 
 This extraction comes from a local Whittle TP1 W8A8 experiment. Whole-model
 results also contain indexer and GDN optimizations outside this change; those

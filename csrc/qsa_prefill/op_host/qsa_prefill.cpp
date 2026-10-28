@@ -37,10 +37,11 @@ std::tuple<at::Tensor, at::Tensor> QsaRuns(const at::Tensor &q, const at::Tensor
     TORCH_CHECK(q.dim() == 3 && q.size(2) == 256, "packed Q must be [G,16*H,256]");
     TORCH_CHECK(k.dim() == 3 && k.size(0) > 0 && k.size(2) == 256 && v.sizes() == k.sizes(),
                 "K,V must be [capacity,KV,256]");
-    // Packed Q is [G,16*H,256]; a sharing group needs 16*(H/KV) rows of the
-    // 128-row per-stage workspace block, so H/KV must not exceed 8.
-    TORCH_CHECK((q.size(1) == 256 && k.size(1) == 2) ||
-                    (k.size(1) == 1 && (q.size(1) == 128 || q.size(1) == 96 || q.size(1) == 48 || q.size(1) == 32)),
+    // Packed Q is [G,16*H,256], so a sharing group needs 16*(H/KV) of the 128
+    // rows in the per-stage workspace block. Express that rule rather than a
+    // list of sizes; the whitelist of validated layouts lives in the Python
+    // operator, which is the only supported entry point.
+    TORCH_CHECK((k.size(1) == 1 || k.size(1) == 2) && q.size(1) % (16 * k.size(1)) == 0 && q.size(1) / k.size(1) <= 128,
                 "unsupported packed Q/KV heads");
     TORCH_CHECK(slots.dim() == 2 && slots.size(1) == 2064 && (slots.size(0) + 15) / 16 == q.size(0),
                 "prepared slots must be [R,2064]");
