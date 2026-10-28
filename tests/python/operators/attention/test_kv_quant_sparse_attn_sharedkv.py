@@ -50,9 +50,12 @@ def generate_test_data(batch, query_len, heads, kv_len, seed=42):
     )
     lengths_cpu = torch.full((batch,), kv_len, dtype=torch.int32)
     q = (torch.randn(batch, query_len, heads, 512) * 0.1).to(torch.bfloat16)
-    return q.to("npu"), packed.view(torch.float8_e4m3fn).to("npu"), table.to(
-        "npu"
-    ), lengths_cpu
+    return (
+        q.to("npu"),
+        packed.view(torch.float8_e4m3fn).to("npu"),
+        table.to("npu"),
+        lengths_cpu,
+    )
 
 
 @pytest.mark.parametrize(
@@ -69,9 +72,7 @@ def test_paged_swa(batch, query_len, heads, kv_len, window):
         kv_quant_sparse_attn_sharedkv_metadata_host,
     )
 
-    q, packed, table, lengths_cpu = generate_test_data(
-        batch, query_len, heads, kv_len
-    )
+    q, packed, table, lengths_cpu = generate_test_data(batch, query_len, heads, kv_len)
     metadata = kv_quant_sparse_attn_sharedkv_metadata_host(
         num_heads_q=heads,
         num_heads_kv=1,

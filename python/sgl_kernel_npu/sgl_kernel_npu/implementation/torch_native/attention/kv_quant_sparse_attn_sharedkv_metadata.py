@@ -57,8 +57,7 @@ def kv_quant_sparse_attn_sharedkv_metadata(**kwargs):
     ):
         raise NotImplementedError("TND reference requires cu_seqlens_q=[0, 1]")
     if kwargs["has_cmp_kv"] and (
-        kwargs["cmp_ratio"] not in (4, 128)
-        or kwargs["cmp_topk"] not in (0, 512, 1024)
+        kwargs["cmp_ratio"] not in (4, 128) or kwargs["cmp_topk"] not in (0, 512, 1024)
     ):
         raise NotImplementedError("Unsupported compressed-KV mode")
 

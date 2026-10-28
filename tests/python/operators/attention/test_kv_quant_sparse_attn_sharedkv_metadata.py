@@ -22,8 +22,7 @@ def test_public_registration():
 
     operator = attention.kv_quant_sparse_attn_sharedkv_metadata_host
     assert (
-        get_op_name(operator)
-        == "attention.kv_quant_sparse_attn_sharedkv_metadata_host"
+        get_op_name(operator) == "attention.kv_quant_sparse_attn_sharedkv_metadata_host"
     )
     assert set(list_impls(operator)) == {"auto", "host", "torch_native"}
     assert hasattr(torch.ops.npu, "kv_quant_sparse_attn_sharedkv_metadata_host")
