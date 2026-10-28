@@ -1,11 +1,11 @@
-# markov_sample
+# markov_sample_step_triton
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 | `tilelang` | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented |
 
@@ -16,9 +16,9 @@ currently verified status.
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.sample import markov_sample
+from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 
-def markov_sample(
+def markov_sample_step_triton(
     *, base_logits, bias, temperatures, key, offset, step, step_dtype,
     vocab_start=0, gather=None, gather_logits=None, logits_out=None,
     has_sampled_rows=None, exp_noise=None, impl="auto"
@@ -85,12 +85,12 @@ This implementation can be used as a reference for the Triton backend.
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.sample import markov_sample
+from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 
 base = torch.randn(2, 1024, device="npu", dtype=torch.float32)
 bias = torch.randn_like(base)
 temperatures = torch.tensor([0.0, 1.0], device="npu", dtype=torch.float32)
 offset = torch.zeros(1, device="npu", dtype=torch.int64)
-tokens = markov_sample(base_logits=base, bias=bias, temperatures=temperatures,
+tokens = markov_sample_step_triton(base_logits=base, bias=bias, temperatures=temperatures,
                        key=1234, offset=offset, step=0, step_dtype=torch.float32)
 ```

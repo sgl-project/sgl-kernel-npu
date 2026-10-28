@@ -1,4 +1,4 @@
-"""Public markov_sample operator and backend registration."""
+"""Public markov_sample_step_triton operator and backend registration."""
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -6,8 +6,8 @@ _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("sample.markov_sample", "auto")
-@register_impl("sample.markov_sample", "triton")
+@register_impl("sample.markov_sample_step_triton", "auto")
+@register_impl("sample.markov_sample_step_triton", "triton")
 def _triton_impl(**kwargs):
     global _triton_fn
     if _triton_fn is None:
@@ -19,7 +19,7 @@ def _triton_impl(**kwargs):
     return _triton_fn(**kwargs)
 
 
-@register_impl("sample.markov_sample", "torch_native")
+@register_impl("sample.markov_sample_step_triton", "torch_native")
 def _torch_native_impl(**kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -31,8 +31,8 @@ def _torch_native_impl(**kwargs):
     return _torch_native_fn(**kwargs)
 
 
-@register_operator("sample.markov_sample")
-def markov_sample(
+@register_operator("sample.markov_sample_step_triton")
+def markov_sample_step_triton(
     *,
     base_logits,
     bias,
@@ -49,8 +49,8 @@ def markov_sample(
     exp_noise=None,
     impl="auto"
 ):
-    """Dispatch to the selected markov_sample implementation."""
-    return get_impl_by_name("sample.markov_sample", impl)(
+    """Dispatch to the selected markov_sample_step_triton implementation."""
+    return get_impl_by_name("sample.markov_sample_step_triton", impl)(
         base_logits=base_logits,
         bias=bias,
         temperatures=temperatures,

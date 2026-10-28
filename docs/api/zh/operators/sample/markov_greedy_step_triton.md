@@ -1,11 +1,11 @@
-# markov_greedy
+# markov_greedy_step_triton
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 待验证 |
-| `torch_native` | 支持 | 待验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 | `tilelang` | 未实现 | 未实现 |
 | `ascendc` | 未实现 | 未实现 |
 
@@ -14,9 +14,9 @@
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.sample import markov_greedy
+from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
     ...
 ```
 
@@ -52,10 +52,10 @@ def markov_greedy(*, base_logits, prev_embeds, w2_weight, impl="auto"):
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.sample import markov_greedy
+from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
 base = torch.randn(2, 1024, device="npu", dtype=torch.float16)
 embeds = torch.randn(2, 128, device="npu", dtype=torch.float16)
 weight = torch.randn(1024, 128, device="npu", dtype=torch.float16)
-tokens = markov_greedy(base_logits=base, prev_embeds=embeds, w2_weight=weight)
+tokens = markov_greedy_step_triton(base_logits=base, prev_embeds=embeds, w2_weight=weight)
 ```

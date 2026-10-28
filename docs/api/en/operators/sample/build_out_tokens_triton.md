@@ -1,11 +1,11 @@
-# build_out_tokens
+# build_out_tokens_triton
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 | `tilelang` | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented |
 
@@ -16,9 +16,9 @@ currently verified status.
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.sample import build_out_tokens
+from sgl_kernel_npu.operators.sample import build_out_tokens_triton
 
-def build_out_tokens(
+def build_out_tokens_triton(
     *, draft_tokens, correct_len, bonus, verify_num_draft_tokens, gamma, impl="auto"
 ):
     ...
@@ -60,12 +60,12 @@ Uses Torch concatenation and scatter to construct the same output.
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.sample import build_out_tokens
+from sgl_kernel_npu.operators.sample import build_out_tokens_triton
 
 drafts = torch.tensor([[10, 11, 12], [20, 21, 22]], device="npu")
 lengths = torch.tensor([1, 3], device="npu")
 bonus = torch.tensor([99, 98], device="npu")
-out = build_out_tokens(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
+out = build_out_tokens_triton(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
                        verify_num_draft_tokens=4, gamma=3)
 # out: [[10, 99, 12, 0], [20, 21, 22, 98]]
 # Valid prefixes have lengths lengths + 1.

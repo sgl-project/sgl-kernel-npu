@@ -1,11 +1,11 @@
-# markov_greedy
+# markov_greedy_step_triton
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 | `tilelang` | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented |
 
@@ -16,9 +16,9 @@ currently verified status.
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.sample import markov_greedy
+from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
     ...
 ```
 
@@ -62,10 +62,10 @@ Uses Torch linear projection, addition and argmax.
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.sample import markov_greedy
+from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
 base = torch.randn(2, 1024, device="npu", dtype=torch.float16)
 embeds = torch.randn(2, 128, device="npu", dtype=torch.float16)
 weight = torch.randn(1024, 128, device="npu", dtype=torch.float16)
-tokens = markov_greedy(base_logits=base, prev_embeds=embeds, w2_weight=weight)
+tokens = markov_greedy_step_triton(base_logits=base, prev_embeds=embeds, w2_weight=weight)
 ```

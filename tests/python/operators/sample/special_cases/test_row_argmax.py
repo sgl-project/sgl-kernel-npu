@@ -3,7 +3,11 @@
 import unittest
 
 import torch
-from _sampling_test_utils import NPU_AVAILABLE, SamplingTestCase
+
+from tests.python.operators.sample.special_cases._sampling_test_utils import (
+    NPU_AVAILABLE,
+    SamplingTestCase,
+)
 
 if NPU_AVAILABLE:
     from sgl_kernel_npu.operators.sample import row_argmax

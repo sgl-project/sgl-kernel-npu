@@ -1,11 +1,11 @@
-# build_out_tokens
+# build_out_tokens_triton
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 待验证 |
-| `torch_native` | 支持 | 待验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 | `tilelang` | 未实现 | 未实现 |
 | `ascendc` | 未实现 | 未实现 |
 
@@ -14,9 +14,9 @@
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.sample import build_out_tokens
+from sgl_kernel_npu.operators.sample import build_out_tokens_triton
 
-def build_out_tokens(
+def build_out_tokens_triton(
     *, draft_tokens, correct_len, bonus, verify_num_draft_tokens, gamma, impl="auto"
 ):
     ...
@@ -54,12 +54,12 @@ def build_out_tokens(
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.sample import build_out_tokens
+from sgl_kernel_npu.operators.sample import build_out_tokens_triton
 
 drafts = torch.tensor([[10, 11, 12], [20, 21, 22]], device="npu")
 lengths = torch.tensor([1, 3], device="npu")
 bonus = torch.tensor([99, 98], device="npu")
-out = build_out_tokens(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
+out = build_out_tokens_triton(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
                        verify_num_draft_tokens=4, gamma=3)
 # out 为 [[10, 99, 12, 0], [20, 21, 22, 98]]
 # 每行有效前缀的长度为 lengths + 1。
