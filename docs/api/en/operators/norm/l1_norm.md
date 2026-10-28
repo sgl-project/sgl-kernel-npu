@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Registered; unverified | Registered; unverified |
-| `torch_native` | Registered; unverified | Registered; unverified |
+| `triton` | Accuracy verified on A3 | Registered; unverified |
+| `torch_native` | Accuracy verified on A3 | Registered; unverified |
 
-Both generations are registered. Compilation, accuracy and performance validation on real NPUs is pending.
+The FP32, FP16 and BF16 cases passed on A3 with CANN 9.0 and 9.1 ([CI results](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)). This result covers the implementation before the wrapper relocation and API rename; the revised layout still requires an NPU rerun. arch35 validation and performance measurements are pending.
 
 ## Signature
 
@@ -28,7 +28,7 @@ $$
 Y_{i,j}=\frac{X_{i,j}}{\sum_{k=0}^{H-1}X_{i,k}}
 $$
 
-The denominator does not take absolute values or add epsilon. This operation can renormalize selected expert weights. Zero row sums retain the original floating-point division behavior and can produce NaN or Inf.
+The denominator does not take absolute values or add epsilon. This operation can renormalize selected expert weights. Zero row sums can produce NaN or Inf.
 
 ## Parameters and return value
 
@@ -45,12 +45,12 @@ The public entry point adds neither input validation nor contiguous copies. Trit
 
 ## triton backend
 
-- Uses the original `l1_norm_kernel` to sum and normalize each row, writing FP32 output.
+- Uses `l1_norm_kernel` to sum and normalize each row, writing FP32 output.
 - Uses `tl.arange(0, H)`, requiring a power-of-two width.
 
 ## torch_native backend
 
-- Follows the original test golden: `values = input.to(torch.float32).cpu().numpy()`, then `values / values.sum(axis=-1, keepdims=True)`.
+- Computes with FP32 NumPy values on CPU: `values = input.to(torch.float32).cpu().numpy()`, then `values / values.sum(axis=-1, keepdims=True)`.
 - Converts the NumPy result to an FP32 Tensor and returns it to the input device, preserving the public return contract.
 - Requires NumPy. NPU input is copied to the CPU and results are copied back. This accuracy reference is unsuitable for execution inside NPU graph capture.
 

@@ -1,33 +1,32 @@
 """Public l1_norm with implementation selection."""
 
-import torch
-
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+
+_triton_fn = None
+_torch_native_fn = None
 
 
 @register_impl("norm.l1_norm", "auto")
 @register_impl("norm.l1_norm", "triton")
 def _triton_impl(input):
-    from ...implementation.triton.norm.l1_norm import l1_norm_kernel
-    from ...utils.triton_utils import get_device_properties
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.norm.l1_norm import l1_norm
 
-    batch_size = input.shape[0]
-    hidden_size = input.shape[1]
-    output = torch.empty(
-        batch_size, hidden_size, device=input.device, dtype=torch.float32
-    )
-    _, num_vectorcore = get_device_properties()
-    l1_norm_kernel[(num_vectorcore,)](
-        input, output, batch_size, hidden_size, num_vectorcore
-    )
-    return output
+        _triton_fn = l1_norm
+
+    return _triton_fn(input)
 
 
 @register_impl("norm.l1_norm", "torch_native")
 def _torch_native_impl(input):
-    from ...implementation.torch_native.norm.l1_norm import l1_norm
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.norm.l1_norm import l1_norm
 
-    return l1_norm(input)
+        _torch_native_fn = l1_norm
+
+    return _torch_native_fn(input)
 
 
 @register_operator("norm.l1_norm")

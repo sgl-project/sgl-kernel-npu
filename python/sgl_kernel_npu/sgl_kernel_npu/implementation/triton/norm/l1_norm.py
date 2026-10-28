@@ -23,3 +23,16 @@ def l1_norm_kernel(
         tl.store(
             output_ptr + row_idx * hidden_size + cols, buffered_values.to(tl.float32)
         )
+
+
+def l1_norm(input):
+    batch_size = input.shape[0]
+    hidden_size = input.shape[1]
+    output = torch.empty(
+        batch_size, hidden_size, device=input.device, dtype=torch.float32
+    )
+    _, num_vectorcore = get_device_properties()
+    l1_norm_kernel[(num_vectorcore,)](
+        input, output, batch_size, hidden_size, num_vectorcore
+    )
+    return output

@@ -3,8 +3,10 @@
 # Copyright (c) 2024, Tri Dao.
 # Based on the Triton LayerNorm tutorial: https://triton-lang.org/main/getting-started/tutorials/05-layer-norm.html
 
+import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.heuristics({"HAS_BIAS": lambda args: args["B"] is not None})
@@ -96,3 +98,63 @@ def _layer_norm_fwd_1pass_kernel_npu(
         # Store output
         y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
         tl.store(y_ptrs, y, mask=row_mask[:, None] & col_mask[None, :])
+
+
+def layer_norm_fwd(
+    x,
+    weight,
+    bias,
+    eps,
+    z=None,
+    out=None,
+    group_size=None,
+    norm_before_gate=True,
+    is_rms_norm=False,
+    activation=None,
+):
+    M, N = x.shape
+    if group_size is None:
+        group_size = N
+    ngroups = N // group_size
+
+    # allocate output
+    if out is None:
+        out = torch.empty_like(x)
+    mean = (
+        torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
+        if not is_rms_norm
+        else None
+    )
+    rstd = torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
+
+    MAX_FUSED_SIZE = 65536 // x.element_size()
+    BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
+
+    # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
+    BLOCK_M = 48
+    _, num_vectorcore = get_device_properties()
+    num_blocks_m = min(triton.cdiv(M, BLOCK_M), num_vectorcore)
+
+    # Now grid is (num blocks over M, num groups)
+    grid = (num_blocks_m, ngroups)
+    _layer_norm_fwd_1pass_kernel_npu[grid](
+        x,
+        out,
+        weight,
+        bias,
+        z,
+        mean,
+        rstd,
+        x.stride(0),
+        out.stride(0),
+        z.stride(0) if z is not None else 0,
+        M,
+        group_size,
+        eps,
+        BLOCK_M=BLOCK_M,
+        BLOCK_N=BLOCK_N,
+        NORM_BEFORE_GATE=norm_before_gate,
+        IS_RMS_NORM=is_rms_norm,
+        # Remove multibuffer if not needed
+    )
+    return out, mean, rstd

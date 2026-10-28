@@ -14,6 +14,12 @@ ACCURACY_STANDARD = {
 }
 
 
+def generate_test_data(shape, zero, dtype):
+    torch.npu.manual_seed(42)
+    x = torch.zeros(shape, dtype=dtype) if zero else torch.randn(shape, dtype=dtype)
+    return x
+
+
 @pytest.mark.parametrize(
     "dtype",
     [torch.float32, torch.float16, torch.bfloat16],
@@ -62,13 +68,10 @@ ACCURACY_STANDARD = {
 def test_l2norm_fwd(shape, eps, output_dtype, zero, dtype):
     from sgl_kernel_npu.operators.norm import l2norm_fwd
 
-    torch.npu.manual_seed(42)
-    x = torch.zeros(shape, dtype=dtype) if zero else torch.randn(shape, dtype=dtype)
+    x = generate_test_data(shape, zero, dtype)
     executor = check_accuracy(
         l2norm_fwd,
         args=(x, eps, output_dtype),
-        impl="triton",
-        impl_ref="torch_native",
         # Reuse the accuracy standards from the legacy L2Norm tests.
         standard=ACCURACY_STANDARD,
     )

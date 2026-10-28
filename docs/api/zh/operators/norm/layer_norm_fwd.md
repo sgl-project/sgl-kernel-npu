@@ -1,20 +1,20 @@
-# layer_norm_fwd_npu
+# layer_norm_fwd
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 已注册，待验证 | 已注册，待验证 |
-| `torch_native` | 已注册，待验证 | 已注册，待验证 |
+| `triton` | A3 精度已验证 | 已注册，待验证 |
+| `torch_native` | A3 精度已验证 | 已注册，待验证 |
 
-注册范围覆盖上述代际；真实 NPU 的编译、精度及性能验证尚未完成。
+FP32、FP16、BF16 用例已在 A3 的 CANN 9.0 和 9.1 环境通过（[CI 结果](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)）。该结果对应 wrapper 移动和 API 更名前的实现；本次目录调整仍需 NPU 复测。arch35 真机验证和性能测量尚未完成。
 
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
-def layer_norm_fwd_npu(
+def layer_norm_fwd(
     x,
     weight,
     bias,
@@ -72,11 +72,11 @@ def layer_norm_fwd_npu(
 | `mean` | `torch.Tensor` 或 `None` | `[G * M]` 或 — | `torch.float32` 或 — | LayerNorm 的逐组均值；RMSNorm 返回 None。 |
 | `rstd` | `torch.Tensor` | `[G * M]` | `torch.float32` | 每组的倒数标准差或倒数均方根。 |
 
-统计量按 group-major 展平：第 g 组、第 m 行的值位于 `g * M + m`，可用 `stats.view(G, M)` 查看。公共函数集中执行原有 shape、stride、分组及组宽检查，不自动连续化，也不增加 dtype 或设备检查。调用方仍需保证设备和 dtype 合适；未提供 out 时，x、weight、bias、z 均只读。
+统计量按 group-major 展平：第 g 组、第 m 行的值位于 `g * M + m`，可用 `stats.view(G, M)` 查看。公共函数执行 shape、stride、分组及组宽检查，不自动连续化，也不增加 dtype 或设备检查。调用方仍需保证设备和 dtype 合适；未提供 out 时，x、weight、bias、z 均只读。
 
 ## triton 后端
 
-- 使用原 `_layer_norm_fwd_1pass_kernel_npu`，保留 `BLOCK_M=48` 和原启动配置。
+- 使用 `_layer_norm_fwd_1pass_kernel_npu`，采用 `BLOCK_M=48`。
 - 用输入、输出及 gate 的实际行 stride 寻址，末维保持连续。
 - 输入、权重、偏置和 gate 按 FP32 计算，结果写入输出 dtype，统计量保留 FP32。
 
@@ -93,7 +93,7 @@ def layer_norm_fwd_npu(
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
 torch.npu.set_device(0)
 x = torch.randn(4, 128, device="npu", dtype=torch.float32)
@@ -102,7 +102,7 @@ z = torch.randn_like(x)
 buffer = torch.empty_like(x)
 
 # 分组 RMSNorm，仿射后进行 SiLU 门控，复用输出。
-y, mean, rstd = layer_norm_fwd_npu(
+y, mean, rstd = layer_norm_fwd(
     x, weight, None, 1e-5,
     z=z, out=buffer, group_size=32,
     norm_before_gate=True, is_rms_norm=True,
@@ -112,12 +112,12 @@ assert y is buffer
 assert mean is None
 print(rstd.shape)  # torch.Size([16])，4 组 * 4 行
 
-reference, _, _ = layer_norm_fwd_npu(
+reference, _, _ = layer_norm_fwd(
     x, weight, None, 1e-5,
     z=z, group_size=32, is_rms_norm=True,
     impl="torch_native",
 )
 
 # 默认 LayerNorm，保留 mean 和 rstd，默认 auto 对应 Triton。
-ln_output, ln_mean, ln_rstd = layer_norm_fwd_npu(x, weight, None, 1e-5)
+ln_output, ln_mean, ln_rstd = layer_norm_fwd(x, weight, None, 1e-5)
 ```

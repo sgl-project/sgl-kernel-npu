@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 已注册，待验证 | 已注册，待验证 |
-| `torch_native` | 已注册，待验证 | 已注册，待验证 |
+| `triton` | A3 精度已验证 | 已注册，待验证 |
+| `torch_native` | A3 精度已验证 | 已注册，待验证 |
 
-注册范围覆盖上述代际；真实 NPU 的编译、精度及性能验证尚未完成。
+FP32、FP16、BF16 用例已在 A3 的 CANN 9.0 和 9.1 环境通过（[CI 结果](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)）。该结果对应 wrapper 移动和 API 更名前的实现；本次目录调整仍需 NPU 复测。arch35 真机验证和性能测量尚未完成。
 
 ## 函数原型
 
@@ -43,17 +43,17 @@ $$
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `x.shape` | `output_dtype`，默认 `x.dtype` | 新建输出，与输入位于同一设备，不修改输入。 |
 
-公共入口不添加连续化；两个实现都需要输入可按 `view(-1, D)` 整理。Triton 保留原特征宽度限制：`D` 不能超过 `65536 // x.element_size()`，超过时抛出 `RuntimeError`。此限制按输入 dtype 计算。
+公共入口不添加连续化；两个实现都需要输入可按 `view(-1, D)` 整理。Triton 存在特征宽度限制：`D` 不能超过 `65536 // x.element_size()`，超过时抛出 `RuntimeError`。此限制按输入 dtype 计算。
 
 ## triton 后端
 
 - `D <= 512` 使用 `l2norm_fwd_kernel_opt`；`D > 512` 使用 `l2norm_fwd_kernel`。
-- 保留原 kernel 的 FP32 计算、tile、grid 及运行期参数配置；两个内部 kernel 共用一个公共入口。
+- 使用 FP32 中间值及按特征宽度选择的 tile、grid 和运行期参数配置；两个内部 kernel 共用一个公共入口。
 
 ## torch_native 后端
 
 - 输入转 FP32 后执行 `values * torch.rsqrt(values.square().sum(-1, keepdim=True) + eps)`。
-- 写入目标 dtype 的输出，再恢复原 shape，计算公式与原 L2 测试的参考一致。
+- 写入目标 dtype 的输出，再恢复原 shape。
 
 ## 调用示例
 

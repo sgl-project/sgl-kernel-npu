@@ -4,9 +4,12 @@ import torch
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
 
-@register_impl("norm.layer_norm_fwd_npu", "auto")
-@register_impl("norm.layer_norm_fwd_npu", "triton")
+
+@register_impl("norm.layer_norm_fwd", "auto")
+@register_impl("norm.layer_norm_fwd", "triton")
 def _triton_impl(
     x,
     weight,
@@ -19,62 +22,27 @@ def _triton_impl(
     is_rms_norm=False,
     activation=None,
 ):
-    import triton
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.norm.layer_norm_fwd import layer_norm_fwd
 
-    from ...implementation.triton.norm.layernorm_gated import (
-        _layer_norm_fwd_1pass_kernel_npu,
-    )
-    from ...utils.triton_utils import get_device_properties
+        _triton_fn = layer_norm_fwd
 
-    M, N = x.shape
-    if group_size is None:
-        group_size = N
-    ngroups = N // group_size
-
-    # allocate output
-    if out is None:
-        out = torch.empty_like(x)
-    mean = (
-        torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
-        if not is_rms_norm
-        else None
-    )
-    rstd = torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
-
-    MAX_FUSED_SIZE = 65536 // x.element_size()
-    BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
-
-    # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
-    BLOCK_M = 48
-    _, num_vectorcore = get_device_properties()
-    num_blocks_m = min(triton.cdiv(M, BLOCK_M), num_vectorcore)
-
-    # Now grid is (num blocks over M, num groups)
-    grid = (num_blocks_m, ngroups)
-    _layer_norm_fwd_1pass_kernel_npu[grid](
+    return _triton_fn(
         x,
-        out,
         weight,
         bias,
-        z,
-        mean,
-        rstd,
-        x.stride(0),
-        out.stride(0),
-        z.stride(0) if z is not None else 0,
-        M,
-        group_size,
         eps,
-        BLOCK_M=BLOCK_M,
-        BLOCK_N=BLOCK_N,
-        NORM_BEFORE_GATE=norm_before_gate,
-        IS_RMS_NORM=is_rms_norm,
-        # Remove multibuffer if not needed
+        z,
+        out,
+        group_size,
+        norm_before_gate,
+        is_rms_norm,
+        activation,
     )
-    return out, mean, rstd
 
 
-@register_impl("norm.layer_norm_fwd_npu", "torch_native")
+@register_impl("norm.layer_norm_fwd", "torch_native")
 def _torch_native_impl(
     x,
     weight,
@@ -87,7 +55,11 @@ def _torch_native_impl(
     is_rms_norm=False,
     activation=None,
 ):
-    from ...implementation.torch_native.norm.layernorm_gated import layer_norm_fwd_npu
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.norm.layer_norm_fwd import layer_norm_fwd
+
+        _torch_native_fn = layer_norm_fwd
 
     rows, hidden = x.shape
     size = hidden if group_size is None else group_size
@@ -100,7 +72,7 @@ def _torch_native_impl(
     )
     rstd = torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
     # activation is accepted but ignored by the original kernel; gating is always SiLU.
-    layer_norm_fwd_npu(
+    _torch_native_fn(
         x.reshape(rows, groups, size),
         weight.reshape(1, groups, size),
         None if bias is None else bias.reshape(1, groups, size),
@@ -115,8 +87,8 @@ def _torch_native_impl(
     return output, mean, rstd
 
 
-@register_operator("norm.layer_norm_fwd_npu")
-def layer_norm_fwd_npu(
+@register_operator("norm.layer_norm_fwd")
+def layer_norm_fwd(
     x,
     weight,
     bias,
@@ -160,7 +132,7 @@ def layer_norm_fwd_npu(
     if size > block:
         raise RuntimeError("Feature dim too large.")
 
-    return get_impl_by_name("norm.layer_norm_fwd_npu", impl)(
+    return get_impl_by_name("norm.layer_norm_fwd", impl)(
         x,
         weight,
         bias,

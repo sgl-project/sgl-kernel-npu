@@ -93,14 +93,12 @@ def generate_test_data(dtype, rows, gate, bias, contiguous=False):
     ],
 )
 # Compare gating order, norm kind and group-major FP32 statistics with an independent output.
-def test_layer_norm_fwd_npu(
-    rows, size, rms, gate, before, bias, eps, contiguous, dtype
-):
-    from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+def test_layer_norm_fwd(rows, size, rms, gate, before, bias, eps, contiguous, dtype):
+    from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
     x, weight, bias_value, z = generate_test_data(dtype, rows, gate, bias, contiguous)
     executor = check_accuracy(
-        layer_norm_fwd_npu,
+        layer_norm_fwd,
         args=(x, weight, bias_value, eps),
         kwargs={
             "z": z,
@@ -109,8 +107,6 @@ def test_layer_norm_fwd_npu(
             "is_rms_norm": rms,
             "activation": "silu",
         },
-        impl="triton",
-        impl_ref="torch_native",
     )
     out, mean, rstd = executor()
     groups = 128 // (128 if size is None else size)
@@ -130,7 +126,7 @@ def test_layer_norm_fwd_npu(
 )
 # Use separate preallocated outputs so accuracy cannot pass by comparing one shared buffer.
 def test_layer_norm_preallocated_output(dtype):
-    from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+    from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
     x, weight, bias, z = generate_test_data(dtype, 3, True, True)
     x_before = x.clone()
@@ -138,12 +134,10 @@ def test_layer_norm_preallocated_output(dtype):
     ref_storage = torch.full_like(dut_storage, -17.0)
     dut_out, ref_out = dut_storage[:, :128], ref_storage[:, :128]
     kwargs = {"z": z, "group_size": 32, "is_rms_norm": True}
-    expected = layer_norm_fwd_npu(
+    expected = layer_norm_fwd(
         x, weight, bias, 1e-5, out=ref_out, impl="torch_native", **kwargs
     )
-    actual = layer_norm_fwd_npu(
-        x, weight, bias, 1e-5, out=dut_out, impl="triton", **kwargs
-    )
+    actual = layer_norm_fwd(x, weight, bias, 1e-5, out=dut_out, impl="triton", **kwargs)
     assert actual[0] is dut_out and expected[0] is ref_out
     assert_accuracy(actual, expected)
     torch.testing.assert_close(

@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 已注册，待验证 | 已注册，待验证 |
-| `torch_native` | 已注册，待验证 | 已注册，待验证 |
+| `triton` | A3 精度已验证 | 已注册，待验证 |
+| `torch_native` | A3 精度已验证 | 已注册，待验证 |
 
-注册范围覆盖上述代际；真实 NPU 的编译、精度及性能验证尚未完成。
+FP32、FP16、BF16 用例已在 A3 的 CANN 9.0 和 9.1 环境通过（[CI 结果](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)）。该结果对应 wrapper 移动和 API 更名前的实现；本次目录调整仍需 NPU 复测。arch35 真机验证和性能测量尚未完成。
 
 ## 函数原型
 
@@ -28,7 +28,7 @@ $$
 Y_{i,j}=\frac{X_{i,j}}{\sum_{k=0}^{H-1}X_{i,k}}
 $$
 
-分母不取绝对值，也不添加 epsilon。该语义可用于对选中的专家权重重新归一化。行和为零时保留原浮点除法行为，可能返回 NaN 或 Inf。
+分母不取绝对值，也不添加 epsilon。该语义可用于对选中的专家权重重新归一化。行和为零时可能返回 NaN 或 Inf。
 
 ## 参数与返回值
 
@@ -45,12 +45,12 @@ $$
 
 ## triton 后端
 
-- 使用原 `l1_norm_kernel`，按行求和并归一化，写入 FP32 输出。
+- 使用 `l1_norm_kernel`，按行求和并归一化，写入 FP32 输出。
 - 使用 `tl.arange(0, H)`，需要 2 的幂宽度。
 
 ## torch_native 后端
 
-- 沿用旧测试 golden：`values = input.to(torch.float32).cpu().numpy()`，随后执行 `values / values.sum(axis=-1, keepdims=True)`。
+- 使用 CPU 上的 FP32 NumPy 数组计算：`values = input.to(torch.float32).cpu().numpy()`，随后执行 `values / values.sum(axis=-1, keepdims=True)`。
 - 将 NumPy 结果转换为 FP32 Tensor，并放回输入设备，保持公共返回值约定。
 - 需要 NumPy；NPU 输入会发生设备到 CPU 及结果回传的数据拷贝，用于精度参考，不适合放在 NPU graph 捕获中执行。
 

@@ -1,20 +1,20 @@
-# layer_norm_fwd_npu
+# layer_norm_fwd
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Registered; unverified | Registered; unverified |
-| `torch_native` | Registered; unverified | Registered; unverified |
+| `triton` | Accuracy verified on A3 | Registered; unverified |
+| `torch_native` | Accuracy verified on A3 | Registered; unverified |
 
-Both generations are registered. Compilation, accuracy and performance validation on real NPUs is pending.
+The FP32, FP16 and BF16 cases passed on A3 with CANN 9.0 and 9.1 ([CI results](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)). This result covers the implementation before the wrapper relocation and API rename; the revised layout still requires an NPU rerun. arch35 validation and performance measurements are pending.
 
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
-def layer_norm_fwd_npu(
+def layer_norm_fwd(
     x,
     weight,
     bias,
@@ -72,11 +72,11 @@ Returns `(out, mean, rstd)`:
 | `mean` | `torch.Tensor` or `None` | `[G * M]` or — | `torch.float32` or — | Per-group means for LayerNorm; None for RMSNorm. |
 | `rstd` | `torch.Tensor` | `[G * M]` | `torch.float32` | Per-group reciprocal standard deviations or reciprocal root mean squares. |
 
-Statistics use flattened group-major order: group g, row m is stored at `g * M + m`. Use `stats.view(G, M)` to inspect this layout. The public function centralizes the existing shape, stride, grouping and group-width checks. It does not make contiguous copies or add dtype or device checks. Callers must provide suitable devices and dtypes. When out is omitted, x, weight, bias and z are read-only.
+Statistics use flattened group-major order: group g, row m is stored at `g * M + m`. Use `stats.view(G, M)` to inspect this layout. The public function performs shape, stride, grouping and group-width checks. It does not make contiguous copies or add dtype or device checks. Callers must provide suitable devices and dtypes. When out is omitted, x, weight, bias and z are read-only.
 
 ## triton backend
 
-- Uses the original `_layer_norm_fwd_1pass_kernel_npu`, preserving `BLOCK_M=48` and the original launch configuration.
+- Uses `_layer_norm_fwd_1pass_kernel_npu`, with `BLOCK_M=48`.
 - Addresses input, output and gate using their row strides; the last dimension must remain contiguous.
 - Computes input, weight, bias and gate values in FP32. Results are stored in the output dtype; statistics remain FP32.
 
@@ -93,7 +93,7 @@ Install a wheel containing this API and the NPU runtime dependencies before runn
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.norm import layer_norm_fwd_npu
+from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
 torch.npu.set_device(0)
 x = torch.randn(4, 128, device="npu", dtype=torch.float32)
@@ -102,7 +102,7 @@ z = torch.randn_like(x)
 buffer = torch.empty_like(x)
 
 # Grouped RMSNorm with post-affine SiLU gating and output-buffer reuse.
-y, mean, rstd = layer_norm_fwd_npu(
+y, mean, rstd = layer_norm_fwd(
     x, weight, None, 1e-5,
     z=z, out=buffer, group_size=32,
     norm_before_gate=True, is_rms_norm=True,
@@ -112,12 +112,12 @@ assert y is buffer
 assert mean is None
 print(rstd.shape)  # torch.Size([16]): 4 groups * 4 rows
 
-reference, _, _ = layer_norm_fwd_npu(
+reference, _, _ = layer_norm_fwd(
     x, weight, None, 1e-5,
     z=z, group_size=32, is_rms_norm=True,
     impl="torch_native",
 )
 
 # Default LayerNorm returns mean and rstd; auto currently selects Triton.
-ln_output, ln_mean, ln_rstd = layer_norm_fwd_npu(x, weight, None, 1e-5)
+ln_output, ln_mean, ln_rstd = layer_norm_fwd(x, weight, None, 1e-5)
 ```

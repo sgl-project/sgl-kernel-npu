@@ -15,6 +15,18 @@ INPUT_STANDARDS = {
 }
 
 
+def generate_test_data(shape, router_experts, dtype):
+    torch.npu.manual_seed(42)
+    if router_experts is None:
+        x = 0.5 + torch.rand(shape, dtype=dtype)
+        x[:, 1::2] *= -0.25
+    else:
+        # Model routing weights are positive top-k softmax scores before renormalization.
+        logits = torch.randn(shape[0], router_experts, dtype=torch.float32)
+        x = logits.softmax(dim=-1).topk(shape[1], dim=-1).values.to(dtype)
+    return x
+
+
 @pytest.mark.parametrize(
     "dtype",
     [torch.float32, torch.float16, torch.bfloat16],
@@ -37,19 +49,10 @@ INPUT_STANDARDS = {
 def test_l1_norm(shape, router_experts, dtype):
     from sgl_kernel_npu.operators.norm import l1_norm
 
-    torch.npu.manual_seed(42)
-    if router_experts is None:
-        x = 0.5 + torch.rand(shape, dtype=dtype)
-        x[:, 1::2] *= -0.25
-    else:
-        # Model routing weights are positive top-k softmax scores before renormalization.
-        logits = torch.randn(shape[0], router_experts, dtype=torch.float32)
-        x = logits.softmax(dim=-1).topk(shape[1], dim=-1).values.to(dtype)
+    x = generate_test_data(shape, router_experts, dtype)
     executor = check_accuracy(
         l1_norm,
         args=(x,),
-        impl="triton",
-        impl_ref="torch_native",
         # Select by input dtype; the comparison key describes the FP32 output.
         standard={"torch.float32": INPUT_STANDARDS[dtype]},
     )

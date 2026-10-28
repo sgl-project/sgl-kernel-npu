@@ -3,7 +3,7 @@
 import torch
 
 
-def layer_norm_fwd_npu(
+def layer_norm_fwd(
     x, weight, bias, z, out, mean, rstd, eps, norm_before_gate, is_rms_norm
 ):
     values = x.float()

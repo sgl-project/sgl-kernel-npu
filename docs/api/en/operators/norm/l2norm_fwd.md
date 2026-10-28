@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Registered; unverified | Registered; unverified |
-| `torch_native` | Registered; unverified | Registered; unverified |
+| `triton` | Accuracy verified on A3 | Registered; unverified |
+| `torch_native` | Accuracy verified on A3 | Registered; unverified |
 
-Both generations are registered. Compilation, accuracy and performance validation on real NPUs is pending.
+The FP32, FP16 and BF16 cases passed on A3 with CANN 9.0 and 9.1 ([CI results](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)). This result covers the implementation before the wrapper relocation and API rename; the revised layout still requires an NPU rerun. arch35 validation and performance measurements are pending.
 
 ## Signature
 
@@ -43,17 +43,17 @@ $$
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `x.shape` | `output_dtype`, defaulting to `x.dtype` | Newly allocated output on the input device. The input is not modified. |
 
-The public entry point does not add contiguous copies. Both implementations require an input compatible with `view(-1, D)`. Triton preserves the original feature-width limit: `D` must not exceed `65536 // x.element_size()` or it raises `RuntimeError`. The limit is based on the input dtype.
+The public entry point does not add contiguous copies. Both implementations require an input compatible with `view(-1, D)`. Triton has a feature-width limit: `D` must not exceed `65536 // x.element_size()` or it raises `RuntimeError`. The limit is based on the input dtype.
 
 ## triton backend
 
 - Uses `l2norm_fwd_kernel_opt` for `D <= 512` and `l2norm_fwd_kernel` for `D > 512`.
-- Preserves the original FP32 computation, tiling, grid and runtime parameter configuration. Both internal kernels share one public entry point.
+- Uses FP32 intermediates with width-dependent tiling and launch configuration. Both internal kernels share one public entry point.
 
 ## torch_native backend
 
 - Converts input to FP32 and computes `values * torch.rsqrt(values.square().sum(-1, keepdim=True) + eps)`.
-- Writes to an output with the requested dtype and restores the original shape. The formula matches the original L2 test reference.
+- Writes to an output with the requested dtype and restores the original shape.
 
 ## Example
 
