@@ -409,7 +409,12 @@ def _sink_row(sinks, t: int, heads: int) -> torch.Tensor:
         _check(table.numel() == heads, "sinks head count mismatch")
         return table
     _check(table.dim() == 2 and table.shape[1] == heads, "sinks shape mismatch")
-    _check(table.shape[0] in (1, t + 1), "sinks row count mismatch")
+    # Per-head (1 row) or per-query-row (T rows).  Row ``t`` must exist; the
+    # oracle deliberately does not assume the total row count here.
+    _check(
+        table.shape[0] == 1 or table.shape[0] > t,
+        "sinks row count mismatch",
+    )
     return table[0] if table.shape[0] == 1 else table[t]
 
 
