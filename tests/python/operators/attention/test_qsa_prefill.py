@@ -15,6 +15,7 @@ perf_shape = [
     (4621, 8, 1),
     (4621, 24, 2),
     (4621, 12, 1),
+    (4621, 3, 1),
 ]
 perf_mode = ("shared", "different")
 
@@ -100,6 +101,7 @@ def generate_data(shape, mode, length, seed=9302026):
         # evaluated as several native launches over query-head slices.
         pytest.param((4621, 24, 2), id="qwen3.8-flash-next-tp1-4621x24x2"),
         pytest.param((4621, 12, 1), id="qwen3.8-flash-next-tp2-4621x12x1"),
+        pytest.param((4621, 3, 1), id="qwen3.8-flash-next-tp8-4621x3x1"),
         pytest.param((1024, 2, 1), id="whittle-tp8-1024x2x1"),
         pytest.param((1024, 6, 1), id="qwen3.8-flash-next-tp4-1024x6x1"),
         pytest.param((1, 16, 2), id="edge-single-row"),
@@ -148,6 +150,7 @@ def test_qsa_prefill_short_sequences(length, mode):
         pytest.param((9, 16, 2), id="16x2"),
         pytest.param((9, 8, 1), id="8x1"),
         pytest.param((9, 6, 1), id="6x1"),
+        pytest.param((9, 3, 1), id="3x1"),
         pytest.param((9, 2, 1), id="2x1"),
     ],
 )
@@ -179,6 +182,7 @@ def test_qsa_prefill_tiling_after_allocator_reuse(shape, scale):
         pytest.param((17, 16, 2), id="16x2"),
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
+        pytest.param((17, 3, 1), id="3x1"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -205,6 +209,7 @@ def test_qsa_prefill_padded_request_table(shape, mode):
         pytest.param((17, 16, 2), id="16x2"),
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
+        pytest.param((17, 3, 1), id="3x1"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -295,6 +300,7 @@ def test_qsa_prefill_queued_multi_launch(shapes, impl_pair):
         pytest.param((17, 16, 2), id="16x2"),
         pytest.param((17, 8, 1), id="8x1"),
         pytest.param((17, 6, 1), id="6x1"),
+        pytest.param((17, 3, 1), id="3x1"),
         pytest.param((17, 2, 1), id="2x1"),
     ],
 )
@@ -395,7 +401,6 @@ def test_qsa_prefill_shards_reconstruct_global_attention(tp, impl_pair):
         pytest.param((1, 6, 2), id="unsupported-6x2"),
         pytest.param((1, 16, 1), id="unsupported-16x1"),
         pytest.param((1, 8, 2), id="unsupported-8x2"),
-        pytest.param((1, 3, 1), id="unsupported-3x1"),
     ],
 )
 def test_qsa_prefill_rejects_head_layouts(shape):

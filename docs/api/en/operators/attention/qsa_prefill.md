@@ -77,7 +77,7 @@ selecting an implementation, so both backends reject the same inputs.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
-| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)`, `(2, 1)`, `(24, 2)` or `(12, 1)`. |
+| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)`, `(3, 1)`, `(2, 1)`, `(24, 2)` or `(12, 1)`. |
 | `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Key cache; contiguous, on q's device. `capacity < 2**31`, and must be nonempty when `length > 0`. |
 | `v` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Value cache; same shape, dtype and device as `k`, contiguous. |
 | `blocks` | `torch.Tensor` | `[R, 512]` | `torch.int32` | Required | Selected logical blocks per query; contiguous, on q's device. Negative entries and blocks whose positions reach `length` are ignored. |
@@ -97,8 +97,9 @@ handles head sharding and KV replication: at a TP degree above the global KV
 head count, pass the replicated KV head for that rank.
 
 For a 24 Q / 2 KV model such as Qwen3.8-Flash-Next, the local layouts are
-`(24, 2)` at TP1, `(12, 1)` at TP2 and `(6, 1)` at TP4. TP8 would need
-`(3, 1)`, which is not supported.
+`(24, 2)` at TP1, `(12, 1)` at TP2, `(6, 1)` at TP4 and `(3, 1)` at TP8; all
+four are supported. For a 16 Q / 2 KV model such as Whittle-Next they are
+`(16, 2)`, `(8, 1)` and `(2, 1)` at TP1, TP2 and TP8.
 
 ## ascendc backend
 
@@ -114,7 +115,9 @@ For a 24 Q / 2 KV model such as Qwen3.8-Flash-Next, the local layouts are
   bitwise equal to other attention implementations.
 - A 16-query sharing group occupies `16 * (H / KV)` rows of the per-stage GM
   workspace block, which holds 128 rows, so one launch requires `H / KV <= 8`.
-  Attention is independent per query head, so `(24, 2)` and `(12, 1)` are
+  `(16, 2)`, `(8, 1)`, `(6, 1)`, `(3, 1)` and `(2, 1)` meet that and run as a
+  single launch. Attention is independent per query head, so `(24, 2)` and
+  `(12, 1)`, which need twelve queries per KV head, are
   evaluated as four and two launches over consecutive six-head slices and
   concatenated in head order. Those slices are copied, and `(24, 2)` also
   copies each KV head once, so these two layouts are slower than a layout the

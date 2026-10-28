@@ -89,14 +89,18 @@ iterations, average summed NPU task duration:
 | 4621 | 16/2 | All different | 7929.967 us |
 | 4621 | 8/1 | Fully shared | 1773.227 us |
 | 4621 | 8/1 | All different | 4408.496 us |
-| 4621 | 24/2 | Fully shared | 6310.726 us |
-| 4621 | 24/2 | All different | 17055.749 us |
-| 4621 | 12/1 | Fully shared | 3115.142 us |
-| 4621 | 12/1 | All different | 8579.248 us |
+| 4621 | 24/2 | Fully shared | 6347.383 us |
+| 4621 | 24/2 | All different | 17513.162 us |
+| 4621 | 12/1 | Fully shared | 3035.925 us |
+| 4621 | 12/1 | All different | 8501.862 us |
+| 4621 | 3/1 | Fully shared | 1180.368 us |
+| 4621 | 3/1 | All different | 4044.745 us |
 
 The 24/2 and 12/1 layouts exceed the kernel's eight queries per KV head and
 are composed from four and two native launches over six-head slices, so their
 cost per query head is 20% to 45% above a layout the kernel takes directly.
+Narrow shards such as 3/1 amortize the shared base computation over fewer
+query heads, which raises their cost per head for the same reason.
 
 ### Historical prototype comparison
 

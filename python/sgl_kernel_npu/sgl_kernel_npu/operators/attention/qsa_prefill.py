@@ -10,7 +10,15 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _ascendc_fn = None
 _torch_native_fn = None
 
-SUPPORTED_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (2, 1), (24, 2), (12, 1))
+SUPPORTED_HEAD_LAYOUTS = (
+    (16, 2),
+    (8, 1),
+    (6, 1),
+    (3, 1),
+    (2, 1),
+    (24, 2),
+    (12, 1),
+)
 SELECTED_BLOCKS = 512
 HEAD_DIM = 256
 
@@ -29,7 +37,7 @@ def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, sca
     heads, kv_heads = q.shape[1], k.shape[1]
     if (heads, kv_heads) not in SUPPORTED_HEAD_LAYOUTS:
         raise ValueError(
-            "unsupported Q/KV heads: expected 16/2, 8/1, 6/1, 2/1, 24/2 or 12/1"
+            "unsupported Q/KV heads: expected 16/2, 8/1, 6/1, 3/1, 2/1, " "24/2 or 12/1"
         )
     if any(x.dtype != torch.bfloat16 for x in (q, k, v)):
         raise ValueError("QSA prefill requires BF16 Q/K/V")
@@ -145,9 +153,10 @@ def qsa_prefill(
         with q's dtype and device. Rows without visible tokens are zero.
         Inputs are not modified.
 
-    Supported local (H, KV) layouts are (16, 2), (8, 1), (6, 1), (2, 1),
-    (24, 2) and (12, 1). The Ascend C implementation evaluates the last two as
-    several launches over query-head slices, which copies those slices.
+    Supported local (H, KV) layouts are (16, 2), (8, 1), (6, 1), (3, 1),
+    (2, 1), (24, 2) and (12, 1). The Ascend C implementation evaluates the
+    last two as several launches over query-head slices, which copies those
+    slices.
     The caller handles head sharding and KV replication; this operator
     performs no distributed communication.
     """

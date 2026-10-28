@@ -161,7 +161,7 @@ def _tail_merge(
 
 
 # Head layouts the native pipeline launches directly.
-NATIVE_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (2, 1))
+NATIVE_HEAD_LAYOUTS = ((16, 2), (8, 1), (6, 1), (3, 1), (2, 1))
 # A sharing group of 16 queries occupies 16 * (H / KV) rows of the per-stage GM
 # workspace block, which holds 128 rows, so the native kernel requires
 # H / KV <= 8. Wider layouts are split into slices of this many query heads.
