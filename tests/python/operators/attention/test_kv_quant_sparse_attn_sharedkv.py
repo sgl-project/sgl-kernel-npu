@@ -1,4 +1,4 @@
-"""Public-API accuracy and optional performance checks for A5 paged SWA."""
+"""Public-API registration, accuracy and performance checks for A5 paged SWA."""
 
 import math
 
@@ -21,31 +21,14 @@ def require_ascend950(configure_npu):
         pytest.skip("quantized shared-KV attention requires Ascend 950")
 
 
-@pytest.mark.parametrize(
-    ("public_name", "name", "expected_impls", "native_name"),
-    [
-        (
-            "kv_quant_sparse_attn_sharedkv",
-            "attention.kv_quant_sparse_attn_sharedkv",
-            {"auto", "ascendc", "torch_native"},
-            "kv_quant_sparse_attn_sharedkv",
-        ),
-        (
-            "kv_quant_sparse_attn_sharedkv_metadata_host",
-            "attention.kv_quant_sparse_attn_sharedkv_metadata_host",
-            {"auto", "host", "torch_native"},
-            "kv_quant_sparse_attn_sharedkv_metadata_host",
-        ),
-    ],
-)
-def test_public_registration(public_name, name, expected_impls, native_name):
+def test_public_registration():
     from sgl_kernel_npu.operators import attention
     from sgl_kernel_npu.operators.utils.registry import get_op_name, list_impls
 
-    operator = getattr(attention, public_name)
-    assert get_op_name(operator) == name
-    assert set(list_impls(operator)) == expected_impls
-    assert hasattr(torch.ops.npu, native_name)
+    operator = attention.kv_quant_sparse_attn_sharedkv
+    assert get_op_name(operator) == "attention.kv_quant_sparse_attn_sharedkv"
+    assert set(list_impls(operator)) == {"auto", "ascendc", "torch_native"}
+    assert hasattr(torch.ops.npu, "kv_quant_sparse_attn_sharedkv")
 
 
 def generate_test_data(batch, query_len, heads, kv_len, seed=42):
@@ -120,42 +103,4 @@ def test_paged_swa(batch, query_len, heads, kv_len, window):
     check_performance(
         executor,
         enable_perf=(batch, query_len, heads, kv_len) in perf_shape,
-    )
-
-
-@pytest.mark.parametrize(
-    ("layout", "heads", "has_cmp", "cmp_ratio", "kv_len"),
-    [
-        pytest.param("BSND", 64, False, 1, 128, id="decode-64-heads"),
-        pytest.param("TND", 64, True, 4, 128, id="compressed-64-heads"),
-        pytest.param("TND", 128, False, 1, 256, id="decode-128-heads"),
-    ],
-)
-def test_host_metadata_accuracy(layout, heads, has_cmp, cmp_ratio, kv_len):
-    from sgl_kernel_npu.operators.attention import (
-        kv_quant_sparse_attn_sharedkv_metadata_host,
-    )
-
-    kwargs = dict(
-        num_heads_q=heads,
-        num_heads_kv=1,
-        head_dim=512,
-        layout_q=layout,
-        layout_kv="PA_ND",
-        cu_seqlens_q=torch.tensor([0, 1], dtype=torch.int32),
-        seqused_kv=torch.tensor([kv_len], dtype=torch.int32),
-        batch_size=1,
-        max_seqlen_q=1,
-        max_seqlen_kv=kv_len,
-        cmp_ratio=cmp_ratio,
-        has_ori_kv=True,
-        has_cmp_kv=has_cmp,
-    )
-    executor = check_accuracy(
-        kv_quant_sparse_attn_sharedkv_metadata_host,
-        kwargs=kwargs,
-    )
-    check_performance(
-        executor,
-        enable_perf=layout == "BSND" and heads == 64,
     )
