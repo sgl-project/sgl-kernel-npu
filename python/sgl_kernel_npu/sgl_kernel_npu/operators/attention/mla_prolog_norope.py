@@ -100,7 +100,7 @@ def mla_prolog_norope(
         rmsnorm_gamma_cq: [Hcq] query RMSNorm weights.
         rmsnorm_gamma_ckv: [Hckv] cache RMSNorm weights.
         kv_cache: Mutable latent cache, BF16 (C16) or FP8 E4M3 (C8).
-        kr_cache: Mutable BF16 side cache; no-RoPE still has side features.
+        kr_cache: Mutable BF16 cache for the R-dimensional key projection k_r.
         rope_sin, rope_cos: Must each be None or an empty tensor.
         cache_index: Int32/int64 token slot indices for the paged cache.
         dequant_scale_x, dequant_scale_w_dq, dequant_scale_w_uq_qr,

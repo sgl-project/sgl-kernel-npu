@@ -190,7 +190,7 @@ def mla_prolog_norope(
 
     token_shape = token_x.shape[:-1]
     heads, q_dim, c_dim = weight_uk.shape
-    side_dim = weight_dkv_kr.shape[1] - c_dim
+    r_dim = weight_dkv_kr.shape[1] - c_dim
     x = _cpu(token_x).reshape(-1, token_x.shape[-1])
     if weight_quant_mode == 3:
         if any(
@@ -228,15 +228,15 @@ def mla_prolog_norope(
         qnorm_scale = torch.empty(0, dtype=torch.float32, device="cpu")
         cq = query_norm.float()
 
-    qc_qr = (cq @ w_uq_qr).to(torch.bfloat16).reshape(-1, heads, q_dim + side_dim)
+    qc_qr = (cq @ w_uq_qr).to(torch.bfloat16).reshape(-1, heads, q_dim + r_dim)
     # Absorb W_uk into Q; its input and output are BF16 in both modes.
     query = torch.einsum(
         "tnd,ndc->tnc", qc_qr[..., :q_dim].float(), _cpu(weight_uk).float()
     )
     query = query.to(torch.bfloat16)
-    query_side = qc_qr[..., q_dim:].contiguous()
+    q_r = qc_qr[..., q_dim:].contiguous()
     c = _rms_norm(ckv_kr[..., :c_dim], rmsnorm_gamma_ckv, rmsnorm_epsilon_ckv, kc_scale)
-    cache_side = ckv_kr[..., c_dim:].to(torch.bfloat16)
+    k_r = ckv_kr[..., c_dim:].to(torch.bfloat16)
     if kv_cache_quant_mode == 1:
         if quant_scale_ckv is None:
             raise ValueError("Static C8 requires quant_scale_ckv")
@@ -244,16 +244,16 @@ def mla_prolog_norope(
         c = (c * c_inv_scale).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
         q_scale = query.float().abs().amax(dim=-1, keepdim=True) * (1.0 / 448.0)
         query = (query.float() / q_scale).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
-        query_side = (query_side.float() * (c_inv_scale / q_scale)).to(torch.bfloat16)
+        q_r = (q_r.float() * (c_inv_scale / q_scale)).to(torch.bfloat16)
     else:
         c = c.to(torch.bfloat16)
         q_scale = torch.empty(0, dtype=torch.float32, device="cpu")
 
     slots = _cpu(cache_index).reshape(-1).long()
     _write_cache(kv_cache, c, slots, cache_mode)
-    _write_cache(kr_cache, cache_side, slots, cache_mode)
+    _write_cache(kr_cache, k_r, slots, cache_mode)
     query = query.reshape(*token_shape, heads, c_dim)
-    query_side = query_side.reshape(*token_shape, heads, side_dim)
+    q_r = q_r.reshape(*token_shape, heads, r_dim)
     if query_norm_flag:
         query_norm = query_norm.reshape(*token_shape, weight_dq.shape[1])
     else:
@@ -261,5 +261,5 @@ def mla_prolog_norope(
         qnorm_scale = torch.empty(0, dtype=qnorm_scale.dtype, device="cpu")
     return tuple(
         tensor.to(token_x.device)
-        for tensor in (query, query_side, q_scale, query_norm, qnorm_scale)
+        for tensor in (query, q_r, q_scale, query_norm, qnorm_scale)
     )

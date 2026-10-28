@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` | 未注册支持 | 支持 |
-| `torch_native` | 未注册支持 | 支持 |
+| `cann` | 未验证 | 支持 |
+| `torch_native` | 未验证 | 支持 |
 
-此表表示本接口的注册范围，两个实现均注册到 `Generation.ARCH35`；`auto` 是 `cann` 的别名。
+当前两个实现仅注册到 `Generation.ARCH35`；`auto` 是 `cann` 的别名。
 
 CANN mlaprolog V4 本身并非仅支持 arch35：[上游文档](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md)也列出了 arch22 的 BF16、INT8 场景，但不支持 FP8/HiFloat8/MXFP8 全量化。本次适配仅针对 arch35 上的 Kimi K3，arch22 不在本次支持范围内。
 
@@ -71,36 +71,36 @@ def mla_prolog_norope(
 
 ## 功能说明
 
-完成 attention 之前的 MLA 投影和归一化，返回 absorb 后的 Query 及其旁路分量，并**原地更新**共享 latent 与旁路缓存。不执行 attention 分数、softmax 或最终的 Value 投影。
+完成 attention 之前的 MLA 投影和归一化，返回 absorb 后的 Query（`query`）和 R 维 Query 投影分量（`query_rope`），并**原地更新**共享 KV latent 缓存（`kv_cache`）和 R 维 Key 投影分量缓存（`kr_cache`）。不执行 attention 分数、softmax 或最终的 Value 投影。
 
 **单独接入的原因：**
 Kimi K3 的 MLA 不使用 RoPE。截至 2026-10-28 核对的 [torch_npu V3 实现](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp)调用 `aclnnMlaPrologV3WeightNz`，该入口[固定启用 RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp)。因此这里通过 `cann_ops_transformer.mla_prolog` 接入 V4，将 `rope_sin`、`rope_cos` 同时设为 `None`，使用其原生无 RoPE 能力。
 
-记 `H` 为输入宽度，`Rq` 为 Query latent 宽度，`C` 为 KV latent 宽度，`N` 为本地 Query 头数，`D` 为 absorb 前的 Query 宽度，`R` 为旁路宽度。非量化计算为：
+记 `H` 为输入宽度，`Rq` 为 Query latent 宽度，`C` 为 KV latent 宽度，`N` 为本地 Query 头数，`D` 为 absorb 前 `q_c` 的宽度，`R` 为 Query/Key 投影分量 `q_r`、`k_r` 的宽度。非量化计算为：
 
 $$
-\operatorname{RMSNorm}(x;\gamma,\epsilon)
-=\gamma\odot x\,/\sqrt{\operatorname{mean}(x^2)+\epsilon}.
+\mathrm{RMSNorm}(x;\gamma,\epsilon)
+=\gamma\odot x\,/\sqrt{\mathrm{mean}(x^2)+\epsilon}.
 $$
 
 $$
-c_q=\alpha_q\operatorname{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
-\qquad [q_c,q_r]=\operatorname{reshape}(c_qW_{uq,qr}),
+c_q=\alpha_q\mathrm{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
+\qquad [q_c,q_r]=\mathrm{reshape}(c_qW_{uq,qr}),
 \qquad q_n=q_cW_{uk}.
 $$
 
 $$
 [c_0,k_r]=XW_{dkv,kr},
-\qquad c=\alpha_k\operatorname{RMSNorm}(c_0;\gamma_k,\epsilon_k).
+\qquad c=\alpha_k\mathrm{RMSNorm}(c_0;\gamma_k,\epsilon_k).
 $$
 
-其中 `alpha_q=qc_qr_scale`，`alpha_k=kc_scale`。本接口不对 `q_r` 和 `k_r` 执行 RoPE 旋转，但**旁路投影和 `kr_cache` 仍然存在**。Kimi K3 MLA 使用这种无 RoPE 语义。
+其中 `alpha_q=qc_qr_scale`，`alpha_k=kc_scale`。`q_r` 由 Query latent `c_q` 投影得到，通过 `query_rope` 返回；`k_r` 由输入 `X` 投影得到，写入 `kr_cache`。本接口不对这两个分量执行 RoPE 旋转；后续 attention 仍计算它们的点积 `q_r · k_r`，与 `q_n · c` 相加。Kimi K3 MLA 使用这种无 RoPE 语义。
 
 在 `PA_BSND` 中，`s=cache_index[t]` 对应的逻辑写入位置是 `[s // P, s % P, 0, :]`，`P` 是 page size。`PA_NZ` 在分块存储中写入相同的逻辑 slot。只更新索引指定的位置；两个 cache 的生命周期和容量由调用方管理。
 
-独立参考实现覆盖下列无 RoPE 场景。`C16` 表示 BF16 缓存；`C8` 表示 FP8 共享 latent 缓存配合 BF16 旁路缓存。
+独立参考实现覆盖下列无 RoPE 场景。`C16` 表示两份缓存均为 BF16；`C8` 表示 `kv_cache` 为 FP8、`kr_cache` 为 BF16。
 
-| 场景 | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | Query / latent cache / side cache |
+| 场景 | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | `query` / `kv_cache` / `kr_cache` |
 | --- | --- | --- | --- | --- |
 | BF16 投影，C16 | `0` | `0` | `0` | BF16 / BF16 / BF16 |
 | MXFP8 投影，C16 | `3` | `0` | `0` | BF16 / BF16 / BF16 |
@@ -111,11 +111,11 @@ Mode 3 对带块级 scale 的 FP8 输入和权重进行反量化，将归一化�
 C8 中的 `quant_scale_ckv` 是**乘法量化系数** `1/s_c`，不是 KV 反量化 scale `s_c`：
 
 $$
-c_8=\operatorname{FP8}(c/s_c),\qquad
-s_q=\max|q_n|/448,\qquad q_8=\operatorname{FP8}(q_n/s_q).
+c_8=\mathrm{FP8}(c/s_c),\qquad
+s_q=\max|q_n|/448,\qquad q_8=\mathrm{FP8}(q_n/s_q).
 $$
 
-BF16 Query 旁路补偿为 `q_r / (s_q * s_c)`。下游 attention 算子对合并后的点积乘以 `s_q * s_c` 时，旁路项才能恢复原来的尺度。`kr_cache` 保持 BF16。不要再次对返回的 `query_rope` 做同样补偿。全零 Query 行产生 `s_q=0`；参考实现遵循 CANN，不将这个 scale 替换为 1，也不额外加入 epsilon。
+BF16 Query 投影分量 `q_r` 补偿为 `q_r / (s_q * s_c)`。下游 attention 算子对合并后的点积乘以 `s_q * s_c` 时，`q_r · k_r` 项才能恢复原来的尺度。`kr_cache` 保持 BF16。不要再次对返回的 `query_rope` 做同样补偿。全零 Query 行产生 `s_q=0`；参考实现遵循 CANN，不将这个 scale 替换为 1，也不额外加入 epsilon。
 
 `query_norm_flag=True` 时，mode 3 **即使使用 C16 缓存，也返回 FP8 Query latent 及其 E8M0 group scale**。attention Query 为 BF16 并不意味着 `query_norm` 也是 BF16。
 
@@ -129,21 +129,21 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 | --- | --- | --- | --- |
 | `token_x` | Tensor，`[T,H]` 或 `[B,S,H]`；mode 0 为 BF16，mode 3 为 FP8 E4M3FN | 必填 | 连续 ND 输入；按展平形式描述时 `T=B*S`。 |
 | `weight_dq` | Tensor，`[H,Rq]`；BF16 或 FP8 E4M3FN | 必填 | Query 下投影。CANN 要求 FRACTAL_NZ，保留逻辑二维 shape。 |
-| `weight_uq_qr` | Tensor，`[Rq,N*(D+R)]`；BF16 或 FP8 E4M3FN | 必填 | 每个 head 的 Query 与旁路上投影拼接权重；CANN 要求 FRACTAL_NZ。 |
+| `weight_uq_qr` | Tensor，`[Rq,N*(D+R)]`；BF16 或 FP8 E4M3FN | 必填 | 每个 head 的 `q_c` 与 `q_r` 上投影拼接权重；CANN 要求 FRACTAL_NZ。 |
 | `weight_uk` | Tensor，`[N,D,C]`；BF16 | 必填 | 用于 absorb 的 Key 上投影，连续 ND。 |
-| `weight_dkv_kr` | Tensor，`[H,C+R]`；BF16 或 FP8 E4M3FN | 必填 | 共享 latent 与旁路投影；CANN 要求 FRACTAL_NZ。 |
+| `weight_dkv_kr` | Tensor，`[H,C+R]`；BF16 或 FP8 E4M3FN | 必填 | 将输入 `X` 投影为 KV latent `c_0` 与 Key 分量 `k_r`；CANN 要求 FRACTAL_NZ。 |
 | `rmsnorm_gamma_cq` | Tensor，`[Rq]`；BF16 | 必填 | Query latent 的 RMSNorm 权重，连续 ND。 |
 | `rmsnorm_gamma_ckv` | Tensor，`[C]`；BF16 | 必填 | KV latent 的 RMSNorm 权重，连续 ND。 |
 | `kv_cache` | Tensor，`[pages,P,1,C]`；C16 为 BF16，C8 为 FP8 E4M3FN | 必填 | 可变的共享 latent 缓存。`PA_NZ` 使用对应的物理 tile 顺序。 |
-| `kr_cache` | Tensor，`[pages,P,1,R]`；BF16 | 必填 | 可变的旁路缓存，无 RoPE 时也不能删除。CANN 专有的合并存储模式另有布局要求。 |
+| `kr_cache` | Tensor，`[pages,P,1,R]`；BF16 | 必填 | 存储 R 维 Key 投影分量 `k_r` 的可变缓存。CANN 专有的合并存储模式另有布局要求。 |
 | `rope_sin`、`rope_cos` | `None` 或空 Tensor | `None` | 保留以兼容现有调用参数；任一参数为非空张量时抛出 `ValueError`，两个后端使用相同约束。 |
 | `cache_index` | 可选 Tensor，`[T]` 或 `[B,S]`；int32/int64 | `None` | 本文 PA 场景必填；每个元素是有效逻辑 slot。参考对比时使用不重复的 slot。 |
 | `dequant_scale_x` | 可选 Tensor，`[T,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 输入块级反量化 scale。其他 CANN 模式使用各自的上游 scale 布局。 |
 | `dequant_scale_w_dq` | 可选 Tensor，`[Rq,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 Query 下投影权重 scale，连续 ND。 |
 | `dequant_scale_w_uq_qr` | 可选 Tensor，`[N*(D+R),Rq/32]`；mode 3 为 E8M0 | `None` | Mode 3 Query 上投影权重 scale，连续 ND。 |
-| `dequant_scale_w_dkv_kr` | 可选 Tensor，`[C+R,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 KV/旁路投影权重 scale，连续 ND。 |
+| `dequant_scale_w_dkv_kr` | 可选 Tensor，`[C+R,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 的 `weight_dkv_kr` 反量化 scale，连续 ND。 |
 | `quant_scale_ckv` | 可选 Tensor，C8 为 `[1]` FP32 | `None` | 正的乘法量化系数 `1/s_c`，C8 场景必填。CANN per-channel 模式使用 `[1,C]`。 |
-| `quant_scale_ckr` | 可选 Tensor，`[1,R]`；FP32 | `None` | CANN 旁路缓存 per-channel 量化参数；参考实现要求 `None`。 |
+| `quant_scale_ckr` | 可选 Tensor，`[1,R]`；FP32 | `None` | CANN `kr_cache` 的 per-channel 量化参数；参考实现要求 `None`。 |
 | `smooth_scales_cq` | 可选 Tensor，`[1,Rq]`；FP32 | `None` | CANN 对应模式的 Query latent 平滑参数；参考实现要求 `None`。 |
 | `actual_seq_len` | 可选 Tensor，`[B]`；int32 | `None` | CANN 对应 block-indexed 缓存模式的累计序列长度；参考实现要求 `None`。 |
 | `k_nope_clip_alpha` | 可选 Tensor，`[1]`；FP32 | `None` | CANN 对应分组量化模式的裁剪系数；参考实现要求 `None`。 |
@@ -164,7 +164,7 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 | 返回值 | Shape | 参考实现覆盖场景的 dtype | 含义 |
 | --- | --- | --- | --- |
 | `query` | `[T,N,C]` 或 `[B,S,N,C]` | C16 为 BF16，C8 为 FP8 E4M3FN | absorb 后的 Query。 |
-| `query_rope` | `[T,N,R]` 或 `[B,S,N,R]` | BF16 | Query 旁路；无 RoPE 时不旋转，C8 时带有尺度补偿。 |
+| `query_rope` | `[T,N,R]` 或 `[B,S,N,R]` | BF16 | 未执行 RoPE 的 R 维 Query 投影分量 `q_r`；C8 时带有尺度补偿。 |
 | `dequant_scale_q_nope` | `[T,N,1]` 或 `[B*S,N,1]`，否则为空 | FP32 | C8 场景的 per-token/head Query 反量化 scale。 |
 | `query_norm` | `[T,Rq]` 或 `[B,S,Rq]`，否则为空 | mode 0 为 BF16，mode 3 为 FP8 E4M3FN | 请求输出时的归一化 Query latent。 |
 | `dequant_scale_q_norm` | `[T,Rq/32]` 或 `[B*S,Rq/32]`，否则为空 | mode 3 为 E8M0 | MXFP8 Query latent 的 group scale；mode 0 或未请求输出时为空。 |
@@ -219,10 +219,10 @@ kwargs = dict(
 )
 
 # auto 选择 CANN V4 入口，并更新传入的两份 cache。
-query, side, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
+query, query_rope, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
     *args, kv_cache, kr_cache, **kwargs, impl="auto"
 )
-print(query.shape, side.shape, q_norm.shape)
+print(query.shape, query_rope.shape, q_norm.shape)
 
 # 接口会修改 cache，因此为参考计算使用新的 buffer。
 reference = mla_prolog_norope(

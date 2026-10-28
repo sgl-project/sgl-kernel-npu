@@ -24,7 +24,7 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import benchmark_npu, check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, side_dim).
+# (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, r_dim).
 shape = (4096, 1536, 8, 192, 512, 64)
 page_size = 128
 perf_shape = [(1, "PA_BSND"), (17, "PA_BSND")]
@@ -39,7 +39,7 @@ def generate_data(
     """Create real NZ weights and distinct, nonconsecutive paged cache slots."""
     import torch_npu
 
-    hidden, rank, heads, head_dim, latent, side = shape
+    hidden, rank, heads, head_dim, latent, r_dim = shape
     generator = torch.Generator(device="cpu").manual_seed(42)
 
     def random_bf16(*dims, scale=1.0):
@@ -53,15 +53,15 @@ def generate_data(
     inputs = dict(
         token_x=random_bf16(tokens, hidden),
         weight_dq=random_bf16(hidden, rank, scale=hidden**-0.5),
-        weight_uq_qr=random_bf16(rank, heads * (head_dim + side), scale=rank**-0.5),
+        weight_uq_qr=random_bf16(rank, heads * (head_dim + r_dim), scale=rank**-0.5),
         weight_uk=random_bf16(heads, head_dim, latent, scale=head_dim**-0.5),
-        weight_dkv_kr=random_bf16(hidden, latent + side, scale=hidden**-0.5),
+        weight_dkv_kr=random_bf16(hidden, latent + r_dim, scale=hidden**-0.5),
         rmsnorm_gamma_cq=1 + random_bf16(rank, scale=0.05),
         rmsnorm_gamma_ckv=1 + random_bf16(latent, scale=0.05),
         kv_cache=torch.full((3, page_size, 1, latent), 0.125).to(
             torch.float8_e4m3fn if c8 else torch.bfloat16
         ),
-        kr_cache=torch.full((3, page_size, 1, side), 0.125, dtype=torch.bfloat16),
+        kr_cache=torch.full((3, page_size, 1, r_dim), 0.125, dtype=torch.bfloat16),
         # Exercise page edges, slot zero, the final slot, and unordered writes.
         cache_index=torch.tensor(slots, dtype=torch.int64),
         rope_sin=None,
@@ -128,13 +128,13 @@ def _mx_scale(scales):
 def _check_contract(outputs, inputs):
     assert isinstance(outputs, tuple) and len(outputs) == 5
     tokens = inputs["token_x"].shape[0]
-    _, rank, heads, _, latent, side = shape
+    _, rank, heads, _, latent, r_dim = shape
     c8 = inputs["kv_cache_quant_mode"] == 1
     mode3 = inputs["weight_quant_mode"] == 3
     norm = inputs["query_norm_flag"]
     expected = (
         ((tokens, heads, latent), torch.float8_e4m3fn if c8 else torch.bfloat16),
-        ((tokens, heads, side), torch.bfloat16),
+        ((tokens, heads, r_dim), torch.bfloat16),
         ((tokens, heads, 1) if c8 else (0,), torch.float32),
         ((tokens, rank) if norm else (0,), inputs["weight_uq_qr"].dtype),
         (
@@ -162,7 +162,7 @@ def _accuracy(outputs, expected, inputs, reference, before):
         query *= outputs[2].cpu()
         query_ref *= expected[2].cpu()
     assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
-    assert_accuracy(outputs[1], expected[1], path="query_side")
+    assert_accuracy(outputs[1], expected[1], path="query_rope")
     if inputs["query_norm_flag"]:
         norm, norm_ref = outputs[3].cpu().float(), expected[3].cpu().float()
         if inputs["weight_quant_mode"] == 3:

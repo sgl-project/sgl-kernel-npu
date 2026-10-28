@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` | Not registered | Supported |
-| `torch_native` | Not registered | Supported |
+| `cann` | Unverified | Supported |
+| `torch_native` | Unverified | Supported |
 
-This table describes the registration scope of this API: both implementations are registered for `Generation.ARCH35`, and `auto` is an alias of `cann`.
+Both implementations are currently registered only for `Generation.ARCH35`, and `auto` is an alias of `cann`.
 
 CANN V4 itself is not limited to arch35: the [upstream documentation](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md) also lists BF16 and INT8 cases for arch22, which does not support FP8/HiFloat8/MXFP8 full quantization. This integration targets only Kimi K3 on arch35; arch22 is outside its scope.
 
@@ -71,35 +71,35 @@ This API supports only no-RoPE. It retains `rope_sin` and `rope_cos` for compati
 
 ## Description
 
-Computes the MLA projection and normalization steps before attention. It produces the absorbed query and its side component, and updates the shared latent and side caches **in place**. It does not compute attention scores, softmax, or the final value projection.
+Computes the MLA projection and normalization steps before attention. It returns the absorbed query (`query`) and the R-dimensional projected query component (`query_rope`), and updates the shared KV latent cache (`kv_cache`) and the R-dimensional projected key cache (`kr_cache`) **in place**. It does not compute attention scores, softmax, or the final value projection.
 
 **Why a separate integration:** Kimi K3 MLA does not use RoPE. The [torch_npu V3 implementation](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp) inspected on 2026-10-28 calls `aclnnMlaPrologV3WeightNz`, whose entry point [always enables RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp). This API therefore uses V4 through `cann_ops_transformer.mla_prolog`, with both `rope_sin` and `rope_cos` set to `None` for native no-RoPE support.
 
-Let `H` be the input width, `Rq` the query latent width, `C` the KV latent width, `N` the local query-head count, `D` the query width before absorption, and `R` the side width. For the non-quantized calculation:
+Let `H` be the input width, `Rq` the query latent width, `C` the KV latent width, `N` the local query-head count, `D` the width of `q_c` before absorption, and `R` the width of the projected query/key components `q_r` and `k_r`. For the non-quantized calculation:
 
 $$
-\operatorname{RMSNorm}(x;\gamma,\epsilon)
-=\gamma\odot x\,/\sqrt{\operatorname{mean}(x^2)+\epsilon}.
+\mathrm{RMSNorm}(x;\gamma,\epsilon)
+=\gamma\odot x\,/\sqrt{\mathrm{mean}(x^2)+\epsilon}.
 $$
 
 $$
-c_q=\alpha_q\operatorname{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
-\qquad [q_c,q_r]=\operatorname{reshape}(c_qW_{uq,qr}),
+c_q=\alpha_q\mathrm{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
+\qquad [q_c,q_r]=\mathrm{reshape}(c_qW_{uq,qr}),
 \qquad q_n=q_cW_{uk}.
 $$
 
 $$
 [c_0,k_r]=XW_{dkv,kr},
-\qquad c=\alpha_k\operatorname{RMSNorm}(c_0;\gamma_k,\epsilon_k).
+\qquad c=\alpha_k\mathrm{RMSNorm}(c_0;\gamma_k,\epsilon_k).
 $$
 
-Here `alpha_q=qc_qr_scale` and `alpha_k=kc_scale`. This API does not apply RoPE rotation to `q_r` or `k_r`: **the side projection and `kr_cache` still exist**. This no-RoPE behavior is needed by Kimi K3 MLA.
+Here `alpha_q=qc_qr_scale` and `alpha_k=kc_scale`. The query latent `c_q` is projected into `q_r`, returned as `query_rope`; the input `X` is projected into `k_r`, written to `kr_cache`. This API does not apply RoPE rotation to either component. Subsequent attention still computes their dot product `q_r · k_r` and adds it to `q_n · c`. This no-RoPE behavior is needed by Kimi K3 MLA.
 
 For a slot `s=cache_index[t]` in `PA_BSND`, the logical destination is `[s // P, s % P, 0, :]`, where `P` is the page size. `PA_NZ` writes the equivalent logical slot in tiled storage. Only the addressed cache slots are updated; callers own the lifetime and capacity of both cache tensors.
 
-The independent reference covers the following no-RoPE cases. `C16` means BF16 cache storage; `C8` means FP8 shared latent storage with a BF16 side cache.
+The independent reference covers the following no-RoPE cases. `C16` means both caches use BF16; `C8` means `kv_cache` uses FP8 and `kr_cache` uses BF16.
 
-| Case | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | Query / latent cache / side cache |
+| Case | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | `query` / `kv_cache` / `kr_cache` |
 | --- | --- | --- | --- | --- |
 | BF16 projections, C16 | `0` | `0` | `0` | BF16 / BF16 / BF16 |
 | MXFP8 projections, C16 | `3` | `0` | `0` | BF16 / BF16 / BF16 |
@@ -110,11 +110,11 @@ Mode 3 dequantizes block-scaled FP8 inputs and weights, converts the normalized 
 For C8, `quant_scale_ckv` is the **multiplicative quantization factor** `1/s_c`, not the KV dequantization scale `s_c`:
 
 $$
-c_8=\operatorname{FP8}(c/s_c),\qquad
-s_q=\max|q_n|/448,\qquad q_8=\operatorname{FP8}(q_n/s_q).
+c_8=\mathrm{FP8}(c/s_c),\qquad
+s_q=\max|q_n|/448,\qquad q_8=\mathrm{FP8}(q_n/s_q).
 $$
 
-The BF16 query side is compensated as `q_r / (s_q * s_c)`. A downstream attention kernel that applies `s_q * s_c` to the combined dot product then recovers the side term's original scale. `kr_cache` remains BF16. Do not apply this compensation a second time to the returned `query_rope`. An all-zero query row produces `s_q=0`; the reference follows CANN without replacing this scale by one or adding an epsilon.
+The BF16 projected query component `q_r` is compensated as `q_r / (s_q * s_c)`. A downstream attention kernel that applies `s_q * s_c` to the combined dot product then recovers the original scale of the `q_r · k_r` term. `kr_cache` remains BF16. Do not apply this compensation a second time to the returned `query_rope`. An all-zero query row produces `s_q=0`; the reference follows CANN without replacing this scale by one or adding an epsilon.
 
 With `query_norm_flag=True`, mode 3 returns the **FP8 query latent and its E8M0 group scales even in C16 mode**. A BF16 attention query does not imply that `query_norm` is BF16.
 
@@ -128,21 +128,21 @@ For the reference-supported cases, use `C=512`, `R=64`, `D` in `{128, 192}`, `Rq
 | --- | --- | --- | --- |
 | `token_x` | Tensor `[T,H]` or `[B,S,H]`; BF16 in mode 0, FP8 E4M3FN in mode 3 | Required | Contiguous ND activations; `T=B*S` for the flattened description. |
 | `weight_dq` | Tensor `[H,Rq]`; BF16 or FP8 E4M3FN | Required | Query down-projection. CANN requires FRACTAL_NZ; keep the logical two-dimensional shape. |
-| `weight_uq_qr` | Tensor `[Rq,N*(D+R)]`; BF16 or FP8 E4M3FN | Required | Query and side up-projections, concatenated per head; FRACTAL_NZ for CANN. |
+| `weight_uq_qr` | Tensor `[Rq,N*(D+R)]`; BF16 or FP8 E4M3FN | Required | Up-projection weights for `q_c` and `q_r`, concatenated per head; FRACTAL_NZ for CANN. |
 | `weight_uk` | Tensor `[N,D,C]`; BF16 | Required | Absorbed key up-projection, contiguous ND. |
-| `weight_dkv_kr` | Tensor `[H,C+R]`; BF16 or FP8 E4M3FN | Required | Shared latent and side projections; FRACTAL_NZ for CANN. |
+| `weight_dkv_kr` | Tensor `[H,C+R]`; BF16 or FP8 E4M3FN | Required | Projects input `X` into KV latent `c_0` and key component `k_r`; FRACTAL_NZ for CANN. |
 | `rmsnorm_gamma_cq` | Tensor `[Rq]`; BF16 | Required | Query latent RMSNorm weight, contiguous ND. |
 | `rmsnorm_gamma_ckv` | Tensor `[C]`; BF16 | Required | KV latent RMSNorm weight, contiguous ND. |
 | `kv_cache` | Tensor `[pages,P,1,C]`; BF16 for C16, FP8 E4M3FN for C8 | Required | Mutable shared latent cache. `PA_NZ` uses the corresponding physical tile order. |
-| `kr_cache` | Tensor `[pages,P,1,R]`; BF16 | Required | Mutable side cache; no-RoPE does not remove it. The CANN-only packed modes have different storage requirements. |
+| `kr_cache` | Tensor `[pages,P,1,R]`; BF16 | Required | Mutable cache for the R-dimensional projected key component `k_r`. The CANN-only packed modes have different storage requirements. |
 | `rope_sin`, `rope_cos` | `None` or empty tensor | `None` | Retained for compatibility with existing call arguments; a nonempty tensor raises `ValueError`. Both backends use the same constraint. |
 | `cache_index` | Optional tensor `[T]` or `[B,S]`; int32/int64 | `None` | Required for the supported PA cases. Each entry identifies a valid logical slot; use distinct slots for a deterministic reference comparison. |
 | `dequant_scale_x` | Optional tensor `[T,H/32]`; E8M0 in mode 3 | `None` | Mode-3 input block scales. Other CANN quantization modes use their upstream scale layout. |
 | `dequant_scale_w_dq` | Optional tensor `[Rq,H/32]`; E8M0 in mode 3 | `None` | Mode-3 down-projection weight scales, contiguous ND. |
 | `dequant_scale_w_uq_qr` | Optional tensor `[N*(D+R),Rq/32]`; E8M0 in mode 3 | `None` | Mode-3 query up-projection weight scales, contiguous ND. |
-| `dequant_scale_w_dkv_kr` | Optional tensor `[C+R,H/32]`; E8M0 in mode 3 | `None` | Mode-3 KV/side projection weight scales, contiguous ND. |
+| `dequant_scale_w_dkv_kr` | Optional tensor `[C+R,H/32]`; E8M0 in mode 3 | `None` | Mode-3 dequantization scales for `weight_dkv_kr`, contiguous ND. |
 | `quant_scale_ckv` | Optional tensor `[1]`; FP32 for C8 | `None` | Positive multiplicative factor `1/s_c`, required in the C8 case. CANN per-channel mode uses `[1,C]`. |
-| `quant_scale_ckr` | Optional tensor `[1,R]`; FP32 | `None` | CANN side-cache per-channel quantization input; reference requires `None`. |
+| `quant_scale_ckr` | Optional tensor `[1,R]`; FP32 | `None` | CANN per-channel quantization input for `kr_cache`; reference requires `None`. |
 | `smooth_scales_cq` | Optional tensor `[1,Rq]`; FP32 | `None` | CANN query-latent smoothing input for applicable modes; reference requires `None`. |
 | `actual_seq_len` | Optional tensor `[B]`; int32 | `None` | Cumulative sequence lengths for applicable CANN block-indexed cache modes; reference requires `None`. |
 | `k_nope_clip_alpha` | Optional tensor `[1]`; FP32 | `None` | CANN clipping factor for applicable grouped quantization modes; reference requires `None`. |
@@ -163,7 +163,7 @@ All five results are tensors. Disabled optional outputs are empty tensors, not e
 | Return value | Shape | Dtype in reference-supported cases | Meaning |
 | --- | --- | --- | --- |
 | `query` | `[T,N,C]` or `[B,S,N,C]` | BF16 for C16; FP8 E4M3FN for C8 | Absorbed query. |
-| `query_rope` | `[T,N,R]` or `[B,S,N,R]` | BF16 | Side query; no rotation in no-RoPE mode, and scale compensation in C8 mode. |
+| `query_rope` | `[T,N,R]` or `[B,S,N,R]` | BF16 | R-dimensional projected query component `q_r`, without RoPE; includes scale compensation in C8 mode. |
 | `dequant_scale_q_nope` | `[T,N,1]` or `[B*S,N,1]`; otherwise empty | FP32 | Per-token/head query dequantization scale in C8 mode. |
 | `query_norm` | `[T,Rq]` or `[B,S,Rq]`; otherwise empty | Mode 0: BF16; mode 3: FP8 E4M3FN | Normalized query latent when requested. |
 | `dequant_scale_q_norm` | `[T,Rq/32]` or `[B*S,Rq/32]`; otherwise empty | E8M0 for mode 3 | MXFP8 query-latent group scales; empty in mode 0 or when not requested. |
@@ -218,10 +218,10 @@ kwargs = dict(
 )
 
 # auto selects the CANN V4 entry point and updates these two caches.
-query, side, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
+query, query_rope, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
     *args, kv_cache, kr_cache, **kwargs, impl="auto"
 )
-print(query.shape, side.shape, q_norm.shape)
+print(query.shape, query_rope.shape, q_norm.shape)
 
 # Use fresh buffers because the API mutates the caches supplied to it.
 reference = mla_prolog_norope(
