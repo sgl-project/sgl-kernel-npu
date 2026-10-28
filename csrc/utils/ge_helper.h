@@ -47,6 +47,8 @@ constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
             return ge::DT_BOOL;
         case at::ScalarType::BFloat16:
             return ge::DT_BF16;
+        case at::ScalarType::Float8_e4m3fn:
+            return ge::DT_FLOAT8_E4M3FN;
         default:
             return ge::DT_FLOAT16;
     }
@@ -81,6 +83,8 @@ constexpr uint32_t GE_DATATYPE_TO_KEY(ge::DataType geDatatype)
             return 11;
         case ge::DT_BF16:
             return 12;
+        case ge::DT_FLOAT8_E4M3FN:
+            return 13;
         default:
             return 1;
     }
