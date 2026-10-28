@@ -28,6 +28,21 @@ Paths alone do not enable performance. Skipping accuracy does not enable it eith
 if both checks are disabled, the operator is not executed. Use serial pytest or
 `-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
 
+### RoPE supplementary checks
+
+The RoPE suite runs 64 accuracy/performance cases by default. Its 60 output-contract
+checks and 24 invalid-input checks are retained as separate tests and skipped
+before device setup unless `--run-rope-extra-checks` is supplied:
+
+```bash
+python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
+  --run-rope-extra-checks --skip-acc-check=false --enable-perf=false -v -rs
+```
+
+The default accuracy/performance cases do not make an extra operator call for
+output-contract checks. With `--skip-acc-check=true`, the optional output-contract
+tests are also skipped. Supplementary tests never collect performance.
+
 ## Write a test
 
 Place tests in `operators/<module>/test_<operator>.py`, matching the public API.

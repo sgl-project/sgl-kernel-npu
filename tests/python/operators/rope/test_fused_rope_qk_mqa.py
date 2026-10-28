@@ -11,11 +11,79 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 # (tokens, query_heads, key_heads, head_size, rotary_dim).
 # Legacy regression workloads, not verified production traces.
 perf_shape = [(32, 8, 1, 64, 32), (64, 32, 1, 128, 64)]
+
+
+# Shared by the standard accuracy/performance suite and optional contract checks.
+rope_cases = [
+    pytest.param(
+        (32, 8, 1, 64, 32), "random", "contiguous", False, id="legacy-mqa-partial"
+    ),
+    pytest.param(
+        (32, 8, 1, 32, 32), "random", "contiguous", False, id="legacy-mqa-full"
+    ),
+    pytest.param(
+        (17, 16, 1, 128, 64),
+        "random",
+        "contiguous",
+        False,
+        id="legacy-mqa-odd-tokens",
+    ),
+    pytest.param(
+        (64, 32, 1, 128, 64), "random", "contiguous", False, id="legacy-mqa-batched"
+    ),
+    pytest.param(
+        (1, 1, 1, 3, 2),
+        "random",
+        "contiguous",
+        True,
+        id="edge-minimum-pair-one-tail",
+    ),
+    pytest.param(
+        (3, 8, 2, 96, 64),
+        "identity",
+        "strided_inputs",
+        False,
+        id="gqa-identity-strided-features",
+    ),
+    pytest.param(
+        (5, 4, 4, 64, 64),
+        "quarter_turn",
+        "transposed_heads",
+        False,
+        id="mha-quarter-turn-transposed-heads",
+    ),
+    pytest.param(
+        (7, 8, 2, 64, 32),
+        "zero",
+        "strided_all",
+        True,
+        id="gqa-zero-all-strides-fp32-cache",
+    ),
+    pytest.param(
+        (9, 8, 1, 128, 128),
+        "random",
+        "strided_cache",
+        True,
+        id="mqa-full-strided-fp32-cache",
+    ),
+    pytest.param(
+        (3, 4, 4, 96, 64),
+        "random",
+        "transposed_heads",
+        True,
+        id="mha-partial-transposed-fp32-cache",
+    ),
+]
 
 
 def _make_input(tokens, heads, head_size, dtype, layout):
@@ -108,69 +176,7 @@ def _check_output_contract(result, inputs, snapshots, rotary_dim, is_neox_style,
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("is_neox_style", [True, False], ids=["neox", "gptj"])
-@pytest.mark.parametrize(
-    "shape,mode,layout,fp32_cache",
-    [
-        pytest.param(
-            (32, 8, 1, 64, 32), "random", "contiguous", False, id="legacy-mqa-partial"
-        ),
-        pytest.param(
-            (32, 8, 1, 32, 32), "random", "contiguous", False, id="legacy-mqa-full"
-        ),
-        pytest.param(
-            (17, 16, 1, 128, 64),
-            "random",
-            "contiguous",
-            False,
-            id="legacy-mqa-odd-tokens",
-        ),
-        pytest.param(
-            (64, 32, 1, 128, 64), "random", "contiguous", False, id="legacy-mqa-batched"
-        ),
-        pytest.param(
-            (1, 1, 1, 3, 2),
-            "random",
-            "contiguous",
-            True,
-            id="edge-minimum-pair-one-tail",
-        ),
-        pytest.param(
-            (3, 8, 2, 96, 64),
-            "identity",
-            "strided_inputs",
-            False,
-            id="gqa-identity-strided-features",
-        ),
-        pytest.param(
-            (5, 4, 4, 64, 64),
-            "quarter_turn",
-            "transposed_heads",
-            False,
-            id="mha-quarter-turn-transposed-heads",
-        ),
-        pytest.param(
-            (7, 8, 2, 64, 32),
-            "zero",
-            "strided_all",
-            True,
-            id="gqa-zero-all-strides-fp32-cache",
-        ),
-        pytest.param(
-            (9, 8, 1, 128, 128),
-            "random",
-            "strided_cache",
-            True,
-            id="mqa-full-strided-fp32-cache",
-        ),
-        pytest.param(
-            (3, 4, 4, 96, 64),
-            "random",
-            "transposed_heads",
-            True,
-            id="mha-partial-transposed-fp32-cache",
-        ),
-    ],
-)
+@pytest.mark.parametrize("shape,mode,layout,fp32_cache", rope_cases)
 def test_fused_rope_qk_mqa(
     shape,
     dtype,
@@ -183,16 +189,10 @@ def test_fused_rope_qk_mqa(
 
     query, key, cos_sin = generate_test_data(shape, dtype, mode, layout, fp32_cache)
     inputs = (query, key, cos_sin)
-    snapshots = tuple(tensor.clone() for tensor in inputs)
     rotary_dim = shape[-1]
     executor = check_accuracy(
         fused_rope_qk_mqa, args=(*inputs, rotary_dim, is_neox_style)
     )
-    # Preserve --skip-acc-check semantics: do not trigger additional calls.
-    if executor.accuracy_checked:
-        _check_output_contract(
-            executor(), inputs, snapshots, rotary_dim, is_neox_style, mode
-        )
     enable_perf = (
         shape in perf_shape
         and dtype == torch.float16
@@ -201,6 +201,33 @@ def test_fused_rope_qk_mqa(
         and not fp32_cache
     )
     check_performance(executor, enable_perf=enable_perf)
+
+
+@pytest.mark.rope_extra_checks
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("is_neox_style", [True, False], ids=["neox", "gptj"])
+@pytest.mark.parametrize("shape,mode,layout,fp32_cache", rope_cases)
+def test_fused_rope_qk_mqa_output_contract(
+    shape,
+    dtype,
+    is_neox_style,
+    mode,
+    layout,
+    fp32_cache,
+):
+    """Optional allocation, input-preservation and exact special-case checks."""
+    if get_skip_acc_check() is True:
+        pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
+
+    from sgl_kernel_npu.operators.rope import fused_rope_qk_mqa
+
+    inputs = generate_test_data(shape, dtype, mode, layout, fp32_cache)
+    snapshots = tuple(tensor.clone() for tensor in inputs)
+    rotary_dim = shape[-1]
+    impl, _ = get_test_impls()
+    require_test_impl(fused_rope_qk_mqa, impl)
+    result = fused_rope_qk_mqa(*inputs, rotary_dim, is_neox_style, impl=impl)
+    _check_output_contract(result, inputs, snapshots, rotary_dim, is_neox_style, mode)
 
 
 @pytest.mark.parametrize("is_neox_style", [True, False], ids=["neox", "gptj"])
@@ -228,6 +255,7 @@ def test_fused_rope_qk_mqa_mixed_cache_dtype(
     check_performance(executor, enable_perf=False)
 
 
+@pytest.mark.rope_extra_checks
 @pytest.mark.parametrize(
     "invalid_input",
     [
