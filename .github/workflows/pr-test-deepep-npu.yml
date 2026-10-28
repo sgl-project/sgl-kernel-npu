@@ -473,6 +473,13 @@ jobs:
           run_case mega_exp_np16_capacity_4096  python3 ${SCRIPT} --num-processes 16 --quant-mode w8a8 --activation swiglu --hidden 8192 --num-topk 16 --num-experts 256 --num-tokens 4096 --hccl-buffsize 2000
           echo "================ MegaMoe np16 EXPERIMENT SUMMARY (record-only) ================"
           cat ${RESULT_FILE}
+          # emit results as check-run annotations (queryable via API even when the job succeeds)
+          while IFS= read -r line; do echo "::notice title=np16EXP::$line"; done < ${RESULT_FILE}
+          if [ "$(grep -c '^PASS' ${RESULT_FILE})" = "2" ]; then
+            echo "::notice title=np16VERDICT::BOTH CASES PASSED with num-processes 16"
+          else
+            echo "::error title=np16VERDICT::NOT both passed - see np16EXP lines above"
+          fi
           echo "Experiment result recorded; verdict unchanged regardless of outcome"
 
   test-deepep-a5-sr-cases:
