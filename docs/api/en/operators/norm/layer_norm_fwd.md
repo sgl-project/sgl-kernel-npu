@@ -4,10 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Accuracy verified on A3 | Verified on A5 |
-| `torch_native` | Accuracy verified on A3 | Verified on A5 |
-
-The FP32, FP16 and BF16 cases passed on A3 with CANN 9.0 and 9.1 ([CI results](https://github.com/sgl-project/sgl-kernel-npu/actions/runs/40506517443)). This result covers the implementation before the wrapper relocation and API rename; the revised layout still requires an NPU rerun. A5 validation was reported by the operator contributor. Performance measurements are pending.
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
