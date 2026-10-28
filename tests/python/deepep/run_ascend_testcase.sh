@@ -18,6 +18,14 @@ if [ ! -f "${test_case}" ];then
   exit 1
 fi
 
+# This deepep Pod cannot use the cluster squid: the K8s job template injects no
+# proxy env, and http(s)_proxy is unset below. Point apt and pip at the public
+# Huawei Cloud mirror instead (CI_MIRROR_HOST overrides the host per cluster).
+MIRROR_HOST="${CI_MIRROR_HOST:-repo.huaweicloud.com}"
+sed -Ei "s@https?://(ports|archive)\.ubuntu\.com@https://${MIRROR_HOST}@g" /etc/apt/sources.list
+pip config set global.index-url "https://${MIRROR_HOST}/repository/pypi/simple"
+pip config set global.trusted-host "${MIRROR_HOST}"
+
 pip3 install kubernetes
 pip3 install --no-deps xgrammar==0.1.25
 
