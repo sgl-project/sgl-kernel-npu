@@ -37,13 +37,13 @@ For example, run the RoPE suite from the repository root:
 
 ```bash
 # Default cases.
-python -m pytest tests/python/operators/rope --enable-perf=false -v
+python -m pytest tests/python/operators/rope -v
 
 # Supplementary checks only.
-python -m pytest tests/python/operators/rope -m extra_checks --enable-perf=false -v
+python -m pytest tests/python/operators/rope -m extra_checks -v
 
 # All cases.
-python -m pytest tests/python/operators/rope -m "" --enable-perf=false -v
+python -m pytest tests/python/operators/rope -m "" -v
 ```
 
 Selecting a supplementary test by function path or `-k` still requires
