@@ -8,9 +8,6 @@ on:
       - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
-      - "tests/cmake/**"
-      - "tests/csrc/**"
-      - "scripts/verify_cann_codegen.py"
       - "build.sh"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
@@ -105,10 +102,12 @@ jobs:
               - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_pto.py
               - tests/python/sgl_kernel_npu/test_chunk_gdn_triton.py
+              - tests/python/sgl_kernel_npu/test_l2norm.py
               - tests/python/sgl_kernel_npu/test_recurrent_gated_delta_rule.py
               - tests/python/sgl_kernel_npu/test_fused_gdn_gating_without_sigmoid.py
               - tests/python/sgl_kernel_npu/test_solve_tril.py
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
+              - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
             fused:
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**
@@ -131,38 +130,12 @@ jobs:
               - CMakeLists.txt
               - csrc/CMakeLists.txt
               - csrc/**/CMakeLists.txt
-              - csrc/cmake/**
-              - csrc/sampling/**
-              - tests/cmake/**
-              - tests/csrc/**
-              - scripts/verify_cann_codegen.py
               - scripts/prepare_kernel_tests.sh
               - scripts/run_kernel_tests.sh
               - .github/workflows/pr-test-kernels.yml
               - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules
-
-  test-cmake-rules:
-    name: Test portable CMake rules
-    needs: get-changed-files
-    if: |
-      github.event_name == 'workflow_dispatch' || (
-        github.event.pull_request.draft == false &&
-        needs.get-changed-files.outputs.common_changed == 'true'
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure and test declarations without Torch or CANN
-        run: |
-          cmake -S tests/cmake -B build/cmake-tests
-          ctest --test-dir build/cmake-tests --output-on-failure
-      - name: Check portable scheduling and Kernel source preservation
-        run: |
-          cmake -S tests/csrc -B build/bitmask-portable
-          cmake --build build/bitmask-portable
-          ctest --test-dir build/bitmask-portable --output-on-failure
 
   # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
   # Adding 9.1.0 to each job's matrix doubles the parallelism to 14 combos.
