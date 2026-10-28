@@ -10,9 +10,7 @@ from tests.python.operators.sample.special_cases._sampling_test_utils import (
 )
 
 if NPU_AVAILABLE:
-    from sgl_kernel_npu.operators.sample import (
-        markov_greedy_step_triton,
-    )
+    from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
 
 def _markov_reference(base, embeds, weight):
