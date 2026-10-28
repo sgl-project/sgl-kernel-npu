@@ -2,7 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
-| [mla_prolog](operators/attention/mla_prolog.md) | `cann`、`torch_native` |
+| [mla_prolog_norope](operators/attention/mla_prolog_norope.md) | `cann`、`torch_native` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`、`torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`、`torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |

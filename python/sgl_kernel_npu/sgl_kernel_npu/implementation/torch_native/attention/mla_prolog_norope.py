@@ -106,7 +106,7 @@ def _write_cache(
     cache.copy_(cache_cpu.to(cache.device))
 
 
-def mla_prolog(
+def mla_prolog_norope(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -156,8 +156,6 @@ def mla_prolog(
         raise NotImplementedError(
             "The reference supports mode0/C16 and mode3/C16 or C8"
         )
-    if any(t is not None and t.numel() for t in (rope_sin, rope_cos)):
-        raise NotImplementedError("The reference implements the no-RoPE path only")
     if (
         cache_mode not in ("PA_BSND", "PA_NZ")
         or ckvkr_repo_mode

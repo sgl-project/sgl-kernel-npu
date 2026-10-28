@@ -94,6 +94,10 @@ def generate_data(
             )
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
+    if cache_mode == "PA_NZ":
+        # Exercise the no-RoPE empty-tensor contract in both backends.
+        inputs["rope_sin"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
+        inputs["rope_cos"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
     return inputs
 
 
@@ -198,10 +202,10 @@ def _accuracy(outputs, expected, inputs, reference, before):
     ],
 )
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
-def test_mla_prolog(
+def test_mla_prolog_norope(
     tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
 ):
-    from sgl_kernel_npu.operators.attention import mla_prolog
+    from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
     inputs = generate_data(
         tokens,
@@ -214,21 +218,21 @@ def test_mla_prolog(
     impl, impl_ref = get_test_impls()
     checked = get_skip_acc_check() is not True
     if checked:
-        require_distinct_impls(mla_prolog, impl, impl_ref)
+        require_distinct_impls(mla_prolog_norope, impl, impl_ref)
         before, reference = _independent_cache(inputs), _independent_cache(inputs)
         pointers = [inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")]
-        expected = mla_prolog(**reference, impl=impl_ref)
-        outputs = mla_prolog(**inputs, impl=impl)
+        expected = mla_prolog_norope(**reference, impl=impl_ref)
+        outputs = mla_prolog_norope(**inputs, impl=impl)
         _accuracy(outputs, expected, inputs, reference, before)
         assert pointers == [
             inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")
         ]
     else:
-        require_test_impl(mla_prolog, impl)
+        require_test_impl(mla_prolog_norope, impl)
     # A CPU reference's transfer tasks are not an NPU compute baseline.
     if impl == "torch_native":
         return
-    executor = make_executor(mla_prolog, kwargs=inputs, accuracy_checked=checked)
+    executor = make_executor(mla_prolog_norope, kwargs=inputs, accuracy_checked=checked)
     measured = check_performance(
         executor, enable_perf=(tokens, cache_mode) in perf_shape
     )
@@ -246,17 +250,17 @@ def test_mla_prolog(
 
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 @pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
-def test_mla_prolog_direct_cann_parity(weight_quant_mode, c8, cache_mode):
+def test_mla_prolog_norope_direct_cann_parity(weight_quant_mode, c8, cache_mode):
     if get_skip_acc_check() is True:
         pytest.skip("Direct-CANN parity is disabled by --skip-acc-check=true")
-    from sgl_kernel_npu.operators.attention import mla_prolog
+    from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
-    require_test_impl(mla_prolog, "cann")
+    require_test_impl(mla_prolog_norope, "cann")
     from cann_ops_transformer import mla_prolog as cann_mla_prolog
 
     inputs = generate_data(4, weight_quant_mode, c8, cache_mode, not c8)
     direct = _independent_cache(inputs)
-    outputs = mla_prolog(**inputs, impl="cann")
+    outputs = mla_prolog_norope(**inputs, impl="cann")
     expected = cann_mla_prolog(**direct)
     _check_contract(outputs, inputs)
     for actual, reference in zip(
@@ -267,3 +271,16 @@ def test_mla_prolog_direct_cann_parity(weight_quant_mode, c8, cache_mode):
         assert torch.equal(
             actual.cpu().view(torch.uint8), reference.cpu().view(torch.uint8)
         )
+
+
+@pytest.mark.parametrize("impl", ["auto", "cann", "torch_native"])
+@pytest.mark.parametrize("rope_arg", ["rope_sin", "rope_cos"])
+def test_mla_prolog_norope_rejects_rope(impl, rope_arg):
+    from sgl_kernel_npu.operators.attention import mla_prolog_norope
+
+    # Rejection must precede backend dispatch and any cache access.
+    unused_inputs = [torch.empty(0)] * 9
+    with pytest.raises(
+        ValueError, match="requires rope_sin and rope_cos to be None or empty"
+    ):
+        mla_prolog_norope(*unused_inputs, **{rope_arg: torch.ones(1)}, impl=impl)

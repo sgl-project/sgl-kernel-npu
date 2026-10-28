@@ -1,4 +1,4 @@
-"""Public CANN MLAProlog V4 entry point and independent numerical reference."""
+"""No-RoPE CANN MLAProlog V4 entry point and independent numerical reference."""
 
 from typing import Optional, Tuple
 
@@ -12,10 +12,10 @@ _torch_native_fn = None
 
 
 @register_impl(
-    "attention.mla_prolog", "auto", supported_generations={Generation.ARCH35}
+    "attention.mla_prolog_norope", "auto", supported_generations={Generation.ARCH35}
 )
 @register_impl(
-    "attention.mla_prolog", "cann", supported_generations={Generation.ARCH35}
+    "attention.mla_prolog_norope", "cann", supported_generations={Generation.ARCH35}
 )
 def _cann_impl(*args, **kwargs):
     global _cann_fn
@@ -27,19 +27,23 @@ def _cann_impl(*args, **kwargs):
 
 
 @register_impl(
-    "attention.mla_prolog", "torch_native", supported_generations={Generation.ARCH35}
+    "attention.mla_prolog_norope",
+    "torch_native",
+    supported_generations={Generation.ARCH35},
 )
 def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.mla_prolog import mla_prolog
+        from ...implementation.torch_native.attention.mla_prolog_norope import (
+            mla_prolog_norope,
+        )
 
-        _torch_native_fn = mla_prolog
+        _torch_native_fn = mla_prolog_norope
     return _torch_native_fn(*args, **kwargs)
 
 
-@register_operator("attention.mla_prolog")
-def mla_prolog(
+@register_operator("attention.mla_prolog_norope")
+def mla_prolog_norope(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -81,10 +85,10 @@ def mla_prolog(
     kv_cache_dtype: Optional[int] = None,
     impl: str = "auto",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Project MLA queries and update both caches in place; auto selects CANN V4.
+    """Project MLA queries without RoPE and update both caches; auto selects CANN V4.
 
-    The CANN backend preserves the public ``cann_ops_transformer.mla_prolog``
-    contract. The independent reference covers no-RoPE BF16 and MXFP8
+    RoPE arguments are retained for call-site compatibility and must be None
+    or empty. The independent reference covers no-RoPE BF16 and MXFP8
     projections with C16 cache, and MXFP8 projections with static C8 cache.
 
     Args:
@@ -97,7 +101,7 @@ def mla_prolog(
         rmsnorm_gamma_ckv: [Hckv] cache RMSNorm weights.
         kv_cache: Mutable latent cache, BF16 (C16) or FP8 E4M3 (C8).
         kr_cache: Mutable BF16 side cache; no-RoPE still has side features.
-        rope_sin, rope_cos: Both None disables RoPE; otherwise CANN RoPE inputs.
+        rope_sin, rope_cos: Must each be None or an empty tensor.
         cache_index: Int32/int64 token slot indices for the paged cache.
         dequant_scale_x, dequant_scale_w_dq, dequant_scale_w_uq_qr,
             dequant_scale_w_dkv_kr: Input/projection dequantization scales.
@@ -123,7 +127,11 @@ def mla_prolog(
         cache inputs are updated, not returned. See the API documentation for
         mode-dependent output shapes and dtypes.
     """
-    impl_fn = get_impl_by_name("attention.mla_prolog", impl)
+    if any(t is not None and t.numel() > 0 for t in (rope_sin, rope_cos)):
+        raise ValueError(
+            "mla_prolog_norope requires rope_sin and rope_cos to be None or empty."
+        )
+    impl_fn = get_impl_by_name("attention.mla_prolog_norope", impl)
     return impl_fn(
         token_x,
         weight_dq,

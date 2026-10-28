@@ -1,3 +1,3 @@
-from .mla_prolog import mla_prolog
+from .mla_prolog_norope import mla_prolog_norope
 
-__all__ = ["mla_prolog"]
+__all__ = ["mla_prolog_norope"]

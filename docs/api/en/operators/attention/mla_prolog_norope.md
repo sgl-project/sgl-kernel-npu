@@ -1,13 +1,15 @@
-# mla_prolog
+# mla_prolog_norope
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 (A5) |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` | Not registered | Unverified; registered target |
-| `torch_native` | Not registered | Unverified; registered target |
+| `cann` | Not registered | Supported |
+| `torch_native` | Not registered | Supported |
 
-Both implementations are registered for `Generation.ARCH35`. The table does not claim completed device validation or measured performance. `auto` is an alias of `cann`, not a fallback policy.
+This table describes the registration scope of this API: both implementations are registered for `Generation.ARCH35`, and `auto` is an alias of `cann`.
+
+CANN V4 itself is not limited to arch35: the [upstream documentation](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md) also lists BF16 and INT8 cases for arch22, which does not support FP8/HiFloat8/MXFP8 full quantization. This integration targets only Kimi K3 on arch35; arch22 is outside its scope.
 
 ## Signature
 
@@ -16,9 +18,9 @@ from typing import Optional, Tuple
 
 import torch
 
-from sgl_kernel_npu.operators.attention import mla_prolog
+from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
-def mla_prolog(
+def mla_prolog_norope(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -65,9 +67,13 @@ def mla_prolog(
 
 `impl="auto"` and `impl="cann"` call the public `cann_ops_transformer.mla_prolog` API, which wraps `aclnnMlaPrologV4WeightNz`. Other arguments preserve that API's names and defaults. This is the in-place cache API with **five outputs**, not its seven-output functional variant.
 
+This API supports only no-RoPE. It retains `rope_sin` and `rope_cos` for compatibility with existing call arguments, but each must be `None` or an empty tensor. The public entry point checks them before backend dispatch and raises `ValueError` if either tensor is nonempty.
+
 ## Description
 
 Computes the MLA projection and normalization steps before attention. It produces the absorbed query and its side component, and updates the shared latent and side caches **in place**. It does not compute attention scores, softmax, or the final value projection.
+
+**Why a separate integration:** Kimi K3 MLA does not use RoPE. The [torch_npu V3 implementation](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp) inspected on 2026-10-28 calls `aclnnMlaPrologV3WeightNz`, whose entry point [always enables RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp). This API therefore uses V4 through `cann_ops_transformer.mla_prolog`, with both `rope_sin` and `rope_cos` set to `None` for native no-RoPE support.
 
 Let `H` be the input width, `Rq` the query latent width, `C` the KV latent width, `N` the local query-head count, `D` the query width before absorption, and `R` the side width. For the non-quantized calculation:
 
@@ -87,7 +93,7 @@ $$
 \qquad c=\alpha_k\operatorname{RMSNorm}(c_0;\gamma_k,\epsilon_k).
 $$
 
-Here `alpha_q=qc_qr_scale` and `alpha_k=kc_scale`. When both RoPE tensors are supplied, CANN applies the configured rotation to `q_r` and `k_r`. When both are `None` or empty, the rotation is skipped: **the side projection and `kr_cache` still exist**. This no-RoPE behavior is needed by Kimi K3 MLA.
+Here `alpha_q=qc_qr_scale` and `alpha_k=kc_scale`. This API does not apply RoPE rotation to `q_r` or `k_r`: **the side projection and `kr_cache` still exist**. This no-RoPE behavior is needed by Kimi K3 MLA.
 
 For a slot `s=cache_index[t]` in `PA_BSND`, the logical destination is `[s // P, s % P, 0, :]`, where `P` is the page size. `PA_NZ` writes the equivalent logical slot in tiled storage. Only the addressed cache slots are updated; callers own the lifetime and capacity of both cache tensors.
 
@@ -129,7 +135,7 @@ For the reference-supported cases, use `C=512`, `R=64`, `D` in `{128, 192}`, `Rq
 | `rmsnorm_gamma_ckv` | Tensor `[C]`; BF16 | Required | KV latent RMSNorm weight, contiguous ND. |
 | `kv_cache` | Tensor `[pages,P,1,C]`; BF16 for C16, FP8 E4M3FN for C8 | Required | Mutable shared latent cache. `PA_NZ` uses the corresponding physical tile order. |
 | `kr_cache` | Tensor `[pages,P,1,R]`; BF16 | Required | Mutable side cache; no-RoPE does not remove it. The CANN-only packed modes have different storage requirements. |
-| `rope_sin`, `rope_cos` | Optional tensors `[T,R]` or `[B,S,R]`; BF16 | `None` | Supply both or neither. The reference requires both absent/empty. |
+| `rope_sin`, `rope_cos` | `None` or empty tensor | `None` | Retained for compatibility with existing call arguments; a nonempty tensor raises `ValueError`. Both backends use the same constraint. |
 | `cache_index` | Optional tensor `[T]` or `[B,S]`; int32/int64 | `None` | Required for the supported PA cases. Each entry identifies a valid logical slot; use distinct slots for a deterministic reference comparison. |
 | `dequant_scale_x` | Optional tensor `[T,H/32]`; E8M0 in mode 3 | `None` | Mode-3 input block scales. Other CANN quantization modes use their upstream scale layout. |
 | `dequant_scale_w_dq` | Optional tensor `[Rq,H/32]`; E8M0 in mode 3 | `None` | Mode-3 down-projection weight scales, contiguous ND. |
@@ -164,55 +170,21 @@ All five results are tensors. Disabled optional outputs are empty tensors, not e
 
 ## cann backend
 
-Lazily imports the canonical `cann_ops_transformer.mla_prolog` entry point and passes the full argument set through. Input support and validation follow the installed CANN implementation; the wrapper does not probe versions or substitute another operator.
-
-### Dependency installation
-
-Install this dependency only for applications using this operator. The kernel-npu wheel does not bundle the CANN toolkit, native MLAProlog operator, or external Python binding. Prepare a CANN 9.2/A5 environment containing the matching V4 native operator exposing `aclnnMlaPrologV4WeightNz`, headers and libraries, with compatible PyTorch and torch_npu. The binding uses JIT compilation, so its compiler/build dependencies must also be available. The toolkit version alone does not establish that the Python binding is installed.
-
-This integration follows the API at ops-transformer revision `d462156cf5d97712fcfeef95070d649f47d3bb6e`. Build and install the **complete regular-operator Python wheel** from that revision:
-
-```bash
-git clone https://gitcode.com/cann/ops-transformer.git
-cd ops-transformer
-git checkout d462156cf5d97712fcfeef95070d649f47d3bb6e
-bash build.sh --torch_extension
-python -m pip install --no-deps build_out/cann_ops_transformer-*.whl
-cd ..
-```
-
-This packages the Python binding; it does not install or replace the native CANN operator. The native operator and Python binding must match. Do not add `--ops=mla_prolog_v3` to the command above: selected-op wheels use `cann_ops_transformer_<vendor>` (by default `cann_ops_transformer_custom`), whereas this backend imports the canonical `cann_ops_transformer` package. There is no namespace probing or automatic fallback. A generic dependency such as `cann_ops_transformer>=1.0.0` does not identify the required source revision.
-
-See the upstream [MLA Prolog contract](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/torchapi_mla_prolog.md) and [extension packaging guide](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/torch_extension/README.md) for the native contract and build dependencies. Record the actual CANN build and PyTorch/torch_npu versions when validating the environment; no specific wheel release number or benchmark result is implied here.
-
-### Validation
-
-After building and installing kernel-npu, run the public API tests **from the kernel-npu repository root** on Ascend 950. The first command checks accuracy; the second also profiles the selected performance cases. These tests execute the native operator, including its in-place cache updates; an import-only check is insufficient.
-
-```bash
-python -m pytest tests/python/operators/attention/test_mla_prolog.py \
-    --skip-acc-check=false --enable-perf=false -v -s -x -rs
-python -m pytest tests/python/operators/attention/test_mla_prolog.py \
-    --skip-acc-check=false --prof-dir=results/profilings \
-    --csv-path=results/mla_prolog.csv -v -s
-```
+Lazily imports `cann_ops_transformer.mla_prolog` and forwards its arguments. This document is based on ops-transformer commit [`d462156cf5d97712fcfeef95070d649f47d3bb6e`](https://gitcode.com/cann/ops-transformer/commit/d462156cf5d97712fcfeef95070d649f47d3bb6e), dated 2026-10-20 (UTC+8).
 
 ## torch_native backend
 
-- Independent PyTorch CPU calculation for the three no-RoPE cases listed above. It does not call MLAProlog, the CANN backend, or a vendor quantization operator to produce the reference result.
-- Supports logical two-dimensional projection weights, two- or three-dimensional `token_x`, and separate `PA_BSND`/`PA_NZ` caches. NPU FRACTAL_NZ weights are copied to logical CPU tensors for calculation.
-- Optional smoothing, clipping, block-indexed sequence metadata, packed cache modes, logical-dtype overrides, and other quantization combinations are outside this reference's scope. The CANN entry point remains available for its own supported combinations.
-- Copies between NPU and CPU make this an accuracy reference, not a performance fallback. Do not use it inside a captured NPU graph. Outputs return to the input device and both caller-owned caches receive the reference updates.
+Uses independent PyTorch CPU calculations as an accuracy reference for the three no-RoPE cases above and `PA_BSND`/`PA_NZ` caches. Outputs return to the input device, and both supplied caches are updated in place.
 
 ## Example
 
-Run on an A5 environment with the dependencies above. This is a synthetic supported shape for demonstrating the API, not a recorded Kimi production shape or an accuracy/performance result. The example uses BF16 projections, no RoPE, and separate BF16 caches.
+This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches, with a synthetic shape to demonstrate the API.
 
 ```python
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.attention import mla_prolog
+from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
 device = "npu"
 dtype = torch.bfloat16
@@ -246,13 +218,13 @@ kwargs = dict(
 )
 
 # auto selects the CANN V4 entry point and updates these two caches.
-query, side, q_scale, q_norm, q_norm_scale = mla_prolog(
+query, side, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
     *args, kv_cache, kr_cache, **kwargs, impl="auto"
 )
 print(query.shape, side.shape, q_norm.shape)
 
 # Use fresh buffers because the API mutates the caches supplied to it.
-reference = mla_prolog(
+reference = mla_prolog_norope(
     *args,
     torch.zeros_like(kv_cache),
     torch.zeros_like(kr_cache),
