@@ -28,22 +28,55 @@ Paths alone do not enable performance. Skipping accuracy does not enable it eith
 if both checks are disabled, the operator is not executed. Use serial pytest or
 `-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
 
-### RoPE supplementary checks
+### Supplementary checks
 
-The RoPE suite runs 60 accuracy/performance cases by default. Its 60 output-contract
-checks, 24 invalid-input checks and 4 mixed-cache-dtype cases are retained as
-separate tests and skipped before device setup unless `--run-rope-extra-checks`
-is supplied:
+Use `@pytest.mark.extra_checks` for supplementary operator checks. The repository's
+root `pytest.ini` registers this shared marker and sets
+`addopts = -m "not extra_checks"`, so these checks are excluded by default.
+Unselected cases are reported as `deselected`, rather than skipped: their test
+functions and device fixtures do not run, but test modules are still imported and
+collected and must satisfy their import dependencies.
+
+For RoPE, the default selection contains 64 accuracy/performance cases: 60 regular
+cases and 4 mixed-cache-dtype cases. The 84 supplementary cases are 60
+output-contract checks and 24 invalid-input checks. The complete suite contains
+148 cases; device availability and shared switches still affect execution.
+
+Run these commands from the repository root:
 
 ```bash
+# Default: select 64 cases, deselect 84 supplementary checks.
 python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
-  --run-rope-extra-checks --skip-acc-check=false --enable-perf=false -v -rs
+  --skip-acc-check=false --enable-perf=false -v -rs
+
+# Supplementary checks only: select 84 cases, deselect 64 regular cases.
+python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
+  -m extra_checks --skip-acc-check=false --enable-perf=false -v -rs
+
+# Complete suite: select all 148 cases.
+python -m pytest tests/python/operators/rope/test_fused_rope_qk_mqa.py \
+  -m "" --skip-acc-check=false --enable-perf=false -v -rs
+
+# Select a single supplementary test function.
+python -m pytest \
+  tests/python/operators/rope/test_fused_rope_qk_mqa.py::test_fused_rope_qk_mqa_output_contract \
+  -m extra_checks --skip-acc-check=false --enable-perf=false -v -rs
 ```
 
-The default accuracy/performance cases do not make an extra operator call for
-output-contract checks. With `--skip-acc-check=true`, the optional output-contract
-tests are also skipped. Output-contract and invalid-input tests never collect
-performance; mixed-cache-dtype cases follow the shared performance switch.
+Specifying a file, function or `-k` expression does not cancel the default marker
+filter. To select supplementary checks, also pass `-m extra_checks` or `-m ""`.
+An explicit `-m` overrides the configured marker expression; for example, use
+`-m "slow and not extra_checks"` to retain the exclusion while selecting slow tests.
+Use `-m ""` to clear only the marker filter; `-o addopts=""` would also clear other
+configured default options. Add `--collect-only -q` to inspect selection without
+running test fixtures; modules are still imported and collected.
+
+The normal accuracy-then-performance flow does not make an extra operator call
+for output-contract checks. Selected output-contract tests still skip when
+`--skip-acc-check=true`; this switch does not disable selected invalid-input tests.
+Output-contract and invalid-input tests never collect performance. Mixed-cache-dtype
+cases use the shared accuracy/performance helpers; their code defaults to
+`enable_perf=False`, which an explicit `--enable-perf=true` can override.
 
 ## Write a test
 
