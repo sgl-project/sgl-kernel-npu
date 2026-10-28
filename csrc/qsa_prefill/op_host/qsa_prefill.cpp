@@ -9,7 +9,7 @@
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_npu/csrc/core/npu/NPUGuard.h"
-#include "../sparse_attention_score/op_host/tiling/sparse_attention_score_tiling_data.h"
+#include "../../sparse_attention_score/op_host/tiling/sparse_attention_score_tiling_data.h"
 #include "safe_launch.h"
 #include "aclrtlaunch_qsa_prefill_runs_kernel.h"
 #include "aclrtlaunch_qsa_prefill_prepare_kernel.h"

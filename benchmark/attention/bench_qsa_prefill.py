@@ -7,7 +7,7 @@ import statistics
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.attention.qsa_prefill import qsa_prefill
+from sgl_kernel_npu.operators.attention import qsa_prefill
 
 
 def main(args):

@@ -1,9 +1,16 @@
 """Exact common-base sixteen-query grouping, with independent descriptors for unequal queries.
+
 Pairs share work only if every logical selected block is equal, in the same order.
 Causal tails remain per original query; duplicates are never removed.
-"""
 
-import math
+The QK/online-softmax/PV/rescale pipeline and physical run preparation are
+Ascend C (``torch.ops.npu.qsa_prefill_prepare`` and
+``torch.ops.npu.qsa_prefill_runs``). Query packing, full selection equality
+and the per-query causal tail merge are Triton NPU kernels, so this
+implementation orchestrates both runtimes instead of forwarding a single
+native binding. The public operator validates the shared contract before
+calling in; see ``operators/attention/qsa_prefill.py``.
+"""
 
 import torch
 import triton
@@ -149,114 +156,51 @@ def _tail_merge(
         )
 
 
-def qsa_prefill(
-    q, k, v, blocks, table, req, length, base, scale=1 / 16, return_details=False
-):
-    """BF16 D256 ratio-4 prefill over 512 selected logical blocks per query.
+def qsa_prefill(q, k, v, blocks, request_table, request_row, length, base, scale):
+    """Run the Ascend C base attention and merge each query's causal tail.
 
-    Q is [R,H,256], K/V [capacity,KV,256], with (H,KV) in
-    {(16,2), (8,1), (6,1), (2,1)}. Every nonnegative selected
-    block expands into four token positions through the request table. Each
-    query independently appends its causal remainder (0--3 tokens). Invalid
-    blocks/physical slots are omitted; order and duplicates are preserved.
-    request_row is a one-element int64 NPU tensor indexing a valid table row.
-    length/base are CPU metadata; this API does no device-to-host reads.
-    The function does not run the indexer or select Top-K.
+    The public operator has already validated shapes, dtypes, the head layout,
+    device placement, contiguity and the CPU metadata range. Tiling is
+    immutable and cached natively by full shape/scale/device values, including
+    both local head counts. No device-to-host metadata read happens here.
     """
-    if q.ndim != 3 or q.shape[2] != 256:
-        raise ValueError("QSA prefill requires Q [R,H,256]")
-    if k.ndim != 3 or k.shape[2] != 256 or v.shape != k.shape:
-        raise ValueError("QSA prefill requires K,V [capacity,KV,256]")
-    h, kv = q.shape[1], k.shape[1]
-    if (h, kv) not in ((16, 2), (8, 1), (6, 1), (2, 1)):
-        raise ValueError("unsupported Q/KV heads: expected 16/2, 8/1, 6/1 or 2/1")
-    if any(x.dtype != torch.bfloat16 for x in (q, k, v)):
-        raise ValueError("QSA prefill requires BF16 Q/K/V")
-    if q.device.type != "npu" or any(
-        x.device != q.device for x in (k, v, blocks, table, req)
-    ):
-        raise ValueError("all inputs must share an NPU device")
-    if any(not x.is_contiguous() for x in (q, k, v, blocks, req)):
-        raise ValueError("Q/K/V, blocks and request row must be contiguous")
-    if blocks.shape != (q.shape[0], 512) or blocks.dtype != torch.int32:
-        raise ValueError("blocks must be int32 [R,512]")
-    if (
-        table.ndim != 2
-        or table.dtype != torch.int32
-        or table.stride(1) != 1
-        or table.shape[0] == 0
-    ):
-        raise ValueError("request table must be int32 with unit column stride")
-    if req.shape != (1,) or req.dtype != torch.int64:
-        raise ValueError("request row must be int64 [1]")
-    if (
-        not isinstance(length, int)
-        or not isinstance(base, int)
-        or not 0 <= length <= table.shape[1]
-    ):
-        raise ValueError("invalid CPU length/base metadata")
-    if not -(2**31) <= base or base + q.shape[0] >= 2**31 or k.shape[0] >= 2**31:
-        raise ValueError("metadata exceeds int32 indexing")
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("scale must be positive and finite")
-    if length and not k.shape[0]:
-        raise ValueError("nonempty sequences require a nonempty cache")
-    r = q.shape[0]
-    if length == 0 or r == 0:
-        out = torch.zeros_like(q)
-        if not return_details:
-            return out
-        counts = torch.zeros((r * 16,), device=q.device, dtype=torch.int32)
-        packed_out = torch.zeros(
-            ((r + 15) // 16, 16 * h, 256), device=q.device, dtype=torch.float32
-        )
-        if r:
-            # Only sharing flags are useful for an empty sequence. Avoid an
-            # unused packed-Q allocation whose queued write could outlive it.
-            _pack[((r + 15) // 16, 1, 1)](
-                q, blocks, counts, packed_out, r, h, kv, False
-            )
-        return (
-            out,
-            counts,
-            packed_out,
-            torch.full(
-                ((r + 15) // 16, 16 * h),
-                -float("inf"),
-                device=q.device,
-                dtype=torch.float32,
-            ),
-        )
-    counts = torch.empty((r * 16,), device=q.device, dtype=torch.int32)
-    packed = torch.empty(((r + 15) // 16, 16 * h, 256), device=q.device, dtype=q.dtype)
-    _pack[((r + 15) // 16, kv, triton.cdiv(16 * (h // kv), 32))](
-        q, blocks, counts, packed, r, h, kv
+    rows, heads = q.shape[0], q.shape[1]
+    kv_heads = k.shape[1]
+    if length == 0 or rows == 0:
+        # Without visible tokens every row's attention output is zero, and no
+        # packed-Q write is queued against storage the caller may reuse.
+        return torch.zeros_like(q)
+    groups = (rows + 15) // 16
+    counts = torch.empty((rows * 16,), device=q.device, dtype=torch.int32)
+    packed = torch.empty((groups, 16 * heads, 256), device=q.device, dtype=q.dtype)
+    _pack[(groups, kv_heads, triton.cdiv(16 * (heads // kv_heads), 32))](
+        q, blocks, counts, packed, rows, heads, kv_heads
     )
     starts, runs, counts = torch.ops.npu.qsa_prefill_prepare(
-        blocks, table, req, counts, length, base, k.shape[0]
+        blocks, request_table, request_row, counts, length, base, k.shape[0]
     )
     base_out, lse = torch.ops.npu.qsa_prefill_runs(
         packed, k, v, starts, runs, counts, scale
     )
     out = torch.empty_like(q)
-    _tail_merge[(256, kv)](
+    _tail_merge[(256, kv_heads)](
         q,
         k,
         v,
-        table,
-        req,
+        request_table,
+        request_row,
         base_out,
         lse,
         out,
-        table.stride(0),
+        request_table.stride(0),
         length,
         base,
         k.shape[0],
         scale,
-        r,
+        rows,
         256,
-        h,
-        kv,
+        heads,
+        kv_heads,
         enable_fp_fusion=False,
     )
-    return (out, counts, base_out, lse) if return_details else out
+    return out

@@ -8,6 +8,7 @@ on:
       - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
+      - "tests/python/operators/**"
       - "build.sh"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
@@ -54,13 +55,16 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
-              - csrc/qsa_prefill/**
               - csrc/attentions/**
               - csrc/mla_preprocess/**
+              - csrc/qsa_prefill/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/ascendc/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/attention/**
+              - tests/python/operators/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
               - tests/python/sgl_kernel_npu/test_decode_attention.py
-              - tests/python/sgl_kernel_npu/test_qsa_prefill.py
               - tests/python/sgl_kernel_npu/test_mla_preprocess.py
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope.py
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py

@@ -1,0 +1,1 @@
+"""Ascend C attention implementations."""

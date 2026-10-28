@@ -3,7 +3,8 @@
 # High precision mode for CANN operators (may help with quantization precision)
 export ACL_OP_SELECT_IMPL_MODE=high_precision
 
-TEST_DIR="${GITHUB_WORKSPACE}/tests/python/sgl_kernel_npu"
+REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+TEST_DIR="${REPO_ROOT}/tests/python/sgl_kernel_npu"
 cd "$TEST_DIR" || { echo "Directory not found: $TEST_DIR"; exit 1; }
 
 PASSED=()
@@ -36,6 +37,26 @@ run_test() {
     echo ""
 }
 
+# Public-interface operator tests live under tests/python/operators and import
+# tests.python.utils, so they run from the repository root through pytest.
+run_operator_test() {
+    local test_path="$1"
+    local exit_code=0
+    echo "=========================================="
+    echo "Running: $test_path"
+    echo "=========================================="
+    (cd "$REPO_ROOT" && python3 -m pytest "$test_path" \
+        --skip-acc-check=false --enable-perf=false -q -x -rs) || exit_code=$?
+    if [ "$exit_code" -eq 0 ]; then
+        PASSED+=("$test_path")
+        echo "PASSED: $test_path"
+    else
+        FAILED+=("$test_path")
+        echo "FAILED: $test_path"
+    fi
+    echo ""
+}
+
 SMOKE_TESTS=(
     test_hello_world.py
 )
@@ -48,8 +69,11 @@ NORM_TESTS=(
     test_scale_shift.py
 )
 
+ATTENTION_OPERATOR_TESTS=(
+    tests/python/operators/attention/test_qsa_prefill.py
+)
+
 ATTENTION_TESTS=(
-    test_qsa_prefill.py
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
@@ -129,12 +153,16 @@ SMALL_BATCH_TESTS=(
 
 TEST_GROUP="${1:-small}"
 
+# Public-interface operator tests selected by group; empty for most groups.
+OPERATOR_TESTS=()
+
 case "$TEST_GROUP" in
     small)
         TESTS=("${SMALL_BATCH_TESTS[@]}")
         ;;
     all)
         TESTS=("${ALL_TESTS[@]}")
+        OPERATOR_TESTS=("${ATTENTION_OPERATOR_TESTS[@]}")
         ;;
     smoke)
         TESTS=("${SMOKE_TESTS[@]}")
@@ -144,6 +172,7 @@ case "$TEST_GROUP" in
         ;;
     attention)
         TESTS=("${ATTENTION_TESTS[@]}")
+        OPERATOR_TESTS=("${ATTENTION_OPERATOR_TESTS[@]}")
         ;;
     cache)
         TESTS=("${CACHE_TESTS[@]}")
@@ -193,17 +222,21 @@ if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
     TESTS=("${FILTERED_TESTS[@]}")
 fi
 
-echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
+echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests, ${#OPERATOR_TESTS[@]} operator tests)"
 echo ""
 
 for test in "${TESTS[@]}"; do
     run_test "$test"
 done
 
+for test in "${OPERATOR_TESTS[@]}"; do
+    run_operator_test "$test"
+done
+
 echo "=========================================="
 echo "Test Summary"
 echo "=========================================="
-echo "Total:  ${#TESTS[@]}"
+echo "Total:  $(( ${#TESTS[@]} + ${#OPERATOR_TESTS[@]} ))"
 echo "Passed: ${#PASSED[@]}"
 echo "Failed: ${#FAILED[@]}"
 

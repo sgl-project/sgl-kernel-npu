@@ -89,7 +89,7 @@ set(OP_SRCS
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
-        ${PROJECT_OP_SRC_BASE}/qsa_prefill/host.cpp
+        ${PROJECT_OP_SRC_BASE}/qsa_prefill/op_host/qsa_prefill.cpp
         ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
@@ -337,7 +337,6 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/qsa_prefill/op_kernel/prepare.cpp
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS qsa_prefill_kernel qsa_prefill_prepare_kernel)
-
 
 endif()
 
