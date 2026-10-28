@@ -1,12 +1,10 @@
 """Shared accuracy checks for outputs from different backends."""
 
-from functools import partial
-
 import torch
 
 from .common import (
     get_skip_acc_check,
-    get_test_impls,
+    make_executor,
     require_distinct_impls,
     require_test_impl,
 )
@@ -106,28 +104,17 @@ def check_accuracy(
         skip_acc_check = cli_skip
     if not isinstance(skip_acc_check, bool):
         raise TypeError("skip_acc_check must be bool")
-    if impl is None or impl_ref is None:
-        default_impl, default_impl_ref = get_test_impls()
-        if impl is None:
-            impl = default_impl
-        if impl_ref is None:
-            impl_ref = default_impl_ref
-    kwargs = dict(kwargs or {})
-    if "impl" in kwargs:
-        raise ValueError(
-            "Select impl via check_accuracy or test configuration, not operator kwargs"
-        )
-    args = tuple(args)
-    executor = partial(operator, *args, **kwargs, impl=impl)
-    executor.impl = impl
-    executor.impl_ref = impl_ref
-    executor.accuracy_checked = False
+    executor = make_executor(
+        operator, args=args, kwargs=kwargs, impl=impl, impl_ref=impl_ref
+    )
+    impl, impl_ref = executor.impl, executor.impl_ref
     if skip_acc_check:
         require_test_impl(operator, impl)
         print(f"Accuracy check skipped: {operator.__name__} [{impl}]")
         return executor
     require_distinct_impls(operator, impl, impl_ref)
-    result_ref = operator(*args, **kwargs, impl=impl_ref)
+    ref_kwargs = {**executor.keywords, "impl": impl_ref}
+    result_ref = operator(*executor.args, **ref_kwargs)
     result = executor()
     assert_accuracy(result, result_ref, standard)
     executor.accuracy_checked = True

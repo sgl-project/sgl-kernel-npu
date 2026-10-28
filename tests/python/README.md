@@ -174,7 +174,7 @@ device but does not change the cached architecture.
 
 ### `check_performance`
 
-Pass the executor returned by `check_accuracy`:
+Pass the executor returned by `check_accuracy` or `make_executor`:
 
 ```python
 result = check_performance(
@@ -195,6 +195,44 @@ The timing metric is average summed NPU task duration in microseconds, not
 end-to-end latency. `warmup` and `active` both default to 5 and can be overridden.
 Both must be positive Python integers; booleans and non-integers raise TypeError,
 and non-positive integers raise ValueError before the operator executes.
+
+### `make_executor`: manual accuracy checks and in-place operators
+
+For in-place operators, prepare independent inputs and compare the modified
+Tensors with `assert_accuracy`. Then bind the public operator for performance:
+
+```python
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+)
+from tests.python.utils.performance import check_performance
+
+impl, impl_ref = get_test_impls()
+require_distinct_impls(operator, impl, impl_ref)
+x_ref = x.clone()
+operator(x, impl=impl)
+operator(x_ref, impl=impl_ref)
+assert_accuracy(x, x_ref)
+
+executor = make_executor(
+    operator,
+    args=(x,),
+    impl=impl,
+    impl_ref=impl_ref,
+    accuracy_checked=True,
+)
+check_performance(executor, enable_perf=True)
+```
+
+`make_executor` does not execute or validate the operator. Omitted `impl` and
+`impl_ref` use test configuration; keyword-only inputs go in `kwargs`.
+`accuracy_checked` defaults to `False`; set it to `True` only after all manual
+comparisons pass, including return values when applicable. Manual flows manage
+accuracy skipping themselves. Inputs are not copied or refreshed: contributors
+must ensure repeated performance calls remain valid and handle state as needed.
 
 ### `assert_accuracy` and `benchmark_npu`
 
@@ -231,7 +269,7 @@ and an importable `sgl_kernel_npu` native runtime. Python framework modules are
 loaded from this checkout; the installed native package may predate `operators`.
 
 ```bash
-# All 225 cases, including one real profiler integration.
+# All framework cases, including real profiler integration.
 python -m pytest tests/python/framework -v -rs --npu-device=0
 
 # Run either area separately.
@@ -247,8 +285,8 @@ Both subdirectories inherit `npu_runtime`, `package_factory` and `operator_modul
 from `framework/conftest.py`. Area-specific fixtures live in each subdirectory's
 own `conftest.py`. Non-autouse fixtures run only when requested.
 
-There are 75 operator-framework cases, 149 testing-helper unit cases and one real
-NPU integration case. Use a single pytest process without parallel workers; add
+The suite covers operator registration, testing helpers and real NPU profiling.
+Use a single pytest process without parallel workers; add
 `-x` to stop on the first failure, or `--junitxml=framework-ut.xml` to save a report.
 These tests set their own implementation/accuracy/performance contexts; operator
 CLI selections do not rewrite their scenarios. Missing NPU/ACL/native prerequisites
