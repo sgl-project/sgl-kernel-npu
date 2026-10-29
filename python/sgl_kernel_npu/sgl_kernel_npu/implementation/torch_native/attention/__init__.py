@@ -1,1 +1,1 @@
-"""Independent PyTorch attention references."""
+"""Independent attention references for accuracy testing."""

@@ -204,24 +204,29 @@ Three fuse modes are available via the `FuseMode` enum:
 
 - `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine via staged CamMoe communication with cross-core barriers.
 - `FuseMode.DISPATCH_FFN_COMBINE`: Integrated routing + FFN + combine with embedded HCCL communication, no cross-core barriers.
-- `FuseMode.MEGA_MOE`: Atlas A3 MegaMoe fusion via `cann_ops_transformer.ops.mega_moe`.
+- `FuseMode.MEGA_MOE`: A3 and A5 fusion via `cann_ops_transformer.ops.mega_moe` (requires CANN 9.2.0 on all platforms).
 
 Backend highlights:
 
 - On A5, `FuseMode.FUSED_DEEP_MOE` supports SwiGLU and SiTU; on Atlas A3, use `FuseMode.MEGA_MOE` for SiTU.
 - `FuseMode.DISPATCH_FFN_COMBINE` supports SwiGLU only; selecting `activation="situ"` raises `NotImplementedError`.
 - `FuseMode.MEGA_MOE` supports `"swiglu"` and `"situ"`; it maps SiTU to the MegaMoe `situglu` activation and forwards `beta` and `linear_beta`.
-- MegaMoe supports only `quant_mode=0` (non-quantized dispatch) and `quant_mode=1` (INT8 dispatch).
-- MegaMoe requires per-local-expert weight lists. Its token capacity is `num_max_dispatch_tokens_per_rank`; inputs shorter than that capacity are padded and masked.
-- `l1_bias` / `l2_bias` are consumed only by MegaMoe, for A8W4-INT compensation.
+- The MegaMoe Python strategy does not query A3/A5. It maps the explicit quantization mode to CANN parameters; CANN checks hardware compatibility. Legacy BF16/INT modes keep padding/masking, while MXFP modes pass actual token lengths.
+- A3 MegaMoe accepts `quant_mode=0` / `"bf16"` and `1` / `"int8"`, retaining capacity padding and an active mask.
+- A5 MegaMoe requires `"mx_fp8_e4m3"`, `"mx_fp8_e5m2"`, `"mx_fp4_e2m1"`, or `"mx_fp8_e4m3_w4"` (A8W4-FP). It passes actual token lengths without padding or an active mask; every rank must configure the same `num_max_dispatch_tokens_per_rank` upper bound.
+- A5 weights and scales must be consistent non-empty TensorLists: either per-expert or one stacked Tensor. All scales are ND `torch.float8_e8m0fnu`. Prepare the CANN weight layout/format before calling; the strategy does not convert weights from `FUSED_DEEP_MOE`.
+- `l1_bias` / `l2_bias` are used for A3 MegaMoe A8W4-INT compensation and must be `None` on A5 MegaMoe. For A8W4-FP, both packed FP4 weights require FRACTAL_NZ_C0_32 format.
+
+Tests for `FuseMode.MEGA_MOE` use `tests/python/deepep/test_mega_moe.py`. Existing A3 W4A8/W8A8 arguments keep their meaning. A5 acceptance covers SiTU with `mx_fp8_e4m3`, `mx_fp8_e5m2`, `mx_fp4_e2m1` and `mx_fp8_e4m3_w4`, one mode per invocation; top-k=16, 1024 experts and hidden=8192 boundary cases are not required.
 
 For `FuseMode.MEGA_MOE`, the package `cann_ops_transformer` must be available. If it is
 missing, only calls using that mode fail; the DeepEP modes still work.
 
 Quantization modes (`quant_mode`):
+
 - `0`: No quantization (BF16 weights)
 - `1`: INT8 quantization (default)
-- FP8 will be supported in A5 release.
+- String modes are accepted only by `FuseMode.MEGA_MOE`; A5 MegaMoe does not accept the default integer `1`.
 
 See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 
@@ -503,24 +508,29 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 - `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合，通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。
 - `FuseMode.DISPATCH_FFN_COMBINE`：集成路由 + FFN + combine，HCCL 通信内嵌于 GMM kernel 中，无跨核 barrier。
-- `FuseMode.MEGA_MOE`：通过 `cann_ops_transformer.ops.mega_moe` 实现的 Atlas A3 MegaMoe 融合路径。
+- `FuseMode.MEGA_MOE`：通过 `cann_ops_transformer.ops.mega_moe` 实现的 A3、A5 融合路径（各机型均要求 CANN 9.2.0）。
 
 模式差异要点：
 
 - 在 A5 上，`FuseMode.FUSED_DEEP_MOE` 支持 SwiGLU 和 SiTU；在 Atlas A3 上使用 SiTU 时，应选择 `FuseMode.MEGA_MOE`。
 - `FuseMode.DISPATCH_FFN_COMBINE` 仅支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
 - `FuseMode.MEGA_MOE` 支持 `"swiglu"` 和 `"situ"`；SiTU 会映射为 MegaMoe 的 `situglu`，并透传 `beta` 与 `linear_beta`。
-- MegaMoe 仅支持 `quant_mode=0`（非量化 dispatch）和 `quant_mode=1`（INT8 dispatch）。
-- MegaMoe 要求每个本地 expert 使用一个权重 Tensor 列表；其 token 容量为 `num_max_dispatch_tokens_per_rank`，输入不足该容量时会 padding 并使用 active mask。
-- `l1_bias` / `l2_bias` 仅由 MegaMoe 使用，用于 A8W4-INT 补偿。
+- MegaMoe Python 策略不再查询 A3/A5，只按显式量化模式构造 CANN 参数，设备兼容性由 CANN 检查。BF16/INT 模式保留 padding 和 mask，MXFP 模式按实际 token 数调用。
+- A3 MegaMoe 接受 `quant_mode=0` / `"bf16"` 和 `1` / `"int8"`，保留 capacity padding 和 active mask。
+- A5 MegaMoe 必须显式选择 `"mx_fp8_e4m3"`、`"mx_fp8_e5m2"`、`"mx_fp4_e2m1"` 或 `"mx_fp8_e4m3_w4"`（A8W4-FP），按实际 token 数调用，不 padding、不传 active mask。各 rank 的 `num_max_dispatch_tokens_per_rank` 容量上界必须一致。
+- A5 权重与 scale 均为非空 TensorList，统一采用逐专家或单 Tensor 堆叠布局；scale 均为 ND `torch.float8_e8m0fnu`。调用方准备 CANN 所需的布局和存储格式，不能直接复用 `FUSED_DEEP_MOE` 的权重。
+- `l1_bias` / `l2_bias` 用于 A3 MegaMoe 的 A8W4-INT 补偿。A8W4-FP 的两层 packed FP4 权重均须使用 FRACTAL_NZ_C0_32 格式。
+
+MegaMoe 测试统一使用 `tests/python/deepep/test_mega_moe.py`：原有 A3 W4A8/W8A8 参数保持不变。A5 验收 SiTU 和 `mx_fp8_e4m3`、`mx_fp8_e5m2`、`mx_fp4_e2m1`、`mx_fp8_e4m3_w4`，四种模式分别启动，不要求 top-k=16、专家总数 1024、hidden=8192 的边界用例。DeepEP A5 `FUSED_DEEP_MOE` 的性能仍在 `tests/python/deepep/test_fused_deep_moe_a5.py` 中测量。
 
 如果要使用 `FuseMode.MEGA_MOE`，需要安装或暴露 `cann_ops_transformer`。缺少该依赖时，
 只有使用该模式的调用会报错，DeepEP 模式不受影响。
 
 量化模式（`quant_mode`）：
+
 - `0`：无量化（BF16 权重）
 - `1`：INT8 量化（默认）
-- FP8 将在 A5 版本中支持。
+- 字符串模式仅用于 `FuseMode.MEGA_MOE`；A5 MegaMoe 不接受默认整数 `1`。
 
 详见 [融合 Deep MoE API](doc/FUSED_DEEP_MOE.md)。
 
