@@ -30,7 +30,7 @@ def _triton_impl(
 ) -> None:
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.mem_cache.kpool_index_npu import (
+        from ...implementation.triton.mem_cache.kpool_assemble_softmax_write_cache_npu import (
             kpool_assemble_softmax_write_cache_npu,
         )
 

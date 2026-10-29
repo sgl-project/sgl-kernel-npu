@@ -23,7 +23,7 @@ def _triton_impl(
 ) -> None:
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.mem_cache.kpool_index_npu import (
+        from ...implementation.triton.mem_cache.scatter_kpool_tail_updates_npu import (
             scatter_kpool_tail_updates_npu,
         )
 
