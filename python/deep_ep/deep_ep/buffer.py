@@ -833,8 +833,6 @@ class Buffer:
                 float internally). For DISPATCH_FFN_COMBINE mode, `torch.int64` dtype
                 (float32 scale values reinterpreted as int64 bit patterns; NOT
                 auto-converted by this method — the caller must perform the conversion).
-                A5 MEGA_MOE requires non-empty ND torch.float8_e8m0fnu scale
-                lists matching the selected weight layout.
             gmm2_weight: weight tensor for the second stage (down-projection).
                 For MEGA_MOE mode, requires a non-empty `list[Tensor]` of
                 tensors in mega_moe layout. A5 FP8 shapes are [H, I] /
@@ -849,11 +847,11 @@ class Buffer:
                 per-rank communication capacity. A3 inputs are padded and
                 masked; A5 passes actual token counts without padding or a mask.
             num_experts: the total number of global experts.
-            quant_mode: the DeepEP modes keep integer 0/1. MEGA_MOE on A3
-                accepts 0/"bf16" and 1/"int8". A5 MEGA_MOE requires an explicit
-                "mx_fp8_e4m3", "mx_fp8_e5m2", "mx_fp4_e2m1", or
-                "mx_fp8_e4m3_w4" (FP8 E4M3 activation, FP4 weights); integer
-                0/1 are not supported. String modes are exclusive to MEGA_MOE.
+            quant_mode: quantization mode. Supported values: 0 = no quantization
+                (BF16), 1 = INT8 (default). A5 MEGA_MOE requires an explicit "mx_fp8_e4m3",
+                "mx_fp8_e5m2", "mx_fp4_e2m1", or "mx_fp8_e4m3_w4" (FP8 E4M3 activation, FP4
+                weights); integer 0/1 are not supported there. String modes
+                are exclusive to MEGA_MOE.
             fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
@@ -868,9 +866,9 @@ class Buffer:
                 value enables the transform; ``None`` leaves the up branch unchanged.
                 Both are forwarded to MEGA_MOE only for SiTU.
             l1_bias: optional bias for the first GMM stage. Only consumed by
-                MEGA_MOE mode;
+                MEGA_MOE mode.
             l2_bias: optional bias for the second GMM stage. Only consumed by
-                MEGA_MOE mode;
+                MEGA_MOE mode.
             profile_enable: whether to enable fused-kernel profiling (default: False).
 
         Notes:
