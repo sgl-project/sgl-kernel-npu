@@ -319,8 +319,12 @@ def main(argv: list[str] | None = None) -> int:
     for op in ops:
         kwargs_cpu, meta = bench._build_case(op, args)
         kwargs = bench._move_case(kwargs_cpu, args.device)
+        metadata_error: str | None = None
         if op in ("indexer", "attention"):
-            kwargs["metadata"] = _build_metadata(ns, op, kwargs)
+            try:
+                kwargs["metadata"] = _build_metadata(ns, op, kwargs)
+            except Exception as exc:
+                metadata_error = f"{type(exc).__name__}: {exc}"
         if op == "indexer":
             # Keep the same names for both implementations; extra aliases are
             # filtered by signature-aware invocation.
@@ -331,24 +335,42 @@ def main(argv: list[str] | None = None) -> int:
 
         new_fn = _new_fn(op)
         new_kwargs = bench._clone_case(kwargs)
-        vendor_kwargs = bench._clone_case(kwargs)
-
         new_out = _new_call(op, new_fn, new_kwargs)
-        vendor_out = _vendor_call(ns, op, vendor_kwargs)
-        torch.npu.synchronize()
-
-        ok, detail = _compare(op, new_out, vendor_out)
         new_times, _, _ = bench._time_npu(
             lambda: _new_call(op, new_fn, bench._clone_case(kwargs)),
             args.warmup,
             args.reps,
         )
+        np50, np10, np90 = bench._percentiles(new_times)
+
+        if metadata_error is not None:
+            row = {
+                "op": op,
+                "new_p50_ms": np50,
+                "new_p10_ms": np10,
+                "new_p90_ms": np90,
+                "vendor_p50_ms": None,
+                "vendor_p10_ms": None,
+                "vendor_p90_ms": None,
+                "vendor_over_new": None,
+                "correct": None,
+                "detail": f"vendor skipped: {metadata_error}",
+                "meta": {k: v for k, v in meta.items() if isinstance(v, (str, int, float, bool))},
+            }
+            results.append(row)
+            print(f"{op:<12} new={np50!s:>10} ms  vendor=SKIP  correct=None  {metadata_error}")
+            continue
+
+        vendor_kwargs = bench._clone_case(kwargs)
+        vendor_out = _vendor_call(ns, op, vendor_kwargs)
+        torch.npu.synchronize()
+
+        ok, detail = _compare(op, new_out, vendor_out)
         vendor_times, _, _ = bench._time_npu(
             lambda: _vendor_call(ns, op, bench._clone_case(kwargs)),
             args.warmup,
             args.reps,
         )
-        np50, np10, np90 = bench._percentiles(new_times)
         vp50, vp10, vp90 = bench._percentiles(vendor_times)
         speedup = (
             vp50 / np50
