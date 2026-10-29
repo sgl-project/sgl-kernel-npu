@@ -1,4 +1,4 @@
-"""NPU parity and contract tests for ``npu_sparse_attn_sharedkv_tree``.
+"""NPU parity and contract tests for ``sparse_attn_sharedkv_tree``.
 
 The operator is the Triton port of the DSV4 DSpark tree attention kernel
 (vllm-ascend commit ``8947f1f9f``).  Expected values come exclusively from the
@@ -22,7 +22,7 @@ if not torch.npu.is_available():
     pytest.skip("an Ascend NPU is required", allow_module_level=True)
 
 from sgl_kernel_npu.tree.sparse_attn_sharedkv_tree import (  # noqa: E402
-    npu_sparse_attn_sharedkv_tree,
+    sparse_attn_sharedkv_tree,
 )
 from tree_fixtures import make_attention_case  # noqa: E402
 from tree_reference import sparse_attn_sharedkv_tree_ref  # noqa: E402
@@ -56,7 +56,7 @@ def _run(case, **overrides):
     args.update(overrides)
     npu_args = _to_device(args)
     q = npu_args.pop("q")
-    out, lse = npu_sparse_attn_sharedkv_tree(
+    out, lse = sparse_attn_sharedkv_tree(
         q, return_softmax_lse=True, **npu_args
     )
     torch.npu.synchronize()
@@ -280,7 +280,7 @@ def test_lse_omitted_returns_empty_tensor():
     case = _base_case("c4", seed=16, dtype=torch.float16, heads=8)
     args = _to_device(_case_args(case))
     q = args.pop("q")
-    out, lse = npu_sparse_attn_sharedkv_tree(
+    out, lse = sparse_attn_sharedkv_tree(
         q, return_softmax_lse=False, **args
     )
     torch.npu.synchronize()
@@ -299,7 +299,7 @@ def test_contract_violations_raise_value_error():
     q = base.pop("q")
 
     def call(**overrides):
-        return npu_sparse_attn_sharedkv_tree(q, **{**base, **overrides})
+        return sparse_attn_sharedkv_tree(q, **{**base, **overrides})
 
     with pytest.raises(ValueError):
         call(layout_q="BSND")
@@ -312,9 +312,9 @@ def test_contract_violations_raise_value_error():
     with pytest.raises(ValueError):
         call(cmp_ratio=8)
     with pytest.raises(ValueError):
-        npu_sparse_attn_sharedkv_tree(q.float(), **base)
+        sparse_attn_sharedkv_tree(q.float(), **base)
     with pytest.raises(ValueError):
-        npu_sparse_attn_sharedkv_tree(q[..., :128].contiguous(), **base)
+        sparse_attn_sharedkv_tree(q[..., :128].contiguous(), **base)
     with pytest.raises(ValueError):
         call(metadata=torch.zeros(8, dtype=torch.int32, device=DEVICE))
     with pytest.raises(ValueError):

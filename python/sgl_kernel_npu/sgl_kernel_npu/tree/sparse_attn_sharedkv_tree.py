@@ -1,6 +1,6 @@
 """Triton port of the DSV4 DSpark tree sparse attention operator.
 
-Public entry point: :func:`npu_sparse_attn_sharedkv_tree`, a Python-only port of
+Public entry point: :func:`sparse_attn_sharedkv_tree`, a Python-only port of
 ``csrc/attention/sparse_attn_sharedkv_tree`` from vllm-ascend commit
 ``8947f1f9f``.  The authoritative semantics live in
 ``docs/tree_ops_semantics.md`` §5 and the operator quick contract in
@@ -46,7 +46,7 @@ from ._common import (
     check_tree_metadata,
 )
 
-__all__ = ["npu_sparse_attn_sharedkv_tree"]
+__all__ = ["sparse_attn_sharedkv_tree"]
 
 _HEAD_DIM = 512
 _BLOCK_H = 16
@@ -332,7 +332,7 @@ def _validate_paged_kv(name: str, tensor, dtype: torch.dtype) -> None:
         raise TreeContractError(f"{name}: last dimension must be innermost-contiguous")
 
 
-def npu_sparse_attn_sharedkv_tree(
+def sparse_attn_sharedkv_tree(
     q,
     *,
     ori_kv=None,
@@ -551,7 +551,7 @@ def npu_sparse_attn_sharedkv_tree(
         )
         if isinstance(t, torch.Tensor)
     ]
-    check_same_device("npu_sparse_attn_sharedkv_tree", tensors)
+    check_same_device("sparse_attn_sharedkv_tree", tensors)
 
     sink_stride_t, sink_stride_h, sink_per_row = (
         _validate_sinks(sinks, num_heads, num_rows)

@@ -92,7 +92,7 @@ REFERENCE_NAMES = {
     "attention": (
         "sparse_attn_sharedkv_tree_ref",
         "tree_attention_ref",
-        "npu_sparse_attn_sharedkv_tree_ref",
+        "sparse_attn_sharedkv_tree_ref",
         "sparse_attn_sharedkv_tree",
     ),
 }

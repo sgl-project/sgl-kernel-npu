@@ -9,8 +9,8 @@ pins the contracts *between* them on one real tree geometry:
   ``cmp_tree_kv``;
 * ``quant_lightning_indexer_tree`` produces the C4 logical Top-K consumed by
   attention as ``cmp_sparse_indices``;
-* ``npu_sparse_attn_sharedkv_tree`` consumes both and returns the final output
-  and LSE.
+* ``sparse_attn_sharedkv_tree`` consumes both and returns the final output and
+  LSE.
 
 The oracle stays the independent CPU reference (D5).  The module skips cleanly
 without ``torch_npu``/Triton, which is the CPU-only CI path.
@@ -28,8 +28,8 @@ if not torch.npu.is_available():
 from sgl_kernel_npu.tree import (  # noqa: E402
     compressor_tree,
     compressor_tree_project,
-    npu_sparse_attn_sharedkv_tree,
     quant_lightning_indexer_tree,
+    sparse_attn_sharedkv_tree,
 )
 from tree_fixtures import (  # noqa: E402
     make_attention_case,
@@ -254,7 +254,7 @@ def test_project_compressor_indexer_attention_chain():
     attn_npu["cmp_tree_kv"] = actual_nodes_kv
     attn_npu["cmp_sparse_indices"] = actual_topk
     q = attn_npu.pop("q")
-    actual_out, actual_lse = npu_sparse_attn_sharedkv_tree(
+    actual_out, actual_lse = sparse_attn_sharedkv_tree(
         q, return_softmax_lse=True, **attn_npu
     )
     torch.npu.synchronize()

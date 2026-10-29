@@ -34,7 +34,7 @@ kernel PR; raise a new decision if source evidence contradicts one.
 | **D4** | **`layout_q` defaults to `"TND"`; `"BSND"` raises `NotImplementedError`.** | The tree path is TND-only. |
 | **D5** | **References live in `tests/python/sgl_kernel_npu/tree_reference.py`; they import only `torch` and are never imported by production code.** | The reference is independent and runs on a CPU-only box with no `.so`, no Triton, no `torch_npu`. |
 | **D6** | **Kernel grid/blocking is static per specialization; `ratio ∈ {4,128}` and `head_dim ∈ {128,512}` become Triton `constexpr` specializations.** | Four specializations per op, mirroring the AscendC tiling keys. |
-| **D7** | **`compressor_tree` and `npu_sparse_attn_sharedkv_tree` take `rope_dim`/`cmp_ratio` as runtime args, assert supported values, then dispatch to constexpr kernels.** | Public signatures stay identical to the C++ bindings. |
+| **D7** | **`compressor_tree` and `sparse_attn_sharedkv_tree` take `rope_dim`/`cmp_ratio` as runtime args, assert supported values, then dispatch to constexpr kernels.** | Public signatures stay identical to the C++ bindings. |
 | **D8** | **No NPU is required to merge Wave 1/2 increments except for explicitly `npu`-marked tests.** | Locally, NPU tests skip with a reason. The numerical GREEN gate is the device command block in §8. |
 
 Two source corrections to the earlier plan are recorded here and must be used:
@@ -474,12 +474,12 @@ This is Python-side only (`native_indexer.py`), documented in
 
 ---
 
-## 5. `npu_sparse_attn_sharedkv_tree` (attention)
+## 5. `sparse_attn_sharedkv_tree` (attention)
 
 ### 5.1 Signature
 
 ```text
-npu_sparse_attn_sharedkv_tree(
+sparse_attn_sharedkv_tree(
     q,
     *,
     ori_kv=None, cmp_kv=None,

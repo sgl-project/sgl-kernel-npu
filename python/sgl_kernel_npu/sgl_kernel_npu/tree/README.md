@@ -114,7 +114,7 @@ Full details and source citations are in `docs/tree_ops_semantics.md`.
 - Top-k: 2048-wide accumulator, `(score desc, index asc)`, `-1` padding.
   Select-all is a Python-side shortcut when `max(1, max_kv//4) <= topk`.
 
-### `npu_sparse_attn_sharedkv_tree(q, *, ...) -> (out, softmax_lse)`
+### `sparse_attn_sharedkv_tree(q, *, ...) -> (out, softmax_lse)`
 
 - `q` FP16/BF16 `[T,N1,512]`; `ori_kv`/`cmp_kv` paged with `N2 == 1`.
 - `ori_sparse_indices` int32 `[T,1,W]`, `W` multiple of 128, physical slots and
@@ -131,7 +131,7 @@ Full details and source citations are in `docs/tree_ops_semantics.md`.
 
 ## “Metadata is validated but ignored”
 
-Both `quant_lightning_indexer_tree` and `npu_sparse_attn_sharedkv_tree` take
+Both `quant_lightning_indexer_tree` and `sparse_attn_sharedkv_tree` take
 `metadata: int32[1024]` for ABI compatibility with the AscendC operators.
 **D2 applies: validate `dtype == int32`, `numel == 1024`, and contiguity, then
 ignore the contents.** The 36-AIC × 8 + 72-AIV × 8 partition is an AscendC
