@@ -11,7 +11,7 @@ _torch_native_fn = None
 def _triton_impl(prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.hyper_conn.attn_res_mix_fused import (
+        from ...implementation.triton.hyper_conn.attn_residual_mix import (
             attn_res_mix_fused,
         )
 
@@ -27,7 +27,7 @@ def _torch_native_impl(
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.hyper_conn.attn_res_mix_fused import (
+        from ...implementation.torch_native.hyper_conn.attn_residual_mix import (
             attn_res_mix_fused,
         )
 

@@ -78,7 +78,7 @@ $$
 
 ## triton 后端
 
-- 实现位于 `implementation/triton/hyper_conn/attn_res_mix_fused.py`，kernel 名为 `_attn_res_mix_fused_kernel`。基于原 `kimi_k3/attn_residual.py` 中 `_mix_fused_kernel` 的计算流程重构，旧文件和原导入路径保持不变。
+- 实现位于 `implementation/triton/hyper_conn/attn_residual_mix.py`，kernel 名为 `_attn_res_mix_fused_kernel`。基于原 `kimi_k3/attn_residual.py` 中 `_mix_fused_kernel` 的计算流程重构，旧文件和原导入路径保持不变。
 - 非空输入须位于 NPU。prefix_sum 和 bank 的最后一维 stride 均须为 1，combined_weight 的 stride 须为 1。token stride 与 bank 行 stride 可不同，支持满足上述约束的非连续视图。
 - 隐藏维度按 `BLOCK_H = next_power_of_2(H)` 展开，读取和写入均使用 mask，填充通道按 0 处理，均方值仍除以真实 `H`。`H` 不再要求为二次幂，包括 `7168` 在内的隐藏维尾部可通过掩码处理。
 - 将打分、softmax 与混合融合在一个持久化向量核 kernel 中。`N` 和 `B` 保持动态；`NB` 为 `B + 1` 向上取整到 2 的幂。无需分配打分矩阵。
