@@ -120,6 +120,8 @@ public:
         if (coreIdx_ < aivNum_) {
             MultiCoreCompute();
         } else {
+            // Match both barriers in MultiCoreCompute, including for small batches.
+            SyncAll<true>();
             SyncAll<true>();
         }
     }
@@ -257,6 +259,9 @@ private:
         DataCopyPad(tempServerGM_[coreIdx_ * serverNum_], tempServerTensor, tempServerDataCopyParams);
         SyncFunc<AscendC::HardEvent::MTE3_V>();
         SyncFunc<AscendC::HardEvent::MTE3_S>();
+        // Prefix scratch aliases expertRankTokenIdxGM_. Every core must finish
+        // reading and clearing scratch before any core writes the output table.
+        SyncAll<true>();
         for (int j = 0; j < serverNum_; ++j) {
             int value = localTokenServerUniqCountTensor.GetValue(j);
             tempServerTensor.SetValue(j, value);
