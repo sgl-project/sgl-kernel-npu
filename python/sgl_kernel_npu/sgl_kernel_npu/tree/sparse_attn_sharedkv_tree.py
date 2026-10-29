@@ -66,9 +66,11 @@ def _attend_chunk(
     Q3,
     M,
     L,
-    ACC,
+    ACC0,
+    ACC1,
+    ACC2,
+    ACC3,
     SCALE,
-    V_D0,
     BLOCK_D: tl.constexpr,
     BLOCK_N: tl.constexpr,
 ):
@@ -98,11 +100,15 @@ def _attend_chunk(
     probs = tl.exp(qk - m_new[:, None])
     l_new = L * alpha + tl.sum(probs, 1)
 
-    v = tl.load(
-        KV + OFFS[:, None] + (V_D0 + d)[None, :], mask=mask, other=0.0
-    )
-    acc_new = ACC * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
-    return m_new, l_new, acc_new
+    v = tl.load(KV + OFFS[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc0_new = ACC0 * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
+    v = tl.load(KV + OFFS[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc1_new = ACC1 * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
+    v = tl.load(KV + OFFS[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc2_new = ACC2 * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
+    v = tl.load(KV + OFFS[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc3_new = ACC3 * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
+    return m_new, l_new, acc0_new, acc1_new, acc2_new, acc3_new
 
 
 @triton.jit
@@ -152,11 +158,9 @@ def _tree_attn_kernel(
 ):
     pid_t = tl.program_id(0)
     pid_h = tl.program_id(1)
-    pid_d = tl.program_id(2)
 
     heads = pid_h * BLOCK_H + tl.arange(0, BLOCK_H)
     head_mask = heads < N1
-    d0 = pid_d * BLOCK_D
     d = tl.arange(0, BLOCK_D)
 
     q_base = Q + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D
@@ -179,7 +183,10 @@ def _tree_attn_kernel(
         m = tl.zeros([BLOCK_H], dtype=tl.float32) - 1.0e30
         l = tl.zeros([BLOCK_H], dtype=tl.float32)
 
-    acc = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc0 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc1 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc2 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc3 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
     seen = tl.zeros([1], dtype=tl.int32)
 
     seqused = tl.load(SEQUSED + pid_t)
@@ -205,9 +212,9 @@ def _tree_attn_kernel(
             ).to(tl.int64) * ORI_S1
 
             seen += tl.sum(valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                ORI_KV, off, valid, q0, q1, q2, q3, m, l, acc, SCALE, d0,
-                BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_chunk(
+                ORI_KV, off, valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, BLOCK_D, BLOCK_N,
             )
 
     if HAS_CMP:
@@ -249,9 +256,9 @@ def _tree_attn_kernel(
                 logical - page_col * CMP_ROWS
             ).to(tl.int64) * CMP_S1
             seen += tl.sum(paged_valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_chunk(
+                CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, BLOCK_D, BLOCK_N,
             )
 
             # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
@@ -264,31 +271,44 @@ def _tree_attn_kernel(
             tree_valid = step_ok & (node >= 0) & (node < NODE_COUNT)
             tree_off = node * NODE_D
             seen += tl.sum(tree_valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_chunk(
+                TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, BLOCK_D, BLOCK_N,
             )
 
     # Branch-free empty-row handling: an `if` here also splits the MIX
     # sub-block after the dot chain, which the Ascend binder rejects.
     has_seen = tl.sum(seen) > 0
     inv_l = tl.where(has_seen, 1.0 / l, 0.0)
-    result = acc * inv_l[:, None]
+    out_base = OUT + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D
+    result = acc0 * inv_l[:, None]
     tl.store(
-        OUT + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D + (d0 + d)[None, :],
+        out_base + (0 * BLOCK_D + d)[None, :],
+        result.to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    result = acc1 * inv_l[:, None]
+    tl.store(
+        out_base + (1 * BLOCK_D + d)[None, :],
+        result.to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    result = acc2 * inv_l[:, None]
+    tl.store(
+        out_base + (2 * BLOCK_D + d)[None, :],
+        result.to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    result = acc3 * inv_l[:, None]
+    tl.store(
+        out_base + (3 * BLOCK_D + d)[None, :],
         result.to(OUT.dtype.element_ty),
         mask=head_mask[:, None],
     )
 
-    # LSE is head-only, not per D-slice: only pid_d == 0 writes it.  Use a
-    # store mask instead of a runtime branch for the same MIX-binder reason.
     if RETURN_LSE:
         lse = tl.where(has_seen, tl.log(l) + m, 0.0)
-        tl.store(
-            LSE + pid_t * N1 + heads,
-            lse,
-            mask=head_mask & (pid_d == 0),
-        )
+        tl.store(LSE + pid_t * N1 + heads, lse, mask=head_mask)
 
 
 def _validate_sinks(sinks, num_heads: int, num_rows: int):
@@ -603,7 +623,6 @@ def sparse_attn_sharedkv_tree(
     grid = (
         num_rows,
         triton.cdiv(num_heads, _BLOCK_H),
-        _NUM_D_CHUNKS,
     )
     _tree_attn_kernel[grid](
         q,
