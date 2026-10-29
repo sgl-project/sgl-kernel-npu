@@ -200,6 +200,10 @@ def check_cu_arange(name: str, cu: torch.Tensor, n: int) -> torch.Tensor:
 def check_page_table(name: str, table: torch.Tensor) -> torch.Tensor:
     """Validate a contiguous int32 2-D page table."""
     check_tensor(name, table, dtype=torch.int32, rank=2, contiguous=True)
+    if int(table.size(0)) <= 0 or int(table.size(1)) <= 0:
+        raise TreeContractError(
+            f"{name}: expected non-empty [requests, width], got {tuple(table.shape)}"
+        )
     return table
 
 

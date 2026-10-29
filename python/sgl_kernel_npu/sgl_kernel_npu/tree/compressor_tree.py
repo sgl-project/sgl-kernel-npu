@@ -425,6 +425,10 @@ def compressor_tree(
             else tensor.reshape(-1, tensor.shape[-1])
         )
     cos, sin = tables
+    if int(cos.size(0)) <= 0 or int(sin.size(0)) <= 0:
+        raise TreeContractError(
+            f"cos/sin: expected non-empty row tables, got {tuple(cos.shape)} / {tuple(sin.shape)}"
+        )
 
     check_same_device(
         "compressor_tree",

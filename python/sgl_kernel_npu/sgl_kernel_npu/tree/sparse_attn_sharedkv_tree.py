@@ -330,6 +330,10 @@ def _validate_paged_kv(name: str, tensor, dtype: torch.dtype) -> None:
         )
     if int(tensor.stride(3)) != 1:
         raise TreeContractError(f"{name}: last dimension must be innermost-contiguous")
+    if int(tensor.shape[0]) <= 0 or int(tensor.shape[1]) <= 0:
+        raise TreeContractError(
+            f"{name}: expected non-empty [pages, block], got {tuple(tensor.shape)}"
+        )
 
 
 def sparse_attn_sharedkv_tree(

@@ -366,6 +366,10 @@ def quant_lightning_indexer_tree(
             "history: expected stride(1) == 128 and stride(3) == 1 "
             f"(padded page stride allowed), got {history.stride()}"
         )
+    if int(history.shape[0]) <= 0 or int(history.shape[1]) <= 0:
+        raise TreeContractError(
+            f"history: expected non-empty [pages, block], got {tuple(history.shape)}"
+        )
 
     check_tensor("history_scale", history_scale, dtype=torch.float16, rank=4)
     scale_shape = tuple(history.shape[:3]) + (1,)
