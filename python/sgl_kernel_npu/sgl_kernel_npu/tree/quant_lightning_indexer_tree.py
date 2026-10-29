@@ -259,13 +259,14 @@ def _score_kernel(
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
             acc += tl.sum(score0 * wq[:, None], axis=0)
     else:
-        # R8 fallback: exact int32 widening, DOT_D_CHUNK head-dim slice per step.
-        for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
-            head = head_block * HEAD_BLOCK + off_g
-            qk = tl.zeros((HEAD_BLOCK, BLOCK_KV), dtype=tl.int32)
+        # R8 fallback: exact int32 widening.  Keep qk 1-D ([BLOCK_KV]) and
+        # walk one query head at a time; a [HEAD_BLOCK, D_CHUNK, BLOCK_KV]
+        # temporary makes hivm-plan-memory blow up on A3.
+        for head in tl.range(0, NUM_HEADS):
+            qk = tl.zeros((BLOCK_KV,), dtype=tl.int32)
             for chunk in tl.range(0, HEAD_DIM // DOT_D_CHUNK):
                 cols = chunk * DOT_D_CHUNK + tl.arange(0, DOT_D_CHUNK)
-                query = tl.load(query_base + head[:, None] * HEAD_DIM + cols[None, :])
+                query = tl.load(query_base + head * HEAD_DIM + cols)
                 key_tile = _gather_key_tile(
                     history_ptr,
                     nodes_ptr,
@@ -276,15 +277,15 @@ def _score_kernel(
                     cols,
                 )
                 qk += tl.sum(
-                    query.to(tl.int32)[:, :, None] * key_tile.to(tl.int32)[None, :, :],
-                    axis=1,
+                    query.to(tl.int32)[:, None] * key_tile.to(tl.int32),
+                    axis=0,
                 )
             score0 = tl.maximum(qk, 0).to(tl.float32) * 0.0009765625
             score0 = score0.to(tl.float16).to(tl.float32)
             weight = tl.load(weight_base + head)
             query_scale = tl.load(scale_base + head)
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
-            acc += tl.sum(score0 * wq[:, None], axis=0)
+            acc += score0 * wq
 
     score = tl.where(valid, acc * key_scale, float("-inf"))
     tl.store(scores_ptr + out_off, score)
