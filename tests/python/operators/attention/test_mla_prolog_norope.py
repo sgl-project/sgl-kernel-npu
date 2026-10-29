@@ -121,21 +121,27 @@ def _cache_rows(cache, cache_mode):
     return cache.reshape(blocks * page, dim)
 
 
-def _assert_fp8_accuracy(actual, reference, *, path):
-    """Compare finite E4M3 results in the reference's quantization units."""
+def _assert_mixed_accuracy(actual, reference, *, dtype, path):
+    """Compare finite FP32 values using the specified output format's budget."""
     # CANN mixed tolerance: 99% close elements plus a value-dependent error cap.
     # https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/mixed_tolerance_standard.md
+    mantissa_bits, min_normal_exponent, error_floor = {
+        torch.float8_e4m3fn: (3, -6, 1.0),
+        torch.bfloat16: (7, -126, 0.1),
+    }[dtype]
+    tolerance = 2.0**-mantissa_bits
     assert (
         torch.isfinite(actual).all() and torch.isfinite(reference).all()
-    ), f"{path}: expected finite FP8 results"
+    ), f"{path}: expected finite results"
     error = (actual - reference).abs()
-    matched = int((error <= 0.125 + 0.125 * reference.abs()).sum())
+    matched = int((error <= tolerance + tolerance * reference.abs()).sum())
     max_index = int(error.argmax())
     max_error = error.flatten()[max_index].item()
     reference_at_max = reference.flatten()[max_index].abs().item()
-    # E4M3 has three mantissa bits; zero/subnormals have spacing 2**-9.
-    ulp = 2.0 ** (math.floor(math.log2(max(reference_at_max, 2.0**-6))) - 3)
-    error_limit = max(1.0, 32 * ulp)
+    # Clamp the exponent so zero/subnormals use the format's minimum spacing.
+    exponent = math.floor(math.log2(max(reference_at_max, 2.0**min_normal_exponent)))
+    ulp = 2.0 ** (exponent - mantissa_bits)
+    error_limit = max(error_floor, 32 * ulp)
     assert matched * 100 >= error.numel() * 99 and max_error <= error_limit, (
         f"{path}: matched={matched}/{error.numel()} "
         f"({matched / error.numel():.6%}, required >=99%), "
@@ -183,10 +189,18 @@ def _accuracy(outputs, expected, inputs, reference, before):
         # Normalize reconstructed Q to the reference scale before applying the
         # E4M3 error budget. The two raw FP8 tensors may use different scales.
         query *= outputs[2].cpu() / expected[2].cpu()
-        _assert_fp8_accuracy(query, query_ref, path="query")
+        _assert_mixed_accuracy(
+            query, query_ref, dtype=torch.float8_e4m3fn, path="query"
+        )
     else:
         assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
-    assert_accuracy(outputs[1], expected[1], path="query_rope")
+    # Check the returned BF16 values, including C8 scale compensation, in FP32.
+    _assert_mixed_accuracy(
+        outputs[1].cpu().float(),
+        expected[1].cpu().float(),
+        dtype=torch.bfloat16,
+        path="query_rope",
+    )
     if inputs["query_norm_flag"]:
         norm, norm_ref = outputs[3].cpu().float(), expected[3].cpu().float()
         if inputs["weight_quant_mode"] == 3:
@@ -194,7 +208,9 @@ def _accuracy(outputs, expected, inputs, reference, before):
             scale_ref = expected[4].cpu().view(torch.uint8)
             assert torch.all(scale != 255), "MXFP8 scales must be finite"
             assert torch.equal(scale, scale_ref), "query_norm_scale: E8M0 mismatch"
-            _assert_fp8_accuracy(norm, norm_ref, path="query_norm")
+            _assert_mixed_accuracy(
+                norm, norm_ref, dtype=torch.float8_e4m3fn, path="query_norm"
+            )
         else:
             assert_accuracy(norm, norm_ref, _BF16_STANDARD, path="query_norm")
     untouched = torch.ones(3 * page_size, dtype=torch.bool, device="cpu")
@@ -212,7 +228,12 @@ def _accuracy(outputs, expected, inputs, reference, before):
         if name == "kv_cache" and inputs["kv_cache_quant_mode"] == 1:
             # Both caches share the input scale. Only written slots contribute
             # to the match ratio; untouched slots are checked byte-for-byte above.
-            _assert_fp8_accuracy(value[~untouched], value_ref[~untouched], path=name)
+            _assert_mixed_accuracy(
+                value[~untouched],
+                value_ref[~untouched],
+                dtype=torch.float8_e4m3fn,
+                path=name,
+            )
         else:
             assert_accuracy(value, value_ref, _BF16_STANDARD, path=name)
 
