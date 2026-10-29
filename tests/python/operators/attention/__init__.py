@@ -1,1 +1,1 @@
-"""Attention-metadata operator tests."""
+"""Attention operator API tests."""

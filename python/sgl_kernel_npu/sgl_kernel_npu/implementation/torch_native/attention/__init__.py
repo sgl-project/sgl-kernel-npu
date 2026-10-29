@@ -1,1 +1,1 @@
-"""Native PyTorch attention-metadata implementations."""
+"""Independent attention references for accuracy testing."""
