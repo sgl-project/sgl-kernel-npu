@@ -1,11 +1,9 @@
 from .expand_causal_seqlens import expand_causal_seqlens
-from .expand_pool_topk_and_append_tail_batched_npu import (
-    expand_pool_topk_and_append_tail_batched_npu,
-)
-from .fused_decode_prepare_indexer import fused_decode_prepare_indexer
+from .expand_kpool_group_and_tail_to_topk import expand_kpool_group_and_tail_to_topk
+from .kpool_indexer_prepare_decode_input import kpool_indexer_prepare_decode_input
 
 __all__ = [
     "expand_causal_seqlens",
-    "expand_pool_topk_and_append_tail_batched_npu",
-    "fused_decode_prepare_indexer",
+    "expand_kpool_group_and_tail_to_topk",
+    "kpool_indexer_prepare_decode_input",
 ]

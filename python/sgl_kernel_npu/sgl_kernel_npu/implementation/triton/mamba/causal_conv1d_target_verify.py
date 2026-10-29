@@ -10,7 +10,7 @@ PAD_SLOT_ID = -1
 
 
 @triton.jit()
-def _causal_conv1d_target_verify_npu_kernel(
+def _causal_conv1d_target_verify_kernel(
     x_ptr,
     weight_ptr,
     bias_ptr,
@@ -330,7 +330,7 @@ def _batch_tile_size(batch: int, dim: int, block_n: int) -> int:
     return 8
 
 
-def causal_conv1d_target_verify_npu(
+def causal_conv1d_target_verify(
     x: torch.Tensor,
     conv_state: torch.Tensor,
     weight: torch.Tensor,
@@ -486,7 +486,7 @@ def causal_conv1d_target_verify_npu(
         parent_ptr = x
 
     grid = (triton.cdiv(batch, batch_tile), triton.cdiv(dim, block_n))
-    _causal_conv1d_target_verify_npu_kernel[grid](
+    _causal_conv1d_target_verify_kernel[grid](
         x,
         weight,
         bias,

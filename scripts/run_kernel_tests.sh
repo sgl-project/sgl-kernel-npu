@@ -57,15 +57,15 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_build_pooled_page_table_64.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
     test_split_qkv_tp_rmsnorm_rope.py
     test_fused_rope_qk_mqa.py
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_fused_decode_prepare_indexer.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_pool_topk_and_append_tail_batched_npu.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_kpool_indexer_prepare_decode_input.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_kpool_group_and_tail_to_topk.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_causal_seqlens.py"
 )
 
@@ -77,10 +77,10 @@ CACHE_TESTS=(
     test_inplace_assign_cache.py
     test_lightning_indexer.py
     test_transfer_kv_dim_exchange.py
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache_bf16.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_write_cache_npu.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress_npu.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_scatter_kpool_tail_updates_npu.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_rotate_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_scatter_kpool_tail_updates.py"
 )
 
 SPECULATIVE_TESTS=(
@@ -95,7 +95,7 @@ MAMBA_TESTS=(
     test_conv1d_update.py
     test_mamba_conv.py
     # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
-    "${GITHUB_WORKSPACE}/tests/python/operators/mamba/test_causal_conv1d_target_verify_npu.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mamba/test_causal_conv1d_target_verify.py"
 )
 
 FLA_TESTS=(
