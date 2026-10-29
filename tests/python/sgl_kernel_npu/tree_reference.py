@@ -338,7 +338,9 @@ def quant_lightning_indexer_tree_ref(
     reqs_i = reqs.to(torch.int64).tolist()
     lengths_i = lengths.to(torch.int64).tolist()
 
-    out = torch.full((n, 1, int(topk)), -1, dtype=torch.int32)
+    out = torch.full(
+        (n, 1, int(topk)), -1, dtype=torch.int32, device=query.device
+    )
 
     for row in range(n):
         limit = int(lengths_i[row])
