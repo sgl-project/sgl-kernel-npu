@@ -46,13 +46,16 @@ Two kernels:
 (D2); ``residual`` is ABI-only and unused; ``cu`` must equal ``arange(n + 1)``.
 
 Risk R8 (int8 ``tl.dot``): the Ascend cube executes int8 x int8 -> int32
-natively, which is what the vendor kernel does.  If a triton-ascend build
-rejects the int8 dot, set :data:`_USE_INT8_DOT` to ``False``; the score kernel
-then widens both operands to int32 and reduces the head dim with ``tl.sum``
-(exact, but it leaves the cube idle — a sizeable performance loss).
+natively, which is what the vendor kernel does.  Some triton-ascend builds
+cannot bind the resulting MIX/CV sub-block for this shape, so the default
+path is the exact int32-widening fallback (``tl.sum`` over the head dim,
+no cube).  Set ``SGL_TREE_INDEXER_INT8_DOT=1`` on a build where the int8
+dot compiles to enable the faster cube path.
 """
 
 from __future__ import annotations
+
+import os
 
 import torch
 import triton
@@ -91,8 +94,10 @@ _HEAD_BLOCK_DOT = 32
 _HEAD_BLOCK_MANUAL = 16
 _DOT_D_CHUNK = 8
 
-# R8: native int8 tl.dot -> int32.  Tests flip this to exercise the fallback.
-_USE_INT8_DOT = True
+# R8: native int8 tl.dot -> int32 is faster but some triton-ascend builds
+# cannot bind the resulting MIX/CV sub-block for this shape.  Default to the
+# exact int32-widening fallback; opt in on a build where int8 dot compiles.
+_USE_INT8_DOT = os.environ.get("SGL_TREE_INDEXER_INT8_DOT", "0") == "1"
 
 _NUM_WARPS = 1
 _NUM_STAGES = 1
