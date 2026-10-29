@@ -175,6 +175,27 @@ def test_c4_topk_widths(topk):
     _assert_parity(case)
 
 
+def test_production_window_topk_sink_shape():
+    """Exercise the SGLang production tile: 64 heads, 512 window/topk, sink.
+
+    The smaller parity cases compile with narrower loop widths; this case
+    catches UB growth from the combination of ``ORI_W=512``, ``CMP_K=512`` and
+    the head block.
+    """
+    case = _base_case(
+        "c4",
+        seed=15,
+        dtype=torch.bfloat16,
+        heads=64,
+        sink=True,
+        window=511,
+    )
+    _pad_topk(case, 512)
+    assert case["ori_sparse_indices"].shape[-1] == 512
+    assert case["cmp_sparse_indices"].shape[-1] == 512
+    _assert_parity(case)
+
+
 @pytest.mark.parametrize(
     "cmp_mode,ratio,prefixes",
     [("c4", 4, None), ("c128", 128, [252])],
