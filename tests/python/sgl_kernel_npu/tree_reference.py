@@ -164,7 +164,7 @@ def compressor_tree_ref(
     requests_i = requests.to(torch.int64).tolist()
     ancestors_i = ancestors.to(torch.int64).tolist()
 
-    out = torch.zeros((n, d), dtype=torch.bfloat16)
+    out = torch.zeros((n, d), dtype=torch.bfloat16, device=state.device)
 
     for node in range(n):
         start = int(prefix_i[node])
@@ -319,7 +319,9 @@ def quant_lightning_indexer_tree_ref(
         max_kv = int(lengths.max().item()) * 4 if lengths.numel() else 0
     if max(1, int(max_kv) // 4) <= int(topk):
         lengths_i = lengths.to(torch.int64)
-        positions = torch.arange(int(topk), dtype=torch.int32).expand(n, -1)
+        positions = torch.arange(
+            int(topk), dtype=torch.int32, device=lengths.device
+        ).expand(n, -1)
         mask = positions.to(torch.int64) < lengths_i.unsqueeze(1)
         return torch.where(mask, positions, torch.full_like(positions, -1)).unsqueeze(1)
 
@@ -391,12 +393,16 @@ def quant_lightning_indexer_tree_ref(
             qk = torch.einsum("gd,ld->gl", query_i[row], keys_i)
         relu = torch.clamp(qk, min=0).to(torch.float32)
         score0 = (relu * (2.0**-10)).to(torch.float16).to(torch.float32)
-        scale_t = torch.tensor(scale_list, dtype=torch.float32)
+        scale_t = torch.tensor(
+            scale_list, dtype=torch.float32, device=query_i.device
+        )
         scores = (score0 * query_weight[row].unsqueeze(1)).sum(dim=0) * scale_t
 
         order = torch.argsort(scores, descending=True, stable=True)
         take = min(int(topk), int(order.numel()))
-        chosen = torch.tensor(index_list, dtype=torch.int32)[order[:take]]
+        chosen = torch.tensor(
+            index_list, dtype=torch.int32, device=query_i.device
+        )[order[:take]]
         out[row, 0, :take] = chosen
 
     return out
@@ -526,7 +532,7 @@ def sparse_attn_sharedkv_tree_ref(
     seqused_i = seqused_kv.to(torch.int64).tolist()
 
     out = torch.zeros_like(q)
-    lse = torch.zeros((t, n1, 1), dtype=torch.float32)
+    lse = torch.zeros((t, n1, 1), dtype=torch.float32, device=q.device)
 
     def compressed_row(k: int, prefix: int, row: int):
         """Resolve one logical compressed slot to its key row, or None."""
@@ -604,5 +610,5 @@ def sparse_attn_sharedkv_tree_ref(
         lse[row, :, 0] = torch.log(total) + max_all
 
     if not return_softmax_lse:
-        return out, torch.empty(0, dtype=torch.float32)
+        return out, torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
