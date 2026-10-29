@@ -27,9 +27,12 @@ from tests.python.utils.standards import AccuracyStandard
 
 # (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, r_dim).
 shapes = [(7168, 1536, heads, 128, 512, 64) for heads in (96, 48, 24, 12, 6, 3)]
+token_counts = [1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64]
 page_size = 128
 # Representative attention TP4/TP16 shapes; other cases check accuracy only.
-perf_shape = [(tokens, heads, "PA_BSND") for heads in (24, 6) for tokens in (1, 17)]
+perf_shape = [
+    (tokens, heads, "PA_BSND") for heads in (24, 6) for tokens in (1, 4, 16, 32, 64)
+]
 cache_cases = [(0, False), (3, False), (3, True)]
 _BF16_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
 _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)}
@@ -96,10 +99,6 @@ def generate_data(
             )
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
-    if cache_mode == "PA_NZ":
-        # Exercise the no-RoPE empty-tensor contract in both backends.
-        inputs["rope_sin"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
-        inputs["rope_cos"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
     return inputs
 
 
@@ -200,14 +199,9 @@ def _accuracy(outputs, expected, inputs, reference, before):
     "shape", shapes, ids=[f"kimi-k3-tp{tp}" for tp in (1, 2, 4, 8, 16, 32)]
 )
 @pytest.mark.parametrize(
-    "tokens,cache_mode,padding",
-    [
-        (1, "PA_BSND", False),
-        (4, "PA_NZ", False),
-        (17, "PA_BSND", False),
-        (5, "PA_BSND", True),
-    ],
+    "tokens,padding", [(tokens, False) for tokens in token_counts] + [(5, True)]
 )
+@pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 def test_mla_prolog_norope(
     shape, tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
@@ -268,6 +262,9 @@ def test_mla_prolog_norope_direct_cann_parity(shape, weight_quant_mode, c8, cach
     from cann_ops_transformer import mla_prolog as cann_mla_prolog
 
     inputs = generate_data(shape, 4, weight_quant_mode, c8, cache_mode, not c8)
+    # Cover empty no-RoPE arguments here; accuracy cases use None in both layouts.
+    inputs["rope_sin"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
+    inputs["rope_cos"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
     direct = _independent_cache(inputs)
     outputs = mla_prolog_norope(**inputs, impl="cann")
     expected = cann_mla_prolog(**direct)

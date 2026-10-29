@@ -179,7 +179,9 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 
 ## 使用示例
 
-以下 arch35 示例使用 BF16 投影、无 RoPE 和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。API 测试覆盖本地 Q heads 96/48/24/12/6/3、上述三种模式及两种缓存布局；性能用例选择 TP4/TP16、token 数为 1 或 17 的代表形状。
+以下 arch35 示例使用 BF16 投影、无 RoPE 和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。
+
+精度用例覆盖 token 数 `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`，每个长度均覆盖本地 Q heads 96/48/24/12/6/3、上述三种模式及 `PA_BSND`/`PA_NZ` 两种缓存布局。成对布局用例生成相同的输入和权重，并统一设置 `rope_sin=rope_cos=None`。额外的 T5 用例在两种布局下检查负 cache slot。默认性能用例仍只选择 TP4/TP16、token 数为 `1, 4, 16, 32, 64` 的 `PA_BSND` 形状。
 
 ```python
 import torch

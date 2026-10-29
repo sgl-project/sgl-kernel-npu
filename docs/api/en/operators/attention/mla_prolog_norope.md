@@ -178,7 +178,9 @@ Uses independent PyTorch CPU calculations as an accuracy reference for the three
 
 ## Example
 
-This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated. The API tests cover local Q-head counts of 96/48/24/12/6/3, all three modes above, and both cache layouts. Performance cases select TP4/TP16 shapes with 1 or 17 tokens.
+This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated.
+
+Accuracy cases cover token counts `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`, each with local Q-head counts of 96/48/24/12/6/3, all three modes above, and both `PA_BSND`/`PA_NZ` cache layouts. Paired layout cases use the same generated inputs and weights, with `rope_sin=rope_cos=None`. Additional T5 cases cover negative cache slots in both layouts. Performance cases remain limited by default to TP4/TP16 shapes with `1, 4, 16, 32, 64` tokens in `PA_BSND`.
 
 ```python
 import torch
