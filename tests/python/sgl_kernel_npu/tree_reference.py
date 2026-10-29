@@ -381,7 +381,14 @@ def quant_lightning_indexer_tree_ref(
             continue
 
         keys_i = torch.stack(key_list)  # [L, d]
-        qk = torch.einsum("gd,ld->gl", query_i[row], keys_i)  # int64, exact INT32 range
+        # NPU BatchMatMul has no int64 dtype.  int8 products and a 128-term sum
+        # are exact in fp32 (< 2^24), so use fp32 there; CPU keeps int64.
+        if query_i.device.type == "npu":
+            qk = torch.einsum(
+                "gd,ld->gl", query_i[row].float(), keys_i.float()
+            ).to(torch.int64)
+        else:
+            qk = torch.einsum("gd,ld->gl", query_i[row], keys_i)
         relu = torch.clamp(qk, min=0).to(torch.float32)
         score0 = (relu * (2.0**-10)).to(torch.float16).to(torch.float32)
         scale_t = torch.tensor(scale_list, dtype=torch.float32)
