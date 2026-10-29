@@ -194,10 +194,17 @@ def _accuracy(outputs, expected, inputs, reference, before):
         )
     else:
         assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
-    # Check the returned BF16 values, including C8 scale compensation, in FP32.
+    query_rope = outputs[1].cpu().float()
+    query_rope_ref = expected[1].cpu().float()
+    if inputs["kv_cache_quant_mode"] == 1:
+        # Undo C8 compensation using each result's own Q scale, checked above.
+        # Apply the BF16 budget to the reconstructed projection in FP32.
+        c_inv_scale = inputs["quant_scale_ckv"].cpu().float()
+        query_rope *= outputs[2].cpu() / c_inv_scale
+        query_rope_ref *= expected[2].cpu() / c_inv_scale
     _assert_mixed_accuracy(
-        outputs[1].cpu().float(),
-        expected[1].cpu().float(),
+        query_rope,
+        query_rope_ref,
         dtype=torch.bfloat16,
         path="query_rope",
     )
