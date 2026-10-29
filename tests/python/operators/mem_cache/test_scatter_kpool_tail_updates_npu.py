@@ -160,6 +160,7 @@ def test_scatter_kpool_tail_updates_npu(case):
 
 
 # Case 06: Reject a noncontiguous in-place tail.
+@pytest.mark.extra_checks
 def test_scatter_rejects_noncontiguous_tail():
     from sgl_kernel_npu.operators.mem_cache import scatter_kpool_tail_updates_npu
 

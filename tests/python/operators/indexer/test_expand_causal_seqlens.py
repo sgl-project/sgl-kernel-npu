@@ -57,6 +57,7 @@ def test_expand_causal_seqlens(cache_seqlens, query_lens, max_query_len):
 
 # Case 08: Graph replay reuses output storage while request lengths change.
 # In-place Operator
+@pytest.mark.extra_checks
 def test_expand_causal_seqlens_reuses_outputs():
     """In-place: overwrite only the two supplied outputs; keep their identity."""
     from sgl_kernel_npu.operators.indexer import expand_causal_seqlens

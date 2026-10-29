@@ -11,6 +11,7 @@ on:
       - "tests/python/operators/**"
       - "tests/python/conftest.py"
       - "tests/python/utils/**"
+      - "pytest.ini"
       - "build.sh"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
@@ -142,6 +143,7 @@ jobs:
               - tests/python/sgl_kernel_npu/test_gmm_wfp8a16.py
               - tests/python/sgl_kernel_npu/test_mm_wfp8a16.py
             common:
+              - pytest.ini
               - build.sh
               - cmake/**
               - CMakeLists.txt

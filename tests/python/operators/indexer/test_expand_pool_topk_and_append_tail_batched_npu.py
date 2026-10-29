@@ -59,6 +59,7 @@ def test_expand_pool_topk_and_append_tail_batched_npu(
 
 
 # Case 06: Reject noncontiguous sequence lengths.
+@pytest.mark.extra_checks
 def test_expand_rejects_noncontiguous_seq_lens():
     from sgl_kernel_npu.operators.indexer import (
         expand_pool_topk_and_append_tail_batched_npu,

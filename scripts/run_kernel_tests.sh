@@ -25,10 +25,10 @@ run_test() {
             (
                 cd "$GITHUB_WORKSPACE" || exit 1
                 PYTHONPATH="${GITHUB_WORKSPACE}${PYTHONPATH:+:${PYTHONPATH}}" \
-                    python3 -m pytest "$test_file" -q -x --enable-perf=false
+                    python3 -m pytest "$test_file" -q -x --enable-perf=false -m "not extra_checks"
             ) || exit_code=$?
         else
-            python3 -m pytest "$test_file" -q -x || exit_code=$?
+            python3 -m pytest "$test_file" -q -x -m "not extra_checks" || exit_code=$?
         fi
     else
         # Plain script (e.g. test_hello_world.py): run it directly

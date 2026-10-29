@@ -9,6 +9,7 @@ on:
       - ".github/workflows/daily-test-kernels.yml"
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
+      - "pytest.ini"
   workflow_dispatch:
 
 concurrency:

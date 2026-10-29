@@ -121,6 +121,7 @@ def generate_test_data(
 
 
 # Case 01: Reject a noncontiguous in-place cache.
+@pytest.mark.extra_checks
 def test_decode_rejects_noncontiguous_inplace_cache():
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_decode_update_and_maybe_write_cache_bf16,

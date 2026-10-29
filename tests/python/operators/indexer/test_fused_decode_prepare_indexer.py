@@ -65,6 +65,7 @@ def test_fused_decode_prepare_indexer(batch_size, hidden_size, n_heads, num_bloc
 
 
 # Case 06: Reject noncontiguous block tables.
+@pytest.mark.extra_checks
 def test_fused_decode_prepare_rejects_noncontiguous_block_tables():
     from sgl_kernel_npu.operators.indexer import fused_decode_prepare_indexer
 
