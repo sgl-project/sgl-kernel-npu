@@ -16,7 +16,6 @@ from __future__ import annotations
 import torch
 import triton
 import triton.language as tl
-import triton.language.extra.cann.extension as al
 
 from ._common import (
     TreeContractError,
@@ -216,7 +215,10 @@ def _compressor_tree_kernel(
     inv_rms = 1.0 / tl.sqrt(mean_square)
     value = value * inv_rms * tl.load(norm_ptr + lanes)
 
-    begin: tl.constexpr = D - ROPE_DIM
+    begin = D - ROPE_DIM
+    # The non-RoPE prefix is final now; only the trailing tail is rewritten below.
+    tl.store(out_row + lanes, _fp32_to_bf16_rne(value), mask=lanes < begin)
+
     # ropePos lags the node position by ratio - 1.  Clamping (instead of a host
     # side range check) keeps the launch free of a device sync, matching
     # norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.py.
@@ -224,6 +226,60 @@ def _compressor_tree_kernel(
     rope_pos = tl.minimum(tl.maximum(rope_pos, 0), cos_rows - 1)
 
     pairs = tl.arange(0, ROPE_DIM // 2)[None, :]
+    even_lanes = begin + 2 * pairs
+    odd_lanes = even_lanes + 1
+
+    # The interleaved pair (i, i ^ 1) needs both lanes of the normalised value,
+    # so the tail is re-aggregated in even/odd order rather than gathered.
+    even_value = _window_average(
+        state_ptr,
+        nodes_ptr,
+        table_ptr,
+        ancestors_ptr,
+        node.to(tl.int64),
+        start,
+        pos,
+        tl.where(req_ok, req_raw, 0),
+        req_ok,
+        n,
+        rows,
+        pages,
+        table_width,
+        max_depth,
+        state_stride0,
+        state_stride1,
+        even_lanes,
+        N_LANES=ROPE_DIM // 2,
+        D=D,
+        C=C,
+        RATIO=RATIO,
+    )
+    odd_value = _window_average(
+        state_ptr,
+        nodes_ptr,
+        table_ptr,
+        ancestors_ptr,
+        node.to(tl.int64),
+        start,
+        pos,
+        tl.where(req_ok, req_raw, 0),
+        req_ok,
+        n,
+        rows,
+        pages,
+        table_width,
+        max_depth,
+        state_stride0,
+        state_stride1,
+        odd_lanes,
+        N_LANES=ROPE_DIM // 2,
+        D=D,
+        C=C,
+        RATIO=RATIO,
+    )
+    even_value = even_value * inv_rms * tl.load(norm_ptr + even_lanes)
+    odd_value = odd_value * inv_rms * tl.load(norm_ptr + odd_lanes)
+
     cos_row = cos_ptr + rope_pos * cos_stride0
     sin_row = sin_ptr + rope_pos * sin_stride0
     cos_even = tl.load(cos_row + 2 * pairs)
@@ -231,42 +287,16 @@ def _compressor_tree_kernel(
     sin_even = tl.load(sin_row + 2 * pairs)
     sin_odd = tl.load(sin_row + 2 * pairs + 1)
 
-    # Interleaved RoPE via the same extract/insert idiom used by
-    # norm/split_qkv_rmsnorm_rope.py.  The previous version re-aggregated the
-    # whole branch window two more times (once for even lanes, once for odd);
-    # this keeps the already-normalized row and only touches the tail.
-    rope = al.extract_slice(
-        value, offsets=(0, begin), sizes=(1, ROPE_DIM), strides=(1, 1)
+    # sign(i) is -1 on even i and +1 on odd i; cos/sin are indexed by the
+    # rope-local lane, not by the absolute head offset.
+    tl.store(
+        out_row + even_lanes,
+        _fp32_to_bf16_rne(even_value * cos_even - odd_value * sin_even),
     )
-    x_even = al.extract_slice(
-        rope,
-        offsets=(0, 0),
-        sizes=(1, ROPE_DIM // 2),
-        strides=(1, 2),
+    tl.store(
+        out_row + odd_lanes,
+        _fp32_to_bf16_rne(odd_value * cos_odd + even_value * sin_odd),
     )
-    x_odd = al.extract_slice(
-        rope,
-        offsets=(0, 1),
-        sizes=(1, ROPE_DIM // 2),
-        strides=(1, 2),
-    )
-    even_out = x_even * cos_even - x_odd * sin_even
-    odd_out = x_odd * cos_odd + x_even * sin_odd
-    roped = al.insert_slice(
-        value,
-        even_out,
-        offsets=(0, begin),
-        sizes=(1, ROPE_DIM // 2),
-        strides=(1, 2),
-    )
-    roped = al.insert_slice(
-        roped,
-        odd_out,
-        offsets=(0, begin + 1),
-        sizes=(1, ROPE_DIM // 2),
-        strides=(1, 2),
-    )
-    tl.store(out_row + lanes, _fp32_to_bf16_rne(roped))
 
 
 def compressor_tree(

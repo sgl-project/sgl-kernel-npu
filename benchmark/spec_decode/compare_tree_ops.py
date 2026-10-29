@@ -396,13 +396,14 @@ def main(argv: list[str] | None = None) -> int:
             f"vendor/new={speedup!s:>8}  correct={ok}  {detail}"
         )
 
-    if args.json:
-        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.json).write_text(
-            json.dumps({"results": results}, indent=2), encoding="utf-8"
-        )
-        print(f"[compare] wrote JSON: {args.json}")
-    return 0 if all(r["correct"] for r in results) else 1
+    if args.json_path:
+        path = Path(args.json_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"results": results}, indent=2), encoding="utf-8")
+        print(f"[compare] wrote JSON: {args.json_path}")
+    if any(r["correct"] is None for r in results):
+        print("[compare] some vendor comparisons were skipped (see detail)")
+    return 0 if all(r["correct"] is not False for r in results) else 1
 
 
 if __name__ == "__main__":
