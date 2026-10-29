@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Pending validation |
-| `torch_native` | Supported | Pending validation |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
