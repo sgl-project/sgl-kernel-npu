@@ -178,7 +178,7 @@ Uses independent PyTorch CPU calculations as an accuracy reference for the three
 
 ## Example
 
-This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches, with a synthetic shape to demonstrate the API.
+This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated. The API tests cover local Q-head counts of 96/48/24/12/6/3, all three modes above, and both cache layouts. Performance cases select TP4/TP16 shapes with 1 or 17 tokens.
 
 ```python
 import torch
@@ -188,7 +188,7 @@ from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
 device = "npu"
 dtype = torch.bfloat16
-T, H, Rq, N, D, C, R, P = 1, 4096, 1536, 8, 192, 512, 64, 128
+T, H, Rq, N, D, C, R, P = 1, 7168, 1536, 6, 128, 512, 64, 128
 
 def nz_weight(shape):
     weight = torch.randn(shape, device=device, dtype=dtype) * 0.01

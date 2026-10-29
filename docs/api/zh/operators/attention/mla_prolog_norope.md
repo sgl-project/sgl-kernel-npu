@@ -179,7 +179,7 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 
 ## 使用示例
 
-以下 arch35 示例使用 BF16 投影、无 RoPE 和两份 BF16 缓存；shape 为演示 API 的合成用例。
+以下 arch35 示例使用 BF16 投影、无 RoPE 和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。API 测试覆盖本地 Q heads 96/48/24/12/6/3、上述三种模式及两种缓存布局；性能用例选择 TP4/TP16、token 数为 1 或 17 的代表形状。
 
 ```python
 import torch
@@ -189,7 +189,7 @@ from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
 device = "npu"
 dtype = torch.bfloat16
-T, H, Rq, N, D, C, R, P = 1, 4096, 1536, 8, 192, 512, 64, 128
+T, H, Rq, N, D, C, R, P = 1, 7168, 1536, 6, 128, 512, 64, 128
 
 def nz_weight(shape):
     weight = torch.randn(shape, device=device, dtype=dtype) * 0.01

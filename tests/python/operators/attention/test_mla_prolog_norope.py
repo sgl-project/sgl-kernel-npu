@@ -1,8 +1,9 @@
-"""No-RoPE MLAProlog V4: C16 and ModelSlim static C8 cache contracts.
+"""Kimi K3 no-RoPE MLAProlog V4: C16 and ModelSlim static C8 cache contracts.
 
-The synthetic dimensions below satisfy the Ascend 950 MlaPrologV4WeightNz
-contract; they are not attributed to an unverified Kimi model configuration.
-Weights and activation scales follow SGLang's mode-3 MLAProlog inputs.
+Dimensions follow moonshotai/Kimi-K3 config.json, with 96 Q heads sharded
+over attention TP sizes 1/2/4/8/16/32. Tensor values are generated, not loaded
+from a checkpoint. Weights and scales follow SGLang's MLAProlog input layouts.
+Source: https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json
 The independent torch_native implementation is an accuracy reference on CPU;
 its transfers must not be reported as an NPU performance baseline.
 """
@@ -25,16 +26,17 @@ from tests.python.utils.performance import benchmark_npu, check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, r_dim).
-shape = (4096, 1536, 8, 192, 512, 64)
+shapes = [(7168, 1536, heads, 128, 512, 64) for heads in (96, 48, 24, 12, 6, 3)]
 page_size = 128
-perf_shape = [(1, "PA_BSND"), (17, "PA_BSND")]
+# Representative attention TP4/TP16 shapes; other cases check accuracy only.
+perf_shape = [(tokens, heads, "PA_BSND") for heads in (24, 6) for tokens in (1, 17)]
 cache_cases = [(0, False), (3, False), (3, True)]
 _BF16_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
 _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)}
 
 
 def generate_data(
-    tokens, weight_quant_mode, c8, cache_mode, query_norm_flag, *, padding=False
+    shape, tokens, weight_quant_mode, c8, cache_mode, query_norm_flag, *, padding=False
 ):
     """Create real NZ weights and distinct, nonconsecutive paged cache slots."""
     import torch_npu
@@ -128,7 +130,9 @@ def _mx_scale(scales):
 def _check_contract(outputs, inputs):
     assert isinstance(outputs, tuple) and len(outputs) == 5
     tokens = inputs["token_x"].shape[0]
-    _, rank, heads, _, latent, r_dim = shape
+    rank = inputs["weight_dq"].shape[-1]
+    heads, _, latent = inputs["weight_uk"].shape
+    r_dim = inputs["kr_cache"].shape[-1]
     c8 = inputs["kv_cache_quant_mode"] == 1
     mode3 = inputs["weight_quant_mode"] == 3
     norm = inputs["query_norm_flag"]
@@ -193,6 +197,9 @@ def _accuracy(outputs, expected, inputs, reference, before):
 
 
 @pytest.mark.parametrize(
+    "shape", shapes, ids=[f"kimi-k3-tp{tp}" for tp in (1, 2, 4, 8, 16, 32)]
+)
+@pytest.mark.parametrize(
     "tokens,cache_mode,padding",
     [
         (1, "PA_BSND", False),
@@ -203,11 +210,12 @@ def _accuracy(outputs, expected, inputs, reference, before):
 )
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 def test_mla_prolog_norope(
-    tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
+    shape, tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
 ):
     from sgl_kernel_npu.operators.attention import mla_prolog_norope
 
     inputs = generate_data(
+        shape,
         tokens,
         weight_quant_mode,
         c8,
@@ -234,7 +242,7 @@ def test_mla_prolog_norope(
         return
     executor = make_executor(mla_prolog_norope, kwargs=inputs, accuracy_checked=checked)
     measured = check_performance(
-        executor, enable_perf=(tokens, cache_mode) in perf_shape
+        executor, enable_perf=(tokens, shape[2], cache_mode) in perf_shape
     )
     if measured is not None:
         from cann_ops_transformer import mla_prolog as cann_mla_prolog
@@ -248,9 +256,10 @@ def test_mla_prolog_norope(
         print(f"Direct CANN average device task duration: {direct_us:.3f} us")
 
 
+@pytest.mark.parametrize("shape", [(7168, 1536, 6, 128, 512, 64)], ids=["kimi-k3-tp16"])
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 @pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
-def test_mla_prolog_norope_direct_cann_parity(weight_quant_mode, c8, cache_mode):
+def test_mla_prolog_norope_direct_cann_parity(shape, weight_quant_mode, c8, cache_mode):
     if get_skip_acc_check() is True:
         pytest.skip("Direct-CANN parity is disabled by --skip-acc-check=true")
     from sgl_kernel_npu.operators.attention import mla_prolog_norope
@@ -258,7 +267,7 @@ def test_mla_prolog_norope_direct_cann_parity(weight_quant_mode, c8, cache_mode)
     require_test_impl(mla_prolog_norope, "cann")
     from cann_ops_transformer import mla_prolog as cann_mla_prolog
 
-    inputs = generate_data(4, weight_quant_mode, c8, cache_mode, not c8)
+    inputs = generate_data(shape, 4, weight_quant_mode, c8, cache_mode, not c8)
     direct = _independent_cache(inputs)
     outputs = mla_prolog_norope(**inputs, impl="cann")
     expected = cann_mla_prolog(**direct)
