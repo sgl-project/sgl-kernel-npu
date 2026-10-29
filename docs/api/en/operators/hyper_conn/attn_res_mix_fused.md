@@ -78,7 +78,7 @@ When `N == 0`, returns `prefix_sum` itself without launching a kernel. When `N >
 
 ## triton backend
 
-- Located in `implementation/triton/hyper_conn/attn_residual_mix.py`, with kernel `_attn_res_mix_fused_kernel`. Refactored from `_mix_fused_kernel` in `kimi_k3/attn_residual.py`; the original file and import path remain unchanged.
+- Located in `implementation/triton/hyper_conn/attn_residual_mix.py`, with kernel `_attn_res_mix_fused_kernel`.
 - Nonempty inputs must be on an NPU. The last-dimension strides of prefix_sum and bank must be 1, as must combined_weight's stride. Token strides and bank row strides may differ; non-contiguous views satisfying these constraints are supported.
 - Expands the hidden dimension to `BLOCK_H = next_power_of_2(H)`. Loads and stores are masked, padded channels contribute zero, and mean square is divided by the actual `H`. The hidden dimension no longer has to be a power of two; masked tails handle dimensions such as `7168`.
 - Fuses scoring, softmax, and mixing into one persistent vector-core kernel. `N` and `B` remain dynamic; `NB` is `B + 1` rounded up to a power of two. No score matrix is allocated.
