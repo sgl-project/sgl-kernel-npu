@@ -269,25 +269,26 @@ def _tree_attn_kernel(
                 SCALE, d0, BLOCK_D, BLOCK_N,
             )
 
-    if tl.sum(seen) > 0:
-        result = acc / l[:, None]
-    else:
-        # Empty row: exact zero output, not the sink.
-        result = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    # Branch-free empty-row handling: an `if` here also splits the MIX
+    # sub-block after the dot chain, which the Ascend binder rejects.
+    has_seen = tl.sum(seen) > 0
+    inv_l = tl.where(has_seen, 1.0 / l, 0.0)
+    result = acc * inv_l[:, None]
     tl.store(
         OUT + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D + (d0 + d)[None, :],
         result.to(OUT.dtype.element_ty),
         mask=head_mask[:, None],
     )
 
-    # LSE is head-only, not per D-slice: let exactly one program publish it so
-    # the four (T, head-block, D-slice) programs never race on the same cell.
-    if RETURN_LSE and pid_d == 0:
-        if tl.sum(seen) > 0:
-            lse = tl.log(l) + m
-        else:
-            lse = tl.zeros([BLOCK_H], dtype=tl.float32)
-        tl.store(LSE + pid_t * N1 + heads, lse, mask=head_mask)
+    # LSE is head-only, not per D-slice: only pid_d == 0 writes it.  Use a
+    # store mask instead of a runtime branch for the same MIX-binder reason.
+    if RETURN_LSE:
+        lse = tl.where(has_seen, tl.log(l) + m, 0.0)
+        tl.store(
+            LSE + pid_t * N1 + heads,
+            lse,
+            mask=head_mask & (pid_d == 0),
+        )
 
 
 def _validate_sinks(sinks, num_heads: int, num_rows: int):
