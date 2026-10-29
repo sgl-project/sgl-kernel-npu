@@ -8,6 +8,7 @@ The independent torch_native implementation is an accuracy reference on CPU;
 its transfers must not be reported as an NPU performance baseline.
 """
 
+import math
 from functools import partial
 
 import pytest
@@ -120,10 +121,27 @@ def _cache_rows(cache, cache_mode):
     return cache.reshape(blocks * page, dim)
 
 
-def _mx_scale(scales):
-    exponent = scales.cpu().view(torch.uint8)
-    assert torch.all(exponent != 255), "MXFP8 scales must be finite"
-    return torch.pow(2.0, exponent.float() - 127)
+def _assert_fp8_accuracy(actual, reference, *, path):
+    """Compare finite E4M3 results in the reference's quantization units."""
+    # CANN mixed tolerance: 99% close elements plus a value-dependent error cap.
+    # https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/mixed_tolerance_standard.md
+    assert (
+        torch.isfinite(actual).all() and torch.isfinite(reference).all()
+    ), f"{path}: expected finite FP8 results"
+    error = (actual - reference).abs()
+    matched = int((error <= 0.125 + 0.125 * reference.abs()).sum())
+    max_index = int(error.argmax())
+    max_error = error.flatten()[max_index].item()
+    reference_at_max = reference.flatten()[max_index].abs().item()
+    # E4M3 has three mantissa bits; zero/subnormals have spacing 2**-9.
+    ulp = 2.0 ** (math.floor(math.log2(max(reference_at_max, 2.0**-6))) - 3)
+    error_limit = max(1.0, 32 * ulp)
+    assert matched * 100 >= error.numel() * 99 and max_error <= error_limit, (
+        f"{path}: matched={matched}/{error.numel()} "
+        f"({matched / error.numel():.6%}, required >=99%), "
+        f"max_abs_error={max_error:.9g}, limit={error_limit:.9g}, "
+        f"flat_index={max_index}, abs_reference={reference_at_max:.9g}"
+    )
 
 
 def _check_contract(outputs, inputs):
@@ -162,21 +180,23 @@ def _accuracy(outputs, expected, inputs, reference, before):
         assert_accuracy(
             outputs[2], expected[2], _QUERY_SCALE_STANDARD, path="query_scale"
         )
-        query *= outputs[2].cpu()
-        query_ref *= expected[2].cpu()
-    assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
+        # Normalize reconstructed Q to the reference scale before applying the
+        # E4M3 error budget. The two raw FP8 tensors may use different scales.
+        query *= outputs[2].cpu() / expected[2].cpu()
+        _assert_fp8_accuracy(query, query_ref, path="query")
+    else:
+        assert_accuracy(query, query_ref, _BF16_STANDARD, path="query")
     assert_accuracy(outputs[1], expected[1], path="query_rope")
     if inputs["query_norm_flag"]:
         norm, norm_ref = outputs[3].cpu().float(), expected[3].cpu().float()
         if inputs["weight_quant_mode"] == 3:
-            norm = (
-                norm.reshape(norm.shape[0], -1, 32) * _mx_scale(outputs[4])[..., None]
-            )
-            norm_ref = (
-                norm_ref.reshape(norm_ref.shape[0], -1, 32)
-                * _mx_scale(expected[4])[..., None]
-            )
-        assert_accuracy(norm, norm_ref, _BF16_STANDARD, path="query_norm")
+            scale = outputs[4].cpu().view(torch.uint8)
+            scale_ref = expected[4].cpu().view(torch.uint8)
+            assert torch.all(scale != 255), "MXFP8 scales must be finite"
+            assert torch.equal(scale, scale_ref), "query_norm_scale: E8M0 mismatch"
+            _assert_fp8_accuracy(norm, norm_ref, path="query_norm")
+        else:
+            assert_accuracy(norm, norm_ref, _BF16_STANDARD, path="query_norm")
     untouched = torch.ones(3 * page_size, dtype=torch.bool, device="cpu")
     slots = inputs["cache_index"].cpu()
     untouched[slots[slots >= 0]] = False
@@ -190,9 +210,11 @@ def _accuracy(outputs, expected, inputs, reference, before):
         ), f"{name}: an unwritten slot changed"
         value, value_ref = rows.float(), rows_ref.float()
         if name == "kv_cache" and inputs["kv_cache_quant_mode"] == 1:
-            multiplier = inputs["quant_scale_ckv"].cpu()
-            value, value_ref = value / multiplier, value_ref / multiplier
-        assert_accuracy(value, value_ref, _BF16_STANDARD, path=name)
+            # Both caches share the input scale. Only written slots contribute
+            # to the match ratio; untouched slots are checked byte-for-byte above.
+            _assert_fp8_accuracy(value[~untouched], value_ref[~untouched], path=name)
+        else:
+            assert_accuracy(value, value_ref, _BF16_STANDARD, path=name)
 
 
 @pytest.mark.parametrize(
