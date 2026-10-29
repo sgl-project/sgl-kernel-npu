@@ -29,8 +29,8 @@ from ._common import (
 __all__ = ["compressor_tree"]
 
 # Finite stand-in for -inf: ``exp(m - new_m)`` must never see ``-inf - -inf``.
-# Triton JIT may only read globals annotated as constexpr.
-_NEG: tl.constexpr = -1e38
+# Keep it as a literal inside the JIT body: some triton-ascend builds do not
+# honor module-level constexpr annotations for globals.
 
 
 @triton.jit
@@ -82,7 +82,7 @@ def _window_average(
     row_width: tl.constexpr = 2 * C * D
     value = tl.zeros((1, N_LANES), tl.float32)
     denom = tl.zeros((1, N_LANES), tl.float32)
-    max_score = tl.full((1, N_LANES), _NEG, tl.float32)
+    max_score = tl.full((1, N_LANES), -1e38, tl.float32)
 
     # Slot order matches the source: w // c walks the window position and
     # w % c selects the previous/current half (C4 interleaves, C128 is flat).
