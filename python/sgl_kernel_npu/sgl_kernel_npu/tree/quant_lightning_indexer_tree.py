@@ -31,13 +31,18 @@ AscendC kernel's ``BASE_TOPK == 2048`` accumulator width.  Callers whose
 the tail; the reference oracle sorts every valid slot, so tests keep
 ``lengths <= 2048``.
 
-Two kernels:
+Three kernels:
 
-* :func:`_score_kernel` — one program per ``(row, 128-slot block)``; gathers the
-  key row for every slot (paged history *or* tree node), runs the int8 QK as
-  ``tl.dot`` on the cube, then does relu / 2**-10 / FP16 rounding / FP16 weight
-  product / FP32 head reduce / key-scale multiply and stores ``float32``.
-* :func:`_topk_merge_kernel` — one program per row: a 2048-wide score
+* :func:`_gather_kernel` �?one program per ``(row, 128-slot block)``; resolves
+  paged-history vs. tree-ancestor indirection once and materialises a
+  contiguous ``[SLOTS, HEAD_DIM]`` int8 key matrix plus per-slot scale and
+  validity.  This removes the ``64 heads * 16 D-chunks`` repeated gather that
+  dominated the old fused fallback.
+* :func:`_score_kernel` �?reads the contiguous key matrix, runs the QK
+  int32-widening fallback (or optional int8 ``tl.dot``), then does relu /
+  2**-10 / FP16 rounding / FP16 weight product / FP32 head reduce /
+  key-scale multiply and stores ``float32``.
+* :func:`_topk_merge_kernel` �?one program per row: a 2048-wide score
   accumulator reduced by stable insertion (``argmax`` with lowest-index
   tie-break), matching the merge pattern in
   ``indexer/flash_block_score_decode.py``.
@@ -103,30 +108,6 @@ _NUM_WARPS = 1
 _NUM_STAGES = 1
 
 
-@triton.jit
-def _gather_key_tile(
-    history_ptr,
-    nodes_ptr,
-    history_base,
-    node_base,
-    history_valid,
-    node_valid,
-    off_d,
-):
-    """Gather one ``[len(off_d), slots]`` int8 key tile from either key source.
-
-    ``history_base`` / ``node_base`` are per-slot element offsets; masked slots
-    are zero-filled (their score is overwritten with ``-inf`` by the caller).
-    """
-    history_off = history_base[None, :] + off_d[:, None]
-    node_off = node_base[None, :] + off_d[:, None]
-    from_history = tl.load(
-        history_ptr + history_off, mask=history_valid[None, :], other=0
-    )
-    from_nodes = tl.load(nodes_ptr + node_off, mask=node_valid[None, :], other=0)
-    return tl.where(history_valid[None, :], from_history, from_nodes).to(tl.int8)
-
-
 @triton.jit(
     do_not_specialize=[
         "history_page_stride",
@@ -139,12 +120,9 @@ def _gather_key_tile(
         "block_size",
     ]
 )
-def _score_kernel(
-    query_ptr,  # [n, NUM_HEADS, HEAD_DIM] int8
+def _gather_kernel(
     history_ptr,  # [pages, block, 1, HEAD_DIM] int8
     history_scale_ptr,  # [pages, block, 1, 1] fp16
-    weights_ptr,  # [n, NUM_HEADS] fp16
-    query_scale_ptr,  # [n, NUM_HEADS] fp16
     nodes_ptr,  # [num_nodes, HEAD_DIM] int8
     node_scale_ptr,  # [num_nodes] fp16
     ancestors_ptr,  # [n, ancestor_width] int64
@@ -152,7 +130,9 @@ def _score_kernel(
     requests_ptr,  # [n] int64
     table_ptr,  # [table_rows, table_width] int32
     lengths_ptr,  # [n] int32
-    scores_ptr,  # [n, SLOTS] fp32 (out)
+    keys_ptr,  # [n, SLOTS, HEAD_DIM] int8 (out)
+    key_scales_ptr,  # [n, SLOTS] fp32 (out)
+    valid_ptr,  # [n, SLOTS] int8 (out)
     # runtime geometry
     history_page_stride,
     history_scale_page_stride,
@@ -163,27 +143,25 @@ def _score_kernel(
     num_nodes,
     block_size,
     # constexpr meta
-    NUM_HEADS: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     RATIO: tl.constexpr,
     SLOTS: tl.constexpr,
     BLOCK_KV: tl.constexpr,
-    HEAD_BLOCK: tl.constexpr,
-    DOT_D_CHUNK: tl.constexpr,
-    USE_INT8_DOT: tl.constexpr,
 ):
-    """Score ``BLOCK_KV`` logical compressed slots of one query row."""
+    """Resolve every logical slot once and materialise contiguous key rows.
+
+    The previous fused score kernel re-resolved and re-gathered the same key
+    row once per head and D chunk (``64 * 16`` times per slot block).  This
+    kernel pays the paged/tree indirection exactly once; the score kernel then
+    reads a plain ``[n, SLOTS, HEAD_DIM]`` int8 matrix.
+    """
     pid_n = tl.program_id(0)
     pid_kv = tl.program_id(1)
 
-    off_k = pid_kv * BLOCK_KV + tl.arange(0, BLOCK_KV)  # logical slot ids
+    off_k = pid_kv * BLOCK_KV + tl.arange(0, BLOCK_KV)
     out_off = pid_n * SLOTS + off_k
     limit = tl.load(lengths_ptr + pid_n).to(tl.int32)
 
-    # Do not early-return for a block past `limit`: on the MIX backend an
-    # early return inside a program splits the AIC/AIV sub-block and
-    # hivm-bind-sub-block rejects the kernel.  `valid = off_k < limit` below
-    # makes every slot in that block a masked, -inf score instead.
     prefix = tl.load(prefixes_ptr + pid_n).to(tl.int32)
     request = tl.load(requests_ptr + pid_n).to(tl.int64)
 
@@ -228,7 +206,50 @@ def _score_kernel(
     ).to(tl.float32)
     key_scale = tl.where(history_valid, history_scale, node_scale)
 
-    # ---- QK over all query heads, then the §4.3 dequant/reduce chain --------
+    tl.store(key_scales_ptr + out_off, key_scale)
+    tl.store(valid_ptr + out_off, valid.to(tl.int8))
+
+    # One contiguous [BLOCK_KV, HEAD_DIM] key tile: 16 KiB for 128 x 128 int8.
+    # Keeping the tile int8 avoids the int32 widening temporary that previously
+    # made hivm-plan-memory fail for a [head, dim, slot] layout.
+    off_d = tl.arange(0, HEAD_DIM)
+    history_off = history_base[:, None] + off_d[None, :]
+    node_off = node_base[:, None] + off_d[None, :]
+    from_history = tl.load(
+        history_ptr + history_off, mask=history_valid[:, None], other=0
+    )
+    from_nodes = tl.load(nodes_ptr + node_off, mask=node_valid[:, None], other=0)
+    key_tile = tl.where(history_valid[:, None], from_history, from_nodes)
+    tl.store(
+        keys_ptr + out_off[:, None] * HEAD_DIM + off_d[None, :],
+        key_tile,
+    )
+
+
+@triton.jit
+def _score_kernel(
+    query_ptr,  # [n, NUM_HEADS, HEAD_DIM] int8
+    weights_ptr,  # [n, NUM_HEADS] fp16
+    query_scale_ptr,  # [n, NUM_HEADS] fp16
+    keys_ptr,  # [n, SLOTS, HEAD_DIM] int8
+    key_scales_ptr,  # [n, SLOTS] fp32
+    valid_ptr,  # [n, SLOTS] int8
+    scores_ptr,  # [n, SLOTS] fp32 (out)
+    NUM_HEADS: tl.constexpr,
+    HEAD_DIM: tl.constexpr,
+    SLOTS: tl.constexpr,
+    BLOCK_KV: tl.constexpr,
+    HEAD_BLOCK: tl.constexpr,
+    DOT_D_CHUNK: tl.constexpr,
+    USE_INT8_DOT: tl.constexpr,
+):
+    """Score ``BLOCK_KV`` contiguous key rows of one query row."""
+    pid_n = tl.program_id(0)
+    pid_kv = tl.program_id(1)
+
+    off_k = pid_kv * BLOCK_KV + tl.arange(0, BLOCK_KV)
+    out_off = pid_n * SLOTS + off_k
+    key_base = out_off * HEAD_DIM
     off_d = tl.arange(0, HEAD_DIM)
     off_g = tl.arange(0, HEAD_BLOCK)
     query_base = query_ptr + pid_n * (NUM_HEADS * HEAD_DIM)
@@ -237,15 +258,8 @@ def _score_kernel(
 
     acc = tl.zeros((BLOCK_KV,), dtype=tl.float32)
     if USE_INT8_DOT:
-        key_tile = _gather_key_tile(
-            history_ptr,
-            nodes_ptr,
-            history_base,
-            node_base,
-            history_valid,
-            node_valid,
-            off_d,
-        )
+        # [HEAD_DIM, BLOCK_KV] int8; QK is the only cube op in this branch.
+        key_tile = tl.load(keys_ptr + key_base[None, :] + off_d[:, None])
         for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
             head = head_block * HEAD_BLOCK + off_g
             query = tl.load(
@@ -259,26 +273,19 @@ def _score_kernel(
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
             acc += tl.sum(score0 * wq[:, None], axis=0)
     else:
-        # R8 fallback: exact int32 widening.  Keep qk 1-D ([BLOCK_KV]) and
-        # walk one query head at a time; a [HEAD_BLOCK, D_CHUNK, BLOCK_KV]
-        # temporary makes hivm-plan-memory blow up on A3.
+        # R8 fallback: exact int32 widening.  The key tile is already
+        # contiguous in [SLOTS, HEAD_DIM], so each chunk is a single coalesced
+        # load instead of a paged/tree gather.  Keep qk 1-D: a 3-D
+        # [head, dim, slot] temporary still makes hivm-plan-memory fail.
         for head in tl.range(0, NUM_HEADS):
             qk = tl.zeros((BLOCK_KV,), dtype=tl.int32)
             for chunk in tl.range(0, HEAD_DIM // DOT_D_CHUNK):
                 cols = chunk * DOT_D_CHUNK + tl.arange(0, DOT_D_CHUNK)
                 query = tl.load(query_base + head * HEAD_DIM + cols)
-                key_tile = _gather_key_tile(
-                    history_ptr,
-                    nodes_ptr,
-                    history_base,
-                    node_base,
-                    history_valid,
-                    node_valid,
-                    cols,
-                )
+                key_chunk = tl.load(keys_ptr + key_base[:, None] + cols[None, :])
                 qk += tl.sum(
-                    query.to(tl.int32)[:, None] * key_tile.to(tl.int32),
-                    axis=0,
+                    query.to(tl.int32)[None, :] * key_chunk.to(tl.int32),
+                    axis=1,
                 )
             score0 = tl.maximum(qk, 0).to(tl.float32) * 0.0009765625
             score0 = score0.to(tl.float16).to(tl.float32)
@@ -287,6 +294,8 @@ def _score_kernel(
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
             acc += score0 * wq
 
+    valid = tl.load(valid_ptr + out_off) != 0
+    key_scale = tl.load(key_scales_ptr + out_off)
     score = tl.where(valid, acc * key_scale, float("-inf"))
     tl.store(scores_ptr + out_off, score)
 
@@ -475,13 +484,21 @@ def quant_lightning_indexer_tree(
     use_int8_dot = _USE_INT8_DOT
     head_block = _HEAD_BLOCK_DOT if use_int8_dot else _HEAD_BLOCK_MANUAL
 
+    # Per-row contiguous key matrix.  n is the draft-tree row count (typically
+    # <= 64), so this is a few MiB; the previous fused kernel traded that
+    # memory for 1024 strided gathers per slot block and was ~20x slower.
+    keys = torch.empty(
+        (n, slots, _HEAD_DIM), dtype=torch.int8, device=query.device
+    )
+    key_scales = torch.empty(
+        (n, slots), dtype=torch.float32, device=query.device
+    )
+    valid = torch.empty((n, slots), dtype=torch.int8, device=query.device)
     scores = torch.empty((n, slots), dtype=torch.float32, device=query.device)
-    _score_kernel[(n, slots // _BLOCK_KV)](
-        query,
+
+    _gather_kernel[(n, slots // _BLOCK_KV)](
         history,
         history_scale,
-        weights,
-        query_scale,
         nodes,
         node_scale,
         ancestors,
@@ -489,7 +506,9 @@ def quant_lightning_indexer_tree(
         requests,
         table,
         lengths,
-        scores,
+        keys,
+        key_scales,
+        valid,
         history.stride(0),
         history_scale.stride(0),
         int(history.shape[0]),
@@ -498,9 +517,24 @@ def quant_lightning_indexer_tree(
         int(ancestors.shape[1]),
         num_nodes,
         int(history.shape[1]),
-        NUM_HEADS=_QUERY_HEADS,
         HEAD_DIM=_HEAD_DIM,
         RATIO=_RATIO,
+        SLOTS=slots,
+        BLOCK_KV=_BLOCK_KV,
+        num_warps=_NUM_WARPS,
+        num_stages=_NUM_STAGES,
+    )
+
+    _score_kernel[(n, slots // _BLOCK_KV)](
+        query,
+        weights,
+        query_scale,
+        keys,
+        key_scales,
+        valid,
+        scores,
+        NUM_HEADS=_QUERY_HEADS,
+        HEAD_DIM=_HEAD_DIM,
         SLOTS=slots,
         BLOCK_KV=_BLOCK_KV,
         HEAD_BLOCK=head_block,

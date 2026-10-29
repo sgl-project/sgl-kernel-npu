@@ -466,11 +466,17 @@ This is Python-side only (`native_indexer.py`), documented in
 
 ### 4.4 Triton port shape (planning only)
 
-- `_score_kernel`: grid `(n, ceil(kv/BS2))`, `BS2=512`; int8 `tl.dot`→int32,
+- `_gather_kernel`: grid `(n, ceil(kv/BLOCK_KV))`, `BLOCK_KV=128`; resolve
+  paged-history / tree-ancestor indirection once and materialise contiguous
+  `[n, slots, 128]` int8 keys plus per-slot scale and validity.
+- `_score_kernel`: grid `(n, ceil(kv/BLOCK_KV))`; read the contiguous key
+  matrix, int32-widening fallback (or optional int8 `tl.dot` -> int32),
   `relu`, `*2^-10`, FP16 cast, `w*qs` in FP16, FP32 head reduce, `*scale`.
+  The previous fused kernel re-gathered the key row for every head and D
+  chunk (`64 * 16` times), which dominated the A3 fallback.
 - `_topk_merge_kernel`: reuse the 2048-wide accumulator / merge pattern from
   `indexer/flash_block_score_decode.py`; `(score desc, index asc)`.
-- Validate `topk ∈ [1,2048]`.
+- Validate `topk in [1,2048]`.
 
 ---
 
