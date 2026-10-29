@@ -174,13 +174,11 @@ def _score_kernel(
     off_k = pid_kv * BLOCK_KV + tl.arange(0, BLOCK_KV)  # logical slot ids
     out_off = pid_n * SLOTS + off_k
     limit = tl.load(lengths_ptr + pid_n).to(tl.int32)
-    if pid_kv * BLOCK_KV >= limit:
-        tl.store(
-            scores_ptr + out_off,
-            tl.full((BLOCK_KV,), float("-inf"), tl.float32),
-        )
-        return
 
+    # Do not early-return for a block past `limit`: on the MIX backend an
+    # early return inside a program splits the AIC/AIV sub-block and
+    # hivm-bind-sub-block rejects the kernel.  `valid = off_k < limit` below
+    # makes every slot in that block a masked, -inf score instead.
     prefix = tl.load(prefixes_ptr + pid_n).to(tl.int32)
     request = tl.load(requests_ptr + pid_n).to(tl.int64)
 
