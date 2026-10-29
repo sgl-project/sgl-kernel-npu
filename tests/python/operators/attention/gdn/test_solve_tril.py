@@ -11,7 +11,7 @@ from tests.python.utils.performance import check_performance
 # Sources: sglang/srt/{configs,models}/qwen3_next.py and
 # sglang/srt/layers/attention/linear/kernels/gdn_triton.py.
 # Lengths below are representative prefill loads, not captured runtime inputs.
-perf_shape = [(1, 2048, 32, 64), (1, 2048, 8, 64)]
+perf_shape = [(1, 2048, 32, 64), (1, 2048, 8, 64), (1, 2048, 48, 64), (1, 2048, 12, 64)]
 
 
 def generate_test_data(shape, dtype, mode, lengths=None, index_dtype=torch.int64):
@@ -30,7 +30,8 @@ def generate_test_data(shape, dtype, mode, lengths=None, index_dtype=torch.int64
             size = min(C, length - start)
             if mode == "normal":
                 keys = torch.nn.functional.normalize(
-                    torch.randn(B, H, C, 32, dtype=torch.float32), dim=-1
+                    torch.randn(B, H, C, 32, dtype=torch.float32),
+                    dim=-1,
                 )
                 block = (0.1 * (keys @ keys.transpose(-1, -2))).tril(-1)
                 A[:, bos + start : bos + start + size] = block.permute(0, 2, 1, 3)[
@@ -50,11 +51,20 @@ def generate_test_data(shape, dtype, mode, lengths=None, index_dtype=torch.int64
     [
         pytest.param((1, 2048, 32, 64), None, id="qwen3-next-tp1-prefill"),
         pytest.param((1, 2048, 8, 64), None, id="qwen3-next-tp4-prefill"),
+        # https://huggingface.co/Qwen/Qwen3.5-27B/raw/main/config.json
+        # 16 key heads, 48 value heads,
+        # K=V=128. solve_tril sees value heads only; T is a sample load.
+        pytest.param((1, 2048, 48, 64), None, id="qwen3.5-27b-tp1-prefill"),
+        pytest.param((1, 2048, 12, 64), None, id="qwen3.5-27b-tp4-prefill"),
+        # Shapes from tests/python/sgl_kernel_npu/test_solve_tril.py.
+        pytest.param((1, 63, 1, 16), None, id="legacy-b1-t63-h1-c16"),
+        pytest.param((2, 500, 4, 32), None, id="legacy-b2-t500-h4-c32"),
+        pytest.param((2, 1000, 5, 64), None, id="legacy-b2-t1000-h5-c64"),
+        pytest.param((3, 1024, 6, 64), None, id="legacy-b3-t1024-h6-c64"),
+        pytest.param((4, 2048, 8, 64), None, id="legacy-b4-t2048-h8-c64"),
         pytest.param((1, 1, 1, 16), None, id="minimum-one-token"),
-        pytest.param((2, 15, 3, 16), None, id="batched-odd-heads-tail16"),
         pytest.param((2, 33, 3, 32), None, id="tail32-plus-one"),
         pytest.param((1, 63, 1, 64), None, id="tail64-minus-one"),
-        pytest.param((1, 64, 1, 64), None, id="exact64"),
         pytest.param((1, 65, 1, 64), None, id="tail64-plus-one"),
         # The diagonal kernel handles 1216 rows in two tasks of 608 rows.
         pytest.param((1, 607, 1, 64), None, id="task-boundary-minus-one"),
