@@ -81,7 +81,7 @@ def _load_vendor() -> Any:
 
 def _find_meta_op(*names: str) -> Any:
     """Find a metadata op registered by vllm-ascend or SGLang bindings."""
-    for ns_name in ("custom", "_C_ascend", "npu"):
+    for ns_name in ("custom", "_C_ascend", "npu", "cann_ops_transformer"):
         ns = getattr(torch.ops, ns_name, None)
         if ns is None:
             continue
@@ -99,13 +99,15 @@ def _build_metadata(ns: Any, op: str, kwargs: dict[str, Any]) -> torch.Tensor:
         meta_op = _find_meta_op(
             "npu_quant_lightning_indexer_v2_metadata",
             "quant_lightning_indexer_v2_metadata",
+            "quant_lightning_indexer_metadata",
         )
         if meta_op is None:
             raise RuntimeError(
                 "no lightning-indexer metadata op found in torch.ops.custom/"
-                "_C_ascend/npu; load the SGLang tree binding .so set"
+                "_C_ascend/npu/cann_ops_transformer; load the SGLang tree binding .so set"
             )
-        return meta_op(
+        try:
+            return meta_op(
             num_heads_q=int(q.shape[1]),
             num_heads_k=1,
             head_dim=int(q.shape[2]),
@@ -121,8 +123,30 @@ def _build_metadata(ns: Any, op: str, kwargs: dict[str, Any]) -> torch.Tensor:
             layout_k="PA_BBND",
             mask_mode=3,
             cmp_ratio=4,
-            device=str(q.device),
-        )
+                device=str(q.device),
+            )
+        except TypeError:
+            # cann_ops_transformer's lower-level metadata op uses the
+            # documented cu_seqlens_k/seqused_k spelling.
+            return meta_op(
+                cu_seqlens_q=kwargs["cu"].to(torch.int32),
+                cu_seqlens_k=None,
+                seqused_q=None,
+                seqused_k=kwargs["lengths"].to(torch.int32),
+                cmp_residual_k=kwargs["residual"].to(torch.int32),
+                batch_size=int(q.shape[0]),
+                max_seqlen_q=1,
+                max_seqlen_k=max(1, int(kwargs["lengths"].max().item())),
+                num_heads_q=int(q.shape[1]),
+                num_heads_k=1,
+                head_dim=int(q.shape[2]),
+                topk=int(kwargs["topk"]),
+                quant_mode=2,
+                mask_mode=3,
+                layout_q="TND",
+                layout_k="PA_BBND",
+                cmp_ratio=4,
+            )
 
     if op == "attention":
         q = kwargs["q"]
