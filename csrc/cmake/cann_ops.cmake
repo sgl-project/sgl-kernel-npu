@@ -61,8 +61,9 @@ function(sgl_generate_cann_interfaces output_dir)
     if(NOT signature STREQUAL previous OR NOT EXISTS "${output_dir}/op_proto.cc")
         file(REMOVE_RECURSE "${output_dir}")
         file(MAKE_DIRECTORY "${output_dir}")
+        # SDK code generation compiles Host sources outside CMake's CXX_STANDARD targets.
         npu_op_code_gen(SRC ${host_sources} PACKAGE sgl_kernel_npu
-            COMPILE_OPTIONS "-I${config_dir}" OUT_DIR "${output_dir}")
+            COMPILE_OPTIONS "-std=c++17" "-I${config_dir}" OUT_DIR "${output_dir}")
         file(WRITE "${stamp}" "${signature}")
     else()
         # These are the codegen handoff properties consumed by the SDK's
