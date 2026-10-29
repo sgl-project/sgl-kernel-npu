@@ -160,10 +160,13 @@ def _tree_attn_kernel(
 
     heads = pid_h * BLOCK_H + tl.arange(0, BLOCK_H)
     head_mask = heads < N1
+    # Masked loads still form their addresses; use a safe head for the tail
+    # lanes rather than forming an address past the Q/O/SINKS allocation.
+    head_safe = tl.where(head_mask, heads, 0)
     d0 = pid_d * BLOCK_D
     d = tl.arange(0, BLOCK_D)
 
-    q_base = Q + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D
+    q_base = Q + pid_t * (N1 * NODE_D) + head_safe[:, None] * NODE_D
     q0 = tl.load(q_base + (0 * BLOCK_D + d)[None, :], mask=head_mask[:, None], other=0.0)
     q1 = tl.load(q_base + (1 * BLOCK_D + d)[None, :], mask=head_mask[:, None], other=0.0)
     q2 = tl.load(q_base + (2 * BLOCK_D + d)[None, :], mask=head_mask[:, None], other=0.0)
@@ -172,7 +175,7 @@ def _tree_attn_kernel(
     if HAS_SINK:
         sink_row = pid_t if SINK_PER_ROW else 0
         m = tl.load(
-            SINKS + sink_row * SINK_STRIDE_T + heads * SINK_STRIDE_H,
+            SINKS + sink_row * SINK_STRIDE_T + head_safe * SINK_STRIDE_H,
             mask=head_mask,
             other=0.0,
         )
@@ -201,11 +204,16 @@ def _tree_attn_kernel(
             first_neg = tl.min(tl.where(slot < 0, cols, ORI_W))
             stop = tl.minimum(stop, first_neg)
 
-            valid = cols < stop
             page = slot // ORI_ROWS
-            valid = valid & (slot >= 0) & (page < ORI_PAGES)
-            off = page.to(tl.int64) * ORI_S0 + (
-                slot - page * ORI_ROWS
+            page_ok = (slot >= 0) & (page >= 0) & (page < ORI_PAGES)
+            valid = (cols < stop) & page_ok
+            # A padded -1 slot makes ``page`` negative.  Clamp every pointer
+            # input for masked lanes: Ascend still forms the address even when
+            # the load mask is false.
+            page_safe = tl.where(page_ok, page, 0)
+            slot_safe = tl.where(page_ok, slot, 0)
+            off = page_safe.to(tl.int64) * ORI_S0 + (
+                slot_safe - page_safe * ORI_ROWS
             ).to(tl.int64) * ORI_S1
 
             seen += tl.sum(valid.to(tl.int32))
@@ -243,14 +251,18 @@ def _tree_attn_kernel(
             # Paged compressed history: logical -> (page, row) via the table.
             is_paged = idx_ok & (logical >= 0) & (logical < paged_end)
             page_col = logical // CMP_ROWS
+            page_col_ok = is_paged & (page_col >= 0) & (page_col < CMP_TABLE_W)
+            page_col_safe = tl.where(page_col_ok, page_col, 0)
             page = tl.load(
-                CMP_TABLE + pid_t * CMP_TABLE_S0 + page_col,
-                mask=is_paged & (page_col < CMP_TABLE_W),
+                CMP_TABLE + pid_t * CMP_TABLE_S0 + page_col_safe,
+                mask=page_col_ok,
                 other=-1,
             )
-            paged_valid = is_paged & (page >= 0) & (page < CMP_PAGES)
-            paged_off = page.to(tl.int64) * CMP_S0 + (
-                logical - page_col * CMP_ROWS
+            paged_valid = page_col_ok & (page >= 0) & (page < CMP_PAGES)
+            page_safe = tl.where(paged_valid, page, 0)
+            logical_safe = tl.where(paged_valid, logical, 0)
+            paged_off = page_safe.to(tl.int64) * CMP_S0 + (
+                logical_safe - page_col_safe * CMP_ROWS
             ).to(tl.int64) * CMP_S1
             seen += tl.sum(paged_valid.to(tl.int32))
             m, l, acc = _attend_chunk(
@@ -261,12 +273,16 @@ def _tree_attn_kernel(
             # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
             is_tree = idx_ok & (logical >= 0) & (logical >= paged_end)
             step = (logical + 1) * RATIO - 1 - prefix
-            step_ok = is_tree & (step >= 0) & (step < MAX_DEPTH)
+            step_ok = is_tree & (logical >= 0) & (step >= 0) & (step < MAX_DEPTH)
+            step_safe = tl.where(step_ok, step, 0)
             node = tl.load(
-                ANCESTORS + pid_t * MAX_DEPTH + step, mask=step_ok, other=-1
+                ANCESTORS + pid_t * MAX_DEPTH + step_safe,
+                mask=step_ok,
+                other=-1,
             )
             tree_valid = step_ok & (node >= 0) & (node < NODE_COUNT)
-            tree_off = node * NODE_D
+            node_safe = tl.where(tree_valid, node, 0)
+            tree_off = node_safe * NODE_D
             seen += tl.sum(tree_valid.to(tl.int32))
             m, l, acc = _attend_chunk(
                 TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l, acc,
@@ -279,7 +295,7 @@ def _tree_attn_kernel(
     inv_l = tl.where(has_seen, 1.0 / l, 0.0)
     result = acc * inv_l[:, None]
     tl.store(
-        OUT + pid_t * (N1 * NODE_D) + heads[:, None] * NODE_D + (d0 + d)[None, :],
+        OUT + pid_t * (N1 * NODE_D) + head_safe[:, None] * NODE_D + (d0 + d)[None, :],
         result.to(OUT.dtype.element_ty),
         mask=head_mask[:, None],
     )
@@ -289,7 +305,7 @@ def _tree_attn_kernel(
     if RETURN_LSE:
         lse = tl.where(has_seen, tl.log(l) + m, 0.0)
         tl.store(
-            LSE + pid_t * N1 + heads,
+            LSE + pid_t * N1 + head_safe,
             lse,
             mask=head_mask & (pid_d == 0),
         )
