@@ -13,11 +13,37 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 # (tokens, capacity, valid bank rows, hidden size). K3 H from the SGLang
 # source; decode/batched token and bank dimensions are synthetic selections.
 perf_shape = [(1, 8, 3, 7168), (17, 16, 8, 7168)]
+
+
+# Shared by accuracy/performance tests and supplementary output checks.
+attn_residual_mix_cases = [
+    pytest.param((1, 8, 3, 7168), "random", "contiguous", id="k3-decode-scenario"),
+    pytest.param((17, 16, 8, 7168), "random", "contiguous", id="k3-batch-scenario"),
+    pytest.param((1, 0, 0, 1), "random", "contiguous", id="minimum-empty-bank"),
+    pytest.param((3, 5, 0, 16), "unused_nan", "contiguous", id="no-valid-rows"),
+    pytest.param((31, 3, 1, 31), "random", "contiguous", id="tokens-31-h31-nb2"),
+    pytest.param((32, 3, 2, 33), "random", "contiguous", id="tokens-32-h33-nb4"),
+    pytest.param((33, 3, 3, 127), "random", "contiguous", id="tokens-33-h127-full-nb4"),
+    pytest.param((65, 5, 4, 64), "random", "contiguous", id="tokens-65-nb8"),
+    pytest.param((7, 8, 8, 128), "random", "contiguous", id="full-nb16"),
+    pytest.param((5, 4, 3, 64), "zero_inputs", "contiguous", id="zero-variance"),
+    pytest.param((9, 7, 5, 128), "zero_weight", "contiguous", id="equal-scores"),
+    pytest.param((3, 4, 3, 32), "identical_rows", "contiguous", id="pre-norm-mixture"),
+    pytest.param((3, 4, 3, 32), "large_scores", "contiguous", id="stable-softmax"),
+    pytest.param((5, 6, 2, 64), "unused_nan", "contiguous", id="ignore-unused-bank"),
+    pytest.param((7, 5, 3, 128), "random", "padded", id="token-row-strides"),
+    pytest.param((3, 0, 0, 64), "random", "padded", id="padded-empty-bank"),
+]
 
 
 def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42):
@@ -92,33 +118,7 @@ def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize(
-    "shape,mode,layout",
-    [
-        pytest.param((1, 8, 3, 7168), "random", "contiguous", id="k3-decode-scenario"),
-        pytest.param((17, 16, 8, 7168), "random", "contiguous", id="k3-batch-scenario"),
-        pytest.param((1, 0, 0, 1), "random", "contiguous", id="minimum-empty-bank"),
-        pytest.param((3, 5, 0, 16), "unused_nan", "contiguous", id="no-valid-rows"),
-        pytest.param((31, 3, 1, 31), "random", "contiguous", id="tokens-31-h31-nb2"),
-        pytest.param((32, 3, 2, 33), "random", "contiguous", id="tokens-32-h33-nb4"),
-        pytest.param(
-            (33, 3, 3, 127), "random", "contiguous", id="tokens-33-h127-full-nb4"
-        ),
-        pytest.param((65, 5, 4, 64), "random", "contiguous", id="tokens-65-nb8"),
-        pytest.param((7, 8, 8, 128), "random", "contiguous", id="full-nb16"),
-        pytest.param((5, 4, 3, 64), "zero_inputs", "contiguous", id="zero-variance"),
-        pytest.param((9, 7, 5, 128), "zero_weight", "contiguous", id="equal-scores"),
-        pytest.param(
-            (3, 4, 3, 32), "identical_rows", "contiguous", id="pre-norm-mixture"
-        ),
-        pytest.param((3, 4, 3, 32), "large_scores", "contiguous", id="stable-softmax"),
-        pytest.param(
-            (5, 6, 2, 64), "unused_nan", "contiguous", id="ignore-unused-bank"
-        ),
-        pytest.param((7, 5, 3, 128), "random", "padded", id="token-row-strides"),
-        pytest.param((3, 0, 0, 64), "random", "padded", id="padded-empty-bank"),
-    ],
-)
+@pytest.mark.parametrize("shape,mode,layout", attn_residual_mix_cases)
 def test_attn_residual_mix(
     shape,
     dtype,
@@ -127,19 +127,33 @@ def test_attn_residual_mix(
 ):
     from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
 
-    inputs = generate_test_data(shape, dtype, mode, layout)
-    snapshots = tuple(value.clone() for value in inputs)
-    prefix, bank, weight = inputs
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
     executor = check_accuracy(
         attn_residual_mix, args=(prefix, bank, shape[2], weight, 1e-6)
     )
-    # Preserve --skip-acc-check: contract checks must not trigger another call.
-    if executor.accuracy_checked:
-        _check_output_contract(executor(), inputs, snapshots, shape[2], mode)
     check_performance(
         executor,
         enable_perf=(shape in perf_shape and dtype == torch.float16),
     )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,mode,layout", attn_residual_mix_cases)
+def test_attn_residual_mix_output_contract(shape, dtype, mode, layout):
+    """Supplementary allocation, input-preservation and special-case checks."""
+    if get_skip_acc_check() is True:
+        pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
+
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+
+    inputs = generate_test_data(shape, dtype, mode, layout)
+    snapshots = tuple(value.clone() for value in inputs)
+    prefix, bank, weight = inputs
+    impl, _ = get_test_impls()
+    require_test_impl(attn_residual_mix, impl)
+    result = attn_residual_mix(prefix, bank, shape[2], weight, 1e-6, impl=impl)
+    _check_output_contract(result, inputs, snapshots, shape[2], mode)
 
 
 @pytest.mark.parametrize(
@@ -194,14 +208,34 @@ def test_attn_residual_mix_empty_tokens(
     prefix = torch.empty(0, 6, dtype=dtype, device=input_device)[:, ::2]
     bank = torch.empty(0, capacity, 6, dtype=dtype, device=input_device)[..., ::2]
     weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
-    executor = check_accuracy(
-        attn_residual_mix, args=(prefix, bank, valid_rows, weight, 1e-6)
-    )
-    if executor.accuracy_checked:
-        assert executor() is prefix
+    check_accuracy(attn_residual_mix, args=(prefix, bank, valid_rows, weight, 1e-6))
     # There is no device task to profile, even when --enable-perf=true.
 
 
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("input_device", ["cpu", "npu"])
+@pytest.mark.parametrize("capacity,valid_rows", [(0, 0), (5, 3)])
+def test_attn_residual_mix_empty_output_contract(
+    dtype, input_device, capacity, valid_rows
+):
+    """Empty calls preserve the input object's identity."""
+    if get_skip_acc_check() is True:
+        pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
+
+    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+
+    prefix = torch.empty(0, 6, dtype=dtype, device=input_device)[:, ::2]
+    bank = torch.empty(0, capacity, 6, dtype=dtype, device=input_device)[..., ::2]
+    weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
+    impl, _ = get_test_impls()
+    require_test_impl(attn_residual_mix, impl)
+    assert (
+        attn_residual_mix(prefix, bank, valid_rows, weight, 1e-6, impl=impl) is prefix
+    )
+
+
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "invalid_input,exception",
     [
