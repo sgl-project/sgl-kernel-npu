@@ -300,7 +300,10 @@ def compressor_tree_project(
     if t == 0:
         return None
 
-    grid = (triton.cdiv(t, _BLOCK_M), triton.cdiv(width, _BLOCK_N))
+    # A tile must never straddle the kv/score boundary.  HALF=128 needs the
+    # smaller tile; the wider 256 tile halves program count for larger heads.
+    block_n = 128 if half == 128 else 256
+    grid = (triton.cdiv(t, _BLOCK_M), triton.cdiv(width, block_n))
     _compressor_tree_project_kernel[grid](
         x,
         wkv,
@@ -315,7 +318,7 @@ def compressor_tree_project(
         ape.stride(0),
         HALF=half,
         BLOCK_M=_BLOCK_M,
-        BLOCK_N=_BLOCK_N,
+        BLOCK_N=block_n,
         BLOCK_K=_BLOCK_K,
         num_warps=_NUM_WARPS,
         num_stages=_NUM_STAGES,

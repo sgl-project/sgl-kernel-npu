@@ -92,7 +92,7 @@ _BLOCK_KV = 128
 # [HEAD_BLOCK, DOT_D_CHUNK, BLOCK_KV] int32 widening tile stays inside UB.
 _HEAD_BLOCK_DOT = 32
 _HEAD_BLOCK_MANUAL = 16
-_DOT_D_CHUNK = 8
+_DOT_D_CHUNK = 128
 
 # R8: native int8 tl.dot -> int32 is faster but some triton-ascend builds
 # cannot bind the resulting MIX/CV sub-block for this shape.  Default to the
