@@ -595,8 +595,13 @@ def validate_random_profile_results(
             fused_output, fused_counts = fused_results[result_idx]
             valid_small_output = small_output[:local_num_tokens]
             valid_fused_output = fused_output[:local_num_tokens]
-            small_nan_count = torch.isnan(small_output).sum().item()
-            fused_nan_count = torch.isnan(fused_output).sum().item()
+            valid_small_nan_count = torch.isnan(valid_small_output).sum().item()
+            valid_fused_nan_count = torch.isnan(valid_fused_output).sum().item()
+            # The small-op baseline pads variable per-rank inputs. Its masked
+            # padding rows have no output semantics and may contain NaNs.
+            padded_small_nan_count = (
+                torch.isnan(small_output[local_num_tokens:]).sum().item()
+            )
             avg_diff, max_diff, cosine_diff = summarize_output_diff(
                 valid_small_output, valid_fused_output
             )
@@ -649,8 +654,8 @@ def validate_random_profile_results(
                 assert fused_output.dtype == torch.bfloat16
                 assert small_counts.shape == (local_experts,)
                 assert fused_counts.shape == (local_experts,)
-                assert small_nan_count == 0
-                assert fused_nan_count == 0
+                assert valid_small_nan_count == 0
+                assert valid_fused_nan_count == 0
                 torch.testing.assert_close(small_counts, fused_counts)
                 if local_num_tokens > 0:
                     try:
@@ -683,8 +688,10 @@ def validate_random_profile_results(
                     f"performance_iteration={test_idx}, result_index={result_idx}, "
                     f"seed={case['seed']}, local_num_tokens={local_num_tokens}, "
                     f"avg_diff={avg_diff:.6f}, max_diff={max_diff:.6f}, "
-                    f"calc_diff={cosine_diff:.6f}, small_nan_count={small_nan_count}, "
-                    f"fused_nan_count={fused_nan_count}, "
+                    f"calc_diff={cosine_diff:.6f}, "
+                    f"valid_small_nan_count={valid_small_nan_count}, "
+                    f"valid_fused_nan_count={valid_fused_nan_count}, "
+                    f"padded_small_nan_count={padded_small_nan_count}, "
                     f"expert_ids={case['fused_inputs']['expert_ids'].cpu().tolist()}, "
                     f"small_counts={small_counts.cpu().tolist()}, "
                     f"fused_counts={fused_counts.cpu().tolist()}, "
@@ -1389,34 +1396,28 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         assert fused_output.dtype == torch.bfloat16
         assert small_counts.shape == (local_experts,)
         assert fused_counts.shape == (local_experts,)
-        assert torch.isnan(small_output).sum().item() == 0
-        assert torch.isnan(fused_output).sum().item() == 0
+        valid_small_output = small_output[:local_num_tokens]
+        valid_fused_output = fused_output[:local_num_tokens]
+        assert torch.isnan(valid_small_output).sum().item() == 0
+        assert torch.isnan(valid_fused_output).sum().item() == 0
 
         torch.testing.assert_close(small_counts, fused_counts)
         if expected_counts is not None:
             torch.testing.assert_close(small_counts, expected_counts)
             torch.testing.assert_close(fused_counts, expected_counts)
-        valid_token_num = local_num_tokens
 
         avg_diff, max_diff, cosine_diff = summarize_output_diff(
-            small_output[:valid_token_num], fused_output[:valid_token_num]
-        )
-        small_absmax, small_mean = summarize_tensor_stats(
-            small_output[:valid_token_num]
-        )
-        fused_absmax, fused_mean = summarize_tensor_stats(
-            fused_output[:valid_token_num]
+            valid_small_output, valid_fused_output
         )
         mismatch_ratio = 0.0
-        small_cpu = None
-        fused_cpu = None
-        if has_valid_tokens:
-            small_cpu = small_output[:valid_token_num].float().cpu()
-            fused_cpu = fused_output[:valid_token_num].float().cpu()
-            if args.activation == "situ":
-                abs_error = (small_cpu - fused_cpu).abs()
-                tolerance = ACCURACY_ATOL + ACCURACY_RTOL * fused_cpu.abs()
-                mismatch_ratio = (abs_error > tolerance).float().mean().item()
+        if has_valid_tokens and args.activation == "situ":
+            small_cpu = valid_small_output.float().cpu()
+            fused_cpu = valid_fused_output.float().cpu()
+            abs_error = (small_cpu - fused_cpu).abs()
+            tolerance = ACCURACY_ATOL + ACCURACY_RTOL * fused_cpu.abs()
+            mismatch_ratio = (abs_error > tolerance).float().mean().item()
+        small_absmax, small_mean = summarize_tensor_stats(valid_small_output)
+        fused_absmax, fused_mean = summarize_tensor_stats(valid_fused_output)
         diag_tensor = torch.tensor(
             [
                 avg_diff,
@@ -1468,8 +1469,8 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 )
         elif has_valid_tokens:
             torch.testing.assert_close(
-                small_cpu,
-                fused_cpu,
+                valid_small_output.float(),
+                valid_fused_output.float(),
                 atol=ACCURACY_ATOL,
                 rtol=ACCURACY_RTOL,
             )
@@ -2003,19 +2004,19 @@ def main():
         0 <= args.single_active_rank < args.num_processes
     ):
         parser.error("--single-active-rank must be in [0, --num-processes - 1]")
-    if not 1 <= args.num_topk <= min(args.num_experts, 12):
-        parser.error("--num-topk must be in [1, min(--num-experts, 12)]")
+    if not 1 <= args.num_topk <= min(args.num_experts, 16):
+        parser.error("--num-topk must be in [1, min(--num-experts, 16)]")
     if not 1 <= args.num_tokens <= 256:
         parser.error("--num-tokens must be in [1, 256]")
     if args.num_token_jitter < 0:
         parser.error("--num-token-jitter must be non-negative")
     if args.single_active_rank is not None and args.num_token_jitter > 0:
         parser.error("--single-active-rank cannot be combined with --num-token-jitter")
-    if not 512 <= args.hidden <= 7168:
-        parser.error("--hidden must be in [512, 7168]")
-    if not 1024 <= gmm1_hidden <= 6144 or gmm1_hidden % 1024 != 0:
+    if not 512 <= args.hidden <= 8192:
+        parser.error("--hidden must be in [512, 8192]")
+    if not 1024 <= gmm1_hidden <= 7168 or gmm1_hidden % 1024 != 0:
         parser.error(
-            "2 * --moe-intermediate-size must be in [1024, 6144] and divisible by 1024"
+            "2 * --moe-intermediate-size must be in [1024, 7168] and divisible by 1024"
         )
     if args.num_warmups < 0:
         parser.error("--num-warmups must be non-negative")

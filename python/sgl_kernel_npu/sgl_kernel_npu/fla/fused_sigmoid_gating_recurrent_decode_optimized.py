@@ -102,7 +102,7 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
             for i_v in tl.range(0, NV):
                 o_v = i_v * BV + o_base_v
                 mask_v = o_v < V
-                mask_h = mask_k[:, None] & mask_v[None, :]
+                mask_h = mask_v[:, None] & mask_k[None, :]
 
                 p_v = v + (bos * HV + i_hv) * V + o_v
                 p_o = o + (bos * HV + i_hv) * V + o_v
@@ -113,8 +113,8 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_k[:, None] * V
-                        + o_v[None, :]
+                        + o_v[:, None] * K
+                        + o_k[None, :]
                     )
 
                 for i in tl.range(0, t_len):
@@ -128,9 +128,9 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
                                 tl.float32
                             )
                         else:
-                            b_h = tl.zeros([BK, BV], dtype=tl.float32)
+                            b_h = tl.zeros([BV, BK], dtype=tl.float32)
                     else:
-                        b_h = tl.zeros([BK, BV], dtype=tl.float32)
+                        b_h = tl.zeros([BV, BK], dtype=tl.float32)
 
                     if USE_QK_L2NORM_IN_KERNEL:
                         b_q = b_q / (tl.sqrt(tl.sum(b_q * b_q)) + 1e-6)
@@ -138,12 +138,12 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
 
                     b_q = b_q * scale
 
-                    # Recurrent delta rule update.
+                    # Recurrent delta rule update. b_h is [BV, BK] (V row, K col).
                     b_h *= b_decay
-                    b_v -= tl.sum(b_h * b_k[:, None], 0)
+                    b_v -= tl.sum(b_h * b_k[None, :], 1)
                     b_v *= b_beta
-                    b_h += b_k[:, None] * b_v[None, :]
-                    b_o = tl.sum(b_h * b_q[:, None], 0)
+                    b_h += b_k[None, :] * b_v[:, None]
+                    b_o = tl.sum(b_h * b_q[None, :], 1)
 
                     if USE_INITIAL_STATE:
                         if idx >= 0:

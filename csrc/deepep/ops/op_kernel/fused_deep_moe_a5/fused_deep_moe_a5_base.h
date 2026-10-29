@@ -5,6 +5,8 @@
 #include "op_kernel/moe_distribute_base.h"
 #elif defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_INC_KERNEL)
 #include "inc/kernel/moe_distribute_base.h"
+#elif defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_COMMON)
+#include "moe_distribute_base.h"
 #else
 #error "A5 fused requires a system moe_distribute_base.h include mode"
 #endif
@@ -20,11 +22,12 @@
 #define TemplateDispatchTypeFunc \
     XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgater, EXEC_FLAG
 
-constexpr int64_t SLEEP_CYCLE = 200;
+constexpr int64_t SLEEP_CYCLE = 100;
 
+template <int64_t CYCLE = SLEEP_CYCLE>
 __aicore__ inline void SPIN_WAIT_CYCLES()
 {
-    AscendC::Nop<SLEEP_CYCLE>();
+    AscendC::Nop<CYCLE>();
 }
 
 #endif  // FUSED_DEEP_MOE_BASE_H

@@ -681,7 +681,7 @@ private:
     template <typename SrcTensor, typename DstTensor>
     __aicore__ inline void ComputeTailWuRow(GlobalTensor<SrcTensor> &src, GlobalTensor<DstTensor> &dst,
                                             uint64_t akkBase, uint64_t srcBase, uint64_t dstBase, uint64_t curT,
-                                            uint64_t dim)
+                                            uint64_t dim, LocalTensor<SrcTensor> *seedSnapshot = nullptr)
     {
         LocalTensor<float> acc = vecBuf_.Get<float>();
         LocalTensor<float> value = vecBuf_.Get<float>()[512];
@@ -696,7 +696,12 @@ private:
         SetFlag<HardEvent::V_S>(EXP2_EVENT_ID);
         WaitFlag<HardEvent::V_S>(EXP2_EVENT_ID);
         for (uint64_t j = 0; j < curT; ++j) {
-            LoadAsFloatVector(src, srcBase + j * dim, value, typed, dim);
+            if (seedSnapshot != nullptr) {
+                Cast(value, (*seedSnapshot)[j * dim], RoundMode::CAST_NONE, static_cast<uint32_t>(dim));
+                PipeBarrier<PIPE_V>();
+            } else {
+                LoadAsFloatVector(src, srcBase + j * dim, value, typed, dim);
+            }
             float coefficient = coefficients.GetValue(j);
             SetFlag<HardEvent::S_V>(EXP2_EVENT_ID);
             WaitFlag<HardEvent::S_V>(EXP2_EVENT_ID);
@@ -720,11 +725,23 @@ private:
     __aicore__ inline void ComputeTailWuVector(uint64_t b, uint64_t hv, uint64_t start, uint64_t curT,
                                                uint64_t subBlockIdx, uint64_t subBlockNum)
     {
+        // On A3, preparedQG_ (the W seed) aliases w_. Snapshot every seed row
+        // before either AIV subblock writes any output row. The upper 64 KiB
+        // of vecBuf_ is unused by ComputeTailWuRow and fits the largest tail
+        // supported by the host: BT <= 128, K <= 256, and 16-bit inputs.
+        constexpr uint32_t seedSnapshotOffsetBytes = 64 * 1024;
+        LocalTensor<T> seedSnapshot = vecBuf_.Get<T>()[seedSnapshotOffsetBytes / sizeof(T)];
+        CopyVectorIn(seedSnapshot, preparedQG_, KVOffset(b, hv, start, 0, K_), curT * K_);
+        SetFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
+        WaitFlag<HardEvent::MTE2_V>(mte2ToVEvent_);
+        // Also participate when this subblock owns no output rows (curT=1).
+        Catlass::Arch::CrossCoreBarrier<0x1, PIPE_MTE2>();
+
         uint64_t rowBegin = (curT * subBlockIdx) / subBlockNum;
         uint64_t rowEnd = (curT * (subBlockIdx + 1)) / subBlockNum;
         for (uint64_t row = rowBegin; row < rowEnd; ++row) {
             ComputeTailWuRow(preparedQG_, w_, AOffset(b, hv, start + row, 0), KVOffset(b, hv, start, 0, K_),
-                             KVOffset(b, hv, start + row, 0, K_), curT, K_);
+                             KVOffset(b, hv, start + row, 0, K_), curT, K_, &seedSnapshot);
             ComputeTailWuRow(propagatedVNew_, u_, AOffset(b, hv, start + row, 0), KVOffset(b, hv, start, 0, V_),
                              KVOffset(b, hv, start + row, 0, V_), curT, V_);
         }

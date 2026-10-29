@@ -85,6 +85,68 @@ static_assert(kLlStateTimeoutOffset + kLlStateTimeoutBytes <= kLlStateSize,
 static_assert(kLlMaxBs * (kLlMaxTopK + kLlMaxSharedExpertNum) * kLlStateEntrySize <= kLlStateTimeoutOffset,
               "V2 combine state must remain inside its state slot");
 }  // namespace A3WindowLayout
+
+namespace A5WindowLayout {
+constexpr uint64_t KB = 1024UL;
+constexpr uint64_t MB = 1024UL * KB;
+
+// A5 windowsIn layout for one ping-pong half in hybrid deployment:
+//
+//   windowsIn + 4MB MTE/state prefix + dataState * kBaseHalfSize
+//   (the table below is relative to GetBaseWindAddrByRankId(), which skips
+//    the fixed 4MB prefix)
+//   +-------------------------------+-----------------------------------------+
+//   | byte range                    | owner / purpose                         |
+//   +-------------------------------+-----------------------------------------+
+//   | [0, 102MB)                    | normal notify-dispatch state/payload    |
+//   | [102MB, 106MB)                | normal combine token-state              |
+//   | [106MB, 106MB + 36KB)         | v2 dispatch selector metadata           |
+//   | [106MB + 36KB, 106MB + 548KB) | v2 dispatch working state               |
+//   | [106MB + 548KB, 106MB + 584KB)| v2 combine selector metadata            |
+//   | [106MB + 584KB, 107MB + 72KB) | v2 combine working state                |
+//   | [107MB + 72KB, halfSize)      | shared normal/v2 token data             |
+//   +-------------------------------+-----------------------------------------+
+//
+// The normal and v2 state/selector ranges are independent in hybrid mode;
+// only their payload data uses the common area beginning at kDataOffset.
+// The same base-relative layout is repeated for dataState 0 and 1. The A5
+// 4MB MTE/state prefix is outside both ping-pong halves and is counted once
+// at window level (2MB per half in host reserved-size calculations).
+constexpr uint64_t kMteStateWinSize = 4UL * MB;
+constexpr uint64_t kNotifyDispatchSize = 102UL * MB;
+constexpr uint64_t kNormalCombineStateSize = 4UL * MB;
+constexpr uint64_t kNormalCombineStateHalfSize = kNormalCombineStateSize / 2UL;
+constexpr uint64_t kNormalCombineStateEntrySize = 32UL;
+constexpr uint64_t kAivCount = 72UL;
+constexpr uint64_t kAivMetadataStride = 512UL;
+constexpr uint64_t kLlSelectorMetadataSize = kAivCount * kAivMetadataStride;
+constexpr uint64_t kLlStateTimeoutBytes = 8UL * sizeof(float);
+constexpr uint64_t kLlStateSize = 512UL * KB;
+constexpr uint64_t kLlStateTimeoutOffset = kLlStateSize - kLlStateTimeoutBytes;
+constexpr uint64_t kLlStateEntrySize = 32UL;
+constexpr uint64_t kLlMaxBs = 512UL;
+constexpr uint64_t kLlMaxTopK = 16UL;
+constexpr uint64_t kLlMaxSharedExpertNum = 4UL;
+static_assert(kLlSelectorMetadataSize <= 50UL * KB, "A5 selector metadata must fit in the 50KB selector control area");
+
+constexpr uint64_t kLegacyNormalDataOffset = kNotifyDispatchSize + kNormalCombineStateSize;
+constexpr uint64_t kLlDispatchSelectorOffset = kLegacyNormalDataOffset;
+constexpr uint64_t kLlDispatchStateOffset = kLlDispatchSelectorOffset + kLlSelectorMetadataSize;
+constexpr uint64_t kLlCombineSelectorOffset = kLlDispatchStateOffset + kLlStateSize;
+constexpr uint64_t kLlCombineStateOffset = kLlCombineSelectorOffset + kLlSelectorMetadataSize;
+constexpr uint64_t kDataOffset = kLlCombineStateOffset + kLlStateSize;
+// Host tiling sizes the complete windowsIn allocation as two ping-pong
+// halves plus one window-level A5 prefix.  The 4MB prefix therefore counts
+// as 2MB in each half's reserved-size calculation.
+constexpr uint64_t kPerHalfReservedSize = kMteStateWinSize / 2UL + kDataOffset;
+static_assert(kPerHalfReservedSize * 2UL == kMteStateWinSize + kDataOffset * 2UL,
+              "A5 reserved size must count the MTE prefix exactly once");
+
+static_assert(kLlStateTimeoutOffset + kLlStateTimeoutBytes <= kLlStateSize,
+              "A5 V2 timeout probe must remain inside its state slot");
+static_assert(kLlMaxBs * (kLlMaxTopK + kLlMaxSharedExpertNum) * kLlStateEntrySize <= kLlStateTimeoutOffset,
+              "A5 V2 combine state must remain inside its state slot");
+}  // namespace A5WindowLayout
 }  // namespace Moe
 
 #endif  // WINDOW_LAYOUT_H
