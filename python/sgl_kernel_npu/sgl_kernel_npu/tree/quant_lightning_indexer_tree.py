@@ -92,6 +92,7 @@ _BLOCK_KV = 128
 # [HEAD_BLOCK, DOT_D_CHUNK, BLOCK_KV] int32 widening tile stays inside UB.
 _HEAD_BLOCK_DOT = 32
 _HEAD_BLOCK_MANUAL = 16
+_FALLBACK_HEAD_BLOCK = int(os.environ.get("SGL_TREE_INDEXER_FALLBACK_HEAD_BLOCK", "16"))
 _DOT_D_CHUNK = 8
 
 # R8: native int8 tl.dot -> int32 is faster but some triton-ascend builds
@@ -259,14 +260,18 @@ def _score_kernel(
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
             acc += tl.sum(score0 * wq[:, None], axis=0)
     else:
-        # R8 fallback: exact int32 widening.  Keep qk 1-D ([BLOCK_KV]) and
-        # walk one query head at a time; a [HEAD_BLOCK, D_CHUNK, BLOCK_KV]
-        # temporary makes hivm-plan-memory blow up on A3.
-        for head in tl.range(0, NUM_HEADS):
-            qk = tl.zeros((BLOCK_KV,), dtype=tl.int32)
+        # R8 fallback: exact int32 widening.  Head-block outer, D-chunk inner
+        # keeps 16 gathers per head-block instead of 16 gathers per head.  All
+        # loops are dynamic; static unrolling previously multiplied the
+        # [HEAD_BLOCK, D_CHUNK, BLOCK_KV] temporary by 64 and blew UB.
+        for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
+            head = head_block * HEAD_BLOCK + off_g
+            qk = tl.zeros((HEAD_BLOCK, BLOCK_KV), dtype=tl.int32)
             for chunk in tl.range(0, HEAD_DIM // DOT_D_CHUNK):
                 cols = chunk * DOT_D_CHUNK + tl.arange(0, DOT_D_CHUNK)
-                query = tl.load(query_base + head * HEAD_DIM + cols)
+                query = tl.load(
+                    query_base + head[:, None] * HEAD_DIM + cols[None, :]
+                )
                 key_tile = _gather_key_tile(
                     history_ptr,
                     nodes_ptr,
@@ -277,15 +282,16 @@ def _score_kernel(
                     cols,
                 )
                 qk += tl.sum(
-                    query.to(tl.int32)[:, None] * key_tile.to(tl.int32),
-                    axis=0,
+                    query.to(tl.int32)[:, :, None]
+                    * key_tile.to(tl.int32)[None, :, :],
+                    axis=1,
                 )
             score0 = tl.maximum(qk, 0).to(tl.float32) * 0.0009765625
             score0 = score0.to(tl.float16).to(tl.float32)
             weight = tl.load(weight_base + head)
             query_scale = tl.load(scale_base + head)
             wq = (weight * query_scale).to(tl.float16).to(tl.float32)
-            acc += score0 * wq
+            acc += tl.sum(score0 * wq[:, None], axis=0)
 
     score = tl.where(valid, acc * key_scale, float("-inf"))
     tl.store(scores_ptr + out_off, score)
@@ -473,7 +479,11 @@ def quant_lightning_indexer_tree(
     slots = max(slots, _BLOCK_KV)
 
     use_int8_dot = _USE_INT8_DOT
-    head_block = _HEAD_BLOCK_DOT if use_int8_dot else _HEAD_BLOCK_MANUAL
+    head_block = _HEAD_BLOCK_DOT if use_int8_dot else _FALLBACK_HEAD_BLOCK
+    if _QUERY_HEADS % head_block:
+        raise TreeContractError(
+            f"indexer fallback head block {head_block} must divide {_QUERY_HEADS}"
+        )
 
     scores = torch.empty((n, slots), dtype=torch.float32, device=query.device)
     _score_kernel[(n, slots // _BLOCK_KV)](
