@@ -63,12 +63,12 @@ $$
 | --- | --- | --- | --- | --- | --- |
 | `prefix_sum` | `torch.Tensor` | `[N, H]` | `torch.float32`、`torch.float16`、`torch.bfloat16` | 必填 | 当前残差前缀；`N >= 0`，`H > 0`。 |
 | `bank` | `torch.Tensor` | `[N, C, H]` | `torch.float32`、`torch.float16`、`torch.bfloat16` | 必填 | 快照 bank；`C >= 0`，与 prefix_sum 同设备，dtype 可以不同。只读取前 `num_valid_blocks` 行。 |
-| `num_valid_blocks` | `int` | — | — | 必填 | Python 整数，排除 bool；必须满足 `0 <= num_valid_blocks <= C`，越界时抛出 `ValueError`。 |
+| `num_valid_blocks` | `int` | — | — | 必填 | Python 整数，排除 bool；必须满足 `0 <= num_valid_blocks <= C`，Triton 实现对越界值抛出 `ValueError`。 |
 | `combined_weight` | `torch.Tensor` | `[H]` | `torch.float32`、`torch.float16`、`torch.bfloat16` | 必填 | 合并后的打分权重；与 prefix_sum 同设备，dtype 可以不同。 |
 | `variance_epsilon` | `int` 或 `float` | — | — | 必填 | Python 实数，排除 bool；必须为有限正数，例如 `1e-6`。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"triton"`、`"torch_native"`。 |
 
-三个 Tensor 均要求 `torch.strided` 布局。实现入口校验元信息，公开 operator 负责分发。空输入也会执行元信息校验。
+三个 Tensor 均要求 `torch.strided` 布局。Triton 在计算前校验元信息，空输入也执行校验；公开 operator 负责分发。`torch_native` 假定输入合法，作为数学参考实现，不显式校验元信息。
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |
 | --- | --- | --- | --- | --- |

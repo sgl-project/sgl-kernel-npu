@@ -2,8 +2,6 @@
 
 import torch
 
-from ...triton.hyper_conn.attn_residual_utils import validate_mix_inputs
-
 
 def attn_res_mix_fused(
     prefix_sum,
@@ -13,9 +11,6 @@ def attn_res_mix_fused(
     variance_epsilon,
 ):
     """Return the mixture of original residual rows, without an output norm."""
-    validate_mix_inputs(
-        prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
-    )
     if prefix_sum.shape[0] == 0:
         return prefix_sum
 

@@ -148,16 +148,6 @@ def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42
     return prefix, bank, weight
 
 
-def _check_accuracy_and_performance(shape, dtype, mode, layout, *, enable_perf=False):
-    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
-
-    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
-    executor = check_accuracy(
-        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
-    )
-    check_performance(executor, enable_perf=enable_perf)
-
-
 def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
     prefix, bank, _ = inputs
     assert isinstance(result, torch.Tensor)
@@ -184,6 +174,7 @@ def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
         torch.testing.assert_close(result, bank[:, 0].to(prefix.dtype), atol=0, rtol=0)
 
 
+# Required accuracy and selected performance checks.
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
 def test_attn_res_mix_fused(
@@ -192,11 +183,14 @@ def test_attn_res_mix_fused(
     mode,
     layout,
 ):
-    _check_accuracy_and_performance(
-        shape,
-        dtype,
-        mode,
-        layout,
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
+    executor = check_accuracy(
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
+    )
+    check_performance(
+        executor,
         enable_perf=(shape in perf_shape and dtype in (torch.float16, torch.bfloat16)),
     )
 
@@ -205,9 +199,13 @@ def test_attn_res_mix_fused(
 @pytest.mark.parametrize("shape,mode,layout", k3_shape_cases)
 def test_attn_res_mix_fused_k3_shapes(shape, dtype, mode, layout):
     """Required synthetic decode, prefill and SP cases at K3's hidden size."""
-    _check_accuracy_and_performance(
-        shape, dtype, mode, layout, enable_perf=shape in perf_shape
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
+    executor = check_accuracy(
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
     )
+    check_performance(executor, enable_perf=shape in perf_shape)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
@@ -235,34 +233,13 @@ def test_attn_res_mix_fused_core_boundaries(
     tokens = max(1, core_multiple * vector_cores + token_offset)
     shape = (tokens, 8, valid_rows, 7168)
     mode = "unused_nan" if valid_rows < 8 else "random"
-    _check_accuracy_and_performance(shape, dtype, mode, "contiguous")
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape,mode,layout", generalization_cases)
-def test_attn_res_mix_fused_generalization(shape, dtype, mode, layout):
-    """Optional large workloads and shapes beyond the representative K3 cases."""
-    _check_accuracy_and_performance(shape, dtype, mode, layout)
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
-def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
-    """Supplementary allocation, input-preservation and special-case checks."""
-    if get_skip_acc_check() is True:
-        pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
-
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
-    inputs = generate_test_data(shape, dtype, mode, layout)
-    snapshots = tuple(value.clone() for value in inputs)
-    prefix, bank, weight = inputs
-    impl, _ = get_test_impls()
-    require_test_impl(attn_res_mix_fused, impl)
-    result = attn_res_mix_fused(prefix, bank, shape[2], weight, 1e-6, impl=impl)
-    _check_output_contract(result, inputs, snapshots, shape[2], mode)
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, "contiguous")
+    executor = check_accuracy(
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
+    )
+    check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.parametrize(
@@ -274,25 +251,14 @@ def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
         (torch.float16, torch.float32, torch.float16),
     ],
 )
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((5, 4, 3, 64), id="small-mixed-dtypes"),
-        pytest.param(
-            (17, 8, 7, 7168),
-            id="k3-mixed-dtypes",
-            marks=pytest.mark.extra_checks,
-        ),
-    ],
-)
 def test_attn_res_mix_fused_mixed_dtypes(
-    shape,
     prefix_dtype,
     bank_dtype,
     weight_dtype,
 ):
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
+    shape = (5, 4, 3, 64)
     prefix, bank, weight = generate_test_data(shape, prefix_dtype, mode="unused_nan")
     executor = check_accuracy(
         attn_res_mix_fused,
@@ -331,6 +297,66 @@ def test_attn_res_mix_fused_empty_tokens(
     weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
     check_accuracy(attn_res_mix_fused, args=(prefix, bank, valid_rows, weight, 1e-6))
     # There is no device task to profile, even when --enable-perf=true.
+
+
+# Supplementary checks, excluded by default.
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,mode,layout", generalization_cases)
+def test_attn_res_mix_fused_generalization(shape, dtype, mode, layout):
+    """Optional large workloads and shapes beyond the representative K3 cases."""
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
+    executor = check_accuracy(
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
+    )
+    check_performance(executor, enable_perf=False)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "prefix_dtype,bank_dtype,weight_dtype",
+    [
+        (torch.float16, torch.bfloat16, torch.float32),
+        (torch.bfloat16, torch.float16, torch.float32),
+        (torch.float32, torch.float16, torch.bfloat16),
+        (torch.float16, torch.float32, torch.float16),
+    ],
+)
+def test_attn_res_mix_fused_mixed_dtypes_k3(
+    prefix_dtype,
+    bank_dtype,
+    weight_dtype,
+):
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    shape = (17, 8, 7, 7168)
+    prefix, bank, weight = generate_test_data(shape, prefix_dtype, mode="unused_nan")
+    executor = check_accuracy(
+        attn_res_mix_fused,
+        args=(prefix, bank.to(bank_dtype), shape[2], weight.to(weight_dtype), 1e-6),
+    )
+    check_performance(executor, enable_perf=False)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
+def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
+    """Supplementary allocation, input-preservation and special-case checks."""
+    if get_skip_acc_check() is True:
+        pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
+
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    inputs = generate_test_data(shape, dtype, mode, layout)
+    snapshots = tuple(value.clone() for value in inputs)
+    prefix, bank, weight = inputs
+    impl, _ = get_test_impls()
+    require_test_impl(attn_res_mix_fused, impl)
+    result = attn_res_mix_fused(prefix, bank, shape[2], weight, 1e-6, impl=impl)
+    _check_output_contract(result, inputs, snapshots, shape[2], mode)
 
 
 @pytest.mark.extra_checks

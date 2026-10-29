@@ -63,12 +63,12 @@ In SGLang, `combined_weight` is the elementwise product of the score RMSNorm wei
 | --- | --- | --- | --- | --- | --- |
 | `prefix_sum` | `torch.Tensor` | `[N, H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | Current residual prefix; `N >= 0` and `H > 0`. |
 | `bank` | `torch.Tensor` | `[N, C, H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | Snapshot bank; `C >= 0`. Must share prefix_sum's device, but may have a different dtype. Only the first `num_valid_blocks` rows are read. |
-| `num_valid_blocks` | `int` | — | — | Required | Python integer excluding bool; must satisfy `0 <= num_valid_blocks <= C`. An out-of-range value raises `ValueError`. |
+| `num_valid_blocks` | `int` | — | — | Required | Python integer excluding bool; must satisfy `0 <= num_valid_blocks <= C`. Triton raises `ValueError` for an out-of-range value. |
 | `combined_weight` | `torch.Tensor` | `[H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | Combined score weight. Must share prefix_sum's device, but may have a different dtype. |
 | `variance_epsilon` | `int` or `float` | — | — | Required | Python real scalar excluding bool; must be finite and positive, such as `1e-6`. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"triton"`, or `"torch_native"`. |
 
-All three tensors require `torch.strided` layout. Implementation entry points validate metadata; the public operator handles dispatch. Empty inputs also undergo metadata validation.
+All three tensors require `torch.strided` layout. Triton validates metadata before computation, including for empty inputs; the public operator handles dispatch. The `torch_native` implementation assumes valid inputs and serves as a mathematical reference without explicit metadata validation.
 
 | Return value | Type | Shape | Dtype | Description and constraints |
 | --- | --- | --- | --- | --- |
