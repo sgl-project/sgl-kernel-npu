@@ -158,3 +158,29 @@ def test_apply_token_bitmask_boundaries(shape, dtype, selection):
         accuracy_checked=not skip_accuracy,
     )
     check_performance(executor, enable_perf=False)
+
+
+@pytest.mark.parametrize("dtype", APPLY_TOKEN_BITMASK_DTYPES)
+@pytest.mark.parametrize("device", ["cpu", "npu"])
+def test_apply_token_bitmask_cpu_reference(dtype, device):
+    """Empty indices select all rows; a missing mask word masks the final token."""
+    from sgl_kernel_npu.operators.sampler import apply_token_bitmask
+
+    logits, bitmask, indices = generate_test_data(
+        (2, 33), dtype, mode="all_unmasked", selection="empty"
+    )
+    logits = logits.to(device)
+    bitmask = bitmask[:, :1].contiguous().to(device)
+    indices = indices.to(device)
+    expected = logits.clone()
+    expected[:, 32:] = float("-inf")
+    original_mask = bitmask.clone()
+
+    result = apply_token_bitmask(logits, bitmask, indices, impl="cpu_reference")
+
+    assert result is logits
+    assert result.device == expected.device
+    assert result.dtype == dtype
+    assert_accuracy(result, expected, standard=APPLY_TOKEN_BITMASK_STANDARD)
+    assert torch.equal(bitmask, original_mask)
+    assert indices.numel() == 0
