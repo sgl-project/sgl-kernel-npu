@@ -13,7 +13,17 @@ import torch.distributed as dist
 import torch_npu
 
 
-def init_dist(local_rank: int, num_local_ranks: int):
+def make_hccl_pg_options(buffer_size: Optional[int]):
+    if buffer_size is None:
+        return None
+    options = torch_npu._C._distributed_c10d.ProcessGroupHCCL.Options()
+    options.hccl_config = {"hccl_buffer_size": buffer_size}
+    return options
+
+
+def init_dist(
+    local_rank: int, num_local_ranks: int, hccl_buffer_size: Optional[int] = None
+):
     # NOTES: you may rewrite this function with your own cluster settings
     ip = os.getenv("MASTER_ADDR", "127.0.0.1")
     port = int(os.getenv("MASTER_PORT", "8361"))
@@ -31,11 +41,14 @@ def init_dist(local_rank: int, num_local_ranks: int):
         init_method=f"tcp://{ip}:{port}",
         world_size=world_size,
         rank=global_rank,
+        pg_options=make_hccl_pg_options(hccl_buffer_size),
     )
 
     torch.set_default_dtype(torch.bfloat16)
     torch.set_default_device(device)
-    group = dist.new_group(list(range(world_size)))
+    group = dist.new_group(
+        list(range(world_size)), pg_options=make_hccl_pg_options(hccl_buffer_size)
+    )
 
     return dist.get_rank(), dist.get_world_size(), group
 

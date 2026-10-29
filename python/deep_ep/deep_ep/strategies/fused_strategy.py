@@ -11,6 +11,9 @@ import torch.distributed as dist
 from ..ep_strategy import FusedEPCommStrategy, register_fused_strategy
 
 TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
+_MEGA_MOE_MXFP_MODES = frozenset(
+    {"mx_fp8_e4m3", "mx_fp8_e5m2", "mx_fp4_e2m1", "mx_fp8_e4m3_w4"}
+)
 
 
 @register_fused_strategy("fused_deep_moe")
@@ -162,6 +165,47 @@ class MegaMoeStrategy(FusedEPCommStrategy):
             ) from e
         return get_symm_buffer_for_mega_moe, mega_moe
 
+    @staticmethod
+    def _fp4_type() -> int:
+        import torch_npu
+
+        dtype = getattr(torch_npu, "float4_e2m1fn_x2", None)
+        if type(dtype) is not int:
+            raise RuntimeError("MXFP4 MegaMoe requires torch_npu.float4_e2m1fn_x2")
+        return dtype
+
+    def _resolve_mega_moe_quant(self, quant_mode: Union[int, str]):
+        if type(quant_mode) is int and quant_mode in (0, 1):
+            mode = "bf16" if quant_mode == 0 else "int8"
+        elif isinstance(quant_mode, str) and quant_mode in (
+            "bf16",
+            "int8",
+            *_MEGA_MOE_MXFP_MODES,
+        ):
+            mode = quant_mode
+        else:
+            raise ValueError(f"Unsupported quant_mode for MEGA_MOE: {quant_mode!r}")
+
+        if mode == "bf16":
+            return 0, None, None
+        if mode == "int8":
+            return 2, torch.int8, None
+        if mode == "mx_fp4_e2m1":
+            # CANN 9.2.0 accepts the torch_npu integer enum, not a torch dtype.
+            fp4_type = self._fp4_type()
+            return 4, fp4_type, fp4_type
+
+        name = (
+            "float8_e4m3fn"
+            if mode in ("mx_fp8_e4m3", "mx_fp8_e4m3_w4")
+            else "float8_e5m2"
+        )
+        dtype = getattr(torch, name, None)
+        if dtype is None:
+            raise RuntimeError(f"MXFP MegaMoe requires torch.{name}")
+        weight_type = self._fp4_type() if mode == "mx_fp8_e4m3_w4" else None
+        return 4, dtype, weight_type
+
     def fused_moe(
         self,
         x: torch.Tensor,
@@ -173,7 +217,7 @@ class MegaMoeStrategy(FusedEPCommStrategy):
         gmm2_weight_scale: Optional[TensorOrTensors],
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        quant_mode: int,
+        quant_mode: Union[int, str],
         activation: Optional[str],
         beta: Optional[float],
         linear_beta: Optional[float],
@@ -181,22 +225,32 @@ class MegaMoeStrategy(FusedEPCommStrategy):
         l2_bias: Optional[TensorOrTensors],
         profile_enable: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if quant_mode not in (0, 1):
-            raise ValueError(
-                "FuseMode.MEGA_MOE only supports quant_mode 0 or 1, "
-                f"got {quant_mode}"
-            )
-
-        get_symm_buffer_for_mega_moe, mega_moe = self._load_mega_moe_ops()
-        dispatch_quant_mode = 2 if quant_mode == 1 else 0
-        dispatch_quant_out_dtype = torch.int8 if dispatch_quant_mode == 2 else None
-        hidden = x.size(1)
+        dispatch_quant_mode, dispatch_quant_out_dtype, fp4_weight_type = (
+            self._resolve_mega_moe_quant(quant_mode)
+        )
+        is_mxfp = dispatch_quant_mode == 4
+        is_fp4_weight = fp4_weight_type is not None
         if not isinstance(gmm2_weight, list) or len(gmm2_weight) == 0:
             raise ValueError(
                 "FuseMode.MEGA_MOE requires gmm2_weight to be a non-empty "
                 "list of per-expert tensors"
             )
-        intermediate_hidden = gmm2_weight[0].shape[-2]
+        weight = gmm2_weight[0]
+        if is_mxfp:
+            pack_factor = 2 if is_fp4_weight else 1
+            intermediate_hidden = weight.shape[-1] * pack_factor
+        else:
+            intermediate_hidden = weight.shape[-2]
+        hidden = x.size(1)
+        num_tokens = x.size(0)
+        if num_tokens > num_max_dispatch_tokens_per_rank:
+            raise ValueError(
+                "The number of input tokens exceeds "
+                f"`num_max_dispatch_tokens_per_rank`: "
+                f"{num_tokens} > {num_max_dispatch_tokens_per_rank}."
+            )
+        # CANN validates device support and platform-specific parameter constraints.
+        get_symm_buffer_for_mega_moe, mega_moe = self._load_mega_moe_ops()
         cache_key = (
             num_experts,
             num_max_dispatch_tokens_per_rank,
@@ -222,20 +276,15 @@ class MegaMoeStrategy(FusedEPCommStrategy):
             self._mega_moe_symm_buffers[cache_key] = symm_buffer
 
         topk_ids = topk_idx.int()
-        num_tokens = x.size(0)
-        if num_tokens > num_max_dispatch_tokens_per_rank:
-            raise ValueError(
-                "The number of input tokens exceeds "
-                "`num_max_dispatch_tokens_per_rank`: "
-                f"{num_tokens} > {num_max_dispatch_tokens_per_rank}."
+        x_active_mask = None
+        if not is_mxfp:
+            x_active_mask = torch.zeros(
+                num_max_dispatch_tokens_per_rank,
+                dtype=torch.int8,
+                device=x.device,
             )
-        x_active_mask = torch.zeros(
-            num_max_dispatch_tokens_per_rank,
-            dtype=torch.int8,
-            device=x.device,
-        )
-        x_active_mask[:num_tokens] = 1
-        if num_tokens < num_max_dispatch_tokens_per_rank:
+            x_active_mask[:num_tokens] = 1
+        if not is_mxfp and num_tokens < num_max_dispatch_tokens_per_rank:
             padding_size = num_max_dispatch_tokens_per_rank - num_tokens
             x = torch.cat(
                 (x, x.new_zeros((padding_size, hidden))),
@@ -265,6 +314,12 @@ class MegaMoeStrategy(FusedEPCommStrategy):
                 activation_params["linear_beta"] = linear_beta
             activation_params = activation_params or None
 
+        weight_type_kwargs = {}
+        if is_mxfp:
+            weight_type_kwargs = {
+                "weight1_type": fp4_weight_type,
+                "weight2_type": fp4_weight_type,
+            }
         output, expert_token_nums = mega_moe(
             x=x,
             topk_ids=topk_ids,
@@ -282,5 +337,6 @@ class MegaMoeStrategy(FusedEPCommStrategy):
                 "swiglu": "swiglu",
             }.get(activation, activation),
             activation_params=activation_params,
+            **weight_type_kwargs,
         )
-        return output[:num_tokens], expert_token_nums
+        return (output if is_mxfp else output[:num_tokens]), expert_token_nums
