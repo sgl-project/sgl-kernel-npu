@@ -29,7 +29,8 @@ from ._common import (
 __all__ = ["compressor_tree"]
 
 # Finite stand-in for -inf: ``exp(m - new_m)`` must never see ``-inf - -inf``.
-_NEG = -1e38
+# Triton JIT may only read globals annotated as constexpr.
+_NEG: tl.constexpr = -1e38
 
 
 @triton.jit
