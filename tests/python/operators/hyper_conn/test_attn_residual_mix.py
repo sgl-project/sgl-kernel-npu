@@ -22,7 +22,12 @@ from tests.python.utils.performance import check_performance
 
 # (tokens, capacity, valid bank rows, hidden size). K3 H from the SGLang
 # source; decode/batched token and bank dimensions are synthetic selections.
-perf_shape = [(1, 8, 3, 7168), (17, 16, 8, 7168)]
+perf_shape = [
+    (1, 8, 3, 7168),
+    (17, 16, 8, 7168),
+    (128, 8, 1, 7168),
+    (512, 8, 8, 7168),
+]
 
 
 # Shared by accuracy/performance tests and supplementary output checks.
@@ -46,6 +51,46 @@ attn_res_mix_fused_cases = [
 ]
 
 
+# Required K3 coverage: all eight bank depths, larger token batches and SP views.
+# Keep this separate from the contract cases to avoid large input snapshots.
+k3_shape_cases = [
+    pytest.param(
+        (1, 8, valid_rows, 7168),
+        "unused_nan" if valid_rows < 8 else "random",
+        "contiguous",
+        id=f"k3-bank-depth-{valid_rows}",
+    )
+    for valid_rows in range(1, 9)
+] + [
+    pytest.param(
+        (128, 8, 1, 7168), "unused_nan", "contiguous", id="k3-batch-shallow-bank"
+    ),
+    pytest.param((512, 8, 8, 7168), "random", "contiguous", id="k3-prefill-full-bank"),
+    pytest.param((17, 8, 7, 7168), "unused_nan", "sp_slice", id="k3-sp-nb8"),
+    pytest.param((17, 8, 8, 7168), "random", "sp_slice", id="k3-sp-nb16"),
+]
+
+
+# Optional stress and cross-configuration coverage, not traced model workloads.
+generalization_cases = [
+    pytest.param(
+        (2048, 8, 1, 7168), "unused_nan", "contiguous", id="large-prefill-shallow"
+    ),
+    pytest.param(
+        (2049, 8, 8, 7168), "random", "contiguous", id="large-prefill-full-tail"
+    ),
+    pytest.param((33, 16, 9, 7168), "unused_nan", "contiguous", id="bank-depth-9"),
+    pytest.param((33, 16, 15, 7168), "unused_nan", "contiguous", id="bank-nb16"),
+    pytest.param((33, 16, 16, 7168), "random", "contiguous", id="bank-nb32"),
+    pytest.param((33, 17, 17, 7168), "random", "contiguous", id="bank-depth-17"),
+    pytest.param((17, 8, 7, 4096), "unused_nan", "contiguous", id="hidden-4096"),
+    pytest.param((17, 8, 7, 8191), "unused_nan", "contiguous", id="hidden-8191"),
+    pytest.param((17, 8, 8, 8192), "random", "contiguous", id="hidden-8192"),
+    pytest.param((17, 8, 8, 8193), "random", "contiguous", id="hidden-8193"),
+    pytest.param((17, 8, 7, 7168), "unused_nan", "padded", id="k3-padded-strides"),
+]
+
+
 def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42):
     """Create independent finite rows, except deliberately unused NaN rows.
 
@@ -53,6 +98,8 @@ def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42
     modes provide independent oracles for zero variance, equal scores, an
     unchanged common row, and numerically stable softmax with large logits.
     Padded views retain unit hidden stride while varying token/row strides.
+    sp_slice selects a contiguous token shard with a nonzero storage offset,
+    matching bank[start:stop] in AttnResidual.forward.
     """
     torch.npu.manual_seed(seed)
     tokens, capacity, valid_rows, hidden_size = shape
@@ -62,6 +109,16 @@ def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42
         ]
         bank = torch.randn(tokens * 2, capacity * 2 + 1, hidden_size + 3, dtype=dtype)[
             1::2, : capacity * 2 : 2, :hidden_size
+        ]
+    elif layout == "sp_slice":
+        # Model rank 1's interval in a larger contiguous token buffer. The bank
+        # retains its parent's row strides, as in the framework's SP fallback.
+        start = tokens
+        prefix = torch.randn(tokens * 3, hidden_size, dtype=dtype)[
+            start : start + tokens
+        ]
+        bank = torch.randn(tokens * 3, capacity, hidden_size, dtype=dtype)[
+            start : start + tokens
         ]
     else:
         assert layout == "contiguous"
@@ -89,6 +146,16 @@ def generate_test_data(shape, dtype, mode="random", layout="contiguous", seed=42
     else:
         assert mode == "random"
     return prefix, bank, weight
+
+
+def _check_accuracy_and_performance(shape, dtype, mode, layout, *, enable_perf=False):
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+
+    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
+    executor = check_accuracy(
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
+    )
+    check_performance(executor, enable_perf=enable_perf)
 
 
 def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
@@ -125,16 +192,58 @@ def test_attn_res_mix_fused(
     mode,
     layout,
 ):
-    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
+    _check_accuracy_and_performance(
+        shape,
+        dtype,
+        mode,
+        layout,
+        enable_perf=(shape in perf_shape and dtype in (torch.float16, torch.bfloat16)),
+    )
 
-    prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
-    executor = check_accuracy(
-        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,mode,layout", k3_shape_cases)
+def test_attn_res_mix_fused_k3_shapes(shape, dtype, mode, layout):
+    """Required synthetic decode, prefill and SP cases at K3's hidden size."""
+    _check_accuracy_and_performance(
+        shape, dtype, mode, layout, enable_perf=shape in perf_shape
     )
-    check_performance(
-        executor,
-        enable_perf=(shape in perf_shape and dtype == torch.float16),
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("valid_rows", [7, 8], ids=["nb8", "nb16"])
+@pytest.mark.parametrize(
+    "core_multiple,token_offset",
+    [
+        pytest.param(1, -1, id="cores-minus-one"),
+        pytest.param(1, 0, id="cores"),
+        pytest.param(1, 1, id="cores-plus-one"),
+        pytest.param(2, 1, id="two-cores-plus-one"),
+    ],
+)
+def test_attn_res_mix_fused_core_boundaries(
+    dtype, valid_rows, core_multiple, token_offset
+):
+    """Exercise idle programs, multiple tokens per program and partial tails."""
+    # Query the same utility as the kernel at execution time, after the NPU
+    # fixture selects the device. Collection must not initialize the runtime.
+    from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
+        get_device_properties,
     )
+
+    _, vector_cores = get_device_properties()
+    tokens = max(1, core_multiple * vector_cores + token_offset)
+    shape = (tokens, 8, valid_rows, 7168)
+    mode = "unused_nan" if valid_rows < 8 else "random"
+    _check_accuracy_and_performance(shape, dtype, mode, "contiguous")
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,mode,layout", generalization_cases)
+def test_attn_res_mix_fused_generalization(shape, dtype, mode, layout):
+    """Optional large workloads and shapes beyond the representative K3 cases."""
+    _check_accuracy_and_performance(shape, dtype, mode, layout)
 
 
 @pytest.mark.extra_checks
@@ -165,17 +274,29 @@ def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
         (torch.float16, torch.float32, torch.float16),
     ],
 )
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((5, 4, 3, 64), id="small-mixed-dtypes"),
+        pytest.param(
+            (17, 8, 7, 7168),
+            id="k3-mixed-dtypes",
+            marks=pytest.mark.extra_checks,
+        ),
+    ],
+)
 def test_attn_res_mix_fused_mixed_dtypes(
+    shape,
     prefix_dtype,
     bank_dtype,
     weight_dtype,
 ):
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
-    prefix, bank, weight = generate_test_data((5, 4, 3, 64), prefix_dtype)
+    prefix, bank, weight = generate_test_data(shape, prefix_dtype, mode="unused_nan")
     executor = check_accuracy(
         attn_res_mix_fused,
-        args=(prefix, bank.to(bank_dtype), 3, weight.to(weight_dtype), 1e-6),
+        args=(prefix, bank.to(bank_dtype), shape[2], weight.to(weight_dtype), 1e-6),
     )
     check_performance(executor, enable_perf=False)
 
