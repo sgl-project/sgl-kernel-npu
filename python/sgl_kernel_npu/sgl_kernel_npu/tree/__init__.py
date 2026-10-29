@@ -11,6 +11,7 @@ The canonical names mirror the AscendC bindings:
 * :func:`compressor_tree`
 * :func:`quant_lightning_indexer_tree`
 * :func:`sparse_attn_sharedkv_tree`
+* :func:`npu_sparse_attn_sharedkv_tree` (the vendor-facing alias)
 
 Short aliases (``tree_project``, ``tree_compressor``, ``tree_indexer``,
 ``tree_attention``) are also accepted.  Requesting a function whose module has
@@ -30,6 +31,7 @@ __all__ = [
     "compressor_tree",
     "quant_lightning_indexer_tree",
     "sparse_attn_sharedkv_tree",
+    "npu_sparse_attn_sharedkv_tree",
 ]
 
 common = _common
@@ -45,6 +47,11 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "sparse_attn_sharedkv_tree": (
         ".sparse_attn_sharedkv_tree",
         "sparse_attn_sharedkv_tree",
+    ),
+    # Vendor-facing name used by the SGLang adapter and integration test.
+    "npu_sparse_attn_sharedkv_tree": (
+        ".sparse_attn_sharedkv_tree",
+        "npu_sparse_attn_sharedkv_tree",
     ),
     # Short aliases used by benchmark/tests.
     "tree_project": (".compressor_tree_project", "compressor_tree_project"),
