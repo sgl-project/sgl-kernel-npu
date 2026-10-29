@@ -101,6 +101,7 @@ def test_recompute_w_u_fwd(
     )
 
 
+# Verify that cu_seqlens supports both int32 and int64 dtypes.
 @pytest.mark.parametrize("index_dtype", [torch.int32, torch.int64])
 def test_recompute_w_u_fwd_packed_index_dtype(
     index_dtype,
