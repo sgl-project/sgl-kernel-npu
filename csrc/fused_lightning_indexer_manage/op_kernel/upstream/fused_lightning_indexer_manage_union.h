@@ -1613,6 +1613,16 @@ private:
             scratch[EVICT_CHUNK * 8U + EVICT_MASK_WORK_FLOATS];
         LocalTensor<float> sortTmp = scratch[EVICT_CHUNK * 10U];
 
+        // Match the generalized route path: compute full vector blocks on
+        // partial chunks so Compare/Select predicate tails are initialized.
+        // GM reads remain bounded by valid and PadEvictKeys masks the tail.
+        constexpr uint32_t vectorCount = EVICT_CHUNK;
+        if (valid < EVICT_CHUNK) {
+            Duplicate(scratch, 0.0F, ROUTES * EVICT_CHUNK);
+            Duplicate(slots.ReinterpretCast<float>(), -0.0F, EVICT_CHUNK);
+            Sync<HardEvent::V_MTE2>(HardEvent::V_MTE2);
+        }
+
         const uint64_t requestRoute = static_cast<uint64_t>(batch) * ROUTES;
         DataCopyPad(score0, scoreScratchGm[requestRoute * scoreStride + start],
                     AscendC::DataCopyExtParams{
@@ -1642,13 +1652,13 @@ private:
         Sync<HardEvent::MTE2_V>(HardEvent::MTE2_V);
         // Preserve the requested eviction ordering: lower aggregate score is
         // better, hence a descending sort over the negated four-route sum.
-        Add(key, score0, score1, valid);
+        Add(key, score0, score1, vectorCount);
         PipeBarrier<PIPE_V>();
-        Add(temp, score2, score3, valid);
+        Add(temp, score2, score3, vectorCount);
         PipeBarrier<PIPE_V>();
-        Add(key, key, temp, valid);
+        Add(key, key, temp, vectorCount);
         PipeBarrier<PIPE_V>();
-        Muls(key, key, -1.0F, valid);
+        Muls(key, key, -1.0F, vectorCount);
         PipeBarrier<PIPE_V>();
 
         Duplicate(invalidKey, INVALID_EVICT_KEY, EVICT_CHUNK);
@@ -1661,12 +1671,12 @@ private:
         // is scalar-safe and prevents cold sources from entering victim sort.
         LocalTensor<int32_t> slotSign = temp.ReinterpretCast<int32_t>();
         ShiftRight(slotSign.ReinterpretCast<uint32_t>(),
-                   slots.ReinterpretCast<uint32_t>(), 31U, valid);
+                   slots.ReinterpretCast<uint32_t>(), 31U, vectorCount);
         PipeBarrier<PIPE_V>();
-        CompareScalar(invalidMask, slotSign, 1, CMPMODE::EQ, valid);
+        CompareScalar(invalidMask, slotSign, 1, CMPMODE::EQ, vectorCount);
         PipeBarrier<PIPE_V>();
         Select(key, invalidMask, invalidKey, key,
-               SELMODE::VSEL_TENSOR_TENSOR_MODE, valid);
+               SELMODE::VSEL_TENSOR_TENSOR_MODE, vectorCount);
         PipeBarrier<PIPE_V>();
 
         // Pack only after invalid cache entries have been excluded.  Their
@@ -1684,44 +1694,44 @@ private:
         if (longSource) {
             // Keep the mature [slot:15 | source_low17] payload and carry
             // only the missing source high bits in the sort-key tag.
-            TagLongEvictSource(key, start, valid);
+            TagLongEvictSource(key, start, vectorCount);
         }
         ShiftLeft(slots.ReinterpretCast<uint32_t>(),
                   slots.ReinterpretCast<uint32_t>(),
-                  PACKED_SOURCE_BITS, valid);
+                  PACKED_SOURCE_BITS, vectorCount);
         PipeBarrier<PIPE_V>();
         Add(payload.ReinterpretCast<int32_t>(),
-            payload.ReinterpretCast<int32_t>(), slots, valid);
+            payload.ReinterpretCast<int32_t>(), slots, vectorCount);
         PipeBarrier<PIPE_V>();
 
         // Build one protection margin instead of repeatedly selecting into
         // key.  margin >= 0 means the token belongs to at least one route's
         // TopK (ties included) and therefore cannot be evicted.
-        Adds(score0, score0, -thresholds[0], valid);
+        Adds(score0, score0, -thresholds[0], vectorCount);
         PipeBarrier<PIPE_V>();
-        Adds(score1, score1, -thresholds[1], valid);
+        Adds(score1, score1, -thresholds[1], vectorCount);
         PipeBarrier<PIPE_V>();
-        Max(score0, score0, score1, valid);
+        Max(score0, score0, score1, vectorCount);
         PipeBarrier<PIPE_V>();
-        Adds(score2, score2, -thresholds[2], valid);
+        Adds(score2, score2, -thresholds[2], vectorCount);
         PipeBarrier<PIPE_V>();
-        Max(score0, score0, score2, valid);
+        Max(score0, score0, score2, vectorCount);
         PipeBarrier<PIPE_V>();
-        Adds(score3, score3, -thresholds[3], valid);
+        Adds(score3, score3, -thresholds[3], vectorCount);
         PipeBarrier<PIPE_V>();
-        Max(score0, score0, score3, valid);
+        Max(score0, score0, score3, vectorCount);
         PipeBarrier<PIPE_V>();
 
         // AscendC's proven protection path compares the negated margin with
         // zero using LE: margin >= 0 iff -margin <= 0.  This protects every
         // token selected by at least one of the four TopK routes, including
         // threshold ties.
-        Muls(score0, score0, -1.0F, valid);
+        Muls(score0, score0, -1.0F, vectorCount);
         PipeBarrier<PIPE_V>();
-        CompareScalar(invalidMask, score0, 0.0F, CMPMODE::LE, valid);
+        CompareScalar(invalidMask, score0, 0.0F, CMPMODE::LE, vectorCount);
         PipeBarrier<PIPE_V>();
         Select(key, invalidMask, invalidKey, key,
-               SELMODE::VSEL_TENSOR_TENSOR_MODE, valid);
+               SELMODE::VSEL_TENSOR_TENSOR_MODE, vectorCount);
         PipeBarrier<PIPE_V>();
         PadEvictKeys(key, valid);
         SortEvictChunk(chunkPair, key, payload, sortTmp);

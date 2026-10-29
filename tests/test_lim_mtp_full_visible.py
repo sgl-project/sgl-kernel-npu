@@ -194,6 +194,140 @@ def test_lim_q4_c12288_full_visible_steady_residency(graph):
         )
 
 
+@pytest.mark.parametrize("graph", [False, True])
+def test_lim_q4_partial_chunk_preserves_live_batch_slot_ownership(graph):
+    """A warm partial chunk must not admit an invalid slot-zero victim."""
+    batch = 16
+    length = 66817
+    source_capacity = (length + 127) // 128 * 128
+    cases = [_lim_case(length) for _ in range(batch)]
+    args = [None] * 19
+    for index in (0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18):
+        args[index] = torch.cat([case[index] for case in cases], dim=0)
+    device = args[0].device
+    pages = source_capacity // 128
+    args[5] = torch.arange(batch * pages, dtype=torch.int32, device=device).view(
+        batch, pages
+    )
+    args[6] = torch.arange(4, 4 * batch + 1, 4, dtype=torch.int32, device=device)
+    args[11].copy_(torch.arange(1, batch + 1, dtype=torch.int32, device=device))
+    args[12] = torch.full(
+        (batch + 1, source_capacity), -1, dtype=torch.int32, device=device
+    )
+    keys = args[4].view(batch, source_capacity, 128)
+    op = torch.ops.npu.fused_lightning_indexer_manage
+
+    def configure(actual, state, tail_high):
+        keys.zero_()
+        if tail_high:
+            keys[:, :, 0] = -8
+            keys[:, :TOPK, 0] = 4
+            keys[:, actual - ROUTES : actual, 0] = 16
+        else:
+            keys[:, :, 0] = 1
+            keys[:, 14000 : 14000 + TOPK, 0] = 4
+            keys[:, actual - ROUTES : actual, 0] = -8
+        args[7].fill_(actual)
+        args[8].fill_(actual)
+        args[10].fill_(-2 if state == "cold" else -1)
+        if state == "mixed":
+            args[10][::2] = -2
+
+    if graph:
+        configure(65536, "cold", True)
+        saved = args[12].clone()
+        op(*args, full_visible=True)
+        torch.npu.synchronize()
+        args[12].copy_(saved)
+        capture = torch.npu.NPUGraph()
+        with torch.npu.graph(capture):
+            op(*args, full_visible=True)
+        torch.npu.synchronize()
+        args[12].copy_(saved)
+
+    steps = (
+        (65536, "cold", True),
+        (65536, "warm", True),
+        (65537, "warm", True),
+        (65537, "warm", False),
+        (65537, "mixed", True),
+        (65537, "warm", False),
+    )
+    for step, (actual, state, tail_high) in enumerate(steps):
+        configure(actual, state, tail_high)
+        before = args[12].cpu()
+        if step:
+            for row in range(1, batch + 1):
+                resident = before[row][before[row] >= 0]
+                assert resident.numel() == CAPACITY
+                assert resident.unique().numel() == CAPACITY
+        if graph:
+            capture.replay()
+        else:
+            op(*args, full_visible=True)
+        torch.npu.synchronize()
+        mapping = args[12].cpu()
+        sources = args[13].cpu().reshape(batch, ROUTES, TOPK)
+        slots = args[14].cpu().reshape(batch, ROUTES, TOPK)
+        miss_sources, miss_slots = args[16].cpu(), args[17].cpu()
+        counts = args[18].cpu().tolist()
+        assert torch.equal(mapping[0], before[0])
+        evicted_tail = retained_refresh = 0
+        for row in range(batch):
+            pool_row = row + 1
+            resident = mapping[pool_row][mapping[pool_row] >= 0]
+            assert resident.numel() == CAPACITY, (step, pool_row)
+            assert resident.unique().numel() == CAPACITY, (step, pool_row)
+            assert bool((resident < CAPACITY).all())
+            count = counts[row]
+            assert 0 <= count <= CAPACITY
+            plan_sources = miss_sources[row, :count]
+            plan_slots = miss_slots[row, :count]
+            assert plan_sources.unique().numel() == count
+            assert plan_slots.unique().numel() == count
+            assert bool(((plan_sources >= 0) & (plan_sources < actual)).all())
+            assert bool(((plan_slots >= 0) & (plan_slots < CAPACITY)).all())
+            assert torch.equal(mapping[pool_row, plan_sources.long()], plan_slots)
+            for route in range(ROUTES):
+                selected = sources[row, route]
+                visible = actual - ROUTES + route + 1
+                assert selected.unique().numel() == TOPK
+                assert bool(((selected >= 0) & (selected < visible)).all())
+                assert bool(
+                    ((slots[row, route] >= 0) & (slots[row, route] < CAPACITY)).all()
+                )
+                assert torch.equal(
+                    mapping[pool_row, selected.long()], slots[row, route]
+                )
+                if tail_high:
+                    assert bool(
+                        ((selected < TOPK) | (selected >= actual - ROUTES)).all()
+                    )
+                    assert set(range(actual - ROUTES, visible)).issubset(
+                        selected.tolist()
+                    )
+                else:
+                    assert bool(((selected >= 14000) & (selected < 14000 + TOPK)).all())
+            plan = set(zip(plan_sources.tolist(), plan_slots.tolist()))
+            for source in range(actual - ROUTES, actual):
+                old_slot = int(before[pool_row, source])
+                new_slot = int(mapping[pool_row, source])
+                if old_slot >= 0 and new_slot < 0:
+                    evicted_tail += any(
+                        s != source and slot == old_slot for s, slot in plan
+                    )
+                if (
+                    old_slot >= 0
+                    and new_slot == old_slot
+                    and (source, old_slot) in plan
+                ):
+                    retained_refresh += 1
+        if not tail_high:
+            assert evicted_tail > 0, (step, "tail eviction was not exercised")
+        if step == 1:
+            assert retained_refresh > 0, "resident refresh was not exercised"
+
+
 def test_lim_q4_steady_hits_include_rewritten_residents():
     args = _lim_case()
     resident = torch.full((CAPACITY,), -1, dtype=torch.int32)
