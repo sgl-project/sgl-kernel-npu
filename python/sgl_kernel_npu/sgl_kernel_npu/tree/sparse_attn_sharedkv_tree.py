@@ -49,8 +49,12 @@ from ._common import (
 __all__ = ["sparse_attn_sharedkv_tree"]
 
 _HEAD_DIM = 512
+# A3 UB budget: the 16x128 attention tile with four Q/K slices exceeds
+# 1,572,864 bits after multi-buffering/code motion.  Keep the cube M tile at
+# 16 and halve the slot tile; the score/PV math is unchanged and the D slice
+# remains 128.
 _BLOCK_H = 16
-_BLOCK_N = 128
+_BLOCK_N = 64
 _BLOCK_D = 128
 _NUM_D_CHUNKS = _HEAD_DIM // _BLOCK_D
 
