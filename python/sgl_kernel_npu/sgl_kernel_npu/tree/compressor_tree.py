@@ -66,6 +66,7 @@ def _window_average(
     state_stride0,
     state_stride1,
     lanes,
+    N_LANES: tl.constexpr,
     D: tl.constexpr,
     C: tl.constexpr,
     RATIO: tl.constexpr,
@@ -79,9 +80,9 @@ def _window_average(
     slot never leaves its buffer.
     """
     row_width: tl.constexpr = 2 * C * D
-    value = tl.zeros(lanes.shape, tl.float32)
-    denom = tl.zeros(lanes.shape, tl.float32)
-    max_score = tl.full(lanes.shape, _NEG, tl.float32)
+    value = tl.zeros((1, N_LANES), tl.float32)
+    denom = tl.zeros((1, N_LANES), tl.float32)
+    max_score = tl.full((1, N_LANES), _NEG, tl.float32)
 
     # Slot order matches the source: w // c walks the window position and
     # w % c selects the previous/current half (C4 interleaves, C128 is flat).
@@ -203,6 +204,7 @@ def _compressor_tree_kernel(
         state_stride0,
         state_stride1,
         lanes,
+        N_LANES=D,
         D=D,
         C=C,
         RATIO=RATIO,
@@ -247,6 +249,7 @@ def _compressor_tree_kernel(
         state_stride0,
         state_stride1,
         even_lanes,
+        N_LANES=ROPE_DIM // 2,
         D=D,
         C=C,
         RATIO=RATIO,
@@ -269,6 +272,7 @@ def _compressor_tree_kernel(
         state_stride0,
         state_stride1,
         odd_lanes,
+        N_LANES=ROPE_DIM // 2,
         D=D,
         C=C,
         RATIO=RATIO,
