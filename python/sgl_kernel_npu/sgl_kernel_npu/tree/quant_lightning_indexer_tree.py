@@ -246,7 +246,7 @@ def _score_kernel(
             node_valid,
             off_d,
         )
-        for head_block in tl.static_range(0, NUM_HEADS // HEAD_BLOCK):
+        for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
             head = head_block * HEAD_BLOCK + off_g
             query = tl.load(
                 query_base + head[:, None] * HEAD_DIM + off_d[None, :]
@@ -260,10 +260,10 @@ def _score_kernel(
             acc += tl.sum(score0 * wq[:, None], axis=0)
     else:
         # R8 fallback: exact int32 widening, DOT_D_CHUNK head-dim slice per step.
-        for head_block in tl.static_range(0, NUM_HEADS // HEAD_BLOCK):
+        for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
             head = head_block * HEAD_BLOCK + off_g
             qk = tl.zeros((HEAD_BLOCK, BLOCK_KV), dtype=tl.int32)
-            for chunk in tl.static_range(0, HEAD_DIM // DOT_D_CHUNK):
+            for chunk in tl.range(0, HEAD_DIM // DOT_D_CHUNK):
                 cols = chunk * DOT_D_CHUNK + tl.arange(0, DOT_D_CHUNK)
                 query = tl.load(query_base + head[:, None] * HEAD_DIM + cols[None, :])
                 key_tile = _gather_key_tile(
