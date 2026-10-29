@@ -42,19 +42,25 @@ def _load_vendor() -> Any:
     try:
         import vllm_ascend.vllm_ascend_C  # noqa: F401
     except Exception:
-        # SGLang can load the same small binding .so files without importing
-        # the full vllm package.
-        try:
-            from sglang.srt.speculative.dspark_components.tree.torch_ops import (
-                load_tree_ops,
-            )
+        pass
 
-            load_tree_ops()
-        except Exception:
-            raw = os.environ.get("SGLANG_DSPARK_TREE_OPS", "")
-            for raw_path in raw.split(os.pathsep):
-                if raw_path and Path(raw_path).is_file():
-                    torch.ops.load_library(raw_path)
+    # Load the SGLang-side binding set as well.  vllm-ascend's import may
+    # register the four tree ops but not the separate metadata bindings.
+    try:
+        from sglang.srt.speculative.dspark_components.tree.torch_ops import (
+            load_tree_ops,
+        )
+
+        load_tree_ops()
+    except Exception:
+        pass
+    raw = os.environ.get("SGLANG_DSPARK_TREE_OPS", "")
+    for raw_path in raw.split(os.pathsep):
+        if raw_path and Path(raw_path).is_file():
+            try:
+                torch.ops.load_library(raw_path)
+            except Exception:
+                pass
 
     ns = getattr(torch.ops, "_C_ascend", None)
     required = (
@@ -73,11 +79,32 @@ def _load_vendor() -> Any:
     return ns
 
 
+def _find_meta_op(*names: str) -> Any:
+    """Find a metadata op registered by vllm-ascend or SGLang bindings."""
+    for ns_name in ("custom", "_C_ascend", "npu"):
+        ns = getattr(torch.ops, ns_name, None)
+        if ns is None:
+            continue
+        for name in names:
+            op = getattr(ns, name, None)
+            if op is not None:
+                return op
+    return None
+
+
 def _build_metadata(ns: Any, op: str, kwargs: dict[str, Any]) -> torch.Tensor:
     """Build the vendor metadata for indexer/attention from the same inputs."""
     if op == "indexer":
         q = kwargs["query"]
-        meta_op = getattr(ns, "npu_quant_lightning_indexer_v2_metadata")
+        meta_op = _find_meta_op(
+            "npu_quant_lightning_indexer_v2_metadata",
+            "quant_lightning_indexer_v2_metadata",
+        )
+        if meta_op is None:
+            raise RuntimeError(
+                "no lightning-indexer metadata op found in torch.ops.custom/"
+                "_C_ascend/npu; load the SGLang tree binding .so set"
+            )
         return meta_op(
             num_heads_q=int(q.shape[1]),
             num_heads_k=1,
@@ -115,9 +142,15 @@ def _build_metadata(ns: Any, op: str, kwargs: dict[str, Any]) -> torch.Tensor:
         )
         kwargs["cu_seqlens_ori_kv"] = cu_ori
         kwargs["cu_seqlens_cmp_kv"] = cu_cmp
-        op = getattr(getattr(torch.ops, "custom", None), "npu_sparse_attn_sharedkv_metadata", None)
+        op = _find_meta_op(
+            "npu_sparse_attn_sharedkv_metadata",
+            "sparse_attn_sharedkv_metadata",
+        )
         if op is None:
-            op = getattr(ns, "npu_sparse_attn_sharedkv_metadata")
+            raise RuntimeError(
+                "no sparse-attn metadata op found in torch.ops.custom/"
+                "_C_ascend/npu; load the SGLang tree binding .so set"
+            )
         return op(
             num_heads_q=int(q.shape[1]),
             num_heads_kv=1,
