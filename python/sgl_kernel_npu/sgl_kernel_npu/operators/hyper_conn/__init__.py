@@ -1,3 +1,3 @@
-from .attn_residual_mix import attn_residual_mix
+from .attn_res_mix_fused import attn_res_mix_fused
 
-__all__ = ["attn_residual_mix"]
+__all__ = ["attn_res_mix_fused"]

@@ -26,7 +26,7 @@ perf_shape = [(1, 8, 3, 7168), (17, 16, 8, 7168)]
 
 
 # Shared by accuracy/performance tests and supplementary output checks.
-attn_residual_mix_cases = [
+attn_res_mix_fused_cases = [
     pytest.param((1, 8, 3, 7168), "random", "contiguous", id="k3-decode-scenario"),
     pytest.param((17, 16, 8, 7168), "random", "contiguous", id="k3-batch-scenario"),
     pytest.param((1, 0, 0, 1), "random", "contiguous", id="minimum-empty-bank"),
@@ -118,18 +118,18 @@ def _check_output_contract(result, inputs, snapshots, valid_rows, mode):
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape,mode,layout", attn_residual_mix_cases)
-def test_attn_residual_mix(
+@pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
+def test_attn_res_mix_fused(
     shape,
     dtype,
     mode,
     layout,
 ):
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
     executor = check_accuracy(
-        attn_residual_mix, args=(prefix, bank, shape[2], weight, 1e-6)
+        attn_res_mix_fused, args=(prefix, bank, shape[2], weight, 1e-6)
     )
     check_performance(
         executor,
@@ -139,20 +139,20 @@ def test_attn_residual_mix(
 
 @pytest.mark.extra_checks
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape,mode,layout", attn_residual_mix_cases)
-def test_attn_residual_mix_output_contract(shape, dtype, mode, layout):
+@pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
+def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
     """Supplementary allocation, input-preservation and special-case checks."""
     if get_skip_acc_check() is True:
         pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
 
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     inputs = generate_test_data(shape, dtype, mode, layout)
     snapshots = tuple(value.clone() for value in inputs)
     prefix, bank, weight = inputs
     impl, _ = get_test_impls()
-    require_test_impl(attn_residual_mix, impl)
-    result = attn_residual_mix(prefix, bank, shape[2], weight, 1e-6, impl=impl)
+    require_test_impl(attn_res_mix_fused, impl)
+    result = attn_res_mix_fused(prefix, bank, shape[2], weight, 1e-6, impl=impl)
     _check_output_contract(result, inputs, snapshots, shape[2], mode)
 
 
@@ -165,30 +165,30 @@ def test_attn_residual_mix_output_contract(shape, dtype, mode, layout):
         (torch.float16, torch.float32, torch.float16),
     ],
 )
-def test_attn_residual_mix_mixed_dtypes(
+def test_attn_res_mix_fused_mixed_dtypes(
     prefix_dtype,
     bank_dtype,
     weight_dtype,
 ):
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data((5, 4, 3, 64), prefix_dtype)
     executor = check_accuracy(
-        attn_residual_mix,
+        attn_res_mix_fused,
         args=(prefix, bank.to(bank_dtype), 3, weight.to(weight_dtype), 1e-6),
     )
     check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.parametrize("epsilon", [1e-12, 1e-3, 1])
-def test_attn_residual_mix_variance_epsilon(epsilon):
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+def test_attn_res_mix_fused_variance_epsilon(epsilon):
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float32)
     prefix.mul_(1e-4)
     bank.mul_(1e-4)
     executor = check_accuracy(
-        attn_residual_mix, args=(prefix, bank, 3, weight, epsilon)
+        attn_res_mix_fused, args=(prefix, bank, 3, weight, epsilon)
     )
     check_performance(executor, enable_perf=False)
 
@@ -196,19 +196,19 @@ def test_attn_residual_mix_variance_epsilon(epsilon):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("input_device", ["cpu", "npu"])
 @pytest.mark.parametrize("capacity,valid_rows", [(0, 0), (5, 3)])
-def test_attn_residual_mix_empty_tokens(
+def test_attn_res_mix_fused_empty_tokens(
     dtype,
     input_device,
     capacity,
     valid_rows,
 ):
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     # Empty inputs bypass nonempty Triton stride/device launch restrictions.
     prefix = torch.empty(0, 6, dtype=dtype, device=input_device)[:, ::2]
     bank = torch.empty(0, capacity, 6, dtype=dtype, device=input_device)[..., ::2]
     weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
-    check_accuracy(attn_residual_mix, args=(prefix, bank, valid_rows, weight, 1e-6))
+    check_accuracy(attn_res_mix_fused, args=(prefix, bank, valid_rows, weight, 1e-6))
     # There is no device task to profile, even when --enable-perf=true.
 
 
@@ -216,22 +216,22 @@ def test_attn_residual_mix_empty_tokens(
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("input_device", ["cpu", "npu"])
 @pytest.mark.parametrize("capacity,valid_rows", [(0, 0), (5, 3)])
-def test_attn_residual_mix_empty_output_contract(
+def test_attn_res_mix_fused_empty_output_contract(
     dtype, input_device, capacity, valid_rows
 ):
     """Empty calls preserve the input object's identity."""
     if get_skip_acc_check() is True:
         pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
 
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix = torch.empty(0, 6, dtype=dtype, device=input_device)[:, ::2]
     bank = torch.empty(0, capacity, 6, dtype=dtype, device=input_device)[..., ::2]
     weight = torch.empty(6, dtype=torch.float32, device=input_device)[::2]
     impl, _ = get_test_impls()
-    require_test_impl(attn_residual_mix, impl)
+    require_test_impl(attn_res_mix_fused, impl)
     assert (
-        attn_residual_mix(prefix, bank, valid_rows, weight, 1e-6, impl=impl) is prefix
+        attn_res_mix_fused(prefix, bank, valid_rows, weight, 1e-6, impl=impl) is prefix
     )
 
 
@@ -272,11 +272,11 @@ def test_attn_residual_mix_empty_output_contract(
         ("empty_device_mismatch", AssertionError),
     ],
 )
-def test_attn_residual_mix_invalid_input(
+def test_attn_res_mix_fused_invalid_input(
     invalid_input,
     exception,
 ):
-    from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+    from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float16)
     valid_rows, epsilon = 3, 1e-6
@@ -345,4 +345,4 @@ def test_attn_residual_mix_invalid_input(
     else:
         raise AssertionError(f"Unhandled invalid input: {invalid_input}")
     with pytest.raises(exception):
-        attn_residual_mix(prefix, bank, valid_rows, weight, epsilon, impl="triton")
+        attn_res_mix_fused(prefix, bank, valid_rows, weight, epsilon, impl="triton")

@@ -6,39 +6,39 @@ _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("hyper_conn.attn_residual_mix", "auto")
-@register_impl("hyper_conn.attn_residual_mix", "triton")
+@register_impl("hyper_conn.attn_res_mix_fused", "auto")
+@register_impl("hyper_conn.attn_res_mix_fused", "triton")
 def _triton_impl(prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.hyper_conn.attn_residual_mix import (
-            attn_residual_mix,
+        from ...implementation.triton.hyper_conn.attn_res_mix_fused import (
+            attn_res_mix_fused,
         )
 
-        _triton_fn = attn_residual_mix
+        _triton_fn = attn_res_mix_fused
     return _triton_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )
 
 
-@register_impl("hyper_conn.attn_residual_mix", "torch_native")
+@register_impl("hyper_conn.attn_res_mix_fused", "torch_native")
 def _torch_native_impl(
     prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.hyper_conn.attn_residual_mix import (
-            attn_residual_mix,
+        from ...implementation.torch_native.hyper_conn.attn_res_mix_fused import (
+            attn_res_mix_fused,
         )
 
-        _torch_native_fn = attn_residual_mix
+        _torch_native_fn = attn_res_mix_fused
     return _torch_native_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )
 
 
-@register_operator("hyper_conn.attn_residual_mix")
-def attn_residual_mix(
+@register_operator("hyper_conn.attn_res_mix_fused")
+def attn_res_mix_fused(
     prefix_sum,
     bank,
     num_valid_blocks,
@@ -66,7 +66,7 @@ def attn_residual_mix(
         A nonempty result is newly allocated. With N=0, returns prefix_sum itself.
         All arithmetic intermediates are FP32. Inputs are not modified.
     """
-    impl_fn = get_impl_by_name("hyper_conn.attn_residual_mix", impl)
+    impl_fn = get_impl_by_name("hyper_conn.attn_res_mix_fused", impl)
     return impl_fn(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
     )

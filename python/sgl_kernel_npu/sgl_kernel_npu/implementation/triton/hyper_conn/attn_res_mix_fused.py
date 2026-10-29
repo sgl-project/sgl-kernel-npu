@@ -9,7 +9,7 @@ from .attn_residual_utils import validate_mix_inputs
 
 
 @triton.jit(do_not_specialize=["N", "B"])
-def _attn_residual_mix_kernel(
+def _attn_res_mix_fused_kernel(
     prefix_ptr,
     bank_ptr,
     cw_ptr,
@@ -87,7 +87,7 @@ def _attn_residual_mix_kernel(
         )
 
 
-def attn_residual_mix(
+def attn_res_mix_fused(
     prefix_sum: torch.Tensor,
     bank: torch.Tensor,
     num_valid_blocks: int,
@@ -122,7 +122,7 @@ def attn_residual_mix(
 
     output = torch.empty_like(prefix_sum)
     _, num_vector_cores = get_device_properties()
-    _attn_residual_mix_kernel[(num_vector_cores,)](
+    _attn_res_mix_fused_kernel[(num_vector_cores,)](
         prefix_sum,
         bank,
         combined_weight,

@@ -1,4 +1,4 @@
-# attn_residual_mix
+# attn_res_mix_fused
 
 ## Hardware support
 
@@ -12,9 +12,9 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
-def attn_residual_mix(
+def attn_res_mix_fused(
     prefix_sum,
     bank,
     num_valid_blocks,
@@ -78,7 +78,7 @@ When `N == 0`, returns `prefix_sum` itself without launching a kernel. When `N >
 
 ## triton backend
 
-- Located in `implementation/triton/hyper_conn/attn_residual_mix.py`, with kernel `_attn_residual_mix_kernel`. Refactored from `_mix_fused_kernel` in `kimi_k3/attn_residual.py`; the original file and import path remain unchanged.
+- Located in `implementation/triton/hyper_conn/attn_res_mix_fused.py`, with kernel `_attn_res_mix_fused_kernel`. Refactored from `_mix_fused_kernel` in `kimi_k3/attn_residual.py`; the original file and import path remain unchanged.
 - Nonempty inputs must be on an NPU. The last-dimension strides of prefix_sum and bank must be 1, as must combined_weight's stride. Token strides and bank row strides may differ; non-contiguous views satisfying these constraints are supported.
 - Expands the hidden dimension to `BLOCK_H = next_power_of_2(H)`. Loads and stores are masked, padded channels contribute zero, and mean square is divided by the actual `H`. The hidden dimension no longer has to be a power of two; masked tails handle dimensions such as `7168`.
 - Fuses scoring, softmax, and mixing into one persistent vector-core kernel. `N` and `B` remain dynamic; `NB` is `B + 1` rounded up to a power of two. No score matrix is allocated.
@@ -95,14 +95,14 @@ When `N == 0`, returns `prefix_sum` itself without launching a kernel. When `N >
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.hyper_conn import attn_residual_mix
+from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
 prefix_sum = torch.randn(17, 1024, device="npu", dtype=torch.float32)
 bank = torch.randn(17, 8, 1024, device="npu", dtype=torch.float32)
 combined_weight = torch.randn(1024, device="npu", dtype=torch.float32) * 0.01
 
-output = attn_residual_mix(prefix_sum, bank, 3, combined_weight, 1e-6)
-reference = attn_residual_mix(
+output = attn_res_mix_fused(prefix_sum, bank, 3, combined_weight, 1e-6)
+reference = attn_res_mix_fused(
     prefix_sum, bank, 3, combined_weight, 1e-6, impl="torch_native"
 )
 torch.testing.assert_close(output, reference, rtol=1e-4, atol=1e-4)

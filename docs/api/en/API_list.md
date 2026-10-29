@@ -12,4 +12,4 @@
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`, `torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`, `torch_native` |
-| [attn_residual_mix](operators/hyper_conn/attn_residual_mix.md) | `triton`, `torch_native` |
+| [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`, `torch_native` |
