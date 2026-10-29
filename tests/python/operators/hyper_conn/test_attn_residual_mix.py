@@ -222,7 +222,7 @@ def test_attn_res_mix_fused_k3_shapes(shape, dtype, mode, layout):
 def test_attn_res_mix_fused_core_boundaries(
     dtype, valid_rows, core_multiple, token_offset
 ):
-    """Exercise idle programs, multiple tokens per program and partial tails."""
+    """Check core scheduling boundaries together with B=7/8 softmax sizes."""
     # Query the same utility as the kernel at execution time, after the NPU
     # fixture selects the device. Collection must not initialize the runtime.
     from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
@@ -256,6 +256,7 @@ def test_attn_res_mix_fused_mixed_dtypes(
     bank_dtype,
     weight_dtype,
 ):
+    """Check accuracy when prefix, bank and scoring weight use different dtypes."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     shape = (5, 4, 3, 64)
@@ -269,6 +270,7 @@ def test_attn_res_mix_fused_mixed_dtypes(
 
 @pytest.mark.parametrize("epsilon", [1e-12, 1e-3, 1])
 def test_attn_res_mix_fused_variance_epsilon(epsilon):
+    """Check RMS scoring with tiny inputs and small or large epsilon values."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float32)
@@ -289,6 +291,7 @@ def test_attn_res_mix_fused_empty_tokens(
     capacity,
     valid_rows,
 ):
+    """Check empty CPU/NPU inputs across dtypes and bank capacities."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     # Empty inputs bypass nonempty Triton stride/device launch restrictions.
@@ -304,7 +307,7 @@ def test_attn_res_mix_fused_empty_tokens(
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("shape,mode,layout", generalization_cases)
 def test_attn_res_mix_fused_generalization(shape, dtype, mode, layout):
-    """Optional large workloads and shapes beyond the representative K3 cases."""
+    """Check large batches, hidden-size boundaries, deep banks and strides."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data(shape, dtype, mode, layout)
@@ -329,6 +332,7 @@ def test_attn_res_mix_fused_mixed_dtypes_k3(
     bank_dtype,
     weight_dtype,
 ):
+    """Check mixed-dtype accuracy at K3's hidden size of 7168."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     shape = (17, 8, 7, 7168)
@@ -344,7 +348,7 @@ def test_attn_res_mix_fused_mixed_dtypes_k3(
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("shape,mode,layout", attn_res_mix_fused_cases)
 def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
-    """Supplementary allocation, input-preservation and special-case checks."""
+    """Check output metadata, separate storage, unchanged inputs and exact cases."""
     if get_skip_acc_check() is True:
         pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
 
@@ -366,7 +370,7 @@ def test_attn_res_mix_fused_output_contract(shape, dtype, mode, layout):
 def test_attn_res_mix_fused_empty_output_contract(
     dtype, input_device, capacity, valid_rows
 ):
-    """Empty calls preserve the input object's identity."""
+    """Check that empty calls return the original prefix object."""
     if get_skip_acc_check() is True:
         pytest.skip("Output-contract checks are disabled by --skip-acc-check=true")
 
@@ -423,6 +427,7 @@ def test_attn_res_mix_fused_invalid_input(
     invalid_input,
     exception,
 ):
+    """Check Triton rejects invalid types, shapes, devices, strides and options."""
     from sgl_kernel_npu.operators.hyper_conn import attn_res_mix_fused
 
     prefix, bank, weight = generate_test_data((3, 4, 3, 32), torch.float16)
