@@ -80,10 +80,10 @@ The x ranges below describe `FUSED_DEEP_MOE`; see the MegaMoe section for its se
 |-----------|------|-------|-------------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token. On A3 this is typically `bfloat16`; on A5 the fused host op supports both `bfloat16` and `float16`. **bs** range **[1, 256]**. **hidden** range **[512, 7168]**. |
 | **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token. Python converts it to `int32` before launch. Only the DeepEP modes support `-1`; MegaMoe requires valid, non-duplicate expert IDs per token. |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients (`float32`; A5 MegaMoe also accepts BF16). |
-| **gmm1_permuted_weight** | `TensorOrTensors` | FuseMode-dependent | First-stage expert weights. The DeepEP modes keep their existing tensor contract. A3 MegaMoe uses per-expert lists; A5 also supports a single stacked Tensor. |
+| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`; A5 MegaMoe also accepts BF16). |
+| **gmm1_permuted_weight** | `TensorOrTensors` | FuseMode-dependent | First-stage expert weights. The DeepEP modes keep their existing tensor contract. `MEGA_MOE` requires one tensor per local expert on A3; A5 also supports a single stacked Tensor. |
 | **gmm1_permuted_weight_scale** | `Optional[TensorOrTensors]` | FuseMode-dependent | The DeepEP modes keep their existing scale contract. A3 MegaMoe scales are optional for A16W16 and required for INT execution. A5 requires matching ND E8M0 scale lists for all MXFP modes. |
-| **gmm2_weight** | `TensorOrTensors` | FuseMode-dependent | Second-stage expert weights. The DeepEP modes keep their existing tensor contract. A3 MegaMoe uses per-expert lists; A5 also supports a single stacked Tensor. |
+| **gmm2_weight** | `TensorOrTensors` | FuseMode-dependent | Second-stage expert weights. The DeepEP modes keep their existing tensor contract. `MEGA_MOE` requires one tensor per local expert on A3; A5 also supports a single stacked Tensor. |
 | **gmm2_weight_scale** | `Optional[TensorOrTensors]` | FuseMode-dependent | Follows the same mode rules as `gmm1_permuted_weight_scale`. |
 | **num_max_dispatch_tokens_per_rank** | `int` | Scalar | Keeps the existing meaning for the DeepEP modes. For MegaMoe it is a common capacity upper bound across ranks: A3 pad to it, A5 passes actual lengths. Atlas A3 is limited to 4096. |
 | **num_experts** | `int` | Scalar | Total number of global experts. The existing A5 fused path and `MEGA_MOE` require it to be divisible by the process-group size. |
@@ -187,7 +187,7 @@ All four lists must use the same layout, including when `E=1`. FP8 weights must 
 
 Prepare CANN weight layouts/formats before calling; the wrapper does not quantize, transpose or format-cast weights. FP4 types use `torch_npu.float4_e2m1fn_x2` (integer 296), not a torch dtype.
 
-Pre-checks cover only metadata read or converted by the wrapper: 2-D `x/topk_idx`, int32/int64 IDs, integer capacity and `N <= capacity`, and a non-empty GMM2 list whose first Tensor is 2-D or 3-D. MXFP reads logical `I` from the last weight dimension (doubled for packed FP4); BF16/INT uses the penultimate dimension. Padding/masking and output slicing follow the BF16/INT mode, not a device-name check. CANN validates platform-specific ranges, divisibility, bias support, weight/scale compatibility and storage formats; some errors may occur after SymmBuffer creation. Callers must ensure valid, non-duplicate expert IDs; the wrapper does not scan device values or insert CPU synchronization.
+Inputs must satisfy CANN's platform-specific requirements. Callers must provide valid, non-duplicate expert IDs per token; the wrapper does not scan expert ID values.
 
 ### Return Values
 
@@ -401,7 +401,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 
 调用方准备 CANN 所需布局和格式，封装不代做量化、转置或 format cast。FP4 类型通过 `torch_npu.float4_e2m1fn_x2`（整数 296）传入，不使用 torch dtype。
 
-只前置检查封装会读取或转换的元数据：`x/topk_idx` 为二维 Tensor，索引在转换前为 int32/int64，容量为整数且 `N <= capacity`，GMM2 为非空 list、首元素为 2D/3D Tensor。MXFP 从权重末维恢复逻辑 `I`（packed FP4 乘 2），BF16/INT 读取倒数第二维。padding、mask 和输出裁切按 BF16/INT 模式处理，不再判断设备名称。平台专属范围、整除关系、bias 支持、权重/scale 配套关系和存储格式均交给 CANN，相关错误可能在创建 SymmBuffer 后才报出。有效路由编号和同一 token 不重复选择专家由调用方保证，封装不扫描设备数据，不额外引入 CPU 同步。
+输入必须满足 CANN 对应平台的接口约束。调用方必须保证每个 token 的专家编号有效且不重复；封装不扫描专家编号的具体数值。
 
 ### 返回值
 

@@ -846,6 +846,7 @@ class Buffer:
                 dispatch (typically max_bs * num_ranks * topk). For MEGA_MOE mode, the
                 per-rank communication capacity. A3 inputs are padded and
                 masked; A5 passes actual token counts without padding or a mask.
+                All ranks must hold the same value.
             num_experts: the total number of global experts.
             quant_mode: quantization mode. Supported values: 0 = no quantization
                 (BF16), 1 = INT8 (default). A5 MEGA_MOE requires an explicit "mx_fp8_e4m3",
