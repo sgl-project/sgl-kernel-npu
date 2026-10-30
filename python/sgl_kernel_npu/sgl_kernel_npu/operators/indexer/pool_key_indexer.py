@@ -5,8 +5,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _aclnn_fn = None
 
 
-@register_impl("attentions.pool_key_indexer", "auto")
-@register_impl("attentions.pool_key_indexer", "aclnn")
+@register_impl("indexer.pool_key_indexer", "auto")
+@register_impl("indexer.pool_key_indexer", "aclnn")
 def _aclnn_impl(
     query,
     pool_key,
@@ -50,7 +50,7 @@ def _aclnn_impl(
     )
 
 
-@register_operator("attentions.pool_key_indexer")
+@register_operator("indexer.pool_key_indexer")
 def pool_key_indexer(
     query,
     pool_key,
@@ -79,7 +79,7 @@ def pool_key_indexer(
     Returns int32 [T, topk + pool_size - 1] for TND queries or
     [B, S, topk + pool_size - 1] for BSND queries. Inputs remain read-only.
     """
-    impl_fn = get_impl_by_name("attentions.pool_key_indexer", impl)
+    impl_fn = get_impl_by_name("indexer.pool_key_indexer", impl)
     return impl_fn(
         query,
         pool_key,

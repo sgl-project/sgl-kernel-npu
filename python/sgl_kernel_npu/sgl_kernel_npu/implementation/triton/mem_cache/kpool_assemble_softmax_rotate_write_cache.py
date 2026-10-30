@@ -6,11 +6,10 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.kpool_utils import (
-    INDEX_HEAD_DIM,
-    KPOOL_SCORE_DTYPES,
-    _default_triton_num_programs,
-)
+from ..utils.triton_utils import get_device_properties
+
+INDEX_HEAD_DIM = 128
+KPOOL_SCORE_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 @triton.jit
@@ -45,12 +44,12 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
 ):
     # Cap the launch grid at the Vector Core count. Programs consume any
     # remaining pools through this grid-stride loop.
-    row = tl.program_id(0)
+    pid = tl.program_id(0)
     program_count = tl.num_programs(0)
     offs = tl.arange(0, BLOCK_D)
     head_mask = offs < HEAD_DIM
 
-    while row < n_pools:
+    for row in range(pid, n_pools, program_count):
         active = True
         if HAS_WRITE_MASK:
             active = tl.load(write_mask_ptr + row)
@@ -120,8 +119,6 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
             write_loc = tl.load(loc_ptr + row)
             out_offsets = write_loc * cache_stride_0 + offs
             tl.store(cache_ptr + out_offsets, pooled, mask=head_mask)
-
-        row += program_count
 
 
 def kpool_assemble_softmax_rotate_write_cache(
@@ -246,7 +243,7 @@ def kpool_assemble_softmax_rotate_write_cache(
         return
 
     if num_programs is None:
-        num_programs = _default_triton_num_programs(chunk_k.device, n_pools)
+        num_programs = min(n_pools, get_device_properties()[1])
     if num_programs <= 0:
         raise ValueError(f"num_programs must be positive, got {num_programs}")
     num_programs = min(num_programs, n_pools)

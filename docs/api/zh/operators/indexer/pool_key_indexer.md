@@ -9,7 +9,7 @@
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.attentions import pool_key_indexer
+from sgl_kernel_npu.operators.indexer import pool_key_indexer
 
 def pool_key_indexer(
     query,
@@ -79,7 +79,7 @@ def pool_key_indexer(
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attentions import pool_key_indexer
+from sgl_kernel_npu.operators.indexer import pool_key_indexer
 
 # BSND, one query/head, 16 complete pools and three tail tokens.
 query = torch.zeros(1, 1, 1, 128, device="npu", dtype=torch.float16)

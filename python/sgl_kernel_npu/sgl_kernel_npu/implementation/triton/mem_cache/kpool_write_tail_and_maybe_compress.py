@@ -6,11 +6,10 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.kpool_utils import (
-    INDEX_HEAD_DIM,
-    KPOOL_SCORE_DTYPES,
-    _default_triton_num_programs,
-)
+from ..utils.triton_utils import get_device_properties
+
+INDEX_HEAD_DIM = 128
+KPOOL_SCORE_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 @triton.jit
@@ -45,14 +44,14 @@ def _kpool_write_tail_and_maybe_compress_kernel(
     HAS_EFFECTIVE_N: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
-    batch = tl.program_id(0)
+    pid = tl.program_id(0)
     program_count = tl.num_programs(0)
     offs = tl.arange(0, BLOCK_D)
     dim_mask = offs < HEAD_DIM
 
     # Programs consume multiple batch rows when the logical batch is larger
     # than the physical Vector Core count.
-    while batch < batch_size:
+    for batch in range(pid, batch_size, program_count):
         cache_loc_0 = tl.load(out_cache_loc_ptr + batch * N)
         if cache_loc_0 != 0:
             req = tl.load(req_pool_indices_ptr + batch)
@@ -155,8 +154,6 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                     )
                     cache_offsets = write_loc * cache_stride_0 + offs
                     tl.store(cache_ptr + cache_offsets, pooled, mask=dim_mask)
-
-        batch += program_count
 
 
 def kpool_write_tail_and_maybe_compress(
@@ -288,7 +285,7 @@ def kpool_write_tail_and_maybe_compress(
     assert all(t.is_contiguous() for t in inputs)
 
     if num_programs is None:
-        num_programs = _default_triton_num_programs(key.device, batch_size)
+        num_programs = min(batch_size, get_device_properties()[1])
     if num_programs <= 0:
         raise ValueError(f"num_programs must be positive, got {num_programs}")
     num_programs = min(num_programs, batch_size)

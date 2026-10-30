@@ -87,7 +87,7 @@ def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
     ],
 )
 def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk):
-    from sgl_kernel_npu.operators.attentions import pool_key_indexer
+    from sgl_kernel_npu.operators.indexer import pool_key_indexer
 
     impl, _ = get_test_impls()
     require_test_impl(pool_key_indexer, impl)

@@ -4,16 +4,9 @@ We recommend new contributors start from writing documentation, which helps you 
 
 ## API Documentation
 
-[API index (English)](api/en/API_list.md) | [API 索引（中文）](api/zh/API_list.md)
+[API index](api/en/API_list.md)
 
 Operator documentation is organized by `api/<language>/operators/<category>/<operator>.md`.
-
-Module guides:
-
-- attention: [English](api/en/operators/attention/README.md) | [中文](api/zh/operators/attention/README.md)
-- attentions: [English](api/en/operators/attentions/README.md) | [中文](api/zh/operators/attentions/README.md)
-- indexer: [English](api/en/operators/indexer/README.md) | [中文](api/zh/operators/indexer/README.md)
-- mem_cache: [English](api/en/operators/mem_cache/README.md) | [中文](api/zh/operators/mem_cache/README.md)
 
 ## Docs Workflow
 

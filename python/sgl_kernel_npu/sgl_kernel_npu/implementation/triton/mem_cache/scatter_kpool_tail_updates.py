@@ -4,7 +4,9 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.kpool_utils import INDEX_HEAD_DIM, _default_triton_num_programs
+from ..utils.triton_utils import get_device_properties
+
+INDEX_HEAD_DIM = 128
 
 
 @triton.jit
@@ -145,7 +147,7 @@ def scatter_kpool_tail_updates(
     chunk_k = chunk_k.contiguous()
     chunk_score = chunk_score.contiguous()
 
-    num_programs = _default_triton_num_programs(chunk_k.device, n_rows)
+    num_programs = min(n_rows, get_device_properties()[1])
 
     _scatter_kpool_tail_updates_kernel[(num_programs,)](
         chunk_k,

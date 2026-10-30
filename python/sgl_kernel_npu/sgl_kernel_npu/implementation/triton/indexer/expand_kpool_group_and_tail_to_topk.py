@@ -4,6 +4,8 @@ import torch
 import triton
 import triton.language as tl
 
+from ..utils.triton_utils import get_device_properties
+
 
 @triton.jit
 def _expand_kpool_group_and_tail_to_topk_kernel(
@@ -104,10 +106,6 @@ def _expand_kpool_group_and_tail_to_topk(
     Returns:
         Token indices shaped [num_q_padded, index_topk + pool_size - 1].
     """
-    from sgl_kernel_npu.implementation.triton.utils.kpool_utils import (
-        _default_triton_num_programs,
-    )
-
     n_pool_topk = pool_indices.shape[1]
     tail_len = pool_size - 1
     out_cols = index_topk + tail_len
@@ -135,7 +133,7 @@ def _expand_kpool_group_and_tail_to_topk(
     assert out.stride(1) == 1
 
     if n_real > 0:
-        num_cores = _default_triton_num_programs(pool_indices.device, n_real)
+        num_cores = min(n_real, get_device_properties()[1])
         _expand_kpool_group_and_tail_to_topk_kernel[(num_cores,)](
             pool_indices,
             seq_lens_per_token,
