@@ -26,6 +26,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
 
+    m.def("elementwise_add(Tensor x, Tensor y) -> Tensor");
+
     m.def(
         "alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
         "Tensor(a!) out_indices, Tensor(b!) values) -> ()");
@@ -300,6 +302,8 @@ TORCH_LIBRARY_IMPL(npu, CatchAll, m)
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
+
+    m.impl("elementwise_add", TORCH_FN(sglang::npu_kernel::elementwise_add));
 
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
 

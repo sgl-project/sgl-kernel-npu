@@ -4,6 +4,7 @@
 | --- | --- |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [elementwise_add](operators/elementwise/elementwise_add.md) | `ascendc`, `torch_native` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`, `torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`, `torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`, `torch_native` |
