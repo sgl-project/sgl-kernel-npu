@@ -19,6 +19,8 @@
 #ifndef CHUNK_GATED_DELTA_RULE_TILING_DATA_H
 #define CHUNK_GATED_DELTA_RULE_TILING_DATA_H
 
+// Provide fixed-width integer types before the SDK-generated tiling declarations.
+#include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
 namespace ChunkGatedDeltaRule {
