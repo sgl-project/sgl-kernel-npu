@@ -11,7 +11,6 @@ its transfers must not be reported as an NPU performance baseline.
 """
 
 import math
-from functools import partial
 
 import pytest
 
@@ -25,7 +24,7 @@ from tests.python.utils.common import (
     require_distinct_impls,
     require_test_impl,
 )
-from tests.python.utils.performance import benchmark_npu, check_performance
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, r_dim).
@@ -289,8 +288,6 @@ def test_mlaprolog_v4(
     weight_quant_mode,
     c8,
     use_rope,
-    tmp_path,
-    record_property,
 ):
     from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
@@ -322,19 +319,9 @@ def test_mlaprolog_v4(
     if impl == "torch_native":
         return
     executor = make_executor(mlaprolog_v4, kwargs=inputs, accuracy_checked=checked)
-    measured = check_performance(
+    check_performance(
         executor, enable_perf=(tokens, shape[2], cache_mode, use_rope) in perf_shape
     )
-    if measured is not None:
-        from cann_ops_transformer import mla_prolog as cann_mla_prolog
-
-        # Repeated writes use the same valid slots. This compares device task
-        # durations, not Python dispatch overhead or end-to-end host latency.
-        direct_us = benchmark_npu(
-            partial(cann_mla_prolog, **inputs), tmp_path / "direct_cann"
-        )
-        record_property("direct_cann_average_device_task_us", direct_us)
-        print(f"Direct CANN average device task duration: {direct_us:.3f} us")
 
 
 @pytest.mark.parametrize("shape", [(7168, 1536, 6, 128, 512, 64)], ids=["kimi-k3-tp16"])
