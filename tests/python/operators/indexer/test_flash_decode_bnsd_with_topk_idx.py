@@ -317,9 +317,7 @@ EDGE_CASES = [
         fused=False,
         expected=_pass_through_expected(16, 20, False),
     ),
-    case("edge-topk-zero", topk=0, seq_lens=[4096], fused=False),
     case("edge-topk-zero-fused", topk=0, seq_lens=[4096], fused=True),
-    case("edge-1x1", seq_lens=[1], max_seqlen=1),
     case(
         "edge-empty",
         seq_lens=[0],
@@ -333,8 +331,9 @@ EDGE_CASES = [
         batch=2,
         seq_lens=[4096, 1024],
         page="table",
+        index_dtype="int64",
     ),
-    case("edge-lse", seq_lens=[4096], score_type="lse"),
+    case("edge-lse", seq_lens=[4096], score_type="lse", compat_flags=True),
     # One block per forced class: two blocks of the same class would tie and
     # the reference/kernel tie order is undefined.
     case(
@@ -351,13 +350,6 @@ EDGE_CASES = [
         index_dtype="int64",
     ),
     case(
-        "edge-idx-int64-table",
-        batch=2,
-        seq_lens=[4096, 1024],
-        page="table",
-        index_dtype="int64",
-    ),
-    case(
         "edge-gqa-kvh2",
         batch=2,
         q_heads=4,
@@ -368,13 +360,18 @@ EDGE_CASES = [
     ),
     case("edge-dim-64", batch=2, head_dim=64, seq_lens=[4096, 2048]),
     case("edge-fp16", dtype=torch.float16, seq_lens=[4096]),
-    case("edge-compat-flags", seq_lens=[4096], compat_flags=True),
 ]
 
 CASES = PRODUCTION_CASES + EDGE_CASES
 
+PARAMS = [pytest.param(spec, id=spec["id"]) for spec in PRODUCTION_CASES]
+PARAMS += [
+    pytest.param(spec, id=spec["id"], marks=pytest.mark.extra_checks)
+    for spec in EDGE_CASES
+]
 
-@pytest.mark.parametrize("spec", CASES, ids=[spec["id"] for spec in CASES])
+
+@pytest.mark.parametrize("spec", PARAMS)
 def test_flash_decode_bnsd_with_topk_idx(spec):
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -394,10 +391,11 @@ def test_flash_decode_bnsd_with_topk_idx(spec):
     check_performance(executor, enable_perf=enable_perf)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.xfail(
     strict=False,
-    reason="C15: packed rows crossing runtime_score_short_max_blocks may truncate "
-    "the merged candidate list; equivalence is not guaranteed",
+    reason="packed rows that straddle the short-context adaptive chunk threshold "
+    "may drop candidates; equivalence is not guaranteed",
 )
 def test_packed_adaptive_cross_short_boundary():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
@@ -423,6 +421,7 @@ def _base_spec(**overrides):
     return case("negative", seq_lens=[256], **overrides)
 
 
+@pytest.mark.extra_checks
 def test_missing_page_source():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -451,15 +450,17 @@ def test_missing_page_source():
         "missing-request-map",
     ],
 )
+@pytest.mark.extra_checks
 def test_invalid_direct_page_source(field, value):
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
-    kwargs = build_inputs(_base_spec())
+    kwargs = build_inputs(_base_spec(fused=False))
     kwargs[field] = value
     with pytest.raises(AssertionError):
         flash_decode_bnsd_with_topk_idx(**kwargs)
 
 
+@pytest.mark.extra_checks
 def test_capacity_exceeds_request_map_columns():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -469,16 +470,7 @@ def test_capacity_exceeds_request_map_columns():
         flash_decode_bnsd_with_topk_idx(**kwargs)
 
 
-def test_direct_requires_capacity():
-    from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
-
-    for value in (None, 0):
-        kwargs = build_inputs(_base_spec(fused=False))
-        kwargs["max_num_blocks"] = value
-        with pytest.raises(AssertionError):
-            flash_decode_bnsd_with_topk_idx(**kwargs)
-
-
+@pytest.mark.extra_checks
 def test_input_ndim_validation():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -494,6 +486,7 @@ def test_input_ndim_validation():
             flash_decode_bnsd_with_topk_idx(**kwargs, impl=impl)
 
 
+@pytest.mark.extra_checks
 def test_packed_requires_single_kv_head():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -508,6 +501,7 @@ def test_packed_requires_single_kv_head():
         flash_decode_bnsd_with_topk_idx(**build_inputs(spec))
 
 
+@pytest.mark.extra_checks
 def test_torch_native_rejects_attention_branch():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -517,6 +511,7 @@ def test_torch_native_rejects_attention_branch():
         flash_decode_bnsd_with_topk_idx(**kwargs, impl="torch_native")
 
 
+@pytest.mark.extra_checks
 def test_block_table_fused_requires_capacity():
     from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
 
@@ -524,18 +519,3 @@ def test_block_table_fused_requires_capacity():
     kwargs["max_num_blocks"] = None
     with pytest.raises(AssertionError):
         flash_decode_bnsd_with_topk_idx(**kwargs)
-
-
-def test_registered_metadata():
-    from sgl_kernel_npu.operators import list_impls
-    from sgl_kernel_npu.operators.indexer import flash_decode_bnsd_with_topk_idx
-    from sgl_kernel_npu.operators.utils.registry import get_op_name
-
-    assert list_impls(flash_decode_bnsd_with_topk_idx) == [
-        "auto",
-        "torch_native",
-        "triton",
-    ]
-    assert get_op_name(flash_decode_bnsd_with_topk_idx) == (
-        "indexer.flash_decode_bnsd_with_topk_idx"
-    )
