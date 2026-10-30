@@ -8,12 +8,13 @@ Public entry point: :func:`sparse_attn_sharedkv_tree`, a Python-only port of
 
 Design notes
 ------------
-* One kernel, grid ``(T, cdiv(N1, 16), 4)``.  The third axis splits the 512-wide
-  head dimension into four 128-wide V slices.  Every program accumulates the
-  full 512-wide QK in four 128-wide dot calls and owns one V slice, so no
-  cross-program reduction is needed and the per-program UB footprint stays
-  bounded for ``head_dim = 512`` (risk R9 in the brief).  The trade-off is that
-  QK is recomputed once per V slice.
+* One kernel, grid ``(T, cdiv(N1, 16))``.  A program owns the full 512-wide head
+  dimension: QK is formed once from the four 128-wide K slices, then the four
+  V slices are accumulated sequentially from the same score block.  No
+  cross-program reduction is needed, QK is not recomputed per D slice, and the
+  per-program UB footprint stays bounded for ``head_dim = 512`` (risk R9 in the
+  brief).  The 512-row vendor merge buffer is a later step; this program still
+  writes all four D slices of its own output rows directly.
 * Original-KV slots are physical indices and are consumed in order up to the
   first ``-1`` (capped by ``ori_sparse_indices.shape[-1]`` and ``seqused_kv``).
   QK and PV gather the *same* offset vector, so slot identity is exact.  A
@@ -56,14 +57,24 @@ _HEAD_DIM = 512
 # 1,572,864 bits after multi-buffering/code motion.  Keep the cube M tile at
 # 16 and halve the slot tile; the score/PV math is unchanged and the D slice
 # remains 128.
+#
+# Full-D program now that the D-slice grid axis is gone: QK is formed once and
+# the four V slices are accumulated sequentially, so the live tile set is
+#   Q0..Q3 4 x 16x128 bf16 = 16,384 B
+#   one K  64x128 bf16      = 16,384 B   (x2 if double-buffered = 32,768)
+#   qk     16x64  f32       =  4,096 B
+#   probs  16x64  f32       =  4,096 B   (+ 2,048 B bf16 cast)
+#   acc0..3 4 x 16x128 f32  = 32,768 B
+#   one V  64x128 bf16      = 16,384 B   (x2 if double-buffered = 32,768)
+# =~ 90 KB single-buffered, =~ 122 KB with K and V double-buffered, i.e. under
+# the 192 KB UB budget with room for code motion.
 _BLOCK_H = 16
 _BLOCK_N = 64
 _BLOCK_D = 128
-_NUM_D_CHUNKS = _HEAD_DIM // _BLOCK_D
 
 
 @triton.jit
-def _attend_chunk(
+def _attend_full(
     KV,
     OFFS,
     VALID,
@@ -73,14 +84,16 @@ def _attend_chunk(
     Q3,
     M,
     L,
-    ACC,
+    ACC0,
+    ACC1,
+    ACC2,
+    ACC3,
     SCALE,
-    V_D0,
     LIMIT: tl.constexpr,
     BLOCK_D: tl.constexpr,
     BLOCK_N: tl.constexpr,
 ):
-    """Score one chunk and merge it into the online softmax state.
+    """Score one chunk once and merge every V slice into the online state.
 
     ``OFFS`` is the element offset of each key row (int64) and ``VALID`` marks
     the slots that survived the source-specific resolution.  K and V share the
@@ -89,13 +102,18 @@ def _attend_chunk(
     ``LIMIT`` is a final address guard: a slot that is marked valid by the
     caller but lands outside its source pool (or at a negative offset) is
     forced to the safe zero row.  Ascend still forms masked-load addresses.
+
+    The 512-wide QK is produced exactly once (four 128-wide K dots), so
+    ``m_new``/``alpha``/``probs``/``l_new`` are also computed once.  The four
+    V slices are then folded in sequentially from the same row offsets, which
+    removes the former per-D-slice grid axis and its 4x QK recompute.
     """
     d = tl.arange(0, BLOCK_D)
     in_range = VALID & (OFFS >= 0) & (OFFS < LIMIT)
     offs = tl.where(in_range, OFFS, 0)
     mask = in_range[:, None]
 
-    # Sequential 128-wide loads: each K chunk dies before the next is issued,
+    # Sequential 128-wide K loads: each K chunk dies before the next is issued,
     # keeping the UB footprint bounded at head_dim 512 (risk R9).
     k = tl.load(KV + offs[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk = tl.dot(Q0, tl.trans(k))
@@ -112,11 +130,18 @@ def _attend_chunk(
     probs = tl.exp(qk - m_new[:, None])
     l_new = L * alpha + tl.sum(probs, 1)
 
-    v = tl.load(
-        KV + offs[:, None] + (V_D0 + d)[None, :], mask=mask, other=0.0
-    )
-    acc_new = ACC * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
-    return m_new, l_new, acc_new
+    # All four V dots are unconditional: a runtime branch around ``tl.dot``
+    # splits the MIX sub-block and the Ascend binder rejects it.
+    probs_v = probs.to(KV.dtype.element_ty)
+    v = tl.load(KV + offs[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc0 = ACC0 * alpha[:, None] + tl.dot(probs_v, v)
+    v = tl.load(KV + offs[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc1 = ACC1 * alpha[:, None] + tl.dot(probs_v, v)
+    v = tl.load(KV + offs[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc2 = ACC2 * alpha[:, None] + tl.dot(probs_v, v)
+    v = tl.load(KV + offs[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    acc3 = ACC3 * alpha[:, None] + tl.dot(probs_v, v)
+    return m_new, l_new, acc0, acc1, acc2, acc3
 
 
 @triton.jit
@@ -169,14 +194,12 @@ def _tree_attn_kernel(
 ):
     pid_t = tl.program_id(0)
     pid_h = tl.program_id(1)
-    pid_d = tl.program_id(2)
 
     heads = pid_h * BLOCK_H + tl.arange(0, BLOCK_H)
     head_mask = heads < N1
     # Masked loads still form their addresses; use a safe head for the tail
     # lanes rather than forming an address past the Q/O/SINKS allocation.
     head_safe = tl.where(head_mask, heads, 0)
-    d0 = pid_d * BLOCK_D
     d = tl.arange(0, BLOCK_D)
 
     q_base = Q + pid_t * (N1 * NODE_D) + head_safe[:, None] * NODE_D
@@ -199,7 +222,13 @@ def _tree_attn_kernel(
         m = tl.zeros([BLOCK_H], dtype=tl.float32) - 1.0e30
         l = tl.zeros([BLOCK_H], dtype=tl.float32)
 
-    acc = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    # Four parallel accumulators, one per 128-wide output slice.  Keeping them
+    # separate (instead of one [BLOCK_H, 512] tile) lets each PV dot stay at a
+    # legal 128-wide N and keeps the live tile set explicit.
+    acc0 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc1 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc2 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
+    acc3 = tl.zeros([BLOCK_H, BLOCK_D], dtype=tl.float32)
     seen = tl.zeros([1], dtype=tl.int32)
 
     seqused = tl.load(SEQUSED + pid_t)
@@ -253,9 +282,9 @@ def _tree_attn_kernel(
             ).to(tl.int64) * ORI_S1
 
             seen += tl.sum(valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                ORI_KV, off, valid, q0, q1, q2, q3, m, l, acc, SCALE, d0,
-                ORI_LIMIT, BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
+                ORI_KV, off, valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, ORI_LIMIT, BLOCK_D, BLOCK_N,
             )
 
     if HAS_CMP:
@@ -313,9 +342,9 @@ def _tree_attn_kernel(
                 logical_safe - page_col_safe * CMP_ROWS
             ).to(tl.int64) * CMP_S1
             seen += tl.sum(paged_valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, CMP_LIMIT, BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
+                CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, CMP_LIMIT, BLOCK_D, BLOCK_N,
             )
 
             # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
@@ -332,30 +361,46 @@ def _tree_attn_kernel(
             node_safe = tl.where(tree_valid, node, 0)
             tree_off = node_safe * NODE_D
             seen += tl.sum(tree_valid.to(tl.int32))
-            m, l, acc = _attend_chunk(
-                TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, TREE_LIMIT, BLOCK_D, BLOCK_N,
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
+                TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, TREE_LIMIT, BLOCK_D, BLOCK_N,
             )
 
     # Branch-free empty-row handling: an `if` here also splits the MIX
     # sub-block after the dot chain, which the Ascend binder rejects.
     has_seen = tl.sum(seen) > 0
     inv_l = tl.where(has_seen, 1.0 / l, 0.0)
-    result = acc * inv_l[:, None]
+    out_base = OUT + pid_t * (N1 * NODE_D) + head_safe[:, None] * NODE_D
     tl.store(
-        OUT + pid_t * (N1 * NODE_D) + head_safe[:, None] * NODE_D + (d0 + d)[None, :],
-        result.to(OUT.dtype.element_ty),
+        out_base + (0 * BLOCK_D + d)[None, :],
+        (acc0 * inv_l[:, None]).to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    tl.store(
+        out_base + (1 * BLOCK_D + d)[None, :],
+        (acc1 * inv_l[:, None]).to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    tl.store(
+        out_base + (2 * BLOCK_D + d)[None, :],
+        (acc2 * inv_l[:, None]).to(OUT.dtype.element_ty),
+        mask=head_mask[:, None],
+    )
+    tl.store(
+        out_base + (3 * BLOCK_D + d)[None, :],
+        (acc3 * inv_l[:, None]).to(OUT.dtype.element_ty),
         mask=head_mask[:, None],
     )
 
-    # LSE is head-only, not per D-slice: only pid_d == 0 writes it.  Use a
-    # store mask instead of a runtime branch for the same MIX-binder reason.
+    # LSE is head-only, not per D-slice: this program owns the whole head block
+    # now, so a single masked store writes it.  A store mask is still used
+    # instead of a runtime branch for the same MIX-binder reason.
     if RETURN_LSE:
         lse = tl.where(has_seen, tl.log(l) + m, 0.0)
         tl.store(
             LSE + pid_t * N1 + head_safe,
             lse,
-            mask=head_mask & (pid_d == 0),
+            mask=head_mask,
         )
 
 
@@ -668,10 +713,11 @@ def sparse_attn_sharedkv_tree(
     max_depth = int(tree_ancestors.shape[1]) if has_cmp else 0
     node_count = int(cmp_tree_kv.shape[0]) if has_cmp else 0
 
+    # One program per (row, head block): the program owns the full 512-wide D,
+    # so there is no D-slice grid axis and QK is not recomputed per slice.
     grid = (
         num_rows,
         triton.cdiv(num_heads, _BLOCK_H),
-        _NUM_D_CHUNKS,
     )
     _tree_attn_kernel[grid](
         q,
