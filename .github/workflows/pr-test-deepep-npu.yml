@@ -619,6 +619,9 @@ jobs:
           run_case a5k3_tc002_local_experts_256_boundary python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 64 --activation swiglu --quant fp8_e4m3
           # uneven token distribution 224+-32 jitter (8-card design adapted to 4 cards)
           run_case a5k3_tc002_token_jitter      python3 ${SCRIPT} --num-processes 4 ${COMMON} --num-tokens 224 --num-token-jitter 32 --activation swiglu --quant fp8_e4m3
+          # sparse extreme form (dev self-verify coverage): only rank has 1 real token, others all-zero,
+          # topk randomized across global expert space - exercises x_active_mask padding and cross-rank routing
+          run_case a5k3_tc002_single_active_rank python3 ${SCRIPT} --num-processes 4 --num-warmups 2 --num-tests 5 --single-active-rank 1 --num-topk 16 --num-experts 1024 --hidden 8192 --moe-intermediate-size 3584
           echo "================ A5 K3 TC002 CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
