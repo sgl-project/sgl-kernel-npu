@@ -28,6 +28,27 @@ Paths alone do not enable performance. Skipping accuracy does not enable it eith
 if both checks are disabled, the operator is not executed. Use serial pytest or
 `-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
 
+### Supplementary checks
+
+Tests marked with `@pytest.mark.extra_checks` are excluded by default. Use
+`-m extra_checks` to run only supplementary checks, or `-m ""` to run all tests.
+
+For example, run the RoPE suite from the repository root:
+
+```bash
+# Default cases.
+python -m pytest tests/python/operators/rope -v
+
+# Supplementary checks only.
+python -m pytest tests/python/operators/rope -m extra_checks -v
+
+# All cases.
+python -m pytest tests/python/operators/rope -m "" -v
+```
+
+Selecting a supplementary test by function path or `-k` still requires
+`-m extra_checks` or `-m ""`.
+
 ## Write a test
 
 Place tests in `operators/<module>/test_<operator>.py`, matching the public API.
