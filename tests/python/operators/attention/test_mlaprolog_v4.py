@@ -125,6 +125,9 @@ def generate_data(
                     .view(torch.float8_e8m0fnu)
                 )
             inputs[name] = quantized.T.contiguous() if is_weight else quantized
+    if generation == Generation.ARCH22:
+        # Enable internal formats so the explicit NZ weight cast takes effect.
+        torch_npu.npu.config.allow_internal_format = True
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
     if use_rope:
