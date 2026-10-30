@@ -162,7 +162,10 @@ def _compressor_tree_project_kernel(
 
     rows = m_tile * BLOCK_M + tl.arange(0, BLOCK_M)
     row_mask = rows < T
-    rows64 = rows.to(tl.int64)
+    # Masked tails still form their addresses on Ascend; clamp the row used for
+    # every x/positions/nodes address so a tail lane cannot leave its buffer.
+    rows_safe = tl.where(row_mask, rows, 0)
+    rows64 = rows_safe.to(tl.int64)
 
     cols = d_tile * BLOCK_D + tl.arange(0, BLOCK_D)
     col_mask = cols < HALF
@@ -190,7 +193,7 @@ def _compressor_tree_project_kernel(
 
     # APE is a per-residue bias of the score half only (vendor ``AddApeToScore``
     # under ``if constexpr (IS_SCORE)``); the kv half never sees it.
-    position = tl.load(positions_ptr + rows, mask=row_mask, other=0)
+    position = tl.load(positions_ptr + rows_safe, mask=row_mask, other=0)
     ape_offs = position.to(tl.int64)[:, None] * stride_ape + cols64[None, :]
     ape = tl.load(
         ape_ptr + ape_offs,
