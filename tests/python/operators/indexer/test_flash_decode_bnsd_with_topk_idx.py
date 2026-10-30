@@ -22,15 +22,15 @@ from tests.python.utils.performance import check_performance
 
 # Case ids selected for performance collection (production shapes).
 perf_shape = [
-    "m3-decode-1x128k",
-    "m3-decode-16x4k",
-    "m3-decode-4x32k-tp2",
-    "m3-decode-1x1m",
-    "m3-verify-packed-4x3",
+    "minimax-m3-decode-1x128k",
+    "minimax-m3-decode-16x4k",
+    "minimax-m3-decode-4x32k-tp2",
+    "minimax-m3-decode-1x1m",
+    "minimax-m3-verify-packed-4x3",
 ]
 # The 1M context case only collects performance; its reference comparison is
 # skipped because the torch_native gather would dominate the runtime.
-skip_acc_check_cases = {"m3-decode-1x1m"}
+skip_acc_check_cases = {"minimax-m3-decode-1x1m"}
 
 
 def case(cid, **overrides):
@@ -202,34 +202,34 @@ def _pass_through_expected(num_blocks, topk, fused):
 
 PRODUCTION_CASES = [
     case(
-        "m3-decode-1x128k",
+        "minimax-m3-decode-1x128k",
         seq_lens=[131072],
         max_seqlen=131072,
         score_max_chunks=16,
     ),
-    case("m3-decode-16x4k", batch=16, seq_lens=[4096] * 16),
+    case("minimax-m3-decode-16x4k", batch=16, seq_lens=[4096] * 16),
     case(
-        "m3-decode-4x32k-tp2",
+        "minimax-m3-decode-4x32k-tp2",
         batch=4,
         q_heads=2,
         seq_lens=[32768] * 4,
         max_seqlen=32768,
     ),
     case(
-        "m3-decode-graph-cap",
+        "minimax-m3-decode-graph-cap",
         seq_lens=[4096],
         max_seqlen=1048576,
         score_max_chunks=16,
     ),
     case(
-        "m3-decode-4x8k-tp1",
+        "minimax-m3-decode-4x8k-tp1",
         batch=4,
         q_heads=4,
         seq_lens=[8192] * 4,
         max_seqlen=8192,
     ),
     case(
-        "m3-verify-packed-4x3",
+        "minimax-m3-verify-packed-4x3",
         batch=4,
         q_heads=3,
         seq_lens=[4096 + index for index in range(12)],
@@ -242,7 +242,7 @@ PRODUCTION_CASES = [
         runtime_fill_only=False,
     ),
     case(
-        "m3-verify-packed-flat",
+        "minimax-m3-verify-packed-flat",
         batch=12,
         seq_lens=[4096] * 12,
         max_seqlen=1048576,
@@ -250,7 +250,7 @@ PRODUCTION_CASES = [
         score_max_chunks=64,
     ),
     case(
-        "m3-decode-1x1m",
+        "minimax-m3-decode-1x1m",
         seq_lens=[1048576],
         max_seqlen=1048576,
         score_max_chunks=16,
