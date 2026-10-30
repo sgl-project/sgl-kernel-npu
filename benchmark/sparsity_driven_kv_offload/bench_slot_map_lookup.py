@@ -8,6 +8,8 @@ Usage:
     python benchmark/sparsity_driven_kv_offload/bench_slot_map_lookup.py
     python benchmark/sparsity_driven_kv_offload/bench_slot_map_lookup.py \
         --bs 8 --topk-len 4096 --hit-ratio 0.3
+    python benchmark/sparsity_driven_kv_offload/bench_slot_map_lookup.py \
+        --bs 32 --topk-len 2048 --device-len 4096 --pos-mask-size 4096
 """
 
 import argparse
@@ -193,15 +195,28 @@ def check_slot_lookup(args, block_dim, case_data, name):
         expected_mask,
         expected_pos,
     ) = case_data
-    actual_token, actual_pos = slot_map_lookup(
+    result = slot_map_lookup(
         slot_map,
         req_indices_i32,
         topk_indices_i32,
         block_dim=block_dim,
+        pos_mask_size=args.pos_mask_size or None,
     )
+    if args.pos_mask_size:
+        actual_token, actual_pos, actual_position_mask = result
+    else:
+        actual_token, actual_pos = result
     synchronize()
     slot_mask, slot_pos = normalize_slot_outputs(actual_token, actual_pos)
     assert_equal_pair(name, slot_mask, slot_pos, expected_mask, expected_pos)
+    if args.pos_mask_size:
+        expected_position_mask = torch.zeros_like(actual_position_mask)
+        for batch_idx in range(args.bs):
+            hit_positions = expected_pos[batch_idx][expected_mask[batch_idx]]
+            hit_positions = hit_positions[hit_positions < args.pos_mask_size]
+            expected_position_mask[batch_idx, hit_positions] = 1
+        if not torch.equal(actual_position_mask, expected_position_mask):
+            raise AssertionError(f"{name} position_mask mismatch")
 
 
 def time_samples_ms(fn, warmup, iters, repeat):
@@ -254,7 +269,8 @@ def accuracy_case(args, case_idx, block_dim):
     log(
         f"\n[ACCURACY] case={case_idx}, size={args.size}, bs={args.bs}, topk={args.topk_len}, "
         f"device_len={args.device_len}, max_context_len={args.max_context_len}, "
-        f"hit_ratio={args.hit_ratio:.2f}, block_dim={block_dim}"
+        f"hit_ratio={args.hit_ratio:.2f}, block_dim={block_dim}, "
+        f"pos_mask_size={args.pos_mask_size}"
     )
     case_data = build_case_data(args, args.seed + case_idx)
     check_slot_lookup(args, block_dim, case_data, "slot_map_lookup vs any+argmax")
@@ -265,6 +281,7 @@ def benchmark_case(args, block_dim, case_data):
         f"\n[PERF] size={args.size}, bs={args.bs}, topk={args.topk_len}, "
         f"device_len={args.device_len}, max_context_len={args.max_context_len}, "
         f"hit_ratio={args.hit_ratio:.2f}, block_dim={block_dim}, "
+        f"pos_mask_size={args.pos_mask_size}, "
         f"perf_repeat={args.perf_repeat}, iters={args.iters}, timing=npu_event"
     )
     (
@@ -277,11 +294,12 @@ def benchmark_case(args, block_dim, case_data):
         _expected_pos,
     ) = case_data
 
-    slot_mask_u8, slot_pos_i32 = slot_map_lookup(
+    slot_map_lookup(
         slot_map,
         req_indices_i32,
         topk_indices_i32,
         block_dim=block_dim,
+        pos_mask_size=args.pos_mask_size or None,
     )
     synchronize()
 
@@ -302,7 +320,11 @@ def benchmark_case(args, block_dim, case_data):
 
     slot_samples = time_samples_ms(
         lambda: slot_map_lookup(
-            slot_map, req_indices_i32, topk_indices_i32, block_dim=block_dim
+            slot_map,
+            req_indices_i32,
+            topk_indices_i32,
+            block_dim=block_dim,
+            pos_mask_size=args.pos_mask_size or None,
         ),
         args.warmup,
         args.iters,
@@ -313,7 +335,13 @@ def benchmark_case(args, block_dim, case_data):
     slot_mean, slot_median, _, _, _ = summarize_samples(slot_samples)
     log_argmax_working_set(args.bs, args.topk_len, args.device_len)
     log_samples("any+argmax operators only (prebuilt match matrices)", ref_samples)
-    log_samples("slot_map_lookup kernel only (preallocated outputs)", slot_samples)
+    mask_label = (
+        f" + position_mask[{args.pos_mask_size}]" if args.pos_mask_size else ""
+    )
+    log_samples(
+        f"slot_map_lookup{mask_label} kernel only (preallocated outputs)",
+        slot_samples,
+    )
     log(
         f"operator-only speedup: mean={ref_mean / slot_mean:.2f}x, median={ref_median / slot_median:.2f}x"
     )
@@ -335,6 +363,12 @@ def parse_args():
     parser.add_argument("--max-context-len", type=int, default=128000)
     parser.add_argument("--hit-ratio", type=float, default=0.5)
     parser.add_argument("--block-dim", type=int, default=8)
+    parser.add_argument(
+        "--pos-mask-size",
+        type=int,
+        default=0,
+        help="0 disables the mask; use 4096 for the fused LRU pipeline.",
+    )
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--iters", type=int, default=10)
     parser.add_argument("--accuracy-repeat", type=int, default=1)
@@ -349,6 +383,8 @@ def main():
         raise SystemExit("--hit-ratio must be in [0, 1]")
     if args.block_dim <= 0:
         raise SystemExit("--block-dim must be positive")
+    if args.pos_mask_size < 0 or args.pos_mask_size % 8 != 0:
+        raise SystemExit("--pos-mask-size must be zero or a positive multiple of 8")
 
     log("slot_map_lookup vs any+argmax benchmark started.")
     for case_idx in range(args.accuracy_repeat):

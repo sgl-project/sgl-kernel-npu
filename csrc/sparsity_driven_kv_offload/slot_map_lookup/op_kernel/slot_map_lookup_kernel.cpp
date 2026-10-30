@@ -9,6 +9,7 @@ constexpr uint32_t TOPK_TILE_LEN = 64;
 #define SENTINEL_LINE_OFFSET_BYTES (SENTINEL_LINE_OFFSET * sizeof(int32_t))
 #define MTE_BATCH_LEN 8
 #define AIV_PIPELINE_DEPTH 2
+#define MASK_ONE_HOT_ELEMS (SLOT_LINE_ELEMS * SLOT_LINE_ELEMS)
 
 class KernelSlotMapLookup
 {
@@ -16,25 +17,30 @@ public:
     __aicore__ inline KernelSlotMapLookup() {}
 
     __aicore__ inline void Init(GM_ADDR slot_map, GM_ADDR req_indices, GM_ADDR topk_indices, GM_ADDR token_on_device,
-                                GM_ADDR device_token_pos, uint32_t size, uint32_t max_context_len, uint32_t bs,
-                                uint32_t topk, AscendC::TPipe *pipe)
+                                GM_ADDR device_token_pos, GM_ADDR position_mask, uint32_t size,
+                                uint32_t max_context_len, uint32_t bs, uint32_t topk, uint32_t pos_mask_size,
+                                AscendC::TPipe *pipe)
     {
         this->size = size;
         this->max_context_len = max_context_len;
         this->bs = bs;
         this->topk = topk;
+        this->pos_mask_size = pos_mask_size;
 
         slotMapGm.SetGlobalBuffer((__gm__ int32_t *)slot_map, static_cast<uint64_t>(size) * max_context_len);
         reqIndicesGm.SetGlobalBuffer((__gm__ int32_t *)req_indices, bs);
         topkIndicesGm.SetGlobalBuffer((__gm__ int32_t *)topk_indices, static_cast<uint64_t>(bs) * topk);
         tokenOnDeviceGm.SetGlobalBuffer((__gm__ int32_t *)token_on_device, static_cast<uint64_t>(bs) * topk);
         deviceTokenPosGm.SetGlobalBuffer((__gm__ int32_t *)device_token_pos, static_cast<uint64_t>(bs) * topk);
+        positionMaskGm.SetGlobalBuffer((__gm__ int32_t *)position_mask,
+                                      static_cast<uint64_t>(bs) * pos_mask_size);
 
         pipe->InitBuffer(topkIdxBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(int32_t));
         pipe->InitBuffer(posResultBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(int32_t));
         pipe->InitBuffer(tokenResultBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(int32_t));
         pipe->InitBuffer(slotLineBuf, AIV_PIPELINE_DEPTH * SLOT_LINES_PER_TILE * SLOT_LINE_ELEMS * sizeof(int32_t));
         pipe->InitBuffer(mteOffsetBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(uint32_t));
+        pipe->InitBuffer(maskOneHotBuf, MASK_ONE_HOT_ELEMS * sizeof(int32_t));
     }
 
     // Pipeline: overlap current tile's MTE2 with previous tile's V+MTE3.
@@ -65,6 +71,19 @@ public:
         AscendC::LocalTensor<int32_t> tokenBaseLocal = tokenResultBuf.Get<int32_t>();
         AscendC::LocalTensor<int32_t> slotLineBaseLocal = slotLineBuf.Get<int32_t>();
         AscendC::LocalTensor<uint32_t> mteOffsetBaseLocal = mteOffsetBuf.Get<uint32_t>();
+        AscendC::LocalTensor<int32_t> maskOneHotLocal = maskOneHotBuf.Get<int32_t>();
+
+        // Eight immutable one-hot 32-byte lines. AtomicMax of one such line
+        // sets exactly one mask entry while preserving ones written by other
+        // workers to the same line.
+        AscendC::Duplicate(maskOneHotLocal, static_cast<int32_t>(0), MASK_ONE_HOT_ELEMS);
+        AscendC::SetFlag<AscendC::HardEvent::V_S>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_S>(0);
+        for (uint32_t lane = 0; lane < SLOT_LINE_ELEMS; ++lane) {
+            maskOneHotLocal.SetValue(lane * SLOT_LINE_ELEMS + lane, 1);
+        }
+        AscendC::SetFlag<AscendC::HardEvent::S_MTE3>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::S_MTE3>(0);
 
         for (uint32_t buf = 0; buf < AIV_PIPELINE_DEPTH; ++buf) {
             const uint32_t sentinelBase = buf * SLOT_LINES_PER_TILE * SLOT_LINE_ELEMS + SENTINEL_LINE_OFFSET;
@@ -73,6 +92,7 @@ public:
 
         uint32_t slotTileLen[AIV_PIPELINE_DEPTH];
         uint32_t slotGmOffset[AIV_PIPELINE_DEPTH];
+        uint32_t maskGmOffset[AIV_PIPELINE_DEPTH];
         bool slotSkipV[AIV_PIPELINE_DEPTH];
 
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(0);
@@ -99,6 +119,30 @@ public:
                     }
                     AscendC::Adds(prevTokenLocal, prevPosLocal, static_cast<int32_t>(1), TOPK_TILE_LEN);
                     AscendC::Mins(prevTokenLocal, prevTokenLocal, static_cast<int32_t>(1), TOPK_TILE_LEN);
+
+                    // S + MTE3: scatter one into every hit position. AtomicMax
+                    // safely merges duplicate and adjacent writes from
+                    // different workers. pos_mask_size is 8-element aligned,
+                    // so every 32-byte update remains inside its batch row.
+                    if (pos_mask_size > 0) {
+                        AscendC::SetFlag<AscendC::HardEvent::V_S>(prevBuf);
+                        AscendC::WaitFlag<AscendC::HardEvent::V_S>(prevBuf);
+                        AscendC::SetAtomicMax<int32_t>();
+                        for (uint32_t i = 0; i < slotTileLen[prevBuf]; ++i) {
+                            if (prevTokenLocal.GetValue(i) != 1) {
+                                continue;
+                            }
+                            const int32_t pos = prevPosLocal.GetValue(i);
+                            if (pos >= 0 && static_cast<uint32_t>(pos) < pos_mask_size) {
+                                const uint32_t posU = static_cast<uint32_t>(pos);
+                                const uint32_t lineBase = posU & ~SLOT_LINE_MASK;
+                                const uint32_t lineOffset = posU & SLOT_LINE_MASK;
+                                AscendC::DataCopy(positionMaskGm[maskGmOffset[prevBuf] + lineBase],
+                                                  maskOneHotLocal[lineOffset * SLOT_LINE_ELEMS], SLOT_LINE_ELEMS);
+                            }
+                        }
+                        AscendC::SetAtomicNone();
+                    }
                 }
 
                 // MTE3: UB -> GM (tokenOnDevice + deviceTokenPos)
@@ -129,6 +173,7 @@ public:
 
             slotTileLen[curBuf] = tileLen;
             slotGmOffset[curBuf] = gmOffset;
+            maskGmOffset[curBuf] = b * pos_mask_size;
 
             AscendC::LocalTensor<int32_t> topkLocal = topkBaseLocal[curBuf * TOPK_TILE_LEN];
             AscendC::LocalTensor<int32_t> posLocal = posBaseLocal[curBuf * TOPK_TILE_LEN];
@@ -197,27 +242,31 @@ private:
     AscendC::GlobalTensor<int32_t> topkIndicesGm;
     AscendC::GlobalTensor<int32_t> tokenOnDeviceGm;
     AscendC::GlobalTensor<int32_t> deviceTokenPosGm;
+    AscendC::GlobalTensor<int32_t> positionMaskGm;
 
     AscendC::TBuf<AscendC::QuePosition::VECCALC> topkIdxBuf;
     AscendC::TBuf<AscendC::QuePosition::VECCALC> posResultBuf;
     AscendC::TBuf<AscendC::QuePosition::VECCALC> tokenResultBuf;
     AscendC::TBuf<AscendC::QuePosition::VECCALC> slotLineBuf;
     AscendC::TBuf<AscendC::QuePosition::VECCALC> mteOffsetBuf;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> maskOneHotBuf;
 
     uint32_t size = 0;
     uint32_t max_context_len = 0;
     uint32_t bs = 0;
     uint32_t topk = 0;
+    uint32_t pos_mask_size = 0;
 };
 
 extern "C" __global__ __aicore__ void slot_map_lookup(GM_ADDR slot_map, GM_ADDR req_indices, GM_ADDR topk_indices,
-                                                      GM_ADDR token_on_device, GM_ADDR device_token_pos, uint32_t size,
-                                                      uint32_t max_context_len, uint32_t bs, uint32_t topk)
+                                                      GM_ADDR token_on_device, GM_ADDR device_token_pos,
+                                                      GM_ADDR position_mask, uint32_t size, uint32_t max_context_len,
+                                                      uint32_t bs, uint32_t topk, uint32_t pos_mask_size)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     KernelSlotMapLookup kernel;
     AscendC::TPipe pipe;
-    kernel.Init(slot_map, req_indices, topk_indices, token_on_device, device_token_pos, size, max_context_len, bs, topk,
-                &pipe);
+    kernel.Init(slot_map, req_indices, topk_indices, token_on_device, device_token_pos, position_mask, size,
+                max_context_len, bs, topk, pos_mask_size, &pipe);
     kernel.Process();
 }
