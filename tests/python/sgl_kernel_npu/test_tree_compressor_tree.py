@@ -137,13 +137,21 @@ def _base_args(**overrides):
 
 @pytest.mark.parametrize("ratio,head_dim", SPECIALIZATIONS)
 @pytest.mark.parametrize("n,budget,depth", TREE_SHAPES)
-def test_accepts_real_caller_4d_nodes():
+def test_accepts_real_caller_4d_nodes(ratio, head_dim, n, budget, depth):
     """node_pool.py allocates nodes as [n+1, 1, 1, 2*c*d]."""
-    case = _case()
+    case = _case(
+        ratio=ratio,
+        head_dim=head_dim,
+        batch=1,
+        budget=budget,
+        depth=depth,
+        prefixes=[_emitting_prefix(ratio, depth)],
+    )
+    assert case["n"] == n
     expected = _reference(case)
     args = _device_args(case)
-    n = int(args["nodes"].size(0)) - 1
-    args["nodes"] = args["nodes"].view(n + 1, 1, 1, -1)
+    nodes_n = int(args["nodes"].size(0)) - 1
+    args["nodes"] = args["nodes"].view(nodes_n + 1, 1, 1, -1)
     _assert_close(_launch(args), expected)
 
 
