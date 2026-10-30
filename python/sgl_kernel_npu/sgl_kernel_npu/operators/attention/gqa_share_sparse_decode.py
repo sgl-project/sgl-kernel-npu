@@ -6,7 +6,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 @register_impl("attention.gqa_share_sparse_decode", "auto")
 @register_impl("attention.gqa_share_sparse_decode", "triton")
 def _triton(*args, **kwargs):
-    from ...attention.gqa_share_sparse_attention import (
+    from ...implementation.triton.attention.gqa_share_sparse_attention import (
         flash_decode_bnsd_with_gqa_share_sparse,
     )
 
