@@ -1,0 +1,146 @@
+
+name: Kernel Python Coverage
+
+on:
+  pull_request:
+    paths:
+      - 'python/sgl_kernel_npu/**'
+      - 'tests/python/sgl_kernel_npu/**'
+      - 'scripts/run_kernel_tests.sh'
+      - 'scripts/run_kernel_coverage.sh'
+      - 'scripts/prepare_kernel_tests.sh'
+      - '.github/workflows/kernel-python-coverage.yml'
+
+  workflow_dispatch:
+    inputs:
+      hardware:
+        description: "Hardware to collect coverage on"
+        required: true
+        type: choice
+        options: [a3, a5]
+        default: a3
+
+jobs:
+  collect-and-build-map:
+    name: Coverage and Map (${{ inputs.hardware || 'a3' }})
+    runs-on: ${{ inputs.hardware == 'a5' && 'linux-amd64-a5-4' || 'linux-aarch64-a3-800t-2' }}
+    timeout-minutes: 240
+
+    container:
+      image: ${{ inputs.hardware == 'a5' && 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-950-ubuntu22.04-py3.12' || 'swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.1.0-a3-20260818' }}
+
+    permissions:
+      contents: read
+
+    env:
+      CANN_VERSION: "9.1.0"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+
+    steps:
+      - name: Clean git config
+        shell: bash
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        shell: bash
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install CI dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHING_URL='cache-service.nginx-pypi-cache.svc.cluster.local'
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url "http://${CACHING_URL}/pypi/simple"
+          pip config set global.trusted-host "${CACHING_URL}"
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version "$CANN_VERSION"
+
+      - name: Build and install Kernel package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.hardware }}" == "a5" ]]; then
+            bash scripts/prepare_kernel_tests.sh Ascend950
+          else
+            bash scripts/prepare_kernel_tests.sh
+          fi
+
+      # Step 1: Collect per-test-file coverage.
+      - name: Collect Python coverage
+        id: collect
+        shell: bash
+        env:
+          HCCL_BUFFSIZE: "4096"
+          TEST_GROUP: all
+        run: |
+          set -euo pipefail
+          bash scripts/run_kernel_coverage.sh
+
+          echo "=== Generated coverage files ==="
+          find coverage-out/test -type f -name coverage -print
+
+          COVERAGE_COUNT=$(find coverage-out/test -type f -name coverage | wc -l)
+
+          if [[ "$COVERAGE_COUNT" -eq 0 ]]; then
+            echo "ERROR: No per-test coverage data generated"
+            exit 1
+          fi
+
+          echo "Coverage files generated: $COVERAGE_COUNT"
+
+      # Step 2: Generate test_case_map.json using precision-test.
+      - name: Generate test case map
+        id: build_map
+        uses: lb-actions/precision-test@v1.0.7
+        with:
+          repo: sglang
+          build-map: true
+          coverage-dir: coverage-out
+          source-dir: python/sgl_kernel_npu
+          map-file: coverage-out/test_case_map.json
+        env:
+          PYTHON_EXEC_TIMEOUT_SECONDS: "900"
+
+      # Step 3: Verify both outputs.
+      - name: Verify coverage and mapping
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Coverage data ==="
+          find coverage-out/test -type f -name coverage -ls || true
+
+          COVERAGE_COUNT=$(find coverage-out/test -type f -name coverage | wc -l)
+
+          if [[ "$COVERAGE_COUNT" -eq 0 ]]; then
+            echo "ERROR: Coverage data not found"
+            exit 1
+          fi
+
+          echo "=== Mapping JSON ==="
+          MAP_FILE="coverage-out/test_case_map.json"
+
+          if [[ ! -s "$MAP_FILE" ]]; then
+            echo "ERROR: test_case_map.json was not generated"
+            exit 1
+          fi
+
+          python3 -m json.tool "$MAP_FILE" > /dev/null
+
+          echo "Coverage files: $COVERAGE_COUNT"
+          ls -lh "$MAP_FILE"
+          echo "Both Coverage data and test_case_map.json were generated successfully."
