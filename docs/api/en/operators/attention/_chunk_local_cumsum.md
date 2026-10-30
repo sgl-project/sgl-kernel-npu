@@ -18,7 +18,7 @@ def chunk_local_cumsum(g, chunk_size, reverse=False, scale=None, cu_seqlens=None
 
 ## Description
 
-Within each independent sequence chunk, sum along time in forward or reverse order, optionally scaled. The Triton path casts each sum to the input dtype before storing in the output dtype.
+Within each sequence chunk, sum along time in forward or reverse order, optionally scaled. Accumulation uses FP32 intermediates and casts to the input dtype before writing. Triton output dtype must match g.dtype: the default output_dtype=torch.float32 is suitable for FP32 input; for FP16/BF16 inputs pass output_dtype=None or explicitly pass g.dtype. A mismatch raises ValueError in the public API.
 
 ## Parameters and return value
 
@@ -41,5 +41,5 @@ import torch
 from sgl_kernel_npu.operators.attention import chunk_local_cumsum
 
 g = torch.randn(1, 128, 8, device="npu", dtype=torch.float16)
-y = chunk_local_cumsum(g, 64, impl="triton")
+y = chunk_local_cumsum(g, 64, output_dtype=None, impl="triton")
 ```

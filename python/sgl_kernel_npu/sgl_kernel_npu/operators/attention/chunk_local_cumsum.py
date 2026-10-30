@@ -40,6 +40,9 @@ def chunk_local_cumsum(
 
     g has shape [B,T,H] or [B,H,T] when head_first. cu_seqlens selects
     variable-length sequences in a flattened batch of size one.
+    Triton accumulates in FP32 and casts to g.dtype before writing. Its output
+    dtype must equal g.dtype: pass output_dtype=None or g.dtype for FP16/BF16
+    inputs, since the default is torch.float32.
     """
     if g.ndim != 3:
         raise ValueError("scalar cumulative sum requires a 3-D input")
@@ -47,6 +50,15 @@ def chunk_local_cumsum(
         raise ValueError("chunk_size must be a positive power of two")
     if cu_seqlens is not None and g.shape[0] != 1:
         raise ValueError("variable-length input requires batch size 1")
+    if (
+        impl in ("auto", "triton")
+        and output_dtype is not None
+        and output_dtype != g.dtype
+    ):
+        raise ValueError(
+            "Triton output_dtype must match g.dtype; use None or g.dtype "
+            f"(got output_dtype={output_dtype}, g.dtype={g.dtype})"
+        )
     return get_impl_by_name("attention.chunk_local_cumsum", impl)(
         g, chunk_size, reverse, scale, cu_seqlens, head_first, output_dtype
     )
