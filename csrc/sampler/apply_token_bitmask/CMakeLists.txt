@@ -1,5 +1,6 @@
 # Legacy Host and Kernel are common to A2/A3/A5 in cmake/legacy_kernels.cmake.
 # This source support scope is independent of the target tested in a given run.
+# Register the common implementation and its framework adapter.
 sgl_register_operator(
     ID apply_token_bitmask
     EXECUTION_UNIT AICORE

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(sgl_cann_torch LANGUAGES CXX)
 
+# Locate the Python, Torch, CANN, and staged vendor dependencies.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "The CANN Torch extension requires Linux")
 endif()
@@ -24,18 +25,21 @@ if(NOT IS_DIRECTORY "${SGL_CANN_VENDOR}/op_api/include")
     message(FATAL_ERROR "SGL_CANN_VENDOR must name this build's installed CANN vendor")
 endif()
 
+# Reuse the CANN declarations and collect adapters for the same selection.
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/operators.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/domains.cmake")
 sgl_add_operator_domains()
 sgl_select_operators(selected ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
+sgl_resolve_operators(ARCH "${SGL_ARCH_VERSION}" OPERATORS ${selected})
 set(adapters)
 foreach(id IN LISTS selected)
-    sgl_get_operator(adapter "${id}" TORCH_ADAPTER)
+    sgl_get_resolved_operator(adapter "${id}" "${SGL_ARCH_VERSION}" TORCH_ADAPTER)
     if(NOT adapter)
         message(FATAL_ERROR "No Torch adapter declared for selected operator: ${id}")
     endif()
     list(APPEND adapters "${adapter}")
 endforeach()
+# Build the selected adapters into the Torch library shipped in the wheel.
 separate_arguments(torch_flags NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
 foreach(target IN ITEMS sgl_kernel_npu)
     add_library(${target} SHARED ${adapters})
