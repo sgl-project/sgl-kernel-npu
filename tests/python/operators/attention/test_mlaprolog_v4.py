@@ -38,9 +38,12 @@ perf_shape = [
     for tokens in (1, 4, 16, 32, 64)
     for use_rope in (False, True)
 ]
-cache_cases = [(0, False), (3, False), (3, True)]
+cache_cases = [(0, False), (3, False), (3, True), (2, False)]
 _BF16_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
 _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)}
+# Local INT8 quantization criterion: every element differs by at most one code.
+# Compare in FP32 to avoid INT8 subtraction overflow; this is not the FP8 rule.
+_INT8_QUERY_NORM_STANDARD = {"torch.float32": AccuracyStandard(atol=1, rtol=0)}
 
 
 def generate_data(
@@ -58,8 +61,11 @@ def generate_data(
     import torch_npu
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    if weight_quant_mode == 3 and get_hardware().generation == Generation.ARCH22:
+    generation = get_hardware().generation
+    if weight_quant_mode == 3 and generation == Generation.ARCH22:
         pytest.skip("MLAProlog MXFP8 projections require arch35")
+    if weight_quant_mode == 2 and generation != Generation.ARCH22:
+        pytest.skip("Dynamic INT8 coverage targets arch22")
 
     hidden, rank, heads, head_dim, latent, r_dim = shape
     generator = torch.Generator(device="cpu").manual_seed(42)
@@ -96,7 +102,7 @@ def generate_data(
     )
     if c8:
         inputs["quant_scale_ckv"] = torch.tensor([32.0], dtype=torch.float32)
-    if weight_quant_mode == 3:
+    if weight_quant_mode in (2, 3):
         for name, scale_name in (
             ("token_x", "dequant_scale_x"),
             ("weight_dq", "dequant_scale_w_dq"),
@@ -105,15 +111,20 @@ def generate_data(
         ):
             is_weight = name != "token_x"
             value = inputs[name].T.contiguous() if is_weight else inputs[name]
-            quantized, scales = torch_npu.npu_dynamic_mx_quant(
-                value, axis=-1, dst_type=torch.float8_e4m3fn, block_size=32
-            )
+            if weight_quant_mode == 2:
+                quantized, scales = torch_npu.npu_dynamic_quant(value)
+                scales = scales.float().reshape(-1, 1)
+                inputs[scale_name] = scales.T.contiguous() if is_weight else scales
+            else:
+                quantized, scales = torch_npu.npu_dynamic_mx_quant(
+                    value, axis=-1, dst_type=torch.float8_e4m3fn, block_size=32
+                )
+                inputs[scale_name] = (
+                    scales.contiguous()
+                    .reshape(value.shape[0], -1)
+                    .view(torch.float8_e8m0fnu)
+                )
             inputs[name] = quantized.T.contiguous() if is_weight else quantized
-            inputs[scale_name] = (
-                scales.contiguous()
-                .reshape(value.shape[0], -1)
-                .view(torch.float8_e8m0fnu)
-            )
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
     if use_rope:
@@ -185,13 +196,16 @@ def _check_contract(outputs, inputs):
     c8 = inputs["kv_cache_quant_mode"] == 1
     mode3 = inputs["weight_quant_mode"] == 3
     norm = inputs["query_norm_flag"]
+    norm_scale_shape = (0,)
+    if norm and inputs["weight_quant_mode"] != 0:
+        norm_scale_shape = (tokens, rank // 32 if mode3 else 1)
     expected = (
         ((tokens, heads, latent), torch.float8_e4m3fn if c8 else torch.bfloat16),
         ((tokens, heads, r_dim), torch.bfloat16),
         ((tokens, heads, 1) if c8 else (0,), torch.float32),
         ((tokens, rank) if norm else (0,), inputs["weight_uq_qr"].dtype),
         (
-            (tokens, rank // 32) if mode3 and norm else (0,),
+            norm_scale_shape,
             torch.float8_e8m0fnu if mode3 else torch.float32,
         ),
     )
@@ -244,6 +258,11 @@ def _accuracy(outputs, expected, inputs, reference, before):
             _assert_mixed_accuracy(
                 norm, norm_ref, dtype=torch.float8_e4m3fn, path="query_norm"
             )
+        elif inputs["weight_quant_mode"] == 2:
+            assert_accuracy(
+                norm, norm_ref, _INT8_QUERY_NORM_STANDARD, path="query_norm"
+            )
+            assert_accuracy(outputs[4], expected[4], path="query_norm_scale")
         else:
             assert_accuracy(norm, norm_ref, _BF16_STANDARD, path="query_norm")
     untouched = torch.ones(3 * page_size, dtype=torch.bool, device="cpu")

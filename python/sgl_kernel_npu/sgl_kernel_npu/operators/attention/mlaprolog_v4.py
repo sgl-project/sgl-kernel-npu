@@ -92,9 +92,11 @@ def mlaprolog_v4(
     Paired nonempty sin/cos tensors enable RoPE; both absent or empty disable it.
     The independent reference covers BF16 and MXFP8 projections with C16 cache,
     and MXFP8 projections with static C8 cache, with or without RoPE.
+    It also covers dynamic INT8 projections with C16 cache on arch22, with or
+    without RoPE. The CANN backend forwards all modes unchanged.
 
     Args:
-        token_x: [T, He] or [B, S, He] tokens (BF16 or MXFP8).
+        token_x: [T, He] or [B, S, He] tokens (BF16, INT8 or MXFP8).
         weight_dq: [He, Hcq] down projection, in CANN FRACTAL_NZ storage.
         weight_uq_qr: [Hcq, N * (D + Dr)] query projection, FRACTAL_NZ.
         weight_uk: [N, D, Hckv] BF16 key absorption weights.
@@ -108,6 +110,7 @@ def mlaprolog_v4(
         cache_index: Int32/int64 token slot indices for the paged cache.
         dequant_scale_x, dequant_scale_w_dq, dequant_scale_w_uq_qr,
             dequant_scale_w_dkv_kr: Input/projection dequantization scales.
+            Mode 2 uses FP32 per-token input and per-output-channel weight scales.
         quant_scale_ckv: Static C8 quantization multiplier (inverse scale).
         quant_scale_ckr, smooth_scales_cq, actual_seq_len, k_nope_clip_alpha:
             Optional CANN inputs, forwarded unchanged.
@@ -117,7 +120,7 @@ def mlaprolog_v4(
         query_norm_flag: Whether to return the intermediate normalized query.
         weight_quant_mode, kv_cache_quant_mode, query_quant_mode:
             CANN quantization modes; this contribution covers (0,0,0),
-            (3,0,0) and (3,1,1).
+            (2,0,0), (3,0,0) and (3,1,1), with or without RoPE.
         ckvkr_repo_mode, quant_scale_repo_mode, tile_size, qc_qr_scale, kc_scale:
             CANN storage/scaling attributes, forwarded unchanged.
         token_x_dtype, weight_dq_dtype, weight_uq_qr_dtype,
@@ -129,6 +132,8 @@ def mlaprolog_v4(
         dequant_scale_q_norm. Disabled outputs remain empty tensors. The two
         cache inputs are updated, not returned. See the API documentation for
         mode-dependent output shapes and dtypes.
+        In mode 2 with query_norm_flag=True, query_norm is INT8 and
+        dequant_scale_q_norm is FP32 [T, 1]; query and both caches remain BF16.
     """
     has_sin = rope_sin is not None and rope_sin.numel() > 0
     has_cos = rope_cos is not None and rope_cos.numel() > 0

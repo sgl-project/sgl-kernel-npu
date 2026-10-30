@@ -8,6 +8,7 @@ Numerical contract: ops-transformer/attention/mla_prolog_v3/docs/
 aclnnMlaPrologV4WeightNz.md. Intermediate rounding and MXFP8 scale semantics are
 specified by attention/mla_prolog/op_kernel/arch35/service_rms_norm_arch35.h,
 vf/vf_dynamic_quant.h, vf/vf_rope.h and vf/vf_mul_qr.h in the same repository.
+INT8 follows arch22/service_rms_norm_arch22.h and mla_prolog_vector_comm_arch22.h.
 """
 
 from typing import Optional, Tuple
@@ -35,6 +36,15 @@ def _dequantize_mx(
     if weight:
         expanded_scale = expanded_scale.transpose(0, 1)
     return _cpu(value).float() * expanded_scale
+
+
+def _dequantize_int8_matmul(value, token_scale, weight_scale):
+    # CANN casts the INT32 accumulator, then applies token and channel scales.
+    return (
+        value.float()
+        * _cpu(token_scale).float().reshape(-1, 1)
+        * _cpu(weight_scale).float().reshape(1, -1)
+    )
 
 
 def _bf16_round_away(value: torch.Tensor) -> torch.Tensor:
@@ -162,14 +172,15 @@ def mlaprolog_v4(
     weight_dkv_kr_dtype: Optional[int] = None,
     kv_cache_dtype: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Evaluate mode0/C16 and mode3/C16 or C8 with optional RoPE and cache writes."""
+    """Evaluate mode0/2 with C16 and mode3 with C16 or C8, updating both caches."""
     if (weight_quant_mode, kv_cache_quant_mode, query_quant_mode) not in (
         (0, 0, 0),
+        (2, 0, 0),
         (3, 0, 0),
         (3, 1, 1),
     ):
         raise NotImplementedError(
-            "The reference supports mode0/C16 and mode3/C16 or C8"
+            "The reference supports mode0/2 with C16 and mode3 with C16 or C8"
         )
     if (
         cache_mode not in ("PA_BSND", "PA_NZ")
@@ -207,7 +218,7 @@ def mlaprolog_v4(
     heads, q_dim, c_dim = weight_uk.shape
     r_dim = weight_dkv_kr.shape[1] - c_dim
     x = _cpu(token_x).reshape(-1, token_x.shape[-1])
-    if weight_quant_mode == 3:
+    if weight_quant_mode in (2, 3):
         if any(
             scale is None
             for scale in (
@@ -217,15 +228,19 @@ def mlaprolog_v4(
                 dequant_scale_w_dkv_kr,
             )
         ):
-            raise ValueError("MXFP8 requires activation and all three weight scales")
+            raise ValueError(
+                "Quantized projections require input and all weight scales"
+            )
+    if weight_quant_mode == 3:
         x = _dequantize_mx(x, dequant_scale_x.reshape(x.shape[0], x.shape[-1] // 32))
         w_dq = _dequantize_mx(weight_dq, dequant_scale_w_dq, weight=True)
         w_uq_qr = _dequantize_mx(weight_uq_qr, dequant_scale_w_uq_qr, weight=True)
         w_dkv_kr = _dequantize_mx(weight_dkv_kr, dequant_scale_w_dkv_kr, weight=True)
     else:
-        x = x.float()
+        dtype = torch.int32 if weight_quant_mode == 2 else torch.float32
+        x = x.to(dtype)
         w_dq, w_uq_qr, w_dkv_kr = (
-            _cpu(w).float() for w in (weight_dq, weight_uq_qr, weight_dkv_kr)
+            _cpu(w).to(dtype) for w in (weight_dq, weight_uq_qr, weight_dkv_kr)
         )
 
     cq = x @ w_dq
@@ -234,18 +249,32 @@ def mlaprolog_v4(
     if weight_quant_mode == 0:
         cq = cq.to(torch.bfloat16).float()
         ckv_kr = ckv_kr.to(torch.bfloat16).float()
+    elif weight_quant_mode == 2:
+        cq = _dequantize_int8_matmul(cq, dequant_scale_x, dequant_scale_w_dq)
+        ckv_kr = _dequantize_int8_matmul(
+            ckv_kr, dequant_scale_x, dequant_scale_w_dkv_kr
+        )
     cq = _rms_norm(cq, rmsnorm_gamma_cq, rmsnorm_epsilon_cq, qc_qr_scale)
     if weight_quant_mode == 3:
         query_norm, qnorm_scale = _quantize_mx(cq, dequant_scale_x.dtype)
         cq = _dequantize_mx(query_norm, qnorm_scale)
+    elif weight_quant_mode == 2:
+        # DynamicQuant uses 127/amax directly, then CAST_RINT (ties to even).
+        amax = cq.abs().amax(dim=-1, keepdim=True)
+        qnorm_scale = amax / 127.0
+        query_norm = (cq * (127.0 / amax)).round().clamp(-128, 127).to(torch.int8)
+        cq = query_norm.to(torch.int32)
     else:
         query_norm = cq.to(torch.bfloat16)
         qnorm_scale = torch.empty(0, dtype=torch.float32, device="cpu")
         cq = query_norm.float()
 
-    qc_qr = (cq @ w_uq_qr).reshape(-1, heads, q_dim + r_dim)
+    qc_qr = cq @ w_uq_qr
+    if weight_quant_mode == 2:
+        qc_qr = _dequantize_int8_matmul(qc_qr, qnorm_scale, dequant_scale_w_uq_qr)
+    qc_qr = qc_qr.reshape(-1, heads, q_dim + r_dim)
     qc_qr_bf16 = qc_qr.to(torch.bfloat16)
-    # Absorb W_uk into Q; its input and output are BF16 in both modes.
+    # Absorb W_uk into Q; its input and output are BF16 in all covered modes.
     query = torch.einsum(
         "tnd,ndc->tnc", qc_qr_bf16[..., :q_dim].float(), _cpu(weight_uk).float()
     )
