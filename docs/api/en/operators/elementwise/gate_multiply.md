@@ -14,7 +14,7 @@ The fused kernel and its threshold were measured on arch22 (Ascend910_9362 / 910
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.fla import gate_multiply
+from sgl_kernel_npu.operators.elementwise import gate_multiply
 
 def gate_multiply(y, gate, *, impl="auto"):
     ...
@@ -64,7 +64,7 @@ Both inputs must be on the same NPU, must not require gradients, and must have m
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.fla import gate_multiply
+from sgl_kernel_npu.operators.elementwise import gate_multiply
 
 # Keep the existing normalization and sigmoid implementations.
 y = torch.randn(4096, 4096, device="npu", dtype=torch.bfloat16)  # normalized, BF16

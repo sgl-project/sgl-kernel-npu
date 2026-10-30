@@ -18,7 +18,9 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from sgl_kernel_npu.implementation.triton.fla.gate_multiply import FUSION_MIN_ELEMENTS
+from sgl_kernel_npu.implementation.triton.elementwise.gate_multiply import (
+    FUSION_MIN_ELEMENTS,
+)
 
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
@@ -83,13 +85,13 @@ def generate_data(shape, mode, seed=100326):
 )
 def test_gate_multiply(shape, mode):
     """Both backends agree bitwise across the fusion threshold and specials."""
-    from sgl_kernel_npu.operators.fla import gate_multiply
+    from sgl_kernel_npu.operators.elementwise import gate_multiply
 
     y, gate = generate_data(shape, mode)
     # NaN products compare unequal under assert_close, so skip the exact flow
     # for the special pattern and verify NaN placement separately below.
     if mode == "special":
-        from sgl_kernel_npu.operators.fla import gate_multiply as op
+        from sgl_kernel_npu.operators.elementwise import gate_multiply as op
 
         result = op(y, gate, impl="triton")
         reference = op(y, gate, impl="torch_native")
@@ -106,7 +108,7 @@ def test_gate_multiply(shape, mode):
 
 def test_gate_multiply_strided_fallback():
     """Strided inputs below the kernel's contiguity requirement stay exact."""
-    from sgl_kernel_npu.operators.fla import gate_multiply
+    from sgl_kernel_npu.operators.elementwise import gate_multiply
 
     y = torch.randn(8192, 4098, device="npu", dtype=torch.bfloat16)[:, ::2]
     gate = torch.sigmoid(torch.randn(8192, 4098, device="npu"))[:, ::2]
@@ -130,7 +132,7 @@ def test_gate_multiply_queued_temporary_inputs(shape, impl_pair):
     released as each call returns, and the results are compared only after one
     synchronization.
     """
-    from sgl_kernel_npu.operators.fla import gate_multiply
+    from sgl_kernel_npu.operators.elementwise import gate_multiply
 
     impl = impl_pair[0]
     y, gate = generate_data(shape, "normal")
@@ -149,7 +151,7 @@ def test_gate_multiply_graph_replay(impl_pair):
     captured launch over mutated device buffers, which check_accuracy's
     repeated direct calls cannot express.
     """
-    from sgl_kernel_npu.operators.fla import gate_multiply
+    from sgl_kernel_npu.operators.elementwise import gate_multiply
 
     impl, impl_ref = impl_pair
     y, gate = generate_data((FUSION_MIN_ELEMENTS,), "normal")
@@ -184,7 +186,7 @@ def test_gate_multiply_rejects_invalid_arguments(invalid, message):
     The expected message is asserted so a case cannot pass by raising
     ValueError somewhere else.
     """
-    from sgl_kernel_npu.operators.fla import gate_multiply
+    from sgl_kernel_npu.operators.elementwise import gate_multiply
 
     y = torch.ones(8, device="npu", dtype=torch.bfloat16)
     gate = torch.ones(8, device="npu", dtype=torch.float32)

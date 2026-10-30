@@ -27,28 +27,30 @@ def _check_inputs(y, gate):
         raise ValueError("gate_multiply is inference only")
 
 
-@register_impl("fla.gate_multiply", "auto")
-@register_impl("fla.gate_multiply", "triton")
+@register_impl("elementwise.gate_multiply", "auto")
+@register_impl("elementwise.gate_multiply", "triton")
 def _triton_impl(y, gate):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.fla.gate_multiply import gate_multiply
+        from ...implementation.triton.elementwise.gate_multiply import gate_multiply
 
         _triton_fn = gate_multiply
     return _triton_fn(y, gate)
 
 
-@register_impl("fla.gate_multiply", "torch_native")
+@register_impl("elementwise.gate_multiply", "torch_native")
 def _torch_native_impl(y, gate):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.fla.gate_multiply import gate_multiply
+        from ...implementation.torch_native.elementwise.gate_multiply import (
+            gate_multiply,
+        )
 
         _torch_native_fn = gate_multiply
     return _torch_native_fn(y, gate)
 
 
-@register_operator("fla.gate_multiply")
+@register_operator("elementwise.gate_multiply")
 def gate_multiply(y, gate, *, impl="auto"):
     """Compute ``(y.float() * gate).to(torch.bfloat16)``; ``impl="auto"`` is Triton.
 
@@ -77,5 +79,5 @@ def gate_multiply(y, gate, *, impl="auto"):
     was measured on 910C and is not a claim of benefit on every NPU.
     """
     _check_inputs(y, gate)
-    impl_fn = get_impl_by_name("fla.gate_multiply", impl)
+    impl_fn = get_impl_by_name("elementwise.gate_multiply", impl)
     return impl_fn(y, gate)

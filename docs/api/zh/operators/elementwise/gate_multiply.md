@@ -14,7 +14,7 @@
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.fla import gate_multiply
+from sgl_kernel_npu.operators.elementwise import gate_multiply
 
 def gate_multiply(y, gate, *, impl="auto"):
     ...
@@ -64,7 +64,7 @@ $$
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.fla import gate_multiply
+from sgl_kernel_npu.operators.elementwise import gate_multiply
 
 # 保留已有的归一化与 sigmoid 实现。
 y = torch.randn(4096, 4096, device="npu", dtype=torch.bfloat16)  # 归一化后的 BF16
