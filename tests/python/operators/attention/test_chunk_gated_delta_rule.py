@@ -5,7 +5,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import get_test_impls, require_distinct_impls
+from tests.python.utils.common import (
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+)
+from tests.python.utils.performance import check_performance
 
 
 def generate_test_data(device):
@@ -97,3 +102,16 @@ def test_chunk_gated_delta_rule(scale, chunk_layout):
     assert torch.equal(actual_inputs["initial_state"], initial_before)
     if chunk_layout == "noncontiguous":
         assert torch.equal(actual_inputs["chunk_state"], chunk_before)
+
+    # Profile one selected implementation with fresh inputs after accuracy passes.
+    executor = make_executor(
+        chunk_gated_delta_rule,
+        kwargs=clone_test_data(data),
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=True,
+    )
+    check_performance(
+        executor,
+        enable_perf=scale == 128**-0.5 and chunk_layout == "absent",
+    )
