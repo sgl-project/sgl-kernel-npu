@@ -175,6 +175,39 @@ def test_c4_topk_widths(topk):
     _assert_parity(case)
 
 
+def test_c4_truncated_topk_tail():
+    """A top-k list with a long ``-1`` tail must not score empty chunks.
+
+    Only the first entry of the 512-wide list is selected, so every list column
+    past it is padding.  The visited bound is trimmed to the last selected
+    column, which is legal because ``-1`` columns are dropped by the reference
+    (``k < 0``) and by the per-lane filter anyway; parity therefore has to hold
+    against the reference, which drops those entries one by one.
+    """
+    case = _base_case(
+        "c4", seed=15, dtype=torch.bfloat16, heads=8, sink=True, window=511
+    )
+    _pad_topk(case, 512)
+    idx = case["cmp_sparse_indices"].clone()
+    idx[..., 1:] = -1
+    case["cmp_sparse_indices"] = idx
+    _assert_parity(case)
+
+
+def test_c128_long_history_multichunk():
+    """A compressed history wider than one S2 tile (128 columns) per pool.
+
+    ``seqused // 128 == 132`` here, i.e. two tiles, so the paged compressed loop
+    runs more than once and the tree tail is empty.  Every other C128 case has a
+    two-column history and only exercises a single tile.
+    """
+    case = _base_case(
+        "c128", seed=18, t=1, ratio=128, prefixes=[17000], dtype=torch.float16, heads=8
+    )
+    assert int(case["seqused_kv"][0]) // 128 == 132
+    _assert_parity(case)
+
+
 def test_production_window_topk_sink_shape():
     """Exercise the SGLang production tile: 64 heads, 512 window/topk, sink.
 
