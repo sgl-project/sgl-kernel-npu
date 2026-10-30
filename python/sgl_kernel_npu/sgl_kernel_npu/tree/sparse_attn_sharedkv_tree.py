@@ -6,60 +6,26 @@ Public entry point: :func:`sparse_attn_sharedkv_tree`, a Python-only port of
 ``docs/tree_ops_semantics.md`` §5 and the operator quick contract in
 ``tree/README.md``.
 
-Design notes (vendor-parity dataflow)
-------------------------------------
+Design notes
+------------
 * One kernel, grid ``(T, cdiv(N1, 16))``.  A program owns the full 512-wide head
   dimension: QK is formed once from the four 128-wide K slices, then the four
   V slices are accumulated sequentially from the same score block.  No
-  cross-program reduction is needed and QK is not recomputed per D slice.
-* Only resolvable rows are ever scored, mirroring the vendor kernel
-  (``.../arch32/sparse_attn_sharedkv_tree_scfa_kernel.h``):
-    - original KV: ``GetOriSparseActualSeqLen`` (:361-382) counts the leading
-      run before the first ``-1`` and ``oriSplitNum = CeilDiv(oriS2Size,
-      s2BaseSize)`` (:762-778) is bounded by it, so the loop never walks a
-      padded tail;
-    - compressed KV: ``actCmpS2Size = min(sparseBlockCount * sparseBlockSize,
-      thresHold)`` (:394-396) bounds the chunk count, and
-      ``GetKeyGmOffset`` (:542-583) returns ``-1`` -- "no key, no address" --
-      for an out-of-range column, a negative ``tree_prefix`` or a bad
-      ancestor.  ``CopyInSingleKv`` then early-returns on ``< 0`` (:586-592)
-      instead of forming an address.  Our gather clamps every masked lane to
-      offset 0 behind a false load mask and to the safe zero row, which is the
-      same contract.
-* Bounded staging per program, not per tensor.  The vendor stages KV because a
-  DMA can only move contiguous rows; a Triton masked gather with per-lane
-  offsets already addresses exactly the rows it was given.  Staging KV through
-  global memory would therefore add a write plus a read of the same bytes
-  without deleting any GEMM work, so this kernel stages only the *resolved
-  per-chunk offsets* (``BLOCK_N`` int64 lanes, live inside one chunk) and never
-  materialises a ``[T, 512, 512]`` KV copy.
-* Compressed slots are resolved per §1.3: ``k < prefix // ratio`` maps through
-  ``cmp_block_table`` into the paged pool, everything else maps through
+  cross-program reduction is needed, QK is not recomputed per D slice, and the
+  per-program UB footprint stays bounded for ``head_dim = 512`` (risk R9 in the
+  brief).  The 512-row vendor merge buffer is a later step; this program still
+  writes all four D slices of its own output rows directly.
+* Original-KV slots are physical indices and are consumed in order up to the
+  first ``-1`` (capped by ``ori_sparse_indices.shape[-1]`` and ``seqused_kv``).
+  QK and PV gather the *same* offset vector, so slot identity is exact.  A
+  separate index-only pass computes that valid count, and the scoring loop is
+  bounded by it, so no padded chunk is ever scored.
+* Compressed slots are resolved on device per §1.3: ``k < prefix // ratio`` maps
+  through ``cmp_block_table`` into the paged pool, everything else maps through
   ``(k + 1) * ratio - 1 - prefix`` and ``tree_ancestors`` into the node pool.
-  C4 and C128 are separate dataflows and are not allowed to borrow from each
-  other:
-    - C4 (``cmp_sparse_indices`` supplied) keeps the top-k list order and
-      resolves each column to whichever pool it belongs to.  A chunk therefore
-      touches both pools, so the two gathers are merged into one tile before
-      the single QK dot chain: ``dot(Q, K_paged) + dot(Q, K_tree)`` equals
-      ``dot(Q, select(paged, tree))`` because a lane belongs to at most one
-      pool, and one merged chain costs half the dots of the former two-pass
-      form.  The trailing ``-1`` padding of the list is trimmed by an
-      index-only scan so no all-invalid chunk is scored.
-    - C128 omits the top-k array and walks the whole compressed history, whose
-      logical index *is* the loop column.  Paged history and the tree tail are
-      therefore two contiguous logical ranges and are scored by two
-      single-pool loops, each with exactly one gather per D slice.  The tree
-      tail is additionally capped at ``MAX_DEPTH // ratio + 2`` columns: a
-      valid step satisfies ``step = (k + 1) * ratio - 1 - prefix`` in
-      ``[0, MAX_DEPTH)``, so no column beyond that can resolve.
-* Tile legality (A3 / DAV_2201, 192 KB UB).  The vendor tile is S2=512 with
-  M=gSize and D=512 (``op_host`` tiling), i.e. a ``512 x 512`` KV stage which
-  alone is 512 KB in bf16 -- four times the UB -- so it cannot be reproduced
-  here (the vendor keeps it in HBM workspace: ``4 * 512 * 512 * 2 * aicNum``).
-  A 256-wide S2 tile costs 65,536 B just for one K slice and passes 192 KB as
-  soon as one extra in-flight slice exists, so ``BLOCK_N = 128`` is the largest
-  tile that stays legal; see the static estimate next to the constants.
+  A negative ``tree_prefix`` resolves to no key at all.  C4 (``cmp_sparse_indices``
+  supplied) filters logical positions and visits at most ``min(K, history)``
+  columns; C128 omits it and walks the full compressed history.
 * Softmax is online with an optional sink seeded as ``max = sink[h]`` and
   ``sum = 1`` (the sink's value is zero).  Probabilities are cast back to the KV
   dtype before PV, accumulation stays FP32, and an empty row (no key at all)
@@ -87,58 +53,28 @@ from ._common import (
 __all__ = ["sparse_attn_sharedkv_tree"]
 
 _HEAD_DIM = 512
-# Tile selection.  The score/PV math is unchanged by ``BLOCK_N``; the tile only
-# decides how many key rows one online-softmax step absorbs.
+# A3 UB budget: the 16x128 attention tile with four Q/K slices exceeds
+# 1,572,864 bits after multi-buffering/code motion.  Keep the cube M tile at
+# 16 and halve the slot tile; the score/PV math is unchanged and the D slice
+# remains 128.
 #
-# Static UB estimate for the heaviest instantiation (``BLOCK_H = 16``,
-# ``BLOCK_D = 128``, five live slices), sizes in bytes:
-#   Q0..Q3      4 x 16x128 bf16            =  16,384   (program-wide)
-#   acc0..acc3  4 x 16x128 f32             =  32,768   (program-wide)
-#   qk          16xBLOCK_N f32             =   8,192   (BLOCK_N = 128)
-#   probs       16xBLOCK_N f32 + bf16 cast =  12,288
-#   pv          16xBLOCK_N f32             =   8,192
-#   K slice     BLOCK_Nx128 bf16           =  32,768   (dies before V)
-#   V slice     BLOCK_Nx128 bf16           =  32,768
-#   merged pool two K (or two V) at once   =  65,536   (C4 only)
-# Peak single-buffered, V phase:
-#   single pool 16,384 + 32,768 + 12,288 + 32,768 + 8,192 = 102,400 B
-#   C4 merged   16,384 + 32,768 + 12,288 + 65,536 + 8,192 = 135,168 B
-# ``num_stages = 1`` is pinned at the launch site, so no second in-flight slice
-# pair exists; 135,168 B stays under the 196,608 B A3 UB budget.  A 256-wide
-# tile would put the merged V pair alone at 131,072 B and the peak at 212,992 B,
-# over budget even single-buffered, so 128 is the largest legal tile.  The
-# vendor S2=512 tile is 512 KB for the KV stage alone and lives in HBM
-# workspace, not UB; see the module docstring.
-#
-# The M tile is pinned at 16 rather than the vendor's ``M = gSize`` (up to 128
-# heads): with full-D accumulation the persistent state alone is
-# ``M x 512 x 2`` (Q) + ``M x 512 x 4`` (acc), so M = 32 already needs 98 KB
-# before any K/V tile and M = 64 does not fit at all.
+# Full-D program now that the D-slice grid axis is gone: QK is formed once and
+# the four V slices are accumulated sequentially, so the live tile set is
+#   Q0..Q3 4 x 16x128 bf16 = 16,384 B
+#   one K  64x128 bf16      = 16,384 B   (x2 if double-buffered = 32,768)
+#   qk     16x64  f32       =  4,096 B
+#   probs  16x64  f32       =  4,096 B   (+ 2,048 B bf16 cast)
+#   acc0..3 4 x 16x128 f32  = 32,768 B
+#   one V  64x128 bf16      = 16,384 B   (x2 if double-buffered = 32,768)
+# =~ 90 KB single-buffered, =~ 122 KB with K and V double-buffered, i.e. under
+# the 192 KB UB budget with room for code motion.
 _BLOCK_H = 16
-_BLOCK_N = 128
+_BLOCK_N = 64
 _BLOCK_D = 128
 
 
 @triton.jit
-def _softmax_merge(QK, IN_RANGE, M, L, SCALE):
-    """Fold one chunk's scores into the online softmax state.
-
-    ``IN_RANGE`` masks the columns that resolved to a real key row; the rest stay
-    at ``-inf`` so they contribute neither to ``max`` nor to ``sum``, matching
-    the vendor's "no key, no address" contract without a runtime branch.  The
-    cast back to the KV dtype happens in the caller, where the KV pointer's
-    element type is available.
-    """
-    qk = tl.where(IN_RANGE[None, :], QK * SCALE, float("-inf"))
-    m_new = tl.maximum(M, tl.max(qk, 1))
-    alpha = tl.exp(M - m_new)
-    probs = tl.exp(qk - m_new[:, None])
-    l_new = L * alpha + tl.sum(probs, 1)
-    return m_new, l_new, alpha, probs
-
-
-@triton.jit
-def _attend_one(
+def _attend_full(
     KV,
     OFFS,
     VALID,
@@ -157,11 +93,11 @@ def _attend_one(
     BLOCK_D: tl.constexpr,
     BLOCK_N: tl.constexpr,
 ):
-    """Score one chunk of a single key pool and merge every V slice.
+    """Score one chunk once and merge every V slice into the online state.
 
     ``OFFS`` is the element offset of each key row (int64) and ``VALID`` marks
-    the columns that survived the source-specific resolution.  K and V share
-    the row, so the same ``OFFS`` drives QK and PV.
+    the slots that survived the source-specific resolution.  K and V share the
+    row, so the same ``OFFS`` drives QK and PV.
 
     ``LIMIT`` is a final address guard: a slot that is marked valid by the
     caller but lands outside its source pool (or at a negative offset) is
@@ -177,8 +113,8 @@ def _attend_one(
     offs = tl.where(in_range, OFFS, 0)
     mask = in_range[:, None]
 
-    # Sequential 128-wide K loads: each K slice dies before the next is issued,
-    # keeping the UB footprint bounded at head_dim 512.
+    # Sequential 128-wide K loads: each K chunk dies before the next is issued,
+    # keeping the UB footprint bounded at head_dim 512 (risk R9).
     k = tl.load(KV + offs[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk = tl.dot(Q0, tl.trans(k))
     k = tl.load(KV + offs[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
@@ -187,12 +123,16 @@ def _attend_one(
     qk += tl.dot(Q2, tl.trans(k))
     k = tl.load(KV + offs[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk += tl.dot(Q3, tl.trans(k))
+    qk = tl.where(in_range[None, :], qk * SCALE, float("-inf"))
 
-    m_new, l_new, alpha, probs = _softmax_merge(qk, in_range, M, L, SCALE)
-    probs_v = probs.to(KV.dtype.element_ty)
+    m_new = tl.maximum(M, tl.max(qk, 1))
+    alpha = tl.exp(M - m_new)
+    probs = tl.exp(qk - m_new[:, None])
+    l_new = L * alpha + tl.sum(probs, 1)
 
     # All four V dots are unconditional: a runtime branch around ``tl.dot``
     # splits the MIX sub-block and the Ascend binder rejects it.
+    probs_v = probs.to(KV.dtype.element_ty)
     v = tl.load(KV + offs[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     acc0 = ACC0 * alpha[:, None] + tl.dot(probs_v, v)
     v = tl.load(KV + offs[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
@@ -201,92 +141,6 @@ def _attend_one(
     acc2 = ACC2 * alpha[:, None] + tl.dot(probs_v, v)
     v = tl.load(KV + offs[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     acc3 = ACC3 * alpha[:, None] + tl.dot(probs_v, v)
-    return m_new, l_new, acc0, acc1, acc2, acc3
-
-
-@triton.jit
-def _attend_merged(
-    KVA,
-    OFFA,
-    VALIDA,
-    KVB,
-    OFFB,
-    VALIDB,
-    Q0,
-    Q1,
-    Q2,
-    Q3,
-    M,
-    L,
-    ACC0,
-    ACC1,
-    ACC2,
-    ACC3,
-    SCALE,
-    LIMIT_A: tl.constexpr,
-    LIMIT_B: tl.constexpr,
-    BLOCK_D: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-):
-    """Score one chunk whose columns split across two key pools.
-
-    This is the C4 dataflow: a chunk of the top-k list can contain paged
-    history columns and tree-node columns, and their physical rows live in two
-    different allocations, so ``GetKeyGmOffset`` can only be reproduced with two
-    gathers.  ``VALIDA``/``VALIDB`` are mutually exclusive by construction, so
-    folding the two gathers into one tile before the dot chain is exact:
-
-        dot(Q, select(paged, tree)) == dot(Q, K_paged) + dot(Q, K_tree)
-
-    because every lane is zero on exactly one side.  One merged tile costs the
-    same two loads as the vendor's per-row copies but halves the QK/PV dot
-    chains and the softmax updates relative to scoring each pool separately.
-
-    ``LIMIT_A``/``LIMIT_B`` are the per-pool address guards; masked lanes are
-    clamped to row 0 with a false load mask, so no invalid address is formed.
-    """
-    d = tl.arange(0, BLOCK_D)
-    ok_a = VALIDA & (OFFA >= 0) & (OFFA < LIMIT_A)
-    ok_b = VALIDB & (OFFB >= 0) & (OFFB < LIMIT_B)
-    off_a = tl.where(ok_a, OFFA, 0)
-    off_b = tl.where(ok_b, OFFB, 0)
-    mask_a = ok_a[:, None]
-    mask_b = ok_b[:, None]
-    # K is loaded already transposed ([D, N]) so the pool merge does not
-    # materialise a second [N, D] tile plus a transpose temporary.  This keeps
-    # the C4 UB peak below the 192 KiB A3 budget.
-    mask_a_t = ok_a[None, :]
-    mask_b_t = ok_b[None, :]
-    in_range = ok_a | ok_b
-
-    k = tl.load(KVA + off_a[None, :] + (0 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
-    k2 = tl.load(KVB + off_b[None, :] + (0 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
-    qk = tl.dot(Q0, tl.where(mask_b_t, k2, k))
-    k = tl.load(KVA + off_a[None, :] + (1 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
-    k2 = tl.load(KVB + off_b[None, :] + (1 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
-    qk += tl.dot(Q1, tl.where(mask_b_t, k2, k))
-    k = tl.load(KVA + off_a[None, :] + (2 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
-    k2 = tl.load(KVB + off_b[None, :] + (2 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
-    qk += tl.dot(Q2, tl.where(mask_b_t, k2, k))
-    k = tl.load(KVA + off_a[None, :] + (3 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
-    k2 = tl.load(KVB + off_b[None, :] + (3 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
-    qk += tl.dot(Q3, tl.where(mask_b_t, k2, k))
-
-    m_new, l_new, alpha, probs = _softmax_merge(qk, in_range, M, L, SCALE)
-    probs_v = probs.to(KVA.dtype.element_ty)
-
-    v = tl.load(KVA + off_a[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    v2 = tl.load(KVB + off_b[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    acc0 = ACC0 * alpha[:, None] + tl.dot(probs_v, tl.where(mask_b, v2, v))
-    v = tl.load(KVA + off_a[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    v2 = tl.load(KVB + off_b[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    acc1 = ACC1 * alpha[:, None] + tl.dot(probs_v, tl.where(mask_b, v2, v))
-    v = tl.load(KVA + off_a[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    v2 = tl.load(KVB + off_b[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    acc2 = ACC2 * alpha[:, None] + tl.dot(probs_v, tl.where(mask_b, v2, v))
-    v = tl.load(KVA + off_a[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    v2 = tl.load(KVB + off_b[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    acc3 = ACC3 * alpha[:, None] + tl.dot(probs_v, tl.where(mask_b, v2, v))
     return m_new, l_new, acc0, acc1, acc2, acc3
 
 
@@ -428,7 +282,7 @@ def _tree_attn_kernel(
             ).to(tl.int64) * ORI_S1
 
             seen += tl.sum(valid.to(tl.int32))
-            m, l, acc0, acc1, acc2, acc3 = _attend_one(
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
                 ORI_KV, off, valid, q0, q1, q2, q3, m, l,
                 acc0, acc1, acc2, acc3, SCALE, ORI_LIMIT, BLOCK_D, BLOCK_N,
             )
@@ -438,162 +292,79 @@ def _tree_attn_kernel(
         # ``GetKeyGmOffset`` (vendor
         # ``sparse_attn_sharedkv_tree_scfa_block_vector.h:545-557``) returns -1
         # for a negative prefix and never resolves a pool, so an invalid tree
-        # context contributes no key at all.  Every compressed bound below is
-        # zeroed for that case, which is what keeps an invalid tree context from
-        # spending chunks that can only resolve to nothing.
+        # context contributes no key at all.
         prefix_ok = prefix >= 0
         # ``cmpMaskRight = actOriS2Size - actS1Size`` and ``s1EndIdx = 0`` for
         # the per-node wrapper, hence
         # ``thresHold = (cmpMaskRight + s1EndIdx + 1) / cmpRatio = seqused // RATIO``
-        # (vendor ``sparse_attn_sharedkv_tree_scfa_kernel.h:395-396``).  The
-        # compressed history ends at ``prefix // RATIO``; past it the logical
-        # column resolves into the node pool.
+        # (vendor ``sparse_attn_sharedkv_tree_scfa_kernel.h:395-396``).
         history_limit = seqused // RATIO
-        paged_end = prefix // RATIO
-
         if USE_C4:
-            # ---- C4: filtered top-k, list order preserved -------------------
-            # ``actCmpS2Size = min(sparseBlockCount * sparseBlockSize,
-            # thresHold)``: C4 visits at most ``min(CMP_K, history_limit)``
-            # top-k columns, and every visited column is still filtered by its
-            # logical value.
-            cmp_bound = tl.minimum(CMP_K, history_limit)
-            # The top-k list is padded with ``-1`` past the selected count.
-            # Those columns are dropped by the reference (``k < 0``) and by the
-            # per-lane filter below, so trimming them cannot change the result;
-            # it only avoids scoring a chunk that resolves nothing.  Index-only
-            # pass with a constexpr trip count (``CMP_K``): no KV address is
-            # formed and no runtime loop bound is introduced.  ``static_range``
-            # keeps the scan fully unrolled at trace time, so ``last_col`` never
-            # becomes a loop-carried value.
-            last_col = -1
-            for start in tl.static_range(0, CMP_K, BLOCK_N):
-                cols = start + tl.arange(0, BLOCK_N)
-                in_bound = cols < cmp_bound
-                cols_safe = tl.where(in_bound, cols, 0)
-                logical = tl.load(
-                    CMP_IDX + pid_t * CMP_K + cols_safe,
-                    mask=in_bound,
-                    other=-1,
-                )
-                selected = in_bound & (logical >= 0)
-                last_col = tl.maximum(last_col, tl.max(tl.where(selected, cols, -1)))
-            cmp_limit = tl.where(prefix_ok, tl.minimum(cmp_bound, last_col + 1), 0)
+            # ``actCmpS2Size = min(sparseBlockCount * sparseBlockSize, thresHold)``:
+            # C4 visits at most ``min(CMP_K, history_limit)`` top-k columns, and
+            # every visited column is still filtered by its logical value.
+            cmp_limit = tl.minimum(CMP_K, history_limit)
+        else:
+            # C128 walks the full compressed history; the top-k array is absent.
+            cmp_limit = history_limit
 
-            for start in tl.range(0, cmp_limit, BLOCK_N):
-                cols = start + tl.arange(0, BLOCK_N)
-                range_ok = cols < cmp_limit
-                cols_safe = tl.where(range_ok, cols, 0)
+        for start in tl.range(0, cmp_limit, BLOCK_N):
+            cols = start + tl.arange(0, BLOCK_N)
+            range_ok = cols < cmp_limit
+            cols_safe = tl.where(range_ok, cols, 0)
+            if USE_C4:
                 logical = tl.load(
                     CMP_IDX + pid_t * CMP_K + cols_safe,
                     mask=range_ok,
                     other=-1,
                 )
                 idx_ok = range_ok & (logical >= 0) & (logical < history_limit)
-
-                # Paged compressed history: logical -> (page, row) via the table.
-                is_paged = prefix_ok & idx_ok & (logical < paged_end)
-                page_col = logical // CMP_ROWS
-                page_col_ok = is_paged & (page_col >= 0) & (page_col < CMP_TABLE_W)
-                page_col_safe = tl.where(page_col_ok, page_col, 0)
-                page = tl.load(
-                    CMP_TABLE + pid_t * CMP_TABLE_S0 + page_col_safe,
-                    mask=page_col_ok,
-                    other=-1,
-                )
-                paged_valid = page_col_ok & (page >= 0) & (page < CMP_PAGES)
-                page_safe = tl.where(paged_valid, page, 0)
-                logical_safe = tl.where(paged_valid, logical, 0)
-                paged_off = page_safe.to(tl.int64) * CMP_S0 + (
-                    logical_safe - page_col_safe * CMP_ROWS
-                ).to(tl.int64) * CMP_S1
-
-                # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
-                is_tree = prefix_ok & idx_ok & (logical >= paged_end)
-                step = (logical + 1) * RATIO - 1 - prefix
-                step_ok = is_tree & (step >= 0) & (step < MAX_DEPTH)
-                step_safe = tl.where(step_ok, step, 0)
-                node = tl.load(
-                    ANCESTORS + pid_t * MAX_DEPTH + step_safe,
-                    mask=step_ok,
-                    other=-1,
-                )
-                tree_valid = step_ok & (node >= 0) & (node < NODE_COUNT)
-                node_safe = tl.where(tree_valid, node, 0)
-                tree_off = node_safe * NODE_D
-
-                seen += tl.sum(paged_valid.to(tl.int32))
-                seen += tl.sum(tree_valid.to(tl.int32))
-                # One merged QK/PV chain for the chunk, not one per pool.
-                m, l, acc0, acc1, acc2, acc3 = _attend_merged(
-                    CMP_KV, paged_off, paged_valid,
-                    TREE_KV, tree_off, tree_valid,
-                    q0, q1, q2, q3, m, l, acc0, acc1, acc2, acc3, SCALE,
-                    CMP_LIMIT, TREE_LIMIT, BLOCK_D, BLOCK_N,
-                )
-        else:
-            # ---- C128: full compressed history, split by pool --------------
-            # C128 carries no top-k array, so the logical index *is* the loop
-            # column and the two pools occupy contiguous logical ranges:
-            # ``[0, prefix // RATIO)`` is paged history and the remainder is the
-            # tree tail.  Splitting them keeps one gather per D slice instead of
-            # scoring both pools for every chunk.
-            cmp_bound = tl.where(prefix_ok, history_limit, 0)
-            paged_limit = tl.where(
-                prefix_ok, tl.minimum(paged_end, history_limit), 0
-            )
-
-            for start in tl.range(0, paged_limit, BLOCK_N):
-                cols = start + tl.arange(0, BLOCK_N)
-                range_ok = cols < paged_limit
+            else:
                 logical = cols
-                page_col = logical // CMP_ROWS
-                page_col_ok = range_ok & (page_col >= 0) & (page_col < CMP_TABLE_W)
-                page_col_safe = tl.where(page_col_ok, page_col, 0)
-                page = tl.load(
-                    CMP_TABLE + pid_t * CMP_TABLE_S0 + page_col_safe,
-                    mask=page_col_ok,
-                    other=-1,
-                )
-                paged_valid = page_col_ok & (page >= 0) & (page < CMP_PAGES)
-                page_safe = tl.where(paged_valid, page, 0)
-                logical_safe = tl.where(paged_valid, logical, 0)
-                paged_off = page_safe.to(tl.int64) * CMP_S0 + (
-                    logical_safe - page_col_safe * CMP_ROWS
-                ).to(tl.int64) * CMP_S1
-                seen += tl.sum(paged_valid.to(tl.int32))
-                m, l, acc0, acc1, acc2, acc3 = _attend_one(
-                    CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l,
-                    acc0, acc1, acc2, acc3, SCALE, CMP_LIMIT, BLOCK_D, BLOCK_N,
-                )
+                idx_ok = range_ok
 
-            # Tree tail.  A valid column satisfies
-            # ``0 <= step = (k + 1) * RATIO - 1 - prefix < MAX_DEPTH``, i.e.
-            # ``k`` lies in a window of at most ``MAX_DEPTH / RATIO + 2``
-            # columns after ``prefix // RATIO``, so the loop needs no more.
-            tree_count = tl.minimum(
-                cmp_bound - paged_limit, MAX_DEPTH // RATIO + 2
+            paged_end = prefix // RATIO
+
+            # Paged compressed history: logical -> (page, row) via the table.
+            is_paged = prefix_ok & idx_ok & (logical >= 0) & (logical < paged_end)
+            page_col = logical // CMP_ROWS
+            page_col_ok = is_paged & (page_col >= 0) & (page_col < CMP_TABLE_W)
+            page_col_safe = tl.where(page_col_ok, page_col, 0)
+            page = tl.load(
+                CMP_TABLE + pid_t * CMP_TABLE_S0 + page_col_safe,
+                mask=page_col_ok,
+                other=-1,
             )
-            for start in tl.range(0, tl.maximum(tree_count, 0), BLOCK_N):
-                cols = start + tl.arange(0, BLOCK_N)
-                range_ok = cols < tree_count
-                logical = paged_limit + cols
-                step = (logical + 1) * RATIO - 1 - prefix
-                step_ok = range_ok & (step >= 0) & (step < MAX_DEPTH)
-                step_safe = tl.where(step_ok, step, 0)
-                node = tl.load(
-                    ANCESTORS + pid_t * MAX_DEPTH + step_safe,
-                    mask=step_ok,
-                    other=-1,
-                )
-                tree_valid = step_ok & (node >= 0) & (node < NODE_COUNT)
-                node_safe = tl.where(tree_valid, node, 0)
-                tree_off = node_safe * NODE_D
-                seen += tl.sum(tree_valid.to(tl.int32))
-                m, l, acc0, acc1, acc2, acc3 = _attend_one(
-                    TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l,
-                    acc0, acc1, acc2, acc3, SCALE, TREE_LIMIT, BLOCK_D, BLOCK_N,
-                )
+            paged_valid = page_col_ok & (page >= 0) & (page < CMP_PAGES)
+            page_safe = tl.where(paged_valid, page, 0)
+            logical_safe = tl.where(paged_valid, logical, 0)
+            paged_off = page_safe.to(tl.int64) * CMP_S0 + (
+                logical_safe - page_col_safe * CMP_ROWS
+            ).to(tl.int64) * CMP_S1
+            seen += tl.sum(paged_valid.to(tl.int32))
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
+                CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, CMP_LIMIT, BLOCK_D, BLOCK_N,
+            )
+
+            # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
+            is_tree = prefix_ok & idx_ok & (logical >= 0) & (logical >= paged_end)
+            step = (logical + 1) * RATIO - 1 - prefix
+            step_ok = is_tree & (logical >= 0) & (step >= 0) & (step < MAX_DEPTH)
+            step_safe = tl.where(step_ok, step, 0)
+            node = tl.load(
+                ANCESTORS + pid_t * MAX_DEPTH + step_safe,
+                mask=step_ok,
+                other=-1,
+            )
+            tree_valid = step_ok & (node >= 0) & (node < NODE_COUNT)
+            node_safe = tl.where(tree_valid, node, 0)
+            tree_off = node_safe * NODE_D
+            seen += tl.sum(tree_valid.to(tl.int32))
+            m, l, acc0, acc1, acc2, acc3 = _attend_full(
+                TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l,
+                acc0, acc1, acc2, acc3, SCALE, TREE_LIMIT, BLOCK_D, BLOCK_N,
+            )
 
     # Branch-free empty-row handling: an `if` here also splits the MIX
     # sub-block after the dot chain, which the Ascend binder rejects.
