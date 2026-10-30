@@ -198,8 +198,13 @@ def _gather_kernel(
     row_in_page = off_k - col * block_size
     request_ok = (request >= 0) & (request < table_rows)
     col_ok = is_history & (col >= 0) & (col < table_width)
+    # Ascend still forms masked-load addresses.  Clamp the request/column even
+    # when their masks are false, otherwise padding slots form negative or
+    # out-of-allocation table addresses.
+    request_safe = tl.where(request_ok, request, 0)
+    col_safe = tl.where(col_ok, col, 0)
     page = tl.load(
-        table_ptr + request * table_width + col,
+        table_ptr + request_safe * table_width + col_safe,
         mask=col_ok & request_ok,
         other=-1,
     ).to(tl.int32)
@@ -207,8 +212,11 @@ def _gather_kernel(
 
     step = (off_k + 1) * RATIO - 1 - prefix
     step_ok = (~is_history) & (step >= 0) & (step < ancestor_width)
+    step_safe = tl.where(step_ok, step, 0)
     node = tl.load(
-        ancestors_ptr + pid_n * ancestor_width + step, mask=step_ok, other=-1
+        ancestors_ptr + pid_n * ancestor_width + step_safe,
+        mask=step_ok,
+        other=-1,
     ).to(tl.int32)
     node_valid = step_ok & (node >= 0) & (node < num_nodes)
 
