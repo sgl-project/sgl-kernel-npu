@@ -16,12 +16,15 @@ Design notes
   QK is recomputed once per V slice.
 * Original-KV slots are physical indices and are consumed in order up to the
   first ``-1`` (capped by ``ori_sparse_indices.shape[-1]`` and ``seqused_kv``).
-  QK and PV gather the *same* offset vector, so slot identity is exact.
+  QK and PV gather the *same* offset vector, so slot identity is exact.  A
+  separate index-only pass computes that valid count, and the scoring loop is
+  bounded by it, so no padded chunk is ever scored.
 * Compressed slots are resolved on device per §1.3: ``k < prefix // ratio`` maps
   through ``cmp_block_table`` into the paged pool, everything else maps through
   ``(k + 1) * ratio - 1 - prefix`` and ``tree_ancestors`` into the node pool.
-  C4 (``cmp_sparse_indices`` supplied) filters logical positions; C128 omits it
-  and walks the full compressed history.
+  A negative ``tree_prefix`` resolves to no key at all.  C4 (``cmp_sparse_indices``
+  supplied) filters logical positions and visits at most ``min(K, history)``
+  columns; C128 omits it and walks the full compressed history.
 * Softmax is online with an optional sink seeded as ``max = sink[h]`` and
   ``sum = 1`` (the sink's value is zero).  Probabilities are cast back to the KV
   dtype before PV, accumulation stays FP32, and an empty row (no key at all)
@@ -202,10 +205,15 @@ def _tree_attn_kernel(
     seqused = tl.load(SEQUSED + pid_t)
 
     if HAS_ORI:
-        # Original-KV slots: leading entries before the first -1, capped by the
-        # declared width and seqused_kv.  The running ``stop`` is recomputed per
-        # chunk so a -1 can never resurrect a later physical slot.
-        stop = tl.minimum(seqused, ORI_W)
+        # Original-KV slots: ``GetOriSparseActualSeqLen`` (vendor
+        # ``sparse_attn_sharedkv_tree_scfa_kernel.h:361-382``) counts the
+        # leading entries before the first -1, capped by
+        # ``min(ORI_W, seqused)``.  The count is taken in a dedicated pass over
+        # the int32 slot table only, so walking the full padded width never
+        # forms a KV address.  Taking the min across chunks makes the result
+        # identical to the vendor's leading-run scan: a -1 can never resurrect
+        # a later physical slot.
+        valid_count = tl.minimum(seqused, ORI_W)
         for start in range(0, ORI_W, BLOCK_N):
             cols = start + tl.arange(0, BLOCK_N)
             cols_safe = tl.where(cols < ORI_W, cols, 0)
@@ -215,11 +223,26 @@ def _tree_attn_kernel(
                 other=-1,
             )
             first_neg = tl.min(tl.where(slot < 0, cols, ORI_W))
-            stop = tl.minimum(stop, first_neg)
+            valid_count = tl.minimum(valid_count, first_neg)
+
+        # Runtime-bounded loop, mirroring the vendor's
+        # ``CeilDiv(oriS2Size, s2BaseSize)`` trip count: a chunk starting at or
+        # past ``valid_count`` holds no key, so it is never scored.
+        for start in tl.range(0, valid_count, BLOCK_N):
+            cols = start + tl.arange(0, BLOCK_N)
+            range_ok = cols < valid_count
+            cols_safe = tl.where(range_ok, cols, 0)
+            slot = tl.load(
+                ORI_IDX + pid_t * ORI_W + cols_safe,
+                mask=range_ok,
+                other=-1,
+            )
 
             page = slot // ORI_ROWS
             page_ok = (slot >= 0) & (page >= 0) & (page < ORI_PAGES)
-            valid = (cols < stop) & page_ok
+            # ``range_ok`` already encodes ``cols < valid_count``, which is
+            # ``<= min(ORI_W, seqused, first -1)``.
+            valid = range_ok & page_ok
             # A padded -1 slot makes ``page`` negative.  Clamp every pointer
             # input for masked lanes: Ascend still forms the address even when
             # the load mask is false.
@@ -237,19 +260,28 @@ def _tree_attn_kernel(
 
     if HAS_CMP:
         prefix = tl.load(PREFIX + pid_t)
+        # ``GetKeyGmOffset`` (vendor
+        # ``sparse_attn_sharedkv_tree_scfa_block_vector.h:545-557``) returns -1
+        # for a negative prefix and never resolves a pool, so an invalid tree
+        # context contributes no key at all.
+        prefix_ok = prefix >= 0
+        # ``cmpMaskRight = actOriS2Size - actS1Size`` and ``s1EndIdx = 0`` for
+        # the per-node wrapper, hence
+        # ``thresHold = (cmpMaskRight + s1EndIdx + 1) / cmpRatio = seqused // RATIO``
+        # (vendor ``sparse_attn_sharedkv_tree_scfa_kernel.h:395-396``).
         history_limit = seqused // RATIO
         if USE_C4:
-            # The C4 top-k array is filtered by its *logical value* (a padded
-            # -1 or a value at/after the history limit is skipped), so every
-            # column is scanned.
-            loop_end = CMP_K
+            # ``actCmpS2Size = min(sparseBlockCount * sparseBlockSize, thresHold)``:
+            # C4 visits at most ``min(CMP_K, history_limit)`` top-k columns, and
+            # every visited column is still filtered by its logical value.
+            cmp_limit = tl.minimum(CMP_K, history_limit)
         else:
             # C128 walks the full compressed history; the top-k array is absent.
-            loop_end = history_limit
+            cmp_limit = history_limit
 
-        for start in range(0, loop_end, BLOCK_N):
+        for start in tl.range(0, cmp_limit, BLOCK_N):
             cols = start + tl.arange(0, BLOCK_N)
-            range_ok = cols < loop_end
+            range_ok = cols < cmp_limit
             cols_safe = tl.where(range_ok, cols, 0)
             if USE_C4:
                 logical = tl.load(
@@ -265,7 +297,7 @@ def _tree_attn_kernel(
             paged_end = prefix // RATIO
 
             # Paged compressed history: logical -> (page, row) via the table.
-            is_paged = idx_ok & (logical >= 0) & (logical < paged_end)
+            is_paged = prefix_ok & idx_ok & (logical >= 0) & (logical < paged_end)
             page_col = logical // CMP_ROWS
             page_col_ok = is_paged & (page_col >= 0) & (page_col < CMP_TABLE_W)
             page_col_safe = tl.where(page_col_ok, page_col, 0)
@@ -287,7 +319,7 @@ def _tree_attn_kernel(
             )
 
             # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
-            is_tree = idx_ok & (logical >= 0) & (logical >= paged_end)
+            is_tree = prefix_ok & idx_ok & (logical >= 0) & (logical >= paged_end)
             step = (logical + 1) * RATIO - 1 - prefix
             step_ok = is_tree & (logical >= 0) & (step >= 0) & (step < MAX_DEPTH)
             step_safe = tl.where(step_ok, step, 0)
