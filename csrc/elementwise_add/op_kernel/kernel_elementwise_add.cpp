@@ -1,0 +1,143 @@
+// Licensed under the BSD 3-Clause License  (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef SGL_KERNEL_NPU_KERNEL_ELEMENTWISE_ADD_H
+#define SGL_KERNEL_NPU_KERNEL_ELEMENTWISE_ADD_H
+
+/* include file of ascendc */
+#include "kernel_operator.h"
+
+/* tensor num for each queue */
+constexpr int32_t BUFFER_NUM = 2;
+
+/*
+ * Element-wise add: z = x + y.
+ *
+ * This is the second-step sample after helloworld. It keeps the same
+ * CopyIn -> Compute -> CopyOut skeleton but adds the three things a real
+ * operator needs and helloworld leaves out:
+ *
+ *   1. dtype dispatch - the host launches either the fp16 or the fp32 entry
+ *      instead of hard-coding `half`;
+ *   2. host-computed tiling - tileLength comes from the UB capacity, so the
+ *      kernel does not silently assume an 8 KiB tile;
+ *   3. a documented layout contract - the host pads the element count to
+ *      blockDim * tileLength, so every core walks whole tiles and no
+ *      in-kernel tail branch is required.
+ *
+ * Contract shared with `csrc/elementwise_add/op_host/elementwise_add.cpp`:
+ *   - totalLength is divisible by AscendC::GetBlockNum();
+ *   - totalLength / GetBlockNum() is divisible by tileLength;
+ *   - tileLength * sizeof(T) is a multiple of 32 B (the vector unit).
+ */
+template <typename T>
+class KernelElementwiseAdd
+{
+public:
+    __aicore__ inline KernelElementwiseAdd() {}
+
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, GM_ADDR z, uint32_t totalLength, uint32_t tileLength)
+    {
+        this->tileLength = tileLength;
+
+        /* One block owns a contiguous slice of the flat [totalLength] view. */
+        uint32_t blockLength = totalLength / AscendC::GetBlockNum();
+        this->tileCount = blockLength / tileLength;
+        uint32_t blockOffset = blockLength * AscendC::GetBlockIdx();
+
+        xGm.SetGlobalBuffer((__gm__ T *)x + blockOffset, blockLength);
+        yGm.SetGlobalBuffer((__gm__ T *)y + blockOffset, blockLength);
+        zGm.SetGlobalBuffer((__gm__ T *)z + blockOffset, blockLength);
+
+        /* Double buffering keeps the MTE2 copy of tile i+1 overlapped with the
+         * vector computation of tile i. */
+        pipe.InitBuffer(inQueueX, BUFFER_NUM, tileLength * sizeof(T));
+        pipe.InitBuffer(inQueueY, BUFFER_NUM, tileLength * sizeof(T));
+        pipe.InitBuffer(outQueueZ, BUFFER_NUM, tileLength * sizeof(T));
+    }
+
+    __aicore__ inline void Process()
+    {
+        for (uint32_t i = 0; i < this->tileCount; i++) {
+            CopyIn(i);
+            Compute();
+            CopyOut(i);
+        }
+    }
+
+private:
+    __aicore__ inline void CopyIn(uint32_t progress)
+    {
+        AscendC::LocalTensor<T> xLocal = inQueueX.AllocTensor<T>();
+        AscendC::LocalTensor<T> yLocal = inQueueY.AllocTensor<T>();
+        /* Global -> Unified Buffer (MTE2). tileLength is 32 B aligned, so a
+         * plain DataCopy is enough; no DataCopyPad is needed here. */
+        AscendC::DataCopy(xLocal, xGm[progress * this->tileLength], this->tileLength);
+        AscendC::DataCopy(yLocal, yGm[progress * this->tileLength], this->tileLength);
+        inQueueX.EnQue(xLocal);
+        inQueueY.EnQue(yLocal);
+    }
+
+    __aicore__ inline void Compute()
+    {
+        AscendC::LocalTensor<T> xLocal = inQueueX.DeQue<T>();
+        AscendC::LocalTensor<T> yLocal = inQueueY.DeQue<T>();
+        AscendC::LocalTensor<T> zLocal = outQueueZ.AllocTensor<T>();
+
+        /* Vector unit (VECOUT path): z = x + y, element by element. */
+        AscendC::Add(zLocal, xLocal, yLocal, this->tileLength);
+
+        outQueueZ.EnQue<T>(zLocal);
+        inQueueX.FreeTensor(xLocal);
+        inQueueY.FreeTensor(yLocal);
+    }
+
+    __aicore__ inline void CopyOut(uint32_t progress)
+    {
+        AscendC::LocalTensor<T> zLocal = outQueueZ.DeQue<T>();
+        /* Unified Buffer -> Global (MTE3). */
+        AscendC::DataCopy(zGm[progress * this->tileLength], zLocal, this->tileLength);
+        outQueueZ.FreeTensor(zLocal);
+    }
+
+private:
+    AscendC::TPipe pipe;
+    AscendC::TQue<AscendC::TPosition::VECIN, BUFFER_NUM> inQueueX;
+    AscendC::TQue<AscendC::TPosition::VECIN, BUFFER_NUM> inQueueY;
+    AscendC::TQue<AscendC::TPosition::VECOUT, BUFFER_NUM> outQueueZ;
+    AscendC::GlobalTensor<T> xGm;
+    AscendC::GlobalTensor<T> yGm;
+    AscendC::GlobalTensor<T> zGm;
+    uint32_t tileLength;
+    uint32_t tileCount;
+};
+
+/*
+ * Two kernel entries, one per dtype. The host picks the entry that matches
+ * the tensor dtype; the launch header (aclrtlaunch_<name>.h) is generated by
+ * the AscendC build for every entry declared here.
+ */
+extern "C" __global__ __aicore__ void elementwise_add_fp16(GM_ADDR x, GM_ADDR y, GM_ADDR z, uint32_t totalLength,
+                                                           uint32_t tileLength)
+{
+    KernelElementwiseAdd<half> op;
+    op.Init(x, y, z, totalLength, tileLength);
+    op.Process();
+}
+
+extern "C" __global__ __aicore__ void elementwise_add_fp32(GM_ADDR x, GM_ADDR y, GM_ADDR z, uint32_t totalLength,
+                                                           uint32_t tileLength)
+{
+    KernelElementwiseAdd<float> op;
+    op.Init(x, y, z, totalLength, tileLength);
+    op.Process();
+}
+
+#endif  // SGL_KERNEL_NPU_KERNEL_ELEMENTWISE_ADD_H

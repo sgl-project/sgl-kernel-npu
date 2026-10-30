@@ -15,6 +15,20 @@ namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
+/**
+ * @brief Element-wise add of two same-shape, contiguous tensors.
+ *
+ * z = x + y on the AICore vector unit. fp16 and fp32 are supported; inputs are
+ * flattened internally, so any rank works and the returned tensor keeps x's
+ * shape. The element count is aligned on the host by zero padding, which keeps
+ * the kernel free of tail handling.
+ *
+ * @param [in] x First addend, contiguous, float16 or float32.
+ * @param [in] y Second addend, same shape/dtype/device as x.
+ * @return at::Tensor Newly allocated z with the same shape, dtype and device.
+ */
+at::Tensor elementwise_add(const at::Tensor &x, const at::Tensor &y);
+
 at::Tensor cache_loc_assign(const at::Tensor &req_indices,
                             const at::Tensor &token_pool,
                             const at::Tensor &start_offset,
