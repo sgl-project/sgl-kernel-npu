@@ -19,8 +19,6 @@ out, final_state = chunk_gated_delta_rule(
 Triton 路线保持原样。显式选择 `impl="torch_native"` 使用独立 PyTorch 参考。
 
 省略 `scale` 或传入 `None` 的有效值为 **1.0**；显式数值包括 **0.0** 都保留。
-这是本次 Ascend C 接口的约定，不改变旧 Triton 的 `1 / sqrt(Dk)` 默认值，
-也不覆盖生产调用显式传入的 scale。
 
 ## 参数、输出与副作用
 

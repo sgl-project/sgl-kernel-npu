@@ -20,8 +20,7 @@ execution failure propagates; there is no fallback. The old
 Select `impl="torch_native"` explicitly for the independent PyTorch reference.
 
 Omitted or `None` scale means **1.0**. An explicit number, including **0.0**, is
-preserved. This Ascend C contract does not change the old Triton default
-`1 / sqrt(Dk)`. Production callers supplying that scale keep their explicit value.
+preserved.
 
 ## Parameters and outputs
 
