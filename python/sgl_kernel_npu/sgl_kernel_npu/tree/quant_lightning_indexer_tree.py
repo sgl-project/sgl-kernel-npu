@@ -133,6 +133,10 @@ _USE_INT8_DOT = os.environ.get("SGL_TREE_INDEXER_INT8_DOT", "1") == "1"
 
 _NUM_WARPS = 1
 _NUM_STAGES = 1
+# Use the Triton-Ascend ``tl.topk`` tile/merge selector by default.  The
+# integer-bisection selector remains available as a correctness fallback for
+# builds whose ``tl.topk`` cannot lower the packed int64 key.
+_USE_TL_TOPK = os.environ.get("SGL_TREE_INDEXER_TL_TOPK", "1") == "1"
 
 
 @triton.jit(
@@ -473,6 +477,61 @@ def _select_topk_kernel(
         eq_seen += tl.sum(eq_i)
 
 
+@triton.jit
+def _select_topk_tl_kernel(
+    scores_ptr,  # [n, SLOTS] fp32, -inf marks an absent slot
+    out_ptr,  # [n, 1, TOPK] int32 (out)
+    SLOTS: tl.constexpr,
+    TILE: tl.constexpr,
+    TOPK: tl.constexpr,
+):
+    """Exact top-k via triton-ascend ``tl.topk`` per S2 tile + merge.
+
+    The packed key keeps the score in the high 32 bits and the inverted slot
+    index in the low 32 bits.  ``tl.topk`` therefore implements the contract's
+    ``(score descending, index ascending)`` tie break, while the final
+    ``tl.sort`` restores the ascending-index output order.  This replaces the
+    32-pass integer bisection with one tile top-k plus one merge per extra S2
+    tile.
+    """
+    invalid = -9223372036854775808
+    pid_n = tl.program_id(0)
+    row = scores_ptr + pid_n * SLOTS
+    out_row = out_ptr + pid_n * TOPK
+    off = tl.arange(0, TILE)
+    n_tiles: tl.constexpr = SLOTS // TILE
+
+    scores = tl.load(row + off)
+    idx = off
+    key = _score_key(scores)
+    packed = (key.to(tl.int64) << 32) | (0xFFFFFFFF - idx).to(tl.int64)
+    winners = tl.topk(tl.where(scores > float("-inf"), packed, invalid), TOPK)
+
+    for t in tl.range(1, n_tiles):
+        scores = tl.load(row + t * TILE + off)
+        idx = t * TILE + off
+        key = _score_key(scores)
+        packed = (key.to(tl.int64) << 32) | (0xFFFFFFFF - idx).to(tl.int64)
+        tile = tl.topk(
+            tl.where(scores > float("-inf"), packed, invalid),
+            TOPK,
+        )
+        winners = tl.topk(
+            tl.cat(winners, tile, can_reorder=True),
+            TOPK,
+        )
+
+    valid = winners != invalid
+    ids = tl.where(
+        valid,
+        0xFFFFFFFF - (winners & 0xFFFFFFFF),
+        0x7FFFFFFF,
+    ).to(tl.int32)
+    ids = tl.sort(ids, descending=False)
+    ids = tl.where(ids == 0x7FFFFFFF, -1, ids)
+    tl.store(out_row + tl.arange(0, TOPK), ids)
+
+
 def _select_all(lengths: torch.Tensor, topk: int) -> torch.Tensor:
     """Chronological ``arange(topk)`` masked by ``lengths`` (README shortcut)."""
     n = int(lengths.numel())
@@ -707,15 +766,33 @@ def quant_lightning_indexer_tree(
     )
 
     out = torch.empty((n, 1, topk), dtype=torch.int32, device=query.device)
-    _select_topk_kernel[(n,)](
-        scores,
-        out,
-        topk,
-        SLOTS=slots,
-        TILE=select_tile,
-        FILL=_MAX_TOPK,
-        BISECT_STEPS=32,
-        num_warps=_NUM_WARPS,
-        num_stages=_NUM_STAGES,
+    # Keep the bisection fallback for irregular top-k widths and very wide
+    # accumulators; the serving contract uses a power-of-two topk <= 512.
+    use_tl_topk = (
+        _USE_TL_TOPK
+        and topk <= 512
+        and (topk & (topk - 1)) == 0
     )
+    if use_tl_topk:
+        _select_topk_tl_kernel[(n,)](
+            scores,
+            out,
+            SLOTS=slots,
+            TILE=select_tile,
+            TOPK=topk,
+            num_warps=_NUM_WARPS,
+            num_stages=_NUM_STAGES,
+        )
+    else:
+        _select_topk_kernel[(n,)](
+            scores,
+            out,
+            topk,
+            SLOTS=slots,
+            TILE=select_tile,
+            FILL=_MAX_TOPK,
+            BISECT_STEPS=32,
+            num_warps=_NUM_WARPS,
+            num_stages=_NUM_STAGES,
+        )
     return out
