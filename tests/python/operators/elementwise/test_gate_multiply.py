@@ -7,10 +7,12 @@ PyTorch expression bitwise, so accuracy is checked with zero tolerance against
 the independent torch_native reference, and the queued, graph-replay and guard
 flows that check_accuracy cannot express are covered by dedicated tests.
 
-Production shapes are GDN hidden states of shape [tokens, 4096]; the fused path
-engages at and above 16,777,216 elements (4096 tokens). Concrete per-model
-token counts have not been traced, so the shapes below are threshold-driven
-edge and production-scale cases rather than captured production calls.
+The model cases use GDN value-head widths derived from model configurations,
+with synthetic token counts and TP1/TP2 sharding. Per-token flattened views and
+the [tokens * local value heads, 128] view used around gated normalization are
+both covered. Qwen3.6-35B-A3B and Qwen3.8-27B normally use swish-gated
+normalization, so their cases cover compatible shapes only, not an existing
+integration of this sigmoid-gate operator.
 """
 
 import pytest
@@ -29,9 +31,16 @@ from tests.python.utils.standards import AccuracyStandard
 # Both backends must match bit for bit, not within a BF16 tolerance.
 EXACT = {"torch.bfloat16": AccuracyStandard(atol=0, rtol=0)}
 
-# Production-scale fused shapes selected for performance collection: GDN hidden
-# states of width 4096 at and above the fusion threshold (4096 tokens).
-perf_shape = [(4096, 4096), (16384, 4096)]
+# Model-derived widths at or above the fusion threshold, with synthetic token
+# counts. Only contiguous cases that enter the fused kernel are profiled.
+perf_shape = [
+    (4096, 4096),
+    (16384, 4096),
+    (4096, 6144),
+    (16384, 6144),
+    (16384, 2048),
+    (16384, 3072),
+]
 
 
 def generate_data(shape, mode, seed=100326):
@@ -79,8 +88,27 @@ def generate_data(shape, mode, seed=100326):
         # At and above the threshold: the fused kernel engages.
         pytest.param((FUSION_MIN_ELEMENTS,), id="threshold-exact"),
         pytest.param((FUSION_MIN_ELEMENTS + 1,), id="threshold-plus-one"),
+        # Width = linear_num_value_heads * linear_value_head_dim / attention TP.
+        # https://huggingface.co/Qwen/Qwen3.6-35B-A3B/blob/main/config.json
+        # https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/config.json
+        # https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/config.json
+        # The model-derived cases cover both fallback and fused sizes.
+        # Qwen3.6-35B-A3B TP1: 32 value heads * 128 = 4096 per token.
         pytest.param((4096, 4096), id="gdn-4096-tokens"),
         pytest.param((16384, 4096), id="gdn-16384-tokens"),
+        # Qwen3.8-27B and Qwen3.8-Flash-Next TP1: 48 * 128 = 6144.
+        pytest.param((4096, 6144), id="gdn-tp1-width6144-4096-tokens"),
+        pytest.param((16384, 6144), id="gdn-tp1-width6144-16384-tokens"),
+        # Qwen3.6-35B-A3B TP2: 16 * 128 = 2048 per rank.
+        pytest.param((4096, 2048), id="gdn-tp2-width2048-4096-tokens"),
+        pytest.param((16384, 2048), id="gdn-tp2-width2048-16384-tokens"),
+        # Qwen3.8-27B and Qwen3.8-Flash-Next TP2: 24 * 128 = 3072.
+        pytest.param((4096, 3072), id="gdn-tp2-width3072-4096-tokens"),
+        pytest.param((16384, 3072), id="gdn-tp2-width3072-16384-tokens"),
+        # Head-flattened views around gated normalization, for the same models.
+        pytest.param((4096 * 32, 128), id="gdn-tp1-heads32-4096-tokens"),
+        pytest.param((4096 * 48, 128), id="gdn-tp1-heads48-4096-tokens"),
+        pytest.param((4096 * 24, 128), id="gdn-tp2-heads24-4096-tokens"),
     ],
 )
 def test_gate_multiply(shape, mode):
