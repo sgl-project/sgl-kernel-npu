@@ -7,9 +7,11 @@ performance baseline; it compares the two real implementations directly.
 
 Prerequisites on the A3 host:
   * ``sgl_kernel_npu`` built/installed (new implementation)
-  * vllm-ascend tree binding loaded, or ``SGLANG_DSPARK_TREE_OPS`` pointing at
+    * vllm-ascend tree binding loaded, or ``SGLANG_DSPARK_TREE_OPS`` pointing at
     the built binding .so files
-  * ``torch_npu`` and an Ascend device
+    * for indexer/attention vendor baselines, load the vllm-ascend C extension:
+      set ``VLLM_ASCEND_C_SO`` to the built ``vllm_ascend_C*.so``
+    * ``torch_npu`` and an Ascend device
 
 Examples:
   python benchmark/spec_decode/compare_tree_ops.py --op all --warmup 1 --reps 3
@@ -39,10 +41,33 @@ import bench_tree_ops as bench  # noqa: E402
 
 def _load_vendor() -> Any:
     """Load the vllm-ascend ``torch.ops._C_ascend`` tree namespace."""
+    load_errors: list[str] = []
     try:
         import vllm_ascend.vllm_ascend_C  # noqa: F401
-    except Exception:
-        pass
+    except Exception as exc:
+        load_errors.append(
+            f"import vllm_ascend.vllm_ascend_C: {type(exc).__name__}: {exc}"
+        )
+
+    # A vLLM installation may be present without its Python extension being
+    # importable in the SGLang environment.  Allow the same compiled binding to
+    # be loaded explicitly; this is what provides the indexer/attention
+    # metadata ops when only the three tree binding .so files are on
+    # SGLANG_DSPARK_TREE_OPS.
+    raw_c = os.environ.get("VLLM_ASCEND_C_SO", "")
+    for raw_path in raw_c.split(os.pathsep):
+        if not raw_path:
+            continue
+        path = Path(raw_path).expanduser()
+        if not path.is_file():
+            load_errors.append(f"VLLM_ASCEND_C_SO missing file: {path}")
+            continue
+        try:
+            torch.ops.load_library(str(path))
+        except Exception as exc:
+            load_errors.append(
+                f"load {path}: {type(exc).__name__}: {exc}"
+            )
 
     # Load the SGLang-side binding set as well.  vllm-ascend's import may
     # register the four tree ops but not the separate metadata bindings.
@@ -52,15 +77,19 @@ def _load_vendor() -> Any:
         )
 
         load_tree_ops()
-    except Exception:
-        pass
+    except Exception as exc:
+        load_errors.append(
+            f"load_tree_ops: {type(exc).__name__}: {exc}"
+        )
     raw = os.environ.get("SGLANG_DSPARK_TREE_OPS", "")
     for raw_path in raw.split(os.pathsep):
         if raw_path and Path(raw_path).is_file():
             try:
                 torch.ops.load_library(raw_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                load_errors.append(
+                    f"load {raw_path}: {type(exc).__name__}: {exc}"
+                )
 
     ns = getattr(torch.ops, "_C_ascend", None)
     required = (
@@ -71,10 +100,12 @@ def _load_vendor() -> Any:
     )
     missing = [name for name in required if not hasattr(ns, name)]
     if ns is None or missing:
+        detail = "; ".join(load_errors) if load_errors else "no load errors"
         raise RuntimeError(
             "vllm-ascend _C_ascend tree ops are unavailable; missing "
-            f"{missing}. Build/load vllm-ascend tree bindings first, or set "
-            "SGLANG_DSPARK_TREE_OPS to the binding .so paths."
+            f"{missing}. Build/load vllm-ascend tree bindings first, set "
+            "SGLANG_DSPARK_TREE_OPS to the binding .so paths, or set "
+            f"VLLM_ASCEND_C_SO to the vllm_ascend_C*.so. Details: {detail}"
         )
     return ns
 
