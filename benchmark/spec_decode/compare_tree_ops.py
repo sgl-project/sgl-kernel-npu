@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[compare] wrote JSON: {args.json_path}")
     if any(r["correct"] is None for r in results):
         print("[compare] some vendor comparisons were skipped (see detail)")
-    return 0 if all(r["correct"] is not False for r in results) else 1
+    return 0 if all(r["correct"] is True for r in results) else 1
 
 
 if __name__ == "__main__":
