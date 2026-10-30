@@ -341,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
             args.warmup,
             args.reps,
         )
-        np50, np10, np90 = bench._percentiles(new_times)
+        np10, np50, np90 = bench._percentiles(new_times)
 
         if metadata_error is not None:
             row = {
@@ -371,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             args.warmup,
             args.reps,
         )
-        vp50, vp10, vp90 = bench._percentiles(vendor_times)
+        vp10, vp50, vp90 = bench._percentiles(vendor_times)
         speedup = (
             vp50 / np50
             if vp50 is not None and np50 not in (None, 0)
