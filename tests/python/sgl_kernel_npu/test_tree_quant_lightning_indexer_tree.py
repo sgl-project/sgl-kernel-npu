@@ -266,6 +266,47 @@ def test_ranked_history_beyond_2048_tail_wins():
     assert_matches_reference(call_kernel(args), args)
 
 
+def test_multi_tile_tie_boundary_selects_lowest_indices():
+    # Ties spanning the cut must break on ascending index over *every* S2 tile,
+    # i.e. the tile merge may not reorder equal scores.  Zero key scales make
+    # every resolvable slot score exactly 0.0 on a >2048-slot row, so both the
+    # oracle and the kernel must emit the lowest indices in ascending order.
+    case = make_case(17, rows=128, topk=512, prefixes=[32768])
+    args = dict(case["args"])
+    args["tree_scale"] = torch.zeros_like(args["tree_scale"])
+    args["history_scale"] = torch.zeros_like(args["history_scale"])
+    assert int(args["lengths"].max()) > 2048
+
+    actual = call_kernel(args).cpu()
+    expected = assert_matches_reference(actual, args).cpu()
+    # Fully tied scores -> the only legal order is ascending index, so the
+    # whole row, not just the multiset, must match.
+    assert torch.equal(actual, expected)
+    for row in range(int(args["query"].shape[0])):
+        selected = [i for i in actual[row, 0].tolist() if i >= 0]
+        assert selected == sorted(selected)
+
+
+def test_multi_tile_row_below_topk_pads_minus_one():
+    # A short row on a long-history batch keeps the ranked path (max length >
+    # topk) but can only fill a handful of ranks.
+    case = make_case(17, rows=128, topk=512, prefixes=[32768])
+    args = dict(case["args"])
+    lengths = torch.full((17,), 8192, dtype=torch.int32)
+    lengths[0] = 3
+    lengths[7] = 2049
+    args["lengths"] = lengths
+
+    actual = call_kernel(args).cpu()
+    expected = assert_matches_reference(actual, args).cpu()
+    row0 = actual[0, 0].tolist()
+    assert all(i == -1 or i < 3 for i in row0)
+    assert row0.count(-1) == 512 - len(
+        [i for i in expected[0, 0].tolist() if i >= 0]
+    )
+    assert row0.count(-1) >= 509
+
+
 # ---------------------------------------------------------------------------
 # prefix / boundary matrix
 # ---------------------------------------------------------------------------

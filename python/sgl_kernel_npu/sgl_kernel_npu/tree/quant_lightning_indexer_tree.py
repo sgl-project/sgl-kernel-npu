@@ -24,38 +24,51 @@ Slot resolution (§1.3, ``tree_index.h``)::
             node = ancestors[row, step]
     out-of-range step / node (< 0 or >= num_nodes) / page -> score -inf, index -1
 
-Top-k is ``(score desc, index asc)`` (D3: tie order is not contractual) with
-``-1`` padding, over the first ``min(2048, n_slots)`` logical slots — the
-AscendC kernel's ``BASE_TOPK == 2048`` accumulator width.  Callers whose
-``lengths`` exceed 2048 therefore see the vendor behaviour, not a full sort of
-the tail; the reference oracle sorts every valid slot, so tests keep
-``lengths <= 2048``.
+Top-k is the ``(score desc, index asc)`` prefix of the valid slots with ``-1``
+padding.  Every logical slot below ``lengths[row]`` is a candidate: the
+AscendC kernel scans **all** S2 tiles and merges each tile's top-2048 into a
+2048-wide (``BASE_TOPK == 2048``) accumulator, so 2048 is the output
+accumulator width, *not* a candidate cap.  D3 makes the emission order
+non-contractual, so this port returns the same **set** the vendor returns but
+emits it in ascending index order (the vendor emits it score-descending);
+consumers treat the row as a set.  The reference oracle sorts every valid slot.
 
-Three kernels:
+Three kernels (T5b, vendor-shaped):
 
-* :func:`_gather_kernel` �?one program per ``(row, 128-slot block)``; resolves
+* :func:`_gather_kernel` -- one program per ``(row, 128-slot block)``; resolves
   paged-history vs. tree-ancestor indirection once and materialises a
   contiguous ``[SLOTS, HEAD_DIM]`` int8 key matrix plus per-slot scale and
   validity.  This removes the ``64 heads * 16 D-chunks`` repeated gather that
   dominated the old fused fallback.
-* :func:`_score_kernel` �?reads the contiguous key matrix, runs the QK
-  int32-widening fallback (or optional int8 ``tl.dot``), then does relu /
-  2**-10 / FP16 rounding / FP16 weight product / FP32 head reduce /
-  key-scale multiply and stores ``float32``.
-* :func:`_topk_merge_kernel` �?one program per row: a 2048-wide score
-  accumulator reduced by stable insertion (``argmax`` with lowest-index
-  tie-break), matching the merge pattern in
-  ``indexer/flash_block_score_decode.py``.
+* :func:`_score_kernel` -- reads the contiguous key matrix and reproduces the
+  vendor's two-cube chain: QK as an int8 x int8 ``tl.dot`` -> int32, fixpipe
+  equivalent ``fp16(relu(QK) * 2**-10)``, ``Wq = fp16(weights * query_scale)``,
+  then a second FP16 ``tl.dot`` that reduces the ``g`` (head) axis with 16
+  replicated ``M`` rows, and finally ``* key_scale`` in FP32.
+  ``service_cube_arch22.h:ComputeQk/FixpSToL1/ComputeWs/FixpResToGm`` is the
+  reference.  An exact int32-widening path without any cube is available as an
+  opt-in fallback (see R8).
+* :func:`_select_topk_kernel` -- one program per row, streaming the score
+  buffer in ``BASE_TOPK``-sized S2 tiles (the vendor's ``S2_BASE_SIZE`` /
+  accumulator width).  It finds the k-th largest score by integer bisection on a
+  monotone int32 key (exact, ties included, with only one 2048-slot tile of UB
+  live at a time), then compacts every selected slot in ascending index order
+  and fills the tail with ``-1``.  This replaces both the unbounded insertion
+  TopK and the vendor's ``Sort32``/``MrgSort`` + 2-way merge: the result set is
+  identical, the O(topk * slots) insertion cost and the unavailable hardware
+  sort are both avoided.
+
 
 ``metadata`` is validated (int32, 1024 entries, contiguous) and then ignored
 (D2); ``residual`` is ABI-only and unused; ``cu`` must equal ``arange(n + 1)``.
 
 Risk R8 (int8 ``tl.dot``): the Ascend cube executes int8 x int8 -> int32
-natively, which is what the vendor kernel does.  Some triton-ascend builds
-cannot bind the resulting MIX/CV sub-block for this shape, so the default
-path is the exact int32-widening fallback (``tl.sum`` over the head dim,
-no cube).  Set ``SGL_TREE_INDEXER_INT8_DOT=1`` on a build where the int8
-dot compiles to enable the faster cube path.
+natively, which is exactly what the vendor kernel does, so the cube path is
+the **default**.  Some triton-ascend builds cannot bind the resulting MIX/CV
+sub-block for this shape (or reject ``M == 16`` FP16 dots); on such a build set
+``SGL_TREE_INDEXER_INT8_DOT=0`` to switch to the exact int32-widening path
+(``tl.sum`` over the head dim, no cube).  That fallback is correctness-only:
+it is the pre-T5b scalar path and carries no performance claim.
 """
 
 from __future__ import annotations
@@ -88,21 +101,35 @@ _RATIO = 4
 # written as the literal 0.0009765625 inside the kernels: Triton folds Python
 # literals at compile time, so no module global is resolved in device code.
 
-# Vendor accumulator width (BASE_TOPK = 2048) and the per-program slot tile.
-_TOPK_SLOTS = 2048
+# Vendor accumulator width (BASE_TOPK = 2048) from
+# ``service_vector_arch22.h:35``.  It is also the vendor's S2 tile
+# (``S2_BASE_SIZE`` in the op_host tiler): every S2 tile is scored and reduced
+# into this 2048-wide accumulator.  It is an *output width*, never a candidate
+# cap -- the selection kernel below streams the full slot range in tiles of
+# this width.
+_BASE_TOPK = 2048
+_TOP_K_TILE = _BASE_TOPK
 _MAX_TOPK = 2048
 _BLOCK_KV = 128
 
-# Head tiles: wide on the cube path, narrow on the manual path so the
+# Head tiles: wide on the cube path (one int8 QK dot per 32 heads, one FP16
+# Ws dot per 32 heads), narrow on the manual path so the
 # [HEAD_BLOCK, DOT_D_CHUNK, BLOCK_KV] int32 widening tile stays inside UB.
 _HEAD_BLOCK_DOT = 32
 _HEAD_BLOCK_MANUAL = 16
 _DOT_D_CHUNK = 8
 
-# R8: native int8 tl.dot -> int32 is faster but some triton-ascend builds
-# cannot bind the resulting MIX/CV sub-block for this shape.  Default to the
-# exact int32-widening fallback; opt in on a build where int8 dot compiles.
-_USE_INT8_DOT = os.environ.get("SGL_TREE_INDEXER_INT8_DOT", "0") == "1"
+# The vendor reduces the ``g`` (query-head) axis with a cube whose ``M`` is a
+# single BLOCK_CUBE (16) of replicated rows and takes row 0
+# (``service_cube_arch22.h:ComputeWs`` + ``FixpResToGm`` mSize=1).  ``tl.dot``
+# has the same M >= 16 floor, so the Ws dot uses 16 replicated rows.
+_WS_DOT_M = 16
+
+# R8: native int8 tl.dot -> int32 is what the vendor does, so the cube path is
+# the default.  Set SGL_TREE_INDEXER_INT8_DOT=0 to opt into the exact
+# int32-widening fallback on a triton-ascend build where the int8 dot (or the
+# M=16 FP16 Ws dot) does not compile.  The fallback is correctness-only.
+_USE_INT8_DOT = os.environ.get("SGL_TREE_INDEXER_INT8_DOT", "1") == "1"
 
 _NUM_WARPS = 1
 _NUM_STAGES = 1
@@ -227,6 +254,28 @@ def _gather_kernel(
 
 
 @triton.jit
+def _score_key(scores):
+    """Map an fp32 score to an int32 whose *signed* order is the score order.
+
+    ``bits >> 31`` is the arithmetic shift, so the mask is ``0x7fffffff`` for a
+    negative score and ``0`` otherwise: negatives get their low 31 bits
+    inverted (which reverses sign-magnitude into two's complement order) while
+    positives keep their raw IEEE bits, which already ascend with the value.
+    The result is a strict order isomorphism on finite fp32, so equal scores
+    always produce equal keys.
+
+    ``-inf`` (``0xff800000``) maps to ``0x807fffff`` -- smaller than every
+    finite score's key -- which is what makes an unresolved slot sort after
+    every real candidate.  ``-0.0`` would map to ``-1`` (below ``+0.0``) even
+    though it compares equal, so it is folded to ``+0.0`` first; equal scores
+    therefore always share a key.
+    """
+    bits = scores.to(tl.int32, bitcast=True)
+    bits = tl.where(bits == -2147483648, 0, bits)  # -0.0 -> +0.0
+    return bits ^ ((bits >> 31) & 2147483647)
+
+
+@triton.jit
 def _score_kernel(
     query_ptr,  # [n, NUM_HEADS, HEAD_DIM] int8
     weights_ptr,  # [n, NUM_HEADS] fp16
@@ -241,6 +290,7 @@ def _score_kernel(
     BLOCK_KV: tl.constexpr,
     HEAD_BLOCK: tl.constexpr,
     DOT_D_CHUNK: tl.constexpr,
+    WS_DOT_M: tl.constexpr,
     USE_INT8_DOT: tl.constexpr,
 ):
     """Score ``BLOCK_KV`` contiguous key rows of one query row."""
@@ -258,7 +308,12 @@ def _score_kernel(
 
     acc = tl.zeros((BLOCK_KV,), dtype=tl.float32)
     if USE_INT8_DOT:
-        # [HEAD_DIM, BLOCK_KV] int8; QK is the only cube op in this branch.
+        # Vendor cube chain (service_cube_arch22.h):
+        #   ComputeQk  int8 x int8 -> int32   (K = HEAD_DIM)
+        #   FixpSToL1  reluPre=1 + pre-quant 0x3a800000 -> fp16(relu(QK)*2**-10)
+        #   ComputeWs  FP16 cube, A = Wq replicated over WS_DOT_M rows
+        #   FixpResToGm NoQuant -> fp32, mSize = 1 (row 0 only)
+        # B operand is the contiguous [HEAD_DIM, BLOCK_KV] int8 key tile.
         key_tile = tl.load(keys_ptr + key_base[None, :] + off_d[:, None])
         for head_block in tl.range(0, NUM_HEADS // HEAD_BLOCK):
             head = head_block * HEAD_BLOCK + off_g
@@ -266,17 +321,24 @@ def _score_kernel(
                 query_base + head[:, None] * HEAD_DIM + off_d[None, :]
             )
             qk = tl.dot(query, key_tile, out_dtype=tl.int32)
-            score0 = tl.maximum(qk, 0).to(tl.float32) * 0.0009765625
-            score0 = score0.to(tl.float16).to(tl.float32)
+            # fp16 on purpose: it is the L0B operand of the Ws cube, exactly
+            # like the fixpipe output the vendor reloads through sL1_.
+            score0 = (tl.maximum(qk, 0).to(tl.float32) * 0.0009765625).to(
+                tl.float16
+            )
+            # ProcessVec0 in the vendor: Wq = fp16(weights * query_scale).
             weight = tl.load(weight_base + head)
             query_scale = tl.load(scale_base + head)
-            wq = (weight * query_scale).to(tl.float16).to(tl.float32)
-            acc += tl.sum(score0 * wq[:, None], axis=0)
+            wq = (weight * query_scale).to(tl.float16)
+            # Every replicated L0A row is the same vector, so the WS_DOT_M
+            # output rows are bit-identical and take row 0 = the FP32 g-reduce.
+            wq_rows = tl.broadcast_to(wq[None, :], (WS_DOT_M, HEAD_BLOCK))
+            acc += tl.max(tl.dot(wq_rows, score0), axis=0)
     else:
-        # R8 fallback: exact int32 widening.  The key tile is already
-        # contiguous in [SLOTS, HEAD_DIM], so each chunk is a single coalesced
-        # load instead of a paged/tree gather.  Keep qk 1-D: a 3-D
-        # [head, dim, slot] temporary still makes hivm-plan-memory fail.
+        # R8 fallback (opt-in, correctness only): exact int32 widening.  The
+        # key tile is already contiguous in [SLOTS, HEAD_DIM], so each chunk is
+        # a single coalesced load instead of a paged/tree gather.  Keep qk 1-D:
+        # a 3-D [head, dim, slot] temporary still makes hivm-plan-memory fail.
         for head in tl.range(0, NUM_HEADS):
             qk = tl.zeros((BLOCK_KV,), dtype=tl.int32)
             for chunk in tl.range(0, HEAD_DIM // DOT_D_CHUNK):
@@ -296,30 +358,111 @@ def _score_kernel(
 
     valid = tl.load(valid_ptr + out_off) != 0
     key_scale = tl.load(key_scales_ptr + out_off)
-    score = tl.where(valid, acc * key_scale, float("-inf"))
+    # + 0.0 turns a -0.0 score (relu -> 0 with a negative key scale) into
+    # +0.0, so scores that compare equal also share a `_score_key`.  -inf and
+    # every other value are unchanged.
+    score = tl.where(valid, acc * key_scale, float("-inf")) + 0.0
     tl.store(scores_ptr + out_off, score)
 
 
 @triton.jit(do_not_specialize=["topk"])
-def _topk_merge_kernel(
+def _select_topk_kernel(
     scores_ptr,  # [n, SLOTS] fp32, -inf marks an absent slot
     out_ptr,  # [n, 1, topk] int32 (out)
     topk,
     SLOTS: tl.constexpr,
+    TILE: tl.constexpr,  # per-S2-tile window: BASE_TOPK, or SLOTS if shorter
+    FILL: tl.constexpr,  # _MAX_TOPK: -1 prefill width (>= topk)
+    BISECT_STEPS: tl.constexpr,  # ceil(log2(int32 domain)) == 32
 ):
-    """Stable ``(score desc, index asc)`` TopK of one row; ``-1`` padding."""
-    pid_n = tl.program_id(0)
-    off = tl.arange(0, SLOTS)
-    scores = tl.load(scores_ptr + pid_n * SLOTS + off).to(tl.float32)
-    out_base = out_ptr + pid_n * topk
+    """Exact top-k of one row's scores, emitted in ascending index order.
 
-    for rank in tl.range(0, topk):
-        best = tl.max(scores, axis=0)
-        # Lowest position among ties -> index-ascending tie-break (D3).
-        best_pos = tl.min(tl.where(scores == best, off, SLOTS), axis=0)
-        tl.store(out_base + rank, tl.where(best > float("-inf"), best_pos, -1))
-        # Consuming an -inf tail slot is a no-op, so padding repeats as -1.
-        scores = tl.where(off == best_pos, float("-inf"), scores)
+    Replaces both the unbounded insertion TopK (``topk * slots`` argmax passes)
+    and the vendor's per-S2-tile ``Sort32``/``MrgSort`` + 2-way merge, which has
+    no Triton equivalent.  The result *set* is identical to a stable
+    ``argsort(scores, descending=True)`` prefix; only the emission order
+    differs, and D3 makes that order non-contractual.
+
+    Structure, three streaming phases over ``TILE``-wide S2 tiles (so UB never
+    holds more than one 2048-slot tile):
+
+    1. key range + resolvable-slot count (1 scan);
+    2. bisection for the k-th largest key ``lo`` (``BISECT_STEPS`` scans) --
+       exact for ties because it searches integer keys, not rounded floats;
+    3. count of slots strictly above ``lo`` (1 scan), then compaction of
+       ``{key > lo}`` plus the first ``rank - n_gt`` exact ties in ascending
+       index order (1 scan), with ``-1`` padding for the tail.
+    """
+    pid_n = tl.program_id(0)
+    off = tl.arange(0, TILE)
+    row = scores_ptr + pid_n * SLOTS
+    out_row = out_ptr + pid_n * topk
+    n_tiles: tl.constexpr = SLOTS // TILE
+    # Rank-0 int32 zero used to seed the carried scalars (a plain
+    # ``tl.zeros(())`` is not accepted on every triton-ascend build).
+    zero = tl.sum(tl.full((1,), 0, tl.int32), axis=0)
+
+    # ---- phase 1: key range and the number of resolvable slots -----------
+    tile_scores = tl.load(row + off)
+    tile_keys = _score_key(tile_scores)
+    key_lo = tl.min(tile_keys, axis=0)
+    key_hi = tl.max(tile_keys, axis=0)
+    n_valid = tl.sum((tile_scores > float("-inf")).to(tl.int32))
+    for t in tl.range(1, n_tiles):
+        tile_scores = tl.load(row + t * TILE + off)
+        tile_keys = _score_key(tile_scores)
+        key_lo = tl.minimum(key_lo, tl.min(tile_keys, axis=0))
+        key_hi = tl.maximum(key_hi, tl.max(tile_keys, axis=0))
+        n_valid += tl.sum((tile_scores > float("-inf")).to(tl.int32))
+
+    # rank = the k we can actually fill; a row with fewer valid slots than
+
+    # `topk` converges on its own smallest key and pads the rest with -1.
+    rank = tl.minimum(n_valid, topk.to(tl.int32))
+
+    # ---- phase 2: k-th largest key by integer bisection ------------------
+    # `lo` is always a feasible threshold (count_ge(lo) >= rank), `hi` an upper
+    # bound, so the loop converges on the exact k-th largest key.  ceil-mid
+    # guarantees lo advances; (lo & hi) + ((lo ^ hi) >> 1) is overflow-free.
+    lo = key_lo
+    hi = key_hi
+    for _ in tl.range(0, BISECT_STEPS):
+        mid = (lo & hi) + ((lo ^ hi) >> 1)
+        mid = mid + (lo < hi).to(tl.int32)
+        count_ge = zero
+        for t in tl.range(0, n_tiles):
+            tile_keys = _score_key(tl.load(row + t * TILE + off))
+            count_ge += tl.sum((tile_keys >= mid).to(tl.int32))
+        feasible = count_ge >= rank
+        lo = tl.where(feasible, mid, lo)
+        hi = tl.where(feasible, hi, mid - 1)
+
+    # ---- phase 3a: how many slots strictly beat the k-th largest ---------
+    n_gt = zero
+    for t in tl.range(0, n_tiles):
+        tile_keys = _score_key(tl.load(row + t * TILE + off))
+        n_gt += tl.sum((tile_keys > lo).to(tl.int32))
+    # Exact ties still fit: the lowest-index ones fill the remaining ranks,
+    # which is the reference's stable (score desc, index asc) tie-break.
+    need = rank - n_gt
+
+    # ---- phase 3b: compact, ascending index order, -1 padded ------------
+    fill = tl.arange(0, FILL)
+    tl.store(out_row + fill, tl.full((FILL,), -1, tl.int32), mask=fill < topk)
+    pos = zero
+    eq_seen = zero
+    for t in tl.range(0, n_tiles):
+        tile_keys = _score_key(tl.load(row + t * TILE + off))
+        gt = tile_keys > lo
+        eq = tile_keys == lo
+        eq_i = eq.to(tl.int32)
+        eq_before = tl.cumsum(eq_i, axis=0) - eq_i
+        selected = gt | (eq & (eq_before + eq_seen < need))
+        selected_i = selected.to(tl.int32)
+        dst = tl.cumsum(selected_i, axis=0) - selected_i
+        tl.store(out_row + pos + dst, off + t * TILE, mask=selected)
+        pos += tl.sum(selected_i)
+        eq_seen += tl.sum(eq_i)
 
 
 def _select_all(lengths: torch.Tensor, topk: int) -> torch.Tensor:
@@ -478,8 +621,18 @@ def quant_lightning_indexer_tree(
     if max(1, max_kv // _RATIO) <= topk:
         return _select_all(lengths, topk)
 
-    slots = min(_TOPK_SLOTS, next_power_of_2(max(1, max_len)))
+    # T5a/T5b: every logical slot is a candidate.  The vendor's 2048-wide
+    # accumulator (``_BASE_TOPK``) is an output width, not a candidate cap --
+    # the vendor scores all S2 tiles and reduces per tile into that width -- so
+    # size the full-slot score buffer to the observed maximum length, rounded up
+    # to a power of two and kept a multiple of the 128-slot per-program tile.
+    slots = next_power_of_2(max(1, max_len))
     slots = max(slots, _BLOCK_KV)
+
+    # Selection window: the vendor's S2 tile / BASE_TOPK width, shrunk only for
+    # a row shorter than one tile (both operands are powers of two, so
+    # ``slots % select_tile == 0`` always holds).
+    select_tile = min(_TOP_K_TILE, slots)
 
     use_int8_dot = _USE_INT8_DOT
     head_block = _HEAD_BLOCK_DOT if use_int8_dot else _HEAD_BLOCK_MANUAL
@@ -539,17 +692,21 @@ def quant_lightning_indexer_tree(
         BLOCK_KV=_BLOCK_KV,
         HEAD_BLOCK=head_block,
         DOT_D_CHUNK=_DOT_D_CHUNK,
+        WS_DOT_M=_WS_DOT_M,
         USE_INT8_DOT=use_int8_dot,
         num_warps=_NUM_WARPS,
         num_stages=_NUM_STAGES,
     )
 
     out = torch.empty((n, 1, topk), dtype=torch.int32, device=query.device)
-    _topk_merge_kernel[(n,)](
+    _select_topk_kernel[(n,)](
         scores,
         out,
         topk,
         SLOTS=slots,
+        TILE=select_tile,
+        FILL=_MAX_TOPK,
+        BISECT_STEPS=32,
         num_warps=_NUM_WARPS,
         num_stages=_NUM_STAGES,
     )
