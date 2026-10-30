@@ -249,6 +249,23 @@ def test_matches_reference_ranked_long_history():
     assert_matches_reference(call_kernel(case["args"]), case["args"])
 
 
+def test_ranked_history_beyond_2048_tail_wins():
+    # The vendor keeps a 2048-wide output accumulator but scans every S2 tile;
+    # it must not truncate the candidate set at logical slot 2048.
+    case = make_case(17, rows=128, topk=512, prefixes=[32768])
+    args = dict(case["args"])
+    history = args["history"].clone()
+    history_page_size = int(history.shape[1])
+    tail_start = 56 * history_page_size  # logical slots >= 7168
+    history[56:, :, 0, 0] = 127  # beat the fixture's tree keys (100)
+    args["history"] = history
+    lengths = args["lengths"]
+    assert int(lengths.max()) > 2048
+    expected = quant_lightning_indexer_tree_ref(**args)
+    assert any(int(i) >= 2048 for i in expected.reshape(-1).tolist() if i >= 0)
+    assert_matches_reference(call_kernel(args), args)
+
+
 # ---------------------------------------------------------------------------
 # prefix / boundary matrix
 # ---------------------------------------------------------------------------
