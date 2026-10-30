@@ -19,6 +19,85 @@ Semantics source: vllm-ascend @ 8947f1f9f
   ``cu = arange(n + 1)``, row 0 reserved).  See ``docs/tree_ops_semantics.md`` §2
   and ``tree/README.md``.
 
+Tiling (vendor parity)
+----------------------
+The template this op actually runs on 910B/910C is
+``arch32/compressor_tree_project_kernel_perf.h`` together with
+``arch32/compressor_tree_project_block_cube_perf.h::ComputeMm1``, tiled by
+``op_host/arch32/compressor_tree_project_tiling.cpp::SetInnerSplitInfo``:
+``dBaseSize = 64``, ``K_L1_BASE = 256``, ``K_L0_BASE = 128``,
+``mBaseSize = 128`` (``coff == 2``) / ``256`` (``coff == 1``), and each core owns
+one ``dIdx`` slice of ``headDim`` plus one M group (``dBasicBlockNum =
+headDim / dBaseSize``, ``coreGroupNum = usedCoreNum / dBasicBlockNum``).
+
+The load-bearing vendor decision is the **fused kv+gate N tile**:
+``CopyWeightGmToL1`` stages ``dBaseSize`` rows of ``wkv`` *and* ``dBaseSize`` rows
+of ``wgate`` for the same ``dIdx`` into one L1 block (``dstNzC0Stride =
+2 * dBaseSize``), a single ``n = 2 * dBaseSize`` ``Mmad`` produces both halves, and
+``CopyOutMm1Res`` splits them into the kv and score workspaces.  One x tile
+therefore feeds both projections and the weight stream is touched once, not
+twice.  The APE row is published only on the score half (``AddApeToScore`` runs
+under ``if constexpr (IS_SCORE)``).
+
+Chosen tiles::
+
+    BLOCK_M = 64   node rows per program        (vendor: 128 / 256)
+    BLOCK_D = 64   per-matrix columns per tile  (vendor: dBaseSize = 64)
+    BLOCK_K = 256  reduction block              (vendor: K_L1_BASE = 256)
+
+with a flat, D-major grid of ``cdiv(T, BLOCK_M) * cdiv(c * head_dim, BLOCK_D)``
+programs: one program per *fused* kv+gate N tile, not one per half.
+
+Deviations from the exact vendor shape, and why:
+
+* ``BLOCK_M = 64`` instead of 128/256.  ``T`` is the node budget of one draft
+  round (tens of rows, and only a multiple of it when batching), so the vendor's
+  128 is a prefill-sized M.  For ``T <= 64`` both give one M tile and therefore
+  identical weight traffic, while 64 halves the wasted Cube rows and the UB
+  budget; 256 is impossible outright (two FP32 ``[256, 64]`` accumulators alone
+  would be 128 KiB of UB).  The cost of 64 is that ``65 <= T <= 128`` needs two M
+  tiles and re-reads the weights per tile; if measurement shows that case
+  dominating, the vendor-shaped swap is ``BLOCK_M = 128, BLOCK_K = 128`` (the
+  vendor ``mBaseSize`` and ``K_L0_BASE``), which stays inside UB (x 32 KiB,
+  w 2 x 16 KiB, acc 2 x 32 KiB, ape 32 KiB = 160 KiB) at the price of twice the
+  K-loop trips.
+* ``BLOCK_K = 256`` -- the vendor ``K_L1`` stage only.  Triton exposes a single
+  reduction block, so ``K_L0_BASE = 128`` stays the compiler's business inside
+  ``tl.dot``.
+* Two ``n = 64`` dots instead of one ``n = 128`` dot: Triton cannot fuse two
+  distinct weight tensors into a single dot.  FLOP count and shared-x reuse are
+  identical; only L0B/L0C blocking differs.
+* No per-core ``hIdx`` stagger (the vendor rotates the K start by
+  ``(coreIdx % dBasicBlockNum) * K_L1_BASE``).  Our flat D-major job order already
+  gives concurrent programs distinct weight slices; only programs sharing one
+  ``d`` (``num_m > 1``, i.e. ``T > 64``) would contend, so the rotation buys
+  nothing here and would hide the affine K loop from the pipeliner.
+
+Static UB budget (192 KiB per AIV on DAV_2201 / DAV_3510), BF16 in / FP32 out:
+
+====================================  =======  ===========================
+live tensor                           bytes    live during
+====================================  =======  ===========================
+x tile         ``[64, 256]``           32 768   K loop
+wkv tile       ``[256, 64]``           32 768   K loop
+wgate tile     ``[256, 64]``           32 768   K loop
+acc_kv         ``[64, 64]`` FP32       16 384   epilogue (16 KiB in L0C too)
+acc_gate       ``[64, 64]`` FP32       16 384   epilogue (16 KiB in L0C too)
+ape tile       ``[64, 64]`` FP32       16 384   epilogue
+====================================  =======  ===========================
+peak, K loop                           98 304   50% of 192 KiB
+worst case, assuming no buffer reuse  147 456   75% of 192 KiB
+====================================  =======  ===========================
+
+Worked examples at ``hidden = 7168``, ``T = 48`` (a single M tile):
+
+* ``ratio = 4, head_dim = 512``: 16 programs (was 48 at ``BLOCK_M = 16`` with
+  separate kv/score programs); weight traffic 29.4 MB once instead of 88.2 MB
+  (three M tiles x two weight streams).
+* ``ratio = 4, head_dim = 128``: 4 programs (was 12) -- a fused N tile is 64
+  columns wide, so 256 projected columns can only occupy four AIC.
+* ``ratio = 128, head_dim = 512``: 8 programs (was 24).
+
 Only :mod:`torch`, :mod:`triton` and :mod:`triton.language` are imported.  The
 independent CPU oracle in ``tests/python/sgl_kernel_npu/tree_reference.py`` is
 never imported here (D5).
@@ -32,83 +111,14 @@ from . import _common
 
 __all__ = ["compressor_tree_project"]
 
-# Static tiling (D6): the node dimension is tiled by 16 (the Ascend Cube BF16
-# base tile), the projected dimension by 128 and the reduction by 256.
-_BLOCK_M = 16
-_BLOCK_N = 128
+# Vendor-shaped, UB-legal tiles (see "Tiling" above).  ``BLOCK_D`` is the vendor
+# ``dBaseSize``: one kv slice and the matching gate slice are produced together
+# by the same program, sharing one x tile.
+_BLOCK_M = 64
+_BLOCK_D = 64
 _BLOCK_K = 256
 _NUM_WARPS = 1
 _NUM_STAGES = 1
-
-
-@triton.jit
-def _project_block(
-    x_ptr,
-    w_ptr,
-    nodes_ptr,
-    ape_ptr,
-    positions_ptr,
-    rows,
-    row_mask,
-    local_cols,
-    col_mask,
-    w_col,
-    out_col,
-    H,
-    stride_xm,
-    stride_wn,
-    stride_ape,
-    HALF: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    IS_SCORE: tl.constexpr,
-):
-    """Project one ``[BLOCK_M, BLOCK_N]`` half-tile and store it.
-
-    ``w_col`` is the column offset inside the weight matrix (``HALF`` wide) and
-    ``out_col`` the column offset inside the node row (``2 * HALF`` wide).  The
-    APE row is added only when ``IS_SCORE`` (compile-time specialization).
-    """
-    WIDTH: tl.constexpr = 2 * HALF
-    rows64 = rows.to(tl.int64)
-    half_cols = w_col + local_cols
-    half_mask = half_cols < HALF
-    half_cols64 = half_cols.to(tl.int64)
-    out_cols = out_col + local_cols
-    k_offs = tl.arange(0, BLOCK_K)
-
-    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-    for i_k in range(tl.cdiv(H, BLOCK_K)):
-        k = i_k * BLOCK_K + k_offs
-        k_mask = k < H
-        x = tl.load(
-            x_ptr + rows64[:, None] * stride_xm + k[None, :],
-            mask=row_mask[:, None] & k_mask[None, :],
-            other=0.0,
-        )
-        # wkv/wgate are [HALF, H]; the tile is the transposed [BLOCK_K, BLOCK_N]
-        # block, i.e. the reduction runs along the innermost weight axis.
-        w = tl.load(
-            w_ptr + half_cols64[None, :] * stride_wn + k[:, None],
-            mask=half_mask[None, :] & k_mask[:, None],
-            other=0.0,
-        )
-        acc += tl.dot(x, w)
-
-    if IS_SCORE:
-        position = tl.load(positions_ptr + rows, mask=row_mask, other=0)
-        ape_offs = position.to(tl.int64)[:, None] * stride_ape + half_cols64[None, :]
-        ape = tl.load(
-            ape_ptr + ape_offs,
-            mask=row_mask[:, None] & half_mask[None, :],
-            other=0.0,
-        )
-        acc = acc + ape
-
-    # Row 0 is reserved, so node i lands on row i + 1.
-    out_offs = (rows64 + 1)[:, None] * WIDTH + out_cols[None, :]
-    tl.store(nodes_ptr + out_offs, acc, mask=row_mask[:, None] & col_mask[None, :])
 
 
 @triton.jit
@@ -121,74 +131,79 @@ def _compressor_tree_project_kernel(
     positions_ptr,
     T,
     H,
+    num_d,
     stride_xm,
     stride_wn,
     stride_ape,
     HALF: tl.constexpr,
     BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
+    BLOCK_D: tl.constexpr,
     BLOCK_K: tl.constexpr,
 ):
-    """Grid ``(cdiv(T, BLOCK_M), cdiv(2 * HALF, BLOCK_N))`` over the node row."""
-    pid_m = tl.program_id(0)
-    pid_n = tl.program_id(1)
+    """Fused kv+gate projection of one ``[BLOCK_M, BLOCK_D]`` N tile.
 
+    Grid is the flat product ``cdiv(T, BLOCK_M) * num_d`` with ``d`` on the fast
+    axis, so neighbouring programs own different ``d`` slices (distinct weight
+    streams) while their shared x tile stays hot.  ``num_d`` is
+    ``cdiv(c * head_dim, BLOCK_D)`` and ``cols`` is the offset inside *one*
+    projection matrix, i.e. inside ``[0, HALF)``.
+
+    A single program produces the kv slice and the matching gate slice from the
+    same x tile -- the Triton transcription of the vendor's single
+    ``n = 2 * dBaseSize`` ``Mmad``.  The APE row is added to the gate half only
+    and the two halves land in ``nodes[i + 1]`` at ``[0, HALF)`` and
+    ``[HALF, 2 * HALF)``.
+    """
     WIDTH: tl.constexpr = 2 * HALF
 
-    rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    row_mask = rows < T
-    local_cols = tl.arange(0, BLOCK_N)
-    out_col = pid_n * BLOCK_N
-    col_mask = (out_col + local_cols) < WIDTH
+    pid = tl.program_id(0)
+    d_tile = pid % num_d
+    m_tile = pid // num_d
 
-    # BLOCK_N divides every supported HALF (128/256/512/1024), so a tile never
-    # straddles the kv/score boundary and the choice is uniform per program.
-    if out_col < HALF:
-        _project_block(
-            x_ptr,
-            wkv_ptr,
-            nodes_ptr,
-            ape_ptr,
-            positions_ptr,
-            rows,
-            row_mask,
-            local_cols,
-            col_mask,
-            out_col,
-            out_col,
-            H,
-            stride_xm,
-            stride_wn,
-            stride_ape,
-            HALF=HALF,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
-            BLOCK_K=BLOCK_K,
-            IS_SCORE=False,
+    rows = m_tile * BLOCK_M + tl.arange(0, BLOCK_M)
+    row_mask = rows < T
+    rows64 = rows.to(tl.int64)
+
+    cols = d_tile * BLOCK_D + tl.arange(0, BLOCK_D)
+    col_mask = cols < HALF
+    cols64 = cols.to(tl.int64)
+
+    acc_kv = tl.zeros((BLOCK_M, BLOCK_D), dtype=tl.float32)
+    acc_gate = tl.zeros((BLOCK_M, BLOCK_D), dtype=tl.float32)
+
+    for i_k in range(tl.cdiv(H, BLOCK_K)):
+        k = i_k * BLOCK_K + tl.arange(0, BLOCK_K)
+        k_mask = k < H
+        x = tl.load(
+            x_ptr + rows64[:, None] * stride_xm + k[None, :],
+            mask=row_mask[:, None] & k_mask[None, :],
+            other=0.0,
         )
-    else:
-        _project_block(
-            x_ptr,
-            wgate_ptr,
-            nodes_ptr,
-            ape_ptr,
-            positions_ptr,
-            rows,
-            row_mask,
-            local_cols,
-            col_mask,
-            out_col - HALF,
-            out_col,
-            H,
-            stride_xm,
-            stride_wn,
-            stride_ape,
-            HALF=HALF,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
-            BLOCK_K=BLOCK_K,
-            IS_SCORE=True,
-        )
+        # wkv/wgate are [HALF, H], so the reduction runs along the innermost
+        # weight axis and each tile is the transposed [BLOCK_K, BLOCK_D] block.
+        w_offs = cols64[None, :] * stride_wn + k[:, None]
+        w_mask = k_mask[:, None] & col_mask[None, :]
+        w_kv = tl.load(wkv_ptr + w_offs, mask=w_mask, other=0.0)
+        w_gate = tl.load(wgate_ptr + w_offs, mask=w_mask, other=0.0)
+        acc_kv += tl.dot(x, w_kv)
+        acc_gate += tl.dot(x, w_gate)
+
+    # APE is a per-residue bias of the score half only (vendor ``AddApeToScore``
+    # under ``if constexpr (IS_SCORE)``); the kv half never sees it.
+    position = tl.load(positions_ptr + rows, mask=row_mask, other=0)
+    ape_offs = position.to(tl.int64)[:, None] * stride_ape + cols64[None, :]
+    ape = tl.load(
+        ape_ptr + ape_offs,
+        mask=row_mask[:, None] & col_mask[None, :],
+        other=0.0,
+    )
+    acc_gate += ape
+
+    # Row 0 of ``nodes`` is reserved, so node i lands on row i + 1.
+    out_row = (rows64 + 1)[:, None] * WIDTH
+    store_mask = row_mask[:, None] & col_mask[None, :]
+    tl.store(nodes_ptr + out_row + cols64[None, :], acc_kv, mask=store_mask)
+    tl.store(nodes_ptr + out_row + (HALF + cols64)[None, :], acc_gate, mask=store_mask)
 
 
 def compressor_tree_project(
@@ -300,8 +315,10 @@ def compressor_tree_project(
     if t == 0:
         return None
 
-    grid = (triton.cdiv(t, _BLOCK_M), triton.cdiv(width, _BLOCK_N))
-    _compressor_tree_project_kernel[grid](
+    # One program per fused kv+gate N tile (vendor ``dBaseSize`` slice), D-major.
+    num_m = _common.ceil_div(t, _BLOCK_M)
+    num_d = _common.ceil_div(half, _BLOCK_D)
+    _compressor_tree_project_kernel[(num_m * num_d,)](
         x,
         wkv,
         wgate,
@@ -310,12 +327,13 @@ def compressor_tree_project(
         positions,
         t,
         hidden,
+        num_d,
         x.stride(0),
         wkv.stride(0),
         ape.stride(0),
         HALF=half,
         BLOCK_M=_BLOCK_M,
-        BLOCK_N=_BLOCK_N,
+        BLOCK_D=_BLOCK_D,
         BLOCK_K=_BLOCK_K,
         num_warps=_NUM_WARPS,
         num_stages=_NUM_STAGES,

@@ -26,9 +26,9 @@ from tree_reference import compressor_tree_project_ref  # noqa: E402
 RTOL = 2e-3
 ATOL = 2e-3
 
-# The kernel tiles the node dimension by BLOCK_M=16; n not a multiple of it
-# exercises the masked tail.
-BLOCK_M = 16
+# The kernel tiles the node dimension by BLOCK_M=64 (vendor-shaped M tile); n
+# values below and around it exercise the masked tail and the second M tile.
+BLOCK_M = 64
 
 
 # ---------------------------------------------------------------------------
@@ -162,21 +162,26 @@ def test_native_seven_arg_rejects_unsupported_derived_spec(ratio, head_dim):
 
 
 @pytest.mark.parametrize("ratio,head_dim", [(4, 128), (4, 512), (128, 512)])
-@pytest.mark.parametrize("n", [1, 2, 17])
-def test_parity_against_reference(ratio, head_dim, n):
-    """Every supported (ratio, head_dim) specialization matches the oracle."""
+@pytest.mark.parametrize("hidden", [1024, 7168])
+@pytest.mark.parametrize("n", [1, 2, 17, 65])
+def test_parity_against_reference(ratio, head_dim, hidden, n):
+    """Every supported (ratio, head_dim) specialization matches the oracle.
+
+    ``hidden=7168`` is the production width (28 full ``BLOCK_K`` steps);
+    ``n=65`` crosses into a second ``BLOCK_M`` tile.
+    """
     case = make_project_case(
-        seed=ratio + head_dim + n,
+        seed=ratio + head_dim + hidden + n,
         ratio=ratio,
         head_dim=head_dim,
-        hidden=1024,
+        hidden=hidden,
         n=n,
     )
     actual, expected = _run(case)
     torch.testing.assert_close(actual, expected, rtol=RTOL, atol=ATOL)
 
 
-@pytest.mark.parametrize("n", [1, 5, 17, 31])
+@pytest.mark.parametrize("n", [1, 5, 17, 31, 63, 65])
 def test_tail_rows_not_multiple_of_block_m(n):
     """Masked BLOCK_M tail must not read or write outside rows 1..n."""
     case = make_project_case(seed=200 + n, ratio=4, head_dim=128, hidden=1024, n=n)
