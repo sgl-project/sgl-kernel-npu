@@ -98,7 +98,7 @@ $$
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
 | `q` | `torch.Tensor` | `[B, QH, D]` | `float16`、`bfloat16` | 必填 | 查询张量，位于 NPU；`QH` 必须是 `KVH` 的整数倍（GQA）。 |
-| `sink` | `torch.Tensor` 或 `None` | `[QH, D]` | 同 `q` | 必填（可传 `None`） | 注意力 sink，仅 Triton 的全量注意力路径使用；生产恒为 `None`，torch_native 不接受该分支。 |
+| `sink` | `torch.Tensor` 或 `None` | `[QH, D]` | 同 `q` | 必填（可传 `None`） | 注意力 sink，仅 Triton 的全量注意力路径使用；生产场景恒为 `None`，torch_native 不接受该分支。 |
 | `k_cache_bnsd` | `torch.Tensor` | `[num_blocks, block_size, KVH, D]` | 同 `q` | 必填 | Key cache；按块读取。 |
 | `v_cache_bnsd` | `torch.Tensor` 或 `None` | 同 `k_cache_bnsd` | 同 `q` | 必填（只选块可传 `None`，全量注意力必填） | 只选块路径忽略此参数；仅 Triton 的全量注意力路径使用。 |
 | `block_table` | `torch.Tensor` 或 `None` | `[B, max_num_blocks]` | `int32`、`int64` | 必填（可传 `None`） | 逻辑块到物理块映射；与直连 page source 二选一，全量注意力（仅 Triton）只支持此模式；列数需覆盖实际块数，否则越界读表（当前未断言） |

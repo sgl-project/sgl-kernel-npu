@@ -100,7 +100,7 @@ constraints.
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
 | `q` | `torch.Tensor` | `[B, QH, D]` | `float16`, `bfloat16` | required | Queries on the NPU; `QH` must be a multiple of `KVH` (GQA). |
-| `sink` | `torch.Tensor` or `None` | `[QH, D]` | same as `q` | required (may be `None`) | Attention sink, used only by the Triton full attention path; production passes `None` and torch_native rejects that branch. |
+| `sink` | `torch.Tensor` or `None` | `[QH, D]` | same as `q` | required (may be `None`) | Attention sink, used only by the Triton full attention path; the production scenario always passes `None` and torch_native rejects that branch. |
 | `k_cache_bnsd` | `torch.Tensor` | `[num_blocks, block_size, KVH, D]` | same as `q` | required | Key cache read block by block. |
 | `v_cache_bnsd` | `torch.Tensor` or `None` | same as `k_cache_bnsd` | same as `q` | required (may be `None` for score-only; required for attention) | Ignored by the score-only path; used only by the Triton full attention path. |
 | `block_table` | `torch.Tensor` or `None` | `[B, max_num_blocks]` | `int32`, `int64` | required (may be `None`) | Logical to physical block map; alternative to the direct page source, and the only mode of the full attention path (Triton only); its column count must cover the actual block count, otherwise the table is read out of bounds (not asserted) |
