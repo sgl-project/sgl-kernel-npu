@@ -1,0 +1,141 @@
+{
+  "modules": {
+    "norm": {
+      "legacy_tests": [
+        "test_rmsnorm_split.py",
+        "test_rmsnorm_without_weight.py",
+        "test_l1_norm.py",
+        "test_scale_shift.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/rmsnorm/",
+        "csrc/add_rmsnorm_bias/",
+        "csrc/l1_norm/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/norm/"
+      ]
+    },
+    "attention": {
+      "legacy_tests": [
+        "test_mla_preprocess.py",
+        "test_split_qkv_rmsnorm_rope.py",
+        "test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py",
+        "test_split_qkv_tp_rmsnorm_rope.py",
+        "test_fused_rope_qk_mqa.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/attentions/",
+        "csrc/mla_preprocess/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/attention/"
+      ]
+    },
+    "cache": {
+      "legacy_tests": [
+        "test_alloc_extend_slot.py",
+        "test_cache_assign.py",
+        "test_cache_loc_bounds.py",
+        "test_cache_update.py",
+        "test_inplace_assign_cache.py",
+        "test_lightning_indexer.py",
+        "test_transfer_kv_dim_exchange.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/alloc_extend/",
+        "csrc/cache_location_assign/",
+        "csrc/assign_cache_op/",
+        "csrc/lightning_indexer/",
+        "csrc/transfer_kv_dim_exchange/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/mem_cache/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/kvcacheio.py"
+      ]
+    },
+    "speculative": {
+      "legacy_tests": [
+        "test_build_tree.py",
+        "test_verify_tree.py",
+        "test_apply_token_bitmask.py",
+        "test_argmax_softmax_prob.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/build_tree/",
+        "csrc/apply_token_bitmask/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/sample/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/speculative.py"
+      ]
+    },
+    "mamba": {
+      "legacy_tests": [
+        "test_conv1d_prefill.py",
+        "test_conv1d_update.py",
+        "test_mamba_conv.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/causal_conv1d/",
+        "csrc/causal_conv1d_update/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/mamba/"
+      ]
+    },
+    "fla": {
+      "legacy_tests": [
+        "test_gated_delta_ascendc_tri_inv.py",
+        "test_chunk_gdn_pto.py",
+        "test_chunk_gdn_triton.py",
+        "test_l2norm.py",
+        "test_recurrent_gated_delta_rule.py",
+        "test_fused_gdn_gating_without_sigmoid.py",
+        "test_solve_tril.py",
+        "test_triangular_inverse.py",
+        "test_l2norm_boundaries.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/recurrent_gated_delta_rule/",
+        "csrc/mega_chunk_gdn/",
+        "csrc/tri_inv/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/fla/"
+      ]
+    },
+    "fused": {
+      "legacy_tests": [
+        "test_swiglu_quant.py",
+        "test_batch_matmul_transpose.py",
+        "test_qkvzba_split_reshape_cat.py",
+        "test_lora_kernels.py",
+        "test_gmm_wfp8a16.py",
+        "test_mm_wfp8a16.py",
+        "test_hello_world.py"
+      ],
+      "legacy_source_prefixes": [
+        "csrc/batch_matmul_transpose/",
+        "csrc/catlass/",
+        "csrc/lora/",
+        "csrc/helloworld/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/activation/",
+        "python/sgl_kernel_npu/sgl_kernel_npu/moe/"
+      ]
+    }
+  },
+  "operators": {
+    "norm.rmsnorm_bias": {
+      "module": "norm",
+      "tests": [
+        "tests/python/operators/norm/test_rmsnorm_bias.py"
+      ],
+      "sources": [
+        "operators/norm/rmsnorm_bias.py",
+        "implementation/triton/norm/rmsnorm_bias.py",
+        "implementation/torch_native/norm/rmsnorm_bias.py"
+      ]
+    }
+  },
+  "disabled_legacy_tests": {
+    "test_add_rmsnorm_bias.py": "Existing exclusion: duplicate norm_bias argument",
+    "test_decode_attention.py": "Existing exclusion: tl.parallel compatibility",
+    "test_mamba_state_update.py": "Existing exclusion: strided-dst exact mismatch",
+    "test_catlass_matmul_basic.py": "Existing exclusion: flaky float16 precision"
+  },
+  "cann_exclusions": {
+    "9.1.0": {
+      "test_triangular_inverse.py": "Existing exclusion: torch_npu output mismatch (DTS 20260819-#2)",
+      "test_chunk_gdn_triton.py": "Existing exclusion: intermittent aicore timeout (DTS 20260819-#3)"
+    }
+  }
+}

@@ -3,16 +3,8 @@ name: PR Test - Kernel Operators (Ascend NPU)
 on:
   pull_request:
     branches: [ main ]
-    paths:
-      - "csrc/**"
-      - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
-      - "python/sgl_kernel_npu/**"
-      - "tests/python/sgl_kernel_npu/**"
-      - "build.sh"
-      - "cmake/**"
-      - "scripts/prepare_kernel_tests.sh"
-      - "scripts/run_kernel_tests.sh"
-      - ".github/workflows/pr-test-kernels.yml"
+    # Always run the cheap selector: GitHub path filters can truncate large PRs
+    # and otherwise miss new global build dependencies. Docs select no NPU jobs.
   workflow_dispatch:
 
 concurrency:
@@ -24,118 +16,49 @@ jobs:
     name: Check changed files
     runs-on: ubuntu-latest
     outputs:
-      norm_changed: ${{ steps.match-groups.outputs.norm_any_changed }}
-      attention_changed: ${{ steps.match-groups.outputs.attention_any_changed }}
-      cache_changed: ${{ steps.match-groups.outputs.cache_any_changed }}
-      speculative_changed: ${{ steps.match-groups.outputs.speculative_any_changed }}
-      mamba_changed: ${{ steps.match-groups.outputs.mamba_any_changed }}
-      fla_changed: ${{ steps.match-groups.outputs.fla_any_changed }}
-      fused_changed: ${{ steps.match-groups.outputs.fused_any_changed }}
-      common_changed: ${{ steps.match-groups.outputs.common_any_changed }}
+      norm_changed: ${{ steps.select.outputs.norm_changed }}
+      attention_changed: ${{ steps.select.outputs.attention_changed }}
+      cache_changed: ${{ steps.select.outputs.cache_changed }}
+      speculative_changed: ${{ steps.select.outputs.speculative_changed }}
+      mamba_changed: ${{ steps.select.outputs.mamba_changed }}
+      fla_changed: ${{ steps.select.outputs.fla_changed }}
+      fused_changed: ${{ steps.select.outputs.fused_changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Match changed files
-        id: match-groups
-        uses: tj-actions/changed-files@v45
+      - name: Install selector dependencies
+        run: python3 -m pip install PyYAML==6.0.2 pytest==9.1.1
+
+      - name: Test selection and execution logic (CPU only)
+        run: python3 -m unittest discover -s tests/ci -v
+
+      - name: Select affected kernel tests
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            python3 scripts/select_kernel_tests.py --full
+          else
+            # The fork's commits are exposed by the upstream PR ref. Never rely
+            # on a same-named branch in origin or on HEAD^ (the last commit).
+            git fetch --no-tags origin "$BASE_SHA" "refs/pull/$PR_NUMBER/head"
+            git cat-file -e "$HEAD_SHA^{commit}"
+            python3 scripts/select_kernel_tests.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          fi
+
+      - name: Upload test selection
+        uses: actions/upload-artifact@v4
         with:
-          files_yaml: |
-            norm:
-              - csrc/rmsnorm/**
-              - csrc/add_rmsnorm_bias/**
-              - csrc/l1_norm/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/norm/**
-              - tests/python/sgl_kernel_npu/test_add_rmsnorm_bias.py
-              - tests/python/sgl_kernel_npu/test_rmsnorm_split.py
-              - tests/python/sgl_kernel_npu/test_rmsnorm_without_weight.py
-              - tests/python/sgl_kernel_npu/test_l1_norm.py
-              - tests/python/sgl_kernel_npu/test_scale_shift.py
-            attention:
-              - csrc/attentions/**
-              - csrc/mla_preprocess/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
-              - tests/python/sgl_kernel_npu/test_decode_attention.py
-              - tests/python/sgl_kernel_npu/test_mla_preprocess.py
-              - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope.py
-              - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
-              - tests/python/sgl_kernel_npu/test_split_qkv_tp_rmsnorm_rope.py
-              - tests/python/sgl_kernel_npu/test_fused_rope_qk_mqa.py
-            cache:
-              - csrc/alloc_extend/**
-              - csrc/cache_location_assign/**
-              - csrc/assign_cache_op/**
-              - csrc/lightning_indexer/**
-              - csrc/transfer_kv_dim_exchange/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/mem_cache/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/kvcacheio/**
-              - tests/python/sgl_kernel_npu/test_alloc_extend_slot.py
-              - tests/python/sgl_kernel_npu/test_cache_assign.py
-              - tests/python/sgl_kernel_npu/test_cache_update.py
-              - tests/python/sgl_kernel_npu/test_inplace_assign_cache.py
-              - tests/python/sgl_kernel_npu/test_lightning_indexer.py
-              - tests/python/sgl_kernel_npu/test_transfer_kv_dim_exchange.py
-            speculative:
-              - csrc/build_tree/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/sample/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/speculative/**
-              - tests/python/sgl_kernel_npu/test_build_tree.py
-              - tests/python/sgl_kernel_npu/test_verify_tree.py
-              - tests/python/sgl_kernel_npu/test_apply_token_bitmask.py
-              - tests/python/sgl_kernel_npu/test_argmax_softmax_prob.py
-            mamba:
-              - csrc/causal_conv1d/**
-              - csrc/causal_conv1d_update/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/mamba/**
-              - tests/python/sgl_kernel_npu/test_conv1d_prefill.py
-              - tests/python/sgl_kernel_npu/test_conv1d_update.py
-              - tests/python/sgl_kernel_npu/test_mamba_conv.py
-              - tests/python/sgl_kernel_npu/test_mamba_state_update.py
-            fla:
-              - csrc/recurrent_gated_delta_rule/**
-              - csrc/mega_chunk_gdn/**
-              - csrc/tri_inv/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/fla/**
-              - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
-              - tests/python/sgl_kernel_npu/test_chunk_gdn_pto.py
-              - tests/python/sgl_kernel_npu/test_chunk_gdn_triton.py
-              - tests/python/sgl_kernel_npu/test_l2norm.py
-              - tests/python/sgl_kernel_npu/test_recurrent_gated_delta_rule.py
-              - tests/python/sgl_kernel_npu/test_fused_gdn_gating_without_sigmoid.py
-              - tests/python/sgl_kernel_npu/test_solve_tril.py
-              - tests/python/sgl_kernel_npu/test_triangular_inverse.py
-              - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
-            fused:
-              - csrc/batch_matmul_transpose/**
-              - csrc/catlass/**
-              - csrc/lora/**
-              - csrc/apply_token_bitmask/**
-              - csrc/helloworld/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
-              - tests/python/sgl_kernel_npu/test_swiglu_quant.py
-              - tests/python/sgl_kernel_npu/test_batch_matmul_transpose.py
-              - tests/python/sgl_kernel_npu/test_catlass_matmul_basic.py
-              - tests/python/sgl_kernel_npu/test_qkvzba_split_reshape_cat.py
-              - tests/python/sgl_kernel_npu/test_lora_kernels.py
-              - tests/python/sgl_kernel_npu/test_hello_world.py
-              - tests/python/sgl_kernel_npu/test_gmm_wfp8a16.py
-              - tests/python/sgl_kernel_npu/test_mm_wfp8a16.py
-            common:
-              - build.sh
-              - cmake/**
-              - CMakeLists.txt
-              - csrc/CMakeLists.txt
-              - csrc/**/CMakeLists.txt
-              - scripts/prepare_kernel_tests.sh
-              - scripts/run_kernel_tests.sh
-              - .github/workflows/pr-test-kernels.yml
-              - third_party/pto-isa/**
-              - third_party/catlass/**
-              - .gitmodules
+          name: kernel-test-selection
+          path: kernel-test-selection.json
+          if-no-files-found: error
 
   # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
   # Adding 9.1.0 to each job's matrix doubles the parallelism to 14 combos.
@@ -144,7 +67,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.norm_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.norm_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -178,6 +101,11 @@ jobs:
           clean: true
           submodules: recursive
 
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
+
       - name: Install dependencies
         run: |
           pip install uv
@@ -187,16 +115,24 @@ jobs:
       - name: Build and install kernel module
         run: bash scripts/prepare_kernel_tests.sh
 
-      - name: Run norm operator tests
-        timeout-minutes: 15
-        run: bash scripts/run_kernel_tests.sh norm
+      - name: Run selected norm operator tests
+        timeout-minutes: 35
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json norm
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-norm-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-attention-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.attention_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.attention_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -227,6 +163,11 @@ jobs:
         with:
           clean: true
           submodules: recursive
+
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
 
       - name: Install dependencies
         run: |
@@ -239,14 +180,22 @@ jobs:
 
       - name: Run attention operator tests
         timeout-minutes: 20
-        run: bash scripts/run_kernel_tests.sh attention
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json attention
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-attention-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-cache-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.cache_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.cache_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -277,6 +226,11 @@ jobs:
         with:
           clean: true
           submodules: recursive
+
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
 
       - name: Install dependencies
         run: |
@@ -289,14 +243,22 @@ jobs:
 
       - name: Run cache operator tests
         timeout-minutes: 15
-        run: bash scripts/run_kernel_tests.sh cache
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json cache
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-cache-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-speculative-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.speculative_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.speculative_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -327,6 +289,11 @@ jobs:
         with:
           clean: true
           submodules: recursive
+
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
 
       - name: Install dependencies
         run: |
@@ -339,14 +306,22 @@ jobs:
 
       - name: Run speculative decoding operator tests
         timeout-minutes: 15
-        run: bash scripts/run_kernel_tests.sh speculative
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json speculative
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-speculative-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-mamba-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.mamba_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.mamba_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -377,6 +352,11 @@ jobs:
         with:
           clean: true
           submodules: recursive
+
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
 
       - name: Install dependencies
         run: |
@@ -389,14 +369,22 @@ jobs:
 
       - name: Run mamba operator tests
         timeout-minutes: 15
-        run: bash scripts/run_kernel_tests.sh mamba
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json mamba
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-mamba-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-fla-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.fla_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.fla_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -427,6 +415,11 @@ jobs:
         with:
           clean: true
           submodules: recursive
+
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
 
       - name: Install dependencies
         run: |
@@ -439,14 +432,22 @@ jobs:
 
       - name: Run FLA/GDN operator tests
         timeout-minutes: 20
-        run: bash scripts/run_kernel_tests.sh fla
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json fla
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-fla-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   test-fused-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.fused_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.fused_changed == 'true'
       )
     strategy:
       fail-fast: false
@@ -478,6 +479,11 @@ jobs:
           clean: true
           submodules: recursive
 
+      - name: Download test selection
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-test-selection
+
       - name: Install dependencies
         run: |
           pip install uv
@@ -489,11 +495,20 @@ jobs:
 
       - name: Run fused operator tests
         timeout-minutes: 20
-        run: bash scripts/run_kernel_tests.sh fused
+        run: bash scripts/run_kernel_tests.sh --selection kernel-test-selection.json fused
+
+      - name: Upload kernel test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tests-fused-${{ matrix.hardware }}-cann${{ matrix.cann_version }}
+          path: test-results/*.xml
+          if-no-files-found: ignore
 
   finish:
     if: always()
     needs:
+      - get-changed-files
       - test-norm-ops
       - test-attention-ops
       - test-cache-ops
@@ -506,18 +521,14 @@ jobs:
       - name: Check all dependent job statuses
         run: |
           results=(${{ join(needs.*.result, ' ') }})
-          any_run=false
           for result in "${results[@]}"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               echo "Job failed with result: $result"
               exit 1
             fi
-            if [ "$result" = "success" ]; then
-              any_run=true
-            fi
           done
-          if [ "$any_run" = "false" ]; then
-            echo "All operator test jobs were skipped: no test-group/common paths changed. Nothing to gate, treat as pass."
-            exit 0
+          if [ "${{ needs.get-changed-files.result }}" != "success" ]; then
+            echo "Test selection did not succeed"
+            exit 1
           fi
-          echo "All kernel operator tests passed"
+          echo "Selection succeeded and all scheduled kernel tests passed. See selection summary for skipped jobs."
