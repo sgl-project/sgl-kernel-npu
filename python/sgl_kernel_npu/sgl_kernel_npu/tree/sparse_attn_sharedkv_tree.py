@@ -252,20 +252,25 @@ def _attend_merged(
     off_b = tl.where(ok_b, OFFB, 0)
     mask_a = ok_a[:, None]
     mask_b = ok_b[:, None]
+    # K is loaded already transposed ([D, N]) so the pool merge does not
+    # materialise a second [N, D] tile plus a transpose temporary.  This keeps
+    # the C4 UB peak below the 192 KiB A3 budget.
+    mask_a_t = ok_a[None, :]
+    mask_b_t = ok_b[None, :]
     in_range = ok_a | ok_b
 
-    k = tl.load(KVA + off_a[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    k2 = tl.load(KVB + off_b[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    qk = tl.dot(Q0, tl.trans(tl.where(mask_b, k2, k)))
-    k = tl.load(KVA + off_a[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    k2 = tl.load(KVB + off_b[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    qk += tl.dot(Q1, tl.trans(tl.where(mask_b, k2, k)))
-    k = tl.load(KVA + off_a[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    k2 = tl.load(KVB + off_b[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    qk += tl.dot(Q2, tl.trans(tl.where(mask_b, k2, k)))
-    k = tl.load(KVA + off_a[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask_a, other=0.0)
-    k2 = tl.load(KVB + off_b[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask_b, other=0.0)
-    qk += tl.dot(Q3, tl.trans(tl.where(mask_b, k2, k)))
+    k = tl.load(KVA + off_a[None, :] + (0 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
+    k2 = tl.load(KVB + off_b[None, :] + (0 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
+    qk = tl.dot(Q0, tl.where(mask_b_t, k2, k))
+    k = tl.load(KVA + off_a[None, :] + (1 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
+    k2 = tl.load(KVB + off_b[None, :] + (1 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
+    qk += tl.dot(Q1, tl.where(mask_b_t, k2, k))
+    k = tl.load(KVA + off_a[None, :] + (2 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
+    k2 = tl.load(KVB + off_b[None, :] + (2 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
+    qk += tl.dot(Q2, tl.where(mask_b_t, k2, k))
+    k = tl.load(KVA + off_a[None, :] + (3 * BLOCK_D + d)[:, None], mask=mask_a_t, other=0.0)
+    k2 = tl.load(KVB + off_b[None, :] + (3 * BLOCK_D + d)[:, None], mask=mask_b_t, other=0.0)
+    qk += tl.dot(Q3, tl.where(mask_b_t, k2, k))
 
     m_new, l_new, alpha, probs = _softmax_merge(qk, in_range, M, L, SCALE)
     probs_v = probs.to(KVA.dtype.element_ty)
