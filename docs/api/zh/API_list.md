@@ -19,3 +19,9 @@
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`、`torch_native` |
+| [chunk_local_cumsum](operators/attention/_chunk_local_cumsum.md) | `triton`, `torch_native` |
+| [chunk_scaled_dot_kkt](operators/attention/_chunk_scaled_dot_kkt.md) | `triton`, `torch_native` |
+| [chunk_delta_h](operators/attention/_chunk_delta_h.md) | `triton`, `torch_native` |
+| [fia_prep](operators/attention/_fia_prep.md) | `triton`, `torch_native` |
+| [fused_gdn_decode](operators/attention/_fused_gdn_decode.md) | `triton`, `torch_native` |
+| [gqa_share_sparse_decode](operators/attention/_gqa_share_sparse_decode.md) | `triton`, `torch_native` |
