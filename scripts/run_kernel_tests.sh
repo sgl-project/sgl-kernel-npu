@@ -95,7 +95,6 @@ MAMBA_TESTS=(
     test_conv1d_update.py
     test_mamba_conv.py
     # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
-    "${GITHUB_WORKSPACE}/tests/python/operators/mamba/test_causal_conv1d_target_verify.py"
 )
 
 FLA_TESTS=(

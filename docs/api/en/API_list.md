@@ -22,7 +22,6 @@
 | [expand_causal_seqlens](operators/indexer/_expand_causal_seqlens.md) | `triton`, `torch_native` |
 | [expand_kpool_group_and_tail_to_topk](operators/indexer/_expand_kpool_group_and_tail_to_topk.md) | `triton`, `torch_native` |
 | [kpool_indexer_prepare_decode_input](operators/indexer/_kpool_indexer_prepare_decode_input.md) | `triton`, `torch_native` |
-| [causal_conv1d_target_verify](operators/mamba/_causal_conv1d_target_verify.md) | `triton`, `torch_native` |
 | [build_pooled_page_table](operators/attention/_build_pooled_page_table.md) | `torch_native` |
 | [kpool_assemble_softmax_rotate_write_cache](operators/mem_cache/_kpool_assemble_softmax_rotate_write_cache.md) | `triton`, `torch_native` |
 | [kpool_decode_update_and_maybe_write_cache](operators/mem_cache/_kpool_decode_update_and_maybe_write_cache.md) | `triton`, `torch_native` |

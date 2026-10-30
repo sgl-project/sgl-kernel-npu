@@ -13,7 +13,6 @@ Module guides:
 - attention: [English](api/en/operators/attention/README.md) | [中文](api/zh/operators/attention/README.md)
 - attentions: [English](api/en/operators/attentions/README.md) | [中文](api/zh/operators/attentions/README.md)
 - indexer: [English](api/en/operators/indexer/README.md) | [中文](api/zh/operators/indexer/README.md)
-- mamba: [English](api/en/operators/mamba/README.md) | [中文](api/zh/operators/mamba/README.md)
 - mem_cache: [English](api/en/operators/mem_cache/README.md) | [中文](api/zh/operators/mem_cache/README.md)
 
 ## Docs Workflow
