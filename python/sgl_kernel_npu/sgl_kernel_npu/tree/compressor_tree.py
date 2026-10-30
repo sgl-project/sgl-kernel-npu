@@ -1,11 +1,25 @@
 """Triton port of the DSV4 DSpark ``compressor_tree`` epilogue.
 
-One program per tree node aggregates a ``ratio * c`` wide branch window of
-``[kv | score]`` rows -- either the pooled tree-node rows or the paged FP32
-history -- with a per-dimension softmax, then applies RMSNorm (``eps`` inside the
-sqrt), interleaved RoPE on the trailing ``rope_dim`` lanes, and a BF16
-round-to-nearest-even cast.  Nodes whose ``(prefix + depth + 1) % ratio`` is
-non-zero emit an exact zero row.
+Shape of the launch mirrors the native AIV kernel
+(``op_kernel/compressor_tree.cpp:41-103``): ``min(n, AIV)`` programs, each one
+walking its own strided subset of the nodes (``for node = blockIdx; node < n;
+node += cores``) with the RMSNorm weight resident in UB for the whole walk.
+
+Within one node the reduction is the source's two address passes:
+
+1. pass 1 accumulates the per-dimension maximum over the valid slots;
+2. pass 2 issues ``exp(score - max)`` and accumulates the denominator and the
+   weight * kv numerator against that single global max.
+
+Both passes walk the same ``RATIO * c`` slots, and the window is aggregated
+**once** over the whole row: the interleaved RoPE pair ``(i, i ^ 1)`` is a
+``tl.gather`` on the already-normalised row instead of a second and third window
+aggregation over the even/odd tail lanes, so the node leaves through exactly one
+contiguous BF16 store.
+
+Nodes whose ``(prefix + depth + 1) % ratio`` is non-zero emit an exact zero row
+(the source leaves ``value_`` zeroed and stores once at the epilogue).  State
+inputs are read-only.
 
 Semantics: ``docs/tree_ops_semantics.md`` §3; source pin vllm-ascend
 ``8947f1f9f`` ``csrc/attention/compressor_tree``.
@@ -23,12 +37,14 @@ from ._common import (
     check_page_table,
     check_same_device,
     check_tensor,
+    get_num_vectorcores,
     pick_specialization,
 )
 
 __all__ = ["compressor_tree"]
 
-# Finite stand-in for -inf: ``exp(m - new_m)`` must never see ``-inf - -inf``.
+# Finite stand-in for -inf: ``exp(m - new_m)`` must never see ``-inf - -inf``,
+# and the source initialises its running max with ``-FLT_MAX`` (line 48).
 # Keep it as a literal inside the JIT body: some triton-ascend builds do not
 # honor module-level constexpr annotations for globals.
 
@@ -48,7 +64,7 @@ def _fp32_to_bf16_rne(x):
 
 
 @triton.jit
-def _window_average(
+def _slot_load(
     state_ptr,
     nodes_ptr,
     table_ptr,
@@ -65,74 +81,67 @@ def _window_average(
     max_depth,
     state_stride0,
     state_stride1,
+    w,
     lanes,
-    N_LANES: tl.constexpr,
     D: tl.constexpr,
     C: tl.constexpr,
     RATIO: tl.constexpr,
+    WITH_KV: tl.constexpr,
 ):
-    """Softmax-average the branch window into ``lanes`` of the ``d``-wide row.
+    """Resolve slot ``w`` and load its ``[1, D]`` score (and optionally kv) row.
 
-    ``lanes`` are element offsets inside one projected half block, so the same
-    routine serves the full-row pass and the two interleaved RoPE passes.  All
-    slots are resolved branch-free: trees come from ``ancestors``/``nodes``, the
-    history from ``table``/``state``, and every offset is clamped so an invalid
-    slot never leaves its buffer.
+    This is the source ``Address()`` (lines 105-122) followed by its ``Load()``:
+    ``w // c`` walks the window position while ``w % c`` selects the
+    previous/current projected half (C4 interleaves, C128 is flat).
+
+    Slots are resolved branch-free: every candidate offset is clamped onto a
+    live row, so a rejected slot reads in-bounds garbage that the caller masks
+    out with ``valid`` (the source instead skips the transfer).  ``valid`` is the
+    exact source predicate - position window, ancestor range, page range - so an
+    invalid slot can never contribute to the reduction.
     """
-    row_width: tl.constexpr = 2 * C * D
-    value = tl.zeros((1, N_LANES), tl.float32)
-    denom = tl.zeros((1, N_LANES), tl.float32)
-    max_score = tl.full((1, N_LANES), -1e38, tl.float32)
+    ROW_WIDTH: tl.constexpr = 2 * C * D
+    half = w % C
+    p = pos + 1 - RATIO * C + w // C + half * RATIO
+    use_tree = p >= start
 
-    # Slot order matches the source: w // c walks the window position and
-    # w % c selects the previous/current half (C4 interleaves, C128 is flat).
-    for w in range(0, RATIO * C):
-        half = w % C
-        p = pos + 1 - RATIO * C + w // C + half * RATIO
-        use_tree = p >= start
+    # Pooled source: ancestors[node, step] selects nodes[ancestor + 1].
+    step = p - start
+    step_ok = (step >= 0) & (step < max_depth)
+    step_safe = tl.minimum(tl.maximum(step, 0), max_depth - 1)
+    ancestor = tl.load(ancestors_ptr + node * max_depth + step_safe).to(tl.int64)
+    tree_ok = step_ok & (ancestor >= 0) & (ancestor < n)
+    tree_base = (tl.where(tree_ok, ancestor, 0) + 1) * ROW_WIDTH
 
-        # Pooled source: ancestors[node, step] selects nodes[ancestor + 1].
-        step = p - start
-        step_ok = (step >= 0) & (step < max_depth)
-        step_safe = tl.minimum(tl.maximum(step, 0), max_depth - 1)
-        ancestor = tl.load(ancestors_ptr + node * max_depth + step_safe).to(tl.int64)
-        tree_ok = step_ok & (ancestor >= 0) & (ancestor < n)
-        tree_base = (tl.where(tree_ok, ancestor, 0) + 1) * row_width
+    # Paged source: table[requests[node], p // rows] selects state[page, p % rows].
+    # ``p >= 0`` belongs in col_ok so an early slot can never produce a negative
+    # row offset (the load is unconditional, the result is masked).
+    col = p // rows
+    col_ok = (p >= 0) & (col < table_width)
+    page = tl.load(
+        table_ptr + req * table_width + tl.where(col_ok, col, 0)
+    ).to(tl.int64)
+    page_ok = req_ok & col_ok & (page >= 0) & (page < pages)
+    paged_base = tl.where(page_ok, page, 0) * state_stride0 + tl.where(
+        page_ok, p % rows, 0
+    ) * state_stride1
 
-        # Paged source: table[requests[node], p // rows] selects state[page, p % rows].
-        # ``p >= 0`` belongs in page_ok so an early slot can never produce a
-        # negative row offset (the load is unconditional, the result is masked).
-        col = p // rows
-        col_ok = (col >= 0) & (col < table_width)
-        page = tl.load(
-            table_ptr + req * table_width + tl.where(col_ok, col, 0)
-        ).to(tl.int64)
-        page_ok = req_ok & (p >= 0) & col_ok & (page >= 0) & (page < pages)
-        paged_base = tl.where(page_ok, page, 0) * state_stride0 + tl.where(
-            page_ok, p % rows, 0
-        ) * state_stride1
+    valid = (p >= 0) & (p <= pos) & tl.where(use_tree, tree_ok, page_ok)
+    lane = half * D + lanes
 
-        valid = (p >= 0) & (p <= pos) & tl.where(use_tree, tree_ok, page_ok)
-
-        if use_tree:
-            kv = tl.load(nodes_ptr + tree_base + half * D + lanes)
-            score = tl.load(nodes_ptr + tree_base + C * D + half * D + lanes)
+    if use_tree:
+        score = tl.load(nodes_ptr + tree_base + C * D + lane)
+        if WITH_KV:
+            kv = tl.load(nodes_ptr + tree_base + lane)
         else:
-            kv = tl.load(state_ptr + paged_base + half * D + lanes)
-            score = tl.load(state_ptr + paged_base + C * D + half * D + lanes)
-
-        # Online, per-dimension softmax.  Skipped slots keep the running state:
-        # keep == 1 and weight == 0 leave value/denom untouched.
-        new_max = tl.where(valid, tl.maximum(max_score, score), max_score)
-        keep = tl.where(valid, tl.exp(max_score - new_max), 1.0)
-        weight = tl.where(valid, tl.exp(score - new_max), 0.0)
-        denom = denom * keep + weight
-        value = value * keep + weight * tl.where(valid, kv, 0.0)
-        max_score = new_max
-
-    # No reachable slot: 0/0 must stay 0 so the row stays an exact zero.
-    inv_denom = tl.where(denom > 0.0, 1.0 / denom, 0.0)
-    return value * inv_denom
+            kv = tl.zeros((1, D), tl.float32)
+    else:
+        score = tl.load(state_ptr + paged_base + C * D + lane)
+        if WITH_KV:
+            kv = tl.load(state_ptr + paged_base + lane)
+        else:
+            kv = tl.zeros((1, D), tl.float32)
+    return valid, score, kv
 
 
 @triton.jit
@@ -160,143 +169,137 @@ def _compressor_tree_kernel(
     state_stride1,
     cos_stride0,
     sin_stride0,
+    cores,
     D: tl.constexpr,
     ROPE_DIM: tl.constexpr,
     RATIO: tl.constexpr,
     C: tl.constexpr,
 ):
-    """One program per node; ``D`` is the whole head width (128 or 512).
+    """``min(n, cores)`` programs; program ``p`` owns nodes ``p, p+cores, ...``.
 
-    RMSNorm's reduction spans every ``d`` lane, so splitting ``d`` across
-    programs would need a cross-program reduction (workspace + second pass).
-    One program keeps the row in UB: an FP32 ``[1, D]`` tile is at most 2 KiB.
+    ``D`` is the whole head width (128 or 512) and stays one tile: RMSNorm's
+    reduction spans every ``d`` lane and the epilogue must leave through a single
+    contiguous store, so splitting ``d`` across programs would need a
+    cross-program reduction plus a ragged second pass.
     """
-    node = tl.program_id(0)
+    pid = tl.program_id(0)
     lanes = tl.arange(0, D)[None, :]
-    out_row = out_ptr + node.to(tl.int64) * D
+    begin: tl.constexpr = D - ROPE_DIM
 
-    start = tl.load(prefix_ptr + node).to(tl.int64)
-    pos = start + tl.load(depths_ptr + node).to(tl.int64)
+    # Node-invariant tiles, kept in UB for the whole walk (``Init()`` copying the
+    # norm weight once, lines 30-33).  ``pair_index`` is the source ``indices_``
+    # table (``i ^ 1``); ``sign`` is the -1/+1 pair sign; ``rope_lane`` maps an
+    # absolute lane to its rope-local cos/sin column (clamped, ``tail`` masks it).
+    norm_t = tl.load(norm_ptr + lanes)
+    pair_index = lanes ^ 1
+    sign = tl.where((lanes % 2) == 0, -1.0, 1.0)
+    tail = lanes >= begin
+    rope_lane = tl.where(tail, lanes - begin, 0)
 
-    if (pos + 1) % RATIO != 0:
-        # Non-emitting node: exact zero row (source: the emit guard).
-        tl.store(out_row + lanes, tl.zeros((1, D), tl.bfloat16))
-        return
+    # Runtime trip count keeps ``cores`` off the specialization key: a constexpr
+    # stride would recompile for every ``min(n, AIV)`` value.
+    for it in range(0, (n - pid + cores - 1) // cores):
+        node = pid + it * cores
+        start = tl.load(prefix_ptr + node).to(tl.int64)
+        pos = start + tl.load(depths_ptr + node).to(tl.int64)
+        out_row = out_ptr + node.to(tl.int64) * D
 
-    req_raw = tl.load(requests_ptr + node).to(tl.int64)
-    req_ok = (req_raw >= 0) & (req_raw < table_rows)
+        if (pos + 1) % RATIO != 0:
+            # Non-emitting node: exact zero row (source: the emit guard + the
+            # single unconditional epilogue store).
+            tl.store(out_row + lanes, tl.zeros((1, D), tl.bfloat16))
+        else:
+            req_raw = tl.load(requests_ptr + node).to(tl.int64)
+            req_ok = (req_raw >= 0) & (req_raw < table_rows)
+            req = tl.where(req_ok, req_raw, 0)
 
-    value = _window_average(
-        state_ptr,
-        nodes_ptr,
-        table_ptr,
-        ancestors_ptr,
-        node.to(tl.int64),
-        start,
-        pos,
-        tl.where(req_ok, req_raw, 0),
-        req_ok,
-        n,
-        rows,
-        pages,
-        table_width,
-        max_depth,
-        state_stride0,
-        state_stride1,
-        lanes,
-        N_LANES=D,
-        D=D,
-        C=C,
-        RATIO=RATIO,
-    )
+            # Pass 1: global per-dimension max over the valid slots (lines 55-60).
+            max_score = tl.full((1, D), -1e38, tl.float32)
+            for w in range(0, RATIO * C):
+                valid, score, _ = _slot_load(
+                    state_ptr,
+                    nodes_ptr,
+                    table_ptr,
+                    ancestors_ptr,
+                    node.to(tl.int64),
+                    start,
+                    pos,
+                    req,
+                    req_ok,
+                    n,
+                    rows,
+                    pages,
+                    table_width,
+                    max_depth,
+                    state_stride0,
+                    state_stride1,
+                    w,
+                    lanes,
+                    D=D,
+                    C=C,
+                    RATIO=RATIO,
+                    WITH_KV=False,
+                )
+                max_score = tl.maximum(max_score, tl.where(valid, score, -1e38))
 
-    # RMSNorm over the whole row: eps lives inside the sqrt.
-    mean_square = tl.sum(value * value) / D + epsilon
-    inv_rms = 1.0 / tl.sqrt(mean_square)
-    value = value * inv_rms * tl.load(norm_ptr + lanes)
+            # Pass 2: exp/sum/weighted sum against that single max (lines 61-72).
+            value = tl.zeros((1, D), tl.float32)
+            denom = tl.zeros((1, D), tl.float32)
+            for w in range(0, RATIO * C):
+                valid, score, kv = _slot_load(
+                    state_ptr,
+                    nodes_ptr,
+                    table_ptr,
+                    ancestors_ptr,
+                    node.to(tl.int64),
+                    start,
+                    pos,
+                    req,
+                    req_ok,
+                    n,
+                    rows,
+                    pages,
+                    table_width,
+                    max_depth,
+                    state_stride0,
+                    state_stride1,
+                    w,
+                    lanes,
+                    D=D,
+                    C=C,
+                    RATIO=RATIO,
+                    WITH_KV=True,
+                )
+                weight = tl.where(valid, tl.exp(score - max_score), 0.0)
+                denom += weight
+                value += weight * tl.where(valid, kv, 0.0)
 
-    begin = D - ROPE_DIM
-    # The non-RoPE prefix is final now; only the trailing tail is rewritten below.
-    tl.store(out_row + lanes, _fp32_to_bf16_rne(value), mask=lanes < begin)
+            # No reachable slot: 0/0 stays 0 so the row remains an exact zero.
+            inv_denom = tl.where(denom > 0.0, 1.0 / denom, 0.0)
+            value = value * inv_denom
 
-    # ropePos lags the node position by ratio - 1.  Clamping (instead of a host
-    # side range check) keeps the launch free of a device sync, matching
-    # norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.py.
-    rope_pos = pos + 1 - RATIO
-    rope_pos = tl.minimum(tl.maximum(rope_pos, 0), cos_rows - 1)
+            # RMSNorm over the whole row, eps inside the sqrt (lines 74-81).
+            inv_rms = 1.0 / tl.sqrt(tl.sum(value * value) / D + epsilon)
+            value = value * inv_rms * norm_t
 
-    pairs = tl.arange(0, ROPE_DIM // 2)[None, :]
-    even_lanes = begin + 2 * pairs
-    odd_lanes = even_lanes + 1
+            # RoPE on the trailing rope_dim lanes only.  ropePos lags the node
+            # position by ratio - 1; clamping (instead of a host side range
+            # check) keeps the launch free of a device sync, matching
+            # norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.py.  The pair
+            # (i, i ^ 1) is read from the normalised row, i.e. the source
+            # ``Gather(paired_, value_[begin], indices_, 0U, rd)``.
+            rope_pos = pos + 1 - RATIO
+            rope_pos = tl.minimum(tl.maximum(rope_pos, 0), cos_rows - 1)
+            cos_row = cos_ptr + rope_pos * cos_stride0
+            sin_row = sin_ptr + rope_pos * sin_stride0
+            cos_t = tl.load(cos_row + rope_lane, mask=tail, other=0.0)
+            sin_t = tl.load(sin_row + rope_lane, mask=tail, other=0.0)
+            paired = tl.gather(value, pair_index, 1)
+            rotated = value * cos_t + paired * sign * sin_t
+            row = tl.where(tail, rotated, value)
 
-    # The interleaved pair (i, i ^ 1) needs both lanes of the normalised value,
-    # so the tail is re-aggregated in even/odd order rather than gathered.
-    even_value = _window_average(
-        state_ptr,
-        nodes_ptr,
-        table_ptr,
-        ancestors_ptr,
-        node.to(tl.int64),
-        start,
-        pos,
-        tl.where(req_ok, req_raw, 0),
-        req_ok,
-        n,
-        rows,
-        pages,
-        table_width,
-        max_depth,
-        state_stride0,
-        state_stride1,
-        even_lanes,
-        N_LANES=ROPE_DIM // 2,
-        D=D,
-        C=C,
-        RATIO=RATIO,
-    )
-    odd_value = _window_average(
-        state_ptr,
-        nodes_ptr,
-        table_ptr,
-        ancestors_ptr,
-        node.to(tl.int64),
-        start,
-        pos,
-        tl.where(req_ok, req_raw, 0),
-        req_ok,
-        n,
-        rows,
-        pages,
-        table_width,
-        max_depth,
-        state_stride0,
-        state_stride1,
-        odd_lanes,
-        N_LANES=ROPE_DIM // 2,
-        D=D,
-        C=C,
-        RATIO=RATIO,
-    )
-    even_value = even_value * inv_rms * tl.load(norm_ptr + even_lanes)
-    odd_value = odd_value * inv_rms * tl.load(norm_ptr + odd_lanes)
-
-    cos_row = cos_ptr + rope_pos * cos_stride0
-    sin_row = sin_ptr + rope_pos * sin_stride0
-    cos_even = tl.load(cos_row + 2 * pairs)
-    cos_odd = tl.load(cos_row + 2 * pairs + 1)
-    sin_even = tl.load(sin_row + 2 * pairs)
-    sin_odd = tl.load(sin_row + 2 * pairs + 1)
-
-    # sign(i) is -1 on even i and +1 on odd i; cos/sin are indexed by the
-    # rope-local lane, not by the absolute head offset.
-    tl.store(
-        out_row + even_lanes,
-        _fp32_to_bf16_rne(even_value * cos_even - odd_value * sin_even),
-    )
-    tl.store(
-        out_row + odd_lanes,
-        _fp32_to_bf16_rne(odd_value * cos_odd + even_value * sin_odd),
-    )
+            # Exactly one contiguous BF16 store per emitting node (lines 98-99).
+            tl.store(out_row + lanes, _fp32_to_bf16_rne(row))
 
 
 def compressor_tree(
@@ -439,7 +442,12 @@ def compressor_tree(
     if n == 0:
         return out
 
-    _compressor_tree_kernel[(n,)](
+    # ``cores = min(n, GetCoreNumAiv())`` with one program per core, exactly like
+    # the host tiling (``compressor_tree_tiling.cpp:12-27``): ``SetBlockDim`` is
+    # the core count and the kernel walks ``node += cores``.
+    cores = min(n, get_num_vectorcores())
+
+    _compressor_tree_kernel[(cores,)](
         state,
         nodes,
         norm,
@@ -463,6 +471,7 @@ def compressor_tree(
         int(state.stride(1)),
         int(cos.stride(0)),
         int(sin.stride(0)),
+        cores,
         D=d,
         ROPE_DIM=rope_dim,
         RATIO=ratio,

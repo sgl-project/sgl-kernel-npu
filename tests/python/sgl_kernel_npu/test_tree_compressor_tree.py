@@ -203,6 +203,34 @@ def test_non_emitting_rows_are_exact_zero():
     assert torch.count_nonzero(zero_rows).item() == 0
 
 
+def test_more_nodes_than_cores_uses_one_program_per_core():
+    """``grid = min(n, AIV)``: with ``n = 136`` each program walks several nodes.
+
+    The largest device cohort has 72 AIV cores, so the kernel's ``node += cores``
+    walk runs twice or more per program and the resident norm/RoPE tiles are
+    reused across nodes.  Any per-node scratch that leaked between loop
+    iterations (a stale ``max``, a stale numerator, a stale ``pos``) would show
+    up here as a mismatch against the oracle, and it cannot show up when
+    ``n <= cores`` because then every program runs exactly one node.  Prefixes
+    step by one compression window per request so the emitting rows of one
+    program use different ``ropePos`` values.
+    """
+    case = _case(
+        batch=8,
+        budget=16,
+        depth=5,
+        prefixes=[_emitting_prefix(4, 2) + 4 * request for request in range(8)],
+    )
+    assert case["n"] == 136
+
+    out = _run(case)
+    _assert_close(out, _reference(case))
+
+    mask = _emit_mask(case)
+    assert mask.any() and not mask.all()
+    assert torch.count_nonzero(out[~mask.to(out.device)]).item() == 0
+
+
 # ---------------------------------------------------------------------------
 # C4 previous/current window halves
 # ---------------------------------------------------------------------------
