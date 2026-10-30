@@ -82,19 +82,14 @@ s_{i,h,b}=\max_{j\in b}\left(\sigma\,q_i k_j^{T}\right),
 s_{i,h,b}=\log\sum_{j\in b}\exp\left(\sigma\,q_i k_j^{T}\right)
 $$
 
-`topk` 索引按分数从大到小选取；同分时次序未定义。选取规则：
+返回每行每头分数最高的 `topk` 个块。典型使用场景：
 
-- `init_blocks` 指定的前若干块候选分数改写为 `1e30`，`local_blocks` 指定的尾部块改写为 `1e29`，
-  二者同时命中时 `local_blocks` 优先；改写只影响 topk 候选分数，不影响注意力 softmax；
-- 同一 GQA 行组内块数最大值不超过 `topk` 时走直通分支：不计算分数，第 $i$ 行输出 `[0..nb_i-1]`，
-  其余槽重复块 0（整段输入全空时前 `topk` 槽为 `-1`；fused 时末槽按 local 规则写 0），且不做 `init_blocks`/`local_blocks` 改写；
-- `fused_append_local=True` 时先对前 `topk` 个候选做
-  `(>=0) & (< max_num_blocks) & (blk * block_size <= query_pos)` 校验，不通过的槽写 `-1`
-  （上界是 page table 容量 `max_num_blocks`，不是单行块数）；随后在末槽追加因果 local block：
-  `local_blk = min(max(seq_len-1, 0) // block_size, max_num_blocks-1)`，
-  该块已在候选中则末槽写 `-1`，否则写 `local_blk`；
-- 全量注意力路径（仅 Triton）的 softmax 使用原始 `qk`，`sink` 只贡献分母：
-  $m_i = \sigma\,(q_i \cdot \mathrm{sink})$，$l_i = 1$，不产生 value 贡献，也不影响 topk。
+- **decode**：`disable_index_value=True`、`topk>0`，输入当前 token 的 `q` 与 paged KV cache，返回
+  `[QH, B, topk]` 的块索引；常配合 `fused_append_local=True` 把因果 local block 追加到末槽。
+- **verify / packed**：`packed_seq_lens=True`，`seq_lens` 为 `[B*G]` 的逐行长度，一次处理同一 request 的
+  多个 draft token；`block_table` 与直连 page source 都可用。
+- **全量注意力（仅 Triton）**：`disable_index_value=False`，在一次 KV 扫描中同时返回注意力输出 `o` 与
+  `topk_idx`。
 
 ## 参数与返回值
 

@@ -82,22 +82,15 @@ s_{i,h,b}=\max_{j\in b}\left(\sigma\,q_i k_j^{T}\right),
 s_{i,h,b}=\log\sum_{j\in b}\exp\left(\sigma\,q_i k_j^{T}\right)
 $$
 
-The `topk` indices are ranked by descending score; the order of equally scored blocks is undefined. Selection
-rules:
+Each query row and head returns the `topk` blocks with the highest scores. Typical use cases:
 
-- Blocks below `init_blocks` get candidate score `1e30`; trailing blocks selected by `local_blocks` get
-  `1e29`; `local_blocks` wins when both match. The rewrite only changes topk candidate scores and never the
-  attention softmax.
-- When the largest block count inside a GQA row group does not exceed `topk`, the pass-through branch applies:
-  no score is computed, row $i$ emits `[0..nb_i-1]`, remaining slots repeat block 0 (when the whole input is empty its
-  `topk` slots are `-1`; with fused append the last slot follows the local-block rule, i.e. 0), and `init_blocks`/`local_blocks` are not applied.
-- With `fused_append_local=True` the first `topk` candidates are validated with
-  `(>=0) & (< max_num_blocks) & (blk * block_size <= query_pos)` and invalid slots become `-1` (the bound is
-  the page-table capacity `max_num_blocks`, not a row's block count). The causal local block is then appended
-  in the last slot: `local_blk = min(max(seq_len-1, 0) // block_size, max_num_blocks-1)`; the slot is `-1`
-  when that block was already selected, otherwise `local_blk`.
-- The Triton-only full attention path computes softmax from the original `qk`; `sink` only contributes to the denominator:
-  $m_i = \sigma\,(q_i \cdot \mathrm{sink})$, $l_i = 1$, with no value contribution and no effect on topk.
+- **decode**: `disable_index_value=True` and `topk>0`, with the current token's `q` and the paged KV cache;
+  returns block indices shaped `[QH, B, topk]`. `fused_append_local=True` is commonly used to append the
+  causal local block in the last slot.
+- **verify / packed**: `packed_seq_lens=True` with `seq_lens` holding `[B*G]` per-row lengths, so several
+  draft tokens of one request are processed together; both `block_table` and the direct page source work.
+- **full attention (Triton only)**: `disable_index_value=False` returns the attention output `o` and
+  `topk_idx` from one KV pass.
 
 ## Parameters and returns
 
