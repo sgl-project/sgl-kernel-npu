@@ -155,6 +155,8 @@ def test_accepts_real_caller_4d_nodes(ratio, head_dim, n, budget, depth):
     _assert_close(_launch(args), expected)
 
 
+@pytest.mark.parametrize("ratio,head_dim", SPECIALIZATIONS)
+@pytest.mark.parametrize("n,budget,depth", TREE_SHAPES)
 def test_matches_reference(ratio, head_dim, n, budget, depth):
     case = _case(
         ratio=ratio,
