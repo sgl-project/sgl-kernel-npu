@@ -198,8 +198,11 @@ def _tree_attn_kernel(
         stop = tl.minimum(seqused, ORI_W)
         for start in range(0, ORI_W, BLOCK_N):
             cols = start + tl.arange(0, BLOCK_N)
+            cols_safe = tl.where(cols < ORI_W, cols, 0)
             slot = tl.load(
-                ORI_IDX + pid_t * ORI_W + cols, mask=cols < ORI_W, other=-1
+                ORI_IDX + pid_t * ORI_W + cols_safe,
+                mask=cols < ORI_W,
+                other=-1,
             )
             first_neg = tl.min(tl.where(slot < 0, cols, ORI_W))
             stop = tl.minimum(stop, first_neg)
@@ -237,9 +240,12 @@ def _tree_attn_kernel(
         for start in range(0, loop_end, BLOCK_N):
             cols = start + tl.arange(0, BLOCK_N)
             range_ok = cols < loop_end
+            cols_safe = tl.where(range_ok, cols, 0)
             if USE_C4:
                 logical = tl.load(
-                    CMP_IDX + pid_t * CMP_K + cols, mask=range_ok, other=-1
+                    CMP_IDX + pid_t * CMP_K + cols_safe,
+                    mask=range_ok,
+                    other=-1,
                 )
                 idx_ok = range_ok & (logical >= 0) & (logical < history_limit)
             else:
