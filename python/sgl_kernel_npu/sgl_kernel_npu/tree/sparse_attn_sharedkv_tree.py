@@ -73,29 +73,36 @@ def _attend_chunk(
     ACC,
     SCALE,
     V_D0,
+    LIMIT: tl.constexpr,
     BLOCK_D: tl.constexpr,
     BLOCK_N: tl.constexpr,
 ):
-    """Score one 128-slot chunk and merge it into the online softmax state.
+    """Score one chunk and merge it into the online softmax state.
 
     ``OFFS`` is the element offset of each key row (int64) and ``VALID`` marks
     the slots that survived the source-specific resolution.  K and V share the
     row, so the same ``OFFS`` drives QK and PV.
+
+    ``LIMIT`` is a final address guard: a slot that is marked valid by the
+    caller but lands outside its source pool (or at a negative offset) is
+    forced to the safe zero row.  Ascend still forms masked-load addresses.
     """
     d = tl.arange(0, BLOCK_D)
-    mask = VALID[:, None]
+    in_range = VALID & (OFFS >= 0) & (OFFS < LIMIT)
+    offs = tl.where(in_range, OFFS, 0)
+    mask = in_range[:, None]
 
     # Sequential 128-wide loads: each K chunk dies before the next is issued,
     # keeping the UB footprint bounded at head_dim 512 (risk R9).
-    k = tl.load(KV + OFFS[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    k = tl.load(KV + offs[:, None] + (0 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk = tl.dot(Q0, tl.trans(k))
-    k = tl.load(KV + OFFS[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    k = tl.load(KV + offs[:, None] + (1 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk += tl.dot(Q1, tl.trans(k))
-    k = tl.load(KV + OFFS[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    k = tl.load(KV + offs[:, None] + (2 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk += tl.dot(Q2, tl.trans(k))
-    k = tl.load(KV + OFFS[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
+    k = tl.load(KV + offs[:, None] + (3 * BLOCK_D + d)[None, :], mask=mask, other=0.0)
     qk += tl.dot(Q3, tl.trans(k))
-    qk = tl.where(VALID[None, :], qk * SCALE, float("-inf"))
+    qk = tl.where(in_range[None, :], qk * SCALE, float("-inf"))
 
     m_new = tl.maximum(M, tl.max(qk, 1))
     alpha = tl.exp(M - m_new)
@@ -103,7 +110,7 @@ def _attend_chunk(
     l_new = L * alpha + tl.sum(probs, 1)
 
     v = tl.load(
-        KV + OFFS[:, None] + (V_D0 + d)[None, :], mask=mask, other=0.0
+        KV + offs[:, None] + (V_D0 + d)[None, :], mask=mask, other=0.0
     )
     acc_new = ACC * alpha[:, None] + tl.dot(probs.to(v.dtype), v)
     return m_new, l_new, acc_new
@@ -141,6 +148,9 @@ def _tree_attn_kernel(
     MAX_DEPTH: tl.constexpr,
     NODE_COUNT: tl.constexpr,
     NODE_D: tl.constexpr,
+    ORI_LIMIT: tl.constexpr,
+    CMP_LIMIT: tl.constexpr,
+    TREE_LIMIT: tl.constexpr,
     SINK_STRIDE_T: tl.constexpr,
     SINK_STRIDE_H: tl.constexpr,
     BLOCK_H: tl.constexpr,
@@ -222,7 +232,7 @@ def _tree_attn_kernel(
             seen += tl.sum(valid.to(tl.int32))
             m, l, acc = _attend_chunk(
                 ORI_KV, off, valid, q0, q1, q2, q3, m, l, acc, SCALE, d0,
-                BLOCK_D, BLOCK_N,
+                ORI_LIMIT, BLOCK_D, BLOCK_N,
             )
 
     if HAS_CMP:
@@ -273,7 +283,7 @@ def _tree_attn_kernel(
             seen += tl.sum(paged_valid.to(tl.int32))
             m, l, acc = _attend_chunk(
                 CMP_KV, paged_off, paged_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, BLOCK_D, BLOCK_N,
+                SCALE, d0, CMP_LIMIT, BLOCK_D, BLOCK_N,
             )
 
             # Tree node pool: step = (k + 1) * ratio - 1 - prefix, root-first.
@@ -292,7 +302,7 @@ def _tree_attn_kernel(
             seen += tl.sum(tree_valid.to(tl.int32))
             m, l, acc = _attend_chunk(
                 TREE_KV, tree_off, tree_valid, q0, q1, q2, q3, m, l, acc,
-                SCALE, d0, BLOCK_D, BLOCK_N,
+                SCALE, d0, TREE_LIMIT, BLOCK_D, BLOCK_N,
             )
 
     # Branch-free empty-row handling: an `if` here also splits the MIX
@@ -662,6 +672,9 @@ def sparse_attn_sharedkv_tree(
         MAX_DEPTH=max_depth,
         NODE_COUNT=node_count,
         NODE_D=_HEAD_DIM,
+        ORI_LIMIT=(ori_pages * ori_s0 if has_ori else 0),
+        CMP_LIMIT=(cmp_pages * cmp_s0 if has_cmp else 0),
+        TREE_LIMIT=(node_count * _HEAD_DIM),
         SINK_STRIDE_T=sink_stride_t,
         SINK_STRIDE_H=sink_stride_h,
         BLOCK_H=_BLOCK_H,
