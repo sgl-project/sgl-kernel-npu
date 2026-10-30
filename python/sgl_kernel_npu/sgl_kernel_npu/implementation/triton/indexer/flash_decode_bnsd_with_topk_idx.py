@@ -1,4 +1,4 @@
-"""Triton implementation of the decode BNSD score/topk operator.
+"""Triton implementation of the decode score/topk operator.
 
 Standalone implementation of ``flash_decode_bnsd_with_topk_idx``. It covers
 the empty-topk, score-only and full-attention branches.
@@ -76,7 +76,7 @@ def _choose_num_score_chunks(
 
 
 # =============================================================================
-# BNSD score-only topk candidate merge (branch 3)
+# Score-only topk candidate merge (branch 3)
 # =============================================================================
 
 
@@ -720,7 +720,7 @@ def _merge_topk_append_local_adaptive(
 
 
 # =============================================================================
-# BNSD Decode Fused Score + Topk Chunk Kernel (branch 3)
+# Decode fused score + topk chunk kernel (branch 3)
 # =============================================================================
 
 
@@ -1025,7 +1025,7 @@ def _decode_bnsd_score_topk_chunk_kernel(
 
 
 # =============================================================================
-# BNSD Decode Fused Score + Attention Chunk Kernel
+# Decode fused score + attention chunk kernel
 # =============================================================================
 
 
@@ -1296,7 +1296,7 @@ def _decode_bnsd_score_attn_chunk_kernel(
 
 
 # =============================================================================
-# BNSD Decode Attention Merge Kernel
+# Decode attention merge kernel
 # =============================================================================
 
 
@@ -1416,7 +1416,7 @@ def flash_decode_bnsd_with_topk_idx(
     runtime_score_short_chunks: int = 0,
     fused_append_local: bool = False,
 ) -> tuple[Optional[torch.Tensor], torch.Tensor]:
-    """Decode attention over a BNSD block cache with block-level topk indices.
+    """Decode attention over a paged block cache with block-level topk indices.
 
     Parameters that only schedule the public wrapper (``use_native``,
     ``use_triton_topk``, ``num_topk_chunks`` and ``use_chunked_score``) are

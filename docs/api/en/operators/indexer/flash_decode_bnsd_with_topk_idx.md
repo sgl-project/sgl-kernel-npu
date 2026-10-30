@@ -60,7 +60,7 @@ def flash_decode_bnsd_with_topk_idx(
 
 ## Description
 
-Decode attention over a BNSD KV cache: it scores KV blocks and returns block-level topk indices, or the
+Decode attention over a paged KV cache: it scores KV blocks and returns block-level topk indices, or the
 attention output together with the indices on the full attention path. Three mutually exclusive branches:
 
 - **① Empty topk**: `disable_index_value=True` and `topk<=0` returns `(None, [QH, B, 0])`.

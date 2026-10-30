@@ -1,4 +1,4 @@
-"""Public decode BNSD score/topk operator with explicit implementation selection."""
+"""Public decode score/topk operator with explicit implementation selection."""
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -193,7 +193,7 @@ def flash_decode_bnsd_with_topk_idx(
     *,
     impl="auto",
 ):
-    """Decode over a BNSD block cache and return block-level topk indices.
+    """Decode over a paged block cache and return block-level topk indices.
 
     The default ``impl="auto"`` resolves to the Triton entry; ``"auto"`` and
     ``"triton"`` are registered to the same function, so they are equivalent.

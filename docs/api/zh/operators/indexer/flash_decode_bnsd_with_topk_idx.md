@@ -60,7 +60,7 @@ def flash_decode_bnsd_with_topk_idx(
 
 ## 功能说明
 
-对 BNSD 布局的 KV cache 做 decode：按块（block）计算分数并返回块级 topk 索引，或在全量注意力路径上
+对 paged KV cache 做 decode：按块（block）计算分数并返回块级 topk 索引，或在全量注意力路径上
 同时返回注意力输出与 topk 索引。三条互斥分支：
 
 - **① 空 topk**：`disable_index_value=True` 且 `topk<=0`，直接返回 `(None, [QH, B, 0])`。
