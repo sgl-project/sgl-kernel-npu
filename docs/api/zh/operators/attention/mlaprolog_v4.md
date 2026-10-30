@@ -1,15 +1,15 @@
-# mla_prolog_norope
+# mlaprolog_v4
 
 ## 硬件支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` | 未验证 | 支持 |
-| `torch_native` | 未验证 | 支持 |
+| `cann` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
-当前两个实现仅注册到 `Generation.ARCH35`；`auto` 是 `cann` 的别名。
+两个实现均注册到 `Generation.ARCH22` 和 `Generation.ARCH35`；`auto` 是 `cann` 的别名。
 
-CANN mlaprolog V4 本身并非仅支持 arch35：[上游文档](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md)也列出了 arch22 的 BF16、INT8 场景，但不支持 FP8/HiFloat8/MXFP8 全量化。本次适配仅针对 arch35 上的 Kimi K3，arch22 不在本次支持范围内。
+arch22 支持有 RoPE、无 RoPE 的 BF16+C16 场景；MXFP8+C16 和 MXFP8+C8 仍仅限 arch35。INT8 不在独立参考实现和测试覆盖范围内。更完整的 CANN V4 支持范围见[上游文档](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md)。
 
 ## 函数签名
 
@@ -18,9 +18,9 @@ from typing import Optional, Tuple
 
 import torch
 
-from sgl_kernel_npu.operators.attention import mla_prolog_norope
+from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
-def mla_prolog_norope(
+def mlaprolog_v4(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -67,38 +67,22 @@ def mla_prolog_norope(
 
 `impl="auto"` 和 `impl="cann"` 调用公开接口 `cann_ops_transformer.mla_prolog`，其底层为 `aclnnMlaPrologV4WeightNz`。其余参数保留该接口的名称和默认值。这是**返回五个输出、原地更新缓存**的接口，不是返回七个输出的 functional 版本。
 
-本接口仅支持 no-RoPE。为兼容现有调用参数，保留 `rope_sin`、`rope_cos`，但两者各自只能为 `None` 或空张量。公开入口在后端分发前统一校验，任一参数为非空张量时抛出 `ValueError`。
+`rope_sin`、`rope_cos` 同时为非空张量时启用 RoPE；两者均未提供或为空时关闭 RoPE。若只有一个为非空张量，公开入口在后端分发前抛出 `ValueError`。
 
 ## 功能说明
 
-完成 attention 之前的 MLA 投影和归一化，返回 absorb 后的 Query（`query`）和 R 维 Query 投影分量（`query_rope`），并**原地更新**共享 KV latent 缓存（`kv_cache`）和 R 维 Key 投影分量缓存（`kr_cache`）。不执行 attention 分数、softmax 或最终的 Value 投影。
+完成 attention 之前的 MLA 投影和归一化，可选地对 R 维 Query/Key 分量执行 RoPE。返回 absorb 后的 Query（`query`）和 Query 分量（`query_rope`），并**原地更新**共享 KV latent 缓存（`kv_cache`）和 R 维 Key 缓存（`kr_cache`）。不执行 attention 分数、softmax 或最终的 Value 投影。
 
 **单独接入的原因：**
-Kimi K3 的 MLA 不使用 RoPE。截至 2026-10-28 核对的 [torch_npu V3 实现](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp)调用 `aclnnMlaPrologV3WeightNz`，该入口[固定启用 RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp)。因此这里通过 `cann_ops_transformer.mla_prolog` 接入 V4，将 `rope_sin`、`rope_cos` 同时设为 `None`，使用其原生无 RoPE 能力。
+Kimi K3 的 MLA 不使用 RoPE。截至 2026-10-28 核对的 [torch_npu V3 实现](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp)调用 `aclnnMlaPrologV3WeightNz`，该入口[固定启用 RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp)。这里通过 `cann_ops_transformer.mla_prolog` 接入 V4，统一提供有 RoPE 和原生无 RoPE 两种能力。
 
-记 `H` 为输入宽度，`Rq` 为 Query latent 宽度，`C` 为 KV latent 宽度，`N` 为本地 Query 头数，`D` 为 absorb 前 `q_c` 的宽度，`R` 为 Query/Key 投影分量 `q_r`、`k_r` 的宽度。非量化计算为：
+下文中，`H` 为输入宽度，`Rq` 为 Query latent 宽度，`C` 为 KV latent 宽度，`N` 为本地 Query 头数，`D` 为 absorb 前的 Query 宽度，`R` 为 Query/Key 投影分量的宽度。
 
-$$
-\mathrm{RMSNorm}(x;\gamma,\epsilon)
-=\gamma\odot x\,/\sqrt{\mathrm{mean}(x^2)+\epsilon}.
-$$
-
-$$
-c_q=\alpha_q\mathrm{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
-\qquad [q_c,q_r]=\mathrm{reshape}(c_qW_{uq,qr}),
-\qquad q_n=q_cW_{uk}.
-$$
-
-$$
-[c_0,k_r]=XW_{dkv,kr},
-\qquad c=\alpha_k\mathrm{RMSNorm}(c_0;\gamma_k,\epsilon_k).
-$$
-
-其中 `alpha_q=qc_qr_scale`，`alpha_k=kc_scale`。`q_r` 由 Query latent `c_q` 投影得到，通过 `query_rope` 返回；`k_r` 由输入 `X` 投影得到，写入 `kr_cache`。本接口不对这两个分量执行 RoPE 旋转；后续 attention 仍计算它们的点积 `q_r · k_r`，与 `q_n · c` 相加。Kimi K3 MLA 使用这种无 RoPE 语义。
+启用 RoPE 时，相邻的投影通道组成旋转对；旋转后的偶数通道存放在 `query_rope` 和 `kr_cache` 的前半部分，奇数通道存放在后半部分。正弦、余弦张量采用相同的前后半区顺序，每个 token 的各个 head 共用一组参数；传入普通正弦值，不要提前对前半部分取负。旋转使用投影结果进行 FP32 运算（mode 0 的投影结果为 BF16，mode 3 为 FP32），再将旋转结果转为 BF16。关闭 RoPE 时，投影分量保留原通道顺序。
 
 在 `PA_BSND` 中，`s=cache_index[t]` 对应的逻辑写入位置是 `[s // P, s % P, 0, :]`，`P` 是 page size。`PA_NZ` 在分块存储中写入相同的逻辑 slot。只更新索引指定的位置；两个 cache 的生命周期和容量由调用方管理。
 
-独立参考实现覆盖下列无 RoPE 场景。`C16` 表示两份缓存均为 BF16；`C8` 表示 `kv_cache` 为 FP8、`kr_cache` 为 BF16。
+独立参考实现覆盖下列场景，均支持开启或关闭 RoPE。`C16` 表示两份缓存均为 BF16；`C8` 表示 `kv_cache` 为 FP8、`kr_cache` 为 BF16。
 
 | 场景 | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | `query` / `kv_cache` / `kr_cache` |
 | --- | --- | --- | --- | --- |
@@ -106,16 +90,9 @@ $$
 | MXFP8 投影，C16 | `3` | `0` | `0` | BF16 / BF16 / BF16 |
 | MXFP8 投影，C8 | `3` | `1` | `1` | FP8 E4M3FN / FP8 E4M3FN / BF16 |
 
-Mode 3 对带块级 scale 的 FP8 输入和权重进行反量化，将归一化后的 Query latent 按 `CAST_ROUND` 转为 BF16（舍入到最近值，中点时远离零），再以每组 32 个元素重新量化。设 `a` 为**完成这次 BF16 转换后**一组的最大绝对值。对于元素均有限且至少包含一个 BF16 正规数的组，MX scale 为 `2**max(floor(log2(a)) - 8, -127)`。仅包含零或 BF16 次正规数的组是例外：E8M0 scale 字节为 `0`（scale 为 `2**-127`），整组量化结果为零。正规数与次正规数混合的组统一按共享 scale 量化，不额外逐元素清零次正规数。FP8 转换采用最近偶数舍入，并饱和到 `[-448, 448]`。中间 BF16 转换不能与所有默认 PyTorch BF16 转换视为相同。这些规则依据 CANN 源码；融合计算的归约顺序仍可能带来数值差异。
+Mode 3 使用带块级 scale 的 FP8 输入和权重。归一化后的 Query latent 按 `CAST_ROUND` 转为 BF16（舍入到最近值，中点时远离零），再以每组 32 个元素和 E8M0 scale 量化。FP8 转换采用最近偶数舍入，并饱和到 `[-448, 448]`。参考实现遵循这些 CANN 转换规则；融合计算的归约顺序仍可能带来数值差异。
 
-C8 中的 `quant_scale_ckv` 是**乘法量化系数** `1/s_c`，不是 KV 反量化 scale `s_c`：
-
-$$
-c_8=\mathrm{FP8}(c/s_c),\qquad
-s_q=\max|q_n|/448,\qquad q_8=\mathrm{FP8}(q_n/s_q).
-$$
-
-BF16 Query 投影分量 `q_r` 补偿为 `q_r / (s_q * s_c)`。下游 attention 算子对合并后的点积乘以 `s_q * s_c` 时，`q_r · k_r` 项才能恢复原来的尺度。`kr_cache` 保持 BF16。不要再次对返回的 `query_rope` 做同样补偿。全零 Query 行产生 `s_q=0`；参考实现遵循 CANN，不将这个 scale 替换为 1，也不额外加入 epsilon。
+C8 中的 `quant_scale_ckv` 是**乘法量化系数**，即 KV 反量化 scale 的倒数。Query 按 token 和 head 动态量化。在可选 RoPE 和 BF16 转换之后，`query_rope` 根据 Q/KV scale 做逆尺度补偿，供后续量化 attention 使用；调用方不要再次做同样补偿。`kr_cache` 保持 BF16。全零 Query 行产生零 Q scale；参考实现遵循 CANN，不将这个 scale 替换为 1，也不额外加入 epsilon。
 
 `query_norm_flag=True` 时，mode 3 **即使使用 C16 缓存，也返回 FP8 Query latent 及其 E8M0 group scale**。attention Query 为 BF16 并不意味着 `query_norm` 也是 BF16。
 
@@ -136,7 +113,7 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 | `rmsnorm_gamma_ckv` | Tensor，`[C]`；BF16 | 必填 | KV latent 的 RMSNorm 权重，连续 ND。 |
 | `kv_cache` | Tensor，`[pages,P,1,C]`；C16 为 BF16，C8 为 FP8 E4M3FN | 必填 | 可变的共享 latent 缓存。`PA_NZ` 使用对应的物理 tile 顺序。 |
 | `kr_cache` | Tensor，`[pages,P,1,R]`；BF16 | 必填 | 存储 R 维 Key 投影分量 `k_r` 的可变缓存。CANN 专有的合并存储模式另有布局要求。 |
-| `rope_sin`、`rope_cos` | `None` 或空 Tensor | `None` | 保留以兼容现有调用参数；任一参数为非空张量时抛出 `ValueError`，两个后端使用相同约束。 |
+| `rope_sin`、`rope_cos` | 可选 BF16 Tensor，`[T,R]` 或 `[B,S,R]` | `None` | 连续 ND，两者 shape 相同，token 维度与 `token_x` 一致。同时非空时启用 RoPE，均未提供或为空时关闭；仅一个非空时抛出 `ValueError`。 |
 | `cache_index` | 可选 Tensor，`[T]` 或 `[B,S]`；int32/int64 | `None` | 本文 PA 场景必填；每个元素是有效逻辑 slot。参考对比时使用不重复的 slot。 |
 | `dequant_scale_x` | 可选 Tensor，`[T,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 输入块级反量化 scale。其他 CANN 模式使用各自的上游 scale 布局。 |
 | `dequant_scale_w_dq` | 可选 Tensor，`[Rq,H/32]`；mode 3 为 E8M0 | `None` | Mode 3 Query 下投影权重 scale，连续 ND。 |
@@ -164,7 +141,7 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 | 返回值 | Shape | 参考实现覆盖场景的 dtype | 含义 |
 | --- | --- | --- | --- |
 | `query` | `[T,N,C]` 或 `[B,S,N,C]` | C16 为 BF16，C8 为 FP8 E4M3FN | absorb 后的 Query。 |
-| `query_rope` | `[T,N,R]` 或 `[B,S,N,R]` | BF16 | 未执行 RoPE 的 R 维 Query 投影分量 `q_r`；C8 时带有尺度补偿。 |
+| `query_rope` | `[T,N,R]` 或 `[B,S,N,R]` | BF16 | 完成可选 RoPE 的 R 维 Query 分量；C8 时带有尺度补偿。 |
 | `dequant_scale_q_nope` | `[T,N,1]` 或 `[B*S,N,1]`，否则为空 | FP32 | C8 场景的 per-token/head Query 反量化 scale。 |
 | `query_norm` | `[T,Rq]` 或 `[B,S,Rq]`，否则为空 | mode 0 为 BF16，mode 3 为 FP8 E4M3FN | 请求输出时的归一化 Query latent。 |
 | `dequant_scale_q_norm` | `[T,Rq/32]` 或 `[B*S,Rq/32]`，否则为空 | mode 3 为 E8M0 | MXFP8 Query latent 的 group scale；mode 0 或未请求输出时为空。 |
@@ -175,19 +152,19 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 
 ## torch_native 后端
 
-使用独立的 PyTorch CPU 计算作为精度参考，覆盖上表三种无 RoPE 场景及 `PA_BSND`/`PA_NZ` 缓存。输出返回输入设备，并原地更新传入的两份 cache。
+使用独立的 PyTorch CPU 计算作为精度参考，覆盖上表三种场景的有 RoPE、无 RoPE 版本及 `PA_BSND`/`PA_NZ` 缓存。输出返回输入设备，并原地更新传入的两份 cache。
 
 ## 使用示例
 
-以下 arch35 示例使用 BF16 投影、无 RoPE 和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。
+以下 arch35 示例使用 BF16 投影和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。`use_rope=False` 对应 Kimi 的无 RoPE 行为；设为 `True` 可用同样的尺寸验证 RoPE 路径。
 
-精度用例覆盖 token 数 `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`，每个长度均覆盖本地 Q heads 96/48/24/12/6/3、上述三种模式及 `PA_BSND`/`PA_NZ` 两种缓存布局。成对布局用例生成相同的输入和权重，并统一设置 `rope_sin=rope_cos=None`。额外的 T5 用例在两种布局下检查负 cache slot。默认性能用例仍只选择 TP4/TP16、token 数为 `1, 4, 16, 32, 64` 的 `PA_BSND` 形状。
+精度用例覆盖 token 数 `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`，每个长度均覆盖本地 Q heads 96/48/24/12/6/3、上述三种模式、`PA_BSND`/`PA_NZ` 两种缓存布局以及开启/关闭 RoPE。arch22 在分配输入前跳过 MXFP8 用例，arch35 保留全部三种模式。成对用例生成相同的输入和权重，额外的 T5 用例检查负 cache slot。默认性能用例选择 TP4/TP16、token 数为 `1, 4, 16, 32, 64` 的 `PA_BSND` 形状，同样覆盖有 RoPE、无 RoPE 两种情况。精度标准保持不变，包括独立检查 Q scale，以及还原 C8 `query_rope` 的补偿尺度后应用 BF16 精度标准。
 
 ```python
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.attention import mla_prolog_norope
+from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
 device = "npu"
 dtype = torch.bfloat16
@@ -208,10 +185,20 @@ slots = torch.tensor([0], device=device, dtype=torch.int64)
 kv_cache = torch.zeros(1, P, 1, C, device=device, dtype=dtype)
 kr_cache = torch.zeros(1, P, 1, R, device=device, dtype=dtype)
 
+use_rope = False
+rope_sin = rope_cos = None
+if use_rope:
+    positions = torch.arange(1, T + 1, dtype=torch.float32)
+    inv_freq = 10000.0 ** (-torch.arange(0, R, 2, dtype=torch.float32) / R)
+    angles = positions[:, None] * inv_freq[None, :]
+    angles = torch.cat((angles, angles), dim=-1)
+    rope_sin = angles.sin().to(device=device, dtype=dtype)
+    rope_cos = angles.cos().to(device=device, dtype=dtype)
+
 args = (x, w_dq, w_uq_qr, w_uk, w_dkv_kr, gamma_q, gamma_k)
 kwargs = dict(
-    rope_sin=None,
-    rope_cos=None,
+    rope_sin=rope_sin,
+    rope_cos=rope_cos,
     cache_index=slots,
     cache_mode="PA_BSND",
     weight_quant_mode=0,
@@ -221,13 +208,13 @@ kwargs = dict(
 )
 
 # auto 选择 CANN V4 入口，并更新传入的两份 cache。
-query, query_rope, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
+query, query_rope, q_scale, q_norm, q_norm_scale = mlaprolog_v4(
     *args, kv_cache, kr_cache, **kwargs, impl="auto"
 )
 print(query.shape, query_rope.shape, q_norm.shape)
 
 # 接口会修改 cache，因此为参考计算使用新的 buffer。
-reference = mla_prolog_norope(
+reference = mlaprolog_v4(
     *args,
     torch.zeros_like(kv_cache),
     torch.zeros_like(kr_cache),

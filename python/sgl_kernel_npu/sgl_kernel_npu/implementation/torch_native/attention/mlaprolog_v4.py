@@ -1,4 +1,4 @@
-"""Independent, CPU PyTorch reference for the Kimi no-RoPE MLAProlog paths.
+"""Independent CPU PyTorch reference for MLAProlog V4 with optional RoPE.
 
 This is an accuracy reference, not a graph-compatible execution fallback. NPU
 inputs are copied to CPU; outputs and the two updated caches return to their
@@ -7,7 +7,7 @@ original devices. No fused MLAProlog or NPU quantization operator is called.
 Numerical contract: ops-transformer/attention/mla_prolog_v3/docs/
 aclnnMlaPrologV4WeightNz.md. Intermediate rounding and MXFP8 scale semantics are
 specified by attention/mla_prolog/op_kernel/arch35/service_rms_norm_arch35.h,
-vf/vf_dynamic_quant.h and vf/vf_mul_qr.h in the same upstream repository.
+vf/vf_dynamic_quant.h, vf/vf_rope.h and vf/vf_mul_qr.h in the same repository.
 """
 
 from typing import Optional, Tuple
@@ -74,6 +74,21 @@ def _rms_norm(
     return value / torch.sqrt(variance + epsilon) * _cpu(gamma).float() * scale
 
 
+def _apply_rope(
+    value: torch.Tensor, sin: torch.Tensor, cos: torch.Tensor
+) -> torch.Tensor:
+    """Rotate [T,N,R] interleaved pairs into half order, then round to BF16."""
+    value = value.float()
+    half = value.shape[-1] // 2
+    sin = _cpu(sin).float().reshape(-1, 1, value.shape[-1])
+    cos = _cpu(cos).float().reshape(-1, 1, value.shape[-1])
+    even, odd = value[..., ::2], value[..., 1::2]
+    # CANN performs separate FP32 multiplies/adds, then CAST_RINT to BF16.
+    lower = even * cos[..., :half] - odd * sin[..., :half]
+    upper = even * sin[..., half:] + odd * cos[..., half:]
+    return torch.cat((lower, upper), dim=-1).to(torch.bfloat16)
+
+
 def _write_cache(
     cache: torch.Tensor, values: torch.Tensor, slots: torch.Tensor, cache_mode: str
 ) -> None:
@@ -106,7 +121,7 @@ def _write_cache(
     cache.copy_(cache_cpu.to(cache.device))
 
 
-def mla_prolog_norope(
+def mlaprolog_v4(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -147,7 +162,7 @@ def mla_prolog_norope(
     weight_dkv_kr_dtype: Optional[int] = None,
     kv_cache_dtype: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Evaluate no-RoPE mode0/C16 and mode3/C16 or C8, updating both caches."""
+    """Evaluate mode0/C16 and mode3/C16 or C8 with optional RoPE and cache writes."""
     if (weight_quant_mode, kv_cache_quant_mode, query_quant_mode) not in (
         (0, 0, 0),
         (3, 0, 0),
@@ -228,15 +243,23 @@ def mla_prolog_norope(
         qnorm_scale = torch.empty(0, dtype=torch.float32, device="cpu")
         cq = query_norm.float()
 
-    qc_qr = (cq @ w_uq_qr).to(torch.bfloat16).reshape(-1, heads, q_dim + r_dim)
+    qc_qr = (cq @ w_uq_qr).reshape(-1, heads, q_dim + r_dim)
+    qc_qr_bf16 = qc_qr.to(torch.bfloat16)
     # Absorb W_uk into Q; its input and output are BF16 in both modes.
     query = torch.einsum(
-        "tnd,ndc->tnc", qc_qr[..., :q_dim].float(), _cpu(weight_uk).float()
+        "tnd,ndc->tnc", qc_qr_bf16[..., :q_dim].float(), _cpu(weight_uk).float()
     )
     query = query.to(torch.bfloat16)
-    q_r = qc_qr[..., q_dim:].contiguous()
+    # Mode0 GEMMs already round to BF16; mode3 feeds RoPE directly from FP32.
+    q_r = (qc_qr_bf16 if weight_quant_mode == 0 else qc_qr)[..., q_dim:]
     c = _rms_norm(ckv_kr[..., :c_dim], rmsnorm_gamma_ckv, rmsnorm_epsilon_ckv, kc_scale)
-    k_r = ckv_kr[..., c_dim:].to(torch.bfloat16)
+    k_r = ckv_kr[..., c_dim:]
+    if rope_sin is not None and rope_sin.numel() > 0:
+        q_r = _apply_rope(q_r, rope_sin, rope_cos)
+        k_r = _apply_rope(k_r.unsqueeze(1), rope_sin, rope_cos).squeeze(1)
+    else:
+        q_r = q_r.to(torch.bfloat16).contiguous()
+        k_r = k_r.to(torch.bfloat16)
     if kv_cache_quant_mode == 1:
         if quant_scale_ckv is None:
             raise ValueError("Static C8 requires quant_scale_ckv")

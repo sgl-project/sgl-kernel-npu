@@ -1,4 +1,4 @@
-"""No-RoPE CANN MLAProlog V4 entry point and independent numerical reference."""
+"""CANN MLAProlog V4 entry point and independent numerical reference."""
 
 from typing import Optional, Tuple
 
@@ -12,10 +12,14 @@ _torch_native_fn = None
 
 
 @register_impl(
-    "attention.mla_prolog_norope", "auto", supported_generations={Generation.ARCH35}
+    "attention.mlaprolog_v4",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "attention.mla_prolog_norope", "cann", supported_generations={Generation.ARCH35}
+    "attention.mlaprolog_v4",
+    "cann",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
     global _cann_fn
@@ -27,23 +31,21 @@ def _cann_impl(*args, **kwargs):
 
 
 @register_impl(
-    "attention.mla_prolog_norope",
+    "attention.mlaprolog_v4",
     "torch_native",
-    supported_generations={Generation.ARCH35},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.mla_prolog_norope import (
-            mla_prolog_norope,
-        )
+        from ...implementation.torch_native.attention.mlaprolog_v4 import mlaprolog_v4
 
-        _torch_native_fn = mla_prolog_norope
+        _torch_native_fn = mlaprolog_v4
     return _torch_native_fn(*args, **kwargs)
 
 
-@register_operator("attention.mla_prolog_norope")
-def mla_prolog_norope(
+@register_operator("attention.mlaprolog_v4")
+def mlaprolog_v4(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -85,11 +87,11 @@ def mla_prolog_norope(
     kv_cache_dtype: Optional[int] = None,
     impl: str = "auto",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Project MLA queries without RoPE and update both caches; auto selects CANN V4.
+    """Project MLA queries with optional RoPE and update caches; auto selects CANN V4.
 
-    RoPE arguments are retained for call-site compatibility and must be None
-    or empty. The independent reference covers no-RoPE BF16 and MXFP8
-    projections with C16 cache, and MXFP8 projections with static C8 cache.
+    Paired nonempty sin/cos tensors enable RoPE; both absent or empty disable it.
+    The independent reference covers BF16 and MXFP8 projections with C16 cache,
+    and MXFP8 projections with static C8 cache, with or without RoPE.
 
     Args:
         token_x: [T, He] or [B, S, He] tokens (BF16 or MXFP8).
@@ -101,7 +103,8 @@ def mla_prolog_norope(
         rmsnorm_gamma_ckv: [Hckv] cache RMSNorm weights.
         kv_cache: Mutable latent cache, BF16 (C16) or FP8 E4M3 (C8).
         kr_cache: Mutable BF16 cache for the R-dimensional key projection k_r.
-        rope_sin, rope_cos: Must each be None or an empty tensor.
+        rope_sin, rope_cos: Paired BF16 [T, Dr] or [B, S, Dr] tensors, or both
+            None/empty. RoPE maps interleaved input pairs to half-layout outputs.
         cache_index: Int32/int64 token slot indices for the paged cache.
         dequant_scale_x, dequant_scale_w_dq, dequant_scale_w_uq_qr,
             dequant_scale_w_dkv_kr: Input/projection dequantization scales.
@@ -127,11 +130,14 @@ def mla_prolog_norope(
         cache inputs are updated, not returned. See the API documentation for
         mode-dependent output shapes and dtypes.
     """
-    if any(t is not None and t.numel() > 0 for t in (rope_sin, rope_cos)):
+    has_sin = rope_sin is not None and rope_sin.numel() > 0
+    has_cos = rope_cos is not None and rope_cos.numel() > 0
+    if has_sin != has_cos:
         raise ValueError(
-            "mla_prolog_norope requires rope_sin and rope_cos to be None or empty."
+            "mlaprolog_v4 requires rope_sin and rope_cos to be both nonempty "
+            "or both None/empty."
         )
-    impl_fn = get_impl_by_name("attention.mla_prolog_norope", impl)
+    impl_fn = get_impl_by_name("attention.mlaprolog_v4", impl)
     return impl_fn(
         token_x,
         weight_dq,

@@ -1,8 +1,10 @@
-"""Kimi K3 no-RoPE MLAProlog V4: C16 and ModelSlim static C8 cache contracts.
+"""MLAProlog V4 with and without RoPE: C16 and static C8 cache contracts.
 
 Dimensions follow moonshotai/Kimi-K3 config.json, with 96 Q heads sharded
 over attention TP sizes 1/2/4/8/16/32. Tensor values are generated, not loaded
 from a checkpoint. Weights and scales follow SGLang's MLAProlog input layouts.
+RoPE cases use the same dimensions to cover V4's optional rotation path;
+they do not describe Kimi K3's no-RoPE model behavior.
 Source: https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json
 The independent torch_native implementation is an accuracy reference on CPU;
 its transfers must not be reported as an NPU performance baseline.
@@ -30,9 +32,12 @@ from tests.python.utils.standards import AccuracyStandard
 shapes = [(7168, 1536, heads, 128, 512, 64) for heads in (96, 48, 24, 12, 6, 3)]
 token_counts = [1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64]
 page_size = 128
-# Representative attention TP4/TP16 shapes; other cases check accuracy only.
+# Representative TP4/TP16 shapes, both RoPE modes; other cases check accuracy only.
 perf_shape = [
-    (tokens, heads, "PA_BSND") for heads in (24, 6) for tokens in (1, 4, 16, 32, 64)
+    (tokens, heads, "PA_BSND", use_rope)
+    for heads in (24, 6)
+    for tokens in (1, 4, 16, 32, 64)
+    for use_rope in (False, True)
 ]
 cache_cases = [(0, False), (3, False), (3, True)]
 _BF16_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
@@ -40,10 +45,22 @@ _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)
 
 
 def generate_data(
-    shape, tokens, weight_quant_mode, c8, cache_mode, query_norm_flag, *, padding=False
+    shape,
+    tokens,
+    weight_quant_mode,
+    c8,
+    cache_mode,
+    query_norm_flag,
+    *,
+    padding=False,
+    use_rope=False,
 ):
     """Create real NZ weights and distinct, nonconsecutive paged cache slots."""
     import torch_npu
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if weight_quant_mode == 3 and get_hardware().generation == Generation.ARCH22:
+        pytest.skip("MLAProlog MXFP8 projections require arch35")
 
     hidden, rank, heads, head_dim, latent, r_dim = shape
     generator = torch.Generator(device="cpu").manual_seed(42)
@@ -100,6 +117,16 @@ def generate_data(
             )
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
+    if use_rope:
+        # Nonzero, nonconsecutive positions exercise rotation even when T=1.
+        positions = 17 + 3 * torch.arange(tokens, dtype=torch.float32, device="cpu")
+        inverse_freq = 10000.0 ** (
+            -torch.arange(0, r_dim, 2, dtype=torch.float32, device="cpu") / r_dim
+        )
+        angles = positions[:, None] * inverse_freq[None, :]
+        angles = torch.cat((angles, angles), dim=-1)
+        inputs["rope_sin"] = angles.sin().to(torch.bfloat16).npu()
+        inputs["rope_cos"] = angles.cos().to(torch.bfloat16).npu()
     return inputs
 
 
@@ -253,10 +280,19 @@ def _accuracy(outputs, expected, inputs, reference, before):
 )
 @pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
-def test_mla_prolog_norope(
-    shape, tokens, cache_mode, padding, weight_quant_mode, c8, tmp_path, record_property
+@pytest.mark.parametrize("use_rope", [False, True], ids=["no-rope", "rope"])
+def test_mlaprolog_v4(
+    shape,
+    tokens,
+    cache_mode,
+    padding,
+    weight_quant_mode,
+    c8,
+    use_rope,
+    tmp_path,
+    record_property,
 ):
-    from sgl_kernel_npu.operators.attention import mla_prolog_norope
+    from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
     inputs = generate_data(
         shape,
@@ -266,27 +302,28 @@ def test_mla_prolog_norope(
         cache_mode,
         not c8 and tokens != 17,
         padding=padding,
+        use_rope=use_rope,
     )
     impl, impl_ref = get_test_impls()
     checked = get_skip_acc_check() is not True
     if checked:
-        require_distinct_impls(mla_prolog_norope, impl, impl_ref)
+        require_distinct_impls(mlaprolog_v4, impl, impl_ref)
         before, reference = _independent_cache(inputs), _independent_cache(inputs)
         pointers = [inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")]
-        expected = mla_prolog_norope(**reference, impl=impl_ref)
-        outputs = mla_prolog_norope(**inputs, impl=impl)
+        expected = mlaprolog_v4(**reference, impl=impl_ref)
+        outputs = mlaprolog_v4(**inputs, impl=impl)
         _accuracy(outputs, expected, inputs, reference, before)
         assert pointers == [
             inputs[name].data_ptr() for name in ("kv_cache", "kr_cache")
         ]
     else:
-        require_test_impl(mla_prolog_norope, impl)
+        require_test_impl(mlaprolog_v4, impl)
     # A CPU reference's transfer tasks are not an NPU compute baseline.
     if impl == "torch_native":
         return
-    executor = make_executor(mla_prolog_norope, kwargs=inputs, accuracy_checked=checked)
+    executor = make_executor(mlaprolog_v4, kwargs=inputs, accuracy_checked=checked)
     measured = check_performance(
-        executor, enable_perf=(tokens, shape[2], cache_mode) in perf_shape
+        executor, enable_perf=(tokens, shape[2], cache_mode, use_rope) in perf_shape
     )
     if measured is not None:
         from cann_ops_transformer import mla_prolog as cann_mla_prolog
@@ -303,20 +340,26 @@ def test_mla_prolog_norope(
 @pytest.mark.parametrize("shape", [(7168, 1536, 6, 128, 512, 64)], ids=["kimi-k3-tp16"])
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 @pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
-def test_mla_prolog_norope_direct_cann_parity(shape, weight_quant_mode, c8, cache_mode):
+@pytest.mark.parametrize("use_rope", [False, True], ids=["no-rope", "rope"])
+def test_mlaprolog_v4_direct_cann_parity(
+    shape, weight_quant_mode, c8, cache_mode, use_rope
+):
     if get_skip_acc_check() is True:
         pytest.skip("Direct-CANN parity is disabled by --skip-acc-check=true")
-    from sgl_kernel_npu.operators.attention import mla_prolog_norope
+    from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
-    require_test_impl(mla_prolog_norope, "cann")
+    require_test_impl(mlaprolog_v4, "cann")
     from cann_ops_transformer import mla_prolog as cann_mla_prolog
 
-    inputs = generate_data(shape, 4, weight_quant_mode, c8, cache_mode, not c8)
-    # Cover empty no-RoPE arguments here; accuracy cases use None in both layouts.
-    inputs["rope_sin"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
-    inputs["rope_cos"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
+    inputs = generate_data(
+        shape, 4, weight_quant_mode, c8, cache_mode, not c8, use_rope=use_rope
+    )
+    if not use_rope:
+        # Accuracy cases use None; parity also covers empty no-RoPE tensors.
+        inputs["rope_sin"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
+        inputs["rope_cos"] = inputs["rmsnorm_gamma_cq"].new_empty(0)
     direct = _independent_cache(inputs)
-    outputs = mla_prolog_norope(**inputs, impl="cann")
+    outputs = mlaprolog_v4(**inputs, impl="cann")
     expected = cann_mla_prolog(**direct)
     _check_contract(outputs, inputs)
     for actual, reference in zip(
@@ -331,12 +374,19 @@ def test_mla_prolog_norope_direct_cann_parity(shape, weight_quant_mode, c8, cach
 
 @pytest.mark.parametrize("impl", ["auto", "cann", "torch_native"])
 @pytest.mark.parametrize("rope_arg", ["rope_sin", "rope_cos"])
-def test_mla_prolog_norope_rejects_rope(impl, rope_arg):
-    from sgl_kernel_npu.operators.attention import mla_prolog_norope
+@pytest.mark.parametrize("empty_partner", [False, True], ids=["none", "empty"])
+def test_mlaprolog_v4_rejects_unpaired_rope(impl, rope_arg, empty_partner):
+    from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
     # Rejection must precede backend dispatch and any cache access.
     unused_inputs = [torch.empty(0)] * 9
+    partner = "rope_cos" if rope_arg == "rope_sin" else "rope_sin"
+    rope_inputs = {
+        rope_arg: torch.ones(1),
+        partner: torch.empty(0) if empty_partner else None,
+    }
     with pytest.raises(
-        ValueError, match="requires rope_sin and rope_cos to be None or empty"
+        ValueError,
+        match="requires rope_sin and rope_cos to be both nonempty or both None/empty",
     ):
-        mla_prolog_norope(*unused_inputs, **{rope_arg: torch.ones(1)}, impl=impl)
+        mlaprolog_v4(*unused_inputs, **rope_inputs, impl=impl)

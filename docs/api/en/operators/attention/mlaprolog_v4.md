@@ -1,15 +1,15 @@
-# mla_prolog_norope
+# mlaprolog_v4
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` | Unverified | Supported |
-| `torch_native` | Unverified | Supported |
+| `cann` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
-Both implementations are currently registered only for `Generation.ARCH35`, and `auto` is an alias of `cann`.
+Both implementations are registered for `Generation.ARCH22` and `Generation.ARCH35`, and `auto` is an alias of `cann`.
 
-CANN V4 itself is not limited to arch35: the [upstream documentation](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md) also lists BF16 and INT8 cases for arch22, which does not support FP8/HiFloat8/MXFP8 full quantization. This integration targets only Kimi K3 on arch35; arch22 is outside its scope.
+On arch22, the supported scope is BF16+C16 with and without RoPE. The MXFP8+C16 and MXFP8+C8 cases remain limited to arch35. INT8 is outside the independent reference and test coverage. See the broader CANN V4 [upstream hardware contract](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/docs/aclnnMlaPrologV4WeightNz.md).
 
 ## Signature
 
@@ -18,9 +18,9 @@ from typing import Optional, Tuple
 
 import torch
 
-from sgl_kernel_npu.operators.attention import mla_prolog_norope
+from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
-def mla_prolog_norope(
+def mlaprolog_v4(
     token_x: torch.Tensor,
     weight_dq: torch.Tensor,
     weight_uq_qr: torch.Tensor,
@@ -67,37 +67,21 @@ def mla_prolog_norope(
 
 `impl="auto"` and `impl="cann"` call the public `cann_ops_transformer.mla_prolog` API, which wraps `aclnnMlaPrologV4WeightNz`. Other arguments preserve that API's names and defaults. This is the in-place cache API with **five outputs**, not its seven-output functional variant.
 
-This API supports only no-RoPE. It retains `rope_sin` and `rope_cos` for compatibility with existing call arguments, but each must be `None` or an empty tensor. The public entry point checks them before backend dispatch and raises `ValueError` if either tensor is nonempty.
+RoPE is enabled when `rope_sin` and `rope_cos` are both nonempty tensors. It is disabled when both are absent or empty. If only one is nonempty, the public entry point raises `ValueError` before backend dispatch.
 
 ## Description
 
-Computes the MLA projection and normalization steps before attention. It returns the absorbed query (`query`) and the R-dimensional projected query component (`query_rope`), and updates the shared KV latent cache (`kv_cache`) and the R-dimensional projected key cache (`kr_cache`) **in place**. It does not compute attention scores, softmax, or the final value projection.
+Computes the MLA projection and normalization steps before attention, optionally applying RoPE to the R-dimensional query and key components. It returns the absorbed query (`query`) and the query component (`query_rope`), and updates the shared KV latent cache (`kv_cache`) and the R-dimensional key cache (`kr_cache`) **in place**. It does not compute attention scores, softmax, or the final value projection.
 
-**Why a separate integration:** Kimi K3 MLA does not use RoPE. The [torch_npu V3 implementation](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp) inspected on 2026-10-28 calls `aclnnMlaPrologV3WeightNz`, whose entry point [always enables RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp). This API therefore uses V4 through `cann_ops_transformer.mla_prolog`, with both `rope_sin` and `rope_cos` set to `None` for native no-RoPE support.
+**Why a separate integration:** Kimi K3 MLA does not use RoPE. The [torch_npu V3 implementation](https://github.com/Ascend/op-plugin/blob/master/op_plugin/ops/opapi/MlaPrologV3KernelNpuOpApi.cpp) inspected on 2026-10-28 calls `aclnnMlaPrologV3WeightNz`, whose entry point [always enables RoPE](https://gitcode.com/cann/ops-transformer/blob/d462156cf5d97712fcfeef95070d649f47d3bb6e/attention/mla_prolog_v3/op_api/aclnn_mla_prolog_v3_weight_nz.cpp). This API uses V4 through `cann_ops_transformer.mla_prolog` to expose both RoPE and native no-RoPE operation.
 
-Let `H` be the input width, `Rq` the query latent width, `C` the KV latent width, `N` the local query-head count, `D` the width of `q_c` before absorption, and `R` the width of the projected query/key components `q_r` and `k_r`. For the non-quantized calculation:
+Dimensions used below are `H` for the input width, `Rq` for the query latent width, `C` for the KV latent width, `N` for the local query-head count, `D` for the query width before absorption, and `R` for the projected query/key component width.
 
-$$
-\mathrm{RMSNorm}(x;\gamma,\epsilon)
-=\gamma\odot x\,/\sqrt{\mathrm{mean}(x^2)+\epsilon}.
-$$
-
-$$
-c_q=\alpha_q\mathrm{RMSNorm}(XW_{dq};\gamma_q,\epsilon_q),
-\qquad [q_c,q_r]=\mathrm{reshape}(c_qW_{uq,qr}),
-\qquad q_n=q_cW_{uk}.
-$$
-
-$$
-[c_0,k_r]=XW_{dkv,kr},
-\qquad c=\alpha_k\mathrm{RMSNorm}(c_0;\gamma_k,\epsilon_k).
-$$
-
-Here `alpha_q=qc_qr_scale` and `alpha_k=kc_scale`. The query latent `c_q` is projected into `q_r`, returned as `query_rope`; the input `X` is projected into `k_r`, written to `kr_cache`. This API does not apply RoPE rotation to either component. Subsequent attention still computes their dot product `q_r · k_r` and adds it to `q_n · c`. This no-RoPE behavior is needed by Kimi K3 MLA.
+With RoPE enabled, adjacent projection channels form rotation pairs. The rotated even channels occupy the first half of `query_rope` and `kr_cache`, followed by the rotated odd channels in the second half. The sine/cosine tensors follow this half ordering and are shared across heads for each token; pass ordinary sine values without negating the first half. Rotation uses FP32 arithmetic on the projection results (BF16 in mode 0, FP32 in mode 3), then converts the rotated results to BF16. With RoPE disabled, the projected components retain their original channel order.
 
 For a slot `s=cache_index[t]` in `PA_BSND`, the logical destination is `[s // P, s % P, 0, :]`, where `P` is the page size. `PA_NZ` writes the equivalent logical slot in tiled storage. Only the addressed cache slots are updated; callers own the lifetime and capacity of both cache tensors.
 
-The independent reference covers the following no-RoPE cases. `C16` means both caches use BF16; `C8` means `kv_cache` uses FP8 and `kr_cache` uses BF16.
+The independent reference covers the following cases with and without RoPE. `C16` means both caches use BF16; `C8` means `kv_cache` uses FP8 and `kr_cache` uses BF16.
 
 | Case | `weight_quant_mode` | `kv_cache_quant_mode` | `query_quant_mode` | `query` / `kv_cache` / `kr_cache` |
 | --- | --- | --- | --- | --- |
@@ -105,16 +89,9 @@ The independent reference covers the following no-RoPE cases. `C16` means both c
 | MXFP8 projections, C16 | `3` | `0` | `0` | BF16 / BF16 / BF16 |
 | MXFP8 projections, C8 | `3` | `1` | `1` | FP8 E4M3FN / FP8 E4M3FN / BF16 |
 
-Mode 3 dequantizes block-scaled FP8 inputs and weights, converts the normalized query latent to BF16 with `CAST_ROUND` (nearest, ties away from zero), and requantizes it in groups of 32. Let `a` be a group's maximum absolute value **after that BF16 conversion**. For a finite group containing at least one normal BF16 value, the MX scale is `2**max(floor(log2(a)) - 8, -127)`. A group containing only zeros or BF16 subnormal values is a special case: its E8M0 scale byte is `0` (scale `2**-127`) and all quantized values are zero. A mixed group with normal and subnormal values uses the shared scale without separately flushing each subnormal element. FP8 conversion rounds to nearest, ties to even, with saturation to `[-448, 448]`. The intermediate BF16 conversion is not interchangeable with every default PyTorch BF16 cast. These rules follow the CANN source; fused reduction order can still cause numerical differences.
+Mode 3 uses block-scaled FP8 inputs and weights. Its normalized query latent is converted to BF16 with `CAST_ROUND` (nearest, ties away from zero), then quantized in groups of 32 with E8M0 scales. FP8 conversion rounds to nearest, ties to even, with saturation to `[-448, 448]`. The reference follows these CANN conversion rules; fused reduction order can still cause numerical differences.
 
-For C8, `quant_scale_ckv` is the **multiplicative quantization factor** `1/s_c`, not the KV dequantization scale `s_c`:
-
-$$
-c_8=\mathrm{FP8}(c/s_c),\qquad
-s_q=\max|q_n|/448,\qquad q_8=\mathrm{FP8}(q_n/s_q).
-$$
-
-The BF16 projected query component `q_r` is compensated as `q_r / (s_q * s_c)`. A downstream attention kernel that applies `s_q * s_c` to the combined dot product then recovers the original scale of the `q_r · k_r` term. `kr_cache` remains BF16. Do not apply this compensation a second time to the returned `query_rope`. An all-zero query row produces `s_q=0`; the reference follows CANN without replacing this scale by one or adding an epsilon.
+For C8, `quant_scale_ckv` is a **multiplicative quantization factor**, the reciprocal of the KV dequantization scale. Query quantization uses a dynamic scale for each token and head. After optional RoPE and BF16 conversion, `query_rope` receives inverse Q/KV scale compensation for downstream quantized attention; do not apply that compensation again. `kr_cache` remains BF16. An all-zero query row produces a zero Q scale; the reference follows CANN without replacing it by one or adding an epsilon.
 
 With `query_norm_flag=True`, mode 3 returns the **FP8 query latent and its E8M0 group scales even in C16 mode**. A BF16 attention query does not imply that `query_norm` is BF16.
 
@@ -135,7 +112,7 @@ For the reference-supported cases, use `C=512`, `R=64`, `D` in `{128, 192}`, `Rq
 | `rmsnorm_gamma_ckv` | Tensor `[C]`; BF16 | Required | KV latent RMSNorm weight, contiguous ND. |
 | `kv_cache` | Tensor `[pages,P,1,C]`; BF16 for C16, FP8 E4M3FN for C8 | Required | Mutable shared latent cache. `PA_NZ` uses the corresponding physical tile order. |
 | `kr_cache` | Tensor `[pages,P,1,R]`; BF16 | Required | Mutable cache for the R-dimensional projected key component `k_r`. The CANN-only packed modes have different storage requirements. |
-| `rope_sin`, `rope_cos` | `None` or empty tensor | `None` | Retained for compatibility with existing call arguments; a nonempty tensor raises `ValueError`. Both backends use the same constraint. |
+| `rope_sin`, `rope_cos` | Optional BF16 tensors `[T,R]` or `[B,S,R]` | `None` | Contiguous ND, with the same shape as each other and the token dimensions of `token_x`. Two nonempty tensors enable RoPE; two absent/empty arguments disable it. Only one nonempty raises `ValueError`. |
 | `cache_index` | Optional tensor `[T]` or `[B,S]`; int32/int64 | `None` | Required for the supported PA cases. Each entry identifies a valid logical slot; use distinct slots for a deterministic reference comparison. |
 | `dequant_scale_x` | Optional tensor `[T,H/32]`; E8M0 in mode 3 | `None` | Mode-3 input block scales. Other CANN quantization modes use their upstream scale layout. |
 | `dequant_scale_w_dq` | Optional tensor `[Rq,H/32]`; E8M0 in mode 3 | `None` | Mode-3 down-projection weight scales, contiguous ND. |
@@ -163,7 +140,7 @@ All five results are tensors. Disabled optional outputs are empty tensors, not e
 | Return value | Shape | Dtype in reference-supported cases | Meaning |
 | --- | --- | --- | --- |
 | `query` | `[T,N,C]` or `[B,S,N,C]` | BF16 for C16; FP8 E4M3FN for C8 | Absorbed query. |
-| `query_rope` | `[T,N,R]` or `[B,S,N,R]` | BF16 | R-dimensional projected query component `q_r`, without RoPE; includes scale compensation in C8 mode. |
+| `query_rope` | `[T,N,R]` or `[B,S,N,R]` | BF16 | R-dimensional query component after optional RoPE; includes scale compensation in C8 mode. |
 | `dequant_scale_q_nope` | `[T,N,1]` or `[B*S,N,1]`; otherwise empty | FP32 | Per-token/head query dequantization scale in C8 mode. |
 | `query_norm` | `[T,Rq]` or `[B,S,Rq]`; otherwise empty | Mode 0: BF16; mode 3: FP8 E4M3FN | Normalized query latent when requested. |
 | `dequant_scale_q_norm` | `[T,Rq/32]` or `[B*S,Rq/32]`; otherwise empty | E8M0 for mode 3 | MXFP8 query-latent group scales; empty in mode 0 or when not requested. |
@@ -174,19 +151,19 @@ Lazily imports `cann_ops_transformer.mla_prolog` and forwards its arguments. Thi
 
 ## torch_native backend
 
-Uses independent PyTorch CPU calculations as an accuracy reference for the three no-RoPE cases above and `PA_BSND`/`PA_NZ` caches. Outputs return to the input device, and both supplied caches are updated in place.
+Uses independent PyTorch CPU calculations as an accuracy reference for the three cases above, with and without RoPE, and `PA_BSND`/`PA_NZ` caches. Outputs return to the input device, and both supplied caches are updated in place.
 
 ## Example
 
-This arch35 example uses BF16 projections, no RoPE, and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated.
+This arch35 example uses BF16 projections and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated. `use_rope=False` selects Kimi's no-RoPE behavior. Set it to `True` to exercise RoPE using the same dimensions.
 
-Accuracy cases cover token counts `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`, each with local Q-head counts of 96/48/24/12/6/3, all three modes above, and both `PA_BSND`/`PA_NZ` cache layouts. Paired layout cases use the same generated inputs and weights, with `rope_sin=rope_cos=None`. Additional T5 cases cover negative cache slots in both layouts. Performance cases remain limited by default to TP4/TP16 shapes with `1, 4, 16, 32, 64` tokens in `PA_BSND`.
+Accuracy cases cover token counts `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`, each with local Q-head counts of 96/48/24/12/6/3, all three modes above, both `PA_BSND`/`PA_NZ` cache layouts, and RoPE enabled/disabled. On arch22, MXFP8 cases are skipped before input allocation; arch35 retains all three modes. Paired cases use the same generated inputs and weights. Additional T5 cases cover negative cache slots. Performance cases select TP4/TP16 shapes with `1, 4, 16, 32, 64` tokens in `PA_BSND`, also with and without RoPE. Existing precision criteria are retained, including independent Q scale checks and restoring the C8 `query_rope` compensation before applying its BF16 accuracy budget.
 
 ```python
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.attention import mla_prolog_norope
+from sgl_kernel_npu.operators.attention import mlaprolog_v4
 
 device = "npu"
 dtype = torch.bfloat16
@@ -207,10 +184,20 @@ slots = torch.tensor([0], device=device, dtype=torch.int64)
 kv_cache = torch.zeros(1, P, 1, C, device=device, dtype=dtype)
 kr_cache = torch.zeros(1, P, 1, R, device=device, dtype=dtype)
 
+use_rope = False
+rope_sin = rope_cos = None
+if use_rope:
+    positions = torch.arange(1, T + 1, dtype=torch.float32)
+    inv_freq = 10000.0 ** (-torch.arange(0, R, 2, dtype=torch.float32) / R)
+    angles = positions[:, None] * inv_freq[None, :]
+    angles = torch.cat((angles, angles), dim=-1)
+    rope_sin = angles.sin().to(device=device, dtype=dtype)
+    rope_cos = angles.cos().to(device=device, dtype=dtype)
+
 args = (x, w_dq, w_uq_qr, w_uk, w_dkv_kr, gamma_q, gamma_k)
 kwargs = dict(
-    rope_sin=None,
-    rope_cos=None,
+    rope_sin=rope_sin,
+    rope_cos=rope_cos,
     cache_index=slots,
     cache_mode="PA_BSND",
     weight_quant_mode=0,
@@ -220,13 +207,13 @@ kwargs = dict(
 )
 
 # auto selects the CANN V4 entry point and updates these two caches.
-query, query_rope, q_scale, q_norm, q_norm_scale = mla_prolog_norope(
+query, query_rope, q_scale, q_norm, q_norm_scale = mlaprolog_v4(
     *args, kv_cache, kr_cache, **kwargs, impl="auto"
 )
 print(query.shape, query_rope.shape, q_norm.shape)
 
 # Use fresh buffers because the API mutates the caches supplied to it.
-reference = mla_prolog_norope(
+reference = mlaprolog_v4(
     *args,
     torch.zeros_like(kv_cache),
     torch.zeros_like(kr_cache),
