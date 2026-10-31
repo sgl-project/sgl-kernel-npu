@@ -101,15 +101,7 @@ def parse_operators(value):
         raise ValueError("--ops must be 'all' or comma-separated operator IDs")
     if "all" in operators or len(set(operators)) != len(operators):
         raise ValueError("--ops must not mix 'all' with IDs or repeat an ID")
-    return _complete_operator_groups(operators)
-
-
-def _complete_operator_groups(operators):
-    # Cache-location interfaces share one native implementation and are packaged together.
-    pair = ("cache_loc_assign", "cache_loc_update")
-    if any(item in operators for item in pair):
-        return tuple(operators) + tuple(item for item in pair if item not in operators)
-    return tuple(operators)
+    return operators
 
 
 def build_cann(
@@ -121,7 +113,6 @@ def build_cann(
     build_root=None,
 ):
     """Build and stage a CANN package for the selected operators."""
-    operators = _complete_operator_groups(operators)
     compute_units = architecture(arch_version, source_root)["compute_units"]
     if jobs is not None and jobs < 1:
         raise ValueError("--jobs must be positive")

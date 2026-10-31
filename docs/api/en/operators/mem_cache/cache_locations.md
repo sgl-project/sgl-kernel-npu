@@ -98,8 +98,9 @@ no floating-point promotion. Graph capture and autograd have not been validated.
 
 ## Build and test
 
-The operators are built together. Selecting either ID through `setup.py --ops`
-includes both interfaces. Direct CMake builds must select both IDs or `ALL`.
+Operator selection is passed through unchanged; selecting one ID does not
+automatically add the other. Building, installing and running a single selected
+operator still requires CANN/NPU validation. The example below selects both IDs.
 
 ```bash
 python3 setup.py --make_clean --arch-version 2201 \

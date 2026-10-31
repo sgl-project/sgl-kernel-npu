@@ -88,8 +88,8 @@ AscendC 的区间长度上限为 `MAX_STEP=16`，还受 UB 容量及对齐读取
 
 ## 构建与测试
 
-两个算子成对构建。通过 `setup.py --ops` 选择任意一个 ID 都会包含两个接口；
-直接使用 CMake 时须选择两个 ID 或 `ALL`。
+构建保留显式选择的算子列表，选择一个 ID 不会自动补齐另一个。
+单选算子的构建、安装及调用仍需 CANN/NPU 验证。以下示例显式选择两个 ID。
 
 ```bash
 python3 setup.py --make_clean --arch-version 2201 \
