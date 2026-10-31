@@ -80,8 +80,7 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     auto finalState = at::empty({b, nv, dv, dk}, initial_state->options());
     const float scaleValue = scale.has_value() ? static_cast<float>(*scale) : 1.0f;
 
-    // Generated prototypes are authoritative: an incompatible Ref signature must
-    // fail SDK compilation. Optional same-name chunk Ref occupies one input slot.
+    // Use the generated prototypes to check the ACLNN argument types and order.
     static auto queryWorkspace = reinterpret_cast<decltype(&aclnnSglChunkGatedDeltaRuleGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglChunkGatedDeltaRuleGetWorkspaceSize"));
     static auto execute = reinterpret_cast<decltype(&aclnnSglChunkGatedDeltaRule)>(
@@ -99,9 +98,10 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     auto finalDesc = sgl_cann::tensor_descriptor(finalState, stateDtype);
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
+    // Bind both optional ports to the same working buffer (or both to nullptr).
     const auto status = queryWorkspace(qDesc.get(), kDesc.get(), vDesc.get(), betaDesc.get(), stateDesc.get(),
                                        lengthsDesc.get(), gammaDesc.get(), chunkDesc.get(), scaleValue, outDesc.get(),
-                                       finalDesc.get(), &workspaceSize, &executor);
+                                       finalDesc.get(), chunkDesc.get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "CGDR workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
                 "ACLNN workspace size exceeds the Tensor allocation limit");

@@ -231,7 +231,7 @@ static ge::graphStatus TilingChunkGatedDeltaRule(gert::TilingContext *context)
 
 namespace ops {
 
-// Output tensors preserve the value/state shapes; optional Ref mirrors its input.
+// Output tensors preserve the value/state shapes; the optional result follows chunk_state.
 static ge::graphStatus InferShape(gert::InferShapeContext *context)
 {
     const auto *value = context->GetInputShape(2);
@@ -242,10 +242,10 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     *out = *value;
     *finalState = *state;
     const auto *chunk = context->GetInputShape(7);
-    auto *chunkRef = context->GetOutputShape(2);
+    auto *chunkResult = context->GetOutputShape(2);
     if (chunk) {
-        if (!chunkRef) return ge::GRAPH_FAILED;
-        *chunkRef = *chunk;
+        if (!chunkResult) return ge::GRAPH_FAILED;
+        *chunkResult = *chunk;
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -264,7 +264,7 @@ class SglChunkGatedDeltaRule : public OpDef
 public:
     explicit SglChunkGatedDeltaRule(const char *name) : OpDef(name)
     {
-        // Two dtype combinations differ only in state and its optional Ref buffer.
+        // Two dtype combinations differ only in state and its optional chunk buffer.
         for (const auto *input : {"query", "key", "value", "beta"}) {
             this->Input(input)
                 .ParamType(REQUIRED)
@@ -302,8 +302,8 @@ public:
             .DataType({ge::DT_BF16, ge::DT_FLOAT})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND});
-        // Same-name output requests Ref generation; optional Ref needs real SDK validation.
-        this->Output("chunk_state")
+        // The Torch adapter binds this output to the chunk_state working buffer.
+        this->Output("chunk_state_result")
             .ParamType(OPTIONAL)
             .DataType({ge::DT_BF16, ge::DT_FLOAT})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND})

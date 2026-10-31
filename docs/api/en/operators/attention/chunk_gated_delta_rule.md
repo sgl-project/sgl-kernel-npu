@@ -90,7 +90,7 @@ intermediate BF16 storage, or either NPU generation.
 
 | Implementation | Declaration / implementation | Validation boundary |
 | --- | --- | --- |
-| `auto`, `ascendc` | arch22 (`2201`), arch35 (`3510`); arch22 BF16 state, arch35 BF16/FP32 state | Real generated ACLNN header, optional Ref support, SDK compilation, workspace compatibility and NPU precision remain pending |
+| `auto`, `ascendc` | arch22 (`2201`), arch35 (`3510`); arch22 BF16 state, arch35 BF16/FP32 state | Full SDK build, optional chunk-state execution, workspace compatibility and NPU precision remain pending |
 | `torch_native` | Independent PyTorch computation with the shapes/dtypes above | Reference implementation; NPU comparison remains pending |
 
 The normal package/public registry requires the installed NPU runtime.

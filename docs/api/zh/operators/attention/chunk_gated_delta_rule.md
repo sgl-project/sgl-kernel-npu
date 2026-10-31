@@ -77,7 +77,7 @@ out_t = scale S_t q_t
 
 | 实现 | 声明与实现范围 | 验证边界 |
 | --- | --- | --- |
-| `auto`、`ascendc` | arch22（`2201`）、arch35（`3510`）；arch22 为 BF16 状态，arch35 为 BF16/FP32 状态 | 真实生成 ACLNN 头、可选 Ref 支持、SDK 编译、workspace 兼容性和 NPU 精度仍待验证 |
+| `auto`、`ascendc` | arch22（`2201`）、arch35（`3510`）；arch22 为 BF16 状态，arch35 为 BF16/FP32 状态 | 完整 SDK 构建、可选 chunk_state 执行、workspace 兼容性和 NPU 精度仍待验证 |
 | `torch_native` | 独立 PyTorch 计算，采用上述 shape/dtype | 参考实现；NPU 精度对照仍待验证 |
 
 正常包导入和公开注册表需要已安装的 NPU 运行环境。公开分发不提供 CPU 回退。

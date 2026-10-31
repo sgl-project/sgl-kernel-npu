@@ -24,7 +24,7 @@ using namespace ChunkGatedDeltaRule;
 extern "C" __global__ __aicore__ void sgl_chunk_gated_delta_rule(GM_ADDR query, GM_ADDR key, GM_ADDR value,
                                                                  GM_ADDR beta, GM_ADDR initialState, GM_ADDR seqlens,
                                                                  GM_ADDR gOptional, GM_ADDR chunkState, GM_ADDR out,
-                                                                 GM_ADDR finalState, GM_ADDR chunkStateRef,
+                                                                 GM_ADDR finalState, GM_ADDR chunkStateResult,
                                                                  GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(ChunkGatedDeltaRuleTilingData);
@@ -37,7 +37,7 @@ extern "C" __global__ __aicore__ void sgl_chunk_gated_delta_rule(GM_ADDR query, 
     ChunkGatedDeltaRuleTilingData *tilingData = &data;
 
     CGDRInitParams initParams{query,   key,       value, beta,       initialState,
-                              seqlens, gOptional, out,   finalState, chunkStateRef};
+                              seqlens, gOptional, out,   finalState, chunkStateResult};
 
     if (tilingData->stateIsFp32 != 0 && tilingData->hasGamma != 0) {
         CGDR<bfloat16_t, float, float, true> op(&pipe, tilingData);
