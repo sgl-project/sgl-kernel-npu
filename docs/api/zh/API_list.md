@@ -22,6 +22,7 @@
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`、`torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`、`torch_native` |
 
 ## batch invariant 算子
 
