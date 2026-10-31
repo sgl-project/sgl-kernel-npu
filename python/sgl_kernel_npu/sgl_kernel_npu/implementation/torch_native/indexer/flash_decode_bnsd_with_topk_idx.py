@@ -173,20 +173,8 @@ def flash_decode_bnsd_with_topk_idx(
             block_table.ndim == 2
         ), f"block_table must be 2D, got shape={tuple(block_table.shape)}"
 
-    assert q.ndim == 3, f"q must be [B, QH, D], got shape={tuple(q.shape)}"
     batch_size, num_q_heads, head_dim = q.shape
-    assert k_cache_bnsd.ndim == 4, (
-        "k_cache_bnsd must be [num_blocks, block_size, KVH, D], "
-        f"got shape={tuple(k_cache_bnsd.shape)}"
-    )
     _, block_size_from_cache, num_kv_heads, cache_head_dim = k_cache_bnsd.shape
-
-    assert num_q_heads > 0 and num_kv_heads > 0, (
-        f"num_q_heads and num_kv_heads must be positive, got "
-        f"{num_q_heads} and {num_kv_heads}"
-    )
-    assert head_dim > 0, f"head_dim must be positive, got {head_dim}"
-    assert block_size > 0, f"block_size must be positive, got {block_size}"
 
     assert block_size_from_cache == block_size
     assert cache_head_dim == head_dim

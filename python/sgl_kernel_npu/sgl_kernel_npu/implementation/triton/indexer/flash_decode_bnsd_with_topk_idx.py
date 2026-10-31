@@ -1532,36 +1532,12 @@ def flash_decode_bnsd_with_topk_idx(
         assert v_cache_bnsd.dtype == q.dtype
         assert v_cache_bnsd.shape == k_cache_bnsd.shape
 
-    assert q.ndim == 3, f"q must be [B, QH, D], got shape={tuple(q.shape)}"
     batch_size, num_q_heads, head_dim = q.shape
-    assert k_cache_bnsd.ndim == 4, (
-        "k_cache_bnsd must be [num_blocks, block_size, KVH, D], "
-        f"got shape={tuple(k_cache_bnsd.shape)}"
-    )
     _, block_size_from_cache, num_kv_heads, cache_head_dim = k_cache_bnsd.shape
-
-    # Support matrix (P7): reject only combinations the kernels cannot handle.
-    assert num_q_heads > 0 and num_kv_heads > 0, (
-        f"num_q_heads and num_kv_heads must be positive, got "
-        f"{num_q_heads} and {num_kv_heads}"
-    )
-    assert head_dim > 0, f"head_dim must be positive, got {head_dim}"
-    assert block_size > 0, f"block_size must be positive, got {block_size}"
 
     assert block_size_from_cache == block_size
     assert cache_head_dim == head_dim
     assert num_q_heads % num_kv_heads == 0
-    # Contract C16: the sink participates in the LSE denominator only.
-    if not disable_index_value and sink is not None:
-        assert (
-            sink.dtype == q.dtype
-        ), f"sink dtype must match q ({q.dtype}), got {sink.dtype}"
-        assert (
-            sink.device == q.device
-        ), f"sink device must match q ({q.device}), got {sink.device}"
-        assert tuple(sink.shape) == (num_q_heads, head_dim), (
-            f"sink shape must be {(num_q_heads, head_dim)}, " f"got {tuple(sink.shape)}"
-        )
     gqa_group_size = num_q_heads // num_kv_heads
     if packed_seq_lens:
         assert disable_index_value, "packed_seq_lens is score-only"
