@@ -21,7 +21,15 @@ run_test() {
     elif grep -q 'def test_' "$test_file"; then
         # Pytest-style test without __main__: collect and run it with pytest.
         # Direct 'python3 file.py' would only import and falsely pass.
-        python3 -m pytest "$test_file" -q -x || exit_code=$?
+        if [[ "$test_file" = /* ]]; then
+            (
+                cd "$GITHUB_WORKSPACE" || exit 1
+                PYTHONPATH="${GITHUB_WORKSPACE}${PYTHONPATH:+:${PYTHONPATH}}" \
+                    python3 -m pytest "$test_file" -q -x --enable-perf=false
+            ) || exit_code=$?
+        else
+            python3 -m pytest "$test_file" -q -x || exit_code=$?
+        fi
     else
         # Plain script (e.g. test_hello_world.py): run it directly
         python3 "$test_file" || exit_code=$?
@@ -49,12 +57,16 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
     test_split_qkv_tp_rmsnorm_rope.py
     test_fused_rope_qk_mqa.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_kpool_indexer_prepare_decode_input.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_kpool_group_and_tail_to_topk.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_causal_seqlens.py"
 )
 
 CACHE_TESTS=(
@@ -65,6 +77,10 @@ CACHE_TESTS=(
     test_inplace_assign_cache.py
     test_lightning_indexer.py
     test_transfer_kv_dim_exchange.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_rotate_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_scatter_kpool_tail_updates.py"
 )
 
 SPECULATIVE_TESTS=(
@@ -94,6 +110,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)

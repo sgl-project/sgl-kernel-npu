@@ -1,1 +1,1 @@
-"""PyTorch indexer implementations."""
+"""Native PyTorch indexer implementations."""
