@@ -6,13 +6,18 @@ import triton.language as tl
 
 from ..utils.triton_utils import get_device_properties
 
-UB_SPECIFICATION = 85  # KiB available for the live int32 tensors.
+UB_SPECIFICATION = 192  # KiB of unified buffer per vector core.
+# The live tiles may claim two thirds of it; the rest goes to pipeline stages and
+# alignment padding that do not scale with the tile.
+UB_TILE_BUDGET = UB_SPECIFICATION * 2 // 3  # KiB
 
 
 def _choose_block_b(n_pool_topk: int, pool_size: int) -> int:
-    # Pool indices, their bases and expanded token indices coexist in the tile.
-    estimated_bytes_per_row = n_pool_topk * (2 + pool_size) * 4
-    max_rows = max(1, UB_SPECIFICATION * 1024 // estimated_bytes_per_row)
+    # Once BLOCK_B > 1 the expanded tile is materialised four times per row (tmp,
+    # transpose, reshape and the pipeline copy); BLOCK_B == 1 fuses the transpose
+    # into the reshape and only keeps two.
+    tile_bytes_per_row = 4 * n_pool_topk * pool_size * 4
+    max_rows = max(1, UB_TILE_BUDGET * 1024 // tile_bytes_per_row)
     return min(8, 1 << (max_rows.bit_length() - 1))
 
 
