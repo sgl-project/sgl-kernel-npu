@@ -1,9 +1,10 @@
-# The root Torch build keeps its existing implementation during migration.
+# Route the parent Torch project to the existing build during migration.
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include("${CMAKE_CURRENT_LIST_DIR}/../cmake/legacy_kernels.cmake")
     return()
 endif()
 
+# Validate build inputs and expand ARCH into the SDK compute-unit families.
 cmake_minimum_required(VERSION 3.20)
 project(sgl_cann_ops LANGUAGES NONE)
 
@@ -26,10 +27,13 @@ foreach(index RANGE ${last})
     list(APPEND SGL_CANN_COMPUTE_UNITS "${unit}")
 endforeach()
 
+# Load shared declarations, discover domains, and select supported operators.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/operators.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/domains.cmake")
 sgl_add_operator_domains()
 sgl_select_operators(selected_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
+sgl_resolve_operators(ARCH "${SGL_ARCH_VERSION}" OPERATORS ${selected_operators})
+# Record selection and reject incompatible reuse of this build directory.
 message(STATUS "Selected CANN operators: ${selected_operators}; ARCH: ${SGL_ARCH_VERSION}; SDK targets: ${SGL_CANN_COMPUTE_UNITS}")
 string(REPLACE ";" "\n" selection_text "${selected_operators}")
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt"
@@ -40,6 +44,7 @@ if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
 
+# Check the Host environment before enabling C++ or loading the CANN SDK.
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "CANN code generation requires Linux")
 endif()
@@ -47,6 +52,7 @@ if(NOT IS_DIRECTORY "$ENV{ASCEND_HOME_PATH}")
     message(FATAL_ERROR "ASCEND_HOME_PATH must point to the initialized CANN SDK")
 endif()
 
+# Initialize the C++ toolchain and load the selected SDK's CMake functions.
 enable_language(CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -66,6 +72,7 @@ find_package(ASC REQUIRED CONFIG PATHS
     NO_DEFAULT_PATH
 )
 
+# Define the Run package for a full Kernel build, then dispatch each checkpoint.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cann_ops.cmake")
 if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     npu_op_package(sgl_kernel_npu TYPE RUN
