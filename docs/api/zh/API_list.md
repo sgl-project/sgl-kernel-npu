@@ -9,6 +9,8 @@
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
 | [fused_variance](operators/norm/fused_variance.md) | `triton`、`torch_native` |
 | [rmsnorm_bias](operators/norm/rmsnorm_bias.md) | `triton`、`torch_native` |
+| [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
+| [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
@@ -29,3 +31,21 @@
 | [scatter_kpool_tail_updates](operators/mem_cache/scatter_kpool_tail_updates.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`、`torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
+| [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+
+## batch invariant 算子
+
+这些算子是对外部包的封装，需要额外的安装步骤，见[安装说明](operators/batch_invariant/installation.md)。
+
+| 接口名称 | 支持的后端 |
+| --- | --- |
+| [mm](operators/batch_invariant/mm.md) | `batch_invariant_ops` |
+| [matmul](operators/batch_invariant/matmul.md) | `batch_invariant_ops` |
+| [reduce_mean](operators/batch_invariant/reduce_mean.md) | `batch_invariant_ops` |
+| [reduce_sum](operators/batch_invariant/reduce_sum.md) | `batch_invariant_ops` |
+| [softmax](operators/batch_invariant/softmax.md) | `batch_invariant_ops` |
+| [log_softmax](operators/batch_invariant/log_softmax.md) | `batch_invariant_ops` |
+| [add_rms_norm](operators/batch_invariant/add_rms_norm.md) | `batch_invariant_ops` |
+| [fused_linear_online_max_sum](operators/batch_invariant/fused_linear_online_max_sum.md) | `batch_invariant_ops` |
+| [fused_infer_attention_score](operators/batch_invariant/fused_infer_attention_score.md) | `batch_invariant_ops` |
+| [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
