@@ -29,7 +29,7 @@ For `K=pool_size` and input `T[...,M]`:
 
 $$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
 
-Leading dimensions are preserved and `M=0` leaves the last dimension empty, unlike the minimum one-column padding of `kpool_indexer_prepare_decode_input`. Inputs are read only; output dtype is preserved. `pool_size` is a positive divisor of 128; the input column count need not divide 128. The `_64` suffix does not impose a physical page size on this interface.
+Leading dimensions are preserved and `M=0` leaves the last dimension empty, unlike the minimum one-column padding of `kpool_indexer_prepare_decode_input`. Inputs are read only; output dtype is preserved. `pool_size` is a positive divisor of 128; the input column count need not divide 128.
 
 ## Parameters and return value
 
@@ -43,7 +43,7 @@ Leading dimensions are preserved and `M=0` leaves the last dimension empty, unli
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[..., ceil(NUM_BLOCKS / pool_size)]` | Same as `page_table_64` | Newly allocated result; the input is not modified. Consumers must impose any separate contiguity requirement they have. |
 
-All tensors must be on the same NPU. Callers supply valid indices, sufficient storage, and initialized history, and prevent conflicting state writes; wrappers do not validate every value range.
+Input and output reside on the same NPU; the input is not modified.
 
 ## torch_native backend
 

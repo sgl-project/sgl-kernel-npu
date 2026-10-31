@@ -1,9 +1,4 @@
-"""Fused causal metadata expansion extracted from SGLang's Ascend DSA backend.
-
-Source: sglang 2e33063ba80a19854e326862569639bf3ee8c771,
-python/sglang/srt/hardware_backend/npu/attention/ascend_dsa_backend.py.
-Kernel and launch wrapper are preserved; only the public wrapper is renamed.
-"""
+"""Expand per-request causal lengths and packed-token request IDs."""
 
 from typing import Optional
 

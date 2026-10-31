@@ -55,7 +55,7 @@ Here `n_heads=n_heads_pow` and `s=softmax_scale`. Zero-pad the table to `M_pad=m
 | `pool_seqlens` | `torch.Tensor` | `[N]` | `torch.int32` | Integer-divided pooled sequence lengths. |
 | `pool_block_tables` | `torch.Tensor` | `[N, N_POOL]` | `torch.int32` | Newly allocated pooled page table. |
 
-All tensors must be on the same NPU. Callers supply valid indices, sufficient storage, and initialized history, and prevent conflicting state writes; wrappers do not validate every value range.
+All tensors must be on the same NPU. Callers provide valid input values; the wrapper does not validate every value range.
 
 ## triton backend
 

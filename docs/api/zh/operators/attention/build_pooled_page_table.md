@@ -29,7 +29,7 @@ def build_pooled_page_table(
 
 $$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
 
-前导维度保持不变，`M=0` 时最后一维仍为空；不会像 `kpool_indexer_prepare_decode_input` 那样补到至少一列。输入只读，输出 dtype 与输入相同。`pool_size` 是 128 的正因子；输入列数无需整除 128。后缀 `_64` 不构成当前接口强制的物理页大小。
+前导维度保持不变，`M=0` 时最后一维仍为空；不会像 `kpool_indexer_prepare_decode_input` 那样补到至少一列。输入只读，输出 dtype 与输入相同。`pool_size` 是 128 的正因子；输入列数无需整除 128。
 
 ## 参数与返回值
 
@@ -43,7 +43,7 @@ $$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[..., ceil(NUM_BLOCKS / pool_size)]` | 与 `page_table_64` 相同 | 新建结果，不修改输入；调用方若有额外连续性要求，需自行处理。 |
 
-所有 tensor 位于同一 NPU。上游保证索引值域、容量与读入历史有效，避免原地状态的并发写冲突；wrapper 不完整检查所有值域。
+输入输出位于同一 NPU，输入不被修改。
 
 ## torch_native 后端
 

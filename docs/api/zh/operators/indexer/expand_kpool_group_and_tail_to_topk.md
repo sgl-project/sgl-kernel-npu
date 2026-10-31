@@ -52,7 +52,7 @@ $$O_{r,pK+j}=K I_{r,p}+j\;(0\le j<K),\quad q_r=\lfloor L_r/K\rfloor K,\quad t_r=
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[num_q_padded, index_topk + pool_size - 1]` | `torch.int32` | 展开索引后接 tail slot；不修改输入。 |
 
-所有 tensor 位于同一 NPU。上游保证索引值域、容量与读入历史有效，避免原地状态的并发写冲突；wrapper 不完整检查所有值域。
+所有 tensor 位于同一 NPU。调用方保证输入值有效，wrapper 不完整检查所有值域。
 
 ## triton 后端
 

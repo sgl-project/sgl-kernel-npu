@@ -52,7 +52,7 @@ The suffix has `K-1` columns: entry `j<t_r` equals `q_r+j`, otherwise `-1`. The 
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[num_q_padded, index_topk + pool_size - 1]` | `torch.int32` | Expanded indices followed by tail slots. Inputs are not modified. |
 
-All tensors must be on the same NPU. Callers supply valid indices, sufficient storage, and initialized history, and prevent conflicting state writes; wrappers do not validate every value range.
+All tensors must be on the same NPU. Callers provide valid input values; the wrapper does not validate every value range.
 
 ## triton backend
 

@@ -55,7 +55,7 @@ $$w=\operatorname{BF16}((\operatorname{FP32}(x)W^T)\cdot n_{heads}\cdot s),\qqua
 | `pool_seqlens` | `torch.Tensor` | `[N]` | `torch.int32` | 整除后的 pool 序列长度。 |
 | `pool_block_tables` | `torch.Tensor` | `[N, N_POOL]` | `torch.int32` | 新建的 pool 页表。 |
 
-所有 tensor 位于同一 NPU。上游保证索引值域、容量与读入历史有效，避免原地状态的并发写冲突；wrapper 不完整检查所有值域。
+所有 tensor 位于同一 NPU。调用方保证输入值有效，wrapper 不完整检查所有值域。
 
 ## triton 后端
 

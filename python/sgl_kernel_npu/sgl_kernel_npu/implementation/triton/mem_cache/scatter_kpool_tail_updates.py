@@ -120,10 +120,7 @@ def scatter_kpool_tail_updates(
     chunk_src_start: torch.Tensor,
     n_write: torch.Tensor,
 ) -> None:
-    """NPU drop-in replacement for GPU scatter_kpool_tail_updates.
-
-    The signature matches ``kpool_fp8_index.scatter_kpool_tail_updates`` exactly.
-    """
+    """Copy selected chunk keys and scores into request-local tail rings."""
     pool_size = pool.index_kpool
     n_rows = req_pool_idx.shape[0]
     if n_rows == 0:

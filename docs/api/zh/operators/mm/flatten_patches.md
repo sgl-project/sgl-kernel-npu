@@ -6,8 +6,6 @@
 | --- | --- | --- |
 | `torch_native` | 未验证 | 未验证 |
 
-实现使用 PyTorch 张量操作。抽取后公共 API 在两种架构上的 NPU 执行与性能均待验证。
-
 ## 函数签名
 
 ```python
@@ -26,12 +24,8 @@ def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, imp
 块内行、块内列排序；特征依次按通道、时间 patch 内帧、像素行、像素列排序。
 
 记 `P=patch_size`、`M=merge_size`、`TP=temporal_patch_size`，网格为
-`(ceil(T/TP), H/P, W/P)`。每次 reshape/permute 最多使用八维布局，避免在 NPU
-执行上游十维置换。输入只读；恒等布局下输出可能与输入共享存储。
-
-来源为 SGLang
-[`932adcd205` 的 glm_vl_utils.py](https://github.com/IceShip423/sglang/blob/932adcd20532c57e59e89076e49bf71789650293/python/sglang/srt/hardware_backend/npu/modules/glm_vl_utils.py)
-中的 `_npu_safe_flatten_patches`。
+`(ceil(T/TP), H/P, W/P)`。每次 reshape/permute 最多使用八维布局，满足 NPU
+置换操作的维度约束。输入只读；恒等布局下输出可能与输入共享存储。
 
 ## 参数
 
@@ -54,10 +48,7 @@ def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, imp
 
 ## torch_native
 
-通过帧扩展、拼接及两步低维布局转换实现。本算子只做布局变换，仅有一个实现；
-`auto` 是别名，不作为独立 reference。测试在 CPU 执行上游十维变换，
-再将预期转至输入设备逐元素精确比较，不在 NPU 执行十维 reference。
-测试提供代表性图像与视频形状的可选 profiling，本文不提供未测量的性能结果。
+通过帧扩展、拼接及两步最多八维的布局转换实现。
 
 ## 示例
 

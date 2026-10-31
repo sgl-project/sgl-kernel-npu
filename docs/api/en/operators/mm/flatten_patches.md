@@ -6,9 +6,6 @@
 | --- | --- | --- |
 | `torch_native` | Unverified | Unverified |
 
-The implementation uses PyTorch tensor operations. NPU execution and performance
-of this extracted API have not yet been validated on either architecture.
-
 ## Signature
 
 ```python
@@ -30,11 +27,8 @@ frame within the temporal patch, pixel row and pixel column.
 
 With `P=patch_size`, `M=merge_size`, `TP=temporal_patch_size`, the grid is
 `(ceil(T/TP), H/P, W/P)`. The implementation uses at most eight dimensions for
-each reshape/permute, avoiding the upstream 10-D permutation on NPU. Inputs are
+each reshape/permute, keeping permutations within the NPU dimension limit. Inputs are
 read-only; the output may alias the input for identity layouts.
-
-Extracted from `_npu_safe_flatten_patches` in SGLang
-[`glm_vl_utils.py` at 932adcd205](https://github.com/IceShip423/sglang/blob/932adcd20532c57e59e89076e49bf71789650293/python/sglang/srt/hardware_backend/npu/modules/glm_vl_utils.py).
 
 ## Parameters
 
@@ -57,12 +51,7 @@ Extracted from `_npu_safe_flatten_patches` in SGLang
 
 ## torch_native
 
-Uses frame expansion/concatenation and two low-rank layout transformations.
-This layout-only operator has one implementation; `auto` is an alias, not an
-independent reference. Tests compare bitwise with the upstream 10-D transformation
-executed on CPU, then transferred to the input device. No 10-D reference runs on
-NPU. The tests provide optional profiling for representative image/video shapes;
-no performance results are claimed here.
+Uses frame expansion/concatenation and two layout transformations of at most eight dimensions.
 
 ## Example
 

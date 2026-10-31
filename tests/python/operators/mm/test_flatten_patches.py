@@ -13,7 +13,7 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-# Representative GLM image/video geometry, not captured production tensors.
+# Representative image/video shapes.
 perf_shape = [(1, 1, 3, 448, 448), (1, 5, 3, 224, 224)]
 
 
@@ -28,7 +28,7 @@ def generate_data(shape, dtype, noncontiguous):
 
 
 def reference_flatten_patches(patches, patch_size, merge_size, temporal_patch_size):
-    # The upstream 10-D layout is valid on CPU; never execute it on NPU.
+    # Evaluate the independent 10-D layout reference on CPU.
     patches = patches.cpu()
     remainder = patches.shape[1] % temporal_patch_size
     if remainder:
@@ -122,10 +122,10 @@ def test_flatten_patches(
         assert actual[1:] == tuple(grid)
         assert_accuracy(patches, original)
 
-    # auto/native alias one layout implementation; CPU upstream is independent.
+    # auto/native alias one layout implementation; the CPU layout reference is independent.
     executor = partial(flatten_patches, *args, impl=impl)
     executor.impl = impl
-    executor.impl_ref = "upstream_cpu_layout"
+    executor.impl_ref = "cpu_layout_reference"
     executor.accuracy_checked = accuracy_checked
     check_performance(executor, enable_perf=shape in perf_shape)
 

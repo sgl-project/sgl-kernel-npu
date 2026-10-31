@@ -1,7 +1,4 @@
-"""GLM patch layout extracted from SGLang PR #43305, commit 932adcd205.
-
-The source helper is _npu_safe_flatten_patches in glm_vl_utils.py.
-"""
+"""Flatten image/video patches using layouts of at most eight dimensions."""
 
 import torch
 
@@ -36,7 +33,7 @@ def flatten_patches(
     grid_h = resized_height // patch_size
     grid_w = resized_width // patch_size
 
-    # Split the upstream 10-D view/permute into two transformations with at
+    # Use two layout transformations with at
     # most 8 dimensions, preserving temporal, channel and spatial ordering.
     patches = patches.reshape(
         batch_size * grid_t,
