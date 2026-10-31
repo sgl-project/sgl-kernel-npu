@@ -93,7 +93,8 @@ $$
 
 ## 参数与返回值
 
-公开 operator 直接透传参数，不执行输入检查；约束由各实现校验。
+公开 operator 直接透传参数，不执行输入检查；dtype、page source 组合、capacity、packed 的
+`num_kv_heads`、`seq_lens`/`block_table` 维数等关键约束由各实现校验，其余 shape 约束由调用方保证。
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
@@ -160,7 +161,7 @@ softmax 分母。
 - 按整段 KV 一次计算，显存与耗时随 KV 长度线性增长，仅用于正确性对比；`o` 恒为 `None`。
 - `topk_idx` 在分数无并列时与 Triton 一致；同分次序未定义。
 - `packed_seq_lens` 与 `runtime_score_short_max_blocks` 同时使用、且行组跨越该阈值时，候选列表可能被截断，
-  不保证与 Triton 等价（测试标 `xfail`）。
+  不保证与 Triton 等价。
 
 ## 调用示例
 

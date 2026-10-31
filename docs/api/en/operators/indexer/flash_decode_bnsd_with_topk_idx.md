@@ -94,8 +94,10 @@ Each query row and head returns the `topk` blocks with the highest scores. Typic
 
 ## Parameters and returns
 
-The public operator forwards arguments without input checks; each implementation validates its own
-constraints.
+The public operator forwards arguments without input checks; each implementation validates key
+constraints such as dtypes, page-source combinations, capacity, the packed `num_kv_heads`
+requirement, and the `seq_lens`/`block_table` dimensions. Other shape constraints are the caller's
+responsibility.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
@@ -166,7 +168,7 @@ score-only path; `sink` only affects the full attention denominator.
   meant for correctness checks only; `o` is always `None`.
 - `topk_idx` matches Triton when scores are distinct; the order of equally scored blocks is undefined.
 - `packed_seq_lens` combined with `runtime_score_short_max_blocks` may truncate the candidate list when a row
-  group crosses the threshold; equivalence with Triton is not guaranteed (the test is marked `xfail`).
+  group crosses the threshold; equivalence with Triton is not guaranteed.
 
 ## Example
 
