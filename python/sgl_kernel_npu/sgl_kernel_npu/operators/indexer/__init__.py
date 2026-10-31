@@ -1,3 +1,4 @@
+from .append_local_block_to_topk_idx import append_local_block_to_topk_idx
 from .build_pooled_page_table import build_pooled_page_table
 from .expand_causal_seqlens import expand_causal_seqlens
 from .expand_kpool_group_and_tail_to_topk import expand_kpool_group_and_tail_to_topk
@@ -6,6 +7,7 @@ from .kpool_indexer_prepare_decode_input import kpool_indexer_prepare_decode_inp
 from .pool_key_indexer import pool_key_indexer
 
 __all__ = [
+    "append_local_block_to_topk_idx",
     "build_pooled_page_table",
     "expand_causal_seqlens",
     "expand_kpool_group_and_tail_to_topk",
