@@ -354,31 +354,78 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 #endif
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
+    at::Tensor expand_idx_out;
 #ifdef __DAV_C310__
-    if (quant_mode == MXFP8_SCALES) {
-        if (quant_type == "mx_fp8_e5m2") {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
-        } else {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
-        }
-        dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
-    } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
-        expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
-        dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
-    } else if (quant_mode == MXFP4_SCALES) {
-        expandx_out =
-            torch::empty({num_recv_tokens, hidden / MXFP4_HALF}, at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
-        dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
-    } else
-#endif
     {
-        expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
-                                : torch::empty({num_recv_tokens, hidden}, x.options());
-        dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        // A5 (Ascend 950): allocate a single combined GM buffer and expose strided views for the three outputs.
+        // The dispatch kernel writes each row [主数据][scale][expandIdx] contiguously (hScaleIdxSize bytes, padded to
+        // hOutGMAlignSize), so the three returned tensors are views over the same storage. Layout must mirror
+        // CamMoeDispatchNormalA5::Init() in cam_moe_dispatch_normal_a5.h.
+        constexpr int64_t UB_ALIGN = 32;
+        constexpr int64_t WIN_ADDR_ALIGN = 512;
+        const bool is_mxfp8 = (quant_mode == MXFP8_SCALES);
+        const bool is_mxfp4 = (quant_mode == MXFP4_SCALES);
+        const bool is_mx = is_mxfp8 || is_mxfp4;
+        const bool is_pertoken_fp8 = (quant_mode == PER_TOKEN_FP8_SCALES);
+        const bool is_no_scales = (quant_mode == NO_SCALES);
+
+        int64_t data_bytes;
+        at::ScalarType out_dtype;
+        if (is_mxfp4) {
+            data_bytes = (hidden + MXFP4_HALF - 1) / MXFP4_HALF;  // fp4x2 packs 2 elems per byte
+            out_dtype = at::kFloat4_e2m1fn_x2;
+        } else if (is_no_scales) {
+            data_bytes = hidden * 2;  // bf16/fp16
+            out_dtype = x.scalar_type();
+        } else {
+            data_bytes = hidden;  // fp8/int8: 1 byte per element
+            out_dtype = (is_mxfp8 && quant_type == "mx_fp8_e5m2") ? at::kFloat8_e5m2 : at::kFloat8_e4m3fn;
+        }
+        int64_t hUBAlignSize = ((data_bytes + UB_ALIGN - 1) / UB_ALIGN) * UB_ALIGN;
+        int64_t quantScalePerToken = is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : 1;
+        int64_t scaleElemSize = is_mx ? 1 : 4;
+        int64_t quantScalePerTokenAlign = ((quantScalePerToken * scaleElemSize + UB_ALIGN - 1) / UB_ALIGN) * UB_ALIGN;
+        int64_t scaleBytes = is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : (int64_t)sizeof(float);
+        int64_t hScaleSizeAlign = hUBAlignSize + quantScalePerTokenAlign;
+        int64_t hScaleIdxSize =
+            hScaleSizeAlign + 3 * (int64_t)sizeof(int32_t) + (is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : 0);
+        int64_t hOutGMAlignSize = ((hScaleIdxSize + WIN_ADDR_ALIGN - 1) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+
+        at::Tensor combined =
+            torch::empty({num_recv_tokens, hOutGMAlignSize}, at::dtype(at::kByte).device(x.device()));
+        expandx_out = combined.narrow(1, 0, data_bytes).view(out_dtype);
+        // per-token scales (4B) / mx scales (hidden/32, e8m0), row stride = hOutGMAlignSize in GM
+        auto scale_view = combined.narrow(1, hUBAlignSize, scaleBytes).view(
+            is_mx ? at::kFloat8_e8m0fnu : at::kFloat);
+        dynamic_scales_out = is_mx ? scale_view : scale_view.squeeze(1);
+        expand_idx_out = combined.narrow(1, hScaleSizeAlign, 3 * (int64_t)sizeof(int32_t)).view(at::kInt);
     }
-    auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+#else
+    {
+        if (quant_mode == MXFP8_SCALES) {
+            if (quant_type == "mx_fp8_e5m2") {
+                expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
+            } else {
+                expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+            }
+            dynamic_scales_out = torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE},
+                                              at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+        } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
+            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+            dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        } else if (quant_mode == MXFP4_SCALES) {
+            expandx_out = torch::empty({num_recv_tokens, hidden / MXFP4_HALF},
+                                       at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
+            dynamic_scales_out = torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE},
+                                              at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+        } else {
+            expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                    : torch::empty({num_recv_tokens, hidden}, x.options());
+            dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        }
+        expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+    }
+#endif
     if (topk_idx.has_value()) {
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
@@ -564,10 +611,13 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
                           const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
                           const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats)
 {
-    EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
+    EP_HOST_ASSERT(x.dim() == 2);
     at::Tensor recv_x = x;
     auto topk_idx_int32 = topk_idx.to(at::kInt);
     at::Tensor token_src_info = src_idx;
+    // recv_x / token_src_info are views of the single combined dispatch buffer. The op definition marks
+    // them AutoContiguous, so the framework materializes dense copies before the kernel runs; the kernel
+    // therefore indexes them with dense row strides (hidden*2 / 12B), not the view strides.
     at::Tensor ep_send_counts = send_head;
     auto device = x.device();
 
@@ -610,9 +660,14 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
+    // The inputs are AutoContiguous at the framework layer, so the kernel receives dense copies
+    // and must be told the dense row strides (hidden * element_size, 3 * 4 bytes).
+    int64_t combinedStride = hidden * recv_x.element_size();
+    int64_t srcInfoStride = 3 * sizeof(int32_t);
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
                  tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
-                 moe_expert_number, real_max_bs, round, per_round_tokens, combined_x, combine_send_cost_stats_out);
+                 moe_expert_number, real_max_bs, round, per_round_tokens, combinedStride, srcInfoStride, combined_x,
+                 combine_send_cost_stats_out);
 
     return {combined_x, recv_topk_weights, event};
 }

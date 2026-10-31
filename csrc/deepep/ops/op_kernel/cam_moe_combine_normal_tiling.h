@@ -19,6 +19,8 @@ struct CamMoeCombineNormalInfo {
     uint32_t k;
     uint32_t h;
     uint32_t aivNum;
+    uint32_t recvXStride;   // row stride (in bytes) of the recv_x input tensor in GM
+    uint32_t srcInfoStride; // row stride (in bytes) of the token_src_info input tensor in GM
     uint64_t totalUbSize;
     uint64_t totalWinSize;
     float armAvgFactor;

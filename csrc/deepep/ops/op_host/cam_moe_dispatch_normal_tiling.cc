@@ -175,11 +175,13 @@ static bool CheckTensorDim(gert::TilingContext *context, const char *nodeName, c
 
     const gert::StorageShape *assistInfoStorageShape = context->GetOutputShape(OUTPUT_ASSIST_INFO_INDEX);
     OP_TILING_CHECK(assistInfoStorageShape == nullptr, OP_LOGE(nodeName, "assistInfoShape is null."), return false);
-    OP_TILING_CHECK(assistInfoStorageShape->GetStorageShape().GetDimNum() != ONE_DIM,
-                    OP_LOGE(nodeName, "assistInfoShape dims must be 1, but current dim num is %lu.",
-                            assistInfoStorageShape->GetStorageShape().GetDimNum()),
+    const size_t assistInfoDimNum = assistInfoStorageShape->GetStorageShape().GetDimNum();
+    OP_TILING_CHECK(assistInfoDimNum != ONE_DIM && assistInfoDimNum != TWO_DIMS,
+                    OP_LOGE(nodeName, "assistInfoShape dims must be 1 or 2, but current dim num is %lu.",
+                            assistInfoDimNum),
                     return false);
-    OP_LOGD(nodeName, "assistInfoForCombine dim0 = %ld", assistInfoStorageShape->GetStorageShape().GetDim(0));
+    OP_LOGD(nodeName, "assistInfoForCombine dim0 = %ld, dimNum = %lu",
+            assistInfoStorageShape->GetStorageShape().GetDim(0), assistInfoDimNum);
 
     if (isEnableDiagnose) {
         const gert::StorageShape *waitRecvcostStatsStorageShape = context->GetOutputShape(OUTPUT_WAIT_RECV_COST_INDEX);
