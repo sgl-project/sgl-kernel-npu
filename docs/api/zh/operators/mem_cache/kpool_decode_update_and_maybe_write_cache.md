@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -75,8 +75,6 @@ buf、tail_k和tail_score必须连续，不接受非连续的可变状态；只�
 ## torch_native 后端
 
 独立 PyTorch 按行处理、FP32 稳定 softmax 和页表地址写回。未复制所有 Triton 输入断言，调用方仍需满足公共布局约定。
-
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 
 ## 调用示例
 

@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -74,8 +74,6 @@ def kpool_assemble_softmax_rotate_write_cache(
 ## torch_native 后端
 
 独立 gather、FP32 softmax 与 cache 写回；只读取实际选中的源分支，支持全 tail/空 chunk。num_programs 不参与此后端运算。
-
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 
 ## 调用示例
 

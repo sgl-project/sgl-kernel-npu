@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -42,7 +42,7 @@ For example, pool index 2 with `pool_size=4` expands to `[8, 9, 10, 11]`. Unused
 | `seq_lens_per_token` | `torch.Tensor` | `[input_rows]`, with enough rows for the effective `n_real` | `torch.int32` | Required | Request length for each query row; use contiguous one-dimensional storage. |
 | `n_real` | `int` | — | — | Required | Requested valid row count. The backend clamps it to the smaller input row count before launching. |
 | `num_q_padded` | `int` | — | — | Required | Output row count; must be at least the effective `n_real`. |
-| `pool_size` | `int` | — | — | Required | Number of tokens represented by one pool; use a valid positive pooling width. |
+| `pool_size` | `int` | — | — | Required | Number of tokens represented by one pool; Triton requires `pool_size >= 4`. |
 | `index_topk` | `int` | — | — | Required | Token-level top-k; must equal `N_POOL_TOPK * pool_size`. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 
@@ -60,8 +60,6 @@ Pool-index strides are supported; sequence lengths must be contiguous. The retur
 
 Uses broadcast arithmetic and length-based tail/padding construction; retains int32 input and contiguous-length requirements.
 
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
-
 ## Example
 
 Requires sgl-kernel-npu, torch_npu and an NPU runtime. The example explicitly selects `torch_native`. `triton` and `auto` are also available; isolate mutable state when comparing backends.
@@ -70,15 +68,15 @@ Requires sgl-kernel-npu, torch_npu and an NPU runtime. The example explicitly se
 import torch
 import torch_npu
 from sgl_kernel_npu.operators.indexer import expand_kpool_group_and_tail_to_topk
-pool_indices = torch.tensor([[0, 1], [0, 0]], device='npu', dtype=torch.int32)
-seq_lens = torch.tensor([10, 0], device='npu', dtype=torch.int32)
+pool_indices = torch.arange(512, device='npu', dtype=torch.int32).repeat(2, 1)
+seq_lens = torch.tensor([2050, 0], device='npu', dtype=torch.int32)
 out = expand_kpool_group_and_tail_to_topk(
     pool_indices,
     seq_lens,
     n_real=1,
     num_q_padded=2,
     pool_size=4,
-    index_topk=8,
+    index_topk=2048,
     impl='torch_native',
 )
 print(out.shape)

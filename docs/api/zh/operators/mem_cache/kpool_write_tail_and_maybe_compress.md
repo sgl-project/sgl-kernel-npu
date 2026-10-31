@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -76,8 +76,6 @@ def kpool_write_tail_and_maybe_compress(
 ## torch_native 后端
 
 独立按 batch 写 tail 并做 FP32 softmax；effective 为 0 仍写所有草稿的 tail。num_programs 不参与此后端运算。
-
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 
 ## 调用示例
 

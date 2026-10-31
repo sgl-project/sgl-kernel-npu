@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -65,8 +65,6 @@ Channel width is 128. Tails and one-dimensional plans must be contiguous; chunk 
 ## torch_native backend
 
 Uses independent PyTorch indexing and boolean masks; source/destination pairs should use compatible dtypes to avoid implicit conversion.
-
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 
 ## Example
 

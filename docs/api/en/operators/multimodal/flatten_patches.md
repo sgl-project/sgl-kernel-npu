@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_native` | Unverified | Unverified |
+| `torch_native` | Unverified | Verified |
 
 ## Signature
 

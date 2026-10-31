@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -42,7 +42,7 @@ def expand_kpool_group_and_tail_to_topk(
 | `seq_lens_per_token` | `torch.Tensor` | `[input_rows]`，行数须覆盖有效 `n_real` | `torch.int32` | 必填 | 每个 query 行的请求长度；使用连续的一维存储。 |
 | `n_real` | `int` | — | — | 必填 | 请求的有效行数；后端启动前会将其截断到两个输入的较小行数。 |
 | `num_q_padded` | `int` | — | — | 必填 | 输出行数，必须不小于有效 `n_real`。 |
-| `pool_size` | `int` | — | — | 必填 | 一个 pool 表示的 token 数；使用有效的正 pool 宽度。 |
+| `pool_size` | `int` | — | — | 必填 | 一个 pool 表示的 token 数；Triton 要求 `pool_size >= 4`。 |
 | `index_topk` | `int` | — | — | 必填 | token 级 top-k，必须等于 `N_POOL_TOPK * pool_size`。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
@@ -60,8 +60,6 @@ pool索引支持非连续行布局，序列长度必须连续。返回结果可�
 
 使用广播算术展开和按长度生成 tail/padding；保持 int32 输入及长度连续性约束。
 
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
-
 ## 调用示例
 
 需已安装 sgl-kernel-npu、torch_npu 和 NPU 运行环境。本例显式选择 `torch_native`。 也可选择 `triton` 或 `auto`；比较后端时需隔离各自的可变状态。
@@ -70,15 +68,15 @@ pool索引支持非连续行布局，序列长度必须连续。返回结果可�
 import torch
 import torch_npu
 from sgl_kernel_npu.operators.indexer import expand_kpool_group_and_tail_to_topk
-pool_indices = torch.tensor([[0, 1], [0, 0]], device='npu', dtype=torch.int32)
-seq_lens = torch.tensor([10, 0], device='npu', dtype=torch.int32)
+pool_indices = torch.arange(512, device='npu', dtype=torch.int32).repeat(2, 1)
+seq_lens = torch.tensor([2050, 0], device='npu', dtype=torch.int32)
 out = expand_kpool_group_and_tail_to_topk(
     pool_indices,
     seq_lens,
     n_real=1,
     num_q_padded=2,
     pool_size=4,
-    index_topk=8,
+    index_topk=2048,
     impl='torch_native',
 )
 print(out.shape)

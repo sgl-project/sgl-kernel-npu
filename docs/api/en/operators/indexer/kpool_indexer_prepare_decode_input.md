@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -64,8 +64,6 @@ Inputs must be contiguous, `N_HEADS` must be a power of two in [1, 128], and `po
 ## torch_native backend
 
 Uses independent PyTorch FP32 matmul, padding, grouped selection, and BF16 conversion.
-
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 
 ## Example
 

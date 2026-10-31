@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_native` | 支持 | 未验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -46,8 +46,6 @@ def build_pooled_page_table(
 ## torch_native 后端
 
 使用输入设备上的 torch.arange 和高级索引，不要求输入连续，输入须有最后一维。仅注册 auto、torch_native，未实现 triton。
-
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 
 ## 调用示例
 

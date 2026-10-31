@@ -28,14 +28,16 @@ def generate_test_data(n_real, n_pool_topk=512, pool_size=4):
         (4095, 4096, 512, 4),
         # Case 02: Typical 4096 valid rows without padding; also profile.
         pytest.param(4096, 4096, 512, 4, id="W-glm53-flash-r4096-q4096"),
-        # Case 03: One selected pool with padded query rows.
-        pytest.param(1, 4, 1, 2, id="edge-one-pool-padding"),
-        # Case 04: Small top-k with pool2 and padding.
-        pytest.param(5, 8, 8, 2, id="edge-small-topk-pool2"),
+        # Model inputs are expected to have n_pool_topk >= 256 and index_topk >= 2048;
+        # these guide test coverage rather than define operator support limits.
+        # Case 03: Lower end of model inputs, with a partial eight-row block.
+        pytest.param(1, 4, 256, 8, id="model-small-topk-block-b8"),
+        # Case 04: Minimum pool size, with a partial two-row block.
+        pytest.param(5, 8, 1024, 4, id="topk4096-pool4-block-b2"),
         # Case 05: Pool8 expansion with a tail and padding.
-        pytest.param(7, 8, 16, 8, id="edge-pool8-tail"),
-        # Case 06: Top-k4096/pool2 chooses two rows; retain a partial row block.
-        pytest.param(17, 20, 2048, 2, id="topk4096-pool2-block-b2"),
+        pytest.param(7, 8, 512, 8, id="topk4096-pool8-block-b4"),
+        # Case 06: Top-k8192/pool4 chooses one row and retains padded rows.
+        pytest.param(17, 20, 2048, 4, id="topk8192-pool4-block-b1"),
         # Case 07: Top-k16384/pool8 chooses one row and retains padded rows.
         pytest.param(9, 12, 2048, 8, id="topk16384-pool8-block-b1"),
     ],
@@ -65,9 +67,9 @@ def test_expand_kpool_group_and_tail_to_topk(
 def test_expand_rejects_noncontiguous_seq_lens():
     from sgl_kernel_npu.operators.indexer import expand_kpool_group_and_tail_to_topk
 
-    pool_indices = torch.zeros(2, 4, dtype=torch.int32)
+    pool_indices = torch.zeros(2, 512, dtype=torch.int32)
     base = torch.tensor([8, 8], dtype=torch.int32)
     seq_lens = torch.stack((base, base), dim=1)[:, 0]
     assert not seq_lens.is_contiguous()
     with pytest.raises(AssertionError, match="seq_lens_per_token must be contiguous"):
-        expand_kpool_group_and_tail_to_topk(pool_indices, seq_lens, 2, 2, 4, 16)
+        expand_kpool_group_and_tail_to_topk(pool_indices, seq_lens, 2, 2, 4, 2048)

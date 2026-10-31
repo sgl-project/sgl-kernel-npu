@@ -77,7 +77,7 @@ def expand_kpool_group_and_tail_to_topk(
         seq_lens_per_token: torch.Tensor, shape [input_rows], with enough rows for the effective n_real, dtype torch.int32. Request length for each query row; use contiguous one-dimensional storage.
         n_real: int, shape —, dtype —. Requested valid row count. The backend clamps it to the smaller input row count before launching.
         num_q_padded: int, shape —, dtype —. Output row count; must be at least the effective n_real.
-        pool_size: int, shape —, dtype —. Number of tokens represented by one pool; use a valid positive pooling width.
+        pool_size: int, shape —, dtype —. Number of tokens represented by one pool; Triton requires pool_size >= 4.
         index_topk: int, shape —, dtype —. Token-level top-k; must equal N_POOL_TOPK * pool_size.
         impl: Backend name: auto, triton or torch_native.
 

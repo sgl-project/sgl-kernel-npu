@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -75,8 +75,6 @@ buf, tail_k and tail_score must be contiguous; noncontiguous mutable state is re
 ## torch_native backend
 
 Uses independent row-wise PyTorch processing, stable FP32 softmax, and page-table writes. It does not duplicate every Triton assertion; callers must satisfy the public layout contract.
-
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 
 ## Example
 

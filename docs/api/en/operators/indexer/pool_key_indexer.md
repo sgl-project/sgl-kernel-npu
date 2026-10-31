@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `aclnn` | Unverified | Unverified |
+| `aclnn` | Unverified | Verified |
 
 ## Signature
 

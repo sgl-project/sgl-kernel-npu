@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -64,8 +64,6 @@ def kpool_indexer_prepare_decode_input(
 ## torch_native 后端
 
 独立 PyTorch FP32 矩阵乘法、补零、分组抽样与 BF16 转换。
-
-公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 
 ## 调用示例
 

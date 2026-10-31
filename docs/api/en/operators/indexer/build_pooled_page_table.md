@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_native` | Supported | Unverified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -46,8 +46,6 @@ Input and output reside on the same NPU; the input is not modified.
 ## torch_native backend
 
 Uses torch.arange on the input device and advanced indexing. Input need not be contiguous but must have a last dimension. Only auto and torch_native are registered; triton is not implemented.
-
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 
 ## Example
 

@@ -4,10 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
-
-支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
+| `triton` | 支持 | 已验证 |
+| `torch_native` | 支持 | 已验证 |
 
 ## 函数原型
 
@@ -29,7 +27,7 @@ def expand_causal_seqlens(
     ...
 ```
 
-`auto` 与 `triton` 指向同一实现；`torch_native` 是独立 Torch 实现。后端延迟导入，不执行自动回退。导入公共 registry 仍需要可用的 NPU 架构检测环境。
+`auto` 与 `triton` 指向同一实现；`torch_native` 是独立 Torch 实现。后端延迟导入，不执行自动回退。
 
 ## 功能说明
 

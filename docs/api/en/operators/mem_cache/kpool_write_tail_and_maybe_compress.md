@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -76,8 +76,6 @@ Channel width is 128. Cache, tails and write_loc must be contiguous; other read-
 ## torch_native backend
 
 Independently writes tails per batch and performs FP32 softmax. An effective count of zero still writes all draft tail rows. num_programs has no effect on this backend.
-
-Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 
 ## Example
 

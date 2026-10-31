@@ -4,10 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Unverified |
-| `torch_native` | Supported | Unverified |
-
-Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
+| `triton` | Supported | Verified |
+| `torch_native` | Supported | Verified |
 
 ## Signature
 
@@ -29,7 +27,7 @@ def expand_causal_seqlens(
     ...
 ```
 
-`auto` and `triton` select the same entry point; `torch_native` selects an independent PyTorch implementation. Backends load lazily, with no automatic fallback. Importing the public registry still requires working NPU architecture detection.
+`auto` and `triton` select the same entry point; `torch_native` selects an independent PyTorch implementation. Backends load lazily, with no automatic fallback.
 
 ## Description
 

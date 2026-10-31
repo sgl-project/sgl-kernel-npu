@@ -116,6 +116,8 @@ def _expand_kpool_group_and_tail_to_topk(
         Token indices shaped [num_q_padded, index_topk + pool_size - 1].
     """
     n_pool_topk = pool_indices.shape[1]
+    # compiler will pad the short axis in transpose
+    assert pool_size >= 4, "pool_size must be >= 4"
     tail_len = pool_size - 1
     out_cols = index_topk + tail_len
     # Align rows to eight int32 values (32 bytes).
