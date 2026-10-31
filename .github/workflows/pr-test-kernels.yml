@@ -161,10 +161,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -183,10 +180,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -218,10 +211,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -240,10 +230,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -275,10 +261,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -297,10 +280,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -332,10 +311,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -354,10 +330,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -389,10 +361,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -411,10 +380,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -446,10 +411,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -468,10 +430,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
@@ -503,10 +461,7 @@ jobs:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -525,10 +480,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}

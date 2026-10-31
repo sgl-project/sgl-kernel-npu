@@ -791,7 +791,7 @@ class Buffer:
         gmm2_weight_scale: Optional[TensorOrTensors],
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        quant_mode: int = 1,
+        quant_mode: Union[int, str] = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
         activation: Optional[str] = "swiglu",
         beta: Optional[float] = 4.0,
@@ -835,18 +835,24 @@ class Buffer:
                 auto-converted by this method — the caller must perform the conversion).
             gmm2_weight: weight tensor for the second stage (down-projection).
                 For MEGA_MOE mode, requires a non-empty `list[Tensor]` of
-                per-expert tensors in mega_moe layout.
+                tensors in mega_moe layout. A5 FP8 shapes are [H, I] /
+                [E, H, I]; packed uint8 FP4 halves the last dimension and
+                requires FRACTAL_NZ_C0_32 storage.
             gmm2_weight_scale: quantization scale tensor for the second stage.
                 Same dtype rules as gmm1_permuted_weight_scale.
             num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
                 number of tokens to dispatch per rank, used for buffer/memory allocation.
                 For DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
                 dispatch (typically max_bs * num_ranks * topk). For MEGA_MOE mode, the
-                capacity that inputs are padded to (with an active mask marking real
-                tokens). All ranks must hold the same value.
+                per-rank communication capacity. A3 inputs are padded and
+                masked; A5 passes actual token counts without padding or a mask.
+                All ranks must hold the same value.
             num_experts: the total number of global experts.
-            quant_mode: quantization mode. Supported values: 0 = no quantization (BF16),
-                1 = INT8 (default). FP8 will be supported in A5 release.
+            quant_mode: quantization mode. Supported values: 0 = no quantization
+                (BF16), 1 = INT8 (default). A5 MEGA_MOE requires an explicit "mx_fp8_e4m3",
+                "mx_fp8_e5m2", "mx_fp4_e2m1", or "mx_fp8_e4m3_w4" (FP8 E4M3 activation, FP4
+                weights); integer 0/1 are not supported there. String modes
+                are exclusive to MEGA_MOE.
             fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
@@ -873,7 +879,6 @@ class Buffer:
             - The first dimension of `topk_idx` defines the batch size `bs`.
             - The second dimension of `x` defines the hidden dimension `hidden`.
             - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
-            - If optional scale tensors are empty, the kernel skips those transforms.
 
         Returns:
             For fuse_mode=FUSED_DEEP_MOE:
@@ -890,12 +895,14 @@ class Buffer:
 
             For fuse_mode=MEGA_MOE:
                 output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output
-                    (sliced back from the padded capacity).
+                    (sliced from padded capacity on A3; actual length on A5).
                 expert_token_nums: `torch.Tensor`, shape `[num_local_experts]`,
                     indicating the number of tokens received by each local expert
                     on this rank.
         """
 
+        if isinstance(quant_mode, str) and fuse_mode != FuseMode.MEGA_MOE:
+            raise ValueError("String quant_mode is only supported by MEGA_MOE")
         if fuse_mode not in self._fused_strategies:
             raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
 
