@@ -25,11 +25,9 @@ def build_pooled_page_table(
 
 ## 功能说明
 
-令 `K=pool_size`、输入为 `T[...,M]`：
+按 `pool_size` 指定的间隔，从 token 页表中选取每组的第一个页 ID，生成 pooled 页表。
 
-$$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
-
-前导维度保持不变，`M=0` 时最后一维仍为空；不会像 `kpool_indexer_prepare_decode_input` 那样补到至少一列。输入只读，输出 dtype 与输入相同。`pool_size` 是 128 的正因子；输入列数无需整除 128。
+例如，`pool_size=4` 时，一行 `[10, 11, 12, 13, 20, 21]` 得到 `[10, 20]`。保留输入的前导维度和数据类型，不修改输入。
 
 ## 参数与返回值
 

@@ -25,11 +25,9 @@ def build_pooled_page_table(
 
 ## Description
 
-For `K=pool_size` and input `T[...,M]`:
+Build a pooled page table by taking the first page ID from each group of token pages. The grouping interval is controlled by `pool_size`.
 
-$$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
-
-Leading dimensions are preserved and `M=0` leaves the last dimension empty, unlike the minimum one-column padding of `kpool_indexer_prepare_decode_input`. Inputs are read only; output dtype is preserved. `pool_size` is a positive divisor of 128; the input column count need not divide 128.
+For example, with `pool_size=4`, a row `[10, 11, 12, 13, 20, 21]` becomes `[10, 20]`. Leading dimensions and dtype are preserved; the input is not modified.
 
 ## Parameters and return value
 

@@ -19,13 +19,9 @@ def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, imp
 
 ## 功能说明
 
-将 GLM 图像或视频像素转换为展平 patch。重复最后一帧，直到帧数能被
-`temporal_patch_size` 整除。token 依次按时间网格、合并块行、合并块列、
-块内行、块内列排序；特征依次按通道、时间 patch 内帧、像素行、像素列排序。
+将图像或视频像素整理为模型输入所需的展平 patch。帧数不足以组成完整时间 patch 时重复最后一帧，再按指定的 merge size 对空间 patch 分组。
 
-记 `P=patch_size`、`M=merge_size`、`TP=temporal_patch_size`，网格为
-`(ceil(T/TP), H/P, W/P)`。每次 reshape/permute 最多使用八维布局，满足 NPU
-置换操作的维度约束。输入只读；恒等布局下输出可能与输入共享存储。
+返回展平特征及时间、高度、宽度三个方向的网格大小。布局转换保留所需的 patch 和特征顺序，过程中张量最多为八维。输入不被修改；恒等布局下输出可能与输入共享存储。
 
 ## 参数
 

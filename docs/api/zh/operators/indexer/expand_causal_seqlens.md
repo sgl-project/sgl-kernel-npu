@@ -33,14 +33,9 @@ def expand_causal_seqlens(
 
 ## 功能说明
 
-将每请求的 KV 总长度与 query 长度展开成 packed query 的逐 token 因果长度，同时生成 token→请求编号。令请求 `b` 的总长度为 `S_b`，query 长度为 `Q_b`，输出起点为 `P_b = sum(Q[:b])`：
+根据各请求的 KV 总长度和 query token 数，为每个 query token 生成可见 KV 长度及所属请求编号，结果按请求顺序连续排列。
 
-```text
-seqlens[P_b + j] = max(S_b - Q_b + 1, 0) + j
-token_to_batch[P_b + j] = b                 (0 <= j < Q_b)
-```
-
-`cache_seqlens` 已包含本次 query；起点不足 0 时先截到 0，再按 token 递增。`Q_b=0` 不输出该请求的 token。两个输入只读。
+例如，一个请求的 KV 总长度为 10、query token 数为 2，对应的可见长度为 `[9, 10]`，两个 token 的请求编号相同。没有 query token 的请求不产生输出；计算出的起始长度最低取零。
 
 ## 参数与返回值
 
@@ -64,7 +59,7 @@ token_to_batch[P_b + j] = b                 (0 <= j < Q_b)
 
 ## triton 后端
 
-Triton 位于 `implementation/triton/indexer/expand_causal_seqlens.py`，每个请求按 query tile 写输出；通过对前序请求长度求和计算 packed 起点。query tile 是 `max(32, min(256, next_power_of_2(max_query_len)))`，batch 归约宽度为 `next_power_of_2(B)`。`B=0` 或 `total_q=0` 时分配/返回输出，不启动 Triton kernel。
+输入长度必须为指定设备上的连续int32张量。空batch或query总数为零时返回空输出；传入的输出缓冲区会被复用。
 
 ## torch_native 后端
 

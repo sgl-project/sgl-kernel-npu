@@ -39,19 +39,9 @@ def kpool_write_tail_and_maybe_compress(
 
 ## Description
 
-Let `K=ape.shape[0]` and `N=num_draft_tokens`. Tail length is exactly `T=K+N`. A valid batch writes every draft to `(write_start[b]+j)%T`; `out_cache_loc[b*N]==0` skips the entire batch.
+Write a batch of draft keys and scores into request-local tail rings. Compress newly completed pools with channel-wise softmax pooling and write the BF16 results to the cache locations provided in `write_loc`.
 
-For `s=write_start[b]` and `e=N` or `clamp(effective_n_per_batch[b],0,N)`:
-
-$$c_b=\lfloor(s+e)/K\rfloor-\lfloor s/K\rfloor.$$
-
-Completed pool p reads K entries beginning at `tail_logical_start[b]+p*K` and writes to `write_loc[b,p]`. **Effective counts control pool completion only, not the N tail writes**. Returns None and mutates cache, tail keys, and tail scores.
-
-Channel-wise softmax pooling uses FP32. Let `a[j,d]=score[j,d]+ape[j,d]` and `m[d]=max_j a[j,d]`:
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-There is no Hadamard transform, FP8 quantization, or per-slot scale output.
+Pooling uses FP32 arithmetic and includes positional scores. Effective draft counts determine which pools are complete; all supplied draft rows are still written to the tail for valid batches. Invalid batches are skipped. The cache, tail keys and tail scores are updated in place.
 
 ## Parameters and return value
 
@@ -70,7 +60,7 @@ There is no Hadamard transform, FP8 quantization, or per-slot scale output.
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` or `torch.int64` | Required | Token cache locations; a zero first entry for a batch skips that whole batch. Read only. |
 | `num_draft_tokens` | `int` | — | — | Required | Static `N`; must be positive and divide `key.shape[0]`. |
 | `effective_n_per_batch` | `torch.Tensor` or `None` | `[>= B]` or — | `torch.int32` or `torch.int64` | `None` | Optional effective draft count used only for pool-completion decisions. |
-| `num_programs` | `int` or `None` | — | — | `None` | Keyword-only Triton grid size; positive when supplied and capped at `B`. Defaults to the available Vector Core count capped at `B`. |
+| `num_programs` | `int` or `None` | — | — | `None` | Optional execution-parallelism hint; must be positive when supplied. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 
 | Return value | Type | Shape | Dtype | Description |
@@ -81,7 +71,7 @@ All tensors must be on the same NPU. Callers supply valid indices, sufficient st
 
 ## triton backend
 
-Channel width is 128 with a grid-stride loop. Cache, tails, and write_loc must be contiguous; other read-only inputs may be normalized internally. Explicit positive num_programs is capped at B; the default uses Vector Core count, with an implementation limit if properties are unavailable.
+Channel width is 128. Cache, tails and write_loc must be contiguous; other read-only inputs may be made contiguous internally.
 
 ## torch_native backend
 

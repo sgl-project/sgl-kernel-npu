@@ -30,11 +30,9 @@ def kpool_indexer_prepare_decode_input(
 
 ## 功能说明
 
-令 `B=N`、`H=HIDDEN_SIZE`、`A=N_HEADS`、`K=pool_size=4`。计算规则为：
+为 decode 索引准备三项输入：将 hidden states 投影为各 head 的权重，将序列长度转换为完整 pool 数量，并提取 pooled 页表。
 
-$$w=\operatorname{BF16}((\operatorname{FP32}(x)W^T)\cdot n_{heads}\cdot s),\qquad \ell_{pool}=\lfloor\ell/K\rfloor.$$
-
-这里 `n_heads=n_heads_pow`、`s=softmax_scale`。页表末尾补零到 `M_pad=max(K,ceil(NUM_BLOCKS/K)*K)`，再取第 `0,K,2K,...` 列，因此 `N_POOL=max(1,ceil(NUM_BLOCKS/K))`，空列页表也返回一列。三个结果按返回表顺序组成 tuple，输入只读。
+投影使用 FP32 计算，应用 `n_heads_pow` 和 `softmax_scale` 缩放后输出 BF16。页表按需在末尾补零，再选取每组的第一个页 ID。输入不被修改。
 
 ## 参数与返回值
 
@@ -59,20 +57,13 @@ $$w=\operatorname{BF16}((\operatorname{FP32}(x)W^T)\cdot n_{heads}\cdot s),\qqua
 
 ## triton 后端
 
-使用独立Cube投影与Vector元数据kernel；输入必须连续，`N_HEADS`必须为[1, 128]内的二次幂，`pool_size==4`。GEMM分块仅由head数决定：
-
-```text
-BLOCK_B = clamp(floor_power_of_two(2048 // N_HEADS), 16, 64)
-BLOCK_K = min(256, floor_power_of_two(24576 // (BLOCK_B + N_HEADS)))
-```
-
-逻辑元素预算分别为accumulator的2048和两份输入tile的24576。16/32/64/128 heads对应`(BLOCK_B, BLOCK_K)`为`(64,256)/(64,256)/(32,256)/(16,128)`。batch及K尾块加载时补零，仅写回有效batch行；H无需整除BLOCK_K。Vector部分仍按128个序列长度元素、4096个页表输入元素分块。
+输入必须连续，`N_HEADS`必须为[1, 128]内的二次幂，`pool_size`必须为4。hidden宽度无需整除256。
 
 `n_heads_pow`按调用方传值使用，默认仍为`32**-0.5`；不同head数若采用head归一化，应显式传入`N_HEADS**-0.5`。
 
 ## torch_native 后端
 
-独立 PyTorch FP32 矩阵乘法、补零、分组抽样与 BF16 转换；不使用Triton分块约束。
+独立 PyTorch FP32 矩阵乘法、补零、分组抽样与 BF16 转换。
 
 公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 

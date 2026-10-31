@@ -38,15 +38,9 @@ def kpool_decode_update_and_maybe_write_cache(
 
 ## 功能说明
 
-令 `K=pool_size`、`T=tail_k.shape[1]`、`S=slots_per_page`。有效行满足请求索引在 `[0,R)`、`out_cache_loc[row]!=0`、`0<=positions[row]<seq_lens[row]`；向 tail 的 `positions[row]%T` 槽写当前 key/score。无效行保持所有状态不变。
+将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表将 BF16 结果写入 pooled cache。
 
-当 `positions[row]%K==K-1` 时归约完整 pool；当前槽直接使用传入 key/score，其余槽从已初始化 tail 读取。令 `p=positions[row]//K`，页表列为 `clamp((p//S)*K,0,M-1)`，cache 写偏移为 `block_tables[row,col]*buf.stride(0)+(p%S)*head_dim`。`out_cache_loc` 只控制行有效性，不直接提供 pooled-cache 地址。
-
-逐通道 softmax pooling 使用 FP32，令 `a[j,d]=score[j,d]+ape[j,d]`、`m[d]=max_j a[j,d]`：
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-不执行 Hadamard、FP8 量化或逐 slot scale 输出。
+汇聚使用 FP32 计算，并加入位置分数。无效请求行不修改任何状态。`out_cache_loc` 用于判断该行是否有效，pooled cache 的实际写入位置另外通过页表确定。
 
 ## 参数与返回值
 
@@ -76,7 +70,7 @@ $$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_
 
 ## triton 后端
 
-每行一个 program，两遍稳定 softmax。buf、tail_k、tail_score 必须连续，非连续可变状态会报错；其余只读输入内部转连续。buf.stride(0) 必须为 slots_per_page*head_dim，允许相符的二维/四维布局；空 batch 直接返回。
+buf、tail_k和tail_score必须连续，不接受非连续的可变状态；只读输入可在内部转为连续布局。buf.stride(0)须等于slots_per_page*head_dim，支持满足约束的二维或四维布局。空batch直接返回。
 
 ## torch_native 后端
 

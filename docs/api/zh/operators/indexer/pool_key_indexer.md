@@ -37,7 +37,9 @@ def pool_key_indexer(
 
 ## 功能说明
 
-对 pooled key 执行 indexer 打分和 pool 级 top-k 选择，再展开为 token 索引并追加未完成的 tail。对 `K=pool_size` 和选中的 pool ID `p`，展开索引为 `p*K+j`（`0<=j<K`）；追加区固定宽 `K-1`，有效 tail token 使用 `P*K+j`，其余位置填 `-1`。因此总宽度为 `topk+K-1`。输入只读，输出为 int32；不返回分数。pool 排序和具体打分/掩码由 vendor 算子决定，调用方不应依赖选中 pool 的稳定顺序。
+对 pooled key 打分并选择排名靠前的 pool，将其展开为 token 位置，再追加末尾尚未组成完整 pool 的 token。
+
+输出为 int32 索引，不返回分数；未使用的 tail 位置填为 `-1`。打分、掩码和选中 pool 的排列由 vendor 算子决定，不保证 pool 顺序稳定。输入不被修改。
 
 ## 参数与返回值
 

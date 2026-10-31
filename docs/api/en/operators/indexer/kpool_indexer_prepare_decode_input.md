@@ -30,11 +30,9 @@ def kpool_indexer_prepare_decode_input(
 
 ## Description
 
-Let `B=N`, `H=HIDDEN_SIZE`, `A=N_HEADS`, and `K=pool_size=4`:
+Prepare three inputs for decode indexing: project hidden states into per-head weights, convert sequence lengths to complete-pool counts, and extract the pooled page table.
 
-$$w=\operatorname{BF16}((\operatorname{FP32}(x)W^T)\cdot n_{heads}\cdot s),\qquad \ell_{pool}=\lfloor\ell/K\rfloor.$$
-
-Here `n_heads=n_heads_pow` and `s=softmax_scale`. Zero-pad the table to `M_pad=max(K,ceil(NUM_BLOCKS/K)*K)`, then select columns `0,K,2K,...`. Thus `N_POOL=max(1,ceil(NUM_BLOCKS/K))`, including one output column for an empty input table. Results form a tuple in return-table order; inputs are read only.
+The projection is computed in FP32, scaled by `n_heads_pow` and `softmax_scale`, and returned as BF16. The page table is padded with zeros when needed before selecting the first entry of each page group. Inputs are not modified.
 
 ## Parameters and return value
 
@@ -59,20 +57,13 @@ All tensors must be on the same NPU. Callers provide valid input values; the wra
 
 ## triton backend
 
-Uses separate Cube projection and Vector metadata kernels. Inputs must be contiguous, `N_HEADS` must be a power of two in [1, 128], and `pool_size==4`. GEMM tiling depends only on the head count:
-
-```text
-BLOCK_B = clamp(floor_power_of_two(2048 // N_HEADS), 16, 64)
-BLOCK_K = min(256, floor_power_of_two(24576 // (BLOCK_B + N_HEADS)))
-```
-
-The logical element budgets are 2048 for the accumulator and 24576 for the two operand tiles. For 16/32/64/128 heads, `(BLOCK_B, BLOCK_K)` is `(64,256)/(64,256)/(32,256)/(16,128)`. Partial batch and K tiles are zero-padded when loaded; only valid batch rows are written. H need not be divisible by BLOCK_K. Vector tile sizes remain 128 for sequence lengths and 4096 for page-table input elements.
+Inputs must be contiguous, `N_HEADS` must be a power of two in [1, 128], and `pool_size` must be 4. Hidden width need not be divisible by 256.
 
 `n_heads_pow` is used as supplied; its default remains `32**-0.5`. Pass `N_HEADS**-0.5` explicitly when using that normalization with a different head count.
 
 ## torch_native backend
 
-Uses independent PyTorch FP32 matmul, padding, grouped selection, and BF16 conversion without using Triton tiling constraints.
+Uses independent PyTorch FP32 matmul, padding, grouped selection, and BF16 conversion.
 
 Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 

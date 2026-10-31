@@ -38,13 +38,9 @@ def kpool_assemble_softmax_rotate_write_cache(
 
 ## 功能说明
 
-令 `K=ape.shape[0]`、`T=tail_k.shape[1]`。对 plan 行 p，前 `n_from_tail[p]` 项从 `(tail_logical_base[p]+j)%T` tail 槽读取；后缀从 chunk 的 `chunk_src_start[p]+j-n_from_tail[p]` 读取。归约结果写到 `loc[p]`，`write_mask[p]=False` 时不写，省略 mask 表示全写。支持全 tail 且 chunk 为空的合法输入。仅 cache 修改，tail 与 chunk 只读。
+按照计划，从请求的 tail 环形缓冲区取出前段数据，再从当前 chunk 补齐一个 pool。将 score 与位置分数相加后，逐通道进行 softmax 加权汇聚，并把 BF16 结果写入指定 cache 行。
 
-逐通道 softmax pooling 使用 FP32，令 `a[j,d]=score[j,d]+ape[j,d]`、`m[d]=max_j a[j,d]`：
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-不执行 Hadamard、FP8 量化或逐 slot scale 输出。
+汇聚使用 FP32 计算。写入掩码可跳过指定 cache 行，tail 和 chunk 输入只读。写入的是未做旋转或量化的 pooled key。
 
 ## 参数与返回值
 
@@ -62,7 +58,7 @@ $$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_
 | `ape` | `torch.Tensor` | `[pool_size, 128]` | `torch.float32` | 必填 | pool 位置的加性 score；`pool_size > 0`。 |
 | `loc` | `torch.Tensor` | `[P]` | `torch.int64` | 必填 | 待写入的扁平 cache 行号。 |
 | `write_mask` | `torch.Tensor` 或 `None` | `[P]` 或 — | `torch.bool` | `None` | 可选的逐 pool 写使能。 |
-| `num_programs` | `int` 或 `None` | — | — | `None` | 仅限关键字参数；Triton grid 大小，显式提供时必须为正且会截断到 `P`。默认使用可用 Vector Core 数并截断到 `P`。 |
+| `num_programs` | `int` 或 `None` | — | — | `None` | 可选执行并行度参数，显式提供时必须为正数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |
@@ -73,7 +69,7 @@ $$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_
 
 ## triton 后端
 
-固定通道 128，在线稳定 softmax、grid-stride 循环。cache、tail 和计划字段要求连续；chunk key/score、APE、loc、mask 可内部转连续。显式 num_programs 为正并截断到 P，默认按 Vector Core 数选择；查询不可用时使用实现的上限。
+通道数固定为128。cache、tail和计划字段必须连续；chunk key/score、APE、位置及掩码可在内部转为连续布局。
 
 ## torch_native 后端
 

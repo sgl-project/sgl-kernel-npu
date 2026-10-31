@@ -33,11 +33,9 @@ def scatter_kpool_tail_updates(
 
 ## Description
 
-Let `K=pool.index_kpool` and `T=tail_k.shape[1]`. For each plan p and `0<=j<n_write[p]`, keys and scores independently follow:
+Copy selected consecutive rows of chunk keys and scores into request-local tail rings. Each plan entry specifies the request, source start, destination start and number of rows to copy; destination slots wrap around the ring.
 
-$$\mathrm{tail}[\mathrm{req}[p],(\mathrm{dst}[p]+j)\bmod T,d]=\mathrm{chunk}[\mathrm{src}[p]+j,d].$$
-
-This is a copy operation with no softmax, pooling reduction, or quantization. Callers ensure `0<=n_write[p]<=K`, valid request/source indices, and nonconflicting destinations. Returns None; only tail keys/scores change, and unselected slots remain unchanged.
+Only the selected tail slots are modified. This operation copies values directly without pooling or quantization, and callers must avoid conflicting writes.
 
 ## Parameters and return value
 
@@ -62,7 +60,7 @@ All tensors must be on the same NPU. Callers supply valid indices, sufficient st
 
 ## triton backend
 
-Channel width is 128. Uses a Vector Core grid and grid-stride loop. Tails and one-dimensional plans must be contiguous; chunk keys/scores are normalized internally. Empty plans return immediately. No explicit floating dtype whitelist is enforced; this does not validate arbitrary dtypes.
+Channel width is 128. Tails and one-dimensional plans must be contiguous; chunk keys/scores are made contiguous internally. Empty plans return immediately.
 
 ## torch_native backend
 

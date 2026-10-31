@@ -30,11 +30,9 @@ def expand_kpool_group_and_tail_to_topk(
 
 ## 功能说明
 
-令 `K=pool_size`、`P=pool_indices.shape[1]`、`L_r=seq_lens_per_token[r]`：
+将选中的 pool 索引展开为该 pool 覆盖的 token 位置，保持原有顺序，再追加当前序列末尾尚未组成完整 pool 的 token。
 
-$$O_{r,pK+j}=K I_{r,p}+j\;(0\le j<K),\quad q_r=\lfloor L_r/K\rfloor K,\quad t_r=L_r\bmod K.$$
-
-后缀共 `K-1` 列，第 `j<t_r` 项为 `q_r+j`，其余为 `-1`。有效行数为 `min(n_real, pool_indices.shape[0], seq_lens_per_token.shape[0])`，之后的填充行全为 `-1`。负 pool ID 按算术展开，不会统一变成 `-1`。输入只读，`index_topk=P*K`；调用方提供非负行数、非负合法长度与正 K。
+例如，`pool_size=4` 时，pool 索引 2 展开为 `[8, 9, 10, 11]`。未使用的 tail 位置和补齐的 query 行填为 `-1`，输入不被修改。
 
 ## 参数与返回值
 
@@ -56,17 +54,7 @@ $$O_{r,pK+j}=K I_{r,p}+j\;(0\le j<K),\quad q_r=\lfloor L_r/K\rfloor K,\quad t_r=
 
 ## triton 后端
 
-保持整行处理，采用grid-stride调度，从{1, 2, 4, 8}中选择行块：
-
-```text
-estimated_bytes_per_row = N_POOL_TOPK * (2 + pool_size) * 4
-max_rows = max(1, 85 * 1024 // estimated_bytes_per_row)
-BLOCK_B = min(8, floor_power_of_two(max_rows))
-```
-
-85 KiB预算估计包含int32的pool索引、base及展开结果。grid为`min(ceil_div(n_real, BLOCK_B), num_vectorcore)`；`N_POOL_TOPK=512、pool_size=4`时选择`BLOCK_B=4`。
-
-pool_indices 支持传入 stride，长度必须连续。物理输出宽度按 8 个 int32 对齐再返回切片，结果不保证整体连续。
+pool索引支持非连续行布局，序列长度必须连续。返回结果可能不连续。
 
 ## torch_native 后端
 

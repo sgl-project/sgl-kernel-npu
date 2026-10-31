@@ -39,19 +39,9 @@ def kpool_write_tail_and_maybe_compress(
 
 ## 功能说明
 
-令 `K=ape.shape[0]`、`N=num_draft_tokens`，tail 长度严格为 `T=K+N`。有效 batch 将所有 N 个草稿写到 `(write_start[b]+j)%T`；`out_cache_loc[b*N]==0` 跳过整个 batch。
+将一批 draft token 的 key 和 score 写入各请求的 tail 环形缓冲区，对新补齐的 pool 逐通道进行 softmax 加权汇聚，并把 BF16 结果写入 `write_loc` 指定的 cache 位置。
 
-设 `s=write_start[b]`、`e=N` 或 `clamp(effective_n_per_batch[b],0,N)`：
-
-$$c_b=\lfloor(s+e)/K\rfloor-\lfloor s/K\rfloor.$$
-
-第 p 个完成 pool 从 `tail_logical_start[b]+p*K` 起读取 K 项，写到 `write_loc[b,p]`。**effective 只控制 pool 完成判定，不减少 N 个 tail 写入**。返回 None，修改 cache、tail key 和 tail score。
-
-逐通道 softmax pooling 使用 FP32，令 `a[j,d]=score[j,d]+ape[j,d]`、`m[d]=max_j a[j,d]`：
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-不执行 Hadamard、FP8 量化或逐 slot scale 输出。
+汇聚使用 FP32 计算，并加入位置分数。有效 draft 数量只决定哪些 pool 可以压缩；对于有效 batch，传入的全部 draft 行仍会写入 tail。无效 batch 被跳过，cache、tail key 和 tail score 原地更新。
 
 ## 参数与返回值
 
@@ -70,7 +60,7 @@ $$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` 或 `torch.int64` | 必填 | token cache 位置；某 batch 的首项为 0 时跳过整个 batch。只读。 |
 | `num_draft_tokens` | `int` | — | — | 必填 | 静态 `N`；必须为正，且整除 `key.shape[0]`。 |
 | `effective_n_per_batch` | `torch.Tensor` 或 `None` | `[>= B]` 或 — | `torch.int32` 或 `torch.int64` | `None` | 可选有效 draft 数，只用于判断 pool 是否填满。 |
-| `num_programs` | `int` 或 `None` | — | — | `None` | 仅限关键字参数；Triton grid 大小，显式提供时必须为正且会截断到 `B`。默认使用可用 Vector Core 数并截断到 `B`。 |
+| `num_programs` | `int` 或 `None` | — | — | `None` | 可选执行并行度参数，显式提供时必须为正数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |
@@ -81,7 +71,7 @@ $$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_
 
 ## triton 后端
 
-固定通道 128，grid-stride 循环。cache、tail、write_loc 必须连续，其余只读输入可内部转连续。显式 num_programs 为正并截断到 B，默认按 Vector Core 数选择；查询不可用时使用实现的上限。
+通道数固定为128。cache、tail和write_loc必须连续，其余只读输入可在内部转为连续布局。
 
 ## torch_native 后端
 

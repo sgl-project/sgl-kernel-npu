@@ -38,15 +38,9 @@ def kpool_decode_update_and_maybe_write_cache(
 
 ## Description
 
-Let `K=pool_size`, `T=tail_k.shape[1]`, and `S=slots_per_page`. Valid rows have request indices in `[0,R)`, `out_cache_loc[row]!=0`, and `0<=positions[row]<seq_lens[row]`. Current keys/scores are written to tail slot `positions[row]%T`. Invalid rows leave all state unchanged.
+Write the current decode key and score into the request's tail ring. When this token completes a pool, combine it with the stored tail history, apply channel-wise softmax pooling, and write the BF16 result to the pooled cache using the page table.
 
-When `positions[row]%K==K-1`, reduces a complete pool. The current slot uses the supplied key/score directly; other slots read initialized tail history. For `p=positions[row]//K`, the page-table column is `clamp((p//S)*K,0,M-1)` and cache offset is `block_tables[row,col]*buf.stride(0)+(p%S)*head_dim`. `out_cache_loc` only gates validity; it is not the pooled-cache destination address.
-
-Channel-wise softmax pooling uses FP32. Let `a[j,d]=score[j,d]+ape[j,d]` and `m[d]=max_j a[j,d]`:
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-There is no Hadamard transform, FP8 quantization, or per-slot scale output.
+Pooling uses FP32 arithmetic and includes positional scores. Invalid request rows leave all state unchanged. `out_cache_loc` controls whether the row is valid; the pooled-cache destination is resolved separately from the page table.
 
 ## Parameters and return value
 
@@ -76,7 +70,7 @@ All tensors must be on the same NPU. Callers supply valid indices, sufficient st
 
 ## triton backend
 
-Uses one program per row and two-pass stable softmax. buf, tail_k, and tail_score must be contiguous; noncontiguous mutable state is rejected. Read-only inputs are normalized internally. buf.stride(0) must equal slots_per_page*head_dim; compatible 2D/4D layouts are allowed. Empty batches return immediately.
+buf, tail_k and tail_score must be contiguous; noncontiguous mutable state is rejected. Read-only inputs are normalized internally. buf.stride(0) must equal slots_per_page*head_dim; compatible 2D/4D layouts are allowed. Empty batches return immediately.
 
 ## torch_native backend
 

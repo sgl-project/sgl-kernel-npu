@@ -37,7 +37,9 @@ def pool_key_indexer(
 
 ## Description
 
-Score pooled keys and select pools with the vendor indexer, expand selected pools into token IDs, then append the incomplete tail. For `K=pool_size`, selected pool `p` expands to `p*K+j` (`0<=j<K`). The fixed `K-1` tail area contains valid `P*K+j` IDs and `-1` padding, giving width `topk+K-1`. Inputs are read only; output is int32 with no scores. Scoring, masking and pool ordering are controlled by the vendor operator; callers must not assume stable ordering of selected pools.
+Score pooled keys and select the highest-ranked pools, expand them into token positions, and append tokens from the incomplete tail pool.
+
+The output contains int32 indices rather than scores, with unused tail positions filled by `-1`. Scoring, masking and selected-pool ordering are determined by the vendor operator; stable pool ordering is not guaranteed. Inputs are not modified.
 
 ## Parameters and return value
 

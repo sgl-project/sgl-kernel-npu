@@ -30,11 +30,9 @@ def expand_kpool_group_and_tail_to_topk(
 
 ## Description
 
-Let `K=pool_size`, `P=pool_indices.shape[1]`, and `L_r=seq_lens_per_token[r]`:
+Expand selected pool indices into the token positions represented by those pools, preserving their order. Then append the current sequence's incomplete pool as tail tokens.
 
-$$O_{r,pK+j}=K I_{r,p}+j\;(0\le j<K),\quad q_r=\lfloor L_r/K\rfloor K,\quad t_r=L_r\bmod K.$$
-
-The suffix has `K-1` columns: entry `j<t_r` equals `q_r+j`, otherwise `-1`. The effective row count is `min(n_real, pool_indices.shape[0], seq_lens_per_token.shape[0])`; later padded rows contain only `-1`. Negative pool IDs are expanded arithmetically, not normalized to `-1`. Inputs are read only, `index_topk=P*K`, and callers provide nonnegative row counts, valid nonnegative lengths, and positive K.
+For example, pool index 2 with `pool_size=4` expands to `[8, 9, 10, 11]`. Unused tail slots and padded query rows are filled with `-1`. Inputs are not modified.
 
 ## Parameters and return value
 
@@ -56,17 +54,7 @@ All tensors must be on the same NPU. Callers provide valid input values; the wra
 
 ## triton backend
 
-Processes whole rows with grid-stride scheduling. The row block is selected from {1, 2, 4, 8}:
-
-```text
-estimated_bytes_per_row = N_POOL_TOPK * (2 + pool_size) * 4
-max_rows = max(1, 85 * 1024 // estimated_bytes_per_row)
-BLOCK_B = min(8, floor_power_of_two(max_rows))
-```
-
-The 85 KiB estimate accounts for int32 pool indices, bases and expanded indices. The grid is `min(ceil_div(n_real, BLOCK_B), num_vectorcore)`. For `N_POOL_TOPK=512` and `pool_size=4`, `BLOCK_B=4`.
-
- Pool-index strides are supported; lengths must be contiguous. Physical output width is aligned to eight int32 elements before slicing, so output need not be contiguous.
+Pool-index strides are supported; sequence lengths must be contiguous. The returned output may be noncontiguous.
 
 ## torch_native backend
 

@@ -33,11 +33,9 @@ def scatter_kpool_tail_updates(
 
 ## 功能说明
 
-令 `K=pool.index_kpool`、`T=tail_k.shape[1]`，对每个 plan 行 p 与 `0<=j<n_write[p]`，key 和 score 分别执行：
+将 chunk 中选定的连续 key 和 score 行复制到各请求的 tail 环形缓冲区。每条计划指定请求、源起点、目标起点和复制行数，写到环形缓冲区末尾后从头继续。
 
-$$\mathrm{tail}[\mathrm{req}[p],(\mathrm{dst}[p]+j)\bmod T,d]=\mathrm{chunk}[\mathrm{src}[p]+j,d].$$
-
-仅拷贝，不做 softmax、pool 压缩或量化。调用方保证 `0<=n_write[p]<=K`、请求与源索引有效，目标写入不冲突。返回 None，仅 tail key/score 修改，未选中槽不变。
+只修改选中的 tail 位置，直接复制数据，不进行汇聚或量化。调用方需避免多个计划写入相同位置产生冲突。
 
 ## 参数与返回值
 
@@ -62,7 +60,7 @@ $$\mathrm{tail}[\mathrm{req}[p],(\mathrm{dst}[p]+j)\bmod T,d]=\mathrm{chunk}[\ma
 
 ## triton 后端
 
-固定通道 128，使用 Vector Core grid 和 grid-stride 循环。tail 与一维计划必须连续；chunk key/score 内部转连续。空计划直接返回。未显式列举浮点 dtype 白名单，不能视为所有 dtype 均经过验收。
+通道数固定为128。tail和一维计划必须连续，chunk key/score在内部转为连续布局。空计划直接返回。
 
 ## torch_native 后端
 

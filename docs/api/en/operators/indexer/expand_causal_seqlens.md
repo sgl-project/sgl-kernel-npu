@@ -33,14 +33,9 @@ def expand_causal_seqlens(
 
 ## Description
 
-Expand per-request total KV and query lengths into per-token causal lengths and packed-token-to-request IDs. For request `b`, let `S_b` include the current query, `Q_b` be its query count, and `P_b = sum(Q[:b])`:
+Generate the visible KV length and request ID for each query token, using the total KV length and query count of each request. Results are packed in request order.
 
-```text
-seqlens[P_b + j] = max(S_b - Q_b + 1, 0) + j
-token_to_batch[P_b + j] = b                 (0 <= j < Q_b)
-```
-
-The causal start is clamped to zero before adding token offsets. Requests with `Q_b=0` emit no tokens. Both input tensors remain read only.
+For example, a request with total KV length 10 and two query tokens produces visible lengths `[9, 10]`; both tokens receive that request's ID. Requests with no query tokens contribute no output. The causal starting length is clamped to zero.
 
 ## Parameters and return values
 
@@ -64,7 +59,7 @@ All tensors must share an NPU device; the return value is a tuple of two `torch.
 
 ## triton backend
 
-Triton lives in `implementation/triton/indexer/expand_causal_seqlens.py`. Each request writes query tiles and computes its packed offset by reducing preceding query counts. Query tile size is `max(32, min(256, next_power_of_2(max_query_len)))`; batch reduction width is `next_power_of_2(B)`. If `B=0` or `total_q=0`, it allocates/returns outputs without launching the Triton kernel.
+Input lengths must be contiguous int32 tensors on the requested device. Empty batches or zero query counts return empty outputs. Supplied output buffers are reused.
 
 ## torch_native backend
 

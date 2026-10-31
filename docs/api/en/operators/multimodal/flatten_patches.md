@@ -19,16 +19,9 @@ def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, imp
 
 ## Description
 
-Convert GLM image/video pixels into flattened patches. Repeat the final frame
-until the frame count is divisible by `temporal_patch_size`. Spatial tokens are
-ordered by temporal grid, merged block row, merged block column, row within the
-merged block and column within the merged block. Features are ordered by channel,
-frame within the temporal patch, pixel row and pixel column.
+Convert image or video pixels into flattened patches for model input. Repeat the final frame when needed to complete a temporal patch, then group spatial patches by the requested merge size.
 
-With `P=patch_size`, `M=merge_size`, `TP=temporal_patch_size`, the grid is
-`(ceil(T/TP), H/P, W/P)`. The implementation uses at most eight dimensions for
-each reshape/permute, keeping permutations within the NPU dimension limit. Inputs are
-read-only; the output may alias the input for identity layouts.
+Return the flattened features together with the temporal, height and width grid sizes. The layout conversion preserves the required patch and feature order while using tensors of at most eight dimensions. Inputs are not modified; identity layouts may share storage with the input.
 
 ## Parameters
 

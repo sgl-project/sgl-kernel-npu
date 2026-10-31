@@ -38,13 +38,9 @@ def kpool_assemble_softmax_rotate_write_cache(
 
 ## Description
 
-Let `K=ape.shape[0]` and `T=tail_k.shape[1]`. For plan row p, the first `n_from_tail[p]` entries read tail slots `(tail_logical_base[p]+j)%T`; remaining entries read chunk rows `chunk_src_start[p]+j-n_from_tail[p]`. Writes the reduction to `loc[p]` unless `write_mask[p]=False`; an omitted mask enables all writes. Valid all-tail plans may use empty chunks. Only the cache changes; tails and chunks are read only.
+Assemble each pool from a prefix in the request's tail ring and a suffix in the current chunk, according to the supplied plan. Apply channel-wise softmax pooling to keys using their scores plus positional scores, then write the BF16 result to the specified cache row.
 
-Channel-wise softmax pooling uses FP32. Let `a[j,d]=score[j,d]+ape[j,d]` and `m[d]=max_j a[j,d]`:
-
-$$z_d=\operatorname{BF16}\left(\frac{\sum_j e^{a_{j,d}-m_d}k_{j,d}}{\sum_j e^{a_{j,d}-m_d}}\right).$$
-
-There is no Hadamard transform, FP8 quantization, or per-slot scale output.
+Pooling uses FP32 arithmetic. The write mask can leave selected cache rows unchanged; tail and chunk inputs remain read-only. This operation stores pooled keys without rotation or quantization.
 
 ## Parameters and return value
 
@@ -62,7 +58,7 @@ There is no Hadamard transform, FP8 quantization, or per-slot scale output.
 | `ape` | `torch.Tensor` | `[pool_size, 128]` | `torch.float32` | Required | Additive pooling-position scores; `pool_size > 0`. |
 | `loc` | `torch.Tensor` | `[P]` | `torch.int64` | Required | Flattened cache rows to write. |
 | `write_mask` | `torch.Tensor` or `None` | `[P]` or — | `torch.bool` | `None` | Optional per-pool write enable. |
-| `num_programs` | `int` or `None` | — | — | `None` | Keyword-only Triton grid size. Must be positive when supplied; it is capped at `P`. By default, the backend uses the available Vector Core count capped at `P`. |
+| `num_programs` | `int` or `None` | — | — | `None` | Optional execution-parallelism hint; must be positive when supplied. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 
 | Return value | Type | Shape | Dtype | Description |
@@ -73,7 +69,7 @@ All tensors must be on the same NPU. Callers supply valid indices, sufficient st
 
 ## triton backend
 
-Channel width is 128. Uses online stable softmax and a grid-stride loop. Cache, tails, and plan fields must be contiguous; chunk keys/scores, APE, loc, and mask may be normalized internally. Explicit positive num_programs is capped at P; the default uses Vector Core count, with an implementation limit if properties are unavailable.
+Channel width is 128. Cache, tails and plan fields must be contiguous; chunk keys/scores, APE, locations and masks may be made contiguous internally.
 
 ## torch_native backend
 
