@@ -4,14 +4,16 @@ import torch
 import triton
 import triton.language as tl
 
+_schedule_launchers = {}
+
 
 @triton.jit
 def _schedule_topk_prep_kernel(
     confidence_ptr,
     survival_ptr,
     selected_extra_ptr,
-    gamma,
-    cols,
+    gamma: tl.constexpr,
+    cols: tl.constexpr,
     G_P2: tl.constexpr,
 ):
     row = tl.program_id(0)
@@ -28,10 +30,10 @@ def _schedule_topk_prep_kernel(
 def _schedule_topk_finalize_kernel(
     selected_extra_ptr,
     out_ptr,
-    min_verify_len,
-    lower_bound,
-    max_len,
-    bs,
+    min_verify_len: tl.constexpr,
+    lower_bound: tl.constexpr,
+    max_len: tl.constexpr,
+    bs: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
@@ -48,8 +50,8 @@ def _schedule_topk_selected_extra_kernel(
     survival_ptr,
     selected_extra_ptr,
     budget,
-    cols,
-    n,
+    cols: tl.constexpr,
+    n: tl.constexpr,
     survival_eps,
     BLOCK_C: tl.constexpr,
     BLOCK_CP: tl.constexpr,
@@ -100,38 +102,65 @@ def schedule_verify_lens_topk_triton(
 
     selected_extra = torch.empty(num_requests, dtype=torch.int32, device=device)
     survival = torch.empty((num_requests, cols), dtype=torch.float32, device=device)
-    _schedule_topk_prep_kernel[(num_requests,)](
-        confidence.contiguous(),
-        survival,
-        selected_extra,
+    verify_lens = torch.empty(num_requests, dtype=torch.int32, device=device)
+    confidence = confidence.contiguous()
+    # Cache compiled launchers, not tensors. Budget, threshold, pointers and the
+    # current stream remain runtime inputs, including during graph capture.
+    key = (
+        device,
+        confidence.dtype,
+        num_requests,
         gamma,
-        cols,
-        G_P2=triton.next_power_of_2(max(gamma, 1)),
+        max_len,
+        int(cfg.min_verify_len),
+        confidence.data_ptr() % 16,
     )
-    if budget > 0 and n > 0:
-        BLOCK_C = 16
-        BLOCK_CP = 128
-        grid = (triton.cdiv(n, BLOCK_C),)
-        _schedule_topk_selected_extra_kernel[grid](
+    launchers = _schedule_launchers.get(key)
+    if launchers is None:
+        prep = _schedule_topk_prep_kernel.warmup(
+            confidence,
             survival,
             selected_extra,
-            int(budget),
+            gamma,
             cols,
-            n,
-            float(cfg.survival_eps),
-            BLOCK_C=BLOCK_C,
-            BLOCK_CP=BLOCK_CP,
+            G_P2=triton.next_power_of_2(max(gamma, 1)),
+            grid=(num_requests,),
         )
-
-    verify_lens = torch.empty(num_requests, dtype=torch.int32, device=device)
-    BLOCK = 256
-    _schedule_topk_finalize_kernel[(triton.cdiv(num_requests, BLOCK),)](
-        selected_extra,
-        verify_lens,
-        int(cfg.min_verify_len),
-        max(cfg.min_verify_len, 1),
-        int(max_len),
-        num_requests,
-        BLOCK=BLOCK,
-    )
+        finalize = _schedule_topk_finalize_kernel.warmup(
+            selected_extra,
+            verify_lens,
+            int(cfg.min_verify_len),
+            max(cfg.min_verify_len, 1),
+            int(max_len),
+            num_requests,
+            BLOCK=256,
+            grid=(triton.cdiv(num_requests, 256),),
+        )
+        launchers = [
+            prep[(num_requests, 1, 1)],
+            None,
+            finalize[(triton.cdiv(num_requests, 256), 1, 1)],
+        ]
+        _schedule_launchers[key] = launchers
+    launchers[0](confidence, survival, selected_extra)
+    if budget > 0 and n > 0:
+        if launchers[1] is None:
+            # Representative non-special scalar values keep budget/epsilon in
+            # the compiled ABI (even when a later call uses budget=1 or eps=0).
+            rank = _schedule_topk_selected_extra_kernel.warmup(
+                survival,
+                selected_extra,
+                2,
+                cols,
+                n,
+                0.5,
+                BLOCK_C=16,
+                BLOCK_CP=128,
+                grid=(triton.cdiv(n, 16),),
+            )
+            launchers[1] = rank[(triton.cdiv(n, 16), 1, 1)]
+        launchers[1](
+            survival, selected_extra, min(int(budget), n), float(cfg.survival_eps)
+        )
+    launchers[2](selected_extra, verify_lens)
     return verify_lens
