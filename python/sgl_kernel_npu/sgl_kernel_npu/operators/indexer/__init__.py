@@ -1,3 +1,4 @@
+from .append_local_block_to_topk_idx import append_local_block_to_topk_idx
 from .flash_decode_bnsd_with_topk_idx import flash_decode_bnsd_with_topk_idx
 
-__all__ = ["flash_decode_bnsd_with_topk_idx"]
+__all__ = ["append_local_block_to_topk_idx", "flash_decode_bnsd_with_topk_idx"]
