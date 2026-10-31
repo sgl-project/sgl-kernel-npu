@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--cann-version <9.0.0|9.1.0>]"
+            echo "Usage: $0 [--cann-version <9.0.0|9.1.0|9.2.0>]"
             exit 1
             ;;
     esac
@@ -33,9 +33,16 @@ case "${CANN_VERSION}" in
     "9.1.0")
         TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.1.0-pytorch2.10.0/torch_npu-2.10.0.post4-cp312-cp312-manylinux_2_28_${ARCHITECT}.whl"
         ;;
+    "9.2.0")
+        # NEW: CANN 9.2.0 dependency versions
+        TORCH_VERSION="2.13.0"
+        TORCHVISION_VERSION="0.28.0"
+        TORCHAUDIO_VERSION="2.11.0"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.2.0-pytorch2.13.0/torch_npu-2.13.0-cp312-cp312-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
     *)
         echo "Unsupported CANN version: ${CANN_VERSION}"
-        echo "Supported versions: 9.0.0, 9.1.0"
+        echo "Supported versions: 9.0.0, 9.1.0, 9.2.0"
         exit 1
         ;;
 esac
@@ -81,12 +88,24 @@ ${UV_PIP_INSTALL} \
 
 ### Install pytorch
 ## torch
-${UV_PIP_INSTALL} \
-    torch==${TORCH_VERSION} \
-    torchvision==${TORCHVISION_VERSION} \
-    torchaudio==${TORCH_VERSION} \
-    --index-url ${TORCH_CACHE_URL:="https://download.pytorch.org/whl/cpu"} \
-    --extra-index-url ${PYPI_CACHE_URL:="https://pypi.org/simple/"}
+if [[ "${CANN_VERSION}" == "9.2.0" ]]; then
+    # NEW: Install CANN 9.2.0 compatible dependencies
+    ${UV_PIP_INSTALL} \
+        torch==${TORCH_VERSION} \
+        torchvision==${TORCHVISION_VERSION} \
+        torchaudio==${TORCHAUDIO_VERSION} \
+        --index-url ${TORCH_CACHE_URL:="https://download.pytorch.org/whl/cpu"} \
+        --extra-index-url ${PYPI_CACHE_URL:="https://pypi.org/simple/"}
+else
+    # Original installation logic for CANN 9.0.0 and 9.1.0
+    ${UV_PIP_INSTALL} \
+        torch==${TORCH_VERSION} \
+        torchvision==${TORCHVISION_VERSION} \
+        torchaudio==${TORCH_VERSION} \
+        --index-url ${TORCH_CACHE_URL:="https://download.pytorch.org/whl/cpu"} \
+        --extra-index-url ${PYPI_CACHE_URL:="https://pypi.org/simple/"}
+fi
+
 ## torch_npu
 # GitCode does not allow UV downloads.
 ${PIP_INSTALL} ${TORCH_NPU_URL}
