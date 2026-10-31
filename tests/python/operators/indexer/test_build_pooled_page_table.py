@@ -39,7 +39,7 @@ def generate_test_data(shape, dtype):
     ],
 )
 def test_build_pooled_page_table(shape, pool_size, dtype):
-    from sgl_kernel_npu.operators.attention import build_pooled_page_table
+    from sgl_kernel_npu.operators.indexer import build_pooled_page_table
 
     page_table = generate_test_data(shape, dtype)
     impl, _ = get_test_impls()

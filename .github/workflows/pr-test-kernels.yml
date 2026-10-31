@@ -133,9 +133,9 @@ jobs:
               - csrc/helloworld/**
               - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
               - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/operators/mm/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/mm/**
-              - tests/python/operators/mm/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/multimodal/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/multimodal/**
+              - tests/python/operators/multimodal/**
               - tests/python/sgl_kernel_npu/test_swiglu_quant.py
               - tests/python/sgl_kernel_npu/test_batch_matmul_transpose.py
               - tests/python/sgl_kernel_npu/test_catlass_matmul_basic.py

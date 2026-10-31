@@ -7,18 +7,20 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _torch_native_fn = None
 
 
-@register_impl("mm.flatten_patches", "auto")
-@register_impl("mm.flatten_patches", "torch_native")
+@register_impl("multimodal.flatten_patches", "auto")
+@register_impl("multimodal.flatten_patches", "torch_native")
 def _torch_native_impl(patches, patch_size, merge_size, temporal_patch_size):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.mm.flatten_patches import flatten_patches
+        from ...implementation.torch_native.multimodal.flatten_patches import (
+            flatten_patches,
+        )
 
         _torch_native_fn = flatten_patches
     return _torch_native_fn(patches, patch_size, merge_size, temporal_patch_size)
 
 
-@register_operator("mm.flatten_patches")
+@register_operator("multimodal.flatten_patches")
 def flatten_patches(
     patches: torch.Tensor,
     patch_size: int,
@@ -34,5 +36,5 @@ def flatten_patches(
     Return [B, grid_t*grid_h*grid_w, C*temporal_patch_size*patch_size**2] and
     integer grid_t, grid_h, grid_w. Inputs are read-only; strides are supported.
     """
-    impl_fn = get_impl_by_name("mm.flatten_patches", impl)
+    impl_fn = get_impl_by_name("multimodal.flatten_patches", impl)
     return impl_fn(patches, patch_size, merge_size, temporal_patch_size)

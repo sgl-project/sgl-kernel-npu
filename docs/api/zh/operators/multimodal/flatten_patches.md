@@ -9,7 +9,7 @@
 ## 函数签名
 
 ```python
-from sgl_kernel_npu.operators.mm import flatten_patches
+from sgl_kernel_npu.operators.multimodal import flatten_patches
 
 def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, impl="auto"):
     ...
@@ -55,7 +55,7 @@ def flatten_patches(patches, patch_size, merge_size, temporal_patch_size, *, imp
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.mm import flatten_patches
+from sgl_kernel_npu.operators.multimodal import flatten_patches
 
 pixels = torch.randn((1, 3, 3, 28, 28), device="npu", dtype=torch.bfloat16)
 patches, grid_t, grid_h, grid_w = flatten_patches(

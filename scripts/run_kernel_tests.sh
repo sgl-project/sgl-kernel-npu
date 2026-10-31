@@ -57,7 +57,7 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_build_pooled_page_table.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
@@ -110,7 +110,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/mm/test_flatten_patches.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)

@@ -10,7 +10,7 @@
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import build_pooled_page_table
+from sgl_kernel_npu.operators.indexer import build_pooled_page_table
 
 def build_pooled_page_table(
     page_table_64: torch.Tensor,
@@ -58,7 +58,7 @@ $$O_{\ldots,p}=T_{\ldots,pK},\qquad 0\le p<\lceil M/K\rceil.$$
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import build_pooled_page_table
+from sgl_kernel_npu.operators.indexer import build_pooled_page_table
 page_table = torch.arange(32, device='npu', dtype=torch.int32).reshape(2, 16)
 pooled = build_pooled_page_table(page_table, pool_size=4, impl='torch_native')
 print(pooled.shape)

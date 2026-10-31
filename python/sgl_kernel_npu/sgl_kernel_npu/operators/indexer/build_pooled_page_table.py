@@ -7,12 +7,12 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _torch_native_fn = None
 
 
-@register_impl("attention.build_pooled_page_table", "auto")
-@register_impl("attention.build_pooled_page_table", "torch_native")
+@register_impl("indexer.build_pooled_page_table", "auto")
+@register_impl("indexer.build_pooled_page_table", "torch_native")
 def _torch_native_impl(page_table_64: torch.Tensor, pool_size: int) -> torch.Tensor:
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.build_pooled_page_table import (
+        from ...implementation.torch_native.indexer.build_pooled_page_table import (
             build_pooled_page_table,
         )
 
@@ -21,7 +21,7 @@ def _torch_native_impl(page_table_64: torch.Tensor, pool_size: int) -> torch.Ten
     return _torch_native_fn(page_table_64, pool_size)
 
 
-@register_operator("attention.build_pooled_page_table")
+@register_operator("indexer.build_pooled_page_table")
 def build_pooled_page_table(
     page_table_64: torch.Tensor,
     pool_size: int,
@@ -40,5 +40,5 @@ def build_pooled_page_table(
     Returns:
         Page table with last axis selected at pool_size intervals.
     """
-    impl_fn = get_impl_by_name("attention.build_pooled_page_table", impl)
+    impl_fn = get_impl_by_name("indexer.build_pooled_page_table", impl)
     return impl_fn(page_table_64, pool_size)

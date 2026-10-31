@@ -105,7 +105,7 @@ def reference_flatten_patches(patches, patch_size, merge_size, temporal_patch_si
 def test_flatten_patches(
     shape, patch_size, merge_size, temporal_patch_size, dtype, noncontiguous
 ):
-    from sgl_kernel_npu.operators.mm import flatten_patches
+    from sgl_kernel_npu.operators.multimodal import flatten_patches
 
     patches = generate_data(shape, dtype, noncontiguous)
     args = (patches, patch_size, merge_size, temporal_patch_size)
@@ -145,7 +145,7 @@ def test_flatten_patches(
 def test_flatten_patches_rejects_invalid_inputs(
     shape, patch_size, merge_size, temporal_patch_size
 ):
-    from sgl_kernel_npu.operators.mm import flatten_patches
+    from sgl_kernel_npu.operators.multimodal import flatten_patches
 
     impl, _ = get_test_impls()
     require_test_impl(flatten_patches, impl)
