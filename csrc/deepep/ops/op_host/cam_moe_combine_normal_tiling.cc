@@ -48,6 +48,8 @@ constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
 constexpr uint32_t ATTR_REAL_MAX_BS_INDEX = 7;
 constexpr uint32_t ATTR_MAX_ROUND_INDEX = 8;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 9;
+constexpr uint32_t ATTR_COMBINED_STRIDE_INDEX = 10;
+constexpr uint32_t ATTR_SRC_INFO_STRIDE_INDEX = 11;
 constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
 
 constexpr uint32_t TWO_DIMS = 2U;
@@ -120,6 +122,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, Cam
     auto epRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_ID_INDEX);
     auto tpRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_TP_RANK_ID_INDEX);
     auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
+    auto combinedStridePtr = attrs->GetAttrPointer<int64_t>(ATTR_COMBINED_STRIDE_INDEX);
+    auto srcInfoStridePtr = attrs->GetAttrPointer<int64_t>(ATTR_SRC_INFO_STRIDE_INDEX);
 
     // 判空
     OP_TILING_CHECK((groupEpPtr == nullptr) || (strnlen(groupEpPtr, MAX_GROUP_NAME_LENGTH) == 0) ||
@@ -181,6 +185,25 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, Cam
     tilingData.camMoeCombineNormalInfo.epRankId = static_cast<uint32_t>(*epRankIdPtr);
     tilingData.camMoeCombineNormalInfo.tpRankId = static_cast<uint32_t>(*tpRankIdPtr);
     tilingData.camMoeCombineNormalInfo.moeExpertNum = static_cast<uint32_t>(moeExpertNum);
+    if (combinedStridePtr != nullptr && *combinedStridePtr > 0) {
+        tilingData.camMoeCombineNormalInfo.recvXStride = static_cast<uint32_t>(*combinedStridePtr);
+    } else {
+        // 未传 combined_stride（旧调用方），recv_x 为连续 bf16/fp16 张量，行步长 = h * 2 字节。
+        // 注意：此函数在 CheckTensorShape 之前调用，camMoeCombineNormalInfo.h 尚未赋值，
+        // 必须直接从 recvX 输入 shape 取 h。
+        uint32_t hFallback = 0U;
+        const gert::StorageShape *recvXStorageShape = context->GetInputShape(RECV_X_INDEX);
+        if (recvXStorageShape != nullptr && recvXStorageShape->GetStorageShape().GetDimNum() == TWO_DIMS) {
+            hFallback = static_cast<uint32_t>(recvXStorageShape->GetStorageShape().GetDim(1));
+        }
+        tilingData.camMoeCombineNormalInfo.recvXStride = hFallback * 2;
+    }
+    if (srcInfoStridePtr != nullptr && *srcInfoStridePtr > 0) {
+        tilingData.camMoeCombineNormalInfo.srcInfoStride = static_cast<uint32_t>(*srcInfoStridePtr);
+    } else {
+        // 未传 src_info_stride（旧调用方），token_src_info 为连续 [num_recv*3] int32，行步长 = 3 * 4 字节
+        tilingData.camMoeCombineNormalInfo.srcInfoStride = 3U * sizeof(uint32_t);
+    }
 
     return ge::GRAPH_SUCCESS;
 }
@@ -199,11 +222,13 @@ static bool CheckInputTensorDim(gert::TilingContext *context, const char *nodeNa
     const gert::StorageShape *tokenSrcInfoStorageShape = context->GetInputShape(TOKEN_SRC_INFO_INDEX);
     OP_TILING_CHECK(tokenSrcInfoStorageShape == nullptr, OP_LOGE(nodeName, "tokenSrcInfoForCombine is null."),
                     return false);
-    OP_TILING_CHECK(tokenSrcInfoStorageShape->GetStorageShape().GetDimNum() != ONE_DIM,
-                    OP_LOGE(nodeName, "tokenSrcInfoForCombine must be 1-dimension, but got %lu dim",
-                            tokenSrcInfoStorageShape->GetStorageShape().GetDimNum()),
+    const size_t tokenSrcInfoDimNum = tokenSrcInfoStorageShape->GetStorageShape().GetDimNum();
+    OP_TILING_CHECK(tokenSrcInfoDimNum != ONE_DIM && tokenSrcInfoDimNum != TWO_DIMS,
+                    OP_LOGE(nodeName, "tokenSrcInfoForCombine must be 1-dimension or 2-dimension, but got %lu dim",
+                            tokenSrcInfoDimNum),
                     return false);
-    OP_LOGD(nodeName, "tokenSrcInfoForCombine dim0 = %ld", tokenSrcInfoStorageShape->GetStorageShape().GetDim(0));
+    OP_LOGD(nodeName, "tokenSrcInfoForCombine dim0 = %ld, dimNum = %lu",
+            tokenSrcInfoStorageShape->GetStorageShape().GetDim(0), tokenSrcInfoDimNum);
 
     const gert::StorageShape *topkWeightsStorageShape = context->GetInputShape(TOPK_WEIGHTS_INDEX);
     OP_TILING_CHECK(topkWeightsStorageShape == nullptr, OP_LOGE(nodeName, "topkWeights is null."), return false);

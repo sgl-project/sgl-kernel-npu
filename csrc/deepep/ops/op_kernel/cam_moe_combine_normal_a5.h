@@ -114,6 +114,8 @@ private:
     uint32_t h256AlignFloatLen_{0};
     uint32_t h32AlignRecvXLen_{0};
     uint32_t h512AlignRecvXLen_{0};
+    uint32_t recvXStride_{0};   // row stride (bytes) of recv_x in GM
+    uint32_t srcInfoStride_{0}; // row stride (bytes) of token_src_info in GM
     uint32_t sendCostStatsBufSize_{0};
 
     bool isEnableDiagnose_{false};
@@ -193,6 +195,8 @@ CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNo
     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
     isHybridDeployment_ = tilingData->camMoeCombineNormalInfo.isHybridDeployment;
+    recvXStride_ = tilingData->camMoeCombineNormalInfo.recvXStride;
+    srcInfoStride_ = tilingData->camMoeCombineNormalInfo.srcInfoStride;
     baseWindSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
 }
 
@@ -248,8 +252,15 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
     tpipe_->Reset();
     uint32_t recvCountAlignLen = Ceil(moeExpertNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
     uint32_t rangeCntAlignLen = Ceil(moeExpertPerRankNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+    // srcInfoBuf_ layout depends on the GM row stride of token_src_info:
+    //  - contiguous (row stride == 12B): baseline whole-block copy, dense rows (index j*3)
+    //  - strided (row stride is a 32B multiple, e.g. hOutGMAlignSize): per-row 32B copy into
+    //    32B-aligned slots (index j*8) so both src/dst of each DataCopyPad stay 32B-aligned.
+    const bool srcInfoContig = (srcInfoStride_ == TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
+    uint32_t srcInfoRowAlignBytes = Ceil(TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType), UB_32_ALIGN) * UB_32_ALIGN;
     uint32_t srcInfoAlignLen =
-        Ceil(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType), UB_32_ALIGN) * UB_32_ALIGN;
+        srcInfoContig ? Ceil(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType), UB_32_ALIGN) * UB_32_ALIGN
+                      : BATCH_SRC_INFO_CNT * srcInfoRowAlignBytes;
     tpipe_->InitBuffer(recvCountBuf_, recvCountAlignLen);
     tpipe_->InitBuffer(sendRangeOffsetBuf_, rangeCntAlignLen);
     tpipe_->InitBuffer(sendRangeCntBuf_, rangeCntAlignLen);
@@ -375,15 +386,30 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRa
 {
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
+    const bool srcInfoContig = (srcInfoStride_ == TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
+    const uint32_t srcInfoRowElems = srcInfoStride_ / sizeof(SrcInfoType);
+    // strided rows are read with a 32B block (only the first TOKEN_SRC_INFO_LEN int32s are used), keeping both
+    // src (row stride is a 32B multiple) and dst (32B-aligned slot) addresses 32B-aligned per DataCopyPad.
+    const uint32_t srcInfoRowBytes = TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
+    const uint32_t srcInfoRowCopyBytes = Ceil(srcInfoRowBytes, UB_32_ALIGN) * UB_32_ALIGN;
+    const uint32_t srcInfoRowAlignElems = srcInfoRowCopyBytes / sizeof(SrcInfoType);
+    const DataCopyExtParams rowParams{1U, srcInfoRowCopyBytes, 0U, 0U, 0U};
     for (uint32_t batchStart = 0U; batchStart < cnt; batchStart += BATCH_SRC_INFO_CNT) {
         uint32_t batchCnt = (cnt - batchStart) < BATCH_SRC_INFO_CNT ? (cnt - batchStart) : BATCH_SRC_INFO_CNT;
-        uint32_t batchBytes = batchCnt * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
-        const DataCopyExtParams dataCopyParams{1U, batchBytes, 0U, 0U, 0U};
-        DataCopyPad(srcInfoLocal, tokenSrcInfoGM_[(lo + batchStart) * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
+        if (srcInfoContig) {
+            uint32_t batchBytes = batchCnt * srcInfoRowBytes;
+            const DataCopyExtParams dataCopyParams{1U, batchBytes, 0U, 0U, 0U};
+            DataCopyPad(srcInfoLocal, tokenSrcInfoGM_[(lo + batchStart) * srcInfoRowElems], dataCopyParams, padParams);
+        } else {
+            for (uint32_t j = 0U; j < batchCnt; ++j) {
+                DataCopyPad(srcInfoLocal[j * srcInfoRowAlignElems],
+                            tokenSrcInfoGM_[(lo + batchStart + j) * srcInfoRowElems], rowParams, padParams);
+            }
+        }
         SyncFunc<AscendC::HardEvent::MTE2_S>();
 
         for (uint32_t j = 0U; j < batchCnt; ++j) {
-            uint32_t index = j * TOKEN_SRC_INFO_LEN;
+            uint32_t index = srcInfoContig ? (j * TOKEN_SRC_INFO_LEN) : (j * srcInfoRowAlignElems);
             uint32_t srcRankId = static_cast<uint32_t>(srcInfoLocal(index + RANK_ID_OFFSET_IN_SRC_INFO));
             uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLocal(index + TOKEN_IDX_OFFSET_IN_SRC_INFO));
             uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLocal(index + TOPK_IDX_OFFSET_IN_SRC_INFO));
@@ -410,7 +436,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
                                                                                      uint32_t srcTopkId,
                                                                                      uint32_t tkIndex)
 {
-    uint32_t tokenOffset = tkIndex * axisH_;
+    uint32_t tokenOffset = tkIndex * (recvXStride_ / sizeof(RecvXType));
     GM_ADDR dstGM =
         GetBufferAddrByRankId(srcRankId) + static_cast<uint64_t>(srcTokenId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
     GlobalTensor<XType> dstWindow;

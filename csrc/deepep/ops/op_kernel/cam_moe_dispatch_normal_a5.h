@@ -795,18 +795,11 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                                     0U};  // compare with
     DataCopyPadParams padParams = {true, 0, 0, 0};
 
-    DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
-    DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
-    uint32_t expandXElemCount = h;
-#ifdef __DAV_C310__
-    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
-        expandXElemCount = Ceil(h, FP4_ELEMS_PER_BYTE);
-    }
-#endif
-    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U,
-                                           0U};
-    LocalTensor<int32_t> xTmpTensorInt;
+    // Combined write: the UB row already holds [主数据][scale][expandIdx] contiguously (hScaleIdxSize bytes),
+    // so a single MTE3 DataCopyPad writes the whole row into the contiguous GM combined buffer
+    // (one row per token at stride hOutGMAlignSize). This replaces the previous three separate writes
+    // (expandIdx / scale / main data) with a single write.
+    LocalTensor<uint8_t> xTmpTensorU8;
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
     recvCountLocalSync.WaitFlag(0);
@@ -841,7 +834,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
         GM_ADDR recvStart =
             (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, fromRank)) + recvOffset * hOutGMAlignSize;
-        GlobalTensor<ExpandXOutType> srcTokenGT, dstTokenGT;
+        GlobalTensor<ExpandXOutType> srcTokenGT;
+        GlobalTensor<uint8_t> dstTokenU8GT;
 
         for (uint32_t j = 0; j < count; ++j) {
             srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
@@ -850,38 +844,11 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
             xQueue.EnQue(xTmpTensor);
             xTmpTensor = xQueue.DeQue<ExpandXOutType>();
-            xTmpTensorInt = xTmpTensor.template ReinterpretCast<int32_t>();
-            DataCopyPad(expandIdxOutGT[(writeOffset + j) * EXPAND_IDX_INFO], xTmpTensorInt[expandIdxStartIdx],
-                        dataCopyExandIdxParams);  // todo check expandXCopyParams_
+            xTmpTensorU8 = xTmpTensor.template ReinterpretCast<uint8_t>();
 
-            if constexpr (DynamicQuant) {
-                uint32_t scaleOutBytesPerToken = IsMxQuant ? Ceil(axisH_, MX_BLOCK_SIZE) : sizeof(XScalesType);
-                DataCopyExtParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleOutBytesPerToken), 0U, 0U,
-                                                               0U};
-                LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
-                uint32_t scaleUBOffset;
-#ifdef __DAV_C310__
-                if constexpr (IsMxQuant) {
-                    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-                                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
-                        scaleUBOffset = Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
-                    } else {
-                        scaleUBOffset = Align256<uint32_t>(axisH_);
-                    }
-                } else
-#endif
-                {
-                    scaleUBOffset = hUBAlignSize / sizeof(ExpandXOutType);
-                }
-                GlobalTensor<uint8_t> dynamicScalesOutU8GT;
-                dynamicScalesOutU8GT.SetGlobalBuffer((__gm__ uint8_t *)dynamicScalesOutGM);
-                DataCopyPad(dynamicScalesOutU8GT[(writeOffset + j) * scaleOutBytesPerToken], scaleLT[scaleUBOffset],
-                            scaleOutputDataCopyParams);
-            }
-
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount,
-                                       expandXElemCount);
-            DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
+            dstTokenU8GT.SetGlobalBuffer((__gm__ uint8_t *)expandXOutGM + (uint64_t)(writeOffset + j) * hOutGMAlignSize,
+                                         hOutGMAlignSize);
+            DataCopyPad(dstTokenU8GT, xTmpTensorU8, hCommuCopyOutParams);
 
             xQueue.FreeTensor(xTmpTensor);
         }
