@@ -1,0 +1,162 @@
+{
+  "url": "https://github.com/vllm-project/vllm-ascend/pull/18490",
+  "commit": "1b180deb840484c2fe33cbdd7abb68a615085172",
+  "files": [
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention.cpp",
+      "sha256": "9b8eee3e95aa638aed503a01801c0d1d5a483e8dfae60c922c81ac7481b6c4ac"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_contract.h",
+      "sha256": "ed8bfaf12471605aa97335f1d79179e54bca6b1a2fe3145b06137515f32add1c"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_copy.h",
+      "sha256": "d12fedf78ad0fa3de29ee4fefbaa671a0f48c45d7f973117fb945e4759ebe512"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_schedule.h",
+      "sha256": "3bc2668a10f6eef65d07aa6b1fa67224a9ed85b9dff0d2e800ee99b42590a4a3"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_template_tiling_key.h",
+      "sha256": "4ac7d212f829403a05189c8c3aeef5b0eff04231163dba82472adf834bbe9234"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_common_arch35.h",
+      "sha256": "998dad982cc88b5e65fbda5eb68a87892ba29cb783d33a10b4365094ece49360"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_kernel_mla.h",
+      "sha256": "7488a08c20f2209983c4bd647dd967aa2f98637cc21b55fe6b18e8123d710b2b"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_kvcache.h",
+      "sha256": "1e9c6dfab9671f4408867ad24203b08fe475e26b72047194815987a26ba88193"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+      "sha256": "0a378478d2eb1ab893a910148cadee09dcad7b6d51fc65edf1b600d3b3ed0ff5"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_service_vector_mla.h",
+      "sha256": "67a758e78a0316460ca8ca2432838f2ad303ac3bc6edfdf411ff7aa3a1898455"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_source_gather.h",
+      "sha256": "3ed6c52137f05011da6c155ac293c5c7c93fe8365be04a113ae512bddeb74c99"
+    },
+    {
+      "path": "arch35/util.h",
+      "sha256": "881e792473825acfd839fd269a3c997ff05ec301bc174d1728726d8ea26f5567"
+    },
+    {
+      "path": "arch35/util_regbase.h",
+      "sha256": "a3dd733c5e6de526097a4e685494bdee9e4d9275bab08a6f14d8bffe1914f640"
+    },
+    {
+      "path": "common/buffer.h",
+      "sha256": "29b3f30336d6cf744ad775ce829ee33fd3b166cf553736f28ce198298da6f65d"
+    },
+    {
+      "path": "common/buffers_policy.h",
+      "sha256": "6a03eb001b53335c865ddf52a9581ddd51d6b45260f8d994676fbd6b7469f79a"
+    },
+    {
+      "path": "common/buffer_manager.h",
+      "sha256": "946944e5b032259c176d9b841bd84f139c8eaf9fd44aa6fb83b0ad8529f161d8"
+    },
+    {
+      "path": "common/buffer_mix_core.h",
+      "sha256": "b57e3cd6ed710400e5ede680300a5dcc0b8c9e0859f2625d61bc023a832063af"
+    },
+    {
+      "path": "common/CopyInL1.h",
+      "sha256": "97ed4f8686d00ffdd8555e37596a51da5f67b1f3ed66f76084fa4e2e5a4ce3da"
+    },
+    {
+      "path": "common/FixpipeOut.h",
+      "sha256": "12600e1718f0b53377387301a8493f8ce34ce77d0dd8464379ef23daadffaaff"
+    },
+    {
+      "path": "common/matmul.h",
+      "sha256": "10b62f1218000686e6260ed3cf9ae4fb5a5bb0fdf7802913b93250f3c67c7fd4"
+    },
+    {
+      "path": "common/offset_calculator.h",
+      "sha256": "0ab85b78da7e3c4be75142bd2bc7c8d7b41fe564e34bc2dbe1dd4be84b142892"
+    },
+    {
+      "path": "common/memcopy/fa_gm_tensor.h",
+      "sha256": "b3a245fd740607933bb6d2d8cd2698862517c1146461bd448ceaff545a93b961"
+    },
+    {
+      "path": "common/memcopy/fa_l1_tensor.h",
+      "sha256": "8eb170da3a99874ca9bb020ea91f6326e30486495c6ec4e4bfbf9082ff69673f"
+    },
+    {
+      "path": "common/memcopy/gm_coord.h",
+      "sha256": "9888e757f2c50e8efb109babd09f6fe1a3a8c2ba98051d72744f8f17931af4a1"
+    },
+    {
+      "path": "common/memcopy/gm_layout.h",
+      "sha256": "648c999f8bf552624b1ac57a4476caf7d89ee25451e404f78e4f7b09848b9b9e"
+    },
+    {
+      "path": "common/memcopy/offset_calculator_v2.h",
+      "sha256": "61367917e054c33cf5d03cab3cdce4493096e3e11bba350faa3fc4befe726732"
+    },
+    {
+      "path": "common/memcopy/parser.h",
+      "sha256": "4f47ec4a6633a0bc45b0c0e244e4ce2c74da3940e93b974d6280b84b6e8461ce"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_aligned128_no_update_sfa.h",
+      "sha256": "7ec0f45a92cbfde57e4a50f859eb14372fe3ab95d80eed7c4b5f3a6473aea66b"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_aligned128_update_sfa.h",
+      "sha256": "cf4b5c9b941b8c7634380a9524cdea52934694860bf950ca5eeb2fc36fcbf8cf"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_unaligned128_no_update_sfa.h",
+      "sha256": "48c0f5035ba1ed29e2e893ae67956270ec3f578cd73e89c01fef865d5e53fd4a"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_unaligned128_update_sfa.h",
+      "sha256": "ea7e370b7b1bd311a13c89d565eb8225a7659ef809b33b99bc2f34c737b1b5b1"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_unaligned64_no_update_sfa.h",
+      "sha256": "9dca28c4402b0add93ed70f3e4fb78b06347a551a4d8f7e8a3cc79fdac422d90"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_unaligned64_update_sfa.h",
+      "sha256": "f890045b07720a2d22aece3c2a33acf795bd06dcf82909f47753fe34df9d25b6"
+    },
+    {
+      "path": "common/arch35/vf/vf_basic_block_utils.h",
+      "sha256": "7fbcfa5946fa89cb767f4bfc97893b9a2b19a8fc6f1b3710ec89f2e9c81fe52a"
+    },
+    {
+      "path": "common/arch35/vf/vf_flashupdate_new.h",
+      "sha256": "2f3bea7a06fdada65f52f0959af3b77aa92895a9f76fc61ea5e6307f7bc71774"
+    },
+    {
+      "path": "common/arch35/vf/vf_mul_sel_softmaxflashv2_cast_nz_sfa.h",
+      "sha256": "8ddafeda9671ac77f9fe1bc86bad512c1a821bd4229b19a825a43525e6e63d10"
+    }
+  ],
+  "adaptations": [
+    "A5-only normal-wheel direct launch",
+    "explicit tiling serialization",
+    "registered DRAM pointer with owning CPU tensor for Copy-SFA",
+    "four concrete BF16/FP16 kernel entries with split-head dispatch"
+  ],
+  "adapted_files": [
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention.cpp",
+      "ported_sha256": "172fc36bdf06f2d8af3e8c9248d1fc4dc77ff8df730360a32967c9d470a28f7b"
+    }
+  ]
+}

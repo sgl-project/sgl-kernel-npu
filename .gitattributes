@@ -1,0 +1,4 @@
+# Preserve imported vendor payload bytes so UPSTREAM_PROVENANCE.json remains
+# reproducible even when the checkout has core.autocrlf enabled.
+csrc/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/** -text
+csrc/utils/owned_kernel_launch.h -text

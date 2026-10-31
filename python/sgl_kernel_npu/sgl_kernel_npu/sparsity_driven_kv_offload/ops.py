@@ -66,6 +66,55 @@ def free_shm(device_id: int = 0) -> None:
     torch.ops.npu.shm_allocator_free_all(device_id)
 
 
+def fused_quant_scatter_copy_sparse_flash_attention(
+    query: torch.Tensor,
+    hbm_kv_bytes: torch.Tensor,
+    dram_kv_bytes: torch.Tensor,
+    dram_kv_dev_ptr: int,
+    hbm_block_table: torch.Tensor,
+    dram_block_table: torch.Tensor,
+    topk_dst_slots: torch.Tensor,
+    topk_src_ids: torch.Tensor,
+    topk_miss_counts: torch.Tensor,
+    actual_seq_lengths_query: torch.Tensor,
+    actual_seq_lengths_kv: torch.Tensor,
+    num_cache_tokens: torch.Tensor,
+    miss_src_ids: torch.Tensor,
+    miss_dst_slots: torch.Tensor,
+    miss_counts: torch.Tensor,
+    scale_value: float,
+    attention_out: torch.Tensor,
+) -> torch.Tensor:
+    """Run the A5 C8 scatter-copy sparse-attention operator in place.
+
+    ``dram_kv_bytes`` must own the registered CPU allocation corresponding to
+    ``dram_kv_dev_ptr`` and must remain alive until the NPU stream completes.
+    TopK source/destination slots and both physical page tables are consumed
+    exactly as supplied. In particular, the operator neither creates nor
+    appends caller-managed tail slots.
+    """
+    torch.ops.npu.fused_quant_scatter_copy_sparse_flash_attention(
+        query,
+        hbm_kv_bytes,
+        dram_kv_bytes,
+        int(dram_kv_dev_ptr),
+        hbm_block_table,
+        dram_block_table,
+        topk_dst_slots,
+        topk_src_ids,
+        topk_miss_counts,
+        actual_seq_lengths_query,
+        actual_seq_lengths_kv,
+        num_cache_tokens,
+        miss_src_ids,
+        miss_dst_slots,
+        miss_counts,
+        float(scale_value),
+        attention_out,
+    )
+    return attention_out
+
+
 def _infer_rows_and_block_bytes(
     tensor: torch.Tensor, address_ndims: int, name: str
 ) -> Tuple[int, int]:

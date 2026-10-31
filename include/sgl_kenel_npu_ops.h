@@ -400,7 +400,8 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
               bool stateVFirst, bool outputFinalState, bool outputGk,
               bool outputW, bool outputU, bool outputQG, bool outputKg,
               bool outputVNew, bool outputH);
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) ||                                  \
+    defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 /**
  * @brief Sparse row copy: for each i where valid_mask[i] is true,
  *   dst[dst_index[i]] = src[src_index[i]]
@@ -415,23 +416,6 @@ void unidex_copy(const at::Tensor &src, at::Tensor &dst,
                  int64_t dst_rows, int64_t block_bytes, int64_t max_copy,
                  int64_t block_dim, c10::optional<int64_t> src_ptr,
                  c10::optional<int64_t> dst_ptr);
-
-/**
- * @brief Look up slot_map[req_indices[b], topk_indices[b, k]] for each query.
- *
- * Replaces the broadcast + eq + any + argmax pattern used for device cache
- * lookup in the sparse KV cache path.
- *
- * Outputs (pre-allocated, written in place):
- *   token_on_device[bs, topk]: int32 indicator, 1 for hit and 0 for miss
- *   device_token_pos[bs, topk]: int32 slot position, or -1 for a miss
- *
- * block_dim=0 selects the default block count.
- */
-void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
-                     const at::Tensor &topk_indices,
-                     at::Tensor &token_on_device, at::Tensor &device_token_pos,
-                     int64_t block_dim);
 
 /**
  * @brief Create host shared memory and register it to the NPU device.
@@ -454,6 +438,25 @@ std::tuple<int64_t, int64_t>
 fused_shm_allocator_create_and_register(int64_t size, int64_t device_id,
                                         c10::string_view name);
 void fused_shm_allocator_free_all(int64_t device_id);
+#endif
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+/**
+ * @brief Look up slot_map[req_indices[b], topk_indices[b, k]] for each query.
+ *
+ * Replaces the broadcast + eq + any + argmax pattern used for device cache
+ * lookup in the sparse KV cache path.
+ *
+ * Outputs (pre-allocated, written in place):
+ *   token_on_device[bs, topk]: int32 indicator, 1 for hit and 0 for miss
+ *   device_token_pos[bs, topk]: int32 slot position, or -1 for a miss
+ *
+ * block_dim=0 selects the default block count.
+ */
+void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
+                     const at::Tensor &topk_indices,
+                     at::Tensor &token_on_device, at::Tensor &device_token_pos,
+                     int64_t block_dim);
 #endif
 
 } // namespace npu_kernel
