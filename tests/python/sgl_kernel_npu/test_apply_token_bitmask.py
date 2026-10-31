@@ -24,31 +24,9 @@ import unittest
 import sgl_kernel_npu
 import torch
 import torch_npu
-
-# ---------------------------------------------------------------------------
-# CPU reference implementation
-# ---------------------------------------------------------------------------
-
-
-def apply_token_bitmask_ref(logits, bitmask, indices=None):
-    """CPU reference: for each bit=0 in bitmask, set corresponding logit to -inf."""
-    if indices is not None:
-        rows = indices.tolist()
-    else:
-        rows = range(logits.shape[0])
-
-    vocab_size = logits.shape[1]
-    for row in rows:
-        bm = bitmask[row]
-        for bm_i in range(bm.shape[0]):
-            bm_val = bm[bm_i].item()
-            start_col = bm_i * 32
-            end_col = min(start_col + 32, vocab_size)
-            for bit in range(end_col - start_col):
-                if not ((bm_val >> bit) & 1):
-                    logits[row, start_col + bit] = float("-inf")
-    return logits
-
+from sgl_kernel_npu.implementation.cpu_reference.sampler.apply_token_bitmask import (
+    apply_token_bitmask as apply_token_bitmask_ref,
+)
 
 # ---------------------------------------------------------------------------
 # Data generation helpers

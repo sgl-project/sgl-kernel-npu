@@ -28,7 +28,8 @@ Suggested layout (Triton and torch_native illustrate the directory conventions; 
 python/sgl_kernel_npu/sgl_kernel_npu/
 ├── implementation/
 │   ├── triton/<module>/example_op.py
-│   └── torch_native/<module>/example_op.py
+│   ├── torch_native/<module>/example_op.py
+│   └── cpu_reference/<module>/example_op.py  # Optional existing CPU reference
 └── operators/<module>/
     ├── __init__.py
     └── example_op.py
@@ -42,6 +43,7 @@ docs/api/en/operators/<module>/example_op.md
 - Check implementation-specific constraints before launching kernels. Prefer metadata checks such as shape, dtype, and stride, with explicit error messages.
 - Provide a semantically equivalent, independently computed `torch_native` implementation for comparison; it should not call the kernel under test.
 - If torch_native is impractical, choose another trusted independent reference and explain the choice in the PR.
+- Preserve existing CPU references in `implementation/cpu_reference/<module>` and register them as `impl="cpu_reference"`. Keep their computation independent of NPU backends. Match the public input/output contract, including in-place updates and the returned device; document any changes to the original reference's semantics. For example, `sampler.apply_token_bitmask` copies NPU inputs to CPU for calculation and writes the result back to the original logits. Use these references for accuracy checks, not NPU performance measurements.
 - Wrap exposed native bindings for Ascend C operators in the operators layer, as shown in Section 3. Integrate other external operators through their public APIs as well.
 - For buffers, handles, or communication state, define resource lifetimes and the module-layer design first.
 
