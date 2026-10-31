@@ -1,19 +1,19 @@
 include_guard(GLOBAL)
 # Match public operator domains with their CANN declaration directories.
 get_filename_component(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-get_filename_component(SGL_PYTHON_OPERATORS_ROOT
+get_filename_component(SGL_PUBLIC_OPERATORS_ROOT
     "${CMAKE_CURRENT_LIST_DIR}/../../python/sgl_kernel_npu/sgl_kernel_npu/operators" ABSOLUTE)
 
 function(sgl_add_operator_domains)
-    if(NOT IS_DIRECTORY "${SGL_PYTHON_OPERATORS_ROOT}")
-        message(FATAL_ERROR "Python operator domains directory not found: ${SGL_PYTHON_OPERATORS_ROOT}")
+    if(NOT IS_DIRECTORY "${SGL_PUBLIC_OPERATORS_ROOT}")
+        message(FATAL_ERROR "Public operator domains directory not found: ${SGL_PUBLIC_OPERATORS_ROOT}")
     endif()
 
     # Track both sides so newly added domain directories or CMake entries reconfigure.
-    file(GLOB python_entries LIST_DIRECTORIES true CONFIGURE_DEPENDS "${SGL_PYTHON_OPERATORS_ROOT}/*")
+    file(GLOB public_entries LIST_DIRECTORIES true CONFIGURE_DEPENDS "${SGL_PUBLIC_OPERATORS_ROOT}/*")
     file(GLOB cann_entries CONFIGURE_DEPENDS "${SGL_OPERATOR_DOMAIN_ROOT}/*/CMakeLists.txt")
-    list(SORT python_entries)
-    foreach(entry IN LISTS python_entries)
+    list(SORT public_entries)
+    foreach(entry IN LISTS public_entries)
         if(NOT IS_DIRECTORY "${entry}")
             continue()
         endif()
