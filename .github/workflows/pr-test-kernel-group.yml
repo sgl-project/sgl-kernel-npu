@@ -1,0 +1,65 @@
+name: Kernel Test Group (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        description: Test group name
+        required: true
+        type: string
+      timeout:
+        description: Test timeout in minutes
+        required: false
+        type: number
+        default: 15
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cann_version: '9.1.0'
+            hardware: a3
+            runner: linux-aarch64-a3-800t-2
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.1.0-a3-B106
+          - cann_version: '9.2.0'
+            hardware: a3
+            runner: linux-aarch64-a3-800t-2
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+          - cann_version: '9.1.0'
+            hardware: a5
+            runner: linux-amd64-a5-4
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-950-ubuntu22.04-py3.12
+          - cann_version: '9.2.0'
+            hardware: a5
+            runner: linux-amd64-a5-4
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+      - name: Run ${{ inputs.group }} operator tests
+        timeout-minutes: ${{ inputs.timeout }}
+        run: bash scripts/run_kernel_tests.sh ${{ inputs.group }}

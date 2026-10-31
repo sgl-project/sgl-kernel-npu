@@ -29,6 +29,9 @@ else
         9.1.*)
             TRITON_ASCEND_VER="3.2.2"
             ;;
+        9.2.*)
+            TRITON_ASCEND_VER="3.6.0.post2"
+            ;;
         *)
             echo "WARNING: Unknown CANN version $CANN_VER, defaulting to triton-ascend 3.2.0"
             TRITON_ASCEND_VER="3.2.0"

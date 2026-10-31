@@ -18,21 +18,33 @@ concurrency:
 jobs:
   run-daily-kernel-tests:
     name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.runner }}
     container:
-      # Kernel operator tests only need a single NPU, so a3 uses the single-card
-      # runner. CANN 9.1.0 has no daily-built image yet; pin the dated tag below
-      # and bump it manually when a newer cann9.1.0-a3 image is published.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: ${{ matrix.image }}
     timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # The a2 branch below is kept only as an extension point: add 'a2' to the
-        # hardware list to enable it, then map its runner/image accordingly.
-        cann_version: [9.0.0, 9.1.0]
-        hardware: [a3]
+        include:
+          - cann_version: '9.1.0'
+            hardware: a3
+            runner: linux-aarch64-a3-800t-2
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.1.0-a3-B106
+
+          - cann_version: '9.2.0'
+            hardware: a3
+            runner: linux-aarch64-a3-800t-2
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+
+          - cann_version: '9.1.0'
+            hardware: a5
+            runner: linux-amd64-a5-4
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.1.0-950-ubuntu22.04-py3.12
+
+          - cann_version: '9.2.0'
+            hardware: a5
+            runner: linux-amd64-a5-4
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
