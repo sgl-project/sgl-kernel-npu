@@ -1,0 +1,4 @@
+{
+  "2201": {"compute_units": ["ascend910b", "ascend910_93"], "provider": "Ascend910"},
+  "3510": {"compute_units": ["ascend950"], "provider": "Ascend950"}
+}
