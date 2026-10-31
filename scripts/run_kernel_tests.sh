@@ -170,7 +170,7 @@ esac
 # - test_triangular_inverse.py: torch_npu builtin op output mismatch (DTS 20260819-#2)
 # - test_chunk_gdn_triton.py:    intermittent aicore timeout, error 507014 (DTS 20260819-#3)
 # Both still run on CANN 9.0.0 where they pass.
-if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
+if [[ "${CANN_VERSION:-}" == 9.1* || "${CANN_VERSION:-}" == 9.2.* ]]; then
     SKIP_ON_910=(
         test_triangular_inverse.py
         test_chunk_gdn_triton.py
