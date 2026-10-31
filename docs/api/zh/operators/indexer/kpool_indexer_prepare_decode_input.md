@@ -59,11 +59,20 @@ $$w=\operatorname{BF16}((\operatorname{FP32}(x)W^T)\cdot n_{heads}\cdot s),\qqua
 
 ## triton 后端
 
-独立 Cube 投影与 Vector 元数据 kernel；要求输入连续、H 整除 256、N_HEADS<=32、pool_size==4。
+使用独立Cube投影与Vector元数据kernel；输入必须连续，`N_HEADS`必须为[1, 128]内的二次幂，`pool_size==4`。GEMM分块仅由head数决定：
+
+```text
+BLOCK_B = clamp(floor_power_of_two(2048 // N_HEADS), 16, 64)
+BLOCK_K = min(256, floor_power_of_two(24576 // (BLOCK_B + N_HEADS)))
+```
+
+逻辑元素预算分别为accumulator的2048和两份输入tile的24576。16/32/64/128 heads对应`(BLOCK_B, BLOCK_K)`为`(64,256)/(64,256)/(32,256)/(16,128)`。batch及K尾块加载时补零，仅写回有效batch行；H无需整除BLOCK_K。Vector部分仍按128个序列长度元素、4096个页表输入元素分块。
+
+`n_heads_pow`按调用方传值使用，默认仍为`32**-0.5`；不同head数若采用head归一化，应显式传入`N_HEADS**-0.5`。
 
 ## torch_native 后端
 
-独立 PyTorch FP32 矩阵乘法、补零、分组抽样与 BF16 转换；保持同样的类型、连续性及维度约束。
+独立 PyTorch FP32 矩阵乘法、补零、分组抽样与 BF16 转换；不使用Triton分块约束。
 
 公共 registry 导入时检测 NPU 架构，`torch_native` 入口也需要该环境。支持范围为已验收的 A3 用例；架构注册不代表所有芯片、shape 或 dtype 均已验证。
 

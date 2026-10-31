@@ -56,7 +56,17 @@ All tensors must be on the same NPU. Callers provide valid input values; the wra
 
 ## triton backend
 
-Processes four-row blocks with grid-stride scheduling. Pool-index strides are supported; lengths must be contiguous. Physical output width is aligned to eight int32 elements before slicing, so output need not be contiguous.
+Processes whole rows with grid-stride scheduling. The row block is selected from {1, 2, 4, 8}:
+
+```text
+estimated_bytes_per_row = N_POOL_TOPK * (2 + pool_size) * 4
+max_rows = max(1, 85 * 1024 // estimated_bytes_per_row)
+BLOCK_B = min(8, floor_power_of_two(max_rows))
+```
+
+The 85 KiB estimate accounts for int32 pool indices, bases and expanded indices. The grid is `min(ceil_div(n_real, BLOCK_B), num_vectorcore)`. For `N_POOL_TOPK=512` and `pool_size=4`, `BLOCK_B=4`.
+
+ Pool-index strides are supported; lengths must be contiguous. Physical output width is aligned to eight int32 elements before slicing, so output need not be contiguous.
 
 ## torch_native backend
 

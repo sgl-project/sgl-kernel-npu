@@ -56,7 +56,17 @@ $$O_{r,pK+j}=K I_{r,p}+j\;(0\le j<K),\quad q_r=\lfloor L_r/K\rfloor K,\quad t_r=
 
 ## triton 后端
 
-按 4 行分块、grid-stride 调度；pool_indices 支持传入 stride，长度必须连续。物理输出宽度按 8 个 int32 对齐再返回切片，结果不保证整体连续。
+保持整行处理，采用grid-stride调度，从{1, 2, 4, 8}中选择行块：
+
+```text
+estimated_bytes_per_row = N_POOL_TOPK * (2 + pool_size) * 4
+max_rows = max(1, 85 * 1024 // estimated_bytes_per_row)
+BLOCK_B = min(8, floor_power_of_two(max_rows))
+```
+
+85 KiB预算估计包含int32的pool索引、base及展开结果。grid为`min(ceil_div(n_real, BLOCK_B), num_vectorcore)`；`N_POOL_TOPK=512、pool_size=4`时选择`BLOCK_B=4`。
+
+pool_indices 支持传入 stride，长度必须连续。物理输出宽度按 8 个 int32 对齐再返回切片，结果不保证整体连续。
 
 ## torch_native 后端
 

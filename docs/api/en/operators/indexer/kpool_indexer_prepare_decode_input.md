@@ -59,11 +59,20 @@ All tensors must be on the same NPU. Callers provide valid input values; the wra
 
 ## triton backend
 
-Uses separate Cube projection and Vector metadata kernels; inputs must be contiguous, H divisible by 256, N_HEADS<=32, and pool_size==4.
+Uses separate Cube projection and Vector metadata kernels. Inputs must be contiguous, `N_HEADS` must be a power of two in [1, 128], and `pool_size==4`. GEMM tiling depends only on the head count:
+
+```text
+BLOCK_B = clamp(floor_power_of_two(2048 // N_HEADS), 16, 64)
+BLOCK_K = min(256, floor_power_of_two(24576 // (BLOCK_B + N_HEADS)))
+```
+
+The logical element budgets are 2048 for the accumulator and 24576 for the two operand tiles. For 16/32/64/128 heads, `(BLOCK_B, BLOCK_K)` is `(64,256)/(64,256)/(32,256)/(16,128)`. Partial batch and K tiles are zero-padded when loaded; only valid batch rows are written. H need not be divisible by BLOCK_K. Vector tile sizes remain 128 for sequence lengths and 4096 for page-table input elements.
+
+`n_heads_pow` is used as supplied; its default remains `32**-0.5`. Pass `N_HEADS**-0.5` explicitly when using that normalization with a different head count.
 
 ## torch_native backend
 
-Uses independent PyTorch FP32 matmul, padding, grouped selection, and BF16 conversion with the same dtype, contiguity, and dimension constraints.
+Uses independent PyTorch FP32 matmul, padding, grouped selection, and BF16 conversion without using Triton tiling constraints.
 
 Importing the public registry requires NPU architecture detection, including for `torch_native`. Support is limited to accepted A3 cases; architecture registration does not establish coverage of every chip, shape or dtype.
 

@@ -6,6 +6,15 @@ import triton.language as tl
 
 from ..utils.triton_utils import get_device_properties
 
+UB_SPECIFICATION = 85  # KiB available for the live int32 tensors.
+
+
+def _choose_block_b(n_pool_topk: int, pool_size: int) -> int:
+    # Pool indices, their bases and expanded token indices coexist in the tile.
+    estimated_bytes_per_row = n_pool_topk * (2 + pool_size) * 4
+    max_rows = max(1, UB_SPECIFICATION * 1024 // estimated_bytes_per_row)
+    return min(8, 1 << (max_rows.bit_length() - 1))
+
 
 @triton.jit
 def _expand_kpool_group_and_tail_to_topk_kernel(
@@ -22,21 +31,21 @@ def _expand_kpool_group_and_tail_to_topk_kernel(
     TOPK: tl.constexpr,
     TAIL_LEN: tl.constexpr,
     NUM_CORES: tl.constexpr,
-    BLOCK_M: tl.constexpr,
+    BLOCK_B: tl.constexpr,
 ):
     """Expand pool-level topk indices to token-level and append tail tokens.
 
-    Each program processes BLOCK_M rows at a time with a stride of
-    NUM_CORES * BLOCK_M. Phase 1 expands a row block in parallel; phase 2
+    Each program processes BLOCK_B rows at a time with a stride of
+    NUM_CORES * BLOCK_B. Phase 1 expands a row block in parallel; phase 2
     preserves the per-row layout while unrolling with static_range.
     """
     pid = tl.program_id(0)
 
-    for r0 in range(pid * BLOCK_M, n_real, NUM_CORES * BLOCK_M):
-        row_offs = r0 + tl.arange(0, BLOCK_M)  # [BLOCK_M]
+    for r0 in range(pid * BLOCK_B, n_real, NUM_CORES * BLOCK_B):
+        row_offs = r0 + tl.arange(0, BLOCK_B)  # [BLOCK_B]
         row_mask = row_offs < n_real
 
-        # Phase 1: expand a BLOCK_M batch from pool indices to token indices.
+        # Phase 1: expand a BLOCK_B batch from pool indices to token indices.
         p_offs = tl.arange(0, N_POOL_TOPK)
         pid_val = tl.load(
             pool_indices_ptr
@@ -46,15 +55,15 @@ def _expand_kpool_group_and_tail_to_topk_kernel(
             other=0,
         ).to(
             tl.int32
-        )  # [BLOCK_M, N_POOL_TOPK]
+        )  # [BLOCK_B, N_POOL_TOPK]
 
-        base = pid_val * POOL_SIZE  # [BLOCK_M, N_POOL_TOPK]
+        base = pid_val * POOL_SIZE  # [BLOCK_B, N_POOL_TOPK]
         o_offs = tl.arange(0, POOL_SIZE)  # [POOL_SIZE]
 
-        # [BLOCK_M, P, N] -> [BLOCK_M, N, P] -> [BLOCK_M, N * P]
-        tmp = o_offs[None, :, None] + base[:, None, :]  # [BLOCK_M, P, N]
-        tmp = tl.trans(tmp, [0, 2, 1])  # [BLOCK_M, N, P]
-        result = tl.reshape(tmp, (BLOCK_M, N_POOL_TOPK * POOL_SIZE))
+        # [BLOCK_B, P, N] -> [BLOCK_B, N, P] -> [BLOCK_B, N * P]
+        tmp = o_offs[None, :, None] + base[:, None, :]  # [BLOCK_B, P, N]
+        tmp = tl.trans(tmp, [0, 2, 1])  # [BLOCK_B, N, P]
+        result = tl.reshape(tmp, (BLOCK_B, N_POOL_TOPK * POOL_SIZE))
 
         col_offs = tl.arange(0, N_POOL_TOPK * POOL_SIZE)
         tl.store(
@@ -64,7 +73,7 @@ def _expand_kpool_group_and_tail_to_topk_kernel(
         )
 
         # Phase 2: append each row's uncompressed tail.
-        for m in tl.static_range(BLOCK_M):
+        for m in tl.static_range(BLOCK_B):
             r = r0 + m
             valid = r < n_real
             seq_len = tl.load(
@@ -133,7 +142,8 @@ def _expand_kpool_group_and_tail_to_topk(
     assert out.stride(1) == 1
 
     if n_real > 0:
-        num_cores = min(n_real, get_device_properties()[1])
+        block_b = _choose_block_b(n_pool_topk, pool_size)
+        num_cores = min(triton.cdiv(n_real, block_b), get_device_properties()[1])
         _expand_kpool_group_and_tail_to_topk_kernel[(num_cores,)](
             pool_indices,
             seq_lens_per_token,
@@ -148,7 +158,7 @@ def _expand_kpool_group_and_tail_to_topk(
             TOPK=index_topk,
             TAIL_LEN=tail_len,
             NUM_CORES=num_cores,
-            BLOCK_M=4,
+            BLOCK_B=block_b,
         )
 
     return out[:, :out_cols]

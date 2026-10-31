@@ -38,6 +38,10 @@ def generate_test_data(batch_size, hidden_size, n_heads, num_blocks):
         pytest.param(65, 512, 8, 7, id="multi-batch-nonmultiple-pool"),
         # Case 05: Typical B16/H4096/32 heads/M64; also profile.
         pytest.param(16, 4096, 32, 64, id="T-glm53-flash-b16-m64"),
+        # Case 06: 64 heads use B32/K256; cover batch, K and page-table tails.
+        pytest.param(33, 384, 64, 7, id="heads64-batch-and-k-tail"),
+        # Case 07: 128 heads use B16/K128; cover batch, K and page-table tails.
+        pytest.param(17, 192, 128, 9, id="heads128-batch-and-k-tail"),
     ],
 )
 def test_kpool_indexer_prepare_decode_input(
@@ -66,7 +70,7 @@ def test_kpool_indexer_prepare_decode_input(
     check_performance(executor, enable_perf=shape in perf_shape)
 
 
-# Case 06: Reject noncontiguous block tables.
+# Case 08: Reject noncontiguous block tables.
 @pytest.mark.extra_checks
 def test_fused_decode_prepare_rejects_noncontiguous_block_tables():
     from sgl_kernel_npu.operators.indexer import kpool_indexer_prepare_decode_input

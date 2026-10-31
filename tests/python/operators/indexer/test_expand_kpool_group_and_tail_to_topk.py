@@ -34,6 +34,10 @@ def generate_test_data(n_real, n_pool_topk=512, pool_size=4):
         pytest.param(5, 8, 8, 2, id="edge-small-topk-pool2"),
         # Case 05: Pool8 expansion with a tail and padding.
         pytest.param(7, 8, 16, 8, id="edge-pool8-tail"),
+        # Case 06: Top-k4096/pool2 chooses two rows; retain a partial row block.
+        pytest.param(17, 20, 2048, 2, id="topk4096-pool2-block-b2"),
+        # Case 07: Top-k16384/pool8 chooses one row and retains padded rows.
+        pytest.param(9, 12, 2048, 8, id="topk16384-pool8-block-b1"),
     ],
 )
 def test_expand_kpool_group_and_tail_to_topk(
@@ -56,7 +60,7 @@ def test_expand_kpool_group_and_tail_to_topk(
     )
 
 
-# Case 06: Reject noncontiguous sequence lengths.
+# Case 08: Reject noncontiguous sequence lengths.
 @pytest.mark.extra_checks
 def test_expand_rejects_noncontiguous_seq_lens():
     from sgl_kernel_npu.operators.indexer import expand_kpool_group_and_tail_to_topk

@@ -27,6 +27,22 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
     get_device_properties,
 )
 
+# Logical tile-element budgets for the accumulator and the two GEMM operands.
+_GEMM_ACC_ELEMENTS = 2048
+_GEMM_OPERAND_ELEMENTS = 24576
+
+
+def _choose_gemm_blocks(n_heads: int) -> tuple[int, int]:
+    assert (
+        0 < n_heads <= 128 and n_heads & (n_heads - 1) == 0
+    ), "n_heads must be a power of two in [1, 128]"
+    rows = max(1, _GEMM_ACC_ELEMENTS // n_heads)
+    block_b = max(16, min(64, 1 << (rows.bit_length() - 1)))
+    columns = _GEMM_OPERAND_ELEMENTS // (block_b + n_heads)
+    block_k = min(256, 1 << (columns.bit_length() - 1))
+    return block_b, block_k
+
+
 # Kernel 1: pure Cube GEMM for w_bf16
 
 
@@ -48,8 +64,6 @@ def _kpool_indexer_prepare_decode_input_gemm_kernel(
     # Pure Cube operator (tl.dot only), partitioned across num_aicore.
     # Use a grid-stride loop over batch groups; pack BLOCK_B batches into the
     # M dimension to avoid inefficient M=1 vector-matrix GEMMs.
-    # N_HEADS=32 is small and fixed; load BLOCK_N=N_HEADS in full, with no
-    # N-dimension mask.
     # The w_tile [N_HEADS, BLOCK_K] is batch-independent; load it once per K
     # iteration and reuse it for every batch in the group.
     NUM_B_BLOCKS = (N + BLOCK_B - 1) // BLOCK_B
@@ -58,7 +72,7 @@ def _kpool_indexer_prepare_decode_input_gemm_kernel(
         rows64 = rows.to(tl.int64)
         mask_b = rows < N
 
-        # a_block: x[rows, k0:k0+BLOCK_K] bf16, with M-tail bounds checks.
+        # a_block: x[rows, k0:k0+BLOCK_K] bf16, with batch and K-tail bounds checks.
         a_block = tl.make_block_ptr(
             base=x_ptr,
             shape=(N, HIDDEN_SIZE),
@@ -80,9 +94,11 @@ def _kpool_indexer_prepare_decode_input_gemm_kernel(
         acc = tl.zeros((BLOCK_B, N_HEADS), dtype=tl.float32)
         for k0 in range(0, HIDDEN_SIZE, BLOCK_K):
             # A tile: x[rows, k0:k0+BLOCK_K] bf16 -> fp32
-            a = tl.load(a_block, boundary_check=(0,)).to(tl.float32)
-            # B tile: W[n, k0:k0+BLOCK_K] -> [BLOCK_K, N_HEADS] fp32
-            w_k = tl.load(w_block)  # [N_HEADS, BLOCK_K]
+            a = tl.load(a_block, boundary_check=(0, 1), padding_option="zero").to(
+                tl.float32
+            )
+            # B tile: W -> [BLOCK_K, N_HEADS] fp32
+            w_k = tl.load(w_block, boundary_check=(1,), padding_option="zero")
             b = tl.trans(w_k)  # [BLOCK_K, N_HEADS]
             acc = tl.dot(a, b, acc)
             a_block = tl.advance(a_block, (0, BLOCK_K))
@@ -218,18 +234,13 @@ def kpool_indexer_prepare_decode_input(
     NUM_BLOCKS = padded_blocks
     N_POOL = NUM_BLOCKS // pool_size
 
-    # 2. hyper-params (fixed internally, not exposed)
-    block_b = 32
-    block_k = 256
+    # 2. GEMM tiling depends on head count; Vector tiling is unchanged.
+    block_b, block_k = _choose_gemm_blocks(N_HEADS)
     BLOCK_M_A = 128
     BLOCK_M_B = 4096
     # GEMM (Cube) uses num_aicore; VV (pure Vector) uses num_vectorcore.
     num_aicore, num_vectorcore = get_device_properties()
 
-    assert (
-        HIDDEN_SIZE % block_k == 0
-    ), f"HIDDEN_SIZE={HIDDEN_SIZE} not divisible by block_k={block_k}"
-    assert N_HEADS <= 32, f"N_HEADS={N_HEADS} unsupported"
     assert (
         BLOCK_M_B % pool_size == 0
     ), f"BLOCK_M_B={BLOCK_M_B} not divisible by pool_size={pool_size}"

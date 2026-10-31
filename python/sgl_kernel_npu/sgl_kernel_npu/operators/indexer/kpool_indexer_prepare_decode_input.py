@@ -80,6 +80,7 @@ def kpool_indexer_prepare_decode_input(
     """Prepare decode weights, pooled lengths and pooled page tables.
 
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
+    Triton accepts power-of-two head counts up to 128 and masks K tails.
 
     Args:
         x: torch.Tensor, shape [N, HIDDEN_SIZE], dtype torch.bfloat16. Decode hidden states.
