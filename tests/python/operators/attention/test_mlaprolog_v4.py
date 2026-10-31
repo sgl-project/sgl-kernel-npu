@@ -46,6 +46,24 @@ _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)
 _INT8_QUERY_NORM_STANDARD = {"torch.float32": AccuracyStandard(atol=1, rtol=0)}
 
 
+@pytest.fixture
+def enable_arch22_internal_format():
+    import torch_npu
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH22:
+        yield
+        return
+
+    original = torch_npu.npu.config.allow_internal_format
+    try:
+        # Keep NZ weights enabled through accuracy checks and profiling.
+        torch_npu.npu.config.allow_internal_format = True
+        yield
+    finally:
+        torch_npu.npu.config.allow_internal_format = original
+
+
 def generate_data(
     shape,
     tokens,
@@ -125,9 +143,6 @@ def generate_data(
                     .view(torch.float8_e8m0fnu)
                 )
             inputs[name] = quantized.T.contiguous() if is_weight else quantized
-    if generation == Generation.ARCH22:
-        # Enable internal formats so the explicit NZ weight cast takes effect.
-        torch_npu.npu.config.allow_internal_format = True
     for name in ("weight_dq", "weight_uq_qr", "weight_dkv_kr"):
         inputs[name] = torch_npu.npu_format_cast(inputs[name], 29)
     if use_rope:
@@ -293,6 +308,7 @@ def _accuracy(outputs, expected, inputs, reference, before):
             assert_accuracy(value, value_ref, _BF16_STANDARD, path=name)
 
 
+@pytest.mark.usefixtures("enable_arch22_internal_format")
 @pytest.mark.parametrize(
     "shape", shapes, ids=[f"kimi-k3-tp{tp}" for tp in (1, 2, 4, 8, 16, 32)]
 )
@@ -346,6 +362,7 @@ def test_mlaprolog_v4(
     )
 
 
+@pytest.mark.usefixtures("enable_arch22_internal_format")
 @pytest.mark.parametrize("shape", [(7168, 1536, 6, 128, 512, 64)], ids=["kimi-k3-tp16"])
 @pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
 @pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
