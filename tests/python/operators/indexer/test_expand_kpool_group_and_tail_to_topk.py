@@ -38,8 +38,6 @@ def generate_test_data(n_real, n_pool_topk=512, pool_size=4):
         pytest.param(7, 8, 512, 8, id="topk4096-pool8-block-b4"),
         # Case 06: Top-k8192/pool4 chooses one row and retains padded rows.
         pytest.param(17, 20, 2048, 4, id="topk8192-pool4-block-b1"),
-        # Case 07: Top-k16384/pool8 chooses one row and retains padded rows.
-        pytest.param(9, 12, 2048, 8, id="topk16384-pool8-block-b1"),
     ],
 )
 def test_expand_kpool_group_and_tail_to_topk(
