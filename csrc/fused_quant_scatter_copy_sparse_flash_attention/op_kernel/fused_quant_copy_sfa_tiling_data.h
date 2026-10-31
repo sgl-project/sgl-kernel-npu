@@ -7,13 +7,18 @@ struct FusedQuantScatterCopySparseFlashAttentionBaseParams {
     uint32_t sparseBlockCount, sparseMode, outputLayout, blockSize;
     uint32_t maxBlockNumPerBatch, isActualLenDimsNull, isActualLenDimsKVNull, dSizeVInput;
     float scaleValue;
+    // CANN aligns each nested tiling section to eight bytes.
+    uint32_t reserved;
 };
-struct FusedQuantScatterCopySparseFlashAttentionSingleCoreParams { uint32_t usedCoreNum; };
+struct FusedQuantScatterCopySparseFlashAttentionSingleCoreParams {
+    uint32_t usedCoreNum, reserved;
+};
 struct FusedQuantScatterCopySparseFlashAttentionTilingData {
     FusedQuantScatterCopySparseFlashAttentionBaseParams baseParams;
     FusedQuantScatterCopySparseFlashAttentionSingleCoreParams singleCoreParams;
     uint32_t dramMaxBlocks, hbmPhysicalBlocks, dramPhysicalBlocks;
-    uint32_t reserved[7];
+    uint32_t reserved[1];
 };
-static_assert(sizeof(FusedQuantScatterCopySparseFlashAttentionBaseParams) == 52);
-static_assert(sizeof(FusedQuantScatterCopySparseFlashAttentionTilingData) == 96);
+static_assert(sizeof(FusedQuantScatterCopySparseFlashAttentionBaseParams) == 56);
+static_assert(sizeof(FusedQuantScatterCopySparseFlashAttentionSingleCoreParams) == 8);
+static_assert(sizeof(FusedQuantScatterCopySparseFlashAttentionTilingData) == 80);
