@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include "defines.h"
+#include "batch_kernel_launch.h"
 #include "ge_helper.h"
 #include "owned_kernel_launch.h"
 #include "torch_npu/csrc/core/npu/NPUGuard.h"
@@ -12,6 +13,16 @@
 #include "aclrtlaunch_fused_quant_copy_sfa_bf16_split.h"
 #include "aclrtlaunch_fused_quant_copy_sfa_fp16.h"
 #include "aclrtlaunch_fused_quant_copy_sfa_fp16_split.h"
+
+// Only this operator's generated host stub is redirected here. Other native
+// kernels retain their existing launch policy. Match the original OPP's
+// SetScheduleMode(1), including captured graphs and concurrent streams.
+extern "C" uint32_t LaunchCopySfaBatchKernel(void *binary, uint64_t entry, uint32_t blocks, void **args,
+                                             uint32_t args_size, const void *stream)
+{
+    return sglang::npu_kernel::LaunchKernelWithBatchScheduling(binary, entry, blocks, args, args_size, stream);
+}
+
 namespace sglang::npu_kernel {
 inline bool is_fused_quant_sfa_head_count_supported(int64_t heads)
 {
