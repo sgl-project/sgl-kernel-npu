@@ -163,7 +163,20 @@ CANN 后端的所有张量应位于同一 NPU。下表为逻辑 shape；`FRACTAL
 
 以下 arch35 示例使用 BF16 投影和两份 BF16 缓存。尺寸采用 [Kimi K3 配置](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json)，attention TP16 下本地 Q heads 为 6；张量数值随机生成。`use_rope=False` 对应 Kimi 的无 RoPE 行为；设为 `True` 可用同样的尺寸验证 RoPE 路径。
 
-精度用例覆盖 token 数 `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`，每个长度均覆盖本地 Q heads 96/48/24/12/6/3、`PA_BSND`/`PA_NZ` 两种缓存布局及开启/关闭 RoPE。动态 INT8+C16 用例限定为 arch22。arch22 在分配输入前跳过 MXFP8 用例，arch35 保留已有 BF16/MXFP8 覆盖。成对用例生成相同的输入和权重，额外的 T5 用例检查负 cache slot。默认性能用例选择 TP4/TP16、token 数为 `1, 4, 16, 32, 64` 的 `PA_BSND` 形状，模式与硬件范围相同。
+精度测试保留本地 Q heads 96、24、6（attention TP1/4/16），按下表选择代表性组合。四种模式为 BF16+C16、动态 INT8+C16、MXFP8+C16、MXFP8+C8。除明确注明外，各组均覆盖开启/关闭 RoPE，不再对全部参数做笛卡尔积。
+
+| 分组 | 本地 Q heads | Token 数 | 布局 | 模式 | 用例数 |
+| --- | --- | --- | --- | --- | ---: |
+| 性能代表形状 | 24、6 | 1、4、16、32、64 | PA_BSND | 全部四种 | 80 |
+| NZ 布局 | 6 | 1、16、64 | PA_NZ | 全部四种 | 24 |
+| TP1 形状 | 96 | 4 | PA_BSND | 全部四种 | 8 |
+| 关闭 normalized-query 输出 | 6 | 17 | PA_BSND | 三种 C16 模式 | 6 |
+| 负数 padding slot | 6 | 5 | PA_BSND、PA_NZ | 全部四种 | 16 |
+| 其余 token 长度，无 RoPE | 6 | 2、3、7、8、12、24、31、40、48、56、63 | PA_BSND | BF16+C16 | 11 |
+
+矩阵包含 145 条数值/cache 用例和 16 条 Direct-CANN parity 用例；每组被测/参考实现共收集 161 条。其中 arch35 适用 123 条，arch22 适用 87 条，其余架构不适用的用例会跳过。动态 INT8+C16 用例限定为 arch22，MXFP8 用例限定为 arch35。成对用例生成相同的输入和权重。
+
+性能选择保持不变：TP4/TP16、token 数 `1, 4, 16, 32, 64`、`PA_BSND`、两种 RoPE 状态以及对应架构的模式，arch35 共 60 个配置，arch22 共 40 个。仅检查精度的 CI 使用 `--enable-perf=false`。
 
 BF16/MXFP8 精度标准保持不变。INT8 `query_norm` 要求全部元素最多相差一个整数码值；FP32 scale 单独使用 `atol=1e-5、rtol=1e-5` 检查。这是本用例的 INT8 判定标准，不套用 FP8 混合容差，也不宣称为 CANN 官方阈值。公开接口与直接 CANN 的一致性测试仍要求逐字节相同。
 

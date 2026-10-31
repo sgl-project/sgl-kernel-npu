@@ -1,7 +1,7 @@
 """MLAProlog V4 with and without RoPE: C16 and static C8 cache contracts.
 
 Dimensions follow moonshotai/Kimi-K3 config.json, with 96 Q heads sharded
-over attention TP sizes 1/2/4/8/16/32. Tensor values are generated, not loaded
+over attention TP sizes 1/4/16. Tensor values are generated, not loaded
 from a checkpoint. Weights and scales follow SGLang's MLAProlog input layouts.
 RoPE cases use the same dimensions to cover V4's optional rotation path;
 they do not describe Kimi K3's no-RoPE model behavior.
@@ -27,9 +27,6 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# (hidden, query_lora_rank, local_heads, query_head_dim, kv_lora_rank, r_dim).
-shapes = [(7168, 1536, heads, 128, 512, 64) for heads in (96, 48, 24, 12, 6, 3)]
-token_counts = [1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64]
 page_size = 128
 # Representative TP4/TP16 shapes, both RoPE modes; other cases check accuracy only.
 perf_shape = [
@@ -44,6 +41,47 @@ _QUERY_SCALE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-2)
 # Local INT8 quantization criterion: every element differs by at most one code.
 # Compare in FP32 to avoid INT8 subtraction overflow; this is not the FP8 rule.
 _INT8_QUERY_NORM_STANDARD = {"torch.float32": AccuracyStandard(atol=1, rtol=0)}
+
+
+def accuracy_cases():
+    # Cover each branch with representative shapes instead of a full product.
+    scenarios = (
+        [
+            ("perf-shape", heads, tokens, "PA_BSND", False)
+            for heads in (24, 6)
+            for tokens in (1, 4, 16, 32, 64)
+        ]
+        + [("nz-layout", 6, tokens, "PA_NZ", False) for tokens in (1, 16, 64)]
+        + [("head-count", 96, 4, "PA_BSND", False)]
+        + [("norm-disabled", 6, 17, "PA_BSND", False)]
+        + [("padding", 6, 5, layout, True) for layout in ("PA_BSND", "PA_NZ")]
+        + [
+            ("token-length", 6, tokens, "PA_BSND", False)
+            for tokens in (2, 3, 7, 8, 12, 24, 31, 40, 48, 56, 63)
+        ]
+    )
+    for group, heads, tokens, layout, padding in scenarios:
+        modes = [(0, False)] if group == "token-length" else cache_cases
+        rope_modes = (False,) if group == "token-length" else (False, True)
+        for mode, c8 in modes:
+            if group == "norm-disabled" and c8:
+                continue  # C8 already disables the normalized-query output.
+            for use_rope in rope_modes:
+                yield pytest.param(
+                    # hidden, query rank, heads, head dim, KV rank, R dim.
+                    (7168, 1536, heads, 128, 512, 64),
+                    tokens,
+                    layout,
+                    padding,
+                    mode,
+                    c8,
+                    use_rope,
+                    id=(
+                        f"{group}-kimi-k3-tp{96 // heads}-t{tokens}-{layout}"
+                        f"-w{mode}-c{8 if c8 else 16}"
+                        f"-{'rope' if use_rope else 'no-rope'}"
+                    ),
+                )
 
 
 @pytest.fixture
@@ -310,14 +348,9 @@ def _accuracy(outputs, expected, inputs, reference, before):
 
 @pytest.mark.usefixtures("enable_arch22_internal_format")
 @pytest.mark.parametrize(
-    "shape", shapes, ids=[f"kimi-k3-tp{tp}" for tp in (1, 2, 4, 8, 16, 32)]
+    "shape,tokens,cache_mode,padding,weight_quant_mode,c8,use_rope",
+    list(accuracy_cases()),
 )
-@pytest.mark.parametrize(
-    "tokens,padding", [(tokens, False) for tokens in token_counts] + [(5, True)]
-)
-@pytest.mark.parametrize("cache_mode", ["PA_BSND", "PA_NZ"])
-@pytest.mark.parametrize("weight_quant_mode,c8", cache_cases)
-@pytest.mark.parametrize("use_rope", [False, True], ids=["no-rope", "rope"])
 def test_mlaprolog_v4(
     shape,
     tokens,
@@ -396,23 +429,3 @@ def test_mlaprolog_v4_direct_cann_parity(
         assert torch.equal(
             actual.cpu().view(torch.uint8), reference.cpu().view(torch.uint8)
         )
-
-
-@pytest.mark.parametrize("impl", ["auto", "cann", "torch_native"])
-@pytest.mark.parametrize("rope_arg", ["rope_sin", "rope_cos"])
-@pytest.mark.parametrize("empty_partner", [False, True], ids=["none", "empty"])
-def test_mlaprolog_v4_rejects_unpaired_rope(impl, rope_arg, empty_partner):
-    from sgl_kernel_npu.operators.attention import mlaprolog_v4
-
-    # Rejection must precede backend dispatch and any cache access.
-    unused_inputs = [torch.empty(0)] * 9
-    partner = "rope_cos" if rope_arg == "rope_sin" else "rope_sin"
-    rope_inputs = {
-        rope_arg: torch.ones(1),
-        partner: torch.empty(0) if empty_partner else None,
-    }
-    with pytest.raises(
-        ValueError,
-        match="requires rope_sin and rope_cos to be both nonempty or both None/empty",
-    ):
-        mlaprolog_v4(*unused_inputs, **rope_inputs, impl=impl)

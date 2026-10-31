@@ -162,7 +162,20 @@ Uses independent PyTorch CPU calculations as an accuracy reference for the cases
 
 This arch35 example uses BF16 projections and separate BF16 caches. Dimensions follow the [Kimi K3 configuration](https://huggingface.co/moonshotai/Kimi-K3/blob/f831ab66814297da540d832a5235f8e904f29d06/config.json), with 6 local Q heads at attention TP16; tensor values are randomly generated. `use_rope=False` selects Kimi's no-RoPE behavior. Set it to `True` to exercise RoPE using the same dimensions.
 
-Accuracy cases cover token counts `1, 2, 3, 4, 5, 7, 8, 12, 16, 17, 24, 31, 32, 40, 48, 56, 63, 64`, each with local Q-head counts of 96/48/24/12/6/3, both `PA_BSND`/`PA_NZ` cache layouts, and RoPE enabled/disabled. Dynamic INT8+C16 cases target arch22. On arch22, MXFP8 cases are skipped before input allocation; arch35 retains the existing BF16/MXFP8 coverage. Paired cases use the same generated inputs and weights. Additional T5 cases cover negative cache slots. Performance cases select TP4/TP16 shapes with `1, 4, 16, 32, 64` tokens in `PA_BSND`, within the same mode and hardware scope.
+Accuracy tests use 96, 24 and 6 local Q heads (attention TP1/4/16) in the representative groups below. The four modes are BF16+C16, dynamic INT8+C16, MXFP8+C16 and MXFP8+C8. Each group covers both RoPE states unless stated otherwise; these are selected combinations, not a full cross-product.
+
+| Group | Local Q heads | Tokens | Layout | Modes | Cases |
+| --- | --- | --- | --- | --- | ---: |
+| Performance shapes | 24, 6 | 1, 4, 16, 32, 64 | PA_BSND | All four | 80 |
+| NZ layout | 6 | 1, 16, 64 | PA_NZ | All four | 24 |
+| TP1 shape | 96 | 4 | PA_BSND | All four | 8 |
+| Normalized-query output disabled | 6 | 17 | PA_BSND | Three C16 modes | 6 |
+| Negative padding slot | 6 | 5 | PA_BSND, PA_NZ | All four | 16 |
+| Remaining token lengths, no RoPE | 6 | 2, 3, 7, 8, 12, 24, 31, 40, 48, 56, 63 | PA_BSND | BF16+C16 | 11 |
+
+The matrix contains 145 numerical/cache cases and 16 direct-CANN parity cases: 161 collected cases for one implementation/reference pair. Of these, 123 apply to arch35 and 87 to arch22; the remaining architecture-specific cases are skipped. Dynamic INT8+C16 cases target arch22, while MXFP8 cases target arch35. Paired cases use the same generated inputs and weights.
+
+Performance selection is unchanged: TP4/TP16 shapes with `1, 4, 16, 32, 64` tokens in `PA_BSND`, both RoPE states, and the applicable modes (60 configurations on arch35, 40 on arch22). Use `--enable-perf=false` for accuracy-only CI runs.
 
 BF16/MXFP8 precision criteria are unchanged. For INT8 `query_norm`, every element must differ by at most one integer code; FP32 scales are checked independently with `atol=1e-5, rtol=1e-5`. This is a test-specific INT8 criterion, not the FP8 mixed-tolerance rule or a claim of an official CANN threshold. Public-API/direct-CANN parity remains byte-exact.
 
