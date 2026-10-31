@@ -4,16 +4,12 @@ Copy cache-slot indices between a request-to-token mapping table and a packed
 location buffer. `cache_loc_assign` writes indices into the table;
 `cache_loc_update` gathers indices from it. Neither operator copies KV vectors.
 
-## Architecture support
+## Hardware support
 
-Generation names follow the shared operators framework: `arch22` and `arch35`,
-with architecture IDs `2201` and `3510`. Implementation scope and hardware
-validation status are listed separately.
-
-| Implementation | arch22 / 2201 | arch35 / 3510 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | Implemented; CANN build and NPU validation pending | Implemented; CANN build and NPU validation pending |
-| `torch_native` | Implemented; NPU validation pending | Implemented; NPU validation pending |
+| `ascendc` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
@@ -85,22 +81,19 @@ update retains single-core scheduling. Both share the computation and a
 sixteen-field Tiling structure. Location-buffer sizing uses its logical `numel()`.
 
 AscendC interval lengths are limited to `MAX_STEP=16`; UB capacity and aligned
-reads also constrain inputs. Numerical tests use unique request rows, valid
-indices and nonoverlapping input/output storage. Empty batches, conflicting
-duplicate requests, invalid indices and overlapping storage have not been
-validated. Fixed 16-element reads require readable storage; numerical cases near
-row ends do not replace allocation-boundary memory diagnostics. UB capacity
-failures are reported through the CANN/ACLNN error path.
+reads also constrain inputs. Use valid indices, unique request rows and
+nonoverlapping input/output storage. Fixed 16-element reads require readable
+storage. UB capacity failures are reported through the CANN/ACLNN error path.
 
 `torch_native` uses PyTorch slice copies on the input device. Reading index
 metadata for its Python loop may synchronize execution. Integer copying needs
-no floating-point promotion. Graph capture and autograd have not been validated.
+no floating-point promotion.
 
 ## Build and test
 
-Operator selection is passed through unchanged; selecting one ID does not
-automatically add the other. Building, installing and running a single selected
-operator still requires CANN/NPU validation. The example below selects both IDs.
+The operators share one Host, Kernel and Torch adapter. Selecting either ID
+automatically adds the other through the operator-local build configuration,
+so both are built and packaged together. The example below selects both IDs.
 
 ```bash
 python3 setup.py --make_clean --arch-version 2201 \

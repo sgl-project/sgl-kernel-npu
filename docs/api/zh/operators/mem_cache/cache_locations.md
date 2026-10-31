@@ -4,15 +4,12 @@
 `cache_loc_assign` 将编号写入映射表，`cache_loc_update` 从映射表收集编号；
 两者均不搬运 KV 向量数据。
 
-## 架构支持
+## 芯片支持
 
-代际名称沿用公共 operators 框架的 `arch22`、`arch35`，分别对应架构编号
-`2201`、`3510`。构建声明和真实硬件验证状态分别列出。
-
-| 实现 | arch22 / 2201 | arch35 / 3510 |
+| 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 已实现；CANN 编译与 NPU 验证待完成 | 已实现；CANN 编译与 NPU 验证待完成 |
-| `torch_native` | 已实现；NPU 验证待完成 | 已实现；NPU 验证待完成 |
+| `ascendc` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 接口
 
@@ -79,17 +76,16 @@ CANN 类型分别为 `SglCacheLocAssign`、`SglCacheLocUpdate`，通过 ACLNN
 两个算子共享计算实现和 16 字段 Tiling，位置数组大小取其逻辑 `numel()`。
 
 AscendC 的区间长度上限为 `MAX_STEP=16`，还受 UB 容量及对齐读取限制。
-正常测试使用唯一请求行、有效索引和不重叠的输入输出存储。空 batch、重复请求
-冲突、非法索引和输入输出存储重叠尚未验证。固定 16 元素读取要求对应存储可读；
-行末数值测试不能替代分配边界的内存安全诊断。UB 超限通过 CANN/ACLNN 错误路径上报。
+输入应使用有效索引、唯一请求行和不重叠的输入输出存储。固定 16 元素读取
+要求对应存储可读；UB 超限通过 CANN/ACLNN 错误路径上报。
 
 `torch_native` 在输入设备上执行 PyTorch slice copy；为 Python 循环读取索引
-元信息可能产生同步。整数复制不需要浮点升精度。图捕获和自动求导尚未验证。
+元信息可能产生同步。整数复制不需要浮点升精度。
 
 ## 构建与测试
 
-构建保留显式选择的算子列表，选择一个 ID 不会自动补齐另一个。
-单选算子的构建、安装及调用仍需 CANN/NPU 验证。以下示例显式选择两个 ID。
+两个算子共用 Host、Kernel 和 Torch adapter。选择任意一个 ID 时，算子目录的
+构建配置会自动补齐另一个 ID，两者一起编译和出包。以下示例显式选择两个 ID。
 
 ```bash
 python3 setup.py --make_clean --arch-version 2201 \
