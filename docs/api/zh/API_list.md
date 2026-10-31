@@ -9,6 +9,10 @@
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
 | [fused_variance](operators/norm/fused_variance.md) | `triton`、`torch_native` |
 | [rmsnorm_bias](operators/norm/rmsnorm_bias.md) | `triton`、`torch_native` |
+| [fused_split_qk_norm](operators/norm/fused_split_qk_norm.md) | `triton`、`torch_native` |
+| [split_qkv_rmsnorm_rope](operators/norm/split_qkv_rmsnorm_rope.md) | `triton`、`torch_native` |
+| [split_qkvgate_gemma_rmsnorm_rope](operators/norm/split_qkvgate_gemma_rmsnorm_rope.md) | `triton`、`torch_native` |
+| [split_qkv_rmsnorm_rope_pos_cache_half_npu](operators/norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.md) | `triton`、`torch_native` |
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
