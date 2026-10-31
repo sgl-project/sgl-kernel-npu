@@ -120,8 +120,7 @@ function(sgl_generate_cann_interfaces output_dir)
     # Regenerate SDK metadata when selected sources, headers, settings or helpers change.
     set(inputs ${host_sources} ${tiling_headers} "${config_dir}/sgl_operator_config.h"
         "${CMAKE_CURRENT_FUNCTION_LIST_FILE}" "${helper}"
-        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/operators.cmake"
-        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/operator_variants.cmake")
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/operators.cmake")
     foreach(id IN LISTS ARGN)
         sgl_get_resolved_operator(kernel_sources "${id}" "${SGL_ARCH_VERSION}" KERNEL_SOURCES)
         list(APPEND inputs ${kernel_sources})
