@@ -72,9 +72,11 @@ native使用输入设备上的PyTorch slice copy；Python循环读取索引元�
 python3 setup.py --make_clean --arch-version 2201 \
   --ops cache_loc_assign,cache_loc_update --artifact wheel
 # 在匹配的Linux/CANN/Torch环境安装output/中的准确wheel文件。
-python3 -m pytest tests/python/operators/mem_cache/test_cache_loc_assign.py \
+python3 -m pytest tests/python/operators/mem_cache/test_cache_locations.py \
   --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
 ```
 
 子集wheel仅提供构建时选中的native算子。根包在导入时加载native库，
 未实现缺产物时其他backend的隔离。
+
+两个cache-location算子成对构建。通过`setup.py --ops`选择任意一个ID都会包含两个接口；直接使用CMake时须选择两个ID或`ALL`。

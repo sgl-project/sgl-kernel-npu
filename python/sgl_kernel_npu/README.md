@@ -4,13 +4,12 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build:
-`apply_token_bitmask`, `cache_loc_assign` and `cache_loc_update`. `--ops all`
-does not include native operators outside these CANN build targets. The cache-location CANN
-path is implemented but still requires real SDK build and NPU validation.
+native, plus the migrated AscendC operators selected for this build. Only
+`apply_token_bitmask` has been migrated so far; `--ops all` does not include
+unmigrated legacy native operators.
 
-The existing `build.sh` and nested Python `setup.py` provide a separate build
-path. DeepEP, memory saver and attentions remain independent packages built
+The existing `build.sh` and nested Python `setup.py` keep their original build
+behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
 ### Build a wheel or CANN installer
@@ -123,41 +122,7 @@ fallback when the native operator is absent. See the API documentation in
 [English](../../docs/api/en/operators/sampler/apply_token_bitmask.md) or
 [Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
 
-### Cache-location operators
-
-```bash
-python3 setup.py --make_clean --arch-version 2201 \
-  --ops cache_loc_assign,cache_loc_update --artifact wheel
-# Install the exact generated wheel in the matching NPU environment.
-python3 -m pytest tests/python/operators/mem_cache \
-  --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
-```
-
-Import `cache_loc_assign` and `cache_loc_update` from
-`sgl_kernel_npu.operators.mem_cache`. Assign writes/returns `token_pool`; update
-writes/returns `out_cache_loc`. Both accept five tensor arguments,
-integer dtypes, MAX_STEP=16 and storage/UB constraints. There is no new padding,
-contiguous copy or dtype conversion. Two CANN OpDefs share the cache-location Kernel computation.
-
-Tests isolate DUT/reference buffers and use `assert_accuracy` followed by
-`make_executor` and `check_performance`. They do not pass shared in-place inputs
-to `check_accuracy`. Exact integer comparisons cover returned aliases, all
-modified buffers, read-only tensors and packed tails. Nine input cases and two
-request dtypes give 36 operator cases. Another 16 changed-value gather/scatter
-cases cover eight B/step combinations, giving 52 tests in total.
-B300 cases cover pool widths 8192 and 16384, random step1/2 and start offsets
-near row ends. The selected `impl_ref` (default `torch_native`) is the only golden
-implementation, including for the changed-value round trip.
-The input generators are self-contained in the operator test directory.
-Allocation-end memory diagnostics remain a separate validation task.
-
-Performance covers each operator's B300 workload for both request
-dtypes, plus the int64 B64/B128 workloads. Input preparation stays outside
-profiling; omit `--enable-perf=false` to run these measurements. The framework's
-`average_device_task_us` metric is not directly comparable with the old scripts'
-wall-clock timings.
-
-## build.sh: software and hardware
+## Legacy build: software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
 Platform: aarch64/x86
 Supporting Software
@@ -166,7 +131,7 @@ Supporting Software
 - Python >= 3.7
 - pybind11 (install via `pip install pybind11`)
 
-## build.sh: quick start
+## Legacy build: quick start
 ### Compile and Run
 1. Prepare the CANN environment variables (modify according to the installation path)
 ```bash

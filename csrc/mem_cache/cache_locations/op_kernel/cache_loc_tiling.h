@@ -13,7 +13,9 @@
 
 #include <cstdint>
 
-struct AssignCacheTillingData {
+namespace optiling {
+
+struct SglCacheLocTilingData {
     uint64_t key{0};
 
     uint64_t vcoreNum{0};
@@ -37,9 +39,11 @@ struct AssignCacheTillingData {
     uint64_t cacheLocAlignInt32{0};
 };
 
-static_assert(sizeof(AssignCacheTillingData) == 16 * sizeof(uint64_t),
+static_assert(sizeof(SglCacheLocTilingData) == 16 * sizeof(uint64_t),
               "Host and Kernel must use the same sixteen-field tiling layout");
 
 constexpr uint32_t MAX_STEP = 16;
+
+}  // namespace optiling
 
 #endif  // SGL_CANN_CACHE_LOC_TILING_H

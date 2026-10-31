@@ -79,10 +79,12 @@ are not claimed.
 python3 setup.py --make_clean --arch-version 2201 \
   --ops cache_loc_assign,cache_loc_update --artifact wheel
 # Install the exact wheel from output/ in a matching Linux/CANN/Torch environment.
-python3 -m pytest tests/python/operators/mem_cache/test_cache_loc_assign.py \
+python3 -m pytest tests/python/operators/mem_cache/test_cache_locations.py \
   --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
 ```
 
 A selected wheel contains only the native operators selected for its build.
 The package loads its native library at
 import; missing native artifacts are not isolated from other backends.
+
+The two cache-location operators are built together. Selecting either ID with `setup.py --ops` includes both; direct CMake builds must select both IDs or `ALL`.

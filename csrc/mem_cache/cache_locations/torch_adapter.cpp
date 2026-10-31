@@ -1,11 +1,9 @@
-#pragma once
-
 #include "aclnn_runtime.h"
 #include <array>
 #include <c10/core/DeviceGuard.h>
 #include <limits>
 
-namespace sgl_cache_loc {
+namespace {
 
 // Public operators validate dtype and location contiguity; direct Torch callers must satisfy that contract.
 template <typename Query, typename Execute>
@@ -44,4 +42,58 @@ inline at::Tensor Launch(at::Tensor req_indices, at::Tensor token_pool, at::Tens
     return target;
 }
 
-}  // namespace sgl_cache_loc
+}  // namespace
+#include <torch/library.h>
+
+#include "aclnn_sgl_cache_loc_assign.h"
+
+namespace {
+at::Tensor cache_loc_assign(at::Tensor req_indices, at::Tensor token_pool, at::Tensor start_offset,
+                            at::Tensor end_offset, at::Tensor out_cache_loc)
+{
+    static auto query = reinterpret_cast<decltype(&aclnnSglCacheLocAssignGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglCacheLocAssignGetWorkspaceSize"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglCacheLocAssign)>(sgl_cann::op_api_symbol("aclnnSglCacheLocAssign"));
+    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, false,
+                                 "aclnnSglCacheLocAssign", query, execute);
+}
+}  // namespace
+
+TORCH_LIBRARY_FRAGMENT(npu, m)
+{
+    m.def(
+        "cache_loc_assign(Tensor req_indices, Tensor(a!) token_pool, "
+        "Tensor start_offset, Tensor end_offset, Tensor out_cache_loc) -> Tensor(a!)");
+}
+TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
+{
+    m.impl("cache_loc_assign", &cache_loc_assign);
+}
+
+
+#include "aclnn_sgl_cache_loc_update.h"
+
+namespace {
+at::Tensor cache_loc_update(at::Tensor req_indices, at::Tensor token_pool, at::Tensor start_offset,
+                            at::Tensor end_offset, at::Tensor out_cache_loc)
+{
+    static auto query = reinterpret_cast<decltype(&aclnnSglCacheLocUpdateGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglCacheLocUpdateGetWorkspaceSize"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglCacheLocUpdate)>(sgl_cann::op_api_symbol("aclnnSglCacheLocUpdate"));
+    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, true,
+                                 "aclnnSglCacheLocUpdate", query, execute);
+}
+}  // namespace
+
+TORCH_LIBRARY_FRAGMENT(npu, m)
+{
+    m.def(
+        "cache_loc_update(Tensor req_indices, Tensor token_pool, "
+        "Tensor start_offset, Tensor end_offset, Tensor(a!) out_cache_loc) -> Tensor(a!)");
+}
+TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
+{
+    m.impl("cache_loc_update", &cache_loc_update);
+}

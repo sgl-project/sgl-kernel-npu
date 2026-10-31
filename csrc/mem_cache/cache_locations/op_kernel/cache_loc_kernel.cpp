@@ -8,8 +8,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
-
 #include "kernel_operator.h"
 #include "cache_loc_tiling.h"
 
@@ -26,7 +24,7 @@ public:
     __aicore__ inline CacheLocAssignKernel() {}
 
     __aicore__ inline void Init(GM_ADDR reqPoolIndices, GM_ADDR tokenPool, GM_ADDR startOffset, GM_ADDR endOffset,
-                                GM_ADDR outCacheLoc, const AssignCacheTillingData &tiling)
+                                GM_ADDR outCacheLoc, const optiling::SglCacheLocTilingData &tiling)
     {
         this->coreId = AscendC::GetBlockIdx();
         this->batchSize = tiling.batchSize;
@@ -153,7 +151,7 @@ private:
             tokenPoolLocal.SetValue(j, cache);
         }
 
-        uint32_t tokenBytes = static_cast<uint32_t>(MAX_STEP * sizeof(int32_t));
+        uint32_t tokenBytes = static_cast<uint32_t>(optiling::MAX_STEP * sizeof(int32_t));
         AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
         AscendC::DataCopyPad(tokenPoolGM[reqIdx * this->rowSize + start], tokenPoolLocal, copyParams);
 
@@ -220,3 +218,48 @@ private:
     uint64_t offsetCountAlignInt64;
     uint64_t cacheLocCountAlignInt32;
 };
+
+extern "C" __global__ __aicore__ void sgl_cache_loc_assign(GM_ADDR req_indices, GM_ADDR token_pool,
+                                                           GM_ADDR start_offset, GM_ADDR end_offset,
+                                                           GM_ADDR out_cache_loc, GM_ADDR token_pool_ref,
+                                                           GM_ADDR workspace, GM_ADDR tiling)
+{
+    REGISTER_TILING_DEFAULT(optiling::SglCacheLocTilingData);
+    GET_TILING_DATA(data, tiling);
+    if (data.key == 1) {
+        CacheLocAssignKernel<int32_t> op;
+        op.Init(req_indices, token_pool_ref, start_offset, end_offset, out_cache_loc, data);
+        if ASCEND_IS_AIV {
+            op.ProcessForTokenPoolAssign();
+        }
+    } else if (data.key == 2) {
+        CacheLocAssignKernel<int64_t> op;
+        op.Init(req_indices, token_pool_ref, start_offset, end_offset, out_cache_loc, data);
+        if ASCEND_IS_AIV {
+            op.ProcessForTokenPoolAssign();
+        }
+    }
+}
+
+
+extern "C" __global__ __aicore__ void sgl_cache_loc_update(GM_ADDR req_indices, GM_ADDR token_pool,
+                                                           GM_ADDR start_offset, GM_ADDR end_offset,
+                                                           GM_ADDR out_cache_loc, GM_ADDR out_cache_loc_ref,
+                                                           GM_ADDR workspace, GM_ADDR tiling)
+{
+    REGISTER_TILING_DEFAULT(optiling::SglCacheLocTilingData);
+    GET_TILING_DATA(data, tiling);
+    if (data.key == 1) {
+        CacheLocAssignKernel<int32_t> op;
+        op.Init(req_indices, token_pool, start_offset, end_offset, out_cache_loc_ref, data);
+        if ASCEND_IS_AIV {
+            op.ProcessForCacheUpdate();
+        }
+    } else if (data.key == 2) {
+        CacheLocAssignKernel<int64_t> op;
+        op.Init(req_indices, token_pool, start_offset, end_offset, out_cache_loc_ref, data);
+        if ASCEND_IS_AIV {
+            op.ProcessForCacheUpdate();
+        }
+    }
+}
