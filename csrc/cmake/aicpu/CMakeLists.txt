@@ -23,11 +23,13 @@ find_file(SGL_AICPU_PROTOBUF libbase_ascend_protobuf.a
 set(CMAKE_CXX_COMPILER "${SGL_AICPU_CXX}")
 
 # Installed CANN exposes these headers at the root or the host platform prefix.
+# Upstream dlog_headers supplies pkg_inc/base or include/toolchain for log_weak.h.
 set(aicpu_includes)
 foreach(prefix IN ITEMS "${ASCEND_CANN_PACKAGE_PATH}"
         "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux")
     foreach(suffix IN ITEMS include/aicpu include/experiment include/experiment/cce
             include/experiment/msprof pkg_inc pkg_inc/aicpu
+            pkg_inc/base include/toolchain
             pkg_inc/aicpu_common/context pkg_inc/aicpu_common/context/common
             pkg_inc/aicpu_common/context/cpu_proto pkg_inc/aicpu_common/context/utils
             include/aicpu_common/context include/aicpu_common/context/common
