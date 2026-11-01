@@ -4,7 +4,7 @@
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-# See LICENSE in the root of the software repository for the full text of the License.
+# See LICENSE-CANN in the root of the software repository for the full text of the License.
 # Adapted from vllm-ascend csrc/cmake/{func,symbol,modules/Findaicpu}.cmake
 # at af7c3fc267f8648ce6cac044111bc523478e76fb: HCC OBJECT targets and device linking.
 # JSON packaging follows ops-transformer cmake/symbol.cmake at
@@ -97,3 +97,6 @@ npu_op_package_add(sgl_kernel_npu
     FILES "${aicpu_json}" PACKAGE_PATH op_impl/cpu/config)
 npu_op_package_add(sgl_kernel_npu
     FILES "${aicpu_library}" PACKAGE_PATH op_impl/cpu/aicpu_kernel/impl)
+# Ship the upstream license with the RUN vendor; wheel staging preserves it.
+npu_op_package_add(sgl_kernel_npu
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../../LICENSE-CANN" PACKAGE_PATH .)

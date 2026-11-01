@@ -4,7 +4,7 @@
 # Please refer to the License for details. You may not use this file except in compliance with the License.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-# See LICENSE in the root of the software repository for the full text of the License.
+# See LICENSE-CANN in the root of the software repository for the full text of the License.
 # Adapted from ops-transformer scripts/util/insert_op_info.py at
 # 39b52ad5e252d98e13df76ed45b6c68b21b98859: merge selected registrations in one invocation.
 
