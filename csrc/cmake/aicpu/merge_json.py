@@ -72,7 +72,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--library", required=True)
-    parser.add_argument("--operator", action="append", required=True, metavar="OPTYPE=JSON")
+    parser.add_argument(
+        "--operator", action="append", required=True, metavar="OPTYPE=JSON"
+    )
     args = parser.parse_args()
     try:
         merged = merge_registrations(args.operator, args.library)

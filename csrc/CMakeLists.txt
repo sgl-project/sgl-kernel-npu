@@ -42,6 +42,9 @@ foreach(id IN LISTS selected_operators)
         list(APPEND aicpu_operators "${id}")
     endif()
 endforeach()
+# Hand the selected AICPU IDs to the existing Python package coordinator.
+set(SGL_CANN_AICPU_OPERATORS "${aicpu_operators}" CACHE INTERNAL
+    "AICPU operators selected for this CANN build" FORCE)
 message(STATUS "Selected CANN operators: ${selected_operators}; ARCH: ${SGL_ARCH_VERSION}; SDK targets: ${SGL_CANN_COMPUTE_UNITS}")
 string(REPLACE ";" "\n" selection_text "${selected_operators}")
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt"

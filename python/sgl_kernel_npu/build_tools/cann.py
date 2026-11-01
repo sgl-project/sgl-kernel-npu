@@ -165,6 +165,14 @@ def build_cann(
     selected = _selection(directory)
     if not selected:
         raise RuntimeError("CMake did not produce a nonempty operator selection")
+    aicpu_operators = tuple(
+        filter(None, _cache(directory).get("SGL_CANN_AICPU_OPERATORS", "").split(";"))
+    )
+    if aicpu_operators and not set(selected).difference(aicpu_operators):
+        raise RuntimeError(
+            "AICPU-only RUN/wheel packaging is not supported; "
+            "this build supports AI Core-only or mixed AI Core + AICPU packages"
+        )
     print("SELECTED_OPERATORS: " + ",".join(selected), flush=True)
     # The SDK's package target does not build device binaries automatically.
     for target, log_name in (
@@ -186,7 +194,9 @@ def build_cann(
         env=env,
     )
     for compute_unit in compute_units:
-        vendor, _, _ = inspect_installation(installed, directory, compute_unit)
+        vendor, _, _ = inspect_installation(
+            installed, directory, compute_unit, aicpu=bool(aicpu_operators)
+        )
     print("RUN_PACKAGE: " + str(package), flush=True)
     print("INSTALLED_VENDOR: " + str(vendor), flush=True)
     print("PASS: CANN package built and staged; no NPU execution or wheel build")
@@ -221,7 +231,7 @@ def find_run_package(stage_build):
     return packages[0]
 
 
-def inspect_installation(install_dir, stage_build, compute_unit):
+def inspect_installation(install_dir, stage_build, compute_unit, *, aicpu=False):
     vendor = install_dir / "vendors/sgl_kernel_npu"
     tbe = vendor / "op_impl/ai_core/tbe"
     libraries = [vendor / "op_api/lib/libcust_opapi.so"]
@@ -246,6 +256,11 @@ def inspect_installation(install_dir, stage_build, compute_unit):
     headers = sorted((stage_build / "autogen").glob("aclnn*.h"))
     if not headers:
         raise RuntimeError(f"No generated ACLNN headers in {stage_build / 'autogen'}")
+    headers += [
+        Path(path)
+        for path in _cache(stage_build).get("SGL_CANN_ACLNN_HEADERS", "").split(";")
+        if path
+    ]
     # CMake may rewrite shared-library RPATHs; compare headers and kernels instead.
     pairs = [(path, vendor / "op_api/include" / path.name) for path in headers]
     binary_root = stage_build / "sgl_cann_kernels/binary"
@@ -270,6 +285,18 @@ def inspect_installation(install_dir, stage_build, compute_unit):
             tbe / "config" / compute_unit / info,
         )
     )
+    if aicpu:
+        cpu = vendor / "op_impl/cpu"
+        pairs += [
+            (
+                stage_build / "aicpu/cust_aicpu_kernel.json",
+                cpu / "config/cust_aicpu_kernel.json",
+            ),
+            (
+                stage_build / "aicpu/libsgl_kernel_npu_aicpu.so",
+                cpu / "aicpu_kernel/impl/libsgl_kernel_npu_aicpu.so",
+            ),
+        ]
     for source, installed in pairs:
         if not source.is_file() or not source.stat().st_size:
             raise RuntimeError(f"Missing or empty build artifact: {source}")
