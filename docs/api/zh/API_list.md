@@ -2,6 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`、`torch_native` |

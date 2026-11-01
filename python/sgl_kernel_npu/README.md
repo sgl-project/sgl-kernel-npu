@@ -4,9 +4,7 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build. Only
-`apply_token_bitmask` has been migrated so far; `--ops all` does not include
-unmigrated legacy native operators.
+native, plus the migrated AscendC operators selected for this build.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
@@ -75,6 +73,19 @@ python3 /workspace/sgl-kernel-npu/setup.py \
 `ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used
 only by this build. Operator declarations use `SUPPORTED_ARCHS 2201 3510`;
 API documentation follows the shared framework's `arch22` and `arch35` names.
+
+Operator declarations in `csrc/<domain>/<operator>/CMakeLists.txt` separate the
+build inputs: `OPDEF_SOURCES` defines the CANN interface, optional `INFER_SOURCES`
+provides shape/type inference, and `TILING_SOURCES` computes device launch data.
+`KERNEL_SOURCES` resolves to one device entry. CGDR keeps the first three common
+and registers `ARCH 2201` / `ARCH 3510` variants for its two Kernel entries.
+An operator with a complete common implementation needs no variant.
+
+Use lowercase snake_case for operator IDs by convention. IDs are case-sensitive;
+uppercase letters are also accepted. IDs must start with a letter and contain
+only letters, digits and underscores; `all` and `ALL` are reserved for selection.
+`CANN_OP_TYPE` retains the same basic letter/digit/underscore syntax check and
+must match the type registered by the operator's OpDef.
 
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
 previous `sgl_kernel_npu-*.whl` files there before building; a run build removes

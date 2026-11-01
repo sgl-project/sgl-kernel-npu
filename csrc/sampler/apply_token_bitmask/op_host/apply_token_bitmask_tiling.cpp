@@ -1,9 +1,11 @@
 // BSD 3-Clause License
 // Copyright (c) 2024, Huawei Technologies Co., Ltd. All rights reserved.
 
+// Split from sgl-kernel-npu csrc/sampler/apply_token_bitmask/op_host/apply_token_bitmask.cpp.
+// Interface metadata and computation are preserved.
+
 #include "../op_kernel/apply_token_bitmask_tiling.h"
-#include "register/op_def_registry.h"
-#include "sgl_operator_config.h"
+#include "register/op_impl_registry.h"
 #include "tiling/platform/platform_ascendc.h"
 
 #include <algorithm>
@@ -102,55 +104,15 @@ static ge::graphStatus TilingApplyTokenBitMask(gert::TilingContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
+// Preserve OP_ADD's successful empty prepare and CompileInfo lifetime hooks.
+struct SglApplyTokenBitMaskCompileInfo {};
+static ge::graphStatus TilingPrepare(gert::TilingParseContext *)
+{
+    return ge::GRAPH_SUCCESS;
+}
+
+IMPL_OP_OPTILING(SglApplyTokenBitMask)
+    .Tiling(TilingApplyTokenBitMask)
+    .TilingParse<SglApplyTokenBitMaskCompileInfo>(TilingPrepare);
+
 }  // namespace optiling
-
-namespace ops {
-
-static ge::graphStatus InferShape(gert::InferShapeContext *context)
-{
-    const auto *input = context->GetInputShape(0);
-    auto *output = context->GetOutputShape(0);
-    if (!input || !output) return ge::GRAPH_FAILED;
-    *output = *input;
-    return ge::GRAPH_SUCCESS;
-}
-
-static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
-{
-    context->SetOutputDataType(0, context->GetInputDataType(0));
-    return ge::GRAPH_SUCCESS;
-}
-
-class SglApplyTokenBitMask : public OpDef
-{
-public:
-    explicit SglApplyTokenBitMask(const char *name) : OpDef(name)
-    {
-        // These are the working tensors prepared by the existing caller.
-        this->Input("logits")
-            .ParamType(REQUIRED)
-            .DataType({ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
-            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->Input("bitmask")
-            .ParamType(REQUIRED)
-            .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
-            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        // A same-name output asks the generator for an in-place Ref parameter.
-        this->Output("logits")
-            .ParamType(REQUIRED)
-            .DataType({ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
-            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->SetInferShape(InferShape).SetInferDataType(InferDataType);
-        this->AICore().SetTiling(optiling::TilingApplyTokenBitMask);
-        for (const auto *config : SGL_CANN_CONFIGS) {
-            this->AICore().AddConfig(config);
-        }
-    }
-};
-
-OP_ADD(SglApplyTokenBitMask);
-
-}  // namespace ops
