@@ -103,7 +103,7 @@ if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     if(aicpu_operators)
         # A directory scope keeps the HCC compiler local to AICPU targets.
         add_subdirectory(cmake/aicpu aicpu)
-        list(APPEND device_checks sgl_cann_aicpu)
+        list(APPEND device_checks sgl_cann_aicpu sgl_cann_aicpu_metadata)
     endif()
 
     # Package and check the targets created by the Host and device builders.

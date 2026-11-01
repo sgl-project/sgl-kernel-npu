@@ -7,6 +7,8 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # Adapted from vllm-ascend csrc/cmake/{func,symbol,modules/Findaicpu}.cmake
 # at af7c3fc267f8648ce6cac044111bc523478e76fb: HCC OBJECT targets and device linking.
+# JSON packaging follows ops-transformer cmake/symbol.cmake at
+# 39b52ad5e252d98e13df76ed45b6c68b21b98859, with Python invoked directly.
 
 # Entered only for selected AICPU operators at the KERNEL checkpoint.
 find_program(SGL_AICPU_CXX aarch64-target-linux-gnu-g++
@@ -42,6 +44,8 @@ find_path(SGL_AICPU_KERNEL_INCLUDE cpu_kernel.h
 # One OBJECT target per operator keeps its private settings separate.
 set(aicpu_targets)
 set(aicpu_objects)
+set(aicpu_json_sources)
+set(aicpu_json_arguments)
 foreach(id IN LISTS aicpu_operators)
     sgl_resolve_operator(op "${id}" "${SGL_ARCH_VERSION}")
     set(target "sgl_aicpu_${id}_objects")
@@ -56,6 +60,8 @@ foreach(id IN LISTS aicpu_operators)
         -fvisibility-inlines-hidden -fno-common ${op_KERNEL_COMPILE_OPTIONS})
     list(APPEND aicpu_targets ${target})
     list(APPEND aicpu_objects "$<TARGET_OBJECTS:${target}>")
+    list(APPEND aicpu_json_sources ${op_AICPU_JSON})
+    list(APPEND aicpu_json_arguments --operator "${op_CANN_OP_TYPE}=${op_AICPU_JSON}")
 endforeach()
 
 # Keep the CpuKernel registry and protobuf code inside the device shared library.
@@ -71,3 +77,23 @@ add_custom_command(
         "${SGL_AICPU_CONTEXT}" "${SGL_AICPU_PROTOBUF}"
     VERBATIM COMMAND_EXPAND_LISTS)
 add_custom_target(sgl_cann_aicpu DEPENDS "${aicpu_library}")
+
+# Registration is checked separately so device-only builds need no JSON.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(aicpu_json "${CMAKE_CURRENT_BINARY_DIR}/cust_aicpu_kernel.json")
+set(merge_json_script "${CMAKE_CURRENT_SOURCE_DIR}/merge_json.py")
+get_filename_component(aicpu_library_name "${aicpu_library}" NAME)
+add_custom_command(
+    OUTPUT "${aicpu_json}"
+    COMMAND "${Python3_EXECUTABLE}" "${merge_json_script}"
+        --output "${aicpu_json}" --library "${aicpu_library_name}"
+        ${aicpu_json_arguments}
+    DEPENDS ${aicpu_json_sources} "${merge_json_script}"
+    VERBATIM COMMAND_EXPAND_LISTS)
+add_custom_target(sgl_cann_aicpu_metadata DEPENDS "${aicpu_json}")
+
+# Use the existing RUN package and the upstream custom AICPU vendor layout.
+npu_op_package_add(sgl_kernel_npu
+    FILES "${aicpu_json}" PACKAGE_PATH op_impl/cpu/config)
+npu_op_package_add(sgl_kernel_npu
+    FILES "${aicpu_library}" PACKAGE_PATH op_impl/cpu/aicpu_kernel/impl)
