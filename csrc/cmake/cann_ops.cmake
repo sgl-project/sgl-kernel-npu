@@ -143,10 +143,19 @@ function(sgl_add_cann_host_libraries output_dir)
         list(REMOVE_DUPLICATES api_sources)
         npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
         if(explicit_api_sources)
-            # opdev headers live below include/aclnn in the installed SDK.
-            target_include_directories(sgl_cann_opapi PRIVATE
-                "${ASCEND_CANN_PACKAGE_PATH}/include/aclnn"
-                "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include/aclnn")
+            # Like the reference projects' OPAPI_INCLUDE, Host opdev callers
+            # also need AICPU headers. CANN 9.2 installs aicpu_engine_struct.h
+            # under pkg_inc/aicpu, with a compatibility entry in pkg_inc.
+            set(host_api_includes)
+            foreach(prefix IN ITEMS "${ASCEND_CANN_PACKAGE_PATH}"
+                    "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux")
+                foreach(suffix IN ITEMS include/aclnn pkg_inc pkg_inc/aicpu include/aicpu)
+                    list(APPEND host_api_includes "${prefix}/${suffix}")
+                endforeach()
+            endforeach()
+            # Keep generated AI Core interfaces on the SDK's original settings.
+            set_property(SOURCE ${explicit_api_sources} TARGET_DIRECTORY sgl_cann_opapi
+                APPEND PROPERTY INCLUDE_DIRECTORIES ${host_api_includes})
         endif()
     endif()
     if(graph_sources)
