@@ -7,9 +7,10 @@
 | `auto` / `ascendc` | 支持实现 | 不支持 |
 | `torch_native` | 独立 PyTorch 参考实现 | 不支持 |
 
-此表表示实现范围，不表示本次新增的硬件验证结果。在现有 arch22 Linux/CANN 环境执行
-`bash build.sh -a kernels 910`，然后安装生成的 wheel。根目录 `setup.py --ops all`
-不包含此尚未迁移的原生算子。安装步骤见[构建指南](../../../../../python/sgl_kernel_npu/README.md)。
+此表表示实现范围，不表示本次新增的硬件验证结果。在 arch22 Linux/CANN 环境执行
+根目录 `python3 setup.py --arch-version 2201 --ops mlp_lightning_indexer`，然后安装
+生成的 wheel。arch22 的 `--ops all` 也包含此算子；legacy 构建不再提供此原生入口。
+安装步骤见[构建指南](../../../../../python/sgl_kernel_npu/README.md)。
 
 ## 函数原型
 
@@ -101,9 +102,14 @@ Tensor 输入沿用同一 NPU、连续存储的调用约定。Q/K dtype 相同�
 
 ## ascendc 后端
 
-使用现有 arch22 原生实现与私有 tiling cache。公共 API 保留 legacy BSND 签名和分支，
-但本次迁移不扩展或新增验证该分支。TND + PA_BSND 是配套 LongCat2 路径；
-保留现有原生输入检查。
+沿用官方 CANN OpDef、shape/dtype 推导、tiling 和模板 kernel，通过本仓库的 Torch
+adapter 调用 `aclnnMlpLightningIndexerGetWorkspaceSize` 和 `aclnnMlpLightningIndexer`。
+CANN 管理 tiling 与 kernel 调度，不再使用旧直接启动路径的私有 tiling cache。
+公共 API 保留历史 BSND 签名和分支，本次迁移不扩展该分支。TND + PA_BSND 是配套
+LongCat2 路径；继续由调用方提供 int64 长度。
+
+ACLNN 迁移后的 NPU 精度、性能和已有 graph capture/replay 用例需要在对应构建上重新
+验证。此前直接启动路径的 graph 结果不能作为新链路的验证结果。
 
 ## torch_native 后端
 

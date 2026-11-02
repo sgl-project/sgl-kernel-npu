@@ -12,6 +12,7 @@ on:
       - "tests/python/conftest.py"
       - "tests/python/utils/**"
       - "build.sh"
+      - "setup.py"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
@@ -34,6 +35,7 @@ jobs:
       mamba_changed: ${{ steps.match-groups.outputs.mamba_any_changed }}
       fla_changed: ${{ steps.match-groups.outputs.fla_any_changed }}
       fused_changed: ${{ steps.match-groups.outputs.fused_any_changed }}
+      longcat_changed: ${{ steps.match-groups.outputs.longcat_any_changed }}
       common_changed: ${{ steps.match-groups.outputs.common_any_changed }}
     steps:
       - name: Checkout code
@@ -57,7 +59,6 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
-              - csrc/mlp_lightning_indexer/**
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
@@ -76,11 +77,6 @@ jobs:
               - tests/python/sgl_kernel_npu/test_split_qkv_tp_rmsnorm_rope.py
               - tests/python/sgl_kernel_npu/test_fused_rope_qk_mqa.py
             cache:
-              - csrc/compute_n_gram_ids/**
-              - csrc/update_oe_token_table/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/operators/embedding/**
-              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/embedding/**
-              - tests/python/operators/embedding/**
               - csrc/alloc_extend/**
               - csrc/cache_location_assign/**
               - csrc/assign_cache_op/**
@@ -150,6 +146,21 @@ jobs:
               - tests/python/sgl_kernel_npu/test_hello_world.py
               - tests/python/sgl_kernel_npu/test_gmm_wfp8a16.py
               - tests/python/sgl_kernel_npu/test_mm_wfp8a16.py
+            longcat:
+              - csrc/embedding/**
+              - csrc/indexer/mlp_lightning_indexer/**
+              - csrc/aclnn_torch_adapter/**
+              - csrc/cmake/**
+              - setup.py
+              - python/sgl_kernel_npu/build_tools/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/embedding/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/mlp_lightning_indexer.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/embedding/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/indexer/mlp_lightning_indexer.py
+              - tests/python/operators/embedding/**
+              - tests/python/operators/indexer/test_mlp_lightning_indexer.py
+              - tests/python/operators/test_longcat_aclnn_graph.py
             common:
               - build.sh
               - cmake/**
@@ -525,6 +536,75 @@ jobs:
         timeout-minutes: 20
         run: bash scripts/run_kernel_tests.sh fused
 
+  test-longcat-aclnn:
+    needs: get-changed-files
+    defaults:
+      run:
+        shell: bash
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.longcat_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        cann_version: [9.0.0, 9.1.0]
+    runs-on: linux-aarch64-a3-800t-2
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+          pip install pytest einops packaging setuptools wheel 'cmake>=3.20'
+      - name: Build and install the LongCat ACLNN wheel
+        run: |
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          python3 setup.py --make_clean --arch-version 2201 --ops compute_n_gram_ids,update_oe_token_table,mlp_lightning_indexer --artifact wheel
+          pip install output/sgl_kernel_npu-*.whl --force-reinstall --no-deps
+      - name: Verify selected native bindings
+        run: |
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import sgl_kernel_npu
+          import torch
+          package = Path(sgl_kernel_npu.__file__).parent
+          manifest = json.loads((package / "_build_manifest.json").read_text())
+          expected = {"compute_n_gram_ids", "update_oe_token_table", "mlp_lightning_indexer"}
+          assert manifest["build_mode"] == "REFACTOR"
+          assert manifest["arch_version"] == "2201"
+          assert set(manifest["operators"]) == expected
+          for op in expected:
+              assert torch._C._dispatch_has_kernel_for_dispatch_key("npu::" + op, "PrivateUse1"), op
+          PY
+      - name: Run accuracy, performance and graph replay tests
+        timeout-minutes: 30
+        run: |
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          python3 -m pytest -q -x \
+            tests/python/operators/embedding/test_compute_n_gram_ids.py \
+            tests/python/operators/embedding/test_update_oe_token_table.py \
+            tests/python/operators/indexer/test_mlp_lightning_indexer.py \
+            tests/python/operators/test_longcat_aclnn_graph.py \
+            --impl ascendc --impl-ref torch_native --csv-path longcat-aclnn-performance.csv
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: longcat-aclnn-performance-${{ matrix.cann_version }}
+          path: longcat-aclnn-performance.csv
+          if-no-files-found: warn
+
   finish:
     if: always()
     needs:
@@ -535,6 +615,7 @@ jobs:
       - test-mamba-ops
       - test-fla-ops
       - test-fused-ops
+      - test-longcat-aclnn
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses

@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | Supported implementation | Unsupported |
 | `torch_native` | Independent reference | Unsupported |
 
-Build and install through the [legacy embedding-operator build](README.md).
+Build and install through the [CANN/ACLNN embedding-operator build](README.md).
 This table describes implementation scope, not a new hardware validation result.
 
 ## Signature
@@ -76,9 +76,12 @@ Write ranges and packed request lengths are supplied consistently by the caller.
 
 ## ascendc backend
 
-Uses the existing arch22 native kernel and its tiling cache. The public API does
-not add input normalization or new input checks. Install the legacy-built wheel;
-the new root `setup.py --ops all` path is not the build entry for this kernel.
+Uses the official standalone CANN host, tiling, and kernel through this
+repository's Torch adapter, calling `aclnnComputeNGramIdsGetWorkspaceSize` and
+`aclnnComputeNGramIds`. CANN manages tiling and kernel dispatch; the handwritten
+tiling cache from the old direct-launch path is no longer used. The public API
+adds no input normalization or new input checks. Use the root REFACTOR build;
+`--ops all` includes this operator on arch22.
 
 ## torch_native backend
 

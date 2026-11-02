@@ -8,9 +8,10 @@
 | `torch_native` | Independent PyTorch reference | Unsupported |
 
 This table describes implementation scope, not a new hardware validation result.
-Build the native operator with `bash build.sh -a kernels 910` in the existing
-arch22 Linux/CANN environment, then install the generated wheel. The root
-`setup.py --ops all` entry does not include this unmigrated native operator.
+In an arch22 Linux/CANN environment, run the root
+`python3 setup.py --arch-version 2201 --ops mlp_lightning_indexer`, then install
+the generated wheel. `--ops all` on arch22 also includes this operator; the legacy
+build no longer provides this native binding.
 See the [build guide](../../../../../python/sgl_kernel_npu/README.md).
 
 ## Signature
@@ -111,10 +112,17 @@ Outputs are new tensors on the query device. Inputs are not modified.
 
 ## ascendc backend
 
-Uses the existing native arch22 implementation and private tiling cache. The
-public API preserves the legacy BSND signature and branch, but this migration
-does not expand or newly validate that branch. TND with PA_BSND is the paired
-LongCat2 path; existing native input checks remain unchanged.
+Uses the official CANN OpDef, shape/dtype inference, tiling, and template kernel
+through this repository's Torch adapter, calling
+`aclnnMlpLightningIndexerGetWorkspaceSize` and `aclnnMlpLightningIndexer`.
+CANN manages tiling and kernel dispatch; the private tiling cache from the old
+direct-launch path is no longer used. The public API retains the historical BSND
+signature and branch without expanding it. TND with PA_BSND is the paired
+LongCat2 path; the caller continues to supply int64 lengths.
+
+NPU accuracy, performance, and the existing graph capture/replay cases must be
+rerun with the ACLNN build. Earlier direct-launch graph results do not validate
+this new execution path.
 
 ## torch_native backend
 

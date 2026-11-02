@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | 支持实现 | 不支持 |
 | `torch_native` | 独立参考实现 | 不支持 |
 
-通过 [embedding 算子的 legacy 入口](README.md) 构建和安装。
+通过 [embedding 算子的 CANN/ACLNN 入口](README.md) 构建和安装。
 此表表示实现范围，不表示本次新增的硬件验证结果。
 
 ## 函数原型
@@ -65,9 +65,12 @@ tokens 一致的请求长度。这些是已有调用约定，不是公共包装�
 
 ## ascendc 后端
 
-使用现有 arch22 原生 kernel 及 tiling cache。Torch schema 以同一 `Tensor(a!)` alias
-标记 `oe_token_table` 和返回值。使用 legacy 入口构建；根目录 `setup.py --ops all`
-不选择此 kernel。公共包装层不增加输入归一化或校验。
+沿用官方独立 CANN 版本的 host、tiling 和 kernel，通过本仓库的 Torch adapter 调用
+`aclnnUpdateOeTokenTableGetWorkspaceSize` 和 `aclnnUpdateOeTokenTable`。将原表传入
+ACLNN 的输出参数，并返回同一表；Torch schema 以同一 `Tensor(a!)` alias 标记
+`oe_token_table` 和返回值。CANN 管理 tiling 与 kernel 调度，不再使用旧手写 tiling cache。
+使用根目录 REFACTOR 构建；arch22 的 `--ops all` 包含此算子。公共包装层不增加
+输入归一化或校验。
 
 ## torch_native 后端
 

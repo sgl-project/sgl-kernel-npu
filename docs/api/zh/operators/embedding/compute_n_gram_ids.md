@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | 支持实现 | 不支持 |
 | `torch_native` | 独立参考实现 | 不支持 |
 
-通过 [embedding 算子的 legacy 入口](README.md) 构建和安装。
+通过 [embedding 算子的 CANN/ACLNN 入口](README.md) 构建和安装。
 此表表示实现范围，不表示本次新增的硬件验证结果。
 
 ## 函数原型
@@ -73,8 +73,10 @@ id[i, f] = offset[f] + (sum_j ((history[p-j] * weight[n-2,k,j]) % mod[n-2,k])) %
 
 ## ascendc 后端
 
-使用现有 arch22 原生 kernel 及其 tiling cache。公共 API 不增加输入归一化或新的
-输入校验。安装 legacy 构建的 wheel；根目录新 `setup.py --ops all` 不是此 kernel 的构建入口。
+沿用官方独立 CANN 版本的 host、tiling 和 kernel，通过本仓库的 Torch adapter 调用
+`aclnnComputeNGramIdsGetWorkspaceSize` 和 `aclnnComputeNGramIds`。CANN 管理 tiling
+与 kernel 调度，不再使用旧直接启动路径的手写 tiling cache。公共 API 不增加输入归一化
+或新的输入校验。使用根目录 REFACTOR 构建，arch22 的 `--ops all` 包含此算子。
 
 ## torch_native 后端
 

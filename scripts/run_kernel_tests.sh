@@ -57,7 +57,6 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_mlp_lightning_indexer.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
@@ -71,8 +70,6 @@ ATTENTION_TESTS=(
 )
 
 CACHE_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/embedding/test_compute_n_gram_ids.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/embedding/test_update_oe_token_table.py"
     test_alloc_extend_slot.py
     test_cache_assign.py
     test_cache_loc_bounds.py

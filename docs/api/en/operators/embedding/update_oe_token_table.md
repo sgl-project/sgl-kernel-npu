@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | Supported implementation | Unsupported |
 | `torch_native` | Independent reference | Unsupported |
 
-Build and install through the [legacy embedding-operator build](README.md).
+Build and install through the [CANN/ACLNN embedding-operator build](README.md).
 This table describes implementation scope, not a new hardware validation result.
 
 ## Signature
@@ -68,10 +68,14 @@ not additional checks in the public wrapper.
 
 ## ascendc backend
 
-Uses the existing arch22 native kernel and tiling cache. Its Torch schema marks
-`oe_token_table` and the return value with the same `Tensor(a!)` alias.
-Build with the legacy entry; root `setup.py --ops all` does not select this kernel.
-The public wrapper adds no input normalization or validation.
+Uses the official standalone CANN host, tiling, and kernel through this
+repository's Torch adapter, calling `aclnnUpdateOeTokenTableGetWorkspaceSize` and
+`aclnnUpdateOeTokenTable`. The original table is passed as the ACLNN output and
+returned by the adapter; its Torch schema marks `oe_token_table` and the return
+value with the same `Tensor(a!)` alias. CANN manages tiling and kernel
+dispatch; the old handwritten tiling cache is no longer used. Use the root
+REFACTOR build; `--ops all` includes this operator on arch22. The public wrapper
+adds no input normalization or validation.
 
 ## torch_native backend
 

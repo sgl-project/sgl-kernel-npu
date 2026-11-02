@@ -150,26 +150,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
-#ifdef SGL_KERNEL_ARCH_22
-    m.def(
-        "compute_n_gram_ids(Tensor oe_weights, Tensor oe_mods, Tensor exclusive_oe_embeder_size_sums, "
-        "Tensor tokens, Tensor exclusive_req_len_sums, Tensor oe_token_table, Tensor row_indices, "
-        "Tensor column_starts, int batch_size, int oe_n, int oe_k, int max_context_len) -> Tensor");
-
-    m.def(
-        "update_oe_token_table(Tensor tokens, Tensor req_lens, Tensor row_indices, Tensor column_starts, "
-        "Tensor ignore_tokens, int batch_size, int max_context_len, Tensor(a!) oe_token_table) -> Tensor(a!)");
-
-    m.def(
-        "mlp_lightning_indexer(Tensor query, Tensor key, Tensor weights, "
-        "Tensor? cur_seq_lengths_query=None, Tensor? cur_seq_lengths_key=None, "
-        "Tensor? block_table=None, Tensor? init_tensor=None, Tensor? local_tensor=None, "
-        "str layout_query='BSND', str layout_key='PA_BSND', int sparse_count=2048, int kv_block_len=1, "
-        "int q_block_len=1, int init_num=0, int local_num=0, int sparse_mode=3, "
-        "int pre_tokens=9223372036854775807, int next_tokens=9223372036854775807, bool return_value=False) "
-        "-> (Tensor, Tensor)");
-#endif
-
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -319,14 +299,6 @@ TORCH_LIBRARY_IMPL(npu, CatchAll, m)
 
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-#ifdef SGL_KERNEL_ARCH_22
-    m.impl("compute_n_gram_ids", TORCH_FN(sglang::npu_kernel::compute_n_gram_ids));
-
-    m.impl("update_oe_token_table", TORCH_FN(sglang::npu_kernel::update_oe_token_table));
-
-    m.impl("mlp_lightning_indexer", TORCH_FN(sglang::npu_kernel::mlp_lightning_indexer));
-#endif
-
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
 
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));

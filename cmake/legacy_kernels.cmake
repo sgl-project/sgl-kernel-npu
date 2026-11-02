@@ -86,15 +86,6 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_host/chunk_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host/chunk_kda_fwd.cpp
     )
-# LongCat2 host sources are supported only on arch22.
-if(SGL_KERNEL_ARCH STREQUAL "arch22")
-    list(APPEND OP_SRCS
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host/compute_n_gram_ids.cpp
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host/update_oe_token_table.cpp
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/mlp_lightning_indexer.cpp
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling/mlp_lightning_indexer_tiling.cpp
-    )
-endif()
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
@@ -207,13 +198,6 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel/sparse_attention_score.cpp
 )
-if(SGL_KERNEL_ARCH STREQUAL "arch22")
-    list(APPEND WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel/compute_n_gram_ids.cpp
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel/update_oe_token_table.cpp
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel/mlp_lightning_indexer.cpp
-    )
-endif()
 # A3-only workspace kernels (causal_conv1d kernel is intentionally always-built)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
@@ -428,17 +412,6 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 target_compile_options(${OP_PLUGIN_NAME} PRIVATE -fopenmp)
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE gomp)
 
-if(SGL_KERNEL_ARCH STREQUAL "arch22")
-    target_include_directories(${OP_PLUGIN_NAME} PRIVATE
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel
-    )
-endif()
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
