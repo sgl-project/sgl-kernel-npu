@@ -36,7 +36,9 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
 
 
-def build_torch(cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT):
+def build_torch(
+    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+):
     if cann.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
     source_root = Path(source_root).resolve()
@@ -72,6 +74,9 @@ def build_torch(cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT):
     signature.write_text(json.dumps(environment, sort_keys=True) + "\n")
     package = directory / "package/sgl_kernel_npu"
     stage_runtime(cann.vendor, package, source_root, arch_version)
+    from build_tools.third_party import stage_dependencies
+
+    third_party = stage_dependencies(dependencies, package)
     (package / "_cann/selected-operators.txt").write_text(
         "\n".join(cann.operators) + "\n"
     )
@@ -83,6 +88,7 @@ def build_torch(cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT):
         "selection_kind": cann.selection_kind,
         "operators": sorted(cann.operators),
         "compute_units": architecture(arch_version, source_root)["compute_units"],
+        "third_party": third_party,
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     run(
@@ -124,6 +130,13 @@ def wheel_build_tag(manifest):
         suffix = hashlib.sha256(
             ",".join(sorted(manifest["operators"])).encode()
         ).hexdigest()[:10]
+    if manifest.get("third_party"):
+        suffix += (
+            "tp"
+            + hashlib.sha256(
+                json.dumps(manifest["third_party"], sort_keys=True).encode()
+            ).hexdigest()[:10]
+        )
     return "1refactor" + manifest["arch_version"] + kind + suffix
 
 

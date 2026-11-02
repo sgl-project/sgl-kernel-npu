@@ -34,11 +34,27 @@ def arguments(argv=None):
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
     parser.add_argument(
+        "--without-third-party",
+        action="store_true",
+        help="build only repository-owned operators",
+    )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="print third-party build commands without building",
+    )
+    parser.add_argument(
+        "--cann-version",
+        help="CANN profile version for --plan only; builds detect the SDK version",
+    )
+    parser.add_argument(
         "--make_clean",
         action="store_true",
         help="remove this build's intermediates; used alone, clean and exit",
     )
     args = parser.parse_args(argv)
+    if args.cann_version and not args.plan:
+        parser.error("--cann-version is only available with --plan")
     if not args.arch_version and argv != ["--make_clean"]:
         parser.error("--arch-version is required")
     if args.jobs is not None and args.jobs < 1:
@@ -61,6 +77,24 @@ def main(argv=None):
             print("sgl-kernel-npu intermediates removed")
             return
 
+    from build_tools.third_party import (
+        build_dependencies,
+        detect_cann_version,
+        resolve_plan,
+    )
+
+    plan = []
+    if not args.without_third_party and args.artifact == "wheel":
+        plan = resolve_plan(
+            args.cann_version or detect_cann_version(), args.arch_version, args.jobs
+        )
+    if args.plan:
+        import json
+
+        print(json.dumps(plan, indent=2))
+        return
+    dependencies = build_dependencies(plan) if plan else []
+
     output = PROJECT_ROOT / "output"
     output.mkdir(exist_ok=True)
     extension = "whl" if args.artifact == "wheel" else "run"
@@ -79,7 +113,9 @@ def main(argv=None):
     else:
         from build_tools.torch_wheel import build_torch, build_wheel
 
-        package = build_torch(result, args.arch_version, jobs=args.jobs)
+        package = build_torch(
+            result, args.arch_version, jobs=args.jobs, dependencies=dependencies
+        )
         wheel = build_wheel(package)
         destination = output / wheel.name
         shutil.copy2(wheel, destination)
