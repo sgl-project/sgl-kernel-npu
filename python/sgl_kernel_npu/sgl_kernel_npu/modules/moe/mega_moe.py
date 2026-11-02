@@ -3,7 +3,11 @@
 from typing import Any
 
 from ...operators.utils.generation import Generation
-from ...operators.utils.registry import get_impl_by_name, register_impl, register_operator
+from ...operators.utils.registry import (
+    get_impl_by_name,
+    register_impl,
+    register_operator,
+)
 
 _mega_moe_fn = None
 _get_symm_buffer_fn = None
@@ -12,10 +16,7 @@ _get_symm_buffer_fn = None
 def _load_backend():
     global _mega_moe_fn, _get_symm_buffer_fn
     if _mega_moe_fn is None or _get_symm_buffer_fn is None:
-        from cann_ops_transformer.ops import (
-            get_symm_buffer_for_mega_moe,
-            mega_moe,
-        )
+        from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
 
         _mega_moe_fn = mega_moe
         _get_symm_buffer_fn = get_symm_buffer_for_mega_moe
