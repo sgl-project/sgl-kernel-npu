@@ -45,7 +45,7 @@ jobs:
         run: |
           pip install uv
           bash scripts/npu_ci_install_dependency.sh --cann-version "${{ inputs.cann_version }}"
-      - name: Build and install kernel module
+      - name: Set up Triton-Ascend and kernel test dependencies
         run: bash scripts/prepare_kernel_tests.sh
       - name: Run kernel operator group tests
         timeout-minutes: ${{ inputs.timeout_minutes }}

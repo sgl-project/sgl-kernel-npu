@@ -53,7 +53,7 @@ jobs:
 
           bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
-      - name: Build and install kernel module
+      - name: Set up Triton-Ascend and kernel test dependencies
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests
