@@ -34,6 +34,11 @@ extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_A
         op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
                 workspaceGM, &pipe, &tilingData);
         op.Process();
+    } else if (TILING_KEY_IS(TILINGKEY_A5_MULTI_ROUND)) {
+        CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
+                workspaceGM, &pipe, &tilingData);
+        op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_A3_SINGLE_ROUND)) {
         CamMoeCombineNormal<DTYPE_RECV_X, DTYPE_X, int32_t> op;
         op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,

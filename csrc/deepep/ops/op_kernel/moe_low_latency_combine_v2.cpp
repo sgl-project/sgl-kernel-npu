@@ -34,7 +34,7 @@ __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR exper
  * 5位的十进制数
  * 第1位（个位）：无意义占位使用
  * 第2位（十位）：通信量化选项：
- *     0：无量化, 2:int8量化
+ *     0：无量化, 2:int8量化, 3:MXFP8 E4M3量化
  * 第3位（百位）：是否做tp域allgather:
  *     0: 不做, 1: 做
  * 第4位（千位）：无实际意义:
@@ -53,6 +53,10 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
     REGISTER_TILING_DEFAULT(MoeDistributeCombineV2TilingData);
     TPipe pipe;
 
+#ifdef __DAV_C310__
+    int64_t oriOverflowMode = AscendC::GetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>();
+#endif
+
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(30100)) {  // A3 tp=2 IsInt8Quant=0
         ExecMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, true, false>(
@@ -70,9 +74,16 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         ExecMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, true>(
             expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
             elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
-    } else if (TILING_KEY_IS(50000)) {  // A5 tp=1 IsInt8Quant=0
+    } else if (TILING_KEY_IS(50000)) {  // A5 tp=1 no communication quantization
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-        MoeDistributeCombineV2A5<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false> op;
+        MoeDistributeCombineV2A5<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false, false> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+                elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe,
+                &tilingData);
+        op.Process();
+    } else if (TILING_KEY_IS(50030)) {  // A5 tp=1 MXFP8 E4M3 communication quantization
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineV2A5<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false, true> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
                 elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe,
                 &tilingData);
@@ -87,5 +98,9 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         op.Process();
     }
 #endif
+#endif
+
+#ifdef __DAV_C310__
+    AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(oriOverflowMode);
 #endif
 }

@@ -1,6 +1,8 @@
 from typing import Optional
 
+import pytest
 import torch
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 
 
 def safe_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -146,3 +148,15 @@ def reference_sgmv_expand(
         token_offset += seq_len
 
     return output
+
+
+def require_npu_op(op_name: str):
+    """Skip a test unless ``torch.ops.npu.<op_name>`` is registered.
+
+    A3-only ops are not registered in an A5 (reduced) build; this keeps
+    their tests green on A5 instead of erroring on a missing op.
+    """
+    return pytest.mark.skipif(
+        not hasattr(torch.ops.npu, op_name),
+        reason=f"npu op '{op_name}' not registered (A5 reduced build)",
+    )

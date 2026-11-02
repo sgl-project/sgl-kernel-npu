@@ -1,15 +1,21 @@
 import pytest
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native
 from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
+from utils import require_npu_op
 
 
 def _has_npu() -> bool:
     return hasattr(torch, "npu") and torch.npu.is_available()
 
 
-pytestmark = pytest.mark.skipif(not _has_npu(), reason="NPU is required")
+pytestmark = [
+    pytest.mark.skipif(not _has_npu(), reason="NPU is required"),
+    require_npu_op("mega_chunk_gdn"),
+]
 
 SUPPORTED_HEAD_CONFIGS = [
     pytest.param(8, 2, id="H8-Hg2"),

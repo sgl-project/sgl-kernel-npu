@@ -1,12 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
 /*!
  * \file dispatch_ffn_tiling.cpp
  * \brief
@@ -25,8 +16,6 @@
 
 using namespace AscendC;
 using namespace ge;
-
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
 
 namespace {
 // 1. Constant definitions
@@ -54,10 +43,11 @@ namespace optiling {
 static uint64_t GetMaxWindowSize()
 {
     uint16_t defaultWindowSize = 200;
-    const char *hccl_buffsize_env = getenv(HCCL_BUFFSIZE);
-    if (hccl_buffsize_env != nullptr) {
+    const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+    const char *envValue = getenv(hcclBuffSize);
+    if (envValue != nullptr) {
         try {
-            std::string envStr(hccl_buffsize_env);
+            std::string envStr(envValue);
             unsigned long val = std::stoul(envStr);
             if (val <= std::numeric_limits<uint16_t>::max()) {
                 defaultWindowSize = static_cast<uint16_t>(val);
@@ -96,8 +86,11 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
 
     OP_TILING_CHECK(is_trans_b == nullptr, OP_LOGE(K_INNER_DEBUG, "is_trans_b is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(weight_nz == nullptr, OP_LOGE(K_INNER_DEBUG, "weight_nz is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(maxOutputSizePtr == nullptr, OP_LOGE(K_INNER_DEBUG, "maxOutputSizePtr is invalid."),
+                    return GRAPH_FAILED);
 
     info.maxOutputSize = *maxOutputSizePtr;
+    OP_TILING_CHECK(info.maxOutputSize <= 0, OP_LOGE(K_INNER_DEBUG, "maxOutputSize must be > 0."), return GRAPH_FAILED);
     info.isTransposeB = *is_trans_b;
     info.isWeightNz = *weight_nz;
 
@@ -124,10 +117,14 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
 
     const gert::StorageShape *aStorageShape = context->GetInputShape(X_INDEX);
     auto expertIdxTensor = context->GetInputShape(EXPERTID_INDEX);
+    OP_TILING_CHECK(aStorageShape == nullptr, OP_LOGE(nodeName, "aStorageShape is nullptr."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(expertIdxTensor == nullptr, OP_LOGE(nodeName, "expertIdxTensor is nullptr."),
+                    return ge::GRAPH_FAILED);
     uint32_t M = aStorageShape->GetStorageShape().GetDim(0);
     uint32_t K = aStorageShape->GetStorageShape().GetDim(1);
 
     auto wTensor = context->GetInputShape(WEIGHT_INDEX);
+    OP_TILING_CHECK(wTensor == nullptr, OP_LOGE(nodeName, "wTensor is nullptr."), return ge::GRAPH_FAILED);
     uint32_t expertPerRank = wTensor->GetStorageShape().GetDim(0);
     uint32_t N = wTensor->GetStorageShape().GetDim(2);
 
@@ -140,6 +137,8 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
     info.expertPerRank = expertPerRank;
     info.topK = topK;
     info.listLen = listLen;
+    OP_TILING_CHECK(info.K == 0, OP_LOGE(nodeName, "K must not be 0."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(info.topK == 0, OP_LOGE(nodeName, "topK must not be 0."), return ge::GRAPH_FAILED);
     OP_LOGD(K_INNER_DEBUG, "M=%d ", info.M);
     OP_LOGD(K_INNER_DEBUG, "K=%d ", info.K);
     OP_LOGD(K_INNER_DEBUG, "N=%d ", info.N);
@@ -276,12 +275,16 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint32_t n2 = info.K;
     uint32_t k2 = info.N / 2;
 
-    uint64_t cocWorkspace = (info.M + 256 - 1) / 256 * 256 * info.topK * sizeof(int32_t) +
-                            info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
-                            info.maxOutputSize * sizeof(float) * 2 + info.maxOutputSize * info.N * sizeof(int16_t) +
-                            info.maxOutputSize * n2 * sizeof(int16_t) + info.maxOutputSize * info.K * sizeof(int8_t) +
-                            info.maxOutputSize * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
-                            (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
+    uint64_t cocWorkspace =
+        static_cast<uint64_t>((info.M + 256 - 1) / 256) * 256 * info.topK * sizeof(int32_t) +
+        static_cast<uint64_t>(info.worldSize) * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
+        static_cast<uint64_t>(info.maxOutputSize) * sizeof(float) * 2 +
+        static_cast<uint64_t>(info.maxOutputSize) * info.N * sizeof(int16_t) +
+        static_cast<uint64_t>(info.maxOutputSize) * n2 * sizeof(int16_t) +
+        static_cast<uint64_t>(info.maxOutputSize) * info.K * sizeof(int8_t) +
+        static_cast<uint64_t>(info.maxOutputSize) * k2 * sizeof(int8_t) +
+        static_cast<uint64_t>(info.worldSize) * sizeof(int32_t) * 16 +
+        (static_cast<uint64_t>(info.expertPerRank) + info.worldSize) * sizeof(int32_t) * 16;
 
     workSpaces[0] = SYSTEM_NEED_WORKSPACE + std::max(cocWorkspace, initRoutingWorkspace);
 

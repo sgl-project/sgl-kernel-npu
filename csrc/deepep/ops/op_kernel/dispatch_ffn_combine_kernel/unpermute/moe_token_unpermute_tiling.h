@@ -30,8 +30,13 @@ __forceinline__[host, aicore] void MoeTokenUnpermuteTiling(int32_t m, int32_t n,
     tilingData.tokens_core_length = I64(outTokens / coreNum);
     tilingData.tokens_core_remain = I64(outTokens % coreNum);
     tilingData.tokens_splited_length = I64(min(tilingData.tokens_core_length, 600));
-    tilingData.tokens_splited_num = I64(tilingData.tokens_core_length / tilingData.tokens_splited_length);
-    tilingData.tokens_splited_remain = I64(tilingData.tokens_core_length % tilingData.tokens_splited_length);
+    if (tilingData.tokens_splited_length > 0) {
+        tilingData.tokens_splited_num = I64(tilingData.tokens_core_length / tilingData.tokens_splited_length);
+        tilingData.tokens_splited_remain = I64(tilingData.tokens_core_length % tilingData.tokens_splited_length);
+    } else {
+        tilingData.tokens_splited_num = 0;
+        tilingData.tokens_splited_remain = 0;
+    }
     tilingData.buffer_num = 4;
 }
 

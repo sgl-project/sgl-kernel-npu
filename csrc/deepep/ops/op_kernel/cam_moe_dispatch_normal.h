@@ -19,7 +19,6 @@ constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
 constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint32_t EXPAND_IDX_INFO = 3U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
@@ -67,12 +66,13 @@ private:
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
         uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankId : tpRankId);
+        uint64_t dataOffset =
+            isHybridDeployment ? Moe::A3WindowLayout::kDataOffset : Moe::A3WindowLayout::kLegacyNormalDataOffset;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + winDataSizeOffset + COMBINE_STATE_WIN_OFFSET +
-                   Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + winDataSizeOffset + dataOffset;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn) +
-               winDataSizeOffset + COMBINE_STATE_WIN_OFFSET + Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
+               winDataSizeOffset + dataOffset;
     }
 
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
@@ -90,12 +90,12 @@ private:
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankId : tpRankId;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * Moe::ROUND_STATE_MAX_SIZE +
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + roundMagic * Moe::ROUND_STATE_MAX_SIZE +
                    ROUND_STATE_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))
                              ->windowsExp) +
-               dataState * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
+               roundMagic * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
     TPipe *tpipe_{nullptr};
@@ -167,6 +167,7 @@ private:
     uint32_t moeExpertNum{0};
     uint32_t moeExpertNumPerRank{0};
     bool isEnableDiagnose{false};
+    bool isHybridDeployment{false};
 
     uint32_t hUBAlignSize{0};
     uint32_t hOutGMAlignSize{0};
@@ -176,6 +177,7 @@ private:
     uint32_t expertIdsCnt{0};
     uint32_t stateOffset{0};
     uint32_t dataState{0};
+    uint32_t roundMagic{0};
     uint32_t winDataSizeOffset{0};
     uint32_t waitRecvCostStatsBufSize{0};
     uint32_t srcRankOffset{0};
@@ -228,6 +230,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     moeExpertNum = tilingData->camMoeDispatchNormalInfo.moeExpertNum;
     moeExpertNumPerRank = moeExpertNum / epRankSize;
     isEnableDiagnose = tilingData->camMoeDispatchNormalInfo.isEnableDiagnose;
+    isHybridDeployment = tilingData->camMoeDispatchNormalInfo.isHybridDeployment;
 
     xGT.SetGlobalBuffer((__gm__ XType *)x);
     expertIdsGT.SetGlobalBuffer((__gm__ int32_t *)expertIds);
@@ -511,6 +514,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetRoundStatus()
     tpipe_->InitBuffer(roundStatusBuf, epRankSize * UB_ALIGN);
     LocalTensor<float> roundStatusTensor = roundStatusBuf.AllocTensor<float>();
     Duplicate<float>(roundStatusTensor, 1.0, FLOAT_NUM_PER_ALIGN);
+    SyncFunc<AscendC::HardEvent::V_MTE3>();
     for (uint32_t i = 0; i < epRankSize; ++i) {
         uint32_t targetRankId = i;
         uint32_t offset = stateOffset * epRankId;
@@ -650,7 +654,6 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
     LocalTensor<float> stateTensorLocal = roundStatusBuf.Get<float>();
     LocalTensor<float> tempRoundStateTensorLocal = tempRoundStatusBuf.Get<float>();
 
-    int64_t systemCycleBefore = AscendC::GetSystemCycle();
     while (current != target) {
         SyncFunc<AscendC::HardEvent::S_MTE2>();
         DataCopy<float>(stateTensorLocal, roundStatusGMTensor, count);
@@ -658,9 +661,6 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
         Sum(tempRoundStateTensorLocal, stateTensorLocal, sumPerRankParams);
         SyncFunc<AscendC::HardEvent::V_S>();
         current = tempRoundStateTensorLocal.GetValue(0);
-        if (isEnableDiagnose) {
-            int64_t systemCycleAfter = AscendC::GetSystemCycle();
-        }
     }
 
     SyncFunc<AscendC::HardEvent::S_V>();
@@ -776,6 +776,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
                 SyncAll<true>();
                 SetRoundStatus();
                 WaitRoundStatus();
+                roundMagic = roundMagic == 0 ? 1 : 0;
                 SyncAll<true>();
             }
             roundIndex += 1;

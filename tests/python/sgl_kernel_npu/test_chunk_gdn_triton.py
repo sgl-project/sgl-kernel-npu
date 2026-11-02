@@ -3,12 +3,17 @@ import time
 from typing import Optional
 
 import pytest
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.chunk import (
     chunk_gated_delta_rule_fwd,
     chunk_gated_delta_rule_native,
 )
+from utils import require_npu_op
+
+pytestmark = require_npu_op("mega_chunk_gdn")
 
 LAUNCH_MIN = 2
 LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling

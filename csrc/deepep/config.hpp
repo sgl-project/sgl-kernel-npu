@@ -3,6 +3,7 @@
 #include <pybind11/pytypes.h>
 #include <cstdlib>
 #include <cctype>
+#include <limits>
 #include <string>
 
 namespace deep_ep {

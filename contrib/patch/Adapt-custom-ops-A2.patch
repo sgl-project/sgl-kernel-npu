@@ -1,0 +1,13 @@
+diff --git a/ops/ascendc/torch_ops_extension/setup.py b/ops/ascendc/torch_ops_extension/setup.py
+index 6aadb1f..4fc082c 100644
+--- a/ops/ascendc/torch_ops_extension/setup.py
++++ b/ops/ascendc/torch_ops_extension/setup.py
+@@ -34,7 +34,7 @@ ext = NpuExtension(
+     extra_compile_args=[
+         '-I' + os.path.join(PYTORCH_NPU_INSTALL_PATH, "include/third_party/acl/inc"),
+         '-O3',            # Enable maximum compiler optimization
+-        '-march=native',  # Optimize for the host machine's architecture
++        '-march=armv8.2-a',  # Optimize for the host machine's architecture
+         '-ffast-math',    # Enable aggressive math optimizations (may trade precision for speed)
+         '-fvisibility=hidden',  # Hide symbols to reduce binary size and improve load time
+         '-flto',          # Enable Link-Time Optimization (LTO)

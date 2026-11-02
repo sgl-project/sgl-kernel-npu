@@ -7,6 +7,7 @@
 #include "moe_distribute_v2_base.h"
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "check_winsize.h"
+#include "comm_args.h"
 
 namespace MoeDistributeDispatchV2Impl {
 constexpr uint8_t BUFFER_NUM = 2;  // 多buf
@@ -20,7 +21,6 @@ constexpr uint8_t COMM_TP_IDX = 1;
 constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
 constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
 constexpr uint64_t STATE_HCCL_OFFSET = 32UL;
-constexpr uint64_t STATE_CHECK_OFFSET = 1000UL * 1024UL;
 constexpr uint64_t TIMEOUT_DETECTION_THRESHOLD = 50000UL;
 constexpr uint64_t CYCLES_PER_US = 50UL;
 constexpr uint64_t TIMEOUT_DETECTION_TX_UNITS = 8UL;
@@ -90,14 +90,31 @@ private:
                                          LocalTensor<float> &statusSumOutTensor);
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
-        uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankIdOriginal_ : tpRankId_);
-        return GetBaseWindAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + winDataSizeOffset_;
+        uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankIdOriginal_ : tpRankId_;
+        uint64_t dataOffset = isHybridDeployment_ ? Moe::A3WindowLayout::kDataOffset : 0UL;
+        return GetBaseWindAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + winDataSizeOffset_ + dataOffset;
     }
 
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankIdOriginal_ : tpRankId_;
-        return GetBaseWindStateAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + dataState_ * WIN_STATE_OFFSET;
+        if (!isHybridDeployment_) {
+            return GetBaseWindStateAddrByRankId(winContext_[ctxIdx], rankId, curRankId) +
+                   dataState_ * Moe::A3WindowLayout::kLegacyV2StateHalfSize;
+        }
+        return GetBaseWindAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + dataState_ * (totalWinSize_ / 2UL) +
+               Moe::A3WindowLayout::kLlDispatchStateOffset;
+    }
+
+    __aicore__ inline uint64_t GetTimeoutProbeOffset()
+    {
+        return isHybridDeployment_ ? Moe::A3WindowLayout::kLlStateTimeoutOffset
+                                   : Moe::A3WindowLayout::kLegacyLlStateTimeoutOffset;
+    }
+
+    __aicore__ inline uint64_t GetDataWindowSize()
+    {
+        return isHybridDeployment_ ? totalWinSize_ / 2UL - Moe::A3WindowLayout::kDataOffset : totalWinSize_ / 2UL;
     }
 
     __aicore__ inline uint32_t MIN(uint32_t x, uint32_t y)
@@ -231,6 +248,7 @@ private:
     bool isTokenMaskFlag_ = false;
     bool isExpertMaskFlag_ = false;
     bool hasElasticInfoFlag_ = false;
+    bool isHybridDeployment_ = false;
     bool isScalingDownFlag_ = false;
     bool isShareExpertRankFlag_ = false;
     float sumTarget_;
@@ -309,9 +327,13 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::Init(
     sharedExpertRankNum_ = tilingData->moeDistributeDispatchV2Info.sharedExpertRankNum;
     moeExpertNum_ = tilingData->moeDistributeDispatchV2Info.moeExpertNum;
     globalBS_ = tilingData->moeDistributeDispatchV2Info.globalBs;
-    statusDataSpaceGm_ = GetStatusDataSpaceGm(winContext_[0]);
-    selfDataStatusGMTensor_.SetGlobalBuffer(
-        (__gm__ uint32_t *)(statusDataSpaceGm_ + STATE_WIN_OFFSET + aivId_ * WIN_ADDR_ALIGN));
+    isHybridDeployment_ = tilingData->moeDistributeDispatchV2Info.isHybridDeployment;
+    statusDataSpaceGm_ =
+        isHybridDeployment_
+            ? GetBaseWindAddrByRankId(winContext_[COMM_EP_IDX], epRankIdOriginal_, epRankIdOriginal_) +
+                  Moe::A3WindowLayout::kLlDispatchSelectorOffset
+            : GetStatusDataSpaceGm(winContext_[COMM_EP_IDX]) + Moe::A3WindowLayout::kLegacyV2DispatchSelectorOffset;
+    selfDataStatusGMTensor_.SetGlobalBuffer((__gm__ uint32_t *)(statusDataSpaceGm_ + aivId_ * WIN_ADDR_ALIGN));
     TBuf<> dataStateBuf;
     tpipe_->InitBuffer(dataStateBuf, UB_ALIGN);
     dataState_ = InitWinState(selfDataStatusGMTensor_, winContext_[0], epRankIdOriginal_, moeExpertNum_,
@@ -394,13 +416,14 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::Init(
     tpipe_->InitBuffer(statusBuf_, statusBufSize);
     totalUsedUB_ += statusBufSize;
     statusTensor_ = statusBuf_.Get<int32_t>();  // 保存发送数据量及flag，同时用于计算windows中的偏移
-    Duplicate<int32_t>(statusTensor_, 0, recvWinBlockNum_ * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
+    Duplicate<int32_t>(statusTensor_, 0, statusBufCntAlign * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankIdOriginal_);
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
     for (int tempepRankId = 0; tempepRankId < epWorldSize_; tempepRankId++) {
         OOMCheckAddrRange<ExpandXOutType>((__gm__ ExpandXOutType *)(GetWindAddrByRankId(COMM_EP_IDX, tempepRankId)),
-                                          totalWinSize_);
-        OOMCheckAddrRange<float>((__gm__ float *)(GetWindStateAddrByRankId(COMM_EP_IDX, tempepRankId)), STATE_SIZE);
+                                          GetDataWindowSize());
+        OOMCheckAddrRange<float>((__gm__ float *)(GetWindStateAddrByRankId(COMM_EP_IDX, tempepRankId)),
+                                 Moe::A3WindowLayout::kLlStateSize);
     }
 #endif
     sumTarget_ = static_cast<float>(1.0);
@@ -418,15 +441,15 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::Init(
     GlobalTensor<ExpandXOutType> winDouble;
     winDouble.SetL2CacheHint(CacheMode::CACHE_MODE_DISABLE);
     winDouble.SetGlobalBuffer((__gm__ ExpandXOutType *)(windowGM_));
-    OOMCheckAddrRange<ExpandXOutType>((__gm__ ExpandXOutType *)(winDouble.GetPhyAddr()), totalWinSize_);
+    OOMCheckAddrRange<ExpandXOutType>((__gm__ ExpandXOutType *)(winDouble.GetPhyAddr()), GetDataWindowSize());
 #endif
     if constexpr (IsNeedAllgather) {
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
         for (int temptpRankId = 0; temptpRankId < tpWorldSize_; temptpRankId++) {
             OOMCheckAddrRange<ExpandXOutType>((__gm__ ExpandXOutType *)(GetWindAddrByRankId(COMM_TP_IDX, temptpRankId)),
-                                              totalWinSize_);
+                                              GetDataWindowSize());
             OOMCheckAddrRange<int32_t>((__gm__ int32_t *)(GetWindStateAddrByRankId(COMM_TP_IDX, temptpRankId)),
-                                       STATE_SIZE);
+                                       Moe::A3WindowLayout::kLlStateSize);
         }
 #endif
         tpLocalWindowGM_ = GetWindAddrByRankId(COMM_TP_IDX, tpRankId_);
@@ -1109,7 +1132,7 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::TimeOutDete
             toRankId = index % epWorldSize_;
         }
         GM_ADDR timeoutCheckGM =
-            (__gm__ uint8_t *)(GetWindStateAddrByRankId(COMM_EP_IDX, toRankId) + STATE_CHECK_OFFSET);
+            (__gm__ uint8_t *)(GetWindStateAddrByRankId(COMM_EP_IDX, toRankId) + GetTimeoutProbeOffset());
         timeoutCheckGMTensor.SetGlobalBuffer((__gm__ float *)(timeoutCheckGM));
         DataCopy<float>(timeoutCheckGMTensor, statusFp32Tensor_, TIMEOUT_DETECTION_TX_UNITS);
     }

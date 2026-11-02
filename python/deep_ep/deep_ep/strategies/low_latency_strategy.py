@@ -42,9 +42,11 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8: bool = True,
         round_scale: bool = False,
         use_ue8m0: bool = False,
+        use_mxfp4: bool = False,
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         torch.Tensor,
@@ -53,6 +55,17 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         Callable,
     ]:
         topk_ids = topk_idx.int()
+
+        valid_quant_modes = {
+            None,
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode not in valid_quant_modes:
+            raise ValueError(f"Unsupported quant_mode: {quant_mode}")
 
         (
             packed_recv_x,
@@ -71,8 +84,10 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             use_fp8,
             round_scale,
             use_ue8m0,
+            use_mxfp4,
             async_finish,
             return_recv_hook,
+            "none" if quant_mode is None else quant_mode,
         )
 
         handle = (
@@ -97,7 +112,11 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         )
 
         return (
-            (packed_recv_x, packed_recv_x_scales) if use_fp8 else packed_recv_x,
+            (
+                (packed_recv_x, packed_recv_x_scales)
+                if quant_mode is not None
+                else packed_recv_x
+            ),
             packed_recv_count,
             handle,
             EventOverlap(event, tensors_to_record if async_finish else None),
@@ -114,6 +133,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         topk_ids = topk_idx.int()
 
@@ -140,6 +160,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             async_finish,
             return_recv_hook,
             out,
+            use_mxfp8,
         )
 
         tensors_to_record = (
@@ -192,9 +213,11 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8: bool = True,
         round_scale: bool = False,
         use_ue8m0: bool = False,
+        use_mxfp4: bool = False,
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         torch.Tensor,
@@ -204,10 +227,38 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
+        x_active_mask = torch.zeros(
+            num_max_dispatch_tokens_per_rank,
+            dtype=torch.bool,
+            device=x.device,
+        )
+        x_active_mask[: x.size(0)] = True
+        padding_size = num_max_dispatch_tokens_per_rank - x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
             ), "When comm_alg='hierarchy', topk_weights can not be None"
+        x_padding = torch.empty(
+            padding_size,
+            x.size(1),
+            dtype=x.dtype,
+            device=x.device,
+        )
+        x_padding = torch.cat((x, x_padding), dim=0)
+        topk_padding = torch.empty(
+            padding_size,
+            topk_ids.size(1),
+            dtype=topk_ids.dtype,
+            device=topk_ids.device,
+        )
+        topk_padding = torch.cat((topk_ids, topk_padding), dim=0)
+        weight_padding = torch.empty(
+            padding_size,
+            topk_weights.size(1),
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
+        )
+        weight_padding = torch.cat((topk_weights, weight_padding), dim=0)
 
         (
             packed_recv_x,
@@ -217,12 +268,13 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_layout_range,
             expand_scales,
         ) = self._npu_low_latency_dispatch(
-            x=x,
-            topk_idx=topk_ids,
+            x=x_padding,
+            topk_idx=topk_padding,
             num_experts=num_experts,
             quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
             comm_alg=self.comm_alg,
-            topk_weights=topk_weights,
+            topk_weights=weight_padding,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
 
@@ -234,6 +286,9 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         )
 
         event = EventOverlap(EventHandle())
@@ -257,9 +312,11 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
+        use_mxfp8: bool = False,
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
+        src_num = topk_idx.size(0)
         (
             src_info,
             layout_range,
@@ -268,23 +325,28 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         ) = handle
 
         combined_x = self._npu_low_latency_combine(
             x=x,
-            topk_idx=topk_ids,
-            topk_weights=topk_weights,
+            topk_idx=topk_padding,
+            topk_weights=weight_padding,
             assist_info_for_combine=src_info,
             ep_send_counts=layout_range,
             num_experts=num_experts,
             comm_alg=self.comm_alg,
             expand_scales=expand_scales,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            comm_quant_mode=3 if use_mxfp8 else 0,
         )
 
         event = EventOverlap(EventHandle())
         hook = lambda *args, **kwargs: None
-
+        combined_x = combined_x[:src_num, :]
         return combined_x, event, hook
 
     def _npu_low_latency_dispatch(
@@ -306,7 +368,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
         expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -336,7 +397,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             shared_expert_rank_num=shared_expert_rank_num,
             quant_mode=quant_mode,
             expert_token_nums_type=expert_token_nums_type,
-            global_bs=global_bs,
             comm_alg=comm_alg,  # A3: 支持""，"fullmesh_v1"，"fullmesh_v2", "hierarchy"
         )
 
@@ -370,7 +430,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -394,7 +453,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expert_shard_type=expert_shared_type,
             shared_expert_num=shared_expert_num,
             shared_expert_rank_num=shared_expert_rank_num,
-            global_bs=global_bs,
             comm_quant_mode=comm_quant_mode,
             comm_alg=comm_alg,  # A3: 支持""，"hierarchy"两种
         )
@@ -419,7 +477,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         return ["low_latency"]
 
     def low_latency_dispatch(
-        buffer,
+        self,
         x,
         topk_idx,
         num_max_dispatch_tokens_per_rank,
@@ -428,17 +486,40 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8=True,
         round_scale=False,
         use_ue8m0=False,
+        use_mxfp4=False,
         async_finish=False,
         return_recv_hook=False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ):
-        group = buffer.group
-        group_size = buffer.group_size
+        group = self.group
+        group_size = self.group_size
         num_local_experts = num_experts // group_size
-        ep_rank = buffer.rank
+        ep_rank = self.rank
         device = x.device
         hidden = x.size(1)
         aligned_num_tokens = num_max_dispatch_tokens_per_rank
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode is None:
+            quant_mode = "bf16"
+        if quant_mode not in VALID_QUANT_MODES:
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
+                f"Only 'bf16' , 'mx_fp8_e4m3(A5)', 'mx_fp4_e2m1(A5)' and 'int8(A3)' are supported."
+            )
+        hidden_shape = x.shape
+
+        quant_mode_type = {
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "mx_fp8_e4m3": torch.float8_e4m3fn,
+            "mx_fp4_e2m1": torch_npu.float4_e2m1fn_x2,
+        }[quant_mode]
         num_tokens = x.size(0)
         padding_size = aligned_num_tokens - num_tokens
         x_padding = torch.zeros(
@@ -492,7 +573,21 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         recv_x = recv_all.reshape(
             num_local_experts * group_size * expert_capacity, hidden
         )
-        recv_x_out = (torch_npu.npu_dynamic_quant(recv_x)) if use_fp8 else recv_x
+        recv_x_out = recv_x
+        if quant_mode != "bf16":
+            recv_x_scale = (
+                torch_npu.npu_dynamic_quant(recv_x)
+                if quant_mode == "int8"
+                else torch_npu.npu_dynamic_mx_quant(recv_x, dst_type=quant_mode_type)
+            )
+            recv_x_out = (
+                recv_x_scale[0].view(
+                    torch.float4_e2m1fn_x2
+                    if quant_mode_type == torch_npu.float4_e2m1fn_x2
+                    else quant_mode_type
+                ),
+                recv_x_scale[1],
+            )
 
         packed_recv_count = torch.full(
             (num_local_experts,),
@@ -520,7 +615,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         )
 
     def low_latency_combine(
-        buffer,
+        self,
         x,
         topk_idx,
         topk_weights,
@@ -529,7 +624,12 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish=False,
         return_recv_hook=False,
         out=None,
+        use_mxfp8=False,
     ):
+        if use_mxfp8:
+            raise NotImplementedError(
+                "low_latency_combine(use_mxfp8=True) is only supported by the A5 default and ops strategies"
+            )
         expanded_row_idx = handle[0]
         expert_capacity = handle[1]
         hidden = handle[2]
@@ -538,7 +638,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         group_size = handle[5]
 
         device = x.device
-        group = buffer.group
+        group = self.group
 
         x_reordered = x.reshape(num_local_experts, group_size, expert_capacity, hidden)
         x_reordered = x_reordered.permute(1, 0, 2, 3).contiguous()
@@ -564,8 +664,8 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         topk_weights_padding = torch.empty(
             expert_capacity,
             topk_weights.size(1),
-            dtype=x.dtype,
-            device=x.device,
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
         )
         topk_weights_padding[:num_tokens].copy_(topk_weights)
         output = torch_npu.npu_moe_finalize_routing(

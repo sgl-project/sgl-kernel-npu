@@ -1,9 +1,14 @@
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Optional
 
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
+from utils import require_npu_op
+
+pytestmark = require_npu_op("causal_conv1d")
 
 PAD_SLOT_ID = -1
 
@@ -24,15 +29,20 @@ class CaseConfig:
     lengths: Optional[list[int]] = None
     cache_indices: Optional[list[int]] = None
     has_initial_state: Optional[list[bool]] = None
+    query_start_loc_dtype: torch.dtype = torch.int32
 
 
-def make_query_start_loc(lengths: Iterable[int], device: torch.device) -> torch.Tensor:
+def make_query_start_loc(
+    lengths: Iterable[int],
+    device: torch.device,
+    dtype: torch.dtype = torch.int32,
+) -> torch.Tensor:
     qsl = [0]
     for length in lengths:
         qsl.append(qsl[-1] + int(length))
     if device.type == "cpu":
-        return torch.tensor(qsl, device="cpu", dtype=torch.int32)
-    out = torch.empty((len(qsl),), device=device, dtype=torch.int32)
+        return torch.tensor(qsl, device="cpu", dtype=dtype)
+    out = torch.empty((len(qsl),), device=device, dtype=dtype)
     for idx, value in enumerate(qsl):
         out[idx] = int(value)
     return out
@@ -53,18 +63,6 @@ def make_device_int_tensor(values: Iterable[int], device: torch.device) -> torch
     if device.type == "cpu":
         return torch.tensor(values, device="cpu", dtype=torch.int32)
     out = torch.empty((len(values),), device=device, dtype=torch.int32)
-    for idx, value in enumerate(values):
-        out[idx] = int(value)
-    return out
-
-
-def make_device_long_tensor(
-    values: Iterable[int], device: torch.device
-) -> torch.Tensor:
-    values = list(values)
-    if device.type == "cpu":
-        return torch.tensor(values, device="cpu", dtype=torch.int64)
-    out = torch.empty((len(values),), device=device, dtype=torch.int64)
     for idx, value in enumerate(values):
         out[idx] = int(value)
     return out
@@ -130,17 +128,8 @@ def reference_causal_conv1d(
         x_ext_raw = torch.cat([hist_raw, x_seg_raw], dim=0)
         x_ext = x_ext_raw.float()
 
-        x0 = x_ext[3 : 3 + length]
-        x1 = x_ext[2 : 2 + length]
-        x2 = x_ext[1 : 1 + length]
-        x3 = x_ext[0 : 0 + length]
-
-        acc = (
-            x3 * weight_fp32[0]
-            + x2 * weight_fp32[1]
-            + x1 * weight_fp32[2]
-            + x0 * weight_fp32[3]
-        )
+        # generic K-tap causal conv: out[t] = sum_j x_ext[t + j] * weight[j]
+        acc = sum(x_ext[j : j + length] * weight_fp32[j] for j in range(width))
         if bias_fp32 is not None:
             acc = acc + bias_fp32
         if activation_mode:
@@ -175,7 +164,9 @@ def make_case_tensors(case: CaseConfig, device: torch.device, pad_slot_id: int):
         device=device,
         dtype=case.dtype,
     )
-    query_start_loc = make_query_start_loc(lengths, device)
+    query_start_loc = make_query_start_loc(
+        lengths, device, dtype=case.query_start_loc_dtype
+    )
     cache_indices = make_device_int_tensor(case.cache_indices, device)
     if device.type == "cpu":
         has_initial_state = make_host_bool_tensor(case.has_initial_state)
@@ -221,7 +212,9 @@ def run_positive_case(
     weight = weight_cpu.to(device=device)
     bias = bias_cpu.to(device=device) if bias_cpu is not None else None
     conv_states_npu = conv_states_cpu.to(device=device)
-    query_start_loc = make_query_start_loc(lengths, device)
+    query_start_loc = make_query_start_loc(
+        lengths, device, dtype=case.query_start_loc_dtype
+    )
     cache_indices = make_device_int_tensor(case.cache_indices, device)
     has_initial_state = make_device_bool_tensor(case.has_initial_state, device)
 
@@ -241,11 +234,11 @@ def run_positive_case(
         x,
         weight,
         conv_states_npu,
-        query_start_loc,
-        cache_indices,
-        has_initial_state,
         bias=bias,
-        activation_mode=case.activation_mode,
+        query_start_loc=query_start_loc,
+        cache_indices=cache_indices,
+        has_initial_state=has_initial_state,
+        activation_mode=int(case.activation_mode),
         pad_slot_id=pad_slot_id,
     )
     torch.npu.synchronize()
@@ -296,49 +289,68 @@ def expect_failure(name: str, fn, expected_substrings: tuple[str, ...]):
 
 
 def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: int):
-    dim = 4096
-    x = torch.randn((2, 4, dim), device=device, dtype=dtype)
-    weight = torch.randn((4, dim), device=device, dtype=dtype)
-    conv_states = torch.randn((8, 5, dim), device=device, dtype=dtype)
-    query_start_loc = make_device_int_tensor([0, 4, 8], device)
-    cache_indices = make_device_int_tensor([0, 3], device)
-    has_initial_state = make_device_bool_tensor([True, False], device)
-    bias = torch.randn((dim,), device=device, dtype=dtype)
+    base_case = CaseConfig(
+        name="negative_case_inputs",
+        dtype=dtype,
+        dim=4096,
+        width=4,
+        state_len=5,
+        num_cache_lines=8,
+        activation_mode=False,
+        use_bias=True,
+        input_mode="3d",
+        batch=2,
+        seq_len=4,
+        cache_indices=[0, 3],
+        has_initial_state=[True, False],
+    )
+    (
+        x,
+        weight,
+        bias,
+        conv_states,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+    ) = make_case_tensors(base_case, device, pad_slot_id)
+
+    unsupported_width_case = replace(base_case, name="unsupported_width", width=5)
+    (
+        unsupported_x,
+        unsupported_weight,
+        unsupported_bias,
+        unsupported_conv_states,
+        unsupported_query_start_loc,
+        unsupported_cache_indices,
+        unsupported_has_initial_state,
+    ) = make_case_tensors(unsupported_width_case, device, pad_slot_id)
+
+    # The native prefill kernel defines MAX_WIDTH=4, so 5 is the first invalid width.
+    expect_failure(
+        "unsupported_width",
+        lambda: torch.ops.npu.causal_conv1d(
+            unsupported_x,
+            unsupported_weight,
+            unsupported_conv_states,
+            bias=unsupported_bias,
+            query_start_loc=unsupported_query_start_loc,
+            cache_indices=unsupported_cache_indices,
+            has_initial_state=unsupported_has_initial_state,
+        ),
+        ("width in [2,4]",),
+    )
 
     expect_failure(
-        "width_not_4",
+        "missing_query_start_loc_for_varlen",
         lambda: torch.ops.npu.causal_conv1d(
-            x,
-            torch.randn((3, dim), device=device, dtype=dtype),
+            x.reshape(-1, base_case.dim),
+            weight,
             conv_states,
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
-        ("width == 4", "width=4"),
-    )
-
-    expect_failure(
-        "unsupported_dim",
-        lambda: torch.ops.npu.causal_conv1d(
-            torch.randn((2, 4, 3072), device=device, dtype=dtype),
-            torch.randn((4, 3072), device=device, dtype=dtype),
-            torch.randn((8, 5, 3072), device=device, dtype=dtype),
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
-            bias=torch.randn((3072,), device=device, dtype=dtype),
-        ),
-        ("4096", "8192", "1024"),
-    )
-
-    expect_failure(
-        "missing_required_query_start_loc",
-        lambda: torch.ops.npu.causal_conv1d(
-            x, weight, conv_states, cache_indices, has_initial_state
-        ),
-        ("missing", "expected at most", "arguments"),
+        ("query_start_loc must have at least 2 elements",),
     )
 
     expect_failure(
@@ -347,10 +359,10 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
             x,
             weight,
             torch.randn((8, 5, 2048), device=device, dtype=dtype),
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
         ("conv_states.shape[2]", "must equal dim"),
     )
@@ -359,28 +371,18 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
         "dtype_mismatch_weight",
         lambda: torch.ops.npu.causal_conv1d(
             x,
-            torch.randn((4, dim), device="cpu", dtype=torch.float32).to(device=device),
+            torch.randn(
+                (base_case.width, base_case.dim),
+                device="cpu",
+                dtype=torch.float32,
+            ).to(device=device),
             conv_states,
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
         ("dtype must match",),
-    )
-
-    expect_failure(
-        "dtype_mismatch_query_start_loc",
-        lambda: torch.ops.npu.causal_conv1d(
-            x,
-            weight,
-            conv_states,
-            make_device_long_tensor([0, 4, 8], device),
-            cache_indices,
-            has_initial_state,
-            bias=bias,
-        ),
-        ("query_start_loc dtype must be int32",),
     )
 
 
@@ -391,12 +393,6 @@ def main():
     parser.add_argument("--seed", type=int, default=20260326)
     parser.add_argument("--pad-slot-id", type=int, default=PAD_SLOT_ID)
     args = parser.parse_args()
-
-    try:
-        import sgl_kernel_npu  # noqa: F401
-        import torch_npu  # noqa: F401
-    except ImportError as exc:  # noqa: BLE001
-        raise SystemExit(f"Import failed: {exc}") from exc
 
     if not hasattr(torch.ops.npu, "causal_conv1d"):
         raise SystemExit("torch.ops.npu.causal_conv1d is not registered")
@@ -482,6 +478,67 @@ def main():
             seq_len=5,
             cache_indices=[1, 7],
             has_initial_state=[True, False],
+        ),
+        CaseConfig(
+            name="dense3d_width3_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=3,
+            state_len=4,
+            num_cache_lines=12,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="3d",
+            batch=3,
+            seq_len=7,
+            cache_indices=[0, 5, 9],
+            has_initial_state=[True, False, True],
+        ),
+        CaseConfig(
+            name="varlen2d_width2_fp16_act",
+            dtype=torch.float16,
+            dim=2048,
+            width=2,
+            state_len=3,
+            num_cache_lines=16,
+            activation_mode=True,
+            use_bias=False,
+            input_mode="2d",
+            batch=4,
+            lengths=[3, 5, 1, 4],
+            cache_indices=[1, 6, args.pad_slot_id, 11],
+            has_initial_state=[True, True, False, True],
+        ),
+        CaseConfig(
+            name="dense3d_dim3072",
+            dtype=torch.bfloat16,
+            dim=3072,
+            width=4,
+            state_len=5,
+            num_cache_lines=8,
+            activation_mode=False,
+            use_bias=True,
+            input_mode="3d",
+            batch=2,
+            seq_len=4,
+            cache_indices=[0, 3],
+            has_initial_state=[True, False],
+        ),
+        CaseConfig(
+            name="dense3d_int64_query_start_loc",
+            dtype=torch.bfloat16,
+            dim=1024,
+            width=4,
+            state_len=5,
+            num_cache_lines=8,
+            activation_mode=False,
+            use_bias=True,
+            input_mode="3d",
+            batch=2,
+            seq_len=4,
+            cache_indices=[1, 5],
+            has_initial_state=[True, False],
+            query_start_loc_dtype=torch.int64,
         ),
     ]
 

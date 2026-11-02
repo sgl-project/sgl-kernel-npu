@@ -15,6 +15,7 @@ from utils import (
     bench_kineto,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
@@ -436,7 +437,7 @@ def test_main(
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
             if local_rank == 0:
                 print(
-                    f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
+                    f"[testing] Running with BF16, with top-k {num_topk} ...",
                     flush=True,
                 )
             # Test dispatch
@@ -491,13 +492,10 @@ def test_main(
             desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(
                 -1, 1
             )
-            assert (
-                calc_diff(
-                    check_x[mask],
-                    desire_x[mask],
-                )
-                < 5e-5
-            )
+            assert calc_diff(
+                check_x[mask],
+                desire_x[mask],
+            ) < get_diff_threshold("bf16")
 
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -529,16 +527,8 @@ def test_main(
 
         # Tune dispatch performance
         for current_x in filter(lambda elem: elem is not None, (x,)):
-            recv_bytes = (
-                (dispatch_bf16_recv_bytes * fp8_factor)
-                if isinstance(current_x, tuple)
-                else dispatch_bf16_recv_bytes
-            )
-            rdma_send_bytes = (
-                (dispatch_bf16_rdma_send_bytes * fp8_factor)
-                if isinstance(current_x, tuple)
-                else dispatch_bf16_rdma_send_bytes
-            )
+            recv_bytes = dispatch_bf16_recv_bytes
+            rdma_send_bytes = dispatch_bf16_rdma_send_bytes
 
             tune_args = {
                 "x": current_x,
@@ -556,7 +546,7 @@ def test_main(
             )
             if local_rank == 0:
                 print(
-                    f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
+                    f"[tuning] Dispatch (BF16) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), "
                     f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
                     flush=True,
                 )

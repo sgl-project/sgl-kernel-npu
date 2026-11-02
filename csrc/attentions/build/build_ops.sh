@@ -41,7 +41,7 @@ function build_ops(){
     chmod -R u+w ${current_script_dir}
     cd ${current_script_dir}
     rm -rf vendors
-    source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;block_sparse_attention;sparse_block_estimate' -c 'ascend910;ascend910b;ascend910_93'
+    source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;ada_block_sparse_attention;sparse_block_estimate' -c 'ascend910;ascend910b;ascend910_93'
     rm -rf ${current_script_dir}/vendors/aie_ascendc/bin
     rm -rf ${current_script_dir}/vendors/customize/bin
     cd ${current_script_dir}

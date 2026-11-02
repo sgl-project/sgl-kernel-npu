@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe tiling function implementation file
- * Author: Guo Ren
- * Create: 2025-07-22
- * Note:
- * History: 2025-07-13 create FusedDeepMoe infer function file
- */
-
 #include <cstdint>
 #include "ops_log.h"
 #include "ops_error.h"
@@ -78,6 +69,11 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);
     uint32_t sharedExpertRankNum = static_cast<uint32_t>(*sharedExpertRankNumPtr);
+
+    OPS_ERR_IF(epRankSize <= sharedExpertRankNum,
+               OPS_LOG_E(nodeName, "epRankSize (%u) must be > sharedExpertRankNum (%u) to avoid division by zero.",
+                         epRankSize, sharedExpertRankNum),
+               return ge::GRAPH_FAILED);
 
     recvCountOutShape->SetDimNum(1);
     bool isShareExpert = (epRankId < sharedExpertRankNum);

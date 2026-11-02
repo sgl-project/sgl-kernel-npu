@@ -1,189 +1,82 @@
-# set the library output dir to the python dir for wheel package build
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/sgl_kernel_npu/lib)
-
-# host side files
-FILE(GLOB OP_SRCS
-    ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
-    ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
-    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
-    ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
-    ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
-    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
-    ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_shrink.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host/compute_n_gram_ids.cpp
-    ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host/update_oe_token_table.cpp
-    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/mlp_lightning_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling/mlp_lightning_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
-    ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
-    ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
-    )
-if(BUILD_CATLASS_MODULE)
-    list(APPEND OP_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_op_utils.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_gmm_fp8.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
-    )
-endif()
-list(APPEND OP_SRCS
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
-)
-
-# set the so name
-set(OP_PLUGIN_NAME sgl_kernel_npu)
-
-# kernel side files without workspace
-set(NO_WORKSPACE_KERNEL_SRCS
-    ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
-    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
-    ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_shrink_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
-)
-
-if(BUILD_CATLASS_MODULE)
-    list(APPEND NO_WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_gmm_fp8_kernel.cpp
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_fp8_kernel.cpp
-    )
-endif()
-ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
-ascendc_include_directories(no_workspace_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/utils/kernel
-)
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(no_workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
+# The root Torch build keeps its existing implementation during migration.
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    include("${CMAKE_CURRENT_LIST_DIR}/../cmake/legacy_kernels.cmake")
+    return()
 endif()
 
-# kernel side files with workspace
-set(WORKSPACE_KERNEL_SRCS
-    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel/compute_n_gram_ids.cpp
-    ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel/update_oe_token_table.cpp
-    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel/mlp_lightning_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
-)
-if(BUILD_CATLASS_MODULE)
-    list(APPEND WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
-    )
+cmake_minimum_required(VERSION 3.20)
+project(sgl_cann_ops LANGUAGES NONE)
+
+set(SGL_CANN_BUILD_STAGE CODEGEN CACHE STRING "CANN checkpoint: CODEGEN, TILING or KERNEL")
+set_property(CACHE SGL_CANN_BUILD_STAGE PROPERTY STRINGS CODEGEN TILING KERNEL)
+if(NOT SGL_CANN_BUILD_STAGE MATCHES "^(CODEGEN|TILING|KERNEL)$")
+    message(FATAL_ERROR "Unknown SGL_CANN_BUILD_STAGE: ${SGL_CANN_BUILD_STAGE}")
 endif()
-ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
-ascendc_include_directories(workspace_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-)
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
+set(SGL_ARCH_VERSION "" CACHE STRING "Explicit architecture: 2201 or 3510")
+set(SGL_CANN_OPERATORS "ALL" CACHE STRING "ALL or a semicolon-separated list of operator IDs")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/cmake/architectures.json" SGL_ARCHITECTURES)
+if(NOT SGL_ARCH_VERSION MATCHES "^(2201|3510)$")
+    message(FATAL_ERROR "SGL_ARCH_VERSION must be explicitly set to 2201 or 3510")
+endif()
+string(JSON count LENGTH "${SGL_ARCHITECTURES}" "${SGL_ARCH_VERSION}" compute_units)
+math(EXPR last "${count} - 1")
+set(SGL_CANN_COMPUTE_UNITS)
+foreach(index RANGE ${last})
+    string(JSON unit GET "${SGL_ARCHITECTURES}" "${SGL_ARCH_VERSION}" compute_units ${index})
+    list(APPEND SGL_CANN_COMPUTE_UNITS "${unit}")
+endforeach()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/operators.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/domains.cmake")
+sgl_add_operator_domains()
+sgl_select_operators(selected_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
+message(STATUS "Selected CANN operators: ${selected_operators}; ARCH: ${SGL_ARCH_VERSION}; SDK targets: ${SGL_CANN_COMPUTE_UNITS}")
+string(REPLACE ";" "\n" selection_text "${selected_operators}")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt"
+    CONTENT "${selection_text}\n" @ONLY)
+if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
+   AND NOT "${SGL_CANN_CONFIGURED_OPERATORS}" STREQUAL "${selected_operators}")
+    message(FATAL_ERROR "CANN operator selection changed; run with --make_clean before rebuilding")
+endif()
+set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
+
+if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "CANN code generation requires Linux")
+endif()
+if(NOT IS_DIRECTORY "$ENV{ASCEND_HOME_PATH}")
+    message(FATAL_ERROR "ASCEND_HOME_PATH must point to the initialized CANN SDK")
 endif()
 
-ascendc_include_directories(workspace_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/utils/kernel
+enable_language(CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(ASCEND_CANN_PACKAGE_PATH "$ENV{ASCEND_HOME_PATH}")
+set(SGL_CANN_SDK_ROOT "${ASCEND_CANN_PACKAGE_PATH}" CACHE INTERNAL "Configured CANN SDK root" FORCE)
+set(ASCEND_COMPUTE_UNIT "${SGL_CANN_COMPUTE_UNITS}")
+set(vendor_name sgl_kernel_npu)
+set(ENABLE_BINARY_PACKAGE ON)
+set(ENABLE_SOURCE_PACKAGE ON)
+set(ASCEND_SKIP_FAILED_COMPUTE_UNIT OFF)
+find_package(ASC REQUIRED CONFIG PATHS
+    "${ASCEND_CANN_PACKAGE_PATH}"
+    "${ASCEND_CANN_PACKAGE_PATH}/compiler/lib64/cmake"
+    "${ASCEND_CANN_PACKAGE_PATH}/lib64/cmake"
+    "${ASCEND_CANN_PACKAGE_PATH}/compiler/tikcpp/ascendc_kernel_cmake"
+    NO_DEFAULT_PATH
 )
 
-ascendc_compile_definitions(workspace_kernel PRIVATE
-       -DHAVE_WORKSPACE
-       -DHAVE_TILING
-)
-
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
-ascendc_library(mega_chunk_gdn_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
-)
-ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
-    ${ASCEND_INCLUDE_DIR}
-    ${ASCEND_INCLUDE_DIR}/experiment/runtime
-    ${ASCEND_INCLUDE_DIR}/experiment/msprof
-)
-ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
-    -DGDN_KERNEL_NAME=launch_mega_kernel
-    -DGDN_D=128
-    -DGDN_C=128
-)
-
-# create shared library libsgl_kernel_npu.so
-add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
-
-target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
-        workspace_kernel
-        no_workspace_kernel
-        torch_npu
-        ascendcl
-        tiling_api
-        register
-        platform
-        ascendalog
-        dl
-)
-
-target_link_directories(${OP_PLUGIN_NAME} PRIVATE
-        ${TORCH_DIR}/lib
-        ${TORCH_NPU_DIR}/lib
-)
-
-target_include_directories(${OP_PLUGIN_NAME} PRIVATE
-        ${PROJECT_OP_SRC_BASE}/utils
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host
-        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host
-        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel
-        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/utils/inc
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/tiling
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/stub
-        ${TORCH_DIR}/include
-        ${TORCH_DIR}/include/torch/csrc/api/include
-        ${TORCH_NPU_DIR}/include
-        ${ASCEND_INCLUDE_DIR}
-        ${ASCEND_INCLUDE_DIR}/external
-        ${ASCEND_INCLUDE_DIR}/experiment/platform
-        ${ASCEND_INCLUDE_DIR}/experiment/runtime
-)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cann_ops.cmake")
+if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
+    npu_op_package(sgl_kernel_npu TYPE RUN
+        CONFIG INSTALL_PATH "${CMAKE_CURRENT_BINARY_DIR}/package-stage")
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/package-stage")
+endif()
+sgl_generate_cann_interfaces("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${selected_operators})
+if(NOT SGL_CANN_BUILD_STAGE STREQUAL "CODEGEN")
+    sgl_add_cann_tiling(${selected_operators})
+endif()
+if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
+    sgl_add_cann_kernels("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${selected_operators})
+endif()
+message(STATUS "CANN checkpoint: ${SGL_CANN_BUILD_STAGE}; configuration never launches a Kernel or installs a package")

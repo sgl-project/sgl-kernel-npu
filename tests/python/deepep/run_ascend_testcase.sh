@@ -18,12 +18,14 @@ if [ ! -f "${test_case}" ];then
   exit 1
 fi
 
-# speed up by using infra cache services
-CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-pip config set global.index-url http://${CACHING_URL}/pypi/simple
+# This deepep Pod cannot use the cluster squid: the K8s job template injects no
+# proxy env, and http(s)_proxy is unset below. Point apt and pip at the public
+# Huawei Cloud mirror instead (CI_MIRROR_HOST overrides the host per cluster).
+MIRROR_HOST="${CI_MIRROR_HOST:-repo.huaweicloud.com}"
+sed -Ei "s@https?://(ports|archive)\.ubuntu\.com@https://${MIRROR_HOST}@g" /etc/apt/sources.list
+pip config set global.index-url "https://${MIRROR_HOST}/repository/pypi/simple"
 pip config set global.extra-index-url "https://pypi.tuna.tsinghua.edu.cn/simple"
-pip config set global.trusted-host "${CACHING_URL} pypi.tuna.tsinghua.edu.cn"
+pip config set global.trusted-host "${MIRROR_HOST} pypi.tuna.tsinghua.edu.cn"
 
 pip3 install kubernetes
 pip3 install --no-deps xgrammar==0.1.25
@@ -42,7 +44,31 @@ export HCCL_INTRA_ROCE_ENABLE=0
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 echo "============================================= Start building dependency ============================================="
-bash scripts/npu_ci_install_dependency.sh
+# Detect the CANN version installed in this container and pass it explicitly.
+# scripts/npu_ci_install_dependency.sh requires --cann-version since PR #683
+# (the old no-arg default --torch-version 2.8.0 was removed); calling it without
+# the option aborts with "CANN_VERSION: unbound variable" and torch never gets
+# installed, which makes the deep-ep build fail with "No module named 'torch'".
+CANN_VERSION=""
+if [ -f /usr/local/Ascend/ascend-toolkit/latest/version.cfg ]; then
+    CANN_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /usr/local/Ascend/ascend-toolkit/latest/version.cfg | head -n1 || true)
+fi
+# Fallback: parse the CANN toolkit directory name, e.g. /usr/local/Ascend/cann-9.0.0
+if [ -z "$CANN_VERSION" ]; then
+    CANN_VERSION=$(ls -d /usr/local/Ascend/cann-* 2>/dev/null | head -n1 | sed -E 's/.*cann-([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true)
+fi
+if [ -z "$CANN_VERSION" ]; then
+    echo "ERROR: cannot detect CANN version in this container"
+    exit 1
+fi
+echo "Detected CANN version: ${CANN_VERSION}"
+# Guard: this script has no `set -e`, so a failed dependency install would
+# otherwise let the build continue and die later with a delayed
+# "No module named 'torch'" error. Fail fast instead.
+bash scripts/npu_ci_install_dependency.sh --cann-version "${CANN_VERSION}" || {
+    echo "ERROR: failed to install dependencies for CANN ${CANN_VERSION}"
+    exit 1
+}
 echo "============================================= Finished building dependency ============================================="
 
 

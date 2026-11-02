@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2026. All rights reserved.
  *
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -14,9 +14,10 @@
 
 #include "la.h"
 #include "rainfusionattention.h"
-#include "block_sparse_attention.h"
+#include "ada_block_sparse_attention.h"
 #include "sparse_block_estimate.h"
 #include "layernorm.h"
+#include "pool_key_indexer.h"
 
 TORCH_LIBRARY(attentions, m)
 {
@@ -33,7 +34,7 @@ TORCH_LIBRARY(attentions, m)
         int head_num=1, int mask_type=0, float scale=1.0, \
         int inner_precise=1, int block_size=0) -> (Tensor, Tensor)");
     m.def(
-        "block_sparse_attention(Tensor query, Tensor key,  \
+        "ada_block_sparse_attention(Tensor query, Tensor key,  \
         Tensor value, Tensor sparse_mask, Tensor sparse_count_table,  \
         str input_layout='BNSD', int sparse_size=128, int num_heads=1, \
         int num_key_value_heads=1, float scale_value=1,  \
@@ -51,13 +52,20 @@ TORCH_LIBRARY(attentions, m)
     m.def(
         "layernorm(Tensor input, int[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, \
         int impl_mode=0) -> (Tensor, Tensor, Tensor)");
+    m.def(
+        "pool_key_indexer(Tensor query, Tensor pool_key, Tensor weights, int[] pool_tail_k, \
+        int[]? actual_seq_q=None, int[]? actual_seq_k=None, Tensor? block_table=None, \
+        int topk=2048, int pool_size=16, str layout_q='BSND', str layout_k='BSND', \
+        int mask_mode=3, int quant_mode=-1, bool return_value=False, int key_stride0=-1) \
+        -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
 {
     m.impl("la", &la);
     m.impl("rainfusionattention", &rainfusionattention);
-    m.impl("block_sparse_attention", &block_sparse_attention);
+    m.impl("ada_block_sparse_attention", &ada_block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
+    m.impl("pool_key_indexer", &pool_key_indexer);
 }

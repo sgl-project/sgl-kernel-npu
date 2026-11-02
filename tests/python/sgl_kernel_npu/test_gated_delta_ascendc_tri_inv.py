@@ -1,9 +1,14 @@
 import os
 
 import pytest
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native, fast_inv_tril
+from utils import require_npu_op
+
+pytestmark = require_npu_op("triangular_inverse")
 
 device = "npu"
 

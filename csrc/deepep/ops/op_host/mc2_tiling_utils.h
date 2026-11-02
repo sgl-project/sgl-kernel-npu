@@ -2,6 +2,7 @@
 #define __MC2_TILING_UTILS_H__
 
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -19,15 +20,22 @@
 class Mc2TilingUtils
 {
 public:
+    static bool IsHybridDeployment()
+    {
+        const char *hybridDeployment = getenv("DEEPEP_HYBRID_DEPLOYMENT");
+        return hybridDeployment != nullptr && hybridDeployment[0] == '1' && hybridDeployment[1] == '\0';
+    }
+
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;
         const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
-        if (getenv(hcclBuffSize) == nullptr) {
+        const char *envValue = getenv(hcclBuffSize);
+        if (envValue == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(hcclBuffSize));
+                std::string envStr(envValue);
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
