@@ -4,11 +4,16 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持 A3；A2 未验证 | 未验证 |
+| `triton` | 已测 A3 用例精度失败；A2 未验证 | 未验证 |
 | `torch_native` | 支持 A3；A2 未验证 | 未验证 |
 
-两个实现均声明支持 arch22 和 arch35。本次重构保留已有 arch35 内核路径，
-在 Ascend910_9362（A3）上验证。注册声明表示预期支持范围，表格表示实际验证情况。
+两个实现均声明支持 arch22 和 arch35。Triton 在两代设备上均使用原有 A5 的
+计算逻辑与启动配置。注册声明表示预期支持范围，表格表示此共用路径的验证情况。
+
+在 Ascend910_9362、CANN 9.2.0、Triton-Ascend 3.6.0 环境中，此共用 Triton
+路径在 B=1、gamma=7、Hq=16、Hkv=4、D=64、KV 长度 129 的用例上未通过
+现有精度阈值，涉及 FP16/BF16 及因果/非因果模式。独立 `torch_native` 参考实现
+仍可使用，A5 硬件验证尚未完成。
 
 ## 函数签名
 
@@ -96,12 +101,12 @@ $$
 
 ## triton 后端
 
-内核和启动封装位于 `implementation/triton/attention`。A3 对常规多 query GQA
-先打包 Q，构造满足矩阵指令要求的仿射数据源并共享 KV 扫描；单 query、不规则
-头分组及小于 32 的分页使用已有逐 query 特化。A3 对非 2 的幂的 D 补零，
-保留调用方原始缩放系数。长上下文可使用 split KV 和部分 softmax 归约。
-已有 arch35 路径保持原有计算逻辑。每次 NPU Graph 回放重新读取长度、页表和
-Q/K/V，Q 打包及补零操作一并被捕获，无需在主机提取长度。
+内核和启动封装位于 `implementation/triton/attention`。两代设备共用矩阵扫描和
+split-KV 归约。直接读取 TND 布局的 Q，将 query block 与 GQA 头合并到同一矩阵
+分块中。行分块为 `max(16, next_power_of_2(gamma * Hq / Hkv))`，头维分块为
+`next_power_of_2(D)`，KV 分块为 `min(128, page_size)`。长上下文可将 KV 扫描
+分配到多个核心，再合并部分 softmax 结果。每次 NPU Graph 回放重新读取长度、
+页表和 Q/K/V。任务划分依据张量元数据和设备核心数，不按芯片名称选择不同算法。
 
 ## torch_native 后端
 

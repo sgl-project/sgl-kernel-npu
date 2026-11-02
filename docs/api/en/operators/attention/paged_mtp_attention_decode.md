@@ -4,12 +4,18 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported on A3; A2 unverified | Unverified |
+| `triton` | Accuracy failures on tested A3; A2 unverified | Unverified |
 | `torch_native` | Supported on A3; A2 unverified | Unverified |
 
-Both implementations are declared for arch22 and arch35. The existing arch35
-kernel path is retained; this refactor is validated on Ascend910_9362 (A3).
-Registration describes intended support; the table records validation.
+Both implementations are declared for arch22 and arch35. Triton uses the
+original A5 computation and launch configuration on both generations.
+Registration describes intended support; the table records validation of this
+shared path.
+
+On Ascend910_9362 with CANN 9.2.0 and Triton-Ascend 3.6.0, the shared Triton
+path fails the existing accuracy tolerance for B=1, gamma=7, Hq=16, Hkv=4,
+D=64 and KV length 129, for FP16/BF16 and both causal modes. The independent
+`torch_native` reference remains available. A5 hardware validation is pending.
 
 ## Signature
 
@@ -103,13 +109,14 @@ the Triton path does not copy lengths to the CPU to validate them.
 ## triton backend
 
 Kernels and launch wrappers live in `implementation/triton/attention`.
-On A3, regular multi-query GQA packs Q into an affine matrix source, sharing
-the KV scan. Single-query inputs, irregular groups and pages below 32 use
-the existing per-query specialization. Irregular D is padded to a power of
-two on A3, retaining the caller's original scale. Long contexts may use
-split KV and a partial-softmax reduction. The existing arch35 path is retained.
-Every NPU Graph replay reads lengths, pages and Q/K/V anew; query packing
-and padding are included in capture. No host length extraction is required.
+Both generations use the same matrix scan and split-KV reduction. Q is read
+directly in its TND layout, and the query block and GQA heads share a matrix tile.
+The row tile is `max(16, next_power_of_2(gamma * Hq / Hkv))`, the head tile is
+`next_power_of_2(D)`, and the KV tile is `min(128, page_size)`. Long contexts
+may split the KV scan across cores and combine partial softmax results.
+Every NPU Graph replay reads lengths, pages and Q/K/V anew. Work partitioning
+uses tensor metadata and device core counts; it does not select a different
+algorithm by chip name.
 
 ## torch_native backend
 
