@@ -997,7 +997,9 @@ def _decode_bnsd_score_topk_chunk_kernel(
                 tl.store(candidate_indices_ptr + ci_off, logical_block, mask=head_mask)
             else:
                 valid_topk_lane = off_t[None, :] < topk
-                current_min = tl.min(top_scores, axis=1)
+                current_min = tl.min(
+                    tl.where(valid_topk_lane, top_scores, float("inf")), axis=1
+                )
                 min_positions = tl.where(
                     (top_scores == current_min[:, None]) & valid_topk_lane,
                     off_t[None, :],
@@ -1243,7 +1245,9 @@ def _decode_bnsd_score_attn_chunk_kernel(
         score = tl.where(is_local, 1e29, score)
 
         valid_topk_lane = off_t[None, :] < topk
-        current_min = tl.min(top_scores, axis=1)
+        current_min = tl.min(
+            tl.where(valid_topk_lane, top_scores, float("inf")), axis=1
+        )
         min_positions = tl.where(
             (top_scores == current_min[:, None]) & valid_topk_lane,
             off_t[None, :],
