@@ -9,7 +9,7 @@ _torch_native_fn = None
 
 
 @register_impl("hyper_conn.mhc_pre_sinkhorn", "auto")
-@register_impl("hyper_conn.mhc_pre_sinkhorn", "cann")
+@register_impl("hyper_conn.mhc_pre_sinkhorn", "cann_ops_transformer")
 def _cann_impl(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
     global _cann_fn
     if _cann_fn is None:

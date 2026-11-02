@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| cann | 待硬件验证 | 待硬件验证 |
+| cann_ops_transformer | 待硬件验证 | 待硬件验证 |
 | torch_native | 待硬件验证 | 待硬件验证 |
 
 ## 函数原型
@@ -16,7 +16,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
     ...
 ```
 
-`auto` 固定选择 `cann`，不回退。
+`auto` 固定选择 `cann_ops_transformer`，不回退。
 
 ## 功能说明
 
@@ -36,15 +36,15 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 | num_iters | int | Sinkhorn 迭代次数，支持范围由后端决定 | 20 |
 | hc_eps | float | 透传后端 | 1e-6 |
 | norm_eps | float | 透传后端 | 1e-6 |
-| impl | str | auto / cann / torch_native | auto |
+| impl | str | auto / cann_ops_transformer / torch_native | auto |
 
 适配层不额外限制输入类型、步长、设备、形状或标量值，支持范围与错误检查交由所选后端决定。示例采用 GLM 的 N=4、FP16/BF16 激活与 FP32 参数。T=0 不启动 CANN，返回空 Tensor（hin 为输入激活类型，post/res 为 FP32）。
 
 | 返回 | 类型 | 形状与类型 |
 | --- | --- | --- |
-| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann, hpost [T,N] FP32, hres [T,N,N] FP32) |
+| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N,N] FP32) |
 
-## cann
+## cann_ops_transformer
 
 依赖 CANN 9.1 的公开 Python API，首次非空执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单，但不代表已经确认硬件支持或完成 NPU 验证。
 
@@ -67,5 +67,5 @@ x = torch.randn(1, 4, 4096, device="npu", dtype=torch.bfloat16)
 phi = torch.randn(24, 16384, device="npu", dtype=torch.float32) / 128
 alpha = torch.ones(3, device="npu", dtype=torch.float32)
 bias = torch.zeros(24, device="npu", dtype=torch.float32)
-y, post, comb = mhc_pre_sinkhorn(x, phi, alpha, bias, impl="cann")
+y, post, comb = mhc_pre_sinkhorn(x, phi, alpha, bias, impl="cann_ops_transformer")
 ```

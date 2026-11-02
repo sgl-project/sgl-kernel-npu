@@ -5,7 +5,9 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
-# GLM-5.3-Flash config width; synthetic tokens, not a captured workload.
+# Source: sglang/srt/configs/glm5_next.py: hidden_size=4096, hc_mult=4.
+# GLM-5.3-Flash cases borrow these dimensions; token counts are illustrative,
+# not traced production inputs. Small-width cases are synthetic edge tests.
 perf_shape = [(1, 4096), (128, 4096)]
 
 
@@ -23,13 +25,13 @@ def generate_data(tokens, hidden, dtype, mode):
 @pytest.mark.parametrize(
     "tokens,hidden,mode",
     [
-        (0, 128, "normal"),
-        (1, 128, "normal"),
-        (2, 128, "normal"),
-        (3, 256, "normal"),
-        (5, 128, "zero"),
-        (1, 4096, "normal"),
-        (128, 4096, "normal"),
+        pytest.param(0, 128, "normal", id="edge-empty-0x4x128"),
+        pytest.param(1, 128, "normal", id="edge-minimum-1x4x128"),
+        pytest.param(2, 128, "normal", id="edge-two-rows-2x4x128"),
+        pytest.param(3, 256, "normal", id="edge-odd-rows-3x4x256"),
+        pytest.param(5, 128, "zero", id="edge-zero-input-5x4x128"),
+        pytest.param(1, 4096, "normal", id="glm53-flash-decode-1x4x4096"),
+        pytest.param(128, 4096, "normal", id="glm53-flash-extend-128x4x4096"),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])

@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| cann | Unverified | Unverified |
+| cann_ops_transformer | Unverified | Unverified |
 | torch_native | Unverified on NPU | Unverified on NPU |
 
 ## Signature
@@ -16,7 +16,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
     ...
 ```
 
-`auto` selects `cann`; no fallback.
+`auto` selects `cann_ops_transformer`; no fallback.
 
 ## Description
 
@@ -36,15 +36,15 @@ For u = flatten(x), z = (u / sqrt(mean(u**2) + norm_eps)) @ phi.T. Split z into 
 | num_iters | int | Sinkhorn iterations; backend-defined support | 20 |
 | hc_eps | float | Forwarded to backend | 1e-6 |
 | norm_eps | float | Forwarded to backend | 1e-6 |
-| impl | str | auto / cann / torch_native | auto |
+| impl | str | auto / cann_ops_transformer / torch_native | auto |
 
 The facade forwards inputs without imposing additional dtype, stride, device, shape or scalar restrictions. The selected backend determines supported inputs and reports errors. The examples use GLM stream count N=4 and FP16/BF16 activations with FP32 parameters. T=0 returns empty tensors without launching CANN (activation dtype for hin, FP32 for post/res).
 
 | Return | Type | Shape and dtype |
 | --- | --- | --- |
-| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann, hpost [T,N] FP32, hres [T,N,N] FP32) |
+| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N,N] FP32) |
 
-## cann
+## cann_ops_transformer
 
 Requires CANN 9.1's `cann_ops_transformer.ops.mhc_pre_sinkhorn` public API. Imported and cached on first nonempty execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No architecture whitelist is imposed; this does not establish hardware support or completed NPU validation.
 
@@ -67,5 +67,5 @@ x = torch.randn(1, 4, 4096, device="npu", dtype=torch.bfloat16)
 phi = torch.randn(24, 16384, device="npu", dtype=torch.float32) / 128
 alpha = torch.ones(3, device="npu", dtype=torch.float32)
 bias = torch.zeros(24, device="npu", dtype=torch.float32)
-y, post, comb = mhc_pre_sinkhorn(x, phi, alpha, bias, impl="cann")
+y, post, comb = mhc_pre_sinkhorn(x, phi, alpha, bias, impl="cann_ops_transformer")
 ```
