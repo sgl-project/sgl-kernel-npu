@@ -21,6 +21,7 @@ from tests.python.utils.common import (
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 perf_shape = [(1, 128, 5120), (1, 257, 5120)]
 
@@ -143,6 +144,50 @@ def test_fused_scale_shift_mixed_dtypes(
     executor = check_accuracy(
         fused_scale_shift, args=inputs, kwargs={"scale_constant": -0.5}
     )
+    check_performance(executor, enable_perf=False)
+
+
+@pytest.mark.parametrize("x_dtype", [torch.float32, torch.float16])
+@pytest.mark.parametrize("shift_dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("scale_mode,shift_mode", modulation_cases)
+def test_fused_scale_shift_bf16_scale_rounding(
+    x_dtype,
+    shift_dtype,
+    scale_mode,
+    shift_mode,
+):
+    """Keep BF16 factor precision with nonunit x and a nonzero shift."""
+    if get_skip_acc_check() is True:
+        pytest.skip("Output checks are disabled by --skip-acc-check=true")
+
+    from sgl_kernel_npu.operators.norm import fused_scale_shift
+
+    shape = (2, 3, 129)
+    # These exact dyadic values expose factor rounding without introducing
+    # multiply/add rounding differences, even for float16 outputs.
+    x = ((torch.arange(2 * 3 * 129) % 4) - 2).reshape(shape).to(x_dtype)
+    full_shift = shift_mode == "elementwise"
+    scale_value = 1 / 1024 if full_shift else 1 / 256
+    scale_shape = (1,) if scale_mode == "scalar" else (1, 1, shape[-1])
+    shift_shape = {
+        "scalar": (1,),
+        "channel": (1, 1, shape[-1]),
+        "elementwise": shape,
+    }[shift_mode]
+    scale = torch.full(scale_shape, scale_value, dtype=torch.bfloat16)
+    shift = torch.full(shift_shape, 0.25, dtype=shift_dtype)
+
+    # Broadcast shift must ignore -0.5 and use 1 + scale. Full-input shift
+    # uses -0.5 + scale. Neither sum may be rounded back to BF16 here.
+    factor = -0.4990234375 if full_shift else 1.00390625
+    expected = (x.float() * factor + 0.25).to(x_dtype)
+    executor = check_accuracy(
+        fused_scale_shift,
+        args=(x, scale, shift),
+        kwargs={"scale_constant": -0.5},
+        standard={str(x_dtype): AccuracyStandard(atol=0, rtol=0)},
+    )
+    torch.testing.assert_close(executor(), expected, atol=0, rtol=0)
     check_performance(executor, enable_perf=False)
 
 

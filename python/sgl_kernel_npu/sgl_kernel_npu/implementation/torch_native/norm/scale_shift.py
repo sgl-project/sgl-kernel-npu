@@ -27,8 +27,10 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0):
         if shift.numel() != 1:
             shift = shift.float()
 
-    # Keep the addition in scale.dtype before applying tensor promotion.
-    factor = constant + scale
+    # NPU kernels retain FP32 factor precision for BF16 scales. Avoid the
+    # intermediate BF16 rounding of eager PyTorch's constant + scale.
+    factor_scale = scale.float() if scale.dtype == torch.bfloat16 else scale
+    factor = constant + factor_scale
     product_dtype = _promoted_dtype(x, factor)
     product = x.to(product_dtype) * factor.to(product_dtype)
     output_dtype = _promoted_dtype(product, shift)
