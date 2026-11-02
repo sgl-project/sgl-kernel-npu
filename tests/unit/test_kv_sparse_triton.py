@@ -127,9 +127,11 @@ class Language:
 
 
 class Kernel:
-    def __init__(self, fn):
+    def __init__(self, fn, do_not_specialize=()):
         self.fn, self.signature = fn, inspect.signature(fn)
+        self.do_not_specialize = do_not_specialize
         self.launches = []
+        self.runtime_arguments = []
 
     def __getitem__(self, grid):
         def run(*args, **kwargs):
@@ -139,12 +141,23 @@ class Kernel:
                 if isinstance(value, Tensor):
                     return Pointer(value.array)
                 if isinstance(value, tuple):
-                    return tuple(runtime_value(item) for item in value)
+                    raise TypeError("legacy Triton cannot bind runtime tuple arguments")
                 return Value(np.int64(value))
 
             bound = self.signature.bind(*args, **kwargs)
+            self.runtime_arguments.append(
+                {
+                    name: value
+                    for name, value in bound.arguments.items()
+                    if self.signature.parameters[name].annotation
+                    is inspect.Parameter.empty
+                }
+            )
             for name, value in bound.arguments.items():
-                if self.signature.parameters[name].annotation is inspect.Parameter.empty:
+                if (
+                    self.signature.parameters[name].annotation
+                    is inspect.Parameter.empty
+                ):
                     bound.arguments[name] = runtime_value(value)
             for pids in product(*(range(size) for size in grid)):
                 Language.pids = pids
@@ -158,7 +171,7 @@ class TestTritonKVMetadata(unittest.TestCase):
     def setUp(self):
         Language.int64, Language.uint64 = np.int64, np.uint64
         triton = SimpleNamespace(
-            jit=lambda **_: Kernel,
+            jit=lambda **options: lambda fn: Kernel(fn, **options),
             language=Language,
             cdiv=lambda x, y: (x + y - 1) // y,
         )
@@ -241,8 +254,10 @@ class TestTritonKVMetadata(unittest.TestCase):
             ps,
             direction,
         )
-        self.assertEqual(len(kernel.launches), previous_launches + 1)
-        self.assertEqual(kernel.launches[-1][1], len(devices))
+        self.assertEqual(
+            kernel.launches[previous_launches:],
+            [((len(dp) * dev.shape[0] + 127) // 128,) for dev in devices],
+        )
         reference = self.expected(devices, hosts, dp, hp)
         src, dst, lengths, count = (t.array for t in outputs)
         self.assertEqual(
@@ -259,6 +274,28 @@ class TestTritonKVMetadata(unittest.TestCase):
         devices, hosts = self.components()
         for direction in (1, 2):
             self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
+
+    def test_reallocated_buffers_use_unspecialized_runtime_scalars(self):
+        devices, hosts = self.components()
+        kernel = self.module._build_kv_sparse_metadata_kernel
+        self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, 1)
+        first = kernel.runtime_arguments[-1]
+        for dev, host in zip(devices, hosts):
+            dev.base += 1 << 35
+            host.base += 1 << 36
+            dev.shape = (dev.shape[0], 11, *dev.shape[2:])
+            host.shape = (13, *host.shape[1:])
+        self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, 1)
+        second = kernel.runtime_arguments[-1]
+        changed = {
+            name
+            for name in first
+            if isinstance(first[name], int) and first[name] != second[name]
+        }
+        self.assertTrue(changed)
+        self.assertTrue(changed.issubset(kernel.do_not_specialize))
+        self.assertIn("entries", kernel.do_not_specialize)
+        self.assertIn("total_entries", kernel.do_not_specialize)
 
     def test_four_components_with_independent_layer_counts_and_tails(self):
         devices, hosts = self.components(

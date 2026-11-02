@@ -204,7 +204,7 @@ class TestSparseDispatch(unittest.TestCase):
         gc.collect()
         self.assertTrue(all(ref() is None for ref in refs))
 
-    def test_aicpu_validates_once_and_launches_metadata_once(self):
+    def test_aicpu_validates_each_component_and_submits_one_copy(self):
         self.torch.empty = lambda shape, dtype, device: Tensor(shape, device, dtype)
         self.torch.empty_like = lambda tensor: Tensor(
             tensor.shape, tensor.device, tensor.dtype
@@ -218,11 +218,26 @@ class TestSparseDispatch(unittest.TestCase):
                 self.module, "_check_component", wraps=self.module._check_component
             ) as check,
         ):
-            self.transfer()
-        self.assertEqual(check.call_count, 1)
-        kernel.__getitem__.assert_called_once_with((1, 1))
-        kernel.__getitem__.return_value.assert_called_once()
+            device_k = Tensor((3, 5, 4, 1, 5), dtype="bf16")
+            host_k = Tensor((7, 3, 4, 1, 5), CPU, "bf16")
+            device_v = Tensor((3, 5, 4, 1, 2), dtype="bf16")
+            host_v = Tensor((7, 3, 4, 1, 2), CPU, "bf16")
+            self.call(
+                Tensor((8,)), Tensor((8,)),
+                device_k, host_k, device_v, host_v,
+                page_size=4,
+            )
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(kernel.__getitem__.call_count, 2)
+        for launch in kernel.__getitem__.call_args_list:
+            self.assertEqual(launch.args, ((1,),))
+        self.assertEqual(kernel.__getitem__.return_value.call_count, 2)
         self.offload.sparse_copy.assert_called_once()
+        src, dst, lengths, count = self.offload.sparse_copy.call_args.args[:4]
+        self.assertEqual(src.shape, (12,))
+        self.assertEqual(dst.shape, (12,))
+        self.assertEqual(lengths.shape, (12,))
+        self.assertEqual(count.shape, (1,))
 
     def test_capture_skips_eager_event_queries_waits_and_retirement(self):
         self.transfer()

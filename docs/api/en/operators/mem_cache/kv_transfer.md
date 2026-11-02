@@ -80,7 +80,7 @@ Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer
 
 ## aicpu
 
-Triton constructs pointer tables in parallel on the NPU, followed by `offload.sparse_copy`. The registered name is `aicpu`: MF uses the URMA path in `LOCAL_URMA` and may use MTE in `LOCAL`, with Host bases resolved through `get_dva`. A matching MF descriptor protocol is required; the old local MTE kernel still has a paired-half-table restriction, which is not rewritten here. The wrapper currently limits a batch to 8190 descriptors with positive int32 byte lengths. Both index tensors must already reside on the KV buffer's NPU.
+Triton constructs pointer tables with one launch per active component, followed by one `offload.sparse_copy` call. Runtime arguments use scalars for compatibility with older Triton-Ascend versions. The registered name is `aicpu`: MF uses the URMA path in `LOCAL_URMA` and may use MTE in `LOCAL`, with Host bases resolved through `get_dva`. A matching MF descriptor protocol is required; the old local MTE kernel still has a paired-half-table restriction, which is not rewritten here. The wrapper currently limits a batch to 8190 descriptors with positive int32 byte lengths. Both index tensors must already reside on the KV buffer's NPU.
 
 ## aiv
 

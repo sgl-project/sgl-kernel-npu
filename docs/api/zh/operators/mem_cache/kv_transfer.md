@@ -80,7 +80,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## aicpu
 
-Triton 在 NPU 上并行构造地址表，再调用 `offload.sparse_copy`。`aicpu` 是此实现的注册名：`LOCAL_URMA` 使用 URMA 路径，`LOCAL` 可由 MF 使用 MTE 路径，并通过 `get_dva` 解析 Host 基址。需要匹配的 MF 地址表协议；当前本地旧版 MTE 内核还有前后半表配对限制，未在本轮重写。当前包装单次最多 8190 条描述，每条长度为正 int32。两端 indices 都须提前放在 KV buffer 所在的 NPU 上。
+Triton 对每个有效组件 launch 一次来构造地址表，合并后只调用一次 `offload.sparse_copy`。运行时使用标量参数，兼容不支持运行时 tuple 的旧版 Triton-Ascend。`aicpu` 是此实现的注册名：`LOCAL_URMA` 使用 URMA 路径，`LOCAL` 可由 MF 使用 MTE 路径，并通过 `get_dva` 解析 Host 基址。需要匹配的 MF 地址表协议；当前本地旧版 MTE 内核还有前后半表配对限制，未在本轮重写。当前包装单次最多 8190 条描述，每条长度为正 int32。两端 indices 都须提前放在 KV buffer 所在的 NPU 上。
 
 ## aiv
 
