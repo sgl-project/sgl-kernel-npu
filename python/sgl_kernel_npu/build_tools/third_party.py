@@ -1,11 +1,14 @@
 """Build pinned external operators in isolation and stage their runtime payload."""
 
+import hashlib
+import importlib.metadata
 import importlib.util
 import json
 import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import zipfile
 from functools import lru_cache
@@ -100,37 +103,170 @@ def extract_python(wheel, original, destination):
         raise RuntimeError("Python package missing from upstream wheel: " + original)
 
 
+def build_fingerprint(item):
+    """Include the resolved recipe, builder code and relevant build environment."""
+    sdk = Path(os.environ.get("ASCEND_HOME_PATH", "/nonexistent"))
+    versions = {}
+    for name in ("torch", "torch_npu", "setuptools", "wheel"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    commands = {}
+    for command in ("cmake", os.environ.get("CXX", "c++")):
+        try:
+            commands[command] = subprocess.check_output(
+                [command, "--version"], text=True, stderr=subprocess.STDOUT
+            )
+        except (OSError, subprocess.CalledProcessError):
+            commands[command] = None
+    scripts = [
+        Path(__file__),
+        Path(get_adapter(item["builder"]).__file__),
+        Path(__file__).with_name("cann.py"),
+    ]
+    details = {
+        "schema": 1,
+        "config": item,
+        "python": sys.version,
+        "machine": platform.machine(),
+        "system": platform.platform(),
+        "packages": versions,
+        "tools": commands,
+        "environment": {
+            key: os.environ.get(key)
+            for key in (
+                "ASCEND_HOME_PATH",
+                "PATH",
+                "LD_LIBRARY_PATH",
+                "CC",
+                "CXX",
+                "CFLAGS",
+                "CXXFLAGS",
+                "LDFLAGS",
+                "CMAKE_PREFIX_PATH",
+            )
+        },
+        "sdk": {
+            str(path): path.read_text()
+            for path in (sdk / "version.cfg", sdk / "compiler/version.info")
+            if path.is_file()
+        },
+        "scripts": {
+            str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in scripts
+        },
+    }
+    digest = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest()
+    return digest, details
+
+
+def _artifact_hashes(result, root):
+    """Check all delivered files, including missing/added files and symlink targets."""
+    hashes = {}
+    for key in ("vendor", "wheel", "license"):
+        path = result[key]
+        if not path.exists():
+            raise ValueError("Missing cached artifact: " + str(path))
+        paths = list(path.rglob("*")) if path.is_dir() else [path]
+        for entry in paths:
+            if root.resolve() not in entry.resolve().parents:
+                raise ValueError("Cached artifact escapes build directory")
+            if entry.is_file():
+                with entry.open("rb") as stream:
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                hashes[entry.relative_to(root).as_posix()] = digest.hexdigest()
+            elif entry.is_symlink():
+                raise ValueError("Invalid cached symlink")
+    if not hashes:
+        raise ValueError("Empty cached artifacts")
+    return hashes
+
+
+def _load_cached(path, root, item, fingerprint):
+    try:
+        record = read_json(path)
+        if record["fingerprint"] != fingerprint:
+            return None
+        result = dict(config=item)
+        for key in ("vendor", "wheel", "license"):
+            relative = PurePosixPath(record["artifacts"][key])
+            if relative.is_absolute() or ".." in relative.parts:
+                return None
+            result[key] = root / relative
+        if _artifact_hashes(result, root) != record["hashes"]:
+            return None
+        get_adapter(item["builder"]).inspect_vendor(result["vendor"], item)
+        return result
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return None
+
+
 def build_dependencies(plan, source_root=PROJECT_ROOT):
-    """Fresh isolated builds; cache reuse is deliberately deferred in this version."""
+    """Reuse verified builds; publish a cache record only after full success."""
     if plan and platform.system() != "Linux":
         raise RuntimeError("Third-party CANN compilation requires Linux")
+    if not plan:
+        return []
+    import fcntl
+
     results = []
     root = Path(source_root) / "build/third_party"
     root.mkdir(parents=True, exist_ok=True)
+    cache = root / "cache"
+    cache.mkdir(exist_ok=True)
     for item in plan:
-        directory = Path(tempfile.mkdtemp(prefix=item["name"] + "-", dir=root))
-        source = directory / "source"
-        run(
-            ["git", "clone", "--no-checkout", item["repository"], source],
-            directory / "clone.log",
-        )
-        run(
-            ["git", "checkout", "--detach", item["commit"]],
-            directory / "checkout.log",
-            cwd=source,
-        )
-        head = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=source, text=True
-        ).strip()
-        if head != item["commit"]:
-            raise RuntimeError("Checked out unexpected dependency commit")
-        run(
-            ["git", "submodule", "update", "--init", "--recursive"],
-            directory / "submodules.log",
-            cwd=source,
-        )
-        results.append(get_adapter(item["builder"]).build(item, source, directory))
+        fingerprint, details = build_fingerprint(item)
+        record_path = cache / (fingerprint + ".json")
+        # Serialize builders of the same recipe across setup processes.
+        with (cache / (fingerprint + ".lock")).open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = _load_cached(record_path, root, item, fingerprint)
+            if result is not None:
+                print("Third-party cache hit: " + item["name"], flush=True)
+            else:
+                print("Third-party cache miss: " + item["name"], flush=True)
+                result = _build_dependency(item, root)
+                record = {
+                    "fingerprint": fingerprint,
+                    "inputs": details,
+                    "artifacts": {
+                        key: result[key].relative_to(root).as_posix()
+                        for key in ("vendor", "wheel", "license")
+                    },
+                    "hashes": _artifact_hashes(result, root),
+                }
+                temporary = record_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(record, indent=2) + "\n")
+                temporary.replace(record_path)
+            results.append(result)
     return results
+
+
+def _build_dependency(item, root):
+    directory = Path(tempfile.mkdtemp(prefix=item["name"] + "-", dir=root))
+    source = directory / "source"
+    run(
+        ["git", "clone", "--no-checkout", item["repository"], source],
+        directory / "clone.log",
+    )
+    run(
+        ["git", "checkout", "--detach", item["commit"]],
+        directory / "checkout.log",
+        cwd=source,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=source, text=True
+    ).strip()
+    if head != item["commit"]:
+        raise RuntimeError("Checked out unexpected dependency commit")
+    run(
+        ["git", "submodule", "update", "--init", "--recursive"],
+        directory / "submodules.log",
+        cwd=source,
+    )
+    return get_adapter(item["builder"]).build(item, source, directory)
 
 
 def stage_dependencies(results, package):
