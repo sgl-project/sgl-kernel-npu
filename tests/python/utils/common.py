@@ -1,7 +1,8 @@
-"""Shared impl-selection checks."""
+"""Shared implementation selection, checks and executor construction."""
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 
 _IMPL_PAIR = ContextVar("test_impl_pair", default=("auto", "torch_native"))
 _SKIP_ACC_CHECK = ContextVar("skip_accuracy_check", default=None)
@@ -15,6 +16,43 @@ def get_skip_acc_check():
 def get_test_impls():
     """Read the current test's implementation choices."""
     return _IMPL_PAIR.get()
+
+
+def make_executor(
+    operator,
+    args=(),
+    *,
+    kwargs=None,
+    impl=None,
+    impl_ref=None,
+    accuracy_checked=False,
+):
+    """Bind inputs and implementation metadata without executing the operator.
+
+    Omitted implementation names use the current test configuration. Inputs are
+    retained by reference, not copied or refreshed. This helper does not resolve
+    registry entries or perform accuracy checks. Set accuracy_checked=True only
+    after a successful manual comparison of these inputs and implementations.
+    """
+    if not isinstance(accuracy_checked, bool):
+        raise TypeError("accuracy_checked must be bool")
+    if impl is None or impl_ref is None:
+        default_impl, default_impl_ref = get_test_impls()
+        if impl is None:
+            impl = default_impl
+        if impl_ref is None:
+            impl_ref = default_impl_ref
+    kwargs = dict(kwargs or {})
+    if "impl" in kwargs:
+        raise ValueError(
+            "Select impl via check_accuracy or make_executor or test configuration, "
+            "not operator kwargs"
+        )
+    executor = partial(operator, *tuple(args), **kwargs, impl=impl)
+    executor.impl = impl
+    executor.impl_ref = impl_ref
+    executor.accuracy_checked = accuracy_checked
+    return executor
 
 
 @contextmanager

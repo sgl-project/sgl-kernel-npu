@@ -28,6 +28,27 @@ Paths alone do not enable performance. Skipping accuracy does not enable it eith
 if both checks are disabled, the operator is not executed. Use serial pytest or
 `-n 1`, and avoid concurrent profiling on the same device or writing the same CSV.
 
+### Supplementary checks
+
+Tests marked with `@pytest.mark.extra_checks` are excluded by default. Use
+`-m extra_checks` to run only supplementary checks, or `-m ""` to run all tests.
+
+For example, run the RoPE suite from the repository root:
+
+```bash
+# Default cases.
+python -m pytest tests/python/operators/rope -v
+
+# Supplementary checks only.
+python -m pytest tests/python/operators/rope -m extra_checks -v
+
+# All cases.
+python -m pytest tests/python/operators/rope -m "" -v
+```
+
+Selecting a supplementary test by function path or `-k` still requires
+`-m extra_checks` or `-m ""`.
+
 ## Write a test
 
 Place tests in `operators/<module>/test_<operator>.py`, matching the public API.
@@ -124,7 +145,7 @@ device but does not change the cached architecture.
 
 ### `check_performance`
 
-Pass the executor returned by `check_accuracy`:
+Pass the executor returned by `check_accuracy` or `make_executor`:
 
 ```python
 result = check_performance(
@@ -143,6 +164,46 @@ after schema changes. `accuracy_checked` records whether accuracy passed.
 
 The timing metric is average summed NPU task duration in microseconds, not
 end-to-end latency. `warmup` and `active` both default to 5 and can be overridden.
+Both must be positive Python integers; booleans and non-integers raise TypeError,
+and non-positive integers raise ValueError before the operator executes.
+
+### `make_executor`: manual accuracy checks and in-place operators
+
+For in-place operators, prepare independent inputs and compare the modified
+Tensors with `assert_accuracy`. Then bind the public operator for performance:
+
+```python
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+)
+from tests.python.utils.performance import check_performance
+
+impl, impl_ref = get_test_impls()
+require_distinct_impls(operator, impl, impl_ref)
+x_ref = x.clone()
+operator(x, impl=impl)
+operator(x_ref, impl=impl_ref)
+assert_accuracy(x, x_ref)
+
+executor = make_executor(
+    operator,
+    args=(x,),
+    impl=impl,
+    impl_ref=impl_ref,
+    accuracy_checked=True,
+)
+check_performance(executor, enable_perf=True)
+```
+
+`make_executor` does not execute or validate the operator. Omitted `impl` and
+`impl_ref` use test configuration; keyword-only inputs go in `kwargs`.
+`accuracy_checked` defaults to `False`; set it to `True` only after all manual
+comparisons pass, including return values when applicable. Manual flows manage
+accuracy skipping themselves. Inputs are not copied or refreshed: contributors
+must ensure repeated performance calls remain valid and handle state as needed.
 
 ### `assert_accuracy` and `benchmark_npu`
 
@@ -159,3 +220,60 @@ average_us = benchmark_npu(executor, directory="results/custom-profile-run-001")
 `executor` can be any zero-argument callable; `directory` must not already exist.
 These lower-level helpers do not handle implementation selection, generation skips,
 CLI switches or CSV reporting. Keep accuracy before profiling in custom flows too.
+
+# Framework tests
+
+Framework tests are separate from production operator accuracy/performance tests:
+
+```text
+framework/
+  conftest.py                  Shared NPU runtime and isolated source-module loading
+  operator_framework/          Registration, architecture, probe dispatch and imports
+    conftest.py                Registry/generation fixtures and probe/backend setup
+    probe.py                   Test-only public entry and lazy backend adapters
+  testing_framework/           Accuracy standards, comparison, performance and reporting
+    conftest.py                Accuracy/performance fixtures and integration marker
+```
+
+Run from the repository root with pytest, a working NPU/torch_npu/ACL environment
+and an importable `sgl_kernel_npu` native runtime. Python framework modules are
+loaded from this checkout; the installed native package may predate `operators`.
+
+```bash
+# All framework cases, including real profiler integration.
+python -m pytest tests/python/framework -v -rs --npu-device=0
+
+# Run either area separately.
+python -m pytest tests/python/framework/operator_framework -v -rs --npu-device=0
+python -m pytest tests/python/framework/testing_framework -v -rs --npu-device=0
+
+# Unit tests only, or real profiler integration only.
+python -m pytest tests/python/framework -m 'not npu_integration' -v -rs --npu-device=0
+python -m pytest tests/python/framework -m npu_integration -v -s -rs --npu-device=0
+```
+
+Both subdirectories inherit `npu_runtime`, `package_factory` and `operator_modules`
+from `framework/conftest.py`. Area-specific fixtures live in each subdirectory's
+own `conftest.py`. Non-autouse fixtures run only when requested.
+
+The suite covers operator registration, testing helpers and real NPU profiling.
+Use a single pytest process without parallel workers; add
+`-x` to stop on the first failure, or `--junitxml=framework-ut.xml` to save a report.
+These tests set their own implementation/accuracy/performance contexts; operator
+CLI selections do not rewrite their scenarios. Missing NPU/ACL/native prerequisites
+are errors rather than blanket skips.
+
+Operator-framework tests use a test-only probe, registered with the checkout's
+real registry, rather than a production RMSNorm operator. Only its backend leaves
+are replaced in routing tests. The probe remains a separate module so import tests
+can exercise module execution, registration and lazy loading. The public entry,
+lazy adapters and their caches are test support: they exercise an integration
+pattern, not a shared production
+dispatcher or production-kernel correctness. The mainline currently implements
+those adapters separately in each operator.
+
+Testing-helper cases register lightweight Python implementations using small NPU
+Tensors. Accuracy comparisons, registry lookups and report/CSV logic remain real.
+Most performance unit cases replace measurement or profiler boundaries; the
+`npu_integration` case uses real NPU execution and profiler collection. None of
+these cases establishes a historical performance-regression baseline.
