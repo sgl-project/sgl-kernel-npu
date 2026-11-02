@@ -96,7 +96,8 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
         aq, rq = a[rows[:, None], cols], r[rows[:, None], cols]
         keep[rows[:, None], cols] = False
         scale_cols = _layout2_scale_columns(ids, block, width, scale_count)
-        scales = a[rows[:, None], scale_cols[:, :scale_count]]
+        # Decode with CPU reference exponents; keep checks the stored exponent bytes separately.
+        scales = r[rows[:, None], scale_cols[:, :scale_count]]
         # Only scale_count bytes in a written slot's aligned scale row are defined.
         keep[rows[:, None], scale_cols[:, scale_count:]] = False
     else:
@@ -127,7 +128,6 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
     )
     assert_accuracy(a[keep], r[keep])
 
-    # Decode only the quantized columns, using the scales from the DUT cache.
     if mode == 2:
         scales = torch.exp2(scales.float() - 127)
     expanded = scales.repeat_interleave(group if mode == 2 else 128, dim=1)[:, :q]
