@@ -19,7 +19,8 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0):
     """
     scale = scale.reshape(-1)
     shift = shift.reshape(-1)
-    if shift.numel() == x.numel():
+    full_shift = shift.numel() == x.numel()
+    if full_shift:
         constant = scale_constant
         shift = shift.reshape(x.shape).float()
     else:
@@ -27,9 +28,13 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0):
         if shift.numel() != 1:
             shift = shift.float()
 
-    # NPU kernels retain FP32 factor precision for BF16 scales. Avoid the
-    # intermediate BF16 rounding of eager PyTorch's constant + scale.
-    factor_scale = scale.float() if scale.dtype == torch.bfloat16 else scale
+    # The broadcast kernel's single-value load keeps scalar BF16 rounding.
+    # Vector scale loads retain FP32 factor precision. The full-shift kernel
+    # always uses a vector load, including when the hidden size is one.
+    vector_scale = full_shift or scale.numel() != 1
+    factor_scale = (
+        scale.float() if scale.dtype == torch.bfloat16 and vector_scale else scale
+    )
     factor = constant + factor_scale
     product_dtype = _promoted_dtype(x, factor)
     product = x.to(product_dtype) * factor.to(product_dtype)

@@ -85,13 +85,16 @@ or per-frame modulation with more than `H` scale values is not supported.
   96/80/64 and a 128-channel tile, reading one scale value per channel.
 - Both use persistent vector-core grids and masked row/channel tails. No padding
   or layout conversion is added to the wrapper.
-- The source adds the constant without explicitly casting scale. NPU probes
-  with Triton-Ascend 3.2.2 show that BF16 scales retain FP32 factor precision
-  for FP32/FP16 outputs, unlike eager PyTorch BF16 addition. A channel shift
-  is converted to float32 in the broadcast kernel, while a scalar shift keeps
-  its dtype. The full-input kernel always converts shift to float32. Frontend
-  tensor promotion prefers float16 when mixing float16 and bfloat16; backend
-  lowering can retain higher intermediate precision.
+- The source adds the constant without explicitly casting scale. NPU results
+  with Triton-Ascend 3.2.2 distinguish scalar and vector BF16 scale loads:
+  broadcast shift with a single scale value rounds the factor to BF16, while
+  vector scale loads retain FP32 factor precision for FP32/FP16 outputs.
+  The full-input kernel always loads scale as a vector, including when H=1;
+  the broadcast kernel uses a scalar load whenever scale.numel()=1.
+  A channel shift is converted to float32 in the broadcast kernel, while a
+  scalar shift keeps its dtype. The full-input kernel converts shift to float32.
+  Frontend tensor promotion prefers float16 when mixing float16 and bfloat16;
+  backend lowering can retain higher intermediate precision.
 - The legacy `sgl_kernel_npu.norm.scale_shift` script remains unchanged. Access
   the migrated implementation and its input validation through the public
   `sgl_kernel_npu.operators.norm.fused_scale_shift` interface.
@@ -100,10 +103,11 @@ or per-frame modulation with more than `H` scale values is not supported.
 
 - Uses independent PyTorch arithmetic and does not import Triton. Flattens
   modulation tensors and preserves the same element-count branch precedence.
-- Converts BF16 scale to float32 before adding the constant to avoid premature
-  BF16 rounding and match the observed NPU factor precision. FP16/FP32 scales
-  keep their existing arithmetic. Matches the float32 shift conversions and
-  explicitly handles Triton's float16/bfloat16 promotion.
+- Converts BF16 scale to float32 before adding the constant for vector scale
+  loads. Broadcast shift with a single BF16 scale value retains BF16 addition.
+  Full-input shift takes precedence and uses the vector rule even when H=1.
+  FP16/FP32 scales keep their existing arithmetic. Matches the float32 shift
+  conversions and explicitly handles Triton's float16/bfloat16 promotion.
 - Assumes valid inputs without explicit metadata validation. It also supports
   non-contiguous inputs and scalar scale with full-input shift, although those
   combinations are outside the Triton contract.

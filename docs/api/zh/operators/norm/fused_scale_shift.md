@@ -80,10 +80,12 @@ batch 或按帧 scale。
   行块为 96/80/64、通道块为 128，每个通道读取一个 scale 值。
 - 两者均使用持续分配任务的向量核 grid，以 mask 处理行和通道尾块；wrapper
   不额外填充或转换布局。
-- 源码在加常量前不显式转换 scale。Triton-Ascend 3.2.2 的 NPU 探针表明，
-  BF16 scale 在 FP32/FP16 输出场景下保留 FP32 精度的缩放因子，与 PyTorch
-  eager 的 BF16 加法不同。广播 kernel 中按通道 shift 转为 float32，标量 shift
-  保持原 dtype；逐元素 kernel 始终将 shift 转为 float32。前端 tensor 类型提升
+- 源码在加常量前不显式转换 scale。Triton-Ascend 3.2.2 的 NPU 结果表明，
+  BF16 scale 的标量加载与向量加载有不同的舍入行为：广播 shift 配合单元素
+  scale 时，缩放因子舍入到 BF16；向量加载在 FP32/FP16 输出场景下保留 FP32
+  精度。逐元素 kernel 始终向量加载 scale，包括 H=1；广播 kernel 则在
+  scale.numel()=1 时使用标量加载。广播 kernel 中按通道 shift 转为 float32，
+  标量 shift 保持原 dtype；逐元素 kernel 始终将 shift 转为 float32。前端 tensor 类型提升
   在 float16 与 bfloat16 混合时优先使用 float16，后端可能保留更高的中间精度。
 - 旧脚本 `sgl_kernel_npu.norm.scale_shift` 保持原样。重构后的实现及其输入检查
   通过公开接口 `sgl_kernel_npu.operators.norm.fused_scale_shift` 使用。
@@ -92,8 +94,9 @@ batch 或按帧 scale。
 
 - 使用独立的 PyTorch 运算，不导入 Triton；展平调制参数，并保持相同的元素数
   分支优先级。
-- BF16 scale 在加常量前转为 float32，避免过早舍入到 BF16，与 NPU 实测的
-  缩放因子精度保持一致；FP16/FP32 scale 保留原有运算方式。匹配 shift 的
+- 仅向量加载路径的 BF16 scale 在加常量前转为 float32；广播 shift 配合
+  单元素 BF16 scale 时保留 BF16 加法。逐元素 shift 分支优先，包括 H=1
+  时也使用向量加载规则。FP16/FP32 scale 保留原有运算方式。匹配 shift 的
   float32 转换，显式处理 Triton 的 float16/bfloat16 类型提升规则。
 - 假定输入合法，不显式检查元信息；还支持非连续输入，以及逐元素 shift 配合
   标量 scale，但这两种组合不属于 Triton 的支持范围。
