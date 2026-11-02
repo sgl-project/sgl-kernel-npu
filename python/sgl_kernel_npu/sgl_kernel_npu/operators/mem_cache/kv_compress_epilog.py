@@ -112,7 +112,29 @@ def kv_compress_epilog(
     *,
     impl="auto"
 ):
-    """Write packed cache storage and return None; -1 slots are skipped."""
+    """Quantize input rows and write them into the selected cache slots.
+
+    Args:
+        kv_compress_cache: float8_e4m3fn / float8_e5m2 cache tensor with layout-dependent shape.
+            Caller-owned packed cache. Layout 1 accepts slot rows, including [slots, 1, width].
+            Layout 2 uses [blocks, block_size, width] or [blocks, block_size, 1, width].
+        x: bfloat16 tensor of shape [N, D]. Dense input rows with N > 0 and a 64-column RoPE
+            suffix.
+        slot_mapping: int32 / int64 tensor of shape [N]. Destination slot for each input row. A
+            value of -1 skips that row.
+        quant_group_size: MXFP8 group width, either 64 or 128. FP8 uses fixed groups of 128.
+        quant_mode: 1 selects FP8 with FP32 scales. 2 selects MXFP8 with E8M0 exponent bytes.
+        round_scale_flag: In MXFP8 mode, increment each nonzero biased scale exponent by one
+            when true.
+        layout: 1 stores one slot per row using the cache row stride. FP8 packs quantized
+            values, RoPE, then scales. MXFP8 packs RoPE, quantized values, then scales. 2 is
+            MXFP8 only and packs all value rows before all scale rows in each block.
+        impl: Keyword-only. Choices are "auto", "ascendc", "torch_native", "cpu". Defaults to
+            "ascendc" via "auto".
+
+    Returns:
+        None. Mutates the supplied cache. Unwritten slots retain their contents.
+    """
     _check_inputs(
         kv_compress_cache, x, slot_mapping, quant_group_size, quant_mode, layout
     )

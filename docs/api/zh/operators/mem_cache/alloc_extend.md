@@ -13,66 +13,62 @@
 ```python
 from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
-def alloc_extend(pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values, *, impl="auto"):
-    ...
+def alloc_extend(
+    pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values,
+    *, impl="auto",
+): ...
 ```
+
+默认的 `auto` 选择 `ascendc`。
 
 ## 功能说明
 
-为分页请求扩展生成紧凑排列的 token slot。原地写入 `out_indices`，有条件地写入
-`values[0]`，返回 `None`。`auto` 直接选择 `ascendc`，不自动回退；
-`torch_native` 在输入设备计算；`cpu` 在 CPU 计算，再写回调用方输出缓冲区。
+为分页请求新增的 token 计算缓存槽位编号。 每个请求先用完已有末页的剩余槽位，再按顺序使用空闲页。输出按请求顺序拼接，空闲页列表由调用方管理。
 
 ## 参数与返回值
 
-| 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
+所有输入和输出 Tensor 均使用同一张 NPU。
+
+| 参数 | 类型 | Shape | Dtype | 默认值 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `pre_lens` / `seq_lens` / `last_loc` | `torch.Tensor` | `[B]` | int64 | 必填 | 已有长度、目标长度及已有末尾槽位；稠密向量。 |
-| `free_pages` | `torch.Tensor` | `[P]` | int64 | 必填 | 按分配顺序排列的空闲页 ID。 |
-| `page_size` | `int` | — | — | 必填 | 正页长，Tiling 中按 int32 表示。 |
-| `out_indices` | `torch.Tensor` | `[sum(seq_lens-pre_lens)]` | int64 | 必填 | 调用方分配的稠密输出，原地写入。 |
-| `values` | `torch.Tensor` | 至少 1 个元素 | int64 | 必填 | 条件写入 values[0]，其他元素保留。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字；auto / ascendc / torch_native / cpu。auto 选择 ascendc，不自动回退。 |
+| `pre_lens` | `torch.Tensor` | `[B]` | `int64` | 必填 | 每个请求已有的长度，B 须大于零。 |
+| `seq_lens` | `torch.Tensor` | `[B]` | `int64` | 必填 | 每个请求的目标长度，应大于等于对应的已有长度。 |
+| `last_loc` | `torch.Tensor` | `[B]` | `int64` | 必填 | 各请求已有的最后一个槽位；空前缀使用 -1。 |
+| `free_pages` | `torch.Tensor` | `[P]` | `int64` | 必填 | 按分配顺序排列的空闲页 ID，数量须满足本批请求。 |
+| `page_size` | `int` | — | — | 必填 | 每页的槽位数，须为 int32 可表示的正数。 |
+| `out_indices` | `torch.Tensor` | `[sum(seq_lens - pre_lens)]` | `int64` | 必填 | 调用方分配的输出缓冲区，保存新增槽位编号。 |
+| `values` | `torch.Tensor` | [N], N ≥ 1 | `int64` | 必填 | 仅当最后一个请求结束于新分配且未填满的页时，向第 0 项写入整批新增页数；其他情况下保留原值。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`。 |
 
-返回 `None`，输出通过调用方提供的缓冲区原地写入。
+| 返回值 | 类型 | 说明 |
+| --- | --- | --- |
+| `None` | `NoneType` | 原地写入 out_indices，并按上述条件写入 values[0]。 |
 
-B 必须大于零；prefix 不超过 sequence，空闲页及存储容量足够，last_loc 有效。
+## ascendc 后端
 
-公共入口只检查前四个 Tensor 与 out_indices 的 int64 类型，不增加 shape、连续性
-或 values 类型检查。直接调用 `torch.ops.npu.alloc_extend` 不经过 Python 检查。
-CANN 声明接受 int64 Tensor；AscendC adapter 不自动连续化或转换输入类型。
+使用稠密的一维缓冲区。
 
-每个请求先复用已有不完整页中 last_loc 后面的槽位，再从 free_pages 填入完整页及
-末尾不完整页。请求的扩展长度及新增页数的前缀和决定输出位置及空闲页起点。
-算子不修改输入，也不从 allocator 的空闲页表中删除已使用的页。
+## torch_native 后端
 
-**values 不是通用的页数查询输出。** 仅当最后一个请求进入新分配的不完整页时，
-写入整个批次的新增页数；最后请求在已有页中结束或恰好填满整页时，values 保持输入值。
-两个参考实现都保留这个条件写入行为，测试用哨兵检查，不将未写入解释为零。
+在输入设备上计算，结果写入相同的输出缓冲区。
 
-## 后端说明
+## cpu 后端
 
-CANN 类型为 SglAllocExtend，两个输出与输入同名，生成 Ref 参数。
-ACLNN query 接收六个 Tensor 描述符再接 page_size 属性；Torch 公共参数顺序仍是
-四个输入、page_size、两个输出。adapter 保留当前流及排队执行所需的输入、描述符和
-workspace 生命周期。Tiling 使用 min(AIV核数,B) 和四字段结构，Kernel计算未改。
+在 CPU 上计算，再将结果写回调用方的 NPU 缓冲区。
 
-CPU 参考遵循 CPU golden 的分配语义，但写入接口规定的 int64 输出并保留 values
-条件写入；torch_native 使用输入设备上的向量化索引。没有 NumPy 或浮点升精度。
-CPU 传输和 native 元数据判断可能同步。
-包导入仍依赖 NPU runtime 及安装的原生库，选择 cpu 不代表可在无 NPU 环境独立导入包。
+## 调用示例
 
-## 构建与测试
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
-```bash
-python3 setup.py --make_clean --arch-version 2201 --ops alloc_extend --artifact wheel
-python3 -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
-python3 -m pytest tests/python/operators/mem_cache/test_alloc_extend.py \
-  --impl=ascendc --impl-ref=cpu --skip-acc-check=false --enable-perf=false -v -s
-python3 -m pytest tests/python/operators/mem_cache/test_alloc_extend.py \
-  --impl=torch_native --impl-ref=cpu --skip-acc-check=false --enable-perf=false -v -s
+def vector(items):
+    return torch.tensor(items, device="npu", dtype=torch.int64)
+
+out = vector([0, 0, 0])
+values = vector([-1])
+alloc_extend(vector([3]), vector([6]), vector([22]), vector([8]), 4,
+             out, values, impl="torch_native")
+print(out.tolist(), values.item())  # [23, 32, 33], 1
 ```
-
-arch35 使用3510。测试显式固定 impl_ref=cpu，12组输入比较独立输出、检查只读输入不变；
-省略性能开关即可测选定的长prefill和B100负载。按 --ops 构建的wheel仅包含所选原生算子；
-测试同名 torch.ops 时应确认实际安装产物来源。

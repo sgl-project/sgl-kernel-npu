@@ -13,20 +13,69 @@
 ```python
 from sgl_kernel_npu.operators.norm import split_qkv_tp_rmsnorm_rope
 
-q, k, v = split_qkv_tp_rmsnorm_rope(
-    input, cos, sin, q_hidden_size, kv_hidden_size, head_dim, eps,
-    q_weight, k_weight, rotary_dim, tp_world, tp_group, impl="auto",
-)
+def split_qkv_tp_rmsnorm_rope(
+    input, cos, sin, q_hidden_size, kv_hidden_size, head_dim, eps, q_weight,
+    k_weight, rotary_dim, tp_world, tp_group, *, impl="auto",
+): ...
 ```
+
+默认的 `auto` 选择 `triton`。
+
+## 功能说明
+
+拆分本地 QKV 投影，对 Q 和 K 做张量并行 RMSNorm，再对每个 head 的前部通道应用 NeoX RoPE。 每个 token 分别使用整个 TP 组的 Q、K 均方值。加权归一化结果先舍入到输入精度，再参与旋转。V 按原值复制。
 
 ## 参数与返回值
 
-`input` 是按 Q、K、V 顺序拼接的本 rank 稠密输入，形状为 `[B, q_hidden_size + 2 * kv_hidden_size]`。两个宽度都是本地分片宽度。每行 Q、K 各自跨本地完整宽度计算均方值。各 rank 需使用相同的批量大小及相同的分片宽度。`tp_world` 与 `tp_group` 的大小一致。单卡传 `1, None`。
+所有输入和输出 Tensor 均使用同一张 NPU。
 
-`head_dim` 是 2 的幂，本地宽度按完整 head 划分，Q 宽度是 KV 宽度的整数倍。`q_weight`、`k_weight` 分别对应本地 Q、K 通道。`eps` 加入全局均方值后再取平方根。`cos`、`sin` 每行有 `rotary_dim` 个元素，取前半行对每个 head 前 `rotary_dim` 个通道做 NeoX 旋转。
+| 参数 | 类型 | Shape | Dtype | 默认值 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `input` | `torch.Tensor` | `[B, Q + 2*K]` | `float32` / `float16` / `bfloat16` | 必填 | 稠密的本地投影，依次排列 Q、K、V；Q 和 K 表示本地通道宽度。 |
+| `cos` | `torch.Tensor` | `[B, R]` | `floating point` | 必填 | 稠密余弦表。每行前 R/2 个值用于该行的所有 head。 |
+| `sin` | `torch.Tensor` | `[B, R]` | `floating point` | 必填 | 与 cos 配对的稠密正弦表。 |
+| `q_hidden_size` | `int` | — | — | 必填 | Q 的本地宽度，须为 K 本地宽度的整数倍。 |
+| `kv_hidden_size` | `int` | — | — | 必填 | K、V 各自的本地宽度，分片须包含完整 head。 |
+| `head_dim` | `int` | — | — | 必填 | 每个 head 的通道数，须为 2 的幂。 |
+| `eps` | `float` | — | — | 必填 | 归一化时加到均方值上的稳定项。 |
+| `q_weight` | `torch.Tensor` | `[Q]` | `floating point` | 必填 | Q 各本地通道的权重。 |
+| `k_weight` | `torch.Tensor` | `[K]` | `floating point` | 必填 | K 各本地通道的权重。 |
+| `rotary_dim` | `int` | — | — | 必填 | 每个 head 参与旋转的前 R 个通道，R 为偶数且不大于 head_dim。 |
+| `tp_world` | `int` | — | — | 必填 | TP 组的 rank 数。单卡使用 1。 |
+| `tp_group` | `ProcessGroup / None` | — | — | 必填 | 单卡传 None；多卡时组内各 rank 必须一起调用，并使用相同的批量大小和分片宽度。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"triton"`, `"torch_native"`, `"cpu"`。 |
 
-返回独立的 Q、K、V，形状分别为 `[B, q_hidden_size]`、`[B, kv_hidden_size]`、`[B, kv_hidden_size]`，与输入同设备、同 dtype。V 仅拆分。Q/K 使用 FP32 统计量，加权归一化后先舍入到输入精度，再做 RoPE。
+| 返回值 | 类型 | 说明 |
+| --- | --- | --- |
+| `(q, k, v)` | `tuple[Tensor, Tensor, Tensor]` | 同输入设备及 dtype 的三个新 Tensor，形状依次为 [B, Q]、[B, K]、[B, K]。 |
 
-## 实现
+## triton 后端
 
-`auto` 选择 Triton。`tp_world > 1` 时在两个计算阶段之间对每行 Q/K 的均方值执行 SUM all-reduce，再除以 TP 大小。`torch_native` 在输入设备上计算。`cpu` 在 CPU 计算参考值，多卡时将统计量放回输入设备完成进程组归约，并将结果返回输入设备。
+当 tp_world 大于 1 时，使用指定 TP 组合并 Q/K 统计量。
+
+## torch_native 后端
+
+在输入设备上计算，使用相同的 TP 组和输出布局。
+
+## cpu 后端
+
+在 CPU 上计算并将结果返回输入设备。多卡时仍通过指定进程组在输入设备上归约统计量。
+
+## 调用示例
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.norm import split_qkv_tp_rmsnorm_rope
+
+device = "npu"
+qkv = torch.randn((2, 256), device=device, dtype=torch.bfloat16)
+cos = torch.ones((2, 64), device=device, dtype=torch.bfloat16)
+sin = torch.zeros_like(cos)
+qw = torch.ones(128, device=device, dtype=qkv.dtype)
+kw = torch.ones(64, device=device, dtype=qkv.dtype)
+q, k, v = split_qkv_tp_rmsnorm_rope(
+    qkv, cos, sin, 128, 64, 64, 1e-6, qw, kw, 64, 1, None, impl="triton",
+)
+print(q.shape, k.shape, v.shape)  # [2, 128], [2, 64], [2, 64]
+```

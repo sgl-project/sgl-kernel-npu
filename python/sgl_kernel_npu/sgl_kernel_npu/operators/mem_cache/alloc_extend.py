@@ -60,10 +60,27 @@ def alloc_extend(
     *,
     impl="auto"
 ):
-    """Write allocation slots and conditionally write values[0]; return None.
+    """Compute slot indices for tokens appended to paged requests.
 
-    All buffers use int64. Inputs must satisfy the dense one-dimensional storage,
-    page-capacity and positive-batch preconditions. values is not a general page-count API.
+    Args:
+        pre_lens: int64 tensor of shape [B]. Existing length of each request. B must be
+            positive.
+        seq_lens: int64 tensor of shape [B]. Target lengths, each at least its prefix length.
+        last_loc: int64 tensor of shape [B]. Last occupied slot of each request. Use -1 for an
+            empty prefix.
+        free_pages: int64 tensor of shape [P]. Available page IDs in allocation order. Supply
+            enough pages for the batch.
+        page_size: Positive number of slots per page, representable as int32.
+        out_indices: int64 tensor of shape [sum(seq_lens - pre_lens)]. Caller-allocated output
+            for the new slot indices.
+        values: int64 tensor of shape [N], N ≥ 1. Writes the batch’s new-page count to element
+            0 only if the final request ends in a newly allocated partial page. Otherwise it
+            retains its input value.
+        impl: Keyword-only. Choices are "auto", "ascendc", "torch_native", "cpu". Defaults to
+            "ascendc" via "auto".
+
+    Returns:
+        None. Writes out_indices and conditionally values[0] in place.
     """
     import torch
 

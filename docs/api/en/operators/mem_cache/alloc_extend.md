@@ -13,81 +13,62 @@
 ```python
 from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
-def alloc_extend(pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values, *, impl="auto"):
-    ...
+def alloc_extend(
+    pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values,
+    *, impl="auto",
+): ...
 ```
+
+`auto` selects `ascendc`.
 
 ## Description
 
-Allocates packed token-slot indices for extending paged requests. It mutates the
-caller-owned `out_indices` and conditionally `values[0]`, and returns `None`.
-`auto` selects `ascendc` without fallback; `torch_native` computes on the input
-device; `cpu` computes on CPU and copies results back into the caller's buffers.
+Compute slot indices for tokens appended to paged requests. Each request first uses the remaining slots in its last page, then uses pages from free_pages in order. Outputs are packed in request order. The caller manages the free-page list.
 
-## Parameters and return values
+## Parameters and return value
 
-| Parameter | Type | Shape | Dtype | Default | Description and constraints |
+Use tensors on the same NPU.
+
+| Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `pre_lens` / `seq_lens` / `last_loc` | `torch.Tensor` | `[B]` | int64 | Required | Existing lengths, target lengths and last occupied slots; dense vectors. |
-| `free_pages` | `torch.Tensor` | `[P]` | int64 | Required | Available page IDs in allocation order. |
-| `page_size` | `int` | — | — | Required | Positive page length, represented as int32 in Tiling. |
-| `out_indices` | `torch.Tensor` | `[sum(seq_lens-pre_lens)]` | int64 | Required | Caller-owned dense output, written in place. |
-| `values` | `torch.Tensor` | At least 1 element | int64 | Required | Conditionally writes values[0]; preserves other elements. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; auto / ascendc / torch_native / cpu. auto selects ascendc without fallback. |
+| `pre_lens` | `torch.Tensor` | `[B]` | `int64` | Required | Existing length of each request. B must be positive. |
+| `seq_lens` | `torch.Tensor` | `[B]` | `int64` | Required | Target lengths, each at least its prefix length. |
+| `last_loc` | `torch.Tensor` | `[B]` | `int64` | Required | Last occupied slot of each request. Use -1 for an empty prefix. |
+| `free_pages` | `torch.Tensor` | `[P]` | `int64` | Required | Available page IDs in allocation order. Supply enough pages for the batch. |
+| `page_size` | `int` | — | — | Required | Positive number of slots per page, representable as int32. |
+| `out_indices` | `torch.Tensor` | `[sum(seq_lens - pre_lens)]` | `int64` | Required | Caller-allocated output for the new slot indices. |
+| `values` | `torch.Tensor` | [N], N ≥ 1 | `int64` | Required | Writes the batch’s new-page count to element 0 only if the final request ends in a newly allocated partial page. Otherwise it retains its input value. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`. |
 
-Returns `None`; outputs are written into caller-owned buffers in place.
+| Return value | Type | Description |
+| --- | --- | --- |
+| `None` | `NoneType` | Writes out_indices and conditionally values[0] in place. |
 
-B must be positive; prefixes cannot exceed sequences, free pages and storage must be sufficient, and last locations must be valid.
+## ascendc backend
 
-The public entry checks the dtype of the first four Tensor inputs and
-`out_indices`. It does not add shape, contiguity or `values` dtype checks. Direct
-`torch.ops.npu.alloc_extend` calls bypass those Python checks. The CANN definition
-accepts int64 tensors. No implicit contiguous copies or input casts are applied
-by the AscendC adapter.
+Use dense one-dimensional buffers.
 
-For each request, reuse the remaining slots after `last_loc` in its partial page,
-then fill full and partial new pages from `free_pages`. Prefix sums determine
-which output slice and free pages belong to each request. Inputs and free-page
-ownership are not modified by this operator.
+## torch_native backend
 
-`values[0]` is written with the total number of new pages only when the final
-request reaches a newly allocated partial page. It remains unchanged when the
-final request finishes in its existing page or at a full-page boundary. This
-buffer is **not a general page-count API**; the other elements remain unchanged.
-The reference implementations preserve this condition rather than fabricating a
-page-count result on every invocation.
+Computes on the input device with the same output buffers.
 
-## Backend implementations
+## cpu backend
 
-`SglAllocExtend` declares two in-place Ref outputs. Its generated ACLNN query
-receives six tensor descriptors followed by the page-size attribute; the Torch
-binding keeps the public argument order with `page_size` before the two outputs.
-The adapter uses the current NPU stream and retains descriptor, input and
-workspace lifetimes across queued execution. Tiling keeps `min(AIV cores, B)`
-scheduling and the four-field data layout.
+Computes on CPU and copies the results back to the supplied NPU buffers.
 
-CPU reference computation follows the supplied CPU golden's allocation semantics,
-using int64 output buffers and explicitly preserving the conditional `values`
-write. `torch_native` uses vectorized PyTorch indexing. Neither path uses NumPy or
-floating-point promotion. CPU transfers and native metadata inspection may
-synchronize. Package import
-still requires the NPU runtime and installed native artifacts, including when
-selecting `cpu`.
+## Example
 
-## Build and test
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
-```bash
-python3 setup.py --make_clean --arch-version 2201 --ops alloc_extend --artifact wheel
-python3 -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
-python3 -m pytest tests/python/operators/mem_cache/test_alloc_extend.py \
-  --impl=ascendc --impl-ref=cpu --skip-acc-check=false --enable-perf=false -v -s
-# Exercise the other callable implementation against the same CPU reference:
-python3 -m pytest tests/python/operators/mem_cache/test_alloc_extend.py \
-  --impl=torch_native --impl-ref=cpu --skip-acc-check=false --enable-perf=false -v -s
+def vector(items):
+    return torch.tensor(items, device="npu", dtype=torch.int64)
+
+out = vector([0, 0, 0])
+values = vector([-1])
+alloc_extend(vector([3]), vector([6]), vector([22]), vector([8]), 4,
+             out, values, impl="torch_native")
+print(out.tolist(), values.item())  # [23, 32, 33], 1
 ```
-
-Use `3510` for arch35. Tests explicitly fix `impl_ref="cpu"`; they compare private
-output buffers, check unchanged inputs and exercise 12 workloads. Omit the
-performance override for the selected long-prefill and B100 workloads. A wheel
-built with `--ops alloc_extend` contains only that selected native operator;
-confirm the installed library source when testing a shared `torch.ops` name.
