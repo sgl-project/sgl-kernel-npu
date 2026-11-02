@@ -133,9 +133,9 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     auto bs = tilingData.bSize;
     at::Tensor tilingTensor;
 
-    auto tup =
-        std::make_tuple(tilingData.bSize, tilingData.n2Size, tilingData.gSize, tilingData.s1Size, tilingData.s2Size,
-                        tilingData.blockSize, tilingData.maxBlockNumPerBatch, tilingData.tilingKey);
+    auto tup = std::make_tuple(tilingData.bSize, tilingData.n2Size, tilingData.gSize, tilingData.s1Size,
+                               tilingData.s2Size, tilingData.blockSize, tilingData.maxBlockNumPerBatch,
+                               tilingData.tilingKey, tilingData.sparseCount, tilingData.sparseMode);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
 
     static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
