@@ -32,7 +32,7 @@ Compute y[t,i,d] = h_post[t,i] * h_out[t,d] + sum_j h_res[t,j,i] * x[t,j,d] in F
 | h_post | Tensor | [T,N], FP32 | required |
 | impl | str | auto / cann_ops_transformer / torch_native | auto |
 
-The facade forwards inputs without imposing additional dtype, stride, device, shape or scalar restrictions. The selected backend determines supported inputs and reports errors. The examples use GLM stream count N=4 and FP16/BF16 activations with FP32 parameters. T=0 returns empty tensors without launching CANN (same dtype as x).
+The facade forwards inputs without imposing additional dtype, stride, device, shape or scalar restrictions. The selected backend determines supported inputs and reports errors. The examples use GLM stream count N=4 and FP16/BF16 activations with FP32 parameters. Empty/IDLE short-circuits remain the SGLang caller's responsibility, as in glmx PR #21; the facade adds none.
 
 | Return | Type | Shape and dtype |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first nonempty execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No architecture whitelist is imposed; this does not establish hardware support or completed NPU validation.
+Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No architecture whitelist is imposed; this does not establish hardware support or completed NPU validation.
 
 Argument order matches the vendor API: residual streams, residual matrix, layer output, post gates.
 
@@ -49,6 +49,8 @@ Argument order matches the vendor API: residual streams, residual matrix, layer 
 Independent torch.bmm residual mapping plus post gating; no vendor calls.
 
 FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback. Accuracy thresholds and performance remain subject to NPU acceptance.
+
+Tests separately compare the facade with PR #21's direct CANN calls and the pre/post chain using bitwise equality. These migration tests share the vendor backend and are not independent mathematical references; the Torch accuracy tests remain separate. Inputs are synthetic with borrowed model-config dimensions, not captured activations or checkpoint weights, and passing them does not establish full-model accuracy.
 
 ## Example
 

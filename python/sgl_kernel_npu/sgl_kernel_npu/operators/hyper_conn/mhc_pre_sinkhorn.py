@@ -1,7 +1,5 @@
 """Inference mHC projection and Sinkhorn normalization."""
 
-import torch
-
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_fn = None
@@ -56,10 +54,4 @@ def mhc_pre_sinkhorn(
     No output layer normalization is fused.
     """
     impl_fn = get_impl_by_name("hyper_conn.mhc_pre_sinkhorn", impl)
-    if x.shape[0] == 0:
-        return (
-            x.new_empty((0, x.shape[-1])),
-            x.new_empty((0, hc_mult), dtype=torch.float32),
-            x.new_empty((0, hc_mult * hc_mult), dtype=torch.float32),
-        )
     return impl_fn(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps)

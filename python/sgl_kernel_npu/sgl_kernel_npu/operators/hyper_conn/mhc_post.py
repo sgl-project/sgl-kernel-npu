@@ -1,7 +1,5 @@
 """Inference mHC post mapping, with the CANN public argument order."""
 
-import torch
-
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_fn = None
@@ -38,6 +36,4 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
     y[t,i,d] = h_post[t,i]*h_out[t,d] + sum_j h_res[t,j,i]*x[t,j,d].
     """
     impl_fn = get_impl_by_name("hyper_conn.mhc_post", impl)
-    if x.shape[0] == 0:
-        return torch.empty_like(x)
     return impl_fn(x, h_res, h_out, h_post)

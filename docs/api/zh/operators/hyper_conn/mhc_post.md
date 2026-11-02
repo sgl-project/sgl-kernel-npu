@@ -32,7 +32,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 | h_post | Tensor | [T,N], FP32 | 必填 |
 | impl | str | auto / cann_ops_transformer / torch_native | auto |
 
-适配层不额外限制输入类型、步长、设备、形状或标量值，支持范围与错误检查交由所选后端决定。示例采用 GLM 的 N=4、FP16/BF16 激活与 FP32 参数。T=0 不启动 CANN，返回空 Tensor（与 x 类型相同）。
+适配层不额外限制输入类型、步长、设备、形状或标量值，支持范围与错误检查交由所选后端决定。示例采用 GLM 的 N=4、FP16/BF16 激活与 FP32 参数。空输入/IDLE 仍由 SGLang 调用方按 glmx PR #21 的约定短路处理，适配层不新增该行为。
 
 | 返回 | 类型 | 形状与类型 |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次非空执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单，但不代表已经确认硬件支持或完成 NPU 验证。
+依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单，但不代表已经确认硬件支持或完成 NPU 验证。
 
 参数顺序与 vendor API 一致：残差流、残差矩阵、层输出、post 门值。
 
@@ -49,6 +49,8 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 使用独立的 torch.bmm 残差映射和 post 门值相加，不调用 vendor 算子。
 
 FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退；精度阈值与性能待 NPU 验收。
+
+测试单独对比适配层与 PR #21 的直接 CANN 调用及 pre/post 串联，要求逐位一致。这些迁移测试共用 vendor 后端，不是独立数学参考，Torch 精度测试仍单独保留。输入使用借用模型配置尺寸的构造数据，不是捕获激活或 checkpoint 权重；通过不能视为整网精度验收。
 
 ## 调用示例
 
