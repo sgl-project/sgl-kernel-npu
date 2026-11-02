@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "csrc/**"
-      - "!csrc/deepep/**"
+      - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
       - "tests/python/operators/**"
@@ -154,7 +154,6 @@ jobs:
               - scripts/run_kernel_tests.sh
               - .github/workflows/pr-test-kernels.yml
               - .github/workflows/pr-test-kernel-group.yml
-              - .github/workflows/daily-test-kernels.yml
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/__init__.py
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/utils/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/__init__.py
@@ -167,13 +166,14 @@ jobs:
               - third_party/catlass/**
               - .gitmodules
 
+  # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
   test-norm-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.norm_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.norm_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -188,11 +188,11 @@ jobs:
 
   test-attention-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.attention_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.attention_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -207,11 +207,11 @@ jobs:
 
   test-cache-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.cache_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.cache_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -226,11 +226,11 @@ jobs:
 
   test-speculative-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.speculative_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.speculative_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -245,11 +245,11 @@ jobs:
 
   test-mamba-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.mamba_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.mamba_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -264,11 +264,11 @@ jobs:
 
   test-fla-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.fla_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fla_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -283,11 +283,11 @@ jobs:
 
   test-fused-ops:
     needs: get-changed-files
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event.pull_request.draft == false &&
-           (needs.get-changed-files.outputs.fused_changed == 'true' ||
-            needs.get-changed-files.outputs.common_changed == 'true')) }}
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fused_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -313,11 +313,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
+          results=(${{ join(needs.*.result, ' ') }})
           any_run=false
-          for result in $RESULTS; do
+          for result in "${results[@]}"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               echo "Job failed with result: $result"
               exit 1
@@ -327,7 +326,7 @@ jobs:
             fi
           done
           if [ "$any_run" = "false" ]; then
-            echo "All operator test jobs skipped."
-          else
-            echo "All executed kernel operator test jobs passed."
+            echo "All operator test jobs were skipped: no test-group/common paths changed. Nothing to gate, treat as pass."
+            exit 0
           fi
+          echo "All kernel operator tests passed"
