@@ -8,6 +8,17 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 UNIFIED_BUFFER_SIZE = 1572864
 
 
+@triton.jit
+def _softplus(x, beta, threshold):
+    scaled = beta * x
+    exp_value = tl.exp(-tl.abs(scaled))
+    rounded = 1.0 + exp_value
+    # Recover the part lost when 1 + exp_value rounds to 1 in FP32.
+    log1p_value = tl.log(rounded) + (exp_value - (rounded - 1.0)) / rounded
+    value = (tl.maximum(scaled, 0.0) + log1p_value) / beta
+    return tl.where(scaled > threshold, x, value)
+
+
 @triton.jit(
     do_not_specialize=[
         "seq_len",
@@ -61,9 +72,7 @@ def fused_gdn_gating_kernel(
             blk_bias = tl.load(dt_bias + head_off, mask=head_mask)
 
             x = blk_a.to(tl.float32) + blk_bias.to(tl.float32)[None, :]
-            softplus_x = tl.where(
-                beta * x <= threshold, (1 / beta) * tl.log(1 + tl.exp(beta * x)), x
-            )
+            softplus_x = _softplus(x, beta, threshold)
 
             blk_g = -tl.exp(blk_A_log.to(tl.float32)) * softplus_x
             tl.store(g + off, blk_g.to(g.dtype.element_ty), mask=mask)
@@ -163,9 +172,7 @@ def fused_gdn_gating_kernel_without_sigmoid_kernel(
     blk_bias = tl.load(dt_bias + head_off, mask=head_mask)
     blk_a = tl.load(a + a_off, mask=a_mask)
     x = blk_a.to(tl.float32) + blk_bias.to(tl.float32)
-    softplus_x = tl.where(
-        beta * x <= threshold, (1 / beta) * tl.log(1 + tl.exp(beta * x)), x
-    )
+    softplus_x = _softplus(x, beta, threshold)
     blk_g = -tl.exp(blk_A_log.to(tl.float32)) * softplus_x
     tl.store(g + a_off, blk_g.to(g.dtype.element_ty), mask=a_mask)
 
