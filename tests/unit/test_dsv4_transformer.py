@@ -30,6 +30,7 @@ OP_NAMES = (
     "mhc_post",
     "inplace_partial_rotary_mul",
     "compressor",
+    "moe_gating_top_k",
 )
 
 
@@ -61,18 +62,17 @@ def package(request):
 def test_implementation_names_and_default_alias(package):
     for name in OP_NAMES:
         fn = getattr(package.api, name)
-        assert package.registry.list_impls(fn) == [
-            "auto",
-            "cann_ops_transformer",
-            "torch_native",
-        ]
+        backend = "torch_npu" if name == "moe_gating_top_k" else "cann_ops_transformer"
+        assert package.registry.list_impls(fn) == sorted(
+            ["auto", backend, "torch_native"]
+        )
         only_a5 = name.startswith("mixed_quant") or name == "kv_compress_epilog"
         if only_a5 and package.arch == "ARCH22":
             with pytest.raises(package.registry.UnsupportedGenerationError):
                 package.registry.get_impl(fn, "auto")
         else:
             assert package.registry.get_impl(fn, "auto") is package.registry.get_impl(
-                fn, "cann_ops_transformer"
+                fn, backend
             )
             assert package.registry.get_impl(
                 fn, "auto"
@@ -362,3 +362,126 @@ def test_reference_metadata_stays_backend_specific(package):
             metadata=torch.empty(0),
             impl="torch_native",
         )
+
+
+@pytest.mark.parametrize("norm_type", [0, 1, 2])
+@pytest.mark.parametrize("renorm", [0, 1])
+def test_moe_scoring_bias_and_scaling(package, norm_type, renorm):
+    import math
+
+    logits = [-4.0, -1.0, 0.0, 2.0]
+    if norm_type == 0:
+        unscaled = [math.exp(v) / sum(math.exp(z) for z in logits) for v in logits]
+    elif norm_type == 1:
+        unscaled = [1 / (1 + math.exp(-v)) for v in logits]
+    else:
+        unscaled = [math.sqrt(math.log1p(math.exp(v))) for v in logits]
+    # Bias changes the selected experts; it must not change their returned weights.
+    weights, ids, scores = package.api.moe_gating_top_k(
+        torch.tensor([logits]),
+        2,
+        bias=torch.tensor([100.0, 0.0, 0.0, 0.0]),
+        norm_type=norm_type,
+        renorm=renorm,
+        out_flag=True,
+        routed_scaling_factor=2.5,
+        eps=1e-6,
+        impl="torch_native",
+    )
+    assert ids.tolist() == [[0, 3]] and ids.dtype == torch.int32
+    expected = [unscaled[0], unscaled[3]]
+    if norm_type in (1, 2) or renorm:
+        denominator = sum(expected) + 1e-6
+        expected = [v / denominator for v in expected]
+    torch.testing.assert_close(weights, torch.tensor([[v * 2.5 for v in expected]]))
+    torch.testing.assert_close(scores, torch.tensor([unscaled]))
+
+
+@pytest.mark.parametrize("group_select_mode, expected_id", [(0, 0), (1, 2)])
+def test_moe_group_selection_modes(package, group_select_mode, expected_id):
+    probabilities = torch.tensor([[0.9, 0.01, 0.6, 0.5]])
+    logits = torch.logit(probabilities)
+    weights, ids, _ = package.api.moe_gating_top_k(
+        logits,
+        1,
+        group_count=2,
+        k_group=1,
+        group_select_mode=group_select_mode,
+        norm_type=1,
+        impl="torch_native",
+    )
+    assert ids.item() == expected_id
+    torch.testing.assert_close(weights, torch.ones(1, 1))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_moe_hash_routing_dtype_and_empty_output(package, dtype):
+    x = torch.tensor([[1.0, 2.0, 3.0, 4.0], [4.0, 3.0, 2.0, 1.0]], dtype=dtype)
+    table = torch.tensor([[0, 2], [3, 1]], dtype=torch.int32)
+    weights, ids, scores = package.api.moe_gating_top_k(
+        x,
+        2,
+        input_ids=torch.tensor([1, 0]),
+        tid2eid=table,
+        norm_type=1,
+        impl="torch_native",
+    )
+    assert ids.tolist() == [[3, 1], [0, 2]]
+    assert (
+        weights.dtype == dtype and scores.dtype == torch.float32 and scores.numel() == 0
+    )
+    selected = x.float().sigmoid().gather(1, ids.long())
+    torch.testing.assert_close(
+        weights, (selected / selected.sum(-1, keepdim=True)).to(dtype)
+    )
+
+
+def test_moe_adapter_forwards_standard_binding(package, monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch_npu", ModuleType("torch_npu"))
+    backend = importlib.import_module(package.ns + ".implementation.torch_npu.dsv4")
+    x = torch.ones(2, 8)
+    native = Mock(
+        return_value=(
+            torch.ones(2, 2),
+            torch.zeros(2, 2, dtype=torch.int32),
+            torch.empty(2, 8),
+        )
+    )
+    with patch.object(
+        backend.torch.ops, "npu", SimpleNamespace(npu_moe_gating_top_k=native)
+    ):
+        _, _, unused = package.api.moe_gating_top_k(
+            x, 2, norm_type=2, routed_scaling_factor=2.0
+        )
+    assert native.call_args.args == (x, 2)
+    assert native.call_args.kwargs["norm_type"] == 2
+    assert native.call_args.kwargs["routed_scaling_factor"] == 2.0
+    assert "input_ids" not in native.call_args.kwargs
+    assert unused.shape == (0,)
+    assert "cann_ops_transformer" not in sys.modules
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(k=0),
+        dict(k=5),
+        dict(k=1, group_count=3),
+        dict(k=1, input_ids=torch.tensor([0])),
+        dict(k=1, norm_type=3),
+    ],
+)
+def test_moe_rejects_invalid_reference_inputs(package, kwargs):
+    with pytest.raises(ValueError):
+        package.api.moe_gating_top_k(torch.ones(1, 4), impl="torch_native", **kwargs)
+
+
+def test_moe_empty_batch_and_extreme_logits(package):
+    out = package.api.moe_gating_top_k(
+        torch.empty(0, 4), 2, norm_type=2, impl="torch_native"
+    )
+    assert out[0].shape == out[1].shape == (0, 2)
+    weights, _, _ = package.api.moe_gating_top_k(
+        torch.full((1, 4), -1e10), 2, norm_type=2, impl="torch_native"
+    )
+    assert torch.isfinite(weights).all() and weights.count_nonzero() == 0
