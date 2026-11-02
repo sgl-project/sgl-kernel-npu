@@ -12,7 +12,7 @@ import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, create_autospec, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -133,11 +133,10 @@ class TestSparseDispatch(unittest.TestCase):
             ),
         )
         self.offload = SimpleNamespace(
-            _get_scene=lambda: 2,
-            Scene=SimpleNamespace(LOCAL=1, LOCAL_URMA=2),
             get_dva=Mock(return_value=1 << 44),
-            CopyDirection=SimpleNamespace(H2D=1, D2H=2),
-            sparse_copy=Mock(return_value=0),
+            sparse_copy=create_autospec(
+                lambda src, dst, lengths, count, device: 0, return_value=0
+            ),
         )
         language = SimpleNamespace(constexpr=object)
         self.modules = patch.dict(
@@ -188,7 +187,8 @@ class TestSparseDispatch(unittest.TestCase):
         for submitted, table in zip(args[:4], self.tables):
             self.assertIs(submitted, table)
             self.assertIn(table, retained)
-        self.assertEqual(args[-1], 1)
+        self.assertEqual(len(args), 5)
+        self.assertEqual(args[-1], NPU)
 
     def test_keepalive_protects_inputs_without_record_stream(self):
         dev, host, di, hi = self.transfer()
@@ -328,7 +328,8 @@ class TestSparseDispatch(unittest.TestCase):
         self.stream = second_stream
         self.transfer(direction=2)
         second_stream.wait_event.assert_called_once_with(first)
-        self.assertEqual(self.offload.sparse_copy.call_args.args[-1], 2)
+        self.assertEqual(self.offload.sparse_copy.call_args.args[-1], NPU)
+        self.assertEqual(self.builder.call_args.args[-1], 2)
         latest_stream, latest_done = self.module._last_sparse_submission[NPU]
         self.assertIs(latest_stream, second_stream)
         self.assertIs(latest_done.stream, second_stream)
@@ -402,11 +403,7 @@ class TestSparseDispatch(unittest.TestCase):
         self.offload.sparse_copy.assert_not_called()
         self.assertFalse(self.module._last_sparse_submission)
 
-    def test_wrong_scene_and_bad_index_shape_fail_before_submission(self):
-        self.offload._get_scene = lambda: 0
-        with self.assertRaisesRegex(RuntimeError, "LOCAL_URMA"):
-            self.transfer()
-        self.builder.assert_not_called()
+    def test_bad_index_shape_fails_before_submission(self):
         with self.assertRaisesRegex(ValueError, "complete pages"):
             self.call(
                 Tensor((3,)),
@@ -419,19 +416,19 @@ class TestSparseDispatch(unittest.TestCase):
             )
         self.offload.sparse_copy.assert_not_called()
 
-    def test_sparse_copy_keeps_host_pointers_in_both_scenes_and_directions(self):
+    def test_sparse_copy_keeps_host_pointers_and_infers_both_directions(self):
         self.offload.get_dva.side_effect = AssertionError(
             "sparse_copy must not translate Host pool pointers"
         )
-        for scene in (1, 2):
-            self.offload._get_scene = lambda: scene
-            for direction in (1, 2):
-                self.offload.sparse_copy.reset_mock()
-                _, host, _, _ = self.transfer(direction=direction)
-                self.offload.sparse_copy.assert_called_once()
-                self.assertIs(self.builder.call_args.args[0][0][1], host)
-                self.assertEqual(self.builder.call_args.kwargs, {})
-                self.offload.get_dva.assert_not_called()
+        for direction in (1, 2):
+            self.offload.sparse_copy.reset_mock()
+            _, host, _, _ = self.transfer(direction=direction)
+            self.offload.sparse_copy.assert_called_once()
+            self.assertEqual(len(self.offload.sparse_copy.call_args.args), 5)
+            self.assertIs(self.builder.call_args.args[0][0][1], host)
+            self.assertEqual(self.builder.call_args.args[-1], direction)
+            self.assertEqual(self.builder.call_args.kwargs, {})
+            self.offload.get_dva.assert_not_called()
 
     def test_empty_transfer_has_no_backend_side_effect(self):
         self.transfer(pages=0)

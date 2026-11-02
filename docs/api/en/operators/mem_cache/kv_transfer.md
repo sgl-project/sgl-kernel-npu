@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `aicpu` | Unverified; registration enabled | Declared; PF/LF refactor needs hardware regression |
+| `aicpu` | MF A3/910C SDMA path; hardware regression pending | MF A5/950 URMA path; hardware regression pending |
 | `aiv` | Unverified; registration enabled | Declared; PF/LF refactor needs hardware regression |
 | `torch_native` | Unverified | Synchronous correctness reference |
 
@@ -80,11 +80,17 @@ Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer
 
 ## aicpu
 
-Triton constructs pointer tables with one launch per active component, followed by one `offload.sparse_copy` call. Runtime arguments use scalars for compatibility with older Triton-Ascend versions. The registered name is `aicpu`: MF uses the URMA path in `LOCAL_URMA` and may use MTE in `LOCAL`, with Host bases resolved through `get_dva`. A matching MF descriptor protocol is required; the old local MTE kernel still has a paired-half-table restriction, which is not rewritten here. The wrapper currently limits a batch to 8190 descriptors with positive int32 byte lengths. Both index tensors must already reside on the KV buffer's NPU.
+Triton constructs pointer tables with one launch per active component, followed by one five-argument `offload.sparse_copy(src, dst, lengths, count, device)` call. Runtime arguments use scalars for older Triton-Ascend versions. Initialize MemFabric with `Scene.AICPU`, `flags=0`, and nonzero equal GiB-aligned `reserve_size` / `alloc_size`. The MF backend selects AICPU + SDMA on Ascend910C (A3), or AICPU + URMA on Ascend950 (A5).
+
+Pass original Host addresses from the MF pool and NPU payload addresses; do not substitute AIV DVAs. MF determines H2D/D2H from each record's Host-pool endpoint at execution time. The wrapper still uses its direction to construct source/destination tables. Up to 65536 records with positive int32 byte lengths are supported; both index tensors must already reside on the KV buffer's NPU. The old `LOCAL_URMA`, `CopyDirection` and private `_get_scene` interfaces are not required.
+
+Host libraries, Python bindings, launch extension and the MF AICPU kernel package must be updated together. On A5, one sparse_copy currently enqueues nine transfer tiles with notify waits, then one status-check kernel, including small batches. A3 enqueues a transfer kernel, notify wait and status check. Profile the complete submission sequence when comparing performance.
 
 ## aiv
 
-Uses MemFabric `get_dva` to resolve device-accessible Host addresses and submits through the in-tree `kv_exchange` CANN operator (`torch.ops.npu.kv_exchange`): the C++ adapter builds the device-resident 44-slot metadata -- actual layer/page strides, full-page byte width, PF/LF traversal mode and per-component layer ranges, mirroring the aicpu `build_kv_sparse_metadata` contract -- and launches the AIV kernel on the caller's stream. The pinned staging that carries the metadata upload is returned to the wrapper and retained until the completion event.
+Resolves registered Host device addresses through `host_memory.resolve_host_dva` and submits through the in-tree `kv_exchange` CANN operator (`torch.ops.npu.kv_exchange`): the C++ adapter builds the device-resident 44-slot metadata -- actual layer/page strides, full-page byte width, PF/LF traversal mode and per-component layer ranges, mirroring the aicpu `build_kv_sparse_metadata` contract -- and launches the AIV kernel on the caller's stream. The pinned staging that carries the metadata upload is returned to the wrapper and retained until the completion event.
+
+The AIV path still requires MF `host_register` / `host_get_device_pointer` support. The AICPU-only MF checkout does not export those APIs; AIV or mixed `auto` integration requires a build with a compatible shared Host-pool registration contract.
 
 ## torch_native
 
@@ -118,7 +124,7 @@ config = offload.OffloadConfig()
 config.device_id = 0
 config.reserve_size = config.alloc_size = 1 << 30
 config.flags = 0
-config.scene = offload.Scene.LOCAL_URMA
+config.scene = offload.Scene.AICPU
 assert offload.initialize(config) == 0
 ps = 4
 original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to(torch.bfloat16)
@@ -149,4 +155,4 @@ python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aiv
 python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aicpu --impl-ref torch_native --prof-dir results/kv --csv-path results/kv.csv -v -s
 ```
 
-The test fixture initializes LOCAL for an explicit aiv choice and LOCAL_URMA otherwise. The auto default calls sparse_copy for H2D and the kv_exchange AIV kernel for D2H, requiring MF support plus a build containing the in-tree `kv_exchange` operator. Only service-sized cases enable performance by default; `--enable-perf` overrides this. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Add `-m extra_checks` for supplementary pointer-table checks. Shared profiling reports mean summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately when comparing the old implementation. An available A5 and matching CANN/Torch/MemFabric are required; verify imports use the current build.
+The test fixture initializes LOCAL for an explicit aiv choice and AICPU otherwise. Use `--impl aicpu` with the new AICPU-only MF package. The auto default calls sparse_copy for H2D and the kv_exchange AIV kernel for D2H, requiring MF support plus a build containing the in-tree `kv_exchange` operator. Only service-sized cases enable performance by default; `--enable-perf` overrides this. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Add `-m extra_checks` for supplementary pointer-table checks. Shared profiling reports mean summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately when comparing the old implementation. An available A3/910C or A5/950 and matching CANN/Torch/MemFabric are required; verify imports use the current build.

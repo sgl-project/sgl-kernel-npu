@@ -323,17 +323,19 @@ class TestTritonKVMetadata(unittest.TestCase):
         for direction in (1, 2):
             self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
 
-    def test_single_batch_limit_and_masked_tail(self):
+    def test_aicpu_record_limit_65536(self):
         devices, hosts = self.components(
-            layers=(30, 35), widths=(1, 1), dtypes=(np.uint8, np.uint8), pages=140
+            layers=(1,), widths=(1,), dtypes=(np.uint8,), pages=65538, ps=1
         )
-        self.assert_metadata(devices, hosts, list(range(126)), list(range(126)), 4, 1)
-        with self.assertRaisesRegex(ValueError, "single-batch.*got 8255"):
+        self.assert_metadata(
+            devices, hosts, list(range(65536)), list(range(65536)), 1, 1
+        )
+        with self.assertRaisesRegex(ValueError, "single-batch.*got 65537"):
             self.module.build_kv_sparse_metadata(
                 tuple(zip(devices, hosts)),
-                self.indices(list(range(127)), 4),
-                self.indices(list(range(127)), 4),
-                4,
+                self.indices(list(range(65537)), 1),
+                self.indices(list(range(65537)), 1),
+                1,
                 1,
             )
 

@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `aicpu` | 已开放注册，待实机验证 | 声明支持，本轮 PF/LF 改动待实机回归 |
+| `aicpu` | MF A3/910C SDMA 路径，待实机回归 | MF A5/950 URMA 路径，待实机回归 |
 | `aiv` | 已开放注册，待实机验证 | 声明支持，本轮 PF/LF 改动待实机回归 |
 | `torch_native` | 未验证 | 同步正确性参考 |
 
@@ -80,11 +80,17 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## aicpu
 
-Triton 对每个有效组件 launch 一次来构造地址表，合并后只调用一次 `offload.sparse_copy`。运行时使用标量参数，兼容不支持运行时 tuple 的旧版 Triton-Ascend。`aicpu` 是此实现的注册名：`LOCAL_URMA` 使用 URMA 路径，`LOCAL` 可由 MF 使用 MTE 路径，并通过 `get_dva` 解析 Host 基址。需要匹配的 MF 地址表协议；当前本地旧版 MTE 内核还有前后半表配对限制，未在本轮重写。当前包装单次最多 8190 条描述，每条长度为正 int32。两端 indices 都须提前放在 KV buffer 所在的 NPU 上。
+Triton 对每个有效组件 launch 一次构造地址表，合并后只调用一次五参数 `offload.sparse_copy(src, dst, lengths, count, device)`。运行时使用标量参数，兼容旧版 Triton-Ascend。MF 初始化使用 `Scene.AICPU`、`flags=0`，`reserve_size` / `alloc_size` 非零且按 GiB 对齐后相等。MF 在 Ascend910C（A3）选择 AICPU + SDMA，在 Ascend950（A5）选择 AICPU + URMA。
+
+地址表填写 MF 池的原始 Host 地址和 NPU payload 地址，不替换成 AIV DVA。MF 执行时按每条记录哪一端属于 Host 池判断 H2D/D2H；包装层仍根据方向构造源/目的表。支持最多 65536 条记录，每条长度为正 int32；两端 indices 都须提前位于 KV buffer 所在的 NPU。不再依赖旧 `LOCAL_URMA`、`CopyDirection` 或私有 `_get_scene` 接口。
+
+Host 库、Python binding、launch 扩展及 MF AICPU 算子包须配套更新。A5 当前每次 sparse_copy 固定提交九个搬运分块及 Notify Wait，再提交状态检查 kernel，小批次也相同；A3 提交搬运 kernel、Notify Wait 和状态检查。性能比较应采集完整提交序列。
 
 ## aiv
 
-通过 MemFabric `get_dva` 获取 Host 的设备可访问地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 构造驻留设备的 44 槽 metadata（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间，对齐 aicpu `build_kv_sparse_metadata` 的契约）并在调用方流上启动 AIV kernel。承载 metadata 上传的 pinned staging 会返回给 wrapper，由完成事件保活。
+通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 构造驻留设备的 44 槽 metadata（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间，对齐 aicpu `build_kv_sparse_metadata` 的契约）并在调用方流上启动 AIV kernel。承载 metadata 上传的 pinned staging 会返回给 wrapper，由完成事件保活。
+
+AIV 路径仍需要 MF 的 `host_register` / `host_get_device_pointer`。当前 AICPU 专用 MF 仓库没有导出这两个接口；AIV 或混合 `auto` 对接须使用具有兼容共享 Host 池注册契约的 MF 构建。
 
 ## torch_native
 
@@ -118,7 +124,7 @@ config = offload.OffloadConfig()
 config.device_id = 0
 config.reserve_size = config.alloc_size = 1 << 30
 config.flags = 0
-config.scene = offload.Scene.LOCAL_URMA
+config.scene = offload.Scene.AICPU
 assert offload.initialize(config) == 0
 ps = 4
 original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to(torch.bfloat16)
@@ -149,4 +155,4 @@ python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aiv
 python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aicpu --impl-ref torch_native --prof-dir results/kv --csv-path results/kv.csv -v -s
 ```
 
-测试默认按显式实现选择初始化 MF 资源（aiv 使用 LOCAL，其余使用 LOCAL_URMA）；auto 在 H2D 调用 sparse_copy，在 D2H 调用 kv_exchange AIV kernel，需 MF 支持且构建中包含仓内 `kv_exchange` 算子。默认仅服务尺寸用例采性能，可用 `--enable-perf` 覆盖。测试对原地修改目标使用独立缓冲区并逐字节比较，再通过 `make_executor` / `check_performance` 采集。补充地址表检查加 `-m extra_checks`。共享性能工具报告 NPU task 耗时之和的平均值，不包含全部 CPU 提交开销；与旧实现对比端到端开销时应另行计时。执行这些测试需有可用 A5、匹配的 CANN/Torch/MemFabric，且确认导入当前构建。
+测试按显式实现选择初始化 MF 资源（aiv 使用 LOCAL，其余使用 AICPU）；新版 AICPU 专用 MF 包应使用 `--impl aicpu`。auto 在 H2D 调用 sparse_copy，在 D2H 调用 kv_exchange AIV kernel，需 MF 支持且构建中包含仓内 `kv_exchange` 算子。默认仅服务尺寸用例采性能，可用 `--enable-perf` 覆盖。测试对原地修改目标使用独立缓冲区并逐字节比较，再通过 `make_executor` / `check_performance` 采集。补充地址表检查加 `-m extra_checks`。共享性能工具报告 NPU task 耗时之和的平均值，不包含全部 CPU 提交开销；与旧实现对比端到端开销时应另行计时。执行这些测试需有可用 A3/910C 或 A5/950、匹配的 CANN/Torch/MemFabric，且确认导入当前构建。

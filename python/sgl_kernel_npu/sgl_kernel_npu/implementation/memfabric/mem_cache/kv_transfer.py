@@ -1,6 +1,6 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
-The caller owns initialized MemFabric resources and registered Host storage.
+The caller owns initialized MemFabric resources and Host storage.
 Eager inputs, sparse-copy metadata and AIV pinned staging stay alive until their
 completion event. Captured metadata belongs to the graph memory pool; callers
 retain graph inputs and MF resources.
@@ -14,9 +14,8 @@ import triton
 import triton.language as tl
 
 _LENGTH_DTYPE = torch.int32
-# Current Memfabric LOCAL_URMA capacity: HCOMM_BATCH_TRANSFER_MAX_DESC_NUM
-# in src/hybm/csrc/under_api/dl_hcomm_api.h; see offload_sparse_copy's contract.
-MAX_SPARSE_COPY_ENTRIES = 8190
+# AICPU input limit: HYBM_SPARSE_COPY_MAX_RECORDS / HYBM_SDMA_MAX_RECORDS.
+MAX_SPARSE_COPY_ENTRIES = 65536
 _submit_lock = Lock()
 _last_sparse_submission = {}
 _inflight = deque()
@@ -109,7 +108,7 @@ def _build_kv_sparse_metadata_kernel(
         layer * HOST_LAYER_STRIDE + hp * HOST_PAGE_STRIDE
     ).to(tl.uint64)
     # Invalid descriptors use pool bases and a negative length, which the
-    # LOCAL_URMA consumer rejects asynchronously before dereferencing them.
+    # AICPU consumer rejects asynchronously before dereferencing them.
     daddr = tl.where(valid, daddr, device_base.to(tl.uint64))
     haddr = tl.where(valid, haddr, host_base.to(tl.uint64))
     tl.store(src + output, haddr if H2D else daddr, mask=mask)
@@ -242,21 +241,13 @@ def select_components(
 
 
 def _submit_aicpu(offload, components, di, hi, page_size, direction, device, keepalive):
-    scene = offload._get_scene()
-    if scene not in (offload.Scene.LOCAL, offload.Scene.LOCAL_URMA):
-        raise RuntimeError(
-            "sparse_copy requires initialized MemFabric LOCAL or LOCAL_URMA"
-        )
     # Preserve sparse_copy's existing address contract: pass the Host pool
     # pointers through unchanged, as in transfer_kv_sparse_copy.
     src, dst, lengths, count = build_kv_sparse_metadata(
         components, di, hi, page_size, direction
     )
     keepalive.extend((src, dst, lengths, count))
-    copy_direction = (
-        offload.CopyDirection.H2D if direction == 1 else offload.CopyDirection.D2H
-    )
-    ret = offload.sparse_copy(src, dst, lengths, count, device, copy_direction)
+    ret = offload.sparse_copy(src, dst, lengths, count, device)
     if ret != 0:
         raise RuntimeError(f"MemFabric sparse_copy failed: code={ret}")
 

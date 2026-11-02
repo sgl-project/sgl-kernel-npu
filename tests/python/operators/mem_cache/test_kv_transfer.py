@@ -1,9 +1,10 @@
 """Split-KV public API: exact D2H/all-layer and H2D/per-layer copies.
 
-Run on NPU with a matching MemFabric installation. LOCAL_URMA is used by
---impl=auto/aicpu; --impl=aiv initializes LOCAL. The caller supplies registered
-Host storage. Production dimensions below are borrowed from GLM-5.2, rather
-than asserted to be a captured service call.
+Run on NPU with a matching MemFabric installation. AICPU is used by
+--impl=auto/aicpu; --impl=aiv initializes LOCAL. AIV and mixed auto tests need
+MemFabric host-registration support; the AICPU-only package does not provide it.
+Production dimensions below are borrowed from GLM-5.2, rather than asserted to
+be a captured service call.
 """
 
 import pytest
@@ -36,6 +37,7 @@ perf_shape = [(78, 21, 128, 512, 64, 128)]
 @pytest.fixture(scope="module")
 def offload_runtime(request):
     from memfabric_hybrid import offload
+
     config = offload.OffloadConfig()
     config.device_id = torch.npu.current_device()
     config.reserve_size = config.alloc_size = 1 << 30
@@ -43,7 +45,7 @@ def offload_runtime(request):
     config.scene = (
         offload.Scene.LOCAL
         if request.config.getoption("impl") == "aiv"
-        else offload.Scene.LOCAL_URMA
+        else offload.Scene.AICPU
     )
     ret = offload.initialize(config)
     if ret != 0:
@@ -218,9 +220,9 @@ def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
 
 
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
-def test_urma_cross_stream_lifetime(offload_runtime, layout):
-    if offload_runtime._get_scene() != offload_runtime.Scene.LOCAL_URMA:
-        pytest.skip("LOCAL_URMA shared-resource ordering test")
+def test_aicpu_cross_stream_lifetime(offload_runtime, layout):
+    if get_test_impls()[0] == "aiv":
+        pytest.skip("AICPU shared-resource ordering test")
     backup, load = OPERATORS[layout]
     shape = (3, 2, 4, 7, 3, 5)
     components, actual, _, source, saved, target, _ = generate_data(
@@ -238,7 +240,7 @@ def test_urma_cross_stream_lifetime(offload_runtime, layout):
             host_layer_start=1,
             impl="aicpu",
         )
-    # No event wait between transfer streams: the URMA wrapper orders its resource.
+    # No event wait between transfer streams: the AICPU wrapper orders its resource.
     with torch.npu.stream(read):
         load(
             token_indices(target, 4, "npu"),
@@ -255,9 +257,9 @@ def test_urma_cross_stream_lifetime(offload_runtime, layout):
 
 
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
-def test_urma_temporary_input_lifetime(offload_runtime, layout):
-    if offload_runtime._get_scene() != offload_runtime.Scene.LOCAL_URMA:
-        pytest.skip("LOCAL_URMA temporary-input lifetime test")
+def test_aicpu_temporary_input_lifetime(offload_runtime, layout):
+    if get_test_impls()[0] == "aiv":
+        pytest.skip("AICPU temporary-input lifetime test")
     backup, _ = OPERATORS[layout]
     shape = (2, 8, 4, 1, 5)
     values = (torch.arange(320, device="cpu") % 251).to(torch.uint8).reshape(shape)
@@ -292,9 +294,9 @@ def test_urma_temporary_input_lifetime(offload_runtime, layout):
 
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize("packed", [False, True])
-def test_urma_graph_roundtrip(offload_runtime, layout, packed):
-    if offload_runtime._get_scene() != offload_runtime.Scene.LOCAL_URMA:
-        pytest.skip("LOCAL_URMA graph replay test")
+def test_aicpu_graph_roundtrip(offload_runtime, layout, packed):
+    if get_test_impls()[0] == "aiv":
+        pytest.skip("AICPU graph replay test")
     backup, load = OPERATORS[layout]
     shape = (3, 2, 4, 7, 0 if packed else 3, 5)
     components, actual, _, source, saved, target, index_layer_ids = generate_data(
