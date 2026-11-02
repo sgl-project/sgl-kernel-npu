@@ -241,6 +241,64 @@ def test_graph_replay_reads_changed_inputs(lengths):
     assert_accuracy(output, expected, standard)
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("causal", [False, True])
+@pytest.mark.parametrize("head_dim", [48, 64])
+@pytest.mark.parametrize(
+    "lengths",
+    [
+        pytest.param((7, 15, 17), id="multiple-requests"),
+        pytest.param((2049,), id="split-kv"),
+    ],
+)
+def test_irregular_group_output_stays_in_bounds(dtype, causal, head_dim, lengths):
+    from sgl_kernel_npu.operators.attention import paged_mtp_attention_decode
+
+    impl, impl_ref = get_test_impls()
+    require_test_impl(paged_mtp_attention_decode, impl)
+    if impl == "torch_native":
+        pytest.skip("This regression checks Triton output stores")
+    args = generate_data((7, 3, head_dim, 16, lengths, 2), dtype)
+    expected = paged_mtp_attention_decode(**args, causal=causal, impl=impl_ref)
+    original_empty_like = torch.empty_like
+    guarded_outputs = []
+    guard_tokens = 32
+    sentinel = 123.0
+
+    def allocate_output(tensor, *positional, **kwargs):
+        if (
+            tensor.ndim != 3
+            or tensor.shape[:2] != args["query"].shape[:2]
+            or tensor.dtype != dtype
+            or tensor.device != args["query"].device
+        ):
+            return original_empty_like(tensor, *positional, **kwargs)
+        # A3 may pad D before allocating its output. Guard that intermediate
+        # allocation too, then validate the cropped public result below.
+        tokens, heads, dim = tensor.shape
+        storage = torch.full(
+            (tokens + 2 * guard_tokens, heads, dim),
+            sentinel,
+            dtype=tensor.dtype,
+            device=tensor.device,
+        )
+        guarded_outputs.append((storage, tokens))
+        return storage[guard_tokens : guard_tokens + tokens]
+
+    with patch.object(torch, "empty_like", side_effect=allocate_output):
+        output = paged_mtp_attention_decode(**args, causal=causal, impl=impl)
+    torch.npu.synchronize()
+    assert guarded_outputs, "Triton output allocation was not intercepted"
+    for storage, tokens in guarded_outputs:
+        assert torch.all(
+            storage[:guard_tokens] == sentinel
+        ).item(), "Triton wrote before the output tensor"
+        assert torch.all(
+            storage[guard_tokens + tokens :] == sentinel
+        ).item(), "Triton wrote past the output tensor"
+    assert_accuracy(output, expected, standard)
+
+
 @pytest.mark.parametrize("shape", [perf_shape[0], (7, 3, 48, 16, (7, 15, 17), 2)])
 def test_triton_does_not_read_lengths_on_host(shape):
     from sgl_kernel_npu.operators.attention import paged_mtp_attention_decode

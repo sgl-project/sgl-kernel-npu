@@ -68,12 +68,14 @@ def _paged_mtp_kernel(
         q_index = rows // GROUP
         q_head = kv_head * GROUP + rows % GROUP
         dims = tl.arange(0, BLOCK_D)
+        # Keep row bounds affine. Quotient-based masks have produced A5 tail
+        # writes for non-power-of-two GQA groups, including the next request.
         q = tl.load(
             Q
             + (q_start + q_index[:, None]) * stride_qt
             + q_head[:, None] * stride_qh
             + dims[None, :] * stride_qd,
-            mask=(q_index[:, None] < GAMMA) & (dims[None, :] < DIM),
+            mask=(rows[:, None] < GAMMA * GROUP) & (dims[None, :] < DIM),
             other=0.0,
         )
         maximum = tl.full((Q_TILE,), float("-inf"), tl.float32)
@@ -113,7 +115,7 @@ def _paged_mtp_kernel(
             values = tl.load(v_ptr, boundary_check=(0, 1), padding_option="zero")
             scores = tl.dot(q, keys) * scale
             kv_positions = start + tl.arange(0, BLOCK_N)
-            allowed = (kv_positions[None, :] < kv_end) & (q_index[:, None] < GAMMA)
+            allowed = (kv_positions[None, :] < kv_end) & (rows[:, None] < GAMMA * GROUP)
             if CAUSAL:
                 allowed = allowed & (
                     kv_positions[None, :] <= kv_len - GAMMA + q_index[:, None]
@@ -137,7 +139,7 @@ def _paged_mtp_kernel(
                 + q_head[:, None] * stride_oh
                 + dims[None, :] * stride_od,
                 acc,
-                mask=(q_index[:, None] < GAMMA) & (dims[None, :] < DIM),
+                mask=(rows[:, None] < GAMMA * GROUP) & (dims[None, :] < DIM),
             )
         else:
             tl.store(
@@ -206,7 +208,7 @@ def _reduce_mtp_kernel(
             + q_head[:, None] * stride_oh
             + dims[None, :] * stride_od,
             result,
-            mask=(q_index[:, None] < GAMMA) & (dims[None, :] < DIM),
+            mask=(rows[:, None] < GAMMA * GROUP) & (dims[None, :] < DIM),
         )
 
 
