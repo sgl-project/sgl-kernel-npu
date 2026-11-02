@@ -5,11 +5,11 @@ from .kv_quant_sparse_attn_sharedkv_metadata import (
 )
 from .mixed_quant_sparse_flash_mla import mixed_quant_sparse_flash_mla
 from .mixed_quant_sparse_flash_mla_metadata import mixed_quant_sparse_flash_mla_metadata
+from .mlaprolog_v4 import mlaprolog_v4
 from .quant_lightning_indexer import quant_lightning_indexer
 from .quant_lightning_indexer_metadata import quant_lightning_indexer_metadata
 from .sparse_flash_mla import sparse_flash_mla
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata
-from .mlaprolog_v4 import mlaprolog_v4
 
 __all__ = [
     "compressor",
