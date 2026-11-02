@@ -17,8 +17,8 @@ def add_rmsnorm_bias_kernel(
     output_ptr,
     output2_ptr,
     batch_size,
+    eps,
     hidden_size: tl.constexpr,
-    eps: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     COL_BLOCK_SIZE: tl.constexpr,
     SCALE: tl.constexpr,
@@ -124,8 +124,8 @@ def add_rmsnorm_bias(
             output,
             output2,
             batch_size,
-            hidden_size,
             eps,
+            hidden_size,
             BLOCK_SIZE,
             COL_BLOCK_SIZE,
             SCALE,
@@ -144,6 +144,11 @@ def add_rmsnorm_bias(
         output,
         output2,
         batch_size,
+        eps,
+        hidden_size,
+        BLOCK_SIZE,
+        COL_BLOCK_SIZE,
+        SCALE,
     )
     return output, output2
 
