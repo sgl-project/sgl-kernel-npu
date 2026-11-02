@@ -268,14 +268,8 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run attention operator tests
-        timeout-minutes: 20
+        timeout-minutes: 50
         run: bash scripts/run_kernel_tests.sh attention
-
-      - name: Validate migrated attention operator APIs
-        timeout-minutes: 30
-        run: |
-          python3 -m pytest tests/python/operators/attention/test_chunk_local_cumsum.py tests/python/operators/attention/test_chunk_scaled_dot_kkt.py tests/python/operators/attention/test_chunk_delta_h.py tests/python/operators/attention/test_fused_gdn_decode.py tests/python/operators/attention/test_fia_prep.py tests/python/operators/attention/test_gqa_share_sparse_decode.py --skip-acc-check=false --enable-perf=false -v -s -x -rs
-          python3 -m pytest tests/python/sgl_kernel_npu/test_fused_sigmoid_gating_recurrent_decode.py -v -s -x -rs
 
   test-cache-ops:
     needs: get-changed-files

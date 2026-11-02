@@ -15,7 +15,10 @@ run_test() {
     echo "=========================================="
     echo "Running: $test_file"
     echo "=========================================="
-    if grep -q '__main__' "$test_file"; then
+    if [[ "$test_file" == "test_fused_sigmoid_gating_recurrent_decode.py" ]]; then
+        # Preserve pytest parameterization for the decode compatibility test.
+        python3 -m pytest "$test_file" -q -x || exit_code=$?
+    elif grep -q '__main__' "$test_file"; then
         # Script-style test with a __main__ entry: run it directly
         python3 "$test_file" || exit_code=$?
     elif grep -q 'def test_' "$test_file"; then
@@ -57,6 +60,13 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_local_cumsum.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_scaled_dot_kkt.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_delta_h.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_fused_gdn_decode.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_fia_prep.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_gqa_share_sparse_decode.py"
+    test_fused_sigmoid_gating_recurrent_decode.py
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
