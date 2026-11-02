@@ -1,9 +1,5 @@
 # cache_loc_assign / cache_loc_update
 
-在请求到 token 的映射表与打包的位置数组之间复制缓存槽位编号。
-`cache_loc_assign` 将编号写入映射表，`cache_loc_update` 从映射表收集编号；
-两者均不搬运 KV 向量数据。
-
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
@@ -11,92 +7,70 @@
 | `ascendc` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-## 接口
+## 函数原型
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import cache_loc_assign, cache_loc_update
 
-cache_loc_assign(req_pool_indices, token_pool, start_offset, end_offset,
-                 out_cache_loc, impl="auto")
-cache_loc_update(req_pool_indices, token_pool, start_offset, end_offset,
-                 out_cache_loc, impl="auto")
+def cache_loc_assign(req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc, *, impl="auto"): ...
+def cache_loc_update(req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc, *, impl="auto"): ...
 ```
 
-两个接口均接收五个 Tensor，`impl` 仅限关键字，默认 `auto`。
-`auto` 与 `ascendc` 调用对应的 `torch.ops.npu.cache_loc_assign` 或
-`torch.ops.npu.cache_loc_update`，没有自动回退；`torch_native` 显式选择
-PyTorch 实现。原生 Torch 接口仍可直接调用。
+两个函数的 `impl="auto"` 均选择 `ascendc`。使用 PyTorch 实现时请显式传入 `impl="torch_native"`。
 
-## 参数与语义
+## 功能说明
 
-| 参数 | 形状、类型与约束 |
-| --- | --- |
-| `req_pool_indices` | NPU Tensor `[B]`，int32 或 int64，表示请求在 `token_pool` 中的行索引。 |
-| `token_pool` | NPU int32 Tensor `[pool_rows, row_width]`，使用稠密存储布局，保存每个请求的缓存槽位编号。 |
-| `start_offset` | NPU int64 Tensor `[B]`，表示各请求区间的起始位置，包含该位置。 |
-| `end_offset` | NPU int64 Tensor `[B]`，表示各请求区间的结束位置，不包含该位置。 |
-| `out_cache_loc` | 调用方分配的连续 NPU int32 Tensor，按一维打包数组访问，元素数至少为各区间长度之和。连续多维 Tensor 保留原 shape。assign 将其作为输入，update 将其作为输出。 |
-| `impl` | `auto`、`ascendc`、`torch_native`；默认 `auto`。 |
-
-记 `length[b] = end_offset[b] - start_offset[b]`，
-`offset[b] = sum(length[:b])`。各请求的数据按请求顺序连续排列在
-`out_cache_loc` 中，不要求每个请求的区间长度相同。
+这两个函数在请求映射表和打包缓冲区之间复制缓存槽位编号。第 `i` 个请求对应映射表中的区间 `token_pool[req_pool_indices[i], start_offset[i]:end_offset[i]]`。各区间按请求顺序紧密排列在缓冲区中，空区间不占位置。
 
 ### cache_loc_assign
 
-对每个 `0 <= j < length[b]`，执行：
-
-```text
-token_pool[req_pool_indices[b], start_offset[b] + j] = out_cache_loc.flat[offset[b] + j]
-```
-
-**原地修改 `token_pool`，返回与其共享存储的 Tensor**，shape、dtype 和 device
-保持不变。未选中的行和目标区间之外的位置保持原值；其余四个输入不变。
-AscendC 实现在读取 token pool 前跳过零长度区间。
+将缓冲区中的每段槽位编号写入对应的映射表行。目标区间以外的位置保留原值。
 
 ### cache_loc_update
 
-对每个 `0 <= j < length[b]`，执行：
+从映射表中依次取出各区间的槽位编号，写入打包缓冲区。最后一个区间之后的缓冲区元素保留原值。
 
-```text
-out_cache_loc.flat[offset[b] + j] = token_pool[req_pool_indices[b], start_offset[b] + j]
+## 参数与返回值
+
+所有 Tensor 均位于同一 NPU。映射表和索引使用稠密存储，行号与区间应在表内有效，映射表与打包缓冲区的存储不能重叠。
+
+| 参数 | 类型 | Shape | Dtype | 默认值 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `req_pool_indices` | `torch.Tensor` | `[B]` | `int32 / int64` | 必填 | 每个请求对应的映射表行号，使用互异的行号。 |
+| `token_pool` | `torch.Tensor` | `[pool_rows, row_width]` | `int32` | 必填 | 缓存槽位映射表。assign 写此表，update 读此表。 |
+| `start_offset` | `torch.Tensor` | `[B]` | `int64` | 必填 | 每个请求的起始列，包含该列。 |
+| `end_offset` | `torch.Tensor` | `[B]` | `int64` | 必填 | 每个请求的结束列，不包含该列，且不能小于起始列。 |
+| `out_cache_loc` | `torch.Tensor` | 任意形状 | `int32` | 必填 | 连续缓冲区，至少有 `sum(end_offset - start_offset)` 个元素。多维缓冲区按一维访问。assign 从中读取，update 向其写入。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字。 `auto`, `ascendc`, `torch_native` |
+
+| 函数 | 返回类型 | Shape 与 dtype | 说明 |
+| --- | --- | --- | --- |
+| `cache_loc_assign` | `torch.Tensor` | 同 `token_pool` | 与原地修改的 `token_pool` 共享存储。 |
+| `cache_loc_update` | `torch.Tensor` | 同 `out_cache_loc` | 与原地修改的 `out_cache_loc` 共享存储。 |
+
+## ascendc 后端
+
+每个区间最多 16 个槽位编号。存储需满足对齐读取要求，每个实际访问的起始列之后应有足够空间访问 16 个元素。批量大小和打包缓冲区长度受设备片上缓冲容量限制。
+
+## torch_native 后端
+
+区间的打包顺序和原地写入的目标与 AscendC 相同。
+
+## 调用示例
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.mem_cache import cache_loc_assign, cache_loc_update
+
+rows = torch.arange(8, device="npu", dtype=torch.int32)
+pool = torch.zeros((8, 32), device="npu", dtype=torch.int32)
+starts = torch.zeros(8, device="npu", dtype=torch.int64)
+ends = starts + 1
+slots = rows + 100
+
+cache_loc_assign(rows, pool, starts, ends, slots, impl="ascendc")
+result = torch.empty_like(slots)
+cache_loc_update(rows, pool, starts, ends, result, impl="ascendc")
+# result: [100, 101, 102, 103, 104, 105, 106, 107]
 ```
-
-**原地修改 `out_cache_loc`，返回与其共享存储的 Tensor**，shape、dtype 和 device
-保持不变。有效打包长度之后的尾部保持原值；其余四个输入不变。
-
-两个接口均不自动连续化、转换索引类型或裁剪索引。公共入口检查上述 dtype
-组合和 `out_cache_loc` 连续性；直接调用 `torch.ops.npu` 时，调用方须自行保证
-这些条件，因为 adapter 不重复执行公共入口的检查。
-
-## 实现与使用限制
-
-CANN 类型分别为 `SglCacheLocAssign`、`SglCacheLocUpdate`，通过 ACLNN
-在当前 NPU stream 上执行。assign 沿用全部 AIV 核的任务分配，update 沿用单核调度。
-两个算子共享计算实现和 16 字段 Tiling，位置数组大小取其逻辑 `numel()`。
-
-AscendC 的区间长度上限为 `MAX_STEP=16`，还受 UB 容量及对齐读取限制。
-输入应使用有效索引、唯一请求行和不重叠的输入输出存储。固定 16 元素读取
-要求对应存储可读；UB 超限通过 CANN/ACLNN 错误路径上报。
-
-`torch_native` 在输入设备上执行 PyTorch slice copy；为 Python 循环读取索引
-元信息可能产生同步。整数复制不需要浮点升精度。
-
-## 构建与测试
-
-两个算子共用 Host、Kernel 和 Torch adapter。选择任意一个 ID 时，算子目录的
-构建配置会自动补齐另一个 ID，两者一起编译和出包。以下示例显式选择两个 ID。
-
-```bash
-python3 setup.py --make_clean --arch-version 2201 \
-  --ops cache_loc_assign,cache_loc_update --artifact wheel
-# 在匹配的 Linux/CANN/Torch 环境中安装 output/ 内本次生成的 wheel。
-python3 -m pytest tests/python/operators/mem_cache/test_cache_locations.py \
-  --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
-```
-
-arch35 环境使用 `--arch-version 3510`。测试共 52 项，包含单算子精度、原地写入、
-只读输入、未修改区域和改变源值后的 roundtrip 检查。删除 `--enable-perf=false`
-可运行用例指定的性能场景。
-
-包在导入时加载原生库；缺少原生产物时，其他 backend 尚未实现完整隔离。

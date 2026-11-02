@@ -1,9 +1,5 @@
 # cache_loc_assign / cache_loc_update
 
-Copy cache-slot indices between a request-to-token mapping table and a packed
-location buffer. `cache_loc_assign` writes indices into the table;
-`cache_loc_update` gathers indices from it. Neither operator copies KV vectors.
-
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
@@ -16,97 +12,65 @@ location buffer. `cache_loc_assign` writes indices into the table;
 ```python
 from sgl_kernel_npu.operators.mem_cache import cache_loc_assign, cache_loc_update
 
-cache_loc_assign(req_pool_indices, token_pool, start_offset, end_offset,
-                 out_cache_loc, impl="auto")
-cache_loc_update(req_pool_indices, token_pool, start_offset, end_offset,
-                 out_cache_loc, impl="auto")
+def cache_loc_assign(req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc, *, impl="auto"): ...
+def cache_loc_update(req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc, *, impl="auto"): ...
 ```
 
-Both interfaces take five tensors and keyword-only `impl`, which defaults to
-`auto`. `auto` and `ascendc` call the corresponding `torch.ops.npu.cache_loc_assign`
-or `torch.ops.npu.cache_loc_update` binding, without automatic fallback.
-Select `torch_native` explicitly for the PyTorch implementation. The native
-Torch bindings remain directly callable.
+Both functions default to `ascendc` when `impl="auto"`. Select `torch_native` explicitly to use PyTorch.
 
-## Parameters and semantics
+## Description
 
-| Parameter | Shape, type and constraints |
-| --- | --- |
-| `req_pool_indices` | NPU Tensor `[B]`, int32 or int64; request row indices in `token_pool`. |
-| `token_pool` | Dense NPU int32 Tensor `[pool_rows, row_width]`, storing cache-slot indices for each request. |
-| `start_offset` | NPU int64 Tensor `[B]`; inclusive start of each request interval. |
-| `end_offset` | NPU int64 Tensor `[B]`; exclusive end of each request interval. |
-| `out_cache_loc` | Caller-allocated contiguous NPU int32 Tensor, addressed as a flat packed buffer with at least the sum of all interval lengths. Contiguous multidimensional tensors retain their shape. Input for assign; output for update. |
-| `impl` | `auto`, `ascendc`, or `torch_native`; defaults to `auto`. |
-
-Let `length[b] = end_offset[b] - start_offset[b]` and
-`offset[b] = sum(length[:b])`. Request intervals are packed consecutively in
-`out_cache_loc`, in request order; their lengths may differ.
+These functions copy cache-slot indices between request rows and a packed buffer. They operate on the indices only. For request `i`, the selected interval is `token_pool[req_pool_indices[i], start_offset[i]:end_offset[i]]`. Intervals occupy consecutive positions in the buffer in request order. An empty interval consumes no positions.
 
 ### cache_loc_assign
 
-For each `0 <= j < length[b]`:
-
-```text
-token_pool[req_pool_indices[b], start_offset[b] + j] = out_cache_loc.flat[offset[b] + j]
-```
-
-**Mutates `token_pool` in place and returns a Tensor sharing its storage**,
-with the same shape, dtype and device. Unselected rows and positions outside the
-target intervals remain unchanged, as do the other four inputs. The AscendC
-implementation skips zero-length intervals before reading the token pool.
+Copies each packed interval into its table row. Positions outside the destination intervals retain their values.
 
 ### cache_loc_update
 
-For each `0 <= j < length[b]`:
+Copies the selected table intervals into the packed buffer. Elements after the last packed interval retain their values.
 
-```text
-out_cache_loc.flat[offset[b] + j] = token_pool[req_pool_indices[b], start_offset[b] + j]
+## Parameters and return value
+
+All tensors must reside on the same NPU. Supply dense table and index tensors, valid row and column indices, and nonoverlapping storage for the table and packed buffer.
+
+| Parameter | Type | Shape | Dtype | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `req_pool_indices` | `torch.Tensor` | `[B]` | `int32 / int64` | Required | One table row per request. Use distinct rows. |
+| `token_pool` | `torch.Tensor` | `[pool_rows, row_width]` | `int32` | Required | Cache-slot table. Destination for assign, source for update. |
+| `start_offset` | `torch.Tensor` | `[B]` | `int64` | Required | Inclusive start column in each row. |
+| `end_offset` | `torch.Tensor` | `[B]` | `int64` | Required | Exclusive end column, at least the start column. |
+| `out_cache_loc` | `torch.Tensor` | Any shape | `int32` | Required | Contiguous buffer with at least `sum(end_offset - start_offset)` elements. A multidimensional buffer is treated as flat. Source for assign, destination for update. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only. `auto`, `ascendc`, `torch_native` |
+
+| Function | Return type | Shape and dtype | Description |
+| --- | --- | --- | --- |
+| `cache_loc_assign` | `torch.Tensor` | Same as `token_pool` | Shares storage with `token_pool`, which is updated in place. |
+| `cache_loc_update` | `torch.Tensor` | Same as `out_cache_loc` | Shares storage with `out_cache_loc`, which is updated in place. |
+
+## ascendc backend
+
+Each interval can contain at most 16 indices. Provide storage for aligned reads and a full 16-element window from each accessed start column. Batch size and packed buffer length must fit the device’s on-chip buffer capacity.
+
+## torch_native backend
+
+Uses the same packed intervals and in-place outputs.
+
+## Example
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.mem_cache import cache_loc_assign, cache_loc_update
+
+rows = torch.arange(8, device="npu", dtype=torch.int32)
+pool = torch.zeros((8, 32), device="npu", dtype=torch.int32)
+starts = torch.zeros(8, device="npu", dtype=torch.int64)
+ends = starts + 1
+slots = rows + 100
+
+cache_loc_assign(rows, pool, starts, ends, slots, impl="ascendc")
+result = torch.empty_like(slots)
+cache_loc_update(rows, pool, starts, ends, result, impl="ascendc")
+# result: [100, 101, 102, 103, 104, 105, 106, 107]
 ```
-
-**Mutates `out_cache_loc` in place and returns a Tensor sharing its storage**,
-with the same shape, dtype and device. Elements beyond the packed output length
-remain unchanged, as do the other four inputs.
-
-Neither interface automatically makes inputs contiguous, casts indices or clips
-indices. Public entries check the dtype combinations above and `out_cache_loc`
-contiguity. Direct `torch.ops.npu` callers must ensure these conditions because
-the adapter does not repeat the public checks.
-
-## Implementation and limitations
-
-The CANN types are `SglCacheLocAssign` and `SglCacheLocUpdate`, invoked through
-ACLNN on the current NPU stream. Assign retains scheduling across all AIV cores;
-update retains single-core scheduling. Both share the computation and a
-sixteen-field Tiling structure. Location-buffer sizing uses its logical `numel()`.
-
-AscendC interval lengths are limited to `MAX_STEP=16`; UB capacity and aligned
-reads also constrain inputs. Use valid indices, unique request rows and
-nonoverlapping input/output storage. Fixed 16-element reads require readable
-storage. UB capacity failures are reported through the CANN/ACLNN error path.
-
-`torch_native` uses PyTorch slice copies on the input device. Reading index
-metadata for its Python loop may synchronize execution. Integer copying needs
-no floating-point promotion.
-
-## Build and test
-
-The operators share one Host, Kernel and Torch adapter. Selecting either ID
-automatically adds the other through the operator-local build configuration,
-so both are built and packaged together. The example below selects both IDs.
-
-```bash
-python3 setup.py --make_clean --arch-version 2201 \
-  --ops cache_loc_assign,cache_loc_update --artifact wheel
-# Install the wheel produced in output/ in a matching Linux/CANN/Torch environment.
-python3 -m pytest tests/python/operators/mem_cache/test_cache_locations.py \
-  --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
-```
-
-Use `--arch-version 3510` for arch35. The 52 cases cover individual accuracy,
-in-place writes, read-only inputs, untouched regions and changed-value round
-trips. Omit `--enable-perf=false` to run the performance workloads selected by
-the tests.
-
-The package loads its native library at import time; missing native artifacts
-are not fully isolated from other backends.

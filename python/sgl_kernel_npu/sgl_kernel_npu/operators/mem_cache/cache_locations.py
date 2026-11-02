@@ -58,11 +58,21 @@ def cache_loc_assign(
     *,
     impl="auto"
 ):
-    """Scatter packed locations to token_pool in place; return token_pool.
+    """Write packed cache-slot indices into token_pool.
 
-    Request indices are int32/int64, offsets int64, and pool/locations int32.
-    AscendC requires MAX_STEP=16 and compatible storage/UB capacity.
-    auto selects ascendc without fallback; torch_native is independent PyTorch.
+    Args:
+        req_pool_indices: Int32 or int64 vector of B row indices in token_pool.
+        token_pool: Dense int32 table of shape [pool_rows, row_width]. Updated in place.
+        start_offset: Int64 vector of B inclusive start columns.
+        end_offset: Int64 vector of B exclusive end columns.
+        out_cache_loc: Contiguous int32 source buffer. Intervals are packed
+            consecutively in request order, using at least sum(end_offset - start_offset)
+            elements of storage.
+        impl: Keyword-only implementation selector. "auto" selects "ascendc";
+            use "torch_native" to select PyTorch explicitly.
+
+    Returns:
+        The updated token_pool, sharing storage with the input table.
     """
     check_cache_loc_inputs(
         req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc
@@ -107,11 +117,21 @@ def cache_loc_update(
     *,
     impl="auto"
 ):
-    """Gather token_pool intervals into packed locations in place; return out_cache_loc.
+    """Gather cache-slot indices into the packed out_cache_loc buffer.
 
-    Request indices are int32/int64, offsets int64, and pool/locations int32.
-    AscendC requires MAX_STEP=16 and compatible storage/UB capacity.
-    auto selects ascendc without fallback; torch_native is independent PyTorch.
+    Args:
+        req_pool_indices: Int32 or int64 vector of B row indices in token_pool.
+        token_pool: Dense int32 table of shape [pool_rows, row_width]. Source of the slot indices.
+        start_offset: Int64 vector of B inclusive start columns.
+        end_offset: Int64 vector of B exclusive end columns.
+        out_cache_loc: Contiguous int32 destination buffer. Intervals are packed
+            consecutively in request order, using at least sum(end_offset - start_offset)
+            elements of storage.
+        impl: Keyword-only implementation selector. "auto" selects "ascendc";
+            use "torch_native" to select PyTorch explicitly.
+
+    Returns:
+        The updated out_cache_loc, sharing storage with the supplied buffer.
     """
     check_cache_loc_inputs(
         req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc
