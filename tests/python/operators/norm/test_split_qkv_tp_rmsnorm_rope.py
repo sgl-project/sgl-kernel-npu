@@ -1,7 +1,9 @@
+import csv
 import os
 from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
+from time import perf_counter_ns
 
 import pytest
 
@@ -68,6 +70,63 @@ def _check_outputs(executor, original, data):
         # Global mean squares: Q=(1+9)/2 and K=(4+16)/2.
         torch.testing.assert_close(q, ref_q / (5 + data["eps"]) ** 0.5)
         torch.testing.assert_close(k, ref_k / (10 + data["eps"]) ** 0.5)
+    return q, k, v
+
+
+def _check_full_tp_output(original, outputs, data, group):
+    import torch.distributed as dist
+
+    # Each rank contributes [input QKV | output Q | output K | output V].
+    packed = torch.cat((original, *outputs), dim=1)
+    peers = [torch.empty_like(packed) for _ in range(dist.get_world_size(group))]
+    dist.all_gather(peers, packed, group=group)
+    if dist.get_rank(group) == 0:
+        q, k = data["q_hidden_size"], data["kv_hidden_size"]
+        widths = (q, k, k, q, k, k)
+        columns = zip(*(peer.cpu().split(widths, dim=1) for peer in peers))
+        xq, xk, xv, actual_q, actual_k, actual_v = [
+            torch.cat(parts, dim=1) for parts in columns
+        ]
+        # This case has unit weights and identity RoPE. Normalize the unsharded input.
+        for actual, x in ((actual_q, xq), (actual_k, xk)):
+            expected = x * torch.rsqrt(
+                x.float().square().mean(dim=1, keepdim=True) + data["eps"]
+            )
+            torch.testing.assert_close(actual, expected.to(x.dtype))
+        torch.testing.assert_close(actual_v, xv, atol=0, rtol=0)
+
+
+def _measure_tp_latency(executor, group, device, options):
+    import torch.distributed as dist
+
+    # The per-rank profiler has already warmed up both ranks. Keep the start
+    # barrier and aggregation outside each synchronized operator call.
+    elapsed_us = []
+    for _ in range(5):
+        dist.barrier(group=group)
+        torch.npu.synchronize()
+        start = perf_counter_ns()
+        executor()
+        torch.npu.synchronize()
+        elapsed_us.append((perf_counter_ns() - start) / 1000)
+    samples = torch.tensor(elapsed_us, device=device, dtype=torch.float32)
+    dist.all_reduce(samples, op=dist.ReduceOp.MAX, group=group)
+    if dist.get_rank(group) == 0:
+        latency = samples.mean().item()
+        print(f"TP=2 mean max-rank wall time: {latency:.3f} us", flush=True)
+        if options["csv_path"]:
+            path = Path(options["csv_path"]).expanduser()
+            path = path.with_name(f"{path.stem}.tp2{path.suffix}")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", newline="") as stream:
+                writer = csv.writer(stream)
+                if stream.tell() == 0:
+                    writer.writerow(
+                        ["case", "impl", "samples", "mean_max_rank_wall_us"]
+                    )
+                writer.writerow(
+                    [options["nodeid"], executor.impl, len(elapsed_us), latency]
+                )
 
 
 @pytest.mark.parametrize(
@@ -146,8 +205,11 @@ def _check_two_rank_worker(rank, shape, dtype, rendezvous, options):
             skip_acc_check=bool(options["skip_acc_check"]),
         )
         if executor.accuracy_checked:
-            _check_outputs(executor, original, data)
-        check_performance(executor, enable_perf=shape in perf_shape)
+            outputs = _check_outputs(executor, original, data)
+            _check_full_tp_output(original, outputs, data, group)
+        profile = check_performance(executor, enable_perf=shape in perf_shape)
+        if profile is not None:
+            _measure_tp_latency(executor, group, original.device, options)
 
 
 @pytest.mark.parametrize("shape,dtype", [((1, 128, 64, 64, 64), torch.float32)])
