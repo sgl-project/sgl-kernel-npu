@@ -18,15 +18,13 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     ...
 ```
 
-`auto` 与 `triton` 注册到同一个入口，共享后端延迟导入缓存。默认选择 Triton，
-不自动回退。两个实现均声明支持全部已知代际；芯片表表示实际硬件验证状态，
-本次迁移尚未完成硬件验证。
+默认的 `impl="auto"` 选择 Triton 后端。
 
 ## 功能说明
 
 对输入 $X \in \mathbb{R}^{B\times L\times H}$ 应用标量或按通道缩放，再加标量、
-按通道或逐元素偏移。scale 和 shift 在使用前展平，以元素数量决定广播方式，
-不依赖原始 shape。记 $N=BLH$、$n_s=\mathrm{scale.numel()}$、
+按通道或逐元素偏移。scale 和 shift 在使用前展平，以元素数量决定广播方式。
+记 $N=BLH$、$n_s=\mathrm{scale.numel()}$、
 $n_t=\mathrm{shift.numel()}$：
 
 $$
@@ -44,14 +42,13 @@ c=\begin{cases}\mathrm{scale\_constant},&n_t=N,\\1,&n_t\ne N,\end{cases}
 \qquad Y_{blh}=X_{blh}(c+S_h)+T_{blh}.
 $$
 
-保留原有两个 kernel 的行为：只有逐元素 shift 分支使用 `scale_constant`；广播
-shift 分支始终使用 `1 + scale`，即使传入 `scale_constant=0` 也不改变该分支。
+只有逐元素 shift 分支使用 `scale_constant`；广播 shift 分支始终使用 `1 + scale`，
+即使传入 `scale_constant=0` 也不改变该分支。
 元素数量重合时优先选择逐元素分支。例如 `B * L == 1` 时，按通道 shift 也属于
 完整输入的逐元素 shift。Triton 的该分支要求 scale 恰好有 `H` 个值，只有 `H=1`
 时才能使用单元素 scale。
 
-公式描述数学运算，浮点中间结果遵循下述 dtype 规则，最终输出转换为 `x.dtype`。
-算子不修改输入。
+输出 dtype 为 `x.dtype`，算子不修改输入。
 
 ## 参数与返回值
 
@@ -67,41 +64,18 @@ shift 分支始终使用 `1 + scale`，即使传入 `scale_constant=0` 也不改
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[B, L, H]` | x.dtype | 与 x 同设备的新建连续 tensor，不与任何输入共享存储。 |
 
-三个 tensor 的 dtype 可以不同。精度比较使用有限输入。公开入口只负责分发，
-Triton wrapper 在查询启动参数前检查类型、维度、元素数、布局、设备和连续性，
-不支持的输入在启动 kernel 前抛出 `AssertionError`。不支持元素数超过 `H` 的按
-batch 或按帧 scale。
+三个 tensor 的 dtype 可以不同。输入须满足上述约束；Triton 后端对非法输入
+抛出 `AssertionError`。不支持元素数超过 `H` 的按 batch 或按帧 scale。
 
 ## triton 后端
 
-- 位于 `implementation/triton/elementwise/scale_shift.py`，保留原 kernel 函数体及调优配置。
-- `fused_scale_shift_kernel` 处理广播 shift，行块为 128/112、通道块为 128，scale
-  和 shift 独立支持标量或按通道值。`fused_scale_shift_kernel_2` 处理逐元素 shift，
-  行块为 96/80/64、通道块为 128，每个通道读取一个 scale 值。
-- 两者均使用持续分配任务的向量核 grid，以 mask 处理行和通道尾块；wrapper
-  不额外填充或转换布局。
-- 源码在加常量前不显式转换 scale。Triton-Ascend 3.2.2 的 NPU 结果表明，
-  BF16 scale 的标量加载与向量加载有不同的舍入行为：广播 shift 配合单元素
-  scale 时，缩放因子舍入到 BF16；向量加载在 FP32/FP16 输出场景下保留 FP32
-  精度。逐元素 kernel 始终向量加载 scale，包括 H=1；广播 kernel 则在
-  scale.numel()=1 时使用标量加载。广播 kernel 中按通道 shift 转为 float32，
-  标量 shift 保持原 dtype；逐元素 kernel 始终将 shift 转为 float32。前端 tensor 类型提升
-  在 float16 与 bfloat16 混合时优先使用 float16，后端可能保留更高的中间精度。
-- 旧脚本 `sgl_kernel_npu.norm.scale_shift` 保持原样。重构后的实现及其输入检查
-  通过公开接口 `sgl_kernel_npu.operators.elementwise.fused_scale_shift` 使用。
+使用 `impl="triton"` 或 `impl="auto"` 在 NPU 上执行。输入须为连续的 NPU tensor，
+并满足上述 shape 和 dtype 约束。
 
 ## torch_native 后端
 
-- 位于 `implementation/torch_native/elementwise/scale_shift.py`。
-- 使用独立的 PyTorch 运算，不导入 Triton；展平调制参数，并保持相同的元素数
-  分支优先级。
-- 仅向量加载路径的 BF16 scale 在加常量前转为 float32；广播 shift 配合
-  单元素 BF16 scale 时保留 BF16 加法。逐元素 shift 分支优先，包括 H=1
-  时也使用向量加载规则。FP16/FP32 scale 保留原有运算方式。匹配 shift 的
-  float32 转换，显式处理 Triton 的 float16/bfloat16 类型提升规则。
-- 假定输入合法，不显式检查元信息；还支持非连续输入，以及逐元素 shift 配合
-  标量 scale，但这两种组合不属于 Triton 的支持范围。
-- 分步运算与 kernel 的乘加融合可能造成舍入差异，不保证逐位一致。
+使用 `impl="torch_native"` 进行精度对照或问题排查，并遵循上述输入约束。
+精度对照使用有限输入；不同后端可能存在浮点舍入差异，不保证逐位一致。
 
 ## 调用示例
 
@@ -128,7 +102,7 @@ broadcast_output = fused_scale_shift(x, scale, channel_shift)
 ## 测试
 
 公开接口测试包含 46 个默认用例和 266 个可选 `extra_checks` 用例。
-迁移后的精度测试命令为：
+精度测试命令为：
 
 ```bash
 pytest tests/python/operators/elementwise/test_scale_shift.py --enable-perf=false

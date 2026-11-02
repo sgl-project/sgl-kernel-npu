@@ -18,17 +18,14 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     ...
 ```
 
-`auto` and `triton` share the same registered entry point and lazy import cache.
-The default selects Triton without automatic fallback. Both implementations are
-declared for all known generations; the table records hardware validation, which
-has not been performed as part of this migration.
+`impl="auto"` selects the Triton backend by default.
 
 ## Description
 
 Applies scalar or channel scaling and scalar, channel or elementwise shift to
 an input $X \in \mathbb{R}^{B\times L\times H}$. Modulation tensors are flattened
-before use: element counts determine broadcasting, regardless of their original
-shape. Let $N=BLH$, $n_s=\mathrm{scale.numel()}$ and
+before use: element counts determine broadcasting. Let $N=BLH$,
+$n_s=\mathrm{scale.numel()}$ and
 $n_t=\mathrm{shift.numel()}$:
 
 $$
@@ -46,14 +43,13 @@ c=\begin{cases}\mathrm{scale\_constant},&n_t=N,\\1,&n_t\ne N,\end{cases}
 \qquad Y_{blh}=X_{blh}(c+S_h)+T_{blh}.
 $$
 
-This preserves the original two kernels' behavior: `scale_constant` is used
-only for a full-input shift. Broadcast shift always uses `1 + scale`, including
-when `scale_constant=0`. The full-input branch takes precedence when counts
-overlap. In particular, for `B * L == 1`, a channel shift is a full-input shift.
+`scale_constant` is used only for a full-input shift. Broadcast shift always
+uses `1 + scale`, including when `scale_constant=0`. The full-input branch takes
+precedence when counts overlap. In particular, for `B * L == 1`, a channel shift
+is a full-input shift.
 Triton requires `H` scale values for that branch; a scalar is valid only if `H=1`.
 
-The formula describes the mathematical operation. Floating intermediates follow
-the dtype rules below, and the output is cast to `x.dtype`. Inputs are not modified.
+The output has dtype `x.dtype`. Inputs are not modified.
 
 ## Parameters and return value
 
@@ -69,51 +65,21 @@ the dtype rules below, and the output is cast to `x.dtype`. Inputs are not modif
 | --- | --- | --- | --- | --- |
 | `output` | `torch.Tensor` | `[B, L, H]` | x.dtype | Newly allocated contiguous tensor on x.device; does not alias an input. |
 
-Tensor dtypes may differ. Use finite inputs for accuracy comparisons. The public
-entry handles dispatch; the Triton wrapper checks types, dimensions, element
-counts, layouts, devices and contiguity before querying launch properties.
-Unsupported inputs raise `AssertionError` before a kernel is launched. Per-batch
-or per-frame modulation with more than `H` scale values is not supported.
+Tensor dtypes may differ. Inputs must satisfy the constraints above; invalid
+inputs to the Triton backend raise `AssertionError`. Per-batch or per-frame
+modulation with more than `H` scale values is not supported.
 
 ## triton backend
 
-- Located in `implementation/triton/elementwise/scale_shift.py`. The original kernel
-  bodies and autotune configurations are retained.
-- `fused_scale_shift_kernel` handles broadcast shift with row tiles 128/112 and
-  a 128-channel tile. Scale and shift independently support scalar or channel
-  values. `fused_scale_shift_kernel_2` handles full-input shift with row tiles
-  96/80/64 and a 128-channel tile, reading one scale value per channel.
-- Both use persistent vector-core grids and masked row/channel tails. No padding
-  or layout conversion is added to the wrapper.
-- The source adds the constant without explicitly casting scale. NPU results
-  with Triton-Ascend 3.2.2 distinguish scalar and vector BF16 scale loads:
-  broadcast shift with a single scale value rounds the factor to BF16, while
-  vector scale loads retain FP32 factor precision for FP32/FP16 outputs.
-  The full-input kernel always loads scale as a vector, including when H=1;
-  the broadcast kernel uses a scalar load whenever scale.numel()=1.
-  A channel shift is converted to float32 in the broadcast kernel, while a
-  scalar shift keeps its dtype. The full-input kernel converts shift to float32.
-  Frontend tensor promotion prefers float16 when mixing float16 and bfloat16;
-  backend lowering can retain higher intermediate precision.
-- The legacy `sgl_kernel_npu.norm.scale_shift` script remains unchanged. Access
-  the migrated implementation and its input validation through the public
-  `sgl_kernel_npu.operators.elementwise.fused_scale_shift` interface.
+Select with `impl="triton"` or `impl="auto"` for NPU execution. All inputs must
+be contiguous NPU tensors and satisfy the shape and dtype constraints above.
 
 ## torch_native backend
 
-- Located in `implementation/torch_native/elementwise/scale_shift.py`.
-- Uses independent PyTorch arithmetic and does not import Triton. Flattens
-  modulation tensors and preserves the same element-count branch precedence.
-- Converts BF16 scale to float32 before adding the constant for vector scale
-  loads. Broadcast shift with a single BF16 scale value retains BF16 addition.
-  Full-input shift takes precedence and uses the vector rule even when H=1.
-  FP16/FP32 scales keep their existing arithmetic. Matches the float32 shift
-  conversions and explicitly handles Triton's float16/bfloat16 promotion.
-- Assumes valid inputs without explicit metadata validation. It also supports
-  non-contiguous inputs and scalar scale with full-input shift, although those
-  combinations are outside the Triton contract.
-- Separate arithmetic operations and kernel multiply-add fusion can cause
-  rounding differences; bitwise equality is not guaranteed.
+Select with `impl="torch_native"` for accuracy comparison or debugging. Follow
+the input constraints above. Use finite inputs for comparisons; floating-point
+rounding differences between backends can occur, so bitwise equality is not
+guaranteed.
 
 ## Example
 
@@ -140,7 +106,7 @@ broadcast_output = fused_scale_shift(x, scale, channel_shift)
 ## Tests
 
 The public-interface suite contains 46 default cases and 266 optional
-`extra_checks` cases. Run the relocated accuracy tests with:
+`extra_checks` cases. Run accuracy tests with:
 
 ```bash
 pytest tests/python/operators/elementwise/test_scale_shift.py --enable-perf=false

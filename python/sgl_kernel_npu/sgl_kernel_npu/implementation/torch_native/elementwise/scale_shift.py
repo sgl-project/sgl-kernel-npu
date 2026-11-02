@@ -1,4 +1,4 @@
-"""Independent PyTorch implementation of the legacy scale/shift semantics."""
+"""Independent PyTorch implementation of fused scale/shift."""
 
 import torch
 
@@ -14,8 +14,8 @@ def _promoted_dtype(left, right):
 def fused_scale_shift(x, scale, shift, scale_constant=1.0):
     """Compute scale/shift without importing or calling Triton.
 
-    Inputs are assumed valid. Flatten modulation tensors just as the Triton
-    wrapper does; element count, rather than original shape, selects the path.
+    Inputs are assumed valid. Modulation tensors are flattened, and element
+    counts select broadcasting and the full-input-shift branch.
     """
     scale = scale.reshape(-1)
     shift = shift.reshape(-1)

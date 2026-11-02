@@ -39,7 +39,7 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
             Triton requires H values when shift.numel() == x.numel().
         shift (torch.Tensor): One, H, or x.numel() flattened values.
         scale_constant (float): Added to scale for elementwise shift only;
-            broadcast shift always uses 1.0, preserving the legacy behavior.
+            broadcast shift always uses 1.0.
         impl (str): "auto", "triton", or "torch_native"; defaults to "auto".
 
     Returns:

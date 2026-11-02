@@ -140,8 +140,8 @@ def fused_scale_shift(
 ):
     """Launch the broadcast-shift or elementwise-shift kernel.
 
-    Preserve the original branch semantics: only the elementwise-shift
-    kernel uses scale_constant; the broadcast kernel always adds 1 to scale.
+    The elementwise-shift kernel uses scale_constant; the broadcast kernel
+    always adds 1 to scale.
     """
     supported_dtypes = (torch.float32, torch.float16, torch.bfloat16)
     for name, tensor in (("x", x), ("scale", scale), ("shift", shift)):
