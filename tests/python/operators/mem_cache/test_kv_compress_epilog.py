@@ -70,6 +70,12 @@ def make_kv_inputs(n, slots, d, group, mode, rounding, layout, e4, int64, drop, 
     return cache, x.to(device), mapping.to(device), group, mode, rounding, layout
 
 
+def _layout2_scale_columns(ids, block, value_width, scale_count):
+    scale_width = (scale_count + 7) // 8 * 8
+    start = block * value_width + (ids % block) * scale_width
+    return start[:, None] + torch.arange(scale_width, device="cpu")
+
+
 def _compare_cache(actual, reference, x, slots, group, mode, layout):
     # Compare numeric quant values separately from the scale and BF16 byte regions.
     actual = actual.squeeze(2) if actual.ndim == 4 else actual
@@ -89,10 +95,10 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
         cols = (ids % block)[:, None] * width + torch.arange(q, device="cpu")
         aq, rq = a[rows[:, None], cols], r[rows[:, None], cols]
         keep[rows[:, None], cols] = False
-        scale_width = (scale_count + 7) // 8 * 8
-        scale_start = block * width + (ids % block) * scale_width
-        scale_cols = scale_start[:, None] + torch.arange(scale_count, device="cpu")
-        scales = a[rows[:, None], scale_cols]
+        scale_cols = _layout2_scale_columns(ids, block, width, scale_count)
+        scales = a[rows[:, None], scale_cols[:, :scale_count]]
+        # Only scale_count bytes in a written slot's aligned scale row are defined.
+        keep[rows[:, None], scale_cols[:, scale_count:]] = False
     else:
         a, r, keep = [v.reshape(v.shape[0], -1) for v in (a, r, keep)]
         off = 128 if mode == 2 else 0
@@ -222,4 +228,18 @@ def test_ascendc_graph_replay_with_distinct_tilings():
                 kv_compress_epilog(expected, x, mapping, *attrs, impl="ascendc")
                 graph.replay()
             stream.synchronize()
-            assert_accuracy(cache.view(torch.uint8), expected.view(torch.uint8))
+            actual_bytes = cache.view(torch.uint8).cpu().reshape(cache.shape[0], -1)
+            expected_bytes = expected.view(torch.uint8).cpu().reshape_as(actual_bytes)
+            if attrs[-1] == 2:
+                block = cache.shape[1]
+                q = x.shape[1] - 64
+                group = attrs[0]
+                count = (q + group - 1) // group
+                ids = mapping.cpu().long()
+                ids = ids[ids != -1]
+                padding = _layout2_scale_columns(ids, block, q + 128, count)[:, count:]
+                keep = torch.ones_like(actual_bytes, dtype=torch.bool)
+                keep[(ids // block)[:, None], padding] = False
+                assert_accuracy(actual_bytes[keep], expected_bytes[keep])
+            else:
+                assert_accuracy(actual_bytes, expected_bytes)

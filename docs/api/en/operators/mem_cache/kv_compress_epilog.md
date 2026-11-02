@@ -48,7 +48,7 @@ CANN type `SglKvCompressEpilog` receives cache stride as an internal attribute, 
 
 ## Build and test
 
-The 15 numeric cases cover both FP8 formats, int32/int64 slots, D=192/320/512, groups 64/128, rounding on/off, skipped/shuffled slots, zeros, 4096-row batches, partial blocks, 3D/4D caches and padded row strides. Another test rejects FP8 layout 2. Quant values use FP8/MXFP8 tolerances, FP32 scales use rtol=1e-5/atol=1e-7, and rope/E8M0/padding/unwritten bytes compare exactly. Independent output buffers avoid shared-input mutation during accuracy checks; performance uses make_executor/check_performance.
+The 15 numeric cases cover both FP8 formats, int32/int64 slots, D=192/320/512, groups 64/128, rounding on/off, skipped/shuffled slots, zeros, 4096-row batches, partial blocks, 3D/4D caches and padded row strides. Another test rejects FP8 layout 2. Quant values use FP8/MXFP8 tolerances, FP32 scales use rtol=1e-5/atol=1e-7, and RoPE bytes, stored E8M0 exponents, layout 1 padding and unwritten slots compare exactly. In layout 2 the alignment bytes after the last exponent of each written slot are unspecified. Independent output buffers avoid shared-input mutation during accuracy checks; performance uses make_executor/check_performance.
 
 ```bash
 python3 setup.py --make_clean --arch-version 3510 --ops kv_compress_epilog --artifact wheel

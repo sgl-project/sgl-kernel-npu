@@ -48,7 +48,7 @@ CANN 类型 SglKvCompressEpilog 以内部属性接收 cache stride，cache 为 R
 
 ## 构建与测试
 
-15 条数值用例覆盖两种 FP8、int32/int64 slot、D=192/320/512、group=64/128、round 开关、跳过/打散 slot、零输入、4096 行、尾部 block、三/四维 cache 和行间距；另有一条 FP8 layout2 拒绝测试。quant 使用 FP8/MXFP8 容差，float32 scale 为 rtol=1e-5/atol=1e-7，RoPE/E8M0/padding/未写区域逐字节检查。原地写入使用独立参考和实际缓冲区；性能接 make_executor/check_performance。
+15 条数值用例覆盖两种 FP8、int32/int64 slot、D=192/320/512、group=64/128、round 开关、跳过/打散 slot、零输入、4096 行、尾部 block、三/四维 cache 和行间距；另有一条 FP8 layout2 拒绝测试。quant 使用 FP8/MXFP8 容差，float32 scale 为 rtol=1e-5/atol=1e-7，RoPE、有效 E8M0 指数、layout 1 填充及未写 slot 逐字节检查。layout 2 已写 slot 在最后一个有效指数之后的对齐字节没有规定值。原地写入使用独立参考和实际缓冲区；性能接 make_executor/check_performance。
 
 ```bash
 python3 setup.py --make_clean --arch-version 3510 --ops kv_compress_epilog --artifact wheel
