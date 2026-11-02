@@ -79,7 +79,8 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
     q = x.shape[1] - 64
     scale_count = (q + group - 1) // group if mode == 2 else (q + 127) // 128
     ids = slots.cpu().long()
-    ids = ids[ids != -1]
+    valid = ids != -1
+    ids = ids[valid]
     if layout == 2:
         width = q + 128
         block = actual.shape[1]
@@ -88,21 +89,29 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
         cols = (ids % block)[:, None] * width + torch.arange(q, device="cpu")
         aq, rq = a[rows[:, None], cols], r[rows[:, None], cols]
         keep[rows[:, None], cols] = False
+        scale_width = (scale_count + 7) // 8 * 8
+        scale_start = block * width + (ids % block) * scale_width
+        scale_cols = scale_start[:, None] + torch.arange(scale_count, device="cpu")
+        scales = a[rows[:, None], scale_cols]
     else:
         a, r, keep = [v.reshape(v.shape[0], -1) for v in (a, r, keep)]
         off = 128 if mode == 2 else 0
         aq, rq = a[ids, off : off + q], r[ids, off : off + q]
         keep[ids, off : off + q] = False
-        if mode != 2:
-            off = q + 128
+        off = q + 128
+        if mode == 2:
+            scales = a[ids, off : off + scale_count]
+        else:
             ac = a[ids, off : off + scale_count * 4].contiguous().view(torch.float32)
+            scales = ac
             rc = r[ids, off : off + scale_count * 4].contiguous().view(torch.float32)
             assert_accuracy(
                 ac, rc, {"torch.float32": AccuracyStandard(atol=1e-7, rtol=1e-5)}
             )
             keep[ids, off : off + scale_count * 4] = False
+    quant = aq.contiguous().view(actual.dtype).float()
     assert_accuracy(
-        aq.contiguous().view(actual.dtype).float(),
+        quant,
         rq.contiguous().view(reference.dtype).float(),
         {
             "torch.float32": AccuracyStandard(
@@ -111,6 +120,20 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
         },
     )
     assert_accuracy(a[keep], r[keep])
+
+    # Decode only the quantized columns, using the scales from the DUT cache.
+    if mode == 2:
+        scales = torch.exp2(scales.float() - 127)
+    expanded = scales.repeat_interleave(group if mode == 2 else 128, dim=1)[:, :q]
+    restored = quant * expanded
+    expected = x.cpu()[valid, :q].float()
+    if mode == 2 and layout == 1:
+        unsaturated = expected.abs() / expanded <= torch.finfo(actual.dtype).max
+        assert unsaturated.any(), "test input must contain unsaturated MXFP8 values"
+        restored, expected = restored[unsaturated], expected[unsaturated]
+    torch.testing.assert_close(
+        restored, expected, rtol=0.15 if mode == 1 else 0.25, atol=0.02
+    )
 
 
 @pytest.mark.parametrize(
