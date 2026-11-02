@@ -109,7 +109,12 @@ FLA_TESTS=(
     test_l2norm_boundaries.py
 )
 
+ELEMENTWISE_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/elementwise/test_scale_shift.py"
+)
+
 FUSED_TESTS=(
+    "${ELEMENTWISE_TESTS[@]}"
     "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
@@ -158,6 +163,9 @@ case "$TEST_GROUP" in
     norm)
         TESTS=("${NORM_TESTS[@]}")
         ;;
+    elementwise)
+        TESTS=("${ELEMENTWISE_TESTS[@]}")
+        ;;
     attention)
         TESTS=("${ATTENTION_TESTS[@]}")
         ;;
@@ -178,7 +186,7 @@ case "$TEST_GROUP" in
         ;;
     *)
         echo "Unknown test group: $TEST_GROUP"
-        echo "Available groups: small, all, smoke, norm, attention, cache, speculative, mamba, fla, fused"
+        echo "Available groups: small, all, smoke, norm, elementwise, attention, cache, speculative, mamba, fla, fused"
         exit 1
         ;;
 esac

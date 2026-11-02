@@ -12,7 +12,7 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.norm import fused_scale_shift
+from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
 def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     ...
@@ -77,7 +77,7 @@ or per-frame modulation with more than `H` scale values is not supported.
 
 ## triton backend
 
-- Located in `implementation/triton/norm/scale_shift.py`. The original kernel
+- Located in `implementation/triton/elementwise/scale_shift.py`. The original kernel
   bodies and autotune configurations are retained.
 - `fused_scale_shift_kernel` handles broadcast shift with row tiles 128/112 and
   a 128-channel tile. Scale and shift independently support scalar or channel
@@ -97,10 +97,11 @@ or per-frame modulation with more than `H` scale values is not supported.
   backend lowering can retain higher intermediate precision.
 - The legacy `sgl_kernel_npu.norm.scale_shift` script remains unchanged. Access
   the migrated implementation and its input validation through the public
-  `sgl_kernel_npu.operators.norm.fused_scale_shift` interface.
+  `sgl_kernel_npu.operators.elementwise.fused_scale_shift` interface.
 
 ## torch_native backend
 
+- Located in `implementation/torch_native/elementwise/scale_shift.py`.
 - Uses independent PyTorch arithmetic and does not import Triton. Flattens
   modulation tensors and preserves the same element-count branch precedence.
 - Converts BF16 scale to float32 before adding the constant for vector scale
@@ -120,7 +121,7 @@ or per-frame modulation with more than `H` scale values is not supported.
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.norm import fused_scale_shift
+from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
 x = torch.randn(2, 3, 129, device="npu", dtype=torch.float32) * 0.25
 scale = torch.randn(1, 1, 129, device="npu", dtype=torch.float32) * 0.25
@@ -134,4 +135,14 @@ torch.testing.assert_close(output, reference, atol=1e-5, rtol=1e-5)
 # Broadcast shift: uses x * (1 + scale) + channel_shift.
 channel_shift = torch.zeros_like(scale)
 broadcast_output = fused_scale_shift(x, scale, channel_shift)
+```
+
+## Tests
+
+The public-interface suite contains 46 default cases and 266 optional
+`extra_checks` cases. Run the relocated accuracy tests with:
+
+```bash
+pytest tests/python/operators/elementwise/test_scale_shift.py --enable-perf=false
+pytest tests/python/operators/elementwise/test_scale_shift.py -m extra_checks --enable-perf=false
 ```

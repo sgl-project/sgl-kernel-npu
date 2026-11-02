@@ -6,28 +6,30 @@ _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("norm.fused_scale_shift", "auto")
-@register_impl("norm.fused_scale_shift", "triton")
+@register_impl("elementwise.fused_scale_shift", "auto")
+@register_impl("elementwise.fused_scale_shift", "triton")
 def _triton_impl(x, scale, shift, scale_constant):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.norm.scale_shift import fused_scale_shift
+        from ...implementation.triton.elementwise.scale_shift import fused_scale_shift
 
         _triton_fn = fused_scale_shift
     return _triton_fn(x, scale, shift, scale_constant)
 
 
-@register_impl("norm.fused_scale_shift", "torch_native")
+@register_impl("elementwise.fused_scale_shift", "torch_native")
 def _torch_native_impl(x, scale, shift, scale_constant):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.norm.scale_shift import fused_scale_shift
+        from ...implementation.torch_native.elementwise.scale_shift import (
+            fused_scale_shift,
+        )
 
         _torch_native_fn = fused_scale_shift
     return _torch_native_fn(x, scale, shift, scale_constant)
 
 
-@register_operator("norm.fused_scale_shift")
+@register_operator("elementwise.fused_scale_shift")
 def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     """Apply scale and shift; auto selects Triton.
 
@@ -43,5 +45,5 @@ def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     Returns:
         torch.Tensor: Newly allocated output with x's shape, dtype and device.
     """
-    impl_fn = get_impl_by_name("norm.fused_scale_shift", impl)
+    impl_fn = get_impl_by_name("elementwise.fused_scale_shift", impl)
     return impl_fn(x, scale, shift, scale_constant)

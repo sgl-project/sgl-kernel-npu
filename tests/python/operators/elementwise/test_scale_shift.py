@@ -60,7 +60,7 @@ def _check_bf16_scale_rounding(shape, x_dtype, scale_mode, shift_mode, expected_
     if get_skip_acc_check() is True:
         pytest.skip("Output checks are disabled by --skip-acc-check=true")
 
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     # Dyadic values keep multiply/add exact, even for float16 outputs.
     numel = shape[0] * shape[1] * shape[2]
@@ -114,7 +114,7 @@ def _check_bf16_scale_rounding(shape, x_dtype, scale_mode, shift_mode, expected_
 )
 def test_fused_scale_shift(shape, dtypes, scale_mode, shift_mode, scale_constant):
     """Cover representative SGLang inputs and both kernel paths."""
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     inputs = generate_test_data(shape, torch.float32, scale_mode, shift_mode)
     inputs = tuple(value.to(dtype) for value, dtype in zip(inputs, dtypes))
@@ -169,7 +169,7 @@ def test_fused_scale_shift_generalization(
     shape, dtype, scale_mode, shift_mode, scale_constant
 ):
     """Exercise other shapes without repeating ignored broadcast constants."""
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     inputs = generate_test_data(shape, dtype, scale_mode, shift_mode)
     executor = check_accuracy(
@@ -202,7 +202,7 @@ def test_fused_scale_shift_generalization(
 @pytest.mark.parametrize("shift_mode", ["channel", "elementwise"])
 def test_fused_scale_shift_tile_boundaries(tokens, hidden_size, shift_mode):
     """Check masked tails below/at/above all original autotune tile sizes."""
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     inputs = generate_test_data(
         (1, tokens, hidden_size), torch.float32, "channel", shift_mode
@@ -223,7 +223,7 @@ def test_fused_scale_shift_tile_boundaries(tokens, hidden_size, shift_mode):
 @pytest.mark.parametrize("scale_mode,shift_mode", modulation_cases)
 def test_fused_scale_shift_mixed_dtypes(dtypes, scale_mode, shift_mode):
     """Explore mixed dtype permutations beyond required caller scenarios."""
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     inputs = generate_test_data((2, 3, 129), torch.float32, scale_mode, shift_mode)
     inputs = tuple(value.to(dtype) for value, dtype in zip(inputs, dtypes))
@@ -278,7 +278,7 @@ def test_fused_scale_shift_output_contract(
     if get_skip_acc_check() is True:
         pytest.skip("Output checks are disabled by --skip-acc-check=true")
 
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     x, scale, shift = generate_test_data(shape, dtype, "channel", shift_mode)
     x.fill_(0.0 if zero_input else 2.0)
@@ -339,7 +339,7 @@ def test_fused_scale_shift_invalid_input(
     match,
 ):
     """Reject unsafe metadata in the Triton wrapper before launching a kernel."""
-    from sgl_kernel_npu.operators.norm import fused_scale_shift
+    from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
     x, scale, shift = generate_test_data(
         (2, 3, 129), torch.float32, "channel", "channel"

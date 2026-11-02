@@ -12,7 +12,7 @@
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.norm import fused_scale_shift
+from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
 def fused_scale_shift(x, scale, shift, scale_constant=1.0, *, impl="auto"):
     ...
@@ -74,7 +74,7 @@ batch 或按帧 scale。
 
 ## triton 后端
 
-- 位于 `implementation/triton/norm/scale_shift.py`，保留原 kernel 函数体及调优配置。
+- 位于 `implementation/triton/elementwise/scale_shift.py`，保留原 kernel 函数体及调优配置。
 - `fused_scale_shift_kernel` 处理广播 shift，行块为 128/112、通道块为 128，scale
   和 shift 独立支持标量或按通道值。`fused_scale_shift_kernel_2` 处理逐元素 shift，
   行块为 96/80/64、通道块为 128，每个通道读取一个 scale 值。
@@ -88,10 +88,11 @@ batch 或按帧 scale。
   标量 shift 保持原 dtype；逐元素 kernel 始终将 shift 转为 float32。前端 tensor 类型提升
   在 float16 与 bfloat16 混合时优先使用 float16，后端可能保留更高的中间精度。
 - 旧脚本 `sgl_kernel_npu.norm.scale_shift` 保持原样。重构后的实现及其输入检查
-  通过公开接口 `sgl_kernel_npu.operators.norm.fused_scale_shift` 使用。
+  通过公开接口 `sgl_kernel_npu.operators.elementwise.fused_scale_shift` 使用。
 
 ## torch_native 后端
 
+- 位于 `implementation/torch_native/elementwise/scale_shift.py`。
 - 使用独立的 PyTorch 运算，不导入 Triton；展平调制参数，并保持相同的元素数
   分支优先级。
 - 仅向量加载路径的 BF16 scale 在加常量前转为 float32；广播 shift 配合
@@ -108,7 +109,7 @@ batch 或按帧 scale。
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.norm import fused_scale_shift
+from sgl_kernel_npu.operators.elementwise import fused_scale_shift
 
 x = torch.randn(2, 3, 129, device="npu", dtype=torch.float32) * 0.25
 scale = torch.randn(1, 1, 129, device="npu", dtype=torch.float32) * 0.25
@@ -122,4 +123,14 @@ torch.testing.assert_close(output, reference, atol=1e-5, rtol=1e-5)
 # 广播 shift：计算 x * (1 + scale) + channel_shift。
 channel_shift = torch.zeros_like(scale)
 broadcast_output = fused_scale_shift(x, scale, channel_shift)
+```
+
+## 测试
+
+公开接口测试包含 46 个默认用例和 266 个可选 `extra_checks` 用例。
+迁移后的精度测试命令为：
+
+```bash
+pytest tests/python/operators/elementwise/test_scale_shift.py --enable-perf=false
+pytest tests/python/operators/elementwise/test_scale_shift.py -m extra_checks --enable-perf=false
 ```

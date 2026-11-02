@@ -133,6 +133,10 @@ jobs:
               - csrc/helloworld/**
               - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
               - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/elementwise/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/elementwise/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/elementwise/**
+              - tests/python/operators/elementwise/**
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/multimodal/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/multimodal/**
               - tests/python/operators/multimodal/**
