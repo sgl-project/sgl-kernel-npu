@@ -259,7 +259,7 @@ class FusedEPCommStrategy(EPCommStrategy):
         gmm2_weight_scale,
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        quant_mode: int,
+        quant_mode: Union[int, str],
         activation: Optional[str],
         beta: Optional[float],
         linear_beta: Optional[float],

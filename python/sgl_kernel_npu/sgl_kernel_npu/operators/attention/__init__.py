@@ -9,6 +9,7 @@ from .quant_lightning_indexer import quant_lightning_indexer
 from .quant_lightning_indexer_metadata import quant_lightning_indexer_metadata
 from .sparse_flash_mla import sparse_flash_mla
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata
+from .mlaprolog_v4 import mlaprolog_v4
 
 __all__ = [
     "compressor",
@@ -20,4 +21,5 @@ __all__ = [
     "sparse_flash_mla",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
+    "mlaprolog_v4",
 ]
