@@ -6,6 +6,7 @@ visibility, or the A5 runtime. Real NPU coverage is in tests/python/operators/me
 
 import importlib.util
 import inspect
+from itertools import product
 import sys
 import unittest
 from dataclasses import dataclass
@@ -92,11 +93,13 @@ class Context:
 
 class Language:
     constexpr = object
-    pid = 0
+    pids = (0, 0)
 
     @staticmethod
-    def program_id(_):
-        return Language.pid
+    def program_id(axis):
+        return Language.pids[axis]
+
+    static_range = staticmethod(range)
 
     @staticmethod
     def arange(start, stop):
@@ -126,20 +129,25 @@ class Language:
 class Kernel:
     def __init__(self, fn):
         self.fn, self.signature = fn, inspect.signature(fn)
+        self.launches = []
 
     def __getitem__(self, grid):
         def run(*args, **kwargs):
+            self.launches.append(grid)
+
+            def runtime_value(value):
+                if isinstance(value, Tensor):
+                    return Pointer(value.array)
+                if isinstance(value, tuple):
+                    return tuple(runtime_value(item) for item in value)
+                return Value(np.int64(value))
+
             bound = self.signature.bind(*args, **kwargs)
             for name, value in bound.arguments.items():
-                if isinstance(value, Tensor):
-                    bound.arguments[name] = Pointer(value.array)
-                elif (
-                    self.signature.parameters[name].annotation
-                    is inspect.Parameter.empty
-                ):
-                    bound.arguments[name] = Value(np.int64(value))
-            for pid in range(grid[0]):
-                Language.pid = pid
+                if self.signature.parameters[name].annotation is inspect.Parameter.empty:
+                    bound.arguments[name] = runtime_value(value)
+            for pids in product(*(range(size) for size in grid)):
+                Language.pids = pids
                 self.fn(**bound.arguments)
 
         return run
@@ -224,6 +232,8 @@ class TestTritonKVMetadata(unittest.TestCase):
         return rows
 
     def assert_metadata(self, devices, hosts, dp, hp, ps, direction):
+        kernel = self.module._build_kv_sparse_metadata_kernel
+        previous_launches = len(kernel.launches)
         outputs = self.module.build_kv_sparse_metadata(
             tuple(zip(devices, hosts)),
             self.indices(dp, ps),
@@ -231,6 +241,8 @@ class TestTritonKVMetadata(unittest.TestCase):
             ps,
             direction,
         )
+        self.assertEqual(len(kernel.launches), previous_launches + 1)
+        self.assertEqual(kernel.launches[-1][1], len(devices))
         reference = self.expected(devices, hosts, dp, hp)
         src, dst, lengths, count = (t.array for t in outputs)
         self.assertEqual(
@@ -245,6 +257,32 @@ class TestTritonKVMetadata(unittest.TestCase):
 
     def test_mixed_components_and_strided_host(self):
         devices, hosts = self.components()
+        for direction in (1, 2):
+            self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
+
+    def test_four_components_with_independent_layer_counts_and_tails(self):
+        devices, hosts = self.components(
+            layers=(70, 70, 21, 21),
+            widths=(5, 2, 3, 1),
+            dtypes=(np.uint16, np.uint16, np.uint8, np.float32),
+        )
+        for direction in (1, 2):
+            self.assert_metadata(devices, hosts, [6, 2, 4], [1, 8, 3], 4, direction)
+
+    def test_per_layer_metadata_with_four_components(self):
+        devices, hosts = self.components(
+            layers=(1, 1, 1, 1),
+            widths=(5, 2, 3, 1),
+            dtypes=(np.uint16, np.uint16, np.uint8, np.float32),
+        )
+        for direction in (1, 2):
+            self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
+
+    def test_layer_first_host_strides(self):
+        devices, hosts = self.components()
+        for host in hosts:
+            _, _, ps, _, width = host.shape
+            host.strides = (ps * width, 14 * ps * width, width, width, 1)
         for direction in (1, 2):
             self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
 
@@ -304,17 +342,16 @@ class TestTritonKVMetadata(unittest.TestCase):
 
     def test_validation_rejects_bad_layout_and_length_overflow(self):
         devices, hosts = self.components(layers=(3,), widths=(1,), dtypes=(np.uint8,))
-        di, hi = self.indices([0], 4), self.indices([1], 4)
         pairs = tuple(zip(devices, hosts))
         devices[0].strides = (80, 4, 1, 1, 2)
         with self.assertRaisesRegex(ValueError, "contiguous"):
-            self.module.build_kv_sparse_metadata(pairs, di, hi, 4, 1)
+            self.module._check_component(*pairs[0], 4, NPU)
         # Simulate a large page using metadata only; do not allocate its payload.
         for tensor in (devices[0], hosts[0]):
             tensor.shape = (*tensor.shape[:2], 4, 1, 1 << 30)
             tensor.strides = (1 << 36, 1 << 34, 1 << 30, 1 << 30, 1)
         with self.assertRaisesRegex(ValueError, "positive int32"):
-            self.module.build_kv_sparse_metadata(pairs, di, hi, 4, 1)
+            self.module._check_component(*pairs[0], 4, NPU)
 
 
 if __name__ == "__main__":

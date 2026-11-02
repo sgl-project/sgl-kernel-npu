@@ -49,17 +49,7 @@ def _check_component(device, host, page_size, index_device):
         )
 
 
-@triton.jit(
-    do_not_specialize=[
-        "device_base",
-        "host_base",
-        "component_offset",
-        "entries",
-        "total_entries",
-        "device_pages",
-        "host_pages",
-    ]
-)
+@triton.jit(do_not_specialize=["device_info", "host_info", "pages"])
 def _build_kv_sparse_metadata_kernel(
     device_indices,
     host_indices,
@@ -67,66 +57,65 @@ def _build_kv_sparse_metadata_kernel(
     dst,
     lengths,
     count,
-    device_base,
-    host_base,
-    component_offset,
-    entries,
-    total_entries,
-    device_pages,
-    host_pages,
-    DEVICE_LAYER_STRIDE: tl.constexpr,
-    DEVICE_PAGE_STRIDE: tl.constexpr,
-    HOST_LAYER_STRIDE: tl.constexpr,
-    HOST_PAGE_STRIDE: tl.constexpr,
-    PAGE_BYTES: tl.constexpr,
-    LAYERS: tl.constexpr,
+    device_info,
+    host_info,
+    pages,
+    LAYOUTS: tl.constexpr,
     PAGE_SIZE: tl.constexpr,
     H2D: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
     offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    mask = offsets < entries
     entry = offsets.to(tl.int64)
-    output = component_offset + entry
-    page, layer = entry // LAYERS, entry % LAYERS
-    dt = tl.load(device_indices + page * PAGE_SIZE, mask=mask, other=0)
-    ht = tl.load(host_indices + page * PAGE_SIZE, mask=mask, other=0)
-    dp, hp = dt // PAGE_SIZE, ht // PAGE_SIZE
-    valid = (
-        (dt >= 0)
-        & (ht >= 0)
-        & (dt % PAGE_SIZE == 0)
-        & (ht % PAGE_SIZE == 0)
-        & (dp < device_pages)
-        & (hp < host_pages)
-    )
-    daddr = device_base.to(tl.uint64) + (
-        layer * DEVICE_LAYER_STRIDE + dp * DEVICE_PAGE_STRIDE
-    ).to(tl.uint64)
-    haddr = host_base.to(tl.uint64) + (
-        layer * HOST_LAYER_STRIDE + hp * HOST_PAGE_STRIDE
-    ).to(tl.uint64)
-    # Invalid descriptors use pool bases and a negative length, which the
-    # LOCAL_URMA consumer rejects asynchronously before dereferencing them.
-    daddr = tl.where(valid, daddr, device_base.to(tl.uint64))
-    haddr = tl.where(valid, haddr, host_base.to(tl.uint64))
-    tl.store(src + output, haddr if H2D else daddr, mask=mask)
-    tl.store(dst + output, daddr if H2D else haddr, mask=mask)
-    tl.store(lengths + output, tl.where(valid, PAGE_BYTES, -1), mask=mask)
-    if (component_offset == 0) & (tl.program_id(0) == 0):
-        tl.store(count, total_entries)
+    component = tl.program_id(1)
+    layer_offset = 0
+    for c in tl.static_range(len(LAYOUTS)):
+        (
+            layers,
+            device_layer_stride,
+            device_page_stride,
+            host_layer_stride,
+            host_page_stride,
+            page_bytes,
+        ) = LAYOUTS[c]
+        if component == c:
+            device_base, device_pages = device_info[c]
+            host_base, host_pages = host_info[c]
+            mask = offsets < pages * layers
+            output = pages * layer_offset + entry
+            page, layer = entry // layers, entry % layers
+            dt = tl.load(device_indices + page * PAGE_SIZE, mask=mask, other=0)
+            ht = tl.load(host_indices + page * PAGE_SIZE, mask=mask, other=0)
+            dp, hp = dt // PAGE_SIZE, ht // PAGE_SIZE
+            valid = (
+                (dt >= 0)
+                & (ht >= 0)
+                & (dt % PAGE_SIZE == 0)
+                & (ht % PAGE_SIZE == 0)
+                & (dp < device_pages)
+                & (hp < host_pages)
+            )
+            daddr = device_base.to(tl.uint64) + (
+                layer * device_layer_stride + dp * device_page_stride
+            ).to(tl.uint64)
+            haddr = host_base.to(tl.uint64) + (
+                layer * host_layer_stride + hp * host_page_stride
+            ).to(tl.uint64)
+            # Invalid descriptors keep safe bases and are rejected by LOCAL_URMA.
+            daddr = tl.where(valid, daddr, device_base.to(tl.uint64))
+            haddr = tl.where(valid, haddr, host_base.to(tl.uint64))
+            tl.store(src + output, haddr if H2D else daddr, mask=mask)
+            tl.store(dst + output, daddr if H2D else haddr, mask=mask)
+            tl.store(lengths + output, tl.where(valid, page_bytes, -1), mask=mask)
+        layer_offset += layers
+    if (component == 0) & (tl.program_id(0) == 0):
+        tl.store(count, pages * layer_offset)
 
 
 def build_kv_sparse_metadata(
     components, device_indices, host_indices, page_size, direction
 ):
-    """Build address tables and one count for a single sparse_copy call.
-
-    The transfer entry point has normalized indices and selected paired buffers.
-    Validate payload layouts once, then launch once per active component.
-    """
-    for dev, host in components:
-        _check_component(dev, host, page_size, device_indices.device)
+    """Build all address tables in one launch; transfer_kv validates the inputs."""
     pages = device_indices.numel() // page_size
     total = pages * sum(dev.shape[0] for dev, _ in components)
     if total > MAX_SPARSE_COPY_ENTRIES:
@@ -139,36 +128,35 @@ def build_kv_sparse_metadata(
     dst = torch.empty_like(src)
     lengths = torch.empty((total,), dtype=_LENGTH_DTYPE, device=device)
     count = torch.empty((1,), dtype=torch.int32, device=device)
-    component_offset = 0
+    layouts = []
     for dev, host in components:
-        entries = pages * dev.shape[0]
-        if entries:
-            item_size = dev.element_size()
-            _build_kv_sparse_metadata_kernel[(triton.cdiv(entries, 128),)](
-                device_indices,
-                host_indices,
-                src,
-                dst,
-                lengths,
-                count,
-                dev.data_ptr(),
-                host.data_ptr(),
-                component_offset,
-                entries,
-                total,
-                dev.shape[1],
-                host.shape[0],
-                DEVICE_LAYER_STRIDE=dev.stride(0) * item_size,
-                DEVICE_PAGE_STRIDE=dev.stride(1) * item_size,
-                HOST_LAYER_STRIDE=host.stride(1) * item_size,
-                HOST_PAGE_STRIDE=host.stride(0) * item_size,
-                PAGE_BYTES=page_size * dev.shape[3] * dev.shape[4] * item_size,
-                LAYERS=dev.shape[0],
-                PAGE_SIZE=page_size,
-                H2D=direction == 1,
-                BLOCK=128,
+        item_size = dev.element_size()
+        layouts.append(
+            (
+                dev.shape[0],
+                dev.stride(0) * item_size,
+                dev.stride(1) * item_size,
+                host.stride(1) * item_size,
+                host.stride(0) * item_size,
+                page_size * dev.shape[3] * dev.shape[4] * item_size,
             )
-        component_offset += entries
+        )
+    max_entries = pages * max(dev.shape[0] for dev, _ in components)
+    _build_kv_sparse_metadata_kernel[(triton.cdiv(max_entries, 128), len(components))](
+        device_indices,
+        host_indices,
+        src,
+        dst,
+        lengths,
+        count,
+        tuple((dev.data_ptr(), dev.shape[1]) for dev, _ in components),
+        tuple((host.data_ptr(), host.shape[0]) for _, host in components),
+        pages,
+        LAYOUTS=tuple(layouts),
+        PAGE_SIZE=page_size,
+        H2D=direction == 1,
+        BLOCK=128,
+    )
     return src, dst, lengths, count
 
 
@@ -371,10 +359,8 @@ def transfer_kv(
             di = _device_indices(device_indices, device, keepalive)
             hi = _device_indices(host_indices, device, keepalive)
             keepalive.extend((di, hi))
-            for dev, _ in components:
-                dev.record_stream(stream)
-            di.record_stream(stream)
-            hi.record_stream(stream)
+            # Strong references survive until done.query() confirms completion,
+            # including tensors allocated on a different stream.
             if backend == "aicpu":
                 _submit_aicpu(
                     offload, components, di, hi, page_size, direction, device, keepalive

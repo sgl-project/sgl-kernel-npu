@@ -3,14 +3,16 @@
 Only the NPU/Memfabric boundary is mocked; no PyTorch/CANN install is needed.
 """
 
+import gc
 import importlib.util
 from functools import partial
 import sys
 import unittest
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -153,6 +155,7 @@ class TestSparseDispatch(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(module_name, path)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+        self.real_builder = self.module.build_kv_sparse_metadata
         self.module.build_kv_sparse_metadata = self.builder
         self.call = partial(self.module.transfer_kv, host_layout="page_first",
                             kv_layers=(0, 0, None), index_layers=(0, 0, None),
@@ -185,6 +188,40 @@ class TestSparseDispatch(unittest.TestCase):
             self.assertIs(submitted, table)
             self.assertIn(table, retained)
         self.assertEqual(args[-1], 1)
+
+    def test_keepalive_protects_inputs_without_record_stream(self):
+        dev, host, di, hi = self.transfer()
+        for tensor in (dev, di, hi):
+            self.assertEqual(tensor.recorded, [])
+        refs = [weakref.ref(tensor) for tensor in (dev, host, di, hi)]
+        del tensor, dev, host, di, hi
+        self.builder.reset_mock()
+        gc.collect()
+        self.assertTrue(all(ref() is not None for ref in refs))
+        self.module._inflight[0][0].done = True
+        self.transfer()
+        gc.collect()
+        self.assertTrue(all(ref() is None for ref in refs))
+
+    def test_aicpu_validates_once_and_launches_metadata_once(self):
+        self.torch.empty = lambda shape, dtype, device: Tensor(shape, device, dtype)
+        self.torch.empty_like = lambda tensor: Tensor(
+            tensor.shape, tensor.device, tensor.dtype
+        )
+        kernel = MagicMock()
+        sys.modules["triton"].cdiv = lambda size, block: (size + block - 1) // block
+        with (
+            patch.object(self.module, "build_kv_sparse_metadata", self.real_builder),
+            patch.object(self.module, "_build_kv_sparse_metadata_kernel", kernel),
+            patch.object(
+                self.module, "_check_component", wraps=self.module._check_component
+            ) as check,
+        ):
+            self.transfer()
+        self.assertEqual(check.call_count, 1)
+        kernel.__getitem__.assert_called_once_with((1, 1))
+        kernel.__getitem__.return_value.assert_called_once()
+        self.offload.sparse_copy.assert_called_once()
 
     def test_cross_stream_dependency_covers_both_directions(self):
         self.transfer()

@@ -253,6 +253,42 @@ def test_urma_cross_stream_lifetime(offload_runtime, layout):
             assert_bytes_equal(dev[0, target], original[0, source])
 
 
+@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
+def test_urma_temporary_input_lifetime(offload_runtime, layout):
+    if offload_runtime._get_scene() != offload_runtime.Scene.LOCAL_URMA:
+        pytest.skip("LOCAL_URMA temporary-input lifetime test")
+    backup, _ = OPERATORS[layout]
+    shape = (2, 8, 4, 1, 5)
+    values = (torch.arange(320, device="cpu") % 251).to(torch.uint8).reshape(shape)
+    device = values.npu()
+    host_shape = (10, 2, 4, 1, 5) if layout == "page_first" else (2, 10, 4, 1, 5)
+    host = offload_runtime.empty(list(host_shape), dtype=torch.uint8).fill_(77)
+    di = token_indices([6, 2], 4, "npu")
+    hi = token_indices([1, 8], 4, "npu")
+    ready, write = torch.npu.Event(), torch.npu.Stream()
+    ready.record()
+    with torch.npu.stream(write):
+        write.wait_event(ready)
+        backup(
+            di,
+            hi,
+            device,
+            host,
+            torch.empty(0, device=device.device),
+            torch.empty(0, device="cpu"),
+            page_size=4,
+            impl="aicpu",
+        )
+    del device, di, hi
+    # Churn the creation stream's allocator while the transfer stream is active.
+    for _ in range(32):
+        torch.empty(shape, dtype=torch.uint8, device="npu").fill_(199)
+        torch.empty(8, dtype=torch.int64, device="npu").fill_(0)
+    write.synchronize()
+    payload = host if layout == "page_first" else host.transpose(0, 1)
+    assert_bytes_equal(payload[[1, 8]].transpose(0, 1), values[:, [6, 2]])
+
+
 @pytest.mark.extra_checks
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize("direction", [1, 2])
