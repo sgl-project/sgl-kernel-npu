@@ -64,7 +64,7 @@ Indices pair Device/Host pages in order. Payload bytes are unchanged, with no qu
 
 | Parameter | Type, default and constraints |
 | --- | --- |
-| `device_indices` / `host_indices` | 1-D int64 tensors on CPU or the same NPU as K; equal lengths divisible by page_size; token slots, not page numbers or pointers; pages must fit every participating component |
+| `device_indices` / `host_indices` | 1-D int64 tensors on the same NPU as K; equal lengths divisible by page_size; token slots, not page numbers or pointers; pages must fit every participating component |
 | `device_k` / `host_k` | Nonempty 5-D tensors; NPU LF Device and CPU PF/LF Host; matching dtype and per-page `[T,H,D]` |
 | `device_v` / `host_v` | Tensor pair; nonempty Device V follows KV layer selection; empty Device V denotes no separate packed-K V payload, with an unused Host placeholder allowed |
 | `device_index_k` / `host_index_k` | Optional, default None; transferred only when both operands exist, retaining legacy semantics; Indexer layer count can differ from KV |
@@ -80,7 +80,7 @@ Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer
 
 ## aicpu
 
-Triton constructs pointer tables in parallel on the NPU, followed by `offload.sparse_copy`. The registered name is `aicpu`: MF uses the URMA path in `LOCAL_URMA` and may use MTE in `LOCAL`, with Host bases resolved through `get_dva`. A matching MF descriptor protocol is required; the old local MTE kernel still has a paired-half-table restriction, which is not rewritten here. The wrapper currently limits a batch to 8190 descriptors with positive int32 byte lengths. CPU indices are uploaded asynchronously through pinned staging.
+Triton constructs pointer tables in parallel on the NPU, followed by `offload.sparse_copy`. The registered name is `aicpu`: MF uses the URMA path in `LOCAL_URMA` and may use MTE in `LOCAL`, with Host bases resolved through `get_dva`. A matching MF descriptor protocol is required; the old local MTE kernel still has a paired-half-table restriction, which is not rewritten here. The wrapper currently limits a batch to 8190 descriptors with positive int32 byte lengths. Both index tensors must already reside on the KV buffer's NPU.
 
 ## aiv
 
@@ -92,7 +92,15 @@ An independent synchronous reference directly copies original Tensor layer/page 
 
 ## Streams and lifetimes
 
-Production implementations enqueue on the caller's current NPU stream without creating a transfer stream or synchronizing. The caller provides producer dependencies and consumer completion events, and prevents storage mutation/reuse until completion. Wrappers retain tensors, pointer tables and pinned staging until completion events retire. The sparse_copy wrapper serializes submissions across streams to protect shared resources; callers provide AIV cross-stream data dependencies. Synchronize all transfers and end their use before releasing the MemFabric entity.
+Production implementations enqueue on the caller's current NPU stream without creating a transfer stream or synchronizing. The caller provides producer dependencies and consumer completion events, and prevents storage mutation/reuse until completion. Wrappers retain original inputs, sparse-copy pointer tables and AIV pinned staging until completion events retire. New contiguous index copies are allocated and consumed on the submission stream, so their storage lifetime relies on allocator ordering. The sparse_copy wrapper serializes submissions across streams to protect shared resources; callers provide AIV cross-stream data dependencies. Synchronize all transfers and end their use before releasing the MemFabric entity.
+
+## NPU graph capture
+
+Use explicit `impl="aicpu"` for both directions, with initialized graph-capable MF resources and a warmup of the same transfer shapes before capture. Both index tensors must already be on the KV buffer's NPU. Addresses, shapes, page count, layer selection and direction are fixed by capture; index and payload contents may be updated in place before replay.
+
+The pointer tables are allocated during capture with `torch.empty` and belong to the graph's private memory pool. Capture bypasses eager event queries, retirement and shared-resource event bookkeeping. Callers retain static input tensors and Host/MF storage for the graph lifetime, and explicitly order all graph replays and eager transfers sharing the MF resource, including across streams. Drain replay work and destroy graphs before releasing MF resources. This does not add AIV graph support.
+
+Run `python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py -k graph --impl aicpu --enable-perf=false -v -s` for PF/LF, packed/separate-KV roundtrips with changing NPU index contents, in-graph consumers and externally ordered alternating replay streams. Hardware validation is still required.
 
 ## Example
 
@@ -117,9 +125,9 @@ original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to
 dev = original.npu()
 host = offload.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
 empty_dev, empty_host = torch.empty(0, device="npu"), torch.empty(0, device="cpu")
-source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="cpu")
-saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="cpu")
-target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="cpu")
+source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
+saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="npu")
+target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="npu")
 backup(source, saved, dev, host, empty_dev, empty_host, page_size=ps,
        host_layer_start=1, impl="aicpu")
 load(target, saved, dev, host, empty_dev, empty_host, page_size=ps,

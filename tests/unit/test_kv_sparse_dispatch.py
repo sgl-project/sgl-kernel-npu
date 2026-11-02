@@ -34,7 +34,6 @@ class Tensor:
         self.device = device
         self.dtype = dtype
         self.recorded = []
-        self.pinned = None
 
     def numel(self):
         n = 1
@@ -44,14 +43,6 @@ class Tensor:
 
     def contiguous(self):
         return self
-
-    def pin_memory(self):
-        self.pinned = Tensor(self.shape, CPU, self.dtype)
-        return self.pinned
-
-    def to(self, device, non_blocking=False):
-        assert non_blocking
-        return Tensor(self.shape, device, self.dtype)
 
     def record_stream(self, stream):
         self.recorded.append(stream)
@@ -85,6 +76,15 @@ class Tensor:
         return self if tuple(shape) == self.shape else Tensor(shape, self.device, self.dtype)
 
 
+class Stream:
+    def __init__(self, stream_id=0):
+        self.stream_id = stream_id
+        self.wait_event = Mock()
+
+    def __eq__(self, other):
+        return isinstance(other, Stream) and self.stream_id == other.stream_id
+
+
 class Event:
     def __init__(self):
         self.done = False
@@ -107,7 +107,7 @@ class Context:
 
 class TestSparseDispatch(unittest.TestCase):
     def setUp(self):
-        self.stream = SimpleNamespace(wait_event=Mock())
+        self.stream = Stream()
 
         def build(components, di, hi, page_size, direction):
             total = di.numel() // page_size * sum(d.shape[0] for d, _ in components)
@@ -128,6 +128,7 @@ class TestSparseDispatch(unittest.TestCase):
             npu=SimpleNamespace(
                 device=lambda _: Context(),
                 current_stream=lambda: self.stream,
+                is_current_stream_capturing=Mock(return_value=False),
                 Event=Event,
             ),
         )
@@ -223,34 +224,168 @@ class TestSparseDispatch(unittest.TestCase):
         kernel.__getitem__.return_value.assert_called_once()
         self.offload.sparse_copy.assert_called_once()
 
+    def test_capture_skips_eager_event_queries_waits_and_retirement(self):
+        self.transfer()
+        previous = self.module._last_sparse_submission[NPU]
+        previous_done = previous[1]
+        previous_done.query = Mock(side_effect=AssertionError("event query during capture"))
+        self.torch.npu.Event = Mock(
+            side_effect=AssertionError("event creation during capture")
+        )
+        self.torch.npu.is_current_stream_capturing.return_value = True
+        self.stream.wait_event.side_effect = AssertionError("eager wait during capture")
+        self.builder.reset_mock()
+        self.offload.sparse_copy.reset_mock()
+        for direction in (1, 2):
+            self.transfer(direction=direction)
+        self.assertEqual(self.builder.call_count, 2)
+        self.assertEqual(self.offload.sparse_copy.call_count, 2)
+        self.assertEqual(len(self.module._inflight), 1)
+        self.assertIs(self.module._last_sparse_submission[NPU], previous)
+        previous_done.query.assert_not_called()
+        self.torch.npu.Event.assert_not_called()
+        self.stream.wait_event.assert_not_called()
+
+    def test_capture_without_eager_work_creates_no_retirement_state(self):
+        self.torch.npu.is_current_stream_capturing.return_value = True
+        self.torch.npu.Event = Mock(
+            side_effect=AssertionError("event creation during capture")
+        )
+        self.transfer()
+        self.assertFalse(self.module._inflight)
+        self.assertFalse(self.module._last_sparse_submission)
+        self.offload.sparse_copy.assert_called_once()
+
+    def test_capture_rejects_cpu_indices_and_unsupported_backend(self):
+        self.torch.npu.is_current_stream_capturing.return_value = True
+        with self.assertRaisesRegex(ValueError, "indices must be on the KV buffer's NPU"):
+            self.transfer(cpu_indices=True)
+        with self.assertRaisesRegex(RuntimeError, "impl='aicpu'"):
+            self.call(
+                Tensor((8,)),
+                Tensor((8,)),
+                Tensor((1, 8, 4, 1, 5)),
+                Tensor((10, 1, 4, 1, 5), CPU),
+                Tensor((0,)),
+                Tensor((0,), CPU),
+                page_size=4,
+                backend="aiv",
+            )
+        self.builder.assert_not_called()
+        self.offload.sparse_copy.assert_not_called()
+        self.assertFalse(self.module._inflight)
+
+    def test_capture_submission_failure_does_not_create_eager_events(self):
+        self.torch.npu.is_current_stream_capturing.return_value = True
+        self.torch.npu.Event = Mock(
+            side_effect=AssertionError("event creation during capture")
+        )
+        self.offload.sparse_copy.return_value = 7
+        with self.assertRaisesRegex(RuntimeError, "code=7"):
+            self.transfer()
+        self.torch.npu.Event.assert_not_called()
+        self.assertFalse(self.module._inflight)
+        self.assertFalse(self.module._last_sparse_submission)
+
+    def test_same_stream_skips_wait_and_retains_each_completion_event(self):
+        self.transfer()
+        first = self.module._last_sparse_submission[NPU][1]
+        self.transfer(direction=2)
+        second = self.module._last_sparse_submission[NPU][1]
+        self.stream.wait_event.assert_not_called()
+        self.assertIsNot(first, second)
+        self.assertEqual(len(self.module._inflight), 2)
+        self.assertIs(first.stream, self.stream)
+        self.assertIs(second.stream, self.stream)
+
+    def test_equivalent_stream_wrappers_skip_wait(self):
+        self.transfer()
+        first_stream = self.stream
+        self.stream = Stream(first_stream.stream_id)
+        self.assertIsNot(first_stream, self.stream)
+        self.transfer()
+        self.stream.wait_event.assert_not_called()
+
     def test_cross_stream_dependency_covers_both_directions(self):
         self.transfer()
-        first = self.module._last_sparse_event[NPU]
-        second_stream = SimpleNamespace(wait_event=Mock())
+        first = self.module._last_sparse_submission[NPU][1]
+        second_stream = Stream(1)
         self.stream = second_stream
         self.transfer(direction=2)
         second_stream.wait_event.assert_called_once_with(first)
         self.assertEqual(self.offload.sparse_copy.call_args.args[-1], 2)
-        self.assertIs(self.module._last_sparse_event[NPU].stream, second_stream)
+        latest_stream, latest_done = self.module._last_sparse_submission[NPU]
+        self.assertIs(latest_stream, second_stream)
+        self.assertIs(latest_done.stream, second_stream)
 
-    def test_submission_failure_keeps_metadata_and_orders_next_call(self):
+    def test_switching_back_waits_for_the_latest_submission(self):
+        self.transfer()
+        first_stream = self.stream
+        first = self.module._last_sparse_submission[NPU][1]
+        second_stream = Stream(1)
+        self.stream = second_stream
+        self.transfer()
+        second = self.module._last_sparse_submission[NPU][1]
+        self.stream = first_stream
+        self.transfer()
+        second_stream.wait_event.assert_called_once_with(first)
+        first_stream.wait_event.assert_called_once_with(second)
+
+    def test_submission_failure_keeps_inputs_and_orders_next_call(self):
         self.offload.sparse_copy.return_value = 7
         with self.assertRaisesRegex(RuntimeError, "code=7"):
             self.transfer()
-        failed = self.module._last_sparse_event[NPU]
+        failed = self.module._last_sparse_submission[NPU][1]
         self.assertTrue(self.module._inflight)
         self.offload.sparse_copy.return_value = 0
+        self.stream = Stream(1)
         self.transfer()
-        self.stream.wait_event.assert_called_with(failed)
+        self.stream.wait_event.assert_called_once_with(failed)
 
-    def test_pinned_cpu_staging_is_retained_and_released_after_completion(self):
-        _, _, di, hi = self.transfer(cpu_indices=True)
-        retained = self.module._inflight[0][1]
-        self.assertIn(di.pinned, retained)
-        self.assertIn(hi.pinned, retained)
-        self.module._inflight[0][0].done = True
-        self.transfer()
-        self.assertEqual(len(self.module._inflight), 1)
+    def test_indices_must_share_the_kv_npu_before_submission(self):
+        self.torch.npu.Event = Mock(side_effect=AssertionError("unexpected event"))
+        for backend in ("aicpu", "aiv"):
+            for index_device in (CPU, Device("npu", 1)):
+                for side in (0, 1):
+                    with self.subTest(backend=backend, device=index_device, side=side):
+                        indices = [Tensor((8,)), Tensor((8,))]
+                        indices[side] = Tensor((8,), index_device)
+                        with self.assertRaisesRegex(ValueError, "indices must be on"):
+                            self.call(
+                                *indices,
+                                Tensor((1, 8, 4, 1, 5)),
+                                Tensor((10, 1, 4, 1, 5), CPU),
+                                Tensor((0,)),
+                                Tensor((0,), CPU),
+                                page_size=4,
+                                backend=backend,
+                            )
+        self.builder.assert_not_called()
+        self.offload.sparse_copy.assert_not_called()
+        self.torch.npu.Event.assert_not_called()
+        self.assertFalse(self.module._inflight)
+
+    def test_aiv_retains_inputs_and_pinned_metadata_staging(self):
+        staging = Tensor((44,), CPU)
+        submit = Mock(return_value=staging)
+        self.torch.ops = SimpleNamespace(npu=SimpleNamespace(kv_exchange=submit))
+        with patch.object(self.module, "_resolve_host_dva", return_value=1 << 44):
+            for direction in (1, 2):
+                di, hi = Tensor((8,)), Tensor((8,))
+                dev = Tensor((1, 8, 4, 1, 5))
+                host = Tensor((10, 1, 4, 1, 5), CPU)
+                self.call(
+                    di, hi, dev, host, Tensor((0,)), Tensor((0,), CPU),
+                    page_size=4, direction=direction, backend="aiv",
+                )
+                done, retained = self.module._inflight[-1]
+                self.assertIs(done.stream, self.stream)
+                for tensor in (di, hi, dev, host, staging):
+                    self.assertIn(tensor, retained)
+        self.assertEqual(submit.call_count, 2)
+        self.builder.assert_not_called()
+        self.offload.sparse_copy.assert_not_called()
+        self.assertFalse(self.module._last_sparse_submission)
 
     def test_wrong_scene_and_bad_index_shape_fail_before_submission(self):
         self.offload._get_scene = lambda: 0

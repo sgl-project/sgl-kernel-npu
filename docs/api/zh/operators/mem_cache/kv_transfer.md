@@ -64,7 +64,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 | 参数 | 类型、默认值与约束 |
 | --- | --- |
-| `device_indices` / `host_indices` | 一维 int64 Tensor；CPU 或与 K 相同的 NPU；长度相同且为 page_size 的倍数；值是 token 槽位，不是页号或地址；页必须在各组件容量范围内 |
+| `device_indices` / `host_indices` | 一维 int64 Tensor；位于与 K 相同的 NPU；长度相同且为 page_size 的倍数；值是 token 槽位，不是页号或地址；页必须在各组件容量范围内 |
 | `device_k` / `host_k` | 非空五维 Tensor；Device 为 NPU LF，Host 为 CPU PF/LF；dtype 和每页 `[T,H,D]` 相同 |
 | `device_v` / `host_v` | Tensor 对；非空 Device V 使用相同层选择；空 Device V 表示 packed-K 无独立 V 载荷，Host V 可以保留未使用占位空间 |
 | `device_index_k` / `host_index_k` | 可选 Tensor，默认 None；仅两端同时存在时搬运，保留旧接口行为；独立 Indexer 层数可少于 KV 层数 |
@@ -80,7 +80,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## aicpu
 
-Triton 在 NPU 上并行构造地址表，再调用 `offload.sparse_copy`。`aicpu` 是此实现的注册名：`LOCAL_URMA` 使用 URMA 路径，`LOCAL` 可由 MF 使用 MTE 路径，并通过 `get_dva` 解析 Host 基址。需要匹配的 MF 地址表协议；当前本地旧版 MTE 内核还有前后半表配对限制，未在本轮重写。当前包装单次最多 8190 条描述，每条长度为正 int32。CPU indices 使用 pinned staging 异步上传。
+Triton 在 NPU 上并行构造地址表，再调用 `offload.sparse_copy`。`aicpu` 是此实现的注册名：`LOCAL_URMA` 使用 URMA 路径，`LOCAL` 可由 MF 使用 MTE 路径，并通过 `get_dva` 解析 Host 基址。需要匹配的 MF 地址表协议；当前本地旧版 MTE 内核还有前后半表配对限制，未在本轮重写。当前包装单次最多 8190 条描述，每条长度为正 int32。两端 indices 都须提前放在 KV buffer 所在的 NPU 上。
 
 ## aiv
 
@@ -92,7 +92,15 @@ Triton 在 NPU 上并行构造地址表，再调用 `offload.sparse_copy`。`aic
 
 ## 流与生命周期
 
-生产实现提交到调用者当前 NPU stream，不创建搬运 stream，也不执行同步。调用者负责生产者依赖及消费完成事件，并在传输结束前禁止改写/复用相关存储。包装保留 Tensor、地址表和 pinned staging，直到事件完成。sparse_copy 包装跨流串行提交，以保护共享资源；AIV 的跨流数据依赖由调用者提供。释放 MemFabric entity 前须同步并结束所有使用该 entity 的传输。
+生产实现提交到调用者当前 NPU stream，不创建搬运 stream，也不执行同步。调用者负责生产者依赖及消费完成事件，并在传输结束前禁止改写/复用相关存储。包装保留原始输入、sparse-copy 地址表和 AIV pinned staging，直到事件完成。同流分配、使用的新连续索引由分配器的流顺序保证生命周期。sparse_copy 包装跨流串行提交，以保护共享资源；AIV 的跨流数据依赖由调用者提供。释放 MemFabric entity 前须同步并结束所有使用该 entity 的传输。
+
+## NPU Graph 捕获
+
+两个方向都显式使用 `impl="aicpu"`，在捕获前初始化支持入图的 MF 资源，并按相同搬运形状预热。两端 indices 都须提前放在 KV buffer 所在的 NPU 上。捕获后地址、shape、页数、层选择和方向固定；每次 replay 前可以原地更新 indices 和载荷内容。
+
+地址表在捕获期间通过 `torch.empty` 分配，由 Graph 私有内存池持有。捕获路径跳过 eager 的事件查询、回收和共享资源事件记账。调用者在图生命周期内持有静态输入 Tensor 和 Host/MF 存储，并在图外显式安排共享 MF 资源的全部 replay 与 eager 搬运顺序，包括跨流执行。释放 MF 资源前须等待 replay 完成并销毁图。本轮不增加 AIV 入图支持。
+
+运行 `python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py -k graph --impl aicpu --enable-perf=false -v -s`，验证 PF/LF、packed/独立 K/V 的往返搬运、NPU indices 内容更新、图内消费者以及图外排序的交替流 replay。仍需在实机执行验证。
 
 ## 示例
 
@@ -117,9 +125,9 @@ original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to
 dev = original.npu()
 host = offload.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
 empty_dev, empty_host = torch.empty(0, device="npu"), torch.empty(0, device="cpu")
-source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="cpu")
-saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="cpu")
-target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="cpu")
+source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
+saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="npu")
+target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="npu")
 backup(source, saved, dev, host, empty_dev, empty_host, page_size=ps,
        host_layer_start=1, impl="aicpu")
 load(target, saved, dev, host, empty_dev, empty_host, page_size=ps,

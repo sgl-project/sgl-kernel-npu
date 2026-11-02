@@ -151,8 +151,9 @@ def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
         generate_data(offload_runtime, layout, shape, dtype, packed)
     )
     ps, layers = shape[2], shape[0]
-    source_indices, saved_indices = token_indices(source, ps), token_indices(saved, ps)
-    target_indices = token_indices(target, ps)
+    source_indices = token_indices(source, ps, "npu")
+    saved_indices = token_indices(saved, ps, "npu")
+    target_indices = token_indices(target, ps, "npu")
     ready, written = torch.npu.Event(), torch.npu.Event()
     write, read = torch.npu.Stream(), torch.npu.Stream()
     ready.record()
@@ -231,8 +232,8 @@ def test_urma_cross_stream_lifetime(offload_runtime, layout):
     with torch.npu.stream(write):
         write.wait_event(ready)
         backup(
-            token_indices(source, 4),
-            token_indices(saved, 4),
+            token_indices(source, 4, "npu"),
+            token_indices(saved, 4, "npu"),
             **actual,
             host_layer_start=1,
             impl="aicpu",
@@ -240,8 +241,8 @@ def test_urma_cross_stream_lifetime(offload_runtime, layout):
     # No event wait between transfer streams: the URMA wrapper orders its resource.
     with torch.npu.stream(read):
         load(
-            token_indices(target, 4),
-            token_indices(saved, 4),
+            token_indices(target, 4, "npu"),
+            token_indices(saved, 4, "npu"),
             **actual,
             device_layer_id=0,
             host_layer_id=1,
@@ -287,6 +288,117 @@ def test_urma_temporary_input_lifetime(offload_runtime, layout):
     write.synchronize()
     payload = host if layout == "page_first" else host.transpose(0, 1)
     assert_bytes_equal(payload[[1, 8]].transpose(0, 1), values[:, [6, 2]])
+
+
+@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
+@pytest.mark.parametrize("packed", [False, True])
+def test_urma_graph_roundtrip(offload_runtime, layout, packed):
+    if offload_runtime._get_scene() != offload_runtime.Scene.LOCAL_URMA:
+        pytest.skip("LOCAL_URMA graph replay test")
+    backup, load = OPERATORS[layout]
+    shape = (3, 2, 4, 7, 0 if packed else 3, 5)
+    components, actual, _, source, saved, target, index_layer_ids = generate_data(
+        offload_runtime,
+        layout,
+        shape,
+        torch.uint8 if packed else torch.bfloat16,
+        packed,
+    )
+    ps, layers, sentinel = shape[2], shape[0], 255
+    source_indices = token_indices(source, ps, "npu")
+    saved_indices = token_indices(saved, ps, "npu")
+    target_indices = token_indices(target, ps, "npu")
+    snapshots = [torch.empty_like(dev) for _, dev, *_ in components]
+
+    def execute():
+        backup(
+            source_indices, saved_indices, **actual, host_layer_start=1, impl="aicpu"
+        )
+        # In-graph consumers exercise D2H completion before reusing its source,
+        # then H2D completion before taking the final snapshot.
+        for _, dev, *_ in components:
+            if dev.numel():
+                dev.fill_(sentinel)
+        for layer in range(layers):
+            slot = index_layer_ids.index(layer) if layer in index_layer_ids else None
+            load(
+                target_indices,
+                saved_indices,
+                **actual,
+                device_layer_id=layer,
+                host_layer_id=layer + 1,
+                device_index_layer_id=slot,
+                host_index_layer_id=slot,
+                impl="aicpu",
+            )
+        for snapshot, (_, dev, *_) in zip(snapshots, components):
+            snapshot.copy_(dev)
+
+    streams = [torch.npu.Stream(), torch.npu.Stream()]
+    streams[0].wait_stream(torch.npu.current_stream())
+    graph = torch.npu.NPUGraph()
+    try:
+        with torch.npu.stream(streams[0]):
+            for _ in range(3):
+                execute()
+        streams[0].synchronize()
+        with torch.npu.graph(graph, stream=streams[0], capture_error_mode="global"):
+            execute()
+
+        previous_done = None
+        for step, (source, saved, target) in enumerate(
+            (
+                ([6, 2], [1, 8], [0, 5]),
+                ([1, 5], [7, 2], [6, 3]),
+                ([4, 0], [9, 0], [2, 7]),
+                ([2, 7], [0, 6], [5, 1]),
+            ),
+            start=1,
+        ):
+            expected = []
+            stream = streams[(step - 1) % len(streams)]
+            with torch.npu.stream(stream):
+                if previous_done is not None:
+                    stream.wait_event(previous_done)
+                source_indices.copy_(token_indices(source, ps))
+                saved_indices.copy_(token_indices(saved, ps))
+                target_indices.copy_(token_indices(target, ps))
+                for _, dev, _, _, _, original, full, _ in components:
+                    values = ((original.to(torch.int32) + 17 * step) % 127).to(
+                        dev.dtype
+                    )
+                    source_values = values.squeeze(-1) if dev.ndim == 4 else values
+                    dev.copy_(source_values)
+                    full.fill_(sentinel)
+                    expected_dev = torch.full_like(source_values, sentinel)
+                    expected_host = torch.full_like(full, sentinel)
+                    if dev.numel():
+                        expected_dev[:, target] = source_values[:, source]
+                        host_pf = (
+                            expected_host
+                            if layout == "page_first"
+                            else expected_host.transpose(0, 1)
+                        )
+                        host_pf[saved, 1 : 1 + dev.shape[0]] = values[
+                            :, source
+                        ].transpose(0, 1)
+                    expected.append((expected_dev, expected_host))
+                # These eager allocations must not overwrite graph-private tables.
+                for _ in range(8):
+                    torch.empty(32, dtype=torch.int64, device="npu").fill_(0)
+                graph.replay()
+                previous_done = stream.record_event()
+                stream.synchronize()
+            for snapshot, component, (expected_dev, expected_host) in zip(
+                snapshots, components, expected
+            ):
+                assert_bytes_equal(snapshot, expected_dev)
+                assert_bytes_equal(component[1], expected_dev)
+                assert_bytes_equal(component[6], expected_host)
+    finally:
+        for stream in streams:
+            stream.synchronize()
+        graph.reset()
 
 
 @pytest.mark.extra_checks
@@ -355,8 +467,8 @@ def test_reject_invalid_layer_selection(offload_runtime, layout, selection):
     impl, _ = get_test_impls()
     with pytest.raises(ValueError):
         load(
-            token_indices([0], 4),
-            token_indices([1], 4),
+            token_indices([0], 4, "npu"),
+            token_indices([1], 4, "npu"),
             **actual,
             **selection,
             impl=impl,
