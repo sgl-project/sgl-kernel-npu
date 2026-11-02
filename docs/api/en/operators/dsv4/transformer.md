@@ -1,8 +1,8 @@
 # DSV4 released Transformer operators
 
-The public APIs live in `sgl_kernel_npu.operators.dsv4`. Each operator registers
-`auto`, `torch_native`, and `cann_ops_transformer` through the existing
-hardware-aware operator registry. `auto` aliases `cann_ops_transformer`; it does
+The public APIs live in `sgl_kernel_npu.operators.dsv4`. Each operator registers `auto`, `torch_native`, and a named backend through the
+existing hardware-aware registry. The CANN adapters use `cann_ops_transformer`;
+MoE gating uses `torch_npu`. `auto` aliases the corresponding backend; it does
 not silently fall back when the CANN package is missing. Backend imports remain
 lazy. This package still requires a built NPU wheel for normal production imports.
 
@@ -20,6 +20,7 @@ lazy. This package still requires a built NPU wheel for normal production import
 | `mhc_post` | `cann_ops_transformer.mhc_post` | A3/A5 |
 | `inplace_partial_rotary_mul` | same name in `cann_ops_transformer` | A3/A5 |
 | `compressor` | `torch.ops.npu.compressor` (existing A3/A5 binding) | A3/A5 |
+| `moe_gating_top_k` | `torch.ops.npu.npu_moe_gating_top_k` (`torch_npu` backend) | A3/A5 |
 
 The `cann_ops_transformer` implementation name identifies the migrated backend;
 compressor intentionally retains its `npu` namespace binding from SGLang PR
@@ -58,6 +59,16 @@ The indexer reference supports causal TND/PA_BBND FP8/INT8 inputs. The compresso
 reference supports coff=1/2 and paged, explicit-table, or request-bank cycle state.
 Unsupported layouts and modes raise rather than forwarding to CANN.
 
+`moe_gating_top_k` follows the released [torch_npu schema](https://github.com/Ascend/op-plugin/blob/master/op_plugin/config/op_plugin_functions.yaml):
+FP32/FP16/BF16 `[tokens, experts]` inputs, optional correction bias/hash mapping,
+softmax/sigmoid/sqrt-softplus scoring, grouped selection, renormalization and
+route scaling. It returns weights in the input dtype and int32 IDs. The unused
+third native output is normalized to an empty FP32 tensor when `out_flag=False`;
+when true, it contains the full FP32 normalized scores. The independent torch
+reference supports those same mathematical paths; ties may have different
+valid expert orders across implementations. On A2/A3, use `group_count=1` for
+sqrt-softplus; native hardware constraints remain those of the installed CANN.
+
 GPU-shared model logic, scheduling, graph replay, DSpark index construction,
 cache allocation and ordinary torch/torch_npu operations remain in SGLang.
 
@@ -78,3 +89,10 @@ python -m pytest tests/python/operators/dsv4/test_transformer.py \
 
 Hardware comparisons are required before promoting this migration out of draft,
 especially packed KV scale rounding/byte order and compressor state retention.
+
+MoE accuracy and selected-shape performance tests:
+
+```sh
+python -m pytest tests/python/operators/dsv4/test_moe.py \
+  --impl torch_npu --impl-ref torch_native -q
+```
