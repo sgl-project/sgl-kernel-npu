@@ -1,12 +1,15 @@
+import os
+from contextlib import contextmanager
+from datetime import timedelta
+from pathlib import Path
+
 import pytest
 
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.performance import check_performance
+from tests.python.utils.performance import check_performance, performance_context
 from tests.python.utils.standards import AccuracyStandard
-
-from ._tp_runner import run_two_ranks
 
 # (rows, local Q width, local KV width, head size, rotary width)
 perf_shape = [(12, 6144, 1024, 128, 128)]
@@ -52,30 +55,19 @@ def generate_data(shape, dtype, tp_group=None):
     return data
 
 
-def _check_case(shape, dtype, tp_group=None):
-    from sgl_kernel_npu.operators.norm import split_qkv_tp_rmsnorm_rope
-
-    data = generate_data(shape, dtype, tp_group)
-    original = data["input"].clone()
-    executor = check_accuracy(
-        split_qkv_tp_rmsnorm_rope,
-        kwargs=data,
-        impl_ref="cpu",
-        standard={"torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=1e-7)},
-    )
-    if executor.accuracy_checked:
-        rows, q_width, kv_width, _, _ = shape
-        q, k, v = executor()
-        assert q.shape == (rows, q_width)
-        assert k.shape == v.shape == (rows, kv_width)
-        ref_q, ref_k, ref_v = original.split((q_width, kv_width, kv_width), dim=1)
-        torch.testing.assert_close(v, ref_v, atol=0, rtol=0)
-        torch.testing.assert_close(data["input"], original, atol=0, rtol=0)
-        if tp_group is not None:
-            # Global mean squares: Q=(1+9)/2 and K=(4+16)/2.
-            torch.testing.assert_close(q, ref_q / (5 + data["eps"]) ** 0.5)
-            torch.testing.assert_close(k, ref_k / (10 + data["eps"]) ** 0.5)
-    check_performance(executor, enable_perf=shape in perf_shape)
+def _check_outputs(executor, original, data):
+    rows = original.shape[0]
+    q_width, kv_width = data["q_hidden_size"], data["kv_hidden_size"]
+    q, k, v = executor()
+    assert q.shape == (rows, q_width)
+    assert k.shape == v.shape == (rows, kv_width)
+    ref_q, ref_k, ref_v = original.split((q_width, kv_width, kv_width), dim=1)
+    torch.testing.assert_close(v, ref_v, atol=0, rtol=0)
+    torch.testing.assert_close(data["input"], original, atol=0, rtol=0)
+    if data["tp_world"] == 2:
+        # Global mean squares: Q=(1+9)/2 and K=(4+16)/2.
+        torch.testing.assert_close(q, ref_q / (5 + data["eps"]) ** 0.5)
+        torch.testing.assert_close(k, ref_k / (10 + data["eps"]) ** 0.5)
 
 
 @pytest.mark.parametrize(
@@ -88,9 +80,95 @@ def _check_case(shape, dtype, tp_group=None):
     ],
 )
 def test_single_rank(shape, dtype):
-    _check_case(shape, dtype)
+    from sgl_kernel_npu.operators.norm import split_qkv_tp_rmsnorm_rope
+
+    data = generate_data(shape, dtype)
+    original = data["input"].clone()
+    executor = check_accuracy(
+        split_qkv_tp_rmsnorm_rope,
+        kwargs=data,
+        impl_ref="cpu",
+        standard={"torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=1e-7)},
+    )
+    if executor.accuracy_checked:
+        _check_outputs(executor, original, data)
+    check_performance(executor, enable_perf=shape in perf_shape)
+
+
+@contextmanager
+def _hccl_group(rank, rendezvous):
+    import torch.distributed as dist
+
+    created = not dist.is_initialized()
+    if created:
+        dist.init_process_group(
+            "hccl",
+            init_method=rendezvous,
+            rank=rank,
+            world_size=2,
+            timeout=timedelta(seconds=120),
+        )
+    try:
+        yield dist.group.WORLD
+    finally:
+        if created:
+            dist.destroy_process_group()
+
+
+def _check_two_rank_worker(rank, shape, dtype, rendezvous, options):
+    import torch_npu
+
+    device = int(os.environ["LOCAL_RANK"]) if rendezvous == "env://" else rank
+    csv = options["csv_path"]
+    if csv:
+        path = Path(csv)
+        csv = path.with_name(f"{path.stem}.rank{rank}{path.suffix}")
+    # Spawned ranks need the pytest options and independent profiling reports.
+    with torch.npu.device(device), _hccl_group(
+        rank, rendezvous
+    ) as group, performance_context(
+        options["nodeid"],
+        {"shape": shape, "dtype": dtype, "rank": rank},
+        None,
+        enable_perf=options["enable_perf"],
+        prof_dir=options["prof_dir"],
+        csv_path=csv,
+    ):
+        from sgl_kernel_npu.operators.norm import split_qkv_tp_rmsnorm_rope
+
+        data = generate_data(shape, dtype, tp_group=group)
+        original = data["input"].clone()
+        executor = check_accuracy(
+            split_qkv_tp_rmsnorm_rope,
+            kwargs=data,
+            impl=options["impl"],
+            impl_ref="cpu",
+            skip_acc_check=bool(options["skip_acc_check"]),
+        )
+        if executor.accuracy_checked:
+            _check_outputs(executor, original, data)
+        check_performance(executor, enable_perf=shape in perf_shape)
 
 
 @pytest.mark.parametrize("shape,dtype", [((1, 128, 64, 64, 64), torch.float32)])
 def test_two_rank(request, tmp_path, monkeypatch, shape, dtype):
-    run_two_ranks(request, tmp_path, monkeypatch, _check_case, shape, dtype)
+    opt = request.config.getoption
+    options = {
+        k: opt(k)
+        for k in ("impl", "skip_acc_check", "enable_perf", "prof_dir", "csv_path")
+    }
+    options["nodeid"] = request.node.nodeid
+    if "HCCL_NPU_SOCKET_PORT_RANGE" not in os.environ:
+        monkeypatch.setenv("HCCL_NPU_SOCKET_PORT_RANGE", "auto")
+    if "RANK" in os.environ:
+        if os.environ.get("WORLD_SIZE") != "2":
+            pytest.skip("requires two ranks")
+        _check_two_rank_worker(int(os.environ["RANK"]), shape, dtype, "env://", options)
+        return
+    if opt("npu_device") is not None or torch.npu.device_count() < 2:
+        pytest.skip("requires two visible NPUs without --npu-device")
+    torch.multiprocessing.spawn(
+        _check_two_rank_worker,
+        nprocs=2,
+        args=(shape, dtype, (tmp_path / "tp_store").as_uri(), options),
+    )
