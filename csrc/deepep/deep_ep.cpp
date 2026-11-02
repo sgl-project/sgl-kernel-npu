@@ -615,9 +615,17 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     at::Tensor recv_x = x;
     auto topk_idx_int32 = topk_idx.to(at::kInt);
     at::Tensor token_src_info = src_idx;
-    // recv_x / token_src_info are views of the single combined dispatch buffer. The op definition marks
-    // them AutoContiguous, so the framework materializes dense copies before the kernel runs; the kernel
-    // therefore indexes them with dense row strides (hidden*2 / 12B), not the view strides.
+    // recv_x / token_src_info may be strided views of the single combined dispatch buffer (row stride
+    // hOutGMAlignSize). The aclnn/CANN layer forces non-contiguous inputs to be copied before the kernel
+    // runs regardless of the op def's AutoContiguous flag, and that generic gather of a 12B/row view is
+    // slow (~60us for ~8k tokens). Materializing an optimized dense copy here (torch contiguous, ~8us)
+    // avoids that; the kernel then always receives dense rows and indexes them with dense strides.
+    if (!token_src_info.is_contiguous()) {
+        token_src_info = token_src_info.contiguous();
+    }
+    if (!recv_x.is_contiguous()) {
+        recv_x = recv_x.contiguous();
+    }
     at::Tensor ep_send_counts = send_head;
     auto device = x.device();
 
@@ -660,8 +668,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
-    // The inputs are AutoContiguous at the framework layer, so the kernel receives dense copies
-    // and must be told the dense row strides (hidden * element_size, 3 * 4 bytes).
+    // recv_x / token_src_info are dense copies now (see above), so the kernel indexes them with dense
+    // row strides: hidden * element_size for recv_x, 12B for token_src_info.
     int64_t combinedStride = hidden * recv_x.element_size();
     int64_t srcInfoStride = 3 * sizeof(int32_t);
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
