@@ -54,7 +54,8 @@ struct LiParaInfo {
     TilingRequiredParaInfo valuesOut = {nullptr, nullptr};
 };
 
-class LITilingInfo {
+class LITilingInfo
+{
 public:
     const char *opName = nullptr;
     LiParaInfo opParamInfo;
@@ -86,7 +87,8 @@ public:
     DataLayout inputKLayout = DataLayout::PA_BSND;
 };
 
-class LIInfoParser {
+class LIInfoParser
+{
 public:
     explicit LIInfoParser(ge_helper::TilingContext *context) : context_(context) {}
 
@@ -139,11 +141,15 @@ private:
     ge::DataType valuesOutType_ = ge::DT_FLOAT16;
 };
 
-class LightningIndexerTiling {
+class LightningIndexerTiling
+{
 public:
     explicit LightningIndexerTiling(ge_helper::TilingContext *context) : context_(context) {}
     ge::graphStatus DoTiling(LITilingInfo *tilingInfo);
-    const LITilingData &GetTilingData() const { return tilingData_; }
+    const LITilingData &GetTilingData() const
+    {
+        return tilingData_;
+    }
 
 private:
     ge_helper::TilingContext *context_ = nullptr;

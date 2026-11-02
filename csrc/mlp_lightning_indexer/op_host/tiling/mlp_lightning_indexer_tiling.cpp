@@ -94,8 +94,8 @@ ge::graphStatus LIInfoParser::GetAndCheckAttrParaInfo()
     auto returnValue = attrs->GetAttrPointer<bool>(ATTR_RETURN_VALUE_INDEX);
     TORCH_CHECK(layoutQuery != nullptr && layoutKey != nullptr, OPS_LOG_E(opName_, "layout attrs are nullptr"));
     TORCH_CHECK(sparseCount != nullptr && blockLen != nullptr && qBlockLen != nullptr && initNum != nullptr &&
-                    localNum != nullptr && sparseMode != nullptr && preTokens != nullptr &&
-                    nextTokens != nullptr && returnValue != nullptr,
+                    localNum != nullptr && sparseMode != nullptr && preTokens != nullptr && nextTokens != nullptr &&
+                    returnValue != nullptr,
                 OPS_LOG_E(opName_, "numeric attrs are nullptr"));
 
     opParamInfo_.indicesOut.desc = opParamInfo_.indicesOut.desc;
@@ -104,9 +104,9 @@ ge::graphStatus LIInfoParser::GetAndCheckAttrParaInfo()
                 OPS_LOG_E(opName_, "under non-PA conditions, layout_query and layout_key should be equal"));
     TORCH_CHECK(std::string(layoutQuery) == "BSND" || std::string(layoutQuery) == "TND",
                 OPS_LOG_E(opName_, "layout_query only supports BSND or TND"));
-    TORCH_CHECK(std::string(layoutKey) == "PA_BSND" || std::string(layoutKey) == "BSND" ||
-                    std::string(layoutKey) == "TND",
-                OPS_LOG_E(opName_, "layout_key only supports PA_BSND, BSND or TND"));
+    TORCH_CHECK(
+        std::string(layoutKey) == "PA_BSND" || std::string(layoutKey) == "BSND" || std::string(layoutKey) == "TND",
+        OPS_LOG_E(opName_, "layout_key only supports PA_BSND, BSND or TND"));
     TORCH_CHECK(*blockLen == 1 || *blockLen == 2 || *blockLen == 4 || *blockLen == 8 || *blockLen == 16,
                 OPS_LOG_E(opName_, "kv_block_len must be in [1, 2, 4, 8, 16]"));
     TORCH_CHECK(*qBlockLen == 1, OPS_LOG_E(opName_, "q_block_len must be 1"));
@@ -166,9 +166,9 @@ ge::graphStatus LIInfoParser::GetAndCheckOptionalInput()
         TORCH_CHECK(opParamInfo_.curSeqLengths.tensor != nullptr,
                     OPS_LOG_E(opName_, "cur_seq_lengths_key must not be null"));
     }
-    TORCH_CHECK(opParamInfo_.curSeqLengths.tensor == nullptr ||
-                    opParamInfo_.curSeqLengths.desc->GetDataType() == ge::DT_INT64,
-                OPS_LOG_E(opName_, "cur_seq_lengths_key only supports int64"));
+    TORCH_CHECK(
+        opParamInfo_.curSeqLengths.tensor == nullptr || opParamInfo_.curSeqLengths.desc->GetDataType() == ge::DT_INT64,
+        OPS_LOG_E(opName_, "cur_seq_lengths_key only supports int64"));
     if (qLayout_ == DataLayout::TND) {
         TORCH_CHECK(opParamInfo_.curSeqLengthsQ.tensor != nullptr,
                     OPS_LOG_E(opName_, "cur_seq_lengths_query must not be null"));
@@ -178,10 +178,12 @@ ge::graphStatus LIInfoParser::GetAndCheckOptionalInput()
                 OPS_LOG_E(opName_, "cur_seq_lengths_query only supports int64"));
     TORCH_CHECK(kLayout_ == DataLayout::PA_BSND || opParamInfo_.blockTable.tensor == nullptr,
                 OPS_LOG_E(opName_, "block_table must be null when layout_key is not PA_BSND"));
-    TORCH_CHECK(opParamInfo_.initTensor.tensor == nullptr || opParamInfo_.initTensor.desc->GetDataType() == ge::DT_INT32,
-                OPS_LOG_E(opName_, "init_tensor only supports int32"));
-    TORCH_CHECK(opParamInfo_.localTensor.tensor == nullptr || opParamInfo_.localTensor.desc->GetDataType() == ge::DT_INT32,
-                OPS_LOG_E(opName_, "local_tensor only supports int32"));
+    TORCH_CHECK(
+        opParamInfo_.initTensor.tensor == nullptr || opParamInfo_.initTensor.desc->GetDataType() == ge::DT_INT32,
+        OPS_LOG_E(opName_, "init_tensor only supports int32"));
+    TORCH_CHECK(
+        opParamInfo_.localTensor.tensor == nullptr || opParamInfo_.localTensor.desc->GetDataType() == ge::DT_INT32,
+        OPS_LOG_E(opName_, "local_tensor only supports int32"));
     return ge::GRAPH_SUCCESS;
 }
 
@@ -319,9 +321,9 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
         TORCH_CHECK(opParamInfo_.blockTable.tensor == nullptr ||
                         opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(0) == bSize_,
                     OPS_LOG_E(opName_, "block_table batch size mismatch"));
-        TORCH_CHECK(opParamInfo_.curSeqLengths.tensor == nullptr ||
-                        opParamInfo_.curSeqLengths.tensor->GetShapeSize() == bSize_,
-                    OPS_LOG_E(opName_, "cur_seq_lengths_key batch size mismatch"));
+        TORCH_CHECK(
+            opParamInfo_.curSeqLengths.tensor == nullptr || opParamInfo_.curSeqLengths.tensor->GetShapeSize() == bSize_,
+            OPS_LOG_E(opName_, "cur_seq_lengths_key batch size mismatch"));
         TORCH_CHECK(opParamInfo_.curSeqLengthsQ.tensor == nullptr ||
                         opParamInfo_.curSeqLengthsQ.tensor->GetShapeSize() == bSize_,
                     OPS_LOG_E(opName_, "cur_seq_lengths_query batch size mismatch"));

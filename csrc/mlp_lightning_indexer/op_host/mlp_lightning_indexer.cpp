@@ -52,9 +52,8 @@ at::Tensor GetOrCreateCachedTilingTensor(const LITilingData &tilingData, const a
     c10::DeviceIndex device_index = device_anchor.get_device();
 
     if (!globalTilingBuffer.defined() || cachedDeviceIndex != device_index) {
-        globalTilingBuffer =
-            at::empty({tiling_size * MAX_CAPTURE_NUM},
-                      at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
+        globalTilingBuffer = at::empty({tiling_size * MAX_CAPTURE_NUM},
+                                       at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
         captureMap.clear();
         actualCaptureNum = 0U;
         cachedDeviceIndex = device_index;
@@ -67,8 +66,7 @@ at::Tensor GetOrCreateCachedTilingTensor(const LITilingData &tilingData, const a
 
     auto tiling_cpu = at::zeros({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     std::memcpy(tiling_cpu.data_ptr<uint8_t>(), &tilingData, sizeof(LITilingData));
-    auto device_tiling =
-        sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(tiling_cpu).view({tiling_size});
+    auto device_tiling = sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(tiling_cpu).view({tiling_size});
 
     if (actualCaptureNum >= MAX_CAPTURE_NUM) {
         return device_tiling;
@@ -88,15 +86,11 @@ namespace sglang::npu_kernel {
 
 HOST_API std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
-    const c10::optional<at::Tensor> &cur_seq_lengths_query,
-    const c10::optional<at::Tensor> &cur_seq_lengths_key,
-    const c10::optional<at::Tensor> &block_table,
-    const c10::optional<at::Tensor> &init_tensor,
-    const c10::optional<at::Tensor> &local_tensor,
-    c10::string_view layout_query, c10::string_view layout_key,
-    int64_t sparse_count, int64_t kv_block_len, int64_t q_block_len,
-    int64_t init_num, int64_t local_num, int64_t sparse_mode,
-    int64_t pre_tokens, int64_t next_tokens, bool return_value)
+    const c10::optional<at::Tensor> &cur_seq_lengths_query, const c10::optional<at::Tensor> &cur_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table, const c10::optional<at::Tensor> &init_tensor,
+    const c10::optional<at::Tensor> &local_tensor, c10::string_view layout_query, c10::string_view layout_key,
+    int64_t sparse_count, int64_t kv_block_len, int64_t q_block_len, int64_t init_num, int64_t local_num,
+    int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens, bool return_value)
 {
     using namespace MlpLIHost;
     MlpLightningIndexer opDef("mlp_lightning_indexer");
@@ -139,14 +133,12 @@ HOST_API std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
     const auto &tilingData = tiling.GetTilingData();
     auto tilingTensor = GetOrCreateCachedTilingTensor(tilingData, query);
 
-    auto workspace =
-        at::empty({static_cast<int64_t>(context->GetWorkspaceSize())},
-                  at::TensorOptions().dtype(at::kByte).device(query.device()));
+    auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())},
+                               at::TensorOptions().dtype(at::kByte).device(query.device()));
 
     uint32_t blockDim = tilingData.usedCoreNum;
-    EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query,
-                    cur_seq_lengths_key, block_table, init_tensor, local_tensor, sparse_indices, sparse_values,
-                    workspace, tilingTensor);
+    EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query, cur_seq_lengths_key,
+                    block_table, init_tensor, local_tensor, sparse_indices, sparse_values, workspace, tilingTensor);
     return {sparse_indices, sparse_values};
 }
 

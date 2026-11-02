@@ -20,7 +20,8 @@ constexpr uint32_t ATTR_PRE_TOKENS_INDEX = 8;
 constexpr uint32_t ATTR_NEXT_TOKENS_INDEX = 9;
 constexpr uint32_t ATTR_RETURN_VALUE_INDEX = 10;
 
-class MlpLightningIndexer : public OpDef {
+class MlpLightningIndexer : public OpDef
+{
 public:
     explicit MlpLightningIndexer(const char *name) : OpDef(name)
     {

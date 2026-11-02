@@ -6,18 +6,17 @@
 
 using namespace AscendC;
 
-class UpdateOeTokenTable {
+class UpdateOeTokenTable
+{
 public:
     __aicore__ inline UpdateOeTokenTable() = default;
-    __aicore__ inline UpdateOeTokenTable(
-        TPipe *pipe, __gm__ const sglang::npu_kernel::UpdateOeTokenTableTilingData *tiling)
+    __aicore__ inline UpdateOeTokenTable(TPipe *pipe,
+                                         __gm__ const sglang::npu_kernel::UpdateOeTokenTableTilingData *tiling)
         : pipe_(pipe), tl_(tiling)
-    {
-    }
+    {}
 
-    __aicore__ inline void Init(GM_ADDR tokens, GM_ADDR req_lens, GM_ADDR row_indices,
-                                GM_ADDR column_starts, GM_ADDR ignore_tokens,
-                                GM_ADDR oe_token_table, GM_ADDR workspace)
+    __aicore__ inline void Init(GM_ADDR tokens, GM_ADDR req_lens, GM_ADDR row_indices, GM_ADDR column_starts,
+                                GM_ADDR ignore_tokens, GM_ADDR oe_token_table, GM_ADDR workspace)
     {
         (void)workspace;
         blockIdx_ = GetBlockIdx();
@@ -124,12 +123,10 @@ private:
         for (int64_t idx = 0; idx < ignoreTokenNum_; idx++) {
             int32_t ignoreVal = isIgnoreTensor.GetValue(idx);
             auto maskTensor = maskQue_.Get<uint8_t>();
-            CompareScalar(maskTensor, tokenTensor, ignoreVal, CMPMODE::EQ,
-                          CeilAlign(count, ONE_REPEAT_ELE_NUM));
+            CompareScalar(maskTensor, tokenTensor, ignoreVal, CMPMODE::EQ, CeilAlign(count, ONE_REPEAT_ELE_NUM));
             PipeBarrier<PIPE_V>();
-            Select(tokenTensor.ReinterpretCast<float>(), maskTensor,
-                   minusTensor.ReinterpretCast<float>(), tokenTensor.ReinterpretCast<float>(),
-                   SELMODE::VSEL_TENSOR_TENSOR_MODE, count);
+            Select(tokenTensor.ReinterpretCast<float>(), maskTensor, minusTensor.ReinterpretCast<float>(),
+                   tokenTensor.ReinterpretCast<float>(), SELMODE::VSEL_TENSOR_TENSOR_MODE, count);
             PipeBarrier<PIPE_V>();
         }
         auto outTokenTensor = oeTokenTableQue_.AllocTensor<int32_t>();

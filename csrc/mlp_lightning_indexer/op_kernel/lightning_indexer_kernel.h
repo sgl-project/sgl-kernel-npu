@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -30,10 +31,10 @@ namespace LIKernel {
 using namespace LICommon;
 using namespace LIServiceVec;
 using namespace matmul;
-using sglang::MlpLIHost::LITilingData;
 using AscendC::CacheMode;
 using AscendC::CrossCoreSetFlag;
 using AscendC::CrossCoreWaitFlag;
+using sglang::MlpLIHost::LITilingData;
 
 // 由于S2循环前，RunInfo还没有赋值，使用TempLoopInfo临时存放B、N、S1轴相关的信息；同时减少重复计算
 struct TempLoopInfo {
@@ -41,25 +42,28 @@ struct TempLoopInfo {
     uint32_t bIdx = 0U;
     uint32_t n2Idx = 0U;
     uint32_t gS1Idx = 0U;
-    uint32_t gS1LoopEnd = 0U;      // gS1方向循环的结束Idx
-    uint32_t s2LoopEnd = 0U;       // S2方向循环的结束Idx
-    uint32_t actS1Size = 1ULL;     // 当前Batch循环处理的S1轴的实际大小
+    uint32_t gS1LoopEnd = 0U;   // gS1方向循环的结束Idx
+    uint32_t s2LoopEnd = 0U;    // S2方向循环的结束Idx
+    uint32_t actS1Size = 1ULL;  // 当前Batch循环处理的S1轴的实际大小
     uint32_t actS2Size = 0ULL;
     bool curActSeqLenIsZero = false;
-    bool needDealActS1LessThanS1 = false; // S1的实际长度小于shape的S1长度时，是否需要清理输出
-    uint32_t actMBaseSize = 0U;    // m轴(gS1)方向实际大小
-    uint32_t mBasicSizeTail = 0U;  // gS1方向循环的尾基本块大小
-    uint32_t s2BasicSizeTail = 0U; // S2方向循环的尾基本块大小
+    bool needDealActS1LessThanS1 = false;  // S1的实际长度小于shape的S1长度时，是否需要清理输出
+    uint32_t actMBaseSize = 0U;            // m轴(gS1)方向实际大小
+    uint32_t mBasicSizeTail = 0U;          // gS1方向循环的尾基本块大小
+    uint32_t s2BasicSizeTail = 0U;         // S2方向循环的尾基本块大小
 };
 
 template <typename LIT>
-class LIPreload {
+class LIPreload
+{
 public:
     __aicore__ inline LIPreload(){};
     __aicore__ inline void Init(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *weights,
                                 __gm__ uint8_t *actualSeqLengthsQ, __gm__ uint8_t *actualSeqLengths,
-                                __gm__ uint8_t *blockTable, __gm__ uint8_t *initNumTensor, __gm__ uint8_t *localNumTensor, __gm__ uint8_t *sparseIndices, __gm__ uint8_t *sparseValues, 
-                                __gm__ uint8_t *workspace, __gm__ const LITilingData *__restrict tiling, TPipe *tPipe);
+                                __gm__ uint8_t *blockTable, __gm__ uint8_t *initNumTensor,
+                                __gm__ uint8_t *localNumTensor, __gm__ uint8_t *sparseIndices,
+                                __gm__ uint8_t *sparseValues, __gm__ uint8_t *workspace,
+                                __gm__ const LITilingData *__restrict tiling, TPipe *tPipe);
     __aicore__ inline void Process();
 
     // =================================类型定义区=================================
@@ -110,9 +114,9 @@ protected:
     GlobalTensor<uint64_t> curSeqLengthsGmQ;
     GlobalTensor<uint64_t> curSeqLengthsGm;
     // workspace
-    GlobalTensor<MM1_OUT_T> mm1ResGm;  // 存放S
-    GlobalTensor<float> vec1ResGm;     // 存放TopK计算中间结果
-    GlobalTensor<int64_t> vec1ParamGm; // 存放LD参数信息
+    GlobalTensor<MM1_OUT_T> mm1ResGm;   // 存放S
+    GlobalTensor<float> vec1ResGm;      // 存放TopK计算中间结果
+    GlobalTensor<int64_t> vec1ParamGm;  // 存放LD参数信息
 
     // ================================类成员变量====================================
     // aic、aiv核信息
@@ -167,7 +171,7 @@ __aicore__ inline void LIPreload<LIT>::InitTilingData(__gm__ const LITilingData 
     constInfo.preTokens = tilingData->preTokens;
     constInfo.nextTokens = tilingData->nextTokens;
     constInfo.returnValue = tilingData->returnValue;
-    constInfo.outputLayout = LAYOUT_T; // 输出和输入形状一致
+    constInfo.outputLayout = LAYOUT_T;  // 输出和输入形状一致
     if (LAYOUT_T == LI_LAYOUT::TND) {
         constInfo.isAccumSeqS1 = true;
     }
@@ -201,8 +205,7 @@ __aicore__ inline void LIPreload<LIT>::InitBuffers()
 }
 
 template <typename LIT>
-__aicore__ inline void LIPreload<LIT>::InitActualSeqLen(__gm__ uint8_t *curSeqLengthsQ,
-                                                        __gm__ uint8_t *curSeqLengths)
+__aicore__ inline void LIPreload<LIT>::InitActualSeqLen(__gm__ uint8_t *curSeqLengthsQ, __gm__ uint8_t *curSeqLengths)
 {
     if (curSeqLengthsQ == nullptr) {
         constInfo.curLenQDims = 0;
@@ -236,8 +239,8 @@ __aicore__ inline uint64_t LIPreload<LIT>::GetActualSeqLen(uint32_t bIdx, uint32
 template <typename LIT>
 __aicore__ inline void LIPreload<LIT>::GetS1S2ActualSeqLen(uint32_t bIdx, uint32_t &actS1Size, uint32_t &actS2Size)
 {
-    actS1Size = GetActualSeqLen(bIdx, constInfo.curLenQDims, constInfo.isAccumSeqS1, curSeqLengthsGmQ,
-                                constInfo.qSeqSize);
+    actS1Size =
+        GetActualSeqLen(bIdx, constInfo.curLenQDims, constInfo.isAccumSeqS1, curSeqLengthsGmQ, constInfo.qSeqSize);
     actS2Size =
         GetActualSeqLen(bIdx, constInfo.curLenDims, constInfo.isAccumSeqS2, curSeqLengthsGm, constInfo.kSeqSize);
 }
@@ -309,7 +312,7 @@ __aicore__ void inline LIPreload<LIT>::SplitCore(uint32_t curCoreIdx, uint32_t &
                 actS1Size = 1;
                 actS2Size = 1;
             }
-	    if (actS2Size == 0) {
+            if (actS2Size == 0) {
                 actS2Size = 1;
             }
             s1GBaseNum = CeilDiv(actS1Size, constInfo.s1BaseSize);
@@ -345,7 +348,8 @@ __aicore__ void inline LIPreload<LIT>::SplitCore(uint32_t curCoreIdx, uint32_t &
                 if (lastGS1RemainBlockCnt + s2RemainBaseNum >= coreDealBlockCnt) {
                     info.bN2End = bN2Idx;
                     info.gS1End = gS1Idx;
-                    info.s2End = constInfo.sparseCountFlag ? s2BaseNum - 1 : s2Idx + coreDealBlockCnt - lastGS1RemainBlockCnt - 1;
+                    info.s2End = constInfo.sparseCountFlag ? s2BaseNum - 1
+                                                           : s2Idx + coreDealBlockCnt - lastGS1RemainBlockCnt - 1;
 
                     if (coreIdx == curCoreIdx) {
                         // S2被切N核，那么只有第一个核需要处理LD，其他核不用
@@ -353,8 +357,8 @@ __aicore__ void inline LIPreload<LIT>::SplitCore(uint32_t curCoreIdx, uint32_t &
                             info.isLD = true;
                         }
                         // 最后一个核处理的不是最后一个Batch，表明后面的Batch为空块(S2=0), 调整终点坐标以便清理输出
-                        if (coreIdx == coreNum - 1 && info.bN2End != constInfo.batchSize -1) {
-                            info.bN2End = constInfo.batchSize -1;
+                        if (coreIdx == coreNum - 1 && info.bN2End != constInfo.batchSize - 1) {
+                            info.bN2End = constInfo.batchSize - 1;
                             info.gS1End = 0;
                             info.s2End = 0;
                         }
@@ -379,32 +383,32 @@ __aicore__ inline void LIPreload<LIT>::DealActSeqLenIsZero(uint32_t bIdx, uint32
 {
     if ASCEND_IS_AIV {
         if (constInfo.outputLayout == LI_LAYOUT::TND) {
-            uint32_t tBase = 0; // 前面可能包含0 seq长度的token，要从头计算
+            uint32_t tBase = 0;  // 前面可能包含0 seq长度的token，要从头计算
             // uint64_t curBatchQ = curSeqLengthsGmQ.GetValue(bIdx + 1) - curSeqLengthsGmQ.GetValue(bIdx);
             // uint32_t s1Count = (curBatchQ == 0) ? 1 : static_cast<uint32_t>(curBatchQ);
-            uint32_t s1Count = 1; // 只对一个输出token写-1
+            uint32_t s1Count = 1;  // 只对一个输出token写-1
             uint64_t preQ = 0;
             for (int i = 1; i <= bIdx; i++) {
                 uint64_t curQ = curSeqLengthsGmQ.GetValue(i);
                 if (curQ == preQ) {
                     tBase++;
                 } else {
-                    tBase += (curQ-preQ);
+                    tBase += (curQ - preQ);
                     preQ = curQ;
                 }
             }
             for (uint32_t s1Idx = s1Start; s1Idx < s1Count; s1Idx++) {
                 uint64_t indiceOutOffset =
-                    (tBase + s1Idx) * constInfo.kHeadNum * constInfo.sparseCount + // T轴、s1轴偏移
-                    n2Idx * constInfo.sparseCount;                                 // N2轴偏移
+                    (tBase + s1Idx) * constInfo.kHeadNum * constInfo.sparseCount +  // T轴、s1轴偏移
+                    n2Idx * constInfo.sparseCount;                                  // N2轴偏移
                 vectorService.CleanInvalidOutput(indiceOutOffset);
             }
         } else if (constInfo.outputLayout == LI_LAYOUT::BSND) {
             for (uint32_t s1Idx = s1Start; s1Idx < constInfo.qSeqSize; s1Idx++) {
                 // B,S1,N2,K
                 uint64_t indiceOutOffset = bIdx * constInfo.qSeqSize * constInfo.kHeadNum * constInfo.sparseCount +
-                                           s1Idx * constInfo.kHeadNum * constInfo.sparseCount + // B轴、S1轴偏移
-                                           n2Idx * constInfo.sparseCount;                       // N2轴偏移
+                                           s1Idx * constInfo.kHeadNum * constInfo.sparseCount +  // B轴、S1轴偏移
+                                           n2Idx * constInfo.sparseCount;                        // N2轴偏移
                 vectorService.CleanInvalidOutput(indiceOutOffset);
             }
         }
@@ -414,15 +418,16 @@ __aicore__ inline void LIPreload<LIT>::DealActSeqLenIsZero(uint32_t bIdx, uint32
 template <typename LIT>
 __aicore__ inline void LIPreload<LIT>::Init(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *weights,
                                             __gm__ uint8_t *curSeqLengthsQ, __gm__ uint8_t *curSeqLengths,
-                                            __gm__ uint8_t *blockTable, __gm__ uint8_t *initNumTensor, __gm__ uint8_t *localNumTensor, __gm__ uint8_t *sparseIndices, __gm__ uint8_t *sparseValues,
-                                            __gm__ uint8_t *workspace, __gm__ const LITilingData *__restrict tiling,
-                                            TPipe *tPipe)
+                                            __gm__ uint8_t *blockTable, __gm__ uint8_t *initNumTensor,
+                                            __gm__ uint8_t *localNumTensor, __gm__ uint8_t *sparseIndices,
+                                            __gm__ uint8_t *sparseValues, __gm__ uint8_t *workspace,
+                                            __gm__ const LITilingData *__restrict tiling, TPipe *tPipe)
 {
     if ASCEND_IS_AIV {
-        tmpBlockIdx = GetBlockIdx(); // vec:0-47
+        tmpBlockIdx = GetBlockIdx();  // vec:0-47
         aiCoreIdx = tmpBlockIdx / 2;
     } else {
-        tmpBlockIdx = GetBlockIdx(); // cube:0-23
+        tmpBlockIdx = GetBlockIdx();  // cube:0-23
         aiCoreIdx = tmpBlockIdx;
     }
 
@@ -575,17 +580,17 @@ __aicore__ inline void LIPreload<LIT>::CalcRunInfo(uint32_t loop, uint32_t s2Loo
                         actualSeqKPrefixSum++;
                     } else {
                         actualSeqQPrefixSum++;
-                        actualSeqKPrefixSum += (curK-preK);
+                        actualSeqKPrefixSum += (curK - preK);
                         preK = curK;
                     }
                 } else {
-                    actualSeqQPrefixSum += (curQ-preQ);
-                    actualSeqKPrefixSum += (curK-preK);
+                    actualSeqQPrefixSum += (curQ - preQ);
+                    actualSeqKPrefixSum += (curK - preK);
                     preQ = curQ;
                     preK = curK;
                 }
             }
-        } else { // BSND
+        } else {  // BSND
             actualSeqQPrefixSum = (runInfo.bIdx <= 0) ? 0 : runInfo.bIdx * constInfo.qSeqSize;
             actualSeqKPrefixSum = (runInfo.bIdx <= 0) ? 0 : runInfo.bIdx * constInfo.kSeqSize;
         }
@@ -597,12 +602,12 @@ __aicore__ inline void LIPreload<LIT>::CalcRunInfo(uint32_t loop, uint32_t s2Loo
         // B,S1,N1(N2,G)/T,N1(N2,G)
         weightsCoreOffset = actualSeqQPrefixSum * constInfo.qHeadNum + runInfo.n2Idx * constInfo.gSize;
         // B,S1,N2,k/T,N2,k
-        indiceOutCoreOffset = actualSeqQPrefixSum * constInfo.kHeadNum * constInfo.sparseCount +
-                              runInfo.n2Idx * constInfo.sparseCount;
+        indiceOutCoreOffset =
+            actualSeqQPrefixSum * constInfo.kHeadNum * constInfo.sparseCount + runInfo.n2Idx * constInfo.sparseCount;
     }
     runInfo.tensorQueryOffset = queryCoreOffset;
-    runInfo.tensorKeyOffset = keyCoreOffset + runInfo.s2Idx * constInfo.s2BaseSize * constInfo.kHeadNum
-    * constInfo.headDim;
+    runInfo.tensorKeyOffset =
+        keyCoreOffset + runInfo.s2Idx * constInfo.s2BaseSize * constInfo.kHeadNum * constInfo.headDim;
     runInfo.tensorWeightsOffset = weightsCoreOffset;
     runInfo.indiceOutOffset = indiceOutCoreOffset;
 }
@@ -623,7 +628,7 @@ template <typename LIT>
 __aicore__ inline void LIPreload<LIT>::ProcessInvalid()
 {
     if ASCEND_IS_AIV {
-        uint32_t aivCoreNum = GetBlockNum() * 2; // 2 means c:v = 1:2
+        uint32_t aivCoreNum = GetBlockNum() * 2;  // 2 means c:v = 1:2
         uint64_t totalOutputSize =
             constInfo.batchSize * constInfo.qSeqSize * constInfo.kHeadNum * constInfo.sparseCount;
         uint64_t singleCoreSize =
@@ -644,7 +649,7 @@ __aicore__ inline void LIPreload<LIT>::ProcessInvalid()
                 GlobalTensor<uint16_t> valueOut = valueOutGmTmp[baseSize];
 
                 uint16_t negInf = 0;
-                if constexpr(std::is_same<K_T, float16_t>::value) {
+                if constexpr (std::is_same<K_T, float16_t>::value) {
                     negInf = 0xFC00;
                 } else {
                     negInf = 0xFF80;
@@ -729,5 +734,5 @@ __aicore__ inline void LIPreload<LIT>::ProcessDecode()
         }
     }
 }
-} // namespace LIKernel
-#endif // LIGHTNING_INDEXER_KERNEL_H
+}  // namespace LIKernel
+#endif  // LIGHTNING_INDEXER_KERNEL_H

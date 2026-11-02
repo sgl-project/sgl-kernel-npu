@@ -2,6 +2,9 @@
 
 | API | Supported backends |
 | --- | --- |
+| [compute_n_gram_ids](operators/embedding/compute_n_gram_ids.md) | `ascendc`, `torch_native` |
+| [update_oe_token_table](operators/embedding/update_oe_token_table.md) | `ascendc`, `torch_native` |
+| [mlp_lightning_indexer](operators/indexer/mlp_lightning_indexer.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`, `torch_native` |

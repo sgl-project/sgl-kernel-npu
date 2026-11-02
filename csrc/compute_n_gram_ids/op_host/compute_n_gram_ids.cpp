@@ -24,38 +24,32 @@ static at::Tensor globalTilingBuffer;
 static c10::DeviceIndex cachedDeviceIndex = -1;
 
 void CheckComputeNGramIdsInputs(const at::Tensor &oe_weights, const at::Tensor &oe_mods,
-                                const at::Tensor &exclusive_oe_embeder_size_sums,
-                                const at::Tensor &tokens,
-                                const at::Tensor &exclusive_req_len_sums,
-                                const at::Tensor &oe_token_table,
-                                const at::Tensor &row_indices,
-                                const at::Tensor &column_starts)
+                                const at::Tensor &exclusive_oe_embeder_size_sums, const at::Tensor &tokens,
+                                const at::Tensor &exclusive_req_len_sums, const at::Tensor &oe_token_table,
+                                const at::Tensor &row_indices, const at::Tensor &column_starts)
 {
     TORCH_CHECK(oe_weights.scalar_type() == at::kInt, "oe_weights must be int32");
     TORCH_CHECK(oe_mods.scalar_type() == at::kInt, "oe_mods must be int32");
     TORCH_CHECK(exclusive_oe_embeder_size_sums.scalar_type() == at::kInt,
                 "exclusive_oe_embeder_size_sums must be int32");
     TORCH_CHECK(tokens.scalar_type() == at::kInt, "tokens must be int32");
-    TORCH_CHECK(exclusive_req_len_sums.scalar_type() == at::kInt,
-                "exclusive_req_len_sums must be int32");
+    TORCH_CHECK(exclusive_req_len_sums.scalar_type() == at::kInt, "exclusive_req_len_sums must be int32");
     TORCH_CHECK(oe_token_table.scalar_type() == at::kInt, "oe_token_table must be int32");
     TORCH_CHECK(row_indices.scalar_type() == at::kLong, "row_indices must be int64");
     TORCH_CHECK(column_starts.scalar_type() == at::kInt, "column_starts must be int32");
 
     TORCH_CHECK(oe_weights.is_contiguous(), "oe_weights must be contiguous");
     TORCH_CHECK(oe_mods.is_contiguous(), "oe_mods must be contiguous");
-    TORCH_CHECK(exclusive_oe_embeder_size_sums.is_contiguous(),
-                "exclusive_oe_embeder_size_sums must be contiguous");
+    TORCH_CHECK(exclusive_oe_embeder_size_sums.is_contiguous(), "exclusive_oe_embeder_size_sums must be contiguous");
     TORCH_CHECK(tokens.is_contiguous(), "tokens must be contiguous");
-    TORCH_CHECK(exclusive_req_len_sums.is_contiguous(),
-                "exclusive_req_len_sums must be contiguous");
+    TORCH_CHECK(exclusive_req_len_sums.is_contiguous(), "exclusive_req_len_sums must be contiguous");
     TORCH_CHECK(oe_token_table.is_contiguous(), "oe_token_table must be contiguous");
     TORCH_CHECK(row_indices.is_contiguous(), "row_indices must be contiguous");
     TORCH_CHECK(column_starts.is_contiguous(), "column_starts must be contiguous");
 }
 
-ComputeNGramIdsTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_size, int64_t oe_n,
-                                          int64_t oe_k, int64_t max_context_len)
+ComputeNGramIdsTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_size, int64_t oe_n, int64_t oe_k,
+                                          int64_t max_context_len)
 {
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t aiv_num = static_cast<uint32_t>(ascendc_platform->GetCoreNumAiv());
@@ -73,8 +67,7 @@ ComputeNGramIdsTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_siz
     return tiling_data;
 }
 
-at::Tensor GetOrCreateCachedTilingTensor(const ComputeNGramIdsTilingData &tiling_data,
-                                         const at::Tensor &device_anchor)
+at::Tensor GetOrCreateCachedTilingTensor(const ComputeNGramIdsTilingData &tiling_data, const at::Tensor &device_anchor)
 {
     int32_t tiling_size =
         static_cast<int32_t>(((sizeof(ComputeNGramIdsTilingData) + PADDING_BYTE - 1) / PADDING_BYTE) * PADDING_BYTE);
@@ -84,9 +77,8 @@ at::Tensor GetOrCreateCachedTilingTensor(const ComputeNGramIdsTilingData &tiling
     c10::DeviceIndex device_index = device_anchor.get_device();
 
     if (!globalTilingBuffer.defined() || cachedDeviceIndex != device_index) {
-        globalTilingBuffer =
-            at::empty({static_cast<int64_t>(tiling_size) * MAX_CAPTURE_NUM},
-                      at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
+        globalTilingBuffer = at::empty({static_cast<int64_t>(tiling_size) * MAX_CAPTURE_NUM},
+                                       at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
         captureMap.clear();
         actualCaptureNum = 0U;
         cachedDeviceIndex = device_index;
@@ -108,42 +100,37 @@ at::Tensor GetOrCreateCachedTilingTensor(const ComputeNGramIdsTilingData &tiling
 
     uint32_t slot = actualCaptureNum++;
     captureMap.emplace(hash_value, slot);
-    globalTilingBuffer
-        .slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
+    globalTilingBuffer.slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
         .copy_(device_tiling);
-    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * slot,
-                         tiling_size, at::kByte);
+    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * slot, tiling_size,
+                         at::kByte);
 }
 
 }  // namespace
 
-HOST_API at::Tensor compute_n_gram_ids(
-    const at::Tensor &oe_weights, const at::Tensor &oe_mods,
-    const at::Tensor &exclusive_oe_embeder_size_sums, const at::Tensor &tokens,
-    const at::Tensor &exclusive_req_len_sums, const at::Tensor &oe_token_table,
-    const at::Tensor &row_indices, const at::Tensor &column_starts, int64_t batch_size,
-    int64_t oe_n, int64_t oe_k, int64_t max_context_len)
+HOST_API at::Tensor compute_n_gram_ids(const at::Tensor &oe_weights, const at::Tensor &oe_mods,
+                                       const at::Tensor &exclusive_oe_embeder_size_sums, const at::Tensor &tokens,
+                                       const at::Tensor &exclusive_req_len_sums, const at::Tensor &oe_token_table,
+                                       const at::Tensor &row_indices, const at::Tensor &column_starts,
+                                       int64_t batch_size, int64_t oe_n, int64_t oe_k, int64_t max_context_len)
 {
-    CheckComputeNGramIdsInputs(oe_weights, oe_mods, exclusive_oe_embeder_size_sums,
-                               tokens, exclusive_req_len_sums, oe_token_table,
-                               row_indices, column_starts);
+    CheckComputeNGramIdsInputs(oe_weights, oe_mods, exclusive_oe_embeder_size_sums, tokens, exclusive_req_len_sums,
+                               oe_token_table, row_indices, column_starts);
     TORCH_CHECK(batch_size > 0, "batch_size must be positive");
     TORCH_CHECK(oe_n > 1, "oe_n must be greater than 1");
     TORCH_CHECK(oe_k > 0, "oe_k must be positive");
     TORCH_CHECK(max_context_len > 0, "max_context_len must be positive");
 
-    auto output = at::empty({tokens.size(0), (oe_n - 1) * oe_k},
-                            tokens.options().dtype(at::kInt));
+    auto output = at::empty({tokens.size(0), (oe_n - 1) * oe_k}, tokens.options().dtype(at::kInt));
 
     uint32_t block_dim = 1;
     auto tiling_data = BuildTilingData(block_dim, batch_size, oe_n, oe_k, max_context_len);
     auto tiling_tensor = GetOrCreateCachedTilingTensor(tiling_data, tokens);
     auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(tokens.device()));
 
-    EXEC_KERNEL_CMD(compute_n_gram_ids, block_dim, oe_weights, oe_mods,
-                    exclusive_oe_embeder_size_sums, tokens, exclusive_req_len_sums,
-                    oe_token_table, row_indices, column_starts, output,
-                    workspace_tensor, tiling_tensor);
+    EXEC_KERNEL_CMD(compute_n_gram_ids, block_dim, oe_weights, oe_mods, exclusive_oe_embeder_size_sums, tokens,
+                    exclusive_req_len_sums, oe_token_table, row_indices, column_starts, output, workspace_tensor,
+                    tiling_tensor);
     return output;
 }
 

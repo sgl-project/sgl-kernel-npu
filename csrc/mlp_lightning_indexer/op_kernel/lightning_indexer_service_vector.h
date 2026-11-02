@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -33,7 +34,8 @@ constexpr uint32_t BASE_TOPK = 2048;
 constexpr uint32_t MAX_LOGITS_TMP = 0x7F7FFFFF;
 constexpr uint32_t LOGITS_SCALE = 4;
 template <typename LIT>
-class LIVector {
+class LIVector
+{
 public:
     // =================================类型定义区=================================
     // 中间计算数据类型为float，高精度模式
@@ -56,11 +58,12 @@ public:
     __aicore__ inline void AllocEventID();
     __aicore__ inline void FreeEventID();
     __aicore__ inline void InitLDBuffers(TPipe *pipe);
-    
+
     GlobalTensor<int32_t> initNumGm;
     GlobalTensor<int32_t> localNumGm;
     bool useInitNumTensor = false;
     bool useLocalNumTensor = false;
+
 protected:
     GlobalTensor<MM1_OUT_T> mm1ResGm;
     GlobalTensor<float> vec1ResGm;
@@ -131,12 +134,12 @@ __aicore__ inline void LIVector<LIT>::InitBuffers(TPipe *pipe)
     virTopK = constInfo_.sparseCountFlag ? constInfo_.sparseCount : BASE_TOPK;
 
     pipe->InitBuffer(outQueue_, 1, outNeedBufSize);                                            // 32.25KB
-    pipe->InitBuffer(tmpBuf_, (groupInner_ * s2BaseSize_ + s2BaseSize_) * 2 * sizeof(float));  // 68KB 
+    pipe->InitBuffer(tmpBuf_, (groupInner_ * s2BaseSize_ + s2BaseSize_) * 2 * sizeof(float));  // 68KB
     // pipe->InitBuffer(sortOutBuf_, CeilDiv(s1BaseSize_, 2) * virTopK * 2 * sizeof(float));      // 64KB
-    pipe->InitBuffer(sortOutBuf_, 4 * BASE_TOPK * 2 * sizeof(float));      // 64KB
-    pipe->InitBuffer(indexBuf_, s2BaseSize_ * sizeof(int32_t));                                // 2KB
-    pipe->InitBuffer(reduceOutBuf_, s2BaseSize_ * 2 * sizeof(float));                          // 4KB
-    pipe->InitBuffer(brcBuf_, groupInner_ * 8 * sizeof(float)); //16 * 32 = 512
+    pipe->InitBuffer(sortOutBuf_, 4 * BASE_TOPK * 2 * sizeof(float));  // 64KB
+    pipe->InitBuffer(indexBuf_, s2BaseSize_ * sizeof(int32_t));        // 2KB
+    pipe->InitBuffer(reduceOutBuf_, s2BaseSize_ * 2 * sizeof(float));  // 4KB
+    pipe->InitBuffer(brcBuf_, groupInner_ * 8 * sizeof(float));        // 16 * 32 = 512
     pipe->InitBuffer(paramBuf_, LD_PARAM_NUM * sizeof(int64_t));
 
     tmpUb_ = tmpBuf_.Get<float>();
@@ -155,8 +158,8 @@ __aicore__ inline void LIVector<LIT>::InitBuffers(TPipe *pipe)
     LocalTensor<float> tmpfBuff = outQueue_.AllocTensor<float>();
     Duplicate(tmpfBuff.template ReinterpretCast<int32_t>(), -1, 2 * (s1BaseSize_ / 2) * paramNum_ * 2);
     SetWaitFlag<HardEvent::V_MTE3>(HardEvent::V_MTE3);
-    int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +      // 2个AIV共同地址偏移
-                           (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_; // 每个AIV的地址偏移，S1方向
+    int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +       // 2个AIV共同地址偏移
+                           (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_;  // 每个AIV的地址偏移，S1方向
     DataCopyPad(vec1ParamGm[wsInfoOffset], tmpfBuff.template ReinterpretCast<int64_t>(),
                 {1, static_cast<uint16_t>((s1BaseSize_ / 2) * 2 * paramNum_ * sizeof(int64_t)), 0, 0});
     SetWaitFlag<HardEvent::MTE3_V>(HardEvent::MTE3_V);
@@ -167,8 +170,8 @@ template <typename LIT>
 __aicore__ inline void LIVector<LIT>::InitLDBuffers(TPipe *pipe)
 {
     pipe->Reset();
-    pipe->InitBuffer(ldToBeMrgBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float)); // 2：value + index
-    pipe->InitBuffer(ldTmpBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));     // 2：value + index
+    pipe->InitBuffer(ldToBeMrgBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));  // 2：value + index
+    pipe->InitBuffer(ldTmpBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));      // 2：value + index
     pipe->InitBuffer(ldOutValueBuf_, BASE_TOPK * sizeof(float));
     pipe->InitBuffer(ldOutIdxBuf_, BASE_TOPK * sizeof(int32_t));
 }
@@ -193,10 +196,9 @@ __aicore__ inline void LIVector<LIT>::InitParams(const struct LICommon::ConstInf
 }
 
 template <typename LIT>
-__aicore__ inline void
-LIVector<LIT>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<float> vec1ResGm,
-                                    GlobalTensor<int64_t> vec1ParamGm, GlobalTensor<float> weightsGm,
-                                    GlobalTensor<int32_t> indiceOutGm, GlobalTensor<K_T> valueOutGm)
+__aicore__ inline void LIVector<LIT>::InitVec1GlobalTensor(
+    GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<float> vec1ResGm, GlobalTensor<int64_t> vec1ParamGm,
+    GlobalTensor<float> weightsGm, GlobalTensor<int32_t> indiceOutGm, GlobalTensor<K_T> valueOutGm)
 {
     this->mm1ResGm = mm1ResGm;
     this->vec1ResGm = vec1ResGm;
@@ -235,10 +237,10 @@ __aicore__ inline void LIVector<LIT>::CleanInvalidOutput(int64_t invalidS1offset
     valueULocal = outQueue_.DeQue<float>();
     LIServiceVec::CopyOut(indiceOutGm[invalidS1offset], idxULocal1, constInfo_.sparseCount);
     outQueue_.FreeTensor(valueULocal);
-    
+
     if (constInfo_.returnValue) {
         uint16_t negInf = 0;
-        if constexpr(std::is_same<K_T, float16_t>::value) {
+        if constexpr (std::is_same<K_T, float16_t>::value) {
             negInf = 0xFC00;
         } else {
             negInf = 0xFF80;
@@ -268,7 +270,8 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
 
     PipeBarrier<PIPE_V>();
     int32_t cuS1BeginIdxPerAiv = cuBaseS1Idx;
-    int32_t cuS1ProcNum = cuS1BeginIdxPerAiv + s1BaseSize_ > info.actS1Size ? info.actS1Size % s1BaseSize_ : s1BaseSize_;
+    int32_t cuS1ProcNum =
+        cuS1BeginIdxPerAiv + s1BaseSize_ > info.actS1Size ? info.actS1Size % s1BaseSize_ : s1BaseSize_;
     int32_t cuS1ProcNumPerAiv = blockId_ % 2 == 0 ? CeilDiv(cuS1ProcNum, 2) : (cuS1ProcNum / 2);
     cuS1BeginIdxPerAiv += (blockId_ % 2) * CeilDiv(cuS1ProcNum, 2);
 
@@ -329,8 +332,8 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 SetFlag<HardEvent::MTE2_V>(eventIdMTE2ToV);
                 WaitFlag<HardEvent::MTE2_V>(eventIdMTE2ToV);
                 weightsInUb = dbTmpUb[procGnum * s2BaseSize_];
-                LIServiceVec::DoScale(reduceCacheBuf[REDUCE_BANK_CONFLICT_NUM], dbTmpUb, weightsInUb,
-                                      brcBuf, procGnum, s2BaseSize_, outerGidx);
+                LIServiceVec::DoScale(reduceCacheBuf[REDUCE_BANK_CONFLICT_NUM], dbTmpUb, weightsInUb, brcBuf, procGnum,
+                                      s2BaseSize_, outerGidx);
                 // confused reduceOp in DoScale
                 // neednot use LIServiceVec::doReduce(mmInUb, reduceOutInner, procGnum, (s2BaseSize_+8));
                 SetFlag<HardEvent::V_MTE2>(eventIdVToMte2B);
@@ -361,9 +364,10 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // 得到 cuS2LenVecAlign / BLOCK_LEN个结果
                 AscendC::Sum(reduceOutInner, tmpSortBuf, tmpUb_.template ReinterpretCast<uint8_t>(), params);
                 PipeBarrier<PIPE_V>();
-                AscendC::Muls(reduceOutInner, reduceOutInner, static_cast<float>(1.0f / (8 * constInfo_.blockLen)), blockS2LenVecAlign);
+                AscendC::Muls(reduceOutInner, reduceOutInner, static_cast<float>(1.0f / (8 * constInfo_.blockLen)),
+                              blockS2LenVecAlign);
                 PipeBarrier<PIPE_V>();
-            } else if (constInfo_.blockLen > 4) { // blockLen is 8 or 16
+            } else if (constInfo_.blockLen > 4) {  // blockLen is 8 or 16
                 // 用高阶api Sum对s2维度reduce(不支持源操作数与目的操作数地址重叠)
                 AscendC::SumParams params;
                 params.outter = blockS2LenVecAlign;
@@ -372,13 +376,14 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // 得到 cuS2LenVecAlign / BLOCK_LEN个结果
                 AscendC::Sum(tmpSortBuf, reduceOutInner, tmpUb_.template ReinterpretCast<uint8_t>(), params);
                 PipeBarrier<PIPE_V>();
-                AscendC::Muls(reduceOutInner, tmpSortBuf, static_cast<float>(1.0f / constInfo_.blockLen), blockS2LenVecAlign);
+                AscendC::Muls(reduceOutInner, tmpSortBuf, static_cast<float>(1.0f / constInfo_.blockLen),
+                              blockS2LenVecAlign);
                 PipeBarrier<PIPE_V>();
             }
             // 对logits做clip，避免冲撞SECOND_MAX_LOGITS
             AscendC::Mins(reduceOutInner, reduceOutInner, CLIP_MAX_LOGITS, blockS2LenVecAlign);
             PipeBarrier<PIPE_V>();
-            
+
             /// ---- sink & swa处理 ---- ///
             // 1. 指定head区域全选，赋予第二高分数
             // if (info.s2Idx == 0 && constInfo_.initNum > 0) {
@@ -386,9 +391,8 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
             //     Duplicate(reduceOutInner, SECOND_MAX_LOGITS, blockInitNum);
             //     PipeBarrier<PIPE_V>();
             // }
-            uint32_t curInitNum = useInitNumTensor 
-                ? static_cast<uint32_t>(initNumGm.GetValue(info.bIdx)) 
-                : static_cast<uint32_t>(constInfo_.initNum);
+            uint32_t curInitNum = useInitNumTensor ? static_cast<uint32_t>(initNumGm.GetValue(info.bIdx))
+                                                   : static_cast<uint32_t>(constInfo_.initNum);
             if (info.s2Idx == 0 && curInitNum > 0) {
                 uint32_t blockInitNum = curInitNum / constInfo_.blockLen;
                 Duplicate(reduceOutInner, SECOND_MAX_LOGITS, blockInitNum);
@@ -399,15 +403,15 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
             // int32_t localStart = cuRealAcSeq - constInfo_.localNum;
             // bool hasLocal = cuBaseS2Idx > localStart || cuBaseS2Idx + cuS2Len > localStart;
             // if (constInfo_.localNum > 0 && hasLocal) {
-            uint32_t curLocalNum = useLocalNumTensor
-                ? static_cast<uint32_t>(localNumGm.GetValue(info.bIdx))
-                : static_cast<uint32_t>(constInfo_.localNum);
+            uint32_t curLocalNum = useLocalNumTensor ? static_cast<uint32_t>(localNumGm.GetValue(info.bIdx))
+                                                     : static_cast<uint32_t>(constInfo_.localNum);
             int32_t localStart = cuRealAcSeq - curLocalNum;
             bool hasLocal = cuBaseS2Idx > localStart || cuBaseS2Idx + cuS2Len > localStart;
             if (curLocalNum > 0 && hasLocal) {
                 // 部分落在local 区间
                 if (cuBaseS2Idx < localStart) {
-                    int32_t nonLocalBlockNum = (localStart - cuBaseS2Idx + constInfo_.blockLen - 1) / constInfo_.blockLen;
+                    int32_t nonLocalBlockNum =
+                        (localStart - cuBaseS2Idx + constInfo_.blockLen - 1) / constInfo_.blockLen;
                     int32_t localBlockNum = blockS2Len - nonLocalBlockNum;
                     if (nonLocalBlockNum % 8 == 0) {
                         Duplicate(reduceOutInner[nonLocalBlockNum], SECOND_MAX_LOGITS, localBlockNum);
@@ -420,10 +424,10 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                         Adds(reduceOutInner, tmpSortBuf, 0.0f, blockS2Len);
                         PipeBarrier<PIPE_V>();
                     }
- 
+
                 } else {  // 当前block 全落在local 区间
                     Duplicate(reduceOutInner, SECOND_MAX_LOGITS, blockS2Len);
-                    PipeBarrier<PIPE_V>();   
+                    PipeBarrier<PIPE_V>();
                 }
             }
             // 3. 最后一个block必选，赋予最高分数
@@ -441,18 +445,21 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
 
             LocalTensor<int32_t> sortIndiceUbInt = sortIndiceUb.template ReinterpretCast<int32_t>();
             if (blockS2LenVecAlign != blockS2Len) {
-                Duplicate(sortIndiceUbInt, -1, blockS2LenVecAlign); // 无效数据索引填充为-1
+                Duplicate(sortIndiceUbInt, -1, blockS2LenVecAlign);  // 无效数据索引填充为-1
             }
             PipeBarrier<PIPE_V>();
-            Adds(sortIndiceUbInt, globalTopkIndice_, static_cast<int32_t>(cuBaseS2Idx / constInfo_.blockLen), blockS2Len);
+            Adds(sortIndiceUbInt, globalTopkIndice_, static_cast<int32_t>(cuBaseS2Idx / constInfo_.blockLen),
+                 blockS2Len);
             PipeBarrier<PIPE_V>();
 
             /// ---- 全排序 ---- ///
-            LIServiceVec::SortAll(reduceOutBuff, tmpSortBuf, blockS2LenVecAlign); //  cuS2LenVecAlign <= s2BaseSize_, fill -inf
+            LIServiceVec::SortAll(reduceOutBuff, tmpSortBuf,
+                                  blockS2LenVecAlign);  //  cuS2LenVecAlign <= s2BaseSize_, fill -inf
             PipeBarrier<PIPE_V>();
-            LIServiceVec::MergeSort(globalTopkUb_[innerS1Idx * virTopK * 2], virTopK, reduceOutBuff, blockS2LenVecAlign, tmpUb_);
-            
-            SetFlag<HardEvent::V_MTE2>(eventIdVToMte2A); // 反向同步，下一轮循环开始位置会用到 tmpUb_
+            LIServiceVec::MergeSort(globalTopkUb_[innerS1Idx * virTopK * 2], virTopK, reduceOutBuff, blockS2LenVecAlign,
+                                    tmpUb_);
+
+            SetFlag<HardEvent::V_MTE2>(eventIdVToMte2A);  // 反向同步，下一轮循环开始位置会用到 tmpUb_
             PipeBarrier<PIPE_V>();
             outQueue_.FreeTensor(tmpSortBuf);
 
@@ -465,29 +472,32 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // validS2Block = validS2Block < constInfo_.sparseCount ? validS2Block : constInfo_.sparseCount;
                 // SetWaitFlag<HardEvent::V_S>(HardEvent::V_S);
                 // float lhsValue = globalTopkUb_[innerS1Idx * virTopK * 2].GetValue(0);
-                // int32_t lhsIdx = (globalTopkUb_[innerS1Idx * virTopK * 2].template ReinterpretCast<int32_t>()).GetValue(1);
-                // float rhsValue = globalTopkUb_[innerS1Idx * virTopK * 2].GetValue(2 * validS2Block - 2);
-                // int32_t rhsIdx = (globalTopkUb_[innerS1Idx * virTopK * 2].template ReinterpretCast<int32_t>()).GetValue(2 * validS2Block - 1);
-                // globalTopkUb_[innerS1Idx * virTopK * 2].SetValue(0, rhsValue);
-                // (globalTopkUb_[innerS1Idx * virTopK * 2].template ReinterpretCast<int32_t>()).SetValue(1, rhsIdx);
-                // globalTopkUb_[innerS1Idx * virTopK * 2].SetValue(2 * validS2Block - 2, lhsValue);
-                // (globalTopkUb_[innerS1Idx * virTopK * 2].template ReinterpretCast<int32_t>()).SetValue(2 * validS2Block - 1, lhsIdx);
+                // int32_t lhsIdx = (globalTopkUb_[innerS1Idx * virTopK * 2].template
+                // ReinterpretCast<int32_t>()).GetValue(1); float rhsValue = globalTopkUb_[innerS1Idx * virTopK *
+                // 2].GetValue(2 * validS2Block - 2); int32_t rhsIdx = (globalTopkUb_[innerS1Idx * virTopK * 2].template
+                // ReinterpretCast<int32_t>()).GetValue(2 * validS2Block - 1); globalTopkUb_[innerS1Idx * virTopK *
+                // 2].SetValue(0, rhsValue); (globalTopkUb_[innerS1Idx * virTopK * 2].template
+                // ReinterpretCast<int32_t>()).SetValue(1, rhsIdx); globalTopkUb_[innerS1Idx * virTopK * 2].SetValue(2 *
+                // validS2Block - 2, lhsValue); (globalTopkUb_[innerS1Idx * virTopK * 2].template
+                // ReinterpretCast<int32_t>()).SetValue(2 * validS2Block - 1, lhsIdx);
                 // SetWaitFlag<HardEvent::S_V>(HardEvent::S_V);
 
                 // 结果提取 & 搬出
                 int64_t offset = (constInfo_.sparseCount <= 4096) ? virTopK : constInfo_.sparseCount / 2;
-                int64_t copyLen = (constInfo_.sparseCount <= 4096) ? constInfo_.sparseCount : constInfo_.sparseCount / 2;
+                int64_t copyLen =
+                    (constInfo_.sparseCount <= 4096) ? constInfo_.sparseCount : constInfo_.sparseCount / 2;
                 int64_t copyNum = (constInfo_.sparseCount <= 4096) ? 1 : 2;
                 for (int64_t i = 0; i < copyNum; i++) {
                     LocalTensor<float> outValueUb = outQueue_.AllocTensor<float>();
                     LocalTensor<uint32_t> outIdxUb = outValueUb[offset].template ReinterpretCast<uint32_t>();
-                    Extract(outValueUb, outIdxUb, globalTopkUb_[innerS1Idx * virTopK * 2 + 2 * i * offset], (offset / 32));
-                    
+                    Extract(outValueUb, outIdxUb, globalTopkUb_[innerS1Idx * virTopK * 2 + 2 * i * offset],
+                            (offset / 32));
+
                     LocalTensor<K_T> valueULocal1 = outValueUb.template ReinterpretCast<K_T>();
                     if (constInfo_.returnValue) {
                         PipeBarrier<PIPE_V>();
-                        AscendC::Mins(outValueUb, outValueUb, 65504.0f, copyLen); 
-						PipeBarrier<PIPE_V>();
+                        AscendC::Mins(outValueUb, outValueUb, 65504.0f, copyLen);
+                        PipeBarrier<PIPE_V>();
                         Cast(valueULocal1, outValueUb, RoundMode::CAST_ROUND, copyLen);
                         PipeBarrier<PIPE_V>();
                     }
@@ -495,10 +505,14 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                     LocalTensor<int32_t> idxULocal1 = outValueUb[offset].template ReinterpretCast<int32_t>();
                     outQueue_.EnQue<float>(outValueUb);
                     outValueUb = outQueue_.DeQue<float>();
-                    
-                    LIServiceVec::CopyOut(indiceOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount + i * offset], idxULocal1, copyLen);
+
+                    LIServiceVec::CopyOut(
+                        indiceOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount + i * offset], idxULocal1,
+                        copyLen);
                     if (constInfo_.returnValue) {
-                        LIServiceVec::CopyOut(valueOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount + i * offset], valueULocal1, copyLen);
+                        LIServiceVec::CopyOut(
+                            valueOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount + i * offset],
+                            valueULocal1, copyLen);
                     }
                     outQueue_.FreeTensor(outValueUb);
                 }
@@ -507,12 +521,14 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // vec1Param Gm = [aic, s1BaseSize_, 2, 16] int64
                 //     16 = [needFd, s2AcSeq, s2Start, s2End, isS2End, bn2idx, s1Idx, S1ProcNum, ......]
 
-                int64_t wsOffset = (blockId_ / 2) * s1BaseSize_ * 2 * 2 * BASE_TOPK +       // 2个AIV共同地址偏移
-                                   (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * 2 * BASE_TOPK + // 每个AIV的地址偏移，S1方向
-                                   (ldS1Offset + innerS1Idx) * 2 * 2 * BASE_TOPK;
-                int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +       // 2个AIV共同地址偏移
-                                       (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_ + // 每个AIV的地址偏移，S1方向
-                                       (ldS1Offset + innerS1Idx) * 2 * paramNum_;
+                int64_t wsOffset =
+                    (blockId_ / 2) * s1BaseSize_ * 2 * 2 * BASE_TOPK +        // 2个AIV共同地址偏移
+                    (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * 2 * BASE_TOPK +  // 每个AIV的地址偏移，S1方向
+                    (ldS1Offset + innerS1Idx) * 2 * 2 * BASE_TOPK;
+                int64_t wsInfoOffset =
+                    (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +        // 2个AIV共同地址偏移
+                    (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_ +  // 每个AIV的地址偏移，S1方向
+                    (ldS1Offset + innerS1Idx) * 2 * paramNum_;
 
                 LocalTensor<int64_t> tmpiBuff = paramBuf_.Get<int64_t>();
                 SetWaitFlag<HardEvent::MTE3_S>(HardEvent::MTE3_S);
@@ -529,11 +545,11 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // [head, tail]
                 // head: 与前面规约，与前后规约
                 // tail: 与后面规约
-                bool isTailReduce = blockS2StartIdx_ == 0; // 一定是isLastTile
+                bool isTailReduce = blockS2StartIdx_ == 0;  // 一定是isLastTile
                 // WS偏移规则 blockS2StartIdx_ != 0
                 // 跟前面块做规约 写到0偏移 不用做计算 blockS2StartIdx_ == 0 and !isS2End
                 // 跟后面块做规约 写到1偏移  需要 + s1BaseSize_, BASE_TOPK*2
-                if (isTailReduce) { // S2不是最后结束的数据就需要往后做规约，放入第二块ws
+                if (isTailReduce) {  // S2不是最后结束的数据就需要往后做规约，放入第二块ws
                     wsInfoOffset += paramNum_;
                     wsOffset += 2 * BASE_TOPK;
                 }
@@ -635,7 +651,7 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
         valueOffset = 0;
 
         // 搬入数据
-        wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK + // 2个AIV共同地址偏移
+        wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK +  // 2个AIV共同地址偏移
                    innerS1Idx * 2 * 2 * BASE_TOPK + 2 * BASE_TOPK;
         SetWaitFlag<HardEvent::V_MTE2>(HardEvent::V_MTE2);
         SetWaitFlag<HardEvent::S_MTE2>(HardEvent::S_MTE2);
@@ -654,7 +670,7 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
 
         while (needFd == 1) {
             // 搬入头规约数据
-            wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK + // 2个AIV共同地址偏移
+            wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK +  // 2个AIV共同地址偏移
                        innerS1Idx * 2 * 2 * BASE_TOPK;
             SetWaitFlag<HardEvent::V_MTE2>(HardEvent::V_MTE2);
             SetWaitFlag<HardEvent::S_MTE2>(HardEvent::S_MTE2);
@@ -755,7 +771,7 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
             SetWaitFlag<HardEvent::MTE3_V>(HardEvent::MTE3_V);
         } else {
             Extract(outValueUb, outIdxUb, curValueIdxUb, (BASE_TOPK / 32));
-            AscendC::Mins(outValueUb, outValueUb, 65504.0f, constInfo_.sparseCount);  
+            AscendC::Mins(outValueUb, outValueUb, 65504.0f, constInfo_.sparseCount);
             PipeBarrier<PIPE_V>();
             LocalTensor<int32_t> idxULocal1 = outIdxUb.template ReinterpretCast<int32_t>();
             LocalTensor<K_T> valueULocal1 = outValueUb.template ReinterpretCast<K_T>();
@@ -771,5 +787,5 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
         }
     }
 }
-} // namespace LIKernel
+}  // namespace LIKernel
 #endif

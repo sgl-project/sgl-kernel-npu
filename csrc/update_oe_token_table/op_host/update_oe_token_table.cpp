@@ -48,10 +48,9 @@ typename std::enable_if<std::is_integral<T>::value, T>::type FloorAlign(T x, T a
     return align == 0 ? 0 : x / align * align;
 }
 
-void CheckUpdateOeTokenTableInputs(const at::Tensor &tokens, const at::Tensor &req_lens,
-                                   const at::Tensor &row_indices, const at::Tensor &column_starts,
-                                   const at::Tensor &ignore_tokens, const at::Tensor &oe_token_table,
-                                   int64_t batch_size, int64_t max_context_len)
+void CheckUpdateOeTokenTableInputs(const at::Tensor &tokens, const at::Tensor &req_lens, const at::Tensor &row_indices,
+                                   const at::Tensor &column_starts, const at::Tensor &ignore_tokens,
+                                   const at::Tensor &oe_token_table, int64_t batch_size, int64_t max_context_len)
 {
     TORCH_CHECK(tokens.scalar_type() == at::kInt, "tokens must be int32");
     TORCH_CHECK(req_lens.scalar_type() == at::kInt, "req_lens must be int32");
@@ -83,11 +82,9 @@ void CheckUpdateOeTokenTableInputs(const at::Tensor &tokens, const at::Tensor &r
                 "oe_token_table second dimension must be >= max_context_len");
     TORCH_CHECK(tokens.device() == req_lens.device(), "tokens and req_lens must be on the same device");
     TORCH_CHECK(tokens.device() == row_indices.device(), "tokens and row_indices must be on the same device");
-    TORCH_CHECK(tokens.device() == column_starts.device(),
-                "tokens and column_starts must be on the same device");
+    TORCH_CHECK(tokens.device() == column_starts.device(), "tokens and column_starts must be on the same device");
     TORCH_CHECK(tokens.device() == ignore_tokens.device(), "tokens and ignore_tokens must be on the same device");
-    TORCH_CHECK(tokens.device() == oe_token_table.device(),
-                "tokens and oe_token_table must be on the same device");
+    TORCH_CHECK(tokens.device() == oe_token_table.device(), "tokens and oe_token_table must be on the same device");
 }
 
 UpdateOeTokenTableTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_size, int64_t max_context_len,
@@ -129,8 +126,8 @@ UpdateOeTokenTableTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_
 at::Tensor GetOrCreateCachedTilingTensor(const UpdateOeTokenTableTilingData &tiling_data,
                                          const at::Tensor &device_anchor)
 {
-    int32_t tiling_size = static_cast<int32_t>(
-        ((sizeof(UpdateOeTokenTableTilingData) + PADDING_BYTE - 1) / PADDING_BYTE) * PADDING_BYTE);
+    int32_t tiling_size =
+        static_cast<int32_t>(((sizeof(UpdateOeTokenTableTilingData) + PADDING_BYTE - 1) / PADDING_BYTE) * PADDING_BYTE);
     auto hash_key = std::make_tuple(tiling_data.usedCoreNum, tiling_data.blockFactor, tiling_data.tailBlockFactor,
                                     tiling_data.ubFactor, tiling_data.batchSize, tiling_data.maxContextLen,
                                     tiling_data.ignoreTokenNum);
@@ -138,9 +135,8 @@ at::Tensor GetOrCreateCachedTilingTensor(const UpdateOeTokenTableTilingData &til
     c10::DeviceIndex device_index = device_anchor.get_device();
 
     if (!globalTilingBuffer.defined() || cachedDeviceIndex != device_index) {
-        globalTilingBuffer =
-            at::empty({static_cast<int64_t>(tiling_size) * MAX_CAPTURE_NUM},
-                      at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
+        globalTilingBuffer = at::empty({static_cast<int64_t>(tiling_size) * MAX_CAPTURE_NUM},
+                                       at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
         captureMap.clear();
         actualCaptureNum = 0U;
         cachedDeviceIndex = device_index;
@@ -162,22 +158,21 @@ at::Tensor GetOrCreateCachedTilingTensor(const UpdateOeTokenTableTilingData &til
 
     uint32_t slot = actualCaptureNum++;
     captureMap.emplace(hash_value, slot);
-    globalTilingBuffer
-        .slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
+    globalTilingBuffer.slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
         .copy_(device_tiling);
-    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * slot,
-                         tiling_size, at::kByte);
+    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * slot, tiling_size,
+                         at::kByte);
 }
 
 }  // namespace
 
 HOST_API at::Tensor update_oe_token_table(const at::Tensor &tokens, const at::Tensor &req_lens,
                                           const at::Tensor &row_indices, const at::Tensor &column_starts,
-                                          const at::Tensor &ignore_tokens, int64_t batch_size,
-                                          int64_t max_context_len, const at::Tensor &oe_token_table)
+                                          const at::Tensor &ignore_tokens, int64_t batch_size, int64_t max_context_len,
+                                          const at::Tensor &oe_token_table)
 {
-    CheckUpdateOeTokenTableInputs(tokens, req_lens, row_indices, column_starts, ignore_tokens,
-                                  oe_token_table, batch_size, max_context_len);
+    CheckUpdateOeTokenTableInputs(tokens, req_lens, row_indices, column_starts, ignore_tokens, oe_token_table,
+                                  batch_size, max_context_len);
 
     uint32_t block_dim = 1;
     auto tiling_data = BuildTilingData(block_dim, batch_size, max_context_len, ignore_tokens.numel());
@@ -185,8 +180,8 @@ HOST_API at::Tensor update_oe_token_table(const at::Tensor &tokens, const at::Te
     auto workspace_tensor =
         at::empty({WORKSPACE_SIZE}, at::TensorOptions().dtype(at::kByte).device(oe_token_table.device()));
 
-    EXEC_KERNEL_CMD(update_oe_token_table, block_dim, tokens, req_lens, row_indices, column_starts,
-                    ignore_tokens, oe_token_table, workspace_tensor, tiling_tensor);
+    EXEC_KERNEL_CMD(update_oe_token_table, block_dim, tokens, req_lens, row_indices, column_starts, ignore_tokens,
+                    oe_token_table, workspace_tensor, tiling_tensor);
     return oe_token_table;
 }
 
