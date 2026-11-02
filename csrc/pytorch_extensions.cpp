@@ -12,6 +12,7 @@
 // limitations under the License.
 
 #include "version.h"
+#include "fused_lightning_indexer_manage/op_kernel/upstream/fused_lightning_indexer_manage_constants.h"
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
@@ -201,6 +202,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? actual_seq_lengths=None, Tensor? actual_seq_lengths_kv=None, "
         "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
         "int top_k=16, int inner_precise=0) -> Tensor");
+    m.def("lim_full_visible_max_query_width() -> int", []() -> int64_t { return LIMConfig::MAX_ROUTES; });
     m.def(
         "fused_lightning_indexer_manage("
         "Tensor index_weights, Tensor query_dequant_scale, Tensor query, "

@@ -22,7 +22,9 @@ def make_case(batch=1, heads=32, dtype=torch.bfloat16, source_capacity=8320):
     table = torch.arange(
         source_capacity // 128, dtype=torch.int32, device=device
     ).repeat(batch, 1)
+
     vector = lambda value: torch.full((batch,), value, dtype=torch.int32, device=device)
+
     pool = torch.full((batch, source_capacity), -1, dtype=torch.int32, device=device)
     ids = torch.empty(batch, 1, 2048, dtype=torch.int32, device=device)
     misses = torch.empty(batch, 32768, dtype=torch.int32, device=device)
@@ -95,6 +97,125 @@ def test_full_visible_q1_includes_partial_page_and_warm_new_token(length):
         fused_lightning_indexer_manage(*args)
         consume_plan(args, resident, visible - 2048)
         args[10].fill_(-1)
+
+
+@pytest.mark.parametrize("query_width", [1, 2, 3, 4, 5, 8, 14])
+def test_full_visible_mtp_causal_and_rewritten_residents(query_width):
+    capacity = max(4096, query_width * 2048)
+    length = max(16384, capacity + 128) + query_width
+    source_capacity = (length + 127) // 128 * 128
+    args, _ = make_case(source_capacity=source_capacity)
+    resident = torch.full((capacity,), -1, dtype=torch.int32)
+    device = args[2].device
+    heads = args[2].shape[1]
+    args[0] = args[0].expand(query_width, heads).contiguous()
+    args[1] = args[1].expand(query_width, heads).contiguous()
+    args[2] = args[2].expand(query_width, heads, 128).contiguous()
+    args[6].fill_(query_width)
+    args[7].fill_(length)
+    args[8].fill_(length)
+    args[9].fill_(capacity)
+    args[13] = torch.empty(query_width, 1, 2048, dtype=torch.int32, device=device)
+    args[14] = torch.empty_like(args[13])
+    args[15] = torch.zeros(query_width, dtype=torch.int32, device=device)
+    keys = args[4].view(-1, 128)
+    keys[:, 0] = -8
+    keys[:2048, 0] = 1
+    keys[length - query_width : length, 0] = 8
+
+    for step in range(3):
+        # Reuse the same logical positions after a rejected speculative draft.
+        keys[length - query_width : length, 1] = step + 1
+        fused_lightning_indexer_manage(*args, full_visible=True)
+        torch.npu.synchronize()
+        ids = args[13].cpu()[:, 0]
+        slots = args[14].cpu()[:, 0]
+        count = args[18].item()
+        sources = args[16].cpu()[0, :count]
+        destinations = args[17].cpu()[0, :count]
+        assert sources.unique().numel() == count
+        assert destinations.unique().numel() == count
+        resident[destinations.long()] = sources
+        for route in range(query_width):
+            visible = length - query_width + route + 1
+            assert ids[route].unique().numel() == 2048
+            assert torch.all(ids[route] < visible)
+            assert set(range(length - query_width, visible)).issubset(
+                set(ids[route].tolist())
+            )
+            assert torch.all((slots[route] >= 0) & (slots[route] < capacity))
+            torch.testing.assert_close(
+                resident[slots[route].long()], ids[route], rtol=0, atol=0
+            )
+        if step:
+            # Every rewritten resident must be present in the copy plan.
+            pool = args[12].cpu()[0]
+            plan = dict(zip(sources.tolist(), destinations.tolist()))
+            for source in range(length - query_width, length):
+                slot = int(pool[source])
+                if slot >= 0:
+                    assert plan[source] == slot
+        args[10].fill_(-1)
+
+
+def test_full_visible_mtp_large_steady_union_and_refresh():
+    query_width = 8
+    capacity = query_width * 2048
+    length = 2 * capacity + 128 + query_width
+    args, _ = make_case(source_capacity=(length + 127) // 128 * 128)
+    device = args[2].device
+    heads = args[2].shape[1]
+    args[0] = args[0].expand(query_width, heads).contiguous()
+    args[1] = args[1].expand(query_width, heads).contiguous()
+    args[2] = torch.zeros(query_width, heads, 128, dtype=args[2].dtype, device=device)
+    for route in range(query_width):
+        args[2][route, :, route] = 1
+    args[6].fill_(query_width)
+    args[7].fill_(length)
+    args[8].fill_(length)
+    args[9].fill_(capacity)
+    args[13] = torch.empty(query_width, 1, 2048, dtype=torch.int32, device=device)
+    args[14] = torch.empty_like(args[13])
+    args[15] = torch.zeros(query_width, dtype=torch.int32, device=device)
+    keys = args[4].view(-1, 128)
+    keys[:, :query_width] = -8
+    resident = torch.full((capacity,), -1, dtype=torch.int32)
+    for step in range(2):
+        keys[:, :query_width] = -8
+        for route in range(query_width):
+            start = step * capacity + route * 2048
+            keys[start : start + 2048, route] = 8
+        # Ensure each current speculative source is selected and stays resident.
+        keys[length - query_width : length, :query_width] = 16
+        fused_lightning_indexer_manage(*args, full_visible=True)
+        torch.npu.synchronize()
+        count = args[18].item()
+        sources = args[16].cpu()[0, :count]
+        destinations = args[17].cpu()[0, :count]
+        assert 0 <= count <= capacity
+        assert sources.unique().numel() == count
+        assert destinations.unique().numel() == count
+        assert torch.all((destinations >= 0) & (destinations < capacity))
+        resident[destinations.long()] = sources
+        ids, slots = args[13].cpu()[:, 0], args[14].cpu()[:, 0]
+        for route in range(query_width):
+            assert torch.all(ids[route] < length - query_width + route + 1)
+            torch.testing.assert_close(
+                resident[slots[route].long()], ids[route], rtol=0, atol=0
+            )
+        if step:
+            assert count > 8192
+            pool = args[12].cpu()[0]
+            plan = dict(zip(sources.tolist(), destinations.tolist()))
+            for source in range(length - query_width, length):
+                slot = int(pool[source])
+                if slot >= 0:
+                    assert plan[source] == slot
+        args[10].fill_(-1)
+
+
+def test_full_visible_query_width_capability():
+    assert torch.ops.npu.lim_full_visible_max_query_width() == 14
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])

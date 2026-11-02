@@ -233,13 +233,14 @@ private:
             static_cast<uint32_t>(actualSeqLengthsQueryGm.GetValue(batch - 1U));
         const uint32_t end = static_cast<uint32_t>(actualSeqLengthsQueryGm.GetValue(batch));
         const int32_t actual = actualSeqLengthsKeyGm.GetValue(batch);
-        if (end <= begin || end > tSize || end - begin != ROUTES ||
-            actual < static_cast<int32_t>(ROUTES) || static_cast<uint32_t>(actual) > sourceCapacity) return;
+        if (end <= begin || end > tSize || end - begin > MAX_ROUTES ||
+            actual < static_cast<int32_t>(end - begin) || static_cast<uint32_t>(actual) > sourceCapacity) return;
         LocalTensor<float> low = unionSourceBuf.Get<int32_t>().ReinterpretCast<float>();
-        Duplicate(low, -1.0e20F, 8U);
+        const uint32_t routes = end - begin;
+        Duplicate(low, -1.0e20F, 16U);
         Sync<HardEvent::V_MTE3>(HardEvent::V_MTE3);
-        for (uint32_t route = 0U; route < ROUTES - 1U; ++route) {
-            const uint32_t hidden = ROUTES - 1U - route;
+        for (uint32_t route = 0U; route < routes - 1U; ++route) {
+            const uint32_t hidden = routes - 1U - route;
             const uint32_t visible = static_cast<uint32_t>(actual) - hidden;
             const uint64_t offset = static_cast<uint64_t>(begin + route) * scoreStride + visible;
             DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
@@ -250,13 +251,83 @@ private:
                         {1, static_cast<uint16_t>(hidden * sizeof(float)), 0, 0});
         }
         Sync<HardEvent::MTE3_S>(HardEvent::MTE3_S);
-        for (uint32_t route = 0U; route < ROUTES - 1U; ++route) {
-            const uint32_t visible = static_cast<uint32_t>(actual) - (ROUTES - 1U - route);
+        for (uint32_t route = 0U; route < routes - 1U; ++route) {
+            const uint32_t visible = static_cast<uint32_t>(actual) - (routes - 1U - route);
             DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
                 scoreScratchGm[static_cast<uint64_t>(begin + route) * scoreStride + visible]);
             DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
                 scoreScratchGm[static_cast<uint64_t>(begin + route) * scoreStride + static_cast<uint32_t>(actual) - 1U]);
         }
+    }
+
+    // Scan the existing plan in bounded chunks, then append current residents.
+    __aicore__ inline void AppendRewrittenResidentsWide(
+        uint32_t batch, uint32_t begin, uint32_t routes, int32_t actual,
+        int32_t row, int32_t capacity)
+    {
+        LocalTensor<int32_t> headers = occurrenceBuf.Get<uint32_t>().ReinterpretCast<int32_t>();
+        DataCopyPad(headers, countsGm[batch], {1, sizeof(int32_t), 0, 0, 0},
+                    AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
+        DataCopyPad(headers[8], topkSourcesGm[static_cast<uint64_t>(begin) * TOPK],
+                    {1, sizeof(int32_t), 0, 0, 0},
+                    AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
+        Sync<HardEvent::MTE2_S>(HardEvent::MTE2_S);
+        const int32_t oldCount = headers.GetValue(0);
+        if (headers.GetValue(8) < 0 || oldCount < 0 || oldCount > capacity ||
+            static_cast<uint32_t>(oldCount) > MISS_CAPACITY) return;
+        const uint64_t missBase = static_cast<uint64_t>(batch) * MISS_CAPACITY;
+        const uint64_t cacheBase = static_cast<uint64_t>(row) * sourceCapacity;
+        const int32_t firstSource = actual - static_cast<int32_t>(routes);
+        int32_t currentSlots[MAX_ROUTES];
+        for (uint32_t route = 0U; route < routes; ++route) {
+            currentSlots[route] = cacheSlotsGm.GetValue(cacheBase + firstSource + route);
+        }
+        LocalTensor<int32_t> sources = pairInBuf.Get<float>().ReinterpretCast<int32_t>();
+        LocalTensor<int32_t> slots = pairOutBuf.Get<float>().ReinterpretCast<int32_t>();
+        uint32_t plannedMask = 0U;
+        for (uint32_t start = 0U; start < static_cast<uint32_t>(oldCount); start += EVICT_CHUNK) {
+            const uint32_t remaining = static_cast<uint32_t>(oldCount) - start;
+            const uint32_t size = remaining < EVICT_CHUNK ? remaining : EVICT_CHUNK;
+            DataCopyPad(sources, missSourcesGm[missBase + start],
+                        {1, static_cast<uint32_t>(size * sizeof(int32_t)), 0, 0, 0},
+                        AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
+            DataCopyPad(slots, missDestinationsGm[missBase + start],
+                        {1, static_cast<uint32_t>(size * sizeof(int32_t)), 0, 0, 0},
+                        AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
+            Sync<HardEvent::MTE2_S>(HardEvent::MTE2_S);
+            for (uint32_t i = 0U; i < size; ++i) {
+                const int32_t source = sources.GetValue(i);
+                if (source >= firstSource && source < actual) {
+                    const uint32_t route = static_cast<uint32_t>(source - firstSource);
+                    ASSERT_MSG(slots.GetValue(i) == currentSlots[route],
+                               "Full-visible refresh plan has conflicting source/slot ownership.");
+                    plannedMask |= 1U << route;
+                }
+            }
+            Sync<HardEvent::S_MTE2>(HardEvent::S_MTE2);
+        }
+        uint32_t added = 0U;
+        for (uint32_t route = 0U; route < routes; ++route) {
+            const int32_t slot = currentSlots[route];
+            if (slot < 0 || slot >= capacity || (plannedMask & (1U << route)) != 0U) continue;
+            ASSERT_MSG(static_cast<uint32_t>(oldCount) + added < static_cast<uint32_t>(capacity) &&
+                       static_cast<uint32_t>(oldCount) + added < MISS_CAPACITY,
+                       "Full-visible refresh exceeds cache capacity.");
+            if (static_cast<uint32_t>(oldCount) + added >= static_cast<uint32_t>(capacity) ||
+                static_cast<uint32_t>(oldCount) + added >= MISS_CAPACITY) return;
+            headers.SetValue(16U + added, firstSource + static_cast<int32_t>(route));
+            headers.SetValue(32U + added, slot);
+            ++added;
+        }
+        if (added == 0U) return;
+        headers.SetValue(0, oldCount + static_cast<int32_t>(added));
+        Sync<HardEvent::S_MTE3>(HardEvent::S_MTE3);
+        DataCopyPad(missSourcesGm[missBase + oldCount], headers[16],
+                    {1, static_cast<uint16_t>(added * sizeof(int32_t)), 0, 0});
+        DataCopyPad(missDestinationsGm[missBase + oldCount], headers[32],
+                    {1, static_cast<uint16_t>(added * sizeof(int32_t)), 0, 0});
+        DataCopyPad(countsGm[batch], headers, {1, sizeof(int32_t), 0, 0});
+        Sync<HardEvent::MTE3_S>(HardEvent::MTE3_S);
     }
 
     // Extend the completed union plan with rewritten sources that still own a
@@ -269,9 +340,13 @@ private:
         const int32_t actual = actualSeqLengthsKeyGm.GetValue(batch);
         const int32_t row = reqEntriesGm.GetValue(batch);
         const int32_t capacity = cacheTokensGm.GetValue(batch);
-        if (end <= begin || end > tSize || end - begin != ROUTES ||
-            actual < static_cast<int32_t>(ROUTES) || static_cast<uint32_t>(actual) > sourceCapacity || row < 0 ||
+        if (end <= begin || end > tSize || end - begin > MAX_ROUTES ||
+            actual < static_cast<int32_t>(end - begin) || static_cast<uint32_t>(actual) > sourceCapacity || row < 0 ||
             static_cast<uint32_t>(row) >= poolSize || capacity <= 0) return;
+        if (end - begin != ROUTES) {
+            AppendRewrittenResidentsWide(batch, begin, end - begin, actual, row, capacity);
+            return;
+        }
         LocalTensor<int32_t> headers = occurrenceBuf.Get<uint32_t>().ReinterpretCast<int32_t>();
         DataCopyPad(headers, countsGm[batch], {1, sizeof(int32_t), 0, 0, 0},
                     AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
@@ -280,7 +355,11 @@ private:
                     AscendC::DataCopyPadExtParams<int32_t>{false, 0, 0, 0});
         Sync<HardEvent::MTE2_S>(HardEvent::MTE2_S);
         const int32_t oldCount = headers.GetValue(0);
-        if (headers.GetValue(8) < 0 || oldCount < 0 || oldCount > static_cast<int32_t>(CAPACITY)) return;
+        if (oldCount > static_cast<int32_t>(CAPACITY)) {
+            AppendRewrittenResidentsWide(batch, begin, ROUTES, actual, row, capacity);
+            return;
+        }
+        if (headers.GetValue(8) < 0 || oldCount < 0) return;
         LocalTensor<int32_t> sources = pairInBuf.Get<float>().ReinterpretCast<int32_t>();
         LocalTensor<int32_t> slots = pairOutBuf.Get<float>().ReinterpretCast<int32_t>();
         const uint64_t missBase = static_cast<uint64_t>(batch) * MISS_CAPACITY;

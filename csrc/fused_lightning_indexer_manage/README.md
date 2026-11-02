@@ -34,7 +34,8 @@ The native ABI supports FP16/BF16 index query/key/weights, index head counts
 32/64, head dimension 128, page size 128 and TopK 2048. Metadata and outputs
 are int32; scale placeholders are float32. Inputs and outputs are contiguous
 and on the same NPU. Per request, native queries occupy one contiguous range
-of 1..14 rows; the SGLang integration currently uses Q1 only.
+of 1..14 rows. `torch.ops.npu.lim_full_visible_max_query_width()` returns the
+compiled limit so the framework can size its buffers from the actual MTP config.
 
 `cache_slots_pool` is persistent encoded state, not an ordinary slot-index
 array. `request_state` values -3, -2 and -1 select non-offload, first-fill/reset
@@ -47,12 +48,14 @@ Source capacity is the block-table width times 128 and is at most 2**21.
 These device-resident metadata values must satisfy the upstream protocol.
 
 The Copy-SFA integration additionally accepts the full visible sequence as
-the candidate length for Q1 with K=2048 and C>=K. This includes a partial final
-page; other route counts retain the page-aligned prefix contract. Combined
-Copy-SFA currently accepts C=2048,4096,8192 while keeping attention TopK=2048.
+the candidate length for Q1..Q14 with K=2048 and C>=Q*2048. This includes a
+partial final page. Combined Copy-SFA accepts page-aligned C in [2048,32640]
+while keeping attention TopK=2048. Wider unions use a bounded eviction scan;
+Q4 retains its optimized scan. Rewritten-resident refresh and causal score
+masking use the actual query width.
 Short/nonresident rows still use state -3. A new resident row must use -2.
 The returned plans can be passed directly to combined-layout Copy-SFA after
-packing the valid miss prefix into contiguous `[B,C]` buffers. A cold fill may
+retaining the valid miss prefix in `[B,32768]` buffers. A cold fill may
 contain C misses, including residents outside the K selected tokens. No second
 residency planner may operate on the LIM slot map.
 
