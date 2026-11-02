@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported (Ascend910_9362 tested) | Unverified |
-| `torch_native` | Supported (Ascend910_9362 tested) | Unverified |
+| `triton` | Supported (Ascend910_9362 tested) | Supported (Ascend 950 tested) |
+| `torch_native` | Supported (Ascend910_9362 tested) | Supported (Ascend 950 tested) |
 | `tilelang` | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented |
 

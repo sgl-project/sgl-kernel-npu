@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 支持（已验证 Ascend910_9362） | 未验证 |
-| `torch_native` | 支持（已验证 Ascend910_9362） | 未验证 |
+| `triton` | 支持（已验证 Ascend910_9362） | 支持（已验证 Ascend 950） |
+| `torch_native` | 支持（已验证 Ascend910_9362） | 支持（已验证 Ascend 950） |
 | `tilelang` | 未实现 | 未实现 |
 | `ascendc` | 未实现 | 未实现 |
 
