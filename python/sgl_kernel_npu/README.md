@@ -11,7 +11,7 @@ native, plus the migrated AscendC operators selected for this build:
 | `apply_token_bitmask` | `2201`, `3510` | `operators.sampler` |
 | `compute_n_gram_ids` | `2201` | `operators.embedding` |
 | `update_oe_token_table` | `2201` | `operators.embedding` |
-| `mlp_lightning_indexer` | `2201` | `operators.indexer` |
+| `mlp_lightning_indexer` | `2201`, `3510` (A5 validation pending) | `operators.indexer` |
 
 `--ops all` selects all migrated native operators supported by the target, not
 unmigrated legacy operators. The three LongCat2 native bindings are now provided
@@ -93,7 +93,10 @@ python3 /workspace/sgl-kernel-npu/setup.py \
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
 `ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used
 only by this build. Each operator declares its supported subset with
-`SUPPORTED_ARCHS`; the three LongCat2 declarations use only `2201`.
+`SUPPORTED_ARCHS`; the embedding operators use only `2201`, while
+`mlp_lightning_indexer` also enables `3510` for A5 validation. To build and test
+only that operator on A5, see the
+[single-operator guide](../../docs/developer_guide/light_indexer_a5.md).
 API documentation follows the shared framework's `arch22` and `arch35` names.
 
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes

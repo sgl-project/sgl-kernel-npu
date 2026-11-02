@@ -25,7 +25,7 @@ def generate_data(case, dtype):
     torch.manual_seed(42)
     q_lens, k_lens = case["q_lens"], case["k_lens"]
     rows = sum(max(length, 1) for length in q_lens)
-    heads, head_dim, page_size = 8, 128, 16
+    heads, head_dim, page_size = case.get("heads", 8), 128, case.get("page_size", 16)
     page_counts = [max((length + page_size - 1) // page_size, 1) for length in k_lens]
     page_ids = torch.randperm(sum(page_counts), dtype=torch.int64)
     block_table = torch.full((len(q_lens), max(page_counts)), -1, dtype=torch.int32)
@@ -207,6 +207,47 @@ def _assert_selection(actual, reference, inputs):
             )
             for block in (2, 4, 8, 16)
         ],
+        # With 64 heads, 2/4/9 queries cross the 128-element L0 and
+        # 256/512-element M tiles. Non-aligned keys exercise page/L0 tails.
+        *[
+            pytest.param(
+                dict(
+                    q_lens=[2, 4, 9],
+                    k_lens=[127, 257, 513],
+                    heads=64,
+                    page_size=page_size,
+                    sparse_count=33,
+                ),
+                id=f"port-m-tiles-page{page_size}-tails-no-windows",
+            )
+            for page_size in (128, 256, 1024)
+        ],
+        *[
+            pytest.param(
+                dict(
+                    q_lens=[1, 2],
+                    k_lens=[9001, 9217],
+                    heads=64,
+                    page_size=128,
+                    sparse_count=count,
+                    return_value=return_value,
+                ),
+                id=f"port-big-k{count}-values{int(return_value)}",
+            )
+            for count in (4096, 8192)
+            for return_value in (False, True)
+        ],
+        pytest.param(
+            dict(
+                q_lens=[9],
+                k_lens=[16387],
+                heads=64,
+                page_size=128,
+                sparse_count=2048,
+                return_value=False,
+            ),
+            id="port-long-key-buffer-reuse",
+        ),
     ],
 )
 def test_mlp_lightning_indexer(case, dtype):

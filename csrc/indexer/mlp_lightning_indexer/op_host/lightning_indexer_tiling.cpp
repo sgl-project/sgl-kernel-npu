@@ -111,7 +111,8 @@ ge::graphStatus LIInfoParser::GetNpuInfo()
 
     socVersion_ = ascendcPlatform.GetSocVersion();
     if ((socVersion_ != platform_ascendc::SocVersion::ASCEND910B) &&
-        (socVersion_ != platform_ascendc::SocVersion::ASCEND910_93)) {
+        (socVersion_ != platform_ascendc::SocVersion::ASCEND910_93) &&
+        (socVersion_ != platform_ascendc::SocVersion::ASCEND950)) {
         OPS_LOG_E(opName_, "SOC Version[%d] is not support.", (int32_t)socVersion_);
         return GRAPH_FAILED;
     }

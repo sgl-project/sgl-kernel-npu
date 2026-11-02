@@ -46,13 +46,6 @@ public:
     static constexpr uint64_t QUERY_BUF_NUM = 2;
     static constexpr uint64_t L0_BUF_NUM = 2;
 
-    static constexpr uint32_t KEY_MTE1_MTE2_EVENT = EVENT_ID2;
-    static constexpr uint32_t QUERY_MTE1_MTE2_EVENT = EVENT_ID5;  // KEY_MTE1_MTE2_EVENT + KEY_BUF_NUM;
-    static constexpr uint32_t M_MTE1_EVENT = EVENT_ID3;
-
-    static constexpr uint32_t MTE2_MTE1_EVENT = EVENT_ID2;
-    static constexpr uint32_t MTE1_M_EVENT = EVENT_ID2;
-
     static constexpr uint64_t M_BASIC_BLOCK = 256;
     static constexpr uint64_t D_BASIC_BLOCK = 128;
     static constexpr uint64_t S2_BASIC_BLOCK = 256;
@@ -99,6 +92,12 @@ protected:
     uint64_t queryL1Mte2BufIdx_ = 0;
     uint64_t queryL1Mte1BufIdx_ = 0;
     uint64_t l0BufIdx_ = 0;
+
+    event_t keyMte1Mte2Events_[KEY_BUF_NUM];
+    event_t queryMte1Mte2Events_[QUERY_BUF_NUM];
+    event_t mMte1Events_[L0_BUF_NUM];
+    event_t mte2Mte1Event_;
+    event_t mte1MEvent_;
 
     ConstInfo constInfo_;
 
@@ -148,7 +147,7 @@ __aicore__ inline void LIMatmul<LIT>::ComputeMm1(const LICommon::RunInfo &runInf
     uint64_t s1gProcessSize = runInfo.actMBaseSize;
     uint64_t s2ProcessSize = runInfo.actualSingleProcessSInnerSize;
     for (uint64_t s2GmOffset = 0; s2GmOffset < s2ProcessSize; s2GmOffset += S2_BASIC_BLOCK) {
-        WaitFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + keyL1BufIdx_ % KEY_BUF_NUM);
+        WaitFlag<HardEvent::MTE1_MTE2>(keyMte1Mte2Events_[keyL1BufIdx_ % KEY_BUF_NUM]);
         uint64_t s2L1RealSize =
             s2GmOffset + S2_BASIC_BLOCK > s2ProcessSize ? s2ProcessSize - s2GmOffset : S2_BASIC_BLOCK;
         if (PAGE_ATTENTION) {
@@ -157,8 +156,8 @@ __aicore__ inline void LIMatmul<LIT>::ComputeMm1(const LICommon::RunInfo &runInf
             KeyNd2Nz(s2L1RealSize, s2GmOffset, runInfo);
         }
 
-        SetFlag<HardEvent::MTE2_MTE1>(MTE2_MTE1_EVENT);
-        WaitFlag<HardEvent::MTE2_MTE1>(MTE2_MTE1_EVENT);
+        SetFlag<HardEvent::MTE2_MTE1>(mte2Mte1Event_);
+        WaitFlag<HardEvent::MTE2_MTE1>(mte2Mte1Event_);
         // s1gProcessSize当前必定不会超过2倍的s1g basic block
         for (uint64_t s1gGmOffset = 0; s1gGmOffset < s1gProcessSize; s1gGmOffset += M_BASIC_BLOCK) {
             uint64_t s1gL1RealSize =
@@ -166,10 +165,10 @@ __aicore__ inline void LIMatmul<LIT>::ComputeMm1(const LICommon::RunInfo &runInf
             if (runInfo.isFirstS2InnerLoop && s2GmOffset == 0) {
                 queryL1Mte2BufIdx_++;
                 queryL1Mte1BufIdx_ = queryL1Mte2BufIdx_;
-                WaitFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + queryL1Mte2BufIdx_ % QUERY_BUF_NUM);
+                WaitFlag<HardEvent::MTE1_MTE2>(queryMte1Mte2Events_[queryL1Mte2BufIdx_ % QUERY_BUF_NUM]);
                 QueryNd2Nz(s1gL1RealSize, s1gGmOffset, runInfo);
-                SetFlag<HardEvent::MTE2_MTE1>(MTE2_MTE1_EVENT);
-                WaitFlag<HardEvent::MTE2_MTE1>(MTE2_MTE1_EVENT);
+                SetFlag<HardEvent::MTE2_MTE1>(mte2Mte1Event_);
+                WaitFlag<HardEvent::MTE2_MTE1>(mte2Mte1Event_);
             } else {
                 queryL1Mte1BufIdx_ =
                     queryL1Mte2BufIdx_ - (CeilDiv(s1gProcessSize, M_BASIC_BLOCK) - 1 - (s1gGmOffset > 0));
@@ -178,29 +177,29 @@ __aicore__ inline void LIMatmul<LIT>::ComputeMm1(const LICommon::RunInfo &runInf
                 uint64_t s2L0RealSize =
                     s2L1Offset + S2_BASIC_BLOCK_L0 > s2L1RealSize ? s2L1RealSize - s2L1Offset : S2_BASIC_BLOCK_L0;
                 for (uint64_t s1gL1Offset = 0; s1gL1Offset < s1gL1RealSize; s1gL1Offset += M_BASIC_BLOCK_L0) {
-                    WaitFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + l0BufIdx_ % L0_BUF_NUM);
+                    WaitFlag<HardEvent::M_MTE1>(mMte1Events_[l0BufIdx_ % L0_BUF_NUM]);
                     uint64_t s1gL0RealSize =
                         s1gL1Offset + M_BASIC_BLOCK_L0 > s1gL1RealSize ? s1gL1RealSize - s1gL1Offset : M_BASIC_BLOCK_L0;
                     LoadQueryToL0a(s1gGmOffset, s1gL1Offset, s1gL1RealSize, s1gL0RealSize, runInfo);
                     LoadKeyToL0b(s2L1Offset, s2L1RealSize, s2L0RealSize, runInfo);
 
-                    SetFlag<HardEvent::MTE1_M>(MTE1_M_EVENT);
-                    WaitFlag<HardEvent::MTE1_M>(MTE1_M_EVENT);
+                    SetFlag<HardEvent::MTE1_M>(mte1MEvent_);
+                    WaitFlag<HardEvent::MTE1_M>(mte1MEvent_);
 
                     ComuteL0c(s1gL0RealSize, s2L0RealSize, runInfo);
 
-                    SetFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + l0BufIdx_ % L0_BUF_NUM);
+                    SetFlag<HardEvent::M_MTE1>(mMte1Events_[l0BufIdx_ % L0_BUF_NUM]);
 
                     Fixp(s1gGmOffset + s1gL1Offset, s2GmOffset + s2L1Offset, s1gL0RealSize, s2L0RealSize, runInfo);
                     l0BufIdx_++;
                 }
             }
             if (s2GmOffset + S2_BASIC_BLOCK >= s2ProcessSize && runInfo.isLastS2InnerLoop) {
-                SetFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + queryL1Mte1BufIdx_ % QUERY_BUF_NUM);
+                SetFlag<HardEvent::MTE1_MTE2>(queryMte1Mte2Events_[queryL1Mte1BufIdx_ % QUERY_BUF_NUM]);
             }
         }
 
-        SetFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + keyL1BufIdx_ % KEY_BUF_NUM);
+        SetFlag<HardEvent::MTE1_MTE2>(keyMte1Mte2Events_[keyL1BufIdx_ % KEY_BUF_NUM]);
         keyL1BufIdx_++;
     }
 }
@@ -333,6 +332,17 @@ __aicore__ inline void LIMatmul<LIT>::LoadQueryToL0a(uint64_t s1gGmOffset, uint6
     loadData3DParams.enTranspose = 0;
     loadData3DParams.fMatrixCtrl = 0;
 
+#if __CCE_AICORE__ == 310
+    // Ascend 950 L0A uses NZ. Set the K-axis stride in 512-byte fractals
+    // even when LoadData3D is used without repeats.
+    LoadDataRepeatParam repeatParams;
+    repeatParams.repeatTime = 1;
+    repeatParams.repeatStride = 0;
+    repeatParams.repeatMode = 0;
+    repeatParams.dstStride = CeilDiv(s1gL0RealSize, BLOCK_CUBE);
+    SetLoadDataRepeat(repeatParams);
+#endif
+
     LoadData<Q_T, LOAD3DV2_CONFIG>(queryL0_[(l0BufIdx_ % L0_BUF_NUM) * L0AB_BUFFER_OFFSET],
                                    queryL1_[(queryL1Mte1BufIdx_ % QUERY_BUF_NUM) * QUERY_BUFFER_OFFSET],
                                    loadData3DParams);
@@ -395,30 +405,42 @@ template <typename LIT>
 __aicore__ inline void LIMatmul<LIT>::AllocEventID()
 {
     SetMMLayoutTransform(true);
-    SetFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 0);
-    SetFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 1);
-    SetFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 2);
-
-    SetFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + 0);
-    SetFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + 1);
-
-    SetFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 0);
-    SetFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 1);
+    // Reserve each live buffer's event through TPipe; allocated IDs need not
+    // be consecutive. Keep the original prime/wait/set buffer protocol.
+    for (uint64_t i = 0; i < KEY_BUF_NUM; ++i) {
+        keyMte1Mte2Events_[i] = static_cast<event_t>(GetTPipePtr()->AllocEventID<HardEvent::MTE1_MTE2>());
+        SetFlag<HardEvent::MTE1_MTE2>(keyMte1Mte2Events_[i]);
+    }
+    for (uint64_t i = 0; i < QUERY_BUF_NUM; ++i) {
+        queryMte1Mte2Events_[i] = static_cast<event_t>(GetTPipePtr()->AllocEventID<HardEvent::MTE1_MTE2>());
+        SetFlag<HardEvent::MTE1_MTE2>(queryMte1Mte2Events_[i]);
+    }
+    for (uint64_t i = 0; i < L0_BUF_NUM; ++i) {
+        mMte1Events_[i] = static_cast<event_t>(GetTPipePtr()->AllocEventID<HardEvent::M_MTE1>());
+        SetFlag<HardEvent::M_MTE1>(mMte1Events_[i]);
+    }
+    mte2Mte1Event_ = static_cast<event_t>(GetTPipePtr()->AllocEventID<HardEvent::MTE2_MTE1>());
+    mte1MEvent_ = static_cast<event_t>(GetTPipePtr()->AllocEventID<HardEvent::MTE1_M>());
 }
 
 template <typename LIT>
 __aicore__ inline void LIMatmul<LIT>::FreeEventID()
 {
+    for (uint64_t i = 0; i < KEY_BUF_NUM; ++i) {
+        WaitFlag<HardEvent::MTE1_MTE2>(keyMte1Mte2Events_[i]);
+        GetTPipePtr()->ReleaseEventID<HardEvent::MTE1_MTE2>(keyMte1Mte2Events_[i]);
+    }
+    for (uint64_t i = 0; i < QUERY_BUF_NUM; ++i) {
+        WaitFlag<HardEvent::MTE1_MTE2>(queryMte1Mte2Events_[i]);
+        GetTPipePtr()->ReleaseEventID<HardEvent::MTE1_MTE2>(queryMte1Mte2Events_[i]);
+    }
+    for (uint64_t i = 0; i < L0_BUF_NUM; ++i) {
+        WaitFlag<HardEvent::M_MTE1>(mMte1Events_[i]);
+        GetTPipePtr()->ReleaseEventID<HardEvent::M_MTE1>(mMte1Events_[i]);
+    }
+    GetTPipePtr()->ReleaseEventID<HardEvent::MTE2_MTE1>(mte2Mte1Event_);
+    GetTPipePtr()->ReleaseEventID<HardEvent::MTE1_M>(mte1MEvent_);
     SetMMLayoutTransform(false);
-    WaitFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 0);
-    WaitFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 1);
-    WaitFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + 2);
-
-    WaitFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + 0);
-    WaitFlag<HardEvent::MTE1_MTE2>(QUERY_MTE1_MTE2_EVENT + 1);
-
-    WaitFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 0);
-    WaitFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 1);
 }
 }  // namespace LIKernel
 #endif

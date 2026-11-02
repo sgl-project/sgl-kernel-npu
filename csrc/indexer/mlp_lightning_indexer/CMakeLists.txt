@@ -1,10 +1,10 @@
-# Official LongCat implementation supports the two arch22 CANN targets.
+# Keep the LongCat compute path for arch22 and the Ascend 950 port.
 sgl_register_operator(
     ID mlp_lightning_indexer
     EXECUTION_UNIT AICORE
     CANN_OP_TYPE MlpLightningIndexer
     TORCH_ADAPTER torch_adapter.cpp
-    SUPPORTED_ARCHS 2201
+    SUPPORTED_ARCHS 2201 3510
     HOST_SOURCES
         op_host/lightning_indexer_def.cpp
         op_host/lightning_indexer_proto.cpp

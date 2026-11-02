@@ -7,12 +7,14 @@ _torch_native_fn = None
 
 
 @register_impl(
-    "indexer.mlp_lightning_indexer", "auto", supported_generations={Generation.ARCH22}
+    "indexer.mlp_lightning_indexer",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
     "indexer.mlp_lightning_indexer",
     "ascendc",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _ascendc_impl(*args):
     import torch
@@ -23,7 +25,7 @@ def _ascendc_impl(*args):
 @register_impl(
     "indexer.mlp_lightning_indexer",
     "torch_native",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _torch_native_impl(*args):
     global _torch_native_fn
@@ -60,7 +62,7 @@ def mlp_lightning_indexer(
     *,
     impl="auto",
 ):
-    """Select LongCat2 block indices; auto selects Ascend C on arch22.
+    """Select LongCat2 block indices; auto selects Ascend C on arch22/arch35.
 
     Parameters and defaults mirror the native schema. The LongCat2 path uses
     TND queries, PA_BSND keys, fp32 weights and int64 B+1 length prefixes.
