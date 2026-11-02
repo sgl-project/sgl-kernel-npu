@@ -21,6 +21,7 @@
 | [row_argmax](operators/sample/row_argmax.md) | `triton`, `torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`, `torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`, `torch_native` |
+| [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`, `torch_native` |
 | [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
 | [expand_causal_seqlens](operators/indexer/expand_causal_seqlens.md) | `triton`, `torch_native` |
