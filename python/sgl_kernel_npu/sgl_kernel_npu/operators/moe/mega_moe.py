@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from ...operators.utils.generation import Generation
-from ...operators.utils.registry import (
+from ..utils.generation import Generation
+from ..utils.registry import (
     get_impl_by_name,
     register_impl,
     register_operator,
@@ -26,23 +26,11 @@ def _load_backend():
 _SUPPORTED_GENERATIONS = frozenset({Generation.ARCH22, Generation.ARCH35})
 
 
-@register_impl(
-    "moe.mega_moe",
-    "auto",
-    supported_generations=_SUPPORTED_GENERATIONS,
-)
+@register_impl("moe.mega_moe", "auto", supported_generations=_SUPPORTED_GENERATIONS)
+@register_impl("moe.mega_moe", "cann", supported_generations=_SUPPORTED_GENERATIONS)
 def _cann_impl(*args: Any, **kwargs: Any):
     mega_moe_fn, _ = _load_backend()
     return mega_moe_fn(*args, **kwargs)
-
-
-@register_impl(
-    "moe.mega_moe",
-    "cann",
-    supported_generations=_SUPPORTED_GENERATIONS,
-)
-def _cann_named_impl(*args: Any, **kwargs: Any):
-    return _cann_impl(*args, **kwargs)
 
 
 @register_operator("moe.mega_moe")
@@ -52,8 +40,23 @@ def mega_moe(*args: Any, impl: str = "auto", **kwargs: Any):
     return get_impl_by_name("moe.mega_moe", impl)(*args, **kwargs)
 
 
-def get_symm_buffer_for_mega_moe(*args: Any, **kwargs: Any):
-    """Create the persistent EP communication buffer for MegaMoE."""
-
+@register_impl(
+    "moe.get_symm_buffer_for_mega_moe",
+    "auto",
+    supported_generations=_SUPPORTED_GENERATIONS,
+)
+@register_impl(
+    "moe.get_symm_buffer_for_mega_moe",
+    "cann",
+    supported_generations=_SUPPORTED_GENERATIONS,
+)
+def _cann_buffer_impl(*args: Any, **kwargs: Any):
     _, get_buffer = _load_backend()
     return get_buffer(*args, **kwargs)
+
+
+@register_operator("moe.get_symm_buffer_for_mega_moe")
+def get_symm_buffer_for_mega_moe(*args: Any, impl: str = "auto", **kwargs: Any):
+    """Create the persistent EP communication buffer using the selected provider."""
+
+    return get_impl_by_name("moe.get_symm_buffer_for_mega_moe", impl)(*args, **kwargs)
