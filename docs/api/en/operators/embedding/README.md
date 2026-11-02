@@ -29,7 +29,8 @@ returns the same table.
 
 `--ops all` on arch22 includes both operators. Add `mlp_lightning_indexer` to the
 list above to build all three LongCat2 operators; use `--artifact run` for a CANN
-installer alone. The legacy build no longer provides these two native operators.
+installer alone. For a full A2/A3 wheel with the original native operators and
+all three LongCat2 ACLNN operators, use `bash build.sh -a kernels`.
 Subset wheels replace an installation rather than adding to an old wheel.
 See the [build guide](../../../../../python/sgl_kernel_npu/README.md) for installation.
 

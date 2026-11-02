@@ -10,8 +10,9 @@
 This table describes implementation scope, not a new hardware validation result.
 In an arch22 Linux/CANN environment, run the root
 `python3 setup.py --arch-version 2201 --ops mlp_lightning_indexer`, then install
-the generated wheel. `--ops all` on arch22 also includes this operator; the legacy
-build no longer provides this native binding.
+the generated wheel. `--ops all` on arch22 also includes this operator.
+For a full A2/A3 wheel with the original native operators and all three LongCat2
+ACLNN operators, use `bash build.sh -a kernels`.
 See the [build guide](../../../../../python/sgl_kernel_npu/README.md).
 
 ## Signature

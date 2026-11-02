@@ -92,8 +92,8 @@ If you need to access Ascend NPU computing resources for development or testing,
 
 Choose the build path:
 
-- **Existing build:** `bash build.sh`, with its existing package selection and SoC arguments. DeepEP and memory saver continue to use this entry. Initialize the submodules below first.
-- **REFACTOR build:** `python3 setup.py --arch-version 2201` builds only the new `sgl-kernel-npu` wheel, including Python implementations and selected migrated AscendC operators. See the [build guide](python/sgl_kernel_npu/README.md#refactor-builds) for operator selection and CANN `.run` packages. Migrated operators are `apply_token_bitmask`, `compute_n_gram_ids`, `update_oe_token_table`, and `mlp_lightning_indexer`; the three LongCat2 operators support arch22 only and are no longer built by the legacy entry. `--ops all` selects supported migrated operators, not all legacy native operators.
+- **Existing build:** `bash build.sh`, with its existing package selection and SoC arguments. On A2/A3, `bash build.sh -a kernels` bundles the original native operators and the three LongCat2 ACLNN operators in one wheel. DeepEP and memory saver continue to use this entry. Initialize the submodules below first.
+- **REFACTOR build:** `python3 setup.py --arch-version 2201` builds only the new `sgl-kernel-npu` wheel, including Python implementations and selected migrated AscendC operators. See the [build guide](python/sgl_kernel_npu/README.md#refactor-builds) for operator selection and CANN `.run` packages. Migrated operators are `apply_token_bitmask`, `compute_n_gram_ids`, `update_oe_token_table`, and `mlp_lightning_indexer`; the three LongCat2 operators support arch22 only. `--ops all` selects supported migrated operators, not all legacy native operators.
 
 The [complete new-build option reference](python/sgl_kernel_npu/README.md#command-line-options) lists defaults, valid combinations and examples. Use `python3 setup.py --help` for the new entry or `bash build.sh -h` for the existing build.
 
