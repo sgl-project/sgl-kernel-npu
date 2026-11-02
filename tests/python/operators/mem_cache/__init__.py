@@ -1,1 +1,1 @@
-"""Public cache-location operator tests."""
+"""Memory-cache operator tests."""

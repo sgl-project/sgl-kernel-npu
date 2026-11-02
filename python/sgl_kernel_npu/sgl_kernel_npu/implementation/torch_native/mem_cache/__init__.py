@@ -1,1 +1,1 @@
-"""Independent PyTorch cache-location implementations."""
+"""Native PyTorch memory-cache implementations."""
