@@ -4,8 +4,9 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build. Only
-`apply_token_bitmask` has been migrated so far; `--ops all` does not include
+native, plus the migrated AscendC operators selected for this build. The CANN build currently selects
+`apply_token_bitmask`, `alloc_extend`, `assign_cache_op`, and (ARCH35 only)
+`kv_compress_epilog`; `--ops all` does not include
 unmigrated legacy native operators.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
@@ -201,3 +202,55 @@ Execute sgl_kernel_npu test scripts, for example
 ```bash
 python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
+
+### Paged allocation public entry
+
+`sgl_kernel_npu.operators.mem_cache.alloc_extend` provides `ascendc`, `torch_native`
+and `cpu` implementations. The test suite explicitly uses `cpu` as its reference.
+Build with `python3 setup.py --make_clean --arch-version 2201 --ops alloc_extend --artifact wheel`.
+After installing the resulting wheel, run:
+
+```bash
+python3 -m pytest tests/python/operators/mem_cache/test_alloc_extend.py \
+  --impl=ascendc --impl-ref=cpu --skip-acc-check=false --enable-perf=false -v -s
+```
+
+Both outputs are caller-owned and the function returns None. `values[0]` is only
+written when the final request reaches a new partial page. See the
+[English API](../../docs/api/en/operators/mem_cache/alloc_extend.md) or
+[Chinese API](../../docs/api/zh/operators/mem_cache/alloc_extend.md) for this contract
+and the pending SDK/NPU validation requirements.
+
+
+### Memory-cache operators
+
+The public `operators.mem_cache` module exports `alloc_extend`, `assign_cache_op`,
+and `kv_compress_epilog`. Use `impl="ascendc"`
+to select the installed CANN operators. Each also provides `torch_native`; alloc_extend
+and kv_compress_epilog provide CPU implementations and their tests explicitly use CPU
+as the reference. `sparsity_driven` operators are not included in this migration.
+
+Build/install from the repository root with the initialized CANN environment:
+
+```bash
+# ARCH22; use 3510 on A5 to include kv_compress_epilog.
+python3 setup.py --make_clean --arch-version 2201 --ops all --artifact wheel
+python3 -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
+unset PYTHONPATH
+python3 -m pytest tests/python/operators/mem_cache --impl=ascendc \
+  --impl-ref=torch_native --skip-acc-check=false --enable-perf=false -v -s
+```
+
+The two CPU-reference test files fix their reference explicitly regardless of the CLI
+reference default. Unsupported ARCH35-only AscendC cases are skipped on ARCH22 through
+the registry-aware test utilities. Set `--enable-perf=true` for profiling after accuracy
+passes. These tests call public operators and do not import the other operator test suite.
+Run in a fresh Python process after installation; the installed wheel must contain the
+CANN vendor and Torch extension from this build, since another installed implementation
+can expose the same `torch.ops` names. See the individual API pages for contracts.
+
+Accuracy uses separate buffers because these operators mutate inputs. `check_accuracy`
+requires shared immutable inputs, so these tests use `assert_accuracy`,
+`make_executor(accuracy_checked=...)` and `check_performance` instead. KV packed storage
+is compared by region rather than interpreting metadata bytes as FP8 values. CPU
+checks and collection are diagnostic only; CANN build/install and NPU validation are pending.

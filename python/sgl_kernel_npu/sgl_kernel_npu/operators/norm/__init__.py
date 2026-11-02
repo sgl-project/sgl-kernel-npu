@@ -5,6 +5,7 @@ from .layer_norm_fwd import layer_norm_fwd
 from .rmsnorm_bias import rmsnorm_bias
 from .rmsnorm_split import fused_rsqrt_mul, fused_variance
 from .rmsnorm_without_weight import fused_rmsnorm_without_weight
+from .split_qkv_tp_rmsnorm_rope import split_qkv_tp_rmsnorm_rope
 
 __all__ = [
     "add_rmsnorm_bias",
@@ -15,4 +16,5 @@ __all__ = [
     "l2norm_fwd",
     "layer_norm_fwd",
     "rmsnorm_bias",
+    "split_qkv_tp_rmsnorm_rope",
 ]
