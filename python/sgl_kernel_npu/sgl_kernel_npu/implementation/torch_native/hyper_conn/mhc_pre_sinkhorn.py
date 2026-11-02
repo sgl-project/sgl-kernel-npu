@@ -22,4 +22,4 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
         comb = comb / (comb.sum(-1, keepdim=True) + hc_eps)
         comb = comb / (comb.sum(-2, keepdim=True) + hc_eps)
     hin = (pre.unsqueeze(-1) * x.float()).sum(1).to(x.dtype)
-    return hin, post, comb
+    return hin, post, comb.reshape(x.shape[0], hc_mult * hc_mult)

@@ -20,7 +20,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 ## Description
 
-Compute y[t,i,d] = h_post[t,i] * h_out[t,d] + sum_j h_res[t,i,j] * x[t,j,d] in FP32, then cast once to x.dtype.
+Compute y[t,i,d] = h_post[t,i] * h_out[t,d] + sum_j h_res[t,j,i] * x[t,j,d] in FP32, then cast once to x.dtype.
 
 ## Parameters and return value
 

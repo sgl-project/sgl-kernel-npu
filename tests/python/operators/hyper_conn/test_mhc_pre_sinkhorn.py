@@ -4,11 +4,18 @@ torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 # Source: sglang/srt/configs/glm5_next.py: hidden_size=4096, hc_mult=4.
 # GLM-5.3-Flash cases borrow these dimensions; token counts are illustrative,
 # not traced production inputs. Small-width cases are synthetic edge tests.
 perf_shape = [(1, 4096), (128, 4096)]
+
+# CANN projects with HF32; post/comb remain FP32 but differ from the FP32
+# reference GEMM. This operator-specific budget is calibrated on Ascend910_9362
+# with CANN 9.1 over nine seeds, both activation dtypes and both eps values.
+# Activation comparisons retain the shared FP16/BF16 tolerances.
+PRE_STANDARD = {"torch.float32": AccuracyStandard(atol=5e-5, rtol=5e-5)}
 
 
 def generate_data(tokens, hidden, dtype, mode):
@@ -44,6 +51,7 @@ def test_mhc_pre_sinkhorn(tokens, hidden, mode, dtype, hc_eps, norm_eps):
         mhc_pre_sinkhorn,
         args=inputs,
         kwargs={"hc_eps": hc_eps, "norm_eps": norm_eps},
+        standard=PRE_STANDARD,
     )
     check_performance(
         executor,

@@ -42,7 +42,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 | Return | Type | Shape and dtype |
 | --- | --- | --- |
-| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N,N] FP32) |
+| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N*N] FP32) |
 
 ## cann_ops_transformer
 
@@ -55,6 +55,8 @@ The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes
 Row softmax + hc_eps; divide by column sum + hc_eps; repeat (row sum + hc_eps, column sum + hc_eps) num_iters-1 times. hin = sum_i (sigmoid(pre_i)+hc_eps)*x_i.
 
 FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback. Accuracy thresholds and performance remain subject to NPU acceptance.
+
+CANN uses HF32 projection. On Ascend910_9362 with CANN 9.1, the FP32 post/comb comparison uses atol=5e-5 and rtol=5e-5, calibrated over nine seeds, FP16/BF16 inputs, both eps cases and the five nonzero random-data shapes. Activation comparisons retain the shared dtype tolerances. This calibration does not establish acceptance on other hardware.
 
 ## Example
 

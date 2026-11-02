@@ -35,7 +35,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
     x is [T,N,D], h_res [T,N,N], h_out [T,D], and h_post [T,N].
     Input constraints and output dtype are delegated to the selected backend.
-    y[t,i,d] = h_post[t,i]*h_out[t,d] + sum_j h_res[t,i,j]*x[t,j,d].
+    y[t,i,d] = h_post[t,i]*h_out[t,d] + sum_j h_res[t,j,i]*x[t,j,d].
     """
     impl_fn = get_impl_by_name("hyper_conn.mhc_post", impl)
     if x.shape[0] == 0:

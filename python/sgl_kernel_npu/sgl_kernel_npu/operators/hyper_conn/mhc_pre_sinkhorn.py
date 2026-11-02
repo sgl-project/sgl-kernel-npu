@@ -51,7 +51,7 @@ def mhc_pre_sinkhorn(
     """Project [T,N,D] streams; auto selects CANN 9.1's public API.
 
     phi has shape [(2+N)*N,N*D], alpha [3], and bias [(2+N)*N].
-    Returns (hin [T,D], hpost [T,N], hres [T,N,N]), preserving vendor
+    Returns (hin [T,D], hpost [T,N], hres [T,N*N]), preserving vendor
     output dtypes. Input constraints are delegated to the selected backend.
     No output layer normalization is fused.
     """
@@ -60,6 +60,6 @@ def mhc_pre_sinkhorn(
         return (
             x.new_empty((0, x.shape[-1])),
             x.new_empty((0, hc_mult), dtype=torch.float32),
-            x.new_empty((0, hc_mult, hc_mult), dtype=torch.float32),
+            x.new_empty((0, hc_mult * hc_mult), dtype=torch.float32),
         )
     return impl_fn(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps)

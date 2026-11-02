@@ -5,5 +5,6 @@ import torch
 
 def mhc_post(x, h_res, h_out, h_post):
     return (
-        torch.bmm(h_res, x.float()) + h_post.unsqueeze(-1) * h_out.float().unsqueeze(1)
+        torch.bmm(h_res.transpose(-1, -2), x.float())
+        + h_post.unsqueeze(-1) * h_out.float().unsqueeze(1)
     ).to(x.dtype)

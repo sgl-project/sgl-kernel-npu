@@ -42,7 +42,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 
 | 返回 | 类型 | 形状与类型 |
 | --- | --- | --- |
-| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N,N] FP32) |
+| output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N*N] FP32) |
 
 ## cann_ops_transformer
 
@@ -55,6 +55,8 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 残差投影按行 softmax 后加 hc_eps，再除以列和加 hc_eps；随后交替除以行和加 hc_eps、列和加 hc_eps，共 num_iters-1 轮。hin = sum_i (sigmoid(pre_i)+hc_eps)*x_i。
 
 FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退；精度阈值与性能待 NPU 验收。
+
+CANN 使用 HF32 投影。在 Ascend910_9362、CANN 9.1 环境下，FP32 post/comb 的比较容差为 atol=5e-5、rtol=5e-5，基于九个随机种子、FP16/BF16 输入、两组 eps 和五组非空随机输入 shape 校准。激活输出沿用共享的 dtype 容差；该校准不代表其他硬件已经通过验收。
 
 ## 调用示例
 
