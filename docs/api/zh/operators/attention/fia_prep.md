@@ -1,40 +1,57 @@
 # fia_prep
 
-## 硬件支持
+## 芯片支持
 
-| Backend | arch22 | arch35 |
+| 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 未验证 | 未验证 |
 | `torch_native` | 未验证 | 未验证 |
 
-## Signature
+## 函数原型
 
 ```python
+import torch
 from sgl_kernel_npu.operators.attention import fia_prep
-def fia_prep(ti, seq_lens, per_query_req, req_to_token, block_size, block_table_out=None, actual_kvlen_out=None, *, impl="auto"): ...
+
+def fia_prep(ti, seq_lens, per_query_req, req_to_token, block_size, block_table_out=None, actual_kvlen_out=None, *, impl='auto'):
+    ...
 ```
 
-`auto` selects `triton`.
+默认 `auto` 与 `triton` 注册到同一入口；不自动回退到参考实现。
 
-## Description
+## 功能说明
 
-将当前逻辑块移至末尾，映射物理页并计算因果 KV 长度；可复用传入的输出缓冲区。
+保留其他选中块的顺序，将当前块置于末尾，通过 token 槽整除块长得到物理页，并计算因果长度。
 
 ## 参数与返回值
 
-ti: int32 [T,topk] with -1 padding; seq_lens and per_query_req: [T]; req_to_token: [requests,max_ctx]. Returns (int32 [T,topk], int32 [T]). Valid input must leave a slot for the own block.
+Triton 张量输入应位于同一 NPU 并采用连续布局；输出位于输入设备。
 
-`impl` is `auto`, `triton`, or `torch_native`. The independent torch reference may synchronize or transfer sequence metadata to the host and is intended for correctness comparison, not performance.
+| 参数 | 类型 | 形状 / 数据类型 | 默认值 | 描述与约束 |
+| --- | --- | --- | --- | --- |
+| `ti` | torch.Tensor | `[T,S]; int32` | 必填 | 逻辑页号，-1 填充；须为当前页保留容量。 |
+| `seq_lens` | torch.Tensor | `[T] or [B]; int32` | 必填 | 每个查询或请求的因果 KV 长度。 |
+| `per_query_req` | torch.Tensor | `[T]; int32/int64` | 必填 | 每个查询对应的请求索引。 |
+| `req_to_token` | torch.Tensor | `[requests,max_ctx]; int32/int64` | 必填 | token 槽映射；与 ti 位于同一 NPU。 |
+| `block_size` | int | `—` | 必填 | 每个 KV 页的 token 数；须为正。 |
+| `block_table_out` | torch.Tensor 或 None | `[T,S]; int32` | `None` | 可选输出缓冲区，会被覆盖并返回。 |
+| `actual_kvlen_out` | torch.Tensor 或 None | `[T]; int32` | `None` | 可选因果长度输出缓冲区。 |
+| `impl` | str | `—` | `'auto'` | 仅限关键字：auto、triton 或 torch_native。 |
 
-## Triton
+| 返回值 | 类型 | 形状 / 数据类型 | 描述 |
+| --- | --- | --- | --- |
+| `block_table` | torch.Tensor 或 None | `[T,S]; int32` | 重排后的物理页；可复用 block_table_out。 |
+| `actual_kvlen` | torch.Tensor 或 None | `[T]; int32` | 其他完整页长度加选中当前页的因果前缀长度。 |
 
-Migrated from the legacy implementation; supported shapes, dtypes, layouts and numerical behavior need hardware validation.
+## triton 后端
 
-## torch_native
+当前启动要求 S 为二次幂。未选择当前页时须留出一个输出槽；请求和页索引必须有效。
 
-Independent PyTorch reference for numerical comparison.
+## torch_native 后端
 
-## Example
+通过独立 PyTorch 运算生成参考结果；主机元数据传输可能触发同步，仅用于精度对比。
+
+## 调用示例
 
 ```python
 import torch

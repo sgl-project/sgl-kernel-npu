@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Backend | arch22 | arch35 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Unverified | Unverified |
 | `torch_native` | Unverified | Unverified |
@@ -10,29 +10,58 @@
 ## Signature
 
 ```python
+import torch
 from sgl_kernel_npu.operators.attention import gqa_share_sparse_decode
-def gqa_share_sparse_decode(q, sink, k_cache_bnsd, v_cache_bnsd, block_table, seq_lens, block_size, topk_idx, sm_scale=None, num_topk_chunks=None, max_num_topk_chunks=8, req_to_token=None, req_pool_indices=None, max_num_blocks=None, num_pages=None, sanitize_page_ids=False, topk_blocks_per_step=1, prefetch_idx=False, num_warps=None, num_stages=None, *, impl="auto"): ...
+
+def gqa_share_sparse_decode(q, sink, k_cache_bnsd, v_cache_bnsd, block_table, seq_lens, block_size, topk_idx, sm_scale=None, num_topk_chunks=None, max_num_topk_chunks=8, req_to_token=None, req_pool_indices=None, max_num_blocks=None, num_pages=None, sanitize_page_ids=False, topk_blocks_per_step=1, prefetch_idx=False, num_warps=None, num_stages=None, *, impl='auto'):
+    ...
 ```
 
-`auto` selects `triton`.
+`auto` aliases `triton`; it does not automatically fall back to the reference.
 
 ## Description
 
-Decode attention over selected paged KV blocks. An optional sink contributes a softmax logit with zero value.
+Gather selected KV pages and compute $softmax(QK^\mathsf{T}\,sm\_scale)V$, masking tokens beyond seq_lens. The optional sink adds a logit with zero value.
 
-## Parameters and return value
+## Parameters and return values
 
-q: [B,QH,D]; K/V: [pages,block_size,KVH,D]; topk_idx: [KVH or QH,B,topk]; seq_lens: [B]; block_table: [B,max_blocks], or direct lookup via req_to_token and req_pool_indices. Returns [B,QH,D].
+Triton tensor inputs should share one NPU and use contiguous layouts; outputs reside on the input device.
 
-`impl` is `auto`, `triton`, or `torch_native`. The independent torch reference may synchronize or transfer sequence metadata to the host and is intended for correctness comparison, not performance.
+| Parameter | Type | Shape / dtype | Default | Description and constraints |
+| --- | --- | --- | --- | --- |
+| `q` | Tensor | `[B,QH,D]; float16/bfloat16` | Required | Decode queries. |
+| `sink` | Tensor or None | `[QH,D]; q.dtype` | Required | Extra softmax key with zero value. |
+| `k_cache_bnsd` | Tensor | `[pages,block_size,KVH,D]; q.dtype` | Required | Paged keys. |
+| `v_cache_bnsd` | Tensor | `[pages,block_size,KVH,D]; q.dtype` | Required | Paged values with the same shape as keys. |
+| `block_table` | Tensor or None | `[B,max_blocks]; int32/int64` | Required | Logical-to-physical pages; None in direct lookup mode. |
+| `seq_lens` | Tensor | `[T] or [B]; int32` | Required | Causal KV length per query/request. |
+| `block_size` | int | `—` | Required | Number of tokens per KV page; positive. |
+| `topk_idx` | Tensor | `[KVH or QH,B,S]; int32` | Required | Selected logical blocks with -1 padding; per-QH input uses the first head of each group. |
+| `sm_scale` | float or None | `—` | `None` | Attention scale; None selects D**-0.5. |
+| `num_topk_chunks` | int or None | `—` | `None` | Power-of-two split count, no greater than max(1,S); None selects automatically. |
+| `max_num_topk_chunks` | int | `—` | `8` | Upper bound for automatic split selection. |
+| `req_to_token` | Tensor or None | `[requests,max_ctx]; int32/int64` | `None` | Token-slot mapping; direct lookup requires req_pool_indices. |
+| `req_pool_indices` | Tensor or None | `[B]; int32/int64` | `None` | Request IDs for direct lookup. |
+| `max_num_blocks` | int or None | `—` | `None` | Positive logical capacity, required for direct lookup. |
+| `num_pages` | int or None | `—` | `None` | Positive physical page count, required for direct lookup. |
+| `sanitize_page_ids` | bool | `—` | `False` | Clamp direct-lookup page IDs to the physical range. |
+| `topk_blocks_per_step` | int | `—` | `1` | Power-of-two number of selected blocks per tile. |
+| `prefetch_idx` | bool | `—` | `False` | Prefetch indices when processing one block per step. |
+| `num_warps` | int or None | `—` | `None` | Triton launch setting; None selects the backend default. |
+| `num_stages` | int or None | `—` | `None` | Triton pipeline setting; None selects the backend default. |
+| `impl` | str | `—` | `'auto'` | Keyword-only: auto, triton or torch_native. |
 
-## Triton
+| Return value | Type | Shape / dtype | Description |
+| --- | --- | --- | --- |
+| `output` | Tensor or None | `q.shape; q.dtype` | New sparse-attention output; inputs are not modified. |
 
-Migrated from the legacy implementation; supported shapes, dtypes, layouts and numerical behavior need hardware validation.
+## triton backend
 
-## torch_native
+Requires matching FP16/BF16 q/K/V on one NPU, QH divisible by KVH, and valid page mappings. The public Triton entry disables the optional native attention path.
 
-Independent PyTorch reference for numerical comparison.
+## torch_native backend
+
+Independent PyTorch operations provide the reference result. Host metadata transfers may synchronize the device; this backend is intended for accuracy comparison.
 
 ## Example
 

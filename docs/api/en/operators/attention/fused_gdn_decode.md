@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Backend | arch22 | arch35 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Unverified | Unverified |
 | `torch_native` | Unverified | Unverified |
@@ -10,29 +10,52 @@
 ## Signature
 
 ```python
+import torch
 from sgl_kernel_npu.operators.attention import fused_gdn_decode
-def fused_gdn_decode(A_log, a, dt_bias, softplus_beta, softplus_threshold, q, k, v, b, initial_state_source, initial_state_indices, scale=None, use_qk_l2norm_in_kernel=False, cu_seqlens=None, *, impl="auto"): ...
+
+def fused_gdn_decode(A_log, a, dt_bias, softplus_beta, softplus_threshold, q, k, v, b, initial_state_source, initial_state_indices, scale=None, use_qk_l2norm_in_kernel=False, cu_seqlens=None, *, impl='auto'):
+    ...
 ```
 
-`auto` selects `triton`.
+`auto` aliases `triton`; it does not automatically fall back to the reference.
 
 ## Description
 
-Perform a single-token sigmoid-gated delta-rule update, writing selected recurrent-state slots in place.
+With optional q/k normalization, compute decay $d=\exp(-\exp(A_{log})\,softplus(a+dt_{bias}))$, $S_d=dS$, $r=\sigma(b)(v-S_dk)$, $S=S_d+rk^\mathsf{T}$ and $o=S(q\,scale)$.
 
-## Parameters and return value
+## Parameters and return values
 
-q,k: [B,T,H,K]; v: [B,T,HV,V]; a,b: [N,HV]; physical state slot: [HV,V,K]. T=1 without cu_seqlens; flattened varlen uses one token per sequence. A non-contiguous state is copied by the legacy Triton wrapper. Returns [B,T,HV,V].
+Triton tensor inputs should share one NPU and use contiguous layouts; outputs reside on the input device.
 
-`impl` is `auto`, `triton`, or `torch_native`. The independent torch reference may synchronize or transfer sequence metadata to the host and is intended for correctness comparison, not performance.
+| Parameter | Type | Shape / dtype | Default | Description and constraints |
+| --- | --- | --- | --- | --- |
+| `A_log` | Tensor | `[HV]; float32` | Required | Log decay coefficients. |
+| `a` | Tensor | `[N,HV]; q.dtype` | Required | Softplus gate inputs. |
+| `dt_bias` | Tensor | `[HV]; float32` | Required | Bias added before softplus. |
+| `softplus_beta` | float | `—` | Required | Positive softplus slope. |
+| `softplus_threshold` | float | `—` | Required | Use linear softplus above this threshold. |
+| `q` | Tensor | `[B,T,H,K]; float16/bfloat16` | Required | Queries; one token per sequence. |
+| `k` | Tensor | `[B,T,Hg,K]; float16/bfloat16` | Required | Grouped key heads; H must be divisible by Hg. |
+| `v` | Tensor | `[B,T,HV,V]; q.dtype` | Required | Value heads; HV must be divisible by H. |
+| `b` | Tensor | `[N,HV]; q.dtype` | Required | Sigmoid update gate inputs. |
+| `initial_state_source` | Tensor | `[slots,HV,V,K]; float32` | Required | Contiguous state pool, updated in place; noncontiguous inputs are copied. |
+| `initial_state_indices` | Tensor | `[N]; int32/int64` | Required | State slot per sequence; negative slots are zero-initialized and not written. |
+| `scale` | float or None | `—` | `None` | Positive query scale; None selects K**-0.5. |
+| `use_qk_l2norm_in_kernel` | bool | `—` | `False` | Normalize q and k using norm + 1e-6. |
+| `cu_seqlens` | Tensor or None | `[N+1]; int32/int64` | `None` | Cumulative sequence offsets; flattened input requires B=1. |
+| `impl` | str | `—` | `'auto'` | Keyword-only: auto, triton or torch_native. |
 
-## Triton
+| Return value | Type | Shape / dtype | Description |
+| --- | --- | --- | --- |
+| `output` | Tensor or None | `v.shape; q.dtype` | Single-token output; selected contiguous state slots are updated in place. |
 
-Migrated from the legacy implementation; supported shapes, dtypes, layouts and numerical behavior need hardware validation.
+## triton backend
 
-## torch_native
+Uses FP32 recurrence. Fixed-length input requires T=1; variable-length input uses B=1 and exactly one token per sequence. State memory is interpreted in V,K order.
 
-Independent PyTorch reference for numerical comparison.
+## torch_native backend
+
+Independent PyTorch operations provide the reference result. Host metadata transfers may synchronize the device; this backend is intended for accuracy comparison.
 
 ## Example
 

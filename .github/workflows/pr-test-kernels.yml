@@ -268,7 +268,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run attention operator tests
-        timeout-minutes: 50
+        timeout-minutes: 20
         run: bash scripts/run_kernel_tests.sh attention
 
   test-cache-ops:

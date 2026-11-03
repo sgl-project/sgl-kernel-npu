@@ -1,7 +1,5 @@
-# Adapted and Merge from
-#   https://github.com/sglang/python/sglang/srt/layers/attention/fla/cumsum.py
 # -*- coding: utf-8 -*-
-# Copyright (c) 2023-2025, By Triton_Ascend & sglang_ascend
+# Copyright (c) 2023-2026, By Triton_Ascend & sglang_ascend
 
 from typing import List, Optional, Tuple, Union
 

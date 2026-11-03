@@ -1,40 +1,56 @@
 # chunk_local_cumsum
 
-## 硬件支持
+## 芯片支持
 
-| Backend | arch22 | arch35 |
+| 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 未验证 | 未验证 |
 | `torch_native` | 未验证 | 未验证 |
 
-## Signature
+## 函数原型
 
 ```python
+import torch
 from sgl_kernel_npu.operators.attention import chunk_local_cumsum
-def chunk_local_cumsum(g, chunk_size, reverse=False, scale=None, cu_seqlens=None, head_first=False, output_dtype=torch.float32, *, impl="auto"): ...
+
+def chunk_local_cumsum(g, chunk_size, reverse=False, scale=None, cu_seqlens=None, head_first=False, output_dtype=torch.float32, *, impl='auto'):
+    ...
 ```
 
-`auto` selects `triton`.
+默认 `auto` 与 `triton` 注册到同一入口；不自动回退到参考实现。
 
-## Description
+## 功能说明
 
-按序列分块沿时间维正向或反向累加，可选缩放。累加使用 FP32 中间值，写入前转换为输入 dtype。Triton 输出 dtype 必须与输入 g.dtype 相同：默认 output_dtype=torch.float32 适用于 FP32 输入；FP16/BF16 输入必须传 output_dtype=None 或显式传 g.dtype。不同 dtype 会在公开接口处抛出 ValueError。
+在每个序列块内独立计算 $o_t=s\sum_{j\le t}g_j$；反向模式累加 $j\ge t$，scale=None 时不缩放。
 
 ## 参数与返回值
 
-g: [B,T,H], or [B,H,T] when head_first; cu_seqlens: [N+1], batch must be one when provided; chunk_size: positive power of two. Returns a new tensor with the input shape.
+Triton 张量输入应位于同一 NPU 并采用连续布局；输出位于输入设备。
 
-`impl` is `auto`, `triton`, or `torch_native`. The independent torch reference may synchronize or transfer sequence metadata to the host and is intended for correctness comparison, not performance.
+| 参数 | 类型 | 形状 / 数据类型 | 默认值 | 描述与约束 |
+| --- | --- | --- | --- | --- |
+| `g` | torch.Tensor | `[B,T,H] 或 [B,H,T]; float16/bfloat16/float32` | 必填 | 对数域标量门控；累加算子也接受 FP16/BF16。 |
+| `chunk_size` | int | `—` | 必填 | 正的二次幂块长；GDN 使用 64。 |
+| `reverse` | bool | `—` | `False` | 在块内沿时间维反向累加。 |
+| `scale` | float 或 None | `—` | `None` | 累加后的可选乘数。 |
+| `cu_seqlens` | torch.Tensor 或 None | `[N+1]; int32/int64` | `None` | 累计序列偏移；变长输入须展平且 B=1。 |
+| `head_first` | bool | `—` | `False` | 将 g 解释为 [B,H,T]。 |
+| `output_dtype` | torch.dtype 或 None | `—` | `torch.float32` | 输出类型；限制见后端说明。 |
+| `impl` | str | `—` | `'auto'` | 仅限关键字：auto、triton 或 torch_native。 |
 
-## Triton
+| 返回值 | 类型 | 形状 / 数据类型 | 描述 |
+| --- | --- | --- | --- |
+| `output` | torch.Tensor 或 None | `g.shape; output_dtype or g.dtype` | 新建的块内累加结果。 |
 
-Migrated from the legacy implementation; supported shapes, dtypes, layouts and numerical behavior need hardware validation.
+## triton 后端
 
-## torch_native
+使用 FP32 累加，写入前转为输入 dtype。输出类型必须等于 g.dtype：低精度输入须传 None 或 g.dtype；默认 FP32 仅匹配 FP32 输入。
 
-Independent PyTorch reference for numerical comparison.
+## torch_native 后端
 
-## Example
+通过独立 PyTorch 运算生成参考结果；主机元数据传输可能触发同步，仅用于精度对比。
+
+## 调用示例
 
 ```python
 import torch
