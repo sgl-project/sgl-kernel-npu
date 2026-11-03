@@ -1,4 +1,4 @@
-"""Released torch_npu MoE gate accuracy and representative performance shapes."""
+"""Version/hardware-constrained MoE gate accuracy and selected performance."""
 
 import pytest
 
@@ -23,7 +23,15 @@ perf_shape = [(1, 256, 8), (16, 256, 8)]
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_moe_gate(shape, norm_type, with_bias):
     from sgl_kernel_npu.operators.moe import moe_gating_top_k
+    from sgl_kernel_npu.operators.utils._transformer_compat import cann_backend
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
+    legacy = cann_backend() == "legacy"
+    if legacy and get_hardware().generation == Generation.ARCH22 and norm_type == 2:
+        pytest.skip("CANN 9.1 A3 does not support norm_type=2; requires Ascend 950")
+    # Deployed legacy custom bindings reject renorm=1. Exercise their supported
+    # contract on both DUT and reference; do not silently change production args.
+    renorm = 0 if legacy else 1
     rows, experts, k = shape
     torch.manual_seed(51)
     x = torch.randn(rows, experts, device="npu", dtype=torch.float32)
@@ -34,7 +42,7 @@ def test_moe_gate(shape, norm_type, with_bias):
         kwargs=dict(
             bias=bias,
             norm_type=norm_type,
-            renorm=1,
+            renorm=renorm,
             out_flag=True,
             routed_scaling_factor=2.5,
         ),
