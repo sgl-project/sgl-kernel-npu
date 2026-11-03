@@ -68,14 +68,16 @@ def _paged_mtp_kernel(
         q_index = rows // GROUP
         q_head = kv_head * GROUP + rows % GROUP
         dims = tl.arange(0, BLOCK_D)
-        # Keep row bounds affine. Quotient-based masks have produced A5 tail
-        # writes for non-power-of-two GQA groups, including the next request.
+        # Row bounds stay quotient-based for the Q load and score mask: on A5
+        # Triton 3.2.0 the equivalent flat rows < GAMMA * GROUP form
+        # miscompiles when the tile is exactly full, producing NaNs. The output
+        # stores keep the flat form to avoid tail writes past the request.
         q = tl.load(
             Q
             + (q_start + q_index[:, None]) * stride_qt
             + q_head[:, None] * stride_qh
             + dims[None, :] * stride_qd,
-            mask=(rows[:, None] < GAMMA * GROUP) & (dims[None, :] < DIM),
+            mask=(q_index[:, None] < GAMMA) & (dims[None, :] < DIM),
             other=0.0,
         )
         maximum = tl.full((Q_TILE,), float("-inf"), tl.float32)
@@ -115,7 +117,7 @@ def _paged_mtp_kernel(
             values = tl.load(v_ptr, boundary_check=(0, 1), padding_option="zero")
             scores = tl.dot(q, keys) * scale
             kv_positions = start + tl.arange(0, BLOCK_N)
-            allowed = (kv_positions[None, :] < kv_end) & (rows[:, None] < GAMMA * GROUP)
+            allowed = (kv_positions[None, :] < kv_end) & (q_index[:, None] < GAMMA)
             if CAUSAL:
                 allowed = allowed & (
                     kv_positions[None, :] <= kv_len - GAMMA + q_index[:, None]
