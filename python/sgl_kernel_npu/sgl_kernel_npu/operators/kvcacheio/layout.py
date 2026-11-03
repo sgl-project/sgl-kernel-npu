@@ -26,7 +26,7 @@ LEGACY_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
 
 def get_npu_kv_quant_path():
     """Choose the immutable reader/writer contract before pool allocation."""
-    from ..utils._transformer_compat import attention_family
+    from ..attention._backend import attention_family
 
     return (
         LEGACY_NPU_KV_QUANT_PATH if attention_family(True).legacy else NPU_KV_QUANT_PATH

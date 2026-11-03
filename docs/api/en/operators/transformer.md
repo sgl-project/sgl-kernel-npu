@@ -127,6 +127,16 @@ backend is implemented directly in `operators/moe/moe_gating_top_k.py`. Registry
 names use the same category prefix. No model-specific `operators/dsv4` package
 is introduced.
 
+Operator-specific released/legacy input and output conversions live in the
+registered functions (or private helpers) of each operator's own file. Generic
+binding lookup, backend preference and schema checks stay in
+`operators/utils/_transformer_compat.py`. Attention-specific metadata/compute
+and packed-KV writer selection is shared in `operators/attention/_backend.py`;
+the KV layout query and writer use that same cached selection. Tensor-only
+logical-to-physical sparse index conversion is shared in
+`operators/attention/_sparse_indices.py`. These shared modules do not own
+the individual operators' ABI argument mappings.
+
 ## Released and original operator compatibility
 
 The public imports, `impl="auto"`, `torch_native`, and the existing production

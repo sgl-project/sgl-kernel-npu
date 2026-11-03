@@ -1,7 +1,7 @@
-"""Resolve released and legacy bindings before execution; never retry a kernel.
+"""Generic binding discovery, cached selection and schema checks.
 
-The choice is cached per operator family. Select ``legacy`` explicitly before
-pool construction when both installations are present and the old ABI is wanted.
+Operator modules supply the binding specifications. Choices are cached before
+execution; a failed kernel is never retried with a different backend.
 """
 
 import functools
@@ -122,52 +122,6 @@ def select_family(released, legacy, *, prefer_legacy=False, required_arguments=(
         + ". Register the released CANN extension or the original custom/native "
         "libraries before the first call. Backend selection cannot change after "
         "KV allocation or graph capture."
-    )
-
-
-@functools.lru_cache(maxsize=None)
-def attention_family(quantized):
-    prefix = "mixed_quant_sparse_flash_mla" if quantized else "sparse_flash_mla"
-    old = (
-        "npu_kv_quant_sparse_attn_sharedkv" if quantized else "npu_sparse_attn_sharedkv"
-    )
-    released = (
-        ("cann_ops_transformer", prefix + "_metadata"),
-        ("cann_ops_transformer", prefix),
-    )
-    legacy = (("custom", old + "_metadata"), ("custom", old))
-    if quantized:
-        # Reader, metadata and writer must agree on 608B/BF16-scale versus
-        # 640B/E8M0-scale encoding before any cache is allocated.
-        released += (("cann_ops_transformer", "kv_compress_epilog"),)
-        legacy += (("npu", "kv_compress_epilog"),)
-    return select_family(released, legacy)
-
-
-@functools.lru_cache(maxsize=None)
-def sparse_host_family(quantized):
-    stem = "kv_quant_sparse_attn_sharedkv" if quantized else "sparse_attn_sharedkv"
-    specs = (("npu", stem + "_metadata_host"), ("npu", stem))
-    ops = _lookup(specs)
-    if any(op is None for op in ops):
-        raise OperatorUnavailableError(
-            "Legacy explicit sparse attention requires the paired sgl-kernel-npu "
-            f"host metadata and compute bindings: {specs}"
-        )
-    return OperatorFamily("legacy", ops, specs)
-
-
-@functools.lru_cache(maxsize=1)
-def indexer_family():
-    return select_family(
-        (
-            ("cann_ops_transformer", "quant_lightning_indexer_metadata"),
-            ("cann_ops_transformer", "quant_lightning_indexer"),
-        ),
-        (
-            ("custom", "npu_quant_lightning_indexer_metadata"),
-            ("custom", "npu_quant_lightning_indexer"),
-        ),
     )
 
 
