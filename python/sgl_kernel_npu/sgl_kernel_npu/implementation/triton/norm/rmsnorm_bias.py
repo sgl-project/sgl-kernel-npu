@@ -2,7 +2,9 @@ import torch
 import triton
 import triton.language as tl
 import triton.language.extra.cann.extension as al
-from sgl_kernel_npu.utils.triton_utils import get_device_properties
+from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
+    get_device_properties,
+)
 
 
 @triton.jit

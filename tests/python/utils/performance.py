@@ -183,7 +183,7 @@ def check_performance(
     warmup=5,
     active=5,
 ):
-    """Profile an executor returned by check_accuracy; optionally append CSV.
+    """Profile a check_accuracy/make_executor executor; optionally append CSV.
 
     Profiler files remain in <prof_dir>/prof_<function>/<params_impl_run>/, even on
     failure. prof_dir defaults to cwd/profilings; relative paths use cwd.
