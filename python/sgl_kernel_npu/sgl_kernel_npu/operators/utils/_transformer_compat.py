@@ -92,8 +92,15 @@ def has_released_ops():
 
 @functools.lru_cache(maxsize=1)
 def _load_legacy_library():
-    # Existing deployments may already register custom ops themselves. Loading
-    # a standalone library is optional and belongs to the kernel package.
+    # The legacy Python extension registers torch.ops.custom on import.
+    # Only an absent package is optional; broken dependencies must surface.
+    try:
+        importlib.import_module("custom_ops")
+    except ModuleNotFoundError as error:
+        if error.name != "custom_ops":
+            raise
+    # A standalone registration library remains available for deployments
+    # without the Python extension, or for additional custom bindings.
     path = os.environ.get("SGL_KERNEL_NPU_LEGACY_OPS_SO")
     if path:
         library = Path(path).expanduser().resolve(strict=True)
