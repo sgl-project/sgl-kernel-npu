@@ -56,3 +56,5 @@ installation steps; see
 | [fused_linear_online_max_sum](operators/batch_invariant/fused_linear_online_max_sum.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score](operators/batch_invariant/fused_infer_attention_score.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
+| [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
+| [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |
