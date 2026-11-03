@@ -100,6 +100,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/restore_short_kv_history/op_host/restore_short_kv_history.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
@@ -158,6 +159,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/restore_short_kv_history/op_kernel/restore_short_kv_history_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/cache_planner/op_kernel/cache_planner_kernel.cpp
     )

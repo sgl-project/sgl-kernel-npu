@@ -359,6 +359,14 @@ void unidex_copy(const at::Tensor &src, at::Tensor &dst,
                  int64_t block_dim, c10::optional<int64_t> src_ptr,
                  c10::optional<int64_t> dst_ptr);
 
+void restore_short_kv_history(
+    const at::Tensor &host, at::Tensor &cache, const at::Tensor &table,
+    const at::Tensor &requests, const at::Tensor &lengths,
+    const at::Tensor &first, const at::Tensor &oldBegin,
+    const at::Tensor &oldEnd, at::Tensor &nextBegin, at::Tensor &nextEnd,
+    at::Tensor &nextFirst, int64_t capacity, int64_t contextLen, int64_t srcPtr,
+    int64_t blockDim);
+
 /**
  * @brief Look up slot_map[req_indices[b], topk_indices[b, k]] for each query.
  *

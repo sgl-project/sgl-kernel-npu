@@ -138,6 +138,50 @@ def unidex_copy_inplace(
     return dst
 
 
+def restore_short_kv_history_inplace(
+    host,
+    cache,
+    req_to_token,
+    requests,
+    lengths,
+    first_positions,
+    old_begin,
+    old_end,
+    next_begin,
+    next_end,
+    next_first,
+    capacity,
+    context_len,
+    *,
+    src_ptr: int,
+    block_dim: int = 48,
+):
+    """Restore missing short-request history and write separate next extents.
+
+    ``src_ptr`` must address the registered host storage on the NPU. The caller
+    owns that storage until the current stream completes. All extent buffers
+    must be distinct and active request IDs must be unique.
+    """
+    torch.ops.npu.restore_short_kv_history(
+        host,
+        cache,
+        req_to_token,
+        requests,
+        lengths,
+        first_positions,
+        old_begin,
+        old_end,
+        next_begin,
+        next_end,
+        next_first,
+        capacity,
+        context_len,
+        src_ptr,
+        block_dim,
+    )
+    return cache
+
+
 def slot_map_lookup(
     slot_map: torch.Tensor,
     req_indices: torch.Tensor,
