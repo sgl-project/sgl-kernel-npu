@@ -23,9 +23,28 @@ extern "C" __global__ __aicore__ void sgl_quant_lightning_indexer_packed(
     __gm__ uint8_t* query, __gm__ uint8_t* key, __gm__ uint8_t* weights,
     __gm__ uint8_t* queryScale, __gm__ uint8_t* actualSeqLengthsQ,
     __gm__ uint8_t* actualSeqLengthsK, __gm__ uint8_t* blocktable,
-    __gm__ uint8_t* sparseIndices, __gm__ uint8_t* workspace, QLITilingData tiling)
+    __gm__ uint8_t* sparseIndices, __gm__ uint8_t* workspace,
+    uint32_t bSize, uint32_t tSize, uint32_t n2Size, uint32_t gSize,
+    uint32_t s1Size, uint32_t s2Size, uint32_t sparseCount,
+    uint32_t keyStride0, uint32_t keyDequantScaleStride0, uint32_t usedCoreNum,
+    uint32_t blockSize, uint32_t maxBlockNumPerBatch, uint32_t sparseMode)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
+    // Reconstruct the local record from the host-computed scalar launch arguments.
+    QLITilingData tiling{};
+    tiling.bSize = bSize;
+    tiling.tSize = tSize;
+    tiling.n2Size = n2Size;
+    tiling.gSize = gSize;
+    tiling.s1Size = s1Size;
+    tiling.s2Size = s2Size;
+    tiling.sparseCount = sparseCount;
+    tiling.keyStride0 = keyStride0;
+    tiling.keyDequantScaleStride0 = keyDequantScaleStride0;
+    tiling.usedCoreNum = usedCoreNum;
+    tiling.blockSize = blockSize;
+    tiling.maxBlockNumPerBatch = maxBlockNumPerBatch;
+    tiling.sparseMode = sparseMode;
     TPipe pipe;
     // One physical page contains FP8 keys followed by its FP32 scales.
     auto* keyScale = key + static_cast<uint64_t>(tiling.blockSize) * QLIPacked::HEAD_DIM;

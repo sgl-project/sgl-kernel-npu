@@ -5,8 +5,9 @@ Ascend950 direct-launch implementation, following the legacy
 
 - `op_host/quant_lightning_indexer_packed.cpp`: Tensor validation, workspace,
   stream lifetime and direct kernel launch.
-- `op_kernel/quant_lightning_indexer.cpp`: direct-launch entry with shape-only
-  tiling passed by value.
+- `op_kernel/quant_lightning_indexer.cpp`: direct-launch entry receiving each
+  host-computed tiling field by value and rebuilding the local tiling record.
+  No tiling Tensor or host launcher wrapper is needed.
 - `op_kernel/arch35` and `op_kernel/common`: self-contained computation headers.
 
 Build with `bash build.sh -a kernels Ascend950`. This wheel contains the existing

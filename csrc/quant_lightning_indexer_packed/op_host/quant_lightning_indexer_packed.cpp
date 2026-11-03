@@ -12,18 +12,6 @@
 #include "aclrtlaunch_sgl_quant_lightning_indexer_packed.h"
 
 namespace sglang::npu_kernel {
-// Keep tiling owned by the queued callback. The generated host launcher accepts
-// a pointer but synchronously copies the struct into its by-value kernel args.
-static uint32_t aclrtlaunch_sgl_quant_lightning_indexer_packed(
-    uint32_t blockDim, aclrtStream stream, void* query, void* packed_cache,
-    void* weights, void* query_scale, void* seq_q, void* seq_k,
-    void* block_table, void* output, void* workspace, QLITilingData tiling)
-{
-    return ::aclrtlaunch_sgl_quant_lightning_indexer_packed(
-        blockDim, stream, query, packed_cache, weights, query_scale, seq_q, seq_k,
-        block_table, output, workspace, &tiling);
-}
-
 at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Tensor& packed_cache,
     const at::Tensor& weights, const at::Tensor& query_scale, const at::Tensor& seq_q,
     const at::Tensor& seq_k, const at::Tensor& block_table, int64_t topk, int64_t sparse_mode)
@@ -101,10 +89,14 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
     for (const auto& tensor : keep_alive) {
         if (tensor.numel()) c10_npu::NPUCachingAllocator::recordStream(tensor.storage().data_ptr(), stream);
     }
-    // The host-computed tiling travels by value, including during graph capture.
+    // Capture every host-computed tiling field by value, including during graph capture.
     EXEC_KERNEL_CMD(sgl_quant_lightning_indexer_packed, blockDim,
                     query, packed_cache, weights, query_scale, seq_q, seq_k,
-                    block_table, output, workspace, tiling);
+                    block_table, output, workspace,
+                    tiling.bSize, tiling.tSize, tiling.n2Size, tiling.gSize,
+                    tiling.s1Size, tiling.s2Size, tiling.sparseCount,
+                    tiling.keyStride0, tiling.keyDequantScaleStride0, tiling.usedCoreNum,
+                    tiling.blockSize, tiling.maxBlockNumPerBatch, tiling.sparseMode);
     return output;
 }
 } // namespace sglang::npu_kernel
