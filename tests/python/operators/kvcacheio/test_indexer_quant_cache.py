@@ -27,7 +27,8 @@ def test_indexer_cache(tokens):
     slots = torch.arange(tokens, dtype=torch.int32)
     if tokens > 1:
         slots[-1] = -1
-    keys = torch.zeros(1, 128, 1, 128, dtype=torch.float8_e4m3fn)
+    # CANN 9.1 cannot zero FP8 directly; initialize its byte storage instead.
+    keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
     kwargs = dict(quant_mode="fp8")
     executor = make_executor(
@@ -38,7 +39,12 @@ def test_indexer_cache(tokens):
     else:
         require_distinct_impls(indexer_quant_cache, executor.impl, executor.impl_ref)
         expected = indexer_quant_cache(
-            keys.clone(), scales.clone(), x, slots, impl=executor.impl_ref, **kwargs
+            keys.view(torch.uint8).clone().view(torch.float8_e4m3fn),
+            scales.clone(),
+            x,
+            slots,
+            impl=executor.impl_ref,
+            **kwargs,
         )
         actual = executor()
         assert actual[0].dtype == expected[0].dtype == torch.float8_e4m3fn
