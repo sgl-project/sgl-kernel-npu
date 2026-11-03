@@ -53,6 +53,14 @@ public:
         return const_cast<void *>(at_tensor.data_ptr());
     }
 
+    inline static void *ConvertType(const c10::optional<at::Tensor> &at_tensor)
+    {
+        if (!at_tensor.has_value() || !at_tensor->defined()) {
+            return nullptr;
+        }
+        return const_cast<void *>(at_tensor->data_ptr());
+    }
+
     inline static host_utils::DataType ConvertDataType(const at::ScalarType type)
     {
         switch (type) {
