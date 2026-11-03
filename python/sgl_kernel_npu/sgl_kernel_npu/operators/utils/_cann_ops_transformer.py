@@ -58,7 +58,9 @@ class _GuardedOpPacket(torch._ops.OpOverloadPacket):
         self.__dict__.update(packet.__dict__)
         self._sglang_cann_opapi_guard = True
         self._guard_done = False
-        self._guard_lock = threading.Lock()
+        # A default-device TorchFunctionMode can redispatch this same packet
+        # before its first call returns. Permit that same-thread reentry.
+        self._guard_lock = threading.RLock()
 
     def __call__(self, *args, **kwargs):
         if self._guard_done:
