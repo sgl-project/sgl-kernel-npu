@@ -17,7 +17,7 @@ _native_fn = None
 def _cann_impl(*args, **kwargs):
     global _cann_fn
     if _cann_fn is None:
-        from ..._third_party.slg_ops_transformer.ops import flash_mla
+        from ..._third_party.sgl_ops_transformer.ops import flash_mla
 
         _cann_fn = flash_mla
     return _cann_fn(*args, **kwargs)
@@ -122,7 +122,7 @@ def flash_mla(
 def _cann_metadata(*args, **kwargs):
     global _metadata_fn
     if _metadata_fn is None:
-        from ..._third_party.slg_ops_transformer.ops import flash_mla_metadata
+        from ..._third_party.sgl_ops_transformer.ops import flash_mla_metadata
 
         _metadata_fn = flash_mla_metadata
     return _metadata_fn(*args, **kwargs)
