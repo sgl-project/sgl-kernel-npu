@@ -1,5 +1,8 @@
 """Public kv_compress_epilog operator with registered implementations."""
 
+import torch
+
+from ..utils._cann_ops_transformer import get_op
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -13,11 +16,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    from ...implementation.cann_ops_transformer.kvcacheio.kv_compress_epilog import (
-        kv_compress_epilog,
-    )
-
-    return kv_compress_epilog(cache, x, slot_mapping, **kwargs)
+    get_op("kv_compress_epilog")(cache.view(torch.uint8), x, slot_mapping, **kwargs)
+    return cache
 
 
 @register_impl(
