@@ -2,7 +2,6 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
-| [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc`, `torch_native`, `cpu` |
 | [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |
 | [transfer_mamba_state](operators/data_move/transfer_mamba_state.md) | `aclrt`, `torch_native` |
 | [transfer_kv_all_layer_direct_lf_pf](operators/data_move/transfer_kv_all_layer_direct_lf_pf.md) | `aclrt`, `torch_native` |
