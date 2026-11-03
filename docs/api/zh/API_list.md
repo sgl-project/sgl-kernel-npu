@@ -2,6 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
@@ -17,10 +18,12 @@
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`、`torch_native` |
+| [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`、`torch_native` |
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`、`torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
+| [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
 | [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
 | [expand_causal_seqlens](operators/indexer/expand_causal_seqlens.md) | `triton`, `torch_native` |

@@ -33,7 +33,9 @@ foreach(mode IN ITEMS assign update)
         CANN_OP_TYPE ${op_type}
         TORCH_ADAPTER torch_adapter.cpp
         SUPPORTED_ARCHS 2201 3510
-        HOST_SOURCES op_host/cache_loc_host.cpp
+        OPDEF_SOURCES op_host/cache_loc_host.cpp
+        INFER_SOURCES op_host/cache_loc_host.cpp
+        TILING_SOURCES op_host/cache_loc_host.cpp
         KERNEL_SOURCES op_kernel/cache_loc_kernel.cpp
     )
 endforeach()
