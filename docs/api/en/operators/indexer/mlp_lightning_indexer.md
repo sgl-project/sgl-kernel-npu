@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `auto` / `ascendc` | Supported implementation | A5 port; hardware validation pending |
-| `torch_native` | Independent PyTorch reference | Independent PyTorch reference |
+| `auto` / `ascendc` | Supported implementation | Unsupported |
+| `torch_native` | Independent PyTorch reference | Unsupported |
 
 This table describes implementation scope, not a new hardware validation result.
 In an arch22 Linux/CANN environment, run the root
@@ -13,11 +13,6 @@ In an arch22 Linux/CANN environment, run the root
 the generated wheel. `--ops all` on arch22 also includes this operator; the legacy
 build no longer provides this native binding.
 See the [build guide](../../../../../python/sgl_kernel_npu/README.md).
-
-For A5, use `--arch-version 3510`. Run
-`bash scripts/run_light_indexer_a5.sh --device 0` to build just this operator
-and validate eager accuracy. See the [A5 test guide](../../../../developer_guide/light_indexer_a5.md)
-for prerequisites, logs, and validation limits.
 
 ## Signature
 
