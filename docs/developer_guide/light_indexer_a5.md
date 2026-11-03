@@ -69,7 +69,6 @@ bash scripts/run_light_indexer_a5.sh --device 0 --jobs 1 --perf
 | --- | --- | --- |
 | CMake、OpDef、host SoC 检查、Python registry、kernel 入口 | 新增 3510 / ascend950 / ARCH35，取消对 `__CCE_AICORE__ == 310` 的空入口 | 使 A5 能选中、构建并执行算子 |
 | `LIMatmul::LoadQueryToL0a` | A5 使用 `SetLoadDataRepeatWithStride` 和 `LoadDataWithStride`，单次搬运，`dstStride=ceil(M_tile/16)` | A5 L0A 为 NZ，需要显式配置 K 方向上相邻分形列的目的间隔 |
-| `LIMatmul::AllocEventID/FreeEventID` | 为每个缓冲槽申请独立 TPipe event，等待完成后释放；不假定 ID 连续 | 取代固定编号，保留原有缓冲复用与等待关系；此项也作用于 arch22 |
 | eager 测试 | 增加 heads=64、M 分块、分页/尾块、长 K、Top-K 4096/8192、两种 return_value | 检查布局、缓冲复用和结果契约 |
 
 数学功能与公共签名保持原样：`Q·K → ReLU → 按 head 权重求和 → block 归约/窗口优先级 → Top-K`。
@@ -96,8 +95,9 @@ bash scripts/run_light_indexer_a5.sh --device 0 --jobs 1 --perf
 上述页面是官方 asc-devkit master 的持续开发预览，不能替代已安装的 CANN 9.2.0。
 `sdk-headers.log` 保存实装头文件的相关声明（找不到时明确记录），
 `build.log` 和 `build/cann/` 的日志确认实际编译器是否接受这些调用。
-A5 上的搬运布局、FP32 写回、unitFlag、事件配对最终仍由实机精度测试确认；
-arch22 的事件改动也需要 A3 回归。NPUGraph、性能和整模型尚未验收。
+A5 上的搬运布局、FP32 写回、unitFlag、事件配对最终仍由实机精度测试确认。
+本次复测沿用 #579 的固定 Cube 事件编号，单独验证 A5 是否需要改用 TPipe 分配事件。
+NPUGraph 和整模型尚未验收。
 
 ## 结果与反馈
 
