@@ -109,9 +109,9 @@ the Triton path does not copy lengths to the CPU to validate them.
 Kernels and launch wrappers live in `implementation/triton/attention`.
 On A3, regular multi-query GQA packs Q into an affine matrix source, sharing
 the KV scan. Single-query inputs, irregular groups and pages below 32 use
-the existing per-query specialization. Irregular D is padded to a power of
-two on A3, retaining the caller's original scale. Long contexts may use
-split KV and a partial-softmax reduction.
+the existing per-query specialization. Both devices preserve the caller's head
+dimension and scale; masked loads handle partial matrix tiles. Long contexts
+may use split KV and a partial-softmax reduction.
 
 On A5, let `GROUP = num_q_heads // num_kv_heads` and `q_index = rows // GROUP`.
 Q loads and score masks use `q_index < gamma`; direct output stores and
@@ -121,7 +121,7 @@ query tiles and output tail writes for irregular GQA groups observed with
 A5 Triton 3.2.0.
 
 Every NPU Graph replay reads lengths, pages and Q/K/V anew; query packing
-and padding are included in capture. No host length extraction is required.
+is included in capture. No host length extraction is required.
 
 ## torch_native backend
 

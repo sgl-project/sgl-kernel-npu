@@ -102,8 +102,9 @@ $$
 
 内核和启动封装位于 `implementation/triton/attention`。A3 对常规多 query GQA
 先打包 Q，构造满足矩阵指令要求的仿射数据源并共享 KV 扫描；单 query、不规则
-头分组及小于 32 的分页使用已有逐 query 特化。A3 对非 2 的幂的 D 补零，
-保留调用方原始缩放系数。长上下文可使用 split KV 和部分 softmax 归约。
+头分组及小于 32 的分页使用已有逐 query 特化。两个平台均保留调用方的头维度
+和缩放系数，通过掩码加载处理矩阵 tile 的尾部。长上下文可使用 split KV
+和部分 softmax 归约。
 
 A5 内核令 `GROUP = num_q_heads // num_kv_heads`，`q_index = rows // GROUP`。
 读取 Q 和构造分数掩码时使用 `q_index < gamma`；直接写回输出和 split-KV
@@ -112,7 +113,7 @@ A5 Triton 3.2.0 下已观察到的满 query tile 产生 NaN，以及不规则 GQ
 输出尾部越界写入的问题。
 
 每次 NPU Graph 回放重新读取长度、页表和
-Q/K/V，Q 打包及补零操作一并被捕获，无需在主机提取长度。
+Q/K/V，Q 打包操作一并被捕获，无需在主机提取长度。
 
 ## torch_native 后端
 

@@ -663,35 +663,6 @@ def paged_mtp_attention_decode(
     small pages and irregular groups use a per-query matrix tile instead.
     """
     batch_size = seq_lens.numel()
-    if batch_size and _is_a3_device(query.device) and head_dim & (head_dim - 1):
-        # A3 matrix tiles use a power-of-two head stride. Zero padding preserves
-        # both dot products; keep the caller's scale and crop only the V result.
-        padded_dim = triton.next_power_of_2(head_dim)
-        padding = padded_dim - head_dim
-        padded_query = torch.nn.functional.pad(query, (0, padding))
-        padded_k = torch.nn.functional.pad(
-            k_cache.view(-1, page_size, num_kv_heads, head_dim), (0, padding)
-        ).view(-1, page_size, num_kv_heads * padded_dim)
-        padded_v = torch.nn.functional.pad(
-            v_cache.view(-1, page_size, num_kv_heads, head_dim), (0, padding)
-        ).view(-1, page_size, num_kv_heads * padded_dim)
-        padded_output = paged_mtp_attention_decode(
-            query=padded_query,
-            k_cache=padded_k,
-            v_cache=padded_v,
-            seq_lens=seq_lens,
-            cu_q_lens=cu_q_lens,
-            block_tables=block_tables,
-            page_size=page_size,
-            num_q_heads=num_q_heads,
-            num_kv_heads=num_kv_heads,
-            head_dim=padded_dim,
-            gamma=gamma,
-            softmax_scale=softmax_scale,
-            max_kv_len=max_kv_len,
-            causal=causal,
-        )
-        return padded_output[..., :head_dim].contiguous()
     output = torch.empty_like(query)
     if not batch_size:
         return output

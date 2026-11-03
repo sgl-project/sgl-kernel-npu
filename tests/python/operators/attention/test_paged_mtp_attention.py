@@ -273,8 +273,7 @@ def test_irregular_group_output_stays_in_bounds(dtype, causal, head_dim, lengths
             or tensor.device != args["query"].device
         ):
             return original_empty_like(tensor, *positional, **kwargs)
-        # A3 may pad D before allocating its output. Guard that intermediate
-        # allocation too, then validate the cropped public result below.
+        # Guard the output allocation, then validate the public result below.
         tokens, heads, dim = tensor.shape
         storage = torch.full(
             (tokens + 2 * guard_tokens, heads, dim),
