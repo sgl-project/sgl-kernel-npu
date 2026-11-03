@@ -5,8 +5,14 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import get_skip_acc_check, get_test_impls
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -45,6 +51,11 @@ def test_bf16_attention_metadata_and_compute(batch, query_len):
         layout_kv="PA_BBND",
     )
     impl, impl_ref = get_test_impls()
+    skip_accuracy = get_skip_acc_check() is True
+    if skip_accuracy:
+        require_test_impl(sparse_flash_mla, impl)
+    else:
+        require_distinct_impls(sparse_flash_mla, impl, impl_ref)
     metadata_kwargs = dict(
         batch_size=batch,
         num_heads_q=64,
@@ -62,18 +73,20 @@ def test_bf16_attention_metadata_and_compute(batch, query_len):
         softmax_scale=512**-0.5,
         **common,
     )
-    # Opaque CANN tiling and eager reference descriptors are not interchangeable.
-    kwargs_ref = None
-    if get_skip_acc_check() is not True:
-        kwargs_ref = dict(
-            metadata=sparse_flash_mla_metadata(impl=impl_ref, **metadata_kwargs)
+    executor = make_executor(sparse_flash_mla, args=(q,), kwargs=kwargs)
+    if not skip_accuracy:
+        # Opaque CANN tiling and eager descriptors must be built independently.
+        reference_kwargs = {
+            **kwargs,
+            "metadata": sparse_flash_mla_metadata(impl=impl_ref, **metadata_kwargs),
+        }
+        expected = sparse_flash_mla(q, impl=impl_ref, **reference_kwargs)
+        actual = executor()
+        assert_accuracy(
+            actual,
+            expected,
+            {"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
         )
-    executor = check_accuracy(
-        sparse_flash_mla,
-        args=(q,),
-        kwargs=kwargs,
-        kwargs_ref=kwargs_ref,
-        standard={"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
-    )
+        executor.accuracy_checked = True
     # Metadata was prepared once; performance measures compute only.
     check_performance(executor, enable_perf=(batch, query_len) in perf_shape)

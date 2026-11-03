@@ -5,7 +5,13 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -23,14 +29,29 @@ def test_indexer_cache(tokens):
         slots[-1] = -1
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
-    executor = check_accuracy(
-        indexer_quant_cache,
-        args=(keys, scales, x, slots),
-        args_ref=(keys.clone(), scales.clone(), x, slots),
-        kwargs=dict(quant_mode="fp8"),
-        standard={
-            "torch.float8_e4m3fn": AccuracyStandard(atol=16, rtol=0.06),
-            "torch.float32": AccuracyStandard(atol=1e-5, rtol=0.03),
-        },
+    kwargs = dict(quant_mode="fp8")
+    executor = make_executor(
+        indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs
     )
+    if get_skip_acc_check() is True:
+        require_test_impl(indexer_quant_cache, executor.impl)
+    else:
+        require_distinct_impls(indexer_quant_cache, executor.impl, executor.impl_ref)
+        expected = indexer_quant_cache(
+            keys.clone(), scales.clone(), x, slots, impl=executor.impl_ref, **kwargs
+        )
+        actual = executor()
+        assert actual[0].dtype == expected[0].dtype == torch.float8_e4m3fn
+        # Widen FP8 only here; keep scale accuracy under its own tight tolerance.
+        assert_accuracy(
+            actual[0].float(),
+            expected[0].float(),
+            {"torch.float32": AccuracyStandard(atol=16, rtol=0.06)},
+        )
+        assert_accuracy(
+            actual[1],
+            expected[1],
+            {"torch.float32": AccuracyStandard(atol=1e-5, rtol=0.03)},
+        )
+        executor.accuracy_checked = True
     check_performance(executor, enable_perf=(tokens, 128) in perf_shape)

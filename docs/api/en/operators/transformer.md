@@ -101,15 +101,18 @@ python -m pytest tests/python/operators/attention/test_sparse_flash_mla.py \
   --npu-device 0 --enable-perf=false -v
 ```
 
-All numerical comparisons use `check_accuracy` and profiling uses the returned
-executor with `check_performance`. mHC pre/post have independent inputs and
-preserve their original tolerances. In-place operators use separate reference
-buffers via `args_ref`. Attention prepares each implementation's metadata once
-and passes reference overrides via `kwargs_ref`; compute timing excludes metadata
-and KV initialization. The KV writer's accuracy-only `output_transform` compares
-semantic bytes exactly, excluding unspecified alignment padding. Indexer FP8
-values are widened only for comparison, retaining FP8-specific tolerances and
-separate FP32 scale tolerances.
+mHC and MoE use the unchanged `check_accuracy` helper directly. In-place RoPE,
+cache writers and attention with implementation-specific metadata use the
+existing `assert_accuracy` and `make_executor` helpers within their test files.
+They compare independent reference buffers/metadata and set `accuracy_checked`
+only after all comparisons pass. All cases use `check_performance` for profiling
+and honor the existing implementation-selection and accuracy/performance CLI
+switches; skipping accuracy does not invoke the reference implementation.
+
+Compute timing excludes metadata, KV initialization and comparison conversions.
+KV writer checks compare semantic bytes exactly, excluding unspecified alignment
+padding. Indexer FP8 values are widened locally in its test, with separate FP32
+scale tolerances. No changes to the shared accuracy helper are required.
 
 The A5 mixed-quant reader/writer tests skip on A3. The current on-device files
 cover mHC pre/post, partial RoPE, cache writers, BF16/mixed-quant attention with
@@ -238,4 +241,5 @@ FP8/INT8 indexer modes and the fused compressor API. SDK prototypes or matching
 schemas do not prove a kernel supports every generation/mode. On-device old/new
 accuracy, packed-byte rounding, graph capture/replay and performance still need
 validation with the actual deployed operator libraries.
+
 
