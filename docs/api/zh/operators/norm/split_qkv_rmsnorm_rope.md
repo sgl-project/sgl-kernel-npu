@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 待验证 | 待验证 |
-| `torch_native` | 待验证 | 待验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 | `tilelang` | 未实现 | 未实现 |
 | `ascendc` | 未实现 | 未实现 |
 
@@ -43,7 +43,9 @@ $$
 A(x,w,b)=\begin{cases}x,&\epsilon=\mathrm{None},\\x\,\mathrm{rsqrt}(\mathrm{mean}(x^2)+\epsilon)w+b,&\text{otherwise},\end{cases}\quad Y_{q,k}=\mathrm{RoPE}_R(A(X_{q,k})),\quad Y_v=X_v.
 $$
 
-每个 head 的前 R 个特征按 $y_i=x_i c_i+ho(x)_i s_i$ 旋转；NeoX 的 $ho$ 配对前后两半，GPT-J 配对相邻特征。尾部保留归一化后的值。
+每个 head 的前 R 个特征按 $y_i=x_i c_i+
+ho(x)_i s_i$ 旋转；NeoX 的 $
+ho$ 配对前后两半，GPT-J 配对相邻特征。尾部保留归一化后的值。
 
 ## 参数与返回值
 

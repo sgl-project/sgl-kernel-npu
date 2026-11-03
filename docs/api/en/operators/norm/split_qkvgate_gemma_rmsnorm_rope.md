@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Unverified | Unverified |
-| `torch_native` | Unverified | Unverified |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 | `tilelang` | Not implemented | Not implemented |
 | `ascendc` | Not implemented | Not implemented |
 
@@ -42,7 +42,9 @@ $$
 G(x,w)=x\,\mathrm{rsqrt}(\mathrm{mean}(x^2)+\epsilon)(1+w),\qquad Y_q=\mathrm{RoPE}_R(G(Q,w_q)),\quad Y_k=\mathrm{RoPE}_R(G(K,w_k)),\quad Y_v=V,\quad Y_g=\mathrm{gate}.
 $$
 
-For each head, rotation is $y_i=x_i c_i+ho(x)_i s_i$ on its first R features; $ho$ pairs halves for NeoX and adjacent features for GPT-J. The tail is copied after normalization.
+For each head, rotation is $y_i=x_i c_i+
+ho(x)_i s_i$ on its first R features; $
+ho$ pairs halves for NeoX and adjacent features for GPT-J. The tail is copied after normalization.
 
 ## Parameters and return value
 
