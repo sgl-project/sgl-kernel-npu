@@ -1,4 +1,4 @@
-"""Build only mlp_lightning_indexer for A5 and run its eager accuracy tests."""
+"""Build mlp_lightning_indexer for A5 and run eager accuracy and optional profiling."""
 
 import argparse
 import datetime
@@ -165,6 +165,11 @@ def main(argv=None):
     parser.add_argument("--device", type=int, default=0, help="logical visible NPU ID")
     parser.add_argument("--jobs", type=int, default=8, help="parallel build jobs")
     parser.add_argument(
+        "--perf",
+        action="store_true",
+        help="profile the two BF16 workloads after accuracy",
+    )
+    parser.add_argument(
         "--output-dir", type=Path, help="new directory for all run logs"
     )
     args = parser.parse_args(argv)
@@ -284,33 +289,62 @@ def main(argv=None):
 
         summary["stage"] = "eager-accuracy"
         report = out / "pytest.xml"
+        pytest_command = [
+            python,
+            "-m",
+            "pytest",
+            TEST,
+            "--impl",
+            "ascendc",
+            "--impl-ref",
+            "torch_native",
+            "--skip-acc-check=false",
+            "--npu-device",
+            args.device,
+            "-v",
+            "-s",
+            "-x",
+            "-rs",
+        ]
         run(
             [
-                python,
-                "-m",
-                "pytest",
-                TEST,
-                "--impl",
-                "ascendc",
-                "--impl-ref",
-                "torch_native",
-                "--skip-acc-check=false",
+                *pytest_command,
                 "--enable-perf=false",
-                "--npu-device",
-                args.device,
                 "--junitxml",
                 report,
-                "-v",
-                "-s",
-                "-x",
-                "-rs",
             ],
             out / "pytest.log",
             env=env,
         )
         summary["passed"] = validate_report(report)
-        summary["status"] = "PASS"
         print("PASS: %d eager accuracy cases; logs: %s" % (summary["passed"], out))
+
+        if args.perf:
+            summary["stage"] = "performance"
+            perf_report = out / "perf.xml"
+            perf_csv = out / "perf.csv"
+            run(
+                [
+                    *pytest_command,
+                    "--enable-perf=true",
+                    "-k",
+                    "bf16 and (W-longcat2-prefill-sink-local or W-longcat2-decode)",
+                    "--junitxml",
+                    perf_report,
+                    "--prof-dir",
+                    out / "profiles",
+                    "--csv-path",
+                    perf_csv,
+                ],
+                out / "perf.log",
+                env=env,
+            )
+            if validate_report(perf_report) != 2 or not perf_csv.is_file():
+                raise RuntimeError("Expected two successful BF16 profiles and perf.csv")
+            summary["perf_csv"] = str(perf_csv)
+            print("PASS: 2 BF16 performance cases; CSV: %s" % perf_csv)
+
+        summary["status"] = "PASS"
         return 0
     except Exception as error:
         summary["error"] = str(error)

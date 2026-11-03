@@ -48,6 +48,15 @@ CMake >= 3.20、C++17 编译器与 Python 开发头文件。脚本检查缺失�
    manifest 为 `3510` 且仅含本算子、原生 binding 与三个实现均可解析。
 5. 只运行 `test_mlp_lightning_indexer.py`，显式选择 `ascendc` 对照 `torch_native`，
    开启精度比较，关闭性能采集。pytest 用例为 eager，不运行 NPUGraph 或整模型。
+6. 指定 `--perf` 时，在全部精度用例通过后复用同一个 wheel 和 venv，采集与
+   #579 基线同口径的两组 BF16 用例（prefill、decode），每组预热 5 次并采集 5 次。
+   结果写入本次运行目录的 `perf.csv`，原始 profiler 数据位于 `profiles/`。
+
+一次执行编译、精度和性能测试：
+
+```bash
+bash scripts/run_light_indexer_a5.sh --device 0 --jobs 1 --perf
+```
 
 脚本不替换原环境的 sgl-kernel-npu，也不操作已有服务。测试 venv 和日志默认位于
 `output/light_indexer_a5/<timestamp>/`，可用 `--output-dir /new/path` 指定新目录。
