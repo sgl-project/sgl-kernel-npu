@@ -27,7 +27,7 @@ def test_indexer_cache(tokens):
     slots = torch.arange(tokens, dtype=torch.int32)
     if tokens > 1:
         slots[-1] = -1
-    # CANN 9.1 cannot zero FP8 directly; initialize its byte storage instead.
+    # CANN 9.1 may not support generic FP8 initialization/copy/conversion.
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
     kwargs = dict(quant_mode="fp8")
@@ -38,24 +38,27 @@ def test_indexer_cache(tokens):
         require_test_impl(indexer_quant_cache, executor.impl)
     else:
         require_distinct_impls(indexer_quant_cache, executor.impl, executor.impl_ref)
-        expected = indexer_quant_cache(
-            keys.view(torch.uint8).clone().view(torch.float8_e4m3fn),
-            scales.clone(),
-            x,
-            slots,
-            impl=executor.impl_ref,
-            **kwargs,
-        )
+        # Run independent reference math on CPU, where FP8 casts are available.
+        # Copy cache bytes rather than requesting an NPU FP8 copy/conversion.
+        with torch.device("cpu"):
+            expected = indexer_quant_cache(
+                keys.view(torch.uint8).cpu().clone().view(torch.float8_e4m3fn),
+                scales.cpu().clone(),
+                x.cpu(),
+                slots.cpu(),
+                impl=executor.impl_ref,
+                **kwargs,
+            )
         actual = executor()
         assert actual[0].dtype == expected[0].dtype == torch.float8_e4m3fn
-        # Widen FP8 only here; keep scale accuracy under its own tight tolerance.
+        # Widen on CPU; scale accuracy retains its own tight tolerance.
         assert_accuracy(
-            actual[0].float(),
+            actual[0].view(torch.uint8).cpu().view(torch.float8_e4m3fn).float(),
             expected[0].float(),
             {"torch.float32": AccuracyStandard(atol=16, rtol=0.06)},
         )
         assert_accuracy(
-            actual[1],
+            actual[1].cpu(),
             expected[1],
             {"torch.float32": AccuracyStandard(atol=1e-5, rtol=0.03)},
         )
