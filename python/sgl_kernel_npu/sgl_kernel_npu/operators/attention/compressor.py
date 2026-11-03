@@ -1,14 +1,18 @@
 """Public compressor operator with registered implementations."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
 @register_impl("attention.compressor", "auto")
 @register_impl("attention.compressor", "cann_ops_transformer")
 def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
-    from ...implementation.cann_ops_transformer.attention.compressor import compressor
-
-    return compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
+    # Both A3 and A5 bind the released/native compressor through the npu namespace.
+    # Do not redirect this to the similarly named experimental custom op.
+    return torch.ops.npu.compressor(
+        x, wkv, wgate, state_cache, ape, norm_weight, **kwargs
+    )
 
 
 @register_impl("attention.compressor", "torch_native")

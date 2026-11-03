@@ -1,5 +1,6 @@
 """Public quant_lightning_indexer_metadata operator with registered implementations."""
 
+from ..utils._cann_ops_transformer import get_op
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
@@ -8,11 +9,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 def _cann_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    from ...implementation.cann_ops_transformer.attention.quant_lightning_indexer_metadata import (
-        quant_lightning_indexer_metadata,
-    )
-
-    return quant_lightning_indexer_metadata(
+    return get_op("quant_lightning_indexer_metadata")(
         num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
     )
 

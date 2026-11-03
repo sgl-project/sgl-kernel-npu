@@ -1,16 +1,13 @@
 """Public sparse_flash_mla_metadata operator with registered implementations."""
 
+from ..utils._cann_ops_transformer import get_op
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "auto")
 @register_impl("attention.sparse_flash_mla_metadata", "cann_ops_transformer")
 def _cann_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.cann_ops_transformer.attention.sparse_flash_mla_metadata import (
-        sparse_flash_mla_metadata,
-    )
-
-    return sparse_flash_mla_metadata(**kwargs)
+    return get_op("sparse_flash_mla_metadata")(**kwargs)
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "torch_native")

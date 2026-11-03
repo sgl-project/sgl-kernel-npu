@@ -1,5 +1,6 @@
 """Public mixed_quant_sparse_flash_mla operator with registered implementations."""
 
+from ..utils._cann_ops_transformer import get_op
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -15,11 +16,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
-    from ...implementation.cann_ops_transformer.attention.mixed_quant_sparse_flash_mla import (
-        mixed_quant_sparse_flash_mla,
-    )
-
-    return mixed_quant_sparse_flash_mla(q, **kwargs)
+    return get_op("mixed_quant_sparse_flash_mla")(q, **kwargs)
 
 
 @register_impl(
