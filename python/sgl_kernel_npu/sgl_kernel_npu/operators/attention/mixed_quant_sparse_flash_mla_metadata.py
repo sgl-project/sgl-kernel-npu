@@ -1,8 +1,8 @@
 """Public mixed_quant_sparse_flash_mla_metadata operator with registered implementations."""
 
-from ..utils._cann_ops_transformer import get_op
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ._sharedkv_compat import build_metadata, without_host_lengths
 
 
 @register_impl(
@@ -16,7 +16,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    return get_op("mixed_quant_sparse_flash_mla_metadata")(**kwargs)
+    return build_metadata(True, kwargs)
 
 
 @register_impl(
@@ -29,14 +29,14 @@ def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
         mixed_quant_sparse_flash_mla_metadata,
     )
 
-    return mixed_quant_sparse_flash_mla_metadata(**kwargs)
+    return mixed_quant_sparse_flash_mla_metadata(**without_host_lengths(kwargs))
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla_metadata")
 def mixed_quant_sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build A5 mixed-quant attention metadata.
 
-    impl: auto (released CANN), cann_ops_transformer, or torch_native.
+    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(

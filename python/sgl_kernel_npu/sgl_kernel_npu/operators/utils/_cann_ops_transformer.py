@@ -77,7 +77,10 @@ def _install_cann_opapi_guards() -> None:
     try:
         import cann_ops_transformer  # noqa: F401  (registers the namespace)
     except Exception as e:
-        raise RuntimeError("Install cann_ops_transformer from CANN 9.2 or later") from e
+        raise RuntimeError(
+            "Cannot load cann_ops_transformer. Install a matching CANN extension "
+            "or register the legacy custom operators and select the legacy backend."
+        ) from e
     namespace = torch.ops.cann_ops_transformer
     for name in _CANN_OPAPI_OPS:
         op = getattr(namespace, name, None)

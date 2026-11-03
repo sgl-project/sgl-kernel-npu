@@ -15,12 +15,17 @@ def kv_compress_epilog(
     round_scale=True,
     x_scale=1.0,
 ):
-    if quant_mode != "fp8_bf16" or quant_group_size != 64:
-        raise NotImplementedError("reference supports fp8_bf16 with 64-element groups")
-    # DSV4 stores 64 bf16 RoPE features followed by group-quantized NoPE and bf16 scales.
-    if x.shape[-1] != 512 or cache.shape[-1] != 608:
+    if quant_mode not in ("fp8_bf16", "fp8_e8m0") or quant_group_size != 64:
         raise NotImplementedError(
-            "reference supports DSV4's 448 NoPE + 64 RoPE, 608-byte rows"
+            "reference supports 64-element BF16/E8M0 scale groups"
+        )
+    legacy = quant_mode == "fp8_e8m0"
+    if legacy and not round_scale:
+        raise NotImplementedError("legacy E8M0 scales require power-of-two rounding")
+    # DSV4 stores 64 bf16 RoPE features followed by group-quantized NoPE and bf16 scales.
+    if x.shape[-1] != 512 or cache.shape[-1] != (640 if legacy else 608):
+        raise NotImplementedError(
+            "reference requires matching 608B BF16-scale or 640B E8M0-scale rows"
         )
     rows = cache.view(torch.uint8).reshape(-1, cache.shape[-1])
     values = x.reshape(-1, 512).float() * x_scale
@@ -34,7 +39,12 @@ def kv_compress_epilog(
             values[i, 448:].to(torch.bfloat16).contiguous().view(torch.uint8)
         )
         rows[slot, 128:576].copy_(quant.contiguous().view(torch.uint8).flatten())
-        rows[slot, 576:590].copy_(
-            scales.to(torch.bfloat16).contiguous().view(torch.uint8).flatten()
-        )
+        if legacy:
+            rows[slot, 576:583].copy_(
+                (torch.log2(scales).flatten() + 127).to(torch.uint8)
+            )
+        else:
+            rows[slot, 576:590].copy_(
+                scales.to(torch.bfloat16).contiguous().view(torch.uint8).flatten()
+            )
     return cache

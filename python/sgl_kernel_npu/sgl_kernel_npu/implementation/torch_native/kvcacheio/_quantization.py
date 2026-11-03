@@ -14,8 +14,8 @@ def _quantize(x, dtype, *, round_scale=False):
 
 def unpack_kv(cache):
     rows = cache.view(torch.uint8).reshape(-1, cache.shape[-1])
-    if rows.shape[-1] != 608:
-        raise NotImplementedError("reference supports 608-byte KV rows")
+    if rows.shape[-1] not in (608, 640):
+        raise NotImplementedError("reference supports 608B and legacy 640B KV rows")
     rope = rows[:, :128].contiguous().view(torch.bfloat16).float()
     nope = (
         rows[:, 128:576]
@@ -24,7 +24,11 @@ def unpack_kv(cache):
         .float()
         .reshape(-1, 7, 64)
     )
-    scales = (
-        rows[:, 576:590].contiguous().view(torch.bfloat16).float().reshape(-1, 7, 1)
-    )
+    if rows.shape[-1] == 640:
+        exponent = rows[:, 576:583].to(torch.int32) - 127
+        scales = torch.pow(2.0, exponent.float()).reshape(-1, 7, 1)
+    else:
+        scales = (
+            rows[:, 576:590].contiguous().view(torch.bfloat16).float().reshape(-1, 7, 1)
+        )
     return torch.cat(((nope * scales).flatten(1), rope), -1)

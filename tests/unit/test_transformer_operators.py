@@ -311,12 +311,19 @@ def test_compressor_prefill_matches_incremental_state(package, coff, cycle_table
 
 
 def test_cann_mhc_shape_dtype_and_argument_order(package):
+    runtime = importlib.import_module(
+        package.ns + ".operators.utils._transformer_compat"
+    )
     backend = importlib.import_module(package.ns + ".operators.norm.mhc_pre")
     x = torch.ones(2, 2, 4, dtype=torch.bfloat16)
     fused = Mock(
         return_value=(torch.ones(2, 1, 4), torch.ones(2, 1, 2), torch.ones(2, 1, 2, 2))
     )
-    with patch.object(backend, "get_op", return_value=fused):
+    with patch.object(
+        backend,
+        "select_family",
+        return_value=runtime.OperatorFamily("cann_ops_transformer", (fused,), ()),
+    ):
         y, post, comb = package.api.mhc_pre(
             x, object(), object(), object(), 2, 4, 1e-6, 1e-5
         )
@@ -325,7 +332,11 @@ def test_cann_mhc_shape_dtype_and_argument_order(package):
     assert y.shape == (2, 4) and y.dtype == x.dtype
     op = Mock(return_value=x)
     post_backend = importlib.import_module(package.ns + ".operators.norm.mhc_post")
-    with patch.object(post_backend, "get_op", return_value=op):
+    with patch.object(
+        post_backend,
+        "select_family",
+        return_value=runtime.OperatorFamily("cann_ops_transformer", (op,), ()),
+    ):
         package.api.mhc_post(y, x, post, comb)
     assert op.call_args.args == (x, comb, y, post)
 
@@ -510,3 +521,462 @@ def test_moe_empty_batch_and_extreme_logits(package):
         torch.full((1, 4), -1e10), 2, norm_type=2, impl="torch_native"
     )
     assert torch.isfinite(weights).all() and weights.count_nonzero() == 0
+
+
+@pytest.fixture
+def bindings(package, monkeypatch):
+    """Both installations are visible; tests force one without executing NPU code."""
+    runtime = importlib.import_module(
+        package.ns + ".operators.utils._transformer_compat"
+    )
+    calls = {}
+    names = (
+        [
+            ("cann_ops_transformer", name)
+            for name in (
+                "sparse_flash_mla_metadata",
+                "sparse_flash_mla",
+                "mixed_quant_sparse_flash_mla_metadata",
+                "mixed_quant_sparse_flash_mla",
+                "quant_lightning_indexer_metadata",
+                "quant_lightning_indexer",
+                "kv_compress_epilog",
+                "indexer_quant_cache",
+                "mhc_pre_sinkhorn",
+                "mhc_post",
+                "inplace_partial_rotary_mul",
+            )
+        ]
+        + [
+            ("custom", name)
+            for name in (
+                "npu_sparse_attn_sharedkv_metadata",
+                "npu_sparse_attn_sharedkv",
+                "npu_kv_quant_sparse_attn_sharedkv_metadata",
+                "npu_kv_quant_sparse_attn_sharedkv",
+                "npu_quant_lightning_indexer_metadata",
+                "npu_quant_lightning_indexer",
+                "indexer_compress_epilog",
+                "npu_hc_pre",
+                "npu_hc_post",
+                "inplace_partial_rotary_mul",
+                "compressor",
+                "npu_moe_gating_top_k",
+            )
+        ]
+        + [
+            ("npu", name)
+            for name in (
+                "kv_compress_epilog",
+                "compressor",
+                "npu_moe_gating_top_k",
+                "sparse_attn_sharedkv_metadata_host",
+                "sparse_attn_sharedkv",
+                "kv_quant_sparse_attn_sharedkv_metadata_host",
+                "kv_quant_sparse_attn_sharedkv",
+            )
+        ]
+    )
+    for namespace, name in names:
+        calls[namespace, name] = Mock(name=namespace + "." + name)
+    monkeypatch.setattr(
+        runtime, "optional_op", lambda namespace, name: calls.get((namespace, name))
+    )
+    monkeypatch.setattr(
+        runtime,
+        "prefer_legacy_bindings",
+        lambda: runtime.backend_preference() == "legacy",
+    )
+    # These two public wrappers imported the preference helper by name.
+    for path in ("attention.compressor", "moe.moe_gating_top_k"):
+        module = importlib.import_module(package.ns + ".operators." + path)
+        monkeypatch.setattr(
+            module,
+            "prefer_legacy_bindings",
+            lambda: runtime.backend_preference() == "legacy",
+        )
+    monkeypatch.setitem(sys.modules, "torch_npu", ModuleType("torch_npu"))
+    monkeypatch.setattr(
+        torch.ops,
+        "npu",
+        SimpleNamespace(npu_moe_gating_top_k=calls["npu", "npu_moe_gating_top_k"]),
+    )
+    return SimpleNamespace(runtime=runtime, calls=calls)
+
+
+@pytest.mark.parametrize("backend", ["cann_ops_transformer", "legacy"])
+@pytest.mark.parametrize("name", OP_NAMES)
+def test_public_contract_selects_released_or_original_binding(
+    package, bindings, monkeypatch, backend, name
+):
+    if package.arch == "ARCH22" and (
+        name.startswith("mixed_quant") or name == "kv_compress_epilog"
+    ):
+        pytest.skip("A5-only public contract")
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", backend)
+    old = backend == "legacy"
+    api, calls = package.api, bindings.calls
+    x = torch.ones(2, 2, 4, dtype=torch.bfloat16)
+    full_lengths = torch.tensor([13], dtype=torch.int32)
+    kwargs = dict(
+        cu_seqlens_q=torch.tensor([0, 2], dtype=torch.int32),
+        seqused_ori_kv=full_lengths,
+        seqused_cmp_kv=full_lengths // 4,
+        cmp_residual_kv=full_lengths % 4,
+        cmp_ratio=4,
+        ori_mask_mode=4,
+        cmp_mask_mode=3,
+        layout_q="TND",
+        layout_kv="PA_BBND",
+    )
+    if name in ("sparse_flash_mla", "mixed_quant_sparse_flash_mla"):
+        quant = name.startswith("mixed")
+        target = (
+            (
+                "custom",
+                "npu_kv_quant_sparse_attn_sharedkv"
+                if quant
+                else "npu_sparse_attn_sharedkv",
+            )
+            if old
+            else ("cann_ops_transformer", name)
+        )
+        calls[target].return_value = (x, torch.tensor(0.0))
+        if quant:
+            kwargs["ori_kv"] = torch.empty(
+                1, 16, 1, 640 if old else 608, dtype=torch.float8_e4m3fn
+            )
+        out, unused = getattr(api, name)(x, **kwargs)
+        assert out is x and unused.shape == (0,)
+        passed = calls[target].call_args.kwargs
+        if old:
+            assert passed["layout_kv"] == "PA_ND"
+            assert passed["seqused_kv"] is full_lengths
+            assert "seqused_cmp_kv" not in passed and "cmp_residual_kv" not in passed
+        else:
+            assert passed["layout_kv"] == "PA_BBND"
+        if quant:
+            assert passed["kv_quant_mode" if old else "quant_mode"] == 1
+    elif name in ("sparse_flash_mla_metadata", "mixed_quant_sparse_flash_mla_metadata"):
+        quant = name.startswith("mixed")
+        target = (
+            (
+                "custom",
+                "npu_kv_quant_sparse_attn_sharedkv_metadata"
+                if quant
+                else "npu_sparse_attn_sharedkv_metadata",
+            )
+            if old
+            else ("cann_ops_transformer", name)
+        )
+        calls[target].return_value = torch.zeros(1024, dtype=torch.int32)
+        if quant:
+            kwargs.update(quant_mode=1, rope_head_dim=64)
+        result = getattr(api, name)(
+            num_heads_q=2,
+            num_heads_kv=1,
+            head_dim=4,
+            batch_size=1,
+            has_cmp_kv=True,
+            **kwargs,
+        )
+        assert result is calls[target].return_value
+        assert (
+            calls[target].call_args.kwargs["seqused_kv" if old else "seqused_ori_kv"]
+            is full_lengths
+        )
+    elif name.startswith("quant_lightning_indexer"):
+        target = ("custom", "npu_" + name) if old else ("cann_ops_transformer", name)
+        args = dict(
+            cu_seqlens_q=kwargs["cu_seqlens_q"],
+            seqused_k=full_lengths // 4,
+            cmp_residual_k=full_lengths % 4,
+            cmp_ratio=4,
+            layout_q="TND",
+            layout_k="PA_BBND",
+            mask_mode=3,
+        )
+        if name.endswith("metadata"):
+            calls[target].return_value = torch.zeros(1024, dtype=torch.int32)
+            api.quant_lightning_indexer_metadata(2, 1, 4, 2, 1, **args)
+        else:
+            calls[target].return_value = (
+                torch.zeros(2, 1, 2, dtype=torch.int32),
+                torch.empty(0),
+            )
+            api.quant_lightning_indexer(
+                x,
+                x,
+                x,
+                x,
+                x,
+                2,
+                1,
+                block_table=torch.zeros(1, 1, dtype=torch.int32),
+                **args,
+            )
+        passed = calls[target].call_args.kwargs
+        if old:
+            torch.testing.assert_close(
+                passed["actual_seq_lengths_query"], torch.tensor([2], dtype=torch.int32)
+            )
+            torch.testing.assert_close(passed["actual_seq_lengths_key"], full_lengths)
+            assert passed["layout_key"] == "PA_BSND" and passed["sparse_count"] == 2
+    elif name == "kv_compress_epilog":
+        target = ("npu", name) if old else ("cann_ops_transformer", name)
+        cache = torch.zeros(1, 2, 1, 640 if old else 608, dtype=torch.float8_e4m3fn)
+        assert (
+            api.kv_compress_epilog(
+                cache, torch.ones(2, 512, dtype=torch.bfloat16), torch.tensor([0, -1])
+            )
+            is cache
+        )
+        passed = calls[target].call_args
+        assert passed.kwargs["quant_mode"] == (2 if old else "fp8_bf16")
+        assert passed.args[0].shape == ((2, 1, 640) if old else cache.shape)
+    elif name == "indexer_quant_cache":
+        target = (
+            ("custom", "indexer_compress_epilog")
+            if old
+            else ("cann_ops_transformer", name)
+        )
+        cache, scale = torch.empty(1, 2, 1, 4), torch.empty(1, 2)
+        result = api.indexer_quant_cache(cache, scale, x, torch.tensor([0, -1]))
+        assert result[0] is cache and result[1] is scale
+        if old:
+            assert calls[target].call_args.kwargs["indexer_compress_cache"] is cache
+    elif name == "mhc_pre":
+        target = (
+            ("custom", "npu_hc_pre")
+            if old
+            else ("cann_ops_transformer", "mhc_pre_sinkhorn")
+        )
+        calls[target].return_value = (
+            torch.ones(2, 4),
+            torch.ones(2, 2),
+            torch.ones(2, 2, 2),
+        )
+        y, _, _ = api.mhc_pre(x, x, x, x, 2, 20, 1e-6, 1e-5)
+        assert y.dtype == x.dtype and y.shape == (2, 4)
+        if old:
+            assert calls[target].call_args.args[0] is x
+            assert calls[target].call_args.kwargs["hc_sinkhorn_iters"] == 20
+            assert calls[target].call_args.kwargs["norm_eps"] == 1e-5
+        else:
+            assert calls[target].call_args.args[0].shape == (2, 1, 2, 4)
+    elif name == "mhc_post":
+        target = ("custom", "npu_hc_post") if old else ("cann_ops_transformer", name)
+        batched = old and package.arch == "ARCH35"
+        calls[target].return_value = x.unsqueeze(0) if batched else x
+        y, post, comb = x[:, 0], torch.ones(2, 2), torch.eye(2).expand(2, -1, -1)
+        result = api.mhc_post(y, x, post, comb)
+        assert result.shape == x.shape
+        args = calls[target].call_args.args
+        assert args[0].shape == ((1, 2, 4) if batched else y.shape if old else x.shape)
+        if not old:
+            assert args == (x, comb, y, post)
+    elif name == "inplace_partial_rotary_mul":
+        target = ("custom", name) if old else ("cann_ops_transformer", name)
+        assert api.inplace_partial_rotary_mul(x, x, x) is x
+        assert calls[target].call_args.kwargs["partial_slice"] == [0, 4]
+    elif name == "compressor":
+        target = ("custom" if old and package.arch == "ARCH35" else "npu", name)
+        calls[target].return_value = x
+        assert (
+            api.compressor(x, x, x, x, x, x, rope_sin=x, rope_cos=x, cmp_ratio=4) is x
+        )
+        assert calls[target].call_args.args == (x, x, x, x, x, x)
+        assert calls[target].call_args.kwargs["rope_sin"] is x
+    else:
+        target = ("custom" if old else "npu", "npu_moe_gating_top_k")
+        calls[target].return_value = (
+            torch.ones(2, 2),
+            torch.zeros(2, 2, dtype=torch.int32),
+            torch.empty(2, 4),
+        )
+        result = api.moe_gating_top_k(x[:, 0], 2, norm_type=2)
+        assert result[0].dtype == x.dtype and result[2].shape == (0,)
+        assert calls[target].call_args.kwargs["norm_type"] == 2
+    calls[target].assert_called_once()
+
+
+def test_auto_never_mixes_packed_reader_and_writer(package, bindings, monkeypatch):
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "auto")
+    del bindings.calls["cann_ops_transformer", "kv_compress_epilog"]
+    family = bindings.runtime.attention_family(True)
+    assert family.legacy
+    layout = importlib.import_module(package.ns + ".operators.kvcacheio.layout")
+    assert layout.get_npu_kv_quant_path().packed_dim(448, 64) == 640
+
+
+def test_kernel_failure_is_not_a_backend_fallback(package, bindings, monkeypatch):
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "auto")
+    op = bindings.calls["cann_ops_transformer", "mhc_post"]
+    op.side_effect = RuntimeError("actual kernel failure")
+    with pytest.raises(RuntimeError, match="actual kernel failure"):
+        package.api.mhc_post(
+            torch.ones(1, 4), torch.ones(1, 2, 4), torch.ones(1, 2), torch.eye(2)[None]
+        )
+    bindings.calls["custom", "npu_hc_post"].assert_not_called()
+
+
+def test_legacy_dspark_pairs_host_metadata_and_resolves_physical_slots(
+    package, bindings, monkeypatch
+):
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "legacy")
+    q = torch.zeros(2, 1, 512)
+    quant = package.arch == "ARCH35"
+    width = 640 if quant else 512
+    cache = torch.empty(5, 2, 1, width)
+    table = torch.tensor([[3, 1], [4, 2]], dtype=torch.int32)
+    cu = torch.tensor([0, 1, 2], dtype=torch.int32)
+    kv = torch.tensor([4, 4], dtype=torch.int32)
+    stem = "kv_quant_sparse_attn_sharedkv" if quant else "sparse_attn_sharedkv"
+    metadata = bindings.calls["npu", stem + "_metadata_host"]
+    metadata.return_value = torch.zeros(1024, dtype=torch.int32)
+    attention = bindings.calls["npu", stem]
+    attention.return_value = (q, torch.empty(0))
+    meta_api = (
+        package.api.mixed_quant_sparse_flash_mla_metadata
+        if quant
+        else package.api.sparse_flash_mla_metadata
+    )
+    compute_api = (
+        package.api.mixed_quant_sparse_flash_mla
+        if quant
+        else package.api.sparse_flash_mla
+    )
+    lengths = torch.tensor([[2], [0]], dtype=torch.int32)
+    kwargs = dict(
+        num_heads_q=1,
+        num_heads_kv=1,
+        head_dim=512,
+        batch_size=2,
+        has_cmp_kv=False,
+        cu_seqlens_q=cu,
+        seqused_ori_kv=kv,
+        ori_mask_mode=0,
+        ori_topk=2,
+        ori_topk_length=lengths,
+        layout_q="TND",
+        layout_kv="PA_BBND",
+    )
+    if quant:
+        kwargs.update(quant_mode=1, rope_head_dim=64)
+    with pytest.raises(ValueError, match="existing CPU int32"):
+        meta_api(**kwargs)
+    result = meta_api(**kwargs, cu_seqlens_q_cpu=cu, seqused_ori_kv_cpu=kv)
+    assert result is metadata.return_value
+    compute_api(
+        q,
+        ori_kv=cache,
+        ori_block_table=table,
+        cu_seqlens_q=cu,
+        seqused_ori_kv=kv,
+        ori_mask_mode=0,
+        ori_sparse_indices=torch.tensor([[[0, 3]], [[1, -1]]], dtype=torch.int32),
+        ori_topk_length=lengths,
+        layout_q="TND",
+        layout_kv="PA_BBND",
+        metadata=result,
+    )
+    torch.testing.assert_close(
+        attention.call_args.kwargs["ori_sparse_indices"],
+        torch.tensor([[[6, 3]], [[-1, -1]]], dtype=torch.int32),
+    )
+    assert attention.call_args.kwargs["metadata"] is result
+
+
+def test_legacy_packed_reference_preserves_encoding_and_skip(package):
+    if package.arch != "ARCH35":
+        pytest.skip("A5 packed cache")
+    cache = torch.zeros(1, 2, 1, 640, dtype=torch.float8_e4m3fn)
+    x = torch.ones(2, 512, dtype=torch.bfloat16)
+    x[0, 448:] = 2
+    package.api.kv_compress_epilog(cache, x, torch.tensor([0, -1]), impl="torch_native")
+    raw = cache.view(torch.uint8)[0, 0, 0]
+    torch.testing.assert_close(raw[576:583], torch.full((7,), 119, dtype=torch.uint8))
+    unpack = importlib.import_module(
+        package.ns + ".implementation.torch_native.kvcacheio._quantization"
+    ).unpack_kv
+    torch.testing.assert_close(unpack(cache)[0], x[0].float())
+    assert cache.view(torch.uint8)[0, 1].count_nonzero() == 0
+
+
+def test_forced_released_backend_rejects_a_partial_installation(
+    package, bindings, monkeypatch
+):
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "cann_ops_transformer")
+    del bindings.calls["cann_ops_transformer", "sparse_flash_mla"]
+    with pytest.raises(
+        bindings.runtime.OperatorUnavailableError, match="complete compatible"
+    ):
+        bindings.runtime.attention_family(False)
+    assert all(not call.called for call in bindings.calls.values())
+
+
+def test_broken_released_package_is_not_treated_as_missing(package, monkeypatch):
+    runtime = importlib.import_module(
+        package.ns + ".operators.utils._transformer_compat"
+    )
+    error = ModuleNotFoundError(
+        "missing dependency inside installed package", name="cann_internal_dependency"
+    )
+    with patch.object(runtime.importlib, "import_module", side_effect=error):
+        with pytest.raises(ModuleNotFoundError, match="missing dependency"):
+            runtime.has_released_ops()
+
+
+def test_moe_hash_capability_selects_legacy_before_execution(
+    package, bindings, monkeypatch
+):
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "auto")
+    namespace = "_moe_compat_" + uuid4().hex
+    library = torch.library.Library(namespace, "DEF")
+    library.define(
+        "v1(Tensor x, int k, *, int norm_type=0) -> (Tensor, Tensor, Tensor)"
+    )
+    library.define(
+        "hash(Tensor x, int k, *, Tensor? input_ids=None, Tensor? tid2eid=None, int norm_type=0) -> (Tensor, Tensor, Tensor)"
+    )
+    executed = []
+
+    def native(x, k, *, norm_type=0):
+        executed.append("native")
+        raise AssertionError("v1 cannot execute a hash request")
+
+    def legacy(x, k, *, input_ids=None, tid2eid=None, norm_type=0):
+        executed.append("legacy")
+        return (
+            torch.ones(x.shape[0], k, dtype=x.dtype),
+            tid2eid[input_ids.long()].int(),
+            x.float(),
+        )
+
+    library.impl("v1", native, "CPU")
+    library.impl("hash", legacy, "CPU")
+    bindings.calls["npu", "npu_moe_gating_top_k"] = getattr(torch.ops, namespace).v1
+    bindings.calls["custom", "npu_moe_gating_top_k"] = getattr(
+        torch.ops, namespace
+    ).hash
+    table = torch.tensor([[3, 1]], dtype=torch.int32)
+    result = package.api.moe_gating_top_k(
+        torch.ones(1, 4), 2, input_ids=torch.tensor([0]), tid2eid=table, norm_type=2
+    )
+    assert executed == ["legacy"]
+    torch.testing.assert_close(result[1], table)
+
+
+def test_wrong_cache_encoding_is_rejected_before_native_execution(
+    package, bindings, monkeypatch
+):
+    if package.arch != "ARCH35":
+        pytest.skip("A5 cache contract")
+    monkeypatch.setenv("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "legacy")
+    with pytest.raises(ValueError, match="encoding"):
+        package.api.kv_compress_epilog(
+            torch.zeros(1, 1, 1, 608, dtype=torch.float8_e4m3fn),
+            torch.ones(1, 512, dtype=torch.bfloat16),
+            torch.tensor([0]),
+        )
+    bindings.calls["npu", "kv_compress_epilog"].assert_not_called()

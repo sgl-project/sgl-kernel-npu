@@ -11,7 +11,10 @@ def test_a5_cache_writer_and_mixed_attention(impl_pair):
         mixed_quant_sparse_flash_mla,
         mixed_quant_sparse_flash_mla_metadata,
     )
-    from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+    from sgl_kernel_npu.operators.kvcacheio import (
+        get_npu_kv_quant_path,
+        kv_compress_epilog,
+    )
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if get_hardware().generation != Generation.ARCH35:
@@ -36,14 +39,17 @@ def test_a5_cache_writer_and_mixed_attention(impl_pair):
         rope_head_dim=64,
     )
     caches, outputs = [], []
+    path = get_npu_kv_quant_path()
     for selected in impl_pair:
-        cache = torch.zeros(1, 128, 1, 608, dtype=torch.float8_e4m3fn, device="npu")
+        cache = torch.zeros(
+            1, 128, 1, path.packed_dim(448, 64), dtype=torch.float8_e4m3fn, device="npu"
+        )
         kv_compress_epilog(
             cache,
             x,
             slots,
             quant_group_size=64,
-            quant_mode="fp8_bf16",
+            quant_mode=path.writer_quant_mode,
             round_scale=True,
             x_scale=1.0,
             impl=selected,
@@ -71,9 +77,10 @@ def test_a5_cache_writer_and_mixed_attention(impl_pair):
         )
         outputs.append(out)
     # Check semantic row regions; alignment padding is not part of the contract.
+    semantic_bytes = 576 + 7 * path.scale_itemsize
     torch.testing.assert_close(
-        caches[0].view(torch.uint8)[..., :590],
-        caches[1].view(torch.uint8)[..., :590],
+        caches[0].view(torch.uint8)[..., :semantic_bytes],
+        caches[1].view(torch.uint8)[..., :semantic_bytes],
         atol=0,
         rtol=0,
     )
