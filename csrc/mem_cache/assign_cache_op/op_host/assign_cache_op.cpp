@@ -3,7 +3,7 @@
 #include "sgl_operator_config.h"
 #include "tiling/platform/platform_ascendc.h"
 namespace optiling {
-ge::graphStatus Tiling(gert::TilingContext *context)
+static ge::graphStatus Tiling(gert::TilingContext *context)
 {
     auto *shape = context->GetInputShape(0);
     auto *desc = context->GetInputDesc(0);
@@ -35,7 +35,7 @@ ge::graphStatus Tiling(gert::TilingContext *context)
     workspace[0] = platform.GetLibApiWorkSpaceSize();
     return ge::GRAPH_SUCCESS;
 }
-ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShape(gert::InferShapeContext *context)
 {
     const auto *input = context->GetInputShape(0);
     auto *output = context->GetOutputShape(0);
@@ -43,7 +43,7 @@ ge::graphStatus InferShape(gert::InferShapeContext *context)
     *output = *input;
     return ge::GRAPH_SUCCESS;
 }
-ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(0));
     return ge::GRAPH_SUCCESS;

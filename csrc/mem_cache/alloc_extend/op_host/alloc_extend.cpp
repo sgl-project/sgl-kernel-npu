@@ -5,7 +5,7 @@
 #include <algorithm>
 
 namespace optiling {
-ge::graphStatus Tiling(gert::TilingContext *context)
+static ge::graphStatus Tiling(gert::TilingContext *context)
 {
     const auto *prefix = context->GetInputShape(0);
     const auto *output = context->GetInputShape(4);
@@ -35,7 +35,7 @@ ge::graphStatus Tiling(gert::TilingContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShape(gert::InferShapeContext *context)
 {
     for (int i = 0; i < 2; ++i) {
         const auto *input = context->GetInputShape(4 + i);
@@ -46,7 +46,7 @@ ge::graphStatus InferShape(gert::InferShapeContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(4));
     context->SetOutputDataType(1, context->GetInputDataType(5));
