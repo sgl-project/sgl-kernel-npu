@@ -21,8 +21,7 @@ on:
       comment_id:
         description: "Triggering comment id (for reaction feedback)"
         required: false
-        type: string
-        default: ""
+        type: number
 
 permissions:
   contents: read
@@ -33,36 +32,61 @@ jobs:
   pr-review:
     name: PR Review
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     concurrency:
       group: pr-review-${{ inputs.pr_number }}
       cancel-in-progress: true
 
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_META_FILE: /tmp/pr-meta.md
+      PR_DIFF_FILE: /tmp/pr.diff
+      PR_REVIEW_FILE: /tmp/pr-review.md
 
     steps:
-      - name: Checkout PR (read-only)
+      - name: Checkout PR
+        id: checkout
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git init --quiet --branch main
+          set -euo pipefail
+
+          git init --quiet --initial-branch=main
           git remote add origin "https://github.com/${{ github.repository }}.git"
           gh auth setup-git
-          gh pr checkout "${{ inputs.pr_number }}"
 
-      - name: Scope opencode config to read-only
+          GIT_FETCH_ORIGIN="git fetch --quiet --no-tags origin"
+          GIT_CHECKOUT_DETACH="git checkout --quiet --detach"
+
+          if ${GIT_FETCH_ORIGIN} "refs/pull/${{ inputs.pr_number }}/merge"; then
+            ${GIT_CHECKOUT_DETACH} FETCH_HEAD
+            echo "has_merge_ref=true" >> "${GITHUB_OUTPUT}"
+          elif ${GIT_FETCH_ORIGIN} "refs/pull/${{ inputs.pr_number }}/head"; then
+            ${GIT_CHECKOUT_DETACH} FETCH_HEAD
+            echo "::warning::No merge ref for PR #${{ inputs.pr_number }} (merge conflict?); reviewing the PR head instead."
+            echo "has_merge_ref=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::error::Cannot fetch PR #${{ inputs.pr_number }}: neither refs/pull/${{ inputs.pr_number }}/merge nor /head exists. Does the PR exist?"
+            exit 1
+          fi
+
+      - name: Prepare review context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir --parents ~/.config/opencode
-          cat > ~/.config/opencode/opencode.json << "EOF"
-          {
-            "$schema": "https://opencode.ai/config.json",
-            "permission": {
-              "edit": "deny",
-              "bash": {
-                "git *": "deny"
-              }
-            }
-          }
-          EOF
+          set -euo pipefail
+
+          gh pr view "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --json title,author,baseRefName,headRefName,body \
+            --jq '"# " + .title + "\n\n- Author: @" + (.author.login // "unknown") + "\n- Branch: " + .headRefName + " -> " + .baseRefName + "\n\n## PR description\n\n" + (.body // "")' \
+            > ${{ env.PR_META_FILE }}
+
+          gh pr diff "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            > ${{ env.PR_DIFF_FILE }}
+
+          echo "Review context ready: pr-meta.md $(wc -c < ${{ env.PR_META_FILE }} | tr -d ' ') bytes, pr.diff $(wc -c < ${{ env.PR_DIFF_FILE }} | tr -d ' ') bytes."
 
       - uses: anomalyco/opencode/github@latest
         env:
@@ -71,13 +95,57 @@ jobs:
           model: zhipuai-coding-plan/glm-5.3-flash
           prompt: |
             Review this pull request (number ${{ inputs.pr_number }}):
-              - This is a read-only review task. Do NOT modify, create, or delete any files. Do NOT run any git commands (no git add, git commit, git push, git checkout, git stash, git config, etc.). Only read code and produce your review.
+              - First read ${{ env.PR_META_FILE }} (PR title and description) and ${{ env.PR_DIFF_FILE }} (the exact changes in this PR, identical to the GitHub "Files changed" tab). Focus your review on these changes; use the working tree (the merged result of this PR) for surrounding context.
+              - Read-only git commands are allowed and full history is available (git diff, git log, git show, git blame). Do NOT run state-changing git commands (no git add, commit, push, checkout, branch, stash, restore, config, etc.) and do NOT modify, create, or delete any files in the repository — ${{ env.PR_REVIEW_FILE }} is the ONLY file you may create.
+              - When finished, write your complete final review as GitHub-flavored Markdown to ${{ env.PR_REVIEW_FILE }}. Structure it as: Summary, Issues (with severity and file:line), Suggestions.
               - Check for code quality issues
               - Look for potential bugs
               - Suggest improvements
 
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -s ${{ env.PR_REVIEW_FILE }} ]; then
+            echo "::error::Review output missing: the agent did not write ${{ env.PR_REVIEW_FILE }}"
+            exit 1
+          fi
+
+          pr_review_comment="$(mktemp)"
+          {
+            echo "## 🤖 Automated PR Review"
+            echo
+            echo "_AI-generated content — may be wrong or incomplete; it is not an approval._"
+            echo
+            size="$(wc -c < ${{ env.PR_REVIEW_FILE }} | tr -d ' ')"
+            if [ "${size}" -gt 60000 ]; then
+              head -c 60000 ${{ env.PR_REVIEW_FILE }}
+              echo
+              echo "_…review truncated (${size} bytes); see the full run log._"
+            else
+              cat ${{ env.PR_REVIEW_FILE }}
+            fi
+            if [ "${{ steps.checkout.outputs.has_merge_ref }}" != "true" ]; then
+              echo
+              echo "> ⚠️ This PR has no merge ref (likely merge conflicts); the review covers the PR head, not the merged result."
+            fi
+            echo
+            echo "---"
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > "${pr_review_comment}"
+
+          if [ -n "${GITHUB_STEP_SUMMARY}" ]; then
+            cat "${pr_review_comment}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          gh pr comment "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "${pr_review_comment}"
+
       - name: Mark request done
         if: success() && inputs.comment_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api --method POST \
             "repos/${{ github.repository }}/issues/comments/${{ inputs.comment_id }}/reactions" \
@@ -85,6 +153,8 @@ jobs:
 
       - name: Mark request failed
         if: failure() && inputs.comment_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api --method POST \
             "repos/${{ github.repository }}/issues/comments/${{ inputs.comment_id }}/reactions" \
