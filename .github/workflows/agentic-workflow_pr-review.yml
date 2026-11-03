@@ -27,7 +27,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  id-token: write # required by the opencode action to fetch an OIDC token
+  id-token: write
 
 jobs:
   pr-review:
