@@ -63,8 +63,8 @@ jobs:
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          first_line="$(printf '%s' '${COMMENT_BODY}' | head -n 1)"
-          command="$(printf '%s\n' '${first_line}' | sed -nE 's#^/([A-Za-z0-9_-]+).*#\1#p' | tr '[:upper:]' '[:lower:]')"
+          first_line="$(printf '%s' ${COMMENT_BODY} | head -n 1)"
+          command="$(printf '%s\n' ${first_line} | sed -nE 's#^/([A-Za-z0-9_-]+).*#\1#p' | tr '[:upper:]' '[:lower:]')"
           echo "command=${command}" >> "${GITHUB_OUTPUT}"
 
       - name: Acknowledge Comment
