@@ -1,6 +1,6 @@
 """Public compressor operator with registered implementations."""
 
-from ..utils._transformer_compat import prefer_legacy_bindings, select_family
+from ..utils._transformer_compat import select_family
 from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -17,7 +17,6 @@ def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
     family = select_family(
         (("npu", "compressor"),),
         ((legacy_namespace, "compressor"),),
-        prefer_legacy=prefer_legacy_bindings(),
     )
     return family.ops[0](x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
