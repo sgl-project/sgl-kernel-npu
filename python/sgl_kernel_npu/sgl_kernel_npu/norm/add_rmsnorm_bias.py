@@ -110,9 +110,25 @@ def add_rmsnorm_bias(
     output2 = torch.empty(
         batch_size, hidden_size, device=input.device, dtype=input.dtype
     )
-    kernel = kernels.get(
-        (n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE), None
+    # Pointer dtypes are part of the compiled signature, even when shapes match.
+    dtypes = (
+        input.dtype,
+        residual.dtype,
+        norm_weight.dtype,
+        norm_bias.dtype,
+        None if quant_scale is None else quant_scale.dtype,
+        None if quant_offset is None else quant_offset.dtype,
     )
+    cache_key = (
+        n_rows,
+        hidden_size,
+        eps,
+        BLOCK_SIZE,
+        COL_BLOCK_SIZE,
+        SCALE,
+        dtypes,
+    )
+    kernel = kernels.get(cache_key)
     if kernel is None:
         kernel = add_rmsnorm_bias_kernel.warmup(
             input,
@@ -132,7 +148,7 @@ def add_rmsnorm_bias(
             grid=(n_rows,),
         )
         kernel._init_handles()
-        kernels[(n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE)] = kernel
+        kernels[cache_key] = kernel
 
     kernel[(n_rows, 1, 1)](
         input,
