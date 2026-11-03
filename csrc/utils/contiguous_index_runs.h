@@ -8,8 +8,8 @@
 namespace sglang {
 namespace npu_kernel {
 
-inline std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(
-    const int64_t *device_indices, const int64_t *host_indices, int64_t count)
+inline std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *device_indices,
+                                                                      const int64_t *host_indices, int64_t count)
 {
     std::vector<std::pair<int64_t, int64_t>> runs;
     runs.reserve(count);

@@ -34,8 +34,8 @@ void visit_kv_h2d_copies(const std::vector<int64_t> &device_pages, const std::ve
             if (pages > layers) {
                 for (size_t layer = 0; layer < layers; ++layer) {
                     submit(KvH2dCopy{(layer * device_page_count + device) * page_bytes,
-                                     (host * layers + layer) * page_bytes,
-                                     page_bytes, layers * page_bytes, page_bytes, pages});
+                                     (host * layers + layer) * page_bytes, page_bytes, layers * page_bytes, page_bytes,
+                                     pages});
                 }
             } else {
                 for (size_t page = 0; page < pages; ++page) {
