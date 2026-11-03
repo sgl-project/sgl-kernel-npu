@@ -1,7 +1,10 @@
 """A5 MXFP8 QFA numerical checks and public CANN interface parity.
 
-Head dimensions and TP-sized head counts model SGLang's GQA workloads; the
-sequence lengths are synthetic, not a trace of a particular deployment.
+Qwen3.6-27B full attention has 24 Q heads, 4 KV heads and head_dim=256.
+TP1/TP2 cases use the corresponding per-rank heads and SGLang page_size=512.
+Source: https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json
+Lengths and batch sizes are benchmark workloads; tensor values are synthetic,
+not captured model activations. TP2 is a per-rank operator test, not a TP launch.
 """
 
 import math
@@ -23,8 +26,39 @@ from tests.python.utils.standards import AccuracyStandard
 pytest.importorskip("torch_npu")
 import sgl_kernel_npu  # noqa: F401
 
-# (query heads, KV heads, head dimension, page size).
-perf_shape = [(16, 2, 128, 512), (12, 2, 256, 512)]
+# ((local Q heads, local KV heads, head dimension, page size), Q lengths, KV lengths).
+# Prefill: BS1, 8K/16K. Decode: BS1..64 with 8K/16K cached tokens per request.
+perf_shape = [
+    *[
+        ((24 // tp, 4 // tp, 256, 512), (seq_len,), (seq_len,))
+        for tp in (1, 2)
+        for seq_len in (8192, 16384)
+    ],
+    *[
+        ((24 // tp, 4 // tp, 256, 512), (1,) * batch_size, (kv_len,) * batch_size)
+        for tp in (1, 2)
+        for kv_len in (8192, 16384)
+        for batch_size in (1, 2, 4, 8, 16, 32, 64)
+    ],
+]
+qwen_cases = [
+    pytest.param(
+        shape,
+        q_lens,
+        kv_lens,
+        "N2TGD" if q_lens[0] == 1 else "TND",
+        0 if q_lens[0] == 1 else 3,
+        1.0,
+        False,
+        "static",
+        id=(
+            f"qwen3.6-27b-tp{24 // shape[0]}-"
+            f"{'decode' if q_lens[0] == 1 else 'prefill'}-"
+            f"bs{len(q_lens)}-q{q_lens[0]}-kv{kv_lens[0]}"
+        ),
+    )
+    for shape, q_lens, kv_lens in perf_shape
+]
 
 
 def generate_data(
@@ -131,7 +165,8 @@ def generate_data(
 
 @pytest.mark.parametrize(
     "shape,q_lens,kv_lens,scale_layout,mask_mode,p_scale,lse,v_mode",
-    [
+    qwen_cases
+    + [
         pytest.param(
             (16, 4, 64, 128),
             (1, 1),
@@ -141,7 +176,7 @@ def generate_data(
             1.0,
             False,
             "static",
-            id="decode-d64-page-tail",
+            id="edge-decode-d64-page-tail",
         ),
         pytest.param(
             (16, 2, 128, 512),
@@ -152,7 +187,7 @@ def generate_data(
             1.0,
             True,
             "static",
-            id="decode-d128-zero-kv-padding",
+            id="edge-decode-d128-zero-kv-padding",
         ),
         pytest.param(
             (12, 2, 256, 512),
@@ -163,7 +198,7 @@ def generate_data(
             1.0,
             False,
             "static",
-            id="decode-d256",
+            id="edge-decode-d256",
         ),
         pytest.param(
             (16, 2, 128, 512),
@@ -174,7 +209,7 @@ def generate_data(
             1.0,
             True,
             "static",
-            id="ragged-prefill-d128",
+            id="edge-ragged-prefill-d128",
         ),
         pytest.param(
             (12, 2, 256, 512),
@@ -185,7 +220,7 @@ def generate_data(
             16.0,
             True,
             "static",
-            id="prefix-chunk-d256-nonunit-p",
+            id="edge-prefix-chunk-d256-nonunit-p",
         ),
         pytest.param(
             (12, 2, 256, 512),
@@ -196,7 +231,7 @@ def generate_data(
             1.0,
             False,
             "static",
-            id="verify-d256",
+            id="edge-verify-d256",
         ),
         pytest.param(
             (1, 1, 64, 64),
@@ -207,7 +242,7 @@ def generate_data(
             16.0,
             False,
             "static",
-            id="minimum-single-head",
+            id="edge-minimum-single-head",
         ),
         pytest.param(
             (4, 2, 64, 128),
@@ -218,7 +253,7 @@ def generate_data(
             16.0,
             True,
             "grouped",
-            id="v-scale-even-odd-groups",
+            id="edge-v-scale-even-odd-groups",
         ),
     ],
 )
@@ -256,32 +291,15 @@ def test_quant_flash_attn(
     )
     for value, snapshot in zip(inputs, snapshots):
         torch.testing.assert_close(value.view(torch.uint8), snapshot, atol=0, rtol=0)
-    check_performance(executor, enable_perf=shape in perf_shape and p_scale == 1.0)
+    check_performance(executor, enable_perf=(shape, q_lens, kv_lens) in perf_shape)
 
 
 @pytest.mark.parametrize(
-    "shape,q_lens,kv_lens,scale_layout,mask_mode",
-    [
-        pytest.param(
-            (12, 2, 256, 512),
-            (1, 1),
-            (513, 1025),
-            "N2TGD",
-            0,
-            id="decode",
-        ),
-        pytest.param(
-            (16, 2, 128, 512),
-            (17, 33),
-            (129, 513),
-            "TND",
-            3,
-            id="prefix",
-        ),
-    ],
+    "shape,q_lens,kv_lens,scale_layout,mask_mode,p_scale,lse,v_mode",
+    qwen_cases,
 )
 def test_quant_flash_attn_direct_cann_parity(
-    shape, q_lens, kv_lens, scale_layout, mask_mode
+    shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
 ):
     """Check both adapters against direct CANN using the plan's consumer.
 
@@ -299,7 +317,7 @@ def test_quant_flash_attn_direct_cann_parity(
     from cann_ops_transformer.ops import quant_flash_attn_metadata as direct_metadata
 
     args, kwargs, meta_args, meta_kwargs = generate_data(
-        shape, q_lens, kv_lens, scale_layout, mask_mode, 16.0, True, "static"
+        shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
     )
     checked = get_skip_acc_check() is not True
     if checked:
@@ -318,4 +336,4 @@ def test_quant_flash_attn_direct_cann_parity(
         impl_ref="direct_cann_consumer",
         accuracy_checked=checked,
     )
-    check_performance(executor, enable_perf=shape in perf_shape)
+    check_performance(executor, enable_perf=(shape, q_lens, kv_lens) in perf_shape)
