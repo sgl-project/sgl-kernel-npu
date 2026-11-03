@@ -24,7 +24,10 @@ on:
         type: string
         default: ""
 
-permissions: {}
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   pr-review:
@@ -37,19 +40,14 @@ jobs:
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PR_NUMBER: ${{ inputs.pr_number }}
-      COMMENT_ID: ${{ inputs.comment_id }}
-    permissions:
-      contents: read
-      pull-requests: write
 
     steps:
       - name: Checkout PR (read-only)
         run: |
-          git init --quite --branch main
+          git init --quiet --branch main
           git remote add origin "https://github.com/${{ github.repository }}.git"
           gh auth setup-git
-          gh pr checkout "${PR_NUMBER}"
+          gh pr checkout "${{ inputs.pr_number }}"
 
       - name: Scope opencode config to read-only
         run: |

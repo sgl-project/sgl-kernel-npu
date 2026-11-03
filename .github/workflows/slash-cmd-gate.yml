@@ -24,7 +24,10 @@ on:
   issue_comment:
     types: [created]
 
-permissions: {}
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   cmd-gate:
@@ -105,6 +108,7 @@ jobs:
             echo "pr_status=open" >> "${GITHUB_OUTPUT}"
           else
             echo "pr_status=not_ready" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Dispatch PR-Review Workflow
         id: workflow_run
