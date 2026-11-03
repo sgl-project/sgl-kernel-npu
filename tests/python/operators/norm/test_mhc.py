@@ -1,25 +1,58 @@
-"""On-device production/reference checks for norm operators."""
+"""mHC pre/post accuracy and selected-shape performance through public APIs."""
 
 import pytest
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
-def test_mhc_pre_post(impl_pair):
-    from sgl_kernel_npu.operators.norm import mhc_post, mhc_pre
+# Synthetic single-token and batched decode shapes, not captured model inputs.
+perf_shape = [(1, 4, 4096), (16, 4, 4096)]
+mhc_shapes = [
+    pytest.param((1, 4, 4096), id="synthetic-decode-1x4x4096"),
+    pytest.param((16, 4, 4096), id="synthetic-batch-16x4x4096"),
+]
 
-    impl, reference = impl_pair
+
+@pytest.mark.parametrize("shape", mhc_shapes)
+def test_mhc_pre(shape):
+    from sgl_kernel_npu.operators.norm import mhc_pre
+
     torch.manual_seed(11)
-    x = torch.randn(16, 4, 4096, device="npu", dtype=torch.bfloat16)
-    fn = torch.randn(24, 4 * 4096, device="npu") * 0.01
-    scale = torch.ones(3, device="npu")
-    base = torch.zeros(24, device="npu")
-    actual = mhc_pre(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl=impl)
-    expected = mhc_pre(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl=reference)
-    for a, e in zip(actual, expected):
-        torch.testing.assert_close(a, e, atol=0.03, rtol=0.03)
-    y, post, comb = expected
-    a = mhc_post(y, x, post, comb, impl=impl)
-    e = mhc_post(y, x, post, comb, impl=reference)
-    torch.testing.assert_close(a, e, atol=0.06, rtol=0.03)
+    _, streams, hidden = shape
+    width = streams * (streams + 2)
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    fn = torch.randn(width, streams * hidden, dtype=torch.float32) * 0.01
+    scale = torch.ones(3, dtype=torch.float32)
+    base = torch.zeros(width, dtype=torch.float32)
+    executor = check_accuracy(
+        mhc_pre,
+        args=(x, fn, scale, base, streams, 20, 1e-6, 1e-6),
+        standard={
+            "torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03),
+            "torch.float32": AccuracyStandard(atol=0.03, rtol=0.03),
+        },
+    )
+    check_performance(executor, enable_perf=shape in perf_shape)
+
+
+@pytest.mark.parametrize("shape", mhc_shapes)
+def test_mhc_post(shape):
+    from sgl_kernel_npu.operators.norm import mhc_post
+
+    torch.manual_seed(14)
+    tokens, streams, hidden = shape
+    x = torch.randn(tokens, hidden, dtype=torch.bfloat16)
+    residual = torch.randn(shape, dtype=torch.bfloat16)
+    # Fixed independent inputs isolate post accuracy from pre's implementation.
+    post = 2 * torch.randn(tokens, streams, dtype=torch.float32).sigmoid()
+    comb = torch.randn(tokens, streams, streams, dtype=torch.float32).softmax(-1)
+    executor = check_accuracy(
+        mhc_post,
+        args=(x, residual, post, comb),
+        standard={"torch.bfloat16": AccuracyStandard(atol=0.06, rtol=0.03)},
+    )
+    check_performance(executor, enable_perf=shape in perf_shape)

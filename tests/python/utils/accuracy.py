@@ -33,9 +33,14 @@ def assert_accuracy(result, result_ref, standard=None, *, path="output"):
             raise TypeError(f"{path}: no accuracy standard for {result_ref.dtype}")
         else:
             atol, rtol = 0, 0
+        # FP8 comparison kernels are not available on every supported device.
+        # Resolve tolerances using the original dtype, then compare widened values.
+        actual, expected = result.detach(), result_ref.detach()
+        if str(result_ref.dtype).startswith("torch.float8_"):
+            actual, expected = actual.float(), expected.float()
         torch.testing.assert_close(
-            result.detach(),
-            result_ref.detach(),
+            actual,
+            expected,
             atol=atol,
             rtol=rtol,
             equal_nan=False,
@@ -83,11 +88,20 @@ def check_accuracy(
     impl_ref=None,
     standard=None,
     skip_acc_check=False,
+    args_ref=None,
+    kwargs_ref=None,
+    output_transform=None,
 ):
     """Validate two public-interface implementations and return an executor.
 
-    The operator must accept impl as a keyword and not mutate its inputs.
-    args/kwargs are shared by both calls and later benchmark iterations.
+    The operator must accept impl as a keyword. args/kwargs are retained by the
+    DUT executor for later benchmark iterations. For an in-place operator, pass
+    independent reference buffers in args_ref/kwargs_ref; buffers are not cloned
+    or reset automatically. kwargs_ref overrides the DUT kwargs for reference
+    metadata or buffers only. args_ref replaces all reference positional args.
+    output_transform, when supplied, is applied to both accuracy results only
+    (e.g. select semantic cache bytes, excluding unspecified alignment padding).
+    It is never run by the returned DUT executor or included in profiling.
     Corresponding output Tensors must be on the same device, regardless of type.
     No performance measurement runs here; errors propagate to the test.
     Each omitted implementation name comes from the current test configuration.
@@ -107,15 +121,24 @@ def check_accuracy(
     executor = make_executor(
         operator, args=args, kwargs=kwargs, impl=impl, impl_ref=impl_ref
     )
+    if kwargs_ref is not None and "impl" in kwargs_ref:
+        raise ValueError("Select impl_ref via check_accuracy, not kwargs_ref")
+    if output_transform is not None and not callable(output_transform):
+        raise TypeError("output_transform must be callable or None")
     impl, impl_ref = executor.impl, executor.impl_ref
     if skip_acc_check:
         require_test_impl(operator, impl)
         print(f"Accuracy check skipped: {operator.__name__} [{impl}]")
         return executor
     require_distinct_impls(operator, impl, impl_ref)
-    ref_kwargs = {**executor.keywords, "impl": impl_ref}
-    result_ref = operator(*executor.args, **ref_kwargs)
+    ref_kwargs = {**executor.keywords, **(kwargs_ref or {}), "impl": impl_ref}
+    ref_args = executor.args if args_ref is None else tuple(args_ref)
+    result_ref = operator(*ref_args, **ref_kwargs)
+    if output_transform is not None:
+        result_ref = output_transform(result_ref)
     result = executor()
+    if output_transform is not None:
+        result = output_transform(result)
     assert_accuracy(result, result_ref, standard)
     executor.accuracy_checked = True
     return executor
