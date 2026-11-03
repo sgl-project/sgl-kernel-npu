@@ -2,7 +2,7 @@
 #include "register/op_def_registry.h"
 #include "sgl_operator_config.h"
 #include "tiling/platform/platform_ascendc.h"
-namespace {
+namespace optiling {
 ge::graphStatus Tiling(gert::TilingContext *context)
 {
     auto *shape = context->GetInputShape(0);
@@ -11,10 +11,10 @@ ge::graphStatus Tiling(gert::TilingContext *context)
     auto *raw = context->GetRawTilingData();
     auto *workspace = context->GetWorkspaceSizes(1);
     if (!shape || !desc || !sync || !raw || !raw->GetData() || !workspace || !context->GetPlatformInfo() ||
-        raw->GetCapacity() < sizeof(custom_assign::CustomAssignTilingData)) return ge::GRAPH_FAILED;
+        raw->GetCapacity() < sizeof(optiling::CustomAssignTilingData)) return ge::GRAPH_FAILED;
     if (shape->GetOriginShape().GetDimNum() < 2) return ge::GRAPH_FAILED;
     platform_ascendc::PlatformAscendC platform(context->GetPlatformInfo());
-    auto *data = context->GetTilingData<custom_assign::CustomAssignTilingData>();
+    auto *data = context->GetTilingData<optiling::CustomAssignTilingData>();
     if (!data || platform.GetCoreNumAiv() == 0) return ge::GRAPH_FAILED;
     uint64_t ubSize = 0;
     platform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
@@ -70,8 +70,8 @@ public:
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Output("dst").ParamType(REQUIRED).DataType({ge::DT_INT8, ge::DT_INT16, ge::DT_INT32, ge::DT_INT64})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->SetInferShape(InferShape).SetInferDataType(InferDataType);
-        this->AICore().SetTiling(Tiling);
+        this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDataType);
+        this->AICore().SetTiling(optiling::Tiling);
         for (const auto *config : SGL_CANN_CONFIGS) this->AICore().AddConfig(config);
     }
 };

@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-namespace custom_assign {
+namespace optiling {
 struct CustomAssignTilingData {
     uint32_t batchSize;
     uint32_t tokenPoolLength;

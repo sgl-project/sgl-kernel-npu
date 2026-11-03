@@ -1,6 +1,7 @@
 #include "kernel_operator.h"
 #include "assign_cache_tiling.h"
 namespace custom_assign {
+using optiling::CustomAssignTilingData;
 
 constexpr int32_t BLOCK_SIZE = 32;
 constexpr int32_t TYPEBYPE_ID = 2;
@@ -156,7 +157,7 @@ extern "C" __global__ __aicore__ void sgl_assign_cache(GM_ADDR dstPtr, GM_ADDR s
                                                       GM_ADDR srcEndIdxPtr, GM_ADDR sync, GM_ADDR dstRef, GM_ADDR workspace, GM_ADDR tilingPtr)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    REGISTER_TILING_DEFAULT(custom_assign::CustomAssignTilingData);
+    REGISTER_TILING_DEFAULT(optiling::CustomAssignTilingData);
     GET_TILING_DATA(tilingData, tilingPtr);
     uint32_t typeByte = tilingData.typeBytes;
     if ASCEND_IS_AIV {
