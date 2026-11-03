@@ -146,7 +146,6 @@ public:
 OP_ADD(SglCacheLocAssign);
 }  // namespace ops
 
-
 namespace optiling {
 ge::graphStatus TilingUpdate(gert::TilingContext *context)
 {

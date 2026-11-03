@@ -241,7 +241,6 @@ extern "C" __global__ __aicore__ void sgl_cache_loc_assign(GM_ADDR req_indices, 
     }
 }
 
-
 extern "C" __global__ __aicore__ void sgl_cache_loc_update(GM_ADDR req_indices, GM_ADDR token_pool,
                                                            GM_ADDR start_offset, GM_ADDR end_offset,
                                                            GM_ADDR out_cache_loc, GM_ADDR out_cache_loc_ref,

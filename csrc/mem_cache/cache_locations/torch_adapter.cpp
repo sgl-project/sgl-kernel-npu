@@ -55,8 +55,8 @@ at::Tensor cache_loc_assign(at::Tensor req_indices, at::Tensor token_pool, at::T
         sgl_cann::op_api_symbol("aclnnSglCacheLocAssignGetWorkspaceSize"));
     static auto execute =
         reinterpret_cast<decltype(&aclnnSglCacheLocAssign)>(sgl_cann::op_api_symbol("aclnnSglCacheLocAssign"));
-    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, false,
-                                 "aclnnSglCacheLocAssign", query, execute);
+    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, false, "aclnnSglCacheLocAssign",
+                  query, execute);
 }
 }  // namespace
 
@@ -71,7 +71,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("cache_loc_assign", &cache_loc_assign);
 }
 
-
 #include "aclnn_sgl_cache_loc_update.h"
 
 namespace {
@@ -82,8 +81,8 @@ at::Tensor cache_loc_update(at::Tensor req_indices, at::Tensor token_pool, at::T
         sgl_cann::op_api_symbol("aclnnSglCacheLocUpdateGetWorkspaceSize"));
     static auto execute =
         reinterpret_cast<decltype(&aclnnSglCacheLocUpdate)>(sgl_cann::op_api_symbol("aclnnSglCacheLocUpdate"));
-    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, true,
-                                 "aclnnSglCacheLocUpdate", query, execute);
+    return Launch(req_indices, token_pool, start_offset, end_offset, out_cache_loc, true, "aclnnSglCacheLocUpdate",
+                  query, execute);
 }
 }  // namespace
 
