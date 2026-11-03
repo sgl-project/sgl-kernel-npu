@@ -81,8 +81,10 @@ def test_transfer_mamba_state(
     if checked:
         require_distinct_impls(transfer_mamba_state, impl, impl_ref)
     dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = torch.randn(host_slots, layers, 1, *payload, dtype=dtype, pin_memory=True)
-    d, h = torch.tensor(d), torch.tensor(h)
+    host = torch.randn(
+        host_slots, layers, 1, *payload, dtype=dtype, pin_memory=True, device="cpu"
+    )
+    d, h = torch.tensor(d, device="cpu"), torch.tensor(h, device="cpu")
     stream = torch.npu.Stream()
     original = dev.clone() if direction == "roundtrip" and checked else None
     for step in ("D2H", "H2D") if direction == "roundtrip" else (direction,):

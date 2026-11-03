@@ -60,7 +60,7 @@ def test_state_transfer(flow, layout, d, h, layers):
         if layout == "transpose":
             dev = dev.transpose(-1, -2)
         host = torch.empty(
-            host_slots, n, 1, *dev.shape[2:], dtype=dtype, pin_memory=True
+            host_slots, n, 1, *dev.shape[2:], dtype=dtype, pin_memory=True, device="cpu"
         )
         if flow == "H2D":
             host.normal_()
@@ -68,7 +68,9 @@ def test_state_transfer(flow, layout, d, h, layers):
             host.zero_()
         devices.append(dev)
         hosts.append(host)
-    d, h = torch.tensor(d, dtype=torch.long), torch.tensor(h, dtype=torch.long)
+    d, h = torch.tensor(d, dtype=torch.long, device="cpu"), torch.tensor(
+        h, dtype=torch.long, device="cpu"
+    )
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
     stream = torch.npu.Stream()
@@ -160,13 +162,15 @@ def test_state_transfer_rejected(case, message):
     dst = torch.zeros(8, 2, 4, device="npu")
     if case == "strided":
         dst = dst[..., ::2]
-    host = torch.zeros(10, 3, 1, *dst.shape[1:], pin_memory=case != "pageable")
+    host = torch.zeros(
+        10, 3, 1, *dst.shape[1:], pin_memory=case != "pageable", device="cpu"
+    )
     with pytest.raises(RuntimeError, match=message):
         transfer_kv_per_layer_direct_pf_lf(
             host,
             dst,
-            torch.tensor([0]),
-            torch.tensor([8 if case == "bounds" else 0]),
+            torch.tensor([0], device="cpu"),
+            torch.tensor([8 if case == "bounds" else 0], device="cpu"),
             0,
             impl=get_test_impls()[0],
         )

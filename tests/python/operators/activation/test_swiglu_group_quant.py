@@ -30,7 +30,7 @@ def select_backend(configure_public_interface_test):
 
 def _make_inputs(rows, width, dtype=torch.bfloat16, seed=0):
     torch.manual_seed(seed)
-    return torch.randn(rows, width, dtype=dtype).npu()
+    return torch.randn(rows, width, dtype=dtype, device="cpu").npu()
 
 
 E5 = torch.float8_e5m2
@@ -121,7 +121,7 @@ def test_swiglu_group_quant(mode, seed, options):
     weight = None
     if kwargs.pop("weight", False):
         torch.manual_seed(seed + 100)
-        weight = torch.rand(rows)
+        weight = torch.rand(rows, device="cpu")
         kwargs["topk_weight"] = weight.npu()
     invariant = kwargs.pop("invariant", None)
     kwargs.update(x=x, quant_mode=mode)

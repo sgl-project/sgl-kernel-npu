@@ -58,6 +58,7 @@ def test_transfer_kv_dim_exchange(direction, layout, pattern):
             width,
             dtype=dtype,
             pin_memory=True,
+            device="cpu",
         )
         source, destination = (dev, host) if to_host else (host, dev)
         values = torch.arange(
@@ -86,7 +87,7 @@ def test_transfer_kv_dim_exchange(direction, layout, pattern):
     v, host_v = (
         pair(k.dtype, heads, width, offset=2)
         if has_v
-        else (torch.empty(0), torch.empty(0))
+        else (torch.empty(0, device="cpu"), torch.empty(0, device="cpu"))
     )
     kwargs = dict(
         device_k=k,
@@ -108,9 +109,11 @@ def test_transfer_kv_dim_exchange(direction, layout, pattern):
         scale, kwargs["host_index_k_scale"] = pair(torch.float32, 1, 1, offset=4)
         kwargs["device_index_k_scale"] = scale.squeeze(-1)
         pairs.append(("device_index_k_scale", "host_index_k_scale"))
-    tokens = torch.arange(page_size)
+    tokens = torch.arange(page_size, device="cpu")
     kwargs["device_indices"] = (
-        torch.cat([tokens + 256, tokens]) if sparse else torch.arange(pages * page_size)
+        torch.cat([tokens + 256, tokens])
+        if sparse
+        else torch.arange(pages * page_size, device="cpu")
     )
     kwargs["host_indices"] = (
         torch.cat([tokens + 128, tokens + 512]) if sparse else kwargs["device_indices"]
