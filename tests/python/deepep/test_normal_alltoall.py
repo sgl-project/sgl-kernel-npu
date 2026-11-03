@@ -189,7 +189,23 @@ def test_main(
     elif args.use_mxfp8:
         dispatch_quant_mode = "mx_fp8_e4m3"
     elif args.use_fp8:
-        dispatch_quant_mode = "int8"
+        try:
+            from deep_ep.utils import _resolve_quant_mode
+
+            resolved = _resolve_quant_mode(args.use_fp8, args.use_mxfp4, args.use_mxfp8)
+        except Exception:
+            resolved = "int8"
+        if resolved is None:
+            raise ValueError(
+                "use_fp8 is not supported on this device. "
+                "Use --use-mxfp8 or --use-mxfp4 instead."
+            )
+        dispatch_quant_mode = resolved
+        if resolved == "pertoken_fp8_e4m3":
+            raise ValueError(
+                "AlltoAll strategy does not support pertoken_fp8_e4m3 (--use-fp8) on A5. "
+                "Use --use-mxfp8 (mx_fp8_e4m3) or --use-mxfp4 instead."
+            )
     else:
         dispatch_quant_mode = "bf16"
     quant_dispatch_kwargs = {
@@ -428,29 +444,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to enable dynamic tokens for testing",
     )
-    parser.add_argument(
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
         "--use-mxfp8",
         dest="use_mxfp8",
         action="store_true",
         help="Use use_mxfp8=True bool flag for normal dispatch. "
-        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported.",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-mxfp4",
         dest="use_mxfp4",
         action="store_true",
         help="Use use_mxfp4=True bool flag for normal dispatch. "
-        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported.",
     )
-    parser.add_argument(
+    quant_group.add_argument(
         "--use-fp8",
         dest="use_fp8",
         action="store_true",
         help="Use use_fp8=True bool flag for normal dispatch. Architecture-aware: "
-        "A5 -> not supported, A2/A3 -> int8 (with warning). "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> not supported, A2/A3 -> int8 (with warning).",
     )
     args = parser.parse_args()
 
