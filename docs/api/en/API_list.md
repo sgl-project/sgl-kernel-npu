@@ -4,6 +4,7 @@
 | --- | --- |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann`, `torch_native` |
 | [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann` |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`, `torch_native` |
