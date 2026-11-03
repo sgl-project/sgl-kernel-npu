@@ -100,10 +100,12 @@ $$
 
 ## triton 后端
 
-内核和启动封装位于 `implementation/triton/attention`。A3 对常规多 query GQA
-先打包 Q，构造满足矩阵指令要求的仿射数据源并共享 KV 扫描；单 query、不规则
-头分组及小于 32 的分页使用已有逐 query 特化。两个平台均保留调用方的头维度
-和缩放系数，通过掩码加载处理矩阵 tile 的尾部。长上下文可使用 split KV
+内核和启动封装位于 `implementation/triton/attention`。A3 和 A5 共用一个分页扫描
+内核和一个 split-KV 归约内核，都按请求和 KV 头分配任务，在多个 query 之间共享
+KV 扫描。A3 对多 query GQA 先打包 Q，构造满足矩阵指令要求的仿射数据源，
+通过编译期参数选择该输入布局；A5 保留原有的 query 寻址。A3 对小头维度和小
+page 使用至少 32 的矩阵 tile，扫描仍按实际 page 宽度前进。两个平台均保留调用方
+的头维度和缩放系数，通过掩码加载处理矩阵 tile 的尾部。长上下文可使用 split KV
 和部分 softmax 归约。
 
 A5 内核令 `GROUP = num_q_heads // num_kv_heads`，`q_index = rows // GROUP`。

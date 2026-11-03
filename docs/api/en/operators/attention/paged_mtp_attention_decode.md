@@ -107,11 +107,14 @@ the Triton path does not copy lengths to the CPU to validate them.
 ## triton backend
 
 Kernels and launch wrappers live in `implementation/triton/attention`.
-On A3, regular multi-query GQA packs Q into an affine matrix source, sharing
-the KV scan. Single-query inputs, irregular groups and pages below 32 use
-the existing per-query specialization. Both devices preserve the caller's head
-dimension and scale; masked loads handle partial matrix tiles. Long contexts
-may use split KV and a partial-softmax reduction.
+A3 and A5 share one paged scan kernel and one split-KV reduction kernel.
+Both use one task per request and KV head, sharing the KV scan across queries.
+A3 packs multi-query GQA inputs into an affine Q matrix; a compile-time flag
+selects this input layout. A5 keeps its original query addressing. A3 uses
+matrix tiles of at least 32 for small heads and pages, while the scan advances
+by the physical page width. Both devices preserve the caller's head dimension
+and scale; masked loads handle partial matrix tiles. Long contexts may use
+split KV and a partial-softmax reduction.
 
 On A5, let `GROUP = num_q_heads // num_kv_heads` and `q_index = rows // GROUP`.
 Q loads and score masks use `q_index < gamma`; direct output stores and
