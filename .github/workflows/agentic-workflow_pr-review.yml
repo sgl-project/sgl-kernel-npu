@@ -44,7 +44,7 @@ jobs:
     steps:
       - name: Checkout PR (read-only)
         run: |
-          git init --quiet --branch main
+          git init --quiet --initial-branch=main
           git remote add origin "https://github.com/${{ github.repository }}.git"
           gh auth setup-git
           gh pr checkout "${{ inputs.pr_number }}"
