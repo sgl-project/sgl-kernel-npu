@@ -311,9 +311,7 @@ def test_compressor_prefill_matches_incremental_state(package, coff, cycle_table
 
 
 def test_cann_mhc_shape_dtype_and_argument_order(package):
-    backend = importlib.import_module(
-        package.ns + ".implementation.cann_ops_transformer.norm.mhc_pre"
-    )
+    backend = importlib.import_module(package.ns + ".operators.norm.mhc_pre")
     x = torch.ones(2, 2, 4, dtype=torch.bfloat16)
     fused = Mock(
         return_value=(torch.ones(2, 1, 4), torch.ones(2, 1, 2), torch.ones(2, 1, 2, 2))
@@ -326,9 +324,7 @@ def test_cann_mhc_shape_dtype_and_argument_order(package):
     assert fused.call_args.args[-5:] == (2, 4, 1e-6, 1e-5, False)
     assert y.shape == (2, 4) and y.dtype == x.dtype
     op = Mock(return_value=x)
-    post_backend = importlib.import_module(
-        package.ns + ".implementation.cann_ops_transformer.norm.mhc_post"
-    )
+    post_backend = importlib.import_module(package.ns + ".operators.norm.mhc_post")
     with patch.object(post_backend, "get_op", return_value=op):
         package.api.mhc_post(y, x, post, comb)
     assert op.call_args.args == (x, comb, y, post)
@@ -336,7 +332,7 @@ def test_cann_mhc_shape_dtype_and_argument_order(package):
 
 def test_vendor_guard_restores_environment_on_error(package, monkeypatch, tmp_path):
     runtime = importlib.import_module(
-        package.ns + ".implementation.cann_ops_transformer._ops"
+        package.ns + ".operators.utils._cann_ops_transformer"
     )
     (tmp_path / "libcust_opapi.so").touch()
     monkeypatch.setenv("ASCEND_CUSTOM_OPP_PATH", "vendor")
@@ -352,7 +348,7 @@ def test_vendor_guard_restores_environment_on_error(package, monkeypatch, tmp_pa
 
 def test_guarded_packet_first_success_and_retry(package):
     runtime = importlib.import_module(
-        package.ns + ".implementation.cann_ops_transformer._ops"
+        package.ns + ".operators.utils._cann_ops_transformer"
     )
     from contextlib import contextmanager
 
