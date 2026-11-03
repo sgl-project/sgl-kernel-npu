@@ -27,7 +27,6 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  id-token: write
 
 jobs:
   pr-review:
@@ -91,8 +90,10 @@ jobs:
 
       - uses: anomalyco/opencode/github@latest
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY_FOR_GHACTIONS }}
         with:
+          use_github_token: true
           model: zhipuai-coding-plan/glm-5.3-flash
           prompt: |
             Review this pull request (number ${{ inputs.pr_number }}):
