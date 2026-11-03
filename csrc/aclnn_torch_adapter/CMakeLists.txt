@@ -53,3 +53,6 @@ foreach(target IN ITEMS sgl_kernel_npu)
         LIBRARY_OUTPUT_DIRECTORY "${SGL_TORCH_LIBRARY_DIR}"
         SKIP_BUILD_RPATH ON INSTALL_RPATH "")
 endforeach()
+
+# Host-only ACL transfers ship with the Torch library on both architectures.
+add_subdirectory("../data_move" data_move)

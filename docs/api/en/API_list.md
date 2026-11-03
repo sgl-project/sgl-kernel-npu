@@ -2,6 +2,11 @@
 
 | API | Supported backends |
 | --- | --- |
+| [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc`, `torch_native`, `cpu` |
+| [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |
+| [transfer_mamba_state](operators/data_move/transfer_mamba_state.md) | `aclrt`, `torch_native` |
+| [transfer_kv_all_layer_direct_lf_pf](operators/data_move/transfer_kv_all_layer_direct_lf_pf.md) | `aclrt`, `torch_native` |
+| [transfer_kv_per_layer_direct_pf_lf](operators/data_move/transfer_kv_per_layer_direct_pf_lf.md) | `aclrt`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`, `torch_native` |
