@@ -2,6 +2,8 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann`、`torch_native` |
+| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`、`torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`、`torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
