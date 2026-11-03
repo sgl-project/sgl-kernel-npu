@@ -2,6 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [compute_n_gram_ids](operators/embedding/compute_n_gram_ids.md) | `ascendc`、`torch_native` |
 | [update_oe_token_table](operators/embedding/update_oe_token_table.md) | `ascendc`、`torch_native` |
 | [mlp_lightning_indexer](operators/indexer/mlp_lightning_indexer.md) | `ascendc`、`torch_native` |

@@ -4,6 +4,8 @@ sgl_register_operator(
     CANN_OP_TYPE ComputeNGramIds
     TORCH_ADAPTER torch_adapter.cpp
     SUPPORTED_ARCHS 2201
-    HOST_SOURCES op_host/compute_n_gram_ids.cpp
+    OPDEF_SOURCES op_host/compute_n_gram_ids.cpp
+    INFER_SOURCES op_host/compute_n_gram_ids.cpp
+    TILING_SOURCES op_host/compute_n_gram_ids.cpp
     KERNEL_SOURCES op_kernel/compute_n_gram_ids.cpp
 )
