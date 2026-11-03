@@ -25,19 +25,19 @@ KV_HEADS = 1
 TOPK = 17  # 16 scored + 1 local block
 
 # Shapes selected for performance collection.
-perf_sequences = [(16384,), (16384,) * 16, (131072,)]
+PERF_SEQUENCES = [(16384,), (16384,) * 16, (131072,)]
 
 # Production cases; every entry fits the validated native configuration.
-cases = [
-    pytest.param({"seq_lens": (16384,)}, id="decode-b1-16k"),
-    pytest.param({"seq_lens": (16384,) * 8}, id="decode-b8-16k"),
-    pytest.param({"seq_lens": (16384,) * 16}, id="decode-b16-16k"),
-    pytest.param({"seq_lens": (49152,)}, id="decode-b1-48k"),
-    pytest.param({"seq_lens": (131072,)}, id="decode-b1-128k"),
+CASES = [
+    pytest.param({"seq_lens": (16384,)}, id="minimax-m3-decode-b1-16k"),
+    pytest.param({"seq_lens": (16384,) * 8}, id="minimax-m3-decode-b8-16k"),
+    pytest.param({"seq_lens": (16384,) * 16}, id="minimax-m3-decode-b16-16k"),
+    pytest.param({"seq_lens": (49152,)}, id="minimax-m3-decode-b1-48k"),
+    pytest.param({"seq_lens": (131072,)}, id="minimax-m3-decode-b1-128k"),
     # TARGET_VERIFY: request-major rows at prefix+1 .. prefix+3, 4 requests.
     pytest.param(
         {"seq_lens": (8193, 8194, 8195) * 4, "shared_requests": 4, "sanitize": True},
-        id="verify-4x3",
+        id="minimax-m3-verify-4x3",
     ),
     # Prefill: 8 requests x 64 extend queries, flattened request-major.
     pytest.param(
@@ -50,7 +50,7 @@ cases = [
             "shared_requests": 8,
             "sanitize": True,
         },
-        id="prefill-q512",
+        id="minimax-m3-prefill-q512",
     ),
 ]
 
@@ -156,10 +156,10 @@ def uniform_kv_inputs(*, seq_len=4096, batch=2):
     return kwargs, kwargs["q"], v0
 
 
-@pytest.mark.parametrize("params", cases)
+@pytest.mark.parametrize("params", CASES)
 def test_production(params):
     """DUT (impl pair from the CLI) against the reference on production shapes."""
-    run_case(perf=params["seq_lens"] in perf_sequences, **params)
+    run_case(perf=params["seq_lens"] in PERF_SEQUENCES, **params)
 
 
 @pytest.mark.parametrize(
@@ -172,7 +172,7 @@ def test_production(params):
         pytest.param("ascendc", "triton", 5e-2, id="ascendc-vs-triton"),
     ],
 )
-@pytest.mark.parametrize("params", cases)
+@pytest.mark.parametrize("params", CASES)
 def test_backends(params, impl, impl_ref, tolerance):
     """The same cases on every backend pair, at the measured bf16 tolerance."""
     run_case(
