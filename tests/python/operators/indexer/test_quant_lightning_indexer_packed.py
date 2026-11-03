@@ -102,6 +102,35 @@ def test_nondefault_stream():
         compare(args, k, scale, 256)
 
 
+def test_graph_replay_preserves_tiling_for_different_page_sizes():
+    """Each captured graph retains its own host-generated tiling parameters."""
+    stream = torch.npu.Stream()
+    cases = [
+        generate_data(batch=1, kv=257, page=16, qlen=1, topk=128),
+        generate_data(batch=2, kv=511, page=128, qlen=3, topk=128),
+    ]
+    for args, k, scale in cases:
+        compare(args, k, scale, 128)
+
+    graphs, outputs, expected = [], [], []
+    with torch.npu.stream(stream):
+        for args, _, _ in cases:
+            expected.append(quant_lightning_indexer_packed(*args, 128, 3).clone())
+    stream.synchronize()
+
+    for args, _, _ in cases:
+        graph = torch.npu.NPUGraph()
+        with torch.npu.graph(graph, stream=stream):
+            output = quant_lightning_indexer_packed(*args, 128, 3)
+        graphs.append(graph)
+        outputs.append(output)
+
+    for index in (1, 0, 1, 0):
+        graphs[index].replay()
+        torch.npu.synchronize()
+        torch.testing.assert_close(outputs[index].cpu(), expected[index].cpu(), rtol=0, atol=0)
+
+
 @pytest.mark.parametrize(
     "bad",
     [

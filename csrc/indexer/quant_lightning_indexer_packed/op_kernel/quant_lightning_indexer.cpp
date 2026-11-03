@@ -27,7 +27,7 @@ extern "C" __global__ __aicore__ void sgl_quant_lightning_indexer_packed(
     TPipe pipe;
     REGISTER_TILING_DEFAULT(QLITilingData);
     GET_TILING_DATA(data, tilingData);
-    auto *keyScale = key + static_cast<uint64_t>(data.blockSize) * 128;
+    auto *keyScale = key + static_cast<uint64_t>(data.blockSize) * QLIPacked::HEAD_DIM;
     auto *userWorkspace = GetUserWorkspace(workspace);
     using PackedType = QLIType<fp8_e4m3fn_t, fp8_e4m3fn_t, int32_t, true, LI_LAYOUT::TND, LI_LAYOUT::PA_BSND,
                                bfloat16_t, float32_t, float32_t, uint16_t>;

@@ -23,18 +23,12 @@ extern "C" __global__ __aicore__ void sgl_quant_lightning_indexer_packed(
     __gm__ uint8_t* query, __gm__ uint8_t* key, __gm__ uint8_t* weights,
     __gm__ uint8_t* queryScale, __gm__ uint8_t* actualSeqLengthsQ,
     __gm__ uint8_t* actualSeqLengthsK, __gm__ uint8_t* blocktable,
-    __gm__ uint8_t* sparseIndices, __gm__ uint8_t* workspace,
-    uint32_t batch, uint32_t tokens, uint32_t groups, uint32_t pageSize,
-    uint32_t maxPages, uint32_t sparseCount, uint32_t sparseMode, uint32_t usedCores)
+    __gm__ uint8_t* sparseIndices, __gm__ uint8_t* workspace, QLITilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     TPipe pipe;
-    const QLITilingData tiling = {
-        batch, tokens, 1, groups, 0, maxPages * pageSize, sparseCount,
-        pageSize * 132, pageSize * 33, usedCores, pageSize, maxPages, sparseMode
-    };
     // One physical page contains FP8 keys followed by its FP32 scales.
-    auto* keyScale = key + static_cast<uint64_t>(pageSize) * 128;
+    auto* keyScale = key + static_cast<uint64_t>(tiling.blockSize) * QLIPacked::HEAD_DIM;
     using PackedType = QLIType<fp8_e4m3fn_t, fp8_e4m3fn_t, int32_t, true,
                                LI_LAYOUT::TND, LI_LAYOUT::PA_BSND,
                                bfloat16_t, float32_t, float32_t, uint16_t>;

@@ -8,6 +8,7 @@
 #include <torch_npu/csrc/core/npu/NPUFormat.h>
 #include "torch_helper.h"
 #include "tiling/platform/platform_ascendc.h"
+#include "quant_lightning_indexer_packed_tiling.h"
 #include "aclrtlaunch_sgl_quant_lightning_indexer_packed.h"
 
 namespace sglang::npu_kernel {
@@ -24,12 +25,12 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
         TORCH_CHECK(at_npu::native::get_npu_format(tensor) == ACL_FORMAT_ND, "all inputs must use ND format");
     }
     TORCH_CHECK(query.scalar_type() == at::kFloat8_e4m3fn, "query must be float8_e4m3fn");
-    TORCH_CHECK(query.dim() == 3 && query.size(2) == 128, "query must have TND shape [T, heads, 128]");
+    TORCH_CHECK(query.dim() == 3 && query.size(2) == QLIPacked::HEAD_DIM, "query must have TND shape [T, heads, 128]");
     TORCH_CHECK(packed_cache.scalar_type() == at::kByte && packed_cache.dim() == 2,
         "packed_cache must be uint8 [pages, P*132]");
-    TORCH_CHECK(packed_cache.size(0) > 0 && packed_cache.size(1) % 132 == 0,
+    TORCH_CHECK(packed_cache.size(0) > 0 && packed_cache.size(1) % QLIPacked::TOKEN_BYTES == 0,
         "packed_cache must have positive pages and width P*132");
-    auto page = packed_cache.size(1) / 132;
+    auto page = packed_cache.size(1) / QLIPacked::TOKEN_BYTES;
     TORCH_CHECK(page >= 16 && page <= 1024 && page % 16 == 0,
         "page size must be a multiple of 16 in [16, 1024]");
     TORCH_CHECK(reinterpret_cast<uintptr_t>(packed_cache.data_ptr()) % 4 == 0,
@@ -72,6 +73,8 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
     uint32_t maxPages = block_table.size(1);
     uint32_t sparseCount = topk;
     uint32_t sparseMode = sparse_mode;
+    const QLITilingData tiling = QLIPacked::MakeTilingData(
+        batch, tokens, groups, pageSize, maxPages, sparseCount, sparseMode, blockDim);
     // The arch35 kernel uses four query rows, 128-key tiles and uint16 scores.
     // Direct launch passes user workspace directly, without an ACLNN system prefix.
     const uint64_t maxKeys = static_cast<uint64_t>(maxPages) * pageSize;
@@ -86,12 +89,10 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
     for (const auto& tensor : keep_alive) {
         if (tensor.numel()) c10_npu::NPUCachingAllocator::recordStream(tensor.storage().data_ptr(), stream);
     }
-    // Shape-only tiling travels by value in the launch arguments. There is no
-    // host-to-device tiling copy or mutable global cache during graph capture.
+    // The host-computed tiling travels by value, including during graph capture.
     EXEC_KERNEL_CMD(sgl_quant_lightning_indexer_packed, blockDim,
                     query, packed_cache, weights, query_scale, seq_q, seq_k,
-                    block_table, output, workspace, batch, tokens, groups,
-                    pageSize, maxPages, sparseCount, sparseMode, blockDim);
+                    block_table, output, workspace, tiling);
     return output;
 }
 } // namespace sglang::npu_kernel

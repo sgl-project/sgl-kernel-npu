@@ -2,6 +2,12 @@
 #pragma once
 #include <cstdint>
 
+namespace QLIPacked {
+constexpr uint32_t HEAD_DIM = 128;
+constexpr uint32_t SCALE_BYTES = 4;
+constexpr uint32_t TOKEN_BYTES = HEAD_DIM + SCALE_BYTES;
+} // namespace QLIPacked
+
 // Same arch35 tiling fields as the original QLI implementation. The CANN
 // entry reads this structure from CANN tiling data.
 struct QLITilingData {

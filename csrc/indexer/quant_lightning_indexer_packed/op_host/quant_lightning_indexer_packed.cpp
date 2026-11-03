@@ -1,5 +1,5 @@
 // Copyright (c) 2026. Licensed under the BSD 3-Clause License.
-#include "../op_kernel/quant_lightning_indexer_tiling.h"
+#include "quant_lightning_indexer_packed_tiling.h"
 #include "register/op_def_registry.h"
 #include "sgl_operator_config.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -29,11 +29,11 @@ ge::graphStatus Tiling(gert::TilingContext *context) {
         sk.GetDimNum() != 1 || table.GetDimNum() != 2 || !topk || !mode)
         return ge::GRAPH_FAILED;
     const int64_t tokens = q.GetDim(0), heads = q.GetDim(1), batch = sq.GetDim(0);
-    const int64_t page = k.GetDim(1) / 132, maxPages = table.GetDim(1);
+    const int64_t page = k.GetDim(1) / QLIPacked::TOKEN_BYTES, maxPages = table.GetDim(1);
     constexpr int64_t maxDim = std::numeric_limits<uint32_t>::max();
-    if (tokens < 0 || tokens > maxDim || q.GetDim(2) != 128 ||
+    if (tokens < 0 || tokens > maxDim || q.GetDim(2) != QLIPacked::HEAD_DIM ||
         !(heads == 8 || heads == 16 || heads == 24 || heads == 32 || heads == 64) || k.GetDim(0) <= 0 ||
-        k.GetDim(1) % 132 != 0 || page < 16 || page > 1024 || page % 16 != 0 || batch <= 0 || batch > maxDim ||
+        k.GetDim(1) % QLIPacked::TOKEN_BYTES != 0 || page < 16 || page > 1024 || page % 16 != 0 || batch <= 0 || batch > maxDim ||
         sk.GetDim(0) != batch || table.GetDim(0) != batch || maxPages <= 0 || maxPages > maxDim / page ||
         w.GetDim(0) != tokens || qs.GetDim(0) != tokens || w.GetDim(1) != heads || qs.GetDim(1) != heads ||
         *topk <= 0 || *topk > 2048 || (*mode != 0 && *mode != 3))
@@ -50,19 +50,10 @@ ge::graphStatus Tiling(gert::TilingContext *context) {
     auto *tiling = context->GetTilingData<QLITilingData>();
     if (!tiling)
         return ge::GRAPH_FAILED;
-    *tiling = {static_cast<uint32_t>(batch),
-               static_cast<uint32_t>(tokens),
-               1,
-               static_cast<uint32_t>(heads),
-               0,
-               static_cast<uint32_t>(maxPages * page),
-               static_cast<uint32_t>(*topk),
-               static_cast<uint32_t>(page * 132),
-               static_cast<uint32_t>(page * 33),
-               blocks,
-               static_cast<uint32_t>(page),
-               static_cast<uint32_t>(maxPages),
-               static_cast<uint32_t>(*mode)};
+    *tiling = QLIPacked::MakeTilingData(
+        static_cast<uint32_t>(batch), static_cast<uint32_t>(tokens), static_cast<uint32_t>(heads),
+        static_cast<uint32_t>(page), static_cast<uint32_t>(maxPages), static_cast<uint32_t>(*topk),
+        static_cast<uint32_t>(*mode), blocks);
     raw->SetDataSize(sizeof(QLITilingData));
     context->SetBlockDim(blocks);
     context->SetTilingKey(0);
