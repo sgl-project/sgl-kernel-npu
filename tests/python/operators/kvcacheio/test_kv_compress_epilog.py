@@ -33,7 +33,10 @@ def test_kv_compress_epilog(tokens):
     slots = torch.arange(tokens, dtype=torch.int32)
     if tokens > 1:
         slots[-1] = -1
-    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.float8_e4m3fn)
+    # CANN 9.1 cannot zero FP8 directly; view zeroed bytes as the packed cache.
+    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
+        torch.float8_e4m3fn
+    )
     kwargs = dict(
         quant_group_size=64,
         quant_mode=path.writer_quant_mode,
@@ -46,7 +49,11 @@ def test_kv_compress_epilog(tokens):
     else:
         require_distinct_impls(kv_compress_epilog, executor.impl, executor.impl_ref)
         expected = kv_compress_epilog(
-            cache.clone(), x, slots, impl=executor.impl_ref, **kwargs
+            cache.view(torch.uint8).clone().view(torch.float8_e4m3fn),
+            x,
+            slots,
+            impl=executor.impl_ref,
+            **kwargs,
         )
         actual = executor()
         # RoPE BF16 + NoPE FP8 + seven scales; alignment padding is unspecified.

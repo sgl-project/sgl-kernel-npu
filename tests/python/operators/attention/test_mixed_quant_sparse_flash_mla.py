@@ -61,8 +61,11 @@ def test_mixed_attention(query_len):
         require_test_impl(mixed_quant_sparse_flash_mla, impl)
     else:
         require_distinct_impls(mixed_quant_sparse_flash_mla, impl, impl_ref)
-    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.float8_e4m3fn)
-    cache_ref = cache.clone()
+    # CANN 9.1 cannot zero FP8 directly; view zeroed bytes as the packed cache.
+    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
+        torch.float8_e4m3fn
+    )
+    cache_ref = cache.view(torch.uint8).clone().view(torch.float8_e4m3fn)
     writer_kwargs = dict(
         quant_group_size=64,
         quant_mode=path.writer_quant_mode,
