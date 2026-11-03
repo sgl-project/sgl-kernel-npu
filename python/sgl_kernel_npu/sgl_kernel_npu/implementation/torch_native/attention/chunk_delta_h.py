@@ -1,4 +1,4 @@
-"""Reference state recurrence for chunked gated delta rule."""
+"""CPU FP64 reference retaining the kernel's two low-precision rounding points."""
 
 import torch
 
@@ -16,6 +16,10 @@ def chunk_delta_h(
 ):
     if g is None:
         raise ValueError("g is required by the current Triton wrapper")
+    output_device = k.device
+    k, w, u, g = (x.detach().cpu() for x in (k, w, u, g))
+    if initial_state is not None:
+        initial_state = initial_state.detach().cpu()
     batch, length, groups, key_dim = k.shape
     heads, value_dim = u.shape[-2:]
     if cu_seqlens is None:
@@ -39,11 +43,9 @@ def chunk_delta_h(
     packed_chunk = 0
     for sequence, (b, start, end) in enumerate(sequences):
         states = (
-            torch.zeros(
-                (heads, value_dim, key_dim), dtype=torch.float32, device=k.device
-            )
+            torch.zeros((heads, value_dim, key_dim), dtype=torch.float64, device="cpu")
             if initial_state is None
-            else initial_state[sequence].transpose(-1, -2).float().clone()
+            else initial_state[sequence].transpose(-1, -2).double().clone()
         )
         for local_chunk, pos in enumerate(range(start, end, chunk_size)):
             stop = min(pos + chunk_size, end)
@@ -52,18 +54,24 @@ def chunk_delta_h(
                 current = states[head]
                 h[b, out_index, head] = current.T.to(k.dtype)
                 # SGLang computes u - w @ state.T before applying gate decay.
-                delta = u[b, pos:stop, head].float() - (
-                    w[b, pos:stop, head].float() @ current.T.to(w.dtype).float()
+                # Round the state to the input dtype before the FP64 matmul.
+                delta = u[b, pos:stop, head].double() - (
+                    w[b, pos:stop, head].double() @ current.T.to(w.dtype).double()
                 )
                 if save_new_value:
                     v_new[b, pos:stop, head] = delta.to(u.dtype)
-                gate = g[b, pos:stop, head].float()
+                gate = g[b, pos:stop, head].double()
                 diff = gate[-1] - gate
                 decay = torch.where(diff <= 0, diff.exp(), 0.0)
-                delta = (delta * decay[:, None]).to(k.dtype).float()
-                keys = k[b, pos:stop, head // (heads // groups)].float()
+                # Retain the second rounding point after applying gate decay.
+                delta = (delta * decay[:, None]).to(k.dtype).double()
+                keys = k[b, pos:stop, head // (heads // groups)].double()
                 states[head] = current * gate[-1].exp() + delta.T @ keys
             packed_chunk += 1
         if final is not None:
             final[sequence] = states.transpose(-1, -2)
-    return h, v_new, final
+    return (
+        h.to(output_device),
+        v_new.to(output_device) if v_new is not None else None,
+        final.to(output_device) if final is not None else None,
+    )

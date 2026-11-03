@@ -32,7 +32,7 @@ Migrated from the legacy implementation; supported shapes, dtypes, layouts and n
 
 ## torch_native
 
-Independent PyTorch reference for numerical comparison.
+CPU FP64 参考保留输入 dtype 舍入点，输出遵循原设备与接口 dtype；测试使用 1e-3 绝对容差及随机输入。
 
 ## Example
 

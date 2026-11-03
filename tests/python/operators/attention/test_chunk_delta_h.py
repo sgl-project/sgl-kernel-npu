@@ -6,6 +6,7 @@ torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 
 @pytest.mark.parametrize("length", [64, 129])
@@ -37,7 +38,14 @@ def test_chunk_delta_h(length, varlen, dtype, head_dim):
             "cu_seqlens": offsets,
             "output_final_state": True,
         },
+        # Compare against CPU FP64 with the same rounding points. Storage in
+        # FP32 does not remove the BF16/FP16 error accumulated by final_state.
+        standard={
+            str(dtype): AccuracyStandard(atol=1e-3, rtol=0),
+            "torch.float32": AccuracyStandard(atol=1e-3, rtol=0),
+        },
     )
     check_performance(
-        executor, enable_perf=(head_dim == 128 and length == 129 and not varlen)
+        executor,
+        enable_perf=(head_dim == 128 and length == 129 and not varlen),
     )

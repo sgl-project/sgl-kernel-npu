@@ -32,7 +32,7 @@ Migrated from the legacy implementation; supported shapes, dtypes, layouts and n
 
 ## torch_native
 
-Independent PyTorch reference for numerical comparison.
+CPU FP64 reference preserves input-dtype rounding points and returns outputs on the original device with API dtypes. Tests use absolute tolerance 1e-3 and random inputs.
 
 ## Example
 
