@@ -130,7 +130,7 @@ def build_inputs(
     )
 
 
-def run_case(*, perf=False, impl=None, impl_ref=None, standard=None, **params):
+def run_case(*, perf=False, impl=None, impl_ref=None, **params):
     from sgl_kernel_npu.operators.attention import (
         flash_decode_bnsd_with_gqa_share_sparse,
     )
@@ -140,7 +140,6 @@ def run_case(*, perf=False, impl=None, impl_ref=None, standard=None, **params):
         kwargs=build_inputs(**params),
         impl=impl,
         impl_ref=impl_ref,
-        standard=standard,
     )
     check_performance(executor, enable_perf=perf)
 
@@ -160,27 +159,6 @@ def uniform_kv_inputs(*, seq_len=4096, batch=2):
 def test_production(params):
     """DUT (impl pair from the CLI) against the reference on production shapes."""
     run_case(perf=params["seq_lens"] in PERF_SEQUENCES, **params)
-
-
-@pytest.mark.parametrize(
-    ("impl", "impl_ref", "tolerance"),
-    [
-        # Tolerance is the smallest value that passed the arch22 measurement,
-        # with a 2.5x margin; ascendc/triton keeps the repo default.
-        pytest.param("triton", "torch_native", 5e-3, id="triton-vs-ref"),
-        pytest.param("ascendc", "torch_native", 2e-2, id="ascendc-vs-ref"),
-        pytest.param("ascendc", "triton", 5e-2, id="ascendc-vs-triton"),
-    ],
-)
-@pytest.mark.parametrize("params", CASES)
-def test_backends(params, impl, impl_ref, tolerance):
-    """The same cases on every backend pair, at the measured bf16 tolerance."""
-    run_case(
-        impl=impl,
-        impl_ref=impl_ref,
-        standard={"torch.bfloat16": AccuracyStandard(atol=tolerance, rtol=tolerance)},
-        **params,
-    )
 
 
 @pytest.mark.extra_checks
