@@ -58,11 +58,15 @@ def resolve_plan(version, arch, jobs=None, source_root=PROJECT_ROOT):
     profile = root / "profiles" / ("cann-" + version) / arch_name
     configs = sorted(profile.glob("*.json"))
     if not configs:
-        raise ValueError(
-            "No third-party profile: {} (use --without-third-party for native-only builds)".format(
-                profile
-            )
+        print(
+            "[INFO] No third-party profiles for CANN {}, {}; "
+            "skipping third-party builds (searched {}).".format(
+                version, arch_name, profile
+            ),
+            file=sys.stderr,
+            flush=True,
         )
+        return []
     plan = []
     for config_path in configs:
         if root.resolve() not in config_path.resolve().parents:

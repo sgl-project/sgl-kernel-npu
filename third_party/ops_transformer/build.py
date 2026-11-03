@@ -12,8 +12,8 @@ from build_tools.third_party import extract_python, read_json
 def configure(config, jobs):
     """Resolve ops-transformer's names and command placeholders."""
     config = dict(config)
-    config["vendor_directory"] = config["name"] + "_transformer"
-    config["python_package"] = "cann_ops_transformer_" + config["name"]
+    config["vendor_name"] = "vendor_" + config["name"]
+    config["python_package"] = config["name"]
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -24,8 +24,10 @@ def configure(config, jobs):
 
 def stage_python(wheel, item, package):
     name = item["name"]
-    destination = package / "_third_party" / name
-    extract_python(wheel, item["python_package"], destination)
+    destination = package / "_third_party" / item["python_package"]
+    # Upstream adds its own package prefix; only its temporary wheel uses it.
+    upstream_package = "cann_ops_transformer_" + item["vendor_name"]
+    extract_python(wheel, upstream_package, destination)
     ops_root = destination / "ops"
     modules = sorted(
         ".".join(path.parent.relative_to(ops_root).parts)
@@ -39,7 +41,7 @@ def stage_python(wheel, item, package):
     # Rewrite imports only; Torch operator namespaces are not Python module paths.
     pattern = (
         r"(?m)^(\s*(?:from|import)\s+)(?:"
-        + re.escape(item["python_package"])
+        + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
     for path in destination.rglob("*.py"):
@@ -121,7 +123,10 @@ def build(item, source, directory):
         directory / "install.log",
         cwd=directory,
     )
-    vendor = installed / "vendors" / item["vendor_directory"]
+    vendors = [path for path in (installed / "vendors").glob("*") if path.is_dir()]
+    if len(vendors) != 1 or vendors[0].is_symlink():
+        raise RuntimeError("Expected exactly one installed vendor directory")
+    vendor = vendors[0]
     inspect_vendor(vendor, item)
     return dict(
         config=item,
@@ -137,7 +142,7 @@ def stage(result, package):
     for path in vendor.rglob("*"):
         if path.is_symlink() and vendor.resolve() not in path.resolve().parents:
             raise RuntimeError("External vendor symlink: " + str(path))
-    target = package / "_cann/vendors" / item["vendor_directory"]
+    target = package / "_cann/vendors" / vendor.name
     if target.exists():
         raise RuntimeError("Duplicate vendor: " + str(target))
     shutil.copytree(vendor, target)
@@ -153,4 +158,6 @@ def stage(result, package):
         for p in target.rglob("*")
         if p.is_file()
     }
-    return dict(item, files=hashes, binding="upstream_jit")
+    return dict(
+        item, vendor_directory=vendor.name, files=hashes, binding="upstream_jit"
+    )
