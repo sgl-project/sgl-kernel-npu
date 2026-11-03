@@ -80,32 +80,62 @@ cache allocation and ordinary torch/torch_npu operations remain in SGLang.
 
 ## Validation
 
-CPU contracts and references (the tests isolate only the NPU bootstrap):
+Run operator accuracy tests on an Ascend host with a built wheel containing the
+current Python APIs and the matching native operator libraries. The aggregate
+CPU/mock test module has been removed; these tests execute the selected NPU
+binding against independent `torch_native` results.
+
+Select a binding path before starting pytest. Use `legacy` for original bindings
+or `cann_ops_transformer` for released bindings; `auto` selects available complete
+families. The `--impl` name selects the registered compatibility wrapper, while
+the environment variable selects the underlying bindings.
 
 ```sh
-python -m pytest tests/unit/test_transformer_operators.py -q
-```
-
-On an Ascend host with a built wheel and the released CANN transformer package:
-
-```sh
+export SGL_KERNEL_NPU_TRANSFORMER_BACKEND=legacy
+# Or: export SGL_KERNEL_NPU_TRANSFORMER_BACKEND=cann_ops_transformer
 python -m pytest tests/python/operators/attention/test_sparse_flash_mla.py \
   tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py \
   tests/python/operators/norm/test_mhc.py \
   tests/python/operators/rope/test_inplace_partial_rotary_mul.py \
   tests/python/operators/kvcacheio/test_indexer_quant_cache.py \
-  --impl cann_ops_transformer --impl-ref torch_native -q
+  tests/python/operators/kvcacheio/test_kv_compress_epilog.py \
+  --impl cann_ops_transformer --impl-ref torch_native \
+  --npu-device 0 --enable-perf=false -v
 ```
 
-Hardware comparisons are required before promoting this migration out of draft,
-especially packed KV scale rounding/byte order and compressor state retention.
+All numerical comparisons use `check_accuracy` and profiling uses the returned
+executor with `check_performance`. mHC pre/post have independent inputs and
+preserve their original tolerances. In-place operators use separate reference
+buffers via `args_ref`. Attention prepares each implementation's metadata once
+and passes reference overrides via `kwargs_ref`; compute timing excludes metadata
+and KV initialization. The KV writer's accuracy-only `output_transform` compares
+semantic bytes exactly, excluding unspecified alignment padding. Indexer FP8
+values are widened only for comparison, retaining FP8-specific tolerances and
+separate FP32 scale tolerances.
+
+The A5 mixed-quant reader/writer tests skip on A3. The current on-device files
+cover mHC pre/post, partial RoPE, cache writers, BF16/mixed-quant attention with
+their metadata, and MoE gating. They do not yet provide standalone accuracy or
+performance coverage for the quantized lightning indexer or compressor, nor do
+they validate graph replay or model inference. Metadata descriptors are checked
+through their paired compute, not compared byte-for-byte across backends.
+
+Hardware comparisons remain required before promoting this migration out of
+draft, especially packed KV scale rounding/byte order and compressor state
+retention. Collection skips on a host without `torch_npu` are not NPU validation.
 
 MoE accuracy and selected-shape performance tests:
 
 ```sh
 python -m pytest tests/python/operators/moe/test_moe_gating_top_k.py \
-  --impl torch_npu --impl-ref torch_native -q
+  --impl torch_npu --impl-ref torch_native --enable-perf=false -v
 ```
+
+Omit `--enable-perf=false` to profile only each file's selected representative
+shapes, or pass `--enable-perf=true` to profile all selected cases. Existing
+`--prof-dir` and `--csv-path` options control profile and CSV output. FP32/FP16/BF16
+tolerances are initial on-device thresholds, not evidence of completed hardware
+validation.
 
 ## Category layout
 
@@ -204,3 +234,4 @@ FP8/INT8 indexer modes and the fused compressor API. SDK prototypes or matching
 schemas do not prove a kernel supports every generation/mode. On-device old/new
 accuracy, packed-byte rounding, graph capture/replay and performance still need
 validation with the actual deployed operator libraries.
+

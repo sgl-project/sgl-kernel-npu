@@ -1,23 +1,37 @@
-"""On-device production/reference checks for attention operators."""
+"""BF16 sparse-attention accuracy with paired metadata and NPU profiling."""
 
 import pytest
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import get_skip_acc_check, get_test_impls
+from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
-def test_bf16_attention_metadata_and_compute(impl_pair):
+perf_shape = [(2, 1)]
+
+
+@pytest.mark.parametrize(
+    "batch,query_len",
+    [
+        pytest.param(1, 1, id="synthetic-single-decode"),
+        pytest.param(2, 1, id="synthetic-batched-decode"),
+        pytest.param(2, 2, id="synthetic-two-token-extend"),
+    ],
+)
+def test_bf16_attention_metadata_and_compute(batch, query_len):
     from sgl_kernel_npu.operators.attention import (
         sparse_flash_mla,
         sparse_flash_mla_metadata,
     )
 
-    impl, reference = impl_pair
     torch.manual_seed(12)
-    q = torch.randn(2, 64, 512, device="npu", dtype=torch.bfloat16) * 0.1
-    kv = torch.randn(2, 128, 1, 512, device="npu", dtype=torch.bfloat16)
-    cu = torch.tensor([0, 1, 2], dtype=torch.int32, device="npu")
-    lengths = torch.tensor([64, 128], dtype=torch.int32, device="npu")
+    q = torch.randn(batch * query_len, 64, 512, dtype=torch.bfloat16) * 0.1
+    kv = torch.randn(batch, 128, 1, 512, dtype=torch.bfloat16)
+    cu = torch.arange(batch + 1, dtype=torch.int32) * query_len
+    lengths = torch.tensor([64, 128][:batch], dtype=torch.int32)
     common = dict(
         cu_seqlens_q=cu,
         seqused_q=cu[1:] - cu[:-1],
@@ -30,27 +44,36 @@ def test_bf16_attention_metadata_and_compute(impl_pair):
         layout_q="TND",
         layout_kv="PA_BBND",
     )
-    outputs = []
-    for selected in impl_pair:
-        metadata = sparse_flash_mla_metadata(
-            batch_size=2,
-            num_heads_q=64,
-            num_heads_kv=1,
-            head_dim=512,
-            has_ori_kv=True,
-            has_cmp_kv=False,
-            impl=selected,
-            **common,
+    impl, impl_ref = get_test_impls()
+    metadata_kwargs = dict(
+        batch_size=batch,
+        num_heads_q=64,
+        num_heads_kv=1,
+        head_dim=512,
+        has_ori_kv=True,
+        has_cmp_kv=False,
+        **common,
+    )
+    kwargs = dict(
+        ori_kv=kv,
+        ori_block_table=torch.arange(batch, dtype=torch.int32).reshape(batch, 1),
+        sinks=torch.zeros(64, dtype=torch.float32),
+        metadata=sparse_flash_mla_metadata(impl=impl, **metadata_kwargs),
+        softmax_scale=512**-0.5,
+        **common,
+    )
+    # Opaque CANN tiling and eager reference descriptors are not interchangeable.
+    kwargs_ref = None
+    if get_skip_acc_check() is not True:
+        kwargs_ref = dict(
+            metadata=sparse_flash_mla_metadata(impl=impl_ref, **metadata_kwargs)
         )
-        out, _ = sparse_flash_mla(
-            q,
-            ori_kv=kv,
-            ori_block_table=torch.tensor([[0], [1]], device="npu", dtype=torch.int32),
-            sinks=torch.zeros(64, device="npu"),
-            metadata=metadata,
-            softmax_scale=512**-0.5,
-            impl=selected,
-            **common,
-        )
-        outputs.append(out)
-    torch.testing.assert_close(*outputs, atol=0.03, rtol=0.03)
+    executor = check_accuracy(
+        sparse_flash_mla,
+        args=(q,),
+        kwargs=kwargs,
+        kwargs_ref=kwargs_ref,
+        standard={"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
+    )
+    # Metadata was prepared once; performance measures compute only.
+    check_performance(executor, enable_perf=(batch, query_len) in perf_shape)

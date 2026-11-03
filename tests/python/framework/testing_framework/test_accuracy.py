@@ -177,3 +177,18 @@ def test_floating_tensor_requires_an_accuracy_standard(
 def test_unsupported_output_type_is_rejected(accuracy_tools, result):
     with pytest.raises(TypeError, match="unsupported output type"):
         accuracy_tools.assert_accuracy(result, result)
+
+
+@pytest.mark.parametrize("delta,passes", [(0.0, True), (1.0, False)])
+def test_fp8_comparison_uses_original_dtype_tolerance(
+    npu_runtime, accuracy_tools, delta, passes
+):
+    torch = npu_runtime.torch
+    reference = tensor(npu_runtime, [1.0]).to(torch.float8_e4m3fn)
+    result = tensor(npu_runtime, [1.0 + delta]).to(torch.float8_e4m3fn)
+    standard = {"torch.float8_e4m3fn": AccuracyStandard(atol=0.25, rtol=0)}
+    if passes:
+        accuracy_tools.assert_accuracy(result, reference, standard)
+    else:
+        with pytest.raises(AssertionError, match="output:"):
+            accuracy_tools.assert_accuracy(result, reference, standard)

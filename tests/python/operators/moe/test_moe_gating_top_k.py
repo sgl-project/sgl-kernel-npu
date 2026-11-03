@@ -51,10 +51,11 @@ def test_grouped_moe_gate(mode):
     torch.manual_seed(52)
     x = torch.randn(16, 256, device="npu", dtype=torch.float32)
     bias = torch.randn(256, device="npu") * 0.02
-    check_accuracy(
+    executor = check_accuracy(
         moe_gating_top_k,
         args=(x, 8),
         kwargs=dict(
             bias=bias, norm_type=1, group_count=8, k_group=4, group_select_mode=mode
         ),
     )
+    check_performance(executor, enable_perf=False)
