@@ -11,15 +11,25 @@ from tests.python.utils.performance import check_performance
 @pytest.mark.parametrize("length", [64, 129])
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_chunk_delta_h(length, varlen, dtype):
+@pytest.mark.parametrize(
+    "head_dim",
+    [
+        pytest.param(128, id="model-head-dim-128"),
+        pytest.param(64, marks=pytest.mark.extra_checks, id="edge-head-dim-64"),
+    ],
+)
+def test_chunk_delta_h(length, varlen, dtype, head_dim):
     from sgl_kernel_npu.operators.attention import chunk_delta_h
 
-    k = torch.randn(1, length, 2, 64, dtype=dtype) * 0.05
-    w = torch.randn(1, length, 4, 64, dtype=dtype) * 0.05
-    u = torch.randn(1, length, 4, 64, dtype=dtype) * 0.05
+    k = torch.randn(1, length, 2, head_dim, dtype=dtype) * 0.05
+    w = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05
+    u = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05
     g = -torch.rand(1, length, 4).cumsum(dim=1) * 0.01
     offsets = torch.tensor([0, 31, length], dtype=torch.int32) if varlen else None
-    state = torch.randn(2 if varlen else 1, 4, 64, 64, dtype=torch.float32) * 0.05
+    state = (
+        torch.randn(2 if varlen else 1, 4, head_dim, head_dim, dtype=torch.float32)
+        * 0.05
+    )
     executor = check_accuracy(
         chunk_delta_h,
         args=(k, w, u, g, state),
@@ -28,4 +38,6 @@ def test_chunk_delta_h(length, varlen, dtype):
             "output_final_state": True,
         },
     )
-    check_performance(executor, enable_perf=(length == 129 and not varlen))
+    check_performance(
+        executor, enable_perf=(head_dim == 128 and length == 129 and not varlen)
+    )
