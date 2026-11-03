@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 已在 Ascend A3 验证 | 未验证 |
+| `torch_native` | 已在 Ascend A3 验证 | 未验证 |
 
 ## 函数签名
 
@@ -13,7 +14,7 @@ import torch
 from sgl_kernel_npu.operators.mem_cache import adler32_strided_checksum
 
 def adler32_strided_checksum(
-    data_ptrs: list[int],
+    data_ptrs: list[int] | list[torch.Tensor],
     strides: list[int],
     indices: list[torch.Tensor],
     *,
@@ -44,10 +45,10 @@ def adler32_strided_checksum(
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `data_ptrs` | `list[int]` | 必填 | 每个描述符的 NPU 基址。非空且 stride 非零的描述符要求有效正地址。 |
+| `data_ptrs` | `list[torch.Tensor]` 或 `list[int]` | 必填 | 每个描述符对应连续的 NPU Tensor。`auto`/`triton` 也支持整数地址；非空且 stride 非零的描述符要求有效正地址。`torch_native` 要求传入 Tensor。 |
 | `strides` | `list[int]` | 必填 | 非负的单项字节长度，即每个索引选中的连续字节范围。 |
 | `indices` | `list[torch.Tensor]` | 必填 | 每个描述符对应连续的一维 `[num_items]` 索引，int32 或 int64，全部位于同一 NPU。 |
-| `impl` | `str` | `"auto"` | 仅关键字参数；支持 `auto`、`triton`。 |
+| `impl` | `str` | `"auto"` | 仅关键字参数；支持 `auto`、`triton`、`torch_native`。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -63,10 +64,15 @@ def adler32_strided_checksum(
 描述符和索引的顺序语义与 SGLang CUDA 实现一致。本次迁移保持原有计算公式
 和启动配置。
 
-不提供 `torch_native` 参考实现：接口接收原始设备地址，普通 PyTorch 操作无法
-从地址恢复所属 Tensor。测试持有原始 Tensor，使用独立的 Python
-`zlib.adler32` 对所选字节计算参考值。公开接口测试保留原有六类测试，并增加
-具有代表性的 Qwen3-32B TP2 页描述符。
+## torch_native 后端
+
+使用普通 PyTorch 从 Tensor 缓冲区读取所选原始字节，再用 CPU
+`zlib.adler32` 计算独立参考值，不调用 Triton 算子。两个后端可以接收同一组
+Tensor 输入，供统一精度测试比较。
+
+`auto`/`triton` 继续支持整数地址，以兼容 SGLang 现有调用；参考实现要求
+传入所属 Tensor，拒绝整数地址。CPU 复制使该后端适用于正确性检查，不适合
+生产 KV 传输；不会尝试从无所有权的原始地址重建设备存储。
 
 ## 示例
 
@@ -78,7 +84,11 @@ from sgl_kernel_npu.operators.mem_cache import adler32_strided_checksum
 data = torch.arange(32, dtype=torch.uint8, device="npu").reshape(4, 8)
 indices = torch.tensor([2, 0], dtype=torch.int64, device="npu")
 value = adler32_strided_checksum(
-    [data.data_ptr()], [data[0].nbytes], [indices], impl="triton"
+    [data], [data[0].nbytes], [indices], impl="triton"
 )
+reference = adler32_strided_checksum(
+    [data], [data[0].nbytes], [indices], impl="torch_native"
+)
+assert value == reference
 print(value)
 ```
