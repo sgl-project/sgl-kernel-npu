@@ -116,9 +116,14 @@ scale tolerances. No changes to the shared accuracy helper are required.
 
 The A5 mixed-quant reader/writer tests skip on A3. The current on-device files
 cover mHC pre/post, partial RoPE, cache writers, BF16/mixed-quant attention with
-their metadata, and MoE gating. They do not yet provide standalone accuracy or
-performance coverage for the quantized lightning indexer or compressor, nor do
-they validate graph replay or model inference. Metadata descriptors are checked
+their metadata, MoE gating, the quantized lightning indexer and its metadata,
+and compressor. Indexer cases use strictly ordered scores for exact integer
+Top-K comparison, including ragged queries, page boundaries and empty causal
+prefixes. Metadata has its own timing; semantic validation uses paired compute.
+Compressor covers C4/C128, TH/BSH, paged/cycle caches, and multi-round state
+retention across ring wrap. Output padding is excluded, while the entire state
+cache is checked against an independent reference buffer. These tests do not
+validate graph replay or model inference. Metadata descriptors are checked
 through their paired compute, not compared byte-for-byte across backends.
 
 Hardware comparisons remain required before promoting this migration out of
@@ -242,4 +247,22 @@ schemas do not prove a kernel supports every generation/mode. On-device old/new
 accuracy, packed-byte rounding, graph capture/replay and performance still need
 validation with the actual deployed operator libraries.
 
+### Indexer and compressor standalone tests
 
+Run from the checkout root with a matching wheel and initialized CANN SDK:
+
+```bash
+python3 -m pytest \
+  tests/python/operators/attention/test_quant_lightning_indexer.py \
+  tests/python/operators/attention/test_quant_lightning_indexer_metadata.py \
+  tests/python/operators/attention/test_compressor.py \
+  --impl auto --impl-ref torch_native --npu-device 0 \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+```
+
+Omit `--enable-perf=false` to profile selected shapes, or use
+`--enable-perf=true` to profile every non-streaming case. Streaming cases only
+check accuracy: repeated profiling would consume already-mutated history.
+A3 uses INT8 indexer inputs with FP16 scales/weights; A5 uses FP8 inputs with
+FP32 scales/weights. Run the same command separately under CANN 9.1 and 9.2;
+collection or CPU reference checks do not establish native kernel accuracy.
