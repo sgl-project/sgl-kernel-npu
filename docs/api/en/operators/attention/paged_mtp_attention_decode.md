@@ -2,18 +2,18 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `triton` | Supported on A3; A2 unverified | Targeted row-mask correction validated; full suite pending |
-| `torch_native` | Supported on A3; A2 unverified | Targeted reference parity validated; full suite pending |
+| `triton` | Supported; full suite passed | Supported; full suite passed |
+| `torch_native` | Validated correctness reference | Validated correctness reference |
 
-Both implementations are declared for arch22 and arch35. A3 validation uses
-Ascend910_9362. On Ascend950DT_9582, the direct flattened-row mask correction
-passed FP16/BF16 causal and noncausal checks at D=48/64, with output guards
-unchanged in all 24 calls. This targeted A5 run used CANN 9.1.0,
-Torch 2.10.0, torch_npu 2.10.0.post6 and Triton 3.2.0; the complete A5 suite
-and irregular-group split-KV regression still require validation.
-Registration describes intended support; the table records validation.
+A3 validation uses Ascend910_9362; A5 validation uses Ascend950DT_9582.
+The full public-operator suite passed 202/202 tests on both A3 and A5, comparing
+Triton against the independent `torch_native` reference. The rebuilt A5 wheel
+was validated with CANN 9.1.0, Torch 2.10.0, torch_npu 2.10.0.post6 and
+Triton 3.2.0. A5 also passed 22/22 targeted tests covering irregular GQA groups,
+D=48/64, FP16/BF16, causal and noncausal modes, output guards and split KV.
+The full suite includes the page-boundary and wide-head regressions.
 
 ## Signature
 
@@ -111,10 +111,15 @@ On A3, regular multi-query GQA packs Q into an affine matrix source, sharing
 the KV scan. Single-query inputs, irregular groups and pages below 32 use
 the existing per-query specialization. Irregular D is padded to a power of
 two on A3, retaining the caller's original scale. Long contexts may use
-split KV and a partial-softmax reduction. The arch35 kernels bound flattened
-query rows directly by `gamma * (num_q_heads // num_kv_heads)` for Q loads,
-score masks and output stores, including the split-KV reduction. This avoids
-tail writes observed with quotient-based masks for irregular GQA groups.
+split KV and a partial-softmax reduction.
+
+On A5, let `GROUP = num_q_heads // num_kv_heads` and `q_index = rows // GROUP`.
+Q loads and score masks use `q_index < gamma`; direct output stores and
+split-KV reduction output stores use `rows < gamma * GROUP`. These conditions
+are mathematically equivalent. This combination avoids NaNs on exactly full
+query tiles and output tail writes for irregular GQA groups observed with
+A5 Triton 3.2.0.
+
 Every NPU Graph replay reads lengths, pages and Q/K/V anew; query packing
 and padding are included in capture. No host length extraction is required.
 
