@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann`（`auto`） | 不支持 | 已注册，待实机验证 |
+| `cann`（`auto`） | 不支持 | 支持 |
 
 要求 CANN 9.2.0、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。
 

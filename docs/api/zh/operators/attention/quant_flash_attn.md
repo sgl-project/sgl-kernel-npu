@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann`（`auto`） | 不支持 | 已注册，待实机验证 |
-| `torch_native` | 未注册 | 已注册，待实机验证 |
+| `cann`（`auto`） | 不支持 | 支持 |
+| `torch_native` | 未注册 | 支持 |
 
 CANN 后端面向 Ascend 950，要求 CANN 9.2.0 以及匹配的 PyTorch/torch_npu。还需安装导出 QFA 两个接口的 `cann_ops_transformer` Python 扩展；仅安装 `sgl_kernel_npu` 不会提供该扩展及底层 CANN 算子。
 

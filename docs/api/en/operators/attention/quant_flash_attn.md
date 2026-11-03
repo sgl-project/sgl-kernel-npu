@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` (`auto`) | Not supported | Registered; hardware validation pending |
-| `torch_native` | Not registered | Registered; hardware validation pending |
+| `cann` (`auto`) | Not supported | Supported |
+| `torch_native` | Not registered | Supported |
 
 The CANN backend targets Ascend 950 with CANN 9.2.0 and a matching PyTorch/torch_npu installation. The `cann_ops_transformer` Python extension exposing both QFA interfaces must also be installed; installing `sgl_kernel_npu` alone does not provide that extension or the underlying CANN operators.
 
