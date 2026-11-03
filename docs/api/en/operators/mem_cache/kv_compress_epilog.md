@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `ascendc` | Not supported | Supported |
 | `torch_native` | Supported | Supported |
-| `cpu` | Supported | Supported |
+| `triton` | Not supported | Not supported |
+| `tilelang` | Not supported | Not supported |
 
 ## Signature
 
