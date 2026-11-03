@@ -1,4 +1,4 @@
-"""Flash MLA backed by the bundled ops-transformer package."""
+"""Non-official CANN 9.2.0 Flash MLA operators backed by ops-transformer."""
 
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
@@ -59,6 +59,8 @@ def flash_mla(
     impl="auto",
 ):
     """Compute paged MLA attention; auto selects cann_ops_transformers on arch35.
+
+    This is a non-official operator introduced in CANN 9.2.0.
 
     q (Tensor): [T, N, 576] (TND), [B, S, N, 576] (BSND), or
         [B, N, S, 576] (BNSD), fp16/bf16.
@@ -145,6 +147,8 @@ def flash_mla_metadata(
     impl="auto",
 ):
     """Build scheduling metadata; auto selects cann_ops_transformers on arch35.
+
+    This is a non-official operator introduced in CANN 9.2.0.
 
     cache_seqlens (Tensor): int32 [B], KV lengths.
     num_heads_q/num_heads_kv (int): query/KV head counts.
