@@ -40,19 +40,20 @@ def chunk_delta_h(
     for sequence, (b, start, end) in enumerate(sequences):
         states = (
             torch.zeros(
-                (heads, key_dim, value_dim), dtype=torch.float32, device=k.device
+                (heads, value_dim, key_dim), dtype=torch.float32, device=k.device
             )
             if initial_state is None
-            else initial_state[sequence].float().clone()
+            else initial_state[sequence].transpose(-1, -2).float().clone()
         )
         for local_chunk, pos in enumerate(range(start, end, chunk_size)):
             stop = min(pos + chunk_size, end)
             out_index = packed_chunk if cu_seqlens is not None else local_chunk
             for head in range(heads):
                 current = states[head]
-                h[b, out_index, head] = current.to(k.dtype)
+                h[b, out_index, head] = current.T.to(k.dtype)
+                # SGLang computes u - w @ state.T before applying gate decay.
                 delta = u[b, pos:stop, head].float() - (
-                    w[b, pos:stop, head].float() @ current.to(w.dtype).float()
+                    w[b, pos:stop, head].float() @ current.T.to(w.dtype).float()
                 )
                 if save_new_value:
                     v_new[b, pos:stop, head] = delta.to(u.dtype)
@@ -61,8 +62,8 @@ def chunk_delta_h(
                 decay = torch.where(diff <= 0, diff.exp(), 0.0)
                 delta = (delta * decay[:, None]).to(k.dtype).float()
                 keys = k[b, pos:stop, head // (heads // groups)].float()
-                states[head] = current * gate[-1].exp() + keys.T @ delta
+                states[head] = current * gate[-1].exp() + delta.T @ keys
             packed_chunk += 1
         if final is not None:
-            final[sequence] = states
+            final[sequence] = states.transpose(-1, -2)
     return h, v_new, final
