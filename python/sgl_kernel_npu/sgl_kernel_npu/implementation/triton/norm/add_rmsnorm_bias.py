@@ -18,8 +18,8 @@ def add_rmsnorm_bias_kernel(
     output_ptr,
     output2_ptr,
     batch_size,
+    eps,
     hidden_size: tl.constexpr,
-    eps: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     COL_BLOCK_SIZE: tl.constexpr,
     SCALE: tl.constexpr,
@@ -79,9 +79,6 @@ def add_rmsnorm_bias_kernel(
         input_offsets += row_step * hidden_size
 
 
-kernels = {}
-
-
 def add_rmsnorm_bias(
     input,
     residual,
@@ -111,49 +108,7 @@ def add_rmsnorm_bias(
     output2 = torch.empty(
         batch_size, hidden_size, device=input.device, dtype=input.dtype
     )
-    # The original key omitted tensor dtypes, so a compiled kernel could be
-    # reused for a different dtype. Keep the cache but include every pointer
-    # dtype that affects compilation.
-    dtypes = (
-        input.dtype,
-        residual.dtype,
-        norm_weight.dtype,
-        norm_bias.dtype,
-        None if quant_scale is None else quant_scale.dtype,
-        None if quant_offset is None else quant_offset.dtype,
-    )
-    cache_key = (
-        n_rows,
-        hidden_size,
-        eps,
-        BLOCK_SIZE,
-        COL_BLOCK_SIZE,
-        SCALE,
-        dtypes,
-    )
-    kernel = kernels.get(cache_key, None)
-    if kernel is None:
-        kernel = add_rmsnorm_bias_kernel.warmup(
-            input,
-            residual,
-            norm_weight,
-            norm_bias,
-            quant_scale,
-            quant_offset,
-            output,
-            output2,
-            batch_size,
-            hidden_size,
-            eps,
-            BLOCK_SIZE,
-            COL_BLOCK_SIZE,
-            SCALE,
-            grid=(n_rows,),
-        )
-        kernel._init_handles()
-        kernels[cache_key] = kernel
-
-    kernel[(n_rows, 1, 1)](
+    add_rmsnorm_bias_kernel[(n_rows, 1, 1)](
         input,
         residual,
         norm_weight,
@@ -163,5 +118,10 @@ def add_rmsnorm_bias(
         output,
         output2,
         batch_size,
+        eps,
+        hidden_size,
+        BLOCK_SIZE,
+        COL_BLOCK_SIZE,
+        SCALE,
     )
     return output, output2
