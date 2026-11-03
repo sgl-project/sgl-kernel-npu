@@ -6,12 +6,23 @@ import shutil
 from pathlib import Path
 
 from build_tools.cann import run
-from build_tools.third_party import extract_python, read_json
+from build_tools.third_party import detect_soc_version, extract_python, read_json
 
 
 def configure(config, jobs):
     """Resolve ops-transformer's names and command placeholders."""
     config = dict(config)
+    config["soc"] = detect_soc_version()
+    supported_socs = {
+        "2201": ("ascend910b", "ascend910_93"),
+        "3510": ("ascend950",),
+    }
+    if config["soc"] not in supported_socs[config["arch_version"]]:
+        raise RuntimeError(
+            "Detected SoC {} does not match architecture {}".format(
+                config["soc"], config["arch_version"]
+            )
+        )
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     values = dict(config, jobs=jobs or 8)

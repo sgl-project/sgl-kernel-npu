@@ -1,6 +1,5 @@
 {
   "name": "sgl_ops_transformer",
-  "soc": "ascend950",
   "ops": ["flash_mla", "flash_mla_metadata"],
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "37c98efe33ee7faf7d17882532dc1305221c727e",

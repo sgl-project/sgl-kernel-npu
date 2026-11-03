@@ -50,6 +50,32 @@ def detect_cann_version():
     raise RuntimeError("Cannot read an exact CANN release from SDK version metadata")
 
 
+@lru_cache(maxsize=1)
+def detect_soc_version():
+    """Detect the local build target without importing Torch or initializing NPU."""
+    for arguments in (
+        ["npu-smi", "info", "-t", "board", "-i", "0"],
+        ["npu-smi", "info", "-t", "board", "-i", "0", "-c", "0"],
+    ):
+        try:
+            output = subprocess.check_output(
+                arguments, text=True, stderr=subprocess.STDOUT, timeout=10
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+        match = re.search(r"(?im)^\s*Chip Name\s*:\s*(\S+)", output)
+        if not match:
+            continue
+        chip = match[1].lower()
+        if chip.startswith(("ascend910b", "910b")):
+            return "ascend910b"
+        if chip.startswith(("ascend910_93", "910_93")) or chip == "ascend910":
+            return "ascend910_93"
+        if chip.startswith(("ascend950", "950")):
+            return "ascend950"
+    raise RuntimeError("Cannot detect build SoC from npu-smi board information")
+
+
 def resolve_plan(version, arch, jobs=None, source_root=PROJECT_ROOT):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Expected an exact CANN version, e.g. 9.2.0")
@@ -79,6 +105,7 @@ def resolve_plan(version, arch, jobs=None, source_root=PROJECT_ROOT):
         if not re.fullmatch(r"[a-z][a-z0-9_]*", config["name"]):
             raise ValueError("Invalid dependency identifier: name")
         builder = config.get("builder", config_path.stem)
+        config["arch_version"] = str(arch)
         config = get_adapter(builder).configure(config, jobs)
         plan.append(
             dict(config, builder=builder, cann_version=version, arch_version=str(arch))
