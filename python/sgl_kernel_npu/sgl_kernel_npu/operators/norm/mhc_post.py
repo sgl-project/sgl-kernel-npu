@@ -1,14 +1,13 @@
 """Public mhc_post operator with registered implementations."""
 
+from ..utils._cann_ops_transformer import get_op
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
 @register_impl("norm.mhc_post", "auto")
 @register_impl("norm.mhc_post", "cann_ops_transformer")
 def _cann_mhc_post(x, residual, post, comb):
-    from ...implementation.cann_ops_transformer.norm.mhc_post import mhc_post
-
-    return mhc_post(x, residual, post, comb)
+    return get_op("mhc_post")(residual, comb, x, post)
 
 
 @register_impl("norm.mhc_post", "torch_native")

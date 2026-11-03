@@ -1,14 +1,29 @@
 """Public mhc_pre operator with registered implementations."""
 
+from ..utils._cann_ops_transformer import get_op
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
 @register_impl("norm.mhc_pre", "auto")
 @register_impl("norm.mhc_pre", "cann_ops_transformer")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    from ...implementation.cann_ops_transformer.norm.mhc_pre import mhc_pre
-
-    return mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps)
+    shape = x.shape
+    h_in, h_post, h_res, *_ = get_op("mhc_pre_sinkhorn")(
+        x.reshape(-1, 1, hc_mult, shape[-1]),
+        fn,
+        scale,
+        base,
+        hc_mult,
+        sinkhorn_iters,
+        hc_eps,
+        rms_norm_eps,
+        False,
+    )
+    return (
+        h_in.reshape(-1, shape[-1]).to(x.dtype),
+        h_post.reshape(-1, hc_mult),
+        h_res.reshape(-1, hc_mult, hc_mult),
+    )
 
 
 @register_impl("norm.mhc_pre", "torch_native")
