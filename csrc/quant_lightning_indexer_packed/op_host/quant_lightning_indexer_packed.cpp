@@ -12,6 +12,18 @@
 #include "aclrtlaunch_sgl_quant_lightning_indexer_packed.h"
 
 namespace sglang::npu_kernel {
+// Keep tiling owned by the queued callback. The generated host launcher accepts
+// a pointer but synchronously copies the struct into its by-value kernel args.
+static uint32_t aclrtlaunch_sgl_quant_lightning_indexer_packed(
+    uint32_t blockDim, aclrtStream stream, void* query, void* packed_cache,
+    void* weights, void* query_scale, void* seq_q, void* seq_k,
+    void* block_table, void* output, void* workspace, QLITilingData tiling)
+{
+    return ::aclrtlaunch_sgl_quant_lightning_indexer_packed(
+        blockDim, stream, query, packed_cache, weights, query_scale, seq_q, seq_k,
+        block_table, output, workspace, &tiling);
+}
+
 at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Tensor& packed_cache,
     const at::Tensor& weights, const at::Tensor& query_scale, const at::Tensor& seq_q,
     const at::Tensor& seq_k, const at::Tensor& block_table, int64_t topk, int64_t sparse_mode)

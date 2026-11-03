@@ -44,14 +44,14 @@ public:
     static constexpr uint64_t QUERY_BUF_NUM = 2;
     static constexpr uint64_t L0_BUF_NUM = 2;
 
-    static constexpr uint32_t QLI_KEY_MTE1_MTE2_EVENT = EVENT_ID2;
-    static constexpr uint32_t QLI_QUERY_MTE1_MTE2_EVENT = EVENT_ID5;
-    static constexpr uint32_t QLI_M_MTE1_EVENT = EVENT_ID3;
+    static constexpr uint32_t QLI_KEY_MTE1_MTE2_EVENT = 2U;
+    static constexpr uint32_t QLI_QUERY_MTE1_MTE2_EVENT = 5U;
+    static constexpr uint32_t QLI_M_MTE1_EVENT = 3U;
 
-    static constexpr uint32_t MTE2_MTE1_EVENT = EVENT_ID2;
-    static constexpr uint32_t MTE1_M_EVENT = EVENT_ID2;
-    static constexpr uint32_t M_FIX_EVENT = EVENT_ID3;
-    static constexpr uint32_t QLI_FIX_M_EVENT = EVENT_ID2;
+    static constexpr uint32_t MTE2_MTE1_EVENT = 2U;
+    static constexpr uint32_t MTE1_M_EVENT = 2U;
+    static constexpr uint32_t M_FIX_EVENT = 3U;
+    static constexpr uint32_t QLI_FIX_M_EVENT = 2U;
 
     static constexpr uint64_t M_BASIC_BLOCK = 256;
     static constexpr uint64_t D_BASIC_BLOCK = 128;

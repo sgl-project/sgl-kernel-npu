@@ -62,22 +62,22 @@ protected:
     GlobalTensor<int32_t> indiceOutGm;
     GlobalTensor<int32_t> blockTableGm;
     // =================================常量区=================================
-    static constexpr uint32_t VEC1_V_MTE2_EVENT_KSCALE = EVENT_ID0;
-    static constexpr uint32_t VEC1_MTE2_V_EVENT_KSCALE = EVENT_ID1;
-    static constexpr uint32_t VEC1_V_MTE3_EVENT = EVENT_ID2;
-    static constexpr uint32_t VEC1_MTE3_V_EVENT = EVENT_ID3;
-    static constexpr uint32_t VEC1_V_MTE2_EVENT_QSCALE = EVENT_ID6;
-    static constexpr uint32_t VEC1_MTE2_V_EVENT_QSCALE = EVENT_ID3;
-    static constexpr uint32_t TOPK_V_MTE2_EVENT = EVENT_ID4;
-    static constexpr uint32_t TOPK_MTE2_V_EVENT = EVENT_ID5;
-    static constexpr uint32_t TOPK_V_MTE3_EVENT = EVENT_ID6;
-    static constexpr uint32_t TOPK_MTE3_V_EVENT = EVENT_ID7;
+    static constexpr uint32_t VEC1_V_MTE2_EVENT_KSCALE = 0U;
+    static constexpr uint32_t VEC1_MTE2_V_EVENT_KSCALE = 1U;
+    static constexpr uint32_t VEC1_V_MTE3_EVENT = 2U;
+    static constexpr uint32_t VEC1_MTE3_V_EVENT = 3U;
+    static constexpr uint32_t VEC1_V_MTE2_EVENT_QSCALE = 6U;
+    static constexpr uint32_t VEC1_MTE2_V_EVENT_QSCALE = 3U;
+    static constexpr uint32_t TOPK_V_MTE2_EVENT = 4U;
+    static constexpr uint32_t TOPK_MTE2_V_EVENT = 5U;
+    static constexpr uint32_t TOPK_V_MTE3_EVENT = 6U;
+    static constexpr uint32_t TOPK_MTE3_V_EVENT = 7U;
 
-    static constexpr uint32_t KSCALE_S_MTE2_EVENT = EVENT_ID7;
-    static constexpr uint32_t MTE3_MTE2_EVENT = EVENT_ID0;
-    static constexpr uint32_t V_MTE2_EVENT1 = EVENT_ID2;
-    static constexpr uint32_t V_MTE2_EVENT2 = EVENT_ID3;
-    static constexpr uint32_t V_MTE2_EVENT3 = EVENT_ID5;
+    static constexpr uint32_t KSCALE_S_MTE2_EVENT = 7U;
+    static constexpr uint32_t MTE3_MTE2_EVENT = 0U;
+    static constexpr uint32_t V_MTE2_EVENT1 = 2U;
+    static constexpr uint32_t V_MTE2_EVENT2 = 3U;
+    static constexpr uint32_t V_MTE2_EVENT3 = 5U;
 
 private:
     __aicore__ inline void GetKeyScale(const QLICommon::RunInfo& runInfo, LocalTensor<SCALE_T>& kScaleUB,
