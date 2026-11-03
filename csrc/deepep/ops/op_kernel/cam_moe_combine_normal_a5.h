@@ -114,8 +114,8 @@ private:
     uint32_t h256AlignFloatLen_{0};
     uint32_t h32AlignRecvXLen_{0};
     uint32_t h512AlignRecvXLen_{0};
-    uint32_t recvXStride_{0};   // row stride (bytes) of recv_x in GM
-    uint32_t srcInfoStride_{0}; // row stride (bytes) of token_src_info in GM
+    uint32_t recvXStride_{0};    // row stride (bytes) of recv_x in GM
+    uint32_t srcInfoStride_{0};  // row stride (bytes) of token_src_info in GM
     uint32_t sendCostStatsBufSize_{0};
 
     bool isEnableDiagnose_{false};

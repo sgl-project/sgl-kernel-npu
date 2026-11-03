@@ -391,12 +391,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
             hScaleSizeAlign + 3 * (int64_t)sizeof(int32_t) + (is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : 0);
         int64_t hOutGMAlignSize = ((hScaleIdxSize + WIN_ADDR_ALIGN - 1) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
 
-        at::Tensor combined =
-            torch::empty({num_recv_tokens, hOutGMAlignSize}, at::dtype(at::kByte).device(x.device()));
+        at::Tensor combined = torch::empty({num_recv_tokens, hOutGMAlignSize}, at::dtype(at::kByte).device(x.device()));
         expandx_out = combined.narrow(1, 0, data_bytes).view(out_dtype);
         // per-token scales (4B) / mx scales (hidden/32, e8m0), row stride = hOutGMAlignSize in GM
-        auto scale_view = combined.narrow(1, hUBAlignSize, scaleBytes).view(
-            is_mx ? at::kFloat8_e8m0fnu : at::kFloat);
+        auto scale_view = combined.narrow(1, hUBAlignSize, scaleBytes).view(is_mx ? at::kFloat8_e8m0fnu : at::kFloat);
         dynamic_scales_out = is_mx ? scale_view : scale_view.squeeze(1);
         expand_idx_out = combined.narrow(1, hScaleSizeAlign, 3 * (int64_t)sizeof(int32_t)).view(at::kInt);
     }
