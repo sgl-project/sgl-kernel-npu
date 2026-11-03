@@ -112,7 +112,12 @@ python -m pytest tests/python/operators/moe/test_moe_gating_top_k.py \
 | `rope` | partial rotary multiplication |
 | `moe` | MoE gating top-k |
 
-Production and torch reference implementations use matching category/operator
-paths. Each public operator has its own file; shared reference helpers remain
-private. Registry names use the same category prefix. No model-specific
-`operators/dsv4` package is introduced.
+Each public operator has its own file. The 12 CANN adapter bodies live directly
+in their registered backend functions under `operators/<category>/`; there is no
+separate `implementation/cann_ops_transformer` forwarding layer. The shared lazy
+loader and first-call symbol guards live in
+`operators/utils/_cann_ops_transformer.py`. Independent torch references keep
+their matching paths under `implementation/torch_native/`, and the MoE production
+backend stays in `implementation/torch_npu/moe/moe_gating_top_k.py`. Registry
+names use the same category prefix. No model-specific `operators/dsv4` package
+is introduced.
