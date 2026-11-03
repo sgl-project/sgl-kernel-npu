@@ -5,8 +5,14 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import get_skip_acc_check, get_test_impls
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -50,6 +56,11 @@ def test_mixed_attention(query_len):
     )
     path = get_npu_kv_quant_path()
     impl, impl_ref = get_test_impls()
+    skip_accuracy = get_skip_acc_check() is True
+    if skip_accuracy:
+        require_test_impl(mixed_quant_sparse_flash_mla, impl)
+    else:
+        require_distinct_impls(mixed_quant_sparse_flash_mla, impl, impl_ref)
     cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.float8_e4m3fn)
     cache_ref = cache.clone()
     writer_kwargs = dict(
@@ -77,20 +88,22 @@ def test_mixed_attention(query_len):
         softmax_scale=512**-0.5,
         **common,
     )
-    kwargs_ref = None
-    if get_skip_acc_check() is not True:
+    executor = make_executor(mixed_quant_sparse_flash_mla, args=(q,), kwargs=kwargs)
+    if not skip_accuracy:
         kv_compress_epilog(cache_ref, x, slots, impl=impl_ref, **writer_kwargs)
-        kwargs_ref = dict(
-            ori_kv=cache_ref,
-            metadata=mixed_quant_sparse_flash_mla_metadata(
+        reference_kwargs = {
+            **kwargs,
+            "ori_kv": cache_ref,
+            "metadata": mixed_quant_sparse_flash_mla_metadata(
                 impl=impl_ref, **metadata_kwargs
             ),
+        }
+        expected = mixed_quant_sparse_flash_mla(q, impl=impl_ref, **reference_kwargs)
+        actual = executor()
+        assert_accuracy(
+            actual,
+            expected,
+            {"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
         )
-    executor = check_accuracy(
-        mixed_quant_sparse_flash_mla,
-        args=(q,),
-        kwargs=kwargs,
-        kwargs_ref=kwargs_ref,
-        standard={"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
-    )
+        executor.accuracy_checked = True
     check_performance(executor, enable_perf=query_len in perf_shape)
