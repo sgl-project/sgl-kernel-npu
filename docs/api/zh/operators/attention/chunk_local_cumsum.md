@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 未验证 | 未验证 |
-| `torch_native` | 未验证 | 未验证 |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## 函数原型
 
