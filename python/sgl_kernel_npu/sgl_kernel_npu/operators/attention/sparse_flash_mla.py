@@ -18,6 +18,10 @@ def _cann_sparse_flash_mla(q, **kwargs):
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
     if family.legacy:
+        if args.get("layout_q", "BSND") == "TND":
+            # Legacy TND uses cu_seqlens_q and rejects a non-null seqused_q.
+            # Its tiling diagnostic misleadingly reports that seqused_q is null.
+            args.pop("seqused_q", None)
         args.pop("seqused_cmp_kv", None)
         args.pop("cmp_residual_kv", None)
         args["seqused_kv"] = args.pop("seqused_ori_kv", None)
