@@ -472,9 +472,7 @@ def test_moe_hash_routing_dtype_and_empty_output(package, dtype):
 
 def test_moe_adapter_forwards_standard_binding(package, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch_npu", ModuleType("torch_npu"))
-    backend = importlib.import_module(
-        package.ns + ".implementation.torch_npu.moe.moe_gating_top_k"
-    )
+    backend = importlib.import_module(package.ns + ".operators.moe.moe_gating_top_k")
     x = torch.ones(2, 8)
     native = Mock(
         return_value=(

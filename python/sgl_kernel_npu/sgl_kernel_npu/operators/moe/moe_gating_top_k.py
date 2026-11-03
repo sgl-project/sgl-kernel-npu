@@ -74,14 +74,10 @@ def _torch_npu(
                 else torch.empty(0, dtype=torch.float32, device=x.device)
             ),
         )
-    from ...implementation.torch_npu.moe.moe_gating_top_k import moe_gating_top_k
+    import torch_npu  # noqa: F401 -- registers torch.ops.npu
 
-    weights, indices, scores = moe_gating_top_k(
-        x,
-        k,
+    kwargs = dict(
         bias=bias,
-        input_ids=input_ids,
-        tid2eid=tid2eid,
         k_group=k_group,
         group_count=group_count,
         group_select_mode=group_select_mode,
@@ -91,6 +87,11 @@ def _torch_npu(
         routed_scaling_factor=routed_scaling_factor,
         eps=eps,
     )
+    if input_ids is not None or tid2eid is not None:
+        kwargs.update(input_ids=input_ids, tid2eid=tid2eid)
+    weights, indices, scores = family.ops[0](x, k, **kwargs)
+    if not out_flag:
+        scores = torch.empty(0, dtype=torch.float32, device=x.device)
     return weights.to(x.dtype), indices.to(torch.int32), scores
 
 
