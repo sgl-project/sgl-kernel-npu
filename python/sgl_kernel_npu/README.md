@@ -81,6 +81,19 @@ provides shape/type inference, and `TILING_SOURCES` computes device launch data.
 and registers `ARCH 2201` / `ARCH 3510` variants for its two Kernel entries.
 An operator with a complete common implementation needs no variant.
 
+These fields describe build roles, not mandatory file boundaries. An existing
+combined Host file using `SetTiling` and `OP_ADD` can be listed in both
+`OPDEF_SOURCES` and `TILING_SOURCES`; also list it in `INFER_SOURCES` when it
+provides inference through `SetInferShape` / `SetInferDataType`.
+`apply_token_bitmask` keeps this combined form, while CGDR uses separate files
+and implementation-side registration. Both forms can be selected in one build.
+Codegen compiles each entire OpDef input, so combined files must work with its
+shared compile settings; private Tiling include paths/macros are not forwarded
+to codegen. The generated `sgl_operator_config.h` is available to both TILING
+and GRAPH targets. Codegen tracks headers under OpDef directories and, for
+combined files, selected Kernel directories. Headers outside those trees require
+an explicit clean rebuild after changes.
+
 Use lowercase snake_case for operator IDs by convention. IDs are case-sensitive;
 uppercase letters are also accepted. IDs must start with a letter and contain
 only letters, digits and underscores; `all` and `ALL` are reserved for selection.

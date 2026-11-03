@@ -4,11 +4,20 @@ function(sgl_generate_cann_interfaces output_dir)
     if(NOT COMMAND npu_op_code_gen)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
     endif()
-    # Codegen compiles only lightweight definitions, never implementation sources.
+    # OpDef inputs may be separate definitions or combined Host implementations.
     set(opdef_sources)
+    set(header_scan_sources)
     foreach(id IN LISTS ARGN)
-        sgl_get_operator(sources "${id}" OPDEF_SOURCES)
-        list(APPEND opdef_sources ${sources})
+        sgl_resolve_operator(op "${id}" "${SGL_ARCH_VERSION}")
+        list(APPEND opdef_sources ${op_OPDEF_SOURCES})
+        list(APPEND header_scan_sources ${op_OPDEF_SOURCES})
+        foreach(source IN LISTS op_OPDEF_SOURCES)
+            if(source IN_LIST op_TILING_SOURCES OR source IN_LIST op_INFER_SOURCES)
+                # Combined Host files can include shared Tiling headers under op_kernel.
+                list(APPEND header_scan_sources ${op_KERNEL_SOURCES})
+                break()
+            endif()
+        endforeach()
     endforeach()
 
     set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
@@ -19,12 +28,12 @@ function(sgl_generate_cann_interfaces output_dir)
     endforeach()
     file(CONFIGURE OUTPUT "${config_dir}/sgl_operator_config.h" CONTENT
         "#pragma once\ninline constexpr const char* SGL_CANN_CONFIGS[] = {${configs}};\n")
-    # Conservatively track headers beneath each OpDef directory. Definitions
-    # keep handwritten interface headers there; CANN headers use SDK versions.
-    # Kernel directories and Tiling source files are not codegen inputs.
+    # Track OpDef headers, plus Kernel-directory headers for combined Host files.
+    # Separate Tiling/Kernel implementations remain outside the codegen cache.
     set(inputs ${opdef_sources} "${config_dir}/sgl_operator_config.h"
         "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
-    foreach(source IN LISTS opdef_sources)
+    list(REMOVE_DUPLICATES header_scan_sources)
+    foreach(source IN LISTS header_scan_sources)
         get_filename_component(directory "${source}" DIRECTORY)
         file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${directory}/*.h" "${directory}/*.hpp")
         list(APPEND inputs ${headers})
@@ -94,6 +103,8 @@ function(sgl_add_cann_tiling)
         endforeach()
     endforeach()
     npu_op_library(sgl_cann_tiling TILING ${tiling_sources})
+    # Combined Host files also consume the generated interface configuration.
+    target_include_directories(sgl_cann_tiling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     foreach(source IN LISTS tiling_sources)
         string(SHA256 key "${source}")
         set_property(SOURCE "${source}" TARGET_DIRECTORY sgl_cann_tiling
@@ -116,6 +127,7 @@ function(sgl_add_cann_kernels output_dir)
     endforeach()
     npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
     npu_op_library(sgl_cann_proto GRAPH ${infer_sources} "${output_dir}/op_proto.cc")
+    target_include_directories(sgl_cann_proto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     # CANN 9.2 appends these Kernel handoff INIs; replay from empty files while
     # retaining the independent OpDef/ACLNN/proto cache.
     set(source_config "${output_dir}/sgl_cann_kernels_custom_source_files.ini")
