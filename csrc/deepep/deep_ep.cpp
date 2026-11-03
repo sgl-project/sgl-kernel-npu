@@ -357,10 +357,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     at::Tensor expand_idx_out;
 #ifdef __DAV_C310__
     {
-        // A5 (Ascend 950): allocate a single combined GM buffer and expose strided views for the three outputs.
-        // The dispatch kernel writes each row [主数据][scale][expandIdx] contiguously (hScaleIdxSize bytes, padded to
-        // hOutGMAlignSize), so the three returned tensors are views over the same storage. Layout must mirror
-        // CamMoeDispatchNormalA5::Init() in cam_moe_dispatch_normal_a5.h.
+        // A5: one combined GM buffer, three strided views. Each row is [data][scale][expandIdx] padded to
+        // hOutGMAlignSize. Layout must mirror CamMoeDispatchNormalA5::Init().
         constexpr int64_t UB_ALIGN = 32;
         constexpr int64_t WIN_ADDR_ALIGN = 512;
         const bool is_mxfp8 = (quant_mode == MXFP8_SCALES);
@@ -393,7 +391,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
         at::Tensor combined = torch::empty({num_recv_tokens, hOutGMAlignSize}, at::dtype(at::kByte).device(x.device()));
         expandx_out = combined.narrow(1, 0, data_bytes).view(out_dtype);
-        // per-token scales (4B) / mx scales (hidden/32, e8m0), row stride = hOutGMAlignSize in GM
+        // per-token scales (4B) / mx scales (hidden/32, e8m0)
         auto scale_view = combined.narrow(1, hUBAlignSize, scaleBytes).view(is_mx ? at::kFloat8_e8m0fnu : at::kFloat);
         dynamic_scales_out = is_mx ? scale_view : scale_view.squeeze(1);
         expand_idx_out = combined.narrow(1, hScaleSizeAlign, 3 * (int64_t)sizeof(int32_t)).view(at::kInt);
@@ -456,6 +454,14 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     }
 
     auto recv_count_one_dim = recv_count.sum(0, false).to(at::kInt);
+#ifdef __DAV_C310__
+    // The scale output is a strided view of the combined buffer. With numel <= 1 PyTorch reports it as
+    // contiguous (size-1 dims are ignored), so .contiguous() is a no-op and the row stride survives, breaking
+    // downstream dtype-changing views like .view(torch.uint8). Materialize a dense copy after the kernel runs.
+    if (!is_mxfp8_quant && !is_mxfp4_quant && dynamic_scales_out.numel() <= 1) {
+        dynamic_scales_out = dynamic_scales_out.clone(at::MemoryFormat::Contiguous);
+    }
+#endif
     // Return values
     return {expandx_out,
             dynamic_scales_out,
@@ -613,11 +619,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     at::Tensor recv_x = x;
     auto topk_idx_int32 = topk_idx.to(at::kInt);
     at::Tensor token_src_info = src_idx;
-    // recv_x / token_src_info may be strided views of the single combined dispatch buffer (row stride
-    // hOutGMAlignSize). The aclnn/CANN layer forces non-contiguous inputs to be copied before the kernel
-    // runs regardless of the op def's AutoContiguous flag, and that generic gather of a 12B/row view is
-    // slow (~60us for ~8k tokens). Materializing an optimized dense copy here (torch contiguous, ~8us)
-    // avoids that; the kernel then always receives dense rows and indexes them with dense strides.
+    // recv_x / token_src_info may be strided views of the combined dispatch buffer. The aclnn layer copies
+    // non-contiguous inputs anyway, but its generic gather of a 12B/row view is slow (~60us vs ~8us here).
     if (!token_src_info.is_contiguous()) {
         token_src_info = token_src_info.contiguous();
     }
@@ -666,8 +669,7 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
-    // recv_x / token_src_info are dense copies now (see above), so the kernel indexes them with dense
-    // row strides: hidden * element_size for recv_x, 12B for token_src_info.
+    // Dense copies now, so the kernel indexes with dense row strides.
     int64_t combinedStride = hidden * recv_x.element_size();
     int64_t srcInfoStride = 3 * sizeof(int32_t);
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,

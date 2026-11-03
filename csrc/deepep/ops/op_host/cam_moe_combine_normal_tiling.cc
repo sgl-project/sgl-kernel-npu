@@ -188,9 +188,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, Cam
     if (combinedStridePtr != nullptr && *combinedStridePtr > 0) {
         tilingData.camMoeCombineNormalInfo.recvXStride = static_cast<uint32_t>(*combinedStridePtr);
     } else {
-        // 未传 combined_stride（旧调用方），recv_x 为连续 bf16/fp16 张量，行步长 = h * 2 字节。
-        // 注意：此函数在 CheckTensorShape 之前调用，camMoeCombineNormalInfo.h 尚未赋值，
-        // 必须直接从 recvX 输入 shape 取 h。
+        // 旧调用方未传 combined_stride：recv_x 连续，行步长 = h * 2 字节。此处在 CheckTensorShape 之前，
+        // camMoeCombineNormalInfo.h 尚未赋值，须直接从 recvX 输入 shape 取 h。
         uint32_t hFallback = 0U;
         const gert::StorageShape *recvXStorageShape = context->GetInputShape(RECV_X_INDEX);
         if (recvXStorageShape != nullptr && recvXStorageShape->GetStorageShape().GetDimNum() == TWO_DIMS) {

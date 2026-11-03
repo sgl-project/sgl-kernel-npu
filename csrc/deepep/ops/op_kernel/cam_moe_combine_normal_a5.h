@@ -252,10 +252,9 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
     tpipe_->Reset();
     uint32_t recvCountAlignLen = Ceil(moeExpertNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
     uint32_t rangeCntAlignLen = Ceil(moeExpertPerRankNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
-    // srcInfoBuf_ layout depends on the GM row stride of token_src_info:
-    //  - contiguous (row stride == 12B): baseline whole-block copy, dense rows (index j*3)
-    //  - strided (row stride is a 32B multiple, e.g. hOutGMAlignSize): per-row 32B copy into
-    //    32B-aligned slots (index j*8) so both src/dst of each DataCopyPad stay 32B-aligned.
+    // srcInfoBuf_ layout follows the GM row stride of token_src_info:
+    //  - dense (12B): whole-block copy, rows at j*3
+    //  - strided (32B multiple): per-row 32B copy into 32B-aligned slots at j*8
     const bool srcInfoContig = (srcInfoStride_ == TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
     uint32_t srcInfoRowAlignBytes = Ceil(TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType), UB_32_ALIGN) * UB_32_ALIGN;
     uint32_t srcInfoAlignLen =
@@ -388,8 +387,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRa
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
     const bool srcInfoContig = (srcInfoStride_ == TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
     const uint32_t srcInfoRowElems = srcInfoStride_ / sizeof(SrcInfoType);
-    // strided rows are read with a 32B block (only the first TOKEN_SRC_INFO_LEN int32s are used), keeping both
-    // src (row stride is a 32B multiple) and dst (32B-aligned slot) addresses 32B-aligned per DataCopyPad.
+    // Read a 32B block per row so both src (32B-multiple stride) and dst (32B-aligned slot) stay aligned.
     const uint32_t srcInfoRowBytes = TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
     const uint32_t srcInfoRowCopyBytes = Ceil(srcInfoRowBytes, UB_32_ALIGN) * UB_32_ALIGN;
     const uint32_t srcInfoRowAlignElems = srcInfoRowCopyBytes / sizeof(SrcInfoType);

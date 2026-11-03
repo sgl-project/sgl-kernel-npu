@@ -795,10 +795,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                                     0U};  // compare with
     DataCopyPadParams padParams = {true, 0, 0, 0};
 
-    // Combined write: the UB row already holds [主数据][scale][expandIdx] contiguously (hScaleIdxSize bytes),
-    // so a single MTE3 DataCopyPad writes the whole row into the contiguous GM combined buffer
-    // (one row per token at stride hOutGMAlignSize). This replaces the previous three separate writes
-    // (expandIdx / scale / main data) with a single write.
+    // The UB row already holds [data][scale][expandIdx] contiguously, so one MTE3 DataCopyPad writes the
+    // whole row into the combined GM buffer (one row per token at stride hOutGMAlignSize).
     LocalTensor<uint8_t> xTmpTensorU8;
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
