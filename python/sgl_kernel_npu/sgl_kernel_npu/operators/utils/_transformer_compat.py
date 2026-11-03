@@ -7,12 +7,18 @@ execution; a failed kernel is never retried with a different backend.
 import functools
 import importlib
 import os
+import re
 from pathlib import Path
 from typing import NamedTuple
 
 import torch
 
 from ._cann_ops_transformer import get_op
+
+_VERSION_RE = re.compile(
+    r"^\s*(?:version|version_dir)\s*=\s*(\d+\.\d+\.\d+)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class OperatorUnavailableError(RuntimeError):
@@ -30,14 +36,47 @@ class OperatorFamily(NamedTuple):
 
 
 @functools.lru_cache(maxsize=1)
-def backend_preference():
-    value = os.environ.get("SGL_KERNEL_NPU_TRANSFORMER_BACKEND", "auto")
-    if value not in ("auto", "cann_ops_transformer", "legacy"):
-        raise ValueError(
-            "SGL_KERNEL_NPU_TRANSFORMER_BACKEND must be auto, "
-            "cann_ops_transformer, or legacy"
-        )
-    return value
+def detect_cann_version() -> str:
+    """Read an exact release from the initialized SDK before selecting bindings."""
+    sdk = os.environ.get("ASCEND_HOME_PATH")
+    if not sdk:
+        raise RuntimeError("Initialize CANN: ASCEND_HOME_PATH is missing")
+
+    sdk_path = Path(sdk)
+    if not sdk_path.is_dir():
+        raise RuntimeError(f"ASCEND_HOME_PATH does not exist: {sdk}")
+
+    candidates = (sdk_path / "version.cfg", sdk_path / "compiler" / "version.info")
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise RuntimeError(f"Cannot read CANN metadata {path}: {exc}") from exc
+        match = _VERSION_RE.search(text)
+        if match:
+            return match.group(1)
+
+    raise RuntimeError(
+        "Cannot read an exact CANN release from SDK version metadata "
+        f"(looked in: {', '.join(map(str, candidates))})"
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def cann_backend():
+    """Select the supported SDK release family without probing a fallback."""
+    version = detect_cann_version()
+    release = tuple(map(int, version.split(".")))[:2]
+    if release == (9, 1):
+        return "legacy"
+    if release == (9, 2):
+        return "cann_ops_transformer"
+    raise OperatorUnavailableError(
+        f"Unsupported CANN release {version}; Transformer operators support "
+        "CANN 9.1.x and 9.2.x only"
+    )
 
 
 @functools.lru_cache(maxsize=1)
@@ -49,11 +88,6 @@ def has_released_ops():
             raise  # A broken installed package is not an absent backend.
         return False
     return True
-
-
-def prefer_legacy_bindings():
-    preference = backend_preference()
-    return preference == "legacy" or (preference == "auto" and not has_released_ops())
 
 
 @functools.lru_cache(maxsize=1)
@@ -88,39 +122,30 @@ def _lookup(specs):
 
 
 @functools.lru_cache(maxsize=None)
-def select_family(released, legacy, *, prefer_legacy=False, required_arguments=()):
-    """Resolve a whole metadata/compute/writer family, never individual halves."""
-    preference = backend_preference()
-    order = (
-        ("legacy", "cann_ops_transformer")
-        if prefer_legacy
-        else ("cann_ops_transformer", "legacy")
-    )
-    if preference != "auto":
-        order = (preference,)
-    missing = []
-    for backend in order:
-        specs = released if backend == "cann_ops_transformer" else legacy
-        ops = _lookup(specs)
-        if all(op is not None for op in ops):
-            unsupported = []
-            for op in ops:
-                names = schema_arguments(op)
-                if names is not None:
-                    unsupported.extend(
-                        name for name in required_arguments if name not in names
-                    )
-            if not unsupported:
-                return OperatorFamily(backend, ops, specs)
-            missing.append(f"{backend} arguments {sorted(set(unsupported))}")
-        missing.extend(
-            f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None
-        )
+def select_family(released, legacy, *, required_arguments=()):
+    """Require the complete family selected by the SDK version, without fallback."""
+    backend = cann_backend()
+    specs = released if backend == "cann_ops_transformer" else legacy
+    ops = _lookup(specs)
+    missing = [f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None]
+    for op in ops:
+        if op is None:
+            continue
+        names = schema_arguments(op)
+        if names is not None:
+            missing.extend(
+                f"{op} argument {name}"
+                for name in required_arguments
+                if name not in names
+            )
+    if not missing:
+        return OperatorFamily(backend, ops, specs)
     raise OperatorUnavailableError(
-        "No complete compatible operator family is registered. Missing: "
+        f"CANN {detect_cann_version()} requires a complete compatible "
+        f"{backend} operator family. Missing: "
         + ", ".join(missing)
-        + ". Register the released CANN extension or the original custom/native "
-        "libraries before the first call. Backend selection cannot change after "
+        + ". Register the matching operator libraries before the first call; "
+        "no other CANN backend is tried. Backend selection cannot change after "
         "KV allocation or graph capture."
     )
 

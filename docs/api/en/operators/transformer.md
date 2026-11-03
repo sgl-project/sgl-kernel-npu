@@ -85,14 +85,12 @@ current Python APIs and the matching native operator libraries. The aggregate
 CPU/mock test module has been removed; these tests execute the selected NPU
 binding against independent `torch_native` results.
 
-Select a binding path before starting pytest. Use `legacy` for original bindings
-or `cann_ops_transformer` for released bindings; `auto` selects available complete
-families. The `--impl` name selects the registered compatibility wrapper, while
-the environment variable selects the underlying bindings.
+Initialize the target CANN SDK before starting pytest. CANN 9.1.x selects the
+original bindings; CANN 9.2.x selects the released bindings. The `--impl` name
+selects the registered compatibility wrapper, while SDK version metadata selects
+the underlying bindings. No backend-selection environment variable is required.
 
 ```sh
-export SGL_KERNEL_NPU_TRANSFORMER_BACKEND=legacy
-# Or: export SGL_KERNEL_NPU_TRANSFORMER_BACKEND=cann_ops_transformer
 python -m pytest tests/python/operators/attention/test_sparse_flash_mla.py \
   tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py \
   tests/python/operators/norm/test_mhc.py \
@@ -171,8 +169,9 @@ the individual operators' ABI argument mappings.
 
 The public imports, `impl="auto"`, `torch_native`, and the existing production
 implementation names stay stable. Production wrappers now resolve the original
-custom/native binding or the released binding inside the kernel package. This
-is a binding/ABI compatibility layer, not a comparison of SDK version strings.
+custom/native binding or the released binding inside the kernel package. The initialized CANN SDK selects
+the binding/ABI compatibility path: CANN 9.1.x uses the original bindings and
+CANN 9.2.x uses the released bindings.
 
 | Public API | Original production binding | Released/#939 production binding |
 | --- | --- | --- |
@@ -193,19 +192,24 @@ is a binding/ABI compatibility layer, not a comparison of SDK version strings.
 Names omit the `torch.ops` prefix. MoE production execution, binding selection
 and legacy adaptation are implemented directly in its public operator module.
 
-Selection is cached before execution. `auto` prefers complete released families
-and otherwise selects complete legacy families. Metadata and compute are paired;
-the quantized KV writer is part of the same family. A broken installed package
-or an execution failure is raised to the caller, not retried on another backend.
-Optional schema features, including MoE hash inputs, are checked before execution.
+The kernel reads an exact `major.minor.patch` release from the initialized
+`ASCEND_HOME_PATH`, checking `version.cfg` first and `compiler/version.info`
+second. The `version` and `version_dir` keys are case-insensitive. No separate
+backend-selection environment variable is needed.
 
-To force the original bindings when both installations are present, set this
-before importing/using the operators and before constructing pools or graphs:
+| Detected SDK | Required binding path |
+| --- | --- |
+| CANN 9.1.x | Original custom/native bindings |
+| CANN 9.2.x | Released bindings, retaining the documented fused native compressor |
+| Missing/inexact metadata or another release | Error before operator execution |
 
-```sh
-export SGL_KERNEL_NPU_TRANSFORMER_BACKEND=legacy
-# Alternatives: auto (default), cann_ops_transformer (require released bindings).
-```
+Initialize the intended SDK using its `set_env.sh` before starting the service.
+Version detection and family selection are lazy and cached before execution;
+do not switch SDK installations after allocating KV pools or capturing graphs.
+Metadata and compute are paired, and the quantized KV writer belongs to the
+same version-selected family. Missing bindings, unsupported schema features
+(including MoE hash inputs), broken packages and kernel failures are reported
+without trying another version's bindings.
 
 Original custom operators must already be registered. Optionally,
 `SGL_KERNEL_NPU_LEGACY_OPS_SO` can identify their standalone library. There is

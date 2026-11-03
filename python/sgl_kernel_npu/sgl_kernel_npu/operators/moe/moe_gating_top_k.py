@@ -2,11 +2,7 @@
 
 import torch
 
-from ..utils._transformer_compat import (
-    checked_kwargs,
-    prefer_legacy_bindings,
-    select_family,
-)
+from ..utils._transformer_compat import checked_kwargs, select_family
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
@@ -31,10 +27,11 @@ def _torch_npu(
     family = select_family(
         (("npu", "npu_moe_gating_top_k"),),
         (("custom", "npu_moe_gating_top_k"),),
-        prefer_legacy=prefer_legacy_bindings(),
-        required_arguments=("input_ids", "tid2eid")
-        if input_ids is not None or tid2eid is not None
-        else (),
+        required_arguments=(
+            ("input_ids", "tid2eid")
+            if input_ids is not None or tid2eid is not None
+            else ()
+        ),
     )
     if family.legacy:
         kwargs = dict(
