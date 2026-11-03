@@ -2,7 +2,8 @@
 
 import torch
 
-from ..utils._transformer_compat import OperatorUnavailableError, attention_family
+from ..attention._backend import attention_family
+from ..utils._transformer_compat import OperatorUnavailableError
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
