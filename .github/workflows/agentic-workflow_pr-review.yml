@@ -1,0 +1,96 @@
+name: Agentic Workflow (PR-Review)
+
+### PR-Review Workflow, executed by opencode
+#
+# !!! This workflow is and ONLY can be triggered by the `workflow_dispatch` event. !!!
+#
+# For security reasons, this workflow must not be pointed at untrusted refs directly.
+# It can be dispatched by `slash-cmd-gate.yml` or be run manually by users with write access
+# with an explicit PR number. It requires always running from the default-branch (`main`) version
+# of this file, so PR authors cannot alter the review logic and exploit the workflow to gain access
+# to any secrets or tokens.
+#
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR to review"
+        required: true
+        type: number
+      comment_id:
+        description: "Triggering comment id (for reaction feedback)"
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  pr-review:
+    name: PR Review
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: pr-review-${{ inputs.pr_number }}
+      cancel-in-progress: true
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      COMMENT_ID: ${{ inputs.comment_id }}
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR (read-only)
+        run: |
+          git init --quite --branch main
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          gh auth setup-git
+          gh pr checkout "${PR_NUMBER}"
+
+      - name: Scope opencode config to read-only
+        run: |
+          mkdir --parents ~/.config/opencode
+          cat > ~/.config/opencode/opencode.json << "EOF"
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": {
+              "edit": "deny",
+              "bash": {
+                "git *": "deny"
+              }
+            }
+          }
+          EOF
+
+      - uses: anomalyco/opencode/github@latest
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY_FOR_GHACTIONS }}
+        with:
+          model: zhipuai-coding-plan/glm-5.3-flash
+          prompt: |
+            Review this pull request (number ${{ inputs.pr_number }}):
+              - This is a read-only review task. Do NOT modify, create, or delete any files. Do NOT run any git commands (no git add, git commit, git push, git checkout, git stash, git config, etc.). Only read code and produce your review.
+              - Check for code quality issues
+              - Look for potential bugs
+              - Suggest improvements
+
+      - name: Mark request done
+        if: success() && inputs.comment_id != ''
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/comments/${{ inputs.comment_id }}/reactions" \
+            --raw-field content="+1"
+
+      - name: Mark request failed
+        if: failure() && inputs.comment_id != ''
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/comments/${{ inputs.comment_id }}/reactions" \
+            --raw-field content="-1"
+          gh pr comment "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body "PR Review failed. Check the run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
