@@ -123,7 +123,7 @@ separate `implementation/cann_ops_transformer` forwarding layer. The shared lazy
 loader and first-call symbol guards live in
 `operators/utils/_cann_ops_transformer.py`. Independent torch references keep
 their matching paths under `implementation/torch_native/`, and the MoE production
-backend stays in `implementation/torch_npu/moe/moe_gating_top_k.py`. Registry
+backend is implemented directly in `operators/moe/moe_gating_top_k.py`. Registry
 names use the same category prefix. No model-specific `operators/dsv4` package
 is introduced.
 
@@ -150,9 +150,8 @@ is a binding/ABI compatibility layer, not a comparison of SDK version strings.
 | `compressor` | A3: `npu.compressor`; A5: `custom.compressor` | `npu.compressor` (fused normalization/RoPE contract) |
 | `moe_gating_top_k` | `custom.npu_moe_gating_top_k` | `npu.npu_moe_gating_top_k` |
 
-Names omit the `torch.ops` prefix. The protected existing
-`implementation/torch_npu/moe/moe_gating_top_k.py` remains unchanged; selection
-and legacy adaptation are in its public operator module.
+Names omit the `torch.ops` prefix. MoE production execution, binding selection
+and legacy adaptation are implemented directly in its public operator module.
 
 Selection is cached before execution. `auto` prefers complete released families
 and otherwise selects complete legacy families. Metadata and compute are paired;
