@@ -10,6 +10,7 @@
 
 #include "acl/acl.h"
 #include "defines.h"
+#include "kv_h2d_copy_plan.h"
 #include "torch_helper.h"
 
 namespace sglang {
@@ -17,14 +18,45 @@ namespace npu_kernel {
 
 constexpr int64_t KV_TRANS_FLAG_1D = 1 << 0;
 constexpr int64_t KV_TRANS_FLAG_2D = 1 << 1;
+constexpr int64_t KV_TRANS_FLAG_COALESCE_H2D = 1 << 2;
 
 enum TransferDirection : int64_t {
     H2D = 1,
     D2H = 2,
 };
 
+namespace {
+std::vector<int64_t> page_ids(const at::Tensor &indices, int64_t page_size, int64_t limit)
+{
+    const auto first = indices.slice(0, 0, indices.numel(), page_size).to(at::kLong).contiguous();
+    const auto *tokens = first.data_ptr<int64_t>();
+    std::vector<int64_t> pages;
+    pages.reserve(first.numel());
+    for (const auto i : c10::irange(first.numel())) {
+        TORCH_CHECK(tokens[i] >= 0 && tokens[i] / page_size < limit, "KV page index is out of range");
+        pages.push_back(tokens[i] / page_size);
+    }
+    return pages;
+}
+
+void copy_dense_k_h2d(const at::Tensor &device, const at::Tensor &host, const at::Tensor &device_indices,
+                      const at::Tensor &host_indices, int64_t page_size, aclrtStream stream)
+{
+    const auto device_pages = page_ids(device_indices, page_size, device.size(1));
+    const auto host_pages = page_ids(host_indices, page_size, host.size(0));
+    const size_t width = page_size * device.size(3) * device.size(4) * device.element_size();
+    auto *dst = static_cast<uint8_t *>(device.data_ptr());
+    auto *src = static_cast<const uint8_t *>(host.data_ptr());
+    visit_kv_h2d_copies(device_pages, host_pages, device.size(0), device.size(1), width, [&](const KvH2dCopy &copy) {
+        const auto rc = aclrtMemcpy2dAsync(dst + copy.device_offset, copy.device_pitch, src + copy.host_offset,
+                                           copy.host_pitch, copy.width, copy.height, ACL_MEMCPY_HOST_TO_DEVICE, stream);
+        TORCH_CHECK(rc == ACL_SUCCESS, "KV H2D copy submission failed: ", rc);
+    });
+}
+}  // namespace
+
 // @direction: only support 1 or 2, 1 is H2D, 2 is D2H
-// @flags: only support 2
+// The 2D flag is required; COALESCE_H2D is an optional modifier for K-only transfers.
 HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v,
                                        at::Tensor &host_v, const at::Tensor &device_indices,
                                        const at::Tensor &host_indices, int64_t page_size, int64_t direction,
@@ -55,6 +87,15 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
 
     auto device_indices_cpu = device_indices.cpu();
     auto host_indices_cpu = host_indices.cpu();
+    c10_npu::NPUStream current_stream = c10_npu::getCurrentNPUStream();
+    aclrtStream acl_stream = current_stream.stream();
+    if (direction == TransferDirection::H2D && (flags & KV_TRANS_FLAG_COALESCE_H2D) && device_v.numel() == 0 &&
+        host_v.numel() == 0 && device_indices.dim() == 1 && host_indices.dim() == 1 && device_k.is_contiguous() &&
+        host_k.is_contiguous() && device_k.scalar_type() == host_k.scalar_type() &&
+        device_k.size(3) == host_k.size(3) && device_k.size(4) == host_k.size(4)) {
+        copy_dense_k_h2d(device_k, host_k, device_indices_cpu, host_indices_cpu, page_size, acl_stream);
+        return;
+    }
     const int64_t device_pages_num = device_k.sizes()[1];
     const int64_t host_pages_num = host_k.sizes()[0];
     const int64_t total_num_layers = device_k.sizes()[0];
@@ -64,13 +105,11 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
     const auto k_device_pitch = device_pages_num * page_size * heads_num * k_head_dim * item_size;
     const auto k_host_pitch = page_size * heads_num * k_head_dim * item_size;
     const auto k_width = page_size * heads_num * k_head_dim * item_size;
-    const auto v_head_dim = device_v.sizes()[4];
+    const auto v_head_dim = device_v.numel() == 0 ? 0 : device_v.size(4);
     const auto v_device_pitch = device_pages_num * page_size * heads_num * v_head_dim * item_size;
     const auto v_host_pitch = page_size * heads_num * v_head_dim * item_size;
     const auto v_width = page_size * heads_num * v_head_dim * item_size;
     const auto height = total_num_layers;
-    c10_npu::NPUStream current_stream = c10_npu::getCurrentNPUStream();
-    aclrtStream acl_stream = current_stream.stream();
 
     const int64_t num_pages = device_indices.size(0) / page_size;
     for (const auto i : c10::irange(num_pages)) {

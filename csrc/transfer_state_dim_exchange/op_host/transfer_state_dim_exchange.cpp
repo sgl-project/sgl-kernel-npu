@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "acl/acl.h"
+#include "contiguous_index_runs.h"
 #include "defines.h"
 #include "torch_helper.h"
 
@@ -185,24 +186,6 @@ void validate_indices(const int64_t *device_indices, const int64_t *host_indices
         TORCH_CHECK(host_indices[i] < host_slot_limit, "host index ", host_indices[i], " exceeds component slot count ",
                     host_slot_limit);
     }
-}
-
-std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *device_indices,
-                                                               const int64_t *host_indices, int64_t count)
-{
-    std::vector<std::pair<int64_t, int64_t>> runs;
-    runs.reserve(count);
-    int64_t begin = 0;
-    while (begin < count) {
-        int64_t end = begin + 1;
-        while (end < count && device_indices[end] == device_indices[end - 1] + 1 &&
-               host_indices[end] == host_indices[end - 1] + 1) {
-            ++end;
-        }
-        runs.emplace_back(begin, end - begin);
-        begin = end;
-    }
-    return runs;
 }
 
 void submit_state_all_layer_d2h(at::TensorList device_states, at::TensorList host_states,

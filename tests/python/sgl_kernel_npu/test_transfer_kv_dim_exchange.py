@@ -20,6 +20,56 @@ HEAD_DIM = 128
 
 class TestTransferKV(unittest.TestCase):
 
+    def test_coalesced_h2d_preserves_page_order_and_scale(self):
+        layers, pages, page_size = 2, 16, 16
+        device_pages = [3, 4, 5, 6, 7, 1, 4, 10, 9]
+        host_pages = [1, 2, 3, 4, 5, 8, 9, 10, 0]
+
+        def indices(selected):
+            return (
+                torch.tensor(selected)[:, None] * page_size + torch.arange(page_size)
+            ).flatten()
+
+        def source(width, dtype):
+            shape = (pages, layers, page_size, 1, width)
+            values = torch.arange(pages * layers * page_size * width).remainder(113)
+            return values.reshape(shape).to(dtype).pin_memory()
+
+        host = source(4, torch.int8)
+        scale = source(1, torch.float32)
+        device = torch.full(
+            (layers, pages, page_size, 1, 4), -1, dtype=torch.int8, device="npu"
+        )
+        device_scale = torch.full(
+            (layers, pages, page_size, 1), -1, dtype=torch.float32, device="npu"
+        )
+        stream = torch.npu.Stream()
+        stream.wait_stream(torch.npu.current_stream())
+        with torch.npu.stream(stream):
+            transfer_kv_dim_exchange(
+                device_indices=indices(device_pages),
+                host_indices=indices(host_pages),
+                device_k=device,
+                host_k=host,
+                device_v=torch.empty(0),
+                host_v=torch.empty(0),
+                device_index_k_scale=device_scale,
+                host_index_k_scale=scale,
+                page_size=page_size,
+                direction=TransferDirection.H2D,
+                flags=TransferFlag.FAST2D_COALESCED_H2D,
+            )
+        stream.synchronize()
+
+        for actual, src in (
+            (device.cpu(), host),
+            (device_scale.cpu().unsqueeze(-1), scale),
+        ):
+            expected = torch.full_like(actual, -1)
+            for dst_page, src_page in zip(device_pages, host_pages):
+                expected[:, dst_page].copy_(src[src_page])
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
     def _kv_transfer(
         self, direct: TransferDirection, v_empty: bool, index_k_empty: bool = True
     ):

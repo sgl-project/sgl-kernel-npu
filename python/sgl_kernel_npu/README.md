@@ -196,6 +196,10 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 3. In the Python project, import `sgl_kernel_npu`.
 
+### HiCache host-to-device copies
+
+Set `SGL_KERNEL_NPU_COALESCE_KV_H2D=1` before starting a worker to enable coalescing for dense K-only `transfer_kv_dim_exchange` calls. When both sets of page IDs advance together, a long run can be submitted with one 2D copy per layer. K/V pairs and device-to-host transfers continue to use the page loop. An explicit `TransferFlag.FAST2D` selects the original path for comparisons.
+
 ### Test
 Execute sgl_kernel_npu test scripts, for example
 ```bash

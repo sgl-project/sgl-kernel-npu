@@ -1,3 +1,4 @@
+import os
 from enum import Enum
 from typing import Optional, Sequence
 
@@ -11,6 +12,10 @@ class TransferDirection(Enum):
 
 class TransferFlag(Enum):
     FAST2D = 2
+    FAST2D_COALESCED_H2D = 6
+
+
+_COALESCE_KV_H2D = os.getenv("SGL_KERNEL_NPU_COALESCE_KV_H2D") == "1"
 
 
 def transfer_state_per_layer_direct_pf_lf(
@@ -60,7 +65,7 @@ def transfer_kv_dim_exchange(
     host_index_k_scale: Optional[torch.Tensor] = None,
     page_size: int = 128,
     direction: TransferDirection = TransferDirection.H2D,
-    flags: TransferFlag = TransferFlag.FAST2D,
+    flags: Optional[TransferFlag] = None,
 ):
     """
     In the L1 and L2 radix cache scenarios, perform batch copy of KV data between the device and the host.
@@ -78,8 +83,15 @@ def transfer_kv_dim_exchange(
         host_index_k_scale: per-token FP32 scale of the quantized Indexer in host
         page_size: page size
         direction: only support H2D and D2H.
-        flags: only FAST2D is supported, which indicates 2D data transfer via calling aclrtMemcpy2dAsync.
+        flags: FAST2D or FAST2D_COALESCED_H2D. Set SGL_KERNEL_NPU_COALESCE_KV_H2D=1
+            before import to enable coalescing by default for eligible H2D calls.
     """
+    if flags is None:
+        flags = (
+            TransferFlag.FAST2D_COALESCED_H2D
+            if _COALESCE_KV_H2D and direction == TransferDirection.H2D
+            else TransferFlag.FAST2D
+        )
     torch.ops.npu.transfer_kv_dim_exchange(
         device_k,
         host_k,
