@@ -1,4 +1,5 @@
 from .chunk_delta_h import chunk_delta_h
+from .chunk_gated_delta_rule import chunk_gated_delta_rule
 from .chunk_local_cumsum import chunk_local_cumsum
 from .chunk_scaled_dot_kkt import chunk_scaled_dot_kkt
 from .fia_prep import fia_prep
@@ -17,6 +18,7 @@ __all__ = [
     "chunk_delta_h",
     "fia_prep",
     "gqa_share_sparse_decode",
+    "chunk_gated_delta_rule",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
     "mlaprolog_v4",
