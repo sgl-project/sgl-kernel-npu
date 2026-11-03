@@ -30,11 +30,18 @@ public:
 
     __aicore__ inline void Init(GM_ADDR hbmKRoPE, GM_ADDR hbmKvCache, GM_ADDR dramKRoPE, GM_ADDR dramKvCache,
                                 GM_ADDR hbmBlockTable, GM_ADDR dramBlockTable, GM_ADDR srcTokenIds, GM_ADDR dstSlots,
-                                GM_ADDR copyCounts, GM_ADDR qEnds, bool refreshOnly)
+                                GM_ADDR copyCounts, GM_ADDR qEnds, bool refreshOnly, GM_ADDR current, GM_ADDR positions,
+                                GM_ADDR currentValid, bool residentEnabled)
     {
         blockIdx_ = GetBlockIdx();
         refreshOnly_ = refreshOnly;
+        residentEnabled_ = residentEnabled;
         qEndsGm_.SetGlobalBuffer((__gm__ int32_t *)qEnds);
+        if (residentEnabled_) {
+            currentGm_.SetGlobalBuffer((__gm__ T *)current);
+            positionsGm_.SetGlobalBuffer((__gm__ int64_t *)positions);
+            currentValidGm_.SetGlobalBuffer((__gm__ uint8_t *)currentValid);
+        }
         batchSize_ = tiling_->baseParams.batchSize;
         copyCap_ = tiling_->missCap;
         totalPairSlots_ = static_cast<int64_t>(batchSize_) * copyCap_;
@@ -109,6 +116,7 @@ private:
         int64_t dstKv = 0;
         int64_t srcRope = 0;
         int64_t dstRope = 0;
+        bool fromCurrent = false;
     };
 
     __aicore__ inline int64_t FirstFlatPairAtOrAfter(int64_t start)
@@ -170,25 +178,51 @@ private:
         int64_t srcBlockOffset = static_cast<int64_t>(srcTokenId) & BLOCK_MASK;
         int64_t dstBlockCol = static_cast<int64_t>(dstSlot) >> BLOCK_SHIFT;
         int64_t dstBlockOffset = static_cast<int64_t>(dstSlot) & BLOCK_MASK;
-        ASSERT_MSG(srcBlockCol < tiling_->dramMaxBlockNum && dstBlockCol < tiling_->hbmMaxBlockNum,
-                   "active source token or destination slot exceeds its block table.");
-        if (srcBlockCol >= tiling_->dramMaxBlockNum || dstBlockCol >= tiling_->hbmMaxBlockNum) {
+        ASSERT_MSG(dstBlockCol < tiling_->hbmMaxBlockNum, "destination slot exceeds its block table.");
+        if (dstBlockCol >= tiling_->hbmMaxBlockNum) {
             return false;
         }
-
-        int32_t srcPhysicalBlock = dramBlockTableGm_.GetValue(batchIdx * tiling_->dramMaxBlockNum + srcBlockCol);
         int32_t dstPhysicalBlock = hbmBlockTableGm_.GetValue(batchIdx * tiling_->hbmMaxBlockNum + dstBlockCol);
-        ASSERT_MSG(srcPhysicalBlock >= 0 && dstPhysicalBlock >= 0, "block table entries must be non-negative.");
-        if (srcPhysicalBlock < 0 || dstPhysicalBlock < 0) {
+        ASSERT_MSG(dstPhysicalBlock >= 0 &&
+                       (!residentEnabled_ || static_cast<uint32_t>(dstPhysicalBlock) < tiling_->residentHbmPages),
+                   "destination block table entry is invalid.");
+        if (dstPhysicalBlock < 0 ||
+            (residentEnabled_ && static_cast<uint32_t>(dstPhysicalBlock) >= tiling_->residentHbmPages)) {
             return false;
         }
-
-        const int64_t srcRow = static_cast<int64_t>(srcPhysicalBlock) * BLOCK_SIZE + srcBlockOffset;
         const int64_t dstRow = static_cast<int64_t>(dstPhysicalBlock) * BLOCK_SIZE + dstBlockOffset;
+        if (residentEnabled_) {
+            const int32_t qStart = batchIdx == 0 ? 0 : qEndsGm_.GetValue(batchIdx - 1);
+            const int32_t qEnd = qEndsGm_.GetValue(batchIdx);
+            if (qStart >= 0 && qEnd > qStart && qEnd <= tiling_->residentCurrentRows) {
+                const int64_t first = positionsGm_.GetValue(qStart);
+                const int64_t q = qStart + static_cast<int64_t>(srcTokenId) - first;
+                if (q >= qStart && q < qEnd) {
+                    ASSERT_MSG(currentValidGm_.GetValue(q) != 0 && positionsGm_.GetValue(q) == srcTokenId,
+                               "active current source must be valid and consecutive");
+                    address.fromCurrent = true;
+                    address.srcKv = q * COMBINED_TOKEN_STRIDE;
+                    address.srcRope = address.srcKv + KV_CACHE_DIM;
+                }
+            }
+        }
+        int64_t srcRow = 0;
+        if (!address.fromCurrent) {
+            ASSERT_MSG(srcBlockCol < tiling_->dramMaxBlockNum, "source token exceeds the DRAM block table.");
+            if (srcBlockCol >= tiling_->dramMaxBlockNum) return false;
+            const int32_t srcPhysicalBlock =
+                dramBlockTableGm_.GetValue(batchIdx * tiling_->dramMaxBlockNum + srcBlockCol);
+            ASSERT_MSG(srcPhysicalBlock >= 0, "source block table entry must be non-negative.");
+            if (srcPhysicalBlock < 0) return false;
+            srcRow = static_cast<int64_t>(srcPhysicalBlock) * BLOCK_SIZE + srcBlockOffset;
+            ASSERT_MSG(!residentEnabled_ || srcRow < tiling_->residentHostRows,
+                       "source physical token exceeds host capacity.");
+            if (residentEnabled_ && srcRow >= tiling_->residentHostRows) return false;
+        }
         if constexpr (COMBINED_LAYOUT) {
-            address.srcKv = srcRow * COMBINED_TOKEN_STRIDE;
+            if (!address.fromCurrent) address.srcKv = srcRow * COMBINED_TOKEN_STRIDE;
             address.dstKv = dstRow * COMBINED_TOKEN_STRIDE;
-            address.srcRope = srcRow * COMBINED_TOKEN_STRIDE;
+            if (!address.fromCurrent) address.srcRope = srcRow * COMBINED_TOKEN_STRIDE;
             address.dstRope = dstRow * COMBINED_TOKEN_STRIDE;
         } else {
             address.srcKv = srcRow * KV_CACHE_DIM;
@@ -206,8 +240,13 @@ private:
         DataCopyExtParams kvParams{1, static_cast<uint32_t>(KV_CACHE_UB_BYTES), 0, 0, 0};
         DataCopyExtParams ropeParams{1, static_cast<uint32_t>(K_ROPE_UB_BYTES), 0, 0, 0};
 
-        DataCopyPad(local, dramKvCacheGm_[address.srcKv], kvParams, padParams);
-        DataCopyPad(local[kRopeUbOffset_], dramKRoPEGm_[address.srcRope], ropeParams, padParams);
+        if (address.fromCurrent) {
+            DataCopyPad(local, currentGm_[address.srcKv], kvParams, padParams);
+            DataCopyPad(local[kRopeUbOffset_], currentGm_[address.srcRope], ropeParams, padParams);
+        } else {
+            DataCopyPad(local, dramKvCacheGm_[address.srcKv], kvParams, padParams);
+            DataCopyPad(local[kRopeUbOffset_], dramKRoPEGm_[address.srcRope], ropeParams, padParams);
+        }
         copyQueue_.EnQue(local);
     }
 
@@ -240,12 +279,16 @@ private:
     int32_t cachedCopyCount_ = 0;
     int32_t cachedCopyStart_ = 0;
     bool refreshOnly_ = false;
+    bool residentEnabled_ = false;
     GlobalTensor<int32_t> qEndsGm_;
 
     GlobalTensor<T> hbmKRoPEGm_;
     GlobalTensor<T> hbmKvCacheGm_;
     GlobalTensor<T> dramKRoPEGm_;
     GlobalTensor<T> dramKvCacheGm_;
+    GlobalTensor<T> currentGm_;
+    GlobalTensor<int64_t> positionsGm_;
+    GlobalTensor<uint8_t> currentValidGm_;
     GlobalTensor<int32_t> hbmBlockTableGm_;
     GlobalTensor<int32_t> dramBlockTableGm_;
     GlobalTensor<int32_t> srcTokenIdsGm_;

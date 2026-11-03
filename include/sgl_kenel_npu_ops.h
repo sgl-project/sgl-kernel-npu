@@ -140,7 +140,14 @@ void fused_scatter_copy_sparse_flash_attention(
     const at::Tensor &miss_dst_slots, const at::Tensor &miss_counts,
     const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
     int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value,
-    bool full_visible, bool resident_refresh_tail);
+    bool full_visible, bool resident_refresh_tail,
+    const c10::optional<at::Tensor> &current,
+    const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid,
+    const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token,
+    const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>

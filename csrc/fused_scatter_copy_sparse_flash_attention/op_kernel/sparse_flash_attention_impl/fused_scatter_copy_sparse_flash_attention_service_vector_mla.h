@@ -58,6 +58,8 @@ public:
                                                              const GlobalTensor<int32_t> &sourceTokenIdsGm,
                                                              const GlobalTensor<int32_t> &copyCountsGm,
                                                              uint32_t copyCap, uint32_t dramMaxBlockNum);
+    __aicore__ inline void InitCurrentSource(GM_ADDR current, GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds,
+                                             uint32_t currentRows, uint32_t hostRows, bool enabled);
     __aicore__ inline void InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<KV_T> vec1ResGm,
                                                 GlobalTensor<int32_t> actualSeqLengthsQGm,
                                                 GlobalTensor<int32_t> actualSeqLengthsKVGm, GlobalTensor<T> lseMaxFdGm,
@@ -261,6 +263,13 @@ private:
     GlobalTensor<int32_t> kvValidSizeGm_;
     GlobalTensor<KV_T> dramKeyRopeGm_;
     GlobalTensor<KV_T> dramKeyGm_;
+    GlobalTensor<KV_T> currentGm_;
+    GlobalTensor<int64_t> currentPositionsGm_;
+    GlobalTensor<uint8_t> currentValidGm_;
+    GlobalTensor<int32_t> currentQEndsGm_;
+    uint32_t currentRows_ = 0;
+    uint32_t hostRows_ = 0;
+    bool currentEnabled_ = false;
     GlobalTensor<int32_t> dramBlockTableGm_;
     GlobalTensor<int32_t> sourceTokenIdsGm_;
     GlobalTensor<int32_t> copyCountsGm_;
@@ -1064,7 +1073,10 @@ __aicore__ inline int64_t SFAVectorService<SFAT>::GetDramKeyGmOffset(int64_t sou
     if (physicalBlock < 0) {
         return -1;
     }
-    return static_cast<int64_t>(physicalBlock) * constInfo.kvCacheBlockSize + blockOffset;
+    const int64_t offset = static_cast<int64_t>(physicalBlock) * constInfo.kvCacheBlockSize + blockOffset;
+    ASSERT_MSG(!currentEnabled_ || offset < hostRows_, "source physical token exceeds host capacity.");
+    if (currentEnabled_ && offset >= hostRows_) return -1;
+    return offset;
 }
 
 template <typename SFAT>
@@ -1098,6 +1110,22 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInSingleKv(int64_t &mte2Size,
 }
 
 template <typename SFAT>
+__aicore__ inline void SFAVectorService<SFAT>::InitCurrentSource(GM_ADDR current, GM_ADDR positions, GM_ADDR valid,
+                                                                 GM_ADDR qEnds, uint32_t currentRows, uint32_t hostRows,
+                                                                 bool enabled)
+{
+    currentEnabled_ = enabled;
+    currentRows_ = currentRows;
+    hostRows_ = hostRows;
+    if (enabled) {
+        currentGm_.SetGlobalBuffer((__gm__ KV_T *)current);
+        currentPositionsGm_.SetGlobalBuffer((__gm__ int64_t *)positions);
+        currentValidGm_.SetGlobalBuffer((__gm__ uint8_t *)valid);
+        currentQEndsGm_.SetGlobalBuffer((__gm__ int32_t *)qEnds);
+    }
+}
+
+template <typename SFAT>
 __aicore__ inline void SFAVectorService<SFAT>::CopyInDramKv(int64_t &mte2Size, int64_t mte3Size, int64_t mergeMte3Idx,
                                                             int64_t sourceTokenIdx, const RunInfo &runInfo)
 {
@@ -1105,10 +1133,24 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInDramKv(int64_t &mte2Size, i
         return;
     }
     ASSERT_MSG(constInfo.sparseBlockSize == 1, "source-aware gather requires sparse_block_size=1.");
-    const int64_t dramOffset = GetDramKeyGmOffset(sourceTokenIdx, runInfo);
-    if (dramOffset < 0) {
-        return;
+    int64_t currentRow = -1;
+    if (currentEnabled_) {
+        const int32_t qStart = runInfo.bIdx == 0 ? 0 : currentQEndsGm_.GetValue(runInfo.bIdx - 1);
+        const int32_t qEnd = currentQEndsGm_.GetValue(runInfo.bIdx);
+        ASSERT_MSG(qStart >= 0 && qEnd > qStart && qEnd <= currentRows_, "invalid current query bounds");
+        if (qStart >= 0 && qEnd > qStart && qEnd <= currentRows_) {
+            const int64_t first = currentPositionsGm_.GetValue(qStart);
+            const int64_t candidate = qStart + sourceTokenIdx - first;
+            if (candidate >= qStart && candidate < qEnd) {
+                ASSERT_MSG(currentValidGm_.GetValue(candidate) != 0 &&
+                               currentPositionsGm_.GetValue(candidate) == sourceTokenIdx,
+                           "active current source must be valid and consecutive");
+                currentRow = candidate;
+            }
+        }
     }
+    const int64_t dramOffset = currentRow >= 0 ? 0 : GetDramKeyGmOffset(sourceTokenIdx, runInfo);
+    if (dramOffset < 0) return;
 
     const int64_t ubRow = mte2Size - mte3Size;
     const uint64_t keyRowStride = SFAT::combinedKvStorage ? constInfo.storageTokenStride : constInfo.headDim;
@@ -1119,14 +1161,20 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInDramKv(int64_t &mte2Size, i
     copyParams.srcStride = 0;
     copyParams.dstStride = 0;
     DataCopyPadExtParams<KV_T> padParams;
-    DataCopyPad(kvMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_CKV_UB_BANK_ELEMENTS +
-                          ubRow * constInfo.headDim],
-                dramKeyGm_[dramOffset * keyRowStride], copyParams, padParams);
+    auto kvDest = kvMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_CKV_UB_BANK_ELEMENTS +
+                            ubRow * constInfo.headDim];
+    if (currentRow >= 0)
+        DataCopyPad(kvDest, currentGm_[currentRow * 576], copyParams, padParams);
+    else
+        DataCopyPad(kvDest, dramKeyGm_[dramOffset * keyRowStride], copyParams, padParams);
 
     copyParams.blockLen = constInfo.headDimRope * sizeof(KV_T);
-    DataCopyPad(ropeMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_KPE_UB_BANK_ELEMENTS +
-                            ubRow * constInfo.headDimRope],
-                dramKeyRopeGm_[dramOffset * ropeRowStride], copyParams, padParams);
+    auto ropeDest = ropeMergUb_[mergeMte3Idx % SFA_GATHER_UB_BANK_COUNT * SFA_GATHER_KPE_UB_BANK_ELEMENTS +
+                                ubRow * constInfo.headDimRope];
+    if (currentRow >= 0)
+        DataCopyPad(ropeDest, currentGm_[currentRow * 576 + 512], copyParams, padParams);
+    else
+        DataCopyPad(ropeDest, dramKeyRopeGm_[dramOffset * ropeRowStride], copyParams, padParams);
     mte2Size += 1;
 }
 

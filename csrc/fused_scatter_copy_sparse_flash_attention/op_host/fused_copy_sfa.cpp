@@ -41,12 +41,15 @@ void LaunchCombined(uint32_t blockDim, const at::Tensor &query, const at::Tensor
                     const at::Tensor &queryRope, void *hbmKeyRope, void *dramKeyRope, void *dramKvCache,
                     const at::Tensor &dramBlockTable, const at::Tensor &topkSourceIds, const at::Tensor &topkMissCounts,
                     const at::Tensor &missSourceIds, const at::Tensor &missDstSlots, const at::Tensor &missCounts,
-                    const at::Tensor &attentionOut, const at::Tensor &workspace, const at::Tensor &tiling)
+                    const at::Tensor &attentionOut, const at::Tensor &workspace, const at::Tensor &tiling,
+                    void *current, void *positions, void *valid, void *requestSlots, void *reqToToken,
+                    void *residentBegin, void *residentEnd)
 {
     EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_combined, blockDim, query, key, value, sparseIndices,
                     cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
                     dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
-                    missDstSlots, missCounts, attentionOut, workspace, tiling);
+                    missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
+                    residentBegin, residentEnd, workspace, tiling);
 }
 
 }  // namespace
@@ -58,8 +61,16 @@ void fused_scatter_copy_sparse_flash_attention(
     const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
     const at::Tensor &miss_counts, const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
     int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
-    bool resident_refresh_tail)
+    bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity)
 {
+    const bool resident = current.has_value();
+    TORCH_CHECK(resident == positions.has_value() && resident == valid.has_value() &&
+                    resident == request_slots.has_value() && resident == req_to_token.has_value() &&
+                    resident == resident_begin.has_value() && resident == resident_end.has_value(),
+                "resident staging inputs must be supplied together");
     TORCH_CHECK(!resident_refresh_tail || full_visible,
                 "resident_refresh_tail requires full_visible=True and a native LIM suffix plan");
     TORCH_CHECK(query.scalar_type() == at::kHalf || query.scalar_type() == at::kBFloat16,
@@ -71,6 +82,32 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(num_cache_tokens.dim() == 1 && num_cache_tokens.numel() > 0, "num_cache_tokens must be [B] with B > 0");
     const int64_t batchSize = num_cache_tokens.numel();
     const int64_t totalQueryTokens = query.size(0);
+    if (resident) {
+        TORCH_CHECK(full_visible, "resident staging requires full_visible");
+        TORCH_CHECK(current->dim() == 3 && current->size(0) >= totalQueryTokens && current->size(1) == 1 &&
+                        current->size(2) == kTokenStride && current->scalar_type() == query.scalar_type(),
+                    "current must match query dtype and have shape [T>=query T,1,576]");
+        TORCH_CHECK(positions->dim() == 1 && positions->numel() >= totalQueryTokens &&
+                        positions->scalar_type() == at::kLong && valid->dim() == 1 &&
+                        valid->numel() >= totalQueryTokens && valid->scalar_type() == at::kBool,
+                    "positions and valid must be int64 and bool [T>=query T]");
+        TORCH_CHECK(request_slots->dim() == 1 && request_slots->numel() == batchSize &&
+                        request_slots->scalar_type() == at::kInt,
+                    "request_slots must be int32 [B]");
+        TORCH_CHECK(req_to_token->dim() == 2 && req_to_token->size(0) > 0 && req_to_token->size(1) > 0 &&
+                        req_to_token->scalar_type() == at::kInt,
+                    "req_to_token must be int32 [rows,context]");
+        TORCH_CHECK(resident_begin->dim() == 1 && resident_end->sizes() == resident_begin->sizes() &&
+                        resident_begin->numel() == req_to_token->size(0) && resident_begin->scalar_type() == at::kInt &&
+                        resident_end->scalar_type() == at::kInt && host_token_capacity > 0 &&
+                        host_token_capacity <= UINT32_MAX,
+                    "invalid resident extent or host capacity");
+        for (const auto *tensor :
+             {&*current, &*positions, &*valid, &*request_slots, &*req_to_token, &*resident_begin, &*resident_end}) {
+            CheckNpuTensor(*tensor, query, "resident input");
+            tensor->record_stream(c10_npu::getCurrentNPUStream());
+        }
+    }
     TORCH_CHECK(totalQueryTokens >= batchSize && totalQueryTokens <= batchSize * kMaxQueriesPerRequest,
                 "query T must satisfy B <= T <= 16 * B");
     TORCH_CHECK(query_rope.dim() == 3 && query_rope.size(0) == totalQueryTokens &&
@@ -172,6 +209,14 @@ void fused_scatter_copy_sparse_flash_attention(
     sfaData.SaveToBuffer(reinterpret_cast<uint8_t *>(&fusedTilingData), sizeof(SparseFlashAttentionTilingDataMla));
     fusedTilingData.fullVisible = full_visible ? 1U : 0U;
     fusedTilingData.residentRefreshTail = resident_refresh_tail ? 1U : 0U;
+    fusedTilingData.residentEnabled = resident ? 1U : 0U;
+    if (resident) {
+        fusedTilingData.residentRows = static_cast<uint32_t>(req_to_token->size(0));
+        fusedTilingData.residentContext = static_cast<uint32_t>(req_to_token->stride(0));
+        fusedTilingData.residentHostRows = static_cast<uint32_t>(host_token_capacity);
+        fusedTilingData.residentCurrentRows = static_cast<uint32_t>(totalQueryTokens);
+        fusedTilingData.residentHbmPages = static_cast<uint32_t>(combined_hbm_cache.size(0));
+    }
     fusedTilingData.copyCap = static_cast<uint32_t>(topk_src_ids.size(2));
     fusedTilingData.missCap = static_cast<uint32_t>(miss_src_ids.size(1));
     fusedTilingData.hbmMaxBlockNum = static_cast<uint32_t>(hbm_block_table.size(1));
@@ -187,7 +232,10 @@ void fused_scatter_copy_sparse_flash_attention(
     LaunchCombined(tiling.GetBlockDim(), query, cacheKey, cacheKey, topk_dst_slots, num_cache_tokens, hbm_block_table,
                    actual_seq_lengths_query, actual_seq_lengths_kv, query_rope, hbmRope, dramRope, dramKv,
                    dram_block_table, topk_src_ids, topk_miss_counts, miss_src_ids, miss_dst_slots, miss_counts,
-                   attention_out, workspace, tilingTensor);
+                   attention_out, workspace, tilingTensor, resident ? current->data_ptr() : nullptr,
+                   resident ? positions->data_ptr() : nullptr, resident ? valid->data_ptr() : nullptr,
+                   resident ? request_slots->data_ptr() : nullptr, resident ? req_to_token->data_ptr() : nullptr,
+                   resident ? resident_begin->data_ptr() : nullptr, resident ? resident_end->data_ptr() : nullptr);
 }
 
 }  // namespace sglang::npu_kernel

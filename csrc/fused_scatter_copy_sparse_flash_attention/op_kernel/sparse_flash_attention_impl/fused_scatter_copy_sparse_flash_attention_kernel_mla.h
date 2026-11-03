@@ -83,8 +83,9 @@ public:
     __aicore__ inline void Process();
     __aicore__ inline void InitSourceAwareGather(__gm__ uint8_t *dramKeyRope, __gm__ uint8_t *dramKey,
                                                  __gm__ uint8_t *dramBlockTable, __gm__ uint8_t *sourceTokenIds,
-                                                 __gm__ uint8_t *copyCounts, uint32_t copyCap,
-                                                 uint32_t dramMaxBlockNum);
+                                                 __gm__ uint8_t *copyCounts, uint32_t copyCap, uint32_t dramMaxBlockNum,
+                                                 GM_ADDR current, GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds,
+                                                 uint32_t currentRows, uint32_t hostRows, bool enabled);
 
 private:
     static constexpr bool PAGE_ATTENTION = SFAT::pageAttention;
@@ -598,7 +599,9 @@ __aicore__ inline void FusedScatterCopySparseFlashAttentionMla<SFAT>::Init(
 template <typename SFAT>
 __aicore__ inline void FusedScatterCopySparseFlashAttentionMla<SFAT>::InitSourceAwareGather(
     __gm__ uint8_t *dramKeyRope, __gm__ uint8_t *dramKey, __gm__ uint8_t *dramBlockTable,
-    __gm__ uint8_t *sourceTokenIds, __gm__ uint8_t *copyCounts, uint32_t copyCap, uint32_t dramMaxBlockNum)
+    __gm__ uint8_t *sourceTokenIds, __gm__ uint8_t *copyCounts, uint32_t copyCap, uint32_t dramMaxBlockNum,
+    GM_ADDR current, GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds, uint32_t currentRows, uint32_t hostRows,
+    bool enabled)
 {
     if constexpr (SFAT::sourceAwareGather) {
         if ASCEND_IS_AIV {
@@ -610,6 +613,7 @@ __aicore__ inline void FusedScatterCopySparseFlashAttentionMla<SFAT>::InitSource
             copyCountsGm.SetGlobalBuffer((__gm__ int32_t *)copyCounts, countRows);
             vectorService.InitSourceAwareGatherGlobalTensor(dramKeyRopeGm, dramKeyGm, dramBlockTableGm,
                                                             sourceTokenIdsGm, copyCountsGm, copyCap, dramMaxBlockNum);
+            vectorService.InitCurrentSource(current, positions, valid, qEnds, currentRows, hostRows, enabled);
         }
     }
 }
