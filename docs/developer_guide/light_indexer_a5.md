@@ -59,7 +59,7 @@ CMake >= 3.20、C++17 编译器与 Python 开发头文件。脚本检查缺失�
 | 位置 | 改动 | 原因 |
 | --- | --- | --- |
 | CMake、OpDef、host SoC 检查、Python registry、kernel 入口 | 新增 3510 / ascend950 / ARCH35，取消对 `__CCE_AICORE__ == 310` 的空入口 | 使 A5 能选中、构建并执行算子 |
-| `LIMatmul::LoadQueryToL0a` | 仅 A5 调用 `SetLoadDataRepeat`，单次搬运，`dstStride=ceil(M_tile/16)` | A5 L0A 为 NZ，需要显式配置 K 方向上相邻分形列的目的间隔 |
+| `LIMatmul::LoadQueryToL0a` | A5 使用 `SetLoadDataRepeatWithStride` 和 `LoadDataWithStride`，单次搬运，`dstStride=ceil(M_tile/16)` | A5 L0A 为 NZ，需要显式配置 K 方向上相邻分形列的目的间隔 |
 | `LIMatmul::AllocEventID/FreeEventID` | 为每个缓冲槽申请独立 TPipe event，等待完成后释放；不假定 ID 连续 | 取代固定编号，保留原有缓冲复用与等待关系；此项也作用于 arch22 |
 | eager 测试 | 增加 heads=64、M 分块、分页/尾块、长 K、Top-K 4096/8192、两种 return_value | 检查布局、缓冲复用和结果契约 |
 
@@ -72,8 +72,9 @@ CMake >= 3.20、C++17 编译器与 Python 开发头文件。脚本检查缺失�
 
 [LoadData 3D 文档](https://asc.gitcode.com/api/SIMD-API/basic_api/cube_compute_ISASI/cube_compute_load/LoadData_3D.html)
 列出 A5 对 V2 接口的支持，并说明 A5 L0A 为 NZ、L0B 为 ZN。
-[SetLoadDataRepeat](https://asc.gitcode.com/api/SIMD-API/basic_api/cube_compute_ISASI/cube_load_aux_config/SetLoadDataRepeat.html)
-要求 A5 调用 LoadData 3D 时配置 `dstStride`，单位为 512B 分形。本实现输出 tile
+[SetLoadDataRepeatWithStride](https://asc.gitcode.com/api/SIMD-API/basic_api/cube_compute_ISASI/cube_load_aux_config/SetLoadDataRepeatWithStride.html)
+与 `LoadDataWithStride` 配套，使用 `LoadDataRepeatParamWithStride` 设置 `dstStride`，单位为 512B 分形。
+实装 CANN 9.2.0 的编译日志显示 `LoadDataRepeatParam` 缺少该字段。本实现输出 tile
 为 `[M_tile,128]`，FP16/BF16 分形是 16×16，因此 K 方向相邻分形列间隔为
 `ceil(M_tile/16)` 个分形；每个 L0 tile 单独设置，避免复用上一个 tile 的步长。
 
