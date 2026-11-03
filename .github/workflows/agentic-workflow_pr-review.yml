@@ -88,6 +88,25 @@ jobs:
 
           echo "Review context ready: pr-meta.md $(wc -c < ${{ env.PR_META_FILE }} | tr -d ' ') bytes, pr.diff $(wc -c < ${{ env.PR_DIFF_FILE }} | tr -d ' ') bytes."
 
+      - name: Allow opencode to access review files under /tmp
+        # The review context lives in /tmp, outside the workspace, which triggers
+        # opencode's external_directory permission (default "ask"). In headless
+        # CI there is no one to answer the prompt, so opencode blocks forever
+        # until the job timeout cancels it (see run 41631888153). Allow /tmp
+        # globally so the agent can read/write the review files unattended.
+        run: |
+          mkdir -p "${HOME}/.config/opencode"
+          cat > "${HOME}/.config/opencode/opencode.json" <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": {
+              "external_directory": {
+                "/tmp/*": "allow"
+              }
+            }
+          }
+          EOF
+
       - uses: anomalyco/opencode/github@latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
