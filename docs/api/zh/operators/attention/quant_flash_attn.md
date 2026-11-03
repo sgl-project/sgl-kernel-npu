@@ -105,7 +105,7 @@ causal 模式下，位置 `i` 的 query 可读取 `j <= kv_length - query_length
 
 ## cann 后端
 
-首次调用时从 `cann_ops_transformer` 导入 `quant_flash_attn`，缓存 callable 后透传参数。校验、输出分配和执行由 CANN 负责。wrapper 不增加 Tensor 复制、cast、host 长度读取或重复算子注册。
+首次调用时从 `cann_ops_transformer.ops` 导入 `quant_flash_attn`，缓存 callable 后透传参数。校验、输出分配和执行由 CANN 负责。wrapper 不增加 Tensor 复制、cast、host 长度读取或重复算子注册。
 
 metadata 必须使用与主算子一致的量化模式、mask、布局、head 和长度配置生成。两个接口无法分别校验全部跨调用一致性条件。完整上游约束见 [CANN 9.2 API](https://gitcode.com/cann/ops-transformer/blob/v9.2.0/attention/quant_flash_attn/docs/torchapi_quant_flash_attn.md)。
 

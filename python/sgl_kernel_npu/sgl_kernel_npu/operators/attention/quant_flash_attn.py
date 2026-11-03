@@ -20,7 +20,7 @@ _torch_native_fn = None
 def _cann_impl(*args, **kwargs):
     global _cann_fn
     if _cann_fn is None:
-        from cann_ops_transformer import quant_flash_attn
+        from cann_ops_transformer.ops import quant_flash_attn
 
         _cann_fn = quant_flash_attn
     return _cann_fn(*args, **kwargs)

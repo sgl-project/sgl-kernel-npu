@@ -18,6 +18,11 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
+# Load the kernel package before configure_npu initializes the device, so its
+# bundled CANN vendor path is registered before the runtime reads it.
+pytest.importorskip("torch_npu")
+import sgl_kernel_npu  # noqa: F401
+
 # (query heads, KV heads, head dimension, page size).
 perf_shape = [(16, 2, 128, 512), (12, 2, 256, 512)]
 
@@ -290,8 +295,8 @@ def test_quant_flash_attn_direct_cann_parity(
     )
 
     require_test_impl(quant_flash_attn_metadata, "cann")
-    from cann_ops_transformer import quant_flash_attn as direct_qfa
-    from cann_ops_transformer import quant_flash_attn_metadata as direct_metadata
+    from cann_ops_transformer.ops import quant_flash_attn as direct_qfa
+    from cann_ops_transformer.ops import quant_flash_attn_metadata as direct_metadata
 
     args, kwargs, meta_args, meta_kwargs = generate_data(
         shape, q_lens, kv_lens, scale_layout, mask_mode, 16.0, True, "static"

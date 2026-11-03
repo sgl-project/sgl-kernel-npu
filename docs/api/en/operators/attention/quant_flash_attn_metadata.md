@@ -77,7 +77,7 @@ Generate the schedule before calling QFA and reuse it across layers with identic
 
 ## cann backend
 
-Lazily imports `quant_flash_attn_metadata` from `cann_ops_transformer` and caches the callable. CANN owns output allocation, scheduling and validation. The wrapper adds no host reads, tensor conversions or shape-dependent fallback.
+Lazily imports `quant_flash_attn_metadata` from `cann_ops_transformer.ops` and caches the callable. CANN owns output allocation, scheduling and validation. The wrapper adds no host reads, tensor conversions or shape-dependent fallback.
 
 There is no independent `torch_native` scheduler in this contribution: duplicating CANN's scheduling format is outside the numerical reference's scope. Validation uses the metadata through the attention consumer and compares that consumer against an independent attention reference, plus checks of interface forwarding and output properties. `auto` versus `cann` is not treated as an independent accuracy comparison. Dynamic graph replay is not included in this contribution's tests.
 

@@ -77,7 +77,7 @@ def quant_flash_attn_metadata(
 
 ## cann 后端
 
-首次调用时从 `cann_ops_transformer` 导入 `quant_flash_attn_metadata` 并缓存 callable。输出分配、调度和校验由 CANN 负责。wrapper 不添加 host 读取、Tensor 转换或按 shape 回退。
+首次调用时从 `cann_ops_transformer.ops` 导入 `quant_flash_attn_metadata` 并缓存 callable。输出分配、调度和校验由 CANN 负责。wrapper 不添加 host 读取、Tensor 转换或按 shape 回退。
 
 本次没有实现独立的 `torch_native` 调度器：复制 CANN 调度格式不属于数值参考的范围。正确性通过 attention 消费 metadata 后与独立 attention 参考比较，并配合接口透传和返回属性检查进行验证；不将 `auto` 与 `cann` 的对比算作独立精度对比。本次测试不包含动态图重放。
 

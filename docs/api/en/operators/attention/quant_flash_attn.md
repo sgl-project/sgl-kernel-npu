@@ -105,7 +105,7 @@ The reference returns zero output and `+inf` LSE for padded Q positions, zero-le
 
 ## cann backend
 
-Lazily imports `quant_flash_attn` from `cann_ops_transformer`, caches the callable and forwards the arguments. CANN owns validation, allocation and dispatch. The wrapper introduces no tensor copies, casts, host length reads or duplicate operator registration.
+Lazily imports `quant_flash_attn` from `cann_ops_transformer.ops`, caches the callable and forwards the arguments. CANN owns validation, allocation and dispatch. The wrapper introduces no tensor copies, casts, host length reads or duplicate operator registration.
 
 Build the metadata with the same quantization, mask, layout, head and length settings passed to this function. The metadata producer and consumer cannot independently validate all cross-call consistency conditions. See the [CANN 9.2 API](https://gitcode.com/cann/ops-transformer/blob/v9.2.0/attention/quant_flash_attn/docs/torchapi_quant_flash_attn.md) for upstream constraints.
 
