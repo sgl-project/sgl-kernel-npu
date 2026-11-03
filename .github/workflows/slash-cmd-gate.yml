@@ -45,7 +45,7 @@ jobs:
         env:
           ASSOCIATION: ${{ github.event.comment.author_association }}
         run: |
-          # Only allow OWNER / MEMBER / COLLABORATOR 
+          # Only allow OWNER / MEMBER / COLLABORATOR
           case "${ASSOCIATION}" in
             "OWNER"|"MEMBER"|"COLLABORATOR")
               is_authorized=true
