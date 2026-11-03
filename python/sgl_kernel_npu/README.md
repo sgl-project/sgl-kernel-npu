@@ -4,9 +4,7 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build. Only
-`apply_token_bitmask` has been migrated so far; `--ops all` does not include
-unmigrated legacy native operators.
+native, plus the migrated AscendC operators selected for this build.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
@@ -79,6 +77,155 @@ API documentation follows the shared framework's `arch22` and `arch35` names.
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
 previous `sgl_kernel_npu-*.whl` files there before building; a run build removes
 previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place.
+
+### CANN operator declarations
+
+Declare an operator in `csrc/<domain>/<operator>/CMakeLists.txt` with
+`sgl_register_operator()`. Optionally add `sgl_register_operator_variant()` calls
+for architecture-specific implementations. Register the common declaration
+before its variants. An operator with one implementation for all supported
+architectures needs no variant.
+
+#### Fields and required values
+
+"Common" below means `sgl_register_operator()`; "variant" means
+`sgl_register_operator_variant()`. The declaration accepts 13 configuration
+fields, plus the `ID` and `ARCH` keys:
+
+| Field | Purpose | Allowed declaration | Required value |
+| --- | --- | --- | --- |
+| `ID` | Operator identifier; associates variants with the common declaration. | Common and variant | Required in every declaration. |
+| `ARCH` | Architecture selected by this variant. | Variant only | Required for a variant; must belong to the common `SUPPORTED_ARCHS`. |
+| `EXECUTION_UNIT` | Execution unit. | Common only | Required. The implemented build backend currently supports `AICORE`. |
+| `CANN_OP_TYPE` | CANN operator type registered by the OpDef. | Common only | Required. |
+| `SUPPORTED_ARCHS` | Architectures supported by the operator. | Common only | Required and non-empty; currently accepts `2201` and `3510`, without duplicates. |
+| `TORCH_ADAPTER` | Torch adapter source file. | Common only | Optional at registration; required for each selected operator when building the Torch extension and wheel. |
+| `OPDEF_SOURCES` | CANN interface definition source files. | Common only | Required and non-empty in the common declaration. |
+| `INFER_SOURCES` | Handwritten shape/type inference source files. | Common and variant | Optional; may be cleared explicitly. |
+| `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected architecture. |
+| `TILING_INCLUDE_DIRECTORIES` | Private header search directories for Tiling sources. | Common and variant | Optional; may be cleared explicitly. |
+| `TILING_COMPILE_DEFINITIONS` | Private Tiling macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
+| `KERNEL_SOURCES` | Device compilation entry. | Common and variant | The resolved list must contain exactly one entry after deduplication. |
+| `KERNEL_INCLUDE_DIRECTORIES` | Private header search directories for the Kernel. | Common and variant | Optional; may be cleared explicitly. |
+| `KERNEL_COMPILE_DEFINITIONS` | Private Kernel macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
+| `KERNEL_COMPILE_OPTIONS` | Kernel compiler options. | Common and variant | Optional; may be cleared explicitly. |
+
+The common declaration therefore has **five required fields**: `ID`,
+`EXECUTION_UNIT`, `CANN_OP_TYPE`, `SUPPORTED_ARCHS` and `OPDEF_SOURCES`.
+`TILING_SOURCES` and `KERNEL_SOURCES` need not appear in the common declaration:
+they may come from a variant, provided each selected architecture resolves to
+non-empty Tiling sources and exactly one Kernel entry. A CANN-only `.run` build
+does not require `TORCH_ADAPTER`.
+
+`EXECUTION_UNIT` registration recognizes `AICORE` and `AICPU`, but selecting an
+`AICPU` operator currently fails because its build backend is not implemented.
+Use `SUPPORTED_ARCHS` to exclude an unsupported architecture rather than clearing
+required sources. `--ops all` excludes operators that do not support the selected
+architecture; explicitly requesting such an operator fails.
+
+Source and include paths may be absolute or relative to the directory containing
+the declaring `CMakeLists.txt`; relative paths are normalized at registration.
+Source files and include directories in the final selected configuration must
+exist. Compiler macros use `NAME` or `NAME=value`, without a `-D` prefix.
+
+#### Variant inheritance, replacement and clearing
+
+All eight fields allowed in variants use the same rule, including
+`KERNEL_SOURCES`: a variant replaces the **entire field**, not individual list
+items. It never appends the common list.
+
+| Variant declaration | Resolved value for that architecture |
+| --- | --- |
+| Field omitted | Inherit the common field. |
+| `FIELD value1 value2` | Replace the complete common field with this list. List every value still needed, including shared helpers or flags. |
+| `FIELD ""` | Clear an optional field for this architecture. |
+| Bare `FIELD` without a value argument | Fail with a missing-value error. |
+
+Explicit clearing is allowed for `INFER_SOURCES`, private include directories,
+private macros and Kernel compiler options. Clearing `TILING_SOURCES` or
+`KERNEL_SOURCES` fails the final required-source checks. Clearing private settings
+removes only those declared for this operator, not the build target's shared
+settings. Clearing `INFER_SOURCES` omits handwritten inference from GRAPH; the
+generated `op_proto.cc` is still compiled. Only omit inference when the operator's
+supported call paths do not require that handwritten implementation.
+
+The following schematic example assumes the listed source files exist under the
+operator directory. `MODE` is an illustrative operator macro:
+
+```cmake
+sgl_register_operator(
+    ID example
+    EXECUTION_UNIT AICORE
+    CANN_OP_TYPE SglExample
+    SUPPORTED_ARCHS 2201 3510
+    TORCH_ADAPTER torch_adapter.cpp
+    OPDEF_SOURCES op_host/example_def.cpp
+    INFER_SOURCES op_host/example_infer.cpp
+    TILING_SOURCES op_host/example_tiling.cpp
+    KERNEL_SOURCES op_kernel/example.cpp
+    KERNEL_COMPILE_DEFINITIONS MODE=1
+    KERNEL_COMPILE_OPTIONS --cce-auto-sync=off
+)
+
+# Only 3510 overrides these fields; no 2201 variant is needed.
+sgl_register_operator_variant(
+    ID example
+    ARCH 3510
+    KERNEL_SOURCES op_kernel/arch35/example.cpp
+    KERNEL_COMPILE_DEFINITIONS MODE=2
+    KERNEL_COMPILE_OPTIONS --cce-auto-sync=off -Wno-deprecated-declarations
+    INFER_SOURCES ""
+)
+```
+
+For `2201`, the common values apply. For `3510`, only the arch35 Kernel entry is
+selected, `MODE=2` replaces `MODE=1`, and handwritten inference is omitted. Tiling
+sources are inherited because the variant does not declare `TILING_SOURCES`.
+The variant repeats `--cce-auto-sync=off` because its compiler-option list fully
+replaces the common one. Only the final Kernel list is checked for one entry;
+the common and variant entries are not combined.
+
+#### Duplicate declarations and values
+
+| Situation | Result |
+| --- | --- |
+| Common and selected variant declare the same variant-capable field | Valid; the variant fully replaces the common value. |
+| A field keyword appears twice in one function call | Error, even when the values match. |
+| The same operator `ID` has two common declarations | Error. |
+| The same `ID` + `ARCH` has two variant declarations | Error, even if they provide different fields; use one call for that variant. |
+| A common-only field is supplied to a variant, or a field name is unknown | Error. |
+
+Within the resolved field lists, duplicate sources, include directories and
+identical macro definitions are removed. Conflicting definitions of the same
+macro within the selected list fail. Common `MODE=1` and variant `MODE=2` are valid
+because replacement happens first; a variant containing both `MODE=1 MODE=2`
+fails. Kernel option order and repeated tokens are preserved.
+
+#### Source roles and combined Host compatibility
+
+These fields describe build roles, not mandatory file boundaries.
+`OPDEF_SOURCES` defines the CANN interface, optional `INFER_SOURCES` provides
+shape/type inference, and `TILING_SOURCES` computes device launch data. CGDR keeps
+these three source lists common and registers `ARCH 2201` / `ARCH 3510` variants
+for its two Kernel entries.
+
+An existing combined Host file using `SetTiling` and `OP_ADD` can be listed in
+both `OPDEF_SOURCES` and `TILING_SOURCES`; also list it in `INFER_SOURCES` when it
+provides inference through `SetInferShape` / `SetInferDataType`.
+`apply_token_bitmask` keeps this combined form, while CGDR uses separate files
+and implementation-side registration. Both forms can be selected in one build.
+Codegen compiles each entire OpDef input, so combined files must work with its
+shared compile settings; private Tiling include paths/macros are not forwarded
+to codegen. The generated `sgl_operator_config.h` is available to both TILING
+and GRAPH targets. Codegen tracks headers under OpDef directories and, for
+combined files, selected Kernel directories. Headers outside those trees require
+an explicit clean rebuild after changes.
+
+Use lowercase snake_case for operator IDs by convention. IDs are case-sensitive;
+uppercase letters are also accepted. IDs must start with a letter and contain
+only letters, digits and underscores; `all` and `ALL` are reserved for selection.
+`CANN_OP_TYPE` retains the same basic letter/digit/underscore syntax check and
+must match the type registered by the operator's OpDef.
 
 ### Incremental builds and cleanup
 
