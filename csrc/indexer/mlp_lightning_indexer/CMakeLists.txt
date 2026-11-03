@@ -1,4 +1,4 @@
-# Keep the LongCat compute path for arch22 and the Ascend 950 port.
+# Official LongCat implementation supports the two arch22 CANN targets.
 sgl_register_operator(
     ID mlp_lightning_indexer
     EXECUTION_UNIT AICORE
