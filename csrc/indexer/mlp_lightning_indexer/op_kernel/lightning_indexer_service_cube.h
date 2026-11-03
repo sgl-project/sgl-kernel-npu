@@ -333,23 +333,9 @@ __aicore__ inline void LIMatmul<LIT>::LoadQueryToL0a(uint64_t s1gGmOffset, uint6
     loadData3DParams.enTranspose = 0;
     loadData3DParams.fMatrixCtrl = 0;
 
-#if defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3510)
-    // Ascend 950 L0A uses NZ. Set the K-axis stride in 512-byte fractals
-    // even when LoadData3D is used without repeats.
-    AscendC::LoadDataRepeatParamWithStride repeatParams{};
-    repeatParams.repeatTime = 1;
-    repeatParams.repeatStride = 0;
-    repeatParams.repeatMode = 0;
-    repeatParams.dstStride = CeilDiv(s1gL0RealSize, BLOCK_CUBE);
-    AscendC::SetLoadDataRepeatWithStride(repeatParams);
-    AscendC::LoadDataWithStride<Q_T, LOAD3DV2_CONFIG>(
-        queryL0_[(l0BufIdx_ % L0_BUF_NUM) * L0AB_BUFFER_OFFSET],
-        queryL1_[(queryL1Mte1BufIdx_ % QUERY_BUF_NUM) * QUERY_BUFFER_OFFSET], loadData3DParams);
-#else
     LoadData<Q_T, LOAD3DV2_CONFIG>(queryL0_[(l0BufIdx_ % L0_BUF_NUM) * L0AB_BUFFER_OFFSET],
                                    queryL1_[(queryL1Mte1BufIdx_ % QUERY_BUF_NUM) * QUERY_BUFFER_OFFSET],
                                    loadData3DParams);
-#endif
 }
 
 template <typename LIT>
