@@ -219,8 +219,11 @@ same version-selected family. Missing bindings, unsupported schema features
 (including MoE hash inputs), broken packages and kernel failures are reported
 without trying another version's bindings.
 
-Original custom operators must already be registered. Optionally,
-`SGL_KERNEL_NPU_LEGACY_OPS_SO` can identify their standalone library. There is
+On the CANN 9.1 custom-binding path, the kernel package lazily imports
+`custom_ops` to register the original operators. Already registered operators
+remain usable when that package is absent; broken imports are reported.
+Optionally, `SGL_KERNEL_NPU_LEGACY_OPS_SO` can identify a standalone registration
+library. It is unnecessary when `custom_ops` supplies the required bindings. There is
 no compilation, dependency installation, or retry after a kernel has executed.
 
 Query `sgl_kernel_npu.operators.kvcacheio.get_npu_kv_quant_path()` before allocating
