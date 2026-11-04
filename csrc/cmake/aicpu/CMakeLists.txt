@@ -10,7 +10,7 @@
 # JSON packaging follows ops-transformer cmake/symbol.cmake at
 # 39b52ad5e252d98e13df76ed45b6c68b21b98859, with Python invoked directly.
 
-# Entered only for selected AICPU operators at the KERNEL checkpoint.
+# Entered only for selected AICPU operators.
 find_program(SGL_AICPU_CXX aarch64-target-linux-gnu-g++
     PATHS "${ASCEND_CANN_PACKAGE_PATH}/toolkit/toolchain/hcc/bin"
     NO_DEFAULT_PATH REQUIRED)

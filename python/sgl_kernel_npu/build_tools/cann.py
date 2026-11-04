@@ -159,7 +159,6 @@ def build_cann(
         directory,
         "-DSGL_ARCH_VERSION=" + str(arch_version),
         "-DSGL_CANN_OPERATORS=" + ";".join(operators),
-        "-DSGL_CANN_BUILD_STAGE=KERNEL",
     ]
     run(command, directory / "configure.log", cwd=source_root, env=env)
     selected = _selection(directory)
