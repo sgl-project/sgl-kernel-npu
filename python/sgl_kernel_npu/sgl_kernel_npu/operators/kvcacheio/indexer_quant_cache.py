@@ -1,6 +1,10 @@
 """Public indexer_quant_cache operator with registered implementations."""
 
-from ..utils._transformer_compat import OperatorUnavailableError, select_family
+from ..utils._transformer_compat import (
+    OperatorUnavailableError,
+    cann_backend,
+    select_family,
+)
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
@@ -35,15 +39,22 @@ def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
         indexer_quant_cache,
     )
 
-    return indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs)
+    return indexer_quant_cache(
+        cache,
+        scale_cache,
+        x,
+        slot_mapping,
+        _legacy=cann_backend() == "legacy",
+        **kwargs,
+    )
 
 
 @register_operator("kvcacheio.indexer_quant_cache")
 def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **kwargs):
     """Quantize and scatter indexer keys and fp32 scales in place.
 
-    For quant_mode="fp8", round_scale and x_scale do not change the result;
-    they are attributes of the MX-FP8 and HiFloat8 modes respectively.
+    For quant_mode="fp8", the original 9.1 binding uses unrounded FP32 scales;
+    the released 9.2 binding also honors round_scale. x_scale is HiFloat8-only.
     impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """

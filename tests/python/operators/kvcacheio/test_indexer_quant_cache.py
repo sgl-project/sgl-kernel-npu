@@ -23,6 +23,7 @@ perf_shape = [(8, 128)]
     [
         pytest.param(1, "random", id="synthetic-decode"),
         pytest.param(8, "random", id="synthetic-batch"),
+        pytest.param(1, "scale-policy", id="normal-fp8-scale-policy"),
         pytest.param(1, "boundaries", id="fp8-rne-boundaries"),
         pytest.param(1, "zero", id="zero-row"),
     ],
@@ -35,6 +36,11 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     x = torch.randn(tokens, 128, dtype=torch.bfloat16)
     if input_kind == "zero":
         x.zero_()
+    elif input_kind == "scale-policy":
+        # amax/448 is not a power of two. This distinguishes legacy 9.1
+        # unrounded scales from the released 9.2 round_scale=True behavior.
+        x.fill_(3.0)
+        x[0, 1:4] = torch.tensor([-3.0, 1.0, -1.0], dtype=x.dtype, device=x.device)
     elif input_kind == "boundaries":
         # With amax=448, scale=1: exercise E4M3FN ties-to-even, signed zero,
         # subnormals, the minimum normal, exponent transitions and endpoints.
@@ -69,8 +75,8 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     # CANN 9.1 may not support generic FP8 initialization/copy/conversion.
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
-    # This attribute only affects MX-FP8. Normal FP8 must be identical for
-    # both values, including its unrounded FP32 scale.
+    # Exercise both settings: legacy 9.1 ignores this normal-FP8 attribute;
+    # released 9.2 honors it. The reference uses the same SDK input contract.
     kwargs = dict(quant_mode="fp8", round_scale=round_scale)
     executor = make_executor(
         indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs

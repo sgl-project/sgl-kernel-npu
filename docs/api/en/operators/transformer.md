@@ -61,8 +61,12 @@ pages, sliding-window or explicit original indices, and causal compressed KV.
 The mixed-quant reference supports DSV4 448-NoPE/64-RoPE with both 608-byte
 BF16-scale and original 640-byte E8M0-scale rows.
 The indexer reference supports causal TND/PA_BBND FP8/INT8 inputs.
-For `indexer_quant_cache(quant_mode="fp8")`, scales are unrounded FP32 values;
-`round_scale` is MX-FP8-only and `x_scale` is HiFloat8-only. The normal-FP8
+For `indexer_quant_cache(quant_mode="fp8")`, the original CANN 9.1 binding uses
+unrounded FP32 scales. The released CANN 9.2 kernel also applies `round_scale`
+to normal FP8: true rounds scales up to powers of two, false retains FP32
+scales. Its payload uses FP32 reciprocal multiplication; 9.1 uses division.
+The public torch reference selects the matching SDK contract; `x_scale` is
+HiFloat8-only in both versions. The normal-FP8
 reference supports finite activations, one block of up to 128 values per row,
 and zero rows (scale=0). Nonfinite activations and subnormal FP32 scales are
 explicitly outside its validated domain. FP8 casting is performed on CPU; NPU
