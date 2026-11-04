@@ -4,11 +4,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.common import (
+    get_skip_acc_check,
     get_test_impls,
     make_executor,
     require_distinct_impls,
+    require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 
@@ -73,8 +75,6 @@ def test_chunk_gated_delta_rule(scale, chunk_layout):
     """Original explicit scale and separately labelled default/zero variants."""
     from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
 
-    impl, impl_ref = get_test_impls()
-    require_distinct_impls(chunk_gated_delta_rule, impl, impl_ref)
     data = generate_test_data(torch.device("npu"))
     if scale == "omitted":
         del data["scale"]
@@ -89,28 +89,40 @@ def test_chunk_gated_delta_rule(scale, chunk_layout):
             (32, 16, 128, 129), -7, dtype=torch.bfloat16, device=data["query"].device
         )
         data["chunk_state"] = padded[..., :128]
-    actual_inputs, reference_inputs = clone_test_data(data), clone_test_data(data)
-    initial_before = actual_inputs["initial_state"].clone()
-    chunk_before = (
-        None if data["chunk_state"] is None else actual_inputs["chunk_state"].clone()
-    )
-    result_ref = chunk_gated_delta_rule(**reference_inputs, impl=impl_ref)
-    result = chunk_gated_delta_rule(**actual_inputs, impl=impl)
-    assert_accuracy(result, result_ref)
-    if chunk_layout != "absent":
-        assert_accuracy(actual_inputs["chunk_state"], reference_inputs["chunk_state"])
-    assert torch.equal(actual_inputs["initial_state"], initial_before)
-    if chunk_layout == "noncontiguous":
-        assert torch.equal(actual_inputs["chunk_state"], chunk_before)
+    if chunk_layout == "absent":
+        initial_before = data["initial_state"].clone()
+        executor = check_accuracy(chunk_gated_delta_rule, kwargs=data)
+        if executor.accuracy_checked:
+            assert torch.equal(data["initial_state"], initial_before)
+    else:
+        # Like bitmask, mutable state needs independent DUT/reference inputs.
+        impl, impl_ref = get_test_impls()
+        skip_accuracy = bool(get_skip_acc_check())
+        if skip_accuracy:
+            require_test_impl(chunk_gated_delta_rule, impl)
+        else:
+            require_distinct_impls(chunk_gated_delta_rule, impl, impl_ref)
+            actual_inputs = clone_test_data(data)
+            reference_inputs = clone_test_data(data)
+            initial_before = actual_inputs["initial_state"].clone()
+            chunk_before = actual_inputs["chunk_state"].clone()
+            result_ref = chunk_gated_delta_rule(**reference_inputs, impl=impl_ref)
+            result = chunk_gated_delta_rule(**actual_inputs, impl=impl)
+            assert_accuracy(result, result_ref)
+            assert_accuracy(
+                actual_inputs["chunk_state"], reference_inputs["chunk_state"]
+            )
+            assert torch.equal(actual_inputs["initial_state"], initial_before)
+            if chunk_layout == "noncontiguous":
+                assert torch.equal(actual_inputs["chunk_state"], chunk_before)
 
-    # Profile one selected implementation with fresh inputs after accuracy passes.
-    executor = make_executor(
-        chunk_gated_delta_rule,
-        kwargs=clone_test_data(data),
-        impl=impl,
-        impl_ref=impl_ref,
-        accuracy_checked=True,
-    )
+        executor = make_executor(
+            chunk_gated_delta_rule,
+            kwargs=clone_test_data(data),
+            impl=impl,
+            impl_ref=impl_ref,
+            accuracy_checked=not skip_accuracy,
+        )
     check_performance(
         executor,
         enable_perf=scale == 128**-0.5 and chunk_layout == "absent",

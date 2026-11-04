@@ -8,6 +8,9 @@ on:
       - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
+      - "tests/python/operators/**"
+      - "tests/python/conftest.py"
+      - "tests/python/utils/**"
       - "build.sh"
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
@@ -57,7 +60,14 @@ jobs:
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/attention/**
+              - tests/python/operators/attention/**
               - python/sgl_kernel_npu/sgl_kernel_npu/norm/fused_rope_qk_mqa.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/indexer/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/indexer/**
+              - tests/python/operators/indexer/**
               - tests/python/sgl_kernel_npu/test_decode_attention.py
               - tests/python/sgl_kernel_npu/test_mla_preprocess.py
               - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope.py
@@ -72,6 +82,10 @@ jobs:
               - csrc/transfer_kv_dim_exchange/**
               - python/sgl_kernel_npu/sgl_kernel_npu/mem_cache/**
               - python/sgl_kernel_npu/sgl_kernel_npu/kvcacheio/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/mem_cache/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/mem_cache/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/mem_cache/**
+              - tests/python/operators/mem_cache/**
               - tests/python/sgl_kernel_npu/test_alloc_extend_slot.py
               - tests/python/sgl_kernel_npu/test_cache_assign.py
               - tests/python/sgl_kernel_npu/test_cache_update.py
@@ -90,6 +104,9 @@ jobs:
               - csrc/causal_conv1d/**
               - csrc/causal_conv1d_update/**
               - python/sgl_kernel_npu/sgl_kernel_npu/mamba/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/mamba/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/mamba/**
+              - tests/python/operators/mamba/**
               - tests/python/sgl_kernel_npu/test_conv1d_prefill.py
               - tests/python/sgl_kernel_npu/test_conv1d_update.py
               - tests/python/sgl_kernel_npu/test_mamba_conv.py
@@ -116,6 +133,9 @@ jobs:
               - csrc/helloworld/**
               - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
               - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/multimodal/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/multimodal/**
+              - tests/python/operators/multimodal/**
               - tests/python/sgl_kernel_npu/test_swiglu_quant.py
               - tests/python/sgl_kernel_npu/test_batch_matmul_transpose.py
               - tests/python/sgl_kernel_npu/test_catlass_matmul_basic.py
@@ -133,6 +153,14 @@ jobs:
               - scripts/prepare_kernel_tests.sh
               - scripts/run_kernel_tests.sh
               - .github/workflows/pr-test-kernels.yml
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/utils/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/__init__.py
+              - tests/python/conftest.py
+              - tests/python/utils/**
+              - tests/python/operators/__init__.py
               - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules
@@ -152,13 +180,13 @@ jobs:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
         # The a2 branch below is kept only as an extension point.
         # CANN 9.1.0 has no daily-built image yet, so the image below pins the
-        # dated tag cann9.1.0-a3-20260818 (bump manually when a newer one comes).
+        # dated tag cann9.1.0-a3-20261020 (bump manually when a newer one comes).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -202,13 +230,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -252,13 +280,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -302,13 +330,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -352,13 +380,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -402,13 +430,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -452,13 +480,13 @@ jobs:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20261020 (bump manually).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20261020' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"

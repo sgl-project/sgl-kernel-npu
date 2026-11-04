@@ -6,8 +6,9 @@ set(_SGL_OPERATOR_FIELDS EXECUTION_UNIT CANN_OP_TYPE SUPPORTED_ARCHS TORCH_ADAPT
     TILING_SOURCES TILING_INCLUDE_DIRECTORIES
     TILING_COMPILE_DEFINITIONS KERNEL_SOURCES KERNEL_INCLUDE_DIRECTORIES
     KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS)
-set(_SGL_VARIANT_FIELDS TILING_SOURCES TILING_INCLUDE_DIRECTORIES TILING_COMPILE_DEFINITIONS
-    KERNEL_SOURCES KERNEL_INCLUDE_DIRECTORIES KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS)
+set(_SGL_VARIANT_FIELDS INFER_SOURCES TILING_SOURCES TILING_INCLUDE_DIRECTORIES
+    TILING_COMPILE_DEFINITIONS KERNEL_SOURCES KERNEL_INCLUDE_DIRECTORIES
+    KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS)
 
 # Resolve paths at the declaration, even when its CMake file was included.
 function(_sgl_operator_source_paths output base_dir)
@@ -108,7 +109,7 @@ function(sgl_register_operator)
     set_property(GLOBAL APPEND PROPERTY SGL_OPERATOR_IDS "${op_ID}")
 endfunction()
 
-# Only Tiling and Kernel implementation details may vary by architecture.
+# Inference, Tiling and Kernel implementation details may vary by architecture.
 function(sgl_register_operator_variant)
     _sgl_check_operator_keywords("ID;ARCH;${_SGL_VARIANT_FIELDS}" ${ARGV})
     cmake_parse_arguments(PARSE_ARGV 0 op "" "ID;ARCH" "${_SGL_VARIANT_FIELDS}")
@@ -118,7 +119,7 @@ function(sgl_register_operator_variant)
     if(NOT DEFINED op_ID OR NOT DEFINED op_ARCH)
         message(FATAL_ERROR "Operator variant requires ID and ARCH")
     endif()
-    sgl_get_operator(archs "${op_ID}" SUPPORTED_ARCHS)
+    sgl_get_operator_field(archs "${op_ID}" SUPPORTED_ARCHS)
     if(NOT op_ARCH IN_LIST archs)
         message(FATAL_ERROR "Variant ARCH is not supported by ${op_ID}: ${op_ARCH}")
     endif()
@@ -127,6 +128,10 @@ function(sgl_register_operator_variant)
         message(FATAL_ERROR "Duplicate operator variant: ${op_ID}/${op_ARCH}")
     endif()
     foreach(field IN LISTS _SGL_VARIANT_FIELDS)
+        # Preserve the distinction between an omitted field and an explicit "".
+        if(NOT field IN_LIST ARGV)
+            continue()
+        endif()
         if(field MATCHES "(_SOURCES|_INCLUDE_DIRECTORIES)$")
             _sgl_operator_source_paths(value "${CMAKE_CURRENT_LIST_DIR}" ${op_${field}})
         else()
@@ -142,7 +147,8 @@ function(sgl_get_registered_operators output)
     set(${output} "${ids}" PARENT_SCOPE)
 endfunction()
 
-function(sgl_get_operator output id field)
+# Read one common declaration field; architecture-specific values use the resolver.
+function(sgl_get_operator_field output id field)
     get_property(ids GLOBAL PROPERTY SGL_OPERATOR_IDS)
     if(NOT id IN_LIST ids)
         message(FATAL_ERROR "Unknown operator ID: ${id}")
@@ -154,20 +160,18 @@ function(sgl_get_operator output id field)
     set(${output} "${value}" PARENT_SCOPE)
 endfunction()
 
-# Merge common and selected variant; options are ordered, never deduplicated.
+# A variant field replaces the complete common value; omitted fields inherit.
 function(sgl_resolve_operator out_prefix id arch)
-    sgl_get_operator(archs "${id}" SUPPORTED_ARCHS)
+    sgl_get_operator_field(archs "${id}" SUPPORTED_ARCHS)
     if(NOT arch IN_LIST archs)
         message(FATAL_ERROR "Operator ${id} does not support requested ARCH: ${arch}")
     endif()
     foreach(field IN LISTS _SGL_OPERATOR_FIELDS)
-        sgl_get_operator(value "${id}" "${field}")
+        sgl_get_operator_field(value "${id}" "${field}")
         if(field IN_LIST _SGL_VARIANT_FIELDS)
-            get_property(extra GLOBAL PROPERTY SGL_OPERATOR_${id}_ARCH_${arch}_${field})
-            if(field STREQUAL "KERNEL_SOURCES" AND NOT "${extra}" STREQUAL "")
-                set(value "${extra}")
-            else()
-                list(APPEND value ${extra})
+            get_property(has_variant GLOBAL PROPERTY SGL_OPERATOR_${id}_ARCH_${arch}_${field} SET)
+            if(has_variant)
+                get_property(value GLOBAL PROPERTY SGL_OPERATOR_${id}_ARCH_${arch}_${field})
             endif()
         endif()
         if(field MATCHES "(_SOURCES|_INCLUDE_DIRECTORIES|_COMPILE_DEFINITIONS)$")
@@ -248,7 +252,7 @@ function(sgl_select_operators output)
         if(id IN_LIST selected)
             message(FATAL_ERROR "Duplicate requested operator: ${id}")
         endif()
-        sgl_get_operator(archs "${id}" SUPPORTED_ARCHS)
+        sgl_get_operator_field(archs "${id}" SUPPORTED_ARCHS)
         if(NOT selection_ARCH IN_LIST archs)
             if(selection_OPERATORS STREQUAL "ALL")
                 message(STATUS "Excluded CANN operator: ${id} (supports ${archs}, target ${selection_ARCH})")

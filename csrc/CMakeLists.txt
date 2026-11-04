@@ -35,7 +35,7 @@ sgl_select_operators(selected_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${S
 set(aicore_operators)
 set(aicpu_operators)
 foreach(id IN LISTS selected_operators)
-    sgl_get_operator(unit "${id}" EXECUTION_UNIT)
+    sgl_get_operator_field(unit "${id}" EXECUTION_UNIT)
     if(unit STREQUAL "AICORE")
         list(APPEND aicore_operators "${id}")
     else()
@@ -51,7 +51,7 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt"
     CONTENT "${selection_text}\n" @ONLY)
 if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
    AND NOT "${SGL_CANN_CONFIGURED_OPERATORS}" STREQUAL "${selected_operators}")
-    message(FATAL_ERROR "CANN operator selection changed; run with --make_clean before rebuilding")
+    message(FATAL_ERROR "CANN operator selection changed; run with --make-clean before rebuilding")
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
 
