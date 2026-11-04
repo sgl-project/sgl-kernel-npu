@@ -134,7 +134,7 @@ public:
         GM_ADDR biasGmAddr{nullptr};
         uint32_t baseM;
         uint32_t baseN;
-        float activationClamp = 0.0f;
+        float activationClamp = -1.0f;
         Arguments() = default;
     };
 
@@ -739,7 +739,7 @@ __aicore__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LO
             uint32_t totalDataInUb = static_cast<uint32_t>(mSize) * QUANT_ONCE_NUM;
             uint32_t totalScaleInUb = static_cast<uint32_t>(mSize) * SCALE_ONCE_NUM;
             uint16_t loopScaleNum = (totalScaleInUb + vlForHalfNumber_ - 1) / vlForHalfNumber_;
-            if (params_.activationClamp > 0.0f) {
+            if (params_.activationClamp >= 0.0f) {
                 VfSwigluAndMaxExp256<true>(firstSrc, secondSrc, gluResAddr, streamedMaxExpAddr, mSize,
                                            params_.activationClamp);
             } else {
@@ -794,7 +794,7 @@ __aicore__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LO
         swigluTailAddr2 = gluResAddr + offsetAlign + dim1TailTimes * VF_LEN_FP32;
     }
     // swiglu
-    if (params_.activationClamp > 0.0f) {
+    if (params_.activationClamp >= 0.0f) {
         VfSwiglu<true>(firstSrc, secondSrc, gluResAddr, firstTailAddr, secondTailAddr, swigluTailAddr1, swigluTailAddr2,
                        nSrcUbAligned, nDstUbAligned, dim0VfTimes, dim1VfTimes, dim1TailTimes, dim1Tail2, mask1Num,
                        mask2Num, mask3Num, params_.activationClamp);

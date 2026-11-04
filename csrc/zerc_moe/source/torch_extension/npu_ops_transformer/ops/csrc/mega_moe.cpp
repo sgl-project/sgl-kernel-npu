@@ -60,12 +60,12 @@ std::tuple<at::Tensor, at::Tensor> npu_zerc_moe(
     const c10::optional<std::vector<at::Tensor>> &shared_weight_scales1,
     const c10::optional<std::vector<at::Tensor>> &shared_weight_scales2, double activation_clamp)
 {
-    TORCH_CHECK(std::isfinite(activation_clamp) && activation_clamp >= 0.0 &&
-                    activation_clamp <= static_cast<double>(std::numeric_limits<float>::max()),
-                "activation_clamp must be a nonnegative finite float32");
-    const float activationClamp = static_cast<float>(activation_clamp);
-    TORCH_CHECK(activation_clamp == 0.0 || activationClamp > 0.0f,
-                "positive activation_clamp is too small for float32");
+    // -1 is the internal disabled sentinel; +inf is the external equivalent.
+    TORCH_CHECK(!std::isnan(activation_clamp) && (activation_clamp == -1.0 || activation_clamp >= 0.0),
+                "activation_clamp must be nonnegative, +inf, or the internal disabled sentinel");
+    const bool unbounded =
+        std::isinf(activation_clamp) || activation_clamp > static_cast<double>(std::numeric_limits<float>::max());
+    const float activationClamp = unbounded ? -1.0f : static_cast<float>(activation_clamp);
     TORCH_CHECK((ep_world_size > 0), "The ep_world_sizes should be greater than 0, current is: ", ep_world_size);
     TORCH_CHECK((x.dim() == DIM_TWO) && (topk_ids.dim() == DIM_TWO), "The x and topk_ids should be 2D");
     TORCH_CHECK(

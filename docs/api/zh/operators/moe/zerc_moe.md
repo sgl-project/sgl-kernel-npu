@@ -59,10 +59,14 @@ def zerc_moe(
 可选本地共享专家的 `f_s(x)` 直接加入输出，不乘路由权重。BF16 与 MXFP8
 路径的中间舍入和存储不同。
 
-`activation_clamp` 指定正阈值 `c` 时，在 SwiGLU 之前对 gate 仅限制上界、
+`activation_clamp` 指定非负有限阈值 `c` 时，在 SwiGLU 之前对 gate 仅限制上界、
 对 up 同时限制上下界：`silu(min(gate, c)) * clamp(up, -c, c)`。
 该参数同时作用于路由专家和通过此接口融合的共享专家，同次调用所有 rank
-须使用相同的阈值；`None` 或 `0` 关闭截断，保持原有行为。该实现尚未编译或在设备上验证。
+须使用相同的阈值；`None` 或正无穷关闭截断，保持未传参时的原有行为。
+显式传 `0` 会启用零阈值截断，令 up 分支为零。与 DeepGEMM 相同，启用时
+阈值先从 float32 舍入到 BF16 后执行矢量截断。模型配置 `swiglu_limit=0`
+表示关闭，传给此接口前须转换为 `None`。该实现尚未编译或在设备上验证。
+有限输入先转换为 float32：下溢为零时执行零阈值截断，溢出为正无穷时关闭截断。
 
 ## 参数与返回值
 
@@ -86,7 +90,7 @@ def zerc_moe(
 | `l2_weights_sf` | 含一个 Tensor `[E,H,ceil(I/64),2]` 的列表，E8M0 | `None` | MXFP8 模式必填；BF16 模式不传。 |
 | `l1_weights_shared`、`l2_weights_shared` | 含一个 Tensor `[S,2*I_s,H]`、`[S,H,I_s]` 的列表 | `None` | 可选本地共享专家，须成对提供，dtype 与路由专家权重一致。 |
 | `l1_weights_shared_sf`、`l2_weights_shared_sf` | 含一个 E8M0 Tensor 的列表 | `None` | MXFP8 共享权重 scale，形状分别为 `[S,2*I_s,ceil(H/64),2]` 和 `[S,H,ceil(I_s/64),2]`；BF16 模式不传。 |
-| `activation_clamp` | float，仅关键字参数 | `None` | DSV4 截断阈值；正的有限 float32 值启用，`None` 或 `0` 禁用；负数、非有限值及无法表示为非零有限 float32 的正数报错。 |
+| `activation_clamp` | float，仅关键字参数 | `None` | DSV4 截断阈值；非负有限 float32 值（包括零）启用，`None` 或正无穷禁用；负数和 NaN 报错；有限值先转换为 float32，可能舍入为零或正无穷。 |
 | `impl` | str，仅关键字参数 | `"auto"` | `auto` 或 `ascendc`，两者均选择此源码实现。 |
 
 返回 `(y, expert_token_nums)`：`y` 为 BF16 `[B,H]`，`expert_token_nums` 为

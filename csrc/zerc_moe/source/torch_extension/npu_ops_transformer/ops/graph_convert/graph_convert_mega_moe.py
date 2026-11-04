@@ -89,7 +89,7 @@ if _TORCHAIR_AVAILABLE:
         comm_alg: str = "",
         global_bs: int = 0,
         shared_expert_num: int = 0,
-        activation_clamp: float = 0.0,
+        activation_clamp: float = -1.0,
         dependencies=[],
         node_name=None
     ):
@@ -118,7 +118,7 @@ if _TORCHAIR_AVAILABLE:
         .ATTR(combine_quant_mode, Int, 0)\n
         .ATTR(comm_alg, String, "")\n
         .ATTR(global_bs, Int, 0)\n        .ATTR(shared_expert_num, Int, 0)\n
-        .ATTR(activation_clamp, Float, 0.0)\n
+        .ATTR(activation_clamp, Float, -1.0)\n
         """
         # process inputs
         inputs = {
@@ -194,7 +194,7 @@ if _TORCHAIR_AVAILABLE:
             .attr("comm_alg", attr.Str(""))
             .attr("global_bs", attr.Int(0))
             .attr("shared_expert_num", attr.Int(0))
-            .attr("activation_clamp", attr.Float(0.0))
+            .attr("activation_clamp", attr.Float(-1.0))
             .output("y", "DT_BF16, DT_FLOAT16")
             .output("expert_token_nums", "DT_INT32"),
         )
@@ -225,7 +225,7 @@ if _TORCHAIR_AVAILABLE:
         weight1_type: int = 28,
         weight2_type: int = 28,
         timer: Optional[Tensor] = None,
-        activation_clamp: float = 0.0,
+        activation_clamp: float = -1.0,
         meta_outputs: TensorSpec = None
     ):
 
@@ -233,6 +233,9 @@ if _TORCHAIR_AVAILABLE:
             raise ValueError(
                 "MegaMoe scales is not supported; this reserved optional slot is used internally by Timer V2"
             )
+
+        if activation_clamp == float("inf"):
+            activation_clamp = -1.0
 
         return ZercMoe(
             context=context,

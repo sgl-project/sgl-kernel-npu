@@ -4,8 +4,12 @@ These checks inspect source structure and do not compile or run device kernels.
 """
 
 import ast
+import random
 import re
+import struct
 from pathlib import Path
+
+import torch
 
 from tests.python.zerc_moe.test_protocol_source import _function, _without_comments
 
@@ -73,11 +77,11 @@ def test_clamp_precedes_silu_in_every_vector_path():
     )
 
 
-def test_zero_clamp_selects_the_unclamped_specializations():
+def test_disabled_sentinel_selects_unclamped_specializations_and_zero_is_enabled():
     bf16 = _read(OP / "op_kernel/block_epilogue_swiglu_bf16.h")
     bf16_run = _flat(_function(bf16, "operator()("))
     assert re.search(
-        r"if \(params_\.activationClamp > 0\.0f\) \{ VfSwigluInPlace<true>\(.*?params_\.activationClamp\); \} else \{ VfSwigluInPlace<false>\(.*?0\.0f\); \}",
+        r"if \(params_\.activationClamp >= 0\.0f\) \{ VfSwigluInPlace<true>\(.*?params_\.activationClamp\); \} else \{ VfSwigluInPlace<false>\(.*?0\.0f\); \}",
         bf16_run,
     )
     mx = _read(OP / "op_kernel/block_epilogue_swiglu_mx_quant.h")
@@ -89,7 +93,7 @@ def test_zero_clamp_selects_the_unclamped_specializations():
     )
     for name in ("VfSwiglu", "VfSwigluAndMaxExp256"):
         assert re.search(
-            rf"if \(params_\.activationClamp > 0\.0f\) \{{ {name}<true>\(.*?params_\.activationClamp\); \}} else \{{ {name}<false>\(.*?0\.0f\); \}}",
+            rf"if \(params_\.activationClamp >= 0\.0f\) \{{ {name}<true>\(.*?params_\.activationClamp\); \}} else \{{ {name}<false>\(.*?0\.0f\); \}}",
             mx_run,
         )
     assert mx_run.index("VfSwigluAndMaxExp256<true>") < mx_run.index(
@@ -113,7 +117,7 @@ def test_tiling_value_reaches_both_routed_and_shared_epilogues():
         )
     for file in ("block_epilogue_swiglu_bf16.h", "block_epilogue_swiglu_mx_quant.h"):
         source = _read(OP / "op_kernel" / file)
-        assert "float activationClamp = 0.0f;" in source
+        assert "float activationClamp = -1.0f;" in source
         assert "params_ = params;" in source
 
 
@@ -122,7 +126,8 @@ def test_attr_index_and_aclnn_argument_order_are_consistent():
     attrs = re.findall(r'this->Attr\("([^"]+)"\)', opdef)
     assert attrs[-2:] == ["shared_expert_num", "activation_clamp"]
     assert re.search(
-        r'this->Attr\("activation_clamp"\)\.AttrType\(OPTIONAL\)\.Float\(0\.0f\)', opdef
+        r'this->Attr\("activation_clamp"\)\.AttrType\(OPTIONAL\)\.Float\(-1\.0f\)',
+        opdef,
     )
     config = _read(OP / "op_host/op_tiling/mega_moe.h")
     m = re.search(r"attrActivationClampIndex\s*=\s*(\d+)U", config)
@@ -131,7 +136,15 @@ def test_attr_index_and_aclnn_argument_order_are_consistent():
     set_attr = _flat(_function(tiling, "SetAttrParams("))
     assert "attrs->GetAttrPointer<float>(config.attrActivationClampIndex)" in set_attr
     assert "tilingData->activationClamp = activationClamp;" in set_attr
-    assert "!std::isfinite(activationClamp) || activationClamp < 0.0f" in set_attr
+    assert "!std::isfinite(activationClamp)" in set_attr
+    assert "activationClamp < 0.0f" in set_attr
+    assert "activationClamp != -1.0f" in set_attr
+    guard = set_attr.index("if (activationClamp >= 0.0f)")
+    read = set_attr.index("std::memcpy(&bits, &activationClamp, sizeof(bits));", guard)
+    rounding = set_attr.index("bits += 0x7fffU + ((bits >> 16U) & 1U);", read)
+    mask = set_attr.index("bits &= 0xffff0000U;", rounding)
+    write = set_attr.index("std::memcpy(&activationClamp, &bits, sizeof(bits));", mask)
+    assert write < set_attr.index("tilingData->activationClamp = activationClamp;")
     assert "float activationClamp;" in _read(OP / "op_kernel/mega_moe_tiling.h")
 
     api = _flat(_read(OP / "op_api/aclnn_mega_moe.cpp"))
@@ -157,7 +170,7 @@ def test_attr_index_and_aclnn_argument_order_are_consistent():
 
 def test_python_schema_and_graph_converter_both_forward_clamp():
     binding = (EXT / "mega_moe.py").read_text(encoding="utf-8")
-    assert "float activation_clamp=0." in binding
+    assert "float activation_clamp=-1." in binding
     module = ast.parse(binding)
     functions = {
         node.name: node for node in module.body if isinstance(node, ast.FunctionDef)
@@ -184,5 +197,49 @@ def test_python_schema_and_graph_converter_both_forward_clamp():
         encoding="utf-8"
     )
     assert '"activation_clamp": attr.Float(activation_clamp)' in graph
-    assert '.attr("activation_clamp", attr.Float(0.0))' in graph
+    assert '.attr("activation_clamp", attr.Float(-1.0))' in graph
     assert "activation_clamp=activation_clamp" in graph
+
+
+def test_host_threshold_rounding_matches_bf16_rne_reference():
+    # Interpret the constants from the checked C++ operations; compare against
+    # torch's independent BF16 conversion. This is not C++ execution.
+    tiling = _read(OP / "op_host/op_tiling/mega_moe_tiling.cpp")
+    set_attr = _function(tiling, "SetAttrParams(")
+    round_op = re.search(
+        r"bits\s*\+=\s*(0x[0-9a-fA-F]+)U\s*\+\s*"
+        r"\(\(bits\s*>>\s*(\d+)U\)\s*&\s*(\d+)U\);",
+        set_attr,
+    )
+    mask_op = re.search(r"bits\s*&=\s*(0x[0-9a-fA-F]+)U;", set_attr)
+    assert round_op and mask_op
+    bias, shift, tie_mask = (int(round_op[1], 16), int(round_op[2]), int(round_op[3]))
+    mask = int(mask_op[1], 16)
+    rng = random.Random(39)
+    # Positive finite float32 bit patterns, including both ties-to-even
+    # parities and transitions into BF16 zero/subnormal/infinity.
+    patterns = [
+        0,
+        1,
+        0x7FFF,
+        0x8000,
+        0x8001,
+        0x3F808000,
+        0x3F818000,
+        0x3F80624E,
+        0x7F7F7FFF,
+        0x7F7F8000,
+        0x7F7FFFFF,
+    ]
+    patterns += [rng.randrange(0x7F800000) for _ in range(128)]
+    for bits in patterns:
+        value = struct.unpack("!f", struct.pack("!I", bits))[0]
+        rounded_bits = (bits + bias + ((bits >> shift) & tie_mask)) & mask
+        expected = (
+            torch.tensor(value, dtype=torch.float32)
+            .to(torch.bfloat16)
+            .to(torch.float32)
+            .item()
+        )
+        expected_bits = struct.unpack("!I", struct.pack("!f", expected))[0]
+        assert rounded_bits == expected_bits, hex(bits)

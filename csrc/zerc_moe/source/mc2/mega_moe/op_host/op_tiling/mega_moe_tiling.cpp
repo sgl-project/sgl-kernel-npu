@@ -1161,13 +1161,28 @@ static ge::graphStatus SetAttrParams(const gert::TilingContext *context, MegaMoe
     auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>((config.attrEpWorldSizeIndex));
     auto maxRecvTokenNumPtr = attrs->GetAttrPointer<int64_t>((config.attrMaxRecvTokenNumIndex));
     auto activationClampPtr = attrs->GetAttrPointer<float>(config.attrActivationClampIndex);
-    // The OpDef supplies the 0.0 default. Missing it can indicate incompatible
+    // The OpDef supplies the -1.0 disabled default. Missing it can indicate incompatible
     // generated artifacts; do not silently run a requested clamp as disabled.
     OP_TILING_CHECK(activationClampPtr == nullptr, OP_LOGE(nodeName, "activation_clamp attribute is missing."),
                     return ge::GRAPH_FAILED);
-    const float activationClamp = *activationClampPtr;
-    OP_TILING_CHECK(!std::isfinite(activationClamp) || activationClamp < 0.0f,
-                    OP_LOGE(nodeName, "activation_clamp must be finite and nonnegative."), return ge::GRAPH_FAILED);
+    float activationClamp = *activationClampPtr;
+    if (activationClamp == std::numeric_limits<float>::infinity()) {
+        activationClamp = -1.0f;
+    }
+    OP_TILING_CHECK(!std::isfinite(activationClamp) || (activationClamp < 0.0f && activationClamp != -1.0f),
+                    OP_LOGE(nodeName, "activation_clamp must be nonnegative or the disabled sentinel -1."),
+                    return ge::GRAPH_FAILED);
+    if (activationClamp >= 0.0f) {
+        // DeepGEMM clamps BF16 GMM1 outputs against a BF16 scalar. Match its
+        // round-to-nearest-even threshold while storing the result as float32.
+        // Values may round to zero or +inf: both remain enabled thresholds.
+        uint32_t bits;
+        static_assert(sizeof(bits) == sizeof(activationClamp), "float32 expected");
+        std::memcpy(&bits, &activationClamp, sizeof(bits));
+        bits += 0x7fffU + ((bits >> 16U) & 1U);
+        bits &= 0xffff0000U;
+        std::memcpy(&activationClamp, &bits, sizeof(bits));
+    }
     tilingData->activationClamp = activationClamp;
 
     tilingData->epWorldSize = *epWorldSizePtr;

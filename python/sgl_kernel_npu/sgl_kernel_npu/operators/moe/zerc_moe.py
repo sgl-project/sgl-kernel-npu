@@ -217,27 +217,31 @@ def zerc_moe(
 
     ``activation_clamp`` applies DSV4 pre-SwiGLU bounds to both routed and
     fused shared experts. All ranks must use the same value for each call;
-    ``None`` and 0 disable the bounds.
+    ``None`` and positive infinity disable the bounds; zero applies a zero
+    threshold. Positive thresholds are rounded to BF16 by host tiling.
     """
-    # CANN stores this attribute as float32. Reject overflow and positive
-    # underflow instead of silently turning a requested clamp into infinity or 0.
+    # DeepGEMM accepts an optional float32; preserve its conversion semantics
+    # for finite values that round to zero or positive infinity.
     if activation_clamp is None:
-        activation_clamp = 0.0
+        activation_clamp = math.inf
     try:
         activation_clamp = float(activation_clamp)
-        encoded_clamp = struct.unpack("f", struct.pack("f", activation_clamp))[0]
     except (TypeError, ValueError, OverflowError, struct.error) as exc:
         raise ValueError(
-            "activation_clamp must be a nonnegative finite float32"
+            "activation_clamp must be nonnegative and representable as float32"
         ) from exc
-    if (
-        not math.isfinite(activation_clamp)
-        or not math.isfinite(encoded_clamp)
-        or activation_clamp < 0
-        or (activation_clamp > 0 and encoded_clamp == 0)
-    ):
-        raise ValueError("activation_clamp must be a nonnegative finite float32")
-    activation_clamp = encoded_clamp
+    if math.isnan(activation_clamp) or activation_clamp < 0:
+        raise ValueError("activation_clamp must be nonnegative and not NaN")
+    if math.isinf(activation_clamp):
+        # Negative infinity has already been rejected; -1 is an internal only
+        # sentinel. Unlike zero it never means an enabled clamp.
+        activation_clamp = -1.0
+    else:
+        try:
+            encoded_clamp = struct.unpack("f", struct.pack("f", activation_clamp))[0]
+        except OverflowError:
+            encoded_clamp = math.inf
+        activation_clamp = -1.0 if math.isinf(encoded_clamp) else encoded_clamp
     if not isinstance(sym_buffer, ZercMoeBuffer) or sym_buffer._closed:
         raise ValueError("sym_buffer must be a live ZercMoeBuffer")
     if scales is not None or x_active_mask is not None:

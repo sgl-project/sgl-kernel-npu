@@ -59,7 +59,7 @@ public:
         GM_ADDR biasGmAddr{nullptr};
         uint32_t baseM;
         uint32_t baseN;
-        float activationClamp = 0.0f;
+        float activationClamp = -1.0f;
         Arguments() = default;
     };
 
@@ -119,7 +119,7 @@ public:
         uint32_t rowStride = Ops::Base::CeilAlign(singleN, SWIGLU_BF16_UB_ROW_ALIGN);
         __ubuf__ bfloat16_t *firstSrc = (__ubuf__ bfloat16_t *)l0cOutUbFirst_.GetPhyAddr();
         __ubuf__ bfloat16_t *secondSrc = (__ubuf__ bfloat16_t *)l0cOutUbSecond_.GetPhyAddr();
-        if (params_.activationClamp > 0.0f) {
+        if (params_.activationClamp >= 0.0f) {
             VfSwigluInPlace<true>(firstSrc, secondSrc, static_cast<uint16_t>(singleM), static_cast<uint16_t>(singleN),
                                   static_cast<uint16_t>(rowStride), params_.activationClamp);
         } else {

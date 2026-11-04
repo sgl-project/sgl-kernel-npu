@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <limits>
 #include "common/utils/op_mc2.h"
 #include "common/utils/op_mc2_def.h"
 #include "opdev/op_log.h"
@@ -62,6 +63,11 @@ aclnnStatus aclnnZercMoeGetWorkspaceSize(
     OP_CHECK_NULL(weight2, return ACLNN_ERR_PARAM_NULLPTR);
     OP_CHECK_NULL(yOut, return ACLNN_ERR_PARAM_NULLPTR);
     OP_CHECK_NULL(expertTokenNumsOut, return ACLNN_ERR_PARAM_NULLPTR);
+
+    // Keep the external +inf disable convention even for direct ACLNN users.
+    if (activationClamp == std::numeric_limits<double>::infinity()) {
+        activationClamp = -1.0;
+    }
 
     return aclnnInnerZercMoeGetWorkspaceSize(context, x, topkIds, topkWeights, weight1, weight2, weightScales1Optional,
                                              weightScales2Optional, xActiveMaskOptional, scalesOptional, moeExpertNum,

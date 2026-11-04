@@ -53,6 +53,6 @@ struct MegaMoeTilingData {
     // byte-identical.
     uint32_t sharedExpertNum;
     uint32_t sharedN;
-    float activationClamp;  // 0 disables clamping; positive values bound SwiGLU inputs.
+    float activationClamp;  // -1 disables; >= 0 is a BF16-rounded clamp threshold.
 };
 #endif

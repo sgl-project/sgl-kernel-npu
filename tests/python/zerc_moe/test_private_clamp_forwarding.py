@@ -62,7 +62,7 @@ def _buffer():
     )
 
 
-@pytest.mark.parametrize("clamp", [0.0, 10.0])
+@pytest.mark.parametrize("clamp", [-1.0, 0.0, 10.0])
 def test_private_eager_chain_preserves_all_arguments(private_chain, clamp):
     run, binding = private_chain
     buffer = _buffer()
@@ -132,4 +132,4 @@ def test_private_eager_chain_defaults_to_unclamped(private_chain):
         sentinel.counts,
     )
     args = binding.call_args.args
-    assert args[-5:] == (None, None, None, None, 0.0)
+    assert args[-5:] == (None, None, None, None, -1.0)

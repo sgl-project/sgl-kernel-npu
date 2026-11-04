@@ -66,12 +66,17 @@ rounding, an expert computes `f_e(x) = W2_e @ (silu(W1_gate_e @ x) *
 experts. Optional local shared experts add `f_s(x)` without routing weights.
 The BF16 and MXFP8 paths have different intermediate rounding and storage.
 
-For a positive `activation_clamp` value `c`, gate is capped only above and up
+For a nonnegative finite `activation_clamp` value `c`, gate is capped only above and up
 is clamped on both sides before SwiGLU: `silu(min(gate, c)) * clamp(up, -c, c)`.
 The same parameter applies to routed experts and shared experts fused by this
-interface, and all ranks must use the same value in each call. `None` or `0`
-disables clamping, preserving existing behavior.
-This implementation has not been compiled or tested on device.
+interface, and all ranks must use the same value in each call. `None` or positive
+infinity disables clamping, preserving the behavior of omitted arguments.
+Explicit zero enables a zero threshold and zeroes the up branch. As in DeepGEMM,
+the enabled float32 threshold is rounded to BF16 before the vector clamp.
+Finite inputs first convert to float32: underflow to zero enables zero clamping,
+while overflow to positive infinity disables clamping.
+A model config `swiglu_limit=0` means disabled and must be mapped to `None`
+before passing it here. This implementation has not been compiled or tested on device.
 
 ## Parameters and return values
 
@@ -97,7 +102,7 @@ valid and distinct within each token.
 | `l2_weights_sf` | List of one tensor `[E,H,ceil(I/64),2]`, E8M0 | `None` | Required in MXFP8 mode; absent in BF16 mode. |
 | `l1_weights_shared`, `l2_weights_shared` | Lists of one tensor `[S,2*I_s,H]`, `[S,H,I_s]` | `None` | Optional local shared experts; both must be provided together with matching routed dtype. |
 | `l1_weights_shared_sf`, `l2_weights_shared_sf` | Lists of one E8M0 tensor | `None` | Shared weight scales for MXFP8; shapes `[S,2*I_s,ceil(H/64),2]` and `[S,H,ceil(I_s/64),2]`. Absent in BF16 mode. |
-| `activation_clamp` | float, keyword-only | `None` | DSV4 limit; a positive finite float32 value enables clamping; `None` or `0` disables it. Negative, nonfinite and positive values not representable as nonzero finite float32 are rejected. |
+| `activation_clamp` | float, keyword-only | `None` | DSV4 limit; nonnegative finite float32 enables clamping, including zero; `None` or positive infinity disables it. Negative values and NaN are rejected; finite inputs are converted to float32 and may round to zero or positive infinity. |
 | `impl` | str, keyword-only | `"auto"` | `auto` or `ascendc`; both select the source implementation. |
 
 Returns `(y, expert_token_nums)`: BF16 `y` has shape `[B,H]`, and the int32

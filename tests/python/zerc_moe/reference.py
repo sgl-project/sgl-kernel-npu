@@ -12,9 +12,15 @@ import torch.nn.functional as F
 def _expert(x, w1, w2, activation_clamp=None):
     projected = (w1.float() @ x.float()).to(torch.bfloat16).float()
     gate, up = projected.chunk(2)
-    if activation_clamp:
-        gate = gate.clamp(max=activation_clamp)
-        up = up.clamp(min=-activation_clamp, max=activation_clamp)
+    if activation_clamp is not None and activation_clamp != float("inf"):
+        # DeepGEMM rounds the float32 threshold to BF16 before its vector clamp.
+        limit = (
+            torch.tensor(activation_clamp, dtype=torch.float32)
+            .to(torch.bfloat16)
+            .item()
+        )
+        gate = gate.clamp(max=limit)
+        up = up.clamp(min=-limit, max=limit)
     hidden = (F.silu(gate) * up).to(torch.bfloat16).float()
     return (w2.float() @ hidden).to(torch.bfloat16)
 
@@ -39,7 +45,9 @@ def reference_bf16(
     Shared experts are local to each source rank and added without a route
     probability. Each first projection uses the gate/up weight layout.
     ``activation_clamp`` applies the DSV4 asymmetric pre-SiLU bounds to routed
-    and shared experts; None and zero leave the existing calculation unchanged.
+    and shared experts; None and positive infinity leave the calculation unchanged.
+    Explicit zero clamps the up branch to zero. Enabled thresholds are rounded
+    to BF16 as in DeepGEMM; this CPU oracle does not execute the NPU kernel.
     """
     world = len(xs)
     if world < 2 or any(
