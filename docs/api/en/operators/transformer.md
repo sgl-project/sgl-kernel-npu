@@ -45,7 +45,7 @@ compressor intentionally retains its `npu` namespace binding from SGLang PR
   constant describes the released format only. The writer adapter owns raw byte
   views and vendor enum mapping. Invalid mixed-quant write slots use -1; slot 0
   remains valid.
-- First-call CANN symbol lookup is protected from custom vendor shadowing. The
+- CANN bindings use the installed extension's native symbol lookup. The
   temporary process environment change is serialized across operators, restored
   on failure, and does not run again after a successful first invocation.
 
@@ -159,9 +159,11 @@ validation.
 
 Each public operator has its own file. The 12 CANN adapter bodies live directly
 in their registered backend functions under `operators/<category>/`; there is no
-separate `implementation/cann_ops_transformer` forwarding layer. The shared lazy
-loader and first-call symbol guards live in
-`operators/utils/_cann_ops_transformer.py`. Independent torch references keep
+separate `implementation/cann_ops_transformer` forwarding layer. Shared lazy
+imports, binding lookup and schema checks live in
+`operators/utils/_transformer_compat.py`. Released bindings are used directly;
+no first-call packet wrapper or temporary vendor-path changes are installed.
+Independent torch references keep
 their matching paths under `implementation/torch_native/`, and the MoE production
 backend is implemented directly in `operators/moe/moe_gating_top_k.py`. Registry
 names use the same category prefix. No model-specific `operators/dsv4` package

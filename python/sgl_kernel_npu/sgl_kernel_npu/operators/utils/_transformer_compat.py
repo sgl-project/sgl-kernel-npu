@@ -13,8 +13,6 @@ from typing import NamedTuple
 
 import torch
 
-from ._cann_ops_transformer import get_op
-
 _VERSION_RE = re.compile(
     r"^\s*(?:version|version_dir)\s*=\s*(\d+\.\d+\.\d+)\s*$",
     re.IGNORECASE | re.MULTILINE,
@@ -113,12 +111,8 @@ def _load_legacy_library():
 
 @functools.lru_cache(maxsize=None)
 def optional_op(namespace, name):
-    if namespace == "cann_ops_transformer":
-        if not has_released_ops():
-            return None
-        if not hasattr(torch.ops.cann_ops_transformer, name):
-            return None
-        return get_op(name)
+    if namespace == "cann_ops_transformer" and not has_released_ops():
+        return None
     if namespace == "custom":
         _load_legacy_library()
     return getattr(getattr(torch.ops, namespace), name, None)
