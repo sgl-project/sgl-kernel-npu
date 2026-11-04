@@ -27,8 +27,17 @@ def test_quant_lightning_indexer(case):
         )
         # The selected Top-K set is the contract; accelerator kernels may
         # return the same indices in a different order.
-        actual = executor().sort(dim=-1).values
-        expected = expected.sort(dim=-1).values
-        assert_accuracy(actual, expected)
+        actual_indices, actual_values = executor()
+        expected_indices, expected_values = expected
+        assert_accuracy(
+            (
+                actual_indices.sort(dim=-1).values,
+                actual_values,
+            ),
+            (
+                expected_indices.sort(dim=-1).values,
+                expected_values,
+            ),
+        )
         executor.accuracy_checked = True
     check_performance(executor, enable_perf=case == CASES[1])
