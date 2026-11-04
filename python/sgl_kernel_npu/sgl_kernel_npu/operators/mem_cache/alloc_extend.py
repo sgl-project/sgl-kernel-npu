@@ -1,5 +1,7 @@
 """Public in-place paged allocation with explicit implementation selection."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
@@ -11,8 +13,6 @@ _cpu_fn = None
 def _ascendc_impl(
     pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values
 ):
-    import torch
-
     return torch.ops.npu.alloc_extend(
         pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values
     )
@@ -82,8 +82,6 @@ def alloc_extend(
     Returns:
         None. Writes out_indices and conditionally values[0] in place.
     """
-    import torch
-
     if any(
         t.dtype != torch.int64
         for t in (pre_lens, seq_lens, last_loc, free_pages, out_indices)

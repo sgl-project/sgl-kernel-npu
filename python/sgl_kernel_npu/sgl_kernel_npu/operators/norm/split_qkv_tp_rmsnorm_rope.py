@@ -5,6 +5,10 @@ import torch.distributed as dist
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fns = None
+_torch_native_fns = None
+_cpu_fn = None
+
 
 @register_impl("norm.split_qkv_tp_rmsnorm_rope", "auto")
 @register_impl("norm.split_qkv_tp_rmsnorm_rope", "triton")
@@ -22,13 +26,28 @@ def _triton_impl(
     tp_world: int,
     tp_group: torch.distributed.ProcessGroup,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    import triton
+    global _triton_fns
+    if _triton_fns is None:
+        import triton
 
-    from ...implementation.triton.norm.split_qkv_tp_rmsnorm_rope import (
+        from ...implementation.triton.norm.split_qkv_tp_rmsnorm_rope import (
+            _apply_global_rmsnorm_kernel,
+            _split_qkv_and_compute_local_qk_var_kernel,
+        )
+        from ...utils.triton_utils import get_device_properties
+
+        _triton_fns = (
+            triton,
+            _apply_global_rmsnorm_kernel,
+            _split_qkv_and_compute_local_qk_var_kernel,
+            get_device_properties,
+        )
+    (
+        triton,
         _apply_global_rmsnorm_kernel,
         _split_qkv_and_compute_local_qk_var_kernel,
-    )
-    from ...utils.triton_utils import get_device_properties
+        get_device_properties,
+    ) = _triton_fns
 
     KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
     assert KV_BLOCK_SIZE == head_dim
@@ -110,10 +129,15 @@ def _torch_native_impl(
     tp_world: int,
     tp_group: torch.distributed.ProcessGroup,
 ):
-    from ...implementation.torch_native.norm.split_qkv_tp_rmsnorm_rope import (
-        apply_global,
-        compute_local,
-    )
+    global _torch_native_fns
+    if _torch_native_fns is None:
+        from ...implementation.torch_native.norm.split_qkv_tp_rmsnorm_rope import (
+            apply_global,
+            compute_local,
+        )
+
+        _torch_native_fns = compute_local, apply_global
+    compute_local, apply_global = _torch_native_fns
 
     assert head_dim == 1 << (head_dim - 1).bit_length()
     assert q_hidden_size % kv_hidden_size == 0
@@ -170,11 +194,14 @@ def _cpu_impl(
     tp_world,
     tp_group,
 ):
-    from ...implementation.cpu.norm.split_qkv_tp_rmsnorm_rope import (
-        split_qkv_tp_rmsnorm_rope,
-    )
+    global _cpu_fn
+    if _cpu_fn is None:
+        from ...implementation.cpu.norm.split_qkv_tp_rmsnorm_rope import (
+            split_qkv_tp_rmsnorm_rope,
+        )
 
-    return split_qkv_tp_rmsnorm_rope(
+        _cpu_fn = split_qkv_tp_rmsnorm_rope
+    return _cpu_fn(
         input,
         cos,
         sin,

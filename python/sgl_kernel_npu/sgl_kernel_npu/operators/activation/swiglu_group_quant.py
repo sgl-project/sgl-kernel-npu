@@ -3,6 +3,9 @@ import torch
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_torch_native_fn = None
+_cpu_fn = None
+
 
 @register_impl(
     "activation.swiglu_group_quant", "auto", supported_generations=[Generation.ARCH35]
@@ -18,18 +21,26 @@ def _ascendc(**kwargs):
 
 @register_impl("activation.swiglu_group_quant", "torch_native")
 def _native(**kwargs):
-    from ...implementation.torch_native.activation.swiglu_group_quant import (
-        swiglu_group_quant,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.activation.swiglu_group_quant import (
+            swiglu_group_quant,
+        )
 
-    return swiglu_group_quant(**kwargs)
+        _torch_native_fn = swiglu_group_quant
+    return _torch_native_fn(**kwargs)
 
 
 @register_impl("activation.swiglu_group_quant", "cpu")
 def _cpu(**kwargs):
-    from ...implementation.cpu.activation.swiglu_group_quant import swiglu_group_quant
+    global _cpu_fn
+    if _cpu_fn is None:
+        from ...implementation.cpu.activation.swiglu_group_quant import (
+            swiglu_group_quant,
+        )
 
-    return swiglu_group_quant(**kwargs)
+        _cpu_fn = swiglu_group_quant
+    return _cpu_fn(**kwargs)
 
 
 @register_operator("activation.swiglu_group_quant")

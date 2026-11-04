@@ -1,5 +1,7 @@
 """In-place packed segment copies; return whether the input metadata is accepted."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
@@ -8,8 +10,6 @@ _torch_native_fn = None
 @register_impl("mem_cache.assign_cache_op", "auto")
 @register_impl("mem_cache.assign_cache_op", "ascendc")
 def _ascendc_impl(dst, src, dst_start, dst_end, src_start, src_end):
-    import torch
-
     return torch.ops.npu.assign_cache_op(
         dst, src, dst_start, dst_end, src_start, src_end
     )

@@ -1,5 +1,7 @@
 """Pack quantized KV cache rows through a common in-place interface."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -16,8 +18,6 @@ _cpu_fn = None
 def _ascendc_impl(
     cache, x, slot_mapping, quant_group_size, quant_mode, round_scale_flag, layout
 ):
-    import torch
-
     return torch.ops.npu.kv_compress_epilog(
         cache, x, slot_mapping, quant_group_size, quant_mode, round_scale_flag, layout
     )
@@ -56,8 +56,6 @@ def _cpu_impl(
 
 
 def _check_inputs(cache, x, slots, group, mode, layout):
-    import torch
-
     def check(ok, message):
         if not ok:
             raise RuntimeError(message)
