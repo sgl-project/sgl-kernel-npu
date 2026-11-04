@@ -42,7 +42,8 @@ repos:
           - -L
           - cann,ND,tbe,CopyIn,EnQue,ot,ArchType,dout,aLog,uSeed,useG,LoadIn
           - --ignore-regex
-          - '\b(te|hel|ans|als|childs|vas|hsa|ment)\b'
+          # CANN's Te namespace is an API identifier, not prose.
+          - '\b(te|hel|ans|als|childs|vas|hsa|ment)\b|\bTe(?=::)'
           - --skip
           - '*.json,*.jsonl,*.patch,*.txt'
           - --ignore-words-list=deviceC
