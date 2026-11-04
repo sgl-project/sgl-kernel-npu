@@ -1,3 +1,4 @@
+from .chunk_gated_delta_rule import chunk_gated_delta_rule
 from .flash_mla import flash_mla, flash_mla_metadata
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
@@ -6,6 +7,7 @@ from .kv_quant_sparse_attn_sharedkv_metadata import (
 from .mlaprolog_v4 import mlaprolog_v4
 
 __all__ = [
+    "chunk_gated_delta_rule",
     "flash_mla",
     "flash_mla_metadata",
     "kv_quant_sparse_attn_sharedkv",
