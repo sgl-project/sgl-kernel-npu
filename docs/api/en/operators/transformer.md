@@ -60,7 +60,13 @@ The attention reference supports one shared KV head, TND/BSND queries, PA_BBND
 pages, sliding-window or explicit original indices, and causal compressed KV.
 The mixed-quant reference supports DSV4 448-NoPE/64-RoPE with both 608-byte
 BF16-scale and original 640-byte E8M0-scale rows.
-The indexer reference supports causal TND/PA_BBND FP8/INT8 inputs. The compressor
+The indexer reference supports causal TND/PA_BBND FP8/INT8 inputs.
+For `indexer_quant_cache(quant_mode="fp8")`, scales are unrounded FP32 values;
+`round_scale` is MX-FP8-only and `x_scale` is HiFloat8-only. The normal-FP8
+reference supports finite activations, one block of up to 128 values per row,
+and zero rows (scale=0). Nonfinite activations and subnormal FP32 scales are
+explicitly outside its validated domain. FP8 casting is performed on CPU; NPU
+buffers are transferred through byte views. The compressor
 reference supports coff=1/2 and paged, explicit-table, or request-bank cycle state.
 Unsupported layouts and modes raise rather than forwarding to CANN.
 

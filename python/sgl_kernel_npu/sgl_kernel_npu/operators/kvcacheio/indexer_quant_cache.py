@@ -12,14 +12,12 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
         (("custom", "indexer_compress_epilog"),),
     )
     if family.legacy:
-        if (
-            kwargs.get("quant_mode", "fp8") != "fp8"
-            or kwargs.get("x_scale", 1.0) != 1.0
-            or not kwargs.get("round_scale", True)
-        ):
+        if kwargs.get("quant_mode", "fp8") != "fp8":
             raise OperatorUnavailableError(
                 "Legacy indexer epilog supports its original fp8 dynamic-quantization contract only"
             )
+        # Normal FP8 uses FP32 block scales. round_scale is MX-FP8-only,
+        # and x_scale is HiFloat8-only; both are inactive in this mode.
         family.ops[0](
             indexer_compress_cache=cache,
             indexer_compress_scale=scale_cache,
@@ -44,6 +42,8 @@ def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
 def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **kwargs):
     """Quantize and scatter indexer keys and fp32 scales in place.
 
+    For quant_mode="fp8", round_scale and x_scale do not change the result;
+    they are attributes of the MX-FP8 and HiFloat8 modes respectively.
     impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
