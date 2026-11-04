@@ -8,11 +8,11 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers` / `auto` | 不支持 | 支持 |
+| `cann_ops_transformers_cann920` / `auto` | 不支持 | 支持 |
 
 ## 函数原型
 
-默认 `auto` 选择 `cann_ops_transformers`。
+默认 `auto` 在 CANN 9.2.0、arch35 上选择 `cann_ops_transformers_cann920`。
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_mla_metadata
@@ -60,7 +60,7 @@ def flash_mla_metadata(
 | `mask_mode` | `int` | `0` | `0`：无掩码；`3`：右对齐因果；`4`：右对齐滑动窗口。 |
 | `win_left`、`win_right` | `int` | `-1` | 模式 4 的窗口范围，`-1` 表示无界；其他模式必须为 `-1`。 |
 | `layout_q` | `str` | `"BSND"` | `BSND`、`BNSD` 或 `TND`，与主算子一致。 |
-| `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers`。 |
+| `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers_cann920`。 |
 
 | 返回值 | 类型 / Shape / Dtype | 描述 |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ def flash_mla_metadata(
 
 将返回值原样传入 `flash_mla(..., metadata=metadata)`。
 
-## cann_ops_transformers 后端
+## cann_ops_transformers_cann920 后端
 
 需要 CANN 9.2.0，并安装包含 Flash MLA 和 metadata 算子的 sgl-kernel-npu wheel。首次调用可能编译适配代码，请保留 C++ 编译环境。
 
@@ -91,7 +91,7 @@ metadata = flash_mla_metadata(
     head_dim_v=512,
     mask_mode=0,
     layout_q="TND",
-    impl="cann_ops_transformers",
+    impl="cann_ops_transformers_cann920",
 )
 print(metadata.shape, metadata.dtype)
 # 保持原样传给长度和属性一致的 flash_mla。

@@ -1,5 +1,6 @@
 """Non-official CANN 9.2.0 Flash MLA operators backed by ops-transformer."""
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -9,9 +10,20 @@ _native_fn = None
 
 
 @register_impl("attention.flash_mla", "auto", supported_generations={Generation.ARCH35})
+def _auto_impl(*args, **kwargs):
+    version = detect_cann_version()
+    if version != "9.2.0":
+        raise RuntimeError(
+            "flash_mla auto supports CANN 9.2.0 only; detected CANN {}".format(version)
+        )
+    return get_impl_by_name("attention.flash_mla", "cann_ops_transformers_cann920")(
+        *args, **kwargs
+    )
+
+
 @register_impl(
     "attention.flash_mla",
-    "cann_ops_transformers",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
@@ -58,9 +70,12 @@ def flash_mla(
     *,
     impl="auto",
 ):
-    """Compute paged MLA attention; auto selects cann_ops_transformers on arch35.
+    """Compute paged MLA attention.
+
+    auto selects cann_ops_transformers_cann920 on arch35 with CANN 9.2.0.
 
     This is a non-official operator introduced in CANN 9.2.0.
+    auto raises on other CANN releases; torch_native is not version-gated.
 
     q (Tensor): [T, N, 576] (TND), [B, S, N, 576] (BSND), or
         [B, N, S, 576] (BNSD), fp16/bf16.
@@ -80,7 +95,7 @@ def flash_mla(
     max_seqlen_q/max_seqlen_kv (int): upstream length attributes; use -1.
     layout_q/layout_kv/layout_out (str): input and output layouts.
     return_softmax_lse (bool): return FP32 log-sum-exp alongside the output.
-    impl (str): auto, cann_ops_transformers, or torch_native.
+    impl (str): auto, cann_ops_transformers_cann920, or torch_native.
 
     Returns (output, lse); disabled lse is an empty FP32 tensor. torch_native
     supports TND/PA_BBND, TND or NTD output, mask_mode 0/3, fully used packed
@@ -114,9 +129,22 @@ def flash_mla(
 @register_impl(
     "attention.flash_mla_metadata", "auto", supported_generations={Generation.ARCH35}
 )
+def _auto_metadata(*args, **kwargs):
+    version = detect_cann_version()
+    if version != "9.2.0":
+        raise RuntimeError(
+            "flash_mla_metadata auto supports CANN 9.2.0 only; detected CANN {}".format(
+                version
+            )
+        )
+    return get_impl_by_name(
+        "attention.flash_mla_metadata", "cann_ops_transformers_cann920"
+    )(*args, **kwargs)
+
+
 @register_impl(
     "attention.flash_mla_metadata",
-    "cann_ops_transformers",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_metadata(*args, **kwargs):
@@ -146,9 +174,12 @@ def flash_mla_metadata(
     *,
     impl="auto",
 ):
-    """Build scheduling metadata; auto selects cann_ops_transformers on arch35.
+    """Build scheduling metadata.
+
+    auto selects cann_ops_transformers_cann920 on arch35 with CANN 9.2.0.
 
     This is a non-official operator introduced in CANN 9.2.0.
+    auto raises on other CANN releases.
 
     cache_seqlens (Tensor): int32 [B], KV lengths.
     num_heads_q/num_heads_kv (int): query/KV head counts.
@@ -158,7 +189,7 @@ def flash_mla_metadata(
     head_dim_qk/head_dim_v (int): QK/value widths.
     mask_mode (int): attention mask mode; layout_q (str): query layout.
     win_left/win_right (int): window bounds, -1 for upstream defaults.
-    impl (str): auto or cann_ops_transformers.
+    impl (str): auto or cann_ops_transformers_cann920.
     Returns an opaque one-dimensional int32 tensor sized by batch/core counts.
     """
     return get_impl_by_name("attention.flash_mla_metadata", impl)(

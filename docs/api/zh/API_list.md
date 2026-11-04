@@ -2,8 +2,8 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
-| [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers`、`torch_native` |
-| [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers` |
+| [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |

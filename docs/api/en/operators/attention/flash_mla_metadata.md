@@ -8,11 +8,11 @@ Upstream documentation: [Flash MLA Torch API](https://gitcode.com/cann/ops-trans
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers` / `auto` | Unsupported | Supported |
+| `cann_ops_transformers_cann920` / `auto` | Unsupported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers`.
+The default `auto` selects `cann_ops_transformers_cann920` on arch35 with CANN 9.2.0.
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_mla_metadata
@@ -60,7 +60,7 @@ All tensor inputs must be on the current NPU. `B` is the request count and `T` i
 | `mask_mode` | `int` | `0` | `0`: unmasked; `3`: right-aligned causal; `4`: right-aligned sliding window. |
 | `win_left`, `win_right` | `int` | `-1` | Window bounds in mode 4, with `-1` meaning unbounded; other modes require `-1`. |
 | `layout_q` | `str` | `"BSND"` | `BSND`, `BNSD`, or `TND`; same as the attention call. |
-| `impl` | `str`, keyword-only | `"auto"` | `auto` or `cann_ops_transformers`. |
+| `impl` | `str`, keyword-only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
 
 | Return value | Type / shape / dtype | Meaning |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ All tensor inputs must be on the current NPU. `B` is the request count and `T` i
 
 Pass the result unchanged to `flash_mla(..., metadata=metadata)`.
 
-## cann_ops_transformers backend
+## cann_ops_transformers_cann920 backend
 
 Requires CANN 9.2.0 and an sgl-kernel-npu wheel containing both Flash MLA and metadata operators. The first call may compile adapter code, so keep a C++ build environment available.
 
@@ -91,7 +91,7 @@ metadata = flash_mla_metadata(
     head_dim_v=512,
     mask_mode=0,
     layout_q="TND",
-    impl="cann_ops_transformers",
+    impl="cann_ops_transformers_cann920",
 )
 print(metadata.shape, metadata.dtype)
 # Pass unchanged to flash_mla with matching lengths and attributes.

@@ -83,7 +83,7 @@ def resolve_plan(
         raise ValueError("Expected an exact CANN version, e.g. 9.2.0")
     arch_name = {"2201": "arch22", "3510": "arch35"}[str(arch)]
     root = Path(source_root) / "third_party"
-    profile = root / "profiles" / ("cann-" + version) / arch_name
+    profile = root / "profiles" / ("cann-" + version)
     configs = sorted(profile.glob("*.json"))
     if third_party is not None:
         available = {path.stem for path in configs}
@@ -118,6 +118,20 @@ def resolve_plan(
             raise ValueError("Dependency commit must be a full SHA")
         if not re.fullmatch(r"[a-z][a-z0-9_]*", config["name"]):
             raise ValueError("Invalid dependency identifier: name")
+        ops_by_arch = config["ops"]
+        if not isinstance(ops_by_arch, dict) or set(ops_by_arch) - {"arch22", "arch35"}:
+            raise ValueError("Profile ops must be keyed by arch22 or arch35")
+        if any(not isinstance(ops, (list, dict)) for ops in ops_by_arch.values()):
+            raise ValueError("Each architecture's ops must be a list or mapping")
+        config["ops"] = ops_by_arch.get(arch_name, [])
+        if not config["ops"]:
+            print(
+                "[INFO] No operators for third-party {}, CANN {}, {}; "
+                "skipping this library.".format(config_path.stem, version, arch_name),
+                file=sys.stderr,
+                flush=True,
+            )
+            continue
         builder = config.get("builder", config_path.stem)
         config["arch_version"] = str(arch)
         config = get_adapter(builder).configure(config, jobs)

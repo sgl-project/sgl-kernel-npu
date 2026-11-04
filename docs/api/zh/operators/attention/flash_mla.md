@@ -8,12 +8,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers` / `auto` | 不支持 | 支持 |
+| `cann_ops_transformers_cann920` / `auto` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-默认 `auto` 在 arch35 上选择 `cann_ops_transformers`。
+默认 `auto` 在 CANN 9.2.0、arch35 上选择 `cann_ops_transformers_cann920`。
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_mla
@@ -84,7 +84,7 @@ $$
 | `layout_kv` | `str` | `"PA_BBND"` | `PA_BBND`、`PA_BNBD` 或 `PA_NZ`。 |
 | `layout_out` | `str` | `"BSND"` | 必须与 `layout_q` 相同，TND 输入额外允许 NTD 输出。 |
 | `return_softmax_lse` | `bool` | `False` | 是否返回 FP32 log-sum-exp。 |
-| `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`cann_ops_transformers` 或 `torch_native`。 |
+| `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`cann_ops_transformers_cann920` 或 `torch_native`。 |
 
 返回 `(out, lse)`，不修改输入。
 
@@ -93,7 +93,7 @@ $$
 | `out` | Tensor；按 `layout_out` 为 `[T,N,D_v]`、`[N,T,D_v]`、`[B,S,N,D_v]` 或 `[B,N,S,D_v]`；与 `q` 同 dtype、同设备 | 注意力输出。 |
 | `lse` | Tensor；float32，与 `q` 同设备；TND 输入为 `[N,T]`，其他 Query 布局为 `[B,N,S]` | 启用时为 log-sum-exp；关闭时为空 tensor `[0]`。 |
 
-## cann_ops_transformers 后端
+## cann_ops_transformers_cann920 后端
 
 需要 CANN 9.2.0，并安装包含 Flash MLA 算子的 sgl-kernel-npu wheel。首次调用可能编译适配代码，请保留 C++ 编译环境。
 
@@ -130,7 +130,7 @@ out, lse = flash_mla(
     cu_seqlens_q=boundaries, metadata=metadata,
     softmax_scale=576**-0.5,
     layout_q="TND", layout_kv="PA_BBND", layout_out="NTD",
-    return_softmax_lse=True, impl="cann_ops_transformers",
+    return_softmax_lse=True, impl="cann_ops_transformers_cann920",
 )
 print(out.shape, lse.shape)  # [64, 1, 512], [64, 1]
 ```

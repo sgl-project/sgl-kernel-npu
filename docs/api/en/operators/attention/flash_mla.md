@@ -8,12 +8,12 @@ Upstream documentation: [Flash MLA Torch API](https://gitcode.com/cann/ops-trans
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers` / `auto` | Unsupported | Supported |
+| `cann_ops_transformers_cann920` / `auto` | Unsupported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers` on arch35.
+The default `auto` selects `cann_ops_transformers_cann920` on arch35 with CANN 9.2.0.
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_mla
@@ -84,7 +84,7 @@ Use tensors on the same device; the CANN implementation requires NPU tensors. Be
 | `layout_kv` | `str` | `"PA_BBND"` | `PA_BBND`, `PA_BNBD`, or `PA_NZ`. |
 | `layout_out` | `str` | `"BSND"` | Must match `layout_q`, except TND input also allows NTD output. |
 | `return_softmax_lse` | `bool` | `False` | Whether to return the FP32 log-sum-exp. |
-| `impl` | `str`, keyword-only | `"auto"` | `auto`, `cann_ops_transformers`, or `torch_native`. |
+| `impl` | `str`, keyword-only | `"auto"` | `auto`, `cann_ops_transformers_cann920`, or `torch_native`. |
 
 The return value is `(out, lse)`. Inputs are not modified.
 
@@ -93,7 +93,7 @@ The return value is `(out, lse)`. Inputs are not modified.
 | `out` | Tensor; `[T,N,D_v]`, `[N,T,D_v]`, `[B,S,N,D_v]`, or `[B,N,S,D_v]` according to `layout_out`; same dtype/device as `q` | Attention output. |
 | `lse` | Tensor; float32 on `q.device`; `[N,T]` for TND queries or `[B,N,S]` for other query layouts | Log-sum-exp when enabled; an empty `[0]` tensor when disabled. |
 
-## cann_ops_transformers backend
+## cann_ops_transformers_cann920 backend
 
 Requires CANN 9.2.0 and an sgl-kernel-npu wheel containing Flash MLA. The first call may compile adapter code, so keep a C++ build environment available.
 
@@ -130,7 +130,7 @@ out, lse = flash_mla(
     cu_seqlens_q=boundaries, metadata=metadata,
     softmax_scale=576**-0.5,
     layout_q="TND", layout_kv="PA_BBND", layout_out="NTD",
-    return_softmax_lse=True, impl="cann_ops_transformers",
+    return_softmax_lse=True, impl="cann_ops_transformers_cann920",
 )
 print(out.shape, lse.shape)  # [64, 1, 512], [64, 1]
 ```
