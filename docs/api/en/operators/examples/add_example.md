@@ -52,17 +52,17 @@ cd /tmp/sgl-kernel-npu-aicpu
 Choose the architecture matching the machine. For A2/A3 (`2201`):
 
 ```bash
-python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 2201 --ops apply_token_bitmask,add_example --artifact wheel --make_clean
+python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 2201 --ops apply_token_bitmask,add_example --artifact wheel --make-clean
 ```
 
 For A5 (`3510`), use this build command instead:
 
 ```bash
-python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 3510 --ops apply_token_bitmask,add_example --artifact wheel --make_clean
+python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 3510 --ops apply_token_bitmask,add_example --artifact wheel --make-clean
 ```
 
 Both commands select one existing AI Core operator and the new AICPU example,
-producing one wheel. `--make_clean` removes this checkout's previous build
+producing one wheel. `--make-clean` removes this checkout's previous build
 intermediates; it does not modify the installed SDK. Install the resulting wheel
 into the active Python environment, keeping its existing dependencies:
 
