@@ -1,8 +1,12 @@
 """The CI result gate must reject a green pytest run with missing NPU coverage."""
 
 import importlib.util
+import json
+import shutil
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -44,3 +48,53 @@ def test_empty_successful_pytest_run_is_not_device_validation(tmp_path):
     path.write_text('<testsuites><testsuite tests="0"/></testsuites>')
     with pytest.raises(RuntimeError, match="missing="):
         ci.check_junit(path)
+
+
+@pytest.fixture
+def installed_fixture(tmp_path, monkeypatch):
+    source, package = tmp_path / "source", tmp_path / "installed"
+    files = {
+        "implementation/cannbot-dsl/attention/entry.py": "# fixture source\n",
+        "implementation/cannbot-dsl/UPSTREAM.json": json.dumps(
+            {"files": [{"file": "entry.py"}]}
+        ),
+        "operators/indexer/entry.py": "# public entry\n",
+        "operators/indexer/__init__.py": "",
+        "operators/attention/__init__.py": "",
+        "operators/utils/cannbot_dsl.py": "# runtime helper\n",
+    }
+    for name, text in files.items():
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    shutil.copytree(source, package)
+    manifest = json.dumps({"arch_version": "3510"})
+    for base in (package, tmp_path / "build/torch/package/sgl_kernel_npu"):
+        (base / "lib").mkdir(parents=True)
+        (base / "_build_manifest.json").write_text(manifest)
+        (base / "lib/libsgl_kernel_npu.so").write_bytes(b"binary fixture")
+    module = ModuleType("sgl_kernel_npu")
+    module.__file__ = str(package / "__init__.py")
+    monkeypatch.setitem(sys.modules, "sgl_kernel_npu", module)
+    monkeypatch.setattr(ci, "SOURCE", source)
+    monkeypatch.setattr(ci, "ROOT", tmp_path)
+    return package
+
+
+def test_installed_fixture_tracks_the_runtime_helper(installed_fixture):
+    result = ci.installed_sources()
+    assert "operators/utils/cannbot_dsl.py" in result["source_hashes"]
+
+
+@pytest.mark.parametrize("change", ["helper", "missing_helper", "library"])
+def test_installed_gate_rejects_stale_helper_or_library(installed_fixture, change):
+    if change == "library":
+        (installed_fixture / "lib/libsgl_kernel_npu.so").write_bytes(b"old binary")
+    elif change == "missing_helper":
+        (installed_fixture / "operators/utils/cannbot_dsl.py").unlink()
+    else:
+        (installed_fixture / "operators/utils/cannbot_dsl.py").write_text(
+            "# old helper\n"
+        )
+    with pytest.raises(RuntimeError, match="differs from"):
+        ci.installed_sources()

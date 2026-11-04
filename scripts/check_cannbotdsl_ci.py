@@ -115,6 +115,7 @@ def installed_sources():
     files += [
         SOURCE / "operators" / d / "__init__.py" for d in ("attention", "indexer")
     ]
+    files.append(SOURCE / "operators/utils/cannbot_dsl.py")
     hashes = {}
     for source in files:
         relative = source.relative_to(SOURCE)
