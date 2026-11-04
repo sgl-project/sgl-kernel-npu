@@ -38,17 +38,20 @@ from sgl_kernel_npu.operators.moe import (
 
 def create_zerc_moe_buffer(
     group, num_experts, num_max_tokens_per_rank, num_topk, hidden,
-    intermediate_hidden, *, max_recv_token_num=0, dispatch_quant_mode=0,
-    dispatch_quant_out_dtype=28,
+    intermediate_hidden, max_recv_token_num=0, dispatch_quant_mode=0,
+    dispatch_quant_out_dtype=28, combine_quant_mode=0, comm_alg="",
 ): ...
 
 def zerc_moe(
     x, topk_ids, topk_weights, l1_weights, l2_weights, sym_buffer,
-    *, l1_weights_sf=None, l2_weights_sf=None,
+    scales=None, l1_weights_sf=None, l2_weights_sf=None, x_active_mask=None,
+    weight1_type=28, weight2_type=28, timer=None,
     l1_weights_shared=None, l2_weights_shared=None,
-    l1_weights_shared_sf=None, l2_weights_shared_sf=None, impl="auto",
+    l1_weights_shared_sf=None, l2_weights_shared_sf=None, *, impl="auto",
 ): ...
 ```
+
+Parameter names, order, and defaults match the imported original MegaMoE interface; the additional `impl` argument is keyword-only.
 
 ## Description
 
@@ -76,6 +79,9 @@ valid and distinct within each token.
 | `l1_weights` | List of one tensor `[E,2*I,H]` | Required | Routed gate and up weights, BF16 or selected FP8. |
 | `l2_weights` | List of one tensor `[E,H,I]` | Required | Routed down weights, same dtype as first weights. |
 | `sym_buffer` | `ZercMoeBuffer` | Required | Created with the matching group and configuration below. |
+| `scales`, `x_active_mask` | Tensor or `None` | `None` | Reserved by the original interface; both must be `None`. |
+| `weight1_type`, `weight2_type` | int | `28` | Reserved by the original interface; both must be `28`. |
+| `timer` | Tensor or `None` | `None` | Forwarded to the backend; for internal profiling builds with `ENABLE_TIMER=1`. Build and device execution are unverified. |
 | `l1_weights_sf` | List of one tensor `[E,2*I,ceil(H/64),2]`, E8M0 | `None` | Required in MXFP8 mode; absent in BF16 mode. |
 | `l2_weights_sf` | List of one tensor `[E,H,ceil(I/64),2]`, E8M0 | `None` | Required in MXFP8 mode; absent in BF16 mode. |
 | `l1_weights_shared`, `l2_weights_shared` | Lists of one tensor `[S,2*I_s,H]`, `[S,H,I_s]` | `None` | Optional local shared experts; both must be provided together with matching routed dtype. |
@@ -84,6 +90,11 @@ valid and distinct within each token.
 
 Returns `(y, expert_token_nums)`: BF16 `y` has shape `[B,H]`, and the int32
 `expert_token_nums` has shape `[E]` and counts tokens received per local expert.
+
+`timer` must be a contiguous 1D int64 tensor in ND format on the input device.
+The host validates its version-specific length,
+`AscendTimer::N_TIMING_COUNTER + AscendTimer::DYNAMIC_ITER_TOTAL_SIZE`.
+Timing is compiled out by default, so passing a timer does not ensure timing data.
 
 ### Symmetric buffer parameters
 
@@ -96,10 +107,16 @@ Returns `(y, expert_token_nums)`: BF16 `y` has shape `[B,H]`, and the int32
 | `max_recv_token_num` | int | `0` | `0` selects the automatic bound; a nonzero bound must cover all actual received rows. An undersized bound may silently omit rows. |
 | `dispatch_quant_mode` | int | `0` | `0` for BF16, `4` for MXFP8. BF16 requires `H % 16 == 0`. |
 | `dispatch_quant_out_dtype` | int | `28` | For MXFP8 explicitly use `23` (E5M2) or `24` (E4M3FN); ignored for BF16. |
+| `combine_quant_mode`, `comm_alg` | int, str | `0`, `""` | Reserved by the original interface; must be `0` and the empty string respectively. |
 
 For shared experts, `1 <= S <= 4` and `I_s` must be divisible by 16 for
 BF16 or 64 for MXFP8. A nonzero `max_recv_token_num` must also not exceed
 `B * world_size * K` for each call.
+
+`ZercMoeBuffer` exposes read-only metadata from the original buffer and its
+context while live. Do not retain or use the context after destruction, or
+share it with another backend or overlapping calls. Its type and writable
+attributes are not identical to the original buffer.
 
 Create at most one ZeRCMoE MC2 context per process and HCCL group; reuse the
 buffer, synchronize after its last use, then destroy it before group teardown.

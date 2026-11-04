@@ -252,3 +252,236 @@ def test_destroy_waits_for_an_inflight_host_launch(api):
     assert not caller.is_alive()
     assert not closer.is_alive()
     buffer._buffer.destroy.assert_called_once()
+
+
+def test_original_megamoe_signatures_are_preserved(api):
+    import ast
+    import inspect
+
+    module, _ = api
+    root = Path(__file__).resolve().parents[3]
+    original = ast.parse(
+        (
+            root
+            / "csrc/zerc_moe/source/torch_extension/npu_ops_transformer/ops/mega_moe.py"
+        ).read_text()
+    )
+    pairs = (
+        ("mega_moe", module.zerc_moe),
+        ("get_symm_buffer_for_mega_moe", module.create_zerc_moe_buffer),
+    )
+    for original_name, public in pairs:
+        function = next(
+            node
+            for node in original.body
+            if isinstance(node, ast.FunctionDef) and node.name == original_name
+        )
+        params = inspect.signature(public).parameters
+        names = [arg.arg for arg in function.args.args]
+        assert list(params)[: len(names)] == names
+        assert all(
+            params[name].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+            for name in names
+        )
+        required = len(names) - len(function.args.defaults)
+        for name in names[:required]:
+            assert params[name].default is inspect.Parameter.empty
+        for name, default in zip(names[required:], function.args.defaults):
+            assert params[name].default == ast.literal_eval(default)
+        if original_name == "mega_moe":
+            assert list(params)[len(names) :] == ["impl"]
+            assert params["impl"].kind == inspect.Parameter.KEYWORD_ONLY
+            assert params["impl"].default == "auto"
+        else:
+            assert len(params) == len(names)
+
+
+@pytest.mark.parametrize("by_keyword", [False, True])
+def test_original_arguments_reach_the_backend_without_shifting(api, by_keyword):
+    module, backend = api
+    group = object()
+    if by_keyword:
+        buffer = module.create_zerc_moe_buffer(
+            group=group,
+            num_experts=2,
+            num_max_tokens_per_rank=8,
+            num_topk=1,
+            hidden=16,
+            intermediate_hidden=4,
+            max_recv_token_num=0,
+            dispatch_quant_mode=0,
+            dispatch_quant_out_dtype=28,
+            combine_quant_mode=0,
+            comm_alg="",
+        )
+    else:
+        buffer = module.create_zerc_moe_buffer(group, 2, 8, 1, 16, 4, 0, 0, 28, 0, "")
+    backend.get_symm_buffer_for_mega_moe.assert_called_once_with(
+        group,
+        num_experts=2,
+        num_max_tokens_per_rank=8,
+        num_topk=1,
+        hidden=16,
+        intermediate_hidden=4,
+        max_recv_token_num=0,
+        dispatch_quant_mode=0,
+        dispatch_quant_out_dtype=28,
+        combine_quant_mode=0,
+        comm_alg="",
+    )
+    x, ids, weights, l1, l2 = _inputs()
+    shared1 = [_tensor((1, 32, 16), torch.bfloat16)]
+    shared2 = [_tensor((1, 16, 16), torch.bfloat16)]
+    # Arbitrary mock size: the real host validates the version-specific length.
+    timer = _tensor((10,), torch.int64)
+    optional = dict(
+        scales=None,
+        l1_weights_sf=None,
+        l2_weights_sf=None,
+        x_active_mask=None,
+        weight1_type=28,
+        weight2_type=28,
+        timer=timer,
+        l1_weights_shared=shared1,
+        l2_weights_shared=shared2,
+        l1_weights_shared_sf=None,
+        l2_weights_shared_sf=None,
+    )
+    if by_keyword:
+        result = module.zerc_moe(
+            x=x,
+            topk_ids=ids,
+            topk_weights=weights,
+            l1_weights=l1,
+            l2_weights=l2,
+            sym_buffer=buffer,
+            **optional,
+        )
+    else:
+        result = module.zerc_moe(x, ids, weights, l1, l2, buffer, *optional.values())
+    assert result == ("output", "counts")
+    backend.mega_moe.assert_called_once_with(
+        x, ids, weights, l1, l2, buffer._buffer, **optional
+    )
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("scales", object()),
+        ("x_active_mask", object()),
+        ("weight1_type", 1),
+        ("weight2_type", 1),
+    ],
+)
+def test_unsupported_original_call_options_fail_before_launch(api, name, value):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    with pytest.raises(ValueError):
+        module.zerc_moe(*_inputs(), buffer, **{name: value})
+    backend.mega_moe.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "name,value", [("combine_quant_mode", 1), ("comm_alg", "other")]
+)
+def test_unsupported_original_buffer_options_do_not_reserve_group(api, name, value):
+    module, backend = api
+    group = object()
+    with pytest.raises(ValueError):
+        module.create_zerc_moe_buffer(group, 2, 8, 1, 16, 4, **{name: value})
+    backend.get_symm_buffer_for_mega_moe.assert_not_called()
+    module.create_zerc_moe_buffer(group, 2, 8, 1, 16, 4)
+    backend.get_symm_buffer_for_mega_moe.assert_called_once()
+
+
+def test_original_buffer_metadata_and_context_are_exposed(api):
+    module, backend = api
+    underlying = backend.get_symm_buffer_for_mega_moe.return_value
+    names = (
+        "rank_id",
+        "group_name",
+        "ep_world_size",
+        "ccl_buffer_size",
+        "num_experts",
+        "max_recv_token_num",
+        "num_max_tokens_per_rank",
+        "num_topk",
+        "hidden",
+        "intermediate_hidden",
+        "dispatch_quant_mode",
+        "dispatch_quant_out_dtype",
+        "combine_quant_mode",
+        "comm_alg",
+        "global_bs",
+    )
+    for index, name in enumerate(names):
+        setattr(underlying, name, index)
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    for index, name in enumerate(names):
+        assert getattr(buffer, name) == index
+        with pytest.raises(AttributeError):
+            setattr(buffer, name, -1)
+    assert buffer.context is underlying.context
+    buffer.destroy()
+    with pytest.raises(ValueError, match="destroyed"):
+        _ = buffer.context
+
+
+def test_original_positional_quantized_scales_are_not_shifted(api):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 64, 0, 4, 24, 0, "")
+    x, ids, weights, _, _ = _inputs()
+    l1 = [_tensor((1, 128, 16), torch.float8_e4m3fn)]
+    l2 = [_tensor((1, 16, 64), torch.float8_e4m3fn)]
+    sf1 = [_tensor((1, 128, 1, 2), torch.float8_e8m0fnu)]
+    sf2 = [_tensor((1, 16, 1, 2), torch.float8_e8m0fnu)]
+    shared1 = [_tensor((1, 128, 16), torch.float8_e4m3fn)]
+    shared2 = [_tensor((1, 16, 64), torch.float8_e4m3fn)]
+    shared_sf1 = [_tensor((1, 128, 1, 2), torch.float8_e8m0fnu)]
+    shared_sf2 = [_tensor((1, 16, 1, 2), torch.float8_e8m0fnu)]
+    assert module.zerc_moe(
+        x,
+        ids,
+        weights,
+        l1,
+        l2,
+        buffer,
+        None,
+        sf1,
+        sf2,
+        None,
+        28,
+        28,
+        None,
+        shared1,
+        shared2,
+        shared_sf1,
+        shared_sf2,
+    ) == ("output", "counts")
+    assert backend.mega_moe.call_args.kwargs == dict(
+        scales=None,
+        l1_weights_sf=sf1,
+        l2_weights_sf=sf2,
+        x_active_mask=None,
+        weight1_type=28,
+        weight2_type=28,
+        timer=None,
+        l1_weights_shared=shared1,
+        l2_weights_shared=shared2,
+        l1_weights_shared_sf=shared_sf1,
+        l2_weights_shared_sf=shared_sf2,
+    )
+
+
+def test_timer_must_share_device_and_storage_format(api):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    timer = _tensor((10,), torch.int64, device="cpu")
+    with pytest.raises(ValueError, match="NPU device"):
+        module.zerc_moe(*_inputs(), buffer, timer=timer)
+    timer.device = torch.device("privateuseone:0")
+    timer.format = 29
+    with pytest.raises(ValueError, match="ND storage"):
+        module.zerc_moe(*_inputs(), buffer, timer=timer)
+    backend.mega_moe.assert_not_called()

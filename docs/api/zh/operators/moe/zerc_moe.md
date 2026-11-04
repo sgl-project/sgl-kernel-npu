@@ -33,17 +33,20 @@ from sgl_kernel_npu.operators.moe import (
 
 def create_zerc_moe_buffer(
     group, num_experts, num_max_tokens_per_rank, num_topk, hidden,
-    intermediate_hidden, *, max_recv_token_num=0, dispatch_quant_mode=0,
-    dispatch_quant_out_dtype=28,
+    intermediate_hidden, max_recv_token_num=0, dispatch_quant_mode=0,
+    dispatch_quant_out_dtype=28, combine_quant_mode=0, comm_alg="",
 ): ...
 
 def zerc_moe(
     x, topk_ids, topk_weights, l1_weights, l2_weights, sym_buffer,
-    *, l1_weights_sf=None, l2_weights_sf=None,
+    scales=None, l1_weights_sf=None, l2_weights_sf=None, x_active_mask=None,
+    weight1_type=28, weight2_type=28, timer=None,
     l1_weights_shared=None, l2_weights_shared=None,
-    l1_weights_shared_sf=None, l2_weights_shared_sf=None, impl="auto",
+    l1_weights_shared_sf=None, l2_weights_shared_sf=None, *, impl="auto",
 ): ...
 ```
+
+参数名称、顺序和默认值与导入的原版 MegaMoE 一致；新增 `impl` 仅能以关键字传入。
 
 ## 功能描述
 
@@ -68,6 +71,9 @@ def zerc_moe(
 | `l1_weights` | 含一个 Tensor `[E,2*I,H]` 的列表 | 必填 | 路由专家 gate/up 权重，BF16 或选定的 FP8。 |
 | `l2_weights` | 含一个 Tensor `[E,H,I]` 的列表 | 必填 | 路由专家 down 权重，dtype 与第一层相同。 |
 | `sym_buffer` | `ZercMoeBuffer` | 必填 | 使用匹配的通信组和参数创建。 |
+| `scales`、`x_active_mask` | Tensor 或 `None` | `None` | 原接口保留参数；当前必须为 `None`。 |
+| `weight1_type`、`weight2_type` | int | `28` | 原接口保留参数；当前必须为 `28`。 |
+| `timer` | Tensor 或 `None` | `None` | 透传给底层；仅供启用 `ENABLE_TIMER=1` 的内部 profiling，当前构建与设备运行未验证。 |
 | `l1_weights_sf` | 含一个 Tensor `[E,2*I,ceil(H/64),2]` 的列表，E8M0 | `None` | MXFP8 模式必填；BF16 模式不传。 |
 | `l2_weights_sf` | 含一个 Tensor `[E,H,ceil(I/64),2]` 的列表，E8M0 | `None` | MXFP8 模式必填；BF16 模式不传。 |
 | `l1_weights_shared`、`l2_weights_shared` | 含一个 Tensor `[S,2*I_s,H]`、`[S,H,I_s]` 的列表 | `None` | 可选本地共享专家，须成对提供，dtype 与路由专家权重一致。 |
@@ -76,6 +82,10 @@ def zerc_moe(
 
 返回 `(y, expert_token_nums)`：`y` 为 BF16 `[B,H]`，`expert_token_nums` 为
 int32 `[E]`，统计本 rank 各专家接收的 token 行数。
+
+`timer` 须为与输入同设备的连续 ND 格式一维 int64 Tensor；长度由同版本的
+`AscendTimer::N_TIMING_COUNTER + AscendTimer::DYNAMIC_ITER_TOTAL_SIZE` 决定，
+由底层 host 校验。默认构建会编译掉计时逻辑，传入 `timer` 不保证产生计时数据。
 
 ### 对称缓冲区参数
 
@@ -88,10 +98,13 @@ int32 `[E]`，统计本 rank 各专家接收的 token 行数。
 | `max_recv_token_num` | int | `0` | `0` 为自动上界；非零值必须覆盖所有实际接收行，过小可能静默少算。 |
 | `dispatch_quant_mode` | int | `0` | `0` 为 BF16，`4` 为 MXFP8。BF16 要求 `H % 16 == 0`。 |
 | `dispatch_quant_out_dtype` | int | `28` | MXFP8 必须显式传 `23`（E5M2）或 `24`（E4M3FN）；BF16 忽略此参数。 |
+| `combine_quant_mode`、`comm_alg` | int、str | `0`、`""` | 原接口保留参数；必须分别为 `0` 和空字符串。 |
 
 共享专家要求 `1 <= S <= 4`，`I_s` 在 BF16 下为 16 的倍数，在 MXFP8
 下为 64 的倍数。非零 `max_recv_token_num` 每次调用还不得超过
 `B * world_size * K`。
+
+`ZercMoeBuffer` 提供原 buffer 的只读元数据属性及存活期间的 `context`。不要在销毁后使用已取得的 context，也不要将其交给其他后端或并发调用；它的类型和可写属性与原 buffer 并非完全相同。
 
 同一进程中，同一 HCCL group 至多创建一个 ZeRCMoE MC2 context；所有调用复用
 缓冲区，在最后一次调用完成并同步后、通信组销毁前销毁缓冲区。销毁缓冲区后

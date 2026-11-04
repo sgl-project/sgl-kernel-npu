@@ -23,6 +23,11 @@ def _load_backend():
     return _BACKEND
 
 
+def _buffer_metadata(name):
+    """Expose the original buffer metadata without allowing it to diverge."""
+    return property(lambda self: getattr(self._buffer, name))
+
+
 class ZercMoeBuffer:
     """Own a single ZeRCMoE context until the group and process are torn down.
 
@@ -33,12 +38,36 @@ class ZercMoeBuffer:
     buffer must not overlap, including on different streams.
     """
 
+    rank_id = _buffer_metadata("rank_id")
+    group_name = _buffer_metadata("group_name")
+    ep_world_size = _buffer_metadata("ep_world_size")
+    ccl_buffer_size = _buffer_metadata("ccl_buffer_size")
+    num_experts = _buffer_metadata("num_experts")
+    max_recv_token_num = _buffer_metadata("max_recv_token_num")
+    num_max_tokens_per_rank = _buffer_metadata("num_max_tokens_per_rank")
+    num_topk = _buffer_metadata("num_topk")
+    hidden = _buffer_metadata("hidden")
+    intermediate_hidden = _buffer_metadata("intermediate_hidden")
+    dispatch_quant_mode = _buffer_metadata("dispatch_quant_mode")
+    dispatch_quant_out_dtype = _buffer_metadata("dispatch_quant_out_dtype")
+    combine_quant_mode = _buffer_metadata("combine_quant_mode")
+    comm_alg = _buffer_metadata("comm_alg")
+    global_bs = _buffer_metadata("global_bs")
+
     def __init__(self, group, config, buffer):
         self.group = group
         self.config = MappingProxyType(config)
         self._buffer = buffer
         self._closed = False
         self._lock = RLock()
+
+    @property
+    def context(self):
+        """Return the live backend context; do not retain it after destruction."""
+        with self._lock:
+            if self._closed:
+                raise ValueError("buffer has been destroyed")
+            return self._buffer.context
 
     def destroy(self):
         """Release the device buffer after all operations have completed."""
@@ -58,10 +87,11 @@ def create_zerc_moe_buffer(
     num_topk,
     hidden,
     intermediate_hidden,
-    *,
     max_recv_token_num=0,
     dispatch_quant_mode=0,
     dispatch_quant_out_dtype=28,
+    combine_quant_mode=0,
+    comm_alg="",
 ):
     """Create one group-owned buffer for the Ascend 950 source implementation.
 
@@ -87,6 +117,8 @@ def create_zerc_moe_buffer(
         raise ValueError("BF16 hidden dimension must be divisible by 16")
     if dispatch_quant_mode == 4 and dispatch_quant_out_dtype not in (23, 24):
         raise ValueError("MXFP8 dispatch dtype must be CANN enum 23 or 24")
+    if combine_quant_mode != 0 or comm_alg != "":
+        raise ValueError("combine_quant_mode must be 0 and comm_alg must be empty")
     get_impl_by_name("moe.zerc_moe", "auto")
     config = {
         "num_experts": num_experts,
@@ -117,6 +149,8 @@ def create_zerc_moe_buffer(
         max_recv_token_num=max_recv_token_num,
         dispatch_quant_mode=dispatch_quant_mode,
         dispatch_quant_out_dtype=dispatch_quant_out_dtype,
+        combine_quant_mode=combine_quant_mode,
+        comm_alg=comm_alg,
     )
     return ZercMoeBuffer(group, config, buffer)
 
@@ -135,13 +169,18 @@ def zerc_moe(
     l1_weights,
     l2_weights,
     sym_buffer,
-    *,
+    scales=None,
     l1_weights_sf=None,
     l2_weights_sf=None,
+    x_active_mask=None,
+    weight1_type=28,
+    weight2_type=28,
+    timer=None,
     l1_weights_shared=None,
     l2_weights_shared=None,
     l1_weights_shared_sf=None,
     l2_weights_shared_sf=None,
+    *,
     impl="auto",
 ):
     """Run the Ascend 950 eager kernel; auto selects its Ascend C backend.
@@ -156,6 +195,10 @@ def zerc_moe(
     """
     if not isinstance(sym_buffer, ZercMoeBuffer) or sym_buffer._closed:
         raise ValueError("sym_buffer must be a live ZercMoeBuffer")
+    if scales is not None or x_active_mask is not None:
+        raise ValueError("scales and x_active_mask must be None")
+    if weight1_type != 28 or weight2_type != 28:
+        raise ValueError("weight1_type and weight2_type must be 28")
     config = sym_buffer.config
     if x.ndim != 2 or x.dtype != torch.bfloat16:
         raise ValueError("x must be a BF16 [tokens, hidden] tensor")
@@ -291,6 +334,8 @@ def zerc_moe(
         ):
             raise ValueError("MXFP8 shared scales must have E8M0 dtype")
     tensors = [x, topk_ids, topk_weights, *l1_weights, *l2_weights]
+    if timer is not None:
+        tensors.append(timer)
     for optional in optional_lists:
         if optional is not None:
             tensors.extend(optional)
@@ -323,8 +368,13 @@ def zerc_moe(
             l1_weights,
             l2_weights,
             sym_buffer._buffer,
+            scales=scales,
             l1_weights_sf=l1_weights_sf,
             l2_weights_sf=l2_weights_sf,
+            x_active_mask=x_active_mask,
+            weight1_type=weight1_type,
+            weight2_type=weight2_type,
+            timer=timer,
             l1_weights_shared=l1_weights_shared,
             l2_weights_shared=l2_weights_shared,
             l1_weights_shared_sf=l1_weights_shared_sf,
