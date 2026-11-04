@@ -96,11 +96,17 @@ def parse_operators(value):
         return ("ALL",)
     operators = tuple(part.strip() for part in value.split(","))
     if not operators or any(
-        not re.fullmatch(r"[a-z][a-z0-9_]*", item) for item in operators
+        not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", item) for item in operators
     ):
         raise ValueError("--ops must be 'all' or comma-separated operator IDs")
-    if "all" in operators or len(set(operators)) != len(operators):
-        raise ValueError("--ops must not mix 'all' with IDs or repeat an ID")
+    if (
+        "all" in operators
+        or "ALL" in operators
+        or len(set(operators)) != len(operators)
+    ):
+        raise ValueError(
+            "--ops must not mix 'all' with IDs, use reserved 'ALL', or repeat an ID"
+        )
     return operators
 
 
@@ -143,7 +149,7 @@ def build_cann(
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked CANN directory: {}".format(directory))
     if cached and any(cached.get(k) != v for k, v in expected.items()):
-        raise RuntimeError("Build configuration changed; rerun with --make_clean")
+        raise RuntimeError("Build configuration changed; rerun with --make-clean")
     directory.mkdir(parents=True, exist_ok=True)
     command = [
         "cmake",
