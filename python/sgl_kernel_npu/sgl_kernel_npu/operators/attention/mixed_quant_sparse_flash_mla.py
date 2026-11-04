@@ -89,6 +89,10 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
             )
         args.pop("has_ori_kv", None)
         args.pop("has_cmp_kv", None)
+    if not family.legacy and args.get("ori_mask_mode", 4) == 0:
+        # Keep the public logical window for legacy, but disable it for the
+        # released explicit-index ABI, matching the metadata adapter.
+        args.update(ori_win_left=-1, ori_win_right=-1)
     # Keyword quant_mode works with both released 9.1 and 9.2 schemas.
     out, lse = family.ops[1](q, **args)
     if not kwargs.get("return_softmax_lse", False):
