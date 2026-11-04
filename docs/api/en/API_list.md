@@ -2,6 +2,7 @@
 
 | API | Supported backends |
 | --- | --- |
+| [add_example](operators/examples/add_example.md) | `aicpu`, `torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`, `torch_native` |
