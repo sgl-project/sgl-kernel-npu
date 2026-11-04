@@ -245,14 +245,16 @@ its intermediates. Do not run both builds concurrently in one checkout.
 ### Installation and public API
 
 The distribution name remains `sgl-kernel-npu`, imported as `sgl_kernel_npu`.
-Wheel build tags distinguish architecture and native operator selection:
+Wheel build tags distinguish architecture, native operator selection, and bundled third-party dependencies:
 
 ```text
-sgl_kernel_npu-<version>-1refactor2201all-<python>-<abi>-<platform>.whl
-sgl_kernel_npu-<version>-1refactor2201custom<set-id>-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_all-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>_tp_<dependency-id>-<python>-<abi>-<platform>.whl
 ```
 
 Omitted `--ops` or `--ops all` produces `all`; explicit IDs produce `custom`.
+Build-tag fields use underscores; the optional `tp_<dependency-id>` identifies bundled third-party contents.
 The package's `_build_manifest.json` records the full selection and SDK targets.
 Subset wheels replace one another; they do not add operators to an existing
 installation. Reinstall explicitly and start a new Python process when switching:

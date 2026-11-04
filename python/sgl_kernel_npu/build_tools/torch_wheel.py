@@ -125,19 +125,23 @@ def wheel_build_tag(manifest):
     kind = manifest["selection_kind"]
     if kind not in ("all", "custom"):
         raise ValueError("Invalid wheel selection kind")
-    suffix = ""
+    parts = ["1", "refactor", manifest["arch_version"], kind]
     if kind == "custom":
-        suffix = hashlib.sha256(
-            ",".join(sorted(manifest["operators"])).encode()
-        ).hexdigest()[:10]
-    if manifest.get("third_party"):
-        suffix += (
-            "tp"
-            + hashlib.sha256(
-                json.dumps(manifest["third_party"], sort_keys=True).encode()
+        parts.append(
+            hashlib.sha256(
+                ",".join(sorted(manifest["operators"])).encode()
             ).hexdigest()[:10]
         )
-    return "1refactor" + manifest["arch_version"] + kind + suffix
+    if manifest.get("third_party"):
+        parts.extend(
+            [
+                "tp",
+                hashlib.sha256(
+                    json.dumps(manifest["third_party"], sort_keys=True).encode()
+                ).hexdigest()[:10],
+            ]
+        )
+    return "_".join(parts)
 
 
 def verify_wheel(wheel, package):
