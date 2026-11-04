@@ -113,7 +113,10 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 ```
 
 Build from the repository root with
-`python3 setup.py --arch-version 2201 --ops batch_matmul_transpose`.
+`python3 setup.py --arch-version 2201 --ops all`.
+The current build verifies artifacts for both arch22 CANN targets, so build the
+complete migrated operator set when testing this 910C-only operator. This does
+not extend this operator's hardware support beyond 910C.
 Install the produced wheel before testing the migrated ACLNN path:
 `pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl`.
 Run accuracy tests with

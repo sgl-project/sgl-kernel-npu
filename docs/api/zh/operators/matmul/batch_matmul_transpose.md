@@ -98,7 +98,9 @@ batch_matmul_transpose(a, b, reference, impl="torch_native")
 torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 ```
 
-在仓库根目录运行 `python3 setup.py --arch-version 2201 --ops batch_matmul_transpose` 构建。
+在仓库根目录运行 `python3 setup.py --arch-version 2201 --ops all` 构建。
+当前构建工具会校验 arch22 两个 CANN 目标的产物，因此测试这个仅支持 910C 的算子时，
+构建该架构完整的迁移算子包，再单独执行本算子测试。本算子的支持范围仍仅为 910C。
 测试新 ACLNN 路径前，安装生成的 wheel：
 `pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl`。
 精度测试：
