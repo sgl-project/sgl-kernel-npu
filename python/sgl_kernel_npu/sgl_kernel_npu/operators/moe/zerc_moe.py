@@ -23,9 +23,26 @@ def _load_backend():
     return _BACKEND
 
 
-def _buffer_metadata(name):
-    """Expose the original buffer metadata without allowing it to diverge."""
-    return property(lambda self: getattr(self._buffer, name))
+def _buffer_metadata(name, *, writable=False):
+    """Expose backend metadata; permit mutation only for informational fields."""
+
+    def get(self):
+        return getattr(self._buffer, name)
+
+    def set_value(self, value):
+        with self._lock:
+            if self._closed:
+                raise ValueError("buffer has been destroyed")
+            setattr(self._buffer, name, value)
+            if name in (
+                "num_max_tokens_per_rank",
+                "num_topk",
+                "hidden",
+                "intermediate_hidden",
+            ):
+                self._config[name] = value
+
+    return property(get, set_value if writable else None)
 
 
 class ZercMoeBuffer:
@@ -34,20 +51,20 @@ class ZercMoeBuffer:
     Use a distinct process group from other communication backends. A context
     cannot be recreated for the same group after destruction or a failed create.
     All ranks must configure the same parameters and call in the same order.
-    Each call must use the same token count across ranks. Calls sharing a
-    buffer must not overlap, including on different streams.
+    Each call must use the same token count, hidden dimension and top-k across
+    ranks. Calls sharing a buffer must not overlap, including on different streams.
     """
 
-    rank_id = _buffer_metadata("rank_id")
-    group_name = _buffer_metadata("group_name")
+    rank_id = _buffer_metadata("rank_id", writable=True)
+    group_name = _buffer_metadata("group_name", writable=True)
     ep_world_size = _buffer_metadata("ep_world_size")
     ccl_buffer_size = _buffer_metadata("ccl_buffer_size")
     num_experts = _buffer_metadata("num_experts")
     max_recv_token_num = _buffer_metadata("max_recv_token_num")
-    num_max_tokens_per_rank = _buffer_metadata("num_max_tokens_per_rank")
-    num_topk = _buffer_metadata("num_topk")
-    hidden = _buffer_metadata("hidden")
-    intermediate_hidden = _buffer_metadata("intermediate_hidden")
+    num_max_tokens_per_rank = _buffer_metadata("num_max_tokens_per_rank", writable=True)
+    num_topk = _buffer_metadata("num_topk", writable=True)
+    hidden = _buffer_metadata("hidden", writable=True)
+    intermediate_hidden = _buffer_metadata("intermediate_hidden", writable=True)
     dispatch_quant_mode = _buffer_metadata("dispatch_quant_mode")
     dispatch_quant_out_dtype = _buffer_metadata("dispatch_quant_out_dtype")
     combine_quant_mode = _buffer_metadata("combine_quant_mode")
@@ -56,6 +73,8 @@ class ZercMoeBuffer:
 
     def __init__(self, group, config, buffer):
         self.group = group
+        self._config = config
+        self._allocated_max_tokens = config["num_max_tokens_per_rank"]
         self.config = MappingProxyType(config)
         self._buffer = buffer
         self._closed = False
@@ -107,8 +126,8 @@ def create_zerc_moe_buffer(
         raise ValueError("ZeRCMoE requires a group of 2 to 768 ranks")
     if not 1 <= num_experts <= 1024 or num_experts % world_size:
         raise ValueError("num_experts must be <= 1024 and divisible by group size")
-    if num_max_tokens_per_rank < 1 or hidden < 1 or intermediate_hidden < 1:
-        raise ValueError("buffer capacity and hidden dimensions must be positive")
+    if num_max_tokens_per_rank < 1 or hidden < 1:
+        raise ValueError("buffer capacity and hidden dimension must be positive")
     if not 1 <= num_topk <= num_experts or max_recv_token_num < 0:
         raise ValueError("invalid top-k or max_recv_token_num")
     if dispatch_quant_mode not in (0, 4):
@@ -188,8 +207,8 @@ def zerc_moe(
     Input x and routing weights are BF16; ids are int32. Weight lists contain
     one stacked tensor each. A buffer created by create_zerc_moe_buffer
     must be shared across calls. Each token's expert IDs must be in range and
-    distinct. All ranks must use the same actual token count per call. Calls
-    using the same buffer must not overlap across streams. Shared experts are
+    distinct. All ranks must use the same token count, hidden dimension and top-k
+    for each call. Calls using the same buffer must not overlap across streams. Shared experts are
     supported only in eager mode. All ranks must finish and synchronize device
     work before destroying the buffer.
     """
@@ -202,20 +221,28 @@ def zerc_moe(
     config = sym_buffer.config
     if x.ndim != 2 or x.dtype != torch.bfloat16:
         raise ValueError("x must be a BF16 [tokens, hidden] tensor")
-    if not 1 <= x.shape[0] <= min(config["num_max_tokens_per_rank"], 262144):
+    if not 1 <= x.shape[0] <= min(sym_buffer._allocated_max_tokens, 262144):
         raise ValueError("token count exceeds buffer capacity or is zero")
-    if config["max_recv_token_num"] > (
-        x.shape[0] * config["world_size"] * config["num_topk"]
-    ):
-        raise ValueError("max_recv_token_num exceeds the routed token count")
-    if x.shape[1] != config["hidden"]:
-        raise ValueError("hidden dimension differs from the buffer")
+    if x.shape[1] < 1:
+        raise ValueError("hidden dimension must be positive")
+    if config["dispatch_quant_mode"] == 0 and x.shape[1] % 16:
+        raise ValueError("BF16 hidden dimension must be divisible by 16")
     if topk_ids.dtype != torch.int32 or topk_weights.dtype != torch.bfloat16:
         raise ValueError("topk_ids must be int32 and topk_weights BF16")
-    if tuple(topk_ids.shape) != (x.shape[0], config["num_topk"]) or (
-        topk_weights.shape != topk_ids.shape
+    if (
+        topk_ids.ndim != 2
+        or topk_ids.shape[0] != x.shape[0]
+        or not 1 <= topk_ids.shape[1] <= config["num_experts"]
+        or topk_weights.shape != topk_ids.shape
     ):
         raise ValueError("routing tensors must have shape [tokens, topk]")
+    if config["max_recv_token_num"] > (
+        x.shape[0] * config["world_size"] * topk_ids.shape[1]
+    ):
+        raise ValueError("max_recv_token_num exceeds the routed token count")
+    # As in the original implementation, the host tiling check compares the
+    # actual shape's CCL requirement with the allocated buffer size. Created
+    # hidden/top-k values size the allocation, not hard per-call limits.
     weight_lists = (l1_weights, l2_weights)
     optional_lists = (
         l1_weights_sf,
@@ -232,10 +259,33 @@ def zerc_moe(
         for value in optional_lists
     ):
         raise ValueError("optional weights and scales must be lists of tensors")
+    # The original C++ binding treats empty optional lists as absent.
+    (
+        l1_weights_sf,
+        l2_weights_sf,
+        l1_weights_shared,
+        l2_weights_shared,
+        l1_weights_shared_sf,
+        l2_weights_shared_sf,
+    ) = (value if value else None for value in optional_lists)
+    optional_lists = (
+        l1_weights_sf,
+        l2_weights_sf,
+        l1_weights_shared,
+        l2_weights_shared,
+        l1_weights_shared_sf,
+        l2_weights_shared_sf,
+    )
     if len(l1_weights) != 1 or len(l2_weights) != 1:
         raise ValueError("each weight list must contain one stacked tensor")
     local_experts = config["num_experts"] // config["world_size"]
-    intermediate = config["intermediate_hidden"]
+    if l1_weights[0].ndim != 3 or l2_weights[0].ndim != 3:
+        raise ValueError("expert weights must be three-dimensional")
+    # The buffer's intermediate_hidden is informational in the original API;
+    # each call derives its intermediate size from the actual weight tensors.
+    intermediate = l2_weights[0].shape[2]
+    if intermediate < 1:
+        raise ValueError("expert intermediate dimension must be positive")
     if tuple(l1_weights[0].shape) != (local_experts, 2 * intermediate, x.shape[1]):
         raise ValueError("invalid first expert weight shape")
     if tuple(l2_weights[0].shape) != (local_experts, x.shape[1], intermediate):

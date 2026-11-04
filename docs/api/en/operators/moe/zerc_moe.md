@@ -103,19 +103,31 @@ Timing is compiled out by default, so passing a timer does not ensure timing dat
 | `group` | HCCL `torch.distributed.ProcessGroup` | Required | Initialized EP group; `2 <= world_size <= 768`. |
 | `num_experts` | int | Required | Global expert count, equal to `E * world_size` and at most 1024. |
 | `num_max_tokens_per_rank` | int | Required | Positive common upper bound used to size the buffer. |
-| `num_topk`, `hidden`, `intermediate_hidden` | int | Required | Top-k and dimensions; the first two are used for buffer sizing. |
+| `num_topk`, `hidden`, `intermediate_hidden` | int | Required | The first two size the buffer; `intermediate_hidden` is metadata, and each call uses the actual weight shape. |
 | `max_recv_token_num` | int | `0` | `0` selects the automatic bound; a nonzero bound must cover all actual received rows. An undersized bound may silently omit rows. |
 | `dispatch_quant_mode` | int | `0` | `0` for BF16, `4` for MXFP8. BF16 requires `H % 16 == 0`. |
 | `dispatch_quant_out_dtype` | int | `28` | For MXFP8 explicitly use `23` (E5M2) or `24` (E4M3FN); ignored for BF16. |
 | `combine_quant_mode`, `comm_alg` | int, str | `0`, `""` | Reserved by the original interface; must be `0` and the empty string respectively. |
 
+Unused BF16 scales and unused shared expert weights and scales may be `None`
+or empty lists. Nonempty BF16 scales and supplying only one side of nonempty
+shared arguments are rejected to avoid silently ignoring data. Creation-time `hidden` and
+`num_topk` size the buffer; each call uses its actual dimensions, and host
+tiling checks the CCL memory requirement. Shapes larger than the creation
+parameters are not guaranteed to fit the allocated buffer.
+
 For shared experts, `1 <= S <= 4` and `I_s` must be divisible by 16 for
 BF16 or 64 for MXFP8. A nonzero `max_recv_token_num` must also not exceed
 `B * world_size * K` for each call.
 
-`ZercMoeBuffer` exposes read-only metadata from the original buffer and its
-context while live. Do not retain or use the context after destruction, or
-share it with another backend or overlapping calls. Its type and writable
+`ZercMoeBuffer` exposes writable `rank_id`, `group_name`,
+`num_max_tokens_per_rank`, `num_topk`, `hidden`, and `intermediate_hidden`
+metadata. Changing them does not alter the actual rank, group or allocated
+capacity; the token limit remains the creation-time value. Metadata used
+directly by the launch remains read-only to prevent validation and
+communication state from diverging.
+The context is available while live; do not use it after destruction or share
+it with another backend or overlapping calls. The buffer type and writable
 attributes are not identical to the original buffer.
 
 Create at most one ZeRCMoE MC2 context per process and HCCL group; reuse the
@@ -126,8 +138,8 @@ sharing a group with the existing MegaMoE provider is not validated.
 If context creation fails after the group is reserved, do not retry it for that
 group in the same process; pre-reservation validation or import failures may
 be corrected and retried.
-For each call, all ranks must use the same actual `B`; differing batch sizes
-are not yet validated. Padding, if needed, is the caller's responsibility:
+For each call, all ranks must use the same actual `B`, `H` and `K`; differing
+batch sizes are not yet validated. Padding, if needed, is the caller's responsibility:
 padding routes must use valid, distinct IDs, outputs must be discarded by the
 caller, and expert counts include padding. Do not overlap calls on the same
 buffer across streams. The Python lock serializes host launch and destruction

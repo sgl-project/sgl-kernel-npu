@@ -94,17 +94,28 @@ int32 `[E]`，统计本 rank 各专家接收的 token 行数。
 | `group` | HCCL `torch.distributed.ProcessGroup` | 必填 | 已初始化的 EP 通信组，`2 <= world_size <= 768`。 |
 | `num_experts` | int | 必填 | 全局专家数，等于 `E * world_size` 且不超过 1024。 |
 | `num_max_tokens_per_rank` | int | 必填 | 正的各 rank 共同容量上界，用于计算缓冲区。 |
-| `num_topk`、`hidden`、`intermediate_hidden` | int | 必填 | Top-k 与维度；前两者参与缓冲区容量计算。 |
+| `num_topk`、`hidden`、`intermediate_hidden` | int | 必填 | 前两者参与缓冲区容量计算；`intermediate_hidden` 是元数据，每次计算以权重实际形状为准。 |
 | `max_recv_token_num` | int | `0` | `0` 为自动上界；非零值必须覆盖所有实际接收行，过小可能静默少算。 |
 | `dispatch_quant_mode` | int | `0` | `0` 为 BF16，`4` 为 MXFP8。BF16 要求 `H % 16 == 0`。 |
 | `dispatch_quant_out_dtype` | int | `28` | MXFP8 必须显式传 `23`（E5M2）或 `24`（E4M3FN）；BF16 忽略此参数。 |
 | `combine_quant_mode`、`comm_alg` | int、str | `0`、`""` | 原接口保留参数；必须分别为 `0` 和空字符串。 |
 
+BF16 下未使用的 scale 可以传 `None` 或空列表；未使用的共享专家权重和 scale
+也可传 `None` 或空列表。BF16 非空 scale 和仅提供一侧非空共享参数仍会报错，
+避免静默忽略数据。
+创建时的 `hidden` 和 `num_topk` 用于计算容量；调用时的实际维度以输入为准，
+底层 host 会检查实际 CCL 内存需求。大于创建参数的形状不保证能装入已分配的空间。
+
 共享专家要求 `1 <= S <= 4`，`I_s` 在 BF16 下为 16 的倍数，在 MXFP8
 下为 64 的倍数。非零 `max_recv_token_num` 每次调用还不得超过
 `B * world_size * K`。
 
-`ZercMoeBuffer` 提供原 buffer 的只读元数据属性及存活期间的 `context`。不要在销毁后使用已取得的 context，也不要将其交给其他后端或并发调用；它的类型和可写属性与原 buffer 并非完全相同。
+`ZercMoeBuffer` 的 `rank_id`、`group_name`、`num_max_tokens_per_rank`、
+`num_topk`、`hidden` 和 `intermediate_hidden` 元数据可写；修改它们不会改变
+实际通信组、rank 或已分配容量，token 数上限仍以创建时配置为准。直接参与
+底层启动的元数据仍为只读，避免校验配置与实际通信资源不一致。
+存活期间可读取 `context`；不要在销毁后使用已取得的 context，也不要将其交给
+其他后端或并发调用。buffer 类型和可写属性与原 buffer 并非完全相同。
 
 同一进程中，同一 HCCL group 至多创建一个 ZeRCMoE MC2 context；所有调用复用
 缓冲区，在最后一次调用完成并同步后、通信组销毁前销毁缓冲区。销毁缓冲区后
@@ -114,7 +125,7 @@ schema，不能据此认为支持图模式。
 若通信组已预留后创建 context 失败，同一进程中也不能为该组重试；预留前的
 参数校验或导入失败则可修正后重试。
 
-每次调用时，所有 rank 的实际 `B` 应一致；不同 batch size 尚未验证。如需
+每次调用时，所有 rank 的实际 `B`、`H` 和 `K` 应一致；不同 batch size 尚未验证。如需
 padding，调用方须自行完成，padding 行也必须使用有效且不重复的专家 ID，
 并自行丢弃 padding 输出；专家计数包含 padding 行。同一 buffer 的调用不得
 跨 stream 重叠。Python 锁仅串行化主机侧的启动和销毁，不能等待设备任务或
