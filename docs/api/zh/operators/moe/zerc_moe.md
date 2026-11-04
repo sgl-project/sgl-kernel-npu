@@ -24,6 +24,8 @@ URMA/RDMA 回退。本次贡献尚未验证设备精度、稳定性和性能。
 集合上追加；如需同时打包已有 ops-transformer profile，请使用
 `--third-party ops_transformer,zerc_moe`。
 构建还需要 Python 的 `build`、`setuptools` 和 `wheel` 软件包。
+默认 `--ops all` 还会选择仓库的 AICPU 示例，因而需要上游所要求的 HCC
+工具链及 AICPU 依赖；可使用 `--ops` 显式选择所需的原生算子。
 
 ```python
 from sgl_kernel_npu.operators.moe import (

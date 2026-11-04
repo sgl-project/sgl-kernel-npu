@@ -29,6 +29,9 @@ existing ops-transformer profile too, use
 `--third-party ops_transformer,zerc_moe`.
 The build additionally requires the Python `build`, `setuptools` and
 `wheel` distributions.
+The default `--ops all` also selects the repository's AICPU example and thus
+requires its HCC toolchain and AICPU dependencies. Use `--ops` to select the
+required native operators explicitly.
 
 ```python
 from sgl_kernel_npu.operators.moe import (
