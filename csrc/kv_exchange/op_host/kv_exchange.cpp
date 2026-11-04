@@ -56,6 +56,22 @@ int64_t ResolveBlockDim()
 #endif
 }
 
+// First participating AIV core index. The default (-1) selects the native
+// acc_offload kv_exchange occupancy: only the last 2 AIV cores copy, leaving
+// the rest of the cores free for concurrent compute on the main stream, which
+// is what lets the per-layer H2D overlap attention. Explicit values (e.g. 0
+// for all cores) override for perf sweeps.
+int64_t ResolveStartDim()
+{
+    if (const char *env = std::getenv("SGLANG_KV_EXCHANGE_START_DIM")) {
+        const long parsed = std::strtol(env, nullptr, 10);
+        if (parsed >= 0) {
+            return static_cast<int64_t>(parsed);
+        }
+    }
+    return -1;
+}
+
 void CheckNpuTensor(const at::Tensor &tensor, const char *name)
 {
     TORCH_CHECK(tensor.device().type() == at::DeviceType::PrivateUse1, name, " must be on an NPU device");
@@ -85,8 +101,7 @@ bool TrailingDimsPacked(const at::Tensor &t)
 void CheckComponentPair(const at::Tensor &device_buf, const at::Tensor &host_buf, int64_t page_size, int64_t which)
 {
     TORCH_CHECK(device_buf.scalar_type() == host_buf.scalar_type(), "component ", which,
-                ": device and host dtypes must match, got ", device_buf.scalar_type(), " vs ",
-                host_buf.scalar_type());
+                ": device and host dtypes must match, got ", device_buf.scalar_type(), " vs ", host_buf.scalar_type());
     // 4-D (layers, pages, page_size, 1) is accepted alongside the canonical
     // 5-D form: the fp32 Indexer scale caches carry no trailing width dim, so
     // the caller can hand them over without padding a singleton (width
@@ -94,14 +109,15 @@ void CheckComponentPair(const at::Tensor &device_buf, const at::Tensor &host_buf
     TORCH_CHECK((device_buf.dim() == 5 || device_buf.dim() == 4) && (host_buf.dim() == 5 || host_buf.dim() == 4),
                 "component ", which,
                 ": buffers must be 4-D or 5-D -- device (layers, pages, page_size, [1,] width), host "
-                "(pages, layers, page_size, [1,] width), got device ", device_buf.dim(), "-D / host ",
-                host_buf.dim(), "-D");
+                "(pages, layers, page_size, [1,] width), got device ",
+                device_buf.dim(), "-D / host ", host_buf.dim(), "-D");
     TORCH_CHECK(device_buf.size(2) == page_size, "component ", which, ": device dim(2) must equal page_size");
     TORCH_CHECK(host_buf.size(2) == page_size, "component ", which, ": host dim(2) must equal page_size");
     TORCH_CHECK(device_buf.size(3) == host_buf.size(3), "component ", which,
                 ": device and host singleton dims (dim 3) must match");
-    TORCH_CHECK((device_buf.dim() == host_buf.dim()) && (device_buf.dim() == 4 ||
-                device_buf.size(4) * device_buf.element_size() == host_buf.size(4) * host_buf.element_size()),
+    TORCH_CHECK((device_buf.dim() == host_buf.dim()) &&
+                    (device_buf.dim() == 4 ||
+                     device_buf.size(4) * device_buf.element_size() == host_buf.size(4) * host_buf.element_size()),
                 "component ", which, ": device and host packed row widths must match");
     TORCH_CHECK(TrailingDimsPacked(device_buf) && TrailingDimsPacked(host_buf), "component ", which,
                 ": trailing (page_size, 1, width) dims must be packed (contiguous within a "
@@ -119,9 +135,9 @@ void CheckComponentPair(const at::Tensor &device_buf, const at::Tensor &host_buf
 // so the meta's layer range starts at 0 and the device kernel's addressing
 // format stays untouched. Components with layer_lo >= layer_hi (or
 // width <= 0) transfer nothing.
-void FillComponent(std::vector<int64_t> &meta, int64_t c, const at::Tensor &device_buf,
-                   const at::Tensor &host_buf, int64_t device_layer_offset, int64_t host_dva,
-                   int64_t host_layer_offset, int64_t layer_lo, int64_t layer_hi)
+void FillComponent(std::vector<int64_t> &meta, int64_t c, const at::Tensor &device_buf, const at::Tensor &host_buf,
+                   int64_t device_layer_offset, int64_t host_dva, int64_t host_layer_offset, int64_t layer_lo,
+                   int64_t layer_hi)
 {
     const int64_t esz = device_buf.element_size();
     const int64_t o = kMetaHeader + kMetaStride * c;
@@ -130,8 +146,8 @@ void FillComponent(std::vector<int64_t> &meta, int64_t c, const at::Tensor &devi
     meta[o + 1] = host_dva + host_layer_offset * host_buf.stride(1) * esz;
     meta[o + 2] = device_buf.stride(0) * esz;  // device_layer_pitch
     meta[o + 3] = device_buf.stride(1) * esz;  // device_page_pitch
-    meta[o + 4] = host_buf.stride(0) * esz;     // host_page_pitch
-    meta[o + 5] = host_buf.stride(1) * esz;     // host_layer_pitch
+    meta[o + 4] = host_buf.stride(0) * esz;    // host_page_pitch
+    meta[o + 5] = host_buf.stride(1) * esz;    // host_layer_pitch
     // The kernel copies this many contiguous bytes per (page, layer) block:
     // the packed extent of the trailing dims, matching the AICPU
     // build_kv_sparse_metadata width (prod(shape[2:]) * itemsize).
@@ -212,11 +228,11 @@ HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim)
  */
 HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host_indices,
                                        at::TensorList device_components, at::TensorList host_components,
-                                       const std::vector<int64_t> &host_dvas, int64_t page_size,
-                                       int64_t direction, int64_t host_layout_mode)
+                                       const std::vector<int64_t> &host_dvas, int64_t page_size, int64_t direction,
+                                       int64_t host_layout_mode)
 {
-    TORCH_CHECK(direction == kDirectionH2D || direction == kDirectionD2H,
-                "direction must be H2D (1) or D2H (2), got ", direction);
+    TORCH_CHECK(direction == kDirectionH2D || direction == kDirectionD2H, "direction must be H2D (1) or D2H (2), got ",
+                direction);
     TORCH_CHECK(host_layout_mode == kHostLayoutPageFirst || host_layout_mode == kHostLayoutLayerFirst,
                 "host_layout_mode must be page_first (0) or layer_first (1), got ", host_layout_mode);
     TORCH_CHECK(page_size > 0, "page_size must be positive, got ", page_size);
@@ -229,10 +245,8 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
 
     CheckNpuTensor(device_indices, "device_indices");
     CheckNpuTensor(host_indices, "host_indices");
-    TORCH_CHECK(device_indices.numel() == host_indices.numel(),
-                "device/host indices must have the same length");
-    TORCH_CHECK(device_indices.numel() % page_size == 0,
-                "indices size must be divisible by page_size");
+    TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device/host indices must have the same length");
+    TORCH_CHECK(device_indices.numel() % page_size == 0, "indices size must be divisible by page_size");
 
     const int64_t num_pages = device_indices.numel() / page_size;
     if (num_pages == 0) {
@@ -249,7 +263,10 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
     meta[4] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(device_indices.data_ptr()));
     meta[5] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(host_indices.data_ptr()));
     meta[6] = host_layout_mode;
-    meta[7] = 0;  // start_dim: all launched cores participate
+    // start_dim: negative (the default) reserves the last 2 AIV cores to
+    // match the native acc_offload kv_exchange occupancy; SGLANG_KV_
+    // EXCHANGE_START_DIM=0 re-engages all launched cores for perf sweeps.
+    meta[7] = ResolveStartDim();
 
     for (int64_t c = 0; c < static_cast<int64_t>(device_components.size()); ++c) {
         const at::Tensor &device_buf = device_components[c];
@@ -258,12 +275,10 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
         TORCH_CHECK(host_buf.device().type() == at::kCPU, "component ", c,
                     ": host components must be CPU (MemFabric-mapped) tensors");
         CheckComponentPair(device_buf, host_buf, page_size, c);
-        TORCH_CHECK(host_dvas[static_cast<size_t>(c)] != 0, "component ", c,
-                    ": MF host DVA must be non-zero");
+        TORCH_CHECK(host_dvas[static_cast<size_t>(c)] != 0, "component ", c, ": MF host DVA must be non-zero");
         // Layer offsets are already folded into the component views; the
         // whole view (all its layers) is transferred.
-        FillComponent(meta, c, device_buf, host_buf, 0, host_dvas[static_cast<size_t>(c)], 0, 0,
-                      device_buf.size(0));
+        FillComponent(meta, c, device_buf, host_buf, 0, host_dvas[static_cast<size_t>(c)], 0, 0, device_buf.size(0));
     }
 
     at::Tensor staging = LaunchKvExchange(meta, device_components[0]);

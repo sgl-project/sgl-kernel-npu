@@ -3,7 +3,7 @@
 Host pool tensors allocated through ``memfabric_hybrid.offload.empty`` are
 not visible to ``offload.get_dva`` until they are registered with
 ``offload.host_register`` (the acc_offload entry manager maps registered host
-VAs to device-visible addresses). The AIV kv_exchange kernel dereferences
+virtual addresses to device-visible addresses). The AIV kv_exchange kernel dereferences
 those DVAs directly, so every MF-allocated host buffer must go through
 :meth:`register_host_memory` at allocation time; interior tensor views then
 resolve by byte offset through the mapping table.
@@ -102,8 +102,8 @@ def resolve_host_dva(tensor: torch.Tensor) -> int:
     """Resolve a registered MF host tensor (or interior view) to its DVA.
 
     Unlike lookup_host_dva, unregistered CPU memory is an error: AIV
-    kv_exchange kernels can only de-reference host VAs mapped through the
-    MemFabric offload entity, so there is no fallback.
+    kv_exchange kernels can only de-reference host virtual addresses mapped
+    through the MemFabric offload entity, so there is no fallback.
     """
     dva = lookup_host_dva(tensor)
     if not dva:

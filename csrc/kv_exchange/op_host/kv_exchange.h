@@ -38,11 +38,10 @@ HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim);
 // Returns the pinned host staging tensor that carries the meta upload; the
 // caller must keep it alive until the submission's completion event (the
 // non_blocking H2D copy may still be in flight after this call returns).
-HOST_API at::Tensor kv_exchange_submit(
-    const at::Tensor &device_indices, const at::Tensor &host_indices,
-    at::TensorList device_components, at::TensorList host_components,
-    const std::vector<int64_t> &host_dvas, int64_t page_size, int64_t direction,
-    int64_t host_layout_mode);
+HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host_indices,
+                                       at::TensorList device_components, at::TensorList host_components,
+                                       const std::vector<int64_t> &host_dvas, int64_t page_size, int64_t direction,
+                                       int64_t host_layout_mode);
 
 }  // namespace npu_kernel
 }  // namespace sglang
