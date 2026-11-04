@@ -455,9 +455,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     auto recv_count_one_dim = recv_count.sum(0, false).to(at::kInt);
 #ifdef __DAV_C310__
-    // The scale output is a strided view of the combined buffer. With numel <= 1 PyTorch reports it as
-    // contiguous (size-1 dims are ignored), so .contiguous() is a no-op and the row stride survives, breaking
-    // downstream dtype-changing views like .view(torch.uint8). Materialize a dense copy after the kernel runs.
+    // numel <= 1 时 PyTorch 忽略 size-1 维度，该 strided view 被判为连续，.contiguous() 成为 no-op，
+    // 行 stride 得以保留，导致下游 view(torch.uint8) 失败。kernel 执行后物化稠密拷贝。
     if (!is_mxfp8_quant && !is_mxfp4_quant && dynamic_scales_out.numel() <= 1) {
         dynamic_scales_out = dynamic_scales_out.clone(at::MemoryFormat::Contiguous);
     }
@@ -619,8 +618,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     at::Tensor recv_x = x;
     auto topk_idx_int32 = topk_idx.to(at::kInt);
     at::Tensor token_src_info = src_idx;
-    // recv_x / token_src_info may be strided views of the combined dispatch buffer. The aclnn layer copies
-    // non-contiguous inputs anyway, but its generic gather of a 12B/row view is slow (~60us vs ~8us here).
+    // recv_x / token_src_info 是 combined dispatch buffer 的 strided view。aclnn 层会拷贝非连续输入，
+    // 但其对 12B/行 视图的通用 gather 较慢（~60us vs 此处 ~8us）。
     if (!token_src_info.is_contiguous()) {
         token_src_info = token_src_info.contiguous();
     }
@@ -669,7 +668,7 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
-    // Dense copies now, so the kernel indexes with dense row strides.
+    // 已转为稠密拷贝，kernel 按稠密行 stride 索引。
     int64_t combinedStride = hidden * recv_x.element_size();
     int64_t srcInfoStride = 3 * sizeof(int32_t);
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,

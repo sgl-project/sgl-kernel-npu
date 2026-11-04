@@ -153,9 +153,7 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
     if x_fp8.numel() == 0:
         return x_fp8.to(torch.bfloat16)
 
-    # x_fp8 / x_scales 可能是 combined buffer 的 strided view（single-write 优化），转成连续张量。
-    # FP4 例外：aclnnInplaceCopy 不支持 DT_FLOAT4_E2M1，.contiguous() 在 NPU 上会失败。FP4 分支下游只用
-    # view(uint8).cpu()，而 .cpu() 本身会物化，无需前置拷贝。
+    # x_fp8 / x_scales 是 combined buffer 的 strided view，转成连续张量。FP4 不需要前置 contiguous 转化。
     if x_fp8.dtype != torch.float4_e2m1fn_x2:
         x_fp8 = x_fp8.contiguous()
     x_scales = x_scales.contiguous()

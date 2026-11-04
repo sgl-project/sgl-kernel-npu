@@ -387,7 +387,6 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRa
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
     const bool srcInfoContig = (srcInfoStride_ == TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
     const uint32_t srcInfoRowElems = srcInfoStride_ / sizeof(SrcInfoType);
-    // Read a 32B block per row so both src (32B-multiple stride) and dst (32B-aligned slot) stay aligned.
     const uint32_t srcInfoRowBytes = TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
     const uint32_t srcInfoRowCopyBytes = Ceil(srcInfoRowBytes, UB_32_ALIGN) * UB_32_ALIGN;
     const uint32_t srcInfoRowAlignElems = srcInfoRowCopyBytes / sizeof(SrcInfoType);
