@@ -40,7 +40,8 @@ vendor directory and wheel.
 ## Build and on-device validation
 
 Use the same initialized CANN 9.2.0 and matching PyTorch/torch_npu environment as
-PR #921. Mixed builds also require CANN's HCC compiler and AICPU development files.
+PR #921. Any selection containing AddExample also requires CANN's HCC compiler
+and AICPU development files.
 The following commands use an explicit, fresh checkout location on the NPU host;
 no server access or remote execution is performed by these instructions.
 
@@ -52,17 +53,21 @@ cd /tmp/sgl-kernel-npu-aicpu
 Choose the architecture matching the machine. For A2/A3 (`2201`):
 
 ```bash
-python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 2201 --ops apply_token_bitmask,add_example --artifact wheel --make-clean
+python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 2201 --ops add_example --artifact wheel --without-third-party --make-clean
 ```
 
 For A5 (`3510`), use this build command instead:
 
 ```bash
-python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 3510 --ops apply_token_bitmask,add_example --artifact wheel --make-clean
+python /tmp/sgl-kernel-npu-aicpu/setup.py --arch-version 3510 --ops add_example --artifact wheel --without-third-party --make-clean
 ```
 
-Both commands select one existing AI Core operator and the new AICPU example,
-producing one wheel. `--make-clean` removes this checkout's previous build
+These commands select only the AICPU example. `--without-third-party` isolates
+repository-owned operators from the independent third-party profiles introduced
+after #921. To validate a mixed package, replace `--ops add_example` with
+`--ops apply_token_bitmask,add_example`; to check the existing Core-only path,
+use `--ops apply_token_bitmask`. Keep the architecture matching the machine.
+Each selection produces one wheel. `--make-clean` removes this checkout's previous build
 intermediates; it does not modify the installed SDK. Install the resulting wheel
 into the active Python environment, keeping its existing dependencies:
 
@@ -88,8 +93,9 @@ with `--impl ascendc --impl-ref torch_native --enable-perf=false`.
 
 ## Package scope
 
-The build path is Host ACLNN + AI Core Tiling/kernel + HCC AICPU objects/library,
-then one RUN package, its expanded vendor directory, and one wheel. The AICPU
+The build path is shared Host ACLNN/optional GRAPH, AI Core Tiling/kernel when
+selected, and HCC AICPU objects/library when selected, then one RUN package,
+its expanded vendor directory, and one wheel. The AICPU
 files are installed under `op_impl/cpu/config/` and
 `op_impl/cpu/aicpu_kernel/impl/`. The custom ACLNN header joins `op_api/include/`.
 Existing wheel staging copies the complete vendor directory and verifies its
@@ -99,14 +105,32 @@ Existing AI Core declarations and explicitly selected AI Core-only builds keep
 the PR #921 path. `--ops all` now includes `add_example`, so it is a mixed build
 and requires the AICPU toolchain. There is no separate `--aicpu_kernel` switch.
 
-AICPU-only RUN/wheel packaging (`--ops add_example`) is rejected in this PR.
-The common Host-library/install-template work is deferred to a separate PR;
-see [roadmap issue #8](https://github.com/yuejiat0416/sgl-kernel-npu/issues/8).
+AICPU-only selections (`--ops add_example`) use the same RUN/wheel flow without
+creating AI Core Tiling or GRAPH content for this example. During staging the
+coordinator adds `--force` to the RUN installer because CANN 9.2 otherwise
+requires `libcust_opmaster_rt2.0.so`. This skips the SDK's full Host-library
+validation; the repository still checks expected installed files and compares
+headers, device code and registration JSON with this build. Core-only and mixed
+selections use the normal installer. No additional library-load check is added.
+
+For a standalone RUN, use `--artifact run` instead of `--artifact wheel`. When
+installing an AICPU-only RUN manually, include `--force`, for example on A2/A3:
+
+```bash
+bash /tmp/sgl-kernel-npu-aicpu/output/sgl_kernel_npu-2201-custom.run --install-path=/tmp/sgl-kernel-npu-aicpu-installed --force
+```
+
+Use the `3510` output filename on A5. Wheel installation uses the already
+expanded vendor files and does not execute the RUN installer. Broader follow-up
+work remains tracked in [roadmap issue #8](https://github.com/yuejiat0416/sgl-kernel-npu/issues/8).
 
 ## Validation boundary
 
 Local checks cover CMake selection/dependencies, host/compiler separation,
 registration merging, install/wheel payload checks, Python dispatch/contracts,
 and the unchanged kernel's arithmetic using native C++ with test doubles.
-They are not real HCC, CANN RUN/wheel, or NPU accuracy results. Both architectures
-still require the on-device build and tests above before this draft is ready.
+They are not real HCC, CANN RUN/wheel, or NPU accuracy results. The author
+previously reported 15 passing AddExample tests on A3 and passing accuracy on A5
+for the earlier mixed build. Those results do not validate the current rebased
+head or the new AICPU-only package path. Both architectures still require the
+on-device build/install and tests above, plus mixed/Core regressions.

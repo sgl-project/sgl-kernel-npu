@@ -91,6 +91,12 @@ def _selection(directory):
     return tuple(path.read_text().splitlines()) if path.is_file() else ()
 
 
+def _cache_list(values, key):
+    if key not in values:
+        raise RuntimeError("CMake did not export required build information: " + key)
+    return tuple(filter(None, values[key].split(";")))
+
+
 def parse_operators(value):
     if value == "all":
         return ("ALL",)
@@ -165,14 +171,11 @@ def build_cann(
     selected = _selection(directory)
     if not selected:
         raise RuntimeError("CMake did not produce a nonempty operator selection")
-    aicpu_operators = tuple(
-        filter(None, _cache(directory).get("SGL_CANN_AICPU_OPERATORS", "").split(";"))
-    )
-    if aicpu_operators and not set(selected).difference(aicpu_operators):
-        raise RuntimeError(
-            "AICPU-only RUN/wheel packaging is not supported; "
-            "this build supports AI Core-only or mixed AI Core + AICPU packages"
-        )
+    aicpu_operators = _cache_list(_cache(directory), "SGL_CANN_AICPU_OPERATORS")
+    if not set(aicpu_operators).issubset(selected):
+        raise RuntimeError("CMake exported AICPU operators outside this selection")
+    has_aicpu = bool(aicpu_operators)
+    has_aicore = bool(set(selected).difference(aicpu_operators))
     print("SELECTED_OPERATORS: " + ",".join(selected), flush=True)
     # The SDK's package target does not build device binaries automatically.
     for target, log_name in (
@@ -187,16 +190,20 @@ def build_cann(
     installed = directory / "installed"
     _remove_tree(installed)
     installed.mkdir()
+    install_command = ["bash", package, "--quiet", "--install-path=" + str(installed)]
+    if has_aicpu and not has_aicore:
+        # CANN 9.2 requires opmaster even without Core Tiling. --force skips
+        # the installer's entire Host-library validation, not file installation.
+        install_command.append("--force")
     run(
-        ["bash", package, "--quiet", "--install-path=" + str(installed)],
+        install_command,
         directory / "install.log",
         cwd=installed,
         env=env,
     )
-    for compute_unit in compute_units:
-        vendor, _, _ = inspect_installation(
-            installed, directory, compute_unit, aicpu=bool(aicpu_operators)
-        )
+    vendor, _, _ = inspect_installation(
+        installed, directory, compute_units, aicore=has_aicore, aicpu=has_aicpu
+    )
     print("RUN_PACKAGE: " + str(package), flush=True)
     print("INSTALLED_VENDOR: " + str(vendor), flush=True)
     print("PASS: CANN package built and staged; no NPU execution or wheel build")
@@ -231,14 +238,23 @@ def find_run_package(stage_build):
     return packages[0]
 
 
-def inspect_installation(install_dir, stage_build, compute_unit, *, aicpu=False):
+def inspect_installation(install_dir, stage_build, compute_units, *, aicore, aicpu):
     vendor = install_dir / "vendors/sgl_kernel_npu"
     tbe = vendor / "op_impl/ai_core/tbe"
-    libraries = [vendor / "op_api/lib/libcust_opapi.so"]
-    for directory, name in (
-        (tbe / "op_tiling", "libcust_opmaster_rt2.0.so"),
-        (vendor / "op_proto", "libcust_opsproto_rt2.0.so"),
-    ):
+    cache = _cache(stage_build)
+    host_libraries = _cache_list(cache, "SGL_CANN_HOST_LIBRARIES")
+    headers = [Path(path) for path in _cache_list(cache, "SGL_CANN_ACLNN_HEADERS")]
+    libraries = []
+    if "sgl_cann_opapi" in host_libraries:
+        libraries.append(vendor / "op_api/lib/libcust_opapi.so")
+        if not headers:
+            raise RuntimeError("CMake created ACLNN without exporting its headers")
+    library_searches = []
+    if "sgl_cann_proto" in host_libraries:
+        library_searches.append((vendor / "op_proto", "libcust_opsproto_rt2.0.so"))
+    if aicore:
+        library_searches.append((tbe / "op_tiling", "libcust_opmaster_rt2.0.so"))
+    for directory, name in library_searches:
         matches = sorted(directory.rglob(name))
         if len(matches) != 1:
             raise RuntimeError(
@@ -253,38 +269,31 @@ def inspect_installation(install_dir, stage_build, compute_unit, *, aicpu=False)
         ):
             raise RuntimeError(f"Missing, empty or external installed file: {path}")
 
-    headers = sorted((stage_build / "autogen").glob("aclnn*.h"))
-    if not headers:
-        raise RuntimeError(f"No generated ACLNN headers in {stage_build / 'autogen'}")
-    headers += [
-        Path(path)
-        for path in _cache(stage_build).get("SGL_CANN_ACLNN_HEADERS", "").split(";")
-        if path
-    ]
     # CMake may rewrite shared-library RPATHs; compare headers and kernels instead.
     pairs = [(path, vendor / "op_api/include" / path.name) for path in headers]
     binary_root = stage_build / "sgl_cann_kernels/binary"
-    binaries = sorted((binary_root / compute_unit).rglob("*.o"))
-    metadata = sorted((binary_root / compute_unit).rglob("*.json"))
-    metadata += sorted((binary_root / "config" / compute_unit).rglob("*.json"))
-    if not binaries or not metadata:
-        raise RuntimeError(
-            f"Missing compiled Kernel binaries or metadata for {compute_unit}"
+    for compute_unit in compute_units if aicore else ():
+        binaries = sorted((binary_root / compute_unit).rglob("*.o"))
+        metadata = sorted((binary_root / compute_unit).rglob("*.json"))
+        metadata += sorted((binary_root / "config" / compute_unit).rglob("*.json"))
+        if not binaries or not metadata:
+            raise RuntimeError(
+                f"Missing compiled Kernel binaries or metadata for {compute_unit}"
+            )
+        pairs += [
+            (path, tbe / "kernel" / path.relative_to(binary_root))
+            for path in binaries + metadata
+        ]
+        info = f"aic-{compute_unit}-ops-info.json"
+        pairs.append(
+            (
+                stage_build
+                / "sgl_cann_kernels/tbe/op_info_cfg/ai_core"
+                / compute_unit
+                / info,
+                tbe / "config" / compute_unit / info,
+            )
         )
-    pairs += [
-        (path, tbe / "kernel" / path.relative_to(binary_root))
-        for path in binaries + metadata
-    ]
-    info = f"aic-{compute_unit}-ops-info.json"
-    pairs.append(
-        (
-            stage_build
-            / "sgl_cann_kernels/tbe/op_info_cfg/ai_core"
-            / compute_unit
-            / info,
-            tbe / "config" / compute_unit / info,
-        )
-    )
     if aicpu:
         cpu = vendor / "op_impl/cpu"
         pairs += [

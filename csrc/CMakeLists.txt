@@ -112,6 +112,8 @@ if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
             list(APPEND host_libraries ${target})
         endif()
     endforeach()
+    set(SGL_CANN_HOST_LIBRARIES "${host_libraries}" CACHE INTERNAL
+        "Host libraries expected in this CANN package" FORCE)
     set(package_libraries ${host_libraries})
     if(aicore_operators)
         list(APPEND package_libraries sgl_cann_tiling sgl_cann_kernels)
