@@ -12,7 +12,7 @@ import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock, Mock, create_autospec, patch
+from unittest.mock import Mock, create_autospec, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -138,15 +138,9 @@ class TestSparseDispatch(unittest.TestCase):
                 lambda src, dst, lengths, count, device: 0, return_value=0
             ),
         )
-        language = SimpleNamespace(constexpr=object)
         self.modules = patch.dict(
             sys.modules,
-            {
-                "torch": self.torch,
-                "triton": SimpleNamespace(jit=lambda **_: lambda fn: fn, language=language),
-                "triton.language": language,
-                "memfabric_hybrid": SimpleNamespace(offload=self.offload),
-            },
+            {"torch": self.torch, "memfabric_hybrid": SimpleNamespace(offload=self.offload)},
         )
         self.modules.start()
         self.addCleanup(self.modules.stop)
@@ -155,7 +149,6 @@ class TestSparseDispatch(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(module_name, path)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
-        self.real_builder = self.module.build_kv_sparse_metadata
         self.module.build_kv_sparse_metadata = self.builder
         self.call = partial(self.module.transfer_kv, host_layout="page_first",
                             kv_layers=(0, 0, None), index_layers=(0, 0, None),
@@ -205,19 +198,9 @@ class TestSparseDispatch(unittest.TestCase):
         self.assertTrue(all(ref() is None for ref in refs))
 
     def test_aicpu_validates_each_component_and_submits_one_copy(self):
-        self.torch.empty = lambda shape, dtype, device: Tensor(shape, device, dtype)
-        self.torch.empty_like = lambda tensor: Tensor(
-            tensor.shape, tensor.device, tensor.dtype
-        )
-        kernel = MagicMock()
-        sys.modules["triton"].cdiv = lambda size, block: (size + block - 1) // block
-        with (
-            patch.object(self.module, "build_kv_sparse_metadata", self.real_builder),
-            patch.object(self.module, "_build_kv_sparse_metadata_kernel", kernel),
-            patch.object(
-                self.module, "_check_component", wraps=self.module._check_component
-            ) as check,
-        ):
+        with patch.object(
+            self.module, "_check_component", wraps=self.module._check_component
+        ) as check:
             device_k = Tensor((3, 5, 4, 1, 5), dtype="bf16")
             host_k = Tensor((7, 3, 4, 1, 5), CPU, "bf16")
             device_v = Tensor((3, 5, 4, 1, 2), dtype="bf16")
@@ -228,10 +211,7 @@ class TestSparseDispatch(unittest.TestCase):
                 page_size=4,
             )
         self.assertEqual(check.call_count, 2)
-        self.assertEqual(kernel.__getitem__.call_count, 2)
-        for launch in kernel.__getitem__.call_args_list:
-            self.assertEqual(launch.args, ((1,),))
-        self.assertEqual(kernel.__getitem__.return_value.call_count, 2)
+        self.builder.assert_called_once()
         self.offload.sparse_copy.assert_called_once()
         src, dst, lengths, count = self.offload.sparse_copy.call_args.args[:4]
         self.assertEqual(src.shape, (12,))

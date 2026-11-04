@@ -1,12 +1,10 @@
-"""CPU execution of the actual Triton kernel body through a NumPy TL facade.
+"""CPU arithmetic checks of the PyTorch metadata builder using a NumPy facade.
 
-This checks vector address arithmetic and masks, not Triton compilation, cache
-visibility, or the A5 runtime. Real NPU coverage is in tests/python/operators/mem_cache/test_kv_transfer.py.
+This does not validate NPU execution or performance; real NPU coverage is in
+tests/python/operators/mem_cache/test_kv_transfer.py.
 """
 
 import importlib.util
-import inspect
-from itertools import product
 import sys
 import unittest
 from dataclasses import dataclass
@@ -29,13 +27,8 @@ class Value(np.ndarray if np is not None else object):
     def to(self, dtype):
         return self.astype(dtype).view(Value)
 
-
-class Pointer:
-    def __init__(self, array, offset=0):
-        self.array, self.offset = array, np.asarray(offset)
-
-    def __add__(self, offset):
-        return Pointer(self.array, self.offset + offset)
+    def repeat_interleave(self, repeats):
+        return np.repeat(self, repeats).view(Value)
 
 
 @dataclass(frozen=True)
@@ -67,6 +60,9 @@ class Tensor:
             else strides
         )
 
+    def __getitem__(self, key):
+        return self.array[key].view(Value)
+
     def numel(self):
         return self.array.size
 
@@ -83,109 +79,25 @@ class Tensor:
         return self.base
 
 
-class Context:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        pass
-
-
-class Language:
-    constexpr = object
-    pids = (0, 0)
-
-    @staticmethod
-    def program_id(axis):
-        return Language.pids[axis]
-
-    static_range = staticmethod(range)
-
-    @staticmethod
-    def arange(start, stop):
-        return Value(np.arange(start, stop))
-
-    @staticmethod
-    def load(ptr, mask=True, other=0):
-        offsets, valid = np.broadcast_arrays(ptr.offset, np.asarray(mask))
-        result = np.full(offsets.shape, other, dtype=ptr.array.dtype)
-        result[valid] = ptr.array[offsets[valid].astype(np.int64)]
-        return result.view(Value)
-
-    @staticmethod
-    def store(ptr, values, mask=True):
-        offsets, valid, values = np.broadcast_arrays(
-            ptr.offset, np.asarray(mask), np.asarray(values)
-        )
-        ptr.array[offsets[valid].astype(np.int64)] = values[valid].astype(
-            ptr.array.dtype
-        )
-
-    @staticmethod
-    def where(condition, a, b):
-        return Value(np.where(condition, a, b))
-
-
-class Kernel:
-    def __init__(self, fn, do_not_specialize=()):
-        self.fn, self.signature = fn, inspect.signature(fn)
-        self.do_not_specialize = do_not_specialize
-        self.launches = []
-        self.runtime_arguments = []
-
-    def __getitem__(self, grid):
-        def run(*args, **kwargs):
-            self.launches.append(grid)
-
-            def runtime_value(value):
-                if isinstance(value, Tensor):
-                    return Pointer(value.array)
-                if isinstance(value, tuple):
-                    raise TypeError("legacy Triton cannot bind runtime tuple arguments")
-                return Value(np.int64(value))
-
-            bound = self.signature.bind(*args, **kwargs)
-            self.runtime_arguments.append(
-                {
-                    name: value
-                    for name, value in bound.arguments.items()
-                    if self.signature.parameters[name].annotation
-                    is inspect.Parameter.empty
-                }
-            )
-            for name, value in bound.arguments.items():
-                if (
-                    self.signature.parameters[name].annotation
-                    is inspect.Parameter.empty
-                ):
-                    bound.arguments[name] = runtime_value(value)
-            for pids in product(*(range(size) for size in grid)):
-                Language.pids = pids
-                self.fn(**bound.arguments)
-
-        return run
-
-
-@unittest.skipIf(np is None, "optional NumPy required for the CPU TL facade")
-class TestTritonKVMetadata(unittest.TestCase):
+@unittest.skipIf(np is None, "optional NumPy required for the CPU PyTorch facade")
+class TestTorchKVMetadata(unittest.TestCase):
     def setUp(self):
-        Language.int64, Language.uint64 = np.int64, np.uint64
-        triton = SimpleNamespace(
-            jit=lambda **options: lambda fn: Kernel(fn, **options),
-            language=Language,
-            cdiv=lambda x, y: (x + y - 1) // y,
-        )
+        def cat(parts):
+            values = np.concatenate(parts)
+            return Tensor(values.shape, values.dtype, NPU, values=values)
+
         torch = SimpleNamespace(
             int64=np.dtype(np.int64),
             int32=np.dtype(np.int32),
             iinfo=np.iinfo,
-            empty=lambda shape, dtype, device: Tensor(shape, dtype, device),
-            empty_like=lambda t: Tensor(t.shape, t.dtype, t.device),
-            npu=SimpleNamespace(device=lambda _: Context()),
+            arange=lambda n, dtype, device: np.arange(n, dtype=dtype).view(Value),
+            where=lambda mask, a, b: np.where(mask, a, b).view(Value),
+            cat=cat,
+            full=lambda shape, value, dtype, device: Tensor(
+                shape, dtype, device, values=np.full(shape, value, dtype=dtype)
+            ),
         )
-        with patch.dict(
-            sys.modules, {"torch": torch, "triton": triton, "triton.language": Language}
-        ):
+        with patch.dict(sys.modules, {"torch": torch}):
             path = (
                 ROOT
                 / "python/sgl_kernel_npu/sgl_kernel_npu/implementation/memfabric/mem_cache/kv_transfer.py"
@@ -245,8 +157,6 @@ class TestTritonKVMetadata(unittest.TestCase):
         return rows
 
     def assert_metadata(self, devices, hosts, dp, hp, ps, direction):
-        kernel = self.module._build_kv_sparse_metadata_kernel
-        previous_launches = len(kernel.launches)
         outputs = self.module.build_kv_sparse_metadata(
             tuple(zip(devices, hosts)),
             self.indices(dp, ps),
@@ -254,9 +164,10 @@ class TestTritonKVMetadata(unittest.TestCase):
             ps,
             direction,
         )
+        for table in outputs:
+            self.assertEqual(table.device, NPU)
         self.assertEqual(
-            kernel.launches[previous_launches:],
-            [((len(dp) * dev.shape[0] + 127) // 128,) for dev in devices],
+            [t.dtype for t in outputs], [np.int64, np.int64, np.int32, np.int32]
         )
         reference = self.expected(devices, hosts, dp, hp)
         src, dst, lengths, count = (t.array for t in outputs)
@@ -275,27 +186,13 @@ class TestTritonKVMetadata(unittest.TestCase):
         for direction in (1, 2):
             self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, direction)
 
-    def test_reallocated_buffers_use_unspecialized_runtime_scalars(self):
+    def test_reallocated_buffers_use_current_addresses(self):
         devices, hosts = self.components()
-        kernel = self.module._build_kv_sparse_metadata_kernel
         self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, 1)
-        first = kernel.runtime_arguments[-1]
         for dev, host in zip(devices, hosts):
             dev.base += 1 << 35
             host.base += 1 << 36
-            dev.shape = (dev.shape[0], 11, *dev.shape[2:])
-            host.shape = (13, *host.shape[1:])
         self.assert_metadata(devices, hosts, [6, 2], [1, 8], 4, 1)
-        second = kernel.runtime_arguments[-1]
-        changed = {
-            name
-            for name in first
-            if isinstance(first[name], int) and first[name] != second[name]
-        }
-        self.assertTrue(changed)
-        self.assertTrue(changed.issubset(kernel.do_not_specialize))
-        self.assertIn("entries", kernel.do_not_specialize)
-        self.assertIn("total_entries", kernel.do_not_specialize)
 
     def test_four_components_with_independent_layer_counts_and_tails(self):
         devices, hosts = self.components(
