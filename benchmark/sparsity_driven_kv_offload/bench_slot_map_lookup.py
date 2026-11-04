@@ -335,9 +335,7 @@ def benchmark_case(args, block_dim, case_data):
     slot_mean, slot_median, _, _, _ = summarize_samples(slot_samples)
     log_argmax_working_set(args.bs, args.topk_len, args.device_len)
     log_samples("any+argmax operators only (prebuilt match matrices)", ref_samples)
-    mask_label = (
-        f" + position_mask[{args.pos_mask_size}]" if args.pos_mask_size else ""
-    )
+    mask_label = f" + position_mask[{args.pos_mask_size}]" if args.pos_mask_size else ""
     log_samples(
         f"slot_map_lookup{mask_label} kernel only (preallocated outputs)",
         slot_samples,

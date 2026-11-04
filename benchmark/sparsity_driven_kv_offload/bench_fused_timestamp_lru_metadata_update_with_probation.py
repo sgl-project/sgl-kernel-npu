@@ -29,7 +29,6 @@ from sgl_kernel_npu.sparsity_driven_kv_offload import (
     parallel_lru_metadata_write,
 )
 
-
 DEVICE = "npu"
 TOPK = 2048
 CACHE_CAPACITY = 4096
@@ -125,25 +124,17 @@ def make_case(
         topk_indices_cpu,
         torch.full_like(topk_indices_cpu, -1),
     )
-    hit_position_mask_cpu = torch.zeros(
-        (batch_size, CACHE_CAPACITY), dtype=torch.int32
-    )
+    hit_position_mask_cpu = torch.zeros((batch_size, CACHE_CAPACITY), dtype=torch.int32)
     hit_position_mask_cpu[:, :hit_count] = 1
 
-    slot_map_cpu = torch.full(
-        (rows, max_context_len), -1, dtype=torch.int32
-    )
+    slot_map_cpu = torch.full((rows, max_context_len), -1, dtype=torch.int32)
     slot_map_cpu[1:, :CACHE_CAPACITY] = resident_tokens
 
     lru_slots_cpu = resident_tokens.expand(rows, CACHE_CAPACITY).clone()
-    base_stamps = torch.arange(
-        CACHE_CAPACITY, 0, -1, dtype=torch.int32
-    )
+    base_stamps = torch.arange(CACHE_CAPACITY, 0, -1, dtype=torch.int32)
     lru_stamps_cpu = base_stamps.expand(rows, CACHE_CAPACITY).clone()
 
-    slot_tokens_cpu = torch.full(
-        (rows, CACHE_CAPACITY), -1, dtype=torch.int32
-    )
+    slot_tokens_cpu = torch.full((rows, CACHE_CAPACITY), -1, dtype=torch.int32)
     slot_tokens_cpu[1:] = resident_tokens
 
     slot_map = slot_map_cpu.to(DEVICE).contiguous()
@@ -249,13 +240,11 @@ def build_expected(case):
         expected_slot_map[request_row, new_tokens.long()] = victims
         expected_slot_tokens[request_row, victims.long()] = new_tokens
 
-    expected_stamp_by_slot = torch.arange(
-        CACHE_CAPACITY + 1, 1, -1, dtype=torch.int32
-    )
+    expected_stamp_by_slot = torch.arange(CACHE_CAPACITY + 1, 1, -1, dtype=torch.int32)
     expected_stamp_by_slot[: case.hit_count] = 0
-    expected_stamp_by_slot[
-        case.hit_count : case.hit_count + case.miss_count
-    ] = case.probation_age
+    expected_stamp_by_slot[case.hit_count : case.hit_count + case.miss_count] = (
+        case.probation_age
+    )
     return (
         expected_victims,
         expected_slot_map,
@@ -301,10 +290,7 @@ def check_correctness(case):
             raise AssertionError(
                 f"device_lru_slots row {request_row} is not a slot permutation"
             )
-        if torch.any(
-            actual_stamps[request_row, :-1]
-            < actual_stamps[request_row, 1:]
-        ):
+        if torch.any(actual_stamps[request_row, :-1] < actual_stamps[request_row, 1:]):
             raise AssertionError(
                 f"device_lru_slot_stamps row {request_row} is not descending"
             )
@@ -347,9 +333,7 @@ def time_selection_samples_ms(case, warmup, iters):
     return samples
 
 
-def time_metadata_samples_ms(
-    case, victim_slots, miss_counts, warmup, iters
-):
+def time_metadata_samples_ms(case, victim_slots, miss_counts, warmup, iters):
     for _ in range(warmup):
         restore_metadata_state(case)
         run_metadata_kernel(case, victim_slots, miss_counts)
@@ -403,10 +387,7 @@ def print_kernel_result(name, case, samples):
         f"p90={p90_ms:.6f}, min={min(samples):.6f}, "
         f"max={max(samples):.6f}, std={std_ms:.6f}"
     )
-    print(
-        f"{name}_throughput={throughput:.2f} requests/s "
-        "(median latency)"
-    )
+    print(f"{name}_throughput={throughput:.2f} requests/s " "(median latency)")
 
 
 def print_result(

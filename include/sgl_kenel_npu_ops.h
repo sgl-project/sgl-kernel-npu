@@ -351,7 +351,8 @@ void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
  *
  * Returns (victim_slots[batch, 2048], miss_counts[batch]).
  */
-std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_probation(
+std::tuple<at::Tensor, at::Tensor>
+fused_timestamp_lru_metadata_update_with_probation(
     const at::Tensor &req_indices, const at::Tensor &topk_indices,
     const at::Tensor &device_token_pos, const at::Tensor &hit_position_mask,
     at::Tensor &device_lru_slots, at::Tensor &device_lru_slot_stamps,
@@ -359,11 +360,13 @@ std::tuple<at::Tensor, at::Tensor> fused_timestamp_lru_metadata_update_with_prob
     int64_t block_dim);
 
 /** Write the sparse slot map and reverse map updates selected by the LRU op. */
-void parallel_lru_metadata_write(
-    at::Tensor &slot_map, const at::Tensor &req_indices,
-    const at::Tensor &topk_indices, const at::Tensor &victim_slots,
-    const at::Tensor &miss_counts, at::Tensor &device_slot_tokens,
-    int64_t max_context_len, int64_t block_dim);
+void parallel_lru_metadata_write(at::Tensor &slot_map,
+                                 const at::Tensor &req_indices,
+                                 const at::Tensor &topk_indices,
+                                 const at::Tensor &victim_slots,
+                                 const at::Tensor &miss_counts,
+                                 at::Tensor &device_slot_tokens,
+                                 int64_t max_context_len, int64_t block_dim);
 
 /**
  * @brief Create host shared memory and register it to the NPU device.

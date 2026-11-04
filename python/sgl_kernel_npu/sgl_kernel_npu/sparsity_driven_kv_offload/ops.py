@@ -4,7 +4,6 @@ from typing import Optional, Sequence, Tuple, Union
 
 import torch
 
-
 _SUPPORTED_LRU_CACHE_CAPACITIES = (2048, 4096, 6144, 8192)
 _LRU_TOPK_ALIGNMENT = 32
 
@@ -360,8 +359,7 @@ def parallel_lru_metadata_write(
         )
     if miss_counts.shape != (topk_indices.size(0),):
         raise ValueError(
-            "miss_counts shape must be [batch], got "
-            f"{tuple(miss_counts.shape)}"
+            "miss_counts shape must be [batch], got " f"{tuple(miss_counts.shape)}"
         )
     if (
         device_slot_tokens.dim() != 2

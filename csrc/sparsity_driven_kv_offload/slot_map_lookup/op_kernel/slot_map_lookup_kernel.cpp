@@ -32,8 +32,7 @@ public:
         topkIndicesGm.SetGlobalBuffer((__gm__ int32_t *)topk_indices, static_cast<uint64_t>(bs) * topk);
         tokenOnDeviceGm.SetGlobalBuffer((__gm__ int32_t *)token_on_device, static_cast<uint64_t>(bs) * topk);
         deviceTokenPosGm.SetGlobalBuffer((__gm__ int32_t *)device_token_pos, static_cast<uint64_t>(bs) * topk);
-        positionMaskGm.SetGlobalBuffer((__gm__ int32_t *)position_mask,
-                                      static_cast<uint64_t>(bs) * pos_mask_size);
+        positionMaskGm.SetGlobalBuffer((__gm__ int32_t *)position_mask, static_cast<uint64_t>(bs) * pos_mask_size);
 
         pipe->InitBuffer(topkIdxBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(int32_t));
         pipe->InitBuffer(posResultBuf, AIV_PIPELINE_DEPTH * TOPK_TILE_LEN * sizeof(int32_t));

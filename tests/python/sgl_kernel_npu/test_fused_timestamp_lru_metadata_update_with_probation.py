@@ -41,14 +41,8 @@ def reference_fused_timestamp_lru_metadata_update_with_probation(
 
         tokens = topk_indices[batch_idx]
         positions = device_token_pos[batch_idx]
-        valid_miss = (
-            (positions == -1)
-            & (tokens >= 0)
-            & (tokens < max_context_len)
-        )
-        hit_slots = set(
-            positions[(positions >= 0) & (positions < capacity)].tolist()
-        )
+        valid_miss = (positions == -1) & (tokens >= 0) & (tokens < max_context_len)
+        hit_slots = set(positions[(positions >= 0) & (positions < capacity)].tolist())
 
         # The kernel preserves the existing LRU order within equal-age groups.
         pairs = []
@@ -78,9 +72,7 @@ def reference_fused_timestamp_lru_metadata_update_with_probation(
         # Victims are the oldest prefix. New fills start at probation_age and
         # are stably reinserted into the descending-age order. probation_age=0
         # reproduces the original MRU insertion behavior.
-        victim_pairs = [
-            (slot, probation_age) for slot, _ in pairs[:miss_count]
-        ]
+        victim_pairs = [(slot, probation_age) for slot, _ in pairs[:miss_count]]
         rotated_pairs = pairs[miss_count:] + victim_pairs
         rotated_pairs.sort(key=lambda pair: pair[1], reverse=True)
         device_lru_slots[req_id] = torch.tensor(
@@ -137,9 +129,11 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
             dtype=torch.int32,
             device="npu",
         )
-        self.lru_slots = torch.arange(
-            self.CAPACITY, dtype=torch.int32, device="npu"
-        ).expand(self.rows, self.CAPACITY).clone()
+        self.lru_slots = (
+            torch.arange(self.CAPACITY, dtype=torch.int32, device="npu")
+            .expand(self.rows, self.CAPACITY)
+            .clone()
+        )
         # Unique non-hit ages make victim order deterministic. Row zero is a
         # valid request row and is left unused by the cases below.
         base_stamps = torch.arange(
@@ -155,12 +149,8 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         self.slot_map[1, 30] = 2
 
     def _run(self, row1_tokens, row2_tokens=(), stamp_max=(1 << 24) - 1):
-        req_indices = torch.tensor(
-            [1, 2, self.rows], dtype=torch.int32, device="npu"
-        )
-        topk = torch.full(
-            (3, self.TOPK), -1, dtype=torch.int32, device="npu"
-        )
+        req_indices = torch.tensor([1, 2, self.rows], dtype=torch.int32, device="npu")
+        topk = torch.full((3, self.TOPK), -1, dtype=torch.int32, device="npu")
         topk[0, : len(row1_tokens)] = torch.tensor(
             row1_tokens, dtype=torch.int32, device="npu"
         )
@@ -264,9 +254,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
     def test_request_zero_is_valid(self):
         req_indices = torch.tensor([0], dtype=torch.int32, device="npu")
-        topk = torch.full(
-            (1, self.TOPK), -1, dtype=torch.int32, device="npu"
-        )
+        topk = torch.full((1, self.TOPK), -1, dtype=torch.int32, device="npu")
         topk[0, 0] = 70
         _, device_pos, hit_position_mask = slot_map_lookup(
             self.slot_map,
@@ -303,12 +291,8 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
     def test_variable_topk_matches_cpu_reference(self):
         topk_width = 1024
         req_indices = torch.tensor([1], dtype=torch.int32, device="npu")
-        topk = torch.full(
-            (1, topk_width), -1, dtype=torch.int32, device="npu"
-        )
-        topk[0, :3] = torch.tensor(
-            [10, 40, 41], dtype=torch.int32, device="npu"
-        )
+        topk = torch.full((1, topk_width), -1, dtype=torch.int32, device="npu")
+        topk[0, :3] = torch.tensor([10, 40, 41], dtype=torch.int32, device="npu")
         device_pos = torch.full_like(topk, -1)
         device_pos[0, 0] = 0
         hit_position_mask = torch.zeros(
@@ -360,9 +344,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
         self.assert_tensor_equal(victims, expected_victims, "victim_slots")
         self.assert_tensor_equal(self.slot_map, expected_slot_map, "slot_map")
-        self.assert_tensor_equal(
-            self.lru_slots, expected_lru_slots, "device_lru_slots"
-        )
+        self.assert_tensor_equal(self.lru_slots, expected_lru_slots, "device_lru_slots")
         self.assert_tensor_equal(
             self.lru_stamps,
             expected_lru_stamps,
@@ -378,9 +360,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
         # Preload 1024 resident tokens. Interleave them with 1024 unique,
         # in-range misses so the effective hit rate is exactly 50%.
-        hit_tokens = torch.arange(
-            hit_count, dtype=torch.int32, device="npu"
-        )
+        hit_tokens = torch.arange(hit_count, dtype=torch.int32, device="npu")
         miss_tokens = torch.arange(
             self.CAPACITY,
             self.CAPACITY + miss_count,
@@ -392,9 +372,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         self.slot_map[1, :hit_count] = hit_tokens
         self.slot_tokens[1, :hit_count] = hit_tokens
 
-        topk = torch.empty(
-            (1, self.TOPK), dtype=torch.int32, device="npu"
-        )
+        topk = torch.empty((1, self.TOPK), dtype=torch.int32, device="npu")
         topk[0, 0::2] = hit_tokens
         topk[0, 1::2] = miss_tokens
         req_indices = torch.tensor([1], dtype=torch.int32, device="npu")
@@ -456,9 +434,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
         self.assert_tensor_equal(victims, expected_victims, "victim_slots")
         self.assert_tensor_equal(self.slot_map, expected_slot_map, "slot_map")
-        self.assert_tensor_equal(
-            self.lru_slots, expected_lru_slots, "device_lru_slots"
-        )
+        self.assert_tensor_equal(self.lru_slots, expected_lru_slots, "device_lru_slots")
         self.assert_tensor_equal(
             self.lru_stamps,
             expected_lru_stamps,
@@ -474,15 +450,9 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         self.slot_tokens[2, 0] = 50
         self.slot_map[2, 50] = 0
         req_indices = torch.tensor([1, 2], dtype=torch.int32, device="npu")
-        topk = torch.full(
-            (2, self.TOPK), -1, dtype=torch.int32, device="npu"
-        )
-        topk[0, :3] = torch.tensor(
-            [10, 40, 41], dtype=torch.int32, device="npu"
-        )
-        topk[1, :2] = torch.tensor(
-            [50, 60], dtype=torch.int32, device="npu"
-        )
+        topk = torch.full((2, self.TOPK), -1, dtype=torch.int32, device="npu")
+        topk[0, :3] = torch.tensor([10, 40, 41], dtype=torch.int32, device="npu")
+        topk[1, :2] = torch.tensor([50, 60], dtype=torch.int32, device="npu")
         _, device_pos, hit_position_mask = slot_map_lookup(
             self.slot_map,
             req_indices,
@@ -535,9 +505,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
         self.assert_tensor_equal(victims, expected_victims, "victim_slots")
         self.assert_tensor_equal(self.slot_map, expected_slot_map, "slot_map")
-        self.assert_tensor_equal(
-            self.lru_slots, expected_lru_slots, "device_lru_slots"
-        )
+        self.assert_tensor_equal(self.lru_slots, expected_lru_slots, "device_lru_slots")
         self.assert_tensor_equal(
             self.lru_stamps,
             expected_lru_stamps,
@@ -553,9 +521,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         slot_map = torch.full(
             (2, self.MAX_CONTEXT_LEN), -1, dtype=torch.int32, device="npu"
         )
-        slot_tokens = torch.full(
-            (1, capacity), -1, dtype=torch.int32, device="npu"
-        )
+        slot_tokens = torch.full((1, capacity), -1, dtype=torch.int32, device="npu")
         lru_slots = torch.cat(
             (
                 torch.arange(7001, capacity, dtype=torch.int32, device="npu"),
@@ -570,12 +536,8 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
         slot_tokens[0, 7001] = 20
         slot_map[0, 10] = 7000
         slot_map[0, 20] = 7001
-        topk = torch.full(
-            (1, self.TOPK), -1, dtype=torch.int32, device="npu"
-        )
-        topk[0, :3] = torch.tensor(
-            [10, 6000, 6001], dtype=torch.int32, device="npu"
-        )
+        topk = torch.full((1, self.TOPK), -1, dtype=torch.int32, device="npu")
+        topk[0, :3] = torch.tensor([10, 6000, 6001], dtype=torch.int32, device="npu")
         _, device_pos, hit_position_mask = slot_map_lookup(
             slot_map, req_indices, topk, pos_mask_size=capacity
         )
@@ -644,9 +606,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
     def test_probation_age_keeps_new_miss_older_than_hit(self):
         probation_age = 1024
         req_indices = torch.tensor([1], dtype=torch.int32, device="npu")
-        topk = torch.full(
-            (1, self.TOPK), -1, dtype=torch.int32, device="npu"
-        )
+        topk = torch.full((1, self.TOPK), -1, dtype=torch.int32, device="npu")
         topk[0, :2] = torch.tensor([10, 40], dtype=torch.int32, device="npu")
         _, device_pos, hit_position_mask = slot_map_lookup(
             self.slot_map,
@@ -700,9 +660,7 @@ class TestFusedTimestampLruMetadataUpdateWithProbation(unittest.TestCase):
 
         self.assert_tensor_equal(victims, expected_victims, "victim_slots")
         self.assert_tensor_equal(self.slot_map, expected_slot_map, "slot_map")
-        self.assert_tensor_equal(
-            self.lru_slots, expected_lru_slots, "device_lru_slots"
-        )
+        self.assert_tensor_equal(self.lru_slots, expected_lru_slots, "device_lru_slots")
         self.assert_tensor_equal(
             self.lru_stamps,
             expected_lru_stamps,

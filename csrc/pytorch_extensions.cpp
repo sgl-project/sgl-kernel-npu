@@ -386,8 +386,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("fused_timestamp_lru_metadata_update_with_probation",
            TORCH_FN(sglang::npu_kernel::fused_timestamp_lru_metadata_update_with_probation));
 
-    m.impl("parallel_lru_metadata_write",
-           TORCH_FN(sglang::npu_kernel::parallel_lru_metadata_write));
+    m.impl("parallel_lru_metadata_write", TORCH_FN(sglang::npu_kernel::parallel_lru_metadata_write));
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
