@@ -1,5 +1,6 @@
 """Offline checks of DSL build plans, Native resources and packaging failures."""
 
+import hashlib
 import importlib
 import importlib.metadata
 import importlib.util
@@ -25,6 +26,27 @@ def load_file(name, path, monkeypatch):
 def backend(monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT / "python/sgl_kernel_npu"))
     return importlib.import_module("build_tools.cannbotdsl")
+
+
+@pytest.mark.parametrize("target", ["builder", "ci"])
+@pytest.mark.parametrize("size", [0, 17, 1024 * 1024 + 17, 3 * 1024 * 1024 + 19])
+def test_file_hash_covers_empty_files_chunks_and_tail(
+    backend, monkeypatch, tmp_path, target, size
+):
+    module = (
+        backend
+        if target == "builder"
+        else load_file("_hash_ci", ROOT / "scripts/check_cannbotdsl_ci.py", monkeypatch)
+    )
+    data = (bytes(range(256)) * ((size + 255) // 256))[:size]
+    path = tmp_path / "operator.so"
+    path.write_bytes(data)
+    assert module._file_sha256(path) == hashlib.sha256(data).hexdigest()
+    if size:
+        changed = data[:-1] + bytes([data[-1] ^ 255])
+        path.write_bytes(changed)
+        assert module._file_sha256(path) == hashlib.sha256(changed).hexdigest()
+        assert module._file_sha256(path) != hashlib.sha256(data).hexdigest()
 
 
 @pytest.mark.parametrize(

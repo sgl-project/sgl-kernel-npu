@@ -100,6 +100,14 @@ def environment(expected_commit):
     )
 
 
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def installed_sources():
     import sgl_kernel_npu
 
@@ -120,15 +128,18 @@ def installed_sources():
     for source in files:
         relative = source.relative_to(SOURCE)
         target = package / relative
-        if not target.is_file() or target.read_bytes() != source.read_bytes():
+        if not target.is_file():
             raise RuntimeError(f"Installed source differs from checkout: {target}")
-        hashes[relative.as_posix()] = hashlib.sha256(target.read_bytes()).hexdigest()
+        digest = _file_sha256(target)
+        if digest != _file_sha256(source):
+            raise RuntimeError(f"Installed source differs from checkout: {target}")
+        hashes[relative.as_posix()] = digest
     manifest = json.loads((package / "_build_manifest.json").read_text())
     if manifest["arch_version"] != "3510":
         raise RuntimeError("Installed wheel is not an A5 build")
     staged = ROOT / "build/torch/package/sgl_kernel_npu"
     for relative in ("_build_manifest.json", "lib/libsgl_kernel_npu.so"):
-        if (staged / relative).read_bytes() != (package / relative).read_bytes():
+        if _file_sha256(staged / relative) != _file_sha256(package / relative):
             raise RuntimeError(
                 f"Installed artifact differs from this build: {relative}"
             )

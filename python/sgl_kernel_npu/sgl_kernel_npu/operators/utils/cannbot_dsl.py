@@ -5,6 +5,7 @@ import importlib.metadata
 import os
 from contextlib import contextmanager
 from functools import lru_cache
+from itertools import chain
 from pathlib import Path
 
 DSL_VERSION = "0.8.0"
@@ -13,6 +14,7 @@ AICPU_LIBRARIES = (
     "metadata_kernel.so",
     "qsli_metadata_kernel.so",
 )
+_NO_DEVICE = object()
 
 
 @lru_cache(maxsize=None)
@@ -31,25 +33,27 @@ def require_ascend950(*args, **kwargs):
     """Reject devices outside the hardware supported by these DSL samples."""
     import torch
 
-    devices = [
-        value.device for value in (*args, *kwargs.values()) if hasattr(value, "device")
-    ]
-    if any(getattr(device, "type", None) != "npu" for device in devices):
-        raise RuntimeError(
-            "CANNBot-DSL DeepSeek V4.1 operators require Ascend 950 NPU tensors"
-        )
     try:
-        current = (
-            torch.npu.current_device()
-            if not devices or any(device.index is None for device in devices)
-            else None
-        )
-        indices = [
-            current if device.index is None else device.index for device in devices
-        ]
-        if len(set(indices)) > 1:
-            raise RuntimeError("CANNBot-DSL inputs must share the same NPU device")
-        index = indices[0] if indices else current
+        index = current = None
+        for value in chain(args, kwargs.values()):
+            device = getattr(value, "device", _NO_DEVICE)
+            if device is _NO_DEVICE:
+                continue
+            if getattr(device, "type", None) != "npu":
+                raise RuntimeError(
+                    "CANNBot-DSL DeepSeek V4.1 operators require Ascend 950 NPU tensors"
+                )
+            candidate = device.index
+            if candidate is None:
+                if current is None:
+                    current = torch.npu.current_device()
+                candidate = current
+            if index is None:
+                index = candidate
+            elif candidate != index:
+                raise RuntimeError("CANNBot-DSL inputs must share the same NPU device")
+        if index is None:
+            index = torch.npu.current_device()
         _validate_device(index)
     except RuntimeError:
         raise

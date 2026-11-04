@@ -121,3 +121,49 @@ def test_unsupported_device_failure_is_not_cached(helper, monkeypatch):
         helper.require_ascend950(tensor)
     model["name"] = "Ascend950DT_9591"
     assert helper.require_ascend950(tensor) == 0
+
+
+@pytest.mark.parametrize("current", [0, 1])
+def test_implicit_and_keyword_devices_resolve_to_one_npu(helper, monkeypatch, current):
+    queried = []
+    torch = ModuleType("torch")
+    torch.npu = SimpleNamespace(
+        current_device=lambda: queried.append(current) or current,
+        get_device_name=lambda _: "Ascend950PR_9599",
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    implicit = SimpleNamespace(device=SimpleNamespace(type="npu", index=None))
+    explicit = SimpleNamespace(device=SimpleNamespace(type="npu", index=current))
+    assert (
+        helper.require_ascend950(implicit, None, out=explicit, metadata=implicit)
+        == current
+    )
+    assert queried == [current]
+    other = SimpleNamespace(device=SimpleNamespace(type="npu", index=1 - current))
+    with pytest.raises(RuntimeError, match="same NPU device"):
+        helper.require_ascend950(implicit, out=other)
+
+
+@pytest.mark.parametrize("device", [None, SimpleNamespace(type="cpu", index=None)])
+def test_invalid_device_in_keyword_is_rejected(helper, monkeypatch, device):
+    torch = ModuleType("torch")
+    torch.npu = SimpleNamespace(
+        current_device=lambda: 0,
+        get_device_name=lambda _: pytest.fail("invalid device reached identity lookup"),
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    npu = SimpleNamespace(device=SimpleNamespace(type="npu", index=0))
+    with pytest.raises(RuntimeError, match="NPU tensors"):
+        helper.require_ascend950(npu, out=SimpleNamespace(device=device))
+
+
+def test_metadata_without_tensor_inputs_uses_current_npu(helper, monkeypatch):
+    queried = []
+    torch = ModuleType("torch")
+    torch.npu = SimpleNamespace(
+        current_device=lambda: 1,
+        get_device_name=lambda index: queried.append(index) or "Ascend950DT_9591",
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    assert helper.require_ascend950(None, batch_size=2, topk=512) == 1
+    assert queried == [1]

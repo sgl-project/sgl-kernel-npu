@@ -47,9 +47,17 @@ def resolve_plan(version, arch):
     }
 
 
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _hashes(directory):
     return {
-        p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        p.relative_to(directory).as_posix(): _file_sha256(p)
         for p in sorted(directory.rglob("*"))
         if p.is_file() and "__pycache__" not in p.parts
     }
@@ -153,10 +161,7 @@ def stage_backend(output, package):
     manifest = validate_bundle(output)
     destination = Path(package) / RELATIVE / "attention"
     # Verify that Native resources are packaged with the exact compiled sources.
-    actual = {
-        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in destination.glob("*.py")
-    }
+    actual = {p.name: _file_sha256(p) for p in destination.glob("*.py")}
     expected = {k: v for k, v in manifest["sources"].items() if k.endswith(".py")}
     if actual != expected:
         raise RuntimeError("CANNBot-DSL sources changed after Native compilation")
