@@ -114,10 +114,11 @@ def _layer_views(dev, host, host_layout, layers):
         or host_start + count > host.shape[1]
     ):
         raise ValueError("KV layer selection exceeds Device or Host storage")
-    return (
-        dev[device_start : device_start + count],
-        host[:, host_start : host_start + count],
-    )
+    if device_start != 0 or count != dev.shape[0]:
+        dev = dev.narrow(0, device_start, count)
+    if host_start != 0 or count != host.shape[1]:
+        host = host.narrow(1, host_start, count)
+    return dev, host
 
 
 def select_components(

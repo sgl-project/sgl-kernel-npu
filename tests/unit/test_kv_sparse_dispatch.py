@@ -67,6 +67,11 @@ class Tensor:
         shape[a], shape[b] = shape[b], shape[a]
         return Tensor(shape, self.device, self.dtype)
 
+    def narrow(self, axis, start, length):
+        key = [slice(None)] * self.ndim
+        key[axis] = slice(start, start + length)
+        return self[tuple(key)]
+
     def __getitem__(self, key):
         key = key if isinstance(key, tuple) else (key,)
         shape = list(self.shape)
@@ -170,6 +175,28 @@ class TestSparseDispatch(unittest.TestCase):
             direction=direction,
         )
         return dev, host, di, hi
+
+    def test_preselected_views_are_reused_without_slicing(self):
+        dev = Tensor((1, 8, 4, 1, 5), dtype="bf16")
+        host = Tensor((10, 1, 4, 1, 5), CPU, "bf16")
+        with patch.object(Tensor, "narrow", side_effect=AssertionError("redundant slice")):
+            selected = self.module._layer_views(dev, host, "page_first", (0, 0, 1))
+            self.assertIs(selected[0], dev)
+            self.assertIs(selected[1], host)
+
+    def test_layer_views_select_only_requested_ranges(self):
+        dev = Tensor((4, 8, 4, 1, 5))
+        for layout, shape in (
+            ("page_first", (10, 6, 4, 1, 5)),
+            ("layer_first", (6, 10, 4, 1, 5)),
+        ):
+            with self.subTest(layout=layout):
+                host = Tensor(shape, CPU)
+                selected = self.module._layer_views(dev, host, layout, (2, 3, 1))
+                self.assertEqual(selected[0].shape, (1, 8, 4, 1, 5))
+                self.assertEqual(selected[1].shape, (10, 1, 4, 1, 5))
+                with self.assertRaisesRegex(ValueError, "layer selection"):
+                    self.module._layer_views(dev, host, layout, (4, 3, 1))
 
     def test_one_submission_uses_complete_metadata_and_retains_it(self):
         self.transfer()
