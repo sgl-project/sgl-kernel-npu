@@ -32,6 +32,7 @@
 
 #include "defines.h"
 #include "torch_helper.h"
+#include "ge_helper.h"
 #include "aclrtlaunch_chunk_gated_delta_rule.h"
 
 #include "../op_kernel/chunk_gated_delta_rule_tiling_data.h"
@@ -40,7 +41,6 @@ namespace sglang {
 namespace npu_kernel {
 
 constexpr int64_t SYS_WORKSPACE_SIZE = 16777216;  // 16 MB reserved system workspace
-constexpr uint32_t PADDING_BYTE = 32U;
 constexpr uint32_t STAGE_ONE_PARA_NUM = 4;
 constexpr uint32_t MASK_NUM = 4;
 constexpr int64_t P_NUM = 2;
@@ -52,6 +52,7 @@ constexpr uint32_t MATMUL_BASE_N = 128;
 
 void ComputeTilingData(int64_t aiCoreNum, int64_t t, int64_t nk, int64_t dk, int64_t nv, int64_t dv, int64_t b,
                        int64_t hasGamma, float scale, bool stateIsFp32, bool isAscend950, bool outputChunkState,
+                       const at::Tensor &initialState, const at::Tensor &finalState, bool indexedState,
                        ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData &td)
 {
     std::memset(&td, 0, sizeof(td));
@@ -101,9 +102,11 @@ void ComputeTilingData(int64_t aiCoreNum, int64_t t, int64_t nk, int64_t dk, int
     td.stageWorkspaceSz = sizeLow * c * (2 * c + 3 * dk + dv) * td.stageOneParaNum;
     td.stageWorkspaceSz *= td.aiCoreNum;
 
-    // state strides (contiguous (B, Nv, Dv, Dk) layout assumed under direct-launch)
-    td.stateStride1 = static_cast<uint64_t>(dk) * static_cast<uint64_t>(dv);
-    td.stateStride0 = static_cast<uint64_t>(nv) * td.stateStride1;
+    td.stateStride0 = initialState.stride(0);
+    td.stateStride1 = initialState.stride(1);
+    td.finalStateStride0 = finalState.stride(0);
+    td.finalStateStride1 = finalState.stride(1);
+    td.indexedState = indexedState ? 1 : 0;
 }
 
 void ComputeMatmulTiling(platform_ascendc::PlatformAscendC *platform, bool stateIsFp32,
@@ -169,12 +172,15 @@ void ComputeMatmulTiling(platform_ascendc::PlatformAscendC *platform, bool state
     }
 }
 
-HOST_API std::tuple<at::Tensor, at::Tensor>
-chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                       const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
-                       const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
-                       const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state)
+std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule_impl(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
+    const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
+    const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state,
+    const c10::optional<at::Tensor> &final_state, const c10::optional<at::Tensor> &initial_state_indices,
+    const c10::optional<at::Tensor> &final_state_indices, const c10::optional<at::Tensor> &has_initial_state)
 {
+    const bool indexedState = final_state_indices.has_value();
     TORCH_CHECK(query.defined() && key.defined() && value.defined(), "query/key/value must be defined");
     TORCH_CHECK(beta.has_value() && beta->defined(), "beta must be provided");
     TORCH_CHECK(initial_state.has_value() && initial_state->defined(), "initial_state must be provided");
@@ -202,14 +208,14 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     int64_t dk = query.size(2);
     int64_t nv = value.size(1);
     int64_t dv = value.size(2);
-    int64_t b = initial_state->size(0);
+    int64_t b = indexedState ? actual_seq_lengths->size(0) : initial_state->size(0);
 
     TORCH_CHECK(key.size(0) == t && key.size(1) == nk && key.size(2) == dk, "key shape must match query");
     TORCH_CHECK(value.size(0) == t && value.size(2) == dv, "value shape must match (T, Nv, Dv)");
     TORCH_CHECK(beta->size(0) == t && beta->size(1) == nv, "beta shape must be (T, Nv)");
     TORCH_CHECK(initial_state->size(1) == nv && initial_state->size(2) == dv && initial_state->size(3) == dk,
                 "initial_state shape must be (B, Nv, Dv, Dk)");
-    TORCH_CHECK(actual_seq_lengths->size(0) == b, "actual_seq_lengths size must equal initial_state dim 0");
+    TORCH_CHECK(actual_seq_lengths->size(0) == b, "actual_seq_lengths size must equal batch size");
 
     TORCH_CHECK(nk > 0 && nv > 0 && dk > 0 && dv > 0 && t > 0 && b > 0, "dims must be positive");
     TORCH_CHECK(nk <= 64 && nv <= 64, "nk and nv must be <= 64");
@@ -217,6 +223,45 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     TORCH_CHECK(nv % nk == 0, "nv must be an integer multiple of nk");
     if (g.has_value() && g->defined()) {
         TORCH_CHECK(g->size(0) == t && g->size(1) == nv, "g shape must be (T, Nv)");
+    }
+
+    if (indexedState) {
+        TORCH_CHECK(final_state.has_value() && final_state->defined(), "final_state must be provided in pool mode");
+        TORCH_CHECK(initial_state_indices.has_value() && initial_state_indices->defined(),
+                    "initial_state_indices must be provided in pool mode");
+        TORCH_CHECK(final_state->dim() == 4 && final_state->size(1) == nv && final_state->size(2) == dv &&
+                        final_state->size(3) == dk,
+                    "final_state shape must be (P, Nv, Dv, Dk)");
+        TORCH_CHECK(final_state->scalar_type() == initial_state->scalar_type(),
+                    "source and destination state dtypes must match");
+        TORCH_CHECK(final_state->device() == query.device() && initial_state->device() == query.device(),
+                    "state pools must be on the same device as query");
+        TORCH_CHECK(initial_state->stride(2) == dk && initial_state->stride(3) == 1 &&
+                        final_state->stride(2) == dk && final_state->stride(3) == 1,
+                    "pool state matrices must have contiguous [Dv, Dk] rows");
+        TORCH_CHECK(final_state->stride(1) == dv * dk,
+                    "destination pool slots must be contiguous [Nv, Dv, Dk] blocks");
+        TORCH_CHECK(reinterpret_cast<uintptr_t>(final_state->data_ptr()) % 64 == 0 &&
+                        final_state->stride(0) * static_cast<int64_t>(final_state->element_size()) % 64 == 0,
+                    "destination pool base and slot stride must be 64-byte aligned");
+        for (const auto *indices : {&initial_state_indices, &final_state_indices}) {
+            TORCH_CHECK((*indices)->dim() == 1 && (*indices)->size(0) == b,
+                        "state indices must have shape (B,)");
+            TORCH_CHECK((*indices)->scalar_type() == at::kInt && (*indices)->is_contiguous(),
+                        "state indices must be contiguous int32 tensors");
+            TORCH_CHECK((*indices)->device() == query.device(), "state indices must be on the query device");
+        }
+        if (has_initial_state.has_value() && has_initial_state->defined()) {
+            TORCH_CHECK(has_initial_state->dim() == 1 && has_initial_state->size(0) == b,
+                        "has_initial_state must have shape (B,)");
+            TORCH_CHECK(has_initial_state->scalar_type() == at::kBool && has_initial_state->is_contiguous(),
+                        "has_initial_state must be a contiguous bool tensor");
+            TORCH_CHECK(has_initial_state->device() == query.device(),
+                        "has_initial_state must be on the query device");
+        }
+    } else {
+        TORCH_CHECK(!final_state.has_value() && !initial_state_indices.has_value() && !has_initial_state.has_value(),
+                    "pool-only arguments require final_state_indices");
     }
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
@@ -248,7 +293,7 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     at::Tensor key_contig = key.contiguous();
     at::Tensor value_contig = value.contiguous();
     at::Tensor beta_contig = beta->contiguous();
-    at::Tensor initStateContig = initial_state->contiguous();
+    at::Tensor initStateContig = indexedState ? *initial_state : initial_state->contiguous();
     at::Tensor seqLensContig = actual_seq_lengths->contiguous();
 
     at::Tensor gTensor;
@@ -266,32 +311,57 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
     }
 
     at::Tensor out = at::empty({t, nv, dv}, query.options());
-    at::Tensor finalState = at::empty({b, nv, dv, dk}, initial_state->options());
+    at::Tensor finalState = indexedState ? *final_state : at::empty({b, nv, dv, dk}, initial_state->options());
+    void *initialStateIndicesPtr = indexedState ? initial_state_indices->data_ptr() : nullptr;
+    void *finalStateIndicesPtr = indexedState ? final_state_indices->data_ptr() : nullptr;
+    void *hasInitialStatePtr =
+        indexedState && has_initial_state.has_value() && has_initial_state->defined()
+            ? has_initial_state->data_ptr()
+            : nullptr;
 
     uint32_t blockDim = static_cast<uint32_t>(aiCoreNum);
 
     ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData tilingData;
     ComputeTilingData(aiCoreNum, t, nk, dk, nv, dv, b, hasGamma ? 1 : 0, scaleValue, stateIsFp32, isAscend950,
-                      outputChunkState, tilingData);
+                      outputChunkState, initStateContig, finalState, indexedState, tilingData);
     ComputeMatmulTiling(ascendcPlatform, stateIsFp32, tilingData);
 
     int64_t totalWorkspace = SYS_WORKSPACE_SIZE + tilingData.interWorkspaceSz + tilingData.stageWorkspaceSz;
 
-    int32_t tilingSize =
-        (static_cast<int32_t>(sizeof(ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData)) + PADDING_BYTE - 1) /
-        PADDING_BYTE * PADDING_BYTE;
-
-    auto cpuTiling = at::empty({tilingSize}, at::kByte);
-    std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData));
-    at::Tensor tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+    at::Tensor tilingTensor =
+        ge_helper::TilingTensorCache<ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData>::Get(
+            tilingData, "chunk_gated_delta_rule");
 
     auto workspaceTensor = at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(query.device()));
 
     EXEC_KERNEL_CMD(chunk_gated_delta_rule, blockDim, query_contig, key_contig, value_contig, beta_contig,
-                    initStateContig, seqLensContig, gPtr, out, finalState, chunkStatePtr, workspaceTensor,
-                    tilingTensor);
+                    initStateContig, seqLensContig, gPtr, out, finalState, chunkStatePtr, initialStateIndicesPtr,
+                    finalStateIndicesPtr, hasInitialStatePtr, workspaceTensor, tilingTensor);
 
     return std::make_tuple(out, finalState);
+}
+
+HOST_API std::tuple<at::Tensor, at::Tensor>
+chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                       const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
+                       const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
+                       const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state)
+{
+    return chunk_gated_delta_rule_impl(query, key, value, beta, initial_state, actual_seq_lengths, scale, g,
+                                       chunk_state, c10::nullopt, c10::nullopt, c10::nullopt, c10::nullopt);
+}
+
+HOST_API at::Tensor chunk_gated_delta_rule_pool(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, at::Tensor &state_pool,
+    const at::Tensor &src_slots, const at::Tensor &dst_slots, const c10::optional<at::Tensor> &src_pool,
+    const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state, const c10::optional<at::Tensor> &has_initial_state)
+{
+    c10::optional<at::Tensor> sourcePool = src_pool.has_value() ? src_pool : c10::optional<at::Tensor>(state_pool);
+    return std::get<0>(chunk_gated_delta_rule_impl(
+        query, key, value, beta, sourcePool, actual_seq_lengths, scale, g, chunk_state, state_pool, src_slots,
+        dst_slots, has_initial_state));
 }
 
 }  // namespace npu_kernel
