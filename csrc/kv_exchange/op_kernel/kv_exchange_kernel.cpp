@@ -31,9 +31,9 @@ constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
 //       1 = layer_first (layer-outer / page-inner iteration with peek-ahead
 //       merging of contiguous pages)
 //   [7] start_dim: first participating AIV core index. < 0 selects the
-//       MemFabric default (62, i.e. 2 active cores on Ascend950); 0 means all
-//       launched cores participate (the dual-arch default passed by the host
-//       API, which sizes blockDim per SoC).
+//       native acc_offload occupancy (blockDim - 2, i.e. only the last
+//       2 AIV cores copy, keeping the rest free for concurrent compute);
+//       0 means all launched cores participate (perf-sweep override).
 //   per component c (9 values starting at 8 + 9*c):
 //   [0] device_base  [1] host_base (device-visible address of the host page,
 //       i.e. DVA produced by aclrtHostRegister on the caller side)
@@ -46,7 +46,8 @@ constexpr int32_t KV_EXCHANGE_META_STRIDE = 9;
 constexpr int32_t KV_EXCHANGE_META_SIZE =
     KV_EXCHANGE_META_HEADER + KV_EXCHANGE_META_STRIDE * KV_EXCHANGE_MAX_COMPONENTS;
 
-constexpr int32_t KV_EXCHANGE_START_DIM = 62;
+// meta[7] < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
+constexpr int32_t KV_EXCHANGE_START_DIM_DEFAULT = -1;
 
 /*
  * Fused address-computation + copy kernel for the page_first(host) <->
@@ -90,11 +91,13 @@ public:
         metaGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(meta), KV_EXCHANGE_META_SIZE);
 
         // Active-core window: cores [startDim, blockDim) participate. meta[7]
-        // < 0 keeps the MemFabric default (62); 0 lets every launched core
-        // participate (the dual-arch default used by the host API).
+        // < 0 selects the native acc_offload occupancy -- reserve the last
+        // 2 AIV cores for the copy so the rest stay free for concurrent
+        // compute (62 on the 64-core Ascend950, 46 on the 48-core parts);
+        // 0 lets every launched core participate (perf-sweep override).
         startDim_ = metaGm_.GetValue(7);
         if (startDim_ < 0) {
-            startDim_ = KV_EXCHANGE_START_DIM;
+            startDim_ = static_cast<int64_t>(aivNum_) - 2;
         }
 
         if (aivIndex_ < startDim_) {
@@ -479,7 +482,7 @@ private:
     int64_t numPages_ = 0;
     int64_t pageSize_ = 0;
     int64_t direction_ = 0;
-    int64_t startDim_ = KV_EXCHANGE_START_DIM;
+    int64_t startDim_ = KV_EXCHANGE_START_DIM_DEFAULT;
     int32_t hostLayoutMode_ = HOST_LAYOUT_PAGE_FIRST;
     uint32_t aivIndex_ = 0;
     uint32_t aivNum_ = 0;

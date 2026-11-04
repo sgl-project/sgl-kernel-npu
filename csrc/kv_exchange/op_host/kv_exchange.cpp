@@ -56,6 +56,22 @@ int64_t ResolveBlockDim()
 #endif
 }
 
+// First participating AIV core index. The default (-1) selects the native
+// acc_offload kv_exchange occupancy: only the last 2 AIV cores copy, leaving
+// the rest of the cores free for concurrent compute on the main stream, which
+// is what lets the per-layer H2D overlap attention. Explicit values (e.g. 0
+// for all cores) override for perf sweeps.
+int64_t ResolveStartDim()
+{
+    if (const char *env = std::getenv("SGLANG_KV_EXCHANGE_START_DIM")) {
+        const long parsed = std::strtol(env, nullptr, 10);
+        if (parsed >= 0) {
+            return static_cast<int64_t>(parsed);
+        }
+    }
+    return -1;
+}
+
 void CheckNpuTensor(const at::Tensor &tensor, const char *name)
 {
     TORCH_CHECK(tensor.device().type() == at::DeviceType::PrivateUse1, name, " must be on an NPU device");
@@ -249,7 +265,10 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
     meta[4] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(device_indices.data_ptr()));
     meta[5] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(host_indices.data_ptr()));
     meta[6] = host_layout_mode;
-    meta[7] = 0;  // start_dim: all launched cores participate
+    // start_dim: negative (the default) reserves the last 2 AIV cores to
+    // match the native acc_offload kv_exchange occupancy; SGLANG_KV_
+    // EXCHANGE_START_DIM=0 re-engages all launched cores for perf sweeps.
+    meta[7] = ResolveStartDim();
 
     for (int64_t c = 0; c < static_cast<int64_t>(device_components.size()); ++c) {
         const at::Tensor &device_buf = device_components[c];
