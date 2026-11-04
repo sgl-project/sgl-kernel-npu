@@ -34,8 +34,6 @@ It validates the restricted contract and enqueues the CpuKernel using
 `AicpuTaskSpace` and `ADD_TO_LAUNCHER_LIST_AICPU`. The public API rejects empty
 inputs, even though the upstream kernel itself treats them as a no-op.
 No AddExample AI Core definition or Tiling source is needed for this path.
-The upstream CANN license is retained in `LICENSE-CANN` and included in the RUN
-vendor directory and wheel.
 
 ## Build and on-device validation
 

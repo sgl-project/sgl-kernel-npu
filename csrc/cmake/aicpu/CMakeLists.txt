@@ -99,6 +99,3 @@ npu_op_package_add(sgl_kernel_npu
     FILES "${aicpu_json}" PACKAGE_PATH op_impl/cpu/config)
 npu_op_package_add(sgl_kernel_npu
     FILES "${aicpu_library}" PACKAGE_PATH op_impl/cpu/aicpu_kernel/impl)
-# Ship the upstream license with the RUN vendor; wheel staging preserves it.
-npu_op_package_add(sgl_kernel_npu
-    FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../../LICENSE-CANN" PACKAGE_PATH .)
