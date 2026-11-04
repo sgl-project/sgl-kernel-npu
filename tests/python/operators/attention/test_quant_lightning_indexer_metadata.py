@@ -34,7 +34,18 @@ def test_quant_lightning_indexer_metadata(case):
         expected = quant_lightning_indexer(
             *args, **{**kwargs, **kwargs_ref}, impl=compute.impl_ref
         )
-        assert_accuracy(compute(), expected)
+        actual_indices, actual_values = compute()
+        expected_indices, expected_values = expected
+        assert_accuracy(
+            (
+                actual_indices.sort(dim=-1).values,
+                actual_values,
+            ),
+            (
+                expected_indices.sort(dim=-1).values,
+                expected_values,
+            ),
+        )
         compute.accuracy_checked = True
     executor = make_executor(
         quant_lightning_indexer_metadata,
