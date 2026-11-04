@@ -2,6 +2,8 @@
 
 | API | Supported backends |
 | --- | --- |
+| [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`, `torch_native` |
 | [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
@@ -37,6 +39,7 @@
 | [kpool_write_tail_and_maybe_compress](operators/mem_cache/kpool_write_tail_and_maybe_compress.md) | `triton`, `torch_native` |
 | [scatter_kpool_tail_updates](operators/mem_cache/scatter_kpool_tail_updates.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`, `torch_native` |
+| [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`, `torch_native` |
 | [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`, `torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
