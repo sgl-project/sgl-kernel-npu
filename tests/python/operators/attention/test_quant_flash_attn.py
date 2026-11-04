@@ -265,7 +265,7 @@ def test_quant_flash_attn(
         quant_flash_attn_metadata,
     )
 
-    require_test_impl(quant_flash_attn_metadata, "cann")
+    require_test_impl(quant_flash_attn_metadata, "cann_ops_transformer")
     args, kwargs, meta_args, meta_kwargs = generate_data(
         shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
     )
@@ -312,7 +312,7 @@ def test_quant_flash_attn_direct_cann_parity(
         quant_flash_attn_metadata,
     )
 
-    require_test_impl(quant_flash_attn_metadata, "cann")
+    require_test_impl(quant_flash_attn_metadata, "cann_ops_transformer")
     from cann_ops_transformer.ops import quant_flash_attn as direct_qfa
     from cann_ops_transformer.ops import quant_flash_attn_metadata as direct_metadata
 
@@ -321,10 +321,14 @@ def test_quant_flash_attn_direct_cann_parity(
     )
     checked = get_skip_acc_check() is not True
     if checked:
-        metadata = quant_flash_attn_metadata(*meta_args, **meta_kwargs, impl="cann")
+        metadata = quant_flash_attn_metadata(
+            *meta_args, **meta_kwargs, impl="cann_ops_transformer"
+        )
         expected_metadata = direct_metadata(*meta_args, **meta_kwargs)
         assert metadata.shape == expected_metadata.shape
-        actual = quant_flash_attn(*args, **kwargs, metadata=metadata, impl="cann")
+        actual = quant_flash_attn(
+            *args, **kwargs, metadata=metadata, impl="cann_ops_transformer"
+        )
         expected = direct_qfa(*args, **kwargs, metadata=expected_metadata)
         for output, reference in zip(actual, expected):
             torch.testing.assert_close(output, reference, atol=0, rtol=0)
@@ -332,7 +336,7 @@ def test_quant_flash_attn_direct_cann_parity(
         quant_flash_attn_metadata,
         args=meta_args,
         kwargs=meta_kwargs,
-        impl="cann",
+        impl="cann_ops_transformer",
         impl_ref="direct_cann_consumer",
         accuracy_checked=checked,
     )

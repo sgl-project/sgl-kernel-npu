@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` (`auto`) | Not supported | Supported |
+| `cann_ops_transformer` (`auto`) | Not supported | Supported |
 
 Requires CANN 9.2.0, matching PyTorch/torch_npu, and the `cann_ops_transformer` Python extension exposing QFA and its metadata producer. These dependencies are separate from the `sgl_kernel_npu` wheel.
 
@@ -40,7 +40,7 @@ def quant_flash_attn_metadata(
     ...
 ```
 
-`auto` selects `cann`; both names use the same callable. No alternate schedule or automatic fallback is provided.
+`auto` selects `cann_ops_transformer`; both names use the same callable. No alternate schedule or automatic fallback is provided.
 
 ## Description
 
@@ -69,17 +69,17 @@ Generate the schedule before calling QFA and reuse it across layers with identic
 | `layout_q_descale` | str; `"BSND"` | `"TND"` or `"N2TGD"` for MXFP8; must match QFA's actual descale layout. |
 | `layout_kv` | str; `"BSND"` | Set to `"PA_BNBD"` for the covered paged path. |
 | `is_grad_enabled` | bool; `False` | CANN backward-schedule option; inference uses False. |
-| `impl` | str; `"auto"` | Keyword-only `"auto"` or `"cann"`. |
+| `impl` | str; `"auto"` | Keyword-only `"auto"` or `"cann_ops_transformer"`. |
 
 | Return value | Type / dtype | Shape and meaning |
 | --- | --- | --- |
 | `metadata` | Tensor / int32 | `[2, max_schedule_size]` on NPU. CANN determines capacity from batch/head configuration. Pass the opaque result to QFA unchanged. |
 
-## cann backend
+## cann_ops_transformer backend
 
 Lazily imports `quant_flash_attn_metadata` from `cann_ops_transformer.ops` and caches the callable. CANN owns output allocation, scheduling and validation. The wrapper adds no host reads, tensor conversions or shape-dependent fallback.
 
-There is no independent `torch_native` scheduler in this contribution: duplicating CANN's scheduling format is outside the numerical reference's scope. Validation uses the metadata through the attention consumer and compares that consumer against an independent attention reference, plus checks of interface forwarding and output properties. `auto` versus `cann` is not treated as an independent accuracy comparison. Dynamic graph replay is not included in this contribution's tests.
+There is no independent `torch_native` scheduler in this contribution: duplicating CANN's scheduling format is outside the numerical reference's scope. Validation uses the metadata through the attention consumer and compares that consumer against an independent attention reference, plus checks of interface forwarding and output properties. `auto` versus `cann_ops_transformer` is not treated as an independent accuracy comparison. Dynamic graph replay is not included in this contribution's tests.
 
 The [CANN 9.2 API](https://gitcode.com/cann/ops-transformer/blob/v9.2.0/attention/quant_flash_attn/docs/torchapi_quant_flash_attn.md) defines the full upstream constraints.
 
@@ -106,7 +106,7 @@ metadata = quant_flash_attn_metadata(
     layout_q_descale="N2TGD",
     layout_kv="PA_BNBD",
     layout_out="TND",
-    impl="cann",
+    impl="cann_ops_transformer",
 )
 print(metadata.shape, metadata.dtype)
 ```

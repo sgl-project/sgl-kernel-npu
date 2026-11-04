@@ -15,7 +15,9 @@ _torch_native_fn = None
     "attention.quant_flash_attn", "auto", supported_generations={Generation.ARCH35}
 )
 @register_impl(
-    "attention.quant_flash_attn", "cann", supported_generations={Generation.ARCH35}
+    "attention.quant_flash_attn",
+    "cann_ops_transformer",
+    supported_generations={Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
     global _cann_fn
@@ -74,7 +76,7 @@ def quant_flash_attn(
     return_softmax_lse: bool = False,
     impl: str = "auto",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Compute quantized attention; auto selects CANN on arch35.
+    """Compute quantized attention; auto selects cann_ops_transformer on arch35.
 
     CANN arguments and return values are forwarded unchanged. The independent
     torch_native reference covers quant_mode=1, TND Q/output, PA_BNBD KV,
@@ -99,7 +101,7 @@ def quant_flash_attn(
         max_seqlen_q, max_seqlen_kv: Maximum sequence lengths; -1 is unspecified.
         layout_q, layout_q_descale, layout_kv, layout_out: CANN layout names.
         return_softmax_lse: Whether to return FP32 LSE; otherwise it is empty.
-        impl: auto (CANN), cann, or torch_native.
+        impl: auto (cann_ops_transformer), cann_ops_transformer, or torch_native.
 
     Returns:
         BF16 attention output and FP32 softmax LSE. For TND, their shapes are

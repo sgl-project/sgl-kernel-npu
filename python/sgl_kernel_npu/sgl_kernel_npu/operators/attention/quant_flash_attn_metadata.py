@@ -17,7 +17,7 @@ _cann_fn = None
 )
 @register_impl(
     "attention.quant_flash_attn_metadata",
-    "cann",
+    "cann_ops_transformer",
     supported_generations={Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
@@ -54,7 +54,7 @@ def quant_flash_attn_metadata(
     is_grad_enabled: bool = False,
     impl: str = "auto",
 ) -> torch.Tensor:
-    """Build a device QFA schedule; auto selects CANN on arch35.
+    """Build a device QFA schedule; auto selects cann_ops_transformer on arch35.
 
     The schedule is CANN-specific, with no independent torch_native scheduler.
     Its correctness is checked through the consuming attention computation.
@@ -73,7 +73,7 @@ def quant_flash_attn_metadata(
         mask_mode, win_left, win_right: CANN masking attributes.
         layout_q, layout_q_descale, layout_kv, layout_out: CANN layout names.
         is_grad_enabled: CANN training-schedule flag; inference uses False.
-        impl: auto (CANN) or cann.
+        impl: auto (cann_ops_transformer) or cann_ops_transformer.
 
     Returns:
         Int32 device tensor [2, max_schedule_size]. CANN determines the schedule

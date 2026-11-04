@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann`（`auto`） | 不支持 | 支持 |
+| `cann_ops_transformer`（`auto`） | 不支持 | 支持 |
 
 要求 CANN 9.2.0、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。
 
@@ -40,7 +40,7 @@ def quant_flash_attn_metadata(
     ...
 ```
 
-`auto` 选择 `cann`，两者调用同一个实现。该接口没有其他调度实现或自动回退路径。
+`auto` 选择 `cann_ops_transformer`，两者调用同一个实现。该接口没有其他调度实现或自动回退路径。
 
 ## 功能说明
 
@@ -69,17 +69,17 @@ def quant_flash_attn_metadata(
 | `layout_q_descale` | str；`"BSND"` | MXFP8 为 `"TND"` 或 `"N2TGD"`，必须与 QFA 的实际 scale 布局一致。 |
 | `layout_kv` | str；`"BSND"` | 本次分页路径需设置为 `"PA_BNBD"`。 |
 | `is_grad_enabled` | bool；`False` | CANN 的反向调度选项；推理使用 False。 |
-| `impl` | str；`"auto"` | 仅限关键字参数，可选 `"auto"` 或 `"cann"`。 |
+| `impl` | str；`"auto"` | 仅限关键字参数，可选 `"auto"` 或 `"cann_ops_transformer"`。 |
 
 | 返回值 | 类型／dtype | shape 与含义 |
 | --- | --- | --- |
 | `metadata` | Tensor／int32 | NPU 上的 `[2, max_schedule_size]`。容量由 CANN 根据 batch/head 配置决定；将结果原样交给 QFA。 |
 
-## cann 后端
+## cann_ops_transformer 后端
 
 首次调用时从 `cann_ops_transformer.ops` 导入 `quant_flash_attn_metadata` 并缓存 callable。输出分配、调度和校验由 CANN 负责。wrapper 不添加 host 读取、Tensor 转换或按 shape 回退。
 
-本次没有实现独立的 `torch_native` 调度器：复制 CANN 调度格式不属于数值参考的范围。正确性通过 attention 消费 metadata 后与独立 attention 参考比较，并配合接口透传和返回属性检查进行验证；不将 `auto` 与 `cann` 的对比算作独立精度对比。本次测试不包含动态图重放。
+本次没有实现独立的 `torch_native` 调度器：复制 CANN 调度格式不属于数值参考的范围。正确性通过 attention 消费 metadata 后与独立 attention 参考比较，并配合接口透传和返回属性检查进行验证；不将 `auto` 与 `cann_ops_transformer` 的对比算作独立精度对比。本次测试不包含动态图重放。
 
 完整上游约束见 [CANN 9.2 API](https://gitcode.com/cann/ops-transformer/blob/v9.2.0/attention/quant_flash_attn/docs/torchapi_quant_flash_attn.md)。
 
@@ -106,7 +106,7 @@ metadata = quant_flash_attn_metadata(
     layout_q_descale="N2TGD",
     layout_kv="PA_BNBD",
     layout_out="TND",
-    impl="cann",
+    impl="cann_ops_transformer",
 )
 print(metadata.shape, metadata.dtype)
 ```

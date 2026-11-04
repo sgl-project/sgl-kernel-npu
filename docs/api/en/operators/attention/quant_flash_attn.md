@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann` (`auto`) | Not supported | Supported |
+| `cann_ops_transformer` (`auto`) | Not supported | Supported |
 | `torch_native` | Not registered | Supported |
 
 The CANN backend targets Ascend 950 with CANN 9.2.0 and a matching PyTorch/torch_npu installation. The `cann_ops_transformer` Python extension exposing both QFA interfaces must also be installed; installing `sgl_kernel_npu` alone does not provide that extension or the underlying CANN operators.
@@ -48,7 +48,7 @@ def quant_flash_attn(
     ...
 ```
 
-`auto` selects `cann`. The two names refer to the same implementation, with no automatic fallback. Use explicit TND/PA_BNBD layouts for the MXFP8 path described below; the defaults preserve the upstream API.
+`auto` selects `cann_ops_transformer`. The two names refer to the same implementation, with no automatic fallback. Use explicit TND/PA_BNBD layouts for the MXFP8 path described below; the defaults preserve the upstream API.
 
 ## Description
 
@@ -94,7 +94,7 @@ Notation: `T` is total packed Q positions, `B` is request count, `Nq/Nkv` are lo
 | `layout_q_descale` | str; `"BSND"` | Set to `"TND"` or `"N2TGD"`. |
 | `layout_kv` | str; `"BSND"` | Set to `"PA_BNBD"` for this reference. |
 | `return_softmax_lse` | bool; `False` | Return LSE when True; otherwise return an empty second tensor. |
-| `impl` | str; `"auto"` | Keyword-only `"auto"`, `"cann"` or `"torch_native"`. |
+| `impl` | str; `"auto"` | Keyword-only `"auto"`, `"cann_ops_transformer"` or `"torch_native"`. |
 
 | Return value | Type / dtype | Shape and meaning |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ Notation: `T` is total packed Q positions, `B` is request count, `Nq/Nkv` are lo
 
 The reference returns zero output and `+inf` LSE for padded Q positions, zero-length KV and fully masked rows.
 
-## cann backend
+## cann_ops_transformer backend
 
 Lazily imports `quant_flash_attn` from `cann_ops_transformer.ops`, caches the callable and forwards the arguments. CANN owns validation, allocation and dispatch. The wrapper introduces no tensor copies, casts, host length reads or duplicate operator registration.
 

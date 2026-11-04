@@ -2,8 +2,8 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
-| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann`、`torch_native` |
-| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann` |
+| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |
+| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |

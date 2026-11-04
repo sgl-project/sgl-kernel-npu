@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann`（`auto`） | 不支持 | 支持 |
+| `cann_ops_transformer`（`auto`） | 不支持 | 支持 |
 | `torch_native` | 未注册 | 支持 |
 
 CANN 后端面向 Ascend 950，要求 CANN 9.2.0 以及匹配的 PyTorch/torch_npu。还需安装导出 QFA 两个接口的 `cann_ops_transformer` Python 扩展；仅安装 `sgl_kernel_npu` 不会提供该扩展及底层 CANN 算子。
@@ -48,7 +48,7 @@ def quant_flash_attn(
     ...
 ```
 
-`auto` 选择 `cann`，两者指向同一实现，不做自动回退。下述 MXFP8 路径需显式传入 TND/PA_BNBD 布局；默认值保持上游接口约定。
+`auto` 选择 `cann_ops_transformer`，两者指向同一实现，不做自动回退。下述 MXFP8 路径需显式传入 TND/PA_BNBD 布局；默认值保持上游接口约定。
 
 ## 功能说明
 
@@ -94,7 +94,7 @@ causal 模式下，位置 `i` 的 query 可读取 `j <= kv_length - query_length
 | `layout_q_descale` | str；`"BSND"` | 本参考实现使用 `"TND"` 或 `"N2TGD"`。 |
 | `layout_kv` | str；`"BSND"` | 本参考实现要求 `"PA_BNBD"`。 |
 | `return_softmax_lse` | bool；`False` | True 返回 LSE；False 时第二个返回值为空 Tensor。 |
-| `impl` | str；`"auto"` | 仅限关键字参数，可选 `"auto"`、`"cann"`、`"torch_native"`。 |
+| `impl` | str；`"auto"` | 仅限关键字参数，可选 `"auto"`、`"cann_ops_transformer"`、`"torch_native"`。 |
 
 | 返回值 | 类型／dtype | shape 与含义 |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ causal 模式下，位置 `i` 的 query 可读取 `j <= kv_length - query_length
 
 参考实现对 padding Q、零长度 KV 和完全屏蔽的行输出零，开启的 LSE 对应位置为 `+inf`。
 
-## cann 后端
+## cann_ops_transformer 后端
 
 首次调用时从 `cann_ops_transformer.ops` 导入 `quant_flash_attn`，缓存 callable 后透传参数。校验、输出分配和执行由 CANN 负责。wrapper 不增加 Tensor 复制、cast、host 长度读取或重复算子注册。
 
