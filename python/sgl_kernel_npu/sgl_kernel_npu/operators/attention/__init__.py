@@ -7,6 +7,8 @@ from .kv_quant_sparse_attn_sharedkv_metadata import (
 )
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
+from .quant_flash_attn import quant_flash_attn
+from .quant_flash_attn_metadata import quant_flash_attn_metadata
 
 __all__ = [
     "chunk_gated_delta_rule",
@@ -14,4 +16,6 @@ __all__ = [
     "kv_quant_sparse_attn_sharedkv_metadata_host",
     "mlaprolog_v4",
     "paged_mtp_attention_decode",
+    "quant_flash_attn",
+    "quant_flash_attn_metadata",
 ]
