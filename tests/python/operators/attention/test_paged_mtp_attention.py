@@ -474,13 +474,16 @@ def test_device_family_launch_config(
     backend = importlib.import_module(
         "sgl_kernel_npu.implementation.triton.attention.paged_mtp_attention"
     )
+    api = importlib.import_module(
+        "sgl_kernel_npu.operators.attention.paged_mtp_attention"
+    )
     args = generate_data(shape, torch.bfloat16)
     with patch.object(torch_npu._C, "_npu_get_soc_version", return_value=soc_family):
         arch_id = generation._arch_from_soc()
     hardware = generation.Hardware(arch_id, generation.generation_from_arch(arch_id))
     with (
-        patch.object(backend, "get_hardware", return_value=hardware),
-        patch.object(backend, "_get_num_cores", return_value=(24, 48)),
+        patch.object(api, "get_hardware", return_value=hardware),
+        patch.object(backend, "get_device_properties", return_value=(24, 48)),
         patch.object(backend, "_paged_mtp_kernel") as kernel,
     ):
         output = paged_mtp_attention_decode(**args, impl="triton")

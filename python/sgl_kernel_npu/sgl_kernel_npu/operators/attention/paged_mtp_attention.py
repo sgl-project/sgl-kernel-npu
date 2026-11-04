@@ -6,6 +6,7 @@ from numbers import Real
 
 import torch
 
+from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
@@ -24,7 +25,9 @@ def _triton_impl(**kwargs):
         )
 
         _triton_fn = paged_mtp_attention_decode
-    return _triton_fn(**kwargs)
+    return _triton_fn(
+        **kwargs, is_arch22=get_hardware().generation == Generation.ARCH22
+    )
 
 
 @register_impl("attention.paged_mtp_attention_decode", "torch_native")

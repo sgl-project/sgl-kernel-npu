@@ -10,13 +10,11 @@ The query block and GQA heads share a matrix tile. Long contexts can split
 the KV scan across cores and merge the partial softmax results.
 """
 
-from functools import lru_cache
-
 import torch
 import triton
 import triton.language as tl
 
-from ....operators.utils.generation import Generation, get_hardware
+from ....utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -234,12 +232,6 @@ def _reduce_mtp_kernel(
         )
 
 
-@lru_cache(maxsize=1)
-def _get_num_cores() -> tuple[int, int]:
-    properties = triton.runtime.driver.active.utils.get_device_properties("npu")
-    return properties["num_aicore"], properties["num_vectorcore"]
-
-
 def paged_mtp_attention_decode(
     *,
     query: torch.Tensor,
@@ -255,6 +247,7 @@ def paged_mtp_attention_decode(
     gamma: int,
     softmax_scale: float,
     max_kv_len: int,
+    is_arch22: bool,
     causal: bool = False,
 ) -> torch.Tensor:
     """Attend to actual device KV lengths; ``max_kv_len`` only sizes the work.
@@ -264,15 +257,15 @@ def paged_mtp_attention_decode(
     ``gamma`` queries; ragged verification and sliding windows are unsupported.
     Causal queries are right aligned: query i sees KV positions through
     ``seq_lens[b] - gamma + i``. All devices share the grouped matrix scan;
-    arch22 (A2/A3) packs multi-query GQA into an affine Q matrix first.
+    ``is_arch22`` selects A2/A3 launch settings and packs multi-query GQA
+    into an affine Q matrix first. The operator layer detects the hardware.
     """
     batch_size = seq_lens.numel()
     output = torch.empty_like(query)
     if not batch_size:
         return output
-    cube_cores, vector_cores = _get_num_cores()
+    cube_cores, vector_cores = get_device_properties()
     group_size = num_q_heads // num_kv_heads
-    is_arch22 = get_hardware().generation == Generation.ARCH22
     # A2/A3 use an affine matrix source for the multi-query GQA tile.
     # Packing is captured in NPU graphs; arch35 (A5) keeps its input layout.
     packed_query = is_arch22 and gamma > 1 and group_size > 1
