@@ -26,6 +26,9 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
     if not family.legacy:
+        if args.get("ori_mask_mode", 4) == 0:
+            # Explicit indices define visibility; released A5 forbids windows.
+            args.update(ori_win_left=-1, ori_win_right=-1)
         return family.ops[0](**args)
     sparse = (
         kwargs.get("ori_mask_mode", 4) == 0
