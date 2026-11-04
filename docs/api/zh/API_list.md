@@ -2,6 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
@@ -54,3 +55,5 @@
 | [fused_linear_online_max_sum](operators/batch_invariant/fused_linear_online_max_sum.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score](operators/batch_invariant/fused_infer_attention_score.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
+| [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
+| [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |
