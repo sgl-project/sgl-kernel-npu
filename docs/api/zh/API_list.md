@@ -47,6 +47,8 @@
 | [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`、`torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [mega_moe](operators/moe/mega_moe.md) | `cann` |
+| [get_symm_buffer_for_mega_moe](operators/moe/get_symm_buffer_for_mega_moe.md) | `cann` |
 
 ## batch invariant 算子
 
