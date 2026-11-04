@@ -362,7 +362,8 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
@@ -415,7 +416,8 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
@@ -473,7 +475,8 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
@@ -612,7 +615,8 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
@@ -661,7 +665,8 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
@@ -714,7 +719,8 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
                                     pregMerge);
                         And(vreg1, vreg0, tmp0, pregMerge);
-                        And(vreg2, vreg1, tmp1, pregMerge);
+                        // Ceil only when the original FP32 mantissa is nonzero.
+                        And(vreg2, (RegTensor<uint32_t> &)max2, tmp1, pregMerge);
                         Compare<uint32_t, AscendC::CMPMODE::NE>(cmpMask, vreg2, zero, pregMerge);
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
