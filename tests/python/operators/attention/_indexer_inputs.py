@@ -20,18 +20,18 @@ def make_inputs(case, mode):
     table = torch.arange(pages - 1, -1, -1, dtype=torch.int32).reshape(
         len(lengths), pages_per_batch
     )
-    q = torch.zeros(sum(queries), 64, 128)
+    q = torch.zeros(sum(queries), 64, 128, device="cpu")
     q[:, :32, :4] = 1
     q[:, 32:, :4] = -1
-    k = torch.zeros(pages, 32, 1, 128)
+    k = torch.zeros(pages, 32, 1, 128, device="cpu")
     k[..., :4] = 1
     scales = torch.ones(pages, 32, 1, dtype=scale_dtype)
     for b, length in enumerate(lengths):
         for j in range(length):
             scales[int(table[b, j // 32]), j % 32, 0] = 2 ** (j / 64)
     args = (
-        q.to(dtype),
-        k.to(dtype),
+        q.to(dtype).view(torch.uint8).to(table.device).view(dtype),
+        k.to(dtype).view(torch.uint8).to(table.device).view(dtype),
         torch.ones(sum(queries), 64, dtype=scale_dtype),
         torch.full((sum(queries), 64), 0.5, dtype=scale_dtype),
         scales,

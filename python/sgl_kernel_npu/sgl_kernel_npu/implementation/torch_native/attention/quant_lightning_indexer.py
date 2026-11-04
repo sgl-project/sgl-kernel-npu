@@ -2,6 +2,7 @@
 
 import torch
 
+from ..kvcacheio._quantization import _fp8_to_float
 from ._metadata import ReferenceMetadata
 
 
@@ -38,8 +39,8 @@ def quant_lightning_indexer(
         raise TypeError("torch_native requires torch_native metadata")
     if k.shape[-2] != 1:
         raise NotImplementedError("reference supports one shared key head")
-    query = q.float() * q_scale.float().unsqueeze(-1)
-    keys = k.float().reshape(-1, k.shape[-1]) * k_scale.float().reshape(-1, 1)
+    query = _fp8_to_float(q) * q_scale.float().unsqueeze(-1)
+    keys = _fp8_to_float(k).reshape(-1, k.shape[-1]) * k_scale.float().reshape(-1, 1)
     indices = torch.full((q.shape[0], 1, topk), -1, dtype=torch.int32, device=q.device)
     values = torch.full((q.shape[0], 1, topk), -torch.inf, device=q.device)
     cu = cu_seqlens_q.tolist()

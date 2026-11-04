@@ -270,3 +270,14 @@ check accuracy: repeated profiling would consume already-mutated history.
 A3 uses INT8 indexer inputs with FP16 scales/weights; A5 uses FP8 inputs with
 FP32 scales/weights. Run the same command separately under CANN 9.1 and 9.2;
 collection or CPU reference checks do not establish native kernel accuracy.
+
+### A5 / CANN 9.1 accuracy suite
+
+Run `bash tests/python/operators/test_pr939_a5_cann91.sh` from the checkout root.
+The suite selects 11 APIs (62 current parameterized cases), excludes the ordinary
+BF16 shared-KV pair from this A5 legacy recipe, and limits compressor to TH.
+It writes per-case PASS/FAIL/ERROR/SKIP/TIMEOUT/NOT_RUN/EXCLUDED states to
+`test-results/a5-cann91-*/summary.txt`, `.tsv` and `.json`. A timeout or missing
+result is never counted as passed. Native accuracy still requires server execution.
+See [the A5/CANN 9.1 audit](a5_cann91_test_audit.md) for binding sources, FP8
+reference requirements, excluded coverage and detailed usage.
