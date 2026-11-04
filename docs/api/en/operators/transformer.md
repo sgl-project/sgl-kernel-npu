@@ -93,7 +93,8 @@ the underlying bindings. No backend-selection environment variable is required.
 ```sh
 python -m pytest tests/python/operators/attention/test_sparse_flash_mla.py \
   tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py \
-  tests/python/operators/norm/test_mhc.py \
+  tests/python/operators/norm/test_mhc_pre.py \
+  tests/python/operators/norm/test_mhc_post.py \
   tests/python/operators/rope/test_inplace_partial_rotary_mul.py \
   tests/python/operators/kvcacheio/test_indexer_quant_cache.py \
   tests/python/operators/kvcacheio/test_kv_compress_epilog.py \
