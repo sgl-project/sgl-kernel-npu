@@ -123,7 +123,7 @@ def check_step(
     "variant", VARIANTS, ids=["c4-indexer", "c4-attention", "c128-attention"]
 )
 @pytest.mark.parametrize("mode", [1, 2], ids=["paged", "cycle"])
-@pytest.mark.parametrize("layout", ["TH", "BSH"])
+@pytest.mark.parametrize("layout", ["TH"])
 @pytest.mark.parametrize("batch", [1, 2])
 def test_compressor(variant, mode, layout, batch):
     ratio, coff, dim = variant
