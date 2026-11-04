@@ -43,7 +43,9 @@ def generate_data(shape, dtype):
         ((12, 6144, 1024, 128, 128), torch.bfloat16),
         ((1, 512, 128, 64, 32), torch.float32),
         ((3, 512, 128, 64, 32), torch.float16),
-        ((0, 512, 128, 64, 64), torch.bfloat16),
+        pytest.param(
+            (0, 512, 128, 64, 64), torch.bfloat16, marks=pytest.mark.extra_checks
+        ),
     ],
 )
 def test_single_rank(shape, dtype):

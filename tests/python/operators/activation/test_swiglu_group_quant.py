@@ -121,7 +121,7 @@ E5 = torch.float8_e5m2
         ),
         pytest.param(1, 23, dict(counts=[16]), id="group-index-partial"),
         pytest.param(1, 29, dict(rows=4, dst_type=None), id="default-dtype"),
-        pytest.param(1, 0, dict(rows=0), id="empty"),
+        pytest.param(1, 0, dict(rows=0), id="empty", marks=pytest.mark.extra_checks),
         pytest.param(
             2,
             41,
@@ -259,6 +259,7 @@ def test_swiglu_group_quant(mode, seed, options):
     check_performance(executor, enable_perf=(rows, width) in perf_shape)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "width,dtype,kwargs,message",
     [
@@ -288,6 +289,7 @@ def test_ascendc_zero_width_group_type_rejected():
         torch.ops.npu.swiglu_group_quant(**dict(data, group_list_type=1))
 
 
+@pytest.mark.extra_checks
 def test_ascendc_graph_replay():
     from sgl_kernel_npu.operators.activation import swiglu_group_quant
 

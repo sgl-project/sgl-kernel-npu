@@ -322,6 +322,7 @@ def test_fp8_layout2_rejected():
         kv_compress_epilog(*args, impl="cpu")
 
 
+@pytest.mark.extra_checks
 def test_ascendc_graph_replay_with_distinct_tilings():
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
