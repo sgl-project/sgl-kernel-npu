@@ -1,32 +1,21 @@
 """TP QKV computations around the operator-owned collective boundary."""
 
+# PyTorch replaces NumPy RoPE so computation stays on the input device;
+# dtype rounding and the unrotated suffix support the public API's additional cases.
 import torch
 
 
-def _chunked_mean_square(values, block):
-    values = values.float()
-    total = torch.zeros(values.shape[0], device=values.device, dtype=torch.float32)
-    compensation = torch.zeros_like(total)
-    for start in range(0, values.shape[1], block):
-        chunk = values[:, start : start + block]
-        term = chunk.square().sum(-1) - compensation
-        updated = total + term
-        compensation = (updated - total) - term
-        total = updated
-    return total / values.shape[1]
-
-
-def compute_local(input_q, input_k, input_v, q, k, v, qk_var, q_block, kv_block):
+def compute_local(input_q, input_k, input_v, q, k, v, qk_var):
     q.copy_(input_q)
     k.copy_(input_k)
     v.copy_(input_v)
-    qk_var[:, 0].copy_(_chunked_mean_square(input_q, q_block))
-    qk_var[:, 1].copy_(_chunked_mean_square(input_k, kv_block))
+    qk_var[:, 0].copy_(torch.mean(input_q.float() ** 2, dim=-1))
+    qk_var[:, 1].copy_(torch.mean(input_k.float() ** 2, dim=-1))
 
 
 def _normalize_rotate(values, variance, weight, cos, sin, eps, inv_tp_world):
     scale = 1.0 / torch.sqrt(variance * inv_tp_world + eps)
-    # The original second stage stores normalized Q/K in input precision,
+    # Store normalized Q/K in input precision,
     # then reloads them before applying RoPE.
     normalized = (
         (values.float() * scale[:, None, None] * weight.float())

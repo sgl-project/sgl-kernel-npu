@@ -4,10 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 不支持 | 不支持 |
 | `torch_native` | 支持 | 支持 |
 | `triton` | 支持 | 支持 |
-| `tilelang` | 不支持 | 不支持 |
 
 ## 函数原型
 

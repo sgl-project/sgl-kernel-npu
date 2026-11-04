@@ -5,6 +5,42 @@ import struct
 import torch
 
 
+# Layout dimensions are supplied by the complete packing implementation below.
+def _ref_fp8_scales(xf, d, fp8_max):
+    """Reference float32 scales for the FP8 path (one per 128-wide block)."""
+    quant_col = d - 64
+    scale_col = (quant_col + 127) // 128
+    bits = 0x3B124925 if fp8_max == 448.0 else 0x37924925
+    coeff = struct.unpack("<f", struct.pack("<I", bits))[0]
+    scales = torch.zeros(
+        (xf.shape[0], scale_col), dtype=torch.float32, device=xf.device
+    )
+    for j in range(scale_col):
+        blk = xf[:, j * 128 : min((j + 1) * 128, quant_col)]
+        m = blk.abs().max(dim=1).values
+        scales[:, j] = m * coeff
+    return scales
+
+
+def _ref_mxfp8_scales(xf, d, per_group_size, fp8_max, round_scale):
+    """Reference E8M0 scale bytes for the MXFP8 path (one per per_group_size group)."""
+    scale_col = (d - 64 + per_group_size - 1) // per_group_size
+    coeff = struct.unpack("<f", struct.pack("<f", 1.0 / fp8_max))[0]
+    out = torch.zeros((xf.shape[0], scale_col), dtype=torch.uint8, device=xf.device)
+    for j in range(scale_col):
+        blk = xf[:, j * per_group_size : (j + 1) * per_group_size]
+        m = blk.abs().max(dim=1).values
+        m = torch.clamp(m, min=1e-4)
+        m2 = m * coeff  # float32 mul, mirrors Muls(max2, max2, coeff)
+        e = (m2.view(torch.int32) >> 23) & 0xFF  # biased exponent of max * coeff
+        if round_scale:
+            e = e + (e != 0).to(
+                torch.int32
+            )  # kernel re-bias logic always adds one step
+        out[:, j] = e.to(torch.uint8)
+    return out
+
+
 def kv_compress_epilog(
     cache, x, slots, quant_group_size, quant_mode, round_scale_flag, layout
 ):
@@ -15,26 +51,16 @@ def kv_compress_epilog(
     group = quant_group_size if quant_mode == 2 else 128
     groups = (qcols + group - 1) // group
     max_value = 448.0 if cache.dtype == torch.float8_e4m3fn else 57344.0
-    if quant_mode == 2:
-        coeff = torch.tensor(1.0 / max_value, device=device, dtype=torch.float32)
-    else:
-        bits = 0x3B124925 if max_value == 448.0 else 0x37924925
-        coeff = struct.unpack("<f", struct.pack("<I", bits))[0]
     xf = x.float()
-    scales = torch.empty((n, groups), dtype=torch.float32, device=device)
+    if quant_mode == 2:
+        exponents = _ref_mxfp8_scales(xf, d, group, max_value, round_scale_flag)
+        scales = (exponents.to(torch.int32) << 23).view(torch.float32)
+    else:
+        scales = _ref_fp8_scales(xf, d, max_value)
     quant = torch.empty((n, qcols), dtype=torch.uint8, device=device)
     for j in range(groups):
         block = xf[:, j * group : min((j + 1) * group, qcols)]
-        maximum = block.abs().amax(dim=1)
-        if quant_mode == 2:
-            scale = maximum.clamp(min=1e-4) * coeff
-            exponent = (scale.view(torch.int32) >> 23) & 255
-            if round_scale_flag:
-                exponent = exponent + (exponent != 0).to(torch.int32)
-            scale = (exponent << 23).view(torch.float32)
-        else:
-            scale = maximum * coeff
-        scales[:, j] = scale
+        scale = scales[:, j]
         # A zero FP8 group keeps zero values while storing its zero scale.
         normalized = torch.where(scale[:, None] == 0, block, block / scale[:, None])
         quant[:, j * group : min((j + 1) * group, qcols)] = (

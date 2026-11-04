@@ -12,11 +12,7 @@ def assign_cache_op(dst, src, dst_start, dst_end, src_start, src_end):
     # Reinterpret equal-width payloads without numeric conversion or allocating a copy.
     dst_bits = dst.view(carrier)
     src_bits = src.view(carrier)
-    lengths = src_end[: dst.shape[0]] - src_start[: dst.shape[0]]
-    rows = torch.repeat_interleave(
-        torch.arange(dst.shape[0], device=dst.device), lengths
-    )
-    begin = torch.cumsum(lengths, 0) - lengths
-    offsets = torch.arange(rows.numel(), device=dst.device) - begin[rows]
-    dst_bits[rows, dst_start[rows] + offsets] = src_bits[src_start[rows] + offsets]
+    # The public API already receives selected destination rows and source offsets.
+    for i in range(dst.shape[0]):
+        dst_bits[i][dst_start[i] : dst_end[i]] = src_bits[src_start[i] : src_end[i]]
     return True

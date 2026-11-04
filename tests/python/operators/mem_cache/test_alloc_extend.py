@@ -14,6 +14,8 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+perf_shape = [(7, 10000, 128), (100, 2, 128)]
+
 # fmt: off
 ALLOC_EXTEND_CASES = [
     pytest.param([0], [7], [-1], 100, 128, id="prefill-partial"),
@@ -46,7 +48,7 @@ ALLOC_EXTEND_CASES = [
 ]
 # fmt: on
 
-def generate_alloc_extend_data(prefix, sequence, last, free_stop, page_size, *, device="npu"):  # fmt: skip
+def generate_data(prefix, sequence, last, free_stop, page_size, *, device="npu"):  # fmt: skip
     tensors = [
         torch.tensor(data, dtype=torch.int64, device=device)
         for data in (prefix, sequence, last)
@@ -69,7 +71,7 @@ def test_alloc_extend(prefix, sequence, last, free_stop, page_size):
     # Compare both output buffers with an explicit CPU reference and preserve read-only inputs.
     from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
-    inputs = generate_alloc_extend_data(prefix, sequence, last, free_stop, page_size)
+    inputs = generate_data(prefix, sequence, last, free_stop, page_size)
     impl, _ = get_test_impls()
     impl_ref = "cpu"
     skip_accuracy = bool(get_skip_acc_check())
@@ -95,5 +97,5 @@ def test_alloc_extend(prefix, sequence, last, free_stop, page_size):
         accuracy_checked=not skip_accuracy,
     )
     check_performance(
-        executor, enable_perf=len(prefix) == 100 or max(sequence) == 10000
+        executor, enable_perf=(len(prefix), max(sequence), page_size) in perf_shape
     )

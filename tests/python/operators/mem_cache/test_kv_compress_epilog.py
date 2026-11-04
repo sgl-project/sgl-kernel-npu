@@ -15,6 +15,8 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
+perf_shape = [(4096, 320), (4096, 512)]
+
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
 # fmt: off
 KV_CASES = [
@@ -36,7 +38,7 @@ KV_CASES = [
 ]
 # fmt: on
 
-def make_kv_inputs(n, slots, d, group, mode, rounding, layout, e4, int64, drop, seed, pattern, device="npu"):  # fmt: skip
+def generate_data(n, slots, d, group, mode, rounding, layout, e4, int64, drop, seed, pattern, device="npu"):  # fmt: skip
     generator = torch.Generator(device="cpu").manual_seed(seed)
     x = torch.randn((n, d), dtype=torch.bfloat16, device="cpu", generator=generator)
     if pattern == "zero":
@@ -158,7 +160,7 @@ def test_kv_compress_epilog(
         require_test_impl(kv_compress_epilog, impl)
     else:
         require_distinct_impls(kv_compress_epilog, impl, impl_ref)
-    args = make_kv_inputs(
+    args = generate_data(
         n, slots, d, group, mode, rounding, layout, e4, int64, drop, seed, pattern
     )
     cache, x, mapping = args[:3]
@@ -181,14 +183,14 @@ def test_kv_compress_epilog(
         impl_ref=impl_ref,
         accuracy_checked=not skip,
     )
-    check_performance(executor, enable_perf=n == 4096)
+    check_performance(executor, enable_perf=(n, d) in perf_shape)
 
 
 def test_fp8_layout2_rejected():
     # Reject the unsupported FP8 block layout at the shared public boundary.
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-    args = make_kv_inputs(
+    args = generate_data(
         1, 1, 192, 0, 1, False, 2, True, False, False, 0, "normal", device="cpu"
     )
     with pytest.raises(RuntimeError, match="layout=2 only supports MXFP8"):
@@ -206,7 +208,7 @@ def test_ascendc_graph_replay_with_distinct_tilings():
         (1, 192, 0, 1, "stride"),
         (2, 320, 64, 2, "4d"),
     ]:
-        args = make_kv_inputs(
+        args = generate_data(
             17, 32, d, group, mode, True, layout, True, True, True, 3, pattern
         )
         torch.npu.synchronize()

@@ -48,25 +48,39 @@ def swiglu_group_quant(
     *,
     impl="auto",
 ):
-    """Apply SwiGLU and quantize expert activations.
+    """Apply SwiGLU and quantize expert activations; auto selects AscendC on arch35.
 
     Args:
-        x: Contiguous FP16/BF16 gate and up projections concatenated on the last axis.
-        topk_weight: Optional float32 routing weight per row.
-        group_index: Optional int64 counts per expert. Only the leading sum of counts is processed.
-        dst_type: FP8 E4M3FN (default) or E5M2.
-        quant_mode: 1 for group quantization, 2 for MX, 3 for per-token FP8 blocks.
-        group_size: Accepted for compatibility. Modes 1/3 use 128 values per scale, MX uses 32.
-        round_scale: Use power-of-two scales in mode 3.
-        ue8m0_scale: Store mode 3 rounded scales in E8M0. Use with round_scale.
-        output_origin: Populate the unquantized output in mode 3.
-        group_list_type: 0 for per-expert counts.
-        clamp_value: Nonzero limit for gate (upper bound) and up (both bounds).
-        impl: auto or ascendc on A5, torch_native, or cpu.
+        x: Contiguous FP16/BF16 tensor [..., 2*C]. The first half contains gate and
+            the second up. N is the product of the leading dimensions. The last
+            dimension must be divisible by 256 in modes 1/3 or 128 in mode 2.
+        topk_weight: Optional contiguous FP32 tensor [N] on x's device, containing
+            one routing weight per flattened row. None or empty means no weight.
+        group_index: Optional contiguous int64 tensor [E] on x's device, containing
+            nonnegative expert counts. Process min(N, sum(counts)) leading rows;
+            None or empty processes all rows. Remaining output rows are unspecified.
+        dst_type: Output dtype, torch.float8_e4m3fn (default) or torch.float8_e5m2.
+        quant_mode: Integer mode, default 1. Modes 1/3 use 128 values per scale;
+            mode 2 uses MX quantization with 32 values per scale.
+        group_size: Integer compatibility parameter, default 128; does not change
+            the fixed group widths selected by quant_mode.
+        round_scale: Boolean, default False. Round mode-3 scales up to powers of two.
+        ue8m0_scale: Boolean, default False. Store mode-3 scales in E8M0; use with
+            round_scale=True. Mode 2 always returns E8M0 scales.
+        output_origin: Boolean, default False. Write unquantized activations in mode 3.
+        group_list_type: Integer count-list format; use 0 (default).
+        clamp_value: Float, default 0.0 (disabled). A positive value bounds gate
+            above and up on both sides before activation and optional weighting.
+        impl: Keyword-only implementation: auto (default), ascendc on arch35,
+            torch_native, or cpu. Auto does not fall back on unsupported hardware.
 
     Returns:
-        (y, scale, y_origin). y and y_origin have half the input width.
-        Only mode 3 with output_origin=True writes y_origin.
+        Tuple (y, scale, y_origin). y has shape [..., C] and dst_type. scale has
+        shape [..., C/64, 2] and E8M0 dtype in mode 2; modes 1/3 use [..., C/128]
+        and FP32, except mode 3 with ue8m0_scale=True uses E8M0. y_origin has x's
+        dtype and shape [..., C], and is defined only for processed rows in mode 3
+        with output_origin=True. Outputs use x's device except impl="cpu", which
+        returns CPU tensors. Inputs are not modified.
     """
     if x.ndim < 1 or not x.is_contiguous():
         raise RuntimeError("x must be contiguous with at least one dimension")

@@ -1,5 +1,7 @@
 """CPU reference for split QKV, tensor-parallel RMSNorm and NeoX RoPE."""
 
+# Keep FP32 normalization and intermediate input-dtype rounding; use PyTorch
+# for dtype-general RoPE and preserve the suffix when rotary_dim < head_dim.
 import torch
 import torch.distributed as dist
 
@@ -39,7 +41,7 @@ def split_qkv_tp_rmsnorm_rope(
     def normalize_rotate(part, weight, mean):
         weighted = (
             part.float()
-            * torch.rsqrt(mean[:, None] + eps)
+            * (1.0 / torch.sqrt(mean[:, None] + eps))
             * weight.cpu().flatten()[: part.shape[1]].float()
         )
         heads = weighted.to(input.dtype).reshape(part.shape[0], -1, head_dim).float()

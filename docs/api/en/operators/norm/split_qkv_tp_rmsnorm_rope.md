@@ -4,10 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | Not supported | Not supported |
 | `torch_native` | Supported | Supported |
 | `triton` | Supported | Supported |
-| `tilelang` | Not supported | Not supported |
 
 ## Signature
 

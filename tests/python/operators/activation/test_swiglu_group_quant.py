@@ -28,9 +28,31 @@ def select_backend(configure_public_interface_test):
     require_test_impl(swiglu_group_quant, get_test_impls()[0])
 
 
+perf_shape = [(8, 4096)]
+
+
 def _make_inputs(rows, width, dtype=torch.bfloat16, seed=0):
     torch.manual_seed(seed)
     return torch.randn(rows, width, dtype=dtype, device="cpu").npu()
+
+
+def generate_data(mode, seed, options):
+    kwargs = options.copy()
+    rows, width = kwargs.pop("rows", 32), kwargs.pop("width", 512)
+    x = _make_inputs(rows, width, kwargs.pop("dtype", torch.bfloat16), seed)
+    zeros = kwargs.pop("zero_rows", 0)
+    x[:zeros].zero_()
+    counts = kwargs.pop("counts", None)
+    if counts is not None:
+        kwargs["group_index"] = torch.tensor(counts, device="npu")
+    weight = None
+    if kwargs.pop("weight", False):
+        torch.manual_seed(seed + 100)
+        weight = torch.rand(rows, device="cpu")
+        kwargs["topk_weight"] = weight.npu()
+    invariant = kwargs.pop("invariant", None)
+    kwargs.update(x=x, quant_mode=mode)
+    return kwargs, zeros, counts, invariant
 
 
 E5 = torch.float8_e5m2
@@ -109,22 +131,12 @@ def test_swiglu_group_quant(mode, seed, options):
     )
     from sgl_kernel_npu.operators.activation import swiglu_group_quant
 
-    kwargs = options.copy()
-    rows, width = kwargs.pop("rows", 32), kwargs.pop("width", 512)
-    x = _make_inputs(rows, width, kwargs.pop("dtype", torch.bfloat16), seed)
-    zeros = kwargs.pop("zero_rows", 0)
-    x[:zeros].zero_()
-    counts = kwargs.pop("counts", None)
+    kwargs, zeros, counts, invariant = generate_data(mode, seed, options)
+    x = kwargs["x"]
+    rows, width = x.shape
     valid = min(rows, sum(counts)) if counts is not None else rows
-    if counts is not None:
-        kwargs["group_index"] = torch.tensor(counts, device="npu")
-    weight = None
-    if kwargs.pop("weight", False):
-        torch.manual_seed(seed + 100)
-        weight = torch.rand(rows, device="cpu")
-        kwargs["topk_weight"] = weight.npu()
-    invariant = kwargs.pop("invariant", None)
-    kwargs.update(x=x, quant_mode=mode)
+    weight = kwargs.get("topk_weight")
+    weight = None if weight is None else weight.cpu()
     impl, _ = get_test_impls()
 
     def compare_outputs(actual, reference):
@@ -240,7 +252,7 @@ def test_swiglu_group_quant(mode, seed, options):
         impl_ref="cpu",
         accuracy_checked=checked,
     )
-    check_performance(executor, enable_perf=width == 4096)
+    check_performance(executor, enable_perf=(rows, width) in perf_shape)
 
 
 @pytest.mark.parametrize(
@@ -258,9 +270,8 @@ def test_swiglu_rejected(width, dtype, kwargs, message):
     from sgl_kernel_npu.operators.activation import swiglu_group_quant
 
     with pytest.raises(RuntimeError, match=message):
-        swiglu_group_quant(
-            _make_inputs(4, width, dtype), **kwargs, impl=get_test_impls()[0]
-        )
+        data, _, _, _ = generate_data(1, 0, dict(rows=4, width=width, dtype=dtype))
+        swiglu_group_quant(**dict(data, **kwargs), impl=get_test_impls()[0])
 
 
 def test_ascendc_graph_replay():
@@ -271,11 +282,12 @@ def test_ascendc_graph_replay():
     stream = torch.npu.Stream()
     captures = []
     for rows, limit in [(8, 1.0), (12, 2.0)]:
-        x = _make_inputs(rows, 512)
-        counts = torch.tensor([rows // 2, rows - rows // 2], device="npu")
-        kwargs = dict(
-            x=x, quant_mode=2, group_index=counts, clamp_value=limit, impl="ascendc"
+        kwargs, _, _, _ = generate_data(
+            2,
+            0,
+            dict(rows=rows, counts=[rows // 2, rows - rows // 2], clamp_value=limit),
         )
+        kwargs["impl"] = "ascendc"
         swiglu_group_quant(**kwargs)
         torch.npu.synchronize()
         graph = torch.npu.NPUGraph()

@@ -69,13 +69,17 @@ def _ref_swiglu(x, clamp_value=None, topk_weight=None):
 
 
 def _blocks(t, block):
-    # Public input alignment guarantees a whole number of blocks.
-    return t.reshape(t.size(0), -1, block)
+    """Reshape the last dim into non-overlapping `block`-wide groups, padding the tail."""
+    n, cols = t.shape
+    nblocks = (cols + block - 1) // block
+    padded = torch.zeros((n, nblocks * block), dtype=t.dtype, device=t.device)
+    padded[:, :cols] = t
+    return padded.view(n, nblocks, block)
 
 
 def _ref_group_scales(t, dst_dtype):
     """Mode 1: one fp32 scale per 128-wide block, amax * coeff (0 for an all-zero block)."""
-    amax = _blocks(t.masked_fill(~t.isfinite(), 0), 128).abs().amax(dim=-1)
+    amax = _blocks(t, 128).abs().amax(dim=-1)
     coeff = _coeff_for(dst_dtype)
     scale = amax * coeff
     return torch.where(amax == 0, torch.zeros_like(scale), scale)
@@ -116,7 +120,7 @@ def _ref_mx_scale_bytes(t, dst_dtype, src_dtype):
     lower = _exp_lower_bound_for(dst_dtype)
     max_exp = _mx_exp_field(t, src_dtype).amax(dim=-1)
     max_exp = torch.clamp(max_exp, min=lower)
-    return torch.where(max_exp == BF16_EXP_MASK, 255, (max_exp - lower) >> 7)
+    return (max_exp - lower) >> 7
 
 
 def _ref_fp8_scales(t, dst_dtype, round_scale):
@@ -127,13 +131,16 @@ def _ref_fp8_scales(t, dst_dtype, round_scale):
     enter the arithmetic here: the kernel hardcodes the e4m3 constants (448.0 / its reciprocal) for
     this mode, so an e5m2 output is deliberately over-scaled rather than saturation-bound.
     """
-    amax = _blocks(t.masked_fill(~t.isfinite(), 0), 128).abs().amax(dim=-1)
+    amax = _blocks(t, 128).abs().amax(dim=-1)
     clamp_scale = torch.clamp(amax, min=1e-4)
     scale = clamp_scale * _coeff_for(torch.float8_e4m3fn)
     if not round_scale:
         return scale
     bits = scale.view(torch.int32)
     exp = ((bits >> 23) & 0xFF) - 127 + ((bits & 0x7FFFFF) != 0).to(torch.int32)
+    assert (
+        int(exp.to(torch.int64).abs().max()) < 127
+    ), "power-of-two scale out of fp32 range"
     return torch.pow(2.0, exp.to(torch.float32))
 
 
@@ -199,9 +206,7 @@ def swiglu_group_quant(
         divisor = _ref_group_scales(act, dst_type)
         stored = divisor
     if quant_mode == 3 and not round_scale:
-        inv = 448.0 / _blocks(act.masked_fill(~act.isfinite(), 0), 128).abs().amax(
-            dim=-1
-        ).clamp_min(1e-4)
+        inv = 448.0 / _blocks(act, 128).abs().amax(dim=-1).clamp_min(1e-4)
         normalized = act * inv.repeat_interleave(block, dim=-1)
     else:
         expanded = divisor.repeat_interleave(block, dim=-1)

@@ -124,7 +124,6 @@ def _torch_native_impl(
     if batch == 0:
         return q, k, v
     qk_var = torch.empty((batch, 2), device=input.device, dtype=torch.float32)
-    q_block = q_hidden_size // kv_hidden_size * head_dim
     compute_local(
         input[:, :q_hidden_size],
         input[:, q_hidden_size : q_hidden_size + kv_hidden_size],
@@ -133,8 +132,6 @@ def _torch_native_impl(
         k,
         v,
         qk_var,
-        q_block,
-        head_dim,
     )
     if tp_world > 1:
         dist.all_reduce(qk_var, group=tp_group)

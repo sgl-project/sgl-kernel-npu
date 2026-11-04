@@ -14,27 +14,50 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+perf_shape = [(1, 1024), (2, 1024), (50000, 100000)]
 
-@pytest.mark.parametrize("gap,width", [(1, 1024), (2, 1024), (50000, 100000)])
-@pytest.mark.parametrize("dtype", [torch.int8, torch.int16, torch.int32, torch.int64])
-def test_assign_cache_op(gap, width, dtype):
-    # Cover small tails and multi-UB copies, with independent reference and DUT storage.
-    from sgl_kernel_npu.operators.mem_cache import assign_cache_op
 
+def generate_data(gap, width, dtype):
     generator = torch.Generator(device="cpu").manual_seed(29)
     starts = torch.randint(
         0, width - gap - 1, (96,), generator=generator, device="cpu"
     ).npu()
-    source_starts = torch.arange(97, dtype=torch.int64, device="npu") * gap
     pool = torch.randint(
         32, (96, width), dtype=dtype, generator=generator, device="cpu"
     ).npu()
     src = torch.randint(
         32, (96 * gap,), dtype=dtype, generator=generator, device="cpu"
     ).npu()
+    indices = torch.arange(48, dtype=torch.int32, device="npu")
+    return indices, pool, starts, starts + gap, src
+
+
+def _assign_to_pool(pool, indices, starts, ends, src, impl):
+    from sgl_kernel_npu.operators.mem_cache import assign_cache_op
+
+    lengths = ends - starts
+    selected = pool[indices]
+    source_ends = torch.cumsum(lengths, dim=0)
+    source_starts = torch.cat(
+        (torch.zeros(1, dtype=torch.int64, device=pool.device), source_ends)
+    )
+    args = (selected, src, starts, ends, source_starts, source_ends)
+    pointer = selected.data_ptr()
+    assert assign_cache_op(*args, impl=impl) is True
+    assert selected.data_ptr() == pointer
+    pool[indices] = selected
+    return args
+
+
+@pytest.mark.parametrize("gap,width", [(1, 1024), (2, 1024), (50000, 100000)])
+@pytest.mark.parametrize("dtype", [torch.int8, torch.int16, torch.int32, torch.int64])
+def test_assign_cache_op(gap, width, dtype):
+    from sgl_kernel_npu.operators.mem_cache import assign_cache_op
+
+    indices, pool, starts, ends, src = generate_data(gap, width, dtype)
     actual, reference = pool.clone(), pool.clone()
-    args = (actual[:48], src, starts, starts + gap, source_starts, source_starts[1:])
-    saved = tuple(t.clone() for t in args[1:])
+    inputs = (indices, starts, ends, src)
+    saved = tuple(t.clone() for t in inputs)
     impl, impl_ref = get_test_impls()
     skip = bool(get_skip_acc_check())
     if skip:
@@ -46,14 +69,14 @@ def test_assign_cache_op(gap, width, dtype):
     for iteration in range(32):
         torch.npu.synchronize()
         if not skip:
-            assert assign_cache_op(reference[:48], *args[1:], impl=impl_ref) is True
+            _assign_to_pool(reference, indices, starts, ends, src, impl_ref)
             torch.npu.synchronize()
-        assert assign_cache_op(*args, impl=impl) is True
+        args = _assign_to_pool(actual, indices, starts, ends, src, impl)
         torch.npu.synchronize()
         assert actual.data_ptr() == pointer
         if not skip:
             assert_accuracy(actual, reference, path=f"iteration[{iteration}].output")
-        assert_accuracy(args[1:], saved, path=f"iteration[{iteration}].inputs")
+        assert_accuracy(inputs, saved, path=f"iteration[{iteration}].inputs")
     executor = make_executor(
         assign_cache_op,
         args=args,
@@ -61,4 +84,6 @@ def test_assign_cache_op(gap, width, dtype):
         impl_ref=impl_ref,
         accuracy_checked=not skip,
     )
-    check_performance(executor, enable_perf=dtype == torch.int32)
+    check_performance(
+        executor, enable_perf=(gap, width) in perf_shape and dtype == torch.int32
+    )
