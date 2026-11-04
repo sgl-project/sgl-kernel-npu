@@ -1,3 +1,4 @@
+from .chunk_gated_delta_rule import chunk_gated_delta_rule
 from .compressor import compressor
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
@@ -12,6 +13,7 @@ from .sparse_flash_mla import sparse_flash_mla
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata
 
 __all__ = [
+    "chunk_gated_delta_rule",
     "compressor",
     "quant_lightning_indexer_metadata",
     "quant_lightning_indexer",

@@ -7,6 +7,7 @@ endif()
 cmake_minimum_required(VERSION 3.20)
 project(sgl_cann_ops LANGUAGES NONE)
 
+# Validate the explicit build stage and architecture.
 set(SGL_CANN_BUILD_STAGE CODEGEN CACHE STRING "CANN checkpoint: CODEGEN, TILING or KERNEL")
 set_property(CACHE SGL_CANN_BUILD_STAGE PROPERTY STRINGS CODEGEN TILING KERNEL)
 if(NOT SGL_CANN_BUILD_STAGE MATCHES "^(CODEGEN|TILING|KERNEL)$")
@@ -26,6 +27,7 @@ foreach(index RANGE ${last})
     list(APPEND SGL_CANN_COMPUTE_UNITS "${unit}")
 endforeach()
 
+# Discover declarations, then validate only the selected implementations.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/operators.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/domains.cmake")
 sgl_add_operator_domains()
@@ -40,6 +42,7 @@ if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
 
+# Load the initialized CANN SDK after declaration validation.
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "CANN code generation requires Linux")
 endif()
@@ -66,6 +69,7 @@ find_package(ASC REQUIRED CONFIG PATHS
     NO_DEFAULT_PATH
 )
 
+# Build interfaces, Tiling and Kernel/package targets in dependency order.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cann_ops.cmake")
 if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     npu_op_package(sgl_kernel_npu TYPE RUN
