@@ -122,8 +122,11 @@ and compressor. Indexer cases use strictly ordered scores for exact integer
 Top-K comparison, including ragged queries, page boundaries and empty causal
 prefixes. Metadata has its own timing; semantic validation uses paired compute.
 Compressor covers C4/C128, TH/BSH, paged/cycle caches, and multi-round state
-retention across ring wrap. Output padding is excluded, while the entire state
-cache is checked against an independent reference buffer. These tests do not
+retention across ring wrap. Output padding is excluded. A3 explicit and paged
+state caches are compared in full. A5 cycle caches compare forward-live overlap
+and unfinished-block rows against an independent reference, with exact checks
+for unassigned banks. Retired rows and backend-specific extra MTP rollback
+retention are outside this comparison; streaming output checks remain enabled. These tests do not
 validate graph replay or model inference. Metadata descriptors are checked
 through their paired compute, not compared byte-for-byte across backends.
 

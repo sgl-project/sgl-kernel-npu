@@ -1,4 +1,4 @@
-"""Public compressor output and in-place state accuracy, including streaming."""
+"""Compressor output, live state and protected-bank accuracy, including streaming."""
 
 import pytest
 
@@ -89,6 +89,44 @@ def step_inputs(params, state, table, starts, counts, variant, mode, layout):
     return (x, wkv, wgate, state, ape, norm), kwargs, valid_rows
 
 
+def assert_state_accuracy(
+    state, reference_state, starts, counts, variant, mode, locations
+):
+    standard = {"torch.float32": AccuracyStandard(atol=0.01, rtol=0.01)}
+    if mode != 2 or locations.ndim != 1:
+        # A3 explicit locations and paged writes retain their full-state checks.
+        assert_accuracy(state, reference_state, standard=standard)
+        return
+
+    # A5 cycle backends can stop saving rows already consumed by compression.
+    # Only the preceding overlap block and unfinished block are forward-live.
+    # Extra rollback retention is backend-specific and is not asserted here.
+    ratio, coff, _ = variant
+    banks = locations.tolist()
+    ring = state.shape[1]
+    live = []
+    for bank, start, count in zip(banks, starts, counts):
+        end = start + count
+        boundary = end // ratio * ratio
+        keep = max(0, boundary - (coff - 1) * ratio)
+        live.extend(bank * ring + position % ring for position in range(keep, end))
+    if live:
+        indices = torch.tensor(live, dtype=torch.int64, device=state.device)
+        assert_accuracy(
+            state.reshape(-1, state.shape[-1])[indices],
+            reference_state.reshape(-1, reference_state.shape[-1])[indices],
+            standard=standard,
+        )
+    # Every bank not assigned to a request must remain exactly unchanged.
+    protected = [bank for bank in range(state.shape[0]) if bank not in banks]
+    if protected:
+        assert_accuracy(
+            state[protected],
+            reference_state[protected],
+            standard={"torch.float32": AccuracyStandard(atol=0, rtol=0)},
+        )
+
+
 def check_step(
     params, state, reference_state, table, starts, counts, variant, mode, layout
 ):
@@ -110,10 +148,14 @@ def check_step(
             transform(expected),
             standard={"torch.bfloat16": AccuracyStandard(atol=0.05, rtol=0.05)},
         )
-        assert_accuracy(
+        assert_state_accuracy(
             state,
             reference_state,
-            standard={"torch.float32": AccuracyStandard(atol=0.01, rtol=0.01)},
+            starts,
+            counts,
+            variant,
+            mode,
+            kwargs["state_block_table"],
         )
         executor.accuracy_checked = True
     return executor
