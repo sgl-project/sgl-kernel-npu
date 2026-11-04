@@ -2,7 +2,7 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
-| [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc`, `torch_native` |
+| [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc` (ARCH35), `torch_native` |
 | [alloc_extend](operators/mem_cache/alloc_extend.md) | `ascendc`, `torch_native` |
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
 | [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `ascendc` (ARCH35), `torch_native` |

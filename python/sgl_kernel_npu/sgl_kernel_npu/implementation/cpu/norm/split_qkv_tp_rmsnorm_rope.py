@@ -1,9 +1,9 @@
 """CPU reference for split QKV, tensor-parallel RMSNorm and NeoX RoPE."""
 
-# Keep FP32 normalization and intermediate input-dtype rounding; use PyTorch
-# for dtype-general RoPE and preserve the suffix when rotary_dim < head_dim.
 import torch
 import torch.distributed as dist
+
+from ...torch_native.norm.split_qkv_tp_rmsnorm_rope import apply_global, compute_local
 
 
 def split_qkv_tp_rmsnorm_rope(
@@ -23,41 +23,28 @@ def split_qkv_tp_rmsnorm_rope(
     assert head_dim == 1 << (head_dim - 1).bit_length()
     assert q_hidden_size % kv_hidden_size == 0
     device = input.device
-    q, k, v = input.cpu().split((q_hidden_size, kv_hidden_size, kv_hidden_size), dim=1)
+    parts = input.cpu().split((q_hidden_size, kv_hidden_size, kv_hidden_size), dim=1)
     if input.shape[0] == 0:
-        return tuple(part.clone().to(device) for part in (q, k, v))
+        return tuple(part.clone().to(device) for part in parts)
 
-    # Reduce just the two local statistics on the process group's device.
-    means = torch.stack([part.float().square().mean(1) for part in (q, k)], dim=1)
+    q, k, v = (part.new_empty(part.shape) for part in parts)
+    means = q.new_empty((input.shape[0], 2), dtype=torch.float32)
+    compute_local(*parts, q, k, v, means)
     if tp_world > 1:
         means = means.to(device)
         dist.all_reduce(means, group=tp_group)
         means = means.cpu() / tp_world
 
     half = rotary_dim // 2
-    cosine = cos.cpu().reshape(-1, rotary_dim)[:, None, :half].float()
-    sine = sin.cpu().reshape(-1, rotary_dim)[:, None, :half].float()
-
-    def normalize_rotate(part, weight, mean):
-        weighted = (
-            part.float()
-            * (1.0 / torch.sqrt(mean[:, None] + eps))
-            * weight.cpu().flatten()[: part.shape[1]].float()
-        )
-        heads = weighted.to(input.dtype).reshape(part.shape[0], -1, head_dim).float()
-        left, right = heads[..., :half], heads[..., half : 2 * half]
-        rotated = torch.cat(
-            (
-                left * cosine - right * sine,
-                right * cosine + left * sine,
-                heads[..., 2 * half :],
-            ),
-            dim=-1,
-        )
-        return rotated.reshape_as(part).to(device=device, dtype=input.dtype)
-
-    return (
-        normalize_rotate(q, q_weight, means[:, 0]),
-        normalize_rotate(k, k_weight, means[:, 1]),
-        v.contiguous().clone().to(device),
+    apply_global(
+        q.view(input.shape[0], -1, head_dim),
+        k.view(input.shape[0], -1, head_dim),
+        means,
+        q_weight.cpu().flatten()[:q_hidden_size].view(-1, head_dim),
+        k_weight.cpu().flatten()[:kv_hidden_size].view(-1, head_dim),
+        cos.cpu().reshape(-1, rotary_dim)[:, None, :half],
+        sin.cpu().reshape(-1, rotary_dim)[:, None, :half],
+        eps,
+        1.0,
     )
+    return tuple(part.to(device) for part in (q, k, v))
