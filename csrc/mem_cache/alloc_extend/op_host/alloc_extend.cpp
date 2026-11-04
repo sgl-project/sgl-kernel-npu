@@ -13,8 +13,8 @@ static ge::graphStatus Tiling(gert::TilingContext *context)
     const auto *pageSize = attrs ? attrs->GetAttrPointer<int64_t>(0) : nullptr;
     auto *raw = context->GetRawTilingData();
     auto *workspace = context->GetWorkspaceSizes(1);
-    if (!prefix || !output || !pageSize || !context->GetPlatformInfo() || !raw ||
-        !raw->GetData() || raw->GetCapacity() < sizeof(optiling::AllocExtendTilingData) || !workspace) {
+    if (!prefix || !output || !pageSize || !context->GetPlatformInfo() || !raw || !raw->GetData() ||
+        raw->GetCapacity() < sizeof(optiling::AllocExtendTilingData) || !workspace) {
         return ge::GRAPH_FAILED;
     }
     if (prefix->GetOriginShape().GetDimNum() < 1 || output->GetOriginShape().GetDimNum() < 1) {
@@ -60,26 +60,51 @@ class SglAllocExtend : public OpDef
 public:
     explicit SglAllocExtend(const char *name) : OpDef(name)
     {
-        this->Input("pre_lens").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Input("seq_lens").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Input("last_loc").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Input("free_pages").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Input("out_indices").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Input("values").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Output("out_indices").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
-        this->Output("values").ParamType(REQUIRED).DataType({ge::DT_INT64})
-            .Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("pre_lens")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("seq_lens")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("last_loc")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("free_pages")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("out_indices")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("values")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Output("out_indices")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Output("values")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT64})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
         this->Attr("page_size").AttrType(REQUIRED).Int();
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDataType);
         this->AICore().SetTiling(optiling::Tiling);
-        for (const auto *config : SGL_CANN_CONFIGS) this->AICore().AddConfig(config);
+        for (const auto *config : SGL_CANN_CONFIGS)
+            this->AICore().AddConfig(config);
     }
 };
 OP_ADD(SglAllocExtend);

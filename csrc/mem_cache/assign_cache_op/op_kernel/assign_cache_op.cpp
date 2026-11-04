@@ -16,7 +16,8 @@ public:
     __aicore__ inline AssignCacheOp(){};
     __aicore__ inline void Init(__gm__ uint8_t *dstPtr, __gm__ uint8_t *srcPtr, __gm__ uint8_t *dstStartIdxPtr,
                                 __gm__ uint8_t *dstEndIdxPtr, __gm__ uint8_t *srcStartIdxPtr,
-                                __gm__ uint8_t *srcEndIdxPtr, __gm__ uint8_t *sync, const CustomAssignTilingData &tilingData);
+                                __gm__ uint8_t *srcEndIdxPtr, __gm__ uint8_t *sync,
+                                const CustomAssignTilingData &tilingData);
     __aicore__ inline void CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor,
                                        uint32_t bytes);
     __aicore__ inline void Process();
@@ -153,8 +154,9 @@ __aicore__ inline void AssignCacheOp<T>::ParseTilingData(const CustomAssignTilin
 }  // namespace custom_assign
 
 extern "C" __global__ __aicore__ void sgl_assign_cache(GM_ADDR dstPtr, GM_ADDR srcPtr, GM_ADDR dstStartIdxPtr,
-                                                      GM_ADDR dstEndIdxPtr, GM_ADDR srcStartIdxPtr,
-                                                      GM_ADDR srcEndIdxPtr, GM_ADDR sync, GM_ADDR dstRef, GM_ADDR workspace, GM_ADDR tilingPtr)
+                                                       GM_ADDR dstEndIdxPtr, GM_ADDR srcStartIdxPtr,
+                                                       GM_ADDR srcEndIdxPtr, GM_ADDR sync, GM_ADDR dstRef,
+                                                       GM_ADDR workspace, GM_ADDR tilingPtr)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     REGISTER_TILING_DEFAULT(optiling::CustomAssignTilingData);

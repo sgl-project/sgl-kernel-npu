@@ -12,8 +12,8 @@ void alloc_extend(at::Tensor pre_lens, at::Tensor seq_lens, at::Tensor last_loc,
     const c10::DeviceGuard deviceGuard(pre_lens.device());
     static auto query = reinterpret_cast<decltype(&aclnnSglAllocExtendGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglAllocExtendGetWorkspaceSize"));
-    static auto execute = reinterpret_cast<decltype(&aclnnSglAllocExtend)>(
-        sgl_cann::op_api_symbol("aclnnSglAllocExtend"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglAllocExtend)>(sgl_cann::op_api_symbol("aclnnSglAllocExtend"));
     std::array<at::Tensor, 6> tensors = {pre_lens, seq_lens, last_loc, free_pages, out_indices, values};
     std::array<std::shared_ptr<aclTensor>, 6> descriptors;
     for (size_t i = 0; i < tensors.size(); ++i) {
@@ -28,7 +28,8 @@ void alloc_extend(at::Tensor pre_lens, at::Tensor seq_lens, at::Tensor last_loc,
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, pre_lens.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors) tensor.record_stream(stream);
+    for (const auto &tensor : tensors)
+        tensor.record_stream(stream);
     workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
@@ -42,8 +43,9 @@ void alloc_extend(at::Tensor pre_lens, at::Tensor seq_lens, at::Tensor last_loc,
 
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
-    m.def("alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
-          "Tensor(a!) out_indices, Tensor(b!) values) -> ()");
+    m.def(
+        "alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
+        "Tensor(a!) out_indices, Tensor(b!) values) -> ()");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {

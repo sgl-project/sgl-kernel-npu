@@ -20,8 +20,8 @@
 using namespace AscendC;
 
 extern "C" __global__ __aicore__ void sgl_kv_compress_epilog(GM_ADDR kv_compress_cache, GM_ADDR x, GM_ADDR slot_mapping,
-                                                         GM_ADDR kv_compress_cache_out, GM_ADDR workspace,
-                                                         GM_ADDR tiling)
+                                                             GM_ADDR kv_compress_cache_out, GM_ADDR workspace,
+                                                             GM_ADDR tiling)
 {
     if (workspace == nullptr) {
         return;

@@ -20,8 +20,14 @@ constexpr int64_t SLICE_SIZE = 64;
 constexpr int64_t PER_BLOCK_FP16 = 128;
 constexpr int64_t DEFAULT_QUANT_GROUP_SIZE = 128;
 constexpr int64_t DOUBLE_BUFFER = 2;
-static int64_t CeilDiv(int64_t x, int64_t y) { return y ? (x + y - 1) / y : x; }
-static int64_t RoundUp(int64_t x, int64_t y) { return CeilDiv(x, y) * y; }
+static int64_t CeilDiv(int64_t x, int64_t y)
+{
+    return y ? (x + y - 1) / y : x;
+}
+static int64_t RoundUp(int64_t x, int64_t y)
+{
+    return CeilDiv(x, y) * y;
+}
 static ge::graphStatus TilingKvCompressEpilog(gert::TilingContext *context)
 {
     const auto *xShape = context->GetInputShape(1);
@@ -29,9 +35,10 @@ static ge::graphStatus TilingKvCompressEpilog(gert::TilingContext *context)
     const auto *attrs = context->GetAttrs();
     auto *raw = context->GetRawTilingData();
     auto *workspace = context->GetWorkspaceSizes(1);
-    if (!xShape || !cacheShape || !attrs || !raw || !raw->GetData() || !workspace ||
-        !context->GetPlatformInfo() || !context->GetInputDesc(0) || !context->GetInputDesc(2) ||
-        raw->GetCapacity() < sizeof(SglKvCompressEpilogTilingData)) return ge::GRAPH_FAILED;
+    if (!xShape || !cacheShape || !attrs || !raw || !raw->GetData() || !workspace || !context->GetPlatformInfo() ||
+        !context->GetInputDesc(0) || !context->GetInputDesc(2) ||
+        raw->GetCapacity() < sizeof(SglKvCompressEpilogTilingData))
+        return ge::GRAPH_FAILED;
     const auto *group = attrs->GetAttrPointer<int64_t>(0);
     const auto *mode = attrs->GetAttrPointer<int64_t>(1);
     const auto *round = attrs->GetAttrPointer<bool>(2);
@@ -56,7 +63,6 @@ static ge::graphStatus TilingKvCompressEpilog(gert::TilingContext *context)
 
     int64_t scaleCol;
     if (quant_mode == QUANT_MODE_GROUP_MXFP8) {
-
         scaleCol = CeilDiv(d - SLICE_SIZE, quant_group_size);
     } else {
         scaleCol = CeilDiv(d - SLICE_SIZE, PER_BLOCK_FP16);
@@ -76,10 +82,7 @@ static ge::graphStatus TilingKvCompressEpilog(gert::TilingContext *context)
     int64_t blockSize = 0;
     int64_t blockStride = 0;
     if (layout == 2) {
-
-
         blockSize = cache.GetDim(1);
-
 
         int64_t quantCol = d - SLICE_SIZE;
         valuePerToken = quantCol + SLICE_SIZE * 2;  // FP8 quant bytes + BF16 rope bytes
@@ -175,7 +178,6 @@ static ge::graphStatus TilingKvCompressEpilog(gert::TilingContext *context)
     tilingData.dtype = dtypeCode;
     tilingData.tilingKey = 0;
 
-
     std::memcpy(raw->GetData(), &tilingData, sizeof(tilingData));
     raw->SetDataSize(sizeof(tilingData));
     context->SetBlockDim(usedCoreNums);
@@ -199,27 +201,42 @@ static ge::graphStatus InferDataTypeKvCompressEpilog(gert::InferDataTypeContext 
 }  // namespace optiling
 
 namespace ops {
-class SglKvCompressEpilog : public OpDef {
+class SglKvCompressEpilog : public OpDef
+{
 public:
     explicit SglKvCompressEpilog(const char *name) : OpDef(name)
     {
-        this->Input("cache").ParamType(REQUIRED).DataType({ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->Input("x").ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->Input("slot_mapping").ParamType(REQUIRED).DataType({ge::DT_INT32, ge::DT_INT64, ge::DT_INT32, ge::DT_INT64})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->Output("cache").ParamType(REQUIRED).DataType({ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        this->Input("cache")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        this->Input("x")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        this->Input("slot_mapping")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT32, ge::DT_INT64, ge::DT_INT32, ge::DT_INT64})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
+        this->Output("cache")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Attr("quant_group_size").AttrType(REQUIRED).Int();
         this->Attr("quant_mode").AttrType(REQUIRED).Int();
         this->Attr("round_scale_flag").AttrType(REQUIRED).Bool();
         this->Attr("layout").AttrType(REQUIRED).Int();
         this->Attr("block_stride").AttrType(REQUIRED).Int();
-        this->SetInferShape(optiling::InferShapeKvCompressEpilog).SetInferDataType(optiling::InferDataTypeKvCompressEpilog);
+        this->SetInferShape(optiling::InferShapeKvCompressEpilog)
+            .SetInferDataType(optiling::InferDataTypeKvCompressEpilog);
         this->AICore().SetTiling(optiling::TilingKvCompressEpilog);
-        for (const auto *config : SGL_CANN_CONFIGS) this->AICore().AddConfig(config);
+        for (const auto *config : SGL_CANN_CONFIGS)
+            this->AICore().AddConfig(config);
     }
 };
 OP_ADD(SglKvCompressEpilog);
-}
+}  // namespace ops

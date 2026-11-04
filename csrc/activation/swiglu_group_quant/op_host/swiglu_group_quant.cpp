@@ -66,7 +66,9 @@ struct SwigluGroupQuantInputs {
 class SwigluGroupQuantTiling
 {
 public:
-    explicit SwigluGroupQuantTiling(const SwigluGroupQuantInputs &inputs, platform_ascendc::PlatformAscendC &platform) : inputs_(inputs), platform_(platform) {}
+    explicit SwigluGroupQuantTiling(const SwigluGroupQuantInputs &inputs, platform_ascendc::PlatformAscendC &platform)
+        : inputs_(inputs), platform_(platform)
+    {}
 
     bool DoOpTiling(SwigluGroupQuantTilingData &out, uint32_t &tilingKey)
     {
@@ -506,7 +508,6 @@ private:
     bool hasGroupIndex_ = false;
 };
 
-
 static ge::graphStatus Tiling(gert::TilingContext *ctx)
 {
     const auto *shape = ctx->GetInputShape(0);
@@ -517,7 +518,8 @@ static ge::graphStatus Tiling(gert::TilingContext *ctx)
     SwigluGroupQuantInputs inputs;
     inputs.d = x.GetDim(x.GetDimNum() - 1);
     inputs.bs = 1;
-    for (size_t i = 0; i + 1 < x.GetDimNum(); ++i) inputs.bs *= x.GetDim(i);
+    for (size_t i = 0; i + 1 < x.GetDimNum(); ++i)
+        inputs.bs *= x.GetDim(i);
     inputs.hasTopkWeight = ctx->GetOptionalInputShape(1) != nullptr;
     const auto *group = ctx->GetOptionalInputShape(2);
     inputs.hasGroupIndex = group != nullptr;
@@ -576,25 +578,57 @@ static ge::graphStatus InferType(gert::InferDataTypeContext *ctx)
     const auto *attrs = ctx->GetAttrs();
     auto mode = *attrs->GetInt(0);
     ctx->SetOutputDataType(0, *attrs->GetBool(6) ? ge::DT_FLOAT8_E5M2 : ge::DT_FLOAT8_E4M3FN);
-    ctx->SetOutputDataType(1, mode == MX_QUANT || (mode == FP8_QUANT && *attrs->GetBool(2))
-                              ? ge::DT_FLOAT8_E8M0 : ge::DT_FLOAT);
+    ctx->SetOutputDataType(
+        1, mode == MX_QUANT || (mode == FP8_QUANT && *attrs->GetBool(2)) ? ge::DT_FLOAT8_E8M0 : ge::DT_FLOAT);
     ctx->SetOutputDataType(2, ctx->GetInputDataType(0));
     return ge::GRAPH_SUCCESS;
 }
 }  // namespace optiling
 
 namespace ops {
-class SglSwigluGroupQuant : public OpDef {
+class SglSwigluGroupQuant : public OpDef
+{
 public:
     explicit SglSwigluGroupQuant(const char *name) : OpDef(name)
     {
-        const std::initializer_list<ge::Format> nd = {ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND};
-        this->Input("x").ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_FLOAT16}).Format(nd).UnknownShapeFormat(nd);
-        this->Input("topk_weight").ParamType(OPTIONAL).DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT}).Format(nd).UnknownShapeFormat(nd);
-        this->Input("group_index").ParamType(OPTIONAL).DataType({ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64}).Format(nd).UnknownShapeFormat(nd);
-        this->Output("y").ParamType(REQUIRED).DataType({ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2}).Format(nd).UnknownShapeFormat(nd);
-        this->Output("scale").ParamType(REQUIRED).DataType({ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0}).Format(nd).UnknownShapeFormat(nd);
-        this->Output("y_origin").ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_FLOAT16}).Format(nd).UnknownShapeFormat(nd);
+        const std::initializer_list<ge::Format> formatND = {ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND,
+                                                            ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND};
+        this->Input("x")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16,
+                       ge::DT_FLOAT16, ge::DT_FLOAT16})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
+        this->Input("topk_weight")
+            .ParamType(OPTIONAL)
+            .DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT,
+                       ge::DT_FLOAT})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
+        this->Input("group_index")
+            .ParamType(OPTIONAL)
+            .DataType({ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64, ge::DT_INT64,
+                       ge::DT_INT64})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
+        this->Output("y")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2,
+                       ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
+        this->Output("scale")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT,
+                       ge::DT_FLOAT8_E8M0, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
+        this->Output("y_origin")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16,
+                       ge::DT_FLOAT16, ge::DT_FLOAT16})
+            .Format(formatND)
+            .UnknownShapeFormat(formatND);
         this->Attr("quant_mode").AttrType(REQUIRED).Int();
         this->Attr("round_scale").AttrType(REQUIRED).Bool();
         this->Attr("ue8m0_scale").AttrType(REQUIRED).Bool();
@@ -604,8 +638,9 @@ public:
         this->Attr("y_e5m2").AttrType(REQUIRED).Bool();
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferType);
         this->AICore().SetTiling(optiling::Tiling);
-        for (auto config : SGL_CANN_CONFIGS) this->AICore().AddConfig(config);
+        for (auto config : SGL_CANN_CONFIGS)
+            this->AICore().AddConfig(config);
     }
 };
 OP_ADD(SglSwigluGroupQuant);
-}
+}  // namespace ops

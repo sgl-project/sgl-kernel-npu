@@ -187,10 +187,10 @@ private:
     int64_t cur_extend_len;
 };
 
-extern "C" __global__ __aicore__ void sgl_alloc_extend(
-    GM_ADDR pre_lens, GM_ADDR seq_lens, GM_ADDR last_loc, GM_ADDR free_pages,
-    GM_ADDR out_indices, GM_ADDR values, GM_ADDR out_indices_ref, GM_ADDR values_ref,
-    GM_ADDR workspace, GM_ADDR tiling)
+extern "C" __global__ __aicore__ void sgl_alloc_extend(GM_ADDR pre_lens, GM_ADDR seq_lens, GM_ADDR last_loc,
+                                                       GM_ADDR free_pages, GM_ADDR out_indices, GM_ADDR values,
+                                                       GM_ADDR out_indices_ref, GM_ADDR values_ref, GM_ADDR workspace,
+                                                       GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     REGISTER_TILING_DEFAULT(optiling::AllocExtendTilingData);

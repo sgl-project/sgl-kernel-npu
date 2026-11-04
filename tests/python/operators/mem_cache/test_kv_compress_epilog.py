@@ -186,6 +186,7 @@ def test_kv_compress_epilog(
     check_performance(executor, enable_perf=(n, d) in perf_shape)
 
 
+@pytest.mark.extra_checks
 def test_fp8_layout2_rejected():
     # Reject the unsupported FP8 block layout at the shared public boundary.
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog

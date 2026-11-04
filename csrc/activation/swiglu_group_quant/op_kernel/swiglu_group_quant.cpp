@@ -67,9 +67,9 @@ namespace {
 
 }  // namespace
 
-extern "C" __global__ __aicore__ void sgl_swiglu_group_quant(GM_ADDR x, GM_ADDR topkWeight, GM_ADDR groupIndex, GM_ADDR y,
-                                                         GM_ADDR scale, GM_ADDR yOrigin, GM_ADDR workspace,
-                                                         GM_ADDR tiling)
+extern "C" __global__ __aicore__ void sgl_swiglu_group_quant(GM_ADDR x, GM_ADDR topkWeight, GM_ADDR groupIndex,
+                                                             GM_ADDR y, GM_ADDR scale, GM_ADDR yOrigin,
+                                                             GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     REGISTER_TILING_DEFAULT(optiling::SwigluGroupQuantTilingData);

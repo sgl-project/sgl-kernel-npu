@@ -11,24 +11,28 @@ namespace {
 aclDataType PayloadType(size_t bytes)
 {
     switch (bytes) {
-        case 1: return ACL_INT8;
-        case 2: return ACL_INT16;
-        case 4: return ACL_INT32;
-        case 8: return ACL_INT64;
-        default: return ACL_DT_UNDEFINED;
+        case 1:
+            return ACL_INT8;
+        case 2:
+            return ACL_INT16;
+        case 4:
+            return ACL_INT32;
+        case 8:
+            return ACL_INT64;
+        default:
+            return ACL_DT_UNDEFINED;
     }
 }
 std::shared_ptr<aclTensor> SourceBytes(const at::Tensor &source)
 {
     const int64_t size = source.numel() * source.element_size();
     const int64_t stride = 1;
-    auto *descriptor = aclCreateTensor(&size, 1, ACL_UINT8, &stride, 0, ACL_FORMAT_ND,
-                                       &size, 1, source.data_ptr());
+    auto *descriptor = aclCreateTensor(&size, 1, ACL_UINT8, &stride, 0, ACL_FORMAT_ND, &size, 1, source.data_ptr());
     TORCH_CHECK(descriptor, "aclCreateTensor failed: ", aclGetRecentErrMsg());
     return {descriptor, [](aclTensor *value) { aclDestroyTensor(value); }};
 }
-bool assign_cache_op(at::Tensor dst, at::Tensor src, at::Tensor dst_start, at::Tensor dst_end,
-                     at::Tensor src_start, at::Tensor src_end)
+bool assign_cache_op(at::Tensor dst, at::Tensor src, at::Tensor dst_start, at::Tensor dst_end, at::Tensor src_start,
+                     at::Tensor src_end)
 {
     const auto payloadType = PayloadType(dst.element_size());
     // No kernel branch performs a copy for other element widths.
@@ -36,16 +40,15 @@ bool assign_cache_op(at::Tensor dst, at::Tensor src, at::Tensor dst_start, at::T
     const c10::DeviceGuard deviceGuard(dst.device());
     static auto query = reinterpret_cast<decltype(&aclnnSglAssignCacheGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglAssignCacheGetWorkspaceSize"));
-    static auto execute = reinterpret_cast<decltype(&aclnnSglAssignCache)>(
-        sgl_cann::op_api_symbol("aclnnSglAssignCache"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglAssignCache)>(sgl_cann::op_api_symbol("aclnnSglAssignCache"));
     const auto deviceId = static_cast<uint32_t>(dst.get_device());
     int64_t cores = 0;
     auto coreStatus = aclrtGetDeviceInfo(deviceId, ACL_DEV_ATTR_VECTOR_CORE_NUM, &cores);
     if (coreStatus != ACL_SUCCESS || cores <= 0) {
         coreStatus = aclGetDeviceCapability(deviceId, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &cores);
     }
-    TORCH_CHECK(coreStatus == ACL_SUCCESS && cores > 0,
-                "AssignCache VECTOR_CORE_NUM query failed: device=", deviceId,
+    TORCH_CHECK(coreStatus == ACL_SUCCESS && cores > 0, "AssignCache VECTOR_CORE_NUM query failed: device=", deviceId,
                 ", status=", coreStatus, ", cores=", cores);
     auto sync = at::zeros({static_cast<int64_t>(cores * 64 + 32)}, dst.options().dtype(at::kByte));
     std::array<at::Tensor, 7> tensors = {dst, src, dst_start, dst_end, src_start, src_end, sync};
@@ -67,7 +70,8 @@ bool assign_cache_op(at::Tensor dst, at::Tensor src, at::Tensor dst_start, at::T
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, dst.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors) tensor.record_stream(stream);
+    for (const auto &tensor : tensors)
+        tensor.record_stream(stream);
     workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
@@ -82,8 +86,9 @@ bool assign_cache_op(at::Tensor dst, at::Tensor src, at::Tensor dst_start, at::T
 
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
-    m.def("assign_cache_op(Tensor(a!) out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, "
-          "Tensor src_start_idx, Tensor src_end_idx) -> bool");
+    m.def(
+        "assign_cache_op(Tensor(a!) out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, "
+        "Tensor src_start_idx, Tensor src_end_idx) -> bool");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {

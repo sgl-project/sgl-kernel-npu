@@ -9,4 +9,4 @@ struct CustomAssignTilingData {
     uint32_t ubSize;
 };
 static_assert(sizeof(CustomAssignTilingData) == 20, "Assign tiling layout must be 20 bytes");
-}
+}  // namespace optiling

@@ -83,7 +83,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
     const bool has_topk_weight = topk_weight.has_value() && topk_weight->defined() && topk_weight->numel() > 0;
     const bool has_group_index = group_index.has_value() && group_index->defined() && group_index->numel() > 0;
 
-
     const c10::DeviceGuard guard(x.device());
     auto outputs = ConstructOutputs(x, out_dtype, quant_mode, ue8m0_scale);
     auto &[y, scale, origin] = outputs;
@@ -91,10 +90,15 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
     TORCH_CHECK(group_list_type == 0, "swiglu_group_quant: tiling failed for group_list_type");
     const auto xd = x.scalar_type() == at::kHalf ? ACL_FLOAT16 : ACL_BF16;
     const bool e5 = out_dtype == at::kFloat8_e5m2;
-    std::array<at::Tensor, 6> tensors{x, has_topk_weight ? *topk_weight : at::Tensor{},
-        has_group_index ? *group_index : at::Tensor{}, y, scale, origin};
-    std::array<aclDataType, 6> types{xd, ACL_FLOAT, ACL_INT64, e5 ? ACL_FLOAT8_E5M2 : ACL_FLOAT8_E4M3FN,
-        scale.scalar_type() == at::kFloat ? ACL_FLOAT : ACL_FLOAT8_E8M0, xd};
+    std::array<at::Tensor, 6> tensors{
+        x,     has_topk_weight ? *topk_weight : at::Tensor{}, has_group_index ? *group_index : at::Tensor{}, y, scale,
+        origin};
+    std::array<aclDataType, 6> types{xd,
+                                     ACL_FLOAT,
+                                     ACL_INT64,
+                                     e5 ? ACL_FLOAT8_E5M2 : ACL_FLOAT8_E4M3FN,
+                                     scale.scalar_type() == at::kFloat ? ACL_FLOAT : ACL_FLOAT8_E8M0,
+                                     xd};
     std::array<std::shared_ptr<aclTensor>, 6> desc;
     auto stream = c10_npu::getCurrentNPUStream();
     for (size_t i = 0; i < tensors.size(); ++i) {
@@ -105,12 +109,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
     }
     static auto query = reinterpret_cast<decltype(&aclnnSglSwigluGroupQuantGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglSwigluGroupQuantGetWorkspaceSize"));
-    static auto execute = reinterpret_cast<decltype(&aclnnSglSwigluGroupQuant)>(
-        sgl_cann::op_api_symbol("aclnnSglSwigluGroupQuant"));
+    static auto execute =
+        reinterpret_cast<decltype(&aclnnSglSwigluGroupQuant)>(sgl_cann::op_api_symbol("aclnnSglSwigluGroupQuant"));
     uint64_t bytes = 0;
     aclOpExecutor *executor = nullptr;
-    auto status = query(desc[0].get(), desc[1].get(), desc[2].get(), quant_mode, round_scale, ue8m0_scale,
-        output_origin, group_list_type, clamp_value, e5, desc[3].get(), desc[4].get(), desc[5].get(), &bytes, &executor);
+    auto status =
+        query(desc[0].get(), desc[1].get(), desc[2].get(), quant_mode, round_scale, ue8m0_scale, output_origin,
+              group_list_type, clamp_value, e5, desc[3].get(), desc[4].get(), desc[5].get(), &bytes, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "SwiGLU workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(bytes <= INT64_MAX, "SwiGLU workspace exceeds tensor allocation limit");
     auto ws = at::empty({static_cast<int64_t>(bytes)}, x.options().dtype(at::kByte));
@@ -123,7 +128,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
     at_npu::native::OpCommand::RunOpApi("aclnnSglSwigluGroupQuant", launch);
     return outputs;
 }
-}
+}  // namespace
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
