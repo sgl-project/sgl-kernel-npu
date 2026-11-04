@@ -89,6 +89,7 @@ if _TORCHAIR_AVAILABLE:
         comm_alg: str = "",
         global_bs: int = 0,
         shared_expert_num: int = 0,
+        activation_clamp: float = 0.0,
         dependencies=[],
         node_name=None
     ):
@@ -117,6 +118,7 @@ if _TORCHAIR_AVAILABLE:
         .ATTR(combine_quant_mode, Int, 0)\n
         .ATTR(comm_alg, String, "")\n
         .ATTR(global_bs, Int, 0)\n        .ATTR(shared_expert_num, Int, 0)\n
+        .ATTR(activation_clamp, Float, 0.0)\n
         """
         # process inputs
         inputs = {
@@ -144,6 +146,7 @@ if _TORCHAIR_AVAILABLE:
             "comm_alg": attr.Str(comm_alg),
             "global_bs": attr.Int(global_bs),
             "shared_expert_num": attr.Int(shared_expert_num),
+            "activation_clamp": attr.Float(activation_clamp),
         }
 
         # process outputs
@@ -191,6 +194,7 @@ if _TORCHAIR_AVAILABLE:
             .attr("comm_alg", attr.Str(""))
             .attr("global_bs", attr.Int(0))
             .attr("shared_expert_num", attr.Int(0))
+            .attr("activation_clamp", attr.Float(0.0))
             .output("y", "DT_BF16, DT_FLOAT16")
             .output("expert_token_nums", "DT_INT32"),
         )
@@ -221,6 +225,7 @@ if _TORCHAIR_AVAILABLE:
         weight1_type: int = 28,
         weight2_type: int = 28,
         timer: Optional[Tensor] = None,
+        activation_clamp: float = 0.0,
         meta_outputs: TensorSpec = None
     ):
 
@@ -249,5 +254,6 @@ if _TORCHAIR_AVAILABLE:
             comm_alg=comm_alg,
             global_bs=global_bs,
             shared_expert_num=shared_expert_num,
+            activation_clamp=activation_clamp,
             dispatch_quant_out_dtype=dispatch_quant_out_dtype,
         )

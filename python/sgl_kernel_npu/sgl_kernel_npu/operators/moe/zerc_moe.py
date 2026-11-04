@@ -1,5 +1,7 @@
 """Ascend 950 ZeRCMoE with explicit, process-lifetime communication state."""
 
+import math
+import struct
 from importlib import import_module
 from threading import RLock
 from types import MappingProxyType
@@ -201,6 +203,7 @@ def zerc_moe(
     l2_weights_shared_sf=None,
     *,
     impl="auto",
+    activation_clamp=None,
 ):
     """Run the Ascend 950 eager kernel; auto selects its Ascend C backend.
 
@@ -208,10 +211,33 @@ def zerc_moe(
     one stacked tensor each. A buffer created by create_zerc_moe_buffer
     must be shared across calls. Each token's expert IDs must be in range and
     distinct. All ranks must use the same token count, hidden dimension and top-k
-    for each call. Calls using the same buffer must not overlap across streams. Shared experts are
-    supported only in eager mode. All ranks must finish and synchronize device
-    work before destroying the buffer.
+    for each call. Calls using the same buffer must not overlap across streams.
+    Shared experts are supported only in eager mode. All ranks must finish and
+    synchronize device work before destroying the buffer.
+
+    ``activation_clamp`` applies DSV4 pre-SwiGLU bounds to both routed and
+    fused shared experts. All ranks must use the same value for each call;
+    ``None`` and 0 disable the bounds.
     """
+    # CANN stores this attribute as float32. Reject overflow and positive
+    # underflow instead of silently turning a requested clamp into infinity or 0.
+    if activation_clamp is None:
+        activation_clamp = 0.0
+    try:
+        activation_clamp = float(activation_clamp)
+        encoded_clamp = struct.unpack("f", struct.pack("f", activation_clamp))[0]
+    except (TypeError, ValueError, OverflowError, struct.error) as exc:
+        raise ValueError(
+            "activation_clamp must be a nonnegative finite float32"
+        ) from exc
+    if (
+        not math.isfinite(activation_clamp)
+        or not math.isfinite(encoded_clamp)
+        or activation_clamp < 0
+        or (activation_clamp > 0 and encoded_clamp == 0)
+    ):
+        raise ValueError("activation_clamp must be a nonnegative finite float32")
+    activation_clamp = encoded_clamp
     if not isinstance(sym_buffer, ZercMoeBuffer) or sym_buffer._closed:
         raise ValueError("sym_buffer must be a live ZercMoeBuffer")
     if scales is not None or x_active_mask is not None:
@@ -429,4 +455,5 @@ def zerc_moe(
             l2_weights_shared=l2_weights_shared,
             l1_weights_shared_sf=l1_weights_shared_sf,
             l2_weights_shared_sf=l2_weights_shared_sf,
+            activation_clamp=activation_clamp,
         )

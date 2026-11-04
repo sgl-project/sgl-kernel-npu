@@ -25,14 +25,16 @@ using namespace op;
 extern "C" {
 #endif
 
+// CANN-generated ACLNN interfaces use double for Float attributes; the GE
+// attribute and tiling data store the resulting value as float32.
 extern aclnnStatus aclnnInnerZercMoeGetWorkspaceSize(
     const aclTensor *context, const aclTensor *x, const aclTensor *topkIds, const aclTensor *topkWeights,
     const aclTensorList *weight1, const aclTensorList *weight2, const aclTensorList *weightScales1Optional,
     const aclTensorList *weightScales2Optional, const aclTensor *xActiveMaskOptional, const aclTensor *scalesOptional,
     int64_t moeExpertNum, int64_t epWorldSize, int64_t cclBufferSize, int64_t maxRecvTokenNum,
     int64_t dispatchQuantMode, int64_t dispatchQuantOutType, int64_t combineQuantMode, const char *commAlg,
-    int64_t globalBs, int64_t sharedExpertNum, aclTensor *yOut, aclTensor *expertTokenNumsOut, uint64_t *workspaceSize,
-    aclOpExecutor **executor);
+    int64_t globalBs, int64_t sharedExpertNum, double activationClamp, aclTensor *yOut, aclTensor *expertTokenNumsOut,
+    uint64_t *workspaceSize, aclOpExecutor **executor);
 
 extern aclnnStatus aclnnInnerZercMoe(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                      aclrtStream stream);
@@ -47,8 +49,8 @@ aclnnStatus aclnnZercMoeGetWorkspaceSize(
     const aclTensorList *weightScales2Optional, const aclTensor *xActiveMaskOptional, const aclTensor *scalesOptional,
     int64_t moeExpertNum, int64_t epWorldSize, int64_t cclBufferSize, int64_t maxRecvTokenNum,
     int64_t dispatchQuantMode, int64_t dispatchQuantOutType, int64_t combineQuantMode, const char *commAlg,
-    int64_t globalBs, int64_t sharedExpertNum, aclTensor *yOut, aclTensor *expertTokenNumsOut, uint64_t *workspaceSize,
-    aclOpExecutor **executor)
+    int64_t globalBs, int64_t sharedExpertNum, double activationClamp, aclTensor *yOut, aclTensor *expertTokenNumsOut,
+    uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     OP_LOGD("aclnn_mega_moe WorkspaceSize start");
 
@@ -65,7 +67,7 @@ aclnnStatus aclnnZercMoeGetWorkspaceSize(
                                              weightScales2Optional, xActiveMaskOptional, scalesOptional, moeExpertNum,
                                              epWorldSize, cclBufferSize, maxRecvTokenNum, dispatchQuantMode,
                                              dispatchQuantOutType, combineQuantMode, commAlg, globalBs, sharedExpertNum,
-                                             yOut, expertTokenNumsOut, workspaceSize, executor);
+                                             activationClamp, yOut, expertTokenNumsOut, workspaceSize, executor);
 }
 
 aclnnStatus aclnnZercMoe(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

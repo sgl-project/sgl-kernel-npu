@@ -289,9 +289,11 @@ def test_original_megamoe_signatures_are_preserved(api):
         for name, default in zip(names[required:], function.args.defaults):
             assert params[name].default == ast.literal_eval(default)
         if original_name == "mega_moe":
-            assert list(params)[len(names) :] == ["impl"]
+            assert set(list(params)[len(names) :]) == {"impl", "activation_clamp"}
             assert params["impl"].kind == inspect.Parameter.KEYWORD_ONLY
             assert params["impl"].default == "auto"
+            assert params["activation_clamp"].kind == inspect.Parameter.KEYWORD_ONLY
+            assert params["activation_clamp"].default is None
         else:
             assert len(params) == len(names)
 
@@ -361,7 +363,7 @@ def test_original_arguments_reach_the_backend_without_shifting(api, by_keyword):
         result = module.zerc_moe(x, ids, weights, l1, l2, buffer, *optional.values())
     assert result == ("output", "counts")
     backend.mega_moe.assert_called_once_with(
-        x, ids, weights, l1, l2, buffer._buffer, **optional
+        x, ids, weights, l1, l2, buffer._buffer, activation_clamp=0.0, **optional
     )
 
 
@@ -498,6 +500,7 @@ def test_original_positional_quantized_scales_are_not_shifted(api):
         l2_weights_shared=shared2,
         l1_weights_shared_sf=shared_sf1,
         l2_weights_shared_sf=shared_sf2,
+        activation_clamp=0.0,
     )
 
 
@@ -704,3 +707,36 @@ def test_mixed_none_and_empty_optional_values_are_absent(api):
         "l2_weights_shared_sf",
     ):
         assert backend.mega_moe.call_args.kwargs[name] is None
+
+
+def test_activation_clamp_default_is_forwarded_as_disabled(api):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    assert module.zerc_moe(*_inputs(), buffer) == ("output", "counts")
+    assert backend.mega_moe.call_args.kwargs["activation_clamp"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "value", [None, 0, 10.0, 0.1, 2.0**-149, float.fromhex("0x1.fffffep+127")]
+)
+def test_activation_clamp_is_normalized_and_forwarded(api, value):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    assert module.zerc_moe(*_inputs(), buffer, activation_clamp=value) == (
+        "output",
+        "counts",
+    )
+    expected = 0.0 if value is None else torch.tensor(value, dtype=torch.float32).item()
+    assert backend.mega_moe.call_args.kwargs["activation_clamp"] == expected
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [-1.0, float("nan"), float("inf"), -float("inf"), 3.5e38, 1e-50, "invalid"],
+)
+def test_invalid_activation_clamp_is_rejected_before_launch(api, invalid):
+    module, backend = api
+    buffer = module.create_zerc_moe_buffer(object(), 2, 8, 1, 16, 4)
+    with pytest.raises(ValueError, match="activation_clamp"):
+        module.zerc_moe(*_inputs(), buffer, activation_clamp=invalid)
+    backend.mega_moe.assert_not_called()

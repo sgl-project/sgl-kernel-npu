@@ -8,6 +8,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 // -----------------------------------------------------------------------------------------------------------
 
+#include <cmath>
+#include <limits>
 #include <torch/extension.h>
 #include "aclnn_common.h"
 
@@ -56,8 +58,14 @@ std::tuple<at::Tensor, at::Tensor> npu_zerc_moe(
     const c10::optional<std::vector<at::Tensor>> &shared_weight1,
     const c10::optional<std::vector<at::Tensor>> &shared_weight2,
     const c10::optional<std::vector<at::Tensor>> &shared_weight_scales1,
-    const c10::optional<std::vector<at::Tensor>> &shared_weight_scales2)
+    const c10::optional<std::vector<at::Tensor>> &shared_weight_scales2, double activation_clamp)
 {
+    TORCH_CHECK(std::isfinite(activation_clamp) && activation_clamp >= 0.0 &&
+                    activation_clamp <= static_cast<double>(std::numeric_limits<float>::max()),
+                "activation_clamp must be a nonnegative finite float32");
+    const float activationClamp = static_cast<float>(activation_clamp);
+    TORCH_CHECK(activation_clamp == 0.0 || activationClamp > 0.0f,
+                "positive activation_clamp is too small for float32");
     TORCH_CHECK((ep_world_size > 0), "The ep_world_sizes should be greater than 0, current is: ", ep_world_size);
     TORCH_CHECK((x.dim() == DIM_TWO) && (topk_ids.dim() == DIM_TWO), "The x and topk_ids should be 2D");
     TORCH_CHECK(
@@ -176,7 +184,7 @@ std::tuple<at::Tensor, at::Tensor> npu_zerc_moe(
     ACLNN_CMD(aclnnZercMoe, context, x, topk_ids, topk_weights, weight1_launch, weight2_launch, scales1_launch,
               scales2_launch, x_active_mask, timer, moe_expert_num, ep_world_size, ccl_buffer_size, max_recv_token_num,
               dispatch_quant_mode, dispatch_quant_result_type, combine_quant_mode, comm_alg_ptr, global_bs,
-              shared_expert_num, y, expert_token_nums);
+              shared_expert_num, static_cast<double>(activationClamp), y, expert_token_nums);
 
     return std::tie(y, expert_token_nums);
 }

@@ -43,10 +43,11 @@ def zerc_moe(
     weight1_type=28, weight2_type=28, timer=None,
     l1_weights_shared=None, l2_weights_shared=None,
     l1_weights_shared_sf=None, l2_weights_shared_sf=None, *, impl="auto",
+    activation_clamp=None,
 ): ...
 ```
 
-参数名称、顺序和默认值与导入的原版 MegaMoE 一致；新增 `impl` 仅能以关键字传入。
+原版 MegaMoE 参数的名称、顺序和默认值保持一致；新增 `impl` 和 `activation_clamp` 仅能以关键字传入。
 
 ## 功能描述
 
@@ -55,6 +56,11 @@ def zerc_moe(
 (W1_up_e @ x))`；每个 token 输出为其选中专家 `p_e * f_e(x)` 之和。
 可选本地共享专家的 `f_s(x)` 直接加入输出，不乘路由权重。BF16 与 MXFP8
 路径的中间舍入和存储不同。
+
+`activation_clamp` 指定正阈值 `c` 时，在 SwiGLU 之前对 gate 仅限制上界、
+对 up 同时限制上下界：`silu(min(gate, c)) * clamp(up, -c, c)`。
+该参数同时作用于路由专家和通过此接口融合的共享专家，同次调用所有 rank
+须使用相同的阈值；`None` 或 `0` 关闭截断，保持原有行为。该实现尚未编译或在设备上验证。
 
 ## 参数与返回值
 
@@ -78,6 +84,7 @@ def zerc_moe(
 | `l2_weights_sf` | 含一个 Tensor `[E,H,ceil(I/64),2]` 的列表，E8M0 | `None` | MXFP8 模式必填；BF16 模式不传。 |
 | `l1_weights_shared`、`l2_weights_shared` | 含一个 Tensor `[S,2*I_s,H]`、`[S,H,I_s]` 的列表 | `None` | 可选本地共享专家，须成对提供，dtype 与路由专家权重一致。 |
 | `l1_weights_shared_sf`、`l2_weights_shared_sf` | 含一个 E8M0 Tensor 的列表 | `None` | MXFP8 共享权重 scale，形状分别为 `[S,2*I_s,ceil(H/64),2]` 和 `[S,H,ceil(I_s/64),2]`；BF16 模式不传。 |
+| `activation_clamp` | float，仅关键字参数 | `None` | DSV4 截断阈值；正的有限 float32 值启用，`None` 或 `0` 禁用；负数、非有限值及无法表示为非零有限 float32 的正数报错。 |
 | `impl` | str，仅关键字参数 | `"auto"` | `auto` 或 `ascendc`，两者均选择此源码实现。 |
 
 返回 `(y, expert_token_nums)`：`y` 为 BF16 `[B,H]`，`expert_token_nums` 为

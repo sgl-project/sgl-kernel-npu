@@ -59,6 +59,7 @@ public:
         GM_ADDR biasGmAddr{nullptr};
         uint32_t baseM;
         uint32_t baseN;
+        float activationClamp = 0.0f;
         Arguments() = default;
     };
 
@@ -118,8 +119,13 @@ public:
         uint32_t rowStride = Ops::Base::CeilAlign(singleN, SWIGLU_BF16_UB_ROW_ALIGN);
         __ubuf__ bfloat16_t *firstSrc = (__ubuf__ bfloat16_t *)l0cOutUbFirst_.GetPhyAddr();
         __ubuf__ bfloat16_t *secondSrc = (__ubuf__ bfloat16_t *)l0cOutUbSecond_.GetPhyAddr();
-        VfSwigluInPlace(firstSrc, secondSrc, static_cast<uint16_t>(singleM), static_cast<uint16_t>(singleN),
-                        static_cast<uint16_t>(rowStride));
+        if (params_.activationClamp > 0.0f) {
+            VfSwigluInPlace<true>(firstSrc, secondSrc, static_cast<uint16_t>(singleM), static_cast<uint16_t>(singleN),
+                                  static_cast<uint16_t>(rowStride), params_.activationClamp);
+        } else {
+            VfSwigluInPlace<false>(firstSrc, secondSrc, static_cast<uint16_t>(singleM), static_cast<uint16_t>(singleN),
+                                   static_cast<uint16_t>(rowStride), 0.0f);
+        }
         AscendC::SyncFunc<AscendC::HardEvent::V_MTE3>();
         CopyOutputFromUb2Gm(singleM, singleN, rowStride, static_cast<uint64_t>(Get<Y_IDX>(blockCoord)));
         // The next tile reuses the same UB rows; join the GM store first.
@@ -131,8 +137,9 @@ public:
     }
 
 private:
+    template <bool HasClamp>
     __simd_vf__ inline void VfSwigluInPlace(__ubuf__ bfloat16_t *firstSrc, __ubuf__ bfloat16_t *secondSrc,
-                                            uint16_t mSize, uint16_t nSize, uint16_t rowStride)
+                                            uint16_t mSize, uint16_t nSize, uint16_t rowStride, float activationClamp)
     {
         AscendC::Reg::RegTensor<bfloat16_t> first, second, resultOddLanes, resultEvenLanes;
         AscendC::Reg::RegTensor<float> firstFp32, secondFp32, negative, exponent, denominator, swish, resultFp32;
@@ -160,6 +167,11 @@ private:
                 // ONE layout selects the odd BF16 lanes (1, 3, ..., 127).
                 AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(firstFp32, first, maskBf16);
                 AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(secondFp32, second, maskBf16);
+                if constexpr (HasClamp) {
+                    AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+                    AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+                    AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+                }
                 AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
                 AscendC::Reg::Exp(exponent, negative, maskFp32);
                 AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);
@@ -170,6 +182,11 @@ private:
                 // ZERO layout selects the even BF16 lanes (0, 2, ..., 126).
                 AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(firstFp32, first, maskBf16);
                 AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(secondFp32, second, maskBf16);
+                if constexpr (HasClamp) {
+                    AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+                    AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+                    AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+                }
                 AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
                 AscendC::Reg::Exp(exponent, negative, maskFp32);
                 AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);

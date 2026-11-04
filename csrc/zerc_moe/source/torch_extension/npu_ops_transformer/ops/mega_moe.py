@@ -39,7 +39,7 @@ class _MegaMoeOpBuilder(OpBuilder):
             "Tensor? scales=None, int? max_recv_token_num=0, int? dispatch_quant_mode=0, "
             'int? combine_quant_mode=0, str? comm_alg="", int? global_bs=0, '
             "int? dispatch_quant_out_dtype=28, int? weight1_type=28, int? weight2_type=28, "
-            "Tensor? timer=None) -> (Tensor, Tensor)"
+            "Tensor? timer=None, float activation_clamp=0.) -> (Tensor, Tensor)"
         )
 
     def register_meta(self):
@@ -67,6 +67,7 @@ class _MegaMoeOpBuilder(OpBuilder):
             weight1_type=28,
             weight2_type=28,
             timer=None,
+            activation_clamp=0.0,
         ):
             torch._check(
                 ep_world_size != 0,
@@ -114,6 +115,7 @@ def _npu_mega_moe(
     shared_weight2=None,
     shared_weight_scales1=None,
     shared_weight_scales2=None,
+    activation_clamp=0.0,
 ):
     return _op_module.npu_zerc_moe(
         context,
@@ -142,6 +144,7 @@ def _npu_mega_moe(
         shared_weight2,
         shared_weight_scales1,
         shared_weight_scales2,
+        activation_clamp,
     )
 
 
@@ -389,6 +392,8 @@ def mega_moe(
     l2_weights_shared: Optional[List[torch.Tensor]] = None,
     l1_weights_shared_sf: Optional[List[torch.Tensor]] = None,
     l2_weights_shared_sf: Optional[List[torch.Tensor]] = None,
+    *,
+    activation_clamp: float = 0.0,
 ):
 
     return _npu_mega_moe(
@@ -418,4 +423,5 @@ def mega_moe(
         l2_weights_shared,
         l1_weights_shared_sf,
         l2_weights_shared_sf,
+        activation_clamp,
     )

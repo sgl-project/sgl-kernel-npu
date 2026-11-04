@@ -1160,6 +1160,15 @@ static ge::graphStatus SetAttrParams(const gert::TilingContext *context, MegaMoe
 
     auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>((config.attrEpWorldSizeIndex));
     auto maxRecvTokenNumPtr = attrs->GetAttrPointer<int64_t>((config.attrMaxRecvTokenNumIndex));
+    auto activationClampPtr = attrs->GetAttrPointer<float>(config.attrActivationClampIndex);
+    // The OpDef supplies the 0.0 default. Missing it can indicate incompatible
+    // generated artifacts; do not silently run a requested clamp as disabled.
+    OP_TILING_CHECK(activationClampPtr == nullptr, OP_LOGE(nodeName, "activation_clamp attribute is missing."),
+                    return ge::GRAPH_FAILED);
+    const float activationClamp = *activationClampPtr;
+    OP_TILING_CHECK(!std::isfinite(activationClamp) || activationClamp < 0.0f,
+                    OP_LOGE(nodeName, "activation_clamp must be finite and nonnegative."), return ge::GRAPH_FAILED);
+    tilingData->activationClamp = activationClamp;
 
     tilingData->epWorldSize = *epWorldSizePtr;
     const int64_t requestedMaxOutputSize = *maxRecvTokenNumPtr;

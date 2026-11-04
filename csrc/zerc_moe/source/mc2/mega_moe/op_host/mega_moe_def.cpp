@@ -91,6 +91,7 @@ public:
         // block. This keeps the prototype at the pre-shared-expert input count
         // (per-DYNAMIC-input launch cost scales with input slots).
         this->Attr("shared_expert_num").AttrType(OPTIONAL).Int(0);
+        this->Attr("activation_clamp").AttrType(OPTIONAL).Float(0.0f);
 
         OpAICoreConfig aicore_config;
         aicore_config.DynamicCompileStaticFlag(true)

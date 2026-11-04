@@ -514,11 +514,12 @@ __aicore__ inline void MegaMoe<TemplateMegaMoeTypeFunc>::Init(GM_ADDR context, G
         if constexpr (UseBf16NoQuant) {
             sharedEpilogueOp_.Init({params_.workspaceInfo.ptrSharedActivation, nullptr,
                                     params_.workspaceInfo.ptrSharedReadyFlag, nullptr, nullptr, nullptr, ALIGN_256,
-                                    ALIGN_256});
+                                    ALIGN_256, tilingData->activationClamp});
         } else {
-            sharedEpilogueOp_.Init(
-                {params_.workspaceInfo.ptrSharedActivation, params_.workspaceInfo.ptrSharedActivationScale,
-                 params_.workspaceInfo.ptrSharedReadyFlag, nullptr, nullptr, nullptr, ALIGN_256, ALIGN_256});
+            sharedEpilogueOp_.Init({params_.workspaceInfo.ptrSharedActivation,
+                                    params_.workspaceInfo.ptrSharedActivationScale,
+                                    params_.workspaceInfo.ptrSharedReadyFlag, nullptr, nullptr, nullptr, ALIGN_256,
+                                    ALIGN_256, tilingData->activationClamp});
         }
     }
     tokenPerExpertWin_.SetGlobalBuffer((__gm__ int32_t *)params_.peermemInfo.ptrTokenPerExpert);
@@ -529,11 +530,12 @@ __aicore__ inline void MegaMoe<TemplateMegaMoeTypeFunc>::Init(GM_ADDR context, G
     combineAccumGm_.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(params_.workspaceInfo.ptrCombineAccum));
     combineAccumGmGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ bfloat16_t *>(params_.workspaceInfo.ptrCombineAccum));
     epilogueOp_.Init({params_.workspaceInfo.ptrA2, params_.workspaceInfo.ptrA2Scale,
-                      params_.workspaceInfo.ptrFlagSwiGluToGmm2, nullptr, nullptr, nullptr, ALIGN_256, ALIGN_256});
+                      params_.workspaceInfo.ptrFlagSwiGluToGmm2, nullptr, nullptr, nullptr, ALIGN_256, ALIGN_256,
+                      tilingData->activationClamp});
     if constexpr (UseCoreWave) {
         streamingEpilogueOp_.Init({params_.workspaceInfo.ptrA2, params_.workspaceInfo.ptrA2Scale,
                                    params_.workspaceInfo.ptrFlagSwiGluToGmm2, nullptr, nullptr, nullptr, ALIGN_256,
-                                   ALIGN_256});
+                                   ALIGN_256, tilingData->activationClamp});
     }
     localExpandedRowIdxSt_ = rankId_ * m_ * topK_ * sizeof(int32_t);
     localTokenPerExpertSt_ =

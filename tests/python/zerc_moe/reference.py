@@ -9,15 +9,26 @@ import torch
 import torch.nn.functional as F
 
 
-def _expert(x, w1, w2):
+def _expert(x, w1, w2, activation_clamp=None):
     projected = (w1.float() @ x.float()).to(torch.bfloat16).float()
     gate, up = projected.chunk(2)
+    if activation_clamp:
+        gate = gate.clamp(max=activation_clamp)
+        up = up.clamp(min=-activation_clamp, max=activation_clamp)
     hidden = (F.silu(gate) * up).to(torch.bfloat16).float()
     return (w2.float() @ hidden).to(torch.bfloat16)
 
 
 def reference_bf16(
-    xs, ids, probabilities, first, second, shared_first=None, shared_second=None
+    xs,
+    ids,
+    probabilities,
+    first,
+    second,
+    shared_first=None,
+    shared_second=None,
+    *,
+    activation_clamp=None,
 ):
     """Return (one BF16 output and local int32 expert counts per rank).
 
@@ -27,6 +38,8 @@ def reference_bf16(
     in owner-rank, then local-expert order with BF16 rounding at each stage.
     Shared experts are local to each source rank and added without a route
     probability. Each first projection uses the gate/up weight layout.
+    ``activation_clamp`` applies the DSV4 asymmetric pre-SiLU bounds to routed
+    and shared experts; None and zero leave the existing calculation unchanged.
     """
     world = len(xs)
     if world < 2 or any(
@@ -115,7 +128,9 @@ def reference_bf16(
             for slot in slots:
                 owner, local = divmod(int(ids[rank][row, slot]), experts)
                 counts[owner][local] += 1
-                y = _expert(x[row], first[owner][local], second[owner][local])
+                y = _expert(
+                    x[row], first[owner][local], second[owner][local], activation_clamp
+                )
                 term = (y * probabilities[rank][row, slot]).to(torch.bfloat16)
                 owner_parts[owner] = (owner_parts[owner] + term).to(torch.bfloat16)
             combined = torch.zeros(hidden, dtype=torch.bfloat16)
@@ -129,6 +144,7 @@ def reference_bf16(
                             x[row],
                             shared_first[rank][index],
                             shared_second[rank][index],
+                            activation_clamp,
                         )
                     ).to(torch.bfloat16)
             out[row] = combined

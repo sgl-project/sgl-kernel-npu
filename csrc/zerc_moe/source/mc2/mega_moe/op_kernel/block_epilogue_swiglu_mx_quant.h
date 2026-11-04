@@ -134,6 +134,7 @@ public:
         GM_ADDR biasGmAddr{nullptr};
         uint32_t baseM;
         uint32_t baseN;
+        float activationClamp = 0.0f;
         Arguments() = default;
     };
 
@@ -171,13 +172,14 @@ private:
                                                    __ubuf__ uint16_t *halfScaleLocalAddr, uint16_t mSize,
                                                    uint16_t nSize);
 
+    template <bool HasClamp>
     __simd_vf__ inline void VfSwiglu(__ubuf__ DataTypeIn *firstSrc, __ubuf__ DataTypeIn *secondSrc,
                                      __ubuf__ bfloat16_t *gluResAddr, __ubuf__ DataTypeIn *firstTailAddr,
                                      __ubuf__ DataTypeIn *secondTailAddr, __ubuf__ bfloat16_t *swigluTailAddr1,
                                      __ubuf__ bfloat16_t *swigluTailAddr2, uint32_t nSrcUbAligned,
                                      uint32_t nDstUbAligned, uint16_t dim0VfTimes, uint16_t dim1VfTimes,
                                      uint16_t dim1TailTimes, uint16_t dim1Tail2, uint32_t mask1Num, uint32_t mask2Num,
-                                     uint32_t mask3Num);
+                                     uint32_t mask3Num, float activationClamp);
 
     __simd_vf__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint16_t *mxScaleLocalAddr,
                                          __ubuf__ uint16_t *halfScaleLocalAddr, uint32_t totalScaleInUB,
@@ -186,9 +188,10 @@ private:
     __simd_vf__ inline void ComputeMaxExp(__ubuf__ bfloat16_t *srcAddr, __ubuf__ uint16_t *maxExpAddr,
                                           uint32_t totalCountInUB, uint16_t loopNum);
 
+    template <bool HasClamp>
     __simd_vf__ inline void VfSwigluAndMaxExp256(__ubuf__ bfloat16_t *firstSrc, __ubuf__ bfloat16_t *secondSrc,
                                                  __ubuf__ bfloat16_t *gluResAddr, __ubuf__ uint16_t *maxExpAddr,
-                                                 uint16_t mSize);
+                                                 uint16_t mSize, float activationClamp);
 
     __simd_vf__ inline void ComputeDataForQuantTargetFp8(__ubuf__ bfloat16_t *srcAddr,
                                                          __ubuf__ uint16_t *halfScaleLocalAddr,
@@ -516,12 +519,13 @@ BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LOCAL_PARAMS>::ComputeDat
 }
 
 BLOCK_EPILOGUE_SWIGLU_QUANT_CLASS_LOCAL_PARAMS
+template <bool HasClamp>
 __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LOCAL_PARAMS>::VfSwiglu(
     __ubuf__ DataTypeIn *firstSrc, __ubuf__ DataTypeIn *secondSrc, __ubuf__ bfloat16_t *gluResAddr,
     __ubuf__ DataTypeIn *firstTailAddr, __ubuf__ DataTypeIn *secondTailAddr, __ubuf__ bfloat16_t *swigluTailAddr1,
     __ubuf__ bfloat16_t *swigluTailAddr2, uint32_t nSrcUbAligned, uint32_t nDstUbAligned, uint16_t dim0VfTimes,
     uint16_t dim1VfTimes, uint16_t dim1TailTimes, uint16_t dim1Tail2, uint32_t mask1Num, uint32_t mask2Num,
-    uint32_t mask3Num)
+    uint32_t mask3Num, float activationClamp)
 {
     const float scalarOne = 1.0f;
     const float negScalarOne = -1.0f;
@@ -553,6 +557,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
             // 数据类型转换
             AscendC::Reg::Cast<float, DataTypeIn, CAST_ZERO>(vregX1F, vregX1, mask);
             AscendC::Reg::Cast<float, DataTypeIn, CAST_ZERO>(vregX2F, vregX2, mask);
+            if constexpr (HasClamp) {
+                AscendC::Reg::Mins(vregX1F, vregX1F, activationClamp, mask);
+                AscendC::Reg::Maxs(vregX2F, vregX2F, -activationClamp, mask);
+                AscendC::Reg::Mins(vregX2F, vregX2F, activationClamp, mask);
+            }
 
             // swish
             AscendC::Reg::Muls(negReg, vregX1F, negScalarOne, mask);  // -x
@@ -576,6 +585,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
                                                                                         srcIdxOffset1);
             AscendC::Reg::Cast<float, DataTypeIn, CAST_ZERO>(vregX1F, vregX1, mask1);
             AscendC::Reg::Cast<float, DataTypeIn, CAST_ZERO>(vregX2F, vregX2, mask1);
+            if constexpr (HasClamp) {
+                AscendC::Reg::Mins(vregX1F, vregX1F, activationClamp, mask1);
+                AscendC::Reg::Maxs(vregX2F, vregX2F, -activationClamp, mask1);
+                AscendC::Reg::Mins(vregX2F, vregX2F, activationClamp, mask1);
+            }
 
             AscendC::Reg::Muls(negReg, vregX1F, negScalarOne, mask1);
             AscendC::Reg::Exp(expReg, negReg, mask1);
@@ -596,9 +610,10 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
 }
 
 BLOCK_EPILOGUE_SWIGLU_QUANT_CLASS_LOCAL_PARAMS
+template <bool HasClamp>
 __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LOCAL_PARAMS>::VfSwigluAndMaxExp256(
     __ubuf__ bfloat16_t *firstSrc, __ubuf__ bfloat16_t *secondSrc, __ubuf__ bfloat16_t *gluResAddr,
-    __ubuf__ uint16_t *maxExpAddr, uint16_t mSize)
+    __ubuf__ uint16_t *maxExpAddr, uint16_t mSize, float activationClamp)
 {
     // Each full row has eight MX32 groups. Keep the BF16-rounded SwiGLU
     // result in the same even/odd layout that ComputeMaxExp normally loads.
@@ -623,6 +638,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
         // DINTLV even + ONE selects original lanes 2, 6, ..., 254.
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(firstFp32, firstEven, maskBf16);
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(secondFp32, secondEven, maskBf16);
+        if constexpr (HasClamp) {
+            AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+            AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+            AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+        }
         AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
         AscendC::Reg::Exp(exponent, negative, maskFp32);
         AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);
@@ -633,6 +653,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
         // DINTLV even + ZERO selects original lanes 0, 4, ..., 252.
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(firstFp32, firstEven, maskBf16);
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(secondFp32, secondEven, maskBf16);
+        if constexpr (HasClamp) {
+            AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+            AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+            AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+        }
         AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
         AscendC::Reg::Exp(exponent, negative, maskFp32);
         AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);
@@ -648,6 +673,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
         // DINTLV odd + ONE selects original lanes 3, 7, ..., 255.
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(firstFp32, firstOdd, maskBf16);
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ONE>(secondFp32, secondOdd, maskBf16);
+        if constexpr (HasClamp) {
+            AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+            AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+            AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+        }
         AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
         AscendC::Reg::Exp(exponent, negative, maskFp32);
         AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);
@@ -658,6 +688,11 @@ __simd_vf__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_L
         // DINTLV odd + ZERO selects original lanes 1, 5, ..., 253.
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(firstFp32, firstOdd, maskBf16);
         AscendC::Reg::Cast<float, bfloat16_t, CAST_ZERO>(secondFp32, secondOdd, maskBf16);
+        if constexpr (HasClamp) {
+            AscendC::Reg::Mins(firstFp32, firstFp32, activationClamp, maskFp32);
+            AscendC::Reg::Maxs(secondFp32, secondFp32, -activationClamp, maskFp32);
+            AscendC::Reg::Mins(secondFp32, secondFp32, activationClamp, maskFp32);
+        }
         AscendC::Reg::Muls(negative, firstFp32, -1.0f, maskFp32);
         AscendC::Reg::Exp(exponent, negative, maskFp32);
         AscendC::Reg::Adds(denominator, exponent, 1.0f, maskFp32);
@@ -704,7 +739,12 @@ __aicore__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LO
             uint32_t totalDataInUb = static_cast<uint32_t>(mSize) * QUANT_ONCE_NUM;
             uint32_t totalScaleInUb = static_cast<uint32_t>(mSize) * SCALE_ONCE_NUM;
             uint16_t loopScaleNum = (totalScaleInUb + vlForHalfNumber_ - 1) / vlForHalfNumber_;
-            VfSwigluAndMaxExp256(firstSrc, secondSrc, gluResAddr, streamedMaxExpAddr, mSize);
+            if (params_.activationClamp > 0.0f) {
+                VfSwigluAndMaxExp256<true>(firstSrc, secondSrc, gluResAddr, streamedMaxExpAddr, mSize,
+                                           params_.activationClamp);
+            } else {
+                VfSwigluAndMaxExp256<false>(firstSrc, secondSrc, gluResAddr, streamedMaxExpAddr, mSize, 0.0f);
+            }
             // All second-input reads finish before this batch scale pass.
             // It consumes the temporary exponents before quant output reuses
             // the same prefix; compact final scale/output layouts are unchanged.
@@ -754,9 +794,15 @@ __aicore__ inline void BlockEpilogueSwigluMxQuant<BLOCK_EPILOGUE_DEQUANT_FUNC_LO
         swigluTailAddr2 = gluResAddr + offsetAlign + dim1TailTimes * VF_LEN_FP32;
     }
     // swiglu
-    VfSwiglu(firstSrc, secondSrc, gluResAddr, firstTailAddr, secondTailAddr, swigluTailAddr1, swigluTailAddr2,
-             nSrcUbAligned, nDstUbAligned, dim0VfTimes, dim1VfTimes, dim1TailTimes, dim1Tail2, mask1Num, mask2Num,
-             mask3Num);
+    if (params_.activationClamp > 0.0f) {
+        VfSwiglu<true>(firstSrc, secondSrc, gluResAddr, firstTailAddr, secondTailAddr, swigluTailAddr1, swigluTailAddr2,
+                       nSrcUbAligned, nDstUbAligned, dim0VfTimes, dim1VfTimes, dim1TailTimes, dim1Tail2, mask1Num,
+                       mask2Num, mask3Num, params_.activationClamp);
+    } else {
+        VfSwiglu<false>(firstSrc, secondSrc, gluResAddr, firstTailAddr, secondTailAddr, swigluTailAddr1,
+                        swigluTailAddr2, nSrcUbAligned, nDstUbAligned, dim0VfTimes, dim1VfTimes, dim1TailTimes,
+                        dim1Tail2, mask1Num, mask2Num, mask3Num, 0.0f);
+    }
 
     // quant
     uint32_t totalDataInUb = mSize * nDstUbAligned;                   // 128*256

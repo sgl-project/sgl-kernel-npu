@@ -49,6 +49,7 @@ struct MegaMoeConfig {
     uint32_t attrCommAlgIndex = 7U;
     uint32_t attrGlobalBsIndex = 8U;
     uint32_t attrSharedExpertNumIndex = 9U;
+    uint32_t attrActivationClampIndex = 10U;
     bool isMc2Context = false;
 };
 using namespace Ops::Transformer::OpTiling;
