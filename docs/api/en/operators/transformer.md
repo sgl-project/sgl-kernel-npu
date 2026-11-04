@@ -45,9 +45,8 @@ compressor intentionally retains its `npu` namespace binding from SGLang PR
   constant describes the released format only. The writer adapter owns raw byte
   views and vendor enum mapping. Invalid mixed-quant write slots use -1; slot 0
   remains valid.
-- CANN bindings use the installed extension's native symbol lookup. The
-  temporary process environment change is serialized across operators, restored
-  on failure, and does not run again after a successful first invocation.
+- CANN bindings use the installed extension's native symbol lookup directly.
+  The adapters do not replace operator packets or change vendor environment paths.
 
 ## Reference scope
 
