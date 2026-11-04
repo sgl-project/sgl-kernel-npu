@@ -22,16 +22,11 @@ _inflight = deque()
 def _check_component(device, host, page_size, index_device):
     if device.device != index_device or host.device.type != "cpu":
         raise ValueError("KV components must be on the index NPU and CPU respectively")
-    if device.ndim != 5 or host.ndim != 5:
+    # _layer_views already checked dimensions and selected equal layer counts.
+    if device.dtype != host.dtype or device.shape[0] <= 0:
         raise ValueError(
-            "expected Device LF and normalized Host PF five-dimensional buffers"
+            "KV component dtypes must match and layer count must be positive"
         )
-    if (
-        device.dtype != host.dtype
-        or device.shape[0] != host.shape[1]
-        or device.shape[0] <= 0
-    ):
-        raise ValueError("KV component dtypes and positive layer counts must match")
     if device.shape[2:] != host.shape[2:] or device.shape[2] != page_size:
         raise ValueError("KV component page shapes must match")
     for tensor in (device, host):
