@@ -4,6 +4,8 @@
 | --- | --- |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
+| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`, `torch_native` |
+| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
