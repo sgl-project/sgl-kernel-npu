@@ -64,15 +64,15 @@ the caller guarantees valid tensor contents and available history.
 
 ## cann_ops_transformers_cann920 backend
 
-Build with the `ops_transformer` profile. Its `additional_builds` entry schedules
-CompressorV2 with `--experimental` on both upstream commands. The experimental
-vendor and Python package differ from the regular build, so both can ship in one
-wheel. The package includes the complete vendor,
-LICENSE and manifest; this experimental dependency has no AICPU. First use may
+Build with the `ops_transformer` profile. CompressorV2 is selected in the same
+operator list and vendor build as the indexers. The adapter copies the pinned
+experimental operator directory into the temporary regular build tree without
+modifying its sources. The package includes the complete vendor,
+LICENSE and manifest, including the indexers' AICPU metadata dependency. First use may
 JIT-compile C++ bindings and requires a compiler and matching CANN/Torch/torch_npu.
 
 Mapping: build/OpType `compressor_v2` / `CompressorV2`; Python export `compressor`
-from `_third_party.sgl_ops_transformer_experimental.ops.ds41`; Torch name
+from `_third_party.sgl_ops_transformer.ops.ds41`; Torch name
 `cann_ops_transformer::ds41.compressor`; ACLNN `aclnnCompressorV2`.
 
 Tests clone cache for each backend and compare valid outputs plus the entire

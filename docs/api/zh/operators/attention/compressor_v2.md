@@ -60,14 +60,14 @@ B/S/T 可为 0，权重与 cache 仍须非空。上游 Python 签名的 state_bl
 
 ## cann_ops_transformers_cann920 后端
 
-使用 `ops_transformer` profile 构建，其中 `additional_builds` 声明 CompressorV2 的独立构建，
-两条上游命令均带 `--experimental`。
-该依赖使用独立 vendor 和 Python 包，可与普通 profile 一起随 wheel 分发，保留完整
-vendor、LICENSE、manifest；实验依赖不含 AICPU。首次调用可能 JIT 编译 C++ 绑定，
+使用 `ops_transformer` profile，在普通算子列表中选择 CompressorV2，与 indexer 一起构建。
+adapter 将固定版本的 experimental 算子目录复制到临时构建树的普通 attention 目录，源码不作修改。
+该依赖使用同一个 vendor 和 Python 包，保留完整 vendor、LICENSE、manifest，
+并包含 indexer 的 AICPU metadata 依赖。首次调用可能 JIT 编译 C++ 绑定，
 需要编译器及匹配的 CANN、Torch、torch_npu。
 
 名称映射：构建项/OpType 为 `compressor_v2` / `CompressorV2`，包内绑定导出为
-`_third_party.sgl_ops_transformer_experimental.ops.ds41.compressor`，Torch 名为
+`_third_party.sgl_ops_transformer.ops.ds41.compressor`，Torch 名为
 `cann_ops_transformer::ds41.compressor`，ACLNN 为 `aclnnCompressorV2`。
 
 测试为两个后端分别复制 cache，从相同历史开始，对比有效输出和更新后的全部 cache。

@@ -1,7 +1,5 @@
 """A3 source/consumer coverage with distinct analytic scores, not production traces."""
 
-from functools import partial
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -11,14 +9,18 @@ from sgl_kernel_npu.operators.attention import (
     lightning_indexer_v2_metadata,
     sparse_lightning_indexer,
 )
-from sgl_kernel_npu.operators.utils.registry import register_impl, register_operator
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import make_executor, require_test_impl
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 
-@register_operator("test.lightning_indexer.canonical")
 def canonical(operator, args, kwargs, *, impl="auto"):
     """Compare sets and values together; upstream does not promise slot ordering."""
     out = list(operator(*args, **kwargs, impl=impl))
@@ -29,12 +31,6 @@ def canonical(operator, args, kwargs, *, impl="auto"):
     if len(out) == 4 and out[2].numel():
         out[2] = out[2].sort(dim=-1).values
     return tuple(out)
-
-
-for _impl in ("auto", "cann_ops_transformers_cann920", "torch_native"):
-    register_impl("test.lightning_indexer.canonical", _impl)(
-        partial(canonical, impl=_impl)
-    )
 
 
 def generate_test_data(batch, nq, nk, heads, dtype):
@@ -52,9 +48,16 @@ def generate_test_data(batch, nq, nk, heads, dtype):
 def check_operator(operator, args, kwargs, *, enable_perf=False):
     require_test_impl(operator, "auto")
     # Accuracy normalization is outside the public operator performance region.
-    checked = check_accuracy(canonical, args=(operator, args, kwargs))
+    impl, impl_ref = get_test_impls()
+    checked = not get_skip_acc_check()
+    if checked:
+        require_distinct_impls(operator, impl, impl_ref)
+        assert_accuracy(
+            canonical(operator, args, kwargs, impl=impl),
+            canonical(operator, args, kwargs, impl=impl_ref),
+        )
     executor = make_executor(
-        operator, args=args, kwargs=kwargs, accuracy_checked=checked.accuracy_checked
+        operator, args=args, kwargs=kwargs, accuracy_checked=checked
     )
     check_performance(executor, enable_perf=enable_perf)
 

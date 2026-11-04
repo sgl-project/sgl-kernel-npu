@@ -127,6 +127,12 @@ def inspect_vendor(vendor, item):
 
 
 def build(item, source, directory):
+    # The pinned CompressorV2 is experimental-only. Select it through the same
+    # regular build as the indexers without changing its upstream sources.
+    if "compressor_v2" in item["ops"]:
+        target = source / "attention/compressor_v2"
+        if not target.exists():
+            shutil.copytree(source / "experimental/attention/compressor_v2", target)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     installers = list((source / "build_out").glob("*.run"))

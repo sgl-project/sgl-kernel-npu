@@ -1,18 +1,32 @@
 """Stateful CompressorV2 accuracy: valid outputs plus every cache element."""
 
-from functools import partial
+from types import SimpleNamespace
 
 import pytest
 import torch
 from sgl_kernel_npu.operators.attention import compressor_v2
-from sgl_kernel_npu.operators.utils.registry import register_impl, register_operator
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import make_executor, require_test_impl
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 
-@register_operator("test.compressor_v2.snapshot")
+def check_results(run, *, args):
+    impl, impl_ref = get_test_impls()
+    require_test_impl(compressor_v2, impl)
+    checked = not get_skip_acc_check()
+    if checked:
+        require_distinct_impls(compressor_v2, impl, impl_ref)
+        assert_accuracy(run(*args, impl=impl), run(*args, impl=impl_ref))
+    return SimpleNamespace(accuracy_checked=checked)
+
+
 def snapshot(args, kwargs, counts, *, impl="auto"):
     x, wkv, wgate, initial, ratio = args
     state = torch.empty_strided(
@@ -27,11 +41,6 @@ def snapshot(args, kwargs, counts, *, impl="auto"):
     return valid, state
 
 
-for _impl in ("auto", "cann_ops_transformers_cann920", "torch_native"):
-    register_impl("test.compressor_v2.snapshot", _impl)(partial(snapshot, impl=_impl))
-
-
-@register_operator("test.compressor_v2.sequence")
 def sequence(args, blocks, *, impl="auto"):
     x, wkv, wgate, initial, ratio = args
     state = initial.clone()
@@ -52,10 +61,6 @@ def sequence(args, blocks, *, impl="auto"):
         count = (position % ratio + 2) // ratio
         outputs.append((result[:, :count].clone(), state.clone()))
     return tuple(outputs)
-
-
-for _impl in ("auto", "cann_ops_transformers_cann920", "torch_native"):
-    register_impl("test.compressor_v2.sequence", _impl)(partial(sequence, impl=_impl))
 
 
 def generate_test_data(
@@ -114,7 +119,7 @@ def test_compressor_v2(dtype, packed, scenario):
         strided=scenario == "wrap",
         length=0 if scenario == "empty" else (37 if scenario == "wrap" else 17),
     )
-    checked = check_accuracy(snapshot, args=(args, kwargs, counts))
+    checked = check_results(snapshot, args=(args, kwargs, counts))
     executor = make_executor(
         compressor_v2,
         args=args,
@@ -131,7 +136,7 @@ def test_compression_ratios(ratio, dim):
     args, kwargs, counts = generate_test_data(
         torch.bfloat16, ratio=ratio, dim=dim, length=ratio + 1
     )
-    checked = check_accuracy(snapshot, args=(args, kwargs, counts))
+    checked = check_results(snapshot, args=(args, kwargs, counts))
     check_performance(
         make_executor(
             compressor_v2,
@@ -149,7 +154,7 @@ def test_decode_with_history():
     args, kwargs, counts = generate_test_data(
         torch.float16, length=1, continuation=True
     )
-    checked = check_accuracy(snapshot, args=(args, kwargs, counts))
+    checked = check_results(snapshot, args=(args, kwargs, counts))
     check_performance(
         make_executor(
             compressor_v2,
@@ -166,7 +171,7 @@ def test_sequential_calls(dtype):
     require_test_impl(compressor_v2, "auto")
     args, kwargs, _ = generate_test_data(dtype, length=6)
     # Every step compares both valid output and retained history for the next step.
-    check_accuracy(sequence, args=(args, kwargs["state_block_table"]))
+    check_results(sequence, args=(args, kwargs["state_block_table"]))
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
@@ -182,7 +187,7 @@ def test_variable_packed_lengths(dtype):
         start_pos=torch.tensor([0, 1, 3], dtype=torch.int32),
     )
     # Empty first sequence, unaligned history, compacted output and an unused block.
-    check_accuracy(snapshot, args=((x, wkv, wgate, state, 4), kwargs, [0, 1, 3]))
+    check_results(snapshot, args=((x, wkv, wgate, state, 4), kwargs, [0, 1, 3]))
 
 
 @pytest.mark.parametrize("hidden,dim,ratio", [(5120, 512, 4), (5120, 128, 128)])
@@ -191,7 +196,7 @@ def test_representative_performance(hidden, dim, ratio):
     args, kwargs, counts = generate_test_data(
         torch.bfloat16, hidden=hidden, dim=dim, ratio=ratio, length=128
     )
-    checked = check_accuracy(snapshot, args=(args, kwargs, counts))
+    checked = check_results(snapshot, args=(args, kwargs, counts))
     executor = make_executor(
         compressor_v2,
         args=args,
