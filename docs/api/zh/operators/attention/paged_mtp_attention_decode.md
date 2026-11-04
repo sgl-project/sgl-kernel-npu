@@ -4,15 +4,8 @@
 
 | 实现 | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `triton` | 支持，全量测试通过 | 支持，全量测试通过 |
-| `torch_native` | 已验证的精度参考实现 | 已验证的精度参考实现 |
-
-A3 验证使用 Ascend910_9362，A5 验证使用 Ascend950DT_9582。
-A3 和 A5 的公开算子全量测试均为 202/202 通过，以独立的 `torch_native`
-实现对比 Triton 结果。A5 使用重新构建的 wheel，验证环境为 CANN 9.1.0、
-Torch 2.10.0、torch_npu 2.10.0.post6 和 Triton 3.2.0。
-A5 另有 22/22 项定向测试通过，覆盖不规则 GQA 分组、D=48/64、FP16/BF16、
-因果与非因果模式、输出保护区和 split KV。全量测试还包含分页边界及宽头维度回归。
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数签名
 
@@ -41,9 +34,6 @@ def paged_mtp_attention_decode(
 ```
 
 所有参数均仅限关键字传入。`auto` 选择 `triton`，不自动回退。
-旧路径 `sgl_kernel_npu.attention` 和
-`sgl_kernel_npu.attention.paged_mtp_attention` 导出同一个已注册函数。
-Python 后端采用懒加载并缓存函数。
 
 ## 功能说明
 
@@ -100,28 +90,13 @@ $$
 
 ## triton 后端
 
-内核和启动封装位于 `implementation/triton/attention`。A3 和 A5 共用一个分页扫描
-内核和一个 split-KV 归约内核，都按请求和 KV 头分配任务，在多个 query 之间共享
-KV 扫描。A3 对多 query GQA 先打包 Q，构造满足矩阵指令要求的仿射数据源，
-通过编译期参数选择该输入布局；A5 保留原有的 query 寻址。A3 对小头维度和小
-page 使用至少 32 的矩阵 tile，扫描仍按实际 page 宽度前进。两个平台均保留调用方
-的头维度和缩放系数，通过掩码加载处理矩阵 tile 的尾部。长上下文可使用 split KV
-和部分 softmax 归约。
-
-A5 内核令 `GROUP = num_q_heads // num_kv_heads`，`q_index = rows // GROUP`。
-读取 Q 和构造分数掩码时使用 `q_index < gamma`；直接写回输出和 split-KV
-归约写回输出时使用 `rows < gamma * GROUP`。两个条件在数学上等价，该组合规避了
-A5 Triton 3.2.0 下已观察到的满 query tile 产生 NaN，以及不规则 GQA 分组
-输出尾部越界写入的问题。
-
-每次 NPU Graph 回放重新读取长度、页表和
-Q/K/V，Q 打包操作一并被捕获，无需在主机提取长度。
+支持 NPU 上的 FP16/BF16 分页注意力和 NPU Graph 捕获。每次回放从设备缓冲区
+重新读取长度、页表和 Q/K/V，无需在主机提取长度。
 
 ## torch_native 后端
 
-独立使用 PyTorch 收集有效页，以 FP32 中间值计算分数、softmax 和 V 聚合，
-最后转换为 query.dtype，不调用 Triton 或 FIA。该实现会在主机读取长度和偏移，
-用于正确性对照，不支持 NPU Graph 捕获。
+独立精度参考实现，使用 FP32 中间值，输出转换为 query.dtype。
+该实现会在主机读取长度和偏移，不支持 NPU Graph 捕获。
 
 ## 示例
 

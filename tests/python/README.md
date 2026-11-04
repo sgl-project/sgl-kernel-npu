@@ -103,28 +103,6 @@ def test_rmsnorm_bias(
 
 See [the RMSNorm test](operators/norm/test_rmsnorm_bias.py) for additional modes.
 
-### Paged MTP attention
-
-[Paged MTP tests](operators/attention/test_paged_mtp_attention.py) exercise the
-public `sgl_kernel_npu.operators.attention.paged_mtp_attention_decode` API:
-
-```bash
-python -m pytest tests/python/operators/attention/test_paged_mtp_attention.py \
-  --impl=triton --impl-ref=torch_native --npu-device=0 \
-  --skip-acc-check=false --enable-perf=false -v -s -x -rs
-
-python -m pytest tests/python/operators/attention/test_paged_mtp_attention.py \
-  --impl=triton --impl-ref=torch_native --npu-device=0 \
-  --skip-acc-check=false --prof-dir=results/paged_mtp_profilings \
-  --csv-path=results/paged_mtp.csv -v -s -x -rs
-```
-
-The second command profiles only the BF16 DSpark draft shapes in `perf_shape`
-after accuracy passes, for both causal modes. FIA parity supplements the
-independent FP32 PyTorch reference. Graph replay tests use a custom flow because
-they update captured input buffers and compare replayed outputs against a fresh
-reference call; they do not profile the host-reading reference.
-
 ## Core helpers
 
 ### `check_accuracy` and accuracy standards

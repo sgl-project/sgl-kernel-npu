@@ -16,6 +16,8 @@ import torch
 import triton
 import triton.language as tl
 
+from ....operators.utils.generation import Generation, get_hardware
+
 
 @triton.jit
 def _paged_mtp_kernel(
@@ -238,13 +240,6 @@ def _get_num_cores() -> tuple[int, int]:
     return properties["num_aicore"], properties["num_vectorcore"]
 
 
-@lru_cache(maxsize=32)
-def _is_a3_device(device: torch.device) -> bool:
-    return device.type == "npu" and torch.npu.get_device_name(device.index).startswith(
-        "Ascend910_93"
-    )
-
-
 def paged_mtp_attention_decode(
     *,
     query: torch.Tensor,
@@ -268,8 +263,8 @@ def paged_mtp_attention_decode(
     Zero lengths denote padding, whose output is zero. All request rows have
     ``gamma`` queries; ragged verification and sliding windows are unsupported.
     Causal queries are right aligned: query i sees KV positions through
-    ``seq_lens[b] - gamma + i``. Both devices share the grouped matrix scan;
-    A3 packs multi-query GQA inputs into an affine Q matrix first.
+    ``seq_lens[b] - gamma + i``. All devices share the grouped matrix scan;
+    arch22 (A2/A3) packs multi-query GQA into an affine Q matrix first.
     """
     batch_size = seq_lens.numel()
     output = torch.empty_like(query)
@@ -277,10 +272,10 @@ def paged_mtp_attention_decode(
         return output
     cube_cores, vector_cores = _get_num_cores()
     group_size = num_q_heads // num_kv_heads
-    is_a3 = _is_a3_device(query.device)
-    # Keep A5's existing layout. A3 needs an affine matrix source for the
-    # multi-query GQA tile; the packing operation is captured in NPU graphs.
-    packed_query = is_a3 and gamma > 1 and group_size > 1
+    is_arch22 = get_hardware().generation == Generation.ARCH22
+    # A2/A3 use an affine matrix source for the multi-query GQA tile.
+    # Packing is captured in NPU graphs; arch35 (A5) keeps its input layout.
+    packed_query = is_arch22 and gamma > 1 and group_size > 1
     query_strides = query.stride()
     if packed_query:
         query = (
@@ -293,21 +288,21 @@ def paged_mtp_attention_decode(
     if tasks < cube_cores and max_kv_len >= (256 if group_size == 1 else 2048):
         splits = max(1, min(cube_cores // tasks, max_kv_len // 256))
     q_tile = max(
-        32 if is_a3 else 16,
+        32 if is_arch22 else 16,
         triton.next_power_of_2(gamma * group_size),
     )
     block_d = (
         max(32, triton.next_power_of_2(head_dim))
-        if is_a3
+        if is_arch22
         else triton.next_power_of_2(head_dim)
     )
     kv_block = min(128, page_size)
-    if is_a3 and q_tile * block_d >= 8192:
-        # Bound the wide-head tile's A3 local-memory footprint.
+    if is_arch22 and q_tile * block_d >= 8192:
+        # Bound the wide-head tile's arch22 local-memory footprint.
         kv_block = min(kv_block, 64)
-    # A3 matrix tiles need at least 32 rows/columns for small-head transfers.
+    # Arch22 uses at least 32 matrix rows/columns for small-head transfers.
     # KV_BLOCK still advances by the physical page width for pages below 32.
-    block_n = max(32, kv_block) if is_a3 else kv_block
+    block_n = max(32, kv_block) if is_arch22 else kv_block
     if splits > 1:
         acc = torch.empty(
             (tasks * splits, q_tile, head_dim), dtype=torch.float32, device=query.device

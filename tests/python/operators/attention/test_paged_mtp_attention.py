@@ -14,8 +14,9 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # (gamma, GQA group, head dimension, page size, KV lengths, KV heads).
-# The five performance shapes preserve the measured DSpark draft workloads
-# on this branch: TND Q=[B*7,16,64], ND KV with 4 heads, page size 128.
+# Kimi-K3's DSparkDraftModel has 64 Q heads, 16 KV heads and head_dim=64.
+# TP4 gives rank-local Q=[B*7,16,64], 4 KV heads, draft block size 7 and
+# page size 128. Batch sizes and KV lengths below sweep short/long contexts.
 perf_shape = [
     (7, 4, 64, 128, (129,), 4),
     (7, 4, 64, 128, (2049,), 4),
@@ -333,6 +334,7 @@ def test_scale_and_scheduling_bound(causal, softmax_scale, max_kv_len):
     check_performance(executor, enable_perf=False)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("impl", ["auto", "torch_native"])
 @pytest.mark.parametrize(
     "argument,value,message",
@@ -362,6 +364,7 @@ def test_rejects_invalid_arguments(impl, argument, value, message):
         paged_mtp_attention_decode(**args, impl=impl)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("impl", ["auto", "torch_native"])
 @pytest.mark.parametrize(
     "invalid",
@@ -425,18 +428,91 @@ def test_rejects_invalid_tensor_metadata(impl, invalid):
         paged_mtp_attention_decode(**args, impl=impl)
 
 
-def test_public_exports_and_registration():
-    from sgl_kernel_npu.attention import paged_mtp_attention_decode as legacy
-    from sgl_kernel_npu.attention.paged_mtp_attention import (
-        paged_mtp_attention_decode as legacy_module,
-    )
+@pytest.mark.extra_checks
+def test_public_registration():
     from sgl_kernel_npu.operators import get_impl, list_impls
     from sgl_kernel_npu.operators.attention import paged_mtp_attention_decode
 
-    assert legacy is legacy_module is paged_mtp_attention_decode
     assert list_impls(paged_mtp_attention_decode) == ["auto", "torch_native", "triton"]
-    assert get_impl(legacy, "auto") is get_impl(legacy, "triton")
-    assert get_impl(legacy, "triton") is not get_impl(legacy, "torch_native")
+    assert get_impl(paged_mtp_attention_decode, "auto") is get_impl(
+        paged_mtp_attention_decode, "triton"
+    )
+    assert get_impl(paged_mtp_attention_decode, "triton") is not get_impl(
+        paged_mtp_attention_decode, "torch_native"
+    )
     args = generate_data(perf_shape[0], torch.bfloat16)
     with pytest.raises(ValueError, match="Unknown impl"):
         paged_mtp_attention_decode(**args, impl="unknown")
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "soc_family,packed_query,small_tile,wide_kv",
+    [
+        pytest.param(220, True, 32, 64, id="a2-arch22"),
+        pytest.param(250, True, 32, 64, id="a3-arch22"),
+        pytest.param(260, False, 16, 128, id="a5-arch35"),
+    ],
+)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((7, 3, 16, 16, (7, 15, 17), 2), id="small-head-and-page"),
+        pytest.param((8, 4, 256, 128, (8, 127, 256), 2), id="wide-head"),
+    ],
+)
+def test_device_family_launch_config(
+    soc_family, packed_query, small_tile, wide_kv, shape
+):
+    """Simulate device detection and capture launches; no foreign kernel runs."""
+    import importlib
+
+    import torch_npu
+    from sgl_kernel_npu.operators.attention import paged_mtp_attention_decode
+    from sgl_kernel_npu.operators.utils import generation
+
+    backend = importlib.import_module(
+        "sgl_kernel_npu.implementation.triton.attention.paged_mtp_attention"
+    )
+    args = generate_data(shape, torch.bfloat16)
+    with patch.object(torch_npu._C, "_npu_get_soc_version", return_value=soc_family):
+        arch_id = generation._arch_from_soc()
+    hardware = generation.Hardware(arch_id, generation.generation_from_arch(arch_id))
+    with (
+        patch.object(backend, "get_hardware", return_value=hardware),
+        patch.object(backend, "_get_num_cores", return_value=(24, 48)),
+        patch.object(backend, "_paged_mtp_kernel") as kernel,
+    ):
+        output = paged_mtp_attention_decode(**args, impl="triton")
+    kernel.__getitem__.assert_called_once_with((24,))
+    launch = kernel.__getitem__.return_value
+    launch.assert_called_once()
+    inputs, config = launch.call_args
+    assert config["PACKED_QUERY"] is packed_query
+    assert config["SPLITS"] == 1
+    assert config["Q_TILE"] == 32
+    dim, page = shape[2:4]
+    assert config["BLOCK_D"] == (small_tile if dim == 16 else 256)
+    assert config["BLOCK_N"] == (small_tile if page == 16 else wide_kv)
+    assert config["KV_BLOCK"] == (16 if page == 16 else wide_kv)
+    if packed_query:
+        query = inputs[0]
+        assert query.shape == (3, 2, shape[0], shape[1], dim)
+        assert query.is_contiguous()
+        # A packed KV-head matrix must retain each query's original GQA heads.
+        for batch in range(3):
+            for kv_head in range(2):
+                torch.testing.assert_close(
+                    query[batch, kv_head, -1],
+                    args["query"][
+                        (batch + 1) * shape[0] - 1,
+                        kv_head * shape[1] : (kv_head + 1) * shape[1],
+                    ],
+                    atol=0,
+                    rtol=0,
+                )
+    else:
+        assert inputs[0] is args["query"]
+    assert output.shape == args["query"].shape
+    assert output.dtype == args["query"].dtype
+    assert output.device == args["query"].device

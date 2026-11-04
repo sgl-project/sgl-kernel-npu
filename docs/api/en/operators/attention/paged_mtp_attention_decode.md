@@ -4,16 +4,8 @@
 
 | Implementation | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `triton` | Supported; full suite passed | Supported; full suite passed |
-| `torch_native` | Validated correctness reference | Validated correctness reference |
-
-A3 validation uses Ascend910_9362; A5 validation uses Ascend950DT_9582.
-The full public-operator suite passed 202/202 tests on both A3 and A5, comparing
-Triton against the independent `torch_native` reference. The rebuilt A5 wheel
-was validated with CANN 9.1.0, Torch 2.10.0, torch_npu 2.10.0.post6 and
-Triton 3.2.0. A5 also passed 22/22 targeted tests covering irregular GQA groups,
-D=48/64, FP16/BF16, causal and noncausal modes, output guards and split KV.
-The full suite includes the page-boundary and wide-head regressions.
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
@@ -42,9 +34,6 @@ def paged_mtp_attention_decode(
 ```
 
 All arguments are keyword-only. `auto` selects `triton` without fallback.
-The legacy imports from `sgl_kernel_npu.attention` and
-`sgl_kernel_npu.attention.paged_mtp_attention` expose the same registered function.
-Python backends are imported lazily and cached.
 
 ## Description
 
@@ -106,32 +95,15 @@ the Triton path does not copy lengths to the CPU to validate them.
 
 ## triton backend
 
-Kernels and launch wrappers live in `implementation/triton/attention`.
-A3 and A5 share one paged scan kernel and one split-KV reduction kernel.
-Both use one task per request and KV head, sharing the KV scan across queries.
-A3 packs multi-query GQA inputs into an affine Q matrix; a compile-time flag
-selects this input layout. A5 keeps its original query addressing. A3 uses
-matrix tiles of at least 32 for small heads and pages, while the scan advances
-by the physical page width. Both devices preserve the caller's head dimension
-and scale; masked loads handle partial matrix tiles. Long contexts may use
-split KV and a partial-softmax reduction.
-
-On A5, let `GROUP = num_q_heads // num_kv_heads` and `q_index = rows // GROUP`.
-Q loads and score masks use `q_index < gamma`; direct output stores and
-split-KV reduction output stores use `rows < gamma * GROUP`. These conditions
-are mathematically equivalent. This combination avoids NaNs on exactly full
-query tiles and output tail writes for irregular GQA groups observed with
-A5 Triton 3.2.0.
-
-Every NPU Graph replay reads lengths, pages and Q/K/V anew; query packing
-is included in capture. No host length extraction is required.
+Supports FP16/BF16 paged attention on NPU and NPU Graph capture. Lengths,
+page tables and Q/K/V are read from device buffers on each replay without
+extracting lengths on the host.
 
 ## torch_native backend
 
-An independent PyTorch implementation gathers valid pages, computes scores,
-softmax and value aggregation with FP32 intermediates, then casts to query.dtype.
-It does not call Triton or FIA. It reads lengths and offsets on the host, so
-it is a correctness reference and does not support NPU Graph capture.
+An independent correctness reference with FP32 intermediates and output cast
+to query.dtype. It reads lengths and offsets on the host and does not support
+NPU Graph capture.
 
 ## Example
 

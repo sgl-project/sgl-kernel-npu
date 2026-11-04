@@ -6,23 +6,14 @@ from numbers import Real
 
 import torch
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl(
-    "attention.paged_mtp_attention_decode",
-    "auto",
-    supported_generations={Generation.ARCH22, Generation.ARCH35},
-)
-@register_impl(
-    "attention.paged_mtp_attention_decode",
-    "triton",
-    supported_generations={Generation.ARCH22, Generation.ARCH35},
-)
+@register_impl("attention.paged_mtp_attention_decode", "auto")
+@register_impl("attention.paged_mtp_attention_decode", "triton")
 def _triton_impl(**kwargs):
     global _triton_fn
     if kwargs["query"].device.type != "npu":
@@ -36,11 +27,7 @@ def _triton_impl(**kwargs):
     return _triton_fn(**kwargs)
 
 
-@register_impl(
-    "attention.paged_mtp_attention_decode",
-    "torch_native",
-    supported_generations={Generation.ARCH22, Generation.ARCH35},
-)
+@register_impl("attention.paged_mtp_attention_decode", "torch_native")
 def _torch_native_impl(**kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
