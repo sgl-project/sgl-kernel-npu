@@ -76,6 +76,12 @@ E5 = torch.float8_e5m2
         ),
         pytest.param(
             3,
+            42,
+            dict(output_origin=True, clamp_value=1e-50),
+            id="origin-clamp-underflow",
+        ),
+        pytest.param(
+            3,
             5,
             dict(output_origin=True, dst_type=E5, clamp_value=1.5, weight=True),
             id="origin-weight-clamp",
@@ -264,6 +270,7 @@ def test_swiglu_group_quant(mode, seed, options):
         (192, torch.bfloat16, dict(quant_mode=2), "divisible by 128"),
         (512, torch.bfloat16, dict(dst_type=torch.float16), "dst_type must be"),
         (512, torch.float32, {}, "FLOAT16 or BFLOAT16"),
+        (0, torch.bfloat16, dict(group_list_type=1), "tiling failed"),
     ],
 )
 def test_swiglu_rejected(width, dtype, kwargs, message):
@@ -272,6 +279,15 @@ def test_swiglu_rejected(width, dtype, kwargs, message):
     with pytest.raises(RuntimeError, match=message):
         data, _, _, _ = generate_data(1, 0, dict(rows=4, width=width, dtype=dtype))
         swiglu_group_quant(**dict(data, **kwargs), impl=get_test_impls()[0])
+
+
+@pytest.mark.extra_checks
+def test_ascendc_zero_width_group_type_rejected():
+    if get_test_impls()[0] not in ("ascendc", "auto"):
+        pytest.skip("Tests the AscendC native binding")
+    data, _, _, _ = generate_data(1, 0, dict(rows=4, width=0))
+    with pytest.raises(RuntimeError, match="tiling failed"):
+        torch.ops.npu.swiglu_group_quant(**dict(data, group_list_type=1))
 
 
 def test_ascendc_graph_replay():

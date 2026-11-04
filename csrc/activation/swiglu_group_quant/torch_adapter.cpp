@@ -86,7 +86,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
     const c10::DeviceGuard guard(x.device());
     auto outputs = ConstructOutputs(x, out_dtype, quant_mode, ue8m0_scale);
     auto &[y, scale, origin] = outputs;
-    if (y.numel() == 0) return outputs;
+    int64_t batch_size = 1;
+    for (int64_t i = 0; i + 1 < x.dim(); ++i)
+        batch_size *= x.size(i);
+    if (batch_size == 0) return outputs;
     TORCH_CHECK(group_list_type == 0, "swiglu_group_quant: tiling failed for group_list_type");
     const auto xd = x.scalar_type() == at::kHalf ? ACL_FLOAT16 : ACL_BF16;
     const bool e5 = out_dtype == at::kFloat8_e5m2;
@@ -113,9 +116,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
         reinterpret_cast<decltype(&aclnnSglSwigluGroupQuant)>(sgl_cann::op_api_symbol("aclnnSglSwigluGroupQuant"));
     uint64_t bytes = 0;
     aclOpExecutor *executor = nullptr;
-    auto status =
-        query(desc[0].get(), desc[1].get(), desc[2].get(), quant_mode, round_scale, ue8m0_scale, output_origin,
-              group_list_type, clamp_value, e5, desc[3].get(), desc[4].get(), desc[5].get(), &bytes, &executor);
+    auto status = query(desc[0].get(), desc[1].get(), desc[2].get(), quant_mode, round_scale, ue8m0_scale,
+                        output_origin, group_list_type, clamp_value, e5, clamp_value != 0.0, desc[3].get(),
+                        desc[4].get(), desc[5].get(), &bytes, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "SwiGLU workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(bytes <= INT64_MAX, "SwiGLU workspace exceeds tensor allocation limit");
     auto ws = at::empty({static_cast<int64_t>(bytes)}, x.options().dtype(at::kByte));

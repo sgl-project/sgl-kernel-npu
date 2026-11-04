@@ -530,7 +530,7 @@ static ge::graphStatus Tiling(gert::TilingContext *ctx)
     inputs.outputOrigin = *attrs->GetBool(3);
     inputs.groupListType = *attrs->GetInt(4);
     inputs.clampValue = *attrs->GetFloat(5);
-    inputs.hasClampValue = inputs.clampValue != 0;
+    inputs.hasClampValue = *attrs->GetBool(7);
     platform_ascendc::PlatformAscendC platform(ctx->GetPlatformInfo());
     SwigluGroupQuantTiling tiling(inputs, platform);
     SwigluGroupQuantTilingData data{};
@@ -636,6 +636,7 @@ public:
         this->Attr("group_list_type").AttrType(REQUIRED).Int();
         this->Attr("clamp_value").AttrType(REQUIRED).Float();
         this->Attr("y_e5m2").AttrType(REQUIRED).Bool();
+        this->Attr("has_clamp_value").AttrType(REQUIRED).Bool();
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferType);
         this->AICore().SetTiling(optiling::Tiling);
         for (auto config : SGL_CANN_CONFIGS)

@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 from ..utils.generation import Generation
@@ -105,7 +107,7 @@ def swiglu_group_quant(
     alignment = 128 if quant_mode == 2 else 256
     if x.size(-1) % alignment:
         raise RuntimeError(f"last dimension must be divisible by {alignment}")
-    if x.numel() and group_list_type != 0:
+    if math.prod(x.shape[:-1]) != 0 and group_list_type != 0:
         raise RuntimeError("swiglu_group_quant: tiling failed for group_list_type")
     return get_impl_by_name("activation.swiglu_group_quant", impl)(
         x=x,
