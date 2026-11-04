@@ -73,7 +73,8 @@ constexpr int32_t KV_EXCHANGE_START_DIM_DEFAULT = -1;
  *       request overhead.  When no contiguous run is found, the kernel
  *       degrades to per-page copies with the same UB double buffering.
  */
-class OffloadKvExchangeKernel {
+class OffloadKvExchangeKernel
+{
 public:
     enum HostLayoutMode : int32_t {
         HOST_LAYOUT_PAGE_FIRST = 0,
