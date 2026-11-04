@@ -6,10 +6,10 @@ visibility, or the A5 runtime. Real NPU coverage is in tests/python/operators/me
 
 import importlib.util
 import inspect
+from itertools import product
 import sys
 import unittest
 from dataclasses import dataclass
-from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch

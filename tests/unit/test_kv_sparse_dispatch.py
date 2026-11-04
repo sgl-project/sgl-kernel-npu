@@ -5,11 +5,11 @@ Only the NPU/Memfabric boundary is mocked; no PyTorch/CANN install is needed.
 
 import gc
 import importlib.util
+from functools import partial
 import sys
 import unittest
 import weakref
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, Mock, create_autospec, patch
@@ -58,7 +58,7 @@ class Tensor:
 
     def stride(self, axis):
         result = 1
-        for dim in self.shape[axis + 1 :]:
+        for dim in self.shape[axis + 1:]:
             result *= dim
         return result
 
@@ -73,11 +73,7 @@ class Tensor:
         for axis, item in enumerate(key):
             start, stop, step = item.indices(shape[axis])
             shape[axis] = len(range(start, stop, step))
-        return (
-            self
-            if tuple(shape) == self.shape
-            else Tensor(shape, self.device, self.dtype)
-        )
+        return self if tuple(shape) == self.shape else Tensor(shape, self.device, self.dtype)
 
 
 class Stream:
@@ -128,7 +124,7 @@ class TestSparseDispatch(unittest.TestCase):
             Tensor=Tensor,
             int64="int64",
             int32="int32",
-            iinfo=lambda _: SimpleNamespace(max=0x7FFFFFFF),
+            iinfo=lambda _: SimpleNamespace(max=0x7fffffff),
             npu=SimpleNamespace(
                 device=lambda _: Context(),
                 current_stream=lambda: self.stream,
@@ -147,9 +143,7 @@ class TestSparseDispatch(unittest.TestCase):
             sys.modules,
             {
                 "torch": self.torch,
-                "triton": SimpleNamespace(
-                    jit=lambda **_: lambda fn: fn, language=language
-                ),
+                "triton": SimpleNamespace(jit=lambda **_: lambda fn: fn, language=language),
                 "triton.language": language,
                 "memfabric_hybrid": SimpleNamespace(offload=self.offload),
             },
@@ -157,23 +151,15 @@ class TestSparseDispatch(unittest.TestCase):
         self.modules.start()
         self.addCleanup(self.modules.stop)
         module_name = "sgl_kernel_npu.implementation.memfabric.mem_cache.kv_transfer"
-        path = (
-            ROOT
-            / "python/sgl_kernel_npu/sgl_kernel_npu/implementation/memfabric/mem_cache/kv_transfer.py"
-        )
+        path = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu/implementation/memfabric/mem_cache/kv_transfer.py"
         spec = importlib.util.spec_from_file_location(module_name, path)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
         self.real_builder = self.module.build_kv_sparse_metadata
         self.module.build_kv_sparse_metadata = self.builder
-        self.call = partial(
-            self.module.transfer_kv,
-            host_layout="page_first",
-            kv_layers=(0, 0, None),
-            index_layers=(0, 0, None),
-            backend="aicpu",
-            direction=1,
-        )
+        self.call = partial(self.module.transfer_kv, host_layout="page_first",
+                            kv_layers=(0, 0, None), index_layers=(0, 0, None),
+                            backend="aicpu", direction=1)
 
     def transfer(self, layers=3, pages=2, direction=1, cpu_indices=False):
         dev = Tensor((layers, pages + 3, 4, 1, 5), dtype="bf16")
@@ -237,12 +223,8 @@ class TestSparseDispatch(unittest.TestCase):
             device_v = Tensor((3, 5, 4, 1, 2), dtype="bf16")
             host_v = Tensor((7, 3, 4, 1, 2), CPU, "bf16")
             self.call(
-                Tensor((8,)),
-                Tensor((8,)),
-                device_k,
-                host_k,
-                device_v,
-                host_v,
+                Tensor((8,)), Tensor((8,)),
+                device_k, host_k, device_v, host_v,
                 page_size=4,
             )
         self.assertEqual(check.call_count, 2)
@@ -261,9 +243,7 @@ class TestSparseDispatch(unittest.TestCase):
         self.transfer()
         previous = self.module._last_sparse_submission[NPU]
         previous_done = previous[1]
-        previous_done.query = Mock(
-            side_effect=AssertionError("event query during capture")
-        )
+        previous_done.query = Mock(side_effect=AssertionError("event query during capture"))
         self.torch.npu.Event = Mock(
             side_effect=AssertionError("event creation during capture")
         )
@@ -293,9 +273,7 @@ class TestSparseDispatch(unittest.TestCase):
 
     def test_capture_rejects_cpu_indices_and_unsupported_backend(self):
         self.torch.npu.is_current_stream_capturing.return_value = True
-        with self.assertRaisesRegex(
-            ValueError, "indices must be on the KV buffer's NPU"
-        ):
+        with self.assertRaisesRegex(ValueError, "indices must be on the KV buffer's NPU"):
             self.transfer(cpu_indices=True)
         with self.assertRaisesRegex(RuntimeError, "impl='aicpu'"):
             self.call(
@@ -413,15 +391,8 @@ class TestSparseDispatch(unittest.TestCase):
                 dev = Tensor((1, 8, 4, 1, 5))
                 host = Tensor((10, 1, 4, 1, 5), CPU)
                 self.call(
-                    di,
-                    hi,
-                    dev,
-                    host,
-                    Tensor((0,)),
-                    Tensor((0,), CPU),
-                    page_size=4,
-                    direction=direction,
-                    backend="aiv",
+                    di, hi, dev, host, Tensor((0,)), Tensor((0,), CPU),
+                    page_size=4, direction=direction, backend="aiv",
                 )
                 done, retained = self.module._inflight[-1]
                 self.assertIs(done.stream, self.stream)
@@ -469,48 +440,33 @@ class TestSparseDispatch(unittest.TestCase):
 
     def test_public_defaults_and_explicit_overrides(self):
         implementations = {}
-
         def register_impl(name, impl, **options):
             self.assertNotIn("supported_generations", options)
             self.assertNotIn("excluded_generations", options)
-
             def register(fn):
                 implementations[name, impl] = fn
                 return fn
-
             return register
-
         package = "sgl_kernel_npu.operators.mem_cache"
         parent = ModuleType(package)
         parent.__path__ = []
         name = package + ".kv_transfer"
-        path = (
-            ROOT
-            / "python/sgl_kernel_npu/sgl_kernel_npu/operators/mem_cache/kv_transfer.py"
-        )
+        path = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu/operators/mem_cache/kv_transfer.py"
         spec = importlib.util.spec_from_file_location(name, path)
         public = importlib.util.module_from_spec(spec)
-        with patch.dict(
-            sys.modules,
-            {
-                package: parent,
-                "sgl_kernel_npu.operators.utils.registry": SimpleNamespace(
-                    register_impl=register_impl,
-                    register_operator=lambda _: lambda fn: fn,
-                    get_impl_by_name=lambda name, impl: implementations[name, impl],
-                ),
-            },
-        ):
+        with patch.dict(sys.modules, {
+            package: parent,
+            "sgl_kernel_npu.operators.utils.registry": SimpleNamespace(
+                register_impl=register_impl,
+                register_operator=lambda _: lambda fn: fn,
+                get_impl_by_name=lambda name, impl: implementations[name, impl]),
+        }):
             spec.loader.exec_module(public)
         public._memfabric_fn = Mock()
         args = ("di", "hi", "dk", "hk", "dv", "hv")
         for suffix in ("_pf_lf", ""):
             fn = getattr(public, "transfer_kv_per_layer_kv_split" + suffix)
-            for impl, expected in (
-                ("auto", "aicpu"),
-                ("aiv", "aiv"),
-                ("aicpu", "aicpu"),
-            ):
+            for impl, expected in (("auto", "aicpu"), ("aiv", "aiv"), ("aicpu", "aicpu")):
                 fn(*args, device_layer_id=2, host_layer_id=4, impl=impl)
                 kw = public._memfabric_fn.call_args.kwargs
                 self.assertEqual((kw["backend"], kw["direction"]), (expected, 1))
