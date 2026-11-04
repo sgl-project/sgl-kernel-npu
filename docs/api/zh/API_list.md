@@ -2,6 +2,10 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [compressor_v2](operators/attention/compressor_v2.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [lightning_indexer_v2](operators/attention/lightning_indexer_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [lightning_indexer_v2_metadata](operators/attention/lightning_indexer_v2_metadata.md) | `cann_ops_transformers_cann920` |
+| [sparse_lightning_indexer](operators/attention/sparse_lightning_indexer.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |

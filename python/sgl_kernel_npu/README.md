@@ -404,3 +404,51 @@ Execute sgl_kernel_npu test scripts, for example
 ```bash
 python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
+
+### CANN 9.2.0 A3 lightning indexers
+
+The `ops_transformer` profile bundles `lightning_indexer_v2`,
+`sparse_lightning_indexer`, and the AICPU `lightning_indexer_v2_metadata`
+dependency from commit `e7da18105f08b06e01ef0fff78f439098d483746`.
+The new interfaces target arch22 (A3); the existing arch35 Flash MLA selection
+is retained. Use the regular upstream operators, without `--experimental`.
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+python setup.py --arch-version 2201 --third-party ops_transformer --plan --cann-version 9.2.0
+python setup.py --arch-version 2201 --third-party ops_transformer -j 8
+python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
+python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+```
+
+Do not install a separate upstream wheel or vendor to satisfy these imports.
+The final wheel must contain `_third_party/sgl_ops_transformer`, the complete
+vendor (including metadata AICPU resources), its LICENSE and build manifest.
+First invocation can JIT-compile upstream bindings; use a matching CANN/Torch/
+torch_npu development environment. Rebuild and reinstall after profile changes.
+See the bilingual API documents for layout restrictions and the reference subset.
+
+### CANN 9.2.0 A3 experimental CompressorV2
+
+The `ops_transformer_experimental` profile bundles `compressor_v2` from
+`e7da18105f08b06e01ef0fff78f439098d483746`. It reuses the ops-transformer builder
+with `--experimental` and uses a separate vendor/Python package. Both profiles
+can be included in one wheel without replacing the regular indexer dependency.
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+python setup.py --arch-version 2201 \
+  --third-party ops_transformer,ops_transformer_experimental -j 8
+python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
+python -m pytest tests/python/operators/attention/test_compressor_v2.py \
+  tests/python/operators/attention/test_lightning_indexer_v2.py \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+```
+
+For CompressorV2 alone, select `--third-party ops_transformer_experimental`.
+The wheel must include `_third_party/sgl_ops_transformer_experimental`, its
+complete vendor, LICENSE and manifest entry. No separately installed upstream
+package is needed; first use may JIT-compile the C++ binding. The operator mutates
+`state_cache` in place. See the API contract for valid output rows and eager-only
+validation scope.
