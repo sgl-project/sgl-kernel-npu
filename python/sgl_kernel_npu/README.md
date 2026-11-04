@@ -173,11 +173,6 @@ AI Core OpDef or Tiling function. A CANN-only `.run` build does not require
 `TORCH_ADAPTER`.
 
 The same `--ops` selection supports AI Core-only, AICPU-only and mixed packages.
-AICPU sources conventionally live in `op_kernel_aicpu/` and are compiled with
-CANN's HCC toolchain in a separate CMake directory scope. Both execution units
-share the Host ACLNN/GRAPH builder, using the Host compiler. See
-[AddExample](../../docs/api/en/operators/examples/add_example.md) for a complete
-declaration and build/test commands.
 
 Use `SUPPORTED_ARCHS` to exclude an unsupported architecture rather than clearing
 required sources. `--ops all` excludes operators that do not support the selected
@@ -246,28 +241,31 @@ The variant repeats `--cce-auto-sync=off` because its compiler-option list fully
 replaces the common one. Only the final Kernel list is checked for one entry;
 the common and variant entries are not combined.
 
-#### AICPU-only installation and delivery checks
+#### Building and installing AICPU operators
 
-The build exports its actual Host targets and complete generated/explicit ACLNN
-header list. Installation checks require the corresponding ACLNN/GRAPH libraries
-and headers, AI Core Tiling/binaries/configuration only when Core is selected,
-and the device library/registration JSON only when AICPU is selected. Missing
-expected content still fails; optional content is determined from build inputs,
-not from whether a file happens to exist. Common files are checked once, and
-AI Core binaries/configuration are checked for each architecture compute unit.
+Use an initialized CANN 9.2.0 SDK with its HCC compiler and AICPU development
+files, plus matching PyTorch and torch_npu. Select AICPU operators with the same
+`--ops` option used for AI Core operators. For a repository-owned AICPU-only
+wheel on A2/A3:
 
-CANN 9.2's RUN installer normally requires `libcust_opmaster_rt2.0.so`, even when
-an AICPU-only package has no AI Core Tiling input. For AICPU-only selections the
-coordinator adds `--force` to the RUN installation command. This skips the SDK's
-entire Host shared-library validation, including loading/architecture/GLIBC
-checks; it does not bypass this repository's installed-file checks. AI Core-only
-and mixed selections keep the default installer behavior. No placeholder
-opmaster library or extra Host-library loading step is added.
+```bash
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 --ops add_example --artifact wheel --without-third-party --make-clean
+```
 
-When installing an AICPU-only RUN manually, pass `--force` to that RUN as well.
-The wheel contains the expanded vendor directory; installing the wheel does not
-run the RUN installer. This behavior applies to repository-owned CANN packages;
-third-party build/install scripts keep their own rules.
+On A5, use `--arch-version 3510`. For a mixed wheel, select
+`--ops apply_token_bitmask,add_example`.
+
+When installing the RUN package manually, pass `--force` to the generated installer. For the A2/A3 custom build above with `--artifact run`, install it by:
+
+```bash
+bash /workspace/sgl-kernel-npu/output/sgl_kernel_npu-2201-custom.run --install-path=/workspace/sgl-kernel-npu/installed --force
+```
+
+After installing the wheel, run the example through the public API:
+
+```bash
+python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/examples/test_add_example.py --impl aicpu --impl-ref torch_native --skip-acc-check=false --enable-perf=false -ra
+```
 
 #### Duplicate declarations and values
 

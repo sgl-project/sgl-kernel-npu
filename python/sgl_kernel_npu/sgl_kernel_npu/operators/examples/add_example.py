@@ -1,21 +1,28 @@
 """Same-shape addition with explicit AICPU or PyTorch implementation selection."""
 
+import torch
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+
+_torch_native_fn = None
 
 
 @register_impl("examples.add_example", "auto")
 @register_impl("examples.add_example", "aicpu")
 def _aicpu_impl(x1, x2):
-    from ...implementation.aicpu.examples.add_example import add_example
-
-    return add_example(x1, x2)
+    return torch.ops.npu.sgl_add_example(x1, x2)
 
 
 @register_impl("examples.add_example", "torch_native")
 def _torch_native_impl(x1, x2):
-    from ...implementation.torch_native.examples.add_example import add_example
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.examples.add_example import add_example
 
-    return add_example(x1, x2)
+        _torch_native_fn = add_example
+
+    return _torch_native_fn(x1, x2)
 
 
 @register_operator("examples.add_example")
@@ -26,9 +33,6 @@ def add_example(x1, x2, *, impl="auto"):
     with the same dtype on the same NPU. Broadcasting is rejected.
     auto selects aicpu without fallback; torch_native is an independent reference.
     """
-    import torch
-    import torch_npu
-
     impl_fn = get_impl_by_name("examples.add_example", impl)
     if not isinstance(x1, torch.Tensor) or not isinstance(x2, torch.Tensor):
         raise TypeError("inputs must be torch tensors")
