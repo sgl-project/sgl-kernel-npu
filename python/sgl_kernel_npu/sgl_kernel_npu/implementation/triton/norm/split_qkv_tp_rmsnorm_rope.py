@@ -1,5 +1,9 @@
+import torch
+import torch.distributed as dist
 import triton
 import triton.language as tl
+
+from ..utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -164,3 +168,82 @@ def _apply_global_rmsnorm_kernel(
         kn2 = k2 * cos_row[None, :] + k1 * sin_row[None, :]
         tl.store(k_base + kh_offsets, kn1.to(k1_raw.dtype), mask=kh_mask)
         tl.store(k_base + kh_offsets_2, kn2.to(k2_raw.dtype), mask=kh_mask)
+
+
+def split_qkv_tp_rmsnorm_rope(
+    input: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    rotary_dim: int,
+    tp_world: int,
+    tp_group: torch.distributed.ProcessGroup,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
+    assert KV_BLOCK_SIZE == head_dim
+    assert q_hidden_size % kv_hidden_size == 0
+    Q_BLOCK_SIZE = q_hidden_size // kv_hidden_size * head_dim
+    batch_size = input.shape[0]
+    q = torch.empty(batch_size, q_hidden_size, device=input.device, dtype=input.dtype)
+    k = torch.empty(batch_size, kv_hidden_size, device=input.device, dtype=input.dtype)
+    v = torch.empty(batch_size, kv_hidden_size, device=input.device, dtype=input.dtype)
+
+    if batch_size == 0:
+        return q, k, v
+    _, num_vectorcore = get_device_properties()
+    grid = (min(batch_size, num_vectorcore),)
+    q_cols = q_hidden_size
+    k_cols = kv_hidden_size
+    q_num_heads = q_hidden_size // head_dim
+    k_num_heads = kv_hidden_size // head_dim
+
+    qk_var = torch.empty(batch_size, 2, dtype=torch.float32, device=q.device)
+    _split_qkv_and_compute_local_qk_var_kernel[grid](
+        input,
+        q,
+        k,
+        v,
+        qk_var,
+        batch_size,
+        q_cols,
+        k_cols,
+        triton.next_power_of_2(q_cols),
+        triton.next_power_of_2(k_cols),
+        KV_BLOCK_SIZE,
+        Q_BLOCK_SIZE,
+    )
+    if tp_world > 1:
+        dist.all_reduce(qk_var, group=tp_group)
+
+    _apply_global_rmsnorm_kernel[grid](
+        q,
+        k,
+        cos,
+        sin,
+        rotary_dim,
+        q_weight,
+        k_weight,
+        qk_var,
+        eps,
+        1.0 / tp_world,
+        batch_size,
+        q_cols,
+        k_cols,
+        q_num_heads,
+        k_num_heads,
+        head_dim,
+        triton.next_power_of_2(q_cols),
+        triton.next_power_of_2(k_cols),
+        triton.next_power_of_2(q_num_heads),
+        triton.next_power_of_2(k_num_heads),
+        triton.next_power_of_2(rotary_dim // 2),
+        Q_BLOCK_SIZE,
+        KV_BLOCK_SIZE,
+    )
+
+    return q, k, v

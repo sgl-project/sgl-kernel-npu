@@ -1,11 +1,11 @@
-"""Public split_qkv_tp_rmsnorm_rope operator with parameter preparation in registered adapters."""
+"""Public split_qkv_tp_rmsnorm_rope operator with explicit implementation selection."""
 
 import torch
 import torch.distributed as dist
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_triton_fns = None
+_triton_fn = None
 _torch_native_fns = None
 _cpu_fn = None
 
@@ -26,92 +26,27 @@ def _triton_impl(
     tp_world: int,
     tp_group: torch.distributed.ProcessGroup,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    global _triton_fns
-    if _triton_fns is None:
-        import triton
-
+    global _triton_fn
+    if _triton_fn is None:
         from ...implementation.triton.norm.split_qkv_tp_rmsnorm_rope import (
-            _apply_global_rmsnorm_kernel,
-            _split_qkv_and_compute_local_qk_var_kernel,
+            split_qkv_tp_rmsnorm_rope,
         )
-        from ...utils.triton_utils import get_device_properties
 
-        _triton_fns = (
-            triton,
-            _apply_global_rmsnorm_kernel,
-            _split_qkv_and_compute_local_qk_var_kernel,
-            get_device_properties,
-        )
-    (
-        triton,
-        _apply_global_rmsnorm_kernel,
-        _split_qkv_and_compute_local_qk_var_kernel,
-        get_device_properties,
-    ) = _triton_fns
-
-    KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
-    assert KV_BLOCK_SIZE == head_dim
-    assert q_hidden_size % kv_hidden_size == 0
-    Q_BLOCK_SIZE = q_hidden_size // kv_hidden_size * head_dim
-    batch_size = input.shape[0]
-    q = torch.empty(batch_size, q_hidden_size, device=input.device, dtype=input.dtype)
-    k = torch.empty(batch_size, kv_hidden_size, device=input.device, dtype=input.dtype)
-    v = torch.empty(batch_size, kv_hidden_size, device=input.device, dtype=input.dtype)
-
-    if batch_size == 0:
-        return q, k, v
-    _, num_vectorcore = get_device_properties()
-    grid = (min(batch_size, num_vectorcore),)
-    q_cols = q_hidden_size
-    k_cols = kv_hidden_size
-    q_num_heads = q_hidden_size // head_dim
-    k_num_heads = kv_hidden_size // head_dim
-
-    qk_var = torch.empty(batch_size, 2, dtype=torch.float32, device=q.device)
-    _split_qkv_and_compute_local_qk_var_kernel[grid](
+        _triton_fn = split_qkv_tp_rmsnorm_rope
+    return _triton_fn(
         input,
-        q,
-        k,
-        v,
-        qk_var,
-        batch_size,
-        q_cols,
-        k_cols,
-        triton.next_power_of_2(q_cols),
-        triton.next_power_of_2(k_cols),
-        KV_BLOCK_SIZE,
-        Q_BLOCK_SIZE,
-    )
-    if tp_world > 1:
-        dist.all_reduce(qk_var, group=tp_group)
-
-    _apply_global_rmsnorm_kernel[grid](
-        q,
-        k,
         cos,
         sin,
-        rotary_dim,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+        eps,
         q_weight,
         k_weight,
-        qk_var,
-        eps,
-        1.0 / tp_world,
-        batch_size,
-        q_cols,
-        k_cols,
-        q_num_heads,
-        k_num_heads,
-        head_dim,
-        triton.next_power_of_2(q_cols),
-        triton.next_power_of_2(k_cols),
-        triton.next_power_of_2(q_num_heads),
-        triton.next_power_of_2(k_num_heads),
-        triton.next_power_of_2(rotary_dim // 2),
-        Q_BLOCK_SIZE,
-        KV_BLOCK_SIZE,
+        rotary_dim,
+        tp_world,
+        tp_group,
     )
-
-    return q, k, v
 
 
 @register_impl("norm.split_qkv_tp_rmsnorm_rope", "torch_native")
