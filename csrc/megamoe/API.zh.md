@@ -1,5 +1,7 @@
 # MegaMoe 源码接口
 
+贡献者：chengyue、zhaoyuxin、hanggongmao、chenyukai。
+
 `source/` 下的文件来自 [ops-transformer](https://gitcode.com/hanggongmao1/ops-transformer)
 的 `mega_moe` 分支提交 `d4c5f65d93591f26895c126fc590f0d622440819`。
 原 CANN Open Software License Agreement 2.0 及版权声明予以保留；完整许可

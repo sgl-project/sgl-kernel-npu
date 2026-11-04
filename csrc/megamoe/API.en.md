@@ -1,5 +1,7 @@
 # MegaMoe source API
 
+Contributors: chengyue, zhaoyuxin, hanggongmao, chenyukai.
+
 The files under `source/` originate from the `mega_moe` branch of
 [ops-transformer](https://gitcode.com/hanggongmao1/ops-transformer) at
 `d4c5f65d93591f26895c126fc590f0d622440819`. Their original CANN Open
