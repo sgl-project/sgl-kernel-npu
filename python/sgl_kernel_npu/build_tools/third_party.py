@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from build_tools.cann import PROJECT_ROOT, run
 
 # Explicit allowlist: configuration cannot import arbitrary Python code.
-_ADAPTERS = {"ops_transformer"}
+_ADAPTERS = {"ops_transformer", "cann_recipes_infer"}
 
 
 @lru_cache(maxsize=None)
@@ -76,13 +76,25 @@ def detect_soc_version():
     raise RuntimeError("Cannot detect build SoC from npu-smi board information")
 
 
-def resolve_plan(version, arch, jobs=None, source_root=PROJECT_ROOT):
+def resolve_plan(
+    version, arch, jobs=None, source_root=PROJECT_ROOT, *, third_party=None
+):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Expected an exact CANN version, e.g. 9.2.0")
     arch_name = {"2201": "arch22", "3510": "arch35"}[str(arch)]
     root = Path(source_root) / "third_party"
     profile = root / "profiles" / ("cann-" + version) / arch_name
     configs = sorted(profile.glob("*.json"))
+    if third_party is not None:
+        available = {path.stem for path in configs}
+        missing = set(third_party) - available
+        if missing:
+            raise ValueError(
+                "Third-party profiles not found for CANN {}, {}: {} (searched {})".format(
+                    version, arch_name, ", ".join(sorted(missing)), profile
+                )
+            )
+        configs = [path for path in configs if path.stem in third_party]
     if not configs:
         print(
             "[INFO] No third-party profiles for CANN {}, {}; "
@@ -98,6 +110,8 @@ def resolve_plan(version, arch, jobs=None, source_root=PROJECT_ROOT):
         if root.resolve() not in config_path.resolve().parents:
             raise ValueError("Dependency configuration escapes third_party")
         config = read_json(config_path)
+        # Profile documentation is not part of the build configuration or cache key.
+        config.pop("_comment", None)
         if not isinstance(config.get("has_aicpu", False), bool):
             raise ValueError("has_aicpu must be a boolean")
         if not re.fullmatch(r"[0-9a-f]{40}", config["commit"]):

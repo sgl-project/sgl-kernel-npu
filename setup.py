@@ -2,6 +2,7 @@
 """Build sgl-kernel-npu from migrated AscendC operators and Python sources."""
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -33,7 +34,12 @@ def arguments(argv=None):
         help="CANN installer or complete sgl-kernel-npu wheel",
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
-    parser.add_argument(
+    third_party = parser.add_mutually_exclusive_group()
+    third_party.add_argument(
+        "--third-party",
+        help="comma-separated third-party profile filenames without .json; default: all",
+    )
+    third_party.add_argument(
         "--without-third-party",
         action="store_true",
         help="build only repository-owned operators",
@@ -59,6 +65,14 @@ def arguments(argv=None):
         parser.error("--arch-version is required")
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.third_party is not None:
+        if args.artifact != "wheel":
+            parser.error("--third-party requires --artifact wheel")
+        args.third_party = tuple(name.strip() for name in args.third_party.split(","))
+        if any(
+            not re.fullmatch(r"[a-z][a-z0-9_]*", name) for name in args.third_party
+        ) or len(set(args.third_party)) != len(args.third_party):
+            parser.error("--third-party requires distinct, nonempty profile names")
     try:
         args.operators = parse_operators(args.ops)
     except ValueError as error:
@@ -86,7 +100,10 @@ def main(argv=None):
     plan = []
     if not args.without_third_party and args.artifact == "wheel":
         plan = resolve_plan(
-            args.cann_version or detect_cann_version(), args.arch_version, args.jobs
+            args.cann_version or detect_cann_version(),
+            args.arch_version,
+            args.jobs,
+            third_party=args.third_party,
         )
     if args.plan:
         import json
