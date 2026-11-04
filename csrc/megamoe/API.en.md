@@ -17,6 +17,9 @@ the pinned dependencies. To inspect the commands without building, run
 `python3 csrc/megamoe/build.py --plan`. To build in that environment, run
 `python3 csrc/megamoe/build.py`. This recipe is separate from the standard
 sgl-kernel-npu wheel build and does not install its outputs.
+Importing the Python binding JIT-builds its extension and requires Ninja, a
+working C++ compiler, and an initialized CANN environment including
+`ASCEND_HOME_PATH`.
 
 This document describes the Python interface included with the imported
 ops-transformer MegaMoe source. It does not describe the existing DeepEP

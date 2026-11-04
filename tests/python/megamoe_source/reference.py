@@ -41,12 +41,13 @@ def reference_bf16(
         raise ValueError("Shared weight lists must have one tensor per rank")
     experts = first[0].shape[0]
     hidden = xs[0].shape[1]
-    if experts < 1:
-        raise ValueError("Each rank must have at least one expert")
+    if experts < 1 or experts * world > 1024 or hidden < 1:
+        raise ValueError("Expert count and hidden size must be within supported bounds")
     for rank in range(world):
         if (
             xs[rank].ndim != 2
             or xs[rank].shape[1] != hidden
+            or xs[rank].shape[0] < 1
             or xs[rank].dtype != torch.bfloat16
         ):
             raise ValueError("x must be BF16 [tokens, hidden]")
@@ -54,6 +55,7 @@ def reference_bf16(
             ids[rank].ndim != 2
             or ids[rank].shape != probabilities[rank].shape
             or ids[rank].shape[0] != xs[rank].shape[0]
+            or not 1 <= ids[rank].shape[1] <= experts * world
         ):
             raise ValueError("Each route tensor must have shape [tokens, topk]")
         if (
@@ -68,6 +70,7 @@ def reference_bf16(
         if (
             first[rank].shape[0] != experts
             or first[rank].shape[2] != hidden
+            or first[rank].shape[1] < 2
             or first[rank].shape[1] % 2
         ):
             raise ValueError(

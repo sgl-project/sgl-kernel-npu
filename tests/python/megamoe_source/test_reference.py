@@ -77,3 +77,18 @@ def test_shared_expert_weights_are_paired():
     xs, ids, probabilities, first, second = _case()
     with pytest.raises(ValueError, match="supplied together"):
         reference_bf16(xs, ids, probabilities, first, second, first)
+
+
+@pytest.mark.parametrize(
+    "invalid", ["empty_tokens", "empty_topk", "empty_intermediate"]
+)
+def test_empty_dimensions_are_rejected(invalid):
+    xs, ids, probabilities, first, second = _case()
+    if invalid == "empty_tokens":
+        xs[0], ids[0], probabilities[0] = xs[0][:0], ids[0][:0], probabilities[0][:0]
+    elif invalid == "empty_topk":
+        ids[0], probabilities[0] = ids[0][:, :0], probabilities[0][:, :0]
+    else:
+        first[0], second[0] = first[0][:, :0, :], second[0][:, :, :0]
+    with pytest.raises(ValueError):
+        reference_bf16(xs, ids, probabilities, first, second)

@@ -14,6 +14,8 @@
 `python3 csrc/megamoe/build.py --plan` 查看构建命令而不执行构建；在上述
 环境中运行 `python3 csrc/megamoe/build.py` 执行构建。此脚本独立于标准的
 sgl-kernel-npu wheel 构建，也不会自动安装生成的文件。
+导入 Python 绑定时会通过 JIT 构建扩展，需要 Ninja、可用的 C++ 编译器，
+以及已初始化的 CANN 环境（包含 `ASCEND_HOME_PATH`）。
 
 本文描述导入的 ops-transformer MegaMoe 源码所带的 Python 接口；它与
 现有 DeepEP `FuseMode.MEGA_MOE` 接口的参数及支持模式不同。该实现面向
