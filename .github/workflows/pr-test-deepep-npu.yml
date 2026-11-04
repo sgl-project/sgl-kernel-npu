@@ -62,12 +62,12 @@ jobs:
       )
     runs-on: linux-aarch64-a3-800t-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.12
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
       matrix:
-        cann_version: [9.0.0, 9.1.0]
+        cann_version: [9.1.0, 9.2.0]
     steps:
       - name: Clean git config
         run: |
@@ -96,7 +96,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py3.12-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           pip install uv
@@ -284,12 +284,12 @@ jobs:
       )
     runs-on: linux-aarch64-a3-800t-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.12
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
       matrix:
-        cann_version: [9.0.0, 9.1.0]
+        cann_version: [9.1.0, 9.2.0]
     steps:
       - name: Clean git config
         run: |
@@ -318,7 +318,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py3.12-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           pip install uv
@@ -454,7 +454,7 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
       - name: Run test alltoall mode for both normal and low_latency
-        if: matrix.cann_version == '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         timeout-minutes: 10
         env:
           DEEP_MOE_MODE: alltoall
@@ -475,12 +475,12 @@ jobs:
       )
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.12
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
       matrix:
-        cann_version: [9.0.0, 9.1.0]
+        cann_version: [9.1.0, 9.2.0]
     steps:
       - name: Clean git config
         run: |
@@ -509,7 +509,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a2-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a2-cann${{ matrix.cann_version }}-py3.12-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         run: |
