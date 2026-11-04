@@ -11,6 +11,7 @@
 #ifndef COMMMON_TILING_H
 #define COMMMON_TILING_H
 
+#include <algorithm>
 #include <iostream>
 #include <cmath>
 #include "common.h"
@@ -246,6 +247,8 @@ uint32_t Swizzl(PpTilingDataType &tilingData)
     return swizzlDirect;
 }
 
+// Torch checks are only available in Torch builds; the scheduling helpers above are shared with CANN.
+#ifdef TORCH_CHECK
 template <typename PpTilingDataType>
 inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDataType &tilingData)
 {
@@ -257,6 +260,7 @@ inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDat
     TORCH_CHECK(tilingData.nLoop > 0, "nLoop is invalid");
     TORCH_CHECK(tilingData.blockDim > 0, "nLoop is invalid");
 }
+#endif
 
 }  // namespace host_utils
 
