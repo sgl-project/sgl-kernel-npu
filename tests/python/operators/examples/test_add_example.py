@@ -18,7 +18,6 @@ ADD_EXAMPLE_STANDARD = {
 
 
 def generate_data(shape, dtype):
-    """Construct the confirmed [2, 5] + [3, 3] inputs on the current NPU."""
     x1 = torch.tensor([2, 5], dtype=dtype, device="npu").reshape(shape)
     x2 = torch.tensor([3, 3], dtype=dtype, device=x1.device).reshape(shape)
     return x1, x2
