@@ -28,6 +28,7 @@ def select_backend(configure_public_interface_test):
     require_test_impl(swiglu_group_quant, get_test_impls()[0])
 
 
+# DeepSeek-V4 TP=1 dimensions (2*2048 channels, 256 experts); synthetic batches.
 perf_shape = [(8, 4096)]
 
 
@@ -126,7 +127,7 @@ E5 = torch.float8_e5m2
             2,
             41,
             dict(rows=8, width=4096, counts=[3, 0, 1, 4] + [0] * 252, clamp_value=1.0),
-            id="deepseek-v4",
+            id="deepseek-v4-mx-tp1",
         ),
     ],
 )
@@ -141,7 +142,6 @@ def test_swiglu_group_quant(mode, seed, options):
     rows, width = x.shape
     valid = min(rows, sum(counts)) if counts is not None else rows
     weight = kwargs.get("topk_weight")
-    weight = None if weight is None else weight.cpu()
     impl, _ = get_test_impls()
 
     def compare_outputs(actual, reference):
@@ -175,7 +175,7 @@ def test_swiglu_group_quant(mode, seed, options):
             {"torch.float32": AccuracyStandard(0.02, 0.15)},
         )
         clamp = kwargs.get("clamp_value", 0.0)
-        activation = _ref_swiglu(x.cpu(), clamp, weight)[:valid]
+        activation = _ref_swiglu(x, clamp, weight)[:valid].cpu()
         if mode == 3 and kwargs.get("output_origin"):
             assert_accuracy(
                 origin[:valid].cpu().float(),
@@ -215,10 +215,10 @@ def test_swiglu_group_quant(mode, seed, options):
             assert stored.count_nonzero().item() > 0
         if mode == 2 and clamp and counts is None:
             _, unclamped, _ = swiglu_group_quant(
-                **dict(kwargs, clamp_value=0.0), impl="cpu"
+                **dict(kwargs, clamp_value=0.0), impl="torch_native"
             )
             assert (
-                expected.view(torch.uint8) != unclamped[:valid].view(torch.uint8)
+                expected.view(torch.uint8) != unclamped[:valid].cpu().view(torch.uint8)
             ).float().mean() >= 0.10
         variants = []
         if mode == 2:
@@ -244,8 +244,8 @@ def test_swiglu_group_quant(mode, seed, options):
 
     checked = not get_skip_acc_check()
     if checked:
-        require_distinct_impls(swiglu_group_quant, impl, "cpu")
-        reference = swiglu_group_quant(**kwargs, impl="cpu")
+        require_distinct_impls(swiglu_group_quant, impl, "torch_native")
+        reference = swiglu_group_quant(**kwargs, impl="torch_native")
         actual = swiglu_group_quant(**kwargs, impl=impl)
         compare_outputs(actual, reference)
 
@@ -253,7 +253,7 @@ def test_swiglu_group_quant(mode, seed, options):
         swiglu_group_quant,
         kwargs=kwargs,
         impl=impl,
-        impl_ref="cpu",
+        impl_ref="torch_native",
         accuracy_checked=checked,
     )
     check_performance(executor, enable_perf=(rows, width) in perf_shape)

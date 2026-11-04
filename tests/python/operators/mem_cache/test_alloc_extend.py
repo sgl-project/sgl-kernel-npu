@@ -14,6 +14,7 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+# Generic paged allocation; these shapes are independent of a particular model.
 perf_shape = [(7, 10000, 128), (100, 2, 128)]
 
 ALLOC_EXTEND_CASES = [
@@ -232,7 +233,7 @@ def test_alloc_extend(prefix, sequence, last, free_stop, page_size):
 
     inputs = generate_data(prefix, sequence, last, free_stop, page_size)
     impl, _ = get_test_impls()
-    impl_ref = "cpu"
+    impl_ref = "torch_native"
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(alloc_extend, impl)

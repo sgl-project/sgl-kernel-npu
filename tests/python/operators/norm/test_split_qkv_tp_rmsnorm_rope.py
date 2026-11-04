@@ -6,8 +6,9 @@ from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# (rows, local Q width, local KV width, head size, rotary width)
-perf_shape = [(12, 6144, 1024, 128, 128)]
+# Shape: (rows, Q, KV, head, rotary). MiniMax-M2 TP=1 uses rotary=64.
+# Batches are synthetic; full RoPE is additional generic coverage.
+perf_shape = [(12, 6144, 1024, 128, 128), (12, 6144, 1024, 128, 64)]
 
 
 def generate_data(shape, dtype):
@@ -40,11 +41,19 @@ def generate_data(shape, dtype):
 @pytest.mark.parametrize(
     "shape,dtype",
     [
-        ((12, 6144, 1024, 128, 128), torch.bfloat16),
-        ((1, 512, 128, 64, 32), torch.float32),
-        ((3, 512, 128, 64, 32), torch.float16),
         pytest.param(
-            (0, 512, 128, 64, 64), torch.bfloat16, marks=pytest.mark.extra_checks
+            (12, 6144, 1024, 128, 64),
+            torch.bfloat16,
+            id="minimax-m2-tp1-partial-rope-bf16",
+        ),
+        pytest.param((12, 6144, 1024, 128, 128), torch.bfloat16, id="full-rope-bf16"),
+        pytest.param((1, 512, 128, 64, 32), torch.float32, id="partial-rope-fp32"),
+        pytest.param((3, 512, 128, 64, 32), torch.float16, id="partial-rope-fp16"),
+        pytest.param(
+            (0, 512, 128, 64, 64),
+            torch.bfloat16,
+            marks=pytest.mark.extra_checks,
+            id="empty-batch",
         ),
     ],
 )
@@ -56,7 +65,7 @@ def test_single_rank(shape, dtype):
     executor = check_accuracy(
         split_qkv_tp_rmsnorm_rope,
         kwargs=data,
-        impl_ref="cpu",
+        impl_ref="torch_native",
         standard={"torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=1e-7)},
     )
     if executor.accuracy_checked:

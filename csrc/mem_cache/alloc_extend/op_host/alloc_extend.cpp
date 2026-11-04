@@ -5,7 +5,7 @@
 #include <algorithm>
 
 namespace optiling {
-static ge::graphStatus Tiling(gert::TilingContext *context)
+static ge::graphStatus TilingAllocExtend(gert::TilingContext *context)
 {
     const auto *prefix = context->GetInputShape(0);
     const auto *output = context->GetInputShape(4);
@@ -35,7 +35,7 @@ static ge::graphStatus Tiling(gert::TilingContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShapeAllocExtend(gert::InferShapeContext *context)
 {
     for (int i = 0; i < 2; ++i) {
         const auto *input = context->GetInputShape(4 + i);
@@ -46,7 +46,7 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataTypeAllocExtend(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(4));
     context->SetOutputDataType(1, context->GetInputDataType(5));
@@ -101,8 +101,8 @@ public:
             .Format({ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND});
         this->Attr("page_size").AttrType(REQUIRED).Int();
-        this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDataType);
-        this->AICore().SetTiling(optiling::Tiling);
+        this->SetInferShape(optiling::InferShapeAllocExtend).SetInferDataType(optiling::InferDataTypeAllocExtend);
+        this->AICore().SetTiling(optiling::TilingAllocExtend);
         for (const auto *config : SGL_CANN_CONFIGS)
             this->AICore().AddConfig(config);
     }

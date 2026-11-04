@@ -22,7 +22,7 @@ def alloc_extend(
 
 ## 功能说明
 
-为分页请求新增的 token 计算缓存槽位编号。 每个请求先用完已有末页的剩余槽位，再按顺序使用空闲页。输出按请求顺序拼接，空闲页列表由调用方管理。
+为分页请求在 Prefill 或 Decode 阶段新增的 token 计算 KV Cache 槽位索引。每个请求先填满当前页的剩余位置，再按 free_pages 的顺序使用新页，必要时写入最后一个不完整的新页；结果按请求顺序紧凑写入 out_indices。该操作只计算索引，不搬运 KV 数据，空闲页列表的消费仍由调用方管理。函数原地更新输出缓冲区并返回 None。
 
 ## 参数与返回值
 
@@ -37,7 +37,7 @@ def alloc_extend(
 | `page_size` | `int` | — | — | 必填 | 每页的槽位数，须为 int32 可表示的正数。 |
 | `out_indices` | `torch.Tensor` | `[sum(seq_lens - pre_lens)]` | `int64` | 必填 | 调用方分配的输出缓冲区，保存新增槽位编号。 |
 | `values` | `torch.Tensor` | [N], N ≥ 1 | `int64` | 必填 | 仅当最后一个请求结束于新分配且未填满的页时，向第 0 项写入整批新增页数；其他情况下保留原值。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"ascendc"`, `"torch_native"`。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -50,10 +50,6 @@ def alloc_extend(
 ## torch_native 后端
 
 在输入设备上计算，结果写入相同的输出缓冲区。
-
-## cpu 后端
-
-在 CPU 上计算，再将结果写回调用方的 NPU 缓冲区。
 
 ## 调用示例
 

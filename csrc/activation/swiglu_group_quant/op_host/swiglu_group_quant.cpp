@@ -508,7 +508,7 @@ private:
     bool hasGroupIndex_ = false;
 };
 
-static ge::graphStatus Tiling(gert::TilingContext *ctx)
+static ge::graphStatus TilingSwigluGroupQuant(gert::TilingContext *ctx)
 {
     const auto *shape = ctx->GetInputShape(0);
     if (!shape || !ctx->GetPlatformInfo() || !ctx->GetAttrs()) return ge::GRAPH_FAILED;
@@ -553,7 +553,7 @@ static ge::graphStatus Tiling(gert::TilingContext *ctx)
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferShape(gert::InferShapeContext *ctx)
+static ge::graphStatus InferShapeSwigluGroupQuant(gert::InferShapeContext *ctx)
 {
     const auto &x = *ctx->GetInputShape(0);
     const auto last = x.GetDimNum() - 1;
@@ -573,7 +573,7 @@ static ge::graphStatus InferShape(gert::InferShapeContext *ctx)
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferType(gert::InferDataTypeContext *ctx)
+static ge::graphStatus InferDataTypeSwigluGroupQuant(gert::InferDataTypeContext *ctx)
 {
     const auto *attrs = ctx->GetAttrs();
     auto mode = *attrs->GetInt(0);
@@ -637,8 +637,9 @@ public:
         this->Attr("clamp_value").AttrType(REQUIRED).Float();
         this->Attr("y_e5m2").AttrType(REQUIRED).Bool();
         this->Attr("has_clamp_value").AttrType(REQUIRED).Bool();
-        this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferType);
-        this->AICore().SetTiling(optiling::Tiling);
+        this->SetInferShape(optiling::InferShapeSwigluGroupQuant)
+            .SetInferDataType(optiling::InferDataTypeSwigluGroupQuant);
+        this->AICore().SetTiling(optiling::TilingSwigluGroupQuant);
         for (auto config : SGL_CANN_CONFIGS)
             this->AICore().AddConfig(config);
     }

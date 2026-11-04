@@ -6,7 +6,6 @@ from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
-_cpu_fn = None
 
 
 @register_impl(
@@ -33,18 +32,6 @@ def _native(**kwargs):
     return _torch_native_fn(**kwargs)
 
 
-@register_impl("activation.swiglu_group_quant", "cpu")
-def _cpu(**kwargs):
-    global _cpu_fn
-    if _cpu_fn is None:
-        from ...implementation.cpu.activation.swiglu_group_quant import (
-            swiglu_group_quant,
-        )
-
-        _cpu_fn = swiglu_group_quant
-    return _cpu_fn(**kwargs)
-
-
 @register_operator("activation.swiglu_group_quant")
 def swiglu_group_quant(
     x,
@@ -62,6 +49,10 @@ def swiglu_group_quant(
     impl="auto",
 ):
     """Apply SwiGLU and quantize expert activations; auto selects AscendC on arch35.
+
+    Computes SiLU(gate) * up with optional clamp and routing weights. Mode 1
+    uses FP32 scales per 128 values; mode 2 uses E8M0 scales per 32 values;
+    mode 3 uses a fixed scale reference of 448 with optional power-of-two scales.
 
     Args:
         x: Contiguous FP16/BF16 tensor [..., 2*C]. The first half contains gate and
@@ -85,15 +76,14 @@ def swiglu_group_quant(
         clamp_value: Float, default 0.0 (disabled). A positive value bounds gate
             above and up on both sides before activation and optional weighting.
         impl: Keyword-only implementation: auto (default), ascendc on arch35,
-            torch_native, or cpu. Auto does not fall back on unsupported hardware.
+            or torch_native. Auto does not fall back on unsupported hardware.
 
     Returns:
         Tuple (y, scale, y_origin). y has shape [..., C] and dst_type. scale has
         shape [..., C/64, 2] and E8M0 dtype in mode 2; modes 1/3 use [..., C/128]
         and FP32, except mode 3 with ue8m0_scale=True uses E8M0. y_origin has x's
         dtype and shape [..., C], and is defined only for processed rows in mode 3
-        with output_origin=True. Outputs use x's device except impl="cpu", which
-        returns CPU tensors. Inputs are not modified.
+        with output_origin=True. Outputs use x's device. Inputs are not modified.
     """
     if x.ndim < 1 or not x.is_contiguous():
         raise RuntimeError("x must be contiguous with at least one dimension")

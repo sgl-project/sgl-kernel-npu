@@ -22,7 +22,7 @@ def split_qkv_tp_rmsnorm_rope(
 
 ## 功能说明
 
-拆分本地 QKV 投影，对 Q 和 K 做张量并行 RMSNorm，再对每个 head 的前部通道应用 NeoX RoPE。 每个 token 分别使用整个 TP 组的 Q、K 均方值。加权归一化结果先舍入到输入精度，再参与旋转。V 按原值复制。
+从拼接的本地投影中拆分 Q、K、V，完成 Attention 前的数据准备，包括 MiniMax-M2 的 QK 归一化路径。算子为每个 token 分别计算 Q、K 的均方统计量；tp_world > 1 时先在 TP 组内归约，再执行带权重的 RMSNorm。归一化后的 Q/K 先舍入到输入 dtype，再对前 rotary_dim 个通道执行 NeoX RoPE，其余通道不旋转。V 只复制，不做归一化或旋转；函数在输入设备返回新的 Q、K、V Tensor。
 
 ## 参数与返回值
 
@@ -42,7 +42,7 @@ def split_qkv_tp_rmsnorm_rope(
 | `rotary_dim` | `int` | — | — | 必填 | 每个 head 参与旋转的前 R 个通道，R 为偶数且不大于 head_dim。 |
 | `tp_world` | `int` | — | — | 必填 | TP 组的 rank 数。单卡使用 1。 |
 | `tp_group` | `ProcessGroup / None` | — | — | 必填 | 单卡传 None；多卡时组内各 rank 必须一起调用，并使用相同的批量大小和分片宽度。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"triton"`, `"torch_native"`, `"cpu"`。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"triton"`, `"torch_native"`。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -55,10 +55,6 @@ def split_qkv_tp_rmsnorm_rope(
 ## torch_native 后端
 
 在输入设备上计算，使用相同的 TP 组和输出布局。
-
-## cpu 后端
-
-在 CPU 上计算并将结果返回输入设备。多卡时仍通过指定进程组在输入设备上归约统计量。
 
 ## 调用示例
 

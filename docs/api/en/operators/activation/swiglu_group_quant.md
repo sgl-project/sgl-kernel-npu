@@ -19,7 +19,15 @@ def swiglu_group_quant(x, topk_weight=None, group_index=None, dst_type=None, qua
 
 ## Description
 
-Split gate and up along the last dimension, compute SiLU(gate) × up, optionally multiply by a routing weight per row, then quantize the result.
+Apply SwiGLU activation and quantize its output for an expert FFN, including the DeepSeek-V4 MXFP8 path. The last input dimension contains gate and up projections; the operation computes SiLU(gate) × up, with optional input clamping and per-row routing weights.
+
+The quantization mode selects the scale rule:
+
+- Mode 1: FP8 group quantization with one FP32 scale per 128 activation values, based on the target FP8 format.
+- Mode 2: MXFP8 quantization with one E8M0 scale per 32 values, derived from activation exponents after rounding to the input dtype.
+- Mode 3: FP8 block quantization with one scale per 128 values, a maximum-value floor of 1e-4 and a fixed scale reference of 448. round_scale rounds the scale up to a power of two; ue8m0_scale can store these rounded scales as E8M0.
+
+The function returns quantized y, its scale tensor and y_origin. The latter is populated only in mode 3 with output_origin=True. group_index limits the processed prefix using per-expert token counts.
 
 ## Parameters and return value
 
@@ -38,7 +46,7 @@ N is the product of the leading dimensions of x. For NPU implementations, put al
 | `output_origin` | bool | — | — | False | Populate the unquantized output in mode 3. |
 | `group_list_type` | int | — | — | 0 | 0 for per-expert counts. |
 | `clamp_value` | float | — | — | 0.0 | 0 disables clamping. A positive value bounds gate above and up on both sides before activation. |
-| `impl` | str | — | — | 'auto' | auto or ascendc on A5, torch_native, or cpu. |
+| `impl` | str | — | — | 'auto' | auto, ascendc on A5, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -53,10 +61,6 @@ Runs fused activation and quantization on A5.
 ## torch_native backend
 
 Uses PyTorch operations on the input devices.
-
-## cpu backend
-
-Computes and returns tensors on CPU.
 
 ## Example
 

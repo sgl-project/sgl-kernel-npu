@@ -19,7 +19,15 @@ def swiglu_group_quant(x, topk_weight=None, group_index=None, dst_type=None, qua
 
 ## 功能说明
 
-沿最后一维拆分 gate 和 up，计算 SiLU(gate) × up，可乘逐行路由权重，再按指定模式量化。
+计算专家 FFN 的 SwiGLU 激活并量化输出，包括 DeepSeek-V4 的 MXFP8 激活路径。输入末维由 gate、up 两部分拼接，先计算 SiLU(gate) × up，可在激活前执行 clamp，并乘逐行路由权重。
+
+量化模式决定 scale 的计算方式：
+
+- 模式 1：FP8 分组量化，每 128 个激活值对应一个 FP32 scale，scale 根据目标 FP8 格式计算。
+- 模式 2：MXFP8 量化，每 32 个值对应一个 E8M0 scale，依据舍入到输入 dtype 后的激活指数生成。
+- 模式 3：FP8 分块量化，每 128 个值计算一个 scale，最大绝对值下限为 1e-4，scale 基准固定为 448。round_scale 将 scale 向上取整为 2 的幂，ue8m0_scale 可将取整后的 scale 存为 E8M0。
+
+返回量化结果 y、scale 和 y_origin；仅模式 3 开启 output_origin 时写出未量化激活。提供 group_index 时，依据逐专家 token 数限制有效处理行。
 
 ## 参数与返回值
 
@@ -38,7 +46,7 @@ N 为 x 除最后一维以外各维度的乘积。使用 NPU 实现时，所有�
 | `output_origin` | bool | — | — | False | 模式 3 写出未量化的激活值。 |
 | `group_list_type` | int | — | — | 0 | 0 表示逐专家计数。 |
 | `clamp_value` | float | — | — | 0.0 | 0 表示关闭；正值在激活前约束 gate 上界及 up 的上下界。 |
-| `impl` | str | — | — | 'auto' | 可选 auto、ascendc、torch_native、cpu；默认 auto 选择 A5 的 ascendc，不自动回退其他实现。 |
+| `impl` | str | — | — | 'auto' | 可选 auto、ascendc、torch_native；默认 auto 选择 A5 的 ascendc，不自动回退其他实现。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -53,10 +61,6 @@ N 为 x 除最后一维以外各维度的乘积。使用 NPU 实现时，所有�
 ## torch_native 后端
 
 使用 PyTorch 在输入所在设备操作。
-
-## cpu 后端
-
-在 CPU 上计算，返回 CPU 张量。
 
 ## 示例
 

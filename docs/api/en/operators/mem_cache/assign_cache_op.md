@@ -21,7 +21,7 @@ def assign_cache_op(
 
 ## Description
 
-Copy packed source segments into destination rows in place. Row i receives src[src_start[i]:src_end[i]] beginning at dst_start[i]. The source interval determines the copy length. Provide valid, equal-length source and destination intervals.
+Copy variable-length segments from one packed source buffer into specified column ranges of destination rows. This general-purpose operation can update a request-to-token mapping after allocating new KV-cache slots, or copy other dense payloads using the same segment layout. Data is copied bit for bit using 1-, 2-, 4- or 8-byte elements, without numerical dtype conversion. The destination is updated in place and the function returns a boolean status.
 
 ## Parameters and return value
 

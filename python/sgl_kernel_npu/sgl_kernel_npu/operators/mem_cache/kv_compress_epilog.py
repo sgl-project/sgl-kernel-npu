@@ -6,7 +6,6 @@ from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
-_cpu_fn = None
 
 
 @register_impl(
@@ -35,22 +34,6 @@ def _torch_native_impl(
 
         _torch_native_fn = kv_compress_epilog
     return _torch_native_fn(
-        cache, x, slot_mapping, quant_group_size, quant_mode, round_scale_flag, layout
-    )
-
-
-@register_impl("mem_cache.kv_compress_epilog", "cpu")
-def _cpu_impl(
-    cache, x, slot_mapping, quant_group_size, quant_mode, round_scale_flag, layout
-):
-    global _cpu_fn
-    if _cpu_fn is None:
-        from ...implementation.cpu.mem_cache.kv_compress_epilog import (
-            kv_compress_epilog,
-        )
-
-        _cpu_fn = kv_compress_epilog
-    return _cpu_fn(
         cache, x, slot_mapping, quant_group_size, quant_mode, round_scale_flag, layout
     )
 
@@ -127,7 +110,7 @@ def kv_compress_epilog(
         layout: 1 stores one slot per row using the cache row stride. FP8 packs quantized
             values, RoPE, then scales. MXFP8 packs RoPE, quantized values, then scales. 2 is
             MXFP8 only and packs all value rows before all scale rows in each block.
-        impl: Keyword-only. Choices are "auto", "ascendc", "torch_native", "cpu". Defaults to
+        impl: Keyword-only. Choices are "auto", "ascendc", "torch_native". Defaults to
             "ascendc" via "auto".
 
     Returns:

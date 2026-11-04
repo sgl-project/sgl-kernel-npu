@@ -22,7 +22,7 @@ def kv_compress_epilog(
 
 ## Description
 
-Quantize input rows and write them into the selected cache slots. The first D − 64 columns are quantized. The last 64 BF16 RoPE columns are copied byte for byte. Each valid slot must have one writer.
+Quantize KV-cache rows and scatter them to the slots selected by slot_mapping, as used by the DeepSeek-V4 NPU cache path. For each row, the first D - 64 columns are quantized while the final 64 BF16 RoPE columns are copied byte for byte. Mode 1 uses FP8 values with FP32 scales for each 128-value group; mode 2 uses MXFP8 values with E8M0 exponent scales for groups of 64 or 128 values. Layout 1 stores a packed record per slot, while layout 2 separates the value and scale regions within each cache block. A slot of -1 skips the row; unwritten slots retain their contents. The function updates the cache in place and returns None.
 
 ## Parameters and return value
 
@@ -37,7 +37,7 @@ Use tensors on the same NPU.
 | `quant_mode` | `int` | — | — | Required | 1 selects FP8 with FP32 scales. 2 selects MXFP8 with E8M0 exponent bytes. |
 | `round_scale_flag` | `bool` | — | — | Required | In MXFP8 mode, increment each nonzero biased scale exponent by one when true. |
 | `layout` | `int` | — | — | Required | 1 stores one slot per row using the cache row stride. FP8 packs quantized values, RoPE, then scales. MXFP8 packs RoPE, quantized values, then scales. 2 is MXFP8 only and packs all value rows before all scale rows in each block. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"ascendc"`, `"torch_native"`. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -50,10 +50,6 @@ Available on arch35. In layout 1, round each packed row width up to 128 bytes. I
 ## torch_native backend
 
 Packs rows on the input device using the selected cache layout.
-
-## cpu backend
-
-Computes on CPU and copies the results back to the supplied NPU buffers.
 
 ## Example
 

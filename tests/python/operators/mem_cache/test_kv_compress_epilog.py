@@ -1,4 +1,4 @@
-"""Validate packed regions against one CPU implementation, including skipped storage."""
+"""Validate packed regions against the torch_native implementation, including skipped storage."""
 
 import pytest
 
@@ -15,6 +15,7 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
+# DeepSeek-V4: D=448+64, MXFP8 group=64, layout=1; synthetic batches/slots.
 perf_shape = [(4096, 320), (4096, 512)]
 
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
@@ -146,7 +147,19 @@ KV_CASES = [
         id="fp8-row-stride",
     ),
     pytest.param(
-        16, 32, 512, 64, 2, True, 1, True, True, True, 12, "3d", id="mx-slot-major-3d"
+        16,
+        32,
+        512,
+        64,
+        2,
+        True,
+        1,
+        True,
+        True,
+        True,
+        12,
+        "3d",
+        id="deepseek-v4-mxfp8-slot-major-d512",
     ),
 ]
 
@@ -224,7 +237,7 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
         aq, rq = a[rows[:, None], cols], r[rows[:, None], cols]
         keep[rows[:, None], cols] = False
         scale_cols = _layout2_scale_columns(ids, block, width, scale_count)
-        # Decode with CPU reference exponents; keep checks the stored exponent bytes separately.
+        # Decode with reference exponents; keep checks the stored exponent bytes separately.
         scales = r[rows[:, None], scale_cols[:, :scale_count]]
         # Only scale_count bytes in a written slot's aligned scale row are defined.
         keep[rows[:, None], scale_cols[:, scale_count:]] = False
@@ -279,7 +292,7 @@ def test_kv_compress_epilog(
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
     impl, _ = get_test_impls()
-    impl_ref = "cpu"
+    impl_ref = "torch_native"
     skip = bool(get_skip_acc_check())
     if skip:
         require_test_impl(kv_compress_epilog, impl)
@@ -315,11 +328,9 @@ def test_kv_compress_epilog(
 def test_fp8_layout2_rejected():
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-    args = generate_data(
-        1, 1, 192, 0, 1, False, 2, True, False, False, 0, "normal", device="cpu"
-    )
+    args = generate_data(1, 1, 192, 0, 1, False, 2, True, False, False, 0, "normal")
     with pytest.raises(RuntimeError, match="layout=2 only supports MXFP8"):
-        kv_compress_epilog(*args, impl="cpu")
+        kv_compress_epilog(*args, impl=get_test_impls()[0])
 
 
 @pytest.mark.extra_checks

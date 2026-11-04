@@ -22,7 +22,7 @@ def split_qkv_tp_rmsnorm_rope(
 
 ## Description
 
-Split a local QKV projection, apply tensor-parallel RMSNorm to Q and K, then rotate their leading channels using NeoX RoPE. Each token uses separate Q and K mean squares across the full TP group. Weighted normalized values are rounded to input precision before rotation. V is copied unchanged.
+Prepare Q, K and V from a concatenated local projection for attention, including the MiniMax-M2 QK-normalization path. Each token uses separate Q and K mean-square statistics, reduced across the TP group when tp_world > 1, to apply weighted RMSNorm. Normalized Q/K values are rounded to the input dtype before NeoX RoPE rotates their leading rotary_dim channels; any remaining channels are left unrotated. V is copied without normalization or rotation. The function returns new Q, K and V tensors on the input device.
 
 ## Parameters and return value
 
@@ -42,7 +42,7 @@ Use tensors on the same NPU.
 | `rotary_dim` | `int` | — | — | Required | Number of leading channels rotated per head (R), even and at most head_dim. |
 | `tp_world` | `int` | — | — | Required | Number of ranks in the TP group. Use 1 on a single device. |
 | `tp_group` | `ProcessGroup / None` | — | — | Required | Use None on one device. With multiple ranks, all group members must call collectively with matching batch sizes and shard widths. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"triton"`, `"torch_native"`, `"cpu"`. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"triton"`, `"torch_native"`. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -55,10 +55,6 @@ Uses the supplied TP group to combine Q/K statistics when tp_world exceeds one.
 ## torch_native backend
 
 Computes on the input device with the same TP group and output layout.
-
-## cpu backend
-
-Computes on CPU and returns results on the input device. With multiple ranks, the supplied group still reduces statistics on the input device.
 
 ## Example
 

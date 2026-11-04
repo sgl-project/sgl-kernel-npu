@@ -22,7 +22,7 @@ def kv_compress_epilog(
 
 ## 功能说明
 
-量化输入行，并写入指定的缓存槽位。 前 D − 64 列被量化，最后 64 列 BF16 RoPE 数据按字节复制。每个有效槽位只允许一行写入。
+量化 KV Cache 输入行，并根据 slot_mapping 写入指定缓存槽位，用于 DeepSeek-V4 的 NPU 缓存路径。每行前 D − 64 列参与量化，最后 64 列 BF16 RoPE 数据按字节保留。模式 1 使用 FP8 量化，每 128 个值对应一个 FP32 scale；模式 2 使用 MXFP8 量化，每 64 或 128 个值对应一个 E8M0 指数 scale。布局 1 按槽位存放打包记录，布局 2 在每个缓存块内分别存放值区和 scale 区。槽位为 -1 时跳过该行，未写入槽位保留原内容；函数原地修改 cache 并返回 None。
 
 ## 参数与返回值
 
@@ -37,7 +37,7 @@ def kv_compress_epilog(
 | `quant_mode` | `int` | — | — | 必填 | 1 表示 FP8，scale 为 FP32；2 表示 MXFP8，scale 为 E8M0 指数字节。 |
 | `round_scale_flag` | `bool` | — | — | 必填 | MXFP8 模式下，设为 True 时将每个非零的带偏置 scale 指数加一。 |
 | `layout` | `int` | — | — | 必填 | 1 按 cache 的行间距逐槽存储。FP8 顺序为量化值、RoPE、scale；MXFP8 顺序为 RoPE、量化值、scale。2 仅支持 MXFP8，每个 block 先放所有槽位的值区，再放所有槽位的 scale 区。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字，可选 `"auto"`, `"ascendc"`, `"torch_native"`。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -50,10 +50,6 @@ def kv_compress_epilog(
 ## torch_native 后端
 
 在输入设备上按指定布局打包。
-
-## cpu 后端
-
-在 CPU 上计算，再将结果写回调用方的 NPU 缓冲区。
 
 ## 调用示例
 

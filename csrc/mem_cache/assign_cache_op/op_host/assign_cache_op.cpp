@@ -3,7 +3,7 @@
 #include "sgl_operator_config.h"
 #include "tiling/platform/platform_ascendc.h"
 namespace optiling {
-static ge::graphStatus Tiling(gert::TilingContext *context)
+static ge::graphStatus TilingAssignCacheOp(gert::TilingContext *context)
 {
     auto *shape = context->GetInputShape(0);
     auto *desc = context->GetInputDesc(0);
@@ -45,7 +45,7 @@ static ge::graphStatus Tiling(gert::TilingContext *context)
     workspace[0] = platform.GetLibApiWorkSpaceSize();
     return ge::GRAPH_SUCCESS;
 }
-static ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShapeAssignCacheOp(gert::InferShapeContext *context)
 {
     const auto *input = context->GetInputShape(0);
     auto *output = context->GetOutputShape(0);
@@ -53,7 +53,7 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     *output = *input;
     return ge::GRAPH_SUCCESS;
 }
-static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataTypeAssignCacheOp(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(0));
     return ge::GRAPH_SUCCESS;
@@ -105,8 +105,8 @@ public:
             .DataType({ge::DT_INT8, ge::DT_INT16, ge::DT_INT32, ge::DT_INT64})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-        this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDataType);
-        this->AICore().SetTiling(optiling::Tiling);
+        this->SetInferShape(optiling::InferShapeAssignCacheOp).SetInferDataType(optiling::InferDataTypeAssignCacheOp);
+        this->AICore().SetTiling(optiling::TilingAssignCacheOp);
         for (const auto *config : SGL_CANN_CONFIGS)
             this->AICore().AddConfig(config);
     }

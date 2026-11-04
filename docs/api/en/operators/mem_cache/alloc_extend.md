@@ -22,7 +22,7 @@ def alloc_extend(
 
 ## Description
 
-Compute slot indices for tokens appended to paged requests. Each request first uses the remaining slots in its last page, then uses pages from free_pages in order. Outputs are packed in request order. The caller manages the free-page list.
+Compute the KV-cache slot indices for tokens appended to a batch of paged requests during prefill or decoding. Each request first fills the unused tail of its current page, then consumes new pages from free_pages in order, including a final partial page when needed. The indices are packed in request order into out_indices. The caller retains responsibility for consuming the free-page list; the operation does not move KV data. It updates the supplied output buffers in place and returns None.
 
 ## Parameters and return value
 
@@ -37,7 +37,7 @@ Use tensors on the same NPU.
 | `page_size` | `int` | — | — | Required | Positive number of slots per page, representable as int32. |
 | `out_indices` | `torch.Tensor` | `[sum(seq_lens - pre_lens)]` | `int64` | Required | Caller-allocated output for the new slot indices. |
 | `values` | `torch.Tensor` | [N], N ≥ 1 | `int64` | Required | Writes the batch’s new-page count to element 0 only if the final request ends in a newly allocated partial page. Otherwise it retains its input value. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"ascendc"`, `"torch_native"`, `"cpu"`. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only. Choices are `"auto"`, `"ascendc"`, `"torch_native"`. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -50,10 +50,6 @@ Use dense one-dimensional buffers.
 ## torch_native backend
 
 Computes on the input device with the same output buffers.
-
-## cpu backend
-
-Computes on CPU and copies the results back to the supplied NPU buffers.
 
 ## Example
 

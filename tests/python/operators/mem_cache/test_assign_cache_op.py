@@ -14,6 +14,7 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+# Generic segment copy; payload widths and segment sizes are model-independent.
 perf_shape = [(1, 1024), (2, 1024), (50000, 100000)]
 
 
@@ -58,7 +59,8 @@ def test_assign_cache_op(gap, width, dtype):
     actual, reference = pool.clone(), pool.clone()
     inputs = (indices, starts, ends, src)
     saved = tuple(t.clone() for t in inputs)
-    impl, impl_ref = get_test_impls()
+    impl, _ = get_test_impls()
+    impl_ref = "torch_native"
     skip = bool(get_skip_acc_check())
     if skip:
         require_test_impl(assign_cache_op, impl)

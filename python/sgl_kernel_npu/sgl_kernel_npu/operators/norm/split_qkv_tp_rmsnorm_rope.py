@@ -7,7 +7,6 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fns = None
-_cpu_fn = None
 
 
 @register_impl("norm.split_qkv_tp_rmsnorm_rope", "auto")
@@ -114,44 +113,6 @@ def _torch_native_impl(
     return q, k, v
 
 
-@register_impl("norm.split_qkv_tp_rmsnorm_rope", "cpu")
-def _cpu_impl(
-    input,
-    cos,
-    sin,
-    q_hidden_size,
-    kv_hidden_size,
-    head_dim,
-    eps,
-    q_weight,
-    k_weight,
-    rotary_dim,
-    tp_world,
-    tp_group,
-):
-    global _cpu_fn
-    if _cpu_fn is None:
-        from ...implementation.cpu.norm.split_qkv_tp_rmsnorm_rope import (
-            split_qkv_tp_rmsnorm_rope,
-        )
-
-        _cpu_fn = split_qkv_tp_rmsnorm_rope
-    return _cpu_fn(
-        input,
-        cos,
-        sin,
-        q_hidden_size,
-        kv_hidden_size,
-        head_dim,
-        eps,
-        q_weight,
-        k_weight,
-        rotary_dim,
-        tp_world,
-        tp_group,
-    )
-
-
 @register_operator("norm.split_qkv_tp_rmsnorm_rope")
 def split_qkv_tp_rmsnorm_rope(
     input: torch.Tensor,
@@ -188,7 +149,7 @@ def split_qkv_tp_rmsnorm_rope(
         tp_world: Number of ranks in the TP group. Use 1 on a single device.
         tp_group: Use None on one device. With multiple ranks, all group members must call
             collectively with matching batch sizes and shard widths.
-        impl: Keyword-only. Choices are "auto", "triton", "torch_native", "cpu". Defaults to
+        impl: Keyword-only. Choices are "auto", "triton", "torch_native". Defaults to
             "triton" via "auto".
 
     Returns:
