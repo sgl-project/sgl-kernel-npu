@@ -429,6 +429,7 @@ def test_metadata_addresses(offload_runtime, layout, direction):
         layout,
         (0, 2, None),
         (0, 0, 0),
+        preserve_missing=True,
     )
     di, hi = token_indices([6, 2], 4, "npu"), token_indices([1, 8], 4, "npu")
     src, dst, lengths, count = build_kv_sparse_metadata(
@@ -451,6 +452,83 @@ def test_metadata_addresses(offload_runtime, layout, direction):
         components, invalid, hi[:4], 4, direction
     )
     assert bad_lengths.cpu().tolist() == [-1] * 3
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
+@pytest.mark.parametrize("direction", [1, 2])
+@pytest.mark.parametrize("component_count", [1, 2, 3, 4])
+def test_fused_metadata_components(layout, direction, component_count):
+    from sgl_kernel_npu.implementation.memfabric.mem_cache.kv_transfer import (
+        build_kv_sparse_metadata,
+    )
+
+    # Unequal layer counts cross block boundaries and leave component tails.
+    # Nonzero base offsets and PF/LF strides must survive without repacking.
+    ps = 4
+    components = []
+    for layers, width, dtype in (
+        (43, 5, torch.bfloat16),
+        (2, 2, torch.bfloat16),
+        (65, 3, torch.uint8),
+        (1, 1, torch.float32),
+    )[:component_count]:
+        dev = torch.empty((layers + 2, 8, ps, 1, width), dtype=dtype, device="npu")
+        dev = dev[1 : layers + 1]
+        shape = (10, layers + 2, ps, 1, width)
+        if layout == "layer_first":
+            shape = (layers + 2, 10, ps, 1, width)
+        host = torch.empty(shape, dtype=dtype, device="cpu")
+        if layout == "layer_first":
+            host = host[1 : layers + 1].transpose(0, 1)
+        else:
+            host = host[:, 1 : layers + 1]
+        components.append((dev, host))
+
+    components.extend([None] * (4 - component_count))
+    di = token_indices([6, 2, 4], ps, "npu")
+    hi = token_indices([1, 8, 3], ps, "npu")
+    # Reuse the same tensors with changed contents, as with graph replay.
+    for device_tokens, host_tokens in (
+        ([24, 8, 16], [4, 32, 12]),
+        ([-4, 1, 32], [4, 32, 12]),
+        ([24, 8, 16], [-4, 3, 40]),
+    ):
+        di[::ps] = torch.tensor(device_tokens, dtype=torch.int64, device="npu")
+        hi[::ps] = torch.tensor(host_tokens, dtype=torch.int64, device="npu")
+        expected_src, expected_dst, expected_lengths = [], [], []
+        for pair in components:
+            if pair is None:
+                continue
+            dev, host = pair
+            item = dev.element_size()
+            for dt, ht in zip(device_tokens, host_tokens):
+                dp, hp = dt // ps, ht // ps
+                valid = (
+                    dt >= 0
+                    and ht >= 0
+                    and dt % ps == 0
+                    and ht % ps == 0
+                    and dp < dev.shape[1]
+                    and hp < host.shape[0]
+                )
+                for layer in range(dev.shape[0]):
+                    da, ha = dev.data_ptr(), host.data_ptr()
+                    if valid:
+                        da += (dp * dev.stride(1) + layer * dev.stride(0)) * item
+                        ha += (hp * host.stride(0) + layer * host.stride(1)) * item
+                    expected_src.append(ha if direction == 1 else da)
+                    expected_dst.append(da if direction == 1 else ha)
+                    expected_lengths.append(
+                        ps * dev.shape[3] * dev.shape[4] * item if valid else -1
+                    )
+        src, dst, lengths, count = build_kv_sparse_metadata(
+            components, di, hi, ps, direction
+        )
+        assert src.cpu().tolist() == expected_src
+        assert dst.cpu().tolist() == expected_dst
+        assert lengths.cpu().tolist() == expected_lengths
+        assert count.cpu().tolist() == [len(expected_lengths)]
 
 
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])

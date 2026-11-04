@@ -80,7 +80,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## aicpu
 
-Triton 对每个有效组件 launch 一次构造地址表，合并后只调用一次五参数 `offload.sparse_copy(src, dst, lengths, count, device)`。运行时使用标量参数，兼容旧版 Triton-Ascend。MF 初始化使用 `Scene.AICPU`、`flags=0`，`reserve_size` / `alloc_size` 非零且按 GiB 对齐后相等。MF 在 Ascend910C（A3）选择 AICPU + SDMA，在 Ascend950（A5）选择 AICPU + URMA。
+Triton 使用一次 launch 为全部有效组件构造最终地址表，再调用一次五参数 `offload.sparse_copy(src, dst, lengths, count, device)`。复用原来的二维 grid 和编译期 LAYOUTS；组件列表按 K、V、Indexer K、Indexer scale 固定四个位置，缺失项为 None。地址、页容量平铺为按组件命名的运行时标量，不构造组件字典或角色到槽位的映射。仅在 kernel 内构造 tuple，绕开有缺陷的 Ascend launcher 运行时 tuple 展开路径。缺失组件在 LAYOUTS 中层数为零，编译期跳过，grid 仅覆盖有效组件。对运行时地址、页容量及页数禁用值特化。各组件直接写最终表，无需临时表或 cat。MF 初始化使用 `Scene.AICPU`、`flags=0`，`reserve_size` / `alloc_size` 非零且按 GiB 对齐后相等。MF 在 Ascend910C（A3）选择 AICPU + SDMA，在 Ascend950（A5）选择 AICPU + URMA。
 
 地址表填写 MF 池的原始 Host 地址和 NPU payload 地址，不替换成 AIV DVA。MF 执行时按每条记录哪一端属于 Host 池判断 H2D/D2H；包装层仍根据方向构造源/目的表。支持最多 65536 条记录，每条长度为正 int32；两端 indices 都须提前位于 KV buffer 所在的 NPU。不再依赖旧 `LOCAL_URMA`、`CopyDirection` 或私有 `_get_scene` 接口。
 

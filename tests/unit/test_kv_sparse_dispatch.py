@@ -115,7 +115,11 @@ class TestSparseDispatch(unittest.TestCase):
         self.stream = Stream()
 
         def build(components, di, hi, page_size, direction):
-            total = di.numel() // page_size * sum(d.shape[0] for d, _ in components)
+            total = (
+                di.numel()
+                // page_size
+                * sum(pair[0].shape[0] for pair in components if pair is not None)
+            )
             self.tables = [
                 Tensor((total,)),
                 Tensor((total,)),
@@ -143,9 +147,16 @@ class TestSparseDispatch(unittest.TestCase):
                 lambda src, dst, lengths, count, device: 0, return_value=0
             ),
         )
+        language = SimpleNamespace(constexpr=object)
+        triton = SimpleNamespace(jit=lambda **_: lambda fn: fn, language=language)
         self.modules = patch.dict(
             sys.modules,
-            {"torch": self.torch, "memfabric_hybrid": SimpleNamespace(offload=self.offload)},
+            {
+                "torch": self.torch,
+                "memfabric_hybrid": SimpleNamespace(offload=self.offload),
+                "triton": triton,
+                "triton.language": language,
+            },
         )
         self.modules.start()
         self.addCleanup(self.modules.stop)
@@ -401,6 +412,8 @@ class TestSparseDispatch(unittest.TestCase):
                     di, hi, dev, host, Tensor((0,)), Tensor((0,), CPU),
                     page_size=4, direction=direction, backend="aiv",
                 )
+                self.assertEqual(submit.call_args.args[2], [dev])
+                self.assertEqual(submit.call_args.args[3], [host])
                 done, retained = self.module._inflight[-1]
                 self.assertIs(done.stream, self.stream)
                 for tensor in (di, hi, dev, host, staging):
@@ -409,6 +422,41 @@ class TestSparseDispatch(unittest.TestCase):
         self.builder.assert_not_called()
         self.offload.sparse_copy.assert_not_called()
         self.assertFalse(self.module._last_sparse_submission)
+
+    def test_component_selection_preserves_missing_only_when_requested(self):
+        k, hk = Tensor((3, 8, 4, 1, 7)), Tensor((9, 3, 4, 1, 7), CPU)
+        v, hv = Tensor((3, 8, 4, 1, 2)), Tensor((9, 3, 4, 1, 2), CPU)
+        index, hi = Tensor((2, 8, 4, 1, 3)), Tensor((9, 2, 4, 1, 3), CPU)
+        scale, hs = Tensor((2, 8, 4, 1, 1)), Tensor((9, 2, 4, 1, 1), CPU)
+        for mask in range(8):
+            with self.subTest(mask=mask):
+                expected = [
+                    (k, hk),
+                    (v, hv) if mask & 1 else None,
+                    (index, hi) if mask & 2 else None,
+                    (scale, hs) if mask & 4 else None,
+                ]
+                args = (
+                    k,
+                    hk,
+                    v if mask & 1 else Tensor((0,)),
+                    hv,
+                    index if mask & 2 else None,
+                    hi,
+                    scale if mask & 4 else None,
+                    hs,
+                    "page_first",
+                    (0, 0, None),
+                    (0, 0, None),
+                )
+                self.assertEqual(
+                    self.module.select_components(*args),
+                    [pair for pair in expected if pair is not None],
+                )
+                self.assertEqual(
+                    self.module.select_components(*args, preserve_missing=True),
+                    expected,
+                )
 
     def test_bad_index_shape_fails_before_submission(self):
         with self.assertRaisesRegex(ValueError, "complete pages"):
@@ -555,13 +603,17 @@ class TestSparseDispatch(unittest.TestCase):
                         **optional,
                     )
                     pairs = self.builder.call_args.args[0]
-                    self.assertEqual(len(pairs), 2)
+                    self.assertEqual(len(pairs), 4)
+                    self.assertIsNone(pairs[1])
                     if missing.endswith("_scale"):
-                        self.assertEqual(pairs, [(k, h), (index, host_index)])
+                        self.assertEqual(
+                            pairs, [(k, h), None, (index, host_index), None]
+                        )
                         self.assertEqual(scale.recorded, [])
                     else:
-                        self.assertEqual(pairs[1][0].shape, (2, 8, 4, 1, 1))
-                        self.assertIs(pairs[1][1], host_scale)
+                        self.assertIsNone(pairs[2])
+                        self.assertEqual(pairs[3][0].shape, (2, 8, 4, 1, 1))
+                        self.assertIs(pairs[3][1], host_scale)
                         self.assertEqual(index.recorded, [])
 
     def test_public_wrapper_accepts_empty_device_v_with_host_placeholder(self):
@@ -578,7 +630,9 @@ class TestSparseDispatch(unittest.TestCase):
             host_v,
             page_size=4,
         )
-        self.assertEqual(self.builder.call_args.args[0], [(k, host_k)])
+        self.assertEqual(
+            self.builder.call_args.args[0], [(k, host_k), None, None, None]
+        )
 
     def test_public_wrapper_skips_only_paired_empty_optional_buffers(self):
         call = self.public_wrapper()
@@ -595,7 +649,7 @@ class TestSparseDispatch(unittest.TestCase):
             host_index_k=Tensor((0,), CPU),
             page_size=4,
         )
-        self.assertEqual(self.builder.call_args.args[0], [(k, h), (v, hv)])
+        self.assertEqual(self.builder.call_args.args[0], [(k, h), (v, hv), None, None])
 
     def test_public_wrapper_skips_empty_v_and_pads_indexer_scale(self):
         call = self.public_wrapper()
@@ -615,9 +669,11 @@ class TestSparseDispatch(unittest.TestCase):
             page_size=4,
         )
         pairs = self.builder.call_args.args[0]
-        self.assertEqual(len(pairs), 2)
-        self.assertEqual(pairs[1][0].shape, (2, 8, 4, 1, 1))
-        self.assertIs(pairs[1][1], hs)
+        self.assertEqual(len(pairs), 4)
+        self.assertIsNone(pairs[1])
+        self.assertIsNone(pairs[2])
+        self.assertEqual(pairs[3][0].shape, (2, 8, 4, 1, 1))
+        self.assertIs(pairs[3][1], hs)
 
 
 if __name__ == "__main__":
