@@ -11,8 +11,8 @@ namespace {
 void batch_matmul_transpose(const at::Tensor &a, const at::Tensor &b, at::Tensor &c,
                             c10::optional<c10::string_view> format_mode, c10::optional<c10::string_view> quant_mode)
 {
-    const std::string format = format_mode ? std::string(format_mode->data(), format_mode->size()) : "ND";
-    const std::string quant = quant_mode ? std::string(quant_mode->data(), quant_mode->size()) : "per_channel_symm";
+    std::string format = format_mode ? std::string(format_mode->data(), format_mode->size()) : "ND";
+    std::string quant = quant_mode ? std::string(quant_mode->data(), quant_mode->size()) : "per_channel_symm";
     TORCH_CHECK(format == "ND" || format == "NZ", "format_mode must be ND or NZ, got ", format);
     TORCH_CHECK(quant == "per_channel_symm" || quant == "per_channel_asymm" || quant == "per_token_symm",
                 "Unsupported quant_mode: ", quant);
@@ -50,7 +50,7 @@ void batch_matmul_transpose(const at::Tensor &a, const at::Tensor &b, at::Tensor
                                                              sgl_cann::tensor_descriptor(c, dtype)};
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
-    const auto status = query(descriptors[0].get(), descriptors[1].get(), format.c_str(), quant.c_str(),
+    const auto status = query(descriptors[0].get(), descriptors[1].get(), format.data(), quant.data(),
                               descriptors[2].get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "BatchMatmulTranspose workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
