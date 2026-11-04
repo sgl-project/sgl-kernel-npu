@@ -31,9 +31,9 @@ def test_vendored_source_matches_pinned_upstream(name, digest):
 
 
 def test_source_provenance_and_license_are_packaged_with_implementation():
-    provenance = SOURCE.read_text()
+    provenance = SOURCE.read_text(encoding="utf-8")
     assert "71ee7fdffa34c3e8a153fa55a0c970bb2d3a3231" in provenance
     for digest in SHA256.values():
         assert digest in provenance
-    license_text = (IMPL.parent / "LICENSE.cannbot-dsl").read_text()
+    license_text = (IMPL.parent / "LICENSE.cannbot-dsl").read_text(encoding="utf-8")
     assert "CANN Open Software License Agreement Version 2.0" in license_text

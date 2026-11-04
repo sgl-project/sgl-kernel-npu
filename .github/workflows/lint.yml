@@ -22,14 +22,20 @@ jobs:
       - name: Linting
         run: pre-commit run --all-files --show-diff-on-failure
 
-      # These suites mock out torch/torch_npu and exercise only the wheel
-      # build-target dispatch, so they need no NPU. Do not widen this to the
+      # These CPU-only suites cover build-target dispatch, DSL contracts and
+      # resource packaging with fixture binaries. Do not widen this to the
       # whole tests/python/sgl_kernel_npu directory -- the kernel tests there
       # require real hardware.
       - name: Build-target unit tests
         run: |
-          uv pip install --system pytest setuptools
+          uv pip install --system pytest setuptools wheel packaging
           pytest -q \
             tests/python/sgl_kernel_npu/test_build_targets.py \
             tests/python/sgl_kernel_npu/test_gemma_rmsnorm_provider.py \
-            tests/python/sgl_kernel_npu/test_target_provider.py
+            tests/python/sgl_kernel_npu/test_target_provider.py \
+            tests/python/sgl_kernel_npu/test_dsv41_cannbot_dsl_api.py \
+            tests/python/sgl_kernel_npu/test_dsv41_cannbot_sources.py \
+            tests/python/sgl_kernel_npu/test_dsv41_precision_suite_layout.py \
+            tests/unit/test_cannbotdsl_runtime.py \
+            tests/unit/test_cannbotdsl_packaging.py \
+            tests/unit/test_cannbotdsl_ci.py

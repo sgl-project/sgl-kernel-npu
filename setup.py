@@ -34,6 +34,11 @@ def arguments(argv=None):
         help="CANN installer or complete sgl-kernel-npu wheel",
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
+    parser.add_argument(
+        "--with-cannbot-dsl",
+        action="store_true",
+        help="compile and bundle the seven DSv4.1 DSL entries (0.8.0, CANN 9.2.0, A5)",
+    )
     third_party = parser.add_mutually_exclusive_group()
     third_party.add_argument(
         "--third-party",
@@ -65,6 +70,10 @@ def arguments(argv=None):
         parser.error("--arch-version is required")
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.with_cannbot_dsl and (
+        args.artifact != "wheel" or args.arch_version != "3510"
+    ):
+        parser.error("--with-cannbot-dsl requires --artifact wheel --arch-version 3510")
     if args.third_party is not None:
         if args.artifact != "wheel":
             parser.error("--third-party requires --artifact wheel")
@@ -85,7 +94,7 @@ def main(argv=None):
     if (PROJECT_ROOT / "build").is_symlink():
         raise RuntimeError("Refusing a symlinked build root")
     if args.make_clean:
-        for name in ("cann", "torch", "wheel"):
+        for name in ("cann", "torch", "wheel", "cannbotdsl"):
             _remove_tree(PROJECT_ROOT / "build" / name)
         if not args.arch_version:
             print("sgl-kernel-npu intermediates removed")
@@ -105,11 +114,23 @@ def main(argv=None):
             args.jobs,
             third_party=args.third_party,
         )
+    dsl_plan = None
+    if args.with_cannbot_dsl:
+        from build_tools.cannbotdsl import resolve_plan as resolve_dsl_plan
+
+        dsl_plan = resolve_dsl_plan(
+            args.cann_version or detect_cann_version(), args.arch_version
+        )
     if args.plan:
         import json
 
-        print(json.dumps(plan, indent=2))
+        print(json.dumps(plan + ([dsl_plan] if dsl_plan else []), indent=2))
         return
+    dsl_bundle = None
+    if args.with_cannbot_dsl:
+        from build_tools.cannbotdsl import build_backend
+
+        dsl_bundle = build_backend()
     dependencies = build_dependencies(plan) if plan else []
 
     output = PROJECT_ROOT / "output"
@@ -130,9 +151,10 @@ def main(argv=None):
     else:
         from build_tools.torch_wheel import build_torch, build_wheel
 
-        package = build_torch(
-            result, args.arch_version, jobs=args.jobs, dependencies=dependencies
-        )
+        options = dict(jobs=args.jobs, dependencies=dependencies)
+        if dsl_bundle is not None:
+            options["cannbotdsl"] = dsl_bundle
+        package = build_torch(result, args.arch_version, **options)
         wheel = build_wheel(package)
         destination = output / wheel.name
         shutil.copy2(wheel, destination)

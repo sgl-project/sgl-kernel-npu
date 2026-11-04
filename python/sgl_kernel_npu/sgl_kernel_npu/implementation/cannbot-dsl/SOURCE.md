@@ -3,6 +3,11 @@
 Upstream: https://gitcode.com/cann/cannbot-dsl
 Commit: `71ee7fdffa34c3e8a153fa55a0c970bb2d3a3231`
 
+Runtime dependency: `cannbot-dsl==0.8.0`. Selected validation target: CANN 9.2.0,
+Ascend 950 / ARCH 3510. This combination has not yet passed device validation;
+the upstream documentation names CANN 9.2.1. `UPSTREAM.json` records the target
+and hashes in machine-readable form.
+
 The seven Python files under `attention/` are copied byte for byte from the
 following upstream sample paths. The hashes refer to the copied file bytes.
 

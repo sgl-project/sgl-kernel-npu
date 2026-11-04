@@ -19,7 +19,7 @@ CASES = {
 
 @pytest.mark.parametrize("name,category", CASES.items())
 def test_precision_case_uses_public_operator(name, category):
-    source = (SUITE / f"test_{name}.py").read_text()
+    source = (SUITE / f"test_{name}.py").read_text(encoding="utf-8")
     imports = [
         alias.name
         for node in ast.walk(ast.parse(source))
@@ -33,6 +33,6 @@ def test_precision_case_uses_public_operator(name, category):
 
 
 def test_precision_suite_requires_ascend950():
-    source = (SUITE / "conftest.py").read_text()
+    source = (SUITE / "conftest.py").read_text(encoding="utf-8")
     assert "Ascend950PR" in source
     assert "Ascend950DT" in source

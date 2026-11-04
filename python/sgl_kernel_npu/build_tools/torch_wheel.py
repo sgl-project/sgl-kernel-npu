@@ -37,7 +37,13 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
 
 
 def build_torch(
-    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+    cann,
+    arch_version,
+    *,
+    jobs=None,
+    source_root=PROJECT_ROOT,
+    dependencies=(),
+    cannbotdsl=None,
 ):
     if cann.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
@@ -90,6 +96,12 @@ def build_torch(
         "compute_units": architecture(arch_version, source_root)["compute_units"],
         "third_party": third_party,
     }
+    if cannbotdsl is not None:
+        from build_tools.cannbotdsl import stage_backend
+
+        if str(arch_version) != "3510":
+            raise ValueError("CANNBot-DSL Native bundle is A5-only")
+        manifest["cannbotdsl"] = stage_backend(cannbotdsl, package)
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     run(
         [
@@ -138,6 +150,15 @@ def wheel_build_tag(manifest):
                 "tp",
                 hashlib.sha256(
                     json.dumps(manifest["third_party"], sort_keys=True).encode()
+                ).hexdigest()[:10],
+            ]
+        )
+    if manifest.get("cannbotdsl"):
+        parts.extend(
+            [
+                "cb",
+                hashlib.sha256(
+                    json.dumps(manifest["cannbotdsl"], sort_keys=True).encode()
                 ).hexdigest()[:10],
             ]
         )
@@ -240,6 +261,8 @@ def setup_refactor():
         raise RuntimeError("Missing staged Torch library: {}".format(package))
     config = ConfigParser()
     config.read(PROJECT_ROOT / "config.ini")
+    manifest = json.loads((package / "_build_manifest.json").read_text())
+    dsl_dependencies = ["cannbot-dsl==0.8.0"] if manifest.get("cannbotdsl") else []
 
     class BinaryDistribution(Distribution):
         def has_ext_modules(self):
@@ -269,11 +292,13 @@ def setup_refactor():
         },
         distclass=BinaryDistribution,
         cmdclass={"install": BinaryInstall},
-        python_requires=">=3.7",
+        python_requires=">=3.10,<3.13" if dsl_dependencies else ">=3.7",
         install_requires=[
             "torch==" + torch.__version__.split("+")[0],
             "torch_npu==" + torch_npu.__version__.split("+")[0],
-        ],
+        ]
+        + dsl_dependencies,
+        extras_require={"cannbot_dsl": ["cannbot-dsl==0.8.0"]},
         url="https://github.com/sgl-project/sgl-kernel-npu/",
         license="BSD 3 License",
     )

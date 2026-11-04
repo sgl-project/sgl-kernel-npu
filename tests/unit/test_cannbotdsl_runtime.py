@@ -1,0 +1,123 @@
+"""Exercise lazy backend setup and repeated device guards without an NPU."""
+
+import importlib.metadata
+import importlib.util
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+HELPER = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu/operators/utils/cannbot_dsl.py"
+
+
+@pytest.fixture
+def helper(monkeypatch):
+    spec = importlib.util.spec_from_file_location("_test_cannbot_helper", HELPER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module.importlib.metadata, "version", lambda _: "0.8.0")
+    monkeypatch.delenv("CANNBOTDSL_NATIVE_BINARY_MODE", raising=False)
+    return module
+
+
+@pytest.mark.parametrize("version", [None, "0.7.1", "0.9.0"])
+def test_wrong_or_missing_dsl_is_rejected_before_import(helper, monkeypatch, version):
+    def installed(name):
+        if version is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return version
+
+    monkeypatch.setattr(helper.importlib.metadata, "version", installed)
+    monkeypatch.setattr(
+        helper.importlib, "import_module", lambda _: pytest.fail("source imported")
+    )
+    with pytest.raises(RuntimeError, match="cannbot-dsl"):
+        helper.load_cannbot_dsl("quant_lightning_indexer")
+
+
+def test_source_jit_can_run_without_native_bundle(helper):
+    helper.initialize_backend()
+
+
+def test_native_required_rejects_source_only_install(helper, monkeypatch):
+    monkeypatch.setenv("CANNBOTDSL_NATIVE_BINARY_MODE", "require")
+    with pytest.raises(RuntimeError, match="no CANNBot-DSL Native bundle"):
+        helper.initialize_backend()
+
+
+def test_native_setup_checks_aicpu_and_registers_only_once(
+    helper, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        helper, "__file__", str(tmp_path / "operators/utils/cannbot_dsl.py")
+    )
+    source = tmp_path / "implementation/cannbot-dsl/attention"
+    native = source / "_native"
+    native.mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="Incomplete.*AICPU"):
+        helper.initialize_backend()
+    (source / "_aicpu").mkdir()
+    for name in helper.AICPU_LIBRARIES:
+        (source / "_aicpu" / name).write_bytes(b"fixture")
+    registrations = []
+    aot = ModuleType("cannbotdsl.aot")
+    aot.register_directory = registrations.append
+    monkeypatch.setitem(sys.modules, "cannbotdsl.aot", aot)
+    helper.initialize_backend()
+    helper.initialize_backend()
+    assert registrations == [native]
+
+
+def test_device_identity_is_cached_but_context_tracks_current_device(
+    helper, monkeypatch
+):
+    queried, switches = [], []
+    current = {"index": 0}
+
+    @contextmanager
+    def device(index):
+        previous = current["index"]
+        switches.append(index)
+        current["index"] = index
+        try:
+            yield
+        finally:
+            current["index"] = previous
+
+    torch = ModuleType("torch")
+    torch.npu = SimpleNamespace(
+        current_device=lambda: current["index"],
+        get_device_name=lambda index: queried.append(index) or "Ascend950PR_9599",
+        device=device,
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    tensor = SimpleNamespace(device=SimpleNamespace(type="npu", index=0))
+    for _ in range(3):
+        helper.require_ascend950(tensor)
+        with helper.ascend950_device(tensor):
+            assert current["index"] == 0
+    assert queried == [0]
+    assert switches == []
+    current["index"] = 1
+    with helper.ascend950_device(tensor):
+        assert current["index"] == 0
+    assert current["index"] == 1
+    assert queried == [0]
+    assert switches == [0]
+
+
+def test_unsupported_device_failure_is_not_cached(helper, monkeypatch):
+    model = {"name": "Ascend910_9362"}
+    torch = ModuleType("torch")
+    torch.npu = SimpleNamespace(
+        current_device=lambda: 0, get_device_name=lambda _: model["name"]
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    tensor = SimpleNamespace(device=SimpleNamespace(type="npu", index=0))
+    with pytest.raises(RuntimeError, match="Ascend 950"):
+        helper.require_ascend950(tensor)
+    model["name"] = "Ascend950DT_9591"
+    assert helper.require_ascend950(tensor) == 0

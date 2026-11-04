@@ -24,7 +24,7 @@ TEST_PARAMS = {
     "mixed_decode": dict(_BASE),
     "ori_only": dict(_BASE, has_cmp=False, return_softmax_lse=False),
     "empty_and_tail": dict(_BASE, q_lengths=[3, 0, 5], vary_lengths=True),
-    # Entire padding subtiles must reuse valid addresses, including when the
+    # Entire padding tiles must reuse valid addresses, including when the
     # address table contains only one padded 16-column block.
     "single_token_k": dict(_BASE, q_lengths=[4], k_ori=1, k_cmp=1, vary_lengths=True),
     "narrow_k_tail": dict(_BASE, q_lengths=[4], k_ori=17, k_cmp=65, vary_lengths=True),

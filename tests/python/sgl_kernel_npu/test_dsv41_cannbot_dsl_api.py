@@ -36,13 +36,15 @@ def test_dsl_sources_and_license_are_in_distribution_package():
     packages = find_namespace_packages(where=str(PACKAGE_ROOT))
     assert "sgl_kernel_npu.implementation.cannbot-dsl.attention" in packages
     license_path = PACKAGE / "implementation" / "cannbot-dsl" / "LICENSE.cannbot-dsl"
-    assert (
-        "CANN Open Software License Agreement Version 2.0" in license_path.read_text()
+    assert "CANN Open Software License Agreement Version 2.0" in license_path.read_text(
+        encoding="utf-8"
     )
 
 
 def test_mqsmla_relative_metadata_module_is_in_same_package():
-    tree = ast.parse((IMPL / "mixed_quant_sparse_flash_mla.py").read_text())
+    tree = ast.parse(
+        (IMPL / "mixed_quant_sparse_flash_mla.py").read_text(encoding="utf-8")
+    )
     assert any(
         isinstance(node, ast.ImportFrom)
         and node.level == 1
@@ -52,6 +54,8 @@ def test_mqsmla_relative_metadata_module_is_in_same_package():
 
 
 def _load_public_operator(monkeypatch, name):
+    monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+
     class Generation(Enum):
         ARCH35 = "arch35"
 
@@ -92,6 +96,7 @@ def _load_public_operator(monkeypatch, name):
     helper = importlib.util.module_from_spec(helper_spec)
     monkeypatch.setitem(sys.modules, helper_name, helper)
     helper_spec.loader.exec_module(helper)
+    monkeypatch.setattr(helper, "initialize_backend", lambda: None)
 
     category = "attention" if name in ATTENTION_OPS else "indexer"
     module_name = f"sgl_kernel_npu.operators.{category}.{name}"
@@ -108,14 +113,14 @@ def test_public_operator_preserves_upstream_signature_and_lazy_dispatch(
     monkeypatch, name
 ):
     category = "attention" if name in ATTENTION_OPS else "indexer"
-    source_tree = ast.parse((IMPL / f"{name}.py").read_text())
+    source_tree = ast.parse((IMPL / f"{name}.py").read_text(encoding="utf-8"))
     source_fn = next(
         node
         for node in source_tree.body
         if isinstance(node, ast.FunctionDef) and node.name == name
     )
     public_path = PACKAGE / "operators" / category / f"{name}.py"
-    public_tree = ast.parse(public_path.read_text())
+    public_tree = ast.parse(public_path.read_text(encoding="utf-8"))
     public_fn = next(
         node
         for node in public_tree.body
@@ -340,7 +345,9 @@ def test_public_packages_export_dsv41_operators(category):
         for name in SOURCE_NAMES
         if (name in ATTENTION_OPS) == (category == "attention")
     }
-    tree = ast.parse((PACKAGE / "operators" / category / "__init__.py").read_text())
+    tree = ast.parse(
+        (PACKAGE / "operators" / category / "__init__.py").read_text(encoding="utf-8")
+    )
     exports = next(
         ast.literal_eval(node.value)
         for node in tree.body
@@ -361,7 +368,7 @@ def test_public_packages_export_dsv41_operators(category):
 
 
 def test_wheel_package_data_includes_cannbot_license():
-    setup = ast.parse((PACKAGE_ROOT / "setup.py").read_text())
+    setup = ast.parse((PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8"))
     setup_call = next(
         node.value
         for node in setup.body
@@ -388,7 +395,7 @@ def test_wheel_builders_use_expected_license_metadata():
         PACKAGE_ROOT / "build_tools/torch_wheel.py": "BSD 3 License",
     }
     for path, expected_license in expected.items():
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         licenses = [
             ast.literal_eval(keyword.value)
             for node in ast.walk(tree)
@@ -401,13 +408,15 @@ def test_wheel_builders_use_expected_license_metadata():
 
 def test_all_seven_operators_are_documented_and_indexed():
     for language in ("zh", "en"):
-        index = (ROOT / "docs/api" / language / "API_list.md").read_text()
+        index = (ROOT / "docs/api" / language / "API_list.md").read_text(
+            encoding="utf-8"
+        )
         for name in SOURCE_NAMES:
             category = "attention" if name in ATTENTION_OPS else "indexer"
             relative = f"operators/{category}/{name}.md"
             assert f"[{name}]({relative})" in index
             document = ROOT / "docs/api" / language / relative
-            text = document.read_text()
+            text = document.read_text(encoding="utf-8")
             assert "arch35" in text
             assert "cannbot_dsl" in text
             assert "Ascend910_9362" in text
