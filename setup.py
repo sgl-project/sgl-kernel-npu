@@ -20,7 +20,7 @@ def arguments(argv=None):
     parser.add_argument(
         "--arch-version",
         choices=("2201", "3510"),
-        help="required architecture coverage, except for standalone --make_clean",
+        help="required architecture coverage, except for standalone --make-clean",
     )
     parser.add_argument(
         "--ops",
@@ -54,14 +54,14 @@ def arguments(argv=None):
         help="CANN profile version for --plan only; builds detect the SDK version",
     )
     parser.add_argument(
-        "--make_clean",
+        "--make-clean",
         action="store_true",
         help="remove this build's intermediates; used alone, clean and exit",
     )
     args = parser.parse_args(argv)
     if args.cann_version and not args.plan:
         parser.error("--cann-version is only available with --plan")
-    if not args.arch_version and argv != ["--make_clean"]:
+    if not args.arch_version and argv != ["--make-clean"]:
         parser.error("--arch-version is required")
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")

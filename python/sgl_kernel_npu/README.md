@@ -44,11 +44,11 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make_clean`. |
+| `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
 | `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
-| `--make_clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
+| `--make-clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
 | `-h` / `--help` | Off | Print the supported options and exit without building. |
 
 `--ops` accepts comma-separated IDs; do not mix `all` with IDs or repeat an ID.
@@ -68,7 +68,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --help
 
 # Clear intermediates and build a wheel in the same command.
 python3 /workspace/sgl-kernel-npu/setup.py \
-  --make_clean --arch-version 2201 --ops apply_token_bitmask --artifact wheel
+  --make-clean --arch-version 2201 --ops apply_token_bitmask --artifact wheel
 ```
 
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
@@ -87,7 +87,7 @@ operator selection, Python/Torch environment or SDK location requires an explici
 clean build:
 
 ```bash
-python3 /workspace/sgl-kernel-npu/setup.py --make_clean
+python3 /workspace/sgl-kernel-npu/setup.py --make-clean
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 --ops all
 ```
 

@@ -54,7 +54,7 @@ def build_torch(
     }
     cached = _cache(directory)
     if cached and any(cached.get(key) != value for key, value in expected.items()):
-        raise RuntimeError("Torch build configuration changed; rerun with --make_clean")
+        raise RuntimeError("Torch build configuration changed; rerun with --make-clean")
     environment = {
         "python": sys.executable,
         "python_version": sys.version,
@@ -68,7 +68,7 @@ def build_torch(
     signature = directory / "torch-environment.json"
     if signature.exists() and json.loads(signature.read_text()) != environment:
         raise RuntimeError(
-            "Torch/Python/SDK environment changed; rerun with --make_clean"
+            "Torch/Python/SDK environment changed; rerun with --make-clean"
         )
     directory.mkdir(parents=True, exist_ok=True)
     signature.write_text(json.dumps(environment, sort_keys=True) + "\n")

@@ -143,7 +143,7 @@ def build_cann(
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked CANN directory: {}".format(directory))
     if cached and any(cached.get(k) != v for k, v in expected.items()):
-        raise RuntimeError("Build configuration changed; rerun with --make_clean")
+        raise RuntimeError("Build configuration changed; rerun with --make-clean")
     directory.mkdir(parents=True, exist_ok=True)
     command = [
         "cmake",
