@@ -18,20 +18,60 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(8, 128)]
 
 
-@pytest.mark.parametrize("tokens", [1, 8], ids=["synthetic-decode", "synthetic-batch"])
-def test_indexer_cache(tokens):
+@pytest.mark.parametrize(
+    "tokens,input_kind",
+    [
+        pytest.param(1, "random", id="synthetic-decode"),
+        pytest.param(8, "random", id="synthetic-batch"),
+        pytest.param(1, "boundaries", id="fp8-rne-boundaries"),
+        pytest.param(1, "zero", id="zero-row"),
+    ],
+)
+@pytest.mark.parametrize("round_scale", [False, True], ids=["round-off", "round-on"])
+def test_indexer_cache(tokens, input_kind, round_scale):
     from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
 
     torch.manual_seed(16)
     x = torch.randn(tokens, 128, dtype=torch.bfloat16)
+    if input_kind == "zero":
+        x.zero_()
+    elif input_kind == "boundaries":
+        # With amax=448, scale=1: exercise E4M3FN ties-to-even, signed zero,
+        # subnormals, the minimum normal, exponent transitions and endpoints.
+        edge = torch.tensor(
+            [
+                -448,
+                -432,
+                -272,
+                -248,
+                -1.1875,
+                -1.0625,
+                -0.0,
+                0.0,
+                2**-10,
+                3 * 2**-10,
+                2**-6,
+                1.0625,
+                1.1875,
+                248,
+                272,
+                432,
+                448,
+            ],
+            dtype=x.dtype,
+            device=x.device,
+        )
+        x.zero_()
+        x[0, : edge.numel()] = edge
     slots = torch.arange(tokens, dtype=torch.int32)
     if tokens > 1:
         slots[-1] = -1
     # CANN 9.1 may not support generic FP8 initialization/copy/conversion.
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
-    # Match the operator default: round FP8 scales up to a power of two.
-    kwargs = dict(quant_mode="fp8", round_scale=True)
+    # This attribute only affects MX-FP8. Normal FP8 must be identical for
+    # both values, including its unrounded FP32 scale.
+    kwargs = dict(quant_mode="fp8", round_scale=round_scale)
     executor = make_executor(
         indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs
     )
@@ -52,16 +92,37 @@ def test_indexer_cache(tokens):
             )
         actual = executor()
         assert actual[0].dtype == expected[0].dtype == torch.float8_e4m3fn
-        # Widen on CPU; scale accuracy retains its own tight tolerance.
+        actual_scales = actual[1].cpu()
+        # Check scales first: an incorrect scale must not be hidden behind a
+        # later FP8 payload mismatch. Zero and boundary rows are exact cases.
+        scale_standard = AccuracyStandard(atol=1e-5, rtol=0.03)
+        if input_kind != "random":
+            scale_standard = AccuracyStandard(atol=0, rtol=0)
+        assert_accuracy(
+            actual_scales,
+            expected[1],
+            {"torch.float32": scale_standard},
+        )
+        actual_bytes = actual[0].view(torch.uint8).cpu()
+        if input_kind != "random":
+            # Exactly representable edge inputs require exact FP8 bytes.
+            assert_accuracy(actual_bytes, expected[0].view(torch.uint8))
+        # Widen on CPU; retain the existing random-data and scale tolerances.
         assert_accuracy(
             actual[0].view(torch.uint8).cpu().view(torch.float8_e4m3fn).float(),
             expected[0].float(),
             {"torch.float32": AccuracyStandard(atol=16, rtol=0.06)},
         )
+        # The skipped token and every unassigned slot must remain untouched.
+        unused = torch.ones(128, dtype=torch.bool, device="cpu")
+        used = slots.cpu()
+        unused[used[used >= 0].long()] = False
         assert_accuracy(
-            actual[1].cpu(),
-            expected[1],
-            {"torch.float32": AccuracyStandard(atol=1e-5, rtol=0.03)},
+            actual_bytes.reshape(128, 128)[unused],
+            expected[0].view(torch.uint8).reshape(128, 128)[unused],
+        )
+        assert_accuracy(
+            actual[1].cpu().reshape(128)[unused], expected[1].reshape(128)[unused]
         )
         executor.accuracy_checked = True
     check_performance(executor, enable_perf=(tokens, 128) in perf_shape)
