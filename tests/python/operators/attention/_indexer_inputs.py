@@ -15,7 +15,8 @@ def make_inputs(case, mode):
     lengths, queries, residuals = case
     dtype = torch.float8_e4m3fn if mode == 1 else torch.int8
     scale_dtype = torch.float32 if mode == 1 else torch.float16
-    weight_dtype = torch.bfloat16 if mode == 1 else torch.float16
+    # A5 QuantLightningIndexer requires FP32 weights; A3 uses FP16.
+    weight_dtype = torch.float32 if mode == 1 else torch.float16
     pages_per_batch = (max(lengths) + 31) // 32
     pages = len(lengths) * pages_per_batch
     table = torch.arange(pages - 1, -1, -1, dtype=torch.int32).reshape(
