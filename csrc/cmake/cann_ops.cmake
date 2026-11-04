@@ -1,5 +1,18 @@
 include_guard(GLOBAL)
 
+# Some Host sources include CANN logging headers from the SDK's base directory.
+function(sgl_cann_host_include_dirs output)
+    set(paths "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
+    foreach(path IN ITEMS
+            "${ASCEND_CANN_PACKAGE_PATH}/include/base"
+            "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include/base")
+        if(IS_DIRECTORY "${path}")
+            list(APPEND paths "${path}")
+        endif()
+    endforeach()
+    set(${output} "${paths}" PARENT_SCOPE)
+endfunction()
+
 function(sgl_generate_cann_interfaces output_dir)
     if(NOT COMMAND npu_op_code_gen)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
@@ -104,7 +117,8 @@ function(sgl_add_cann_tiling)
     endforeach()
     npu_op_library(sgl_cann_tiling TILING ${tiling_sources})
     # Combined Host files also consume the generated interface configuration.
-    target_include_directories(sgl_cann_tiling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
+    sgl_cann_host_include_dirs(host_include_dirs)
+    target_include_directories(sgl_cann_tiling PRIVATE ${host_include_dirs})
     foreach(source IN LISTS tiling_sources)
         string(SHA256 key "${source}")
         set_property(SOURCE "${source}" TARGET_DIRECTORY sgl_cann_tiling
@@ -127,7 +141,8 @@ function(sgl_add_cann_kernels output_dir)
     endforeach()
     npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
     npu_op_library(sgl_cann_proto GRAPH ${infer_sources} "${output_dir}/op_proto.cc")
-    target_include_directories(sgl_cann_proto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
+    sgl_cann_host_include_dirs(host_include_dirs)
+    target_include_directories(sgl_cann_proto PRIVATE ${host_include_dirs})
     # CANN 9.2 appends these Kernel handoff INIs; replay from empty files while
     # retaining the independent OpDef/ACLNN/proto cache.
     set(source_config "${output_dir}/sgl_cann_kernels_custom_source_files.ini")

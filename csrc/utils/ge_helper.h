@@ -12,7 +12,10 @@
 #include <vector>
 
 #include "acl/acl.h"
+#include "exe_graph/runtime/storage_shape.h"
+#include "exe_graph/runtime/tensor.h"
 #include "exe_graph/runtime/tiling_context.h"
+#include "graph/types.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 
