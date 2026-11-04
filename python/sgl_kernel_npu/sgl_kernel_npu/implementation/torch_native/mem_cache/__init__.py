@@ -1,1 +1,1 @@
-"""Paged allocation implementations."""
+"""Native PyTorch memory-cache implementations."""
