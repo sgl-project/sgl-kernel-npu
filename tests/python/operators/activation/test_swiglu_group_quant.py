@@ -58,7 +58,6 @@ def generate_data(mode, seed, options):
 E5 = torch.float8_e5m2
 
 
-# ids describe the independent behavior checked in addition to backend agreement.
 @pytest.mark.parametrize(
     "mode,seed,options",
     [
@@ -221,7 +220,6 @@ def test_swiglu_group_quant(mode, seed, options):
             assert (
                 expected.view(torch.uint8) != unclamped[:valid].view(torch.uint8)
             ).float().mean() >= 0.10
-        # These switches must leave the written payload bit-identical.
         variants = []
         if mode == 2:
             variants.append(dict(round_scale=not kwargs.get("round_scale", False)))

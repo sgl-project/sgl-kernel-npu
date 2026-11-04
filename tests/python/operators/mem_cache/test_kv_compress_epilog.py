@@ -18,27 +18,154 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(4096, 320), (4096, 512)]
 
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
-# fmt: off
 KV_CASES = [
-    pytest.param(16, 16, 192, 0, 1, False, 1, True, False, True, 0, "normal", id="fp8-single"),
-    pytest.param(16, 16, 320, 0, 1, False, 1, True, False, True, 1, "normal", id="fp8-multi-scale"),
-    pytest.param(16, 16, 192, 0, 1, False, 1, False, True, True, 2, "normal", id="fp8-e5-int64"),
-    pytest.param(4096, 4096, 320, 0, 1, False, 1, True, False, False, 3, "normal", id="fp8-multi-core"),
-    pytest.param(64, 128, 512, 0, 1, False, 1, False, False, False, 4, "shuffle", id="fp8-partial-shuffled"),
-    pytest.param(16, 16, 192, 0, 1, False, 1, True, False, False, 5, "zero", id="fp8-zero"),
-    pytest.param(16, 16, 192, 64, 2, True, 1, True, False, True, 4, "normal", id="mx-group64"),
-    pytest.param(16, 16, 192, 128, 2, False, 1, True, False, True, 5, "normal", id="mx-group128-no-round"),
-    pytest.param(16, 16, 192, 64, 2, True, 1, False, False, True, 6, "normal", id="mx-e5"),
-    pytest.param(4096, 4096, 512, 64, 2, True, 1, True, False, True, 7, "normal", id="mx-multi-core"),
-    pytest.param(16, 16, 192, 128, 2, True, 2, True, False, True, 7, "normal", id="mx-block"),
-    pytest.param(17, 17, 320, 64, 2, True, 2, True, False, True, 9, "normal", id="mx-partial-block"),
-    pytest.param(17, 17, 320, 64, 2, True, 2, False, True, True, 10, "4d", id="mx-4d-int64"),
-    pytest.param(16, 32, 192, 0, 1, False, 1, True, False, True, 11, "stride", id="fp8-row-stride"),
-    pytest.param(16, 32, 512, 64, 2, True, 1, True, True, True, 12, "3d", id="mx-slot-major-3d"),
+    pytest.param(
+        16, 16, 192, 0, 1, False, 1, True, False, True, 0, "normal", id="fp8-single"
+    ),
+    pytest.param(
+        16,
+        16,
+        320,
+        0,
+        1,
+        False,
+        1,
+        True,
+        False,
+        True,
+        1,
+        "normal",
+        id="fp8-multi-scale",
+    ),
+    pytest.param(
+        16, 16, 192, 0, 1, False, 1, False, True, True, 2, "normal", id="fp8-e5-int64"
+    ),
+    pytest.param(
+        4096,
+        4096,
+        320,
+        0,
+        1,
+        False,
+        1,
+        True,
+        False,
+        False,
+        3,
+        "normal",
+        id="fp8-multi-core",
+    ),
+    pytest.param(
+        64,
+        128,
+        512,
+        0,
+        1,
+        False,
+        1,
+        False,
+        False,
+        False,
+        4,
+        "shuffle",
+        id="fp8-partial-shuffled",
+    ),
+    pytest.param(
+        16, 16, 192, 0, 1, False, 1, True, False, False, 5, "zero", id="fp8-zero"
+    ),
+    pytest.param(
+        16, 16, 192, 64, 2, True, 1, True, False, True, 4, "normal", id="mx-group64"
+    ),
+    pytest.param(
+        16,
+        16,
+        192,
+        128,
+        2,
+        False,
+        1,
+        True,
+        False,
+        True,
+        5,
+        "normal",
+        id="mx-group128-no-round",
+    ),
+    pytest.param(
+        16, 16, 192, 64, 2, True, 1, False, False, True, 6, "normal", id="mx-e5"
+    ),
+    pytest.param(
+        4096,
+        4096,
+        512,
+        64,
+        2,
+        True,
+        1,
+        True,
+        False,
+        True,
+        7,
+        "normal",
+        id="mx-multi-core",
+    ),
+    pytest.param(
+        16, 16, 192, 128, 2, True, 2, True, False, True, 7, "normal", id="mx-block"
+    ),
+    pytest.param(
+        17,
+        17,
+        320,
+        64,
+        2,
+        True,
+        2,
+        True,
+        False,
+        True,
+        9,
+        "normal",
+        id="mx-partial-block",
+    ),
+    pytest.param(
+        17, 17, 320, 64, 2, True, 2, False, True, True, 10, "4d", id="mx-4d-int64"
+    ),
+    pytest.param(
+        16,
+        32,
+        192,
+        0,
+        1,
+        False,
+        1,
+        True,
+        False,
+        True,
+        11,
+        "stride",
+        id="fp8-row-stride",
+    ),
+    pytest.param(
+        16, 32, 512, 64, 2, True, 1, True, True, True, 12, "3d", id="mx-slot-major-3d"
+    ),
 ]
-# fmt: on
 
-def generate_data(n, slots, d, group, mode, rounding, layout, e4, int64, drop, seed, pattern, device="npu"):  # fmt: skip
+
+def generate_data(
+    n,
+    slots,
+    d,
+    group,
+    mode,
+    rounding,
+    layout,
+    e4,
+    int64,
+    drop,
+    seed,
+    pattern,
+    device="npu",
+):
     generator = torch.Generator(device="cpu").manual_seed(seed)
     x = torch.randn((n, d), dtype=torch.bfloat16, device="cpu", generator=generator)
     if pattern == "zero":
@@ -79,7 +206,6 @@ def _layout2_scale_columns(ids, block, value_width, scale_count):
 
 
 def _compare_cache(actual, reference, x, slots, group, mode, layout):
-    # Compare numeric quant values separately from the scale and BF16 byte regions.
     actual = actual.squeeze(2) if actual.ndim == 4 else actual
     reference = reference.squeeze(2) if reference.ndim == 4 else reference
     a, r = actual.view(torch.uint8).cpu(), reference.view(torch.uint8).cpu()
@@ -150,7 +276,6 @@ def _compare_cache(actual, reference, x, slots, group, mode, layout):
 def test_kv_compress_epilog(
     n, slots, d, group, mode, rounding, layout, e4, int64, drop, seed, pattern
 ):
-    # Exercise all FP8/MXFP8 layouts with a fixed CPU reference and in-place writes.
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
     impl, _ = get_test_impls()
@@ -188,7 +313,6 @@ def test_kv_compress_epilog(
 
 @pytest.mark.extra_checks
 def test_fp8_layout2_rejected():
-    # Reject the unsupported FP8 block layout at the shared public boundary.
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
     args = generate_data(

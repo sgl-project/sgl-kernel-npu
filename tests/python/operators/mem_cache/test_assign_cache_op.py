@@ -65,7 +65,6 @@ def test_assign_cache_op(gap, width, dtype):
     else:
         require_distinct_impls(assign_cache_op, impl, impl_ref)
     pointer = actual.data_ptr()
-    # Check every iteration, independently of whether performance profiling is enabled.
     for iteration in range(32):
         torch.npu.synchronize()
         if not skip:
