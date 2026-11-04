@@ -57,10 +57,10 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_local_cumsum.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_scaled_dot_kkt.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_chunk_delta_h.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_fused_gdn_decode.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/gdn/test_chunk_local_cumsum.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/gdn/test_chunk_scaled_dot_kkt.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/gdn/test_chunk_delta_h.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/gdn/test_fused_gdn_decode.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_fia_prep.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_gqa_share_sparse_decode.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"

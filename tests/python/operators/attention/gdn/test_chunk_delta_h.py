@@ -20,7 +20,7 @@ from tests.python.utils.standards import AccuracyStandard
     ],
 )
 def test_chunk_delta_h(length, varlen, dtype, head_dim):
-    from sgl_kernel_npu.operators.attention import chunk_delta_h
+    from sgl_kernel_npu.operators.attention.gdn import chunk_delta_h
 
     k = torch.randn(1, length, 2, head_dim, dtype=dtype) * 0.05
     w = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05

@@ -12,7 +12,7 @@ from tests.python.utils.performance import check_performance
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_chunk_scaled_dot_kkt(length, varlen, dtype):
-    from sgl_kernel_npu.operators.attention import chunk_scaled_dot_kkt
+    from sgl_kernel_npu.operators.attention.gdn import chunk_scaled_dot_kkt
 
     k = torch.randn(1, length, 2, 128, dtype=dtype) * 0.05
     beta = torch.rand(1, length, 4, dtype=dtype)

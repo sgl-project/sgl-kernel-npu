@@ -11,7 +11,7 @@
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_delta_h
+from sgl_kernel_npu.operators.attention.gdn import chunk_delta_h
 
 def chunk_delta_h(k, w, u, g=None, initial_state=None, output_final_state=False, chunk_size=64, save_new_value=True, cu_seqlens=None, *, impl='auto'):
     ...
@@ -58,7 +58,7 @@ CPU FP64 reference preserves both input-dtype rounding points. Outputs retain AP
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_delta_h
+from sgl_kernel_npu.operators.attention.gdn import chunk_delta_h
 
 k = torch.randn(1, 64, 2, 128, device="npu", dtype=torch.float16)
 w = torch.randn(1, 64, 4, 128, device="npu", dtype=torch.float16)

@@ -11,7 +11,7 @@
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
 def chunk_local_cumsum(g, chunk_size, reverse=False, scale=None, cu_seqlens=None, head_first=False, output_dtype=torch.float32, *, impl='auto'):
     ...
@@ -54,7 +54,7 @@ Independent PyTorch operations provide the reference result. Host metadata trans
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
 g = torch.randn(1, 128, 8, device="npu", dtype=torch.float16)
 y = chunk_local_cumsum(g, 64, output_dtype=None, impl="triton")

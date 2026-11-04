@@ -1,5 +1,6 @@
 """Contracts for public operator registration and implementation lookup."""
 
+from functools import wraps
 from unittest.mock import Mock
 
 import pytest
@@ -167,3 +168,37 @@ def test_public_exports_use_the_same_registry(operator_modules):
 
     assert api.get_impl(operator, "custom") is backend
     assert api.list_impls(operator) == ["custom"]
+
+
+def test_wrapped_public_function_resolves_registered_backend(registry):
+    @registry.register_operator("test.wrapped")
+    def operator(*, impl="auto"):
+        return registry.get_impl(operator, impl)()
+
+    backend = Mock(return_value=7)
+    registry.register_impl("test.wrapped", "triton")(backend)
+
+    @wraps(operator)
+    def isolated(*, impl="auto"):
+        return operator(impl=impl)
+
+    @wraps(isolated)
+    def nested(*, impl="auto"):
+        return isolated(impl=impl)
+
+    assert registry.get_op_name(nested) == "test.wrapped"
+    assert registry.get_impl(nested, "triton") is backend
+    assert nested(impl="triton") == 7
+    backend.assert_called_once_with()
+
+
+def test_wrapping_unregistered_function_does_not_register_it(registry):
+    def operator():
+        pass
+
+    @wraps(operator)
+    def isolated():
+        return operator()
+
+    with pytest.raises(ValueError, match="Unregistered public operator"):
+        registry.get_op_name(isolated)

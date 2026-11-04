@@ -2,29 +2,29 @@
 
 import torch
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 
-@register_impl("attention.chunk_local_cumsum", "auto")
-@register_impl("attention.chunk_local_cumsum", "triton")
+@register_impl("attention.gdn.chunk_local_cumsum", "auto")
+@register_impl("attention.gdn.chunk_local_cumsum", "triton")
 def _triton_impl(*args, **kwargs):
-    from ...implementation.triton.attention.chunk_local_cumsum import (
+    from ....implementation.triton.attention.gdn.chunk_local_cumsum import (
         chunk_local_cumsum_scalar_npu,
     )
 
     return chunk_local_cumsum_scalar_npu(*args, **kwargs)
 
 
-@register_impl("attention.chunk_local_cumsum", "torch_native")
+@register_impl("attention.gdn.chunk_local_cumsum", "torch_native")
 def _native_impl(*args, **kwargs):
-    from ...implementation.torch_native.attention.chunk_local_cumsum import (
+    from ....implementation.torch_native.attention.gdn.chunk_local_cumsum import (
         chunk_local_cumsum,
     )
 
     return chunk_local_cumsum(*args, **kwargs)
 
 
-@register_operator("attention.chunk_local_cumsum")
+@register_operator("attention.gdn.chunk_local_cumsum")
 def chunk_local_cumsum(
     g,
     chunk_size,
@@ -59,6 +59,6 @@ def chunk_local_cumsum(
             "Triton output_dtype must match g.dtype; use None or g.dtype "
             f"(got output_dtype={output_dtype}, g.dtype={g.dtype})"
         )
-    return get_impl_by_name("attention.chunk_local_cumsum", impl)(
+    return get_impl_by_name("attention.gdn.chunk_local_cumsum", impl)(
         g, chunk_size, reverse, scale, cu_seqlens, head_first, output_dtype
     )

@@ -5,6 +5,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
 
 
 @pytest.mark.parametrize("sink_enabled", [False, True])
@@ -23,8 +24,9 @@ def test_gqa_share_sparse_decode(sink_enabled, chunks, dtype):
         [[[0, 1, 2, -1], [0, 1, -1, -1]], [[0, 1, 2, -1], [0, 1, -1, -1]]],
         dtype=torch.int32,
     )
-    check_accuracy(
+    executor = check_accuracy(
         gqa_share_sparse_decode,
         args=(q, sink, k, v, block_table, lengths, 16, topk),
         kwargs={"num_topk_chunks": chunks},
     )
+    check_performance(executor, enable_perf=(not sink_enabled and chunks == 1))

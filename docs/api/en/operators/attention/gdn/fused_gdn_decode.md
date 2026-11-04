@@ -11,7 +11,7 @@
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import fused_gdn_decode
+from sgl_kernel_npu.operators.attention.gdn import fused_gdn_decode
 
 def fused_gdn_decode(A_log, a, dt_bias, softplus_beta, softplus_threshold, q, k, v, b, initial_state_source, initial_state_indices, scale=None, use_qk_l2norm_in_kernel=False, cu_seqlens=None, *, impl='auto'):
     ...
@@ -61,7 +61,7 @@ Independent PyTorch operations provide the reference result. Host metadata trans
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import fused_gdn_decode
+from sgl_kernel_npu.operators.attention.gdn import fused_gdn_decode
 
 q = torch.randn(1, 1, 2, 64, device="npu", dtype=torch.float16)
 k = torch.randn_like(q)

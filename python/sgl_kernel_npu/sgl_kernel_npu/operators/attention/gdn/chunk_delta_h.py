@@ -1,26 +1,28 @@
 """Public chunked gated delta-rule state update."""
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 
-@register_impl("attention.chunk_delta_h", "auto")
-@register_impl("attention.chunk_delta_h", "triton")
+@register_impl("attention.gdn.chunk_delta_h", "auto")
+@register_impl("attention.gdn.chunk_delta_h", "triton")
 def _triton(*args, **kwargs):
-    from ...implementation.triton.attention.chunk_delta_h import (
+    from ....implementation.triton.attention.gdn.chunk_delta_h import (
         chunk_gated_delta_rule_fwd_h_npu,
     )
 
     return chunk_gated_delta_rule_fwd_h_npu(*args, **kwargs)
 
 
-@register_impl("attention.chunk_delta_h", "torch_native")
+@register_impl("attention.gdn.chunk_delta_h", "torch_native")
 def _native(*args, **kwargs):
-    from ...implementation.torch_native.attention.chunk_delta_h import chunk_delta_h
+    from ....implementation.torch_native.attention.gdn.chunk_delta_h import (
+        chunk_delta_h,
+    )
 
     return chunk_delta_h(*args, **kwargs)
 
 
-@register_operator("attention.chunk_delta_h")
+@register_operator("attention.gdn.chunk_delta_h")
 def chunk_delta_h(
     k,
     w,
@@ -41,7 +43,7 @@ def chunk_delta_h(
     """
     if g is None:
         raise ValueError("g is required by the current Triton wrapper")
-    return get_impl_by_name("attention.chunk_delta_h", impl)(
+    return get_impl_by_name("attention.gdn.chunk_delta_h", impl)(
         k,
         w,
         u,

@@ -11,7 +11,7 @@
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_scaled_dot_kkt
+from sgl_kernel_npu.operators.attention.gdn import chunk_scaled_dot_kkt
 
 def chunk_scaled_dot_kkt(k, beta, g_cumsum=None, cu_seqlens=None, chunk_size=64, output_dtype=torch.float32, *, impl='auto'):
     ...
@@ -53,7 +53,7 @@ Triton 张量输入应位于同一 NPU 并采用连续布局；输出位于输�
 
 ```python
 import torch
-from sgl_kernel_npu.operators.attention import chunk_scaled_dot_kkt
+from sgl_kernel_npu.operators.attention.gdn import chunk_scaled_dot_kkt
 
 k = torch.randn(1, 64, 2, 128, device="npu", dtype=torch.float16)
 b = torch.rand(1, 64, 4, device="npu", dtype=torch.float16)

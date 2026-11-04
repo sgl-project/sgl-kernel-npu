@@ -13,7 +13,7 @@ from tests.python.utils.performance import check_performance
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 def test_chunk_local_cumsum(length, reverse, varlen, dtype):
-    from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+    from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
     g = torch.randn(1, length, 8, dtype=dtype)
     offsets = torch.tensor([0, 31, length], dtype=torch.int32) if varlen else None
@@ -36,7 +36,7 @@ def test_chunk_local_cumsum(length, reverse, varlen, dtype):
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("mode", ["none", "explicit"])
 def test_matching_output_dtype(dtype, mode):
-    from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+    from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
     g = torch.randn(1, 64, 8, dtype=dtype)
     output_dtype = None if mode == "none" else dtype
@@ -47,7 +47,7 @@ def test_matching_output_dtype(dtype, mode):
 @pytest.mark.parametrize("impl", ["auto", "triton"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_rejects_default_mismatched_output(dtype, impl):
-    from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+    from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
     g = torch.randn(1, 64, 8, dtype=dtype)
     with pytest.raises(ValueError, match="output_dtype must match g.dtype"):
@@ -55,14 +55,14 @@ def test_rejects_default_mismatched_output(dtype, impl):
 
 
 def test_default_output_dtype_for_float32():
-    from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+    from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
     g = torch.randn(1, 64, 8, dtype=torch.float32)
     assert chunk_local_cumsum(g, 64, impl="triton").dtype == torch.float32
 
 
 def test_rejects_explicit_mismatched_output():
-    from sgl_kernel_npu.operators.attention import chunk_local_cumsum
+    from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
     g = torch.randn(1, 64, 8, dtype=torch.float32)
     with pytest.raises(ValueError, match="output_dtype must match g.dtype"):
