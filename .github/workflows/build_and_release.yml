@@ -7,14 +7,13 @@ on:
 
   pull_request:
     branches:
-      - 'main'
+      - main
     paths:
-      - '.github/workflows/build_and_release.yml'
-      - 'config.ini'
-      - 'build.sh'
+      - .github/workflows/build_and_release.yml
+      - config.ini
+      - build.sh
 
 jobs:
-
   build-and-release:
     defaults:
       run:
@@ -22,16 +21,11 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-        npu_hardware: [910b, a3, 950]
-
-        exclude:
-           - npu_hardware: 950
-             cann_version: 9.0.0
-        cann_version: [9.0.0, 9.1.0]
-        torch_version: [2.10.0]
-        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        npu_hardware: [a3, '950']
+        cann_version: ['9.1.0', '9.2.0']
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -39,7 +33,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -49,73 +43,72 @@ jobs:
 
       - name: Mark repository safe
         run: |
-          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+          git config --system --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+          bash scripts/npu_ci_install_dependency.sh \
+            --cann-version "${{ matrix.cann_version }}"
 
-      - name: Build SGL-Kernel-NPU for 910b/a3
+      - name: Build SGL-Kernel-NPU for a3
         if: matrix.npu_hardware != '950'
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a kernels
           "
 
       - name: Build SGL-Kernel-NPU for 950
         if: matrix.npu_hardware == '950'
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a kernels Ascend950PR_9599
           "
 
       - name: Build Attentions
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a attentions
           "
 
       - name: Build Torch-Memory-Saver
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a memory-saver
-          "
-
-      - name: Build DeepEP for 910b
-        if: matrix.npu_hardware == '910b'
-        run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            ./build.sh -a deepep2
           "
 
       - name: Build DeepEP for a3
         if: matrix.npu_hardware == 'a3'
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a deepep
           "
 
       - name: Build DeepEP for 950
         if: matrix.npu_hardware == '950'
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a deepep Ascend950
           "
+
       - name: Pack up packages
         run: |
           export TORCH_DEVICE_BACKEND_AUTOLOAD=0
-          TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" | awk -F'+' '{print $1}')
-          PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
+          TORCH_VERSION="$(
+            python3 -c 'import torch; print(torch.__version__.split("+")[0])'
+          )"
+          PYTHON_VERSION="$(
+            python3 -c 'import platform; print(platform.python_version())' |
+              awk -F'.' '{print $1$2}'
+          )"
           PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
           cd output/
-          zip -v ${PACKAGE_NAME} ./*.whl
+          zip -v "${PACKAGE_NAME}" ./*.whl
           ls -al
 
       - name: Upload Release Artifacts
@@ -133,16 +126,11 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
-        arch: [ x86_64, aarch64 ]
-        npu_hardware: [ 910b, a3, 950 ]
-        exclude:
-          - npu_hardware: 950
-            cann_version: 9.0.0
-
-        cann_version: [ 9.0.0, 9.1.0 ]
-        torch_version: [ 2.10.0 ]
-        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        arch: [x86_64, aarch64]
+        npu_hardware: [a3, '950']
+        cann_version: ['9.1.0', '9.2.0']
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -150,7 +138,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -158,11 +146,12 @@ jobs:
 
       - name: Mark repository safe
         run: |
-          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+          git config --system --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+          bash scripts/npu_ci_install_dependency.sh \
+            --cann-version "${{ matrix.cann_version }}"
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -174,43 +163,69 @@ jobs:
         if: matrix.npu_hardware == 'a3'
         run: |
           cd ../
-          git clone https://gitcode.com/cann/ops-transformer.git
+          git clone --depth 1 https://gitcode.com/cann/ops-transformer.git
           cd ops-transformer
-          git checkout bcc6304
-          env -i PATH=${PATH} bash --login -c "
-            pip install packaging
-            bash build.sh --pkg --experimental --soc=ascend910_93 --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
-          "
 
-      - name: Build ops-transformer for 910b
-        if: matrix.npu_hardware == '910b'
-        run: |
-          cd ../
-          git clone https://gitcode.com/cann/ops-transformer.git
-          cd ops-transformer
-          git checkout bcc6304
-          env -i PATH=${PATH} bash --login -c "
-            pip install packaging
-            bash build.sh --pkg --experimental --soc=ascend910b --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
+          case "${{ matrix.cann_version }}" in
+            "9.1.0")
+              OPS_TRANSFORMER_COMMIT="bcc6304656c9e712b50b1faa22872a158b1e34c5"
+              ;;
+            "9.2.0")
+              OPS_TRANSFORMER_COMMIT="33cc4ab2c7efe16d4f78b34a0dc52dbc99b9d8f8"
+              ;;
+            *)
+              echo "Unsupported CANN version: ${{ matrix.cann_version }}" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --depth 1 origin "${OPS_TRANSFORMER_COMMIT}"
+          git checkout --detach "${OPS_TRANSFORMER_COMMIT}"
+
+          env -i PATH="${PATH}" bash --login -c "
+            pip install packaging ninja
+            bash build.sh --pkg --experimental --soc=ascend910_93 --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
           "
 
       - name: Build ops-transformer for 950
         if: matrix.npu_hardware == '950'
         run: |
           cd ../
-          git clone https://gitcode.com/cann/ops-transformer.git
+          git clone --depth 1 https://gitcode.com/cann/ops-transformer.git
           cd ops-transformer
-          git checkout bcc6304
-          env -i PATH=${PATH} bash --login -c "
-            pip install packaging
-            bash build.sh --pkg --experimental --soc=ascend950 --ops=\"quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv-compressor_epilog,hc_post,inplace_partial_rotary_mul,indexer_compress_epilog,moe_gating_top_k\"
+
+          case "${{ matrix.cann_version }}" in
+            "9.1.0")
+              OPS_TRANSFORMER_COMMIT="bcc6304656c9e712b50b1faa22872a158b1e34c5"
+              OPS_LIST="quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv-compressor_epilog,hc_post,inplace_partial_rotary_mul,indexer_compress_epilog,moe_gating_top_k"
+              ;;
+            "9.2.0")
+              OPS_TRANSFORMER_COMMIT="33cc4ab2c7efe16d4f78b34a0dc52dbc99b9d8f8"
+              OPS_LIST="quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv_compress_epilog,mhc_post,inplace_partial_rotary_mul,indexer_quant_cache,moe_gating_top_k"
+              ;;
+            *)
+              echo "Unsupported CANN version: ${{ matrix.cann_version }}" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --depth 1 origin "${OPS_TRANSFORMER_COMMIT}"
+          git checkout --detach "${OPS_TRANSFORMER_COMMIT}"
+
+          env -i PATH="${PATH}" bash --login -c "
+            pip install packaging ninja
+            bash build.sh --pkg --experimental --soc=ascend950 --ops=\"${OPS_LIST}\"
           "
 
       - name: Pack up packages
         run: |
-          PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-torch${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+          TORCH_VERSION="$(
+            python3 -c 'import torch; print(torch.__version__.split("+")[0])'
+          )"
+          PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
           cd ../ops-transformer/build_out
-          zip -v ${PACKAGE_NAME} ./*.run
+          zip -v "${PACKAGE_NAME}" ./*.run
           ls -al
 
       - name: Upload Release Artifacts
@@ -221,22 +236,18 @@ jobs:
         with:
           files: ../ops-transformer/build_out/*.zip
 
-  build-cuntom-ops:
+  build-custom-ops:
     defaults:
       run:
         shell: bash
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
-        arch: [ x86_64, aarch64 ]
-        npu_hardware: [ 910b, a3, 950 ]
-        exclude:
-          - npu_hardware: 950
-            cann_version: 9.0.0
-        cann_version: [ 9.0.0, 9.1.0 ]
-        torch_version: [ 2.10.0 ]
-        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        arch: [x86_64, aarch64]
+        npu_hardware: [a3, '950']
+        cann_version: ['9.1.0', '9.2.0']
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -244,7 +255,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -252,11 +263,12 @@ jobs:
 
       - name: Mark repository safe
         run: |
-          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+          git config --system --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+          bash scripts/npu_ci_install_dependency.sh \
+            --cann-version "${{ matrix.cann_version }}"
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -268,65 +280,83 @@ jobs:
         if: matrix.npu_hardware == 'a3'
         run: |
           cd ../
-          git clone https://gitcode.com/cann/cann-recipes-infer.git
+          git clone --depth 1 https://gitcode.com/cann/cann-recipes-infer.git
           cd cann-recipes-infer
-          git checkout 35a476c
-          env -i PATH=${PATH} bash --login -c "
+
+          case "${{ matrix.cann_version }}" in
+            "9.1.0")
+              CANN_RECIPES_COMMIT="35a476c2b1ea61990380a7115ea991023aedc7d0"
+              ;;
+            "9.2.0")
+              CANN_RECIPES_COMMIT="6d060311ae75f6105fe4216e20566875da5a8838"
+              ;;
+            *)
+              echo "Unsupported CANN version: ${{ matrix.cann_version }}" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --depth 1 origin "${CANN_RECIPES_COMMIT}"
+          git checkout --detach "${CANN_RECIPES_COMMIT}"
+
+          env -i PATH="${PATH}" bash --login -c "
             cd ops/ascendc/torch_ops_extension
             pip install ninja
             bash build_and_install.sh
-          "
-          env -i PATH=${PATH} bash --login -c "
-            cd ops/ascendc
-            bash build.sh -c \"ascend910_93\"
           "
 
-      - name: Build cann-custom for 910b
-        if: matrix.npu_hardware == '910b'
-        run: |
-          cd ../
-          git clone https://gitcode.com/cann/cann-recipes-infer.git
-          cd cann-recipes-infer
-          git checkout 35a476c
-          if [ "${{matrix.arch}}" = "aarch64" ];then
-            git apply ../sgl-kernel-npu/contrib/patch/Adapt-custom-ops-A2.patch
-          fi
-          env -i PATH=${PATH} bash --login -c "
-            cd ops/ascendc/torch_ops_extension
-            pip install ninja
-            bash build_and_install.sh
-          "
-          env -i PATH=${PATH} bash --login -c "
+          env -i PATH="${PATH}" bash --login -c "
             cd ops/ascendc
-            bash build.sh -c \"ascend910b\"
+            bash build.sh -c \"ascend910_93\"
           "
 
       - name: Build cann-custom for 950
         if: matrix.npu_hardware == '950'
         run: |
           cd ../
-          git clone https://gitcode.com/cann/cann-recipes-infer.git
+          git clone --depth 1 https://gitcode.com/cann/cann-recipes-infer.git
           cd cann-recipes-infer
-          git checkout 35a476c
-          env -i PATH=${PATH} bash --login -c "
+
+          case "${{ matrix.cann_version }}" in
+            "9.1.0")
+              CANN_RECIPES_COMMIT="35a476c2b1ea61990380a7115ea991023aedc7d0"
+              ;;
+            "9.2.0")
+              CANN_RECIPES_COMMIT="6d060311ae75f6105fe4216e20566875da5a8838"
+              ;;
+            *)
+              echo "Unsupported CANN version: ${{ matrix.cann_version }}" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --depth 1 origin "${CANN_RECIPES_COMMIT}"
+          git checkout --detach "${CANN_RECIPES_COMMIT}"
+
+          env -i PATH="${PATH}" bash --login -c "
             cd ops/ascendc/torch_ops_extension
             pip install ninja
             bash build_and_install.sh
           "
-          env -i PATH=${PATH} bash --login -c "
+
+          env -i PATH="${PATH}" bash --login -c "
             cd ops/ascendc
             bash build.sh -c \"ascend950\"
           "
 
       - name: Pack up packages
         run: |
-          PACKAGE_NAME="custom-ops-${{ github.event.release.tag_name }}-torch${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+          TORCH_VERSION="$(
+            python3 -c 'import torch; print(torch.__version__.split("+")[0])'
+          )"
+          PACKAGE_NAME="custom-ops-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
           cd ../cann-recipes-infer
-          mkdir output
+          mkdir -p output
           cp ./ops/ascendc/torch_ops_extension/dist/custom_ops-*.whl ./output
           cp ./ops/ascendc/output/CANN-custom_ops-*.run ./output
           cd output
-          zip -v ${PACKAGE_NAME} ./*.run ./*.whl
+          zip -v "${PACKAGE_NAME}" ./*.run ./*.whl
           ls -al
 
       - name: Upload Release Artifacts

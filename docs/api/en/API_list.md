@@ -2,10 +2,15 @@
 
 | API | Supported backends |
 | --- | --- |
+| [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
+| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`, `torch_native` |
+| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`, `torch_native` |
+| [paged_mtp_attention_decode](operators/attention/paged_mtp_attention_decode.md) | `triton`, `torch_native` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`, `torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`, `torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`, `torch_native` |
@@ -41,6 +46,10 @@
 | [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
 | [fused_gdn_decode](operators/attention/gdn/fused_gdn_decode.md) | `triton`, `torch_native` |
 | [gqa_share_sparse_decode](operators/attention/gqa_share_sparse_decode.md) | `triton`, `torch_native` |
+| [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
+| [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
+| [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`, `torch_native` |
+| [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`, `torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
 
@@ -62,3 +71,5 @@ installation steps; see
 | [fused_linear_online_max_sum](operators/batch_invariant/fused_linear_online_max_sum.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score](operators/batch_invariant/fused_infer_attention_score.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
+| [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
+| [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |
