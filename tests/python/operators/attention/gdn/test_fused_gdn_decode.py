@@ -1,14 +1,17 @@
 """Compare both outputs and modified state with independent inputs."""
 
-from functools import wraps
-
 import pytest
 
 torch = pytest.importorskip("torch")
 
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import make_executor
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -34,38 +37,39 @@ def test_fused_gdn_decode(varlen, normalize, dtype):
     args = (A_log, a, bias, 1.0, 20.0, q, k, v, b)
     kwargs = {"use_qk_l2norm_in_kernel": normalize, "cu_seqlens": offsets}
 
-    @wraps(fused_gdn_decode)
-    def isolated_decode(*, impl="auto"):
-        current_state = state.clone()
-        output = fused_gdn_decode(*args, current_state, indices, impl=impl, **kwargs)
-        return output, current_state
+    standard = {
+        str(dtype): AccuracyStandard(atol=0.04, rtol=0.04),
+        "torch.float32": AccuracyStandard(atol=0.04, rtol=0.04),
+    }
+    impl, impl_ref = get_test_impls()
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        require_distinct_impls(fused_gdn_decode, impl, impl_ref)
+    else:
+        require_test_impl(fused_gdn_decode, impl)
 
-    executor = check_accuracy(
-        isolated_decode,
-        standard={
-            str(dtype): AccuracyStandard(atol=0.04, rtol=0.04),
-            "torch.float32": AccuracyStandard(atol=0.04, rtol=0.04),
-        },
-    )
+    if accuracy_checked:
+        actual_state, ref_state = state.clone(), state.clone()
+        reference = fused_gdn_decode(*args, ref_state, indices, impl=impl_ref, **kwargs)
+        actual = fused_gdn_decode(*args, actual_state, indices, impl=impl, **kwargs)
+        assert_accuracy((actual, actual_state), (reference, ref_state), standard)
+
     warmup, active = 5, 5
     states = None
 
-    @wraps(fused_gdn_decode)
-    def profile_decode(*, impl="auto"):
+    def executor():
         nonlocal states
         # The first call prepares every state before profiler collection starts.
         if states is None:
             states = iter([state.clone() for _ in range(1 + warmup + active)])
         return fused_gdn_decode(*args, next(states), indices, impl=impl, **kwargs)
 
-    perf_executor = make_executor(
-        profile_decode,
-        impl=executor.impl,
-        impl_ref=executor.impl_ref,
-        accuracy_checked=executor.accuracy_checked,
-    )
+    executor.func = fused_gdn_decode
+    executor.impl = impl
+    executor.impl_ref = impl_ref
+    executor.accuracy_checked = accuracy_checked
     check_performance(
-        perf_executor,
+        executor,
         enable_perf=(not varlen and normalize),
         warmup=warmup,
         active=active,

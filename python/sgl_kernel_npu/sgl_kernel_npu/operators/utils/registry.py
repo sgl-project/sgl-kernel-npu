@@ -1,6 +1,5 @@
 """Generation-aware registry: (operator name, impl name) -> callable."""
 
-from inspect import unwrap
 from threading import RLock
 
 from .generation import Generation, get_hardware
@@ -55,8 +54,6 @@ def register_operator(op_name):
 
 def get_op_name(operator):
     """Look up a registered public function; never infer names from paths."""
-    if operator not in _OPERATOR_NAMES:
-        operator = unwrap(operator)
     if operator not in _OPERATOR_NAMES:
         raise ValueError("Unregistered public operator: {!r}".format(operator))
     return _OPERATOR_NAMES[operator]

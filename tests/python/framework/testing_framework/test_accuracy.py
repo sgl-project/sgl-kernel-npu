@@ -177,26 +177,3 @@ def test_floating_tensor_requires_an_accuracy_standard(
 def test_unsupported_output_type_is_rejected(accuracy_tools, result):
     with pytest.raises(TypeError, match="unsupported output type"):
         accuracy_tools.assert_accuracy(result, result)
-
-
-def test_inplace_closure_compares_output_and_isolated_state(accuracy_case):
-    from functools import wraps
-
-    case = accuracy_case
-    case.add_impl("auto")
-    case.add_impl("torch_native")
-    original = case.x.clone()
-
-    @wraps(case.operator)
-    def isolated(*, impl="auto"):
-        state = case.x.clone()
-        output = case.operator(state, impl=impl)
-        state.add_(output)
-        return output, state
-
-    executor = case.check_accuracy(isolated)
-    assert executor.accuracy_checked
-    assert case.registry.get_op_name(executor.func) == case.op_name
-    assert (case.x == original).all().item()
-    assert len(case.calls) == 2
-    assert case.calls[0][1] is not case.calls[1][1]

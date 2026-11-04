@@ -1,14 +1,17 @@
 """Verify reordered pages, lengths, padding and caller-owned outputs."""
 
-from functools import wraps
-
 import pytest
 
 torch = pytest.importorskip("torch")
 
 
-from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import make_executor
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    require_distinct_impls,
+    require_test_impl,
+)
 from tests.python.utils.performance import check_performance
 
 
@@ -23,7 +26,6 @@ def test_fia_prep():
     pages = torch.arange(128, dtype=torch.int32).reshape(2, 64)
     args = (ti, lengths, requests, pages, 16)
 
-    @wraps(fia_prep)
     def isolated_prep(*, impl="auto"):
         table = torch.empty((3, 4), dtype=torch.int32)
         out_lengths = torch.empty((3,), dtype=torch.int32)
@@ -31,14 +33,21 @@ def test_fia_prep():
         assert actual[0] is table and actual[1] is out_lengths
         return actual
 
-    executor = check_accuracy(isolated_prep)
+    impl, impl_ref = get_test_impls()
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        require_distinct_impls(fia_prep, impl, impl_ref)
+        assert_accuracy(isolated_prep(impl=impl), isolated_prep(impl=impl_ref))
+    else:
+        require_test_impl(fia_prep, impl)
     table = torch.empty((3, 4), dtype=torch.int32)
     out_lengths = torch.empty((3,), dtype=torch.int32)
-    perf_executor = make_executor(
-        fia_prep,
-        args=(*args, table, out_lengths),
-        impl=executor.impl,
-        impl_ref=executor.impl_ref,
-        accuracy_checked=executor.accuracy_checked,
-    )
-    check_performance(perf_executor, enable_perf=True)
+
+    def executor():
+        return fia_prep(*args, table, out_lengths, impl=impl)
+
+    executor.func = fia_prep
+    executor.impl = impl
+    executor.impl_ref = impl_ref
+    executor.accuracy_checked = accuracy_checked
+    check_performance(executor, enable_perf=True)
