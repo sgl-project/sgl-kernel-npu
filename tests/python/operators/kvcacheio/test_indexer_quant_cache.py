@@ -30,7 +30,8 @@ def test_indexer_cache(tokens):
     # CANN 9.1 may not support generic FP8 initialization/copy/conversion.
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
-    kwargs = dict(quant_mode="fp8")
+    # Match the operator default: round FP8 scales up to a power of two.
+    kwargs = dict(quant_mode="fp8", round_scale=True)
     executor = make_executor(
         indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs
     )
