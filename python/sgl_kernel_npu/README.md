@@ -411,7 +411,8 @@ The `ops_transformer` profile bundles `lightning_indexer_v2`,
 `sparse_lightning_indexer`, and the AICPU `lightning_indexer_v2_metadata`
 dependency from commit `e7da18105f08b06e01ef0fff78f439098d483746`.
 The new interfaces target arch22 (A3); the existing arch35 Flash MLA selection
-is retained. Use the regular upstream operators, without `--experimental`.
+is retained. These indexers use the regular upstream build; the same profile
+also schedules CompressorV2 in a separate experimental build.
 
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
@@ -431,22 +432,21 @@ See the bilingual API documents for layout restrictions and the reference subset
 
 ### CANN 9.2.0 A3 experimental CompressorV2
 
-The `ops_transformer_experimental` profile bundles `compressor_v2` from
-`e7da18105f08b06e01ef0fff78f439098d483746`. It reuses the ops-transformer builder
-with `--experimental` and uses a separate vendor/Python package. Both profiles
-can be included in one wheel without replacing the regular indexer dependency.
+The `ops_transformer.json` profile also declares `compressor_v2` in
+`additional_builds`, inheriting the pinned repository, commit and license.
+It uses `--experimental` and a separate vendor/Python package. Selecting the
+single profile builds both regular indexers and experimental CompressorV2.
 
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 python setup.py --arch-version 2201 \
-  --third-party ops_transformer,ops_transformer_experimental -j 8
+  --third-party ops_transformer -j 8
 python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
 python -m pytest tests/python/operators/attention/test_compressor_v2.py \
   tests/python/operators/attention/test_lightning_indexer_v2.py \
   --skip-acc-check=false --enable-perf=false -v -s -x -rs
 ```
 
-For CompressorV2 alone, select `--third-party ops_transformer_experimental`.
 The wheel must include `_third_party/sgl_ops_transformer_experimental`, its
 complete vendor, LICENSE and manifest entry. No separately installed upstream
 package is needed; first use may JIT-compile the C++ binding. The operator mutates

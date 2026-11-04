@@ -201,7 +201,7 @@ class TestExperimentalProfile(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     public(x, w, w, cache.half(), state_block_table=blocks)
 
-    def test_two_profiles_stage_without_collisions(self):
+    def test_profile_builds_stage_without_collisions(self):
         sys.path.insert(0, str(ROOT / "python/sgl_kernel_npu"))
         try:
             from build_tools.third_party import get_adapter, resolve_plan
@@ -211,6 +211,16 @@ class TestExperimentalProfile(unittest.TestCase):
                 adapter, "detect_soc_version", return_value="ascend910_93"
             ):
                 plan = resolve_plan("9.2.0", "2201")
+                selected = resolve_plan(
+                    "9.2.0", "2201", third_party=("ops_transformer",)
+                )
+            self.assertEqual(plan, selected)
+            for item in plan:
+                self.assertNotIn("additional_builds", item)
+                self.assertEqual(
+                    item["repository"], "https://gitcode.com/cann/ops-transformer.git"
+                )
+                self.assertEqual(item["license"], "LICENSE")
             self.assertEqual(len(plan), 2)
             self.assertEqual(len({item["vendor_name"] for item in plan}), 2)
             experimental = next(p for p in plan if p["name"].endswith("experimental"))

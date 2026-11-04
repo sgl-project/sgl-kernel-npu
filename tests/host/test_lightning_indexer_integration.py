@@ -223,7 +223,7 @@ class TestIndexerPackaging(unittest.TestCase):
                 adapter, "detect_soc_version", return_value="ascend910_93"
             ):
                 plan = resolve_plan("9.2.0", "2201", third_party=("ops_transformer",))
-            (item,) = plan
+            item = next(p for p in plan if p["name"] == "sgl_ops_transformer")
             self.assertEqual(
                 set(item["ops"]),
                 {

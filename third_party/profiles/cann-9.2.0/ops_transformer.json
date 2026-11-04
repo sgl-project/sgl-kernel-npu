@@ -11,5 +11,19 @@
     ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
   ],
   "has_aicpu": true,
-  "license": "LICENSE"
+  "license": "LICENSE",
+  "additional_builds": [
+    {
+      "name": "sgl_ops_transformer_experimental",
+      "ops": {
+        "arch22": ["compressor_v2"],
+        "arch35": []
+      },
+      "commands": [
+        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+        ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
+      ],
+      "has_aicpu": false
+    }
+  ]
 }

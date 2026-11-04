@@ -2,10 +2,23 @@
 
 Target: CANN **9.2.0**, A3 (arch22, build argument `2201`). This integration does not enable an A5 backend.
 
+Upstream documentation: [sparse_lightning_indexer](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_lightning_indexer/README.md).
+
+## Hardware support
+
+| Implementation | arch22 | arch35 |
+| --- | --- | --- |
+| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
+| `torch_native` | Supported | Supported |
+
+## Signature
+
+`auto` and `cann_ops_transformers_cann920` select the same bundled backend, require CANN 9.2.0, and do not fall back.
+
 ```python
 from sgl_kernel_npu.operators.attention import sparse_lightning_indexer
 
-sparse_lightning_indexer(
+def sparse_lightning_indexer(
     q,
     k,
     w,
@@ -29,12 +42,15 @@ sparse_lightning_indexer(
     candidate_block_length=None,
     candidate_block_size=8,
     impl='auto'
-)
+):
+    ...
 ```
 
-`auto` and `cann_ops_transformers_cann920` select the same bundled backend, require CANN 9.2.0, and do not fall back.
+## Description
 
 For each query, compute `score[j] = sum_h w[h] * relu(dot(q[h], k[j,0]))` and select TopK by score. Mask 3 is right-aligned causal; compressed keys follow the upstream compressed position domain.
+
+## Parameters and return value
 
 | Parameter | dtype | Shape / constraint |
 | --- | --- | --- |
@@ -54,9 +70,15 @@ candidate_block_indices is required, contiguous int32, shaped `[B,Q,1,C]` or `[T
 
 Returns `(indices, values)`: int32 indices shaped `[B,Q,1,topk]` or `[Tq,1,topk]`; values are empty FP32 for return_value=0, otherwise the same shape as indices.
 
+## cann_ops_transformers_cann920 backend
+
+Build with the ops_transformer profile: vendor, bindings, AICPU resources and LICENSE ship in the wheel. First use may JIT-compile C++ bindings and requires matching CANN/Torch/torch_npu and a compiler. Separate first-use JIT from steady-state measurements. CPU checks do not establish NPU correctness.
+
+## torch_native backend
+
 Source and consumer must use the same block size and compatible KV position domains; candidate reuse is within one forward only. torch_native supports BSND/BSND, cmp_ratio=1, mask=0/3 and optional BSND Q/K lengths. Packed/paged/compressed KV are unsupported by the reference. It independently computes in FP32 without the tested binding; tie selection and slot order can differ.
 
-Minimal example (A3, after NPU initialization):
+## Example
 
 ```python
 import torch
@@ -73,6 +95,4 @@ indices, values = sparse_lightning_indexer(q, k, w, 16, blocks,
     candidate_block_length=length, candidate_block_size=8)
 ```
 
-Build with the ops_transformer profile: vendor, bindings, AICPU resources and LICENSE ship in the wheel. First use may JIT-compile C++ bindings and requires matching CANN/Torch/torch_npu and a compiler. Separate first-use JIT from steady-state measurements. CPU checks do not establish NPU correctness.
-
-[Pinned upstream contract](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_lightning_indexer/README.md). Upstream copyright: Huawei Technologies Co., Ltd.; CANN Open Software License Agreement Version 2.0.
+Upstream copyright: Huawei Technologies Co., Ltd.; CANN Open Software License Agreement Version 2.0.
