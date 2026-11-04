@@ -3,12 +3,18 @@
 #include <array>
 #include <c10/core/DeviceGuard.h>
 #include <limits>
+#include <stdexcept>
 #include <torch/library.h>
 
 namespace {
 void alloc_extend(at::Tensor pre_lens, at::Tensor seq_lens, at::Tensor last_loc, at::Tensor free_pages,
                   int64_t page_size, at::Tensor out_indices, at::Tensor values)
 {
+    if (pre_lens.options().dtype() != at::kLong || seq_lens.options().dtype() != at::kLong ||
+        last_loc.options().dtype() != at::kLong || free_pages.options().dtype() != at::kLong ||
+        out_indices.options().dtype() != at::kLong) {
+        throw std::invalid_argument("Only support int64 input dtype");
+    }
     const c10::DeviceGuard deviceGuard(pre_lens.device());
     static auto query = reinterpret_cast<decltype(&aclnnSglAllocExtendGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglAllocExtendGetWorkspaceSize"));

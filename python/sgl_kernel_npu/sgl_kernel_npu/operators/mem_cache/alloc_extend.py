@@ -65,11 +65,6 @@ def alloc_extend(
     Returns:
         None. Writes out_indices and conditionally values[0] in place.
     """
-    if any(
-        t.dtype != torch.int64
-        for t in (pre_lens, seq_lens, last_loc, free_pages, out_indices)
-    ):
-        raise ValueError("Only support int64 input dtype")
     return get_impl_by_name("mem_cache.alloc_extend", impl)(
         pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values
     )

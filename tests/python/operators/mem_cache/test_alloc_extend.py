@@ -259,3 +259,26 @@ def test_alloc_extend(prefix, sequence, last, free_stop, page_size):
     check_performance(
         executor, enable_perf=(len(prefix), max(sequence), page_size) in perf_shape
     )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "argument",
+    [0, 1, 2, 3, 5],
+    ids=["pre_lens", "seq_lens", "last_loc", "free_pages", "out_indices"],
+)
+def test_alloc_extend_dtype_rejected(argument):
+    from sgl_kernel_npu.operators.mem_cache import alloc_extend
+
+    inputs = list(generate_data([0], [7], [-1], 100, 128))
+    inputs[argument] = inputs[argument].to(torch.int32)
+    impl = get_test_impls()[0]
+    with pytest.raises(
+        (ValueError, RuntimeError), match="Only support int64 input dtype"
+    ):
+        alloc_extend(*inputs, impl=impl)
+    if impl in ("ascendc", "auto"):
+        with pytest.raises(
+            (ValueError, RuntimeError), match="Only support int64 input dtype"
+        ):
+            torch.ops.npu.alloc_extend(*inputs)

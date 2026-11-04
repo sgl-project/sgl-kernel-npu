@@ -1,5 +1,3 @@
-import math
-
 import torch
 
 from ..utils.generation import Generation
@@ -85,20 +83,6 @@ def swiglu_group_quant(
         dtype and shape [..., C], and is defined only for processed rows in mode 3
         with output_origin=True. Outputs use x's device. Inputs are not modified.
     """
-    if x.ndim < 1 or not x.is_contiguous():
-        raise RuntimeError("x must be contiguous with at least one dimension")
-    if x.dtype not in (torch.float16, torch.bfloat16):
-        raise RuntimeError("x should be FLOAT16 or BFLOAT16")
-    if quant_mode not in (1, 2, 3):
-        raise RuntimeError("Unsupported quant mode")
-    dst_type = torch.float8_e4m3fn if dst_type is None else dst_type
-    if dst_type not in (torch.float8_e4m3fn, torch.float8_e5m2):
-        raise RuntimeError("dst_type must be Float8_e4m3fn or Float8_e5m2")
-    alignment = 128 if quant_mode == 2 else 256
-    if x.size(-1) % alignment:
-        raise RuntimeError(f"last dimension must be divisible by {alignment}")
-    if math.prod(x.shape[:-1]) != 0 and group_list_type != 0:
-        raise RuntimeError("swiglu_group_quant: tiling failed for group_list_type")
     return get_impl_by_name("activation.swiglu_group_quant", impl)(
         x=x,
         topk_weight=topk_weight,

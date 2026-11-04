@@ -19,6 +19,11 @@ import torch
 def alloc_extend(
     pre_lens, seq_lens, last_loc, free_pages, page_size, out_indices, values
 ):
+    if any(
+        t.dtype != torch.int64
+        for t in (pre_lens, seq_lens, last_loc, free_pages, out_indices)
+    ):
+        raise ValueError("Only support int64 input dtype")
     extend_lens = seq_lens - pre_lens
     end_pos = torch.cumsum(extend_lens, 0)
     start_pos = end_pos - extend_lens

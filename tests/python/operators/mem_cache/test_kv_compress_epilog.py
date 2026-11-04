@@ -328,9 +328,13 @@ def test_kv_compress_epilog(
 def test_fp8_layout2_rejected():
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
+    require_test_impl(kv_compress_epilog, get_test_impls()[0])
     args = generate_data(1, 1, 192, 0, 1, False, 2, True, False, False, 0, "normal")
     with pytest.raises(RuntimeError, match="layout=2 only supports MXFP8"):
         kv_compress_epilog(*args, impl=get_test_impls()[0])
+    if get_test_impls()[0] in ("ascendc", "auto"):
+        with pytest.raises(RuntimeError, match="layout=2 only supports MXFP8"):
+            torch.ops.npu.kv_compress_epilog(*args)
 
 
 @pytest.mark.extra_checks
@@ -382,3 +386,39 @@ def test_ascendc_graph_replay_with_distinct_tilings():
                 assert_accuracy(actual_bytes[keep], expected_bytes[keep])
             else:
                 assert_accuracy(actual_bytes, expected_bytes)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "case,message",
+    [
+        ("x-dtype", "x must be BF16"),
+        ("slot-dtype", "slot_mapping must be INT32 or INT64"),
+        ("cache-dtype", "kv_compress_cache must be FP8"),
+        ("headnum", "headnum"),
+        ("stride", "block_stride"),
+    ],
+)
+def test_kv_inputs_rejected(case, message):
+    from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
+
+    require_test_impl(kv_compress_epilog, get_test_impls()[0])
+    args = list(
+        generate_data(1, 1, 192, 128, 1, False, 1, True, False, False, 0, "normal")
+    )
+    if case == "x-dtype":
+        args[1] = args[1].to(torch.float32)
+    elif case == "slot-dtype":
+        args[2] = args[2].to(torch.float32)
+    elif case == "cache-dtype":
+        args[0] = args[0].to(torch.float32)
+    elif case == "headnum":
+        args[0] = args[0].unsqueeze(1).unsqueeze(1).expand(-1, 1, 2, -1)
+    else:
+        args[0] = torch.empty((1, 128), dtype=args[0].dtype, device=args[0].device)
+    impl = get_test_impls()[0]
+    with pytest.raises(RuntimeError, match=message):
+        kv_compress_epilog(*args, impl=impl)
+    if impl in ("ascendc", "auto"):
+        with pytest.raises(RuntimeError, match=message):
+            torch.ops.npu.kv_compress_epilog(*args)
