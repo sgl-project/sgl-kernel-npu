@@ -2,6 +2,8 @@
 
 | API | Supported backends |
 | --- | --- |
+| [zerc_moe](operators/moe/zerc_moe.md) | `ascendc` (unverified) |
+| [create_zerc_moe_buffer](operators/moe/zerc_moe.md) | `ascendc` (unverified) |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`, `torch_native` |
