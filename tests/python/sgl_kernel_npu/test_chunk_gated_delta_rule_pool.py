@@ -147,13 +147,8 @@ def test_fresh_padding_and_unselected_slots():
     actual_out = _pool_call(pool, inputs, src_slots, dst_slots, has_initial, actual_h)
     torch.npu.synchronize()
 
-    live_tokens = list(range(5)) + list(range(12, sum([5, 0, 7, 65])))
-    torch.testing.assert_close(
-        actual_out[live_tokens], expected_out[live_tokens], rtol=0, atol=0
-    )
-    torch.testing.assert_close(
-        actual_h[[0, 2, 3]], expected_h[[0, 2, 3]], rtol=0, atol=0
-    )
+    torch.testing.assert_close(actual_out, expected_out, rtol=0, atol=0)
+    torch.testing.assert_close(actual_h, expected_h, rtol=0, atol=0)
     selected = torch.tensor([17, 23, 29], device="npu:0")
     expected = expected_final[[0, 2, 3]]
     torch.testing.assert_close(pool[selected], expected, rtol=0, atol=0)
