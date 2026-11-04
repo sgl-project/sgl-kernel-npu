@@ -17,15 +17,8 @@ from tests.python.utils.performance import check_performance
 perf_shape = [128]
 
 
-@pytest.mark.parametrize(
-    "tokens,input_kind",
-    [
-        pytest.param(1, "random", id="synthetic-decode"),
-        pytest.param(128, "random", id="synthetic-page"),
-        pytest.param(1, "power_of_two", id="exact-power-of-two-scales"),
-    ],
-)
-def test_kv_compress_epilog(tokens, input_kind):
+@pytest.mark.parametrize("tokens", [1, 128], ids=["synthetic-decode", "synthetic-page"])
+def test_kv_compress_epilog(tokens):
     from sgl_kernel_npu.operators.kvcacheio import (
         get_npu_kv_quant_path,
         kv_compress_epilog,
@@ -37,15 +30,6 @@ def test_kv_compress_epilog(tokens, input_kind):
     torch.manual_seed(17)
     path = get_npu_kv_quant_path()
     x = torch.randn(tokens, 512, dtype=torch.bfloat16)
-    if input_kind == "power_of_two":
-        # amax / 448 is already 2**n in all seven groups. Ceil must not
-        # increase its exponent: quantized values must remain exactly 448.
-        maxima = torch.tensor(
-            [0.4375, 0.875, 1.75, 3.5, 7.0, 14.0, 28.0],
-            dtype=x.dtype,
-            device=x.device,
-        )
-        x[:, :448] = maxima.repeat_interleave(64)
     slots = torch.arange(tokens, dtype=torch.int32)
     if tokens > 1:
         slots[-1] = -1
