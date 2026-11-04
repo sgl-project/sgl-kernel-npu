@@ -18,12 +18,6 @@ from tests.python.utils.common import make_executor
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-BLOCK = 128  # M3 sparse_block_size
-HEAD_DIM = 128  # M3 head_dim
-Q_HEADS = 8  # M3 num_q_heads per TP=16 rank
-KV_HEADS = 1
-TOPK = 17  # 16 scored + 1 local block
-
 # Shapes selected for performance collection.
 PERF_SEQUENCES = [(16384,), (16384,) * 16, (131072,)]
 
@@ -58,11 +52,11 @@ CASES = [
 def build_inputs(
     *,
     seq_lens=(16384,),
-    q_heads=Q_HEADS,
-    kv_heads=KV_HEADS,
-    head_dim=HEAD_DIM,
-    block_size=BLOCK,
-    topk=TOPK,
+    q_heads=8,  # M3 num_q_heads per TP=16 rank
+    kv_heads=1,
+    head_dim=128,  # M3 head_dim
+    block_size=128,  # M3 sparse_block_size
+    topk=17,  # 16 scored + 1 local block
     dtype=torch.bfloat16,
     page="direct",
     sink=False,
@@ -147,12 +141,13 @@ def run_case(*, perf=False, impl=None, impl_ref=None, **params):
 def uniform_kv_inputs(*, seq_len=4096, batch=2):
     """K and V are constant, so any non-empty row must return exactly V."""
     kwargs = build_inputs(seq_lens=(seq_len,) * batch, seed=7)
-    k0 = torch.randn(HEAD_DIM, dtype=torch.bfloat16)
-    v0 = torch.randn(HEAD_DIM, dtype=torch.bfloat16)
-    shape = (kwargs["max_num_blocks"], BLOCK, KV_HEADS, HEAD_DIM)
+    q = kwargs["q"]
+    k0 = torch.randn(q.shape[-1], dtype=q.dtype)
+    v0 = torch.randn(q.shape[-1], dtype=q.dtype)
+    shape = kwargs["k_cache_bnsd"].shape
     kwargs["k_cache_bnsd"] = k0.view(1, 1, 1, -1).expand(shape).contiguous()
     kwargs["v_cache_bnsd"] = v0.view(1, 1, 1, -1).expand(shape).contiguous()
-    return kwargs, kwargs["q"], v0
+    return kwargs, q, v0
 
 
 @pytest.mark.parametrize("params", CASES)
