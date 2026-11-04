@@ -2,10 +2,12 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | arch22 (A3) | arch35 (950DT) |
 | --- | --- | --- |
-| cann_ops_transformer | Unverified | Unverified |
-| torch_native | Unverified on NPU | Unverified on NPU |
+| cann_ops_transformer | Verified | Verified |
+| torch_native | Verified on NPU | Verified on NPU |
+
+Accuracy validated on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582) with CANN 9.1: all 24 independent Torch-reference cases passed on each device, covering FP16/BF16 activations and FP32 parameters. These are operator accuracy checks; performance and full-model inference were not evaluated in these runs.
 
 ## Signature
 
@@ -46,7 +48,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_pre_sinkhorn` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No architecture whitelist is imposed; this does not establish hardware support or completed NPU validation.
+Requires CANN 9.1's `cann_ops_transformer.ops.mhc_pre_sinkhorn` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes the singleton sequence dimension of each output. Output dtypes are preserved; any activation conversion belongs to the SGLang caller, matching GitCode glmx PR #21.
 
@@ -54,11 +56,11 @@ The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes
 
 Row softmax + hc_eps; divide by column sum + hc_eps; repeat (row sum + hc_eps, column sum + hc_eps) num_iters-1 times. hin = sum_i (sigmoid(pre_i)+hc_eps)*x_i.
 
-FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback. Accuracy thresholds and performance remain subject to NPU acceptance.
+FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback.
 
-CANN uses HF32 projection. On Ascend910_9362 with CANN 9.1, the FP32 post/comb comparison uses atol=5e-5 and rtol=5e-5, calibrated over nine seeds, FP16/BF16 inputs, both eps cases and the five nonzero random-data shapes. FP16 activation comparisons use atol=1e-5, rtol=2e-3; BF16 uses atol=1e-5, rtol=1e-2, avoiding the shared absolute tolerance of 0.05 masking errors in small activations. This calibration does not establish acceptance on other hardware.
+CANN uses HF32 projection. On Ascend910_9362 with CANN 9.1, the FP32 post/comb comparison uses atol=5e-5 and rtol=5e-5, calibrated over nine seeds, FP16/BF16 inputs, both eps cases and the five nonzero random-data shapes. FP16 activation comparisons use atol=1e-5, rtol=2e-3; BF16 uses atol=1e-5, rtol=1e-2, avoiding the shared absolute tolerance of 0.05 masking errors in small activations. The same thresholds passed on both tested devices.
 
-Tests separately compare the facade with PR #21's direct CANN calls and the pre/post chain using bitwise equality. These migration tests share the vendor backend and are not independent mathematical references; the Torch accuracy tests remain separate. Inputs are synthetic with borrowed model-config dimensions, not captured activations or checkpoint weights, and passing them does not establish full-model accuracy.
+Inputs are synthetic with borrowed model-config dimensions, not captured activations or checkpoint weights, and passing them does not establish full-model accuracy.
 
 ## Example
 

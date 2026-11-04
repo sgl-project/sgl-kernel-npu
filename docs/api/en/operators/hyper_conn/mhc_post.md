@@ -2,10 +2,12 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | arch22 (A3) | arch35 (950DT) |
 | --- | --- | --- |
-| cann_ops_transformer | Unverified | Unverified |
-| torch_native | Unverified on NPU | Unverified on NPU |
+| cann_ops_transformer | Verified | Verified |
+| torch_native | Verified on NPU | Verified on NPU |
+
+Accuracy validated on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582) with CANN 9.1: all 16 independent Torch-reference cases passed on each device, covering FP16/BF16 activations and FP32 parameters. These are operator accuracy checks; performance and full-model inference were not evaluated in these runs.
 
 ## Signature
 
@@ -40,7 +42,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No architecture whitelist is imposed; this does not establish hardware support or completed NPU validation.
+Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 Argument order matches the vendor API: residual streams, residual matrix, layer output, post gates.
 
@@ -48,9 +50,9 @@ Argument order matches the vendor API: residual streams, residual matrix, layer 
 
 Independent torch.bmm residual mapping plus post gating; no vendor calls.
 
-FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback. Accuracy thresholds and performance remain subject to NPU acceptance.
+FP32 intermediates, output activation cast to input dtype. An independent correctness baseline, not an automatic fallback.
 
-Tests separately compare the facade with PR #21's direct CANN calls and the pre/post chain using bitwise equality. These migration tests share the vendor backend and are not independent mathematical references; the Torch accuracy tests remain separate. Inputs are synthetic with borrowed model-config dimensions, not captured activations or checkpoint weights, and passing them does not establish full-model accuracy.
+Inputs are synthetic with borrowed model-config dimensions, not captured activations or checkpoint weights, and passing them does not establish full-model accuracy.
 
 ## Example
 

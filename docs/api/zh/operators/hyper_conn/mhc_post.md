@@ -2,10 +2,12 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | arch22（A3） | arch35（950DT） |
 | --- | --- | --- |
-| cann_ops_transformer | 待硬件验证 | 待硬件验证 |
-| torch_native | 待硬件验证 | 待硬件验证 |
+| cann_ops_transformer | 已验证 | 已验证 |
+| torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
+
+已在 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 环境验证：每台设备的 16 项独立 Torch 参考精度用例全部通过，覆盖 FP16/BF16 激活与 FP32 参数。本次仅验证单算子精度，未评测性能或整网推理。
 
 ## 函数原型
 
@@ -40,7 +42,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单，但不代表已经确认硬件支持或完成 NPU 验证。
+依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
 
 参数顺序与 vendor API 一致：残差流、残差矩阵、层输出、post 门值。
 
@@ -48,9 +50,9 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 使用独立的 torch.bmm 残差映射和 post 门值相加，不调用 vendor 算子。
 
-FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退；精度阈值与性能待 NPU 验收。
+FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退。
 
-测试单独对比适配层与 PR #21 的直接 CANN 调用及 pre/post 串联，要求逐位一致。这些迁移测试共用 vendor 后端，不是独立数学参考，Torch 精度测试仍单独保留。输入使用借用模型配置尺寸的构造数据，不是捕获激活或 checkpoint 权重；通过不能视为整网精度验收。
+输入使用借用模型配置尺寸的构造数据，不是捕获激活或 checkpoint 权重；通过不能视为整网精度验收。
 
 ## 调用示例
 

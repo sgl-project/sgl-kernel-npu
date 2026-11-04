@@ -2,10 +2,12 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | arch22（A3） | arch35（950DT） |
 | --- | --- | --- |
-| cann_ops_transformer | 待硬件验证 | 待硬件验证 |
-| torch_native | 待硬件验证 | 待硬件验证 |
+| cann_ops_transformer | 已验证 | 已验证 |
+| torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
+
+已在 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 环境验证：每台设备的 24 项独立 Torch 参考精度用例全部通过，覆盖 FP16/BF16 激活与 FP32 参数。本次仅验证单算子精度，未评测性能或整网推理。
 
 ## 函数原型
 
@@ -46,7 +48,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单，但不代表已经确认硬件支持或完成 NPU 验证。
+依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
 
 适配层将 [T,N,D] 扩为 [T,1,N,D] 的 BSND 布局，返回时去掉序列维。保留 vendor 输出类型，激活类型转换留给 SGLang 调用方，与 GitCode glmx PR #21 一致。
 
@@ -54,11 +56,11 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 
 残差投影按行 softmax 后加 hc_eps，再除以列和加 hc_eps；随后交替除以行和加 hc_eps、列和加 hc_eps，共 num_iters-1 轮。hin = sum_i (sigmoid(pre_i)+hc_eps)*x_i。
 
-FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退；精度阈值与性能待 NPU 验收。
+FP32 中间计算，激活输出转为输入类型。独立精度基准，不作为自动回退。
 
-CANN 使用 HF32 投影。在 Ascend910_9362、CANN 9.1 环境下，FP32 post/comb 的比较容差为 atol=5e-5、rtol=5e-5，基于九个随机种子、FP16/BF16 输入、两组 eps 和五组非空随机输入 shape 校准。FP16 激活使用 atol=1e-5、rtol=2e-3，BF16 使用 atol=1e-5、rtol=1e-2，避免共享绝对容差 0.05 掩盖小幅激活上的错误；该校准不代表其他硬件已经通过验收。
+CANN 使用 HF32 投影。在 Ascend910_9362、CANN 9.1 环境下，FP32 post/comb 的比较容差为 atol=5e-5、rtol=5e-5，基于九个随机种子、FP16/BF16 输入、两组 eps 和五组非空随机输入 shape 校准。FP16 激活使用 atol=1e-5、rtol=2e-3，BF16 使用 atol=1e-5、rtol=1e-2，避免共享绝对容差 0.05 掩盖小幅激活上的错误；相同阈值已在上述两台设备通过验证。
 
-测试单独对比适配层与 PR #21 的直接 CANN 调用及 pre/post 串联，要求逐位一致。这些迁移测试共用 vendor 后端，不是独立数学参考，Torch 精度测试仍单独保留。输入使用借用模型配置尺寸的构造数据，不是捕获激活或 checkpoint 权重；通过不能视为整网精度验收。
+输入使用借用模型配置尺寸的构造数据，不是捕获激活或 checkpoint 权重；通过不能视为整网精度验收。
 
 ## 调用示例
 
