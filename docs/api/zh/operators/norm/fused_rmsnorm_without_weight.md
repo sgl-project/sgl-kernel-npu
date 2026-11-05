@@ -51,9 +51,9 @@ $$
 ## triton 后端
 
 - 使用 CANN Triton kernel，把 `B*L` 个 token 展平后按行归约，仅支持非量化输出。
-- 以 `num_tokens` 为 key 在 `block_l ∈ {64, 32, 16, 8, 4, 2}` 上自动调优，grid 为 vector core 数。
+- 以 `num_tokens` 和 `C` 为 key 在 `block_l ∈ {64, 32, 16, 8, 4, 2, 1}` 上自动调优，grid 为 vector core 数。候选块最多包含 `max(8192, C)` 个元素，以控制 FP32 中间结果的存储量。
 - 归约维度直接使用 `tl.arange(0, C)`，因此要求 `C` 为 2 的幂；要求连续三维输入。
-- kernel 内 `x*x` 沿用输入 dtype，归约精度可能低于 float32 参考（bf16 归约通常由 Triton 提升到 float32），fp16 输出的数值差异会更明显。
+- 输入在平方前转为 float32，均方归约和归一化均使用 float32，结果再转回输入 dtype。
 
 ## torch_native 后端
 
