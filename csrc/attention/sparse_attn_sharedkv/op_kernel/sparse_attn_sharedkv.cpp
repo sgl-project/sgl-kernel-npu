@@ -45,7 +45,11 @@ extern "C" __global__ __aicore__ void sgl_sparse_attn_sharedkv(
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     TPipe pipe;
-    auto tilingData = reinterpret_cast<const __gm__ optiling::SparseAttnSharedkvTilingData *>(tiling);
+    // Register the tiling struct so the framework records its size, then read
+    // it through the standard macro. The arch32 kernels keep reading the same
+    // fields from the tiling GM buffer, so the computation is unchanged.
+    REGISTER_TILING_DEFAULT(optiling::SparseAttnSharedkvTilingData);
+    GET_TILING_DATA(tilingData, tiling);
     __gm__ uint8_t *userWorkspace = workspace;
     if (workspace != nullptr) {
         userWorkspace = GetUserWorkspace(workspace);
@@ -57,7 +61,7 @@ extern "C" __global__ __aicore__ void sgl_sparse_attn_sharedkv(
                                                    cuSeqlensCmpKv, seqUsedQ, seqUsedKV, sinks, metadata, attentionOut, \
                                                    softmaxLse, userWorkspace, tiling, &pipe)
 
-    switch (tilingData->dispatchKey) {
+    switch (tilingData.dispatchKey) {
         case 0x00000200:
             SAS_LAUNCH(half, SAS_LAYOUT::BSND, SWA_TEMPLATE);
             break;

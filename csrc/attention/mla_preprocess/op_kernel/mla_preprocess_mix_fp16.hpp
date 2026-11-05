@@ -10,13 +10,13 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 //
 
-#include "kernel/common.h"
-#include "kernel/iterator.h"
-#include "kernel/mem.h"
-#include "kernel/mma.h"
-#include "kernel/utils.h"
-#include "kernel/simd.h"
-#include "kernel/kernel_utils.h"
+#include "device_prims/common.h"
+#include "device_prims/iterator.h"
+#include "device_prims/mem.h"
+#include "device_prims/mma.h"
+#include "device_prims/utils.h"
+#include "device_prims/simd.h"
+#include "device_prims/kernel_utils.h"
 
 #include "lib/matmul_intf.h"
 

@@ -104,7 +104,7 @@ TND, `N1`/`N2` the query/KV head counts, and `D` the head dimension.
 Usage notes:
 
 - All tensors must be on the same NPU; the current native implementation
-  requires `N1 = 64`.
+  requires `N1 = 64` and `N2 = 1` (a single KV head).
 - `ori_kv`, `sinks` and `metadata` are required; `ori_block_table` and
   `seqused_kv` are required for `PA_ND`.
 - `torch_native` implements SWA with `PA_ND` only; compressed-KV templates are

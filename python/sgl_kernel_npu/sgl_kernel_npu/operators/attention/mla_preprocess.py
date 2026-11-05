@@ -44,7 +44,7 @@ def _ascendc_impl(
     q_out1,
     kv_cache_out1,
 ):
-    return torch.ops.npu.sgl_mla_preprocess(
+    return torch.ops.npu.mla_preprocess(
         hidden_state,
         gamma0,
         beta0,

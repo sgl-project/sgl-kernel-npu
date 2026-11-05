@@ -39,7 +39,7 @@ def _ascendc_impl(
     layout_kv="PA_ND",
     return_softmax_lse=False,
 ):
-    return torch.ops.npu.sgl_sparse_attn_sharedkv(
+    return torch.ops.npu.sparse_attn_sharedkv(
         q,
         ori_kv=ori_kv,
         cmp_kv=cmp_kv,

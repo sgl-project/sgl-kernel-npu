@@ -2,7 +2,8 @@
 
 The first cases reproduce the legacy test_sparse_attn_sharedkv coverage
 (BSND query, paged KV, SWA). Additional cases cover unaligned sequence lengths,
-sliding windows, multiple batches, GQA KV heads and the TND query layout.
+sliding windows, multiple batches and the TND query layout. The native kernel
+requires a single KV head (``N2 == 1``), so grouped KV heads are not exercised.
 """
 
 import math
@@ -49,7 +50,6 @@ def generate_data(
     q_len=1,
     kv_len=640,
     heads=64,
-    kv_heads=1,
     head_dim=512,
     block_size=128,
     win_left=None,
@@ -58,6 +58,8 @@ def generate_data(
     """Create paged KV, a nonconsecutive block table and the metadata fixture."""
     generator = torch.Generator(device="cpu").manual_seed(20260812)
     device = "npu"
+    # The native kernel requires a single KV head.
+    kv_heads = 1
 
     def randn(shape, scale=1.0, offset=0.0):
         value = torch.randn(shape, generator=generator, device="cpu") * scale + offset
@@ -82,7 +84,9 @@ def generate_data(
     block_table = (
         torch.stack(
             [
-                torch.randperm(physical_blocks, generator=generator)[:blocks]
+                torch.randperm(physical_blocks, generator=generator, device="cpu")[
+                    :blocks
+                ]
                 for _ in range(batch)
             ]
         )
@@ -135,18 +139,18 @@ def test_sparse_attn_sharedkv_swa_bsnd(dtype, kv_len, q_len, window):
 
 
 @pytest.mark.parametrize(
-    "batch,kv_heads,layout_q",
+    "batch,layout_q",
     [
-        (2, 1, "BSND"),
-        (1, 2, "BSND"),
-        (2, 2, "TND"),
-        (1, 1, "TND"),
+        (2, "BSND"),
+        (4, "BSND"),
+        (2, "TND"),
+        (4, "TND"),
     ],
-    ids=["b2-bsnd", "gqa2-bsnd", "b2-gqa2-tnd", "tnd"],
+    ids=["b2-bsnd", "b4-bsnd", "b2-tnd", "b4-tnd"],
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
-def test_sparse_attn_sharedkv_layouts(dtype, batch, kv_heads, layout_q):
-    """Multiple batches, grouped KV heads and the TND query layout."""
+def test_sparse_attn_sharedkv_layouts(dtype, batch, layout_q):
+    """Multiple batches and the TND query layout."""
     from sgl_kernel_npu.operators.attention import sparse_attn_sharedkv
 
     data = generate_data(
@@ -155,7 +159,6 @@ def test_sparse_attn_sharedkv_layouts(dtype, batch, kv_heads, layout_q):
         batch=batch,
         q_len=2,
         kv_len=384,
-        kv_heads=kv_heads,
     )
     executor = check_accuracy(sparse_attn_sharedkv, kwargs=data, standard=_STANDARD)
     check_performance(executor, enable_perf=False)

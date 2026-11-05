@@ -169,15 +169,17 @@ std::tuple<at::Tensor, at::Tensor> sgl_sparse_attn_sharedkv(
         sgl_cann::op_api_symbol("aclnnSglSparseAttnSharedkvGetWorkspaceSize"));
     static auto execute =
         reinterpret_cast<decltype(&aclnnSglSparseAttnSharedkv)>(sgl_cann::op_api_symbol("aclnnSglSparseAttnSharedkv"));
-    const std::string layoutQString(layout_q);
-    const std::string layoutKvString(layout_kv);
+    // The generated ACLNN interface exposes string attributes as mutable
+    // char*, so keep writable copies of the exact layout names.
+    std::string layoutQString(layout_q);
+    std::string layoutKvString(layout_kv);
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
     const auto status = query(qDesc.get(), oriKvDesc.get(), cmpKvDesc.get(), oriSparseDesc.get(), cmpSparseDesc.get(),
                               oriBlockDesc.get(), cmpBlockDesc.get(), cuQDesc.get(), cuOriKvDesc.get(),
                               cuCmpKvDesc.get(), seqQDesc.get(), seqKvDesc.get(), sinksDesc.get(), metadataDesc.get(),
                               static_cast<float>(softmax_scale), cmp_ratio, ori_mask_mode, cmp_mask_mode, oriKvStride,
-                              cmpKvStride, ori_win_left, ori_win_right, layoutQString.c_str(), layoutKvString.c_str(),
+                              cmpKvStride, ori_win_left, ori_win_right, layoutQString.data(), layoutKvString.data(),
                               return_softmax_lse, outDesc.get(), lseDesc.get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "sparse_attn_sharedkv workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
@@ -216,7 +218,7 @@ std::tuple<at::Tensor, at::Tensor> sgl_sparse_attn_sharedkv(
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sgl_sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
+        "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
         "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
         "Tensor? ori_block_table=None, Tensor? cmp_block_table=None, "
         "Tensor? cu_seqlens_q=None, Tensor? cu_seqlens_ori_kv=None, "
@@ -228,5 +230,5 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sgl_sparse_attn_sharedkv", &sgl_sparse_attn_sharedkv);
+    m.impl("sparse_attn_sharedkv", &sgl_sparse_attn_sharedkv);
 }

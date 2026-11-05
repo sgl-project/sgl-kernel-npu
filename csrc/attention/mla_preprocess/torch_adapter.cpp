@@ -138,11 +138,6 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> sgl_mla_prepr
         TORCH_CHECK(kv_cache_out0.scalar_type() == hidden_state.scalar_type(),
                     "kv_cache_out0 dtype must match hidden_state");
     }
-    if (cacheMode >= 2) {
-        TORCH_CHECK(kv_cache.size(1) == 128 && kv_cache_rope.size(1) == 128,
-                    "cache_mode=2 and 3 require blockSize = 128");
-    }
-
     const c10::DeviceGuard deviceGuard(hidden_state.device());
 
     // Optional scales are unused outside cache_mode=2 and may be omitted.
@@ -232,7 +227,7 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> sgl_mla_prepr
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sgl_mla_preprocess(Tensor hidden_state, Tensor gamma0, Tensor beta0, Tensor wdqkv, Tensor descale0, "
+        "mla_preprocess(Tensor hidden_state, Tensor gamma0, Tensor beta0, Tensor wdqkv, Tensor descale0, "
         "Tensor gamma1, Tensor beta1, Tensor wuq, Tensor descale1, Tensor gamma2, Tensor cos, Tensor sin, "
         "Tensor wuk, Tensor kv_cache, Tensor kv_cache_rope, Tensor slotmapping, Tensor quant_scale0, "
         "Tensor quant_offset0, Tensor bias0, Tensor quant_scale1, Tensor quant_offset1, Tensor bias1, "
@@ -242,5 +237,5 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sgl_mla_preprocess", &sgl_mla_preprocess);
+    m.impl("mla_preprocess", &sgl_mla_preprocess);
 }

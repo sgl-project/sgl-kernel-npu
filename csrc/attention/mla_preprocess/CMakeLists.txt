@@ -1,5 +1,6 @@
 # MLA preprocess migrated to the independent CANN operator framework.
-# The legacy sources under csrc/mla_preprocess remain unchanged.
+# The legacy sources under csrc/mla_preprocess remain unchanged. The shared
+# device primitives live in csrc/utils/kernel/device_prims.
 sgl_register_operator(
     ID mla_preprocess
     EXECUTION_UNIT AICORE
@@ -10,5 +11,5 @@ sgl_register_operator(
     INFER_SOURCES op_host/mla_preprocess_infer.cpp
     TILING_SOURCES op_host/mla_preprocess_tiling.cpp
     KERNEL_SOURCES op_kernel/mla_preprocess.cpp
-    KERNEL_INCLUDE_DIRECTORIES op_kernel
+    KERNEL_INCLUDE_DIRECTORIES op_kernel ../../utils/kernel
 )

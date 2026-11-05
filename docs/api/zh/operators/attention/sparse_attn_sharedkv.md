@@ -102,7 +102,7 @@ attn_out[b, s, h] = softmax(logits)[1:] @ k[left:right+1]
 
 使用时请注意：
 
-- 所有张量必须位于同一 NPU；当前原生实现要求 `N1 = 64`。
+- 所有张量必须位于同一 NPU；当前原生实现要求 `N1 = 64` 且 `N2 = 1`（仅支持单个 KV 头）。
 - `ori_kv`、`sinks`、`metadata` 必填；`ori_block_table` 与 `seqused_kv` 在
   `PA_ND` 下必填。
 - `torch_native` 仅实现 SWA + `PA_ND`，不实现压缩 KV 模板。
