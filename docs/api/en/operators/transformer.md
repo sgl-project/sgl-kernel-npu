@@ -68,13 +68,19 @@ this is distinct from the experimental AICPU metadata kernels.
 
 ## Binding loading and CANN 9.2
 
-The 9.2 name `cann_ops_transformer_cann920` is a registry key. The actual Python
-package and Torch namespace remain `cann_ops_transformer`. MoE keeps the native
+The 9.2 name `cann_ops_transformer_cann920` is a registry key. The Torch
+namespace remains `cann_ops_transformer`; its Python binding is loaded from the
+bundled `sgl_kernel_npu._third_party.sgl_ops_transformer` package. MoE keeps the native
 `torch.ops.npu.npu_moe_gating_top_k` binding, and compressor keeps the existing
 `torch.ops.npu.compressor` fused RMSNorm/RoPE contract. The latter remains the
 checked-in kernel, not the released core-only compressor.
 
-For 9.1, `import custom_ops` registers custom bindings, while checked-in kernels
-are registered by `sgl_kernel_npu`. An optional standalone registration library
-can be supplied through `SGL_KERNEL_NPU_CANN_9_1_OPS_SO`. Runtime SDK detection,
-operator package loading, and source provenance are separate concerns.
+For 9.1, the bundled `sgl_kernel_npu._third_party.sgl_cann_recipes_infer`
+extension registers selected recipes bridges in the private
+`torch.ops.sgl_cann_recipes_infer` namespace. The old experimental ACLNN kernels
+are built from the pinned ops-transformer source and bundled as a separate vendor;
+checked-in kernels remain registered by `sgl_kernel_npu`. The existing public
+mHC APIs also use a separately bundled released ops-transformer binding. Neither
+SDK path requires an environment-installed `custom_ops` or
+`cann_ops_transformer` Python package. The wheel still requires the matching CANN
+SDK and torch_npu at runtime.
