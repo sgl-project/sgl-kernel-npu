@@ -214,6 +214,7 @@ if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP"
     TESTS+=(
         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
+        "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_hc_post.py"
     )
 fi
 

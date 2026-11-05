@@ -16,6 +16,7 @@ on:
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
       - ".github/workflows/pr-test-kernels.yml"
+      - "third_party/cann_recipes_infer/build.py"
   workflow_dispatch:
 
 concurrency:
@@ -167,6 +168,7 @@ jobs:
               - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules
+              - third_party/cann_recipes_infer/build.py
 
   # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
   # Adding 9.1.0 to each job's matrix doubles the parallelism to 14 combos.
