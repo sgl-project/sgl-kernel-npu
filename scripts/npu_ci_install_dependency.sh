@@ -22,13 +22,20 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 --cann-version <9.1.0|9.2.0>"
+            echo "Usage: $0 --cann-version <9.0.0|9.1.0|9.2.0>"
             exit 1
             ;;
     esac
 done
 
 case "${CANN_VERSION}" in
+    "9.0.0")
+        # Existing kernel CI uses the CANN 9.0 image with Python 3.11.
+        TORCH_VERSION="2.10.0"
+        TORCHVISION_VERSION="0.25.0"
+        TORCHAUDIO_VERSION="2.10.0"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.10.0/torch_npu-2.10.0-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
     "9.2.0")
         TORCH_VERSION="2.13.0"
         TORCHVISION_VERSION="0.28.0"
@@ -43,7 +50,7 @@ case "${CANN_VERSION}" in
         ;;
     *)
         echo "Unsupported CANN version: ${CANN_VERSION}"
-        echo "Supported versions: 9.1.0, 9.2.0"
+        echo "Supported versions: 9.0.0, 9.1.0, 9.2.0"
         exit 1
         ;;
 esac
