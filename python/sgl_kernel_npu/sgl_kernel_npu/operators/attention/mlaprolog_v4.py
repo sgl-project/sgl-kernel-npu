@@ -24,7 +24,7 @@ _torch_native_fn = None
 def _cann_impl(*args, **kwargs):
     global _cann_fn
     if _cann_fn is None:
-        from cann_ops_transformer import mla_prolog
+        from ..._third_party.sgl_ops_transformer import mla_prolog
 
         _cann_fn = mla_prolog
     return _cann_fn(*args, **kwargs)
