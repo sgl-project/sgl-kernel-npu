@@ -88,7 +88,7 @@ def _pad_topk(case, width):
 
 
 def _base_case(cmp_mode="c4", *, seed=0, t=17, window=127, dtype=torch.float16,
-               heads=8, sink=False, ratio=None, prefixes=None):
+               heads=8, sink=False, ratio=None, prefixes=None, rows=4):
     if t == 1:
         budget, depth = 0, 0
     else:
@@ -102,6 +102,7 @@ def _base_case(cmp_mode="c4", *, seed=0, t=17, window=127, dtype=torch.float16,
         budget=budget,
         depth=depth,
         window=window,
+        rows=rows,
         sink=sink,
         cmp_mode=cmp_mode,
         dtype=dtype,
@@ -116,6 +117,36 @@ def _base_case(cmp_mode="c4", *, seed=0, t=17, window=127, dtype=torch.float16,
 # ---------------------------------------------------------------------------
 # parity across modes / dtypes / sinks
 # ---------------------------------------------------------------------------
+
+
+def test_native_attention_parity():
+    """Exercise the AscendC entry through its torch registration.
+
+    The Triton facade above is independent; this keeps the native host wrapper,
+    tiling adapter, workspace sizing and kernel launch covered by one parity
+    case.  ``rows=16`` is the AscendC block-size contract, tighter than the
+    Triton fixture's default.
+    """
+    case = _base_case("c4", seed=4, t=1, window=127, rows=16,
+                      dtype=torch.float16, heads=8, sink=True)
+    args = _case_args(case)
+    ref_out, ref_lse = sparse_attn_sharedkv_tree_ref(
+        **args, return_softmax_lse=True
+    )
+    args["metadata"] = torch.ops.npu.sparse_attn_sharedkv_metadata_host(
+        8, 1, 512, args["layout_q"], args["layout_kv"],
+        cu_seqlens_q=args["cu_seqlens_q"], seqused_kv=args["seqused_kv"],
+        batch_size=1, cmp_topk=0, cmp_ratio=int(args["cmp_ratio"]),
+        ori_mask_mode=int(args["ori_mask_mode"]), cmp_mask_mode=int(args["cmp_mask_mode"]),
+        ori_win_left=int(args["ori_win_left"]), ori_win_right=int(args["ori_win_right"]),
+        has_ori_kv=True, has_cmp_kv=True)
+    npu_args = _to_device(args)
+    q = npu_args.pop("q")
+    out, lse = torch.ops.npu.sparse_attn_sharedkv_tree(
+        q, return_softmax_lse=True, **npu_args)
+    torch.npu.synchronize()
+    torch.testing.assert_close(out.float().cpu(), ref_out.float(), rtol=OUT_TOL, atol=OUT_TOL)
+    torch.testing.assert_close(lse.float().cpu(), ref_lse.float(), rtol=LSE_TOL, atol=LSE_TOL)
 
 
 @pytest.mark.parametrize(

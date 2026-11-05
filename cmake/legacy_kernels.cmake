@@ -96,6 +96,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_host/sparse_attn_sharedkv_tree_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_host/sparse_attn_sharedkv_tree.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
@@ -332,6 +334,26 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
 
+    ascendc_library(sparse_attn_sharedkv_tree_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_kernel/sparse_attn_sharedkv_tree.cpp
+    )
+    ascendc_include_directories(sparse_attn_sharedkv_tree_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_host
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(sparse_attn_sharedkv_tree_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(sparse_attn_sharedkv_tree_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm
+        -cce-vf-remove-membar=false
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_tree_kernel)
+
 endif()
 
 # Quantized SharedKV uses the Ascend 950 FP8 pipeline and has a separate
@@ -422,6 +444,8 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_tree/op_host
+        ${PROJECT_SOURCE_DIR}/build/include/sparse_attn_sharedkv_tree_kernel
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
