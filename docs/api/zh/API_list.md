@@ -7,6 +7,7 @@
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
 | [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `ascendc` (ARCH35), `torch_native` |
 | [split_qkv_tp_rmsnorm_rope](operators/norm/split_qkv_tp_rmsnorm_rope.md) | `triton`、`torch_native` |
+| [add_example](operators/examples/add_example.md) | `aicpu`、`torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |
