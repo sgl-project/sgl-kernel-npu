@@ -110,12 +110,13 @@ def compressor(
         # Match the native retention rule, including extra verification tail rows.
         window = coff * cmp_ratio
         pad = ring - window + 2 if ring > window else 0
-        keep = boundary - (coff - 1) * cmp_ratio
+        keep = max(0, boundary - (coff - 1) * cmp_ratio)
         if pad:
             keep = min(keep, end - pad if end > pad else 0)
         for p in range(start, end):
-            chunk_start = max(start, p // cmp_ratio * cmp_ratio)
-            if cache_mode == 1 or chunk_start >= keep:
+            # Native SaveState clamps its first row to keep, even when keep
+            # lies inside a compression group (e.g. token 118 with ratio 4).
+            if cache_mode == 1 or p >= keep:
                 destination = slot(b, p, start)
                 if cache_mode != 1 or destination // ring != 0:
                     rows[destination].copy_(previous[p])
