@@ -61,9 +61,7 @@ def compressor(
         count = (
             int(seqused[b])
             if seqused is not None
-            else int(cu_seqlens[b + 1]) - qstart
-            if tnd
-            else x.shape[1]
+            else int(cu_seqlens[b + 1]) - qstart if tnd else x.shape[1]
         )
         end = start + count
         boundary = end // cmp_ratio * cmp_ratio
