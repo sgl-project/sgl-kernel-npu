@@ -16,7 +16,7 @@ on:
       timeout_minutes:
         required: false
         type: number
-        default: 20
+        default: 60
 
 jobs:
   run-kernel-group:
