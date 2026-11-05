@@ -19,8 +19,10 @@
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`, `torch_native` |
 | [flash_decode_bnsd_with_gqa_share_sparse](operators/attention/flash_decode_bnsd_with_gqa_share_sparse.md) | `triton`, `ascendc`, `torch_native` |
+| [mla_preprocess](operators/attention/mla_preprocess.md) | `ascendc`, `torch_native` |
 | [paged_mtp_attention_decode](operators/attention/paged_mtp_attention_decode.md) | `triton`, `torch_native` |
 | [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
