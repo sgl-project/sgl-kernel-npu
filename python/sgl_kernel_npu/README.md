@@ -42,11 +42,15 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make_clean`. |
+| `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
 | `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
-| `--make_clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
+| `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
+| `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
+| `--plan` | Off | Print the resolved third-party configuration and build commands, then exit without compiling either third-party or repository-owned operators. |
+| `--cann-version X.Y.Z` | Detected SDK version | Override the profile version for `--plan` only. Actual builds always detect the initialized SDK version. |
+| `--make-clean` | Off | Clear new-build intermediates; alone, clean and exit. With build options, clean then rebuild. |
 | `-h` / `--help` | Off | Print the supported options and exit without building. |
 
 `--ops` accepts comma-separated IDs; do not mix `all` with IDs or repeat an ID.
@@ -54,7 +58,8 @@ It selects native operators only, not which Python modules enter the wheel.
 `-j N` and `--jobs N` are equivalent. They pass `--parallel N` to the CANN and
 Torch CMake builds. More simultaneous jobs can reduce build time but consume
 more CPU and memory. This setting does not change the operator's runtime
-parallelism or computation. Omit it to use the build tool's default.
+parallelism or computation. Omit it to use the native build tool's default;
+the current third-party adapters default to 8 jobs.
 
 `run` and `wheel` are the only artifact choices; there is no separate `torch`
 artifact or independent-package selector. Operator declarations are checked as
@@ -66,7 +71,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --help
 
 # Clear intermediates and build a wheel in the same command.
 python3 /workspace/sgl-kernel-npu/setup.py \
-  --make_clean --arch-version 2201 --ops apply_token_bitmask --artifact wheel
+  --make-clean --arch-version 2201 --ops apply_token_bitmask --artifact wheel
 ```
 
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
@@ -77,6 +82,52 @@ API documentation follows the shared framework's `arch22` and `arch35` names.
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
 previous `sgl_kernel_npu-*.whl` files there before building; a run build removes
 previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place.
+
+### Third-party dependencies
+
+Wheel builds read `third_party/profiles/cann-<SDK-version>/*.json`, then select
+the profile's `ops.arch22` or `ops.arch35` list using `--arch-version`.
+Profiles pin the source repository, commit, operators and build commands.
+`--ops` selects repository-owned native operators; `--third-party` independently
+selects external libraries. The profile filename, not its internal package name,
+is passed to `--third-party`.
+
+```bash
+# CANN 9.1.0: build one native operator and bundle the recipes dependency.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
+  --ops apply_token_bitmask --third-party cann_recipes_infer -j8
+
+# CANN 9.2.0 / arch35: bundle the ops-transformer dependency.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 \
+  --ops apply_token_bitmask --third-party ops_transformer -j8
+
+# Build repository-owned operators only, without third-party dependencies.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
+  --ops apply_token_bitmask --without-third-party
+
+# Preview dependency commands; no compilation or cloning is performed.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
+  --third-party cann_recipes_infer --plan --cann-version 9.1.0
+```
+
+Omitting `--third-party` selects all profiles for the detected SDK version.
+No matching profiles, or an empty/missing operator list for the chosen
+architecture, produces an INFO message and skips that dependency. Explicitly
+requesting a profile that does not exist for the SDK version is an error.
+`--artifact run` packages only repository-owned CANN operators.
+
+Third-party SoC detection uses the local device's `npu-smi` board information:
+`ascend910b` or `ascend910_93` for arch22, and `ascend950` for arch35. It must match
+`--arch-version`. This detection also runs for `--plan` when a dependency has
+operators to build; `--cann-version` changes profile selection, not the installed
+SDK or local SoC.
+
+Dependencies are built before repository-owned operators. Their vendor resources,
+Python bindings and licenses are bundled into the same wheel; users do not need
+to install the dependency `.run` or wheel separately. Successful dependency builds
+are cached under `build/third_party/` and reused when the build fingerprint and
+artifact checksums match. Changes to the profile, build scripts or relevant build
+environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
 ### CANN operator declarations
 
@@ -89,36 +140,40 @@ architectures needs no variant.
 #### Fields and required values
 
 "Common" below means `sgl_register_operator()`; "variant" means
-`sgl_register_operator_variant()`. The declaration accepts 13 configuration
+`sgl_register_operator_variant()`. The declaration accepts 16 configuration
 fields, plus the `ID` and `ARCH` keys:
 
 | Field | Purpose | Allowed declaration | Required value |
 | --- | --- | --- | --- |
 | `ID` | Operator identifier; associates variants with the common declaration. | Common and variant | Required in every declaration. |
 | `ARCH` | Architecture selected by this variant. | Variant only | Required for a variant; must belong to the common `SUPPORTED_ARCHS`. |
-| `EXECUTION_UNIT` | Execution unit. | Common only | Required. The implemented build backend currently supports `AICORE`. |
-| `CANN_OP_TYPE` | CANN operator type registered by the OpDef. | Common only | Required. |
+| `EXECUTION_UNIT` | Execution unit. | Common only | Required: `AICORE` or CpuKernel-based `AICPU`. |
+| `CANN_OP_TYPE` | CANN operator type used by the OpDef or AICPU registration. | Common only | Required. |
 | `SUPPORTED_ARCHS` | Architectures supported by the operator. | Common only | Required and non-empty; currently accepts `2201` and `3510`, without duplicates. |
 | `TORCH_ADAPTER` | Torch adapter source file. | Common only | Optional at registration; required for each selected operator when building the Torch extension and wheel. |
-| `OPDEF_SOURCES` | CANN interface definition source files. | Common only | Required and non-empty in the common declaration. |
+| `OPDEF_SOURCES` | CANN interface definition source files for codegen. | Common only | Required and non-empty for AI Core; optional for AICPU. |
 | `INFER_SOURCES` | Handwritten shape/type inference source files. | Common and variant | Optional; may be cleared explicitly. |
-| `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected architecture. |
+| `ACLNN_SOURCES` | Explicit Host ACLNN implementations, alongside any generated interfaces. | Common only | Optional; used by the AICPU AddExample wrapper. |
+| `ACLNN_HEADERS` | Explicit ACLNN headers installed in `op_api/include/`. | Common only | Optional; declare the public headers of explicit interfaces. |
+| `AICPU_JSON` | CpuKernel registration JSON. | Common only | Required when packaging selected AICPU operators; not needed by AI Core. |
+| `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected AI Core architecture; not required for AICPU. |
 | `TILING_INCLUDE_DIRECTORIES` | Private header search directories for Tiling sources. | Common and variant | Optional; may be cleared explicitly. |
 | `TILING_COMPILE_DEFINITIONS` | Private Tiling macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
-| `KERNEL_SOURCES` | Device compilation entry. | Common and variant | The resolved list must contain exactly one entry after deduplication. |
+| `KERNEL_SOURCES` | Device compilation sources. | Common and variant | Non-empty after resolution. AI Core requires exactly one entry; AICPU accepts multiple `.cpp` files. |
 | `KERNEL_INCLUDE_DIRECTORIES` | Private header search directories for the Kernel. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_DEFINITIONS` | Private Kernel macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_OPTIONS` | Kernel compiler options. | Common and variant | Optional; may be cleared explicitly. |
 
-The common declaration therefore has **five required fields**: `ID`,
-`EXECUTION_UNIT`, `CANN_OP_TYPE`, `SUPPORTED_ARCHS` and `OPDEF_SOURCES`.
-`TILING_SOURCES` and `KERNEL_SOURCES` need not appear in the common declaration:
-they may come from a variant, provided each selected architecture resolves to
-non-empty Tiling sources and exactly one Kernel entry. A CANN-only `.run` build
-does not require `TORCH_ADAPTER`.
+The common declaration requires `ID`, `EXECUTION_UNIT`, `CANN_OP_TYPE` and
+`SUPPORTED_ARCHS`; AI Core additionally requires common `OPDEF_SOURCES`.
+`TILING_SOURCES` and `KERNEL_SOURCES` may come from a variant. Each selected AI
+Core architecture still requires non-empty Tiling sources and exactly one
+Kernel entry. AICPU requires non-empty Kernel sources, without requiring an
+AI Core OpDef or Tiling function. A CANN-only `.run` build does not require
+`TORCH_ADAPTER`.
 
-`EXECUTION_UNIT` registration recognizes `AICORE` and `AICPU`, but selecting an
-`AICPU` operator currently fails because its build backend is not implemented.
+The same `--ops` selection supports AI Core-only, AICPU-only and mixed packages.
+
 Use `SUPPORTED_ARCHS` to exclude an unsupported architecture rather than clearing
 required sources. `--ops all` excludes operators that do not support the selected
 architecture; explicitly requesting such an operator fails.
@@ -142,12 +197,13 @@ items. It never appends the common list.
 | Bare `FIELD` without a value argument | Fail with a missing-value error. |
 
 Explicit clearing is allowed for `INFER_SOURCES`, private include directories,
-private macros and Kernel compiler options. Clearing `TILING_SOURCES` or
-`KERNEL_SOURCES` fails the final required-source checks. Clearing private settings
-removes only those declared for this operator, not the build target's shared
-settings. Clearing `INFER_SOURCES` omits handwritten inference from GRAPH; the
-generated `op_proto.cc` is still compiled. Only omit inference when the operator's
-supported call paths do not require that handwritten implementation.
+private macros and Kernel compiler options. Clearing `TILING_SOURCES` for AI Core,
+or `KERNEL_SOURCES` for either execution unit, fails the final required-source
+checks. Clearing private settings removes only those declared for this operator,
+not the build target's shared settings. Clearing `INFER_SOURCES` omits handwritten inference from GRAPH; the
+generated `op_proto.cc`, when present, is still compiled. Only omit inference
+when the operator's supported call paths do not require that handwritten
+implementation.
 
 The following schematic example assumes the listed source files exist under the
 operator directory. `MODE` is an illustrative operator macro:
@@ -184,6 +240,32 @@ sources are inherited because the variant does not declare `TILING_SOURCES`.
 The variant repeats `--cce-auto-sync=off` because its compiler-option list fully
 replaces the common one. Only the final Kernel list is checked for one entry;
 the common and variant entries are not combined.
+
+#### Building and installing AICPU operators
+
+Use an initialized CANN 9.2.0 SDK with its HCC compiler and AICPU development
+files, plus matching PyTorch and torch_npu. Select AICPU operators with the same
+`--ops` option used for AI Core operators. For a repository-owned AICPU-only
+wheel on A2/A3:
+
+```bash
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 --ops add_example --artifact wheel --without-third-party --make-clean
+```
+
+On A5, use `--arch-version 3510`. For a mixed wheel, select
+`--ops apply_token_bitmask,add_example`.
+
+When installing the RUN package manually, pass `--force` to the generated installer. For the A2/A3 custom build above with `--artifact run`, install it by:
+
+```bash
+bash /workspace/sgl-kernel-npu/output/sgl_kernel_npu-2201-custom.run --install-path=/workspace/sgl-kernel-npu/installed --force
+```
+
+After installing the wheel, run the example through the public API:
+
+```bash
+python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/examples/test_add_example.py --impl aicpu --impl-ref torch_native --skip-acc-check=false --enable-perf=false -ra
+```
 
 #### Duplicate declarations and values
 
@@ -234,7 +316,7 @@ operator selection, Python/Torch environment or SDK location requires an explici
 clean build:
 
 ```bash
-python3 /workspace/sgl-kernel-npu/setup.py --make_clean
+python3 /workspace/sgl-kernel-npu/setup.py --make-clean
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 --ops all
 ```
 
@@ -245,14 +327,19 @@ its intermediates. Do not run both builds concurrently in one checkout.
 ### Installation and public API
 
 The distribution name remains `sgl-kernel-npu`, imported as `sgl_kernel_npu`.
-Wheel build tags distinguish architecture and native operator selection:
+Wheel build tags distinguish architecture, native operator selection, and bundled third-party dependencies:
 
 ```text
-sgl_kernel_npu-<version>-1refactor2201all-<python>-<abi>-<platform>.whl
-sgl_kernel_npu-<version>-1refactor2201custom<set-id>-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_all-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>_tp_<dependency-id>-<python>-<abi>-<platform>.whl
 ```
 
 Omitted `--ops` or `--ops all` produces `all`; explicit IDs produce `custom`.
+Build-tag fields use underscores. `<set-id>` is the first 10 hexadecimal characters
+of the selected native operator list's SHA-256 hash. `tp` means `third_party`;
+the optional `tp_<dependency-id>` identifies bundled third-party contents with a
+10-character SHA-256 fingerprint. Neither ID is a source Git commit.
 The package's `_build_manifest.json` records the full selection and SDK targets.
 Subset wheels replace one another; they do not add operators to an existing
 installation. Reinstall explicitly and start a new Python process when switching:
