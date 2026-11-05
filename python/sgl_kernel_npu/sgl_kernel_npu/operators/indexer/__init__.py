@@ -1,3 +1,4 @@
+from .append_local_block_to_topk_idx import append_local_block_to_topk_idx
 from .build_pooled_page_table import build_pooled_page_table
 from .expand_causal_seqlens import expand_causal_seqlens
 from .expand_kpool_group_and_tail_to_topk import expand_kpool_group_and_tail_to_topk
@@ -12,6 +13,7 @@ __all__ = [
     "lightning_indexer_v2",
     "lightning_indexer_v2_metadata",
     "sparse_lightning_indexer",
+    "append_local_block_to_topk_idx",
     "build_pooled_page_table",
     "expand_causal_seqlens",
     "expand_kpool_group_and_tail_to_topk",

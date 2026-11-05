@@ -230,6 +230,8 @@ class TestIndexerPackaging(unittest.TestCase):
                     "lightning_indexer_v2",
                     "lightning_indexer_v2_metadata",
                     "sparse_lightning_indexer",
+                    "sparse_flash_mla",
+                    "sparse_flash_mla_metadata",
                 },
             )
             self.assertTrue(item["has_aicpu"])
