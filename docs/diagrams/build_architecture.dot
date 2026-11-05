@@ -1,0 +1,92 @@
+digraph NativeBuild {
+  graph [rankdir=TB, compound=true, newrank=true, splines=polyline, nodesep=0.35, ranksep=0.55,
+    fontname="PingFang SC", fontsize=20, labelloc=t, bgcolor="white", pad=0.25,
+    label="sgl-kernel-npu 编译架构\n统一 --ops · CANN / HOST 实现 / Torch 注册分离 · 单个动态库"];
+  node [shape=box, style="rounded,filled", fillcolor="#F5F7FA", color="#8391A3",
+    fontname="PingFang SC", fontsize=12, width=4.4, margin="0.18,0.13"];
+  edge [fontname="PingFang SC", fontsize=10, color="#366A99", fontcolor="#354B61", arrowsize=0.7];
+
+  subgraph cluster_config {
+    label="① 根入口：选择与配置\nHOST-only 在 CANN SDK / 编译器初始化前返回"; fontsize=15; color="#B6CDE3"; style=rounded;
+    entry [label="setup.py · arguments() / main()\n--ops / --arch-version / --artifact\n--plan 保留第三方 JSON 预览"];
+    config [label="setup.py · configure_native()\n检查请求 / 架构 / 产物缓存\n仅 CANN 复用已有 SDK 缓存\ncmake -S csrc -B build/cann：只配置一次"];
+    root [label="csrc/CMakeLists.txt\n先登记 HOST → 拆分原始用户请求\nCANN-only 请求 → 旧 CANN 声明 / 依赖展开\n统一选择器验证并导出最终集合"];
+    selected [shape=note, fillcolor="#ECF5ED", label="selected-operators.txt：实际 CANN ID\nselected-host-operators.txt：实际 HOST ID\n返回：CANN 配置或 None + HOST ID 元组"];
+    device_config [label="CANN 非空才继续同一次配置\n发现 SDK；cann_ops.cmake 定义原有目标\nAICORE：codegen / Host / Tiling / Kernel\nAICPU：cmake/aicpu 定义 HCC / JSON 目标"];
+    entry -> config;
+    config -> root;
+    root -> selected [label="选择结果", color="#4B8053"];
+    root -> device_config [label="仅 CANN 非空"];
+    device_config -> selected [label="目标配置完成后返回", color="#4B8053"];
+  }
+
+  subgraph cluster_shared {
+    label="共享声明与工具\n读取声明不等于编译；旧 AICORE/AICPU 声明不变"; fontsize=15; color="#C3C7CF"; style=rounded;
+    domains [label="csrc/cmake/domains.cmake\nHOST 声明阶段 → CANN 声明阶段\n原包装入口仍供 Torch 调用\n阶段检查防止声明分类错误"];
+    registry [label="csrc/cmake/operators.cmake\nsgl_register_operator / variant\nEXECUTION_UNIT AICORE / AICPU / HOST\nSGL_CANN_OPERATOR_IDS / HOST / NATIVE 索引\nsgl_select_cann_operators / native 选择"];
+    common [label="build_tools/common.py\n无后端导入的公共工具\n命令执行 / 清理 / 缓存 / 架构 / ID 语法"];
+    domains -> registry [label="声明写入同一元数据表"];
+  }
+  root -> domains [label="两阶段发现声明", style=dashed, color="#9098A0"];
+  config -> common [label="公共工具", style=dashed, color="#9098A0", constraint=false];
+
+  subgraph cluster_third {
+    label="② 第三方：沿用原 profile 流程"; fontsize=15; color="#D9C8AC"; style=rounded;
+    third [label="third_party.py · resolve_plan / build_dependencies\n按 SDK / 架构独立选择与验证缓存\nthird_party/*/build.py 执行外部构建"];
+    third_data [shape=note, fillcolor="#ECF5ED", label="build/third_party：vendor / 绑定 wheel / 许可证\n--without-third-party 可跳过；仅 wheel 需要"];
+    third -> third_data [color="#4B8053"];
+  }
+  selected -> third [label="setup.py 继续编排"];
+
+  subgraph cluster_cann {
+    label="③ CANN 构建器：只处理 AICORE / AICPU"; fontsize=15; color="#B8CAE0"; style=rounded;
+    cann [label="build_tools/cann.py · build_cann()\n校验 CANN 配置并复用 build/cann\n不接收 HOST ID；不重复 configure"];
+    targets [label="cmake --build：sgl_cann_kernel_check → package\nAICORE：Host 库 / Tiling / Kernel 二进制\nAICPU：HCC 设备库 + merge_json.py 注册 JSON"];
+    install [label=".run → 安装 → inspect_installation()\n原有 AICPU-only 安装规则及产物检查\n失败状态直接传播"];
+    cann_result [shape=note, fillcolor="#ECF5ED", label="CannBuild：CANN ID / 架构 / .run / vendor\nbuild/cann/installed/vendors/sgl_kernel_npu\n不包含 HOST 状态"];
+    cann -> targets;
+    targets -> install;
+    install -> cann_result [color="#4B8053"];
+  }
+  third -> cann [label="仅 CANN 非空；第三方阶段后"];
+  runout [shape=note, fillcolor="#ECF5ED", label="output/*.run\nall 保留 CANN 范围；显式 HOST 请求报错"];
+  cann_result -> runout [label="artifact=run", color="#4B8053"];
+
+  subgraph cluster_host {
+    label="④ wheel 的共享 Torch 工程：一次配置，分目标编译"; fontsize=15; color="#BDD2C3"; style=rounded;
+    torch_config [label="build_tools/torch.py · configure_torch()\n输入 HOST ID + 可选 CannBuild / vendor\n校验 Python / Torch / SDK / 请求缓存\ncmake -S csrc/aclnn_torch_adapter -B build/torch"];
+    torch_cmake [label="共享 Torch CMake 读取 operators / domains 声明\ncpp_ops.cmake 分别收集 CPP_SOURCES、adapters、宏\n只生成所选输入的两个目标；CANN-only 无对象目标"];
+    host [label="build_tools/host.py · build_host()：仅 HOST 非空\n输入：架构 + HOST ID + 已配置目录\n--target sgl_host_operators：仅编译 CPP_SOURCES\n不接收 CANN / vendor，不编译 adapter，不链接"];
+    host_objects [shape=note, fillcolor="#ECF5ED", label="HostBuild：对象目录 / HOST ID / 架构\n内部 OBJECT library，PIC + Torch ABI\n无新增 .so；不消费 CANN vendor 头文件"];
+    torch_link [label="build_tools/torch.py · build_torch()\n--target sgl_kernel_npu\n编译所选 CANN / HOST TORCH_ADAPTER\n链接已编译 HOST 对象 + Torch / torch_npu / ACL\n有 CANN adapters 才使用 vendor include / nnopbase"];
+    torch_result [shape=note, fillcolor="#ECF5ED", label="TorchBuild：唯一 libsgl_kernel_npu.so\n记录 HOST / CANN ID、架构、请求形式及 vendor\n已有对象未变化时不会重复编译"];
+    torch_config -> torch_cmake;
+    torch_cmake -> host [label="HOST 非空"];
+    host -> host_objects [color="#4B8053"];
+    host_objects -> torch_link [color="#4B8053"];
+    torch_cmake -> torch_link [label="CANN-only：跳过 HOST 编译"];
+    torch_link -> torch_result [color="#4B8053"];
+  }
+  third -> torch_config [label="HOST-only：跳过③；artifact=wheel"];
+  cann_result -> torch_config [label="混合 / CANN-only wheel", color="#4B8053"];
+  torch_cmake -> domains [label="读取声明", style=dashed, color="#9098A0", constraint=false];
+
+  subgraph cluster_package {
+    label="⑤ 暂存与打包：不执行算子编译"; fontsize=15; color="#C9C2D8"; style=rounded;
+    stage [label="torch_wheel.py · stage_package()\n核对 Torch / CANN 的 ID、架构、vendor 一致\nstage_runtime → target_provider.py\nthird_party.py · stage_dependencies()"];
+    package [shape=folder, fillcolor="#ECF5ED", label="build/torch/package/sgl_kernel_npu\nPython + provider + 已编译 Torch .so\n可选仓内 / 第三方 vendor + 外部绑定 / 许可证\n_build_manifest.json：schema 2，实际两组 ID"];
+    wheel [label="torch_wheel.py · build_wheel()\n根 setup.py 的 setup_refactor() hook\nsetuptools 只打包；不重新进入 main()"];
+    verify [label="wheel_build_tag() + verify_wheel()\n实际原生 ID / 第三方指纹\n文件字节、额外文件、二进制元数据"];
+    out [shape=note, fillcolor="#ECF5ED", label="output/*.whl"];
+    runtime [label="安装后 __init__.py\n按清单检查所需仓内 / 第三方 vendor\n配置 ASCEND_CUSTOM_OPP_PATH\n加载同一个 libsgl_kernel_npu.so"];
+    stage -> package [color="#4B8053"];
+    package -> wheel;
+    wheel -> verify;
+    verify -> out [color="#4B8053"];
+    out -> runtime [label="安装导入后", style=dashed, color="#9098A0"];
+  }
+  torch_result -> stage [color="#4B8053"];
+  third_data -> stage [label="第三方结果", color="#4B8053", constraint=false];
+  legend [shape=plain, fontsize=11, label="蓝色：调用 / 顺序；绿色：结果 / 产物；灰色虚线：声明读取 / 工具 / 后续加载\nCANN 与共享 Torch 工程仍复用既有两个 CMake 入口；HOST 对象与 adapters 分目标编译。"];
+  runtime -> legend [style=invis];
+}

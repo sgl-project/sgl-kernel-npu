@@ -1,5 +1,5 @@
 name: PR Test - Kernel Operators (Ascend NPU)
-
+# Build and install the kernel wheel before running operator tests.
 on:
   pull_request:
     branches: [ main ]
@@ -126,6 +126,9 @@ jobs:
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
               - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
             fused:
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/hyper_conn/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/hyper_conn/**
+              - tests/python/operators/hyper_conn/**
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**
               - csrc/lora/**

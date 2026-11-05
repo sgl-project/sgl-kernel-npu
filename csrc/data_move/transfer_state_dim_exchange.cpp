@@ -206,8 +206,9 @@ std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *de
 
 }  // namespace
 
+#ifdef SGL_CPP_TRANSFER_KV_ALL_LAYER_DIRECT_LF_PF
 void transfer_kv_all_layer_direct_lf_pf(at::TensorList device_states, at::TensorList host_states,
-                                const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t flags)
+                                        const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t flags)
 {
     TORCH_CHECK(device_states.size() != 0, "device_states must not be empty");
     TORCH_CHECK(device_states.size() == host_states.size(),
@@ -250,9 +251,11 @@ void transfer_kv_all_layer_direct_lf_pf(at::TensorList device_states, at::Tensor
         }
     }
 }
+#endif
 
+#ifdef SGL_CPP_TRANSFER_KV_PER_LAYER_DIRECT_PF_LF
 void transfer_kv_per_layer_direct_pf_lf(const at::Tensor &src, const at::Tensor &dst, const at::Tensor &src_indices,
-                                const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
+                                        const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
 {
     TORCH_CHECK(src_indices.numel() == dst_indices.numel(),
                 "source and destination indices must contain the same number of slots");
@@ -316,5 +319,6 @@ void transfer_kv_per_layer_direct_pf_lf(const at::Tensor &src, const at::Tensor 
         check_acl_copy(result, "H2D", slot_bytes, static_cast<size_t>(run_length));
     }
 }
+#endif
 
 }  // namespace sglang::data_move
