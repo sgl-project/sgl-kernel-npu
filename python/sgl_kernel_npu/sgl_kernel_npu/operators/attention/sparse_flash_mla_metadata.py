@@ -2,6 +2,7 @@
 
 import torch
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from ..utils.transformer_compat import (
     OperatorUnavailableError,
@@ -10,7 +11,11 @@ from ..utils.transformer_compat import (
 )
 
 
-@register_impl("attention.sparse_flash_mla_metadata", "auto")
+@register_impl(
+    "attention.sparse_flash_mla_metadata",
+    "auto",
+    supported_generations={Generation.ARCH22},
+)
 def _auto_sparse_flash_mla_metadata(**kwargs):
     backend = cann_backend()
     if backend == "cann_9_1":
@@ -20,7 +25,16 @@ def _auto_sparse_flash_mla_metadata(**kwargs):
     return get_impl_by_name("attention.sparse_flash_mla_metadata", backend)(**kwargs)
 
 
-@register_impl("attention.sparse_flash_mla_metadata", "cann_ops_transformer_cann920")
+@register_impl(
+    "attention.sparse_flash_mla_metadata",
+    "cann_ops_transformers_cann920",
+    supported_generations={Generation.ARCH22},
+)
+@register_impl(
+    "attention.sparse_flash_mla_metadata",
+    "cann_ops_transformer_cann920",
+    supported_generations={Generation.ARCH22},
+)
 def _cann_sparse_flash_mla_metadata(**kwargs):
     op = require_op(
         "cann_ops_transformer",
@@ -141,10 +155,14 @@ def _torch_sparse_flash_mla_metadata(**kwargs):
 
 
 @register_operator("attention.sparse_flash_mla_metadata")
-def sparse_flash_mla_metadata(*, impl="auto", **kwargs):
+def sparse_flash_mla_metadata(
+    num_heads_q, num_heads_kv, head_dim, *, impl="auto", **kwargs
+):
     """Build BF16 attention metadata.
 
     impl: auto (SDK-selected), ops_transformer_cann910, host, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(**kwargs)
+    return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(
+        num_heads_q=num_heads_q, num_heads_kv=num_heads_kv, head_dim=head_dim, **kwargs
+    )
