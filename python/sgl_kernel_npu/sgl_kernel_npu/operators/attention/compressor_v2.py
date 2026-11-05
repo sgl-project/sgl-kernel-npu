@@ -11,7 +11,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 @lru_cache(maxsize=1)
 def _binding():
-    from ..._third_party.sgl_ops_transformer.ops.ds41 import compressor
+    from ..._third_party.sgl_ops_transformer_experimental.ops.ds41 import compressor
 
     return compressor
 

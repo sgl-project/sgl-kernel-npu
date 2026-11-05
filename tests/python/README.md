@@ -277,3 +277,53 @@ Tensors. Accuracy comparisons, registry lookups and report/CSV logic remain real
 Most performance unit cases replace measurement or profiler boundaries; the
 `npu_integration` case uses real NPU execution and profiler collection. None of
 these cases establishes a historical performance-regression baseline.
+
+### A3 lightning indexers
+
+`operators/attention/test_lightning_indexer_v2.py` covers the dense source,
+sparse consumer, and metadata combination on CANN 9.2.0/arch22. Its generated
+inputs have distinct analytic scores; representative dimensions are not claimed
+as traced production inputs. Accuracy compares sorted index sets with associated
+values, since upstream slot ordering is unspecified. Sorting is excluded from the
+public operator performance region. The Torch reference currently covers
+BSND/BSND, cmp_ratio=1, and masks 0/3; packed/paged/compressed KV need additional
+hardware validation.
+
+```bash
+python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+# After accuracy passes, profile only the independently selected performance cases.
+python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+  -k representative_performance --prof-dir=results/indexer-profilings \
+  --csv-path=results/indexer-performance.csv -v -s
+# CPU reference and binding staging checks, without importing the NPU package.
+python -m unittest discover -s tests/host -p test_lightning_indexer_integration.py -v
+```
+
+Report first-use JIT latency separately from steady-state measurements. After
+upgrading the shared profile, also run the existing Flash MLA suite on arch35.
+
+### A3 experimental CompressorV2
+
+`operators/attention/test_compressor_v2.py` compares valid compressed outputs
+and the entire updated cache against independent CPU FP32 calculations. Each
+backend receives its own copy of the initial cache, preserving axis-0 strides.
+Unwritten output padding is excluded. Cases cover BSH/TH, fp16/bf16, history,
+partial lengths, circular writes, empty sequences, D=128/512 and all supported
+compression ratios. Inputs are synthetic; representative H=5120 performance
+shapes do not establish production provenance.
+
+```bash
+python -m pytest tests/python/operators/attention/test_compressor_v2.py \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+python -m pytest tests/python/operators/attention/test_compressor_v2.py \
+  -k representative_performance --prof-dir=results/compressor-profilings \
+  --csv-path=results/compressor-performance.csv -v -s
+python -m unittest discover -s tests/host -p test_compressor_v2_integration.py -v
+```
+
+Performance excludes the snapshot adapter and measures the public operator,
+using aligned start positions so repeated cache writes are idempotent. Separate
+first-use C++ JIT from steady-state results. The CPU reference requires cache
+capacity >= cmp_ratio; the CANN backend accepts the wider upstream cache range.
+Use the indexer suite as a regression when both third-party vendors are bundled.
