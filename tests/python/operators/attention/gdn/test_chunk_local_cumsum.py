@@ -63,6 +63,7 @@ def test_rejects_default_mismatched_output(dtype, impl):
         chunk_local_cumsum(g, 64, impl=impl)
 
 
+@pytest.mark.extra_checks
 def test_default_output_dtype_for_float32():
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
@@ -70,6 +71,7 @@ def test_default_output_dtype_for_float32():
     assert chunk_local_cumsum(g, 64, impl="triton").dtype == torch.float32
 
 
+@pytest.mark.extra_checks
 def test_rejects_explicit_mismatched_output():
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
