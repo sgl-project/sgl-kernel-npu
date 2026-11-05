@@ -51,7 +51,7 @@ def fused_sigmoid_mul_broadcast(x, gate, *, impl="auto"):
 
     Args:
         x (torch.Tensor): NPU float32, float16 or bfloat16 input [N, D].
-        gate (torch.Tensor): Gate logits [N] or [N, 1] on x's device.
+        gate (torch.Tensor): Gate logits [N] or [N, 1], with x's dtype and device.
             Each row uses one gate value across all D columns.
         impl (str): Keyword-only backend: auto (default), triton or torch_native.
             Auto selects Triton.

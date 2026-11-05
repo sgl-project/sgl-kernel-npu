@@ -1,8 +1,12 @@
 """Test row-wise gating used by SGLang's shared experts.
 
 The NPU branch in qwen2_moe.py:_forward_shared_experts passes an output
-of shape [tokens, hidden_size] and a gate of shape [tokens, 1]. The
-performance shapes come from the legacy tests and are synthetic.
+of shape [tokens, hidden_size] and a gate of shape [tokens, 1].
+Qwen/Qwen2-57B-A14B-Instruct has hidden_size=3584:
+https://huggingface.co/Qwen/Qwen2-57B-A14B-Instruct/blob/main/config.json
+The 1/32-row model cases represent single-token decode and a small prefill
+or decode batch. They are constructed scenarios, not captured model calls.
+The performance shapes come from the legacy tests and remain synthetic.
 """
 
 import pytest
@@ -26,17 +30,15 @@ ACCURACY_CASES = [
     pytest.param(shape, True, False, id=f"{shape[0]}x{shape[1]}-column-gate")
     for shape in PERF_SHAPES
 ] + [
+    pytest.param((1, 3584), True, False, id="qwen2-57b-a14b-single-token"),
+    pytest.param((32, 3584), True, False, id="qwen2-57b-a14b-32-tokens"),
     pytest.param((1, 1), False, False, id="minimum-vector-gate"),
     # More rows than vector cores, a masked column tail, and two strided inputs.
     pytest.param((257, 33), False, True, id="strided-row-loop-and-tail"),
 ]
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("shape,column_gate,strided", ACCURACY_CASES)
-def test_fused_sigmoid_mul_broadcast(shape, column_gate, strided, dtype):
-    from sgl_kernel_npu.operators.activation import fused_sigmoid_mul_broadcast
-
+def generate_data(shape, column_gate, strided, dtype):
     torch.npu.manual_seed(42)
     rows, width = shape
     if strided:
@@ -47,7 +49,15 @@ def test_fused_sigmoid_mul_broadcast(shape, column_gate, strided, dtype):
         gate = torch.randn(rows, dtype=dtype)
     if column_gate:
         gate = gate[:, None]
+    return x, gate
 
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape,column_gate,strided", ACCURACY_CASES)
+def test_fused_sigmoid_mul_broadcast(shape, column_gate, strided, dtype):
+    from sgl_kernel_npu.operators.activation import fused_sigmoid_mul_broadcast
+
+    x, gate = generate_data(shape, column_gate, strided, dtype)
     executor = check_accuracy(
         fused_sigmoid_mul_broadcast, args=(x, gate), standard=STANDARD
     )
