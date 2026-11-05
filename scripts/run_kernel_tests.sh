@@ -239,6 +239,8 @@ if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
     done
     echo "[NPU_HARDWARE=950] skipping on A5: ${SKIP_ON_A5[*]}"
     TESTS=("${FILTERED_TESTS[@]}")
+fi
+
 # mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
 if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
     TESTS+=(
