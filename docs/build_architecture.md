@@ -2,10 +2,6 @@
 
 基线为合入 #923 的主线 `26ec66e`。所有仓内算子复用 `sgl_register_operator()`，以 `EXECUTION_UNIT AICORE/AICPU/HOST` 表示执行单元；用户只传 `--ops`，不增加构建类型参数。已有 AICORE/AICPU 算子的声明文件保持不变。CMake 自带的 `CMAKE_BUILD_TYPE=Release` 仍然只表示优化配置。
 
-[打开完整矢量架构图](diagrams/build_architecture.svg) · [Graphviz 源文件](diagrams/build_architecture.dot)
-
-![完整编译架构图](diagrams/build_architecture.svg)
-
 ## 1. 从入口到产物
 
 ```mermaid
