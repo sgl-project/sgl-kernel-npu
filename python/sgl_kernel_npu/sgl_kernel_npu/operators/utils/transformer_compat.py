@@ -1,11 +1,10 @@
-"""Generic binding discovery, cached selection and schema checks.
+"""Bundled binding loading, cached selection and schema checks.
 
 Operator modules supply the binding specifications. Choices are cached before
 execution; a failed kernel is never retried with a different backend.
 """
 
 import functools
-import importlib
 
 import torch
 
@@ -31,49 +30,26 @@ def cann_backend():
     )
 
 
-@functools.lru_cache(maxsize=1)
-def has_released_ops():
-    try:
-        importlib.import_module("sgl_kernel_npu._third_party.sgl_ops_transformer.ops")
-    except ModuleNotFoundError as error:
-        if error.name not in (
-            "sgl_kernel_npu._third_party",
-            "sgl_kernel_npu._third_party.sgl_ops_transformer",
-            "sgl_kernel_npu._third_party.sgl_ops_transformer.ops",
-        ):
-            raise
-        return False
-    return True
-
-
-@functools.lru_cache(maxsize=1)
-def _load_cann_9_1_library():
-    # The bundled recipes bridge registers the private Torch namespace.
-    importlib.import_module("sgl_kernel_npu._third_party.sgl_cann_recipes_infer")
-
-
-@functools.lru_cache(maxsize=None)
-def optional_op(namespace, name):
-    if namespace == "cann_ops_transformer" and not has_released_ops():
-        return None
-    if namespace == "custom":
-        _load_cann_9_1_library()
-        namespace = "sgl_cann_recipes_infer"
-    return getattr(getattr(torch.ops, namespace), name, None)
-
-
 @functools.lru_cache(maxsize=None)
 def require_op(namespace, name, *, backend=None, required_arguments=()):
-    """Load one binding and validate the requested SDK and schema."""
+    """Load one bundled binding and validate the requested SDK and schema."""
     if backend is not None and backend != cann_backend():
         raise OperatorUnavailableError(
             f"CANN {detect_cann_version()} selects {cann_backend()}, not {backend}"
         )
-    op = optional_op(namespace, name)
+    if namespace == "custom":
+        # Importing the bundled extension registers the private Torch namespace.
+        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+        namespace = "sgl_cann_recipes_infer"
+    elif namespace == "cann_ops_transformer":
+        from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(getattr(torch.ops, namespace), name, None)
     if op is None:
         raise OperatorUnavailableError(
-            f"Missing {namespace}.{name}; register the matching operator library "
-            "before the first call. No other CANN backend is tried."
+            f"Missing operator {namespace}.{name} in the installed sgl-kernel-npu "
+            f"wheel for CANN {detect_cann_version()}"
         )
     arguments = get_operator_parameter_names(op)
     if arguments is not None:
