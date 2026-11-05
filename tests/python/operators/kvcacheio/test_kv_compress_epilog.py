@@ -17,12 +17,8 @@ from tests.python.utils.performance import check_performance
 perf_shape = [128]
 
 
-@pytest.mark.parametrize("tokens", [1, 128], ids=["synthetic-decode", "synthetic-page"])
-def test_kv_compress_epilog(tokens):
-    from sgl_kernel_npu.operators.kvcacheio import (
-        get_npu_kv_quant_path,
-        kv_compress_epilog,
-    )
+def generate_data(tokens):
+    from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if get_hardware().generation != Generation.ARCH35:
@@ -43,6 +39,21 @@ def test_kv_compress_epilog(tokens):
         round_scale=True,
         x_scale=1.0,
     )
+    return cache, x, slots, kwargs, path
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [1, 128],
+    ids=[
+        "deepseek-v4-flash-kv-decode-t1-d512",
+        "deepseek-v4-flash-kv-prefill-t128-d512-page128",
+    ],
+)
+def test_kv_compress_epilog(tokens):
+    from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+
+    cache, x, slots, kwargs, path = generate_data(tokens)
     executor = make_executor(kv_compress_epilog, args=(cache, x, slots), kwargs=kwargs)
     if get_skip_acc_check() is True:
         require_test_impl(kv_compress_epilog, executor.impl)

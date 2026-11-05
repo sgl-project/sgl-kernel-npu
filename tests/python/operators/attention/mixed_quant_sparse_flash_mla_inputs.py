@@ -16,15 +16,9 @@ from tests.python.utils.common import (
 from tests.python.utils.standards import AccuracyStandard
 
 
-def run_mixed_quant_sparse_flash_mla_case(query_len, *, target):
-    from sgl_kernel_npu.operators.attention import (
-        mixed_quant_sparse_flash_mla,
-        mixed_quant_sparse_flash_mla_metadata,
-    )
-    from sgl_kernel_npu.operators.kvcacheio import (
-        get_npu_kv_quant_path,
-        kv_compress_epilog,
-    )
+def generate_data(query_len):
+    """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
+    from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if get_hardware().generation != Generation.ARCH35:
@@ -33,11 +27,10 @@ def run_mixed_quant_sparse_flash_mla_case(query_len, *, target):
     x = torch.randn(128, 512, dtype=torch.bfloat16)
     q = torch.randn(query_len, 64, 512, dtype=torch.bfloat16) * 0.1
     slots = torch.arange(128, dtype=torch.int32)
-    slots[-1] = -1
     common = dict(
         cu_seqlens_q=torch.tensor([0, query_len], dtype=torch.int32),
         seqused_q=torch.tensor([query_len], dtype=torch.int32),
-        seqused_ori_kv=torch.tensor([127], dtype=torch.int32),
+        seqused_ori_kv=torch.tensor([128], dtype=torch.int32),
         cmp_ratio=1,
         ori_mask_mode=4,
         cmp_mask_mode=0,
@@ -49,16 +42,26 @@ def run_mixed_quant_sparse_flash_mla_case(query_len, *, target):
         rope_head_dim=64,
     )
     path = get_npu_kv_quant_path()
+    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
+        torch.float8_e4m3fn
+    )
+    return x, q, slots, common, path, cache
+
+
+def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
+    from sgl_kernel_npu.operators.attention import (
+        mixed_quant_sparse_flash_mla,
+        mixed_quant_sparse_flash_mla_metadata,
+    )
+    from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+
+    x, q, slots, common, path, cache = data
     impl, impl_ref = get_test_impls()
     skip_accuracy = get_skip_acc_check() is True
     if skip_accuracy:
         require_test_impl(mixed_quant_sparse_flash_mla, impl)
     else:
         require_distinct_impls(mixed_quant_sparse_flash_mla, impl, impl_ref)
-    # CANN 9.1 cannot zero FP8 directly; view zeroed bytes as the packed cache.
-    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
-        torch.float8_e4m3fn
-    )
     cache_ref = cache.view(torch.uint8).clone().view(torch.float8_e4m3fn)
     writer_kwargs = dict(
         quant_group_size=64,
