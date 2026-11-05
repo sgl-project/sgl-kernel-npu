@@ -134,6 +134,7 @@ def test_batch_matmul_transpose_modes(
     run_case((3, 2, 32, 48), torch.float16, format_mode, quant_mode, "random")
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "invalid",
     [
