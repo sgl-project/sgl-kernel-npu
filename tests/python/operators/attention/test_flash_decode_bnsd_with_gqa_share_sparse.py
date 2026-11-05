@@ -207,10 +207,28 @@ def test_auto_keeps_sink_on_triton():
     "overrides", [{"sink": True}, {"head_dim": 64}], ids=["sink", "head-dim-64"]
 )
 def test_ascendc_rejects_unsupported(overrides):
-    """The native op has no sink input and only D=128/block_size=128 tilings."""
+    """The native op has no sink input and only D=128/block_size=128 tilings.
+
+    ``ascendc`` is registered for arch22 only, and a build without the native
+    op raises before the input asserts, so both cases skip instead of failing.
+    """
     from sgl_kernel_npu.operators.attention import (
         flash_decode_bnsd_with_gqa_share_sparse,
     )
+    from sgl_kernel_npu.operators.attention.flash_decode_bnsd_with_gqa_share_sparse import (
+        _get_native_sparse_op,
+    )
+    from sgl_kernel_npu.operators.utils.registry import (
+        UnsupportedGenerationError,
+        get_impl,
+    )
+
+    try:
+        get_impl(flash_decode_bnsd_with_gqa_share_sparse, "ascendc")
+    except UnsupportedGenerationError as error:
+        pytest.skip(str(error))
+    if _get_native_sparse_op() is None:
+        pytest.skip("the native npu_sparse_attention_score op is not in this build")
 
     kwargs = build_inputs(seq_lens=(4096,), topk=4, **overrides)
     with pytest.raises(AssertionError):
