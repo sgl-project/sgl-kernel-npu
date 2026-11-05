@@ -93,11 +93,13 @@ selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`.
 
 ```bash
-# CANN 9.1.0: build one native operator and bundle the recipes dependency.
-python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
-  --ops apply_token_bitmask --third-party cann_recipes_infer -j8
+# CANN 9.1.0: bundle recipes bridges, experimental ACLNN and released mHC.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 -j8
 
-# CANN 9.2.0 / arch35: bundle the ops-transformer dependency.
+# CANN 9.2.0 / arch35: bundle the released ops-transformer operators.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 -j8
+
+# Build only the selected released dependency when developing an operator.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 \
   --ops apply_token_bitmask --third-party ops_transformer -j8
 
@@ -107,7 +109,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 
 # Preview dependency commands; no compilation or cloning is performed.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
-  --third-party cann_recipes_infer --plan --cann-version 9.1.0
+  --plan --cann-version 9.1.0
 ```
 
 Omitting `--third-party` selects all profiles for the detected SDK version.
@@ -123,8 +125,11 @@ operators to build; `--cann-version` changes profile selection, not the installe
 SDK or local SoC.
 
 Dependencies are built before repository-owned operators. Their vendor resources,
-Python bindings and licenses are bundled into the same wheel; users do not need
-to install the dependency `.run` or wheel separately. Successful dependency builds
+available Python bindings and licenses are bundled into the same wheel; users do
+not need to install the dependency `.run` or wheel separately. The CANN 9.1
+experimental ops-transformer profile is vendor-only: selected recipes bridges
+provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
+operator profiles also bundle Python bindings. Successful dependency builds
 are cached under `build/third_party/` and reused when the build fingerprint and
 artifact checksums match. Changes to the profile, build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
