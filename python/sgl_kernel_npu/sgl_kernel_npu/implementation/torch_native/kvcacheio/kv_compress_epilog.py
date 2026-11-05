@@ -5,7 +5,7 @@ import torch
 from .quantization import _quantize
 
 
-def _legacy_e8m0_quantize(x):
+def _cann_9_1_e8m0_quantize(x):
     """Independent reference for the deployed A5 9.1 writer's E8M0 rule.
 
     The original writer/tests use FP32 max*reciprocal after amax>=1e-4,
@@ -35,11 +35,11 @@ def kv_compress_epilog(
         raise NotImplementedError(
             "reference supports 64-element BF16/E8M0 scale groups"
         )
-    legacy = quant_mode == "fp8_e8m0"
-    if legacy and not round_scale:
-        raise NotImplementedError("legacy E8M0 scales require power-of-two rounding")
+    cann_9_1 = quant_mode == "fp8_e8m0"
+    if cann_9_1 and not round_scale:
+        raise NotImplementedError("cann_9_1 E8M0 scales require power-of-two rounding")
     # DSV4 stores 64 bf16 RoPE features followed by group-quantized NoPE and bf16 scales.
-    if x.shape[-1] != 512 or cache.shape[-1] != (640 if legacy else 608):
+    if x.shape[-1] != 512 or cache.shape[-1] != (640 if cann_9_1 else 608):
         raise NotImplementedError(
             "reference requires matching 608B BF16-scale or 640B E8M0-scale rows"
         )
@@ -49,8 +49,8 @@ def kv_compress_epilog(
         if slot < 0:
             continue
         groups = values[i, :448].reshape(7, 64)
-        if legacy:
-            quant, scales = _legacy_e8m0_quantize(groups)
+        if cann_9_1:
+            quant, scales = _cann_9_1_e8m0_quantize(groups)
         else:
             quant, scales = _quantize(
                 groups, torch.float8_e4m3fn, round_scale=round_scale
@@ -59,7 +59,7 @@ def kv_compress_epilog(
             values[i, 448:].to(torch.bfloat16).contiguous().view(torch.uint8)
         )
         rows[slot, 128:576].copy_(quant.contiguous().view(torch.uint8).flatten())
-        if legacy:
+        if cann_9_1:
             rows[slot, 576:583].copy_(
                 (torch.log2(scales).flatten() + 127).to(torch.uint8)
             )

@@ -57,7 +57,7 @@ def compressor(x, wkv, wgate, state_cache, ape, norm_weight, *, impl='auto', **k
 
 保留现有注册名；包装器内部按 SDK 选择原始或正式绑定。metadata/计算配套检查和 A5 KV reader/writer 格式检查在分配或执行前完成。
 
-`torch.ops.npu.compressor` supplies the fused contract; legacy A5 uses `torch.ops.custom.compressor`.
+`torch.ops.npu.compressor` supplies the fused contract; cann_9_1 A5 uses `torch.ops.custom.compressor`.
 
 ## torch_native
 

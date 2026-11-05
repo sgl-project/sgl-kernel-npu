@@ -30,7 +30,7 @@ def _fp8_to_float(value):
 def unpack_kv(cache):
     rows = cache.view(torch.uint8).reshape(-1, cache.shape[-1])
     if rows.shape[-1] not in (608, 640):
-        raise NotImplementedError("reference supports 608B and legacy 640B KV rows")
+        raise NotImplementedError("reference supports 608B and cann_9_1 640B KV rows")
     rope = rows[:, :128].contiguous().view(torch.bfloat16).float()
     nope = _fp8_to_float(
         rows[:, 128:576].contiguous().view(torch.float8_e4m3fn)

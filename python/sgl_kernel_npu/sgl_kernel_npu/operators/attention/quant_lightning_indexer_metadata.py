@@ -6,7 +6,7 @@ from ..utils.transformer_compat import (
     cann_backend,
     require_indexer_ops,
 )
-from .attention_utils import _legacy_indexer_kwargs
+from .attention_utils import _cann_9_1_indexer_kwargs
 
 
 @register_impl("attention.quant_lightning_indexer_metadata", "auto")
@@ -27,15 +27,15 @@ def _cann_quant_lightning_indexer_metadata(
 
 
 @register_impl("attention.quant_lightning_indexer_metadata", "cann_9_1")
-def _legacy_quant_lightning_indexer_metadata(
+def _cann_9_1_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
     op = require_indexer_ops("cann_9_1")[0]
     if quant_mode not in (1, 2):
         raise OperatorUnavailableError(
-            "Legacy indexer metadata supports the migrated FP8/INT8 modes only"
+            "cann_9_1 indexer metadata supports the migrated FP8/INT8 modes only"
         )
-    args = _legacy_indexer_kwargs(kwargs)
+    args = _cann_9_1_indexer_kwargs(kwargs)
     args.update(
         num_heads_q=num_heads_q,
         num_heads_k=num_heads_k,

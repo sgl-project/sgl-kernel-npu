@@ -40,7 +40,7 @@ BF16 Q/KV; one shared KV head in the reference. Logical sparse indices address p
 | cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
 | seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; legacy support is restricted. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; cann_9_1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
 | metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |

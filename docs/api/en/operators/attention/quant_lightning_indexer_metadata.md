@@ -46,8 +46,8 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 | metadata | Tensor / ReferenceMetadata / None | Matching metadata implementation only. |
 | layout_q / layout_k | str | Reference defaults TND / PA_BBND. |
 | mask_mode / cmp_ratio | int | Reference defaults causal 3 / compression ratio 4. |
-| return_value | int | Default 0 produces empty values; nonzero score output is unsupported on legacy. |
-| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | Legacy accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
+| return_value | int | Default 0 produces empty values; nonzero score output is unsupported on cann_9_1. |
+| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | cann_9_1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
 
 ## Return value
 

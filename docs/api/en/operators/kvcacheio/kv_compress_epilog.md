@@ -33,7 +33,7 @@ Quantize NoPE in groups and scatter packed rows, keeping the RoPE tail unquantiz
 | slot_mapping | Tensor | required | int32 [T] destination slot; -1 skips a write |
 | quant_group_size | int | 64 | 64 for migrated packed KV |
 | quant_mode | int / str | None | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
-| round_scale | bool | True | Scale rounding; legacy normal FP8 ignores it |
+| round_scale | bool | True | Scale rounding; cann_9_1 normal FP8 ignores it |
 | x_scale | float | 1.0 | Additional vendor quantization scale; migrated packed KV requires 1.0 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 

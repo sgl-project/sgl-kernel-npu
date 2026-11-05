@@ -24,7 +24,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
         raise OperatorUnavailableError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"
         )
-    width = 640 if family.legacy else 608
+    width = 640 if family.cann_9_1 else 608
     for name in ("ori_kv", "cmp_kv"):
         cache = kwargs.get(name)
         if cache is not None and cache.shape[-1] != width:
@@ -34,7 +34,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    if family.legacy:
+    if family.cann_9_1:
         args.pop("seqused_cmp_kv", None)
         args.pop("cmp_residual_kv", None)
         args["seqused_kv"] = args.pop("seqused_ori_kv", None)
@@ -45,36 +45,38 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
             raise ValueError(f"Unsupported shared-KV layout: {layout}")
         if args.pop("topk_value_mode", 1) != 1:
             raise OperatorUnavailableError(
-                "Legacy attention only supports logical compressed top-k indices"
+                "cann_9_1 attention only supports logical compressed top-k indices"
             )
         if args.pop("cmp_topk_length", None) is not None:
             raise OperatorUnavailableError(
-                "Legacy attention does not accept cmp_topk_length"
+                "cann_9_1 attention does not accept cmp_topk_length"
             )
         args.pop("ori_topk_length", None)
         args.pop("ori_topk", None)
         if args.get("ori_mask_mode", 4) == 0:
             # Native DSpark selects explicit indices by tensor presence, with the
-            # legacy SWA/window metadata ABI.
+            # cann_9_1 SWA/window metadata ABI.
             args["ori_mask_mode"] = 4
         if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
             args["cmp_mask_mode"] = 3
         if args.pop("quant_mode", 1) != 1:
             raise OperatorUnavailableError(
-                "Legacy packed KV supports quant_mode=1 only"
+                "cann_9_1 packed KV supports quant_mode=1 only"
             )
         args.update(kv_quant_mode=1, tile_size=64)
         if args.get("rope_head_dim", 64) != 64:
-            raise OperatorUnavailableError("Legacy packed KV requires rope_head_dim=64")
+            raise OperatorUnavailableError(
+                "cann_9_1 packed KV requires rope_head_dim=64"
+            )
         indices = kwargs.get("ori_sparse_indices")
         if kwargs.get("ori_mask_mode", 4) == 0 and indices is None:
             raise ValueError(
-                "Legacy explicit sparse attention requires ori_sparse_indices"
+                "cann_9_1 explicit sparse attention requires ori_sparse_indices"
             )
         if indices is not None:
             if kwargs.get("cmp_kv") is not None:
                 raise OperatorUnavailableError(
-                    "Legacy DSpark explicit original KV cannot be combined with compressed KV"
+                    "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
                 )
             family = sparse_host_family(True)
             args["ori_sparse_indices"] = logical_to_physical(
@@ -88,8 +90,8 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
             )
         args.pop("has_ori_kv", None)
         args.pop("has_cmp_kv", None)
-    if not family.legacy and args.get("ori_mask_mode", 4) == 0:
-        # Keep the public logical window for legacy, but disable it for the
+    if not family.cann_9_1 and args.get("ori_mask_mode", 4) == 0:
+        # Keep the public logical window for cann_9_1, but disable it for the
         # released explicit-index ABI, matching the metadata adapter.
         args.update(ori_win_left=-1, ori_win_right=-1)
     # Keyword quant_mode works with both released 9.1 and 9.2 schemas.
@@ -125,7 +127,7 @@ def mixed_quant_sparse_flash_mla(
 ):
     """Compute A5 mixed-quant sparse attention; return output and LSE.
 
-    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

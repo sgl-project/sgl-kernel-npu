@@ -19,14 +19,14 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     from ..attention.attention_utils import attention_family
 
     family = attention_family(True)
-    if family.legacy:
+    if family.cann_9_1:
         if (
             kwargs["quant_mode"] != "fp8_e8m0"
             or not kwargs["round_scale"]
             or kwargs["x_scale"] != 1.0
         ):
             raise OperatorUnavailableError(
-                "Legacy 640B KV writer requires fp8_e8m0, round_scale=True and x_scale=1"
+                "cann_9_1 640B KV writer requires fp8_e8m0, round_scale=True and x_scale=1"
             )
         family.ops[2](
             cache.view(torch.float8_e4m3fn).reshape(-1, 1, cache.shape[-1]),
@@ -69,11 +69,11 @@ def kv_compress_epilog(
 ):
     """Quantize and scatter A5 KV rows in place; -1 slots are skipped.
 
-    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     from .layout import (
-        LEGACY_NPU_KV_QUANT_PATH,
+        CANN_9_1_NPU_KV_QUANT_PATH,
         NPU_KV_QUANT_PATH,
         get_npu_kv_quant_path,
     )
@@ -83,7 +83,9 @@ def kv_compress_epilog(
             "The migrated DSV4 KV contract requires 64-element quantization groups"
         )
     if impl == "torch_native":
-        path = LEGACY_NPU_KV_QUANT_PATH if cache.shape[-1] == 640 else NPU_KV_QUANT_PATH
+        path = (
+            CANN_9_1_NPU_KV_QUANT_PATH if cache.shape[-1] == 640 else NPU_KV_QUANT_PATH
+        )
     else:
         path = get_npu_kv_quant_path()
     mode = path.writer_quant_mode if quant_mode is None else quant_mode

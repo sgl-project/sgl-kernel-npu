@@ -57,7 +57,7 @@ Project KV and gates; combine each compression window using normalized gate weig
 
 Retains the existing registration name; the compatibility wrapper selects original or released bindings by SDK. Metadata/compute pairing and A5 KV reader/writer format checks run before allocation or execution.
 
-`torch.ops.npu.compressor` supplies the fused contract; legacy A5 uses `torch.ops.custom.compressor`.
+`torch.ops.npu.compressor` supplies the fused contract; cann_9_1 A5 uses `torch.ops.custom.compressor`.
 
 ## torch_native
 

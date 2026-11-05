@@ -21,7 +21,7 @@ class NpuKvQuantPath(NamedTuple):
 
 
 NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 2, 32, 1)
-LEGACY_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
+CANN_9_1_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
 
 
 def get_npu_kv_quant_path():
@@ -29,5 +29,7 @@ def get_npu_kv_quant_path():
     from ..attention.attention_utils import attention_family
 
     return (
-        LEGACY_NPU_KV_QUANT_PATH if attention_family(True).legacy else NPU_KV_QUANT_PATH
+        CANN_9_1_NPU_KV_QUANT_PATH
+        if attention_family(True).cann_9_1
+        else NPU_KV_QUANT_PATH
     )

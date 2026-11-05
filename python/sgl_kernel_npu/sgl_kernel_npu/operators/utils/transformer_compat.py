@@ -25,7 +25,7 @@ class OperatorFamily(NamedTuple):
     names: tuple
 
     @property
-    def legacy(self):
+    def cann_9_1(self):
         return self.backend == "cann_9_1"
 
 
@@ -56,8 +56,8 @@ def has_released_ops():
 
 
 @functools.lru_cache(maxsize=1)
-def _load_legacy_library():
-    # The legacy Python extension registers torch.ops.custom on import.
+def _load_cann_9_1_library():
+    # The cann_9_1 Python extension registers torch.ops.custom on import.
     # Only an absent package is optional; broken dependencies must surface.
     try:
         importlib.import_module("custom_ops")
@@ -66,12 +66,12 @@ def _load_legacy_library():
             raise
     # A standalone registration library remains available for deployments
     # without the Python extension, or for additional custom bindings.
-    path = os.environ.get("SGL_KERNEL_NPU_LEGACY_OPS_SO")
+    path = os.environ.get("SGL_KERNEL_NPU_CANN_9_1_OPS_SO")
     if path:
         library = Path(path).expanduser().resolve(strict=True)
         if not library.is_file():
             raise OperatorUnavailableError(
-                f"Legacy operator library is not a file: {library}"
+                f"cann_9_1 operator library is not a file: {library}"
             )
         torch.ops.load_library(str(library))
 
@@ -81,7 +81,7 @@ def optional_op(namespace, name):
     if namespace == "cann_ops_transformer" and not has_released_ops():
         return None
     if namespace == "custom":
-        _load_legacy_library()
+        _load_cann_9_1_library()
     return getattr(getattr(torch.ops, namespace), name, None)
 
 
@@ -90,10 +90,10 @@ def _lookup(specs):
 
 
 @functools.lru_cache(maxsize=None)
-def select_family(released, legacy, *, required_arguments=()):
+def select_family(released, cann_9_1, *, required_arguments=()):
     """Require the complete family selected by the SDK version, without fallback."""
     backend = cann_backend()
-    specs = released if backend == "cann_ops_transformer" else legacy
+    specs = released if backend == "cann_ops_transformer" else cann_9_1
     ops = _lookup(specs)
     missing = [f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None]
     for op in ops:
