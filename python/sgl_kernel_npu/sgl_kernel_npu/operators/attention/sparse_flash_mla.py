@@ -2,6 +2,7 @@
 
 import torch
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from ..utils.transformer_compat import (
     OperatorUnavailableError,
@@ -9,9 +10,12 @@ from ..utils.transformer_compat import (
     require_op,
 )
 from .attention_utils import logical_to_physical
+from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
 
 
-@register_impl("attention.sparse_flash_mla", "auto")
+@register_impl(
+    "attention.sparse_flash_mla", "auto", supported_generations={Generation.ARCH22}
+)
 def _auto_sparse_flash_mla(q, **kwargs):
     backend = cann_backend()
     if backend == "cann_9_1":
@@ -23,7 +27,16 @@ def _auto_sparse_flash_mla(q, **kwargs):
     return get_impl_by_name("attention.sparse_flash_mla", backend)(q, **kwargs)
 
 
-@register_impl("attention.sparse_flash_mla", "cann_ops_transformer_cann920")
+@register_impl(
+    "attention.sparse_flash_mla",
+    "cann_ops_transformers_cann920",
+    supported_generations={Generation.ARCH22},
+)
+@register_impl(
+    "attention.sparse_flash_mla",
+    "cann_ops_transformer_cann920",
+    supported_generations={Generation.ARCH22},
+)
 def _cann_sparse_flash_mla(q, **kwargs):
     op = require_op(
         "cann_ops_transformer",
@@ -132,9 +145,27 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
 
 @register_impl("attention.sparse_flash_mla", "torch_native")
 def _torch_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.attention import sparse_flash_mla
+    from ...implementation.torch_native.attention.metadata import ReferenceMetadata
 
-    return sparse_flash_mla(q, **kwargs)
+    # DSpark and migrated tests carry independently built reference descriptors.
+    # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
+    # opaque production metadata and the CANN 9.2 LSE layout.
+    if isinstance(kwargs.get("metadata"), ReferenceMetadata) or kwargs.get(
+        "ori_sparse_indices"
+    ) is not None:
+        from ...implementation.torch_native.attention.attention import sparse_flash_mla
+    else:
+        from ...implementation.torch_native.attention.sparse_flash_mla import (
+            sparse_flash_mla,
+        )
+    return sparse_flash_mla(
+        q,
+        **{
+            key: value
+            for key, value in kwargs.items()
+            if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+        },
+    )
 
 
 @register_operator("attention.sparse_flash_mla")

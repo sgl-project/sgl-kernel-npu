@@ -1,101 +1,218 @@
-# 共享 KV 稀疏注意力
+# sparse_flash_mla
 
-## 硬件支持
+下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
 
-| 实现 | ARCH22 / A3 | ARCH35 / A5 |
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+
+
+## CANN 9.1 兼容
+
+`cann_ops_transformer_cann920` 与主仓的
+`cann_ops_transformers_cann920` 是同一个随包 CANN 9.2 实现的注册名。
+CANN 9.1 的窗口输入走 `ops_transformer_cann910`；显式原始 KV 稀疏输入
+使用 `ascendc` 计算和 `host` metadata，并且不能同时提供压缩 KV。
+Host metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
+`seqused_ori_kv_cpu` 镜像。绑定从 wheel 的 third-party 目录加载，无需独立算子包。
+A5 使用单独的 mixed-quant sparse API。
+
+迁移测试中的 `torch_native` metadata 返回独立参考描述符，不生成原生 tiling
+字节；配对测试分别构造参考描述符。主仓计算参考也接受不透明的原生 metadata，
+并覆盖 SWA/CSA/HCA 与 BSND。原生 metadata 的字节布局取决于 SDK。
+
+## 芯片支持
+
+| 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | 支持 | 支持 |
-| `ops_transformer_cann910` | 支持 | 支持 |
-| `ascendc` | 支持 | 支持 |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | 支持 | 不支持 |
+| CANN 9.1 `ops_transformer_cann910`、`ascendc` / `host` | 支持 | 不支持 |
 | `torch_native` | 支持 | 支持 |
 
-## 接口
+## 函数原型
+
+在 arch22 上，`auto` 根据当前 SDK 选择 CANN 9.1 或 9.2 实现。下列完整参数说明对应 CANN 9.2；未传参数使用所选绑定的默认值。
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla
 
-def sparse_flash_mla(q, *, impl='auto', **kwargs):
+def sparse_flash_mla(
+    q,
+    *,
+    ori_kv=None,
+    cmp_kv=None,
+    ori_sparse_indices=None,
+    cmp_sparse_indices=None,
+    ori_block_table=None,
+    cmp_block_table=None,
+    cu_seqlens_q=None,
+    cu_seqlens_ori_kv=None,
+    cu_seqlens_cmp_kv=None,
+    seqused_q=None,
+    seqused_ori_kv=None,
+    seqused_cmp_kv=None,
+    cmp_residual_kv=None,
+    ori_topk_length=None,
+    cmp_topk_length=None,
+    sinks=None,
+    metadata=None,
+    softmax_scale=1.0,
+    cmp_ratio=1,
+    ori_mask_mode=0,
+    cmp_mask_mode=0,
+    ori_win_left=-1,
+    ori_win_right=-1,
+    layout_q="BSND",
+    layout_kv="BSND",
+    topk_value_mode=1,
+    return_softmax_lse=False,
+    impl="auto",
+):
     ...
 ```
 
-`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。
+## 功能说明
 
-## 说明
+使用共享 KV（Key 与 Value 是同一份输入）计算稀疏 MLA 注意力，覆盖三类场景：
 
-参考支持 BF16 Q/KV、一个共享 KV 头；稀疏索引是分页 KV 的逻辑位置。
+- **SWA**：只用 `ori_kv`，对原始 KV 做滑动窗口注意力，不传 `cmp_kv`，`cmp_ratio=1`。
+- **CSA**：同时使用 `ori_kv` 窗口和由 `cmp_sparse_indices` 选出的压缩 KV，`cmp_ratio` 取 1、2 或 4。
+- **HCA**：同时使用 `ori_kv` 窗口和连续的压缩 KV 段，`cmp_ratio` 取 128。
 
-`O = softmax(QKᵀ × softmax_scale + mask) V`；sink 参与归一化分母，原始和压缩 KV 分别应用可见性规则。
+设第 $i$ 个 query 位置的有效 query 长度与 KV 长度分别为 $L_q$、$L_{ori}$、$L_{cmp}$，压缩前长度为 $L_{restored}=L_{cmp}\cdot r+\rho$（$r$ 为 `cmp_ratio`，$\rho$ 为 `cmp_residual_kv`），则：
 
-## 参数
+$$
+\theta_i = L_{ori} - L_q + i + 1,\qquad
+\Omega_i = \left[\max(\theta_i - w_{left} - 1, 0),\ \min(\max(\theta_i + w_{right}, 0), L_{ori})\right)
+$$
 
-| 参数 | 类型 | 默认值 | 约束 |
+其中 $w_{left}$、$w_{right}$ 为 `ori_win_left`、`ori_win_right`。压缩侧上限为
+
+$$
+\kappa_i = \min\left(\max\left(\left\lfloor\frac{L_{restored} - L_q + i + 1}{r}\right\rfloor, 0\right), L_{cmp}\right)
+$$
+
+`cmp_mask_mode=3` 时只取小于 $\kappa_i$ 的压缩 token，`0` 时取全部 $L_{cmp}$ 个。CSA 按 `cmp_sparse_indices` 给出的 token 编号取数，编号 `-1` 表示终止；HCA 直接取 $[0, \kappa_i)$。参与 softmax 的键为 $K = K_{ori}[\Omega_i] \Vert K_{cmp}[\text{选中}]$，Value 取同一份数据：
+
+$$
+A_{ij}=\alpha Q_iK_j^\top,\qquad
+Z_i=\sum_j e^{A_{ij}}+\delta,\qquad
+O_i=\frac{\sum_j e^{A_{ij}}V_j}{Z_i},\qquad
+\mathrm{LSE}_i=\log Z_i.
+$$
+
+$\alpha$ 为 `softmax_scale`。无 sink 时 $\delta=0$；存在第 $n$ 个 head 的 sink logit $s_n$ 时 $\delta=e^{s_n}$。既无 `ori_kv` 窗口也无压缩 token 时，该行输出为零。
+
+## 参数与返回值
+
+所有 tensor 使用相同设备；CANN 实现要求 NPU tensor。下文 `B` 为请求数，`T` 为打包后的 query token 总数，`S` 为填充后的 query 长度，`N1`/`N2` 为 query/KV 头数，`D` 为头维度，`P` 为物理页数。
+
+| 参数 | 类型 / Shape / Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- |
-| q | Tensor | 必填 | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+| `q` | Tensor；`[T,N1,D]`（TND）或 `[B,S,N1,D]`；BF16/FP16 | 必填 | 非空 Query；CANN 要求 `D=512`。 |
+| `ori_kv` | Tensor；按 `layout_kv` 为 `[T,N2,D]`、`[B,S,N2,D]` 或 `[P,page_size,N2,D]`；与 `q` 同 dtype | 必填 | 未压缩的共享 K/V。 |
+| `cmp_kv` | 同上；可选 | `None` | 压缩后的共享 K/V；SWA 不传。 |
+| `ori_sparse_indices` | 可选 Tensor；int32 | `None` | Atlas A2/A3 暂不支持，必须不传。 |
+| `cmp_sparse_indices` | 可选 Tensor；int32；TND 为 `[T,N2,K]`，BSND 为 `[B,S,N2,K]` | `None` | CSA 必传；编号指向压缩 token，`-1` 终止。 |
+| `ori_block_table`、`cmp_block_table` | 可选 Tensor `[B,L]`；int32 | `None` | `PA_BBND` 必传。 |
+| `cu_seqlens_q`、`cu_seqlens_ori_kv`、`cu_seqlens_cmp_kv` | 可选 Tensor `[B+1]`；int32 | `None` | TND 布局的打包边界，首元素为 0。 |
+| `seqused_q`、`seqused_ori_kv`、`seqused_cmp_kv` | 可选 Tensor `[B]`；int32 | `None` | 每个请求的有效长度；`PA_BBND` 必传 KV 侧两个。 |
+| `cmp_residual_kv` | Tensor `[B]`；int32 | `None` | 压缩余数，每个元素小于 `cmp_ratio`；`cmp_mask_mode=3` 且 `cmp_ratio!=1` 时必传，其余情况不允许传。 |
+| `ori_topk_length` | 可选 Tensor；int32 | `None` | 对应 `ori_sparse_indices` 的有效长度，A2/A3 不使用。 |
+| `cmp_topk_length` | 可选 Tensor；int32；TND 为 `[T,N2]`，BSND 为 `[B,S,N2]` | `None` | `cmp_sparse_indices` 的有效长度；Atlas A2/A3 为保留字段，必须不传。 |
+| `sinks` | Tensor `[N1]`；float32 | `None` | 每个 head 的 softmax sink logit；Atlas A2/A3 的 kernel 要求必须传入（不能为空、也不能省略）。 |
+| `metadata` | Tensor `[2048]`；int32 | 必填 | [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 生成的分核信息。 |
+| `softmax_scale` | `float` | `1.0` | QK 分数缩放系数，不会根据头维度自动推断。 |
+| `cmp_ratio` | `int` | `1` | 压缩倍率；SWA 为 1，CSA 为 1/2/4，HCA 为 128。 |
+| `ori_mask_mode` | `int` | `0` | `0` 无掩码；`3` 因果；`4` 滑动窗口。 |
+| `cmp_mask_mode` | `int` | `0` | `0` 无掩码；`3` 因果；SWA 用 0，CSA/HCA 用 3。 |
+| `ori_win_left`、`ori_win_right` | `int` | `-1` | 模式 4 的窗口左右边界；Atlas A3 要求 127 和 0。 |
+| `layout_q` | `str` | `"BSND"` | `BSND` 或 `TND`。 |
+| `layout_kv` | `str` | `"BSND"` | `BSND`、`TND` 或 `PA_BBND`。 |
+| `topk_value_mode` | `int` | `1` | 索引取值约定；Atlas A2/A3 仅支持 1。 |
+| `return_softmax_lse` | `bool` | `False` | 是否返回 FP32 log-sum-exp。 |
+| `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`cann_ops_transformers_cann920` 或 `torch_native`。 |
 
-### 关键字参数
+返回 `(attention_out, softmax_lse)`，不修改输入。
 
-| 名称 | 类型 | 约束 |
+| 返回值 | 类型 / Shape / Dtype | 描述 |
 | --- | --- | --- |
-| ori_kv / cmp_kv | Tensor / None | Original/optional compressed paged KV [pages,page_size,1,D]; BF16 or SDK-selected packed bytes. |
-| ori_block_table / cmp_block_table | int32 Tensor / None | [B,max_pages] logical-to-physical page tables. |
-| cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
-| seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
-| ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
-| sinks | Tensor / None | Optional per-head softmax sink logits. |
-| metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
-| softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
-| ori_mask_mode / cmp_mask_mode | int | Reference supports original explicit 0 or SWA 4; compressed 0 or causal 3. |
-| ori_win_left / ori_win_right | int | Original visibility window; reference defaults 127 / 0. |
-| layout_q / layout_kv | str | Reference defaults TND / PA_BBND; BSND queries also supported. |
-| return_softmax_lse | bool | Default False; unused LSE is an empty FP32 tensor. |
-| quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
+| `attention_out` | Tensor；与 `q` 同 shape、同 dtype、同设备 | 注意力输出。 |
+| `softmax_lse` | Tensor；float32；TND 为 `[N2,T,N1/N2]`，BSND 为 `[B,N2,S,N1/N2]` | 启用时为 log-sum-exp；关闭时为空 tensor `[0]`。 |
 
-## 返回值
+## 约束
 
-| 名称 | 类型 | 约束 |
-| --- | --- | --- |
-| out | Tensor | Query token/head geometry with KV value width, query activation dtype. |
-| lse | FP32 Tensor | Per-query/head LSE if requested, otherwise empty. |
+- `metadata` 必须由 [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 用与本次调用完全一致的布局、长度、压缩率、TopK、Mask、窗口和 KV 存在性标志生成；不一致时行为未定义。
+- Atlas A2/A3 的 `num_heads_q` 只能取 1、2、4、8、16、32、64、128，`num_heads_kv` 只能为 1，`head_dim` 只能为 512。
+- Atlas A2/A3 的 `ori_win_left` 必须为 127、`ori_win_right` 必须为 0；`cmp_ratio` 在 SWA 必须为 1，CSA 只能为 1/2/4，HCA 只能为 128。
+- Atlas A2/A3 不支持 `ori_sparse_indices`（`ori_topk` 只能为 0），`topk_value_mode` 只能为 1。
+- `sinks` 必须是一维、长度等于 `num_heads_q`、dtype 为 float32 的非空张量；Atlas A2/A3 的 kernel 不接受 `None`。
+- `cmp_topk_length` 在 Atlas A2/A3 上是保留字段，即使 CSA 场景也必须不传。
+- `cmp_residual_kv[i] < cmp_ratio`；`cmp_kv` 存在且 `cmp_mask_mode=3`、`cmp_ratio!=1` 时必须传入，`cmp_mask_mode=0` 或 `cmp_ratio=1` 时不允许传入。
+- `PA_BBND` 要求 `seqused_ori_kv`、`ori_block_table`（以及对应压缩侧参数）同时传入；block size 为 16 的倍数，最大 1024。
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920 后端
 
-使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
+需要 CANN 9.2.0，以及 wheel 内置的 ops-transformer 依赖。首次调用可能编译适配代码，请保留 C++ 编译环境。
 
-## ops_transformer_cann910
+不要在同一个 Python 环境里另外安装独立构建的 ops-transformer 及其 vendor：它与 wheel 内置的 vendor 声明同名算子，两者会互相覆盖。
 
-Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+CANN 9.2.0 自带同名算子 `SparseFlashMla`。请在导入 `torch_npu` 之前先导入 `sgl_kernel_npu`（或在启动进程前把 `ASCEND_CUSTOM_OPP_PATH` 指向 wheel 内的 vendor），否则可能命中 CANN 内置实现，出现 `metadata` 尺寸校验失败。
 
-## ascendc
+## torch_native 后端
 
-Source: [sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+用于精度对比，在输入设备上使用 FP32 计算，输出转换为 `q.dtype`。支持 `BSND`/`TND` Query、`BSND`/`TND`/`PA_BBND` KV、SWA/CSA/HCA 三类场景、sink logit 和 `return_softmax_lse`；不支持 `ori_sparse_indices` 与 `topk_value_mode!=1`。`metadata` 只作为不透明调度数据忽略，不适合图捕获；与 CANN 实现可能存在浮点舍入差异。
 
-## torch_native
-
-独立 eager PyTorch 参考；仅用于正确性检查，不自动替代生产实现，也不保证图捕获。元数据描述对象不等价于原生 tiling 字节。上述参考支持域外的模式会明确拒绝。
-
-## 示例
+## 调用示例
 
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import sparse_flash_mla
 
-q = torch.randn(1, 1, 512, device="npu", dtype=torch.bfloat16)
-i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
-kw = dict(cu_seqlens_q=i32([0, 1]), seqused_ori_kv=i32([1]),
-          ori_block_table=i32([[0]]), layout_q="TND", layout_kv="PA_BBND",
-          ori_mask_mode=4, cmp_mask_mode=3, cmp_ratio=1)
-cache = torch.randn(1, 128, 1, 512, device="npu", dtype=torch.bfloat16)
-out, lse = sparse_flash_mla(q, ori_kv=cache, impl="torch_native", **kw)
+from sgl_kernel_npu.operators.attention import (
+    sparse_flash_mla,
+    sparse_flash_mla_metadata,
+)
+
+device = "npu"
+q = torch.randn((16, 8, 512), device=device, dtype=torch.bfloat16) * 0.1
+ori_kv = torch.randn((1, 128, 1, 512), device=device, dtype=torch.bfloat16) * 0.1
+ori_table = torch.tensor([[0]], device=device, dtype=torch.int32)
+seqused_ori = torch.tensor([128], device=device, dtype=torch.int32)
+sinks = torch.zeros((8,), device=device, dtype=torch.float32)
+boundaries = torch.tensor([0, 16], device=device, dtype=torch.int32)
+
+metadata = sparse_flash_mla_metadata(
+    8, 1, 512,
+    cu_seqlens_q=boundaries,
+    seqused_ori_kv=seqused_ori,
+    max_seqlen_q=16,
+    max_seqlen_ori_kv=128,
+    ori_topk=0,
+    cmp_topk=0,
+    cmp_ratio=1,
+    ori_mask_mode=4,
+    cmp_mask_mode=0,
+    ori_win_left=127,
+    ori_win_right=0,
+    layout_q="TND",
+    layout_kv="PA_BBND",
+    has_ori_kv=True,
+    has_cmp_kv=False,
+)
+out, lse = sparse_flash_mla(
+    q,
+    ori_kv=ori_kv,
+    ori_block_table=ori_table,
+    cu_seqlens_q=boundaries,
+    seqused_ori_kv=seqused_ori,
+    sinks=sinks,
+    metadata=metadata,
+    softmax_scale=512**-0.5,
+    ori_mask_mode=4,
+    ori_win_left=127,
+    ori_win_right=0,
+    layout_q="TND",
+    layout_kv="PA_BBND",
+    return_softmax_lse=True,
+)
+print(out.shape, lse.shape)  # [16, 8, 512], [1, 16, 8]
 ```
-
-先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
-
-```bash
-python3 -m pytest tests/python/operators/attention/test_sparse_flash_mla.py \
-  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
-```
-
-[上游算子仓库](https://github.com/Ascend/ops-transformer)

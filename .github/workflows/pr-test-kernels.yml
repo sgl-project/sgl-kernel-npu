@@ -1,5 +1,5 @@
 name: PR Test - Kernel Operators (Ascend NPU)
-
+# Build and install the kernel wheel before running operator tests.
 on:
   pull_request:
     branches: [ main ]
