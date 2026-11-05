@@ -1,9 +1,9 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
 The caller owns initialized MemFabric resources and Host storage.
-Eager inputs, sparse-copy metadata and pinned staging stay alive until their
-completion event. Captured device tables belong to the graph memory pool;
-captured pinned constants stay with the caller-owned static indices.
+Eager inputs, sparse-copy metadata and AIV pinned staging stay alive until their
+completion event. Captured metadata belongs to the graph memory pool; callers
+retain graph inputs and MF resources.
 """
 
 from collections import deque
@@ -17,6 +17,7 @@ _LENGTH_DTYPE = torch.int32
 # AICPU input limit: HYBM_SPARSE_COPY_MAX_RECORDS / HYBM_SDMA_MAX_RECORDS.
 MAX_SPARSE_COPY_ENTRIES = 65536
 _KV_COMPONENT_NAMES = ("k", "v", "index_k", "index_k_scale")
+_KV_RUNTIME_FIELDS = ("device_base", "host_base", "device_pages", "host_pages")
 _submit_lock = Lock()
 _last_sparse_submission = {}
 _inflight = deque()
@@ -46,82 +47,157 @@ def _check_component(device, host, page_size, index_device):
         )
 
 
-@triton.jit(do_not_specialize=["pages"])
+@triton.jit(
+    do_not_specialize=["pages"]
+    + [
+        f"{name}_{field}"
+        for name in _KV_COMPONENT_NAMES
+        for field in _KV_RUNTIME_FIELDS
+    ]
+)
 def _build_kv_sparse_metadata_kernel(
     device_indices,
     host_indices,
-    component_meta,
     src,
     dst,
     lengths,
     count,
     pages,
+    k_device_base,
+    k_host_base,
+    k_device_pages,
+    k_host_pages,
+    k_layers: tl.constexpr,
+    k_device_layer_stride: tl.constexpr,
+    k_device_page_stride: tl.constexpr,
+    k_host_layer_stride: tl.constexpr,
+    k_host_page_stride: tl.constexpr,
+    k_page_bytes: tl.constexpr,
+    v_device_base,
+    v_host_base,
+    v_device_pages,
+    v_host_pages,
+    v_layers: tl.constexpr,
+    v_device_layer_stride: tl.constexpr,
+    v_device_page_stride: tl.constexpr,
+    v_host_layer_stride: tl.constexpr,
+    v_host_page_stride: tl.constexpr,
+    v_page_bytes: tl.constexpr,
+    index_k_device_base,
+    index_k_host_base,
+    index_k_device_pages,
+    index_k_host_pages,
+    index_k_layers: tl.constexpr,
+    index_k_device_layer_stride: tl.constexpr,
+    index_k_device_page_stride: tl.constexpr,
+    index_k_host_layer_stride: tl.constexpr,
+    index_k_host_page_stride: tl.constexpr,
+    index_k_page_bytes: tl.constexpr,
+    index_k_scale_device_base,
+    index_k_scale_host_base,
+    index_k_scale_device_pages,
+    index_k_scale_host_pages,
+    index_k_scale_layers: tl.constexpr,
+    index_k_scale_device_layer_stride: tl.constexpr,
+    index_k_scale_device_page_stride: tl.constexpr,
+    index_k_scale_host_layer_stride: tl.constexpr,
+    index_k_scale_host_page_stride: tl.constexpr,
+    index_k_scale_page_bytes: tl.constexpr,
     PAGE_SIZE: tl.constexpr,
     H2D: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
-    # Header: total selected layers. Each active component has one 11-int row:
-    # device/host bases, device/host page capacities, layers, device layer/page
-    # strides, host layer/page strides, page bytes, and output layer offset.
+    # Inputs stay flat at the launcher boundary. Index tuple literals directly:
+    # older frontends do not reliably support assigning a tuple to one name.
+    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    entry = offsets.to(tl.int64)
     component = tl.program_id(1)
-    meta = component_meta + 1 + component * 11
-    device_base = tl.load(meta + 0).to(tl.uint64)
-    host_base = tl.load(meta + 1).to(tl.uint64)
-    device_pages = tl.load(meta + 2)
-    host_pages = tl.load(meta + 3)
-    layers = tl.load(meta + 4).to(tl.int32)
-    device_layer_stride = tl.load(meta + 5)
-    device_page_stride = tl.load(meta + 6)
-    host_layer_stride = tl.load(meta + 7)
-    host_page_stride = tl.load(meta + 8)
-    page_bytes = tl.load(meta + 9).to(tl.int32)
-    layer_offset = tl.load(meta + 10).to(tl.int32)
-
-    entry = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    mask = entry < pages * layers
-    output = pages * layer_offset + entry
-    page = (entry // layers).to(tl.int64)
-    layer = entry % layers
-    dt = tl.load(device_indices + page * PAGE_SIZE, mask=mask, other=0)
-    ht = tl.load(host_indices + page * PAGE_SIZE, mask=mask, other=0)
-    dp = dt // PAGE_SIZE
-    hp = ht // PAGE_SIZE
-    valid = (
-        (dt >= 0)
-        & (ht >= 0)
-        & (dt % PAGE_SIZE == 0)
-        & (ht % PAGE_SIZE == 0)
-        & (dp < device_pages)
-        & (hp < host_pages)
-    )
-    daddr = device_base + (layer * device_layer_stride + dp * device_page_stride).to(
-        tl.uint64
-    )
-    haddr = host_base + (layer * host_layer_stride + hp * host_page_stride).to(
-        tl.uint64
-    )
-    # Rejected records keep safe pool addresses and a negative length.
-    select = (-valid.to(tl.int64)).to(tl.uint64)
-    daddr = (daddr & select) | (device_base & ~select)
-    haddr = (haddr & select) | (host_base & ~select)
-    tl.store(src + output, haddr if H2D else daddr, mask=mask)
-    tl.store(dst + output, daddr if H2D else haddr, mask=mask)
-    tl.store(lengths + output, tl.where(valid, page_bytes, -1), mask=mask)
+    layer_offset = 0
+    active_component = 0
+    for c in tl.static_range(4):
+        # Keep the presence check constexpr, including on older frontends.
+        if (k_layers, v_layers, index_k_layers, index_k_scale_layers)[c] > 0:
+            # fmt: off
+            (
+                device_base, host_base, device_pages, host_pages,
+                layers, device_layer_stride, device_page_stride,
+                host_layer_stride, host_page_stride, page_bytes,
+            ) = (
+                (k_device_base, k_host_base,
+                 k_device_pages, k_host_pages,
+                 k_layers, k_device_layer_stride, k_device_page_stride,
+                 k_host_layer_stride, k_host_page_stride, k_page_bytes),
+                (v_device_base, v_host_base,
+                 v_device_pages, v_host_pages,
+                 v_layers, v_device_layer_stride, v_device_page_stride,
+                 v_host_layer_stride, v_host_page_stride, v_page_bytes),
+                (index_k_device_base, index_k_host_base,
+                 index_k_device_pages, index_k_host_pages,
+                 index_k_layers, index_k_device_layer_stride, index_k_device_page_stride,
+                 index_k_host_layer_stride, index_k_host_page_stride, index_k_page_bytes),
+                (index_k_scale_device_base, index_k_scale_host_base,
+                 index_k_scale_device_pages, index_k_scale_host_pages,
+                 index_k_scale_layers,
+                 index_k_scale_device_layer_stride, index_k_scale_device_page_stride,
+                 index_k_scale_host_layer_stride, index_k_scale_host_page_stride,
+                 index_k_scale_page_bytes),
+            )[c]
+            # fmt: on
+            if component == active_component:
+                mask = offsets < pages * layers
+                output = pages * layer_offset + entry
+                page = entry // layers
+                layer = entry % layers
+                dt = tl.load(device_indices + page * PAGE_SIZE, mask=mask, other=0)
+                ht = tl.load(host_indices + page * PAGE_SIZE, mask=mask, other=0)
+                dp = dt // PAGE_SIZE
+                hp = ht // PAGE_SIZE
+                valid = (
+                    (dt >= 0)
+                    & (ht >= 0)
+                    & (dt % PAGE_SIZE == 0)
+                    & (ht % PAGE_SIZE == 0)
+                    & (dp < device_pages)
+                    & (hp < host_pages)
+                )
+                dbase = device_base.to(tl.uint64)
+                hbase = host_base.to(tl.uint64)
+                daddr = dbase + (
+                    layer * device_layer_stride + dp * device_page_stride
+                ).to(tl.uint64)
+                haddr = hbase + (layer * host_layer_stride + hp * host_page_stride).to(
+                    tl.uint64
+                )
+                # Rejected records keep safe pool addresses and a negative length.
+                select = (-valid.to(tl.int64)).to(tl.uint64)
+                daddr = (daddr & select) | (dbase & ~select)
+                haddr = (haddr & select) | (hbase & ~select)
+                tl.store(src + output, haddr if H2D else daddr, mask=mask)
+                tl.store(dst + output, daddr if H2D else haddr, mask=mask)
+                tl.store(lengths + output, tl.where(valid, page_bytes, -1), mask=mask)
+            active_component += 1
+            layer_offset += layers
     if (component == 0) & (tl.program_id(0) == 0):
-        tl.store(count, pages * tl.load(component_meta))
+        tl.store(
+            count, pages * (k_layers + v_layers + index_k_layers + index_k_scale_layers)
+        )
 
 
 def build_kv_sparse_metadata(
-    components, device_indices, host_indices, page_size, direction, *, keepalive=None
+    components, device_indices, host_indices, page_size, direction
 ):
-    """Upload compact component metadata and build all output tables in one launch."""
+    """Build all address tables in one launch with scalar component arguments.
+
+    Addresses and page capacities remain runtime values. Layer counts, byte
+    strides and page sizes are scalar constexprs. The launcher receives no tuple
+    arguments, and component selection needs no metadata tensor or upload.
+    """
     if len(components) != len(_KV_COMPONENT_NAMES) or components[0] is None:
         raise ValueError(
             "sparse KV metadata requires four component slots with K present"
         )
     pages = device_indices.numel() // page_size
-    total_layers = sum(pair[0].shape[0] for pair in components if pair is not None)
-    total = pages * total_layers
+    total = pages * sum(pair[0].shape[0] for pair in components if pair is not None)
     if total > MAX_SPARSE_COPY_ENTRIES:
         raise ValueError(
             f"single-batch sparse_copy supports at most {MAX_SPARSE_COPY_ENTRIES} "
@@ -132,17 +208,17 @@ def build_kv_sparse_metadata(
     dst = torch.empty_like(src)
     lengths = torch.empty((total,), dtype=_LENGTH_DTYPE, device=device)
     count = torch.empty((1,), dtype=torch.int32, device=device)
-    values = [total_layers]
-    layer_offset = 0
+    component_args = []
     max_layers = 0
     active_components = 0
     for pair in components:
         if pair is None:
+            component_args.extend((0,) * 10)
             continue
         dev, host = pair
         item_size = dev.element_size()
         layers = dev.shape[0]
-        values.extend(
+        component_args.extend(
             (
                 dev.data_ptr(),
                 host.data_ptr(),
@@ -154,31 +230,21 @@ def build_kv_sparse_metadata(
                 host.stride(1) * item_size,
                 host.stride(0) * item_size,
                 page_size * dev.shape[3] * dev.shape[4] * item_size,
-                layer_offset,
             )
         )
-        layer_offset += layers
         max_layers = max(max_layers, layers)
         active_components += 1
-    pinned_meta = torch.tensor(values, dtype=torch.int64, device="cpu", pin_memory=True)
-    component_meta = torch.empty(pinned_meta.shape, dtype=torch.int64, device=device)
-    if keepalive is None:
-        # Direct callers own the returned count tensor through completion.
-        count._sgl_kv_metadata = pinned_meta, component_meta
-    else:
-        keepalive.extend((pinned_meta, component_meta))
-    component_meta.copy_(pinned_meta, non_blocking=True)
     _build_kv_sparse_metadata_kernel[
         (max(1, triton.cdiv(pages * max_layers, 128)), active_components)
     ](
         device_indices,
         host_indices,
-        component_meta,
         src,
         dst,
         lengths,
         count,
         pages,
+        *component_args,
         PAGE_SIZE=page_size,
         H2D=direction == 1,
         BLOCK=128,
@@ -269,7 +335,7 @@ def _submit_aicpu(offload, components, di, hi, page_size, direction, device, kee
     # Preserve sparse_copy's existing address contract: pass the Host pool
     # pointers through unchanged, as in transfer_kv_sparse_copy.
     src, dst, lengths, count = build_kv_sparse_metadata(
-        components, di, hi, page_size, direction, keepalive=keepalive
+        components, di, hi, page_size, direction
     )
     keepalive.extend((src, dst, lengths, count))
     ret = offload.sparse_copy(src, dst, lengths, count, device)
@@ -376,18 +442,7 @@ def transfer_kv(
             # Allocations made here belong to the graph pool. Eager completion
             # events cannot govern replay lifetimes, and event queries are not
             # capture-safe. The caller orders replays and retains static inputs.
-            captured_buffers = []
-            _submit_aicpu(offload, components, device_indices.contiguous(), host_indices.contiguous(), page_size, direction, device, captured_buffers)  # fmt: skip
-            # Captured H2D nodes read their pinned source again on replay.
-            # The caller already retains these original static indices for
-            # the graph lifetime; retain only CPU staging with that owner.
-            staging = getattr(device_indices, "_sgl_kv_capture_staging", None)
-            if staging is None:
-                staging = []
-                device_indices._sgl_kv_capture_staging = staging
-            staging.extend(
-                tensor for tensor in captured_buffers if tensor.device.type == "cpu"
-            )
+            _submit_aicpu(offload, components, device_indices.contiguous(), host_indices.contiguous(), page_size, direction, device, [])  # fmt: skip
             return
         while _inflight and _inflight[0][0].query():
             _inflight.popleft()
