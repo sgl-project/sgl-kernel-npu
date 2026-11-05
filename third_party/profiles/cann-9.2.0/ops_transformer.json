@@ -1,8 +1,32 @@
 {
   "name": "sgl_ops_transformer",
   "ops": {
-    "arch22": [],
-    "arch35": ["flash_mla", "flash_mla_metadata"]
+    "arch22": [
+      "sparse_flash_mla",
+      "sparse_flash_mla_metadata",
+      "quant_lightning_indexer",
+      "quant_lightning_indexer_metadata",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "mla_prolog",
+      "inplace_partial_rotary_mul"
+    ],
+    "arch35": [
+      "quant_flash_attn",
+      "quant_flash_attn_metadata",
+      "flash_mla",
+      "flash_mla_metadata",
+      "mixed_quant_sparse_flash_mla",
+      "mixed_quant_sparse_flash_mla_metadata",
+      "quant_lightning_indexer",
+      "quant_lightning_indexer_metadata",
+      "kv_compress_epilog",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "mla_prolog",
+      "inplace_partial_rotary_mul",
+      "indexer_quant_cache"
+    ]
   },
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "37c98efe33ee7faf7d17882532dc1305221c727e",
