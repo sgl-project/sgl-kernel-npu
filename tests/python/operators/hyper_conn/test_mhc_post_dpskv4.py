@@ -9,7 +9,7 @@ from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# DeepSeek-V4-Flash: hidden_size=4096, hc_mult=4; see ../deepseek_v4_shapes.md.
+# DeepSeek-V4-Flash: hidden_size=4096, hc_mult=4.
 perf_shape = [(1, 4, 4096), (16, 4, 4096)]
 mhc_shapes = [
     pytest.param((1, 4, 4096), id="deepseek-v4-flash-decode-t1-hc4-h4096"),
