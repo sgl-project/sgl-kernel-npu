@@ -6,8 +6,6 @@ execution; a failed kernel is never retried with a different backend.
 
 import functools
 import importlib
-import os
-from pathlib import Path
 
 import torch
 
@@ -36,33 +34,22 @@ def cann_backend():
 @functools.lru_cache(maxsize=1)
 def has_released_ops():
     try:
-        importlib.import_module("cann_ops_transformer")
+        importlib.import_module("sgl_kernel_npu._third_party.sgl_ops_transformer.ops")
     except ModuleNotFoundError as error:
-        if error.name != "cann_ops_transformer":
-            raise  # A broken installed package is not an absent backend.
+        if error.name not in (
+            "sgl_kernel_npu._third_party",
+            "sgl_kernel_npu._third_party.sgl_ops_transformer",
+            "sgl_kernel_npu._third_party.sgl_ops_transformer.ops",
+        ):
+            raise
         return False
     return True
 
 
 @functools.lru_cache(maxsize=1)
 def _load_cann_9_1_library():
-    # The cann_9_1 Python extension registers torch.ops.custom on import.
-    # Only an absent package is optional; broken dependencies must surface.
-    try:
-        importlib.import_module("custom_ops")
-    except ModuleNotFoundError as error:
-        if error.name != "custom_ops":
-            raise
-    # A standalone registration library remains available for deployments
-    # without the Python extension, or for additional custom bindings.
-    path = os.environ.get("SGL_KERNEL_NPU_CANN_9_1_OPS_SO")
-    if path:
-        library = Path(path).expanduser().resolve(strict=True)
-        if not library.is_file():
-            raise OperatorUnavailableError(
-                f"cann_9_1 operator library is not a file: {library}"
-            )
-        torch.ops.load_library(str(library))
+    # The bundled recipes bridge registers the private Torch namespace.
+    importlib.import_module("sgl_kernel_npu._third_party.sgl_cann_recipes_infer")
 
 
 @functools.lru_cache(maxsize=None)
@@ -71,6 +58,7 @@ def optional_op(namespace, name):
         return None
     if namespace == "custom":
         _load_cann_9_1_library()
+        namespace = "sgl_cann_recipes_infer"
     return getattr(getattr(torch.ops, namespace), name, None)
 
 
