@@ -22,16 +22,12 @@ from tests.python.utils.performance import check_performance
 # Ordinary MLA reaches this operator only when M>=65536, B*K>=65536 or
 # N>=65536. With M<=1024 and these model dimensions, only attention TP=1
 # qualifies. DSA decode/verify on 910C also reaches it at higher attention TP.
+# For identical shapes within a family, keep one or two recent model profiles.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [
-    ("deepseek-v2", 128, 512, 128, (1,)),
-    ("deepseek-v3", 128, 512, 128, (1,)),
     ("deepseek-v3.1", 128, 512, 128, (1,)),
-    ("deepseek-r1", 128, 512, 128, (1,)),
     ("mistral-large-3", 128, 512, 128, (1,)),
     ("deepseek-v3.2", 128, 512, 128, (1, 2, 4, 8)),
-    ("glm-5", 64, 512, 256, (1, 2, 4, 8)),
-    ("glm-5.1", 64, 512, 256, (1, 2, 4, 8)),
     ("glm-5.2", 64, 512, 256, (1, 2, 4, 8)),
     ("glm-5.3-flash", 64, 512, 256, (1, 2, 4, 8)),
     ("longcat-flash-lite-sparse", 32, 512, 128, (1, 2, 4, 8)),
@@ -54,7 +50,7 @@ MODEL_SHAPES += [
         (tokens, heads // 8, 512, n),
         id=f"{model}-attn-tp8-tokens{tokens}",
     )
-    for model, heads, n in [("deepseek-v3.2", 128, 128), ("glm-5", 64, 256)]
+    for model, heads, n in [("deepseek-v3.2", 128, 128), ("glm-5.2", 64, 256)]
     for tokens in (15, 16, 17)
 ]
 ND_SHAPES = [
@@ -72,7 +68,7 @@ NZ_SHAPES = [
     # The SGLang callers use default ND. These extend direct API NZ coverage
     # to both model output widths without claiming an NZ model call path.
     pytest.param((8, 16, 512, 128), id="deepseek-v3.2-attn-tp8-tokens8-nz"),
-    pytest.param((8, 8, 512, 256), id="glm-5-attn-tp8-tokens8-nz"),
+    pytest.param((8, 8, 512, 256), id="glm-5.2-attn-tp8-tokens8-nz"),
 ]
 PERF_SHAPES = [(1, 128, 512, 128), (8, 16, 512, 128), (36, 128, 512, 128)]
 

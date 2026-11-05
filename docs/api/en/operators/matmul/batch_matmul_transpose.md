@@ -153,17 +153,15 @@ Model shapes are `(M, B, K, N)`, where
 `N = v_head_dim`. Use attention TP at the call site; it can differ from
 whole-model TP. The following verified checkpoints supply representative tests,
 rather than an exhaustive list of derived checkpoints:
+For identical shapes within a model family, keep one or two recent models.
+DeepSeek-V3.1/V3.2 represent ordinary MLA and DSA respectively; GLM retains
+5.2/5.3-Flash.
 
 | Shape ID prefix / checkpoint configuration | Total heads | K | N | Tested attention TP | Caller |
 | --- | --- | --- | --- | --- | --- |
-| [`deepseek-v2`](https://huggingface.co/deepseek-ai/DeepSeek-V2/blob/main/config.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
-| [`deepseek-v3`](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
 | [`deepseek-v3.1`](https://huggingface.co/deepseek-ai/DeepSeek-V3.1/blob/main/config.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
-| [`deepseek-r1`](https://huggingface.co/deepseek-ai/DeepSeek-R1/blob/main/config.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
 | [`mistral-large-3`](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-BF16/blob/main/params.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
 | [`deepseek-v3.2`](https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/config.json) | 128 | 512 | 128 | 1/2/4/8 | DSA |
-| [`glm-5`](https://huggingface.co/zai-org/GLM-5/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
-| [`glm-5.1`](https://huggingface.co/zai-org/GLM-5.1/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.2`](https://huggingface.co/zai-org/GLM-5.2/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA layers |
 | [`longcat-flash-lite-sparse`](https://huggingface.co/meituan-longcat/LongCat-Flash-Lite-Sparse/blob/main/config.json) | 32 | 512 | 128 | 1/2/4/8 | DSA |
@@ -186,13 +184,13 @@ neither treats it as a valid input nor changes that limit.
 Each model/TP combination tests `M = 1, 8, 36, 128, 1024`. M counts flattened
 input tokens, potentially including multiple verification candidates. These
 are representative loads, not fixed model batch sizes or captured requests.
-DeepSeek-V3.2 and GLM-5 additionally test M=15/16/17 at attention TP=8, covering
+DeepSeek-V3.2 and GLM-5.2 additionally test M=15/16/17 at attention TP=8, covering
 the tile boundary with both real output widths. Every shape covers FP16/BF16
 and random/zero inputs, checking output mutation and input preservation. No
 checkpoint weights are needed; tests use the operator's floating-point inputs
 even when the original checkpoint is quantized.
 
-For example, `glm-5-attn-tp8-tokens36` means A=`[36,8,512]`, W=`[8,512,256]`,
+For example, `glm-5.2-attn-tp8-tokens36` means A=`[36,8,512]`, W=`[8,512,256]`,
 C=`[36,8,256]`. Both SGLang callers use default ND and quant arguments. NZ
 cases with model prefixes extend direct API format coverage; they do not imply
 an NZ SGLang caller. Invalid-input tests remain `extra_checks`, excluded by

@@ -131,17 +131,14 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 `B = num_attention_heads / effective_attention_tp`、`K = kv_lora_rank`、
 `N = v_head_dim`。attention TP 取调用时生效的值，可能与整个模型的 TP 不同。
 以下是已经核对配置并加入用例的代表模型，不是所有派生 checkpoint 的穷举：
+同系列的相同 shape 仅保留一两个较新的模型作为代表。DeepSeek 保留 V3.1/V3.2，
+分别代表普通 MLA 和 DSA；GLM 保留 5.2/5.3-Flash。
 
 | Shape ID 前缀 / 模型配置来源 | 总 head 数 | K | N | 测试 attention TP | 调用分支 |
 | --- | --- | --- | --- | --- | --- |
-| [`deepseek-v2`](https://huggingface.co/deepseek-ai/DeepSeek-V2/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
-| [`deepseek-v3`](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
 | [`deepseek-v3.1`](https://huggingface.co/deepseek-ai/DeepSeek-V3.1/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
-| [`deepseek-r1`](https://huggingface.co/deepseek-ai/DeepSeek-R1/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
 | [`mistral-large-3`](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-BF16/blob/main/params.json) | 128 | 512 | 128 | 1 | 普通 MLA |
 | [`deepseek-v3.2`](https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/config.json) | 128 | 512 | 128 | 1/2/4/8 | DSA |
-| [`glm-5`](https://huggingface.co/zai-org/GLM-5/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
-| [`glm-5.1`](https://huggingface.co/zai-org/GLM-5.1/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.2`](https://huggingface.co/zai-org/GLM-5.2/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA 层 |
 | [`longcat-flash-lite-sparse`](https://huggingface.co/meituan-longcat/LongCat-Flash-Lite-Sparse/blob/main/config.json) | 32 | 512 | 128 | 1/2/4/8 | DSA |
@@ -160,12 +157,12 @@ LongCat 的 `LongcatCausalLM` 架构名会由 SGLang 配置解析器归一化为
 
 每个模型/TP 组合测试 `M = 1, 8, 36, 128, 1024`。
 M 是展平后的输入 token 数，verify 场景可能包含多个候选 token；这些值是代表性负载，
-不是模型配置规定的 batch size 或实际采集的请求。DeepSeek-V3.2、GLM-5 还在
+不是模型配置规定的 batch size 或实际采集的请求。DeepSeek-V3.2、GLM-5.2 还在
 attention TP=8 下测试 M=15/16/17，覆盖真实维度下的 tile 边界。
 每个 shape 都测试 FP16/BF16、随机输入/零输入，并检查输出写入及输入不被修改。
 不需要模型权重；即使原 checkpoint 使用量化，本次也只测试算子接受的浮点输入。
 
-例如 `glm-5-attn-tp8-tokens36` 对应 A=`[36,8,512]`、W=`[8,512,256]`、
+例如 `glm-5.2-attn-tp8-tokens36` 对应 A=`[36,8,512]`、W=`[8,512,256]`、
 C=`[36,8,256]`。主仓两个调用点均使用默认 ND 和默认 quant 参数。
 NZ 的模型前缀用例仅扩展直接 API 的格式覆盖，不表示主仓以 NZ 调用它。
 非法输入测试仍标记为 `extra_checks`，默认不执行。
