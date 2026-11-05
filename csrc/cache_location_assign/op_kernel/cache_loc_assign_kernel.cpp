@@ -135,10 +135,7 @@ private:
     {
         AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.template AllocTensor<int32_t>();
         int64_t start = this->ubStartOffset.GetValue(rowIdx);
-        int64_t step = this->ubEndOffset.GetValue(rowIdx) - start;
-        uint32_t tokenBytes = static_cast<uint32_t>(step * sizeof(int32_t));
-        AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
-        AscendC::DataCopyPad(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], copyParams);
+        AscendC::DataCopy(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], this->tokenCountAlignInt32);
         this->inQueue1.EnQue(tokenPoolLocal);
     }
 
@@ -154,7 +151,7 @@ private:
             tokenPoolLocal.SetValue(j, cache);
         }
 
-        uint32_t tokenBytes = static_cast<uint32_t>(step * sizeof(int32_t));
+        uint32_t tokenBytes = static_cast<uint32_t>(MAX_STEP * sizeof(int32_t));
         AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
         AscendC::DataCopyPad(tokenPoolGM[reqIdx * this->rowSize + start], tokenPoolLocal, copyParams);
 
