@@ -17,9 +17,12 @@ def configure(config, jobs):
     if not isinstance(operators, dict) or not operators:
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
-        if any(
-            not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
-            for name in (interface, kernel)
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", interface) or (
+            kernel is not None
+            and (
+                not isinstance(kernel, str)
+                or not re.fullmatch(r"[a-z][a-z0-9_]*", kernel)
+            )
         ):
             raise ValueError("Invalid recipes interface or kernel name")
     config["soc"] = detect_soc_version()
@@ -31,7 +34,11 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(dict.fromkeys(operators.values()))
+    config["kernel_ops"] = ";".join(
+        dict.fromkeys(kernel for kernel in operators.values() if kernel is not None)
+    )
+    if not config["kernel_ops"]:
+        raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
     config["commands"] = [
         [argument.format(**values) for argument in command]
@@ -49,8 +56,9 @@ def prepare_python(source, item):
     sources = destination / "csrc"
     sources.mkdir()
     upstream = original / "csrc"
-    for filename in ("ops_common.h", "ops_common.cpp"):
-        shutil.copy2(upstream / filename, sources / filename)
+    for header in upstream.glob("*.h"):
+        shutil.copy2(header, sources / header.name)
+    shutil.copy2(upstream / "ops_common.cpp", sources / "ops_common.cpp")
     declarations = (upstream / "ops_def_registration.cpp").read_text()
     schemas = []
     for op in item["ops"]:
@@ -58,11 +66,36 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        content = (upstream / (op + ".cpp")).read_text()
-        content = content.replace(
-            "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
+        # Some upstream bridge source files carry a prefix distinct from the
+        # Torch schema. Select by the registered interface, never by guessing
+        # a filename from the public operator name.
+        direct = upstream / (op + ".cpp")
+        prefixed = upstream / ("npu_" + op + ".cpp")
+        candidates = (
+            [direct]
+            if direct.is_file()
+            else [prefixed]
+            if prefixed.is_file()
+            else [
+                path
+                for path in upstream.glob("*.cpp")
+                if path.name != "ops_def_registration.cpp"
+                and re.search(r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,", path.read_text())
+                and re.search(r"\b" + re.escape(op) + r"\b", path.read_text())
+            ]
         )
-        (sources / (op + ".cpp")).write_text(content)
+        if len(candidates) != 1:
+            raise RuntimeError(
+                "Expected one upstream C++ bridge for {}: {}".format(op, candidates)
+            )
+        content, count = re.subn(
+            r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,",
+            "TORCH_LIBRARY_IMPL(" + item["name"] + ",",
+            candidates[0].read_text(),
+        )
+        if not count:
+            raise RuntimeError("Missing upstream custom registration for " + op)
+        (sources / candidates[0].name).write_text(content)
     notice = declarations[: declarations.index("#include")]
     (sources / "ops_def_registration.cpp").write_text(
         notice
@@ -113,6 +146,8 @@ def inspect_vendor(vendor, item):
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
     for op in item["ops"]:
         name = item["ops"][op]
+        if name is None:
+            continue  # The ACLNN kernel is bundled by ops-transformer.
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
