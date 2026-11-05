@@ -146,7 +146,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
         tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
     } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-        // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
+        // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its tiling data to NPU
         static auto tilingBuffer =
             at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
         aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
