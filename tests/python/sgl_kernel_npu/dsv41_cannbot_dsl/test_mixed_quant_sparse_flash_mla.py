@@ -10,29 +10,18 @@
 
 import logging
 import os
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 pytest.importorskip("torch_npu")
 pytest.importorskip("cannbotdsl")
-import importlib
-
 import torch
+from mixed_quant_sparse_flash_mla_paramset import ENABLED_PARAMS, TEST_PARAMS
 from sgl_kernel_npu.operators.attention import (
     mixed_quant_sparse_flash_mla,
     mixed_quant_sparse_flash_mla_metadata,
 )
-
-MQSMLA = importlib.import_module(
-    "sgl_kernel_npu.implementation.cannbot-dsl.attention.mixed_quant_sparse_flash_mla"
-)
-METADATA = importlib.import_module(
-    "sgl_kernel_npu.implementation.cannbot-dsl.attention.mixed_quant_sparse_flash_mla_metadata"
-)
-from mixed_quant_sparse_flash_mla_paramset import ENABLED_PARAMS, TEST_PARAMS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -195,21 +184,22 @@ def check_result(expect, npu_result, chunk_elements=1 << 20):
     for start in range(0, total, chunk_elements):
         real = actual[start : start + chunk_elements].cpu().float().numpy()
         golden = expected[start : start + chunk_elements].cpu().float().numpy()
-        close = np.isclose(real, golden, rtol=0.0078125, atol=0.0001, equal_nan=True)
+        if not (np.isfinite(real).all() and np.isfinite(golden).all()):
+            LOGGER.error("Non-finite NPU output or reference")
+            return "Failed", 0.0
+        close = np.isclose(real, golden, rtol=0.0078125, atol=0.0001)
         bad = np.flatnonzero(~close)
         errors += bad.size
         if bad.size and sampled_errors < 10000000:
             take = min(bad.size, 10000000 - sampled_errors)
-            # 保持原比较器的float32运算顺序与max规则，包括NaN行为。
+            # 保持原比较器的float32运算顺序与max规则。
             diff_abs = abs(golden - real)
             b1 = np.maximum(np.abs(real), np.abs(golden))
             b2 = float((1.0 / (1 << 14)) / 0.005)
             b = np.add(np.maximum(b1, b2), 10e-10)
             relative = (diff_abs / (b + 10e-10))[bad[:take]]
-            for value in relative:
-                if sampled_errors == 0 or value > max_error:
-                    max_error = value
-                sampled_errors += 1
+            max_error = max(max_error, float(relative.max()))
+            sampled_errors += take
     percent = float(total - errors) / float(total) * 100.0
     result = "Pass" if percent >= (1 - 0.005) * 100.0 else "Failed"
     if sampled_errors and max_error >= 10:
@@ -224,6 +214,17 @@ def check_result(expect, npu_result, chunk_elements=1 << 20):
         result,
     )
     return result, percent
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("side", ["actual", "expected"])
+def test_comparison_rejects_nonfinite_values(value, side):
+    expected = torch.ones(1000, dtype=torch.bfloat16)
+    actual = expected.clone()
+    assert check_result(expected, actual)[0] == "Pass"
+    (actual if side == "actual" else expected)[-1] = value
+    # A single invalid value must fail even beyond the first comparison chunk.
+    assert check_result(expected, actual, chunk_elements=128)[0] == "Failed"
 
 
 def _pa_tensor(pa, row_bytes, *, axis0_noncontiguous=False):
@@ -283,7 +284,6 @@ def _call_public(kwargs, mode, t1, *, omit_ori_length=False, omit_cmp_length=Fal
     mixed_quant_sparse_flash_mla(**kwargs, out=out, lse=lse)
     output = out.cpu().reshape(-1, D)
     lse = lse.cpu()
-    assert torch.isfinite(output).all(), "attention output must be finite"
     if want_lse:
         assert torch.isfinite(lse).all()
     else:
@@ -390,31 +390,9 @@ def run_prepared(
             )
     result, percent = check_result(expected, actual)
     assert result == "Pass", f"strict BF16 comparator failed: {percent:.6f}%"
-    # 大prefill输出可达16GiB，误差统计不要同时物化三份全量FP32输出。
-    actual_flat, expected_flat = actual.reshape(-1), expected.reshape(-1)
-    max_abs = 0.0
-    for start in range(0, actual_flat.numel(), 1 << 20):
-        diff = (
-            actual_flat[start : start + (1 << 20)].float()
-            - expected_flat[start : start + (1 << 20)].float()
-        ).abs()
-        chunk_max = diff.max().item()
-        max_abs = chunk_max if chunk_max != chunk_max else max(max_abs, chunk_max)
-    LOGGER.info(
-        "[mqsmla test_case] NPU %s quant%s B=%s T1=%s OK: max_abs=%.6g",
-        mode,
-        quant_mode,
-        case["b"],
-        case["t1"],
-        max_abs,
-    )
 
 
 @pytest.mark.npu
 @pytest.mark.parametrize("case_name", _selected_cases())
 def test_mixed_quant_sparse_flash_mla(case_name):
-    pytest.importorskip("torch_npu")
-    if not torch.npu.is_available():
-        pytest.skip("NPU unavailable")
-    torch.npu.set_device(0)
     run_prepared(*gen_data(TEST_PARAMS[case_name]))

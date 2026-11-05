@@ -16,6 +16,8 @@ SOURCE = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu"
 REQUIRED_CASES = (
     "test_indexer_prologue_k_npu[mode0_with_scale]",
     "test_indexer_prologue_k_npu[mode1_g8]",
+    "test_indexer_prologue_k_duplicate_indices_npu[mode0_with_scale]",
+    "test_indexer_prologue_k_strided_block_axis_npu[mode0_scale_step2]",
     "test_quant_lightning_indexer[pa128_ragged]",
     "test_quant_lightning_indexer[pa64_causal_candidates]",
     "test_quant_lightning_indexer[tnd_causal]",

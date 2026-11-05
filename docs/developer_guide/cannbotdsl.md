@@ -39,8 +39,7 @@ Inputs must share an A5 device. The separate AscendC compressor still requires
 ## Validate on A5
 
 ```bash
-export CANNBOTDSL_RUN_SMLA_TESTS=1
-python3 -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl -q
+python3 -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl --npu-device 0 -q
 ```
 
 The suites retain independent numerical references. `test_metadata_graph.py`
@@ -50,3 +49,10 @@ artifacts and all required core JUnit cases; skipped cases are not accepted.
 Full compute graph capture, model/PD integration and performance require
 separate A5 validation. Offline and fixture-wheel tests do not establish
 hardware compatibility or speedup.
+
+Use `--npu-device` to select a visible card; CPU references remain on CPU.
+Source provenance and API forwarding can be checked without an NPU:
+
+```bash
+python3 -m pytest tests/python/sgl_kernel_npu/test_dsv41_cannbot_sources.py tests/python/sgl_kernel_npu/test_dsv41_cannbot_dsl_api.py -q
+```

@@ -49,9 +49,16 @@ def test_empty_successful_pytest_run_is_not_device_validation(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "name", [name for name in ci.REQUIRED_CASES if "sparse_lightning" in name]
+    "name",
+    [
+        name
+        for name in ci.REQUIRED_CASES
+        if "sparse_lightning" in name
+        or "duplicate_indices" in name
+        or "strided_block_axis" in name
+    ],
 )
-def test_each_qsli_layout_must_execute(tmp_path, name):
+def test_regression_cases_must_execute(tmp_path, name):
     path = report(tmp_path)
     tree = ET.parse(path)
     suite = tree.getroot().find("testsuite")

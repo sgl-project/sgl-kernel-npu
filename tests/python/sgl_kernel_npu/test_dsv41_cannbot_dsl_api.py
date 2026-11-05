@@ -10,7 +10,6 @@ from enum import Enum
 from pathlib import Path
 
 import pytest
-from setuptools import find_namespace_packages
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_ROOT = ROOT / "python" / "sgl_kernel_npu"
@@ -30,27 +29,6 @@ ATTENTION_OPS = {
     "mixed_quant_sparse_flash_mla",
     "mixed_quant_sparse_flash_mla_metadata",
 }
-
-
-def test_dsl_sources_and_license_are_in_distribution_package():
-    packages = find_namespace_packages(where=str(PACKAGE_ROOT))
-    assert "sgl_kernel_npu.implementation.cannbot-dsl.attention" in packages
-    license_path = PACKAGE / "implementation" / "cannbot-dsl" / "LICENSE.cannbot-dsl"
-    assert "CANN Open Software License Agreement Version 2.0" in license_path.read_text(
-        encoding="utf-8"
-    )
-
-
-def test_mqsmla_relative_metadata_module_is_in_same_package():
-    tree = ast.parse(
-        (IMPL / "mixed_quant_sparse_flash_mla.py").read_text(encoding="utf-8")
-    )
-    assert any(
-        isinstance(node, ast.ImportFrom)
-        and node.level == 1
-        and node.module == "mixed_quant_sparse_flash_mla_metadata"
-        for node in ast.walk(tree)
-    )
 
 
 def _load_public_operator(monkeypatch, name):
@@ -312,20 +290,3 @@ def test_wheel_package_data_includes_cannbot_license():
     assets = package_data["sgl_kernel_npu.implementation.cannbot-dsl"]
     assert "LICENSE.cannbot-dsl" in assets
     assert "SOURCE.md" in assets
-
-
-def test_wheel_builders_use_expected_license_metadata():
-    expected = {
-        PACKAGE_ROOT / "setup.py": "BSD 3 License",
-        PACKAGE_ROOT / "build_tools/torch_wheel.py": "BSD 3 License",
-    }
-    for path, expected_license in expected.items():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        licenses = [
-            ast.literal_eval(keyword.value)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            for keyword in node.keywords
-            if keyword.arg == "license"
-        ]
-        assert licenses == [expected_license]

@@ -8,9 +8,6 @@
 
 """Structural and argument tests for the local MQSMLA AICPU planner."""
 
-import sys
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("torch_npu")
@@ -30,10 +27,6 @@ METADATA = importlib.import_module(
     "spans,has_cmp", [([1], False), ([3, 0, 5], True), ([42, 23], True)]
 )
 def test_mixed_quant_sparse_flash_mla_metadata_structure(spans, has_cmp):
-    pytest.importorskip("torch_npu")
-    if not torch.npu.is_available():
-        pytest.skip("NPU unavailable")
-    torch.npu.set_device(0)
     cu = torch.tensor([0, *torch.tensor(spans).cumsum(0).tolist()], dtype=torch.int32)
     rows = sum(spans)
     ori = torch.full((rows, 1), 128, dtype=torch.int32, device="npu")
@@ -57,7 +50,9 @@ def test_mixed_quant_sparse_flash_mla_metadata_structure(spans, has_cmp):
         METADATA.AIC_CORE_MAX_NUM, METADATA.FA_METADATA_SIZE
     )
     enabled = fa[:, METADATA.FA_CORE_ENABLE_INDEX].ne(0)
-    count = min(rows, torch.npu.get_device_properties(0).cube_core_num)
+    count = min(
+        rows, torch.npu.get_device_properties(torch.npu.current_device()).cube_core_num
+    )
     assert enabled.tolist() == [True] * count + [False] * (len(fa) - count)
     assert torch.count_nonzero(fa[~enabled]) == 0
     active = fa[enabled]

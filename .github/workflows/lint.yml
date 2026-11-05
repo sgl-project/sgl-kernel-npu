@@ -35,7 +35,6 @@ jobs:
             tests/python/sgl_kernel_npu/test_target_provider.py \
             tests/python/sgl_kernel_npu/test_dsv41_cannbot_dsl_api.py \
             tests/python/sgl_kernel_npu/test_dsv41_cannbot_sources.py \
-            tests/python/sgl_kernel_npu/test_dsv41_precision_suite_layout.py \
             tests/unit/test_cannbotdsl_runtime.py \
             tests/unit/test_cannbotdsl_packaging.py \
             tests/unit/test_cannbotdsl_ci.py

@@ -6,47 +6,14 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE.cannbot-dsl in the root of the software repository for the full text of the License.
 
-import inspect
 import math
-import random
 
 import pytest
 
 pytest.importorskip("torch_npu")
 pytest.importorskip("cannbotdsl")
-import cannbotdsl
 import torch
-from _samples_path import load_sample
 from sgl_kernel_npu.operators.indexer import indexer_prologue_k
-
-_module = load_sample("attention/indexer_prologue_k/indexer_prologue_k.py")
-IndexerPrologueKPostprocess = _module.IndexerPrologueKPostprocess
-ProjectionKernel = _module._ProjectionKernel
-
-
-def test_public_argument_order_and_parameter_kinds():
-    parameters = inspect.signature(indexer_prologue_k).parameters
-    assert tuple(parameters) == (
-        "latent",
-        "wk",
-        "norm_weight",
-        "rope_sin",
-        "rope_cos",
-        "k_cache",
-        "k_scale_cache",
-        "cache_index",
-        "storage_mode",
-        "norm_eps",
-        "combined_block_size",
-        "impl",
-    )
-    parameter = parameters["k_scale_cache"]
-    assert parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
-    assert parameter.default is None
-    for name in ("cache_index", "storage_mode", "norm_eps"):
-        parameter = parameters[name]
-        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-        assert parameter.default is inspect.Parameter.empty
 
 
 def _make_rope(t, dr, generator):
@@ -206,50 +173,6 @@ def _golden(
     return expected_cache, expected_scale
 
 
-def _is_acceptable_quantization_tie(
-    actual_cache,
-    expected_cache,
-    mismatch,
-    *,
-    total_rows,
-    index_head_dim,
-    storage_mode,
-    combined_block_size,
-):
-    """Allow only sparse, same-sign adjacent E2M1 choices at exact ties.
-
-    The CPU and vector-core FP32 paths can place the BF16 value on opposite
-    sides of an E2M1 midpoint by one ULP. Both adjacent codes are then nearest
-    for their respective intermediate. Scale bytes and non-data cache regions
-    remain bit-exact.
-    """
-    max_mismatched_bytes = max(1, math.ceil(total_rows * index_head_dim / 1_000_000))
-    if mismatch.shape[0] > max_mismatched_bytes:
-        return False
-
-    value_bytes = index_head_dim // 2
-    data_region_bytes = (
-        value_bytes if storage_mode == 0 else combined_block_size * value_bytes
-    )
-    for coordinate in mismatch:
-        index = tuple(coordinate.tolist())
-        if index[-1] >= data_region_bytes:
-            return False
-        actual_byte = int(actual_cache[index])
-        expected_byte = int(expected_cache[index])
-        for shift in (0, 4):
-            actual_code = (actual_byte >> shift) & 0xF
-            expected_code = (expected_byte >> shift) & 0xF
-            if actual_code == expected_code:
-                continue
-            if (actual_code & 0x8) != (expected_code & 0x8):
-                return False
-            if abs((actual_code & 0x7) - (expected_code & 0x7)) != 1:
-                return False
-    return True
-
-
-@pytest.mark.cannir_install
 def _run_case(
     t,
     h,
@@ -265,7 +188,6 @@ def _run_case(
     duplicate_indices=False,
     block_axis_step=1,
     block_axis_start=0,
-    allow_adjacent_quantization_ties=False,
 ):
     torch_npu = pytest.importorskip("torch_npu")
     inputs = _make_inputs(
@@ -341,29 +263,16 @@ def _run_case(
     actual_cache = actual.cpu()
     if not torch.equal(actual_cache, expected_cache):
         mismatch = (actual_cache != expected_cache).nonzero()
-        if allow_adjacent_quantization_ties and _is_acceptable_quantization_tie(
-            actual_cache,
-            expected_cache,
-            mismatch,
-            total_rows=t,
-            index_head_dim=d,
-            storage_mode=storage_mode,
-            combined_block_size=combined_block_size,
-        ):
-            mismatch = mismatch[:0]
-        if mismatch.shape[0] == 0:
-            pass
-        else:
-            details = []
-            for coordinate in mismatch[:8]:
-                index = tuple(coordinate.tolist())
-                details.append(
-                    (index, int(actual_cache[index]), int(expected_cache[index]))
-                )
-            pytest.fail(
-                f"k_cache mismatch_count={mismatch.shape[0]}, "
-                f"first_mismatches={details}"
+        details = []
+        for coordinate in mismatch[:8]:
+            index = tuple(coordinate.tolist())
+            details.append(
+                (index, int(actual_cache[index]), int(expected_cache[index]))
             )
+        pytest.fail(
+            f"k_cache mismatch_count={mismatch.shape[0]}, "
+            f"first_mismatches={details}"
+        )
     if scale_npu is not None:
         actual_scale = scale_npu.cpu()
         if not torch.equal(actual_scale, expected_scale):

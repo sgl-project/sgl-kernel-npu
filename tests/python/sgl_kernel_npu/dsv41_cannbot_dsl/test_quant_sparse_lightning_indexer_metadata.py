@@ -8,15 +8,12 @@
 
 """Independent reference and precision tests for quant_sparse_lightning_indexer_metadata."""
 
-import os
-from collections import Counter, defaultdict
-from itertools import accumulate
-
 import pytest
 
 pytest.importorskip("torch_npu")
 pytest.importorskip("cannbotdsl")
 import torch
+from _indexer_reference import _assert_schedule, _prefix, _visible_tokens
 from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
 
 TOPK = 512
@@ -26,84 +23,11 @@ BLOCK_SIZE = 8
 CANDIDATE_CAPACITY = 2048
 
 
-def _prefix(lengths):
-    return [0, *accumulate(lengths)]
-
-
-def _visible_tokens(key_length, used_query, row, mask, ratio, residual):
-    if row >= used_query:
-        return 0
-    if mask == 0:
-        return key_length
-    return min(
-        key_length,
-        max(0, (key_length * ratio + residual - used_query + row + 1) // ratio),
-    )
-
-
-def _npu_device():
-    pytest.importorskip("torch_npu")
-    device = torch.device("npu", int(os.environ.get("NPU_DEVICE_ID", "0")))
-    torch.npu.set_device(device)
-    return device
-
-
-def _load_metadata():
-    return quant_sparse_lightning_indexer_metadata
-
-
-def _assert_schedule(metadata, tasks, group_rows, workers=32):
-    """Check coverage and LD fan-in independently of the load-balancing policy."""
-    assert metadata.dtype == torch.int32 and metadata.shape == (1024,)
-    records = metadata.reshape(128, 8).tolist()
-    assert not metadata.reshape(128, 8)[workers:36].any()
-    assert not metadata.reshape(128, 8)[36 + 2 * workers : 108].any()
-    assert not metadata.reshape(128, 8)[108:].any()
-    coverage = Counter()
-    owners = defaultdict(set)
-    for core, record in enumerate(records[:workers]):
-        enabled, *fields = record
-        assert enabled in (0, 1)
-        if not enabled:
-            assert not any(fields)
-            continue
-        task_begin, task_end = tuple(record[1:4]), tuple(record[4:7])
-        assert task_begin <= task_end
-        for task in tasks:
-            if task_begin <= task < task_end:
-                coverage[task] += 1
-                owners[task[:2]].add(core)
-    assert coverage == Counter({task: 1 for task in tasks})
-    merged_rows = defaultdict(list)
-    slots = {}
-    for enabled, batch, group, base, parts, row_start, row_count, reserved in records[
-        36:108
-    ]:
-        assert enabled in (0, 1)
-        if not enabled:
-            assert (batch, group, base, parts, row_start, row_count, reserved) == (
-                0,
-            ) * 7
-            continue
-        key = (batch, group)
-        assert parts == len(owners[key]) and parts > 1
-        assert reserved == 0 and base >= 0 and row_count > 0
-        assert slots.setdefault(key, (base, parts)) == (base, parts)
-        merged_rows[key].extend(range(row_start, row_start + row_count))
-    assert set(merged_rows) == {key for key, cores in owners.items() if len(cores) > 1}
-    for key, rows in merged_rows.items():
-        assert sorted(rows) == list(range(group_rows[key]))
-    allocated = [
-        slot for base, parts in slots.values() for slot in range(base, base + parts)
-    ]
-    assert len(allocated) == len(set(allocated))
-
-
 def _check_metadata(
     *, layout, query_lengths, key_lengths, mask=0, zero=False, cmp_ratio=1
 ):
-    device = _npu_device()
-    make_metadata = _load_metadata()
+    device = torch.device("npu", torch.npu.current_device())
+    make_metadata = quant_sparse_lightning_indexer_metadata
     used_queries = [0 if zero else length for length in query_lengths]
     sequence = dict(
         cu_seqlens_q=torch.tensor(

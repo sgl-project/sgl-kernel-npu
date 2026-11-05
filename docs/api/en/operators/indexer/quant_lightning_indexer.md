@@ -4,7 +4,7 @@
 
 Scores visible MXFP4 keys and selects TopK tokens, optionally producing candidate blocks for QSLI.
 
-This `cannbot_dsl` implementation is registered for `arch35` and targets Ascend 950PR/950DT. `impl="auto"` and `impl="cannbot_dsl"` select the same backend. The selected target is CANN 9.2.0 with compatible PyTorch/torch_npu and `cannbot-dsl==0.8.0`; device compatibility is pending validation. Upstream documents CANN 9.2.1. Set `CANNBOTDSL_NATIVE_BINARY_MODE=off` for source JIT execution; the first metadata call compiles its AICPU kernel if a packaged binary is absent. Ascend910_9362 is unsupported.
+Supports Ascend 950PR/950DT (`arch35`). `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 ## Signature
 
@@ -25,13 +25,8 @@ UINT8 `q[T1,32,64]`, packed MXFP4 K, E8M0 query/key descales, and metadata from 
 
 Returns `(indices, values, candidates, candidate_length)`. Indices are INT32 `[T1,1,topk]`; disabled optional outputs are empty tensors and invalid indices are `-1`.
 
-## Source and tests
-
-Copied byte for byte from [cann/cannbot-dsl](https://gitcode.com/cann/cannbot-dsl) commit `71ee7fdffa34c3e8a153fa55a0c970bb2d3a3231`, `samples/attention/quant_lightning_indexer/`. The wheel includes the CANN Open Software License Agreement Version 2.0 and SHA256 provenance in `implementation/cannbot-dsl/`.
+## Device test
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/test_dsv41_cannbot_sources.py tests/python/sgl_kernel_npu/test_dsv41_cannbot_dsl_api.py -q
-CANNBOTDSL_NATIVE_BINARY_MODE=off python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_lightning_indexer.py -q
+python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_lightning_indexer.py --npu-device 0 -q
 ```
-
-The second command requires Ascend 950; tests skip on other devices.

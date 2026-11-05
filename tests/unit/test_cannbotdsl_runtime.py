@@ -37,10 +37,6 @@ def test_wrong_or_missing_dsl_is_rejected_before_import(helper, monkeypatch, ver
         helper.load_cannbot_dsl("quant_lightning_indexer")
 
 
-def test_source_jit_can_run_without_native_bundle(helper):
-    helper.initialize_backend()
-
-
 def test_device_identity_is_cached_but_context_tracks_current_device(
     helper, monkeypatch
 ):

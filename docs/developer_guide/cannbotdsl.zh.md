@@ -34,11 +34,17 @@ compressor 继续依赖 `cann_ops_transformer`。
 ## A5 验证
 
 ```bash
-export CANNBOTDSL_RUN_SMLA_TESTS=1
-python3 -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl -q
+python3 -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl --npu-device 0 -q
 ```
 
 测试保留独立数值参考；`test_metadata_graph.py` 验证三种 metadata 在长度
 变化后的图回放。`scripts/check_cannbotdsl_ci.py` 核对固定环境、实际安装
 产物和核心 JUnit 用例，跳过用例不计为通过。完整计算图、模型/PD 集成和
 性能仍需单独在 A5 验证，离线及 fixture wheel 测试不能代替硬件结果。
+
+`--npu-device` 指定可见卡号，数值参考仍在 CPU 上计算。
+无 NPU 环境可检查源码来源和公开接口转发：
+
+```bash
+python3 -m pytest tests/python/sgl_kernel_npu/test_dsv41_cannbot_sources.py tests/python/sgl_kernel_npu/test_dsv41_cannbot_dsl_api.py -q
+```
