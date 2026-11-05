@@ -151,34 +151,24 @@ The two callers are in
 Model shapes are `(M, B, K, N)`, where
 `B = num_attention_heads / effective_attention_tp`, `K = kv_lora_rank`, and
 `N = v_head_dim`. Use attention TP at the call site; it can differ from
-whole-model TP. The following verified checkpoints supply representative tests,
-rather than an exhaustive list of derived checkpoints:
-For identical shapes within a model family, keep one or two recent models.
+whole-model TP. Model cases cover only the DeepSeek and GLM families.
+For identical shapes within a family, keep one or two recent models.
 DeepSeek-V3.1/V3.2 represent ordinary MLA and DSA respectively; GLM retains
 5.2/5.3-Flash.
 
 | Shape ID prefix / checkpoint configuration | Total heads | K | N | Tested attention TP | Caller |
 | --- | --- | --- | --- | --- | --- |
 | [`deepseek-v3.1`](https://huggingface.co/deepseek-ai/DeepSeek-V3.1/blob/main/config.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
-| [`mistral-large-3`](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-BF16/blob/main/params.json) | 128 | 512 | 128 | 1 | Ordinary MLA |
 | [`deepseek-v3.2`](https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/config.json) | 128 | 512 | 128 | 1/2/4/8 | DSA |
 | [`glm-5.2`](https://huggingface.co/zai-org/GLM-5.2/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA layers |
-| [`longcat-flash-lite-sparse`](https://huggingface.co/meituan-longcat/LongCat-Flash-Lite-Sparse/blob/main/config.json) | 32 | 512 | 128 | 1/2/4/8 | DSA |
 
-Mistral-Large-3 uses `n_heads` for total heads and inherits the DeepSeek model
-implementation. GLM-5.3-Flash dimensions come from `text_config`; only its DSA
-layers reuse this path. SGLang normalizes LongCat's `LongcatCausalLM`
-architecture to `LongcatFlashForCausalLM`, then detects DSA through `index_topk`.
+GLM-5.3-Flash dimensions come from `text_config`; only its DSA layers reuse
+this path.
 These observations select direct operator inputs; they do not establish that
 each complete model has been validated on 910C.
 
-Sharing DeepSeek attention alone does not establish that a model calls this
-operator. For example,
-[Kimi-K2-Instruct](https://huggingface.co/moonshotai/Kimi-K2-Instruct/blob/main/config.json)
-has 64 total heads, K=512, N=128 and no DSA configuration, so it does not meet
-the ordinary MLA condition within the supported M range. The caller's
-`M >= 65536` branch exceeds the operator's original 1024 limit; this work
+The caller's `M >= 65536` branch exceeds the operator's original 1024 limit; this work
 neither treats it as a valid input nor changes that limit.
 
 Each model/TP combination tests `M = 1, 8, 36, 128, 1024`. M counts flattened
@@ -203,5 +193,5 @@ python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py \
   --impl=ascendc --impl-ref=torch_native --enable-perf=false -v -rs
 ```
 
-Append `-k 'glm-5'` for GLM model cases or `-k 'longcat-flash-lite-sparse'` for
-LongCat cases. These filters select operator shapes without starting a model.
+Append `-k 'glm-5'` for GLM model cases or `-k 'deepseek'` for DeepSeek cases.
+These filters select operator shapes without starting a model.

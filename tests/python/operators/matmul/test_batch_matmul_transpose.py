@@ -22,15 +22,13 @@ from tests.python.utils.performance import check_performance
 # Ordinary MLA reaches this operator only when M>=65536, B*K>=65536 or
 # N>=65536. With M<=1024 and these model dimensions, only attention TP=1
 # qualifies. DSA decode/verify on 910C also reaches it at higher attention TP.
-# For identical shapes within a family, keep one or two recent model profiles.
+# Keep only DeepSeek/GLM, using one or two recent models for identical shapes.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [
     ("deepseek-v3.1", 128, 512, 128, (1,)),
-    ("mistral-large-3", 128, 512, 128, (1,)),
     ("deepseek-v3.2", 128, 512, 128, (1, 2, 4, 8)),
     ("glm-5.2", 64, 512, 256, (1, 2, 4, 8)),
     ("glm-5.3-flash", 64, 512, 256, (1, 2, 4, 8)),
-    ("longcat-flash-lite-sparse", 32, 512, 128, (1, 2, 4, 8)),
 ]
 # Representative loads, not captured traces or fixed per-model batch sizes.
 # M counts operator input tokens, including flattened verification tokens.

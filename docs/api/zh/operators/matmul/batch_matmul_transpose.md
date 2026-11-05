@@ -130,29 +130,21 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 模型相关 shape 为 `(M, B, K, N)`，其中
 `B = num_attention_heads / effective_attention_tp`、`K = kv_lora_rank`、
 `N = v_head_dim`。attention TP 取调用时生效的值，可能与整个模型的 TP 不同。
-以下是已经核对配置并加入用例的代表模型，不是所有派生 checkpoint 的穷举：
-同系列的相同 shape 仅保留一两个较新的模型作为代表。DeepSeek 保留 V3.1/V3.2，
+模型用例仅保留 DeepSeek 和 GLM 系列。同系列的相同 shape 仅保留一两个较新的模型作为代表。
+DeepSeek 保留 V3.1/V3.2，
 分别代表普通 MLA 和 DSA；GLM 保留 5.2/5.3-Flash。
 
 | Shape ID 前缀 / 模型配置来源 | 总 head 数 | K | N | 测试 attention TP | 调用分支 |
 | --- | --- | --- | --- | --- | --- |
 | [`deepseek-v3.1`](https://huggingface.co/deepseek-ai/DeepSeek-V3.1/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
-| [`mistral-large-3`](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-BF16/blob/main/params.json) | 128 | 512 | 128 | 1 | 普通 MLA |
 | [`deepseek-v3.2`](https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/config.json) | 128 | 512 | 128 | 1/2/4/8 | DSA |
 | [`glm-5.2`](https://huggingface.co/zai-org/GLM-5.2/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
 | [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA 层 |
-| [`longcat-flash-lite-sparse`](https://huggingface.co/meituan-longcat/LongCat-Flash-Lite-Sparse/blob/main/config.json) | 32 | 512 | 128 | 1/2/4/8 | DSA |
 
-Mistral-Large-3 的 `n_heads` 对应表中的总 head 数，其实现继承 DeepSeek。
-GLM-5.3-Flash 读取 `text_config` 的维度，仅其 DSA 层复用这条路径；
-LongCat 的 `LongcatCausalLM` 架构名会由 SGLang 配置解析器归一化为
-`LongcatFlashForCausalLM`，再根据 `index_topk` 识别 DSA。
+GLM-5.3-Flash 读取 `text_config` 的维度，仅其 DSA 层复用这条路径。
 这些结论用于选择单算子输入，不表示已经验证相应模型在 910C 上的完整可运行性。
 
-普通 MLA 模型不能仅凭“复用 DeepSeek attention”就加入该路径的模型场景。
-例如 [Kimi-K2-Instruct](https://huggingface.co/moonshotai/Kimi-K2-Instruct/blob/main/config.json)
-的总 head 数为 64，K=512、N=128，没有 DSA 配置；在有效 M 范围内不会触发上述
-普通 MLA 条件。`M >= 65536` 的调用分支超过本算子原有 1024 限制，
+`M >= 65536` 的调用分支超过本算子原有 1024 限制，
 本次未将其作为有效输入，也未修改这个限制。
 
 每个模型/TP 组合测试 `M = 1, 8, 36, 128, 1024`。
@@ -174,5 +166,5 @@ python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py \
   --impl=ascendc --impl-ref=torch_native --enable-perf=false -v -rs
 ```
 
-追加 `-k 'glm-5'` 可以筛选 GLM 模型用例；追加 `-k 'longcat-flash-lite-sparse'`
-可以筛选 LongCat 用例。这里只筛选单算子 shape，不启动对应模型。
+追加 `-k 'glm-5'` 可以筛选 GLM 模型用例；追加 `-k 'deepseek'`
+可以筛选 DeepSeek 用例。这里只筛选单算子 shape，不启动对应模型。
