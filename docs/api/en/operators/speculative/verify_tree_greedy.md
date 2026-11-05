@@ -109,8 +109,8 @@ unchanged.
 
 ## Tests and validation status
 
-Default tests include the original int32 chain and eleven model configurations
-with three acceptance paths each, giving 34 cases:
+The complete suite retains the original fixtures and eleven model configurations
+with three acceptance paths each. The full model shape coverage is:
 
 | Scenario | `D=S` | Token-ID range `V` | `B` |
 | --- | --- | --- | --- |
@@ -122,12 +122,20 @@ confirmed model/deployment coverage. Candidate IDs, match positions and final
 tokens are synthetic inputs designed for this suite. The source NPU CI recipes
 do not enable NEXTN, so these combined configurations are not production traces.
 Test comments record the fixed SGLang recipes and official model configs.
-Default performance coverage selects each model's smallest and largest B;
-the shared CLI can override that choice.
+Default coverage selects GLM `(B,D,S,V)=(1,4,4,154880)` and Qwen
+`(16,4,4,248320)`. Each runs all-accepted, reject-first and reject-partial paths,
+giving six default cases. The other model shapes, original int32 chain, six
+root-only/padded-width/dtype cases and the original branching-tree regression are
+marked `extra_checks`, giving 35 supplementary cases and 41 cases in total.
+Use `-m extra_checks` for supplementary cases only, or `-m ""` for all cases.
 
-`extra_checks` adds six root-only/padded-width/dtype cases and one explicitly
-`torch_native`-only regression with the original branching-tree expected values,
-giving 41 cases total. The latter always checks that specific reference backend,
+The existing profiling list still selects each model's smallest and largest B.
+Default case selection profiles only the two model shapes above; other profiling
+points require selecting supplementary cases. The shared CLI can override whether
+selected cases collect performance.
+
+The branching-tree regression always checks `torch_native` with its original
+expected values,
 independently of the DUT option, and does not collect performance.
 The shared CLI accuracy-skip option also disables this fixed-output regression.
 

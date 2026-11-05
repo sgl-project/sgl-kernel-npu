@@ -68,7 +68,8 @@ All participating tensors must be contiguous and on the same NPU device.
 Inputs are read-only except for the three explicitly marked outputs. `B > 0`
 requires `D >= 1` and `R >= max(D-1, 1)`. Use a nonempty vocabulary and valid
 token/slot indices; the wrapper does not check index ranges or probability values.
-The original spelling `retrive` is retained for keyword compatibility.
+Existing parameter names such as `retrive_index` are retained for keyword
+compatibility.
 
 | Parameter | Shape / dtype | Meaning |
 | --- | --- | --- |
@@ -123,5 +124,14 @@ scenarios in FP32 with model-specific pytest IDs:
 | GLM-4.7-Flash | `(4,3,154880)` | 1, 2, 4, 8, 16, 32 |
 | Qwen3.5-9B | `(4,3,248320)` | 1, 2, 4, 8, 16 |
 | DeepSeek-V4-Flash | `(6,5,129280)`<br>`(7,6,129280)` | 1, 2, 4, 8<br>1, 2, 4, 6, 8, 10, 12 |
+
+Default coverage selects four `(B,D,R,V)` shapes: GLM `(1,4,3,154880)`,
+Qwen `(16,4,3,248320)`, and DeepSeek `(8,6,5,129280)` / `(12,7,6,129280)`.
+Each runs all-accepted, reject-first and reject-partial paths, giving 12 default
+cases. The remaining model shapes, both legacy fixtures and boundary checks are
+marked `extra_checks`, giving 64 supplementary cases and 76 cases in total.
+Use `-m extra_checks` for supplementary cases only, or `-m ""` for all cases.
+The existing profiling shape list is unchanged; supplementary profiling points
+run only when those cases are selected.
 
 Use the standard test CLI described in [the test framework guide](../../../../../tests/python/README.md).

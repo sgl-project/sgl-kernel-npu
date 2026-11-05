@@ -25,8 +25,8 @@ from tests.python.utils.standards import AccuracyStandard
 SCRATCH_STANDARD = {"torch.float32": AccuracyStandard(atol=0, rtol=0)}
 THRESHOLDS = [
     pytest.param(1.0, 1.0, id="default-thresholds"),
-    pytest.param(0.0, 0.0, id="zero-thresholds"),
-    pytest.param(0.5, 0.8, id="relaxed-thresholds"),
+    pytest.param(0.0, 0.0, id="zero-thresholds", marks=pytest.mark.extra_checks),
+    pytest.param(0.5, 0.8, id="relaxed-thresholds", marks=pytest.mark.extra_checks),
 ]
 
 # Source revision for the SGLang deployment and speculative configurations:
@@ -52,7 +52,11 @@ model_cases = {
     "qwen3-5-9b": [(batch, 4, 4, 248320) for batch in (1, 2, 4, 8, 16)],
 }
 
-# Default profiling covers the smallest and largest batch of each model.
+# Core model coverage pairs single-request GLM with batched Qwen. The default
+# general-tree case below also preserves branching and S<D coverage.
+default_shapes = [(1, 4, 4, 154880), (16, 4, 4, 248320)]
+
+# Profiling selection remains independent of pytest's case selection.
 perf_shape = [
     (1, 4, 4, 154880),
     (32, 4, 4, 154880),
@@ -312,6 +316,7 @@ def test_general_tree_matches_reference(threshold_single, threshold_acc):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "shape",
     [
@@ -327,6 +332,7 @@ def test_target_only_chain_matches_reference(shape):
     _check_case(generate_chain_test_data(*shape), max_tree_depth=shape[1])
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("threshold_single,threshold_acc", THRESHOLDS)
 def test_target_only_thresholds(threshold_single, threshold_acc):
     _check_case(
@@ -340,7 +346,11 @@ def test_target_only_thresholds(threshold_single, threshold_acc):
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param(shape, id=model)
+        pytest.param(
+            shape,
+            id=model,
+            marks=() if shape in default_shapes else pytest.mark.extra_checks,
+        )
         for model, shapes in model_cases.items()
         for shape in shapes
     ],

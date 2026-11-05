@@ -28,6 +28,16 @@ model_cases = {
     ],
 }
 
+# One representative per vocabulary/candidate-width configuration; all other
+# confirmed shapes remain available through extra_checks.
+default_shapes = [
+    (1, 4, 3, 154880),
+    (16, 4, 3, 248320),
+    (8, 6, 5, 129280),
+    (12, 7, 6, 129280),
+]
+
+# Profiling selection remains independent of pytest's case selection.
 perf_shape = [
     (1, 4, 3, 154880),
     (32, 4, 3, 154880),
@@ -141,7 +151,11 @@ def _check_case(inputs, *, enable_perf=False):
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param(shape, id=model)
+        pytest.param(
+            shape,
+            id=model,
+            marks=() if shape in default_shapes else pytest.mark.extra_checks,
+        )
         for model, shapes in model_cases.items()
         for shape in shapes
     ],
@@ -237,6 +251,7 @@ def generate_legacy_test_data(large_vocab):
     return {name: value.npu() for name, value in inputs.items()}
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "large_vocab", [False, True], ids=["legacy-2x4x11", "legacy-2x4x151552"]
 )

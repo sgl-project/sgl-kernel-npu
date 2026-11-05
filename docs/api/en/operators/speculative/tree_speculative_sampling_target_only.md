@@ -79,8 +79,8 @@ Triton executes on contiguous tensors on one NPU. Nonempty batches require
 `D >= 1` and `1 <= S <= D`. The caller must provide a nonempty vocabulary, a valid
 acyclic tree, valid token IDs and valid global output slots. The original wrapper
 checks shape, dtype, device and contiguity. Index bounds, tree validity and
-probability values are the caller's responsibility. The spelling `retrive` is
-retained for existing keyword calls.
+probability values are the caller's responsibility. Existing parameter names such
+as `retrive_index` are retained for keyword compatibility.
 
 | Parameter | Shape / dtype | Meaning |
 | --- | --- | --- |
@@ -153,7 +153,7 @@ copy. New integrations select the added implementation through
 
 ## Test coverage
 
-The baseline regression set reuses all 24 original fixtures, covering three
+The complete regression set retains all 24 original fixtures, covering three
 general-tree threshold cases, 18 linear-tree cases and three linear-tree threshold
 cases. Each backend receives its own integer outputs and scratch. The shared
 accuracy helper compares all four mutable buffers. Integer comparisons are exact,
@@ -162,7 +162,7 @@ Read-only inputs are also checked before and after execution.
 
 Eleven additional FP32 cases cover these model shapes. They use NEXTN, TP2 and
 topk=1 linear candidate trees with rejection sampling disabled and both acceptance
-thresholds set to their default `1.0`. 
+thresholds set to their default `1.0`.
 
 | Scenario | `(D,S,V)` | `B` |
 | --- | --- | --- |
@@ -180,8 +180,18 @@ are not recorded target-only end-to-end calls.
 The model inputs reuse the original linear-tree test's seed formula, probability
 construction and stable final-sampling coin generator, rather than production
 probability data. The original branching-tree cases are retained, giving 35 tree
-cases in total. The default performance subset contains each model's smallest
-and largest batch, four shapes in total; the shared CLI can override this choice.
+cases in total.
+
+Default coverage contains three cases: GLM `(B,D,S,V)=(1,4,4,154880)`, Qwen
+`(16,4,4,248320)`, and the original branching tree `(2,6,4,20)`, all with thresholds
+`(1.0,1.0)`. This retains both model coverage and non-linear traversal with `S<D`.
+The remaining 32 cases are marked `extra_checks`; use `-m extra_checks` for those
+only, or `-m ""` for all 35 cases.
+
+The profiling shape list still contains each model's smallest and largest batch.
+Default case selection profiles the two model shapes above; other profiling
+points require selecting supplementary cases. The shared CLI can override whether
+selected cases collect performance, but does not override pytest marker selection.
 
 With fixed inputs, each repeated call clears scratch again and writes the same
 slots. Preallocated output buffers can therefore be reused for the shared

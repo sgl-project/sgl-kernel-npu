@@ -37,6 +37,12 @@ model_cases = {
     # V: https://huggingface.co/Qwen/Qwen3.5-9B/blob/21eca8a083a2121a92fba681f4a7c72cf20ff1a7/config.json
     "qwen3-5-9b": [(batch, 4, 4, 248320) for batch in (1, 2, 4, 8, 16)],
 }
+
+# Core coverage pairs single-request GLM with batched Qwen; other confirmed
+# shapes and legacy/boundary cases remain available through extra_checks.
+default_shapes = [(1, 4, 4, 154880), (16, 4, 4, 248320)]
+
+# Profiling selection remains independent of pytest's case selection.
 perf_shape = [
     (1, 4, 4, 154880),
     (32, 4, 4, 154880),
@@ -198,6 +204,7 @@ def generate_legacy_general_tree_data():
     )
 
 
+@pytest.mark.extra_checks
 def test_verify_tree_greedy_legacy_simple():
     _check_case(generate_legacy_simple_data(), predict_fill=0, expected_accept=1)
 
@@ -205,7 +212,11 @@ def test_verify_tree_greedy_legacy_simple():
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param(shape, id=model)
+        pytest.param(
+            shape,
+            id=model,
+            marks=() if shape in default_shapes else pytest.mark.extra_checks,
+        )
         for model, shapes in model_cases.items()
         for shape in shapes
     ],
