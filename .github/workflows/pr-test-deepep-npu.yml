@@ -377,7 +377,7 @@ jobs:
       # Keep this step BEFORE the 1e-4 threshold alignment on purpose: the alltoall
       # SR acceptance values ARE the stock utils.DIFF_THRESHOLDS Dice thresholds
       # (mxfp8 < 2e-3, mxfp4 < 4e-2), so the sed must not be active here.
-      - name: Run A5 alltoall MX quant matrix (TC_A5ALLTOALL_001/002, 2 processes)
+      - name: Run A5 alltoall MX quant matrix + guards (TC_A5ALLTOALL_001/002)
         if: always()
         timeout-minutes: 60
         run: |
@@ -393,15 +393,43 @@ jobs:
               if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
             fi
           }
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
           DIR=${GITHUB_WORKSPACE}/tests/python/deepep
           # TC_A5ALLTOALL_001: normal/lowlatency x mxfp8/mxfp4 2x2 full matrix
           run_case a5alltoall_tc001_normal_mxfp8 python3 ${DIR}/test_normal_alltoall.py --num-processes 2 --use-mxfp8
           run_case a5alltoall_tc001_normal_mxfp4 python3 ${DIR}/test_normal_alltoall.py --num-processes 2 --use-mxfp4
           run_case a5alltoall_tc001_ll_mxfp8     python3 ${DIR}/test_ll_alltoall.py --num-processes 2 --use-mxfp8
           run_case a5alltoall_tc001_ll_mxfp4     python3 ${DIR}/test_ll_alltoall.py --num-processes 2 --use-mxfp4
-          # TC_A5ALLTOALL_002: no-quant bf16 regression (configs 1/2)
-          run_case a5alltoall_tc002_normal_bf16  python3 ${DIR}/test_normal_alltoall.py --num-processes 2
-          run_case a5alltoall_tc002_ll_bf16      python3 ${DIR}/test_ll_alltoall.py --num-processes 2
+          # TC_A5ALLTOALL_002 configs1/2: no-quant bf16 regression
+          run_case a5alltoall_tc002_cfg1_normal_bf16 python3 ${DIR}/test_normal_alltoall.py --num-processes 2
+          run_case a5alltoall_tc002_cfg2_ll_bf16     python3 ${DIR}/test_ll_alltoall.py --num-processes 2
+          # TC_A5ALLTOALL_002 config3: format uniqueness via -h (quant flags are exactly the
+          # --use-fp8/--use-mxfp8/--use-mxfp4 booleans; no E5M2-family MX option may exist)
+          python3 ${DIR}/test_normal_alltoall.py -h > ${GITHUB_WORKSPACE}/normal_a2a_help.txt 2>&1
+          python3 ${DIR}/test_ll_alltoall.py -h > ${GITHUB_WORKSPACE}/ll_a2a_help.txt 2>&1
+          if grep -q -- "--use-mxfp8" ${GITHUB_WORKSPACE}/normal_a2a_help.txt \
+             && grep -q -- "--use-mxfp4" ${GITHUB_WORKSPACE}/normal_a2a_help.txt \
+             && grep -q -- "--use-fp8" ${GITHUB_WORKSPACE}/normal_a2a_help.txt \
+             && grep -q -- "--use-mxfp8" ${GITHUB_WORKSPACE}/ll_a2a_help.txt \
+             && grep -q -- "--use-mxfp4" ${GITHUB_WORKSPACE}/ll_a2a_help.txt \
+             && ! grep -qi "e5m2" ${GITHUB_WORKSPACE}/normal_a2a_help.txt \
+             && ! grep -qi "e5m2" ${GITHUB_WORKSPACE}/ll_a2a_help.txt; then
+            echo "PASS  a5alltoall_tc002_cfg3_format_uniqueness" >> ${RESULT_FILE}
+          else
+            echo "FAIL  a5alltoall_tc002_cfg3_format_uniqueness (help flag surface mismatch)" >> ${RESULT_FILE}
+          fi
+          # TC_A5ALLTOALL_002 configs4/5: quant flag mutual exclusion (argparse, process never launched)
+          run_expect_fail a5alltoall_tc002_cfg4_mutex_normal python3 ${DIR}/test_normal_alltoall.py --num-processes 2 --use-mxfp8 --use-mxfp4
+          run_expect_fail a5alltoall_tc002_cfg5_mutex_ll     python3 ${DIR}/test_ll_alltoall.py --num-processes 2 --use-mxfp8 --use-mxfp4
           echo "================ A5 alltoall CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
@@ -445,22 +473,12 @@ jobs:
             exit 1
           fi
           echo "All A5 SiTU SR cases passed"
-      - name: Run A5 FP4 w4a4 semantics and negative guards (TC_A5FP4_002, TC_A5MEGAMOE_002 neg3)
+      - name: Run A5 SiTU parameter negatives (TC_A5SITU_002, parser rejects before spawn)
         if: always()
-        timeout-minutes: 60
+        timeout-minutes: 30
         run: |
-          RESULT_FILE=${GITHUB_WORKSPACE}/a5_fp4_neg_results.txt
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_situ_neg_results.txt
           : > ${RESULT_FILE}
-          run_case() {
-            local name="$1"; shift
-            echo "===== CASE: $name ====="
-            if timeout 1800 "$@"; then
-              echo "PASS  $name" >> ${RESULT_FILE}
-            else
-              rc=$?
-              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  $name (exit=$rc)" >> ${RESULT_FILE}; fi
-            fi
-          }
           run_expect_fail() {
             local name="$1"; shift
             echo "===== NEGATIVE CASE: $name (must be rejected) ====="
@@ -472,19 +490,44 @@ jobs:
             fi
           }
           SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a5.py
-          # TC_A5FP4_002 config3: w4a4 semantics - log quant dtypes of baseline vs fused path
-          run_case a5fp4_tc002_w4a4_semantics python3 ${SCRIPT} --num-processes 4 --activation situ --num-warmups 5 --num-tests 30 --quant fp4_e2m1 --log-quant-dtypes
-          # TC_A5FP4_002 config2 verbatim: bs=257 over boundary, parser rejects before any process spawns
-          run_expect_fail a5fp4_tc002_bs257_rejected python3 ${SCRIPT} --num-processes 8 --num-tokens 257
-          # TC_A5MEGAMOE_002 neg3 CLI form: unknown quant_mode rejected by argparse, process never launched
-          run_expect_fail megamoe_tc002_neg3_cli_unknown_quant python3 ${GITHUB_WORKSPACE}/tests/python/deepep/test_mega_moe.py --num-processes 8 --quant-mode fp8_x
-          echo "================ A5 FP4/NEG CASE SUMMARY ================"
+          # TC_A5SITU_002 neg1/neg2: non-positive saturation params rejected at parser level
+          run_expect_fail a5situ_tc002_neg1_beta_negative_rejected python3 ${SCRIPT} --activation situ --beta -1.0 --num-warmups 5 --num-tests 30
+          run_expect_fail a5situ_tc002_neg2_linear_beta_negative_rejected python3 ${SCRIPT} --activation situ --linear-beta -1.0 --num-warmups 5 --num-tests 30
+          echo "================ A5 SiTU NEG CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
-            echo "Some A5 FP4/negative SR cases FAILED"
+            echo "Some A5 SiTU negative SR cases FAILED"
             exit 1
           fi
-          echo "All A5 FP4/negative SR cases passed"
+          echo "All A5 SiTU negative SR cases passed"
+      - name: Run A5 FP4 constraint negatives (TC_A5FP4_002 configs 2/4)
+        if: always()
+        timeout-minutes: 60
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_fp4_neg_results.txt
+          : > ${RESULT_FILE}
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_fused_deep_moe_a5.py
+          # TC_A5FP4_002 config2 verbatim: bs=257 over boundary, parser rejects before any process spawns
+          run_expect_fail a5fp4_tc002_cfg2_bs257_rejected python3 ${SCRIPT} --num-processes 8 --num-tokens 257
+          # TC_A5FP4_002 config4 verbatim: odd hidden under fp4, parser rejects before any process spawns
+          run_expect_fail a5fp4_tc002_cfg4_hidden_odd_rejected python3 ${SCRIPT} --num-processes 8 --quant fp4_e2m1 --hidden 8191
+          echo "================ A5 FP4 NEG CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 FP4 negative SR cases FAILED"
+            exit 1
+          fi
+          echo "All A5 FP4 negative SR cases passed"
 
   test-a3-megamoe-a5sr-negatives:
     name: A5 MegaMoe SR - A3-side negative and regression (8 proc, CANN 9.2.0)
@@ -531,7 +574,7 @@ jobs:
         run: |
           rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
           bash scripts/prepare_deepep_in_container.sh -a deepep
-      - name: Run A5 MegaMoe SR A3-side cases (TC_A5MEGAMOE_002 neg5/neg6)
+      - name: Run A5 MegaMoe SR A3-side cases (TC_A5MEGAMOE_002 neg4/neg5)
         if: always()
         timeout-minutes: 120
         env:
@@ -560,11 +603,10 @@ jobs:
             fi
           }
           SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_mega_moe.py
-          # num-tokens 1024 / hccl-buffsize 4096 come from TC_A5MEGAMOE common params;
-          # neg6: A3 existing w4a8 behavior regression (script w4a8 threshold 1e-4 already meets SR)
-          run_case megamoe_tc002_neg6_a3_w4a8_regression python3 ${SCRIPT} --num-processes 8 --num-tokens 1024 --quant-mode w4a8 --hccl-buffsize 4096
-          # neg5: A3 + MXFP must be rejected by CANN mega_moe platform validation
-          run_expect_fail megamoe_tc002_neg5_a3_mxfp8_rejected python3 ${SCRIPT} --num-processes 8 --num-tokens 1024 --quant-mode mx_fp8_e4m3 --hccl-buffsize 4096
+          # neg5: A3 existing w4a8 behavior regression (script w4a8 threshold 1e-4 already meets SR)
+          run_case megamoe_tc002_neg5_a3_w4a8_regression python3 ${SCRIPT} --num-processes 16 --quant-mode w4a8
+          # neg4: A3 + MXFP must be rejected by CANN mega_moe platform validation
+          run_expect_fail megamoe_tc002_neg4_a3_mxfp8_rejected python3 ${SCRIPT} --num-processes 16 --quant-mode mx_fp8_e4m3
           echo "================ A3 MegaMoe A5-SR CASE SUMMARY ================"
           cat ${RESULT_FILE}
           if grep -q "^FAIL" ${RESULT_FILE}; then
@@ -572,6 +614,122 @@ jobs:
             exit 1
           fi
           echo "All A3 MegaMoe A5-SR cases passed"
+      - name: Run A5 alltoall platform negatives on A3 (TC_A5ALLTOALL_002 config6)
+        if: always()
+        timeout-minutes: 30
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a3_alltoall_plat_results.txt
+          : > ${RESULT_FILE}
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          DIR=${GITHUB_WORKSPACE}/tests/python/deepep
+          # config6: mxfp8/mxfp4 flags are A5-only; on A3 the script platform check must reject
+          run_expect_fail a5alltoall_tc002_cfg6_a3_mxfp8_normal_rejected python3 ${DIR}/test_normal_alltoall.py --num-processes 2 --use-mxfp8
+          run_expect_fail a5alltoall_tc002_cfg6_a3_mxfp8_ll_rejected     python3 ${DIR}/test_ll_alltoall.py --num-processes 2 --use-mxfp8
+          echo "================ A3 alltoall PLATFORM NEG CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A3 alltoall platform negative cases FAILED"
+            exit 1
+          fi
+          echo "All A3 alltoall platform negative cases passed"
+
+  test-a5-megamoe-a5sr-negatives:
+    name: A5 MegaMoe SR - A5-side negatives (4-card, CANN 9.2.0)
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-amd64-a5-4
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950-amd64
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Install dependencies
+        # lmsysorg cann9.2.0-950-amd64 image ships torch/torch_npu (py3.12); only build
+        # tools and python test deps are installed here (MegaMoe backend cann_ops_transformer needs CANN 9.2)
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          apt update -y && apt install -y build-essential cmake ccache ninja-build
+          python3 -m pip install --no-cache-dir ninja pybind11 pyyaml decorator scipy attrs psutil
+      - name: Prepare Deepep
+        run: |
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
+      - name: Run A5 MegaMoe SR A5-side negatives (TC_A5MEGAMOE_002 neg1/2/3)
+        if: always()
+        timeout-minutes: 90
+        env:
+          DEEP_USE_MODE: MEGA_MOE
+        run: |
+          RESULT_FILE=${GITHUB_WORKSPACE}/a5_megamoe_neg_results.txt
+          : > ${RESULT_FILE}
+          run_expect_fail() {
+            local name="$1"; shift
+            echo "===== NEGATIVE CASE: $name (must be rejected) ====="
+            if timeout 1800 "$@"; then
+              echo "FAIL  $name (unexpectedly accepted, exit=0)" >> ${RESULT_FILE}
+            else
+              rc=$?
+              if [ "$rc" -eq 124 ]; then echo "FAIL  $name (timeout/hang)" >> ${RESULT_FILE}; else echo "PASS  $name (expectedly rejected, exit=$rc)" >> ${RESULT_FILE}; fi
+            fi
+          }
+          SCRIPT=${GITHUB_WORKSPACE}/tests/python/deepep/test_mega_moe.py
+          # neg3 first on the STOCK script: unknown quant_mode rejected by argparse, process never launched
+          run_expect_fail megamoe_tc002_neg3_cli_unknown_quant_rejected python3 ${SCRIPT} --num-processes 4 --quant-mode fp8_x
+          # neg1/neg2 need the SR-design temp patch (pre-condition 6): comment out the --quant-mode
+          # choices line so "int8"/"bf16" reach _resolve and the CANN mega_moe platform check.
+          # CI-only patch, restored via git checkout right after - must never be committed.
+          sed -i 's/^\([[:space:]]*\)choices=SUPPORTED_QUANT_MODES,[[:space:]]*$/\1# choices=SUPPORTED_QUANT_MODES  # TEMP-PATCH CI SR negative (design precondition-6), restored below/' ${SCRIPT}
+          grep -n "TEMP-PATCH" ${SCRIPT}
+          # neg1: A5 + int8 must be rejected by CANN mega_moe platform validation
+          run_expect_fail megamoe_tc002_neg1_a5_int8_rejected python3 ${SCRIPT} --num-processes 4 --num-tokens 1024 --quant-mode int8 --hccl-buffsize 4096
+          # neg2: A5 + "bf16" must be rejected by CANN mega_moe platform validation
+          run_expect_fail megamoe_tc002_neg2_a5_bf16_rejected python3 ${SCRIPT} --num-processes 4 --num-tokens 1024 --quant-mode bf16 --hccl-buffsize 4096
+          git checkout -- tests/python/deepep/test_mega_moe.py
+          if git diff --quiet -- tests/python/deepep/test_mega_moe.py; then
+            echo "TEMP-PATCH restored OK"
+          else
+            echo "WARN: test_mega_moe.py still patched"; git diff -- tests/python/deepep/test_mega_moe.py | head -20
+          fi
+          echo "================ A5 MegaMoe A5-SR NEG CASE SUMMARY ================"
+          cat ${RESULT_FILE}
+          if grep -q "^FAIL" ${RESULT_FILE}; then
+            echo "Some A5 MegaMoe A5-SR negative cases FAILED"
+            exit 1
+          fi
+          echo "All A5 MegaMoe A5-SR negative cases passed"
 
   finish:
     if: always()
@@ -582,6 +740,7 @@ jobs:
       - test-deepep-a5
       - test-a5-sr4-mxfp-cases
       - test-a3-megamoe-a5sr-negatives
+      - test-a5-megamoe-a5sr-negatives
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
