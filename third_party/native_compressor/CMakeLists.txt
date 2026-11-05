@@ -46,7 +46,7 @@ ascendc_library(compressor_kernel STATIC "${compressor}/op_kernel/compressor.cpp
 ascendc_include_directories(compressor_kernel PRIVATE
     "${compressor}/op_kernel" "${compressor}/op_kernel/${compressor_arch}"
     "${SGL_NATIVE_SOURCE}/csrc/utils/kernel")
-ascendc_compile_definitions(compressor_kernel PRIVATE HAVE_WORKSPACE HAVE_TILING)
+ascendc_compile_definitions(compressor_kernel PRIVATE -DHAVE_WORKSPACE -DHAVE_TILING)
 
 add_library(sgl_native_compressor SHARED
     "${SGL_REGISTRATION_SOURCE}"
