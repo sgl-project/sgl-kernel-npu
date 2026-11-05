@@ -1,5 +1,6 @@
 """Public indexer_quant_cache operator with registered implementations."""
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from ..utils.transformer_compat import (
     OperatorUnavailableError,
@@ -8,7 +9,9 @@ from ..utils.transformer_compat import (
 )
 
 
-@register_impl("mem_cache.indexer_quant_cache", "auto")
+@register_impl(
+    "mem_cache.indexer_quant_cache", "auto", supported_generations={Generation.ARCH35}
+)
 def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     backend = cann_backend()
     if backend == "cann_9_1":
@@ -18,7 +21,11 @@ def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     )
 
 
-@register_impl("mem_cache.indexer_quant_cache", "cann_ops_transformer_cann920")
+@register_impl(
+    "mem_cache.indexer_quant_cache",
+    "cann_ops_transformer_cann920",
+    supported_generations={Generation.ARCH35},
+)
 def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     op = require_op(
         "cann_ops_transformer",
@@ -29,7 +36,11 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     return cache, scale_cache
 
 
-@register_impl("mem_cache.indexer_quant_cache", "cann_recipes_infer_cann910")
+@register_impl(
+    "mem_cache.indexer_quant_cache",
+    "cann_recipes_infer_cann910",
+    supported_generations={Generation.ARCH35},
+)
 def _cann_9_1_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     op = require_op("custom", "indexer_compress_epilog", backend="cann_9_1")
     if kwargs.get("quant_mode", "fp8") != "fp8":
@@ -66,6 +77,8 @@ def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
 @register_operator("mem_cache.indexer_quant_cache")
 def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **kwargs):
     """Quantize and scatter indexer keys and fp32 scales in place.
+
+    Production implementations support A5/ARCH35; the eager reference is independent.
 
     For quant_mode="fp8", the original 9.1 binding uses unrounded FP32 scales;
     the released 9.2 binding also honors round_scale. x_scale is HiFloat8-only.

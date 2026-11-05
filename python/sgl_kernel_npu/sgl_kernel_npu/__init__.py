@@ -31,11 +31,13 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
                     pathlib.Path(__file__).resolve().parent
                     / "_third_party"
                     / _package_name
-                    / "lib/libsgl_native_compressor.so"
+                    / "lib"
+                    / ("lib" + _package_name + ".so")
                 )
                 if not _native_library.is_file():
                     raise RuntimeError(
-                        "Missing bundled native compressor: " + str(_native_library)
+                        "Missing bundled native operator library: "
+                        + str(_native_library)
                     )
                 continue
             _name = _dependency["vendor_directory"]

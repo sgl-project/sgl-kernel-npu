@@ -36,5 +36,9 @@
     ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
   ],
   "has_aicpu": true,
-  "license": "LICENSE"
+  "license": "LICENSE",
+  "python_exports": {
+    "quant_lightning_indexer_v2": "quant_lightning_indexer",
+    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata"
+  }
 }

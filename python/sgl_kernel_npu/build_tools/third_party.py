@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from build_tools.cann import PROJECT_ROOT, run
 
 # Explicit allowlist: configuration cannot import arbitrary Python code.
-_ADAPTERS = {"ops_transformer", "cann_recipes_infer", "native_compressor"}
+_ADAPTERS = {"ops_transformer", "cann_recipes_infer", "native_ops"}
 
 
 @lru_cache(maxsize=None)
@@ -311,10 +311,22 @@ def build_dependencies(plan, source_root=PROJECT_ROOT):
 def _build_dependency(item, root):
     directory = Path(tempfile.mkdtemp(prefix=item["name"] + "-", dir=root))
     source = directory / "source"
-    run(
-        ["git", "clone", "--no-checkout", item["repository"], source],
-        directory / "clone.log",
-    )
+    paths = item.get("source_paths", [])
+    if any(
+        PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts
+        for path in paths
+    ):
+        raise ValueError("Invalid sparse source selection")
+    clone = ["git", "clone", "--no-checkout"]
+    if paths:
+        clone.append("--filter=blob:none")
+    run(clone + [item["repository"], source], directory / "clone.log")
+    if paths:
+        run(
+            ["git", "sparse-checkout", "set", "--cone", "--", *paths],
+            directory / "sparse-checkout.log",
+            cwd=source,
+        )
     run(
         ["git", "checkout", "--detach", item["commit"]],
         directory / "checkout.log",

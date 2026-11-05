@@ -8,6 +8,7 @@ pytest.importorskip("torch_npu")
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
+    get_test_impls,
     make_executor,
     require_distinct_impls,
     require_test_impl,
@@ -100,14 +101,17 @@ def generate_data(tokens, input_kind, round_scale):
 def test_indexer_cache(tokens, input_kind, round_scale):
     from sgl_kernel_npu.operators.mem_cache import indexer_quant_cache
 
+    impl, impl_ref = get_test_impls()
+    # Validate hardware before allocating FP8 buffers on unsupported A3 devices.
+    if get_skip_acc_check() is True:
+        require_test_impl(indexer_quant_cache, impl)
+    else:
+        require_distinct_impls(indexer_quant_cache, impl, impl_ref)
     keys, scales, x, slots, kwargs = generate_data(tokens, input_kind, round_scale)
     executor = make_executor(
         indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs
     )
-    if get_skip_acc_check() is True:
-        require_test_impl(indexer_quant_cache, executor.impl)
-    else:
-        require_distinct_impls(indexer_quant_cache, executor.impl, executor.impl_ref)
+    if get_skip_acc_check() is not True:
         # Run independent reference math on CPU, where FP8 casts are available.
         # Copy cache bytes rather than requesting an NPU FP8 copy/conversion.
         with torch.device("cpu"):

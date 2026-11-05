@@ -472,6 +472,34 @@ python3 setup.py --arch-version 2201 --ops apply_token_bitmask \
 Use `3510` for CANN 9.2 A5. `apply_token_bitmask` is the minimal repository-owned
 CANN selection required by the existing wheel coordinator; the compressor is
 built separately by the third-party profile, never by that placeholder kernel.
-For the migrated suite, select `cann_recipes_infer,ops_transformer,native_compressor`
-on CANN 9.1 A3, or `ops_transformer,native_compressor` on CANN 9.2.
+For the migrated suite, select
+`cann_recipes_infer,ops_transformer,native_compressor,native_dsv4` on CANN 9.1 A3,
+or `ops_transformer,native_compressor` on CANN 9.2.
 The output wheel contains the native registration library and its source license.
+
+
+## Complete bundled DSV4 bindings
+
+CANN 9.1 requires the `native_dsv4` profile for DSpark explicit-index compute,
+CPU metadata and (A5 only) the original 640B KV writer. It builds the pinned
+original kernels into the wheel's private `sgl_native_dsv4` namespace. No
+installed legacy registration library is consulted. The `native_compressor`
+profile name is unchanged; both profiles share the `native_ops` build adapter.
+Sparse source checkouts and disabled submodules avoid cloning unused native
+kernel dependencies.
+
+Use these dependency selections for the migrated operator suite:
+
+| SDK / target | `--third-party` |
+| --- | --- |
+| CANN 9.1 A3 | `cann_recipes_infer,ops_transformer,native_compressor,native_dsv4` |
+| CANN 9.1 A5 | `cann_recipes_infer,ops_transformer,native_dsv4` |
+| CANN 9.2 A3/A5 | `ops_transformer,native_compressor` |
+
+Omitting `--third-party` selects all matching profiles. Production
+`indexer_quant_cache` is restricted to A5; A3's eager reference remains available.
+Wheel assembly now imports the staged bundled modules and checks their actual
+Torch registrations before packaging. `_binding_manifest.json` records the
+verified bindings and whether the migrated-suite dependency set was selected.
+The complete CANN 9.2 suite also checks the base torch_npu MoE hash schema.
+This checks registration and packaging, not NPU output accuracy.

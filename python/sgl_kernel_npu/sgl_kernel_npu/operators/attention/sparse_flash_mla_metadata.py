@@ -131,7 +131,7 @@ def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
         args.pop("max_seqlen_q", None)
         args.pop("max_seqlen_kv", None)
     namespace, binding = (
-        ("npu", "sparse_attn_sharedkv_metadata_host")
+        ("sgl_native_dsv4", "sparse_attn_sharedkv_metadata_host")
         if sparse
         else ("custom", "npu_sparse_attn_sharedkv_metadata")
     )
