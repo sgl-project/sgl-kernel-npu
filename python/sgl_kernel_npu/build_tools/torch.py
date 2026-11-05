@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from build_tools.common import PROJECT_ROOT, _cache, architecture, run
+from build_tools.common import PROJECT_ROOT, _cache, run
 
 
 @dataclass(frozen=True)
@@ -33,29 +33,18 @@ def configure_torch(
     """Configure one project for HOST objects and Torch adapters, without compiling."""
     source_root = Path(source_root).resolve()
     arch_version = str(arch_version)
-    architecture(arch_version, source_root)
     if cann is not None and cann.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
-    if cann is not None and cann.arch_version != str(arch_version):
-        raise ValueError("Torch architecture differs from configured native build")
     cann_ids = cann.operators if cann is not None else ()
     host_ids = tuple(operators)
-    if not cann_ids and not host_ids:
-        raise ValueError("No native operators selected")
     if selection_kind is None:
         selection_kind = cann.selection_kind if cann is not None else "custom"
-    if selection_kind not in ("all", "custom"):
-        raise ValueError("Invalid Torch selection kind")
-    if cann is not None and cann.selection_kind != selection_kind:
-        raise ValueError("Torch selection kind differs from CANN build")
     vendor = cann.vendor if cann is not None else None
     if build_root is None:
         build_root = (
             cann.directory.parent if cann is not None else source_root / "build"
         )
     build_root = Path(build_root)
-    if build_root.is_symlink():
-        raise RuntimeError("Refusing a symlinked build root")
     directory = build_root.absolute() / "torch"
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked Torch build directory")
@@ -75,7 +64,6 @@ def configure_torch(
         "python": sys.executable,
         "python_version": sys.version,
         "sdk": os.environ.get("ASCEND_HOME_PATH", ""),
-        "selection_kind": selection_kind,
     }
     for distribution in ("torch", "torch_npu"):
         try:
@@ -112,19 +100,8 @@ def configure_torch(
     )
 
 
-def build_torch(configured: TorchBuild, *, host=None, jobs=None):
+def build_torch(configured: TorchBuild, *, jobs=None):
     """Compile selected adapters and link the existing single shared extension."""
-    if jobs is not None and jobs < 1:
-        raise ValueError("--jobs must be positive")
-    if configured.operators:
-        if host is None or (
-            host.directory != configured.directory
-            or host.operators != configured.operators
-            or host.arch_version != configured.arch_version
-        ):
-            raise ValueError("HOST objects differ from the configured Torch extension")
-    elif host is not None:
-        raise ValueError("No HOST objects expected for this Torch extension")
     directory = configured.directory
     command = ["cmake", "--build", directory, "--target", "sgl_kernel_npu"]
     if jobs is not None:

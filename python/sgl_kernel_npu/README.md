@@ -223,11 +223,14 @@ Its `CannBuild` result has no HOST IDs.
 with HOST IDs in `SGL_HOST_OPERATORS` and CANN adapter IDs in `SGL_CANN_OPERATORS`.
 It validates Python/Torch/SDK and selection caches, but does not compile.
 `host.py::build_host()` accepts only HOST IDs and the configured directory,
-builds the `sgl_host_operators` OBJECT target from `CPP_SOURCES`, and returns
-`HostBuild` object metadata. It takes no CANN result/vendor and compiles no adapters.
+builds the `sgl_host_operators` OBJECT target from `CPP_SOURCES`.
+It takes no CANN result/vendor and compiles no adapters.
 HOST-only implementation objects still need Torch/torch_npu/ACL headers and ABI flags.
 `torch.py::build_torch()` compiles the selected CANN/HOST `TORCH_ADAPTER` files and
 links the HOST objects into the existing, single `libsgl_kernel_npu.so`.
+Object dependencies are managed by CMake; no HOST result is passed back for a
+second metadata comparison. Architecture/selection validation remains at the
+entry and CMake, while the original environment/cache and output checks remain.
 Only this extension target uses the repository-owned CANN vendor headers and
 nnopbase when CANN adapters are selected. No extra shared library is produced.
 CANN-only builds skip `build_host()`; HOST-only builds skip `build_cann()`.

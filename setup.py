@@ -230,17 +230,14 @@ def main(argv=None):
             cann=result,
             selection_kind="all" if args.operators == ("ALL",) else "custom",
         )
-        host = (
+        if host_operators:
             build_host(
                 args.arch_version,
                 host_operators,
                 directory=configured_torch.directory,
                 jobs=args.jobs,
             )
-            if host_operators
-            else None
-        )
-        torch = build_torch(configured_torch, host=host, jobs=args.jobs)
+        torch = build_torch(configured_torch, jobs=args.jobs)
         package = stage_package(torch, cann=result, dependencies=dependencies)
         wheel = build_wheel(package)
         destination = output / wheel.name

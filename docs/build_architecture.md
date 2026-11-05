@@ -82,15 +82,15 @@ HOST 实现不经过 CANN codegen、AI Core 工具链或 HCC。`build_cann()` �
 
 ### 2.6 torch.py → Torch CMake → host.py / build_torch：配置一次，分目标编译
 
-`torch.py::configure_torch(arch_version, operators, *, cann=None, ...)` 负责共享配置。`operators` 只包含 HOST ID，可选 `cann` 提供实际 CANN ID 和已安装 vendor。这里校验架构、请求形式、Torch/Python/SDK 环境和构建缓存，然后配置现有 `csrc/aclnn_torch_adapter` 工程一次，不编译。返回 `TorchBuild` 配置，`library=None`；只有成功链接后才填入动态库路径。
+`torch.py::configure_torch(arch_version, operators, *, cann=None, ...)` 负责共享配置。`operators` 只包含 HOST ID，可选 `cann` 提供实际 CANN ID 和已安装 vendor。沿用原实现的 vendor、Torch/Python/SDK 环境与构建缓存检查，然后配置现有 `csrc/aclnn_torch_adapter` 工程一次，不编译。架构、算子集合等合法性由入口与 CMake 检查，不在此重复检查；`selection_kind` 用于包清单，不加入编译环境签名。返回 `TorchBuild` 配置，`library=None`；只有成功链接后才填入动态库路径。
 
 两份 txt 沿用 CMake 向 Python 回传最终集合的方式。Python 从 HOST txt 读取 ID，再通过 `-DSGL_HOST_OPERATORS=...` 传给共享 Torch 工程；CANN adapters 通过 `SGL_CANN_OPERATORS` 传入。根选择入口不额外写入未使用的 HOST 缓存。
 
 `cpp_ops.cmake::sgl_collect_cpp_sources()` 分别返回实现源码、Torch adapters、选择宏三份列表，各自去重。`CPP_SOURCES` 只进入内部 `sgl_host_operators OBJECT` 目标，HOST/CANN 的 `TORCH_ADAPTER` 进入原有 `sgl_kernel_npu SHARED` 目标。后者通过 `target_link_libraries(... sgl_host_operators)` 纳入 HOST 对象，并建立构建依赖，不新增动态库，也不改变原 `.so` 的加载方式。
 
-`host.py::build_host(arch_version, operators, *, directory, ...)` 只接受 HOST ID 和已配置目录。核对缓存后执行 `cmake --build build/torch --target sgl_host_operators`，返回 `HostBuild(directory, operators, arch_version)`。它不接收 CANN ID/vendor，不配置工程，不编译 adapter，不执行链接。HOST 为空时根入口跳过该阶段。
+`host.py::build_host(arch_version, operators, *, directory, ...)` 只接受 HOST ID 和已配置目录。核对缓存后执行 `cmake --build build/torch --target sgl_host_operators`。它不接收 CANN ID/vendor，不配置工程，不编译 adapter，不执行链接，也不额外返回对象元数据。HOST 为空时根入口跳过该阶段。
 
-`torch.py::build_torch(configured, *, host=None, ...)` 检查 HOST 对象与共享配置的目录、架构、ID 一致，然后执行 `cmake --build build/torch --target sgl_kernel_npu`。该阶段编译所选 CANN/HOST adapters，并链接已经编译的 HOST 对象。CMake 仍保留对象依赖，已有对象未变化时不会重复编译。无 HOST 时不需要对象结果，直接构建 CANN adapters。成功后返回带 `libsgl_kernel_npu.so` 的 `TorchBuild`。
+`torch.py::build_torch(configured, *, jobs=None)` 执行 `cmake --build build/torch --target sgl_kernel_npu`，不传入 HOST 对象元数据做重复比对。该阶段编译所选 CANN/HOST adapters，并链接 HOST 对象；对象的构建、更新及链接依赖由 CMake target 管理，已有对象未变化时不会重复编译。无 HOST 时直接构建 CANN adapters。成功后沿用原实现检查最终动态库存在且非空，并返回带 `libsgl_kernel_npu.so` 的 `TorchBuild`。
 
 两个目标都使用匹配的 Torch ABI 选项、C++17、可见性设置和所选 HOST 宏；HOST 对象启用 PIC。现有 HOST 实现使用 ATen、torch_npu 和 ACL，因此拆分后仍需要这些头文件。仓内 CANN vendor 的 include 和 nnopbase 链接依赖只加到最终 Torch 扩展，HOST 对象目标不消费它们。
 

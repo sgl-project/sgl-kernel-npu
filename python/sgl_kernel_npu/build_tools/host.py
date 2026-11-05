@@ -1,16 +1,8 @@
 """Compile selected HOST implementations in the configured shared Torch project."""
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from build_tools.common import _cache, run
-
-
-@dataclass(frozen=True)
-class HostBuild:
-    directory: Path
-    operators: tuple
-    arch_version: str
 
 
 def build_host(arch_version, operators, *, directory, jobs=None):
@@ -33,4 +25,3 @@ def build_host(arch_version, operators, *, directory, jobs=None):
         command += ["--parallel", str(jobs)]
     run(command, directory / "host-build.log")
     print("HOST_OBJECTS: " + ",".join(operators), flush=True)
-    return HostBuild(directory, operators, str(arch_version))
