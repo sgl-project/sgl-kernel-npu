@@ -1,29 +1,42 @@
-"""MemFabric host-memory device-address registration.
+"""Registered host-memory device-address table for the AIV kv_exchange kernel.
 
-Host pool tensors allocated through ``memfabric_hybrid.offload.empty`` are
-not visible to ``offload.get_dva`` until they are registered with
-``offload.host_register`` (the acc_offload entry manager maps registered host
-virtual addresses to device-visible addresses). The AIV kv_exchange kernel dereferences
-those DVAs directly, so every MF-allocated host buffer must go through
-:meth:`register_host_memory` at allocation time; interior tensor views then
-resolve by byte offset through the mapping table.
+Two registration providers map host DRAM into the device VA space, selected
+by SGLANG_HICACHE_HOST_MEM_BACKEND in the SGLang process:
+
+- ``memfabric``: host pool tensors allocated through
+  ``memfabric_hybrid.offload.empty`` are registered with
+  ``offload.host_register`` (the acc_offload entry manager); every
+  MF-allocated host buffer must go through :meth:`register_host_memory` at
+  allocation time.
+- ``acl``: plain pageable host tensors (torch.empty) are registered with
+  the standard CANN runtime ``aclrtHostRegister(ACL_HOST_REGISTER_MAPPED)``,
+  which returns the NPU-accessible device pointer directly; see
+  :meth:`register_acl_host_memory`.
+
+Both providers record into the same table so the AIV kv_exchange kernel
+resolves interior tensor views of either kind of block by byte offset.
 """
 
+import logging
 from typing import List, NamedTuple, Optional, Tuple
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 
 class HostMemoryMapping(NamedTuple):
-    """Device-visible mapping of one registered MemFabric host block."""
+    """Device-visible mapping of one registered host block."""
 
     device_ptr: int
     registered_host_ptr: int
     owned: bool
+    # "memfabric" (offload.host_register) or "acl" (aclrtHostRegister).
+    kind: str = "memfabric"
 
 
-# Registered MF blocks: (base_hva, nbytes, HostMemoryMapping). The table also
-# resolves interior tensor views to DVA + byte offset.
+# Registered blocks: (base_hva, nbytes, HostMemoryMapping). The table also
+# resolves interior tensor views to device pointer + byte offset.
 _G_MAPPINGS: List[Tuple[int, int, HostMemoryMapping]] = []
 
 
@@ -84,6 +97,160 @@ def register_host_memory(tensor: torch.Tensor) -> HostMemoryMapping:
     return mapping
 
 
+# ---------------------------------------------------------------------------
+# aclrt registration (SGLANG_HICACHE_HOST_MEM_BACKEND=acl)
+#
+# Mirrors the aclrt_aiv branch's host_memory.py (sgl-project/sglang PR
+# #39548 style) call-for-call: the aclrt calls go through the ``acl.rt``
+# python binding exactly as that branch does -- never ctypes or
+# torch.ops.npu.  Key binding contract:
+#   * ``acl_rt.host_register(host_ptr, nbytes, ACL_HOST_REGISTER_MAPPED)``
+#     returns ``(dev_ptr, ret)``, NOT (ret, dev_ptr);
+#   * ``acl_rt.host_get_device_pointer(host_ptr, 0)`` likewise returns
+#     ``(dev_ptr, ret)`` -- borrow existing mappings (e.g. torch_npu's
+#     pinned-memory allocator) instead of re-registering;
+#   * registration is page-aligned (mmap.PAGESIZE); interior offsets are
+#     added back to the returned device pointer;
+#   * failure is soft (returns None); the caller decides whether a missing
+#     mapping is fatal.  aclrtHostRegister maps an existing host range into
+#     the device VA space, so acl-registered blocks coexist with MF blocks
+#     in the same table and the AIV kv_exchange kernel dereferences either.
+# ---------------------------------------------------------------------------
+
+import mmap
+
+# aclrtHostRegisterType: map the host range into the device address space.
+ACL_HOST_REGISTER_MAPPED = 0
+
+
+def _load_acl_rt():
+    import acl.rt as acl_rt
+
+    return acl_rt
+
+
+def _aligned_range(host_ptr: int, nbytes: int) -> Tuple[int, int, int]:
+    """Return page-aligned ``(base, size, offset)`` for a host range."""
+    page_size = mmap.PAGESIZE
+    base = host_ptr - host_ptr % page_size
+    offset = host_ptr - base
+    size = ((offset + nbytes + page_size - 1) // page_size) * page_size
+    return base, size, offset
+
+
+def _get_device_pointer(acl_rt, host_ptr: int) -> Optional[int]:
+    """Return an existing device mapping without taking ownership of it."""
+    getter = getattr(acl_rt, "host_get_device_pointer", None)
+    if getter is None:
+        return None
+    try:
+        # NOTE: the binding returns (dev_ptr, ret), not (ret, dev_ptr).
+        dev_ptr, ret = getter(host_ptr, 0)
+    except Exception:  # an unregistered range is an expected miss
+        return None
+    if ret == 0 and dev_ptr:
+        return int(dev_ptr)
+    return None
+
+
+def _register_acl_host_block(host_ptr: int, nbytes: int) -> Optional[HostMemoryMapping]:
+    """Map ``[host_ptr, host_ptr + nbytes)`` into the device address space.
+
+    Existing mappings (including mappings owned by torch_npu's pinned-memory
+    allocator) are borrowed and must not be unregistered here.  New mappings
+    are page-aligned to satisfy ``aclrtHostRegister`` and marked as owned.
+    Returns None on failure; the caller decides whether that is fatal.
+    """
+    if host_ptr <= 0 or nbytes <= 0:
+        return None
+    registered_host_ptr, registered_nbytes, offset = _aligned_range(host_ptr, nbytes)
+    try:
+        acl_rt = _load_acl_rt()
+
+        existing_ptr = _get_device_pointer(acl_rt, registered_host_ptr)
+        if existing_ptr is not None:
+            logger.info(
+                "Using an existing host-memory device mapping: host=%#x -> device=%#x",
+                registered_host_ptr,
+                existing_ptr,
+            )
+            return HostMemoryMapping(
+                device_ptr=existing_ptr + offset,
+                registered_host_ptr=registered_host_ptr,
+                owned=False,
+                kind="acl",
+            )
+
+        # NOTE: the binding returns (dev_ptr, ret), not (ret, dev_ptr).
+        dev_ptr, ret = acl_rt.host_register(
+            registered_host_ptr, registered_nbytes, ACL_HOST_REGISTER_MAPPED
+        )
+    except Exception as exc:  # depends on the CANN install
+        logger.warning("aclrtHostRegister unavailable: %s", exc)
+        return None
+    if ret != 0 or not dev_ptr:
+        # Another component may have registered the range between the lookup
+        # and the register call. Query once more and borrow that mapping if
+        # present.
+        existing_ptr = _get_device_pointer(acl_rt, registered_host_ptr)
+        if existing_ptr is not None:
+            return HostMemoryMapping(
+                device_ptr=existing_ptr + offset,
+                registered_host_ptr=registered_host_ptr,
+                owned=False,
+                kind="acl",
+            )
+        logger.warning(
+            "aclrtHostRegister failed for %#x (%d bytes): ret=%s",
+            registered_host_ptr,
+            registered_nbytes,
+            ret,
+        )
+        return None
+    logger.info(
+        "Mapped %d bytes of host memory for device access: host=%#x -> device=%#x",
+        registered_nbytes,
+        registered_host_ptr,
+        dev_ptr,
+    )
+    return HostMemoryMapping(
+        device_ptr=int(dev_ptr) + offset,
+        registered_host_ptr=registered_host_ptr,
+        owned=True,
+        kind="acl",
+    )
+
+
+def register_acl_host_memory(tensor: torch.Tensor) -> HostMemoryMapping:
+    """Register a plain CPU tensor via aclrtHostRegister (acl backend).
+
+    Unlike the memfabric provider this accepts any host tensor (e.g. a
+    pageable torch.empty block allocated by alloc_with_acl in SGLang); the
+    runtime pins and maps the range, and the AIV kv_exchange kernel
+    dereferences the returned device pointer directly.  A failed mapping is
+    fatal here: the host pool would otherwise look registered while AIV
+    transfers read stale data.
+    """
+    if not tensor.is_cpu:
+        raise RuntimeError("register_acl_host_memory: tensor must be host (CPU) memory")
+    host_ptr = tensor.data_ptr()
+    nbytes = tensor.numel() * tensor.element_size()
+    if nbytes <= 0:
+        raise RuntimeError("register_acl_host_memory: tensor must be non-empty")
+
+    mapping = _register_acl_host_block(host_ptr, nbytes)
+    if mapping is None:
+        raise RuntimeError(
+            f"aclrtHostRegister failed for {hex(host_ptr)} ({nbytes} bytes); "
+            "host memory is not device-mapped and transfers would read "
+            "stale data"
+        )
+    # Interior views resolve against the tensor base pointer through the
+    # table, so store the tensor range, not the page-aligned range.
+    _G_MAPPINGS.append((host_ptr, nbytes, mapping))
+    return mapping
+
+
 def lookup_host_dva(tensor: torch.Tensor) -> int:
     """Resolve a registered MF host tensor (or interior view) to its DVA.
 
@@ -99,24 +266,52 @@ def lookup_host_dva(tensor: torch.Tensor) -> int:
 
 
 def resolve_host_dva(tensor: torch.Tensor) -> int:
-    """Resolve a registered MF host tensor (or interior view) to its DVA.
+    """Resolve a registered host tensor (or interior view) to its DVA.
 
     Unlike lookup_host_dva, unregistered CPU memory is an error: AIV
     kv_exchange kernels can only de-reference host virtual addresses mapped
-    through the MemFabric offload entity, so there is no fallback.
+    into the device VA space (MemFabric or aclrt registration), so there is
+    no fallback.
     """
     dva = lookup_host_dva(tensor)
     if not dva:
         raise RuntimeError(
-            "MF host memory is not registered; call register_host_memory "
-            "with an offload.empty tensor before transfer"
+            "Host memory is not registered; call register_host_memory "
+            "(MemFabric offload.empty) or register_acl_host_memory "
+            "(aclrt) with the host tensor before transfer"
         )
     return dva
 
 
 def uninitialize_host_memory() -> None:
-    """Release all MF blocks and invalidate every Python-side DVA mapping."""
+    """Release every owned mapping and invalidate the mapping table."""
+    acl_mappings = [mapping for _, _, mapping in _G_MAPPINGS if mapping.kind == "acl"]
+    if acl_mappings:
+        try:
+            acl_rt = _load_acl_rt()
+        except Exception as exc:  # depends on the CANN install
+            logger.warning("aclrtHostUnregister unavailable: %s", exc)
+            acl_rt = None
+        if acl_rt is not None:
+            for mapping in acl_mappings:
+                # Borrowed mappings (e.g. torch_npu pinned-memory allocator
+                # registrations) are left untouched; only owned ones go.
+                if not mapping.owned:
+                    continue
+                try:
+                    ret = acl_rt.host_unregister(mapping.registered_host_ptr)
+                except Exception as exc:  # depends on the CANN install
+                    logger.warning("aclrtHostUnregister unavailable: %s", exc)
+                    continue
+                if ret != 0:
+                    logger.warning(
+                        "aclrtHostUnregister failed for %#x: ret=%s",
+                        mapping.registered_host_ptr,
+                        ret,
+                    )
+    has_mf = any(mapping.kind == "memfabric" for _, _, mapping in _G_MAPPINGS)
     try:
-        _load_offload().uninitialize()
+        if has_mf:
+            _load_offload().uninitialize()
     finally:
         _G_MAPPINGS.clear()

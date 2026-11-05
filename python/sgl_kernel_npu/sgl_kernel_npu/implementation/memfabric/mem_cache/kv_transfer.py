@@ -262,7 +262,13 @@ def transfer_kv(
         _check_component(dev, host, page_size, device)
     if not device_indices.numel():
         return
-    from memfabric_hybrid import offload
+    # Only the AICPU op goes through the MemFabric offload entity; the AIV
+    # path resolves host pointers through the registered-host DVA table
+    # (MemFabric or aclrt registration), so acl-only processes never touch
+    # memfabric_hybrid below.
+    offload = None
+    if backend == "aicpu":
+        from memfabric_hybrid import offload
 
     with _submit_lock, torch.npu.device(device):
         if torch.npu.is_current_stream_capturing():
