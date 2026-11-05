@@ -1,0 +1,15 @@
+{
+  "name": "sgl_ops_transformer",
+  "ops": {
+    "arch22": ["sparse_flash_mla", "sparse_flash_mla_metadata"],
+    "arch35": ["flash_mla", "flash_mla_metadata"]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "7df757adc542c75733f9702af97ee7a14fca9f51",
+  "commands": [
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE"
+}
