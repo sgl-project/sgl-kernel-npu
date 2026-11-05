@@ -6,8 +6,6 @@
 | --- | --- | --- |
 | `triton` | Supported | Supported |
 | `torch_native` | Supported | Supported |
-| `tilelang` | Not implemented | Not implemented |
-| `ascendc` | Not implemented | Not implemented |
 
 ## Signature
 
