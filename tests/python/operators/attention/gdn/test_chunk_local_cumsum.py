@@ -44,6 +44,7 @@ def test_chunk_local_cumsum(length, reverse, varlen, dtype):
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("mode", ["none", "explicit"])
+@pytest.mark.extra_checks
 def test_matching_output_dtype(dtype, mode):
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
@@ -55,6 +56,7 @@ def test_matching_output_dtype(dtype, mode):
 
 @pytest.mark.parametrize("impl", ["auto", "triton"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.extra_checks
 def test_rejects_default_mismatched_output(dtype, impl):
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
