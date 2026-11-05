@@ -247,3 +247,19 @@ def test_deepseek_v4_flash_compressor(variant):
         executor,
         enable_perf=(args[0].shape[0], args[0].shape[-1], *variant) in perf_shape,
     )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "tokens",
+    [16, 18],
+    ids=["synthetic-cycle-retention-unaligned", "synthetic-cycle-retention-aligned"],
+)
+def test_cycle_retention_boundary(tokens):
+    # ring=16, window=8 gives write padding 10. With 16 tokens, the
+    # retained suffix begins at token 6, inside a four-token group.
+    variant = (4, 2, 128)
+    params = parameters(*variant)
+    state, table = state_inputs(1, *variant, 2, tokens)
+    reference_state = state.clone()
+    check_step(params, state, reference_state, table, [0], [tokens], variant, 2, "TH")
