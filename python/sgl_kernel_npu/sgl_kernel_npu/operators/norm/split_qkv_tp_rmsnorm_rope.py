@@ -1,12 +1,12 @@
 """Public split_qkv_tp_rmsnorm_rope operator with explicit implementation selection."""
 
 import torch
-import torch.distributed as dist
+import torch.distributed
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
-_torch_native_fns = None
+_torch_native_fn = None
 
 
 @register_impl("norm.split_qkv_tp_rmsnorm_rope", "auto")
@@ -63,54 +63,27 @@ def _torch_native_impl(
     tp_world: int,
     tp_group: torch.distributed.ProcessGroup,
 ):
-    global _torch_native_fns
-    if _torch_native_fns is None:
+    global _torch_native_fn
+    if _torch_native_fn is None:
         from ...implementation.torch_native.norm.split_qkv_tp_rmsnorm_rope import (
-            apply_global,
-            compute_local,
+            split_qkv_tp_rmsnorm_rope,
         )
 
-        _torch_native_fns = compute_local, apply_global
-    compute_local, apply_global = _torch_native_fns
-
-    assert head_dim == 1 << (head_dim - 1).bit_length()
-    assert q_hidden_size % kv_hidden_size == 0
-    batch = input.shape[0]
-    q = torch.empty((batch, q_hidden_size), device=input.device, dtype=input.dtype)
-    k = torch.empty((batch, kv_hidden_size), device=input.device, dtype=input.dtype)
-    v = torch.empty_like(k)
-    if batch == 0:
-        return q, k, v
-    qk_var = torch.empty((batch, 2), device=input.device, dtype=torch.float32)
-    compute_local(
-        input[:, :q_hidden_size],
-        input[:, q_hidden_size : q_hidden_size + kv_hidden_size],
-        input[:, q_hidden_size + kv_hidden_size :],
-        q,
-        k,
-        v,
-        qk_var,
-    )
-    if tp_world > 1:
-        dist.all_reduce(qk_var, group=tp_group)
-    q_heads = q.view(batch, q_hidden_size // head_dim, head_dim)
-    k_heads = k.view(batch, kv_hidden_size // head_dim, head_dim)
-    cos_half = cos.reshape(batch, rotary_dim)[:, : rotary_dim // 2].unsqueeze(1)
-    sin_half = sin.reshape(batch, rotary_dim)[:, : rotary_dim // 2].unsqueeze(1)
-    apply_global(
-        q_heads,
-        k_heads,
-        qk_var,
-        q_weight.reshape(-1)[:q_hidden_size].view(q_hidden_size // head_dim, head_dim),
-        k_weight.reshape(-1)[:kv_hidden_size].view(
-            kv_hidden_size // head_dim, head_dim
-        ),
-        cos_half,
-        sin_half,
+        _torch_native_fn = split_qkv_tp_rmsnorm_rope
+    return _torch_native_fn(
+        input,
+        cos,
+        sin,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
         eps,
-        1.0 / tp_world,
+        q_weight,
+        k_weight,
+        rotary_dim,
+        tp_world,
+        tp_group,
     )
-    return q, k, v
 
 
 @register_operator("norm.split_qkv_tp_rmsnorm_rope")
