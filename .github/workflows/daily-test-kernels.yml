@@ -29,6 +29,7 @@ jobs:
         npu_hardware: [a3, '950']
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
+      NPU_HARDWARE: "${{ matrix.npu_hardware }}"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
 
     steps:
