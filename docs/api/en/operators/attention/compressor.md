@@ -57,9 +57,9 @@ Project KV and gates; combine each compression window using normalized gate weig
 
 ## cann_ops_transformer_cann920
 
-Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
+Uses the bundled native fused compressor compiled against CANN 9.2 and rejects a different initialized SDK. The implementation key is retained for compatibility; it does not call the released core-only compressor. `auto` dispatches by the cached SDK version.
 
-`torch.ops.npu.compressor` supplies the fused contract; CANN 9.1 A5 uses `torch.ops.custom.compressor`.
+The pinned native fused compressor is bundled under `_third_party.sgl_native_compressor` for CANN 9.1 A3 and CANN 9.2 A3/A5. CANN 9.1 A5 uses the separately bundled recipes/experimental compressor.
 
 ## ops_transformer_cann910
 
@@ -102,3 +102,32 @@ python3 -m pytest tests/python/operators/attention/test_compressor.py \
 ```
 
 [Upstream operators](https://github.com/Ascend/ops-transformer)
+
+
+## Bundled fused compressor
+
+The `native_compressor` third-party profile builds the original fused kernel
+from pinned sgl-kernel-npu source. It preserves RMSNorm, RoPE, mutable state,
+TH/BSH layouts and A3/A5 cycle-cache semantics. The wrapper loads only
+`sgl_kernel_npu._third_party.sgl_native_compressor`; it does not use an
+externally installed `custom_ops`, `cann_ops_transformer` or `npu.compressor`.
+CANN and the matching Torch/torch_npu remain the base build/runtime toolchain.
+
+The profile is selected by default for CANN 9.1 A3 and CANN 9.2 A3/A5.
+An explicit `--third-party` list must include `native_compressor` when testing
+these compressor paths. CANN 9.1 A5 retains the bundled recipes/experimental
+compressor.
+
+For a compressor-only CANN 9.1 A3 build:
+
+```bash
+python3 setup.py --arch-version 2201 --ops apply_token_bitmask \
+  --artifact wheel --third-party native_compressor --make-clean -j8
+```
+
+Use `3510` for CANN 9.2 A5. `apply_token_bitmask` is the minimal repository-owned
+CANN selection required by the existing wheel coordinator; the compressor is
+built separately by the third-party profile, never by that placeholder kernel.
+For the migrated suite, select `cann_recipes_infer,ops_transformer,native_compressor`
+on CANN 9.1 A3, or `ops_transformer,native_compressor` on CANN 9.2.
+The output wheel contains the native registration library and its source license.

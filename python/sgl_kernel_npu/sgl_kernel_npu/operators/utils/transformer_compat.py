@@ -45,6 +45,8 @@ def require_op(namespace, name, *, backend=None, required_arguments=()):
     elif namespace == "cann_ops_transformer":
         from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
 
+    elif namespace == "sgl_native_compressor":
+        from ..._third_party import sgl_native_compressor  # noqa: F401
     op = getattr(getattr(torch.ops, namespace), name, None)
     if op is None:
         raise OperatorUnavailableError(

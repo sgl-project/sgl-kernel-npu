@@ -440,3 +440,32 @@ Execute sgl_kernel_npu test scripts, for example
 ```bash
 python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
+
+
+## Bundled fused compressor
+
+The `native_compressor` third-party profile builds the original fused kernel
+from pinned sgl-kernel-npu source. It preserves RMSNorm, RoPE, mutable state,
+TH/BSH layouts and A3/A5 cycle-cache semantics. The wrapper loads only
+`sgl_kernel_npu._third_party.sgl_native_compressor`; it does not use an
+externally installed `custom_ops`, `cann_ops_transformer` or `npu.compressor`.
+CANN and the matching Torch/torch_npu remain the base build/runtime toolchain.
+
+The profile is selected by default for CANN 9.1 A3 and CANN 9.2 A3/A5.
+An explicit `--third-party` list must include `native_compressor` when testing
+these compressor paths. CANN 9.1 A5 retains the bundled recipes/experimental
+compressor.
+
+For a compressor-only CANN 9.1 A3 build:
+
+```bash
+python3 setup.py --arch-version 2201 --ops apply_token_bitmask \
+  --artifact wheel --third-party native_compressor --make-clean -j8
+```
+
+Use `3510` for CANN 9.2 A5. `apply_token_bitmask` is the minimal repository-owned
+CANN selection required by the existing wheel coordinator; the compressor is
+built separately by the third-party profile, never by that placeholder kernel.
+For the migrated suite, select `cann_recipes_infer,ops_transformer,native_compressor`
+on CANN 9.1 A3, or `ops_transformer,native_compressor` on CANN 9.2.
+The output wheel contains the native registration library and its source license.

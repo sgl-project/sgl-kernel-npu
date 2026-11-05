@@ -1,0 +1,9 @@
+{
+  "name": "sgl_native_compressor",
+  "ops": {"arch22": ["compressor"], "arch35": []},
+  "repository": "https://github.com/sgl-project/sgl-kernel-npu.git",
+  "commit": "26ec66efe01f8acef43db55da679107702876b23",
+  "submodules": false,
+  "has_aicpu": false,
+  "license": "LICENSE"
+}
