@@ -6,13 +6,14 @@
 #include "kernel_operator.h"
 #include "lib/matmul_intf.h"
 #include "arch32/sparse_attn_sharedkv_tree_scfa_kernel.h"
+#include "arch32/sparse_attn_sharedkv_tree_swa_kernel.h"
 #include "sparse_attn_sharedkv_tree_metadata.h"
 
 using namespace AscendC;
 using namespace SASTreeKernel;
 using SparseAttnSharedkvTreeTilingData = optiling::SparseAttnSharedkvTreeTilingData;
 
-template <typename DTYPE>
+template <typename DTYPE, int TEMPLATE_MODE>
 __aicore__ inline void LaunchTreeAttention(GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV,
                                            GM_ADDR oriSparseIndices, GM_ADDR cmpSparseIndices,
                                            GM_ADDR oriBlockTable, GM_ADDR cmpBlockTable,
@@ -23,18 +24,27 @@ __aicore__ inline void LaunchTreeAttention(GM_ADDR query, GM_ADDR oriKV, GM_ADDR
                                            GM_ADDR tiling, TPipe *pipe)
 {
     using Type = SASTreeType<DTYPE, DTYPE, DTYPE, false, SASTree_LAYOUT::TND,
-                             SASTree_LAYOUT::PA_ND, SCFA_TEMPLATE>;
+                             SASTree_LAYOUT::PA_ND, TEMPLATE_MODE>;
     const __gm__ SparseAttnSharedkvTreeTilingData *tilingData =
         reinterpret_cast<const __gm__ SparseAttnSharedkvTreeTilingData *>(tiling);
-    SparseAttnSharedkvTreeScfa<Type> op;
-    op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable,
-            cuSeqlensQ, cuSeqlensOriKv, cuSeqlensCmpKv, seqUsedQ, seqUsedKV, sinks, metadata,
-            cmpTreeKv, treeAncestors, treePrefix, attentionOut, softmaxLse, userWorkspace,
-            tilingData, tiling, pipe);
-    op.Process();
+    if constexpr (TEMPLATE_MODE == SCFA_TEMPLATE) {
+        SparseAttnSharedkvTreeScfa<Type> op;
+        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable,
+                cuSeqlensQ, cuSeqlensOriKv, cuSeqlensCmpKv, seqUsedQ, seqUsedKV, sinks, metadata,
+                cmpTreeKv, treeAncestors, treePrefix, attentionOut, softmaxLse, userWorkspace,
+                tilingData, tiling, pipe);
+        op.Process();
+    } else {
+        SparseAttnSharedkvTreeSwa<Type> op;
+        op.Init(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable, cmpBlockTable,
+                cuSeqlensQ, cuSeqlensOriKv, cuSeqlensCmpKv, seqUsedQ, seqUsedKV, sinks, metadata,
+                cmpTreeKv, treeAncestors, treePrefix, attentionOut, softmaxLse, userWorkspace,
+                tilingData, tiling, pipe);
+        op.Process();
+    }
 }
 
-#define SASTREE_ENTRY(NAME, DTYPE)                                                                                     \
+#define SASTREE_ENTRY(NAME, DTYPE, MODE)                                                                               \
     extern "C" __global__ __aicore__ void NAME(                                                                        \
         GM_ADDR query, GM_ADDR oriKV, GM_ADDR cmpKV, GM_ADDR oriSparseIndices, GM_ADDR cmpSparseIndices,               \
         GM_ADDR oriBlockTable, GM_ADDR cmpBlockTable, GM_ADDR cuSeqlensQ, GM_ADDR cuSeqlensOriKv,                      \
@@ -48,12 +58,16 @@ __aicore__ inline void LaunchTreeAttention(GM_ADDR query, GM_ADDR oriKV, GM_ADDR
         if (workspace != nullptr) {                                                                                    \
             userWorkspace = GetUserWorkspace(workspace);                                                               \
         }                                                                                                              \
-        LaunchTreeAttention<DTYPE>(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable,             \
-                                   cmpBlockTable, cuSeqlensQ, cuSeqlensOriKv, cuSeqlensCmpKv, seqUsedQ,              \
-                                   seqUsedKV, sinks, metadata, cmpTreeKv, treeAncestors, treePrefix, attentionOut,    \
-                                   softmaxLse, userWorkspace, tiling, &pipe);                                          \
+        LaunchTreeAttention<DTYPE, MODE>(query, oriKV, cmpKV, oriSparseIndices, cmpSparseIndices, oriBlockTable,        \
+                                         cmpBlockTable, cuSeqlensQ, cuSeqlensOriKv, cuSeqlensCmpKv, seqUsedQ,          \
+                                         seqUsedKV, sinks, metadata, cmpTreeKv, treeAncestors, treePrefix,            \
+                                         attentionOut, softmaxLse, userWorkspace, tiling, &pipe);                      \
     }
 
-SASTREE_ENTRY(sparse_attn_sharedkv_tree_fp16, half)
-SASTREE_ENTRY(sparse_attn_sharedkv_tree_bf16, bfloat16_t)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_scfa_fp16, half, SCFA_TEMPLATE)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_scfa_bf16, bfloat16_t, SCFA_TEMPLATE)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_cfa_fp16, half, CFA_TEMPLATE)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_cfa_bf16, bfloat16_t, CFA_TEMPLATE)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_swa_fp16, half, SWA_TEMPLATE)
+SASTREE_ENTRY(sparse_attn_sharedkv_tree_swa_bf16, bfloat16_t, SWA_TEMPLATE)
 #undef SASTREE_ENTRY

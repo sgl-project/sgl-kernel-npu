@@ -509,6 +509,7 @@ public:
     const SparseAttnSharedkvTreeTilingData &GetTilingData() const { return tilingData_; }
     uint32_t GetBlockDim() const { return blockDim_; }
     uint64_t GetTilingKey() const { return tilingKey_; }
+    uint32_t GetTemplateMode() const { return templateMode_; }
     size_t GetWorkspaceSize() const { return workspaceSize_; }
 
 private:
@@ -520,6 +521,7 @@ private:
     uint32_t blockDim_{0};
     uint64_t workspaceSize_{0};
     uint64_t tilingKey_{0};
+    uint32_t templateMode_{0};
 
     SASTreeTilingInfo *sasInfo_ = nullptr;
 

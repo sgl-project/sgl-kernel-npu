@@ -205,6 +205,7 @@ __aicore__ inline void SparseAttnSharedkvTreeSwa<SASTreeT>::InitTilingData()
     constInfo.mmResUbSize = tilingData->baseParams.mmResUbSize;
     constInfo.bmm2ResUbSize = tilingData->baseParams.bmm2ResUbSize;
     constInfo.usedCoreNum = tilingData->baseParams.usedCoreNum;
+constInfo.softmaxScale = tilingData->baseParams.softmaxScale;
     // baseParams
     constInfo.batchSize = tilingData->baseParams.batchSize;
     constInfo.qHeadNum = constInfo.gSize = tilingData->baseParams.nNumOfQInOneGroup;

@@ -335,6 +335,7 @@ struct ConstInfo {
     uint32_t cmpKvStride = 0;
     bool needInit = false;
     uint32_t templateMode = 0;
+    float softmaxScale = 1.0F;
 
     // FlashDecoding
     uint32_t actualCombineLoopSize = 0U; // FlashDecoding场景, S2在核间切分的最大份数

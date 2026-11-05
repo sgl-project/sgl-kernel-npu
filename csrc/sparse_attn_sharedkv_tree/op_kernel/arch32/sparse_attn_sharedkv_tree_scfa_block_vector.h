@@ -384,7 +384,7 @@ template <typename SASTreeT>
 __aicore__ inline void SASTreeVectorBlock<SASTreeT>::ElewiseCompute(const RunInfo &info, const LocalTensor<T> &mmResUb,
                                                             uint32_t dealRowCount, uint32_t columnCount)
 {
-    Muls(mmResUb, mmResUb, static_cast<T>(tilingData->baseParams.softmaxScale), dealRowCount * columnCount);
+    Muls(mmResUb, mmResUb, static_cast<T>(constInfo.softmaxScale), dealRowCount * columnCount);
 }
 
 template <typename SASTreeT>

@@ -1756,7 +1756,8 @@ ge::graphStatus SparseAttnSharedkvTreeTiling::DoOpTiling(SASTreeTilingInfo *tili
     uint32_t qLayout = static_cast<uint32_t>(tilingInfo->qLayout);
     uint32_t inputKvLayout = static_cast<uint32_t>(tilingInfo->kvLayout);
     blockDim_ = usedCoreNum_;
-    tilingKey_ = GET_TPL_TILING_KEY(0U, qLayout, inputKvLayout, static_cast<uint32_t>(tilingInfo->perfMode));
+    templateMode_ = static_cast<uint32_t>(tilingInfo->perfMode);
+    tilingKey_ = GET_TPL_TILING_KEY(0U, qLayout, inputKvLayout, templateMode_);
 
     return ge::GRAPH_SUCCESS;
 }

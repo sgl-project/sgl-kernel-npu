@@ -12,8 +12,7 @@ torch.ops.npu.sparse_attn_sharedkv_tree
 
 - Host entry: `op_host/sparse_attn_sharedkv_tree.cpp`
 - Host tiling: `op_host/sparse_attn_sharedkv_tree_tiling.cpp`
-- Kernel entries: `sparse_attn_sharedkv_tree_fp16` and
-  `sparse_attn_sharedkv_tree_bf16`
+- Kernel entries: `sparse_attn_sharedkv_tree_{scfa,cfa,swa}_{fp16,bf16}`
 - CMake target: `sparse_attn_sharedkv_tree_kernel` (A3 only)
 - The host wrapper uses `ge_helper::TilingContext`, `EXEC_KERNEL_CMD` and the
   repository tiling-tensor cache; it does not use ACLNN or a custom-op vendor

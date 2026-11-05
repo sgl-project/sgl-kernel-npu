@@ -11,8 +11,12 @@
 #include "torch_helper.h"
 #include "sparse_attn_sharedkv_tree_def.h"
 #include "sparse_attn_sharedkv_tree_tiling.h"
-#include "aclrtlaunch_sparse_attn_sharedkv_tree_fp16.h"
-#include "aclrtlaunch_sparse_attn_sharedkv_tree_bf16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_scfa_fp16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_scfa_bf16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_cfa_fp16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_cfa_bf16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_swa_fp16.h"
+#include "aclrtlaunch_sparse_attn_sharedkv_tree_swa_bf16.h"
 
 namespace sglang {
 namespace npu_kernel {
@@ -147,15 +151,37 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv_tree(
     at::Tensor ancestorsT = tree_ancestors.has_value() ? *tree_ancestors : EmptyLike(q, at::kLong);
     at::Tensor prefixT = tree_prefix.has_value() ? *tree_prefix : EmptyLike(q, at::kInt);
 
+    const uint32_t templateMode = tiling.GetTemplateMode();
+#define TREE_LAUNCH(NAME)                                                                                     \
+    EXEC_KERNEL_CMD(NAME, blockDim, q, oriKvT, cmpKvT, oriSparseT, cmpSparseT, oriBlockT, cmpBlockT, cuQ,     \
+                    cuOriKv, cuCmpKv, seqQ, seqKv, sinksT, metadataT, treeKvT, ancestorsT, prefixT, attn_out,  \
+                    softmax_lse, workspace, tilingTensor)
     if (q.scalar_type() == at::kHalf) {
-        EXEC_KERNEL_CMD(sparse_attn_sharedkv_tree_fp16, blockDim, q, oriKvT, cmpKvT, oriSparseT, cmpSparseT,
-                        oriBlockT, cmpBlockT, cuQ, cuOriKv, cuCmpKv, seqQ, seqKv, sinksT, metadataT,
-                        treeKvT, ancestorsT, prefixT, attn_out, softmax_lse, workspace, tilingTensor);
+        switch (templateMode) {
+            case static_cast<uint32_t>(optiling::SASTreeTemplateMode::SCFA_TEMPLATE_MODE):
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_scfa_fp16);
+                break;
+            case static_cast<uint32_t>(optiling::SASTreeTemplateMode::CFA_TEMPLATE_MODE):
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_cfa_fp16);
+                break;
+            default:
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_swa_fp16);
+                break;
+        }
     } else {
-        EXEC_KERNEL_CMD(sparse_attn_sharedkv_tree_bf16, blockDim, q, oriKvT, cmpKvT, oriSparseT, cmpSparseT,
-                        oriBlockT, cmpBlockT, cuQ, cuOriKv, cuCmpKv, seqQ, seqKv, sinksT, metadataT,
-                        treeKvT, ancestorsT, prefixT, attn_out, softmax_lse, workspace, tilingTensor);
+        switch (templateMode) {
+            case static_cast<uint32_t>(optiling::SASTreeTemplateMode::SCFA_TEMPLATE_MODE):
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_scfa_bf16);
+                break;
+            case static_cast<uint32_t>(optiling::SASTreeTemplateMode::CFA_TEMPLATE_MODE):
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_cfa_bf16);
+                break;
+            default:
+                TREE_LAUNCH(sparse_attn_sharedkv_tree_swa_bf16);
+                break;
+        }
     }
+#undef TREE_LAUNCH
     return std::make_tuple(attn_out, softmax_lse);
 }
 
