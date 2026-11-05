@@ -219,9 +219,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto recv_topk_weights = std::optional<at::Tensor>();
     // Wait streams
     std::optional<EventHandle> event;
-    auto rank_prefix_matrix = at::empty({num_ranks, num_ranks}, at::dtype(at::kInt).device(x.device()));
-    auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
-    auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     at::Tensor new_x = x;
     EP_HOST_ASSERT(num_tokens_per_rank.has_value());
     EP_HOST_ASSERT(num_tokens_per_expert.has_value());
@@ -279,11 +276,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
 
-    auto send_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     int64_t send_count = send_per_group * num_local_experts * num_ranks * round;
-
-    auto send_data_offset = torch::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     // get ep name
     char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
@@ -291,22 +284,65 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
-    // Merge max_bs / total_recv_token / recv_tokens_per_expert into one contiguous buffer,
-    // layout [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)],
-    // so a single D2H read after notify_dispatch fetches all values back, eliminating multiple host sync stalls.
+    // All the int32 scratch tensors below are views into a single allocation: 12 independent
+    // torch::empty calls cost ~44us of host time, one allocation plus as_strided views ~22us.
+    // recv_header additionally merges max_bs / total_recv_token / recv_tokens_per_expert so a
+    // single D2H read after notify_dispatch fetches all values back.
     const int64_t nel = static_cast<int64_t>(num_local_experts);
-    at::Tensor recv_header =
-        torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
+    const int64_t rankPrefixElems = num_ranks * num_ranks;
+    const int64_t chanPrefixElems = num_ranks * static_cast<int64_t>(num_channels);
+    const int64_t sendDataElems = static_cast<int64_t>(round) * num_experts * send_per_group;
+    const int64_t sendOffsetElems = static_cast<int64_t>(round) * num_experts;
+    const int64_t headerElems = 2 + static_cast<int64_t>(round) * nel;
+    const int64_t expertOffsetElems = nel;
+    const int64_t srcRankElems = nel * num_ranks;
+    const int64_t rInSrcRankElems = nel * num_ranks * round;
+
+    // Each view starts on a 32B boundary (8 int32 elements): the kernels address these buffers with
+    // DataCopyPad, which requires the GM base of every slice to be 32B aligned.
+    constexpr int64_t kScratchAlignElems = 32 / sizeof(int32_t);
+    int64_t scratchOffset = 0;
+    auto carve = [&](int64_t elems) {
+        int64_t off = scratchOffset;
+        scratchOffset += (elems + kScratchAlignElems - 1) / kScratchAlignElems * kScratchAlignElems;
+        return off;
+    };
+    const int64_t offRankPrefix = carve(rankPrefixElems);
+    const int64_t offChanPrefix = carve(chanPrefixElems);
+    const int64_t offRecvChanPrefix = carve(chanPrefixElems);
+    const int64_t offSendData = carve(sendDataElems);
+    const int64_t offSendDataOffset = carve(sendOffsetElems);
+    const int64_t offRecvData = carve(sendDataElems);
+    const int64_t offHeader = carve(headerElems);
+    const int64_t offRecvOffset = carve(sendOffsetElems);
+    const int64_t offRecvCount = carve(sendOffsetElems);
+    const int64_t offExpertGlobalOffset = carve(expertOffsetElems);
+    const int64_t offSrcRankInExpert = carve(srcRankElems);
+    const int64_t offRInSrcRank = carve(rInSrcRankElems);
+
+    at::Tensor scratch = at::empty({scratchOffset}, at::dtype(at::kInt).device(x.device()));
+    auto view1d = [&](int64_t off, int64_t elems) {
+        return scratch.as_strided({elems}, {1}, off);
+    };
+    auto view2d = [&](int64_t off, int64_t rows, int64_t cols) {
+        return scratch.as_strided({rows, cols}, {cols, 1}, off);
+    };
+
+    at::Tensor rank_prefix_matrix = view2d(offRankPrefix, num_ranks, num_ranks);
+    at::Tensor channel_prefix_matrix = view2d(offChanPrefix, num_ranks, num_channels);
+    at::Tensor recv_channel_prefix_matrix = view2d(offRecvChanPrefix, num_ranks, num_channels);
+    at::Tensor send_data = view2d(offSendData, round, num_experts * send_per_group);
+    at::Tensor send_data_offset = view2d(offSendDataOffset, round, num_experts);
+    at::Tensor recv_data = view2d(offRecvData, round, num_experts * send_per_group);
+    at::Tensor recv_header = view1d(offHeader, headerElems);
     at::Tensor max_bs = recv_header.narrow(0, 0, 1);
     at::Tensor total_recv_token = recv_header.narrow(0, 1, 1);
     at::Tensor recv_tokens_per_expert = recv_header.narrow(0, 2, static_cast<int64_t>(round) * nel);
-    at::Tensor recv_offset = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_count = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor expert_global_offset = at::empty({num_local_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor srcrank_in_expert_offset =
-        at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor r_in_srcrank_offset =
-        at::empty({num_local_experts * num_ranks * round}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_offset = view2d(offRecvOffset, round, num_experts);
+    at::Tensor recv_count = view2d(offRecvCount, round, num_experts);
+    at::Tensor expert_global_offset = view1d(offExpertGlobalOffset, expertOffsetElems);
+    at::Tensor srcrank_in_expert_offset = view1d(offSrcRankInExpert, srcRankElems);
+    at::Tensor r_in_srcrank_offset = view1d(offRInSrcRank, rInSrcRankElems);
 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
