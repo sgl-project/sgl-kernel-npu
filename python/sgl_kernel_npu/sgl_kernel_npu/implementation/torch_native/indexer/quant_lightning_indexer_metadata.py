@@ -1,6 +1,15 @@
 """Independent indexer reference metadata builder."""
 
-from ..attention.metadata import ReferenceMetadata
+from typing import NamedTuple
+
+
+class ReferenceMetadata(NamedTuple):
+    """Indexer-only reference descriptor; not vendor tiling bytes."""
+
+    parameters: dict
+
+    def to(self, device):
+        return self
 
 
 def quant_lightning_indexer_metadata(
