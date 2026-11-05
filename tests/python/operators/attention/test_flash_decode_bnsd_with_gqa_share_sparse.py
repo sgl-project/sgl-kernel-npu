@@ -170,7 +170,8 @@ def test_block_fusion():
 
 @pytest.mark.extra_checks
 def test_prefetch():
-    run_case(seq_lens=(4096, 8192), prefetch=True)
+    """The vectorized index prologue is Triton-only; native ignores the flag."""
+    run_case(seq_lens=(4096, 8192), prefetch=True, impl="triton")
 
 
 @pytest.mark.extra_checks
