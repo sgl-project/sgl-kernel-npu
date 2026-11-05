@@ -112,3 +112,5 @@ kpool_decode_update_and_maybe_write_cache(
     impl='torch_native',
 )
 ```
+
+分页契约：block_tables 保存原始 KV 物理页号，每个逻辑页对应 pool_size 个连续物理页。写入 index 页号为组首物理页号 // pool_size，页内槽按 slots_per_page 计算；GLM r=4 时物理页 28 对应 index 页 7，slots_per_page=128。

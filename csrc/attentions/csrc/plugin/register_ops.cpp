@@ -58,6 +58,12 @@ TORCH_LIBRARY(attentions, m)
         int topk=2048, int pool_size=16, str layout_q='BSND', str layout_k='BSND', \
         int mask_mode=3, int quant_mode=-1, bool return_value=False, int key_stride0=-1) \
         -> Tensor");
+    m.def(
+        "pool_key_indexer.tensor(Tensor query, Tensor pool_key, Tensor weights, Tensor pool_tail_k, \
+        Tensor? actual_seq_q=None, Tensor? actual_seq_k=None, Tensor? block_table=None, \
+        int topk=2048, int pool_size=16, str layout_q='BSND', str layout_k='BSND', \
+        int mask_mode=3, int quant_mode=-1, bool return_value=False, int key_stride0=-1) \
+        -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
@@ -68,4 +74,5 @@ TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
     m.impl("pool_key_indexer", &pool_key_indexer);
+    m.impl("pool_key_indexer.tensor", &pool_key_indexer_tensor);
 }

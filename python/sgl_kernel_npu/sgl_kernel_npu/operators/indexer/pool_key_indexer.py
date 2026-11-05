@@ -1,8 +1,11 @@
 """Public pooled-key index selection backed by the attentions extension."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _aclnn_fn = None
+_aclnn_tensor_fn = None
 
 
 @register_impl("indexer.pool_key_indexer", "auto")
@@ -24,14 +27,26 @@ def _aclnn_impl(
     return_value,
     key_stride0,
 ):
-    global _aclnn_fn
-    if _aclnn_fn is None:
+    global _aclnn_fn, _aclnn_tensor_fn
+    metadata = (pool_tail_k, actual_seq_q, actual_seq_k)
+    tensor_metadata = any(isinstance(value, torch.Tensor) for value in metadata)
+    if tensor_metadata and any(
+        value is not None and not isinstance(value, torch.Tensor) for value in metadata
+    ):
+        raise TypeError(
+            "pool_key_indexer metadata must be all Tensors or all host integer sequences"
+        )
+    if tensor_metadata and pool_tail_k is None:
+        raise TypeError("pool_key_indexer requires pool_tail_k")
+    if _aclnn_fn is None or (tensor_metadata and _aclnn_tensor_fn is None):
         import attentions  # noqa: F401 -- loads the native op registration
-        import torch
 
-        _aclnn_fn = torch.ops.attentions.pool_key_indexer
+        _aclnn_fn = torch.ops.attentions.pool_key_indexer.default
+        if tensor_metadata:
+            _aclnn_tensor_fn = torch.ops.attentions.pool_key_indexer.tensor
 
-    return _aclnn_fn(
+    fn = _aclnn_tensor_fn if tensor_metadata else _aclnn_fn
+    return fn(
         query,
         pool_key,
         weights,
@@ -74,8 +89,10 @@ def pool_key_indexer(
 
     ``auto`` and ``aclnn`` select the native attentions binding, loaded on first
     execution. Parameters/defaults mirror its schema; validation stays in C++.
-    ``pool_tail_k`` and ``actual_seq_*`` are host integer sequences, not device
-    tensors. The binding supports BF16/FP16 with quant_mode=-1 and no values.
+    ``pool_tail_k`` and ``actual_seq_*`` accept either host integer sequences
+    or contiguous int64 Tensors on the query device (do not mix the two).
+    Device metadata uses the Tensor workspace API without D2H and can change
+    between graph replays. The binding supports BF16/FP16 with quant_mode=-1 and no values.
     Returns int32 [T, topk + pool_size - 1] for TND queries or
     [B, S, topk + pool_size - 1] for BSND queries. Inputs remain read-only.
     """
