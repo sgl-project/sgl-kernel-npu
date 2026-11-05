@@ -92,6 +92,12 @@ Profiles pin the source repository, commit, operators and build commands.
 selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`.
 
+Operator selections use upstream build-directory names, which can differ from
+Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
+`quant_lightning_indexer_v2_metadata`; their Python APIs remain
+`quant_lightning_indexer` and `quant_lightning_indexer_metadata`. CANN 9.1
+experimental builds use the original directory names without `v2`.
+
 ```bash
 # CANN 9.1.0: bundle recipes bridges, experimental ACLNN and released mHC.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 -j8
