@@ -15,7 +15,7 @@ import sgl_kernel_npu
 import torch
 import torch_npu
 
-MAX_STEP = 16  # csrc/cache_location_assign/op_host/tiling/cache_loc_assign.h
+MAX_STEP = 16
 POOL_ROWS = 512
 ROW_LEN = 8192
 
@@ -85,8 +85,12 @@ if __name__ == "__main__":
     for req_dtype in (torch.int64, torch.int32):
         for bs, step in [(1, 4), (9, 4), (15, 4), (16, 4), (64, 1), (300, 2)]:
             run(bs, step, req_dtype, at_block_end=True)
+        for bs, step in [(1, 17), (8, 17), (1, 32)]:
+            run(bs, step, req_dtype, at_block_end=True)
     print("out_cache_loc in a fresh block, both index dtypes:")
     for req_dtype in (torch.int64, torch.int32):
         for bs, step in [(15, 4), (37, 3), (128, MAX_STEP)]:
+            run(bs, step, req_dtype, at_block_end=False)
+        for bs, step in [(1, 17), (8, 17)]:
             run(bs, step, req_dtype, at_block_end=False)
     print("PASSED")

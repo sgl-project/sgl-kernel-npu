@@ -50,7 +50,13 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int64_t);
     }
 
-    tillingData->tokenCountAlignInt32 = host_utils::alinInt32Count(MAX_STEP);
+    // Derive the per-row step from the caller's tensor instead of assuming the
+    // historical 16-token speculative window.
+    uint64_t maxStep = batchSize == 0 ? 1 : (cacheLocCount + batchSize - 1) / batchSize;
+    if (maxStep == 0) {
+        maxStep = 1;
+    }
+    tillingData->tokenCountAlignInt32 = host_utils::alinInt32Count(maxStep);
     tillingData->tokenColAlignInt32 = tillingData->tokenCountAlignInt32 * sizeof(int32_t);
 
     tillingData->offsetCountAlignInt64 = host_utils::alinInt64Count(batchSize);
