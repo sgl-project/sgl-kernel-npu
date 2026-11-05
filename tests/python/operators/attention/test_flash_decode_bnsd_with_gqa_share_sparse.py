@@ -62,7 +62,6 @@ def build_inputs(
     sink=False,
     num_topk_chunks=None,
     blocks_per_step=1,
-    prefetch=False,
     sanitize=False,
     shared_requests=None,
     num_pages=None,
@@ -120,7 +119,6 @@ def build_inputs(
         num_pages=capacity if num_pages is None else num_pages,
         sanitize_page_ids=sanitize,
         topk_blocks_per_step=blocks_per_step,
-        prefetch_idx=prefetch,
     )
 
 
@@ -166,12 +164,6 @@ def test_multi_chunk():
 def test_block_fusion():
     """Two blocks per step overflow the UB on Triton, so only native runs it."""
     run_case(seq_lens=(4096,), blocks_per_step=2, impl="ascendc")
-
-
-@pytest.mark.extra_checks
-def test_prefetch():
-    """The vectorized index prologue is Triton-only; native ignores the flag."""
-    run_case(seq_lens=(4096, 8192), prefetch=True, impl="triton")
 
 
 @pytest.mark.extra_checks
