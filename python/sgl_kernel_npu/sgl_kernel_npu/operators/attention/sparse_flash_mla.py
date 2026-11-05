@@ -150,10 +150,13 @@ def _torch_sparse_flash_mla(q, **kwargs):
     # DSpark and migrated tests carry independently built reference descriptors.
     # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
     # opaque production metadata and the CANN 9.2 LSE layout.
-    if isinstance(kwargs.get("metadata"), ReferenceMetadata) or kwargs.get(
-        "ori_sparse_indices"
-    ) is not None:
-        from ...implementation.torch_native.attention.attention import sparse_flash_mla
+    if (
+        isinstance(kwargs.get("metadata"), ReferenceMetadata)
+        or kwargs.get("ori_sparse_indices") is not None
+    ):
+        from ...implementation.torch_native.attention.attention import (
+            sparse_flash_mla,
+        )
     else:
         from ...implementation.torch_native.attention.sparse_flash_mla import (
             sparse_flash_mla,
