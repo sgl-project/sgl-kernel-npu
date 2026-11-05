@@ -2,8 +2,8 @@
 
 import torch
 
-from ..utils._transformer_compat import checked_kwargs, select_family
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.transformer_compat import checked_kwargs, select_family
 
 
 @register_impl("moe.moe_gating_top_k", "auto")

@@ -2,10 +2,9 @@
 
 import torch
 
-from ..attention._backend import attention_family
-from ..utils._transformer_compat import OperatorUnavailableError
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.transformer_compat import OperatorUnavailableError
 
 
 @register_impl(
@@ -17,6 +16,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
+    from ..attention.attention_utils import attention_family
+
     family = attention_family(True)
     if family.legacy:
         if (

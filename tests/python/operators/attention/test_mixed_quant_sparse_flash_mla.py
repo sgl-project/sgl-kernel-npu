@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.operators.attention._mixed_quant_sparse_flash_mla_inputs import (
+from tests.python.operators.attention.mixed_quant_sparse_flash_mla_inputs import (
     run_mixed_quant_sparse_flash_mla_case,
 )
 from tests.python.utils.performance import check_performance

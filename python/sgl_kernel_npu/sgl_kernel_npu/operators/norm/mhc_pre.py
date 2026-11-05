@@ -1,7 +1,7 @@
 """Public mhc_pre operator with registered implementations."""
 
-from ..utils._transformer_compat import select_family
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.transformer_compat import select_family
 
 
 @register_impl("norm.mhc_pre", "auto")

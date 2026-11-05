@@ -2,8 +2,8 @@
 
 import torch
 
-from ..kvcacheio._quantization import unpack_kv
-from ._metadata import ReferenceMetadata
+from ..kvcacheio.quantization import unpack_kv
+from .metadata import ReferenceMetadata
 
 
 def _paged_rows(cache, table, batch, positions, quantized):
@@ -110,6 +110,14 @@ def _attention(
             weights = scores.softmax(-1)[..., : kv.shape[0]]
             out[t] = (weights @ kv).to(q.dtype)
             lse[t] = scores.logsumexp(-1)
-    return out.reshape_as(q), lse if return_softmax_lse else torch.empty(
-        0, device=q.device
+    return out.reshape_as(q), (
+        lse if return_softmax_lse else torch.empty(0, device=q.device)
     )
+
+
+def sparse_flash_mla(q, **kwargs):
+    return _attention(q, **kwargs)
+
+
+def mixed_quant_sparse_flash_mla(q, **kwargs):
+    return _attention(q, **kwargs)

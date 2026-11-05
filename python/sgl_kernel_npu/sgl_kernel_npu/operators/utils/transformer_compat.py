@@ -7,16 +7,12 @@ execution; a failed kernel is never retried with a different backend.
 import functools
 import importlib
 import os
-import re
 from pathlib import Path
 from typing import NamedTuple
 
 import torch
 
-_VERSION_RE = re.compile(
-    r"^\s*(?:version|version_dir)\s*=\s*(\d+\.\d+\.\d+)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+from .cann import detect_cann_version
 
 
 class OperatorUnavailableError(RuntimeError):
@@ -31,35 +27,6 @@ class OperatorFamily(NamedTuple):
     @property
     def legacy(self):
         return self.backend == "legacy"
-
-
-@functools.lru_cache(maxsize=1)
-def detect_cann_version() -> str:
-    """Read an exact release from the initialized SDK before selecting bindings."""
-    sdk = os.environ.get("ASCEND_HOME_PATH")
-    if not sdk:
-        raise RuntimeError("Initialize CANN: ASCEND_HOME_PATH is missing")
-
-    sdk_path = Path(sdk)
-    if not sdk_path.is_dir():
-        raise RuntimeError(f"ASCEND_HOME_PATH does not exist: {sdk}")
-
-    candidates = (sdk_path / "version.cfg", sdk_path / "compiler" / "version.info")
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            raise RuntimeError(f"Cannot read CANN metadata {path}: {exc}") from exc
-        match = _VERSION_RE.search(text)
-        if match:
-            return match.group(1)
-
-    raise RuntimeError(
-        "Cannot read an exact CANN release from SDK version metadata "
-        f"(looked in: {', '.join(map(str, candidates))})"
-    )
 
 
 @functools.lru_cache(maxsize=1)
@@ -178,3 +145,30 @@ def checked_kwargs(op, kwargs, *, defaults=None):
                 f"{op} does not support requested argument {name}={value!r}"
             )
     return result
+
+
+@functools.lru_cache(maxsize=None)
+def require_indexer_ops(backend):
+    """Validate the selected ABI and its metadata/compute pair before execution.
+
+    Explicit implementations cannot override the initialized SDK. This keeps
+    opaque metadata and compute on the same ABI, without automatic fallback.
+    """
+    selected = cann_backend()
+    if backend != selected:
+        raise OperatorUnavailableError(
+            f"CANN {detect_cann_version()} selects {selected}, not {backend}"
+        )
+    namespace = "custom" if backend == "legacy" else "cann_ops_transformer"
+    prefix = "npu_" if backend == "legacy" else ""
+    specs = tuple(
+        (namespace, prefix + "quant_lightning_indexer" + suffix)
+        for suffix in ("_metadata", "")
+    )
+    ops = _lookup(specs)
+    missing = [f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None]
+    if missing:
+        raise OperatorUnavailableError(
+            f"Missing {backend} indexer metadata/compute bindings: {', '.join(missing)}"
+        )
+    return ops

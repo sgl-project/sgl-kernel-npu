@@ -2,9 +2,9 @@
 
 import torch
 
-from ..utils._transformer_compat import OperatorUnavailableError
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ._backend import attention_family, sparse_host_family
+from ..utils.transformer_compat import OperatorUnavailableError
+from .attention_utils import attention_family, sparse_host_family
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "auto")
@@ -77,7 +77,7 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
 
 @register_impl("attention.sparse_flash_mla_metadata", "torch_native")
 def _torch_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.sparse_flash_mla_metadata import (
+    from ...implementation.torch_native.attention.metadata import (
         sparse_flash_mla_metadata,
     )
 
