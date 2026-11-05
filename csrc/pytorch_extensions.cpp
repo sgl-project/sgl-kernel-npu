@@ -151,6 +151,16 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.def("hyper_conn_grouped_norm(Tensor x, Tensor weight, int? group_size, float eps, Tensor? out=None) -> Tensor");
+
+    m.def("hyper_conn_scaled_silu(Tensor x, float scale) -> Tensor");
+
+    m.def("hyper_conn_branch_mix(Tensor normed, Tensor gate_logits, int branches) -> Tensor");
+
+    m.def(
+        "hyper_conn_branch_combine(Tensor block, Tensor residual, Tensor gate_logits, "
+        "int branches, Tensor? out=None) -> Tensor");
+
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
         "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
@@ -397,6 +407,14 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("hyper_conn_grouped_norm", TORCH_FN(sglang::npu_kernel::hyper_conn_grouped_norm));
+
+    m.impl("hyper_conn_scaled_silu", TORCH_FN(sglang::npu_kernel::hyper_conn_scaled_silu));
+
+    m.impl("hyper_conn_branch_mix", TORCH_FN(sglang::npu_kernel::hyper_conn_branch_mix));
+
+    m.impl("hyper_conn_branch_combine", TORCH_FN(sglang::npu_kernel::hyper_conn_branch_combine));
+
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));

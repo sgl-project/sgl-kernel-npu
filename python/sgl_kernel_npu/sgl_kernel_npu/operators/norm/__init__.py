@@ -1,4 +1,5 @@
 from .add_rmsnorm_bias import add_rmsnorm_bias
+from .grouped_gemma_rmsnorm import grouped_gemma_rmsnorm
 from .l1_norm import l1_norm
 from .l2norm_fwd import l2norm_fwd
 from .layer_norm_fwd import layer_norm_fwd
@@ -11,6 +12,7 @@ __all__ = [
     "fused_rmsnorm_without_weight",
     "fused_rsqrt_mul",
     "fused_variance",
+    "grouped_gemma_rmsnorm",
     "l1_norm",
     "l2norm_fwd",
     "layer_norm_fwd",

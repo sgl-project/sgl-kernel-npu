@@ -89,6 +89,7 @@ set(OP_SRCS
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/hyper_conn/op_host/hyper_conn_epilogue.cpp
         ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
@@ -160,6 +161,7 @@ endif()
 # A3-only no-workspace kernels
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/hyper_conn/op_kernel/hyper_conn_epilogue.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
@@ -177,6 +179,7 @@ endif()
 ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(no_workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
+    ${PROJECT_OP_SRC_BASE}/hyper_conn/op_kernel
     ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel
     ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel
     ${PROJECT_OP_SRC_BASE}/deepep/ops/op_kernel/fused_deep_moe_a5/fused_deep_moe/gemm/kernel
@@ -415,6 +418,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE gomp)
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/hyper_conn/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host

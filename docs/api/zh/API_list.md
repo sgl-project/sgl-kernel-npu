@@ -17,6 +17,7 @@
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
 | [fused_variance](operators/norm/fused_variance.md) | `triton`、`torch_native` |
 | [rmsnorm_bias](operators/norm/rmsnorm_bias.md) | `triton`、`torch_native` |
+| [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `ascendc`、`torch_native` |
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
@@ -44,6 +45,8 @@
 | [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
 | [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
 | [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`、`torch_native` |
+| [hc_mix](operators/hyper_conn/hc_mix.md) | `ascendc`、`torch_native` |
+| [hc_combine](operators/hyper_conn/hc_combine.md) | `ascendc`、`torch_native` |
 | [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`、`torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
