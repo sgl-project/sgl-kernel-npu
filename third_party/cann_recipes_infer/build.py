@@ -93,7 +93,7 @@ def prepare_python(source, item):
         "        sources=[str(p) for p in (base / name / 'csrc').glob('*.cpp')],\n"
         "        extra_compile_args=['-O2', '-fvisibility=hidden',\n"
         "            '-I' + str(Path(torch_npu.__file__).parent / 'include/third_party/acl/inc')])],\n"
-        "    cmdclass={'build_ext': BuildExtension.with_options(use_ninja=False)})\n"
+        "    cmdclass={'build_ext': BuildExtension.with_options(use_ninja=True)})\n"
     )
 
 
