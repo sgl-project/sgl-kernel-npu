@@ -5,6 +5,7 @@ Only the NPU/Memfabric boundary is mocked; no PyTorch/CANN install is needed.
 
 import gc
 import importlib.util
+import os
 from functools import partial
 import sys
 import unittest
@@ -423,6 +424,46 @@ class TestSparseDispatch(unittest.TestCase):
         self.offload.sparse_copy.assert_not_called()
         self.assertFalse(self.module._last_sparse_submission)
 
+    def test_aiv_transfer_runs_without_memfabric_hybrid_available(self):
+        """acl backend: the aiv path must never import memfabric_hybrid.
+
+        A None entry in sys.modules turns any import into an ImportError, so
+        this pins the placement of ``from memfabric_hybrid import offload``
+        inside the aicpu branch: acl-only processes reach the AIV operator
+        while the AICPU offload op fails fast instead of de-referencing
+        memory the entity never mapped.
+        """
+        staging = Tensor((44,), CPU)
+        submit = Mock(return_value=staging)
+        self.torch.ops = SimpleNamespace(npu=SimpleNamespace(kv_exchange=submit))
+        with patch.dict(sys.modules, {"memfabric_hybrid": None}), patch.object(
+            self.module, "_resolve_host_dva", return_value=1 << 44
+        ):
+            for direction in (1, 2):
+                self.call(
+                    Tensor((8,)),
+                    Tensor((8,)),
+                    Tensor((1, 8, 4, 1, 5)),
+                    Tensor((10, 1, 4, 1, 5), CPU),
+                    Tensor((0,)),
+                    Tensor((0,), CPU),
+                    page_size=4,
+                    direction=direction,
+                    backend="aiv",
+                )
+            self.assertEqual(submit.call_count, 2)
+            with self.assertRaises(ImportError):
+                self.call(
+                    Tensor((8,)),
+                    Tensor((8,)),
+                    Tensor((1, 8, 4, 1, 5)),
+                    Tensor((10, 1, 4, 1, 5), CPU),
+                    Tensor((0,)),
+                    Tensor((0,), CPU),
+                    page_size=4,
+                    backend="aicpu",
+                )
+
     def test_component_selection_preserves_missing_only_when_requested(self):
         k, hk = Tensor((3, 8, 4, 1, 7)), Tensor((9, 3, 4, 1, 7), CPU)
         v, hv = Tensor((3, 8, 4, 1, 2)), Tensor((9, 3, 4, 1, 2), CPU)
@@ -531,6 +572,58 @@ class TestSparseDispatch(unittest.TestCase):
                 fn(*args, impl=impl)
                 kw = public._memfabric_fn.call_args.kwargs
                 self.assertEqual((kw["backend"], kw["direction"]), (expected, 2))
+
+    def test_acl_backend_routes_auto_to_aiv_and_keeps_explicit_impls(self):
+        """acl host memory: every auto transfer must use the AIV operator.
+
+        The AICPU offload op only de-references MemFabric-registered host
+        memory, so ``SGLANG_HICACHE_HOST_MEM_BACKEND=acl`` reroutes auto to
+        aiv — including the per-layer operators whose default is aicpu.
+        Explicit impl values are never overridden, and clearing the env
+        restores the default routing.
+        """
+        implementations = {}
+        def register_impl(name, impl, **options):
+            def register(fn):
+                implementations[name, impl] = fn
+                return fn
+            return register
+        package = "sgl_kernel_npu.operators.mem_cache"
+        parent = ModuleType(package)
+        parent.__path__ = []
+        name = package + ".kv_transfer"
+        path = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu/operators/mem_cache/kv_transfer.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        public = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {
+            package: parent,
+            "sgl_kernel_npu.operators.utils.registry": SimpleNamespace(
+                register_impl=register_impl,
+                register_operator=lambda _: lambda fn: fn,
+                get_impl_by_name=lambda name, impl: implementations[name, impl]),
+        }):
+            spec.loader.exec_module(public)
+        public._memfabric_fn = Mock()
+        args = ("di", "hi", "dk", "hk", "dv", "hv")
+        with patch.dict(os.environ, {"SGLANG_HICACHE_HOST_MEM_BACKEND": "acl"}):
+            for suffix in ("_pf_lf", ""):
+                fn = getattr(public, "transfer_kv_per_layer_kv_split" + suffix)
+                for impl, expected in (("auto", "aiv"), ("aiv", "aiv"), ("aicpu", "aicpu")):
+                    fn(*args, device_layer_id=2, host_layer_id=4, impl=impl)
+                    kw = public._memfabric_fn.call_args.kwargs
+                    self.assertEqual((kw["backend"], kw["direction"]), (expected, 1))
+            for suffix in ("_lf_pf", ""):
+                fn = getattr(public, "transfer_kv_all_layer_kv_split" + suffix)
+                for impl, expected in (("auto", "aiv"), ("aicpu", "aicpu"), ("aiv", "aiv")):
+                    fn(*args, impl=impl)
+                    kw = public._memfabric_fn.call_args.kwargs
+                    self.assertEqual((kw["backend"], kw["direction"]), (expected, 2))
+        public._memfabric_fn.reset_mock()
+        with patch.dict(os.environ, {"SGLANG_HICACHE_HOST_MEM_BACKEND": ""}):
+            getattr(public, "transfer_kv_per_layer_kv_split_pf_lf")(
+                *args, device_layer_id=2, host_layer_id=4, impl="auto"
+            )
+        self.assertEqual(public._memfabric_fn.call_args.kwargs["backend"], "aicpu")
 
     def test_public_wrapper_rejects_invalid_required_or_empty_buffers(self):
         call = self.public_wrapper()
