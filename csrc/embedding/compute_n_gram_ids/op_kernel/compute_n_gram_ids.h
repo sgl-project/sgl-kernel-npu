@@ -1,7 +1,3 @@
-//
-// Created by 陈鸿洛 on 2025/11/23.
-//
-
 #ifndef NPU_AI_OPERATION_KERNEL_COMPUTE_N_GRAM_IDS_H
 #define NPU_AI_OPERATION_KERNEL_COMPUTE_N_GRAM_IDS_H
 
