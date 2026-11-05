@@ -5,7 +5,7 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | unsupported | supported |
-| `cann_9_1` | unsupported | supported |
+| `ascendc` | unsupported | supported |
 | `torch_native` | unsupported | supported |
 
 ## Signature
@@ -34,7 +34,7 @@ Quantize NoPE in groups and scatter packed rows, keeping the RoPE tail unquantiz
 | slot_mapping | Tensor | required | int32 [T] destination slot; -1 skips a write |
 | quant_group_size | int | 64 | 64 for migrated packed KV |
 | quant_mode | int / str | None | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
-| round_scale | bool | True | Scale rounding; cann_9_1 normal FP8 ignores it |
+| round_scale | bool | True | Scale rounding; CANN 9.1 normal FP8 ignores it |
 | x_scale | float | 1.0 | Additional vendor quantization scale; migrated packed KV requires 1.0 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
@@ -48,9 +48,9 @@ Quantize NoPE in groups and scatter packed rows, keeping the RoPE tail unquantiz
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## cann_9_1
+## ascendc
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

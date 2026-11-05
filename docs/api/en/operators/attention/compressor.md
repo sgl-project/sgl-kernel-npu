@@ -5,7 +5,8 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `ops_transformer_cann910` | unsupported | supported |
+| `ascendc` | supported | unsupported |
 | `torch_native` | supported | supported |
 
 ## Signature
@@ -58,11 +59,15 @@ Project KV and gates; combine each compression window using normalized gate weig
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-`torch.ops.npu.compressor` supplies the fused contract; cann_9_1 A5 uses `torch.ops.custom.compressor`.
+`torch.ops.npu.compressor` supplies the fused contract; CANN 9.1 A5 uses `torch.ops.custom.compressor`.
 
-## cann_9_1
+## ops_transformer_cann910
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [A5 ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/compressor). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+
+## ascendc
+
+Source: [A3 sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/compressor/op_kernel/compressor.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

@@ -13,9 +13,12 @@ from .attention_utils import _cann_9_1_indexer_kwargs
 def _auto_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    return get_impl_by_name(
-        "attention.quant_lightning_indexer_metadata", cann_backend()
-    )(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "ops_transformer_cann910"
+    return get_impl_by_name("attention.quant_lightning_indexer_metadata", backend)(
+        num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
+    )
 
 
 @register_impl(
@@ -32,7 +35,7 @@ def _cann_quant_lightning_indexer_metadata(
     return op(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer_metadata", "cann_9_1")
+@register_impl("attention.quant_lightning_indexer_metadata", "ops_transformer_cann910")
 def _cann_9_1_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
@@ -73,7 +76,7 @@ def quant_lightning_indexer_metadata(
 ):
     """Build quantized C4 indexer metadata.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.quant_lightning_indexer_metadata", impl)(

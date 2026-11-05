@@ -17,9 +17,14 @@ from ..utils.transformer_compat import (
     supported_generations={Generation.ARCH35},
 )
 def _auto_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    return get_impl_by_name(
-        "attention.mixed_quant_sparse_flash_mla_metadata", cann_backend()
-    )(**kwargs)
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = (
+            "host" if _uses_native_sparse_inputs(kwargs) else "ops_transformer_cann910"
+        )
+    return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", backend)(
+        **kwargs
+    )
 
 
 @register_impl(
@@ -43,22 +48,47 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     return op(**args)
 
 
+def _uses_native_sparse_inputs(kwargs):
+    return (
+        kwargs.get("ori_mask_mode", 4) == 0
+        or kwargs.get("ori_topk_length") is not None
+        or kwargs.get("ori_topk", 0) > 0
+    )
+
+
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla_metadata",
-    "cann_9_1",
+    "ops_transformer_cann910",
     supported_generations={Generation.ARCH35},
 )
+def _ops_transformer_cann910(**kwargs):
+    if _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Explicit sparse inputs require impl='host' on CANN 9.1"
+        )
+    return _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs)
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla_metadata",
+    "host",
+    supported_generations={Generation.ARCH35},
+)
+def _host(**kwargs):
+    if not _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
+        )
+    return _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs)
+
+
 def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    sparse = (
-        kwargs.get("ori_mask_mode", 4) == 0
-        or kwargs.get("ori_topk_length") is not None
-        or kwargs.get("ori_topk", 0) > 0
-    )
+    sparse = _uses_native_sparse_inputs(kwargs)
     if sparse and kwargs.get("has_cmp_kv", False):
         raise OperatorUnavailableError(
             "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
@@ -142,7 +172,7 @@ def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
 def mixed_quant_sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build A5 mixed-quant attention metadata.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910, host, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(

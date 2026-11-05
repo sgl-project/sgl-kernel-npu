@@ -5,7 +5,8 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `ops_transformer_cann910` | supported | supported |
+| `ascendc` | supported | supported |
 | `torch_native` | supported | supported |
 
 ## Signature
@@ -41,7 +42,7 @@ BF16 Q/KV; one shared KV head in the reference. Logical sparse indices address p
 | cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
 | seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; cann_9_1 support is restricted. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
 | metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
@@ -62,9 +63,13 @@ BF16 Q/KV; one shared KV head in the reference. Logical sparse indices address p
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## cann_9_1
+## ops_transformer_cann910
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+
+## ascendc
+
+Source: [sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

@@ -15,7 +15,10 @@ from .attention_utils import _cann_9_1_indexer_kwargs
 def _auto_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
-    return get_impl_by_name("attention.quant_lightning_indexer", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "ops_transformer_cann910"
+    return get_impl_by_name("attention.quant_lightning_indexer", backend)(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
 
@@ -32,7 +35,7 @@ def _cann_quant_lightning_indexer(
     return op(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer", "cann_9_1")
+@register_impl("attention.quant_lightning_indexer", "ops_transformer_cann910")
 def _cann_9_1_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
@@ -71,7 +74,7 @@ def quant_lightning_indexer(
 ):
     """Return logical compressed-KV top-k indices and optional values.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     indices, values = get_impl_by_name("attention.quant_lightning_indexer", impl)(

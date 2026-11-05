@@ -18,7 +18,14 @@ from .attention_utils import logical_to_physical
     supported_generations={Generation.ARCH35},
 )
 def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
-    return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = (
+            "ascendc"
+            if _uses_native_sparse_inputs(kwargs)
+            else "ops_transformer_cann910"
+        )
+    return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", backend)(
         q, **kwargs
     )
 
@@ -56,11 +63,36 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
     return out, lse
 
 
+def _uses_native_sparse_inputs(kwargs):
+    return kwargs.get("ori_sparse_indices") is not None
+
+
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
-    "cann_9_1",
+    "ops_transformer_cann910",
     supported_generations={Generation.ARCH35},
 )
+def _ops_transformer_cann910(q, **kwargs):
+    if _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Explicit sparse inputs require impl='ascendc' on CANN 9.1"
+        )
+    return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "ascendc",
+    supported_generations={Generation.ARCH35},
+)
+def _ascendc(q, **kwargs):
+    if not _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
+        )
+    return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
+
+
 def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     indices = kwargs.get("ori_sparse_indices")
     namespace, binding = (
@@ -164,7 +196,7 @@ def mixed_quant_sparse_flash_mla(
 ):
     """Compute A5 mixed-quant sparse attention; return output and LSE.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910, ascendc, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

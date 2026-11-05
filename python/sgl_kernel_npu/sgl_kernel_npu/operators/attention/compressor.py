@@ -7,7 +7,14 @@ from ..utils.transformer_compat import cann_backend, require_op
 
 @register_impl("attention.compressor", "auto")
 def _auto_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
-    return get_impl_by_name("attention.compressor", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = (
+            "ops_transformer_cann910"
+            if get_hardware().generation == Generation.ARCH35
+            else "ascendc"
+        )
+    return get_impl_by_name("attention.compressor", backend)(
         x, wkv, wgate, state_cache, ape, norm_weight, **kwargs
     )
 
@@ -20,10 +27,21 @@ def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
     return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
 
-@register_impl("attention.compressor", "cann_9_1")
-def _cann_9_1_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
-    namespace = "custom" if get_hardware().generation == Generation.ARCH35 else "npu"
-    op = require_op(namespace, "compressor", backend="cann_9_1")
+@register_impl(
+    "attention.compressor",
+    "ops_transformer_cann910",
+    supported_generations={Generation.ARCH35},
+)
+def _ops_transformer_cann910(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
+    op = require_op("custom", "compressor", backend="cann_9_1")
+    return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
+
+
+@register_impl(
+    "attention.compressor", "ascendc", supported_generations={Generation.ARCH22}
+)
+def _ascendc(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
+    op = require_op("npu", "compressor", backend="cann_9_1")
     return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
 
@@ -38,7 +56,7 @@ def _torch_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
 def compressor(x, wkv, wgate, state_cache, ape, norm_weight, *, impl="auto", **kwargs):
     """Compress KV and update the compressor state cache in place.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910 (A5), ascendc (A3), cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.compressor", impl)(

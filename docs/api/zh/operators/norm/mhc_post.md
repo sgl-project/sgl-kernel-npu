@@ -5,7 +5,7 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | 支持 | 支持 |
-| `cann_9_1` | 支持 | 支持 |
+| `cann_recipes_infer_cann910` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 接口
@@ -45,9 +45,9 @@ def mhc_post(x, residual, post, comb, *, impl='auto'):
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 
-## cann_9_1
+## cann_recipes_infer_cann910
 
-使用 CANN 9.1 绑定，在本算子文件完成输入适配；要求已初始化 CANN 9.1 SDK，不回退至 CANN 9.2。
+Source: [cann-recipes-infer; aclnnHcPost](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_hc_post.cpp). The recipes custom_ops bridge calls the indicated recipes ACLNN operator. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

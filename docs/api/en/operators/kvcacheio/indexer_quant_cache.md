@@ -5,7 +5,7 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `cann_recipes_infer_cann910` | supported | supported |
 | `torch_native` | supported | supported |
 
 ## Signature
@@ -51,9 +51,9 @@ The reference supports finite normal-FP8 rows up to 128 values; A3 availability 
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## cann_9_1
+## cann_recipes_infer_cann910
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [cann-recipes-infer; aclnnIndexerCompressEpilog](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_indexer_compress_epilog.cpp). The recipes custom_ops bridge calls the indicated recipes ACLNN operator. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

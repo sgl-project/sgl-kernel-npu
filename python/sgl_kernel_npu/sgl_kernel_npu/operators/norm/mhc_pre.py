@@ -6,7 +6,10 @@ from ..utils.transformer_compat import cann_backend, require_op
 
 @register_impl("norm.mhc_pre", "auto")
 def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    return get_impl_by_name("norm.mhc_pre", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "cann_recipes_infer_cann910"
+    return get_impl_by_name("norm.mhc_pre", backend)(
         x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
     )
 
@@ -37,7 +40,7 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
     )
 
 
-@register_impl("norm.mhc_pre", "cann_9_1")
+@register_impl("norm.mhc_pre", "cann_recipes_infer_cann910")
 def _cann_9_1_mhc_pre(
     x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
 ):
@@ -68,7 +71,7 @@ def mhc_pre(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("norm.mhc_pre", impl)(

@@ -5,7 +5,8 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `ops_transformer_cann910` | supported | supported |
+| `host` | supported | supported |
 | `torch_native` | supported | supported |
 
 ## Signature
@@ -21,7 +22,7 @@ def sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 ## Description
 
-Build with the same implementation, query lengths, mask and layout as the paired sparse_flash_mla call.
+Use matching ABI, query lengths, mask and layout for the paired sparse_flash_mla call. On the CANN 9.1 DSpark path, pair `host` metadata with `ascendc` compute.
 
 Build opaque native scheduling metadata. The torch reference stores a parameter descriptor; it does not reproduce CANN binary tiling bytes.
 
@@ -40,7 +41,7 @@ Build opaque native scheduling metadata. The torch reference stores a parameter 
 | cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
 | seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; cann_9_1 support is restricted. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
 | metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
@@ -51,7 +52,7 @@ Build opaque native scheduling metadata. The torch reference stores a parameter 
 | quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
 | num_heads_q / num_heads_k / head_dim / batch_size / max_seqlen_q | int | Native scheduling geometry; use the same values as paired compute. |
 | has_ori_kv / has_cmp_kv | bool | Whether original/compressed streams participate. |
-| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by cann_9_1 explicit sparse metadata; no device-to-host copy is introduced. |
+| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by CANN 9.1 explicit sparse metadata; no device-to-host copy is introduced. |
 
 ## Return value
 
@@ -63,9 +64,13 @@ Build opaque native scheduling metadata. The torch reference stores a parameter 
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## cann_9_1
+## ops_transformer_cann910
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+
+## host
+
+Source: [sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp). The checked-in C++ scheduler computes metadata on the host CPU, then copies the table to NPU. It is not an Ascend C device kernel. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 
