@@ -53,13 +53,16 @@ def _argmax_prob_kernel(
             )
             chunk_max = tl.max(x, axis=0)
             new_m = tl.maximum(m, chunk_max)
-            s = s * tl.exp(m - new_m) + tl.sum(tl.exp(x - new_m), axis=0)
+            # Fully masked leading tiles have no mass. Avoid -inf - -inf
+            # poisoning the running sum before a later tile has valid logits.
+            safe_m = tl.where(new_m == float("-inf"), 0.0, new_m)
+            s = s * tl.exp(m - safe_m) + tl.sum(tl.exp(x - safe_m), axis=0)
             chunk_arg = tl.argmax(x, axis=0).to(tl.int64) + start
             # Strict >: a tie keeps the earlier index, matching torch.argmax.
             arg = tl.where(chunk_max > m, chunk_arg, arg)
             m = new_m
         tl.store(argmax_ptr + row, arg)
-        tl.store(prob_ptr + row, 1.0 / s)
+        tl.store(prob_ptr + row, tl.where(m == float("-inf"), float("nan"), 1.0 / s))
 
 
 @lru_cache(maxsize=1)
