@@ -37,7 +37,7 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     if input_kind == "zero":
         x.zero_()
     elif input_kind == "scale-policy":
-        # amax/448 is not a power of two. This distinguishes legacy 9.1
+        # amax/448 is not a power of two. This distinguishes cann_9_1 9.1
         # unrounded scales from the released 9.2 round_scale=True behavior.
         x.fill_(3.0)
         x[0, 1:4] = torch.tensor([-3.0, 1.0, -1.0], dtype=x.dtype, device=x.device)
@@ -75,7 +75,7 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     # CANN 9.1 may not support generic FP8 initialization/copy/conversion.
     keys = torch.zeros(1, 128, 1, 128, dtype=torch.uint8).view(torch.float8_e4m3fn)
     scales = torch.zeros(1, 128, 1, 1, dtype=torch.float32)
-    # Exercise both settings: legacy 9.1 ignores this normal-FP8 attribute;
+    # Exercise both settings: cann_9_1 9.1 ignores this normal-FP8 attribute;
     # released 9.2 honors it. The reference uses the same SDK input contract.
     kwargs = dict(quant_mode="fp8", round_scale=round_scale)
     executor = make_executor(

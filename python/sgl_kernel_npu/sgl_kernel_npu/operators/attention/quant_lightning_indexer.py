@@ -8,7 +8,7 @@ from ..utils.transformer_compat import (
     cann_backend,
     require_indexer_ops,
 )
-from .attention_utils import _legacy_indexer_kwargs
+from .attention_utils import _cann_9_1_indexer_kwargs
 
 
 @register_impl("attention.quant_lightning_indexer", "auto")
@@ -29,13 +29,13 @@ def _cann_quant_lightning_indexer(
 
 
 @register_impl("attention.quant_lightning_indexer", "cann_9_1")
-def _legacy_quant_lightning_indexer(
+def _cann_9_1_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
     op = require_indexer_ops("cann_9_1")[1]
     if quant_mode not in (1, 2):
         raise OperatorUnavailableError(
-            "Legacy indexer supports the migrated FP8/INT8 modes only"
+            "cann_9_1 indexer supports the migrated FP8/INT8 modes only"
         )
     return op(
         query=q,
@@ -44,7 +44,7 @@ def _legacy_quant_lightning_indexer(
         query_dequant_scale=q_scale,
         key_dequant_scale=k_scale,
         sparse_count=topk,
-        **_legacy_indexer_kwargs(kwargs),
+        **_cann_9_1_indexer_kwargs(kwargs),
     )
 
 

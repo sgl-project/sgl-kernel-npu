@@ -30,7 +30,7 @@ def inplace_partial_rotary_mul(
 ):
     """Apply partial RoPE in place using fp32 intermediate arithmetic.
 
-    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("rope.inplace_partial_rotary_mul", impl)(

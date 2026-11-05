@@ -39,7 +39,7 @@ def sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
 | seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; legacy support is restricted. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; cann_9_1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
 | metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
@@ -50,7 +50,7 @@ def sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
 | num_heads_q / num_heads_k / head_dim / batch_size / max_seqlen_q | int | Native scheduling geometry; use the same values as paired compute. |
 | has_ori_kv / has_cmp_kv | bool | Whether original/compressed streams participate. |
-| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by legacy explicit sparse metadata; no device-to-host copy is introduced. |
+| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by cann_9_1 explicit sparse metadata; no device-to-host copy is introduced. |
 
 ## 返回值
 

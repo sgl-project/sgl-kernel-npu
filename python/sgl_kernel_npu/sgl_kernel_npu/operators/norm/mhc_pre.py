@@ -12,7 +12,7 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
         (("custom", "npu_hc_pre"),),
     )
     shape = x.shape
-    if family.legacy:
+    if family.cann_9_1:
         y, post, comb = family.ops[0](
             x,
             fn,
@@ -55,7 +55,7 @@ def mhc_pre(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("norm.mhc_pre", impl)(

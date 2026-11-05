@@ -16,7 +16,7 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    if not family.legacy:
+    if not family.cann_9_1:
         return family.ops[0](**args)
     sparse = (
         kwargs.get("ori_mask_mode", 4) == 0
@@ -25,7 +25,7 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
     )
     if sparse and kwargs.get("has_cmp_kv", False):
         raise OperatorUnavailableError(
-            "Legacy DSpark explicit original KV cannot be combined with compressed KV"
+            "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
         )
     args.pop("seqused_cmp_kv", None)
     args.pop("cmp_residual_kv", None)
@@ -37,17 +37,17 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
         raise ValueError(f"Unsupported shared-KV layout: {layout}")
     if args.pop("topk_value_mode", 1) != 1:
         raise OperatorUnavailableError(
-            "Legacy attention only supports logical compressed top-k indices"
+            "cann_9_1 attention only supports logical compressed top-k indices"
         )
     if args.pop("cmp_topk_length", None) is not None:
         raise OperatorUnavailableError(
-            "Legacy attention does not accept cmp_topk_length"
+            "cann_9_1 attention does not accept cmp_topk_length"
         )
     args.pop("ori_topk_length", None)
     args.pop("ori_topk", None)
     if args.get("ori_mask_mode", 4) == 0:
         # Native DSpark selects explicit indices by tensor presence, with the
-        # legacy SWA/window metadata ABI.
+        # cann_9_1 SWA/window metadata ABI.
         args["ori_mask_mode"] = 4
     if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
         args["cmp_mask_mode"] = 3
@@ -66,7 +66,7 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
                 or value.dtype != torch.int32
             ):
                 raise ValueError(
-                    f"Legacy host metadata requires an existing CPU int32 {public}; no device copy is performed during capture"
+                    f"cann_9_1 host metadata requires an existing CPU int32 {public}; no device copy is performed during capture"
                 )
             count = kwargs["batch_size"] + (private == "cu_seqlens_q")
             args[private] = value[:count].contiguous()
@@ -94,7 +94,7 @@ def _torch_sparse_flash_mla_metadata(**kwargs):
 def sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build BF16 attention metadata.
 
-    impl: auto (released/legacy compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(**kwargs)

@@ -33,7 +33,7 @@ def _torch_npu(
             else ()
         ),
     )
-    if family.legacy:
+    if family.cann_9_1:
         kwargs = dict(
             bias=bias,
             input_ids=input_ids,

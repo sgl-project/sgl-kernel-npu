@@ -26,12 +26,12 @@ def test_moe_gate(shape, norm_type, with_bias):
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
     from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
-    legacy = cann_backend() == "legacy"
-    if legacy and get_hardware().generation == Generation.ARCH22 and norm_type == 2:
+    cann_9_1 = cann_backend() == "cann_9_1"
+    if cann_9_1 and get_hardware().generation == Generation.ARCH22 and norm_type == 2:
         pytest.skip("CANN 9.1 A3 does not support norm_type=2; requires Ascend 950")
-    # Deployed legacy custom bindings reject renorm=1. Exercise their supported
+    # Deployed cann_9_1 custom bindings reject renorm=1. Exercise their supported
     # contract on both DUT and reference; do not silently change production args.
-    renorm = 0 if legacy else 1
+    renorm = 0 if cann_9_1 else 1
     rows, experts, k = shape
     torch.manual_seed(51)
     x = torch.randn(rows, experts, device="npu", dtype=torch.float32)
