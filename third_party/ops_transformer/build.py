@@ -25,6 +25,9 @@ def configure(config, jobs):
         )
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
+    config["python_bindings"] = config.get("python_bindings", True)
+    if not isinstance(config["python_bindings"], bool):
+        raise ValueError("python_bindings must be a boolean")
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -125,8 +128,8 @@ def build(item, source, directory):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     installers = list((source / "build_out").glob("*.run"))
     wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    if len(installers) != 1 or len(wheels) != 1:
-        raise RuntimeError("Expected exactly one upstream .run and Python wheel")
+    if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
+        raise RuntimeError("Expected one upstream .run and the selected Python wheel")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -139,12 +142,10 @@ def build(item, source, directory):
         raise RuntimeError("Expected exactly one installed vendor directory")
     vendor = vendors[0]
     inspect_vendor(vendor, item)
-    return dict(
-        config=item,
-        vendor=vendor,
-        wheel=wheels[0],
-        license=source / item["license"],
-    )
+    result = dict(config=item, vendor=vendor, license=source / item["license"])
+    if item["python_bindings"]:
+        result["wheel"] = wheels[0]
+    return result
 
 
 def stage(result, package):
@@ -160,7 +161,8 @@ def stage(result, package):
     # Installer-generated scripts embed the temporary absolute installation path.
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
-    stage_python(result["wheel"], item, package)
+    if item["python_bindings"]:
+        stage_python(result["wheel"], item, package)
     licenses = package / "_third_party/licenses" / item["name"]
     licenses.mkdir(parents=True)
     shutil.copy2(result["license"], licenses / "LICENSE")
@@ -170,5 +172,8 @@ def stage(result, package):
         if p.is_file()
     }
     return dict(
-        item, vendor_directory=vendor.name, files=hashes, binding="upstream_jit"
+        item,
+        vendor_directory=vendor.name,
+        files=hashes,
+        binding="upstream_jit" if item["python_bindings"] else "vendor_only",
     )
