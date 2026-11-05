@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | supported | supported |
+| `cann_ops_transformer_cann920` | supported | supported |
 | `torch_native` | supported | supported |
 | `cann_9_1` | supported | supported |
 
@@ -58,7 +58,7 @@ Causal TND queries and PA_BBND keys; A3 tests use INT8 with FP16 scales/weights,
 | indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
 | values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 Calls only the released CANN 9.2 binding. The old ABI is registered separately as `cann_9_1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
 

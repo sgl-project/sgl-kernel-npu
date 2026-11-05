@@ -32,7 +32,7 @@ def _torch_npu(
     op = require_op(
         "npu",
         "npu_moe_gating_top_k",
-        backend="cann_ops_transformer",
+        backend="cann_ops_transformer_cann920",
         required_arguments=(
             ("input_ids", "tid2eid")
             if input_ids is not None or tid2eid is not None

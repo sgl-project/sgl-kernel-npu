@@ -4,7 +4,7 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | 不支持 | 支持 |
+| `cann_ops_transformer_cann920` | 不支持 | 支持 |
 | `cann_9_1` | 不支持 | 支持 |
 | `torch_native` | 不支持 | 支持 |
 
@@ -44,7 +44,7 @@ def kv_compress_epilog(cache, x, slot_mapping, *, quant_group_size=64, quant_mod
 | --- | --- | --- |
 | cache | Tensor | The same mutated packed input cache. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 

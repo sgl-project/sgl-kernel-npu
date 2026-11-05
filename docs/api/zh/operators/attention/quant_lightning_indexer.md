@@ -4,7 +4,7 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | 支持 | 支持 |
+| `cann_ops_transformer_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 | `cann_9_1` | 支持 | 支持 |
 
@@ -58,7 +58,7 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
 | indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
 | values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `cann_9_1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 

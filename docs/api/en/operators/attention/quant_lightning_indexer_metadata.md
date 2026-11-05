@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | supported | supported |
+| `cann_ops_transformer_cann920` | supported | supported |
 | `torch_native` | supported | supported |
 | `cann_9_1` | supported | supported |
 
@@ -55,7 +55,7 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 | --- | --- | --- |
 | metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 Calls only the released CANN 9.2 binding. The old ABI is registered separately as `cann_9_1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
 

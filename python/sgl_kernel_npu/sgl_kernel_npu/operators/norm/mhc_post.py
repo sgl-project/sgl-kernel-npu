@@ -10,9 +10,11 @@ def _auto_mhc_post(x, residual, post, comb):
     return get_impl_by_name("norm.mhc_post", cann_backend())(x, residual, post, comb)
 
 
-@register_impl("norm.mhc_post", "cann_ops_transformer")
+@register_impl("norm.mhc_post", "cann_ops_transformer_cann920")
 def _cann_mhc_post(x, residual, post, comb):
-    op = require_op("cann_ops_transformer", "mhc_post", backend="cann_ops_transformer")
+    op = require_op(
+        "cann_ops_transformer", "mhc_post", backend="cann_ops_transformer_cann920"
+    )
     return op(residual, comb, x, post)
 
 
@@ -37,7 +39,7 @@ def _torch_mhc_post(x, residual, post, comb):
 def mhc_post(x, residual, post, comb, *, impl="auto"):
     """Mix the layer output and residual streams, preserving the output dtype.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("norm.mhc_post", impl)(x, residual, post, comb)

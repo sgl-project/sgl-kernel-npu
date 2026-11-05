@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | unsupported | supported |
+| `cann_ops_transformer_cann920` | unsupported | supported |
 | `cann_9_1` | unsupported | supported |
 | `torch_native` | unsupported | supported |
 
@@ -44,7 +44,7 @@ Quantize NoPE in groups and scatter packed rows, keeping the RoPE tail unquantiz
 | --- | --- | --- |
 | cache | Tensor | The same mutated packed input cache. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 

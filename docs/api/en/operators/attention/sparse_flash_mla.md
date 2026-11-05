@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | supported | supported |
+| `cann_ops_transformer_cann920` | supported | supported |
 | `cann_9_1` | supported | supported |
 | `torch_native` | supported | supported |
 
@@ -58,7 +58,7 @@ BF16 Q/KV; one shared KV head in the reference. Logical sparse indices address p
 | out | Tensor | Query token/head geometry with KV value width, query activation dtype. |
 | lse | FP32 Tensor | Per-query/head LSE if requested, otherwise empty. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
