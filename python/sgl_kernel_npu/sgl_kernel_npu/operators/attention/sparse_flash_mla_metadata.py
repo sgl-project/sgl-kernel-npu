@@ -17,12 +17,12 @@ def _auto_sparse_flash_mla_metadata(**kwargs):
     )
 
 
-@register_impl("attention.sparse_flash_mla_metadata", "cann_ops_transformer")
+@register_impl("attention.sparse_flash_mla_metadata", "cann_ops_transformer_cann920")
 def _cann_sparse_flash_mla_metadata(**kwargs):
     op = require_op(
         "cann_ops_transformer",
         "sparse_flash_mla_metadata",
-        backend="cann_ops_transformer",
+        backend="cann_ops_transformer_cann920",
     )
     args = {
         key: value
@@ -120,7 +120,7 @@ def _torch_sparse_flash_mla_metadata(**kwargs):
 def sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build BF16 attention metadata.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(**kwargs)

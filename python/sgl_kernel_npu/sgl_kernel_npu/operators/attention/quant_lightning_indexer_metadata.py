@@ -18,14 +18,16 @@ def _auto_quant_lightning_indexer_metadata(
     )(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer_metadata", "cann_ops_transformer")
+@register_impl(
+    "attention.quant_lightning_indexer_metadata", "cann_ops_transformer_cann920"
+)
 def _cann_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
     op = require_op(
         "cann_ops_transformer",
         "quant_lightning_indexer_metadata",
-        backend="cann_ops_transformer",
+        backend="cann_ops_transformer_cann920",
     )
     return op(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
@@ -71,7 +73,7 @@ def quant_lightning_indexer_metadata(
 ):
     """Build quantized C4 indexer metadata.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.quant_lightning_indexer_metadata", impl)(

@@ -25,14 +25,14 @@ def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
 
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
-    "cann_ops_transformer",
+    "cann_ops_transformer_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
     op = require_op(
         "cann_ops_transformer",
         "mixed_quant_sparse_flash_mla",
-        backend="cann_ops_transformer",
+        backend="cann_ops_transformer_cann920",
     )
     if kwargs.get("quant_mode", 1) != 1:
         raise OperatorUnavailableError(
@@ -164,7 +164,7 @@ def mixed_quant_sparse_flash_mla(
 ):
     """Compute A5 mixed-quant sparse attention; return output and LSE.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

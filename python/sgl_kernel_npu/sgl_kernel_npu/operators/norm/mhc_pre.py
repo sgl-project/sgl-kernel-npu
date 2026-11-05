@@ -11,10 +11,12 @@ def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
     )
 
 
-@register_impl("norm.mhc_pre", "cann_ops_transformer")
+@register_impl("norm.mhc_pre", "cann_ops_transformer_cann920")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
     op = require_op(
-        "cann_ops_transformer", "mhc_pre_sinkhorn", backend="cann_ops_transformer"
+        "cann_ops_transformer",
+        "mhc_pre_sinkhorn",
+        backend="cann_ops_transformer_cann920",
     )
     shape = x.shape
     h_in, h_post, h_res, *_ = op(
@@ -66,7 +68,7 @@ def mhc_pre(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("norm.mhc_pre", impl)(

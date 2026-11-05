@@ -11,12 +11,12 @@ def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     )
 
 
-@register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformer")
+@register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformer_cann920")
 def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     op = require_op(
         "cann_ops_transformer",
         "inplace_partial_rotary_mul",
-        backend="cann_ops_transformer",
+        backend="cann_ops_transformer_cann920",
     )
     op(x, cos, sin, **kwargs)
     return x
@@ -44,7 +44,7 @@ def inplace_partial_rotary_mul(
 ):
     """Apply partial RoPE in place using fp32 intermediate arithmetic.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("rope.inplace_partial_rotary_mul", impl)(

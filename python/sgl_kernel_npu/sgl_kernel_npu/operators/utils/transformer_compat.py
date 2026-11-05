@@ -26,7 +26,7 @@ def cann_backend():
     if release == (9, 1):
         return "cann_9_1"
     if release == (9, 2):
-        return "cann_ops_transformer"
+        return "cann_ops_transformer_cann920"
     raise OperatorUnavailableError(
         f"Unsupported CANN release {version}; Transformer operators support "
         "CANN 9.1.x and 9.2.x only"

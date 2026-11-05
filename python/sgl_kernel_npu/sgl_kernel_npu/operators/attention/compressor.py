@@ -12,11 +12,11 @@ def _auto_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
     )
 
 
-@register_impl("attention.compressor", "cann_ops_transformer")
+@register_impl("attention.compressor", "cann_ops_transformer_cann920")
 def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
     # Preserve the fused RMSNorm/RoPE contract; the released core-only
     # compressor has a different computation boundary.
-    op = require_op("npu", "compressor", backend="cann_ops_transformer")
+    op = require_op("npu", "compressor", backend="cann_ops_transformer_cann920")
     return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
 
@@ -38,7 +38,7 @@ def _torch_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
 def compressor(x, wkv, wgate, state_cache, ape, norm_weight, *, impl="auto", **kwargs):
     """Compress KV and update the compressor state cache in place.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.compressor", impl)(

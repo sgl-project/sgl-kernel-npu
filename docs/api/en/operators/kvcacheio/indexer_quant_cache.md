@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | supported | supported |
+| `cann_ops_transformer_cann920` | supported | supported |
 | `cann_9_1` | supported | supported |
 | `torch_native` | supported | supported |
 
@@ -47,7 +47,7 @@ The reference supports finite normal-FP8 rows up to 128 values; A3 availability 
 | --- | --- | --- |
 | cache, scale_cache | Tensor tuple | The same mutated input buffers. |
 
-## cann_ops_transformer
+## cann_ops_transformer_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
