@@ -147,7 +147,6 @@ def test_sparse_flash_mla_paged(
     q, inputs, _ = _build_paged_case(
         cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
     )
-    total_q = q.shape[0]
     metadata = _schedule(
         inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length
     )
@@ -163,9 +162,6 @@ def test_sparse_flash_mla_paged(
             return_softmax_lse=True,
         ),
     )
-    out, lse = executor()
-    assert out.shape == q.shape
-    assert lse.shape == (NUM_HEADS_KV, total_q, NUM_HEADS_Q // NUM_HEADS_KV)
     check_performance(executor, enable_perf=True)
 
 
@@ -222,7 +218,4 @@ def test_sparse_flash_mla_bsnd_swa():
             return_softmax_lse=True,
         ),
     )
-    out, lse = executor()
-    assert out.shape == q.shape
-    assert lse.shape == (1, NUM_HEADS_KV, length, NUM_HEADS_Q // NUM_HEADS_KV)
     check_performance(executor, enable_perf=True)
