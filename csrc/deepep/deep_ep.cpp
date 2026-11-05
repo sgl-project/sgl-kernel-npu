@@ -321,9 +321,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     const int64_t offRInSrcRank = carve(rInSrcRankElems);
 
     at::Tensor scratch = at::empty({scratchOffset}, at::dtype(at::kInt).device(x.device()));
-    auto view1d = [&](int64_t off, int64_t elems) {
-        return scratch.as_strided({elems}, {1}, off);
-    };
+    auto view1d = [&](int64_t off, int64_t elems) { return scratch.as_strided({elems}, {1}, off); };
     auto view2d = [&](int64_t off, int64_t rows, int64_t cols) {
         return scratch.as_strided({rows, cols}, {cols, 1}, off);
     };
