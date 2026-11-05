@@ -26,7 +26,7 @@ CANN_9_1_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
 
 def get_npu_kv_quant_path():
     """Choose the immutable reader/writer contract before pool allocation."""
-    from ...utils.transformer_compat import cann_backend
+    from ..utils.transformer_compat import cann_backend
 
     return (
         CANN_9_1_NPU_KV_QUANT_PATH
