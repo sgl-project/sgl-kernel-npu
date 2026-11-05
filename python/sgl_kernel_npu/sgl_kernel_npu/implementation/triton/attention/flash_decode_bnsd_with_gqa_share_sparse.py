@@ -631,6 +631,9 @@ def flash_decode_bnsd_with_gqa_share_sparse(
 ) -> torch.Tensor:
     """Sparse decode attention using BNSD KV cache and precomputed topk blocks.
     Returns [batch_size, num_q_heads, head_dim]."""
+    assert (
+        block_size > 0 and (block_size & (block_size - 1)) == 0
+    ), f"Triton block_size must be a positive power of two, got {block_size}"
     assert q.dtype in (torch.float16, torch.bfloat16)
     assert k_cache_bnsd.dtype == q.dtype
     assert v_cache_bnsd.dtype == q.dtype

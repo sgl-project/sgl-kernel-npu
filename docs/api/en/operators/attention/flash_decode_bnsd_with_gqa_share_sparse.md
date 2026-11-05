@@ -159,9 +159,7 @@ non-None sink are rejected by assertions. This adapter also requires Triton for 
 
 Accepts either page source and normalizes per-query-head indices to GQA-shared indices. Uses
 `inner_precise=4` for high-precision accumulation. Chunking, block fusion, prefetch and launch
-settings are accepted but ignored. Empty rows and `T=1` are not covered by the native validation;
-use `impl="triton"` for these cases (`auto` does not check them). `auto` currently emits a warning once when `use_native=True`
-and `sink is None` but it chooses Triton, including for sizes outside the native configuration.
+settings are accepted but ignored.
 
 ## torch_native backend
 

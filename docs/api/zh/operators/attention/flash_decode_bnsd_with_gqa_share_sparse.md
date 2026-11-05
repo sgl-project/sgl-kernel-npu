@@ -147,9 +147,7 @@ launch，多 chunk 则需临时部分输出。中间量以 fp32 累加，softmax
 不可用会报错，不支持的尺寸或非空 sink 会被断言拒绝。该适配层的索引预处理也依赖 Triton。
 
 接受两种页映射，并将每 query 头的索引转换为 GQA 共享索引。固定使用 `inner_precise=4`
-进行高精度累加。接受但忽略分块、块融合、预取和 launch 参数。空行和 `T=1` 尚未经过原生后端
-验证，这些情况请显式使用 `impl="triton"`（`auto` 不检查这两项）。当前 `auto` 在 `use_native=True`
-且 `sink is None`、最终选择 Triton 时会打印一次告警，包括尺寸不在原生配置内的情况。
+进行高精度累加。接受但忽略分块、块融合、预取和 launch 参数。
 
 ## torch_native 后端
 
