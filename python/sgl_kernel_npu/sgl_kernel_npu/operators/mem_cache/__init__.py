@@ -8,7 +8,7 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
-from .layout import NPU_KV_QUANT_PATH, get_npu_kv_quant_path
+from .utils.layout import NPU_KV_QUANT_PATH, get_npu_kv_quant_path
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 
 __all__ = [
