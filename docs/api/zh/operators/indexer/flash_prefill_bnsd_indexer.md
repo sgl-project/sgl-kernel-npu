@@ -54,19 +54,19 @@ request `r` 的打包 query 行范围为 `cu_seqlens[r]:cu_seqlens[r + 1]`。令
 
 对 query 打包行 `t` 与 key 位置 `p`，先算 log2 域 logits：
 
-$$
+```math
 x_{t,p} = (q_t \cdot k_p)\,\text{sm\_scale}\,\log_2 e
-$$
+```
 
 块分数按 `score_type` 归约，以下公式中的 `p` 仅遍历该块内的可见 key（省略头下标）：
 
-$$
+```math
 \text{score}[h,t,b] =
 \begin{cases}
 \max_{p \in b} x_{t,p}, & \text{score\_type} = \text{"max"} \\
 \log_2 \sum_{p \in b} 2^{x_{t,p}}, & \text{score\_type} = \text{"lse"}
 \end{cases}
-$$
+```
 
 块内没有可见 key 时该块分数为 `-inf`。分数仅用于选块，不单独返回。
 `idx_o` 使用所有可见 key 的 `QKᵀ * sm_scale` 做 softmax，再对 V 加权求和；它不受

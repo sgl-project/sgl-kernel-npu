@@ -55,20 +55,20 @@ causal attention based on request-local positions.
 
 For packed query row `t` and key position `p`, the log2-domain logit is
 
-$$
+```math
 x_{t,p} = (q_t \cdot k_p)\,\text{sm\_scale}\,\log_2 e
-$$
+```
 
 The block score is reduced according to `score_type`. In these formulas, `p` ranges only
 over visible keys in the block; head indices are omitted for brevity:
 
-$$
+```math
 \text{score}[h,t,b] =
 \begin{cases}
 \max_{p \in b} x_{t,p}, & \text{score\_type} = \text{"max"} \\
 \log_2 \sum_{p \in b} 2^{x_{t,p}}, & \text{score\_type} = \text{"lse"}
 \end{cases}
-$$
+```
 
 A block with no visible key has score `-inf`. Scores are internal intermediates and are not
 returned.
