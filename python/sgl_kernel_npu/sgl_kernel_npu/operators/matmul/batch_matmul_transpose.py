@@ -40,9 +40,9 @@ def batch_matmul_transpose(
 ):
     """Write einsum('mbk,bkn->mbn') into tensor_c and return None.
 
-    auto selects ascendc for 910C (arch22) without fallback. Other arch22 chips
-    are unsupported by ascendc. All tensors are contiguous
-    and have the same float16/bfloat16 dtype and device. tensor_a is [M, B, K],
+    auto selects ascendc for Ascend A2/A3 (arch22) without fallback.
+    All tensors are contiguous and have the same float16/bfloat16 dtype and
+    device. tensor_a is [M, B, K],
     tensor_c is [M, B, N], and 1 <= M <= 1024. tensor_b is [B, K, N] for ND
     (default), or explicitly packed [B, N/16, K, 16] for NZ. NZ requires K/N
     divisible by 16. quant_mode accepts the legacy mode names but does not

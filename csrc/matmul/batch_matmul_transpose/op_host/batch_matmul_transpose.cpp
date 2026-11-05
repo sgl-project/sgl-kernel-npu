@@ -102,6 +102,7 @@ public:
         this->Attr("format_mode").AttrType(OPTIONAL).String("ND");
         this->Attr("quant_mode").AttrType(OPTIONAL).String("per_channel_symm");
         this->AICore().SetTiling(optiling::TilingBatchMatmulTranspose);
+        this->AICore().AddConfig("ascend910b");
         this->AICore().AddConfig("ascend910_93");
     }
 };

@@ -1,4 +1,4 @@
-# The legacy kernel targets 910C (ascend910_93), which uses architecture 2201.
+# The kernel supports Ascend A2/A3, which use architecture 2201.
 sgl_register_operator(
     ID batch_matmul_transpose
     EXECUTION_UNIT AICORE

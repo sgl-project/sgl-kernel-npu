@@ -21,7 +21,7 @@ from tests.python.utils.performance import check_performance
 # docs/api/en/operators/matmul/batch_matmul_transpose.md#model-shaped-tests
 # Ordinary MLA reaches this operator only when M>=65536, B*K>=65536 or
 # N>=65536. With M<=1024 and these model dimensions, only attention TP=1
-# qualifies. DSA decode/verify on 910C also reaches it at higher attention TP.
+# qualifies. DSA decode/verify on A2/A3 also reaches it at higher attention TP.
 # Keep only DeepSeek/GLM, using one or two recent models for identical shapes.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [

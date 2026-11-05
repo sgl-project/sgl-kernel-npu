@@ -4,11 +4,10 @@
 
 | Implementation | arch22 (A2/A3, 2201) | arch35 (A5, 3510) |
 | --- | --- | --- |
-| `ascendc` | 910C only | Unsupported |
+| `ascendc` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
-The AscendC operator supports only 910C (`ascend910_93`); other arch22 platforms
-are unsupported.
+The AscendC kernel supports Ascend A2/A3 (arch22, 2201).
 
 ## Signature
 
@@ -115,8 +114,7 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 Build from the repository root with
 `python3 setup.py --arch-version 2201 --ops all`.
 The current build verifies artifacts for both arch22 CANN targets, so build the
-complete migrated operator set when testing this 910C-only operator. This does
-not extend this operator's hardware support beyond 910C.
+complete migrated operator set before running this operator's tests on A2/A3.
 Install the produced wheel before testing the migrated ACLNN path:
 `pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl`.
 Run accuracy tests with
@@ -141,7 +139,7 @@ The two callers are in
   below and the existing operator limit `M <= 1024`, only effective attention
   TP=1 satisfies this condition. TP=2/4/8 selects
   `torch_npu.npu_transpose_batchmatmul`.
-- DSA, `forward_dsa_core_npu`: on 910C, decode, target verification and draft
+- DSA, `forward_dsa_core_npu`: on A2/A3, decode, target verification and draft
   extend v2 select this operator; ordinary extend selects `torch_npu`.
   Attention TP=1/2/4/8 can therefore be covered. See
   [`is_deepseek_dsa`](https://github.com/sgl-project/sglang/blob/43af9fcbb68d2d34a5549635dfcc7b46360e6fc6/python/sglang/srt/configs/model_config.py#L187)
@@ -166,7 +164,7 @@ DeepSeek-V3.1/V3.2 represent ordinary MLA and DSA respectively; GLM retains
 GLM-5.3-Flash dimensions come from `text_config`; only its DSA layers reuse
 this path.
 These observations select direct operator inputs; they do not establish that
-each complete model has been validated on 910C.
+each complete model has been validated on A2/A3.
 
 The caller's `M >= 65536` branch exceeds the operator's original 1024 limit; this work
 neither treats it as a valid input nor changes that limit.
@@ -186,7 +184,7 @@ cases with model prefixes extend direct API format coverage; they do not imply
 an NZ SGLang caller. Invalid-input tests remain `extra_checks`, excluded by
 default.
 
-After building and loading the migrated package, run direct tests on 910C:
+After building and loading the package for the target A2/A3 device, run direct tests:
 
 ```bash
 python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py \

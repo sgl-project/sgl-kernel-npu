@@ -4,10 +4,10 @@
 
 | 实现 | arch22（A2/A3，2201） | arch35（A5，3510） |
 | --- | --- | --- |
-| `ascendc` | 仅支持 910C | 不支持 |
+| `ascendc` | 支持 | 不支持 |
 | `torch_native` | 支持 | 支持 |
 
-AscendC 算子仅支持 910C（`ascend910_93`），不支持其他 arch22 硬件平台。
+AscendC 内核支持 Ascend A2/A3（arch22，2201）。
 
 ## 函数原型
 
@@ -99,8 +99,8 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 ```
 
 在仓库根目录运行 `python3 setup.py --arch-version 2201 --ops all` 构建。
-当前构建工具会校验 arch22 两个 CANN 目标的产物，因此测试这个仅支持 910C 的算子时，
-构建该架构完整的迁移算子包，再单独执行本算子测试。本算子的支持范围仍仅为 910C。
+当前构建工具会校验 arch22 两个 CANN 目标的产物，因此先构建该架构完整的迁移算子包，
+再在目标 A2/A3 设备上单独执行本算子测试。
 测试新 ACLNN 路径前，安装生成的 wheel：
 `pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl`。
 精度测试：
@@ -121,7 +121,7 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
   或 `N >= 65536` 时调用本算子。对于下表的普通 MLA 模型和当前 `M <= 1024`
   的算子限制，只有有效 attention TP=1 的情况满足条件；TP=2/4/8 时走
   `torch_npu.npu_transpose_batchmatmul`。
-- DSA 的 `forward_dsa_core_npu`：在 910C 的 decode、target verify 和
+- DSA 的 `forward_dsa_core_npu`：在 A2/A3 的 decode、target verify 和
   draft extend v2 分支调用本算子，普通 extend 使用 `torch_npu`。
   因此可以覆盖 TP=1/2/4/8。模型识别和分支选择分别见
   [`is_deepseek_dsa`](https://github.com/sgl-project/sglang/blob/43af9fcbb68d2d34a5549635dfcc7b46360e6fc6/python/sglang/srt/configs/model_config.py#L187)
@@ -142,7 +142,7 @@ DeepSeek 保留 V3.1/V3.2，
 | [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA 层 |
 
 GLM-5.3-Flash 读取 `text_config` 的维度，仅其 DSA 层复用这条路径。
-这些结论用于选择单算子输入，不表示已经验证相应模型在 910C 上的完整可运行性。
+这些结论用于选择单算子输入，不表示已经验证相应模型在 A2/A3 上的完整可运行性。
 
 `M >= 65536` 的调用分支超过本算子原有 1024 限制，
 本次未将其作为有效输入，也未修改这个限制。
@@ -159,7 +159,7 @@ C=`[36,8,256]`。主仓两个调用点均使用默认 ND 和默认 quant 参数�
 NZ 的模型前缀用例仅扩展直接 API 的格式覆盖，不表示主仓以 NZ 调用它。
 非法输入测试仍标记为 `extra_checks`，默认不执行。
 
-在已构建并加载新包的 910C 环境运行全部直接算子测试：
+为目标 A2/A3 设备构建并加载新包后，运行全部直接算子测试：
 
 ```bash
 python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py \
