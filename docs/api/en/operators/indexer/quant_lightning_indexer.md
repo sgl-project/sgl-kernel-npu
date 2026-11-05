@@ -91,6 +91,8 @@ indices, values = quant_lightning_indexer(q, k, w, qs, ks, 1, 2, impl="torch_nat
 
 Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
 
+Accuracy tests run the independent eager reference on CPU and compare sorted index sets on CPU. This isolates the reference Top-K and comparison Sort from the NPU execution path; index comparison remains exact. Performance timing uses the original NPU executor.
+
 ```bash
 python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
