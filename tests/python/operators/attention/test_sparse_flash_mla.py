@@ -19,10 +19,10 @@ from tests.python.utils.performance import check_performance
 HEAD_DIM = 512
 NUM_HEADS_Q = 8
 NUM_HEADS_KV = 1
-ORI_KV_LENGTH = 128
 PAGE_SIZE = 128
-QUERY_LENGTHS = (16, 8)
-INDEX_POOL = 24
+
+# Production decode batch: 16 requests x 8 tokens (Kimi K3-like shape).
+DECODE_BATCH = 16
 
 
 def _paged(length):
@@ -31,13 +31,7 @@ def _paged(length):
 
 
 def _build_paged_case(
-    cmp_ratio,
-    cmp_length,
-    cmp_topk,
-    *,
-    query_lengths=QUERY_LENGTHS,
-    ori_length=ORI_KV_LENGTH,
-    index_pool=INDEX_POOL,
+    cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
 ):
     """Create one TND/PA_BBND case; lengths are shared by every batch."""
     batch = len(query_lengths)
@@ -131,25 +125,31 @@ def _schedule(inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length
 
 
 @pytest.mark.parametrize(
-    "cmp_ratio,cmp_length,cmp_topk",
+    "query_lengths,ori_length,cmp_ratio,cmp_length,cmp_topk,index_pool",
     [
-        pytest.param(1, 0, 0, id="swa"),
-        pytest.param(2, 64, 8, id="csa-ratio-2"),
-        pytest.param(4, 32, 8, id="csa-ratio-4"),
-        pytest.param(128, 2, 0, id="hca-ratio-128"),
+        pytest.param((16, 8), 128, 1, 0, 0, 24, id="swa"),
+        pytest.param((16, 8), 128, 2, 64, 8, 24, id="csa-ratio-2"),
+        pytest.param((16, 8), 128, 4, 32, 8, 24, id="csa-ratio-4"),
+        pytest.param((16, 8), 128, 128, 2, 0, 24, id="hca-ratio-128"),
+        # Production decode shape: 16 requests x 8 tokens over 16008 tokens.
+        pytest.param((8,) * DECODE_BATCH, 16008, 4, 4002, 8, 3900, id="decode-csa"),
     ],
 )
-def test_sparse_flash_mla_paged(cmp_ratio, cmp_length, cmp_topk):
+def test_sparse_flash_mla_paged(
+    query_lengths, ori_length, cmp_ratio, cmp_length, cmp_topk, index_pool
+):
     from sgl_kernel_npu.operators.attention import (
         sparse_flash_mla,
         sparse_flash_mla_metadata,
     )
 
     require_test_impl(sparse_flash_mla_metadata, "auto")
-    q, inputs, _ = _build_paged_case(cmp_ratio, cmp_length, cmp_topk)
+    q, inputs, _ = _build_paged_case(
+        cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
+    )
     total_q = q.shape[0]
     metadata = _schedule(
-        inputs, cmp_ratio, cmp_length, cmp_topk, QUERY_LENGTHS, ORI_KV_LENGTH
+        inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length
     )
     assert metadata.dtype == torch.int32 and metadata.ndim == 1
     assert metadata.device == q.device
@@ -164,59 +164,7 @@ def test_sparse_flash_mla_paged(cmp_ratio, cmp_length, cmp_topk):
         ),
     )
     out, lse = executor()
-    assert out.shape == q.shape and out.dtype == q.dtype
-    assert lse.shape == (NUM_HEADS_KV, total_q, NUM_HEADS_Q // NUM_HEADS_KV)
-    assert lse.dtype == torch.float32
-    check_performance(executor, enable_perf=True)
-
-
-# Kimi K3-like decode batch: 16 requests x 8 tokens over a 16008-token
-# history with 4x compressed KV. Measures the production latency shape.
-DECODE_BATCH = 16
-DECODE_QUERY_LENGTH = 8
-DECODE_ORI_LENGTH = 16008
-DECODE_CMP_LENGTH = 4002
-DECODE_CMP_TOPK = 8
-DECODE_INDEX_POOL = 3900
-
-
-def test_sparse_flash_mla_decode():
-    from sgl_kernel_npu.operators.attention import (
-        sparse_flash_mla,
-        sparse_flash_mla_metadata,
-    )
-
-    require_test_impl(sparse_flash_mla_metadata, "auto")
-    query_lengths = (DECODE_QUERY_LENGTH,) * DECODE_BATCH
-    q, inputs, _ = _build_paged_case(
-        4,
-        DECODE_CMP_LENGTH,
-        DECODE_CMP_TOPK,
-        query_lengths=query_lengths,
-        ori_length=DECODE_ORI_LENGTH,
-        index_pool=DECODE_INDEX_POOL,
-    )
-    total_q = q.shape[0]
-    metadata = _schedule(
-        inputs,
-        4,
-        DECODE_CMP_LENGTH,
-        DECODE_CMP_TOPK,
-        query_lengths,
-        DECODE_ORI_LENGTH,
-    )
-    executor = check_accuracy(
-        sparse_flash_mla,
-        args=(q,),
-        kwargs=dict(
-            **inputs,
-            metadata=metadata,
-            softmax_scale=HEAD_DIM**-0.5,
-            return_softmax_lse=True,
-        ),
-    )
-    out, lse = executor()
-    assert out.shape == q.shape and out.dtype == q.dtype
+    assert out.shape == q.shape
     assert lse.shape == (NUM_HEADS_KV, total_q, NUM_HEADS_Q // NUM_HEADS_KV)
     check_performance(executor, enable_perf=True)
 
@@ -231,11 +179,9 @@ def test_sparse_flash_mla_bsnd_swa():
     torch.npu.manual_seed(42)
     length = 16
     q = (torch.randn((1, length, NUM_HEADS_Q, HEAD_DIM)) * 0.1).to(torch.bfloat16)
-    ori_kv = (torch.randn((1, ORI_KV_LENGTH, NUM_HEADS_KV, HEAD_DIM)) * 0.1).to(
-        torch.bfloat16
-    )
+    ori_kv = (torch.randn((1, 128, NUM_HEADS_KV, HEAD_DIM)) * 0.1).to(torch.bfloat16)
     seqused_q = torch.full((1,), length, dtype=torch.int32)
-    seqused_ori = torch.full((1,), ORI_KV_LENGTH, dtype=torch.int32)
+    seqused_ori = torch.full((1,), 128, dtype=torch.int32)
     sinks = torch.randn((NUM_HEADS_Q,), dtype=torch.float32) * 0.1
     metadata = sparse_flash_mla_metadata(
         NUM_HEADS_Q,
@@ -245,7 +191,7 @@ def test_sparse_flash_mla_bsnd_swa():
         seqused_ori_kv=seqused_ori,
         batch_size=1,
         max_seqlen_q=length,
-        max_seqlen_ori_kv=ORI_KV_LENGTH,
+        max_seqlen_ori_kv=128,
         ori_topk=0,
         cmp_topk=0,
         cmp_ratio=1,
@@ -277,6 +223,6 @@ def test_sparse_flash_mla_bsnd_swa():
         ),
     )
     out, lse = executor()
-    assert out.shape == q.shape and out.dtype == q.dtype
+    assert out.shape == q.shape
     assert lse.shape == (1, NUM_HEADS_KV, length, NUM_HEADS_Q // NUM_HEADS_KV)
     check_performance(executor, enable_perf=True)

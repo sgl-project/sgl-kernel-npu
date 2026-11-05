@@ -135,7 +135,9 @@ $\alpha$ 为 `softmax_scale`。无 sink 时 $\delta=0$；存在第 $n$ 个 head 
 
 ## cann_ops_transformers_cann920 后端
 
-需要 CANN 9.2.0，以及内置 ops-transformer 依赖或已安装 `cann_ops_transformer` 的运行环境。首次调用可能编译适配代码，请保留 C++ 编译环境。
+需要 CANN 9.2.0，以及 wheel 内置的 ops-transformer 依赖。首次调用可能编译适配代码，请保留 C++ 编译环境。
+
+不要在同一个 Python 环境里另外安装独立构建的 ops-transformer 及其 vendor：它与 wheel 内置的 vendor 声明同名算子，两者会互相覆盖。
 
 CANN 9.2.0 自带同名算子 `SparseFlashMla`。请在导入 `torch_npu` 之前先导入 `sgl_kernel_npu`（或在启动进程前把 `ASCEND_CUSTOM_OPP_PATH` 指向 wheel 内的 vendor），否则可能命中 CANN 内置实现，出现 `metadata` 尺寸校验失败。
 

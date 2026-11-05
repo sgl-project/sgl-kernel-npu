@@ -158,9 +158,11 @@ Returns `(attention_out, softmax_lse)` and does not modify its inputs.
 
 ## cann_ops_transformers_cann920 backend
 
-Requires CANN 9.2.0 and an environment with the bundled ops-transformer dependency
-or an installed `cann_ops_transformer`. The first call may compile adaptor code, so
-keep a working C++ toolchain.
+Requires CANN 9.2.0 and the ops-transformer dependency bundled in the wheel. The
+first call may compile adaptor code, so keep a working C++ toolchain.
+
+Do not install a separately built ops-transformer and its vendor in the same
+environment: both declare the same operator and override each other.
 
 CANN 9.2.0 ships a built-in operator with the same name. Import
 `sgl_kernel_npu` before `torch_npu` (or set `ASCEND_CUSTOM_OPP_PATH` to the

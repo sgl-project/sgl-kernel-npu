@@ -4,23 +4,26 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_UPSTREAM = None
+_CANN_FNS = None
+_NATIVE_FN = None
 
 
-def _load_upstream():
-    """Return the upstream (sparse_flash_mla, sparse_flash_mla_metadata) pair."""
-    global _UPSTREAM
-    if _UPSTREAM is None:
+def _load_cann_fns():
+    """Import the wheel-bundled ops-transformer bindings once."""
+    global _CANN_FNS
+    if _CANN_FNS is None:
         try:
             from ..._third_party.sgl_ops_transformer.ops import sparse_flash_mla as op
             from ..._third_party.sgl_ops_transformer.ops import (
                 sparse_flash_mla_metadata as metadata_op,
             )
-        except ModuleNotFoundError:
-            from cann_ops_transformer import sparse_flash_mla as op
-            from cann_ops_transformer import sparse_flash_mla_metadata as metadata_op
-        _UPSTREAM = (op, metadata_op)
-    return _UPSTREAM
+        except ModuleNotFoundError as error:
+            raise RuntimeError(
+                "sparse_flash_mla requires the sgl_ops_transformer dependency "
+                "bundled in the wheel; build it with the third-party profile"
+            ) from error
+        _CANN_FNS = (op, metadata_op)
+    return _CANN_FNS
 
 
 @register_impl(
@@ -45,16 +48,19 @@ def _auto_impl(*args, **kwargs):
     supported_generations={Generation.ARCH22},
 )
 def _cann_impl(*args, **kwargs):
-    return _load_upstream()[0](*args, **kwargs)
+    return _load_cann_fns()[0](*args, **kwargs)
 
 
 @register_impl("attention.sparse_flash_mla", "torch_native")
-def _torch_native_impl(*args, **kwargs):
-    from ...implementation.torch_native.attention.sparse_flash_mla import (
-        sparse_flash_mla as reference,
-    )
+def _native_impl(*args, **kwargs):
+    global _NATIVE_FN
+    if _NATIVE_FN is None:
+        from ...implementation.torch_native.attention.sparse_flash_mla import (
+            sparse_flash_mla as reference,
+        )
 
-    return reference(*args, **kwargs)
+        _NATIVE_FN = reference
+    return _NATIVE_FN(*args, **kwargs)
 
 
 @register_operator("attention.sparse_flash_mla")
@@ -187,7 +193,7 @@ def _auto_metadata(*args, **kwargs):
     supported_generations={Generation.ARCH22},
 )
 def _cann_metadata(*args, **kwargs):
-    return _load_upstream()[1](*args, **kwargs)
+    return _load_cann_fns()[1](*args, **kwargs)
 
 
 @register_operator("attention.sparse_flash_mla_metadata")
