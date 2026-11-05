@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 from functools import lru_cache, wraps
@@ -12,10 +13,24 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
         raise RuntimeError(
             "The wheel is missing its CANN library: {}".format(_cann_library)
         )
+    _vendors = [str(_cann_vendor)]
+    _manifest_path = pathlib.Path(__file__).resolve().parent / "_build_manifest.json"
+    if _manifest_path.is_file():
+        for _dependency in json.loads(_manifest_path.read_text()).get(
+            "third_party", []
+        ):
+            _name = _dependency["vendor_directory"]
+            if pathlib.Path(_name).name != _name or _name in (".", ".."):
+                raise RuntimeError("Invalid bundled vendor name: " + _name)
+            _vendor = _cann_vendor.parent / _name
+            if not (_vendor / "op_api/lib/libcust_opapi.so").is_file():
+                raise RuntimeError(
+                    "Missing bundled third-party vendor: " + str(_vendor)
+                )
+            _vendors.append(str(_vendor))
     _opp_paths = os.environ.get("ASCEND_CUSTOM_OPP_PATH", "").split(os.pathsep)
     os.environ["ASCEND_CUSTOM_OPP_PATH"] = os.pathsep.join(
-        [str(_cann_vendor)]
-        + [path for path in _opp_paths if path and path != str(_cann_vendor)]
+        list(dict.fromkeys(_vendors + [path for path in _opp_paths if path]))
     )
 
 import torch
