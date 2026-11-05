@@ -14,15 +14,51 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-# DeepSeek MLA post-attention: A=[tokens, local_heads, kv_lora_rank],
-# B=[local_heads, kv_lora_rank, v_head_dim]. Source:
-# https://github.com/sgl-project/sglang/blob/99fd01047d67bb249641a8e50282a1a5218afc63/python/sglang/srt/hardware_backend/npu/modules/deepseek_v2_attention_mla_npu.py
-# DeepSeek-V3 dimensions: https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json
-# Representative token loads, not captured traces. TP=1/8 gives 128/16 heads.
+# SGLang MLA/DSA post-attention: shape=(tokens, local_heads, kv_lora_rank,
+# v_head_dim), local_heads=num_attention_heads/effective_attention_tp.
+# Caller snapshot: sglang 2456c9111a121a02e41e625e3930e1eb143fe9bf.
+# Model config sources and routing analysis:
+# docs/api/en/operators/matmul/batch_matmul_transpose.md#model-shaped-tests
+# Ordinary MLA reaches this operator only when M>=65536, B*K>=65536 or
+# N>=65536. With M<=1024 and these model dimensions, only attention TP=1
+# qualifies. DSA decode/verify on 910C also reaches it at higher attention TP.
+# (Model ID, total attention heads, K, N, representative attention TP sizes.)
+MODEL_PROFILES = [
+    ("deepseek-v2", 128, 512, 128, (1,)),
+    ("deepseek-v3", 128, 512, 128, (1,)),
+    ("deepseek-v3.1", 128, 512, 128, (1,)),
+    ("deepseek-r1", 128, 512, 128, (1,)),
+    ("mistral-large-3", 128, 512, 128, (1,)),
+    ("deepseek-v3.2", 128, 512, 128, (1, 2, 4, 8)),
+    ("glm-5", 64, 512, 256, (1, 2, 4, 8)),
+    ("glm-5.1", 64, 512, 256, (1, 2, 4, 8)),
+    ("glm-5.2", 64, 512, 256, (1, 2, 4, 8)),
+    ("glm-5.3-flash", 64, 512, 256, (1, 2, 4, 8)),
+    ("longcat-flash-lite-sparse", 32, 512, 128, (1, 2, 4, 8)),
+]
+# Representative loads, not captured traces or fixed per-model batch sizes.
+# M counts operator input tokens, including flattened verification tokens.
+MODEL_TOKEN_COUNTS = (1, 8, 36, 128, 1024)
+MODEL_SHAPES = [
+    pytest.param(
+        (tokens, heads // tp, k, n),
+        id=f"{model}-attn-tp{tp}-tokens{tokens}",
+    )
+    for model, heads, k, n, attention_tp_sizes in MODEL_PROFILES
+    for tp in attention_tp_sizes
+    for tokens in MODEL_TOKEN_COUNTS
+]
+# Exercise both real output widths around the M=16 tile boundary.
+MODEL_SHAPES += [
+    pytest.param(
+        (tokens, heads // 8, 512, n),
+        id=f"{model}-attn-tp8-tokens{tokens}",
+    )
+    for model, heads, n in [("deepseek-v3.2", 128, 128), ("glm-5", 64, 256)]
+    for tokens in (15, 16, 17)
+]
 ND_SHAPES = [
-    pytest.param((1, 128, 512, 128), id="deepseek-v3-decode-tp1"),
-    pytest.param((8, 16, 512, 128), id="deepseek-v3-decode-tp8"),
-    pytest.param((36, 128, 512, 128), id="legacy-mla-target"),
+    *MODEL_SHAPES,
     pytest.param((1, 1, 1, 1), id="minimum"),
     pytest.param((2, 3, 4, 5), id="legacy-small"),
     pytest.param((7, 3, 31, 33), id="unaligned-k-n-tail"),
@@ -33,7 +69,10 @@ ND_SHAPES = [
 NZ_SHAPES = [
     pytest.param((1, 1, 16, 16), id="one-nz-block"),
     pytest.param((7, 3, 32, 48), id="nz-m-tail-multiple-n-blocks"),
-    pytest.param((8, 16, 512, 128), id="mla-dimensions-nz"),
+    # The SGLang callers use default ND. These extend direct API NZ coverage
+    # to both model output widths without claiming an NZ model call path.
+    pytest.param((8, 16, 512, 128), id="deepseek-v3.2-attn-tp8-tokens8-nz"),
+    pytest.param((8, 8, 512, 256), id="glm-5-attn-tp8-tokens8-nz"),
 ]
 PERF_SHAPES = [(1, 128, 512, 128), (8, 16, 512, 128), (36, 128, 512, 128)]
 

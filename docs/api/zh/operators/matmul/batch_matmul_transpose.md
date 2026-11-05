@@ -107,3 +107,75 @@ torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
 `python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py --enable-perf=false -v -rs`。
 不传 `--enable-perf` 时，仅对选定的 BF16 MLA shape 采集性能。
 用例根据 SGLang MLA 调用布局设置，并标注模型维度、代表性 token 负载，未宣称为运行时采集记录。
+
+## 模型 shape 测试
+
+分析基于本地 SGLang 提交 `2456c9111a121a02e41e625e3930e1eb143fe9bf`，
+模型参数于 2026-11-05 核对。测试只构造张量并直接调用当前算子，不启动模型，
+不覆盖 NPU Graph、权重加载、attention backend 或完整推理调用链。
+
+调用点位于
+[`deepseek_v2_attention_mla_npu.py`](https://github.com/sgl-project/sglang/blob/43af9fcbb68d2d34a5549635dfcc7b46360e6fc6/python/sglang/srt/hardware_backend/npu/modules/deepseek_v2_attention_mla_npu.py#L290)：
+
+- 普通 MLA 的 `forward_mla_core_npu`：只有 `M >= 65536`、`B*K >= 65536`
+  或 `N >= 65536` 时调用本算子。对于下表的普通 MLA 模型和当前 `M <= 1024`
+  的算子限制，只有有效 attention TP=1 的情况满足条件；TP=2/4/8 时走
+  `torch_npu.npu_transpose_batchmatmul`。
+- DSA 的 `forward_dsa_core_npu`：在 910C 的 decode、target verify 和
+  draft extend v2 分支调用本算子，普通 extend 使用 `torch_npu`。
+  因此可以覆盖 TP=1/2/4/8。模型识别和分支选择分别见
+  [`is_deepseek_dsa`](https://github.com/sgl-project/sglang/blob/43af9fcbb68d2d34a5549635dfcc7b46360e6fc6/python/sglang/srt/configs/model_config.py#L187)
+  和 [`handle_attention_ascend`](https://github.com/sgl-project/sglang/blob/43af9fcbb68d2d34a5549635dfcc7b46360e6fc6/python/sglang/srt/models/deepseek_common/attention_backend_handler.py#L75)。
+
+模型相关 shape 为 `(M, B, K, N)`，其中
+`B = num_attention_heads / effective_attention_tp`、`K = kv_lora_rank`、
+`N = v_head_dim`。attention TP 取调用时生效的值，可能与整个模型的 TP 不同。
+以下是已经核对配置并加入用例的代表模型，不是所有派生 checkpoint 的穷举：
+
+| Shape ID 前缀 / 模型配置来源 | 总 head 数 | K | N | 测试 attention TP | 调用分支 |
+| --- | --- | --- | --- | --- | --- |
+| [`deepseek-v2`](https://huggingface.co/deepseek-ai/DeepSeek-V2/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
+| [`deepseek-v3`](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
+| [`deepseek-v3.1`](https://huggingface.co/deepseek-ai/DeepSeek-V3.1/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
+| [`deepseek-r1`](https://huggingface.co/deepseek-ai/DeepSeek-R1/blob/main/config.json) | 128 | 512 | 128 | 1 | 普通 MLA |
+| [`mistral-large-3`](https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-BF16/blob/main/params.json) | 128 | 512 | 128 | 1 | 普通 MLA |
+| [`deepseek-v3.2`](https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/config.json) | 128 | 512 | 128 | 1/2/4/8 | DSA |
+| [`glm-5`](https://huggingface.co/zai-org/GLM-5/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
+| [`glm-5.1`](https://huggingface.co/zai-org/GLM-5.1/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
+| [`glm-5.2`](https://huggingface.co/zai-org/GLM-5.2/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA |
+| [`glm-5.3-flash`](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json) | 64 | 512 | 256 | 1/2/4/8 | DSA 层 |
+| [`longcat-flash-lite-sparse`](https://huggingface.co/meituan-longcat/LongCat-Flash-Lite-Sparse/blob/main/config.json) | 32 | 512 | 128 | 1/2/4/8 | DSA |
+
+Mistral-Large-3 的 `n_heads` 对应表中的总 head 数，其实现继承 DeepSeek。
+GLM-5.3-Flash 读取 `text_config` 的维度，仅其 DSA 层复用这条路径；
+LongCat 的 `LongcatCausalLM` 架构名会由 SGLang 配置解析器归一化为
+`LongcatFlashForCausalLM`，再根据 `index_topk` 识别 DSA。
+这些结论用于选择单算子输入，不表示已经验证相应模型在 910C 上的完整可运行性。
+
+普通 MLA 模型不能仅凭“复用 DeepSeek attention”就加入该路径的模型场景。
+例如 [Kimi-K2-Instruct](https://huggingface.co/moonshotai/Kimi-K2-Instruct/blob/main/config.json)
+的总 head 数为 64，K=512、N=128，没有 DSA 配置；在有效 M 范围内不会触发上述
+普通 MLA 条件。`M >= 65536` 的调用分支超过本算子原有 1024 限制，
+本次未将其作为有效输入，也未修改这个限制。
+
+每个模型/TP 组合测试 `M = 1, 8, 36, 128, 1024`。
+M 是展平后的输入 token 数，verify 场景可能包含多个候选 token；这些值是代表性负载，
+不是模型配置规定的 batch size 或实际采集的请求。DeepSeek-V3.2、GLM-5 还在
+attention TP=8 下测试 M=15/16/17，覆盖真实维度下的 tile 边界。
+每个 shape 都测试 FP16/BF16、随机输入/零输入，并检查输出写入及输入不被修改。
+不需要模型权重；即使原 checkpoint 使用量化，本次也只测试算子接受的浮点输入。
+
+例如 `glm-5-attn-tp8-tokens36` 对应 A=`[36,8,512]`、W=`[8,512,256]`、
+C=`[36,8,256]`。主仓两个调用点均使用默认 ND 和默认 quant 参数。
+NZ 的模型前缀用例仅扩展直接 API 的格式覆盖，不表示主仓以 NZ 调用它。
+非法输入测试仍标记为 `extra_checks`，默认不执行。
+
+在已构建并加载新包的 910C 环境运行全部直接算子测试：
+
+```bash
+python -m pytest tests/python/operators/matmul/test_batch_matmul_transpose.py \
+  --impl=ascendc --impl-ref=torch_native --enable-perf=false -v -rs
+```
+
+追加 `-k 'glm-5'` 可以筛选 GLM 模型用例；追加 `-k 'longcat-flash-lite-sparse'`
+可以筛选 LongCat 用例。这里只筛选单算子 shape，不启动对应模型。
