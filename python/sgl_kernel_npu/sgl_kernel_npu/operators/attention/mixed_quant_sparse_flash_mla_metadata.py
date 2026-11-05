@@ -4,8 +4,11 @@ import torch
 
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import OperatorUnavailableError
-from .attention_utils import attention_family, sparse_host_family
+from ..utils.transformer_compat import (
+    OperatorUnavailableError,
+    cann_backend,
+    require_op,
+)
 
 
 @register_impl(
@@ -13,23 +16,44 @@ from .attention_utils import attention_family, sparse_host_family
     "auto",
     supported_generations={Generation.ARCH35},
 )
+def _auto_mixed_quant_sparse_flash_mla_metadata(**kwargs):
+    return get_impl_by_name(
+        "attention.mixed_quant_sparse_flash_mla_metadata", cann_backend()
+    )(**kwargs)
+
+
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla_metadata",
     "cann_ops_transformer",
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    family = attention_family(True)
+    op = require_op(
+        "cann_ops_transformer",
+        "mixed_quant_sparse_flash_mla_metadata",
+        backend="cann_ops_transformer",
+    )
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    if not family.cann_9_1:
-        if args.get("ori_mask_mode", 4) == 0:
-            # Explicit indices define visibility; released A5 forbids windows.
-            args.update(ori_win_left=-1, ori_win_right=-1)
-        return family.ops[0](**args)
+    if args.get("ori_mask_mode", 4) == 0:
+        args.update(ori_win_left=-1, ori_win_right=-1)
+    return op(**args)
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla_metadata",
+    "cann_9_1",
+    supported_generations={Generation.ARCH35},
+)
+def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
     sparse = (
         kwargs.get("ori_mask_mode", 4) == 0
         or kwargs.get("ori_topk_length") is not None
@@ -71,7 +95,6 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     # Device metadata has no seqused_q scheduling-bound argument.
     args.pop("seqused_q", None)
     if sparse:
-        family = sparse_host_family(True)
         for public, private in (
             ("cu_seqlens_q_cpu", "cu_seqlens_q"),
             ("seqused_ori_kv_cpu", "seqused_kv"),
@@ -87,7 +110,13 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
                 )
             count = kwargs["batch_size"] + (private == "cu_seqlens_q")
             args[private] = value[:count].contiguous()
-    return family.ops[0](**args)
+    namespace, binding = (
+        ("npu", "kv_quant_sparse_attn_sharedkv_metadata_host")
+        if sparse
+        else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
+    )
+    op = require_op(namespace, binding, backend="cann_9_1")
+    return op(**args)
 
 
 @register_impl(
@@ -113,7 +142,7 @@ def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
 def mixed_quant_sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build A5 mixed-quant attention metadata.
 
-    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(

@@ -2,23 +2,29 @@
 
 from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import select_family
+from ..utils.transformer_compat import cann_backend, require_op
 
 
 @register_impl("attention.compressor", "auto")
+def _auto_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
+    return get_impl_by_name("attention.compressor", cann_backend())(
+        x, wkv, wgate, state_cache, ape, norm_weight, **kwargs
+    )
+
+
 @register_impl("attention.compressor", "cann_ops_transformer")
 def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
-    # Keep the fused RMSNorm/RoPE contract: current native binding on A3/A5,
-    # original recipe binding on cann_9_1 A5. The released core-only compressor
-    # has a different computation boundary and is not an interchangeable call.
-    cann_9_1_namespace = (
-        "custom" if get_hardware().generation == Generation.ARCH35 else "npu"
-    )
-    family = select_family(
-        (("npu", "compressor"),),
-        ((cann_9_1_namespace, "compressor"),),
-    )
-    return family.ops[0](x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
+    # Preserve the fused RMSNorm/RoPE contract; the released core-only
+    # compressor has a different computation boundary.
+    op = require_op("npu", "compressor", backend="cann_ops_transformer")
+    return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
+
+
+@register_impl("attention.compressor", "cann_9_1")
+def _cann_9_1_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
+    namespace = "custom" if get_hardware().generation == Generation.ARCH35 else "npu"
+    op = require_op(namespace, "compressor", backend="cann_9_1")
+    return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
 
 @register_impl("attention.compressor", "torch_native")
@@ -32,7 +38,7 @@ def _torch_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
 def compressor(x, wkv, wgate, state_cache, ape, norm_weight, *, impl="auto", **kwargs):
     """Compress KV and update the compressor state cache in place.
 
-    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.compressor", impl)(

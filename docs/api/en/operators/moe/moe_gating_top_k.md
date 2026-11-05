@@ -4,8 +4,11 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `torch_npu` | declared; validate SDK kernel | declared; validate SDK kernel |
-| `torch_native` | declared; validate SDK kernel | declared; validate SDK kernel |
+| `torch_npu` | supported | supported |
+| `cann_9_1` | supported | supported |
+| `torch_native` | supported | supported |
+
+CANN 9.1 on A3 does not support `norm_type=2` (sqrtsoftplus). The model-mode test skips this unsupported combination instead of substituting softmax or sigmoid.
 
 ## Signature
 
@@ -53,7 +56,11 @@ Score with softmax/sigmoid/sqrt-softplus; bias affects selection but not gathere
 
 ## torch_npu
 
-Retains the existing registration name; the compatibility wrapper selects original or released bindings by SDK. Metadata/compute pairing and A5 KV reader/writer format checks run before allocation or execution.
+Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
+
+## cann_9_1
+
+Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
 
 ## torch_native
 

@@ -4,9 +4,9 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | declared; validate SDK kernel | declared; validate SDK kernel |
-| `torch_native` | declared; validate SDK kernel | declared; validate SDK kernel |
-| `cann_9_1` | declared; validate SDK kernel | declared; validate SDK kernel |
+| `cann_ops_transformer` | supported | supported |
+| `torch_native` | supported | supported |
+| `cann_9_1` | supported | supported |
 
 ## Signature
 

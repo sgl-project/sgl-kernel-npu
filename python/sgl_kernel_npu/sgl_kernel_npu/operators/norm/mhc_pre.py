@@ -1,30 +1,23 @@
 """Public mhc_pre operator with registered implementations."""
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import select_family
+from ..utils.transformer_compat import cann_backend, require_op
 
 
 @register_impl("norm.mhc_pre", "auto")
+def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
+    return get_impl_by_name("norm.mhc_pre", cann_backend())(
+        x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
+    )
+
+
 @register_impl("norm.mhc_pre", "cann_ops_transformer")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    family = select_family(
-        (("cann_ops_transformer", "mhc_pre_sinkhorn"),),
-        (("custom", "npu_hc_pre"),),
+    op = require_op(
+        "cann_ops_transformer", "mhc_pre_sinkhorn", backend="cann_ops_transformer"
     )
     shape = x.shape
-    if family.cann_9_1:
-        y, post, comb = family.ops[0](
-            x,
-            fn,
-            scale,
-            base,
-            hc_mult=hc_mult,
-            hc_sinkhorn_iters=sinkhorn_iters,
-            norm_eps=rms_norm_eps,
-            hc_eps=hc_eps,
-        )
-        return y.to(x.dtype), post, comb
-    h_in, h_post, h_res, *_ = family.ops[0](
+    h_in, h_post, h_res, *_ = op(
         x.reshape(-1, 1, hc_mult, shape[-1]),
         fn,
         scale,
@@ -42,6 +35,24 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
     )
 
 
+@register_impl("norm.mhc_pre", "cann_9_1")
+def _cann_9_1_mhc_pre(
+    x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
+):
+    op = require_op("custom", "npu_hc_pre", backend="cann_9_1")
+    y, post, comb = op(
+        x,
+        fn,
+        scale,
+        base,
+        hc_mult=hc_mult,
+        hc_sinkhorn_iters=sinkhorn_iters,
+        norm_eps=rms_norm_eps,
+        hc_eps=hc_eps,
+    )
+    return y.to(x.dtype), post, comb
+
+
 @register_impl("norm.mhc_pre", "torch_native")
 def _torch_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
     from ...implementation.torch_native.norm.mhc_pre import mhc_pre
@@ -55,7 +66,7 @@ def mhc_pre(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("norm.mhc_pre", impl)(
