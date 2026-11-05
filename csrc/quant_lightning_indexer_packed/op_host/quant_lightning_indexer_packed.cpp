@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <limits>
 #include <vector>
-#include <torch_npu/csrc/core/npu/NPUCachingAllocator.h>
 #include <torch_npu/csrc/core/npu/NPUFormat.h>
 #include "torch_helper.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -37,7 +36,7 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
         "packed_cache must be FP32 aligned");
     TORCH_CHECK(weights.scalar_type() == at::kBFloat16, "weights must be bfloat16");
     TORCH_CHECK(query_scale.scalar_type() == at::kFloat, "query_scale must be float32");
-    TORCH_CHECK(weights.dim() == 2 && query_scale.dim() == 2 &&
+    TORCH_CHECK(weights.dim() == 2 &&
         weights.size(0) == query.size(0) && weights.size(1) == query.size(1) &&
         weights.sizes() == query_scale.sizes(), "weights/query_scale must have shape [T, heads]");
     TORCH_CHECK(seq_q.scalar_type() == at::kInt && seq_k.scalar_type() == at::kInt &&
@@ -83,11 +82,11 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor& query, const at::Ten
 
     // EXEC_KERNEL_CMD captures raw pointers only. Record every allocation before
     // queueing so temporary inputs and workspace survive asynchronous execution.
-    auto stream = c10_npu::getCurrentNPUStream(query.device().index());
+    auto stream = c10_npu::getCurrentNPUStream();
     keep_alive.push_back(output);
     keep_alive.push_back(workspace);
-    for (const auto& tensor : keep_alive) {
-        if (tensor.numel()) c10_npu::NPUCachingAllocator::recordStream(tensor.storage().data_ptr(), stream);
+    for (auto& tensor : keep_alive) {
+        if (tensor.numel()) tensor.record_stream(stream);
     }
     // Capture every host-computed tiling field by value, including during graph capture.
     EXEC_KERNEL_CMD(sgl_quant_lightning_indexer_packed, blockDim,

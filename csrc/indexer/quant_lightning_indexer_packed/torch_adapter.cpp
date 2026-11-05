@@ -5,7 +5,6 @@
 #include <limits>
 #include <vector>
 #include <torch/library.h>
-#include <torch_npu/csrc/core/npu/NPUCachingAllocator.h>
 #include <torch_npu/csrc/core/npu/NPUFormat.h>
 
 // Exported by torch_npu. These preserve workspace/graph lifetime without
@@ -37,7 +36,7 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor &query, const at::Ten
     TORCH_CHECK(reinterpret_cast<uintptr_t>(packed_cache.data_ptr()) % 4 == 0, "packed_cache must be FP32 aligned");
     TORCH_CHECK(weights.scalar_type() == at::kBFloat16, "weights must be bfloat16");
     TORCH_CHECK(query_scale.scalar_type() == at::kFloat, "query_scale must be float32");
-    TORCH_CHECK(weights.dim() == 2 && query_scale.dim() == 2 && weights.size(0) == query.size(0) &&
+    TORCH_CHECK(weights.dim() == 2 && weights.size(0) == query.size(0) &&
                     weights.size(1) == query.size(1) && weights.sizes() == query_scale.sizes(),
                 "weights/query_scale must have shape [T, heads]");
     TORCH_CHECK(seq_q.scalar_type() == at::kInt && seq_k.scalar_type() == at::kInt &&
@@ -78,13 +77,13 @@ at::Tensor quant_lightning_indexer_packed(const at::Tensor &query, const at::Ten
     auto status = prepare(q.get(), k.get(), w.get(), qs.get(), sq.get(), sk.get(), table.get(), topk, sparse_mode,
                           out.get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "Packed QLI workspace query failed: ", status, "; ", aclGetRecentErrMsg());
-    auto stream = c10_npu::getCurrentNPUStream(query.device().index());
+    auto stream = c10_npu::getCurrentNPUStream();
     auto aclStream = stream.stream(false);
     void *workspace = GetWorkSpaceAddr(workspaceSize);
     keep_alive.push_back(output);
-    for (const auto &tensor : keep_alive) {
+    for (auto &tensor : keep_alive) {
         if (tensor.numel())
-            c10_npu::NPUCachingAllocator::recordStream(tensor.storage().data_ptr(), stream);
+            tensor.record_stream(stream);
     }
     auto launch = [q, k, w, qs, sq, sk, table, out, workspace, workspaceSize, executor, aclStream]() -> int {
         InitExecSubTheadCtx(aclStream);
