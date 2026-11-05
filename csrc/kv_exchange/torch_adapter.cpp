@@ -18,7 +18,7 @@
 // operator layout; nothing about this operator is added to the centralized
 // csrc/pytorch_extensions.cpp.
 //
-// `kv_exchange` is the production entry: it receives the AICPU-style
+// `kv_exchange` is the production entry: it receives the split-KV
 // component views plus their MF DVAs, builds the 44-slot device-resident
 // meta and launches the AIV kernel (replacing the memfabric_hybrid
 // offload.kv_exchange_copy call that used to build the meta in Python).

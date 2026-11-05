@@ -8,7 +8,7 @@
  * paired component views (layer offsets already folded by slicing) with
  * their MF DVAs; this adapter builds the 44-slot kv_exchange meta with a
  * zero-based layer range -- the same component/pitch/width contract the
- * AICPU build_kv_sparse_metadata path produces -- and launches the AIV
+ * Python split-KV wrapper supplies -- and launches the AIV
  * device kernel, so no meta handling remains on the framework side.
  */
 
@@ -28,7 +28,7 @@ namespace npu_kernel {
 // production entry below builds the meta from plain tensors.
 HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim);
 
-// Submit one transfer described by the AICPU-style component list.
+// Submit one transfer described by the split-KV component list.
 // device_components[i] / host_components[i] are paired component views
 // (device: [L,P,T,H,D]; host: PF-shaped metadata view [P,L,T,H,D] whose
 // strides preserve the physical page/layer layout); host_dvas[i] is the MF

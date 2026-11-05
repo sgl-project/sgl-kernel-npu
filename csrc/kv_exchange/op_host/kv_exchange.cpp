@@ -94,7 +94,7 @@ bool TrailingDimsPacked(const at::Tensor &t)
     return true;
 }
 
-// Mirrors the AICPU _check_component contract: matching dtypes, page shapes
+// Mirrors the Python _check_component contract: matching dtypes, page shapes
 // and packed trailing dims. Pool page counts deliberately differ in
 // production (the host pool is sized by --hicache-ratio) and are NOT checked;
 // the kernel only dereferences pages listed in the token indices.
@@ -149,8 +149,7 @@ void FillComponent(std::vector<int64_t> &meta, int64_t c, const at::Tensor &devi
     meta[o + 4] = host_buf.stride(0) * esz;    // host_page_pitch
     meta[o + 5] = host_buf.stride(1) * esz;    // host_layer_pitch
     // The kernel copies this many contiguous bytes per (page, layer) block:
-    // the packed extent of the trailing dims, matching the AICPU
-    // build_kv_sparse_metadata width (prod(shape[2:]) * itemsize).
+    // the packed extent of the trailing dims (prod(shape[2:]) * itemsize).
     int64_t width = esz;
     for (int64_t i = 2; i < host_buf.dim(); ++i) {
         width *= host_buf.size(i);
@@ -216,12 +215,11 @@ HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim)
 }
 
 /*
- * One AIV kv_exchange submission from the AICPU-style component list.
+ * One AIV kv_exchange submission from the split-KV component list.
  *
  * The Python layer (implementation/memfabric/mem_cache/kv_transfer.py)
  * selects the paired component views, uploads the token indices and resolves
- * each host view's MF DVA -- exactly what _submit_aicpu feeds
- * build_kv_sparse_metadata -- and this adapter builds the device-resident
+ * each host view's MF DVA; this adapter builds the device-resident
  * 44-slot meta with the same component/pitch/width/layer semantics before
  * launching the kernel, so replacing offload.kv_exchange_copy keeps the
  * original transfer logic intact.

@@ -1,61 +1,11 @@
 """Public split-KV HiCache operators and MemFabric implementation selection."""
 
-import os
-
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _memfabric_fn = None
 _reference_fn = None
 
 
-def _select_impl(impl: str) -> str:
-    """Resolve 'auto' against the active host-memory backend.
-
-    The AICPU offload op only de-references MemFabric-registered host
-    memory, so an aclrt-registered host pool (SGLANG_HICACHE_HOST_MEM_
-    BACKEND=acl in the SGLang process) must route every auto transfer to
-    the AIV kv_exchange kernel, whose DVA table covers both providers.
-    Explicit impl values are never overridden.
-    """
-    backend = os.environ.get("SGLANG_HICACHE_HOST_MEM_BACKEND", "").lower()
-    if impl == "auto" and backend == "acl":
-        return "aiv"
-    return impl
-
-
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split_pf_lf",
-    "aicpu",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split_lf_pf",
-    "aicpu",
-)
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split",
-    "aicpu",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split",
-    "aicpu",
-)
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split_pf_lf",
-    "auto",
-)
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split",
-    "auto",
-)
-def _aicpu_impl(*args, **kwargs):
-    global _memfabric_fn
-    if _memfabric_fn is None:
-        from ...implementation.memfabric.mem_cache.kv_transfer import transfer_kv
-
-        _memfabric_fn = transfer_kv
-    return _memfabric_fn(*args, backend="aicpu", **kwargs)
-
-
 @register_impl(
     "mem_cache.transfer_kv_per_layer_kv_split_pf_lf",
     "aiv",
@@ -80,13 +30,15 @@ def _aicpu_impl(*args, **kwargs):
     "mem_cache.transfer_kv_all_layer_kv_split",
     "auto",
 )
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "auto")
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split", "auto")
 def _aiv_impl(*args, **kwargs):
     global _memfabric_fn
     if _memfabric_fn is None:
         from ...implementation.memfabric.mem_cache.kv_transfer import transfer_kv
 
         _memfabric_fn = transfer_kv
-    return _memfabric_fn(*args, backend="aiv", **kwargs)
+    return _memfabric_fn(*args, **kwargs)
 
 
 @register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "torch_native")
@@ -136,12 +88,9 @@ def transfer_kv_per_layer_kv_split_pf_lf(
     Indices are int64 complete-page token slots on CPU or this NPU.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aicpu (aiv when the acl host-memory backend is active);
-    explicit impl can override it.
+    auto selects aiv; explicit impl can override it.
     """
-    return get_impl_by_name(
-        "mem_cache.transfer_kv_per_layer_kv_split_pf_lf", _select_impl(impl)
-    )(
+    return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", impl)(
         device_indices,
         host_indices,
         device_k,
@@ -185,9 +134,7 @@ def transfer_kv_all_layer_kv_split_lf_pf(
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
     """
-    return get_impl_by_name(
-        "mem_cache.transfer_kv_all_layer_kv_split_lf_pf", _select_impl(impl)
-    )(
+    return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", impl)(
         device_indices,
         host_indices,
         device_k,
@@ -232,12 +179,9 @@ def transfer_kv_per_layer_kv_split(
     Indices are int64 complete-page token slots on CPU or this NPU.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aicpu (aiv when the acl host-memory backend is active);
-    explicit impl can override it.
+    auto selects aiv; explicit impl can override it.
     """
-    return get_impl_by_name(
-        "mem_cache.transfer_kv_per_layer_kv_split", _select_impl(impl)
-    )(
+    return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split", impl)(
         device_indices,
         host_indices,
         device_k,
@@ -281,9 +225,7 @@ def transfer_kv_all_layer_kv_split(
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
     """
-    return get_impl_by_name(
-        "mem_cache.transfer_kv_all_layer_kv_split", _select_impl(impl)
-    )(
+    return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split", impl)(
         device_indices,
         host_indices,
         device_k,
