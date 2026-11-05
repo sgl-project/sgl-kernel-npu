@@ -18,9 +18,16 @@
 #include "sparse_block_estimate.h"
 #include "layernorm.h"
 #include "pool_key_indexer.h"
+#include "key_pool.h"
 
 TORCH_LIBRARY(attentions, m)
 {
+    m.def(
+        "key_pool(Tensor hidden_states, Tensor wk, Tensor gate_weight, Tensor ape, "
+        "Tensor(a!) state_cache, Tensor cache_block_table, Tensor start_pos, *, "
+        "Tensor? norm_weight=None, Tensor? norm_bias=None, Tensor? cos=None, Tensor? sin=None, "
+        "Tensor? cu_seqlens=None, Tensor? seqused=None, int cmp_ratio=4, float norm_eps=1e-6, "
+        "int rotary_mode=1) -> Tensor");
     m.def(
         "la(Tensor query, Tensor key, Tensor value, \
         Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? \
@@ -68,6 +75,7 @@ TORCH_LIBRARY(attentions, m)
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
 {
+    m.impl("key_pool", &key_pool);
     m.impl("la", &la);
     m.impl("rainfusionattention", &rainfusionattention);
     m.impl("ada_block_sparse_attention", &ada_block_sparse_attention);
