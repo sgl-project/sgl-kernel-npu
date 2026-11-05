@@ -44,7 +44,6 @@ public:
         }
         this->rowSize = tempTilingGM->rowSize;
         this->reqInxBufferCount = tempTilingGM->reqInxBufferCount;
-        this->tokenCountAlignInt32 = tempTilingGM->tokenCountAlignInt32;
         this->offsetCountAlignInt64 = tempTilingGM->offsetCountAlignInt64;
         this->cacheLocCountAlignInt32 = tempTilingGM->cacheLocCountAlignInt32;
         this->cacheLocSize = tempTilingGM->cacheLocSize;
@@ -85,8 +84,12 @@ public:
             for (int32_t i = 0; i < this->rowNum; i++) {
                 uint64_t rowIdx = this->rowOffset + i;
                 uint64_t reqIdx = this->ubReqPoolIndices.GetValue(rowIdx);
-                CopyIn(rowIdx, reqIdx);
-                ComputeForTokenPoolAssign(rowIdx, reqIdx);
+                int64_t step = this->ubEndOffset.GetValue(rowIdx) - this->ubStartOffset.GetValue(rowIdx);
+                for (int64_t offset = 0; offset < step; offset += MAX_STEP) {
+                    uint32_t count = static_cast<uint32_t>(step - offset < MAX_STEP ? step - offset : MAX_STEP);
+                    CopyIn(rowIdx, reqIdx, offset, count);
+                    ComputeForTokenPoolAssign(rowIdx, reqIdx, offset, count);
+                }
             }
         }
     }
@@ -98,8 +101,12 @@ public:
             for (int32_t i = 0; i < this->rowNum; i++) {
                 uint64_t rowIdx = this->rowOffset + i;
                 uint64_t reqIdx = this->ubReqPoolIndices.GetValue(rowIdx);
-                CopyIn(rowIdx, reqIdx);
-                ComputeForCacheUpdate(rowIdx);
+                int64_t step = this->ubEndOffset.GetValue(rowIdx) - this->ubStartOffset.GetValue(rowIdx);
+                for (int64_t offset = 0; offset < step; offset += MAX_STEP) {
+                    uint32_t count = static_cast<uint32_t>(step - offset < MAX_STEP ? step - offset : MAX_STEP);
+                    CopyIn(rowIdx, reqIdx, offset, count);
+                    ComputeForCacheUpdate(rowIdx, offset, count);
+                }
             }
 
             int32_t eventIDVTOMTE3 = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::V_MTE3));
@@ -131,43 +138,44 @@ private:
         this->ubCacheLength = this->ubEndOffsetInt32 - this->ubStartOffsetInt32;
     }
 
-    __aicore__ inline void CopyIn(uint64_t rowIdx, uint64_t reqIdx)
+    __aicore__ inline void CopyIn(uint64_t rowIdx, uint64_t reqIdx, int64_t offset, uint32_t count)
     {
         AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.template AllocTensor<int32_t>();
         int64_t start = this->ubStartOffset.GetValue(rowIdx);
-        AscendC::DataCopy(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], this->tokenCountAlignInt32);
+        uint32_t tokenBytes = count * sizeof(int32_t);
+        AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        AscendC::DataCopyPad(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start + offset], copyParams,
+                             padParams);
         this->inQueue1.EnQue(tokenPoolLocal);
     }
 
-    __aicore__ inline void ComputeForTokenPoolAssign(uint64_t rowIdx, uint64_t reqIdx)
+    __aicore__ inline void ComputeForTokenPoolAssign(uint64_t rowIdx, uint64_t reqIdx, int64_t offset, uint32_t count)
     {
         AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.template DeQue<int32_t>();
         int64_t start = this->ubStartOffset.GetValue(rowIdx);
-        int64_t step = this->ubEndOffset.GetValue(rowIdx) - start;
 
         GetCacheIdx(rowIdx, this->lastRowIdx, this->cacheIdxStart);
-        for (int64_t j = 0; j < step; j++) {
-            int32_t cache = this->ubCacheLoc.GetValue(this->cacheIdxStart + j);
+        for (uint32_t j = 0; j < count; j++) {
+            int32_t cache = this->ubCacheLoc.GetValue(this->cacheIdxStart + offset + j);
             tokenPoolLocal.SetValue(j, cache);
         }
 
-        uint32_t tokenBytes = static_cast<uint32_t>(MAX_STEP * sizeof(int32_t));
+        uint32_t tokenBytes = count * sizeof(int32_t);
         AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
-        AscendC::DataCopyPad(tokenPoolGM[reqIdx * this->rowSize + start], tokenPoolLocal, copyParams);
+        AscendC::DataCopyPad(tokenPoolGM[reqIdx * this->rowSize + start + offset], tokenPoolLocal, copyParams);
 
         this->inQueue1.FreeTensor(tokenPoolLocal);
     }
 
-    __aicore__ inline void ComputeForCacheUpdate(uint64_t rowIdx)
+    __aicore__ inline void ComputeForCacheUpdate(uint64_t rowIdx, int64_t offset, uint32_t count)
     {
         AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.template DeQue<int32_t>();
-        int64_t start = this->ubStartOffset.GetValue(rowIdx);
-        int64_t step = this->ubEndOffset.GetValue(rowIdx) - start;
 
         GetCacheIdx(rowIdx, this->lastRowIdx, this->cacheIdxStart);
-        for (int64_t j = 0; j < step; j++) {
+        for (uint32_t j = 0; j < count; j++) {
             int32_t tokenPosition = tokenPoolLocal.GetValue(j);
-            this->ubCacheLoc.SetValue(this->cacheIdxStart + j, tokenPosition);
+            this->ubCacheLoc.SetValue(this->cacheIdxStart + offset + j, tokenPosition);
         }
 
         this->inQueue1.FreeTensor(tokenPoolLocal);
@@ -214,7 +222,6 @@ private:
     uint64_t lastRowIdx{0};
 
     uint64_t reqInxBufferCount;
-    uint64_t tokenCountAlignInt32;
     uint64_t offsetCountAlignInt64;
     uint64_t cacheLocCountAlignInt32;
 };
