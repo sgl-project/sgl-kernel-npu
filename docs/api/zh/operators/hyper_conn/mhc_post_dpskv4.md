@@ -11,9 +11,9 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.norm import mhc_post
+from sgl_kernel_npu.operators.hyper_conn import mhc_post_dpskv4
 
-def mhc_post(x, residual, post, comb, *, impl='auto'):
+def mhc_post_dpskv4(x, residual, post, comb, *, impl='auto'):
     ...
 ```
 
@@ -58,19 +58,19 @@ Source: [cann-recipes-infer; aclnnHcPost](https://gitcode.com/cann/cann-recipes-
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.norm import mhc_post
+from sgl_kernel_npu.operators.hyper_conn import mhc_post_dpskv4
 
 x = torch.randn(1, 128, device="npu", dtype=torch.bfloat16)
 residual = torch.randn(1, 4, 128, device="npu", dtype=x.dtype)
 post = torch.ones(1, 4, device="npu", dtype=torch.float32)
 comb = torch.eye(4, device="npu", dtype=torch.float32).unsqueeze(0)
-y = mhc_post(x, residual, post, comb, impl="torch_native")
+y = mhc_post_dpskv4(x, residual, post, comb, impl="torch_native")
 ```
 
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/norm/test_mhc_post.py \
+python3 -m pytest tests/python/operators/hyper_conn/test_mhc_post_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
