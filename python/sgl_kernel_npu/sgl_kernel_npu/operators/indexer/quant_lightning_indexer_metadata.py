@@ -6,23 +6,23 @@ from ..utils.transformer_compat import (
     cann_backend,
     require_op,
 )
-from .attention_utils import _cann_9_1_indexer_kwargs
+from .indexer_utils import _cann_9_1_indexer_kwargs
 
 
-@register_impl("attention.quant_lightning_indexer_metadata", "auto")
+@register_impl("indexer.quant_lightning_indexer_metadata", "auto")
 def _auto_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
     backend = cann_backend()
     if backend == "cann_9_1":
         backend = "ops_transformer_cann910"
-    return get_impl_by_name("attention.quant_lightning_indexer_metadata", backend)(
+    return get_impl_by_name("indexer.quant_lightning_indexer_metadata", backend)(
         num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
     )
 
 
 @register_impl(
-    "attention.quant_lightning_indexer_metadata", "cann_ops_transformer_cann920"
+    "indexer.quant_lightning_indexer_metadata", "cann_ops_transformer_cann920"
 )
 def _cann_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
@@ -35,7 +35,7 @@ def _cann_quant_lightning_indexer_metadata(
     return op(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer_metadata", "ops_transformer_cann910")
+@register_impl("indexer.quant_lightning_indexer_metadata", "ops_transformer_cann910")
 def _cann_9_1_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
@@ -57,11 +57,11 @@ def _cann_9_1_quant_lightning_indexer_metadata(
     return op(**args)
 
 
-@register_impl("attention.quant_lightning_indexer_metadata", "torch_native")
+@register_impl("indexer.quant_lightning_indexer_metadata", "torch_native")
 def _torch_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    from ...implementation.torch_native.attention.metadata import (
+    from ...implementation.torch_native.indexer.quant_lightning_indexer_metadata import (
         quant_lightning_indexer_metadata,
     )
 
@@ -70,7 +70,7 @@ def _torch_quant_lightning_indexer_metadata(
     )
 
 
-@register_operator("attention.quant_lightning_indexer_metadata")
+@register_operator("indexer.quant_lightning_indexer_metadata")
 def quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, *, impl="auto", **kwargs
 ):
@@ -79,6 +79,6 @@ def quant_lightning_indexer_metadata(
     impl: auto (SDK-selected), ops_transformer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    return get_impl_by_name("attention.quant_lightning_indexer_metadata", impl)(
+    return get_impl_by_name("indexer.quant_lightning_indexer_metadata", impl)(
         num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
     )

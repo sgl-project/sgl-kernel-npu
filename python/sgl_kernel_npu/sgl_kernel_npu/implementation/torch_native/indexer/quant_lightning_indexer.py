@@ -2,8 +2,8 @@
 
 import torch
 
-from ..kvcacheio.quantization import _fp8_to_float
-from .metadata import ReferenceMetadata
+from ..attention.metadata import ReferenceMetadata
+from ..mem_cache.quantization import _fp8_to_float
 
 
 def quant_lightning_indexer(

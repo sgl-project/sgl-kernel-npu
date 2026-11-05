@@ -8,22 +8,22 @@ from ..utils.transformer_compat import (
     cann_backend,
     require_op,
 )
-from .attention_utils import _cann_9_1_indexer_kwargs
+from .indexer_utils import _cann_9_1_indexer_kwargs
 
 
-@register_impl("attention.quant_lightning_indexer", "auto")
+@register_impl("indexer.quant_lightning_indexer", "auto")
 def _auto_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
     backend = cann_backend()
     if backend == "cann_9_1":
         backend = "ops_transformer_cann910"
-    return get_impl_by_name("attention.quant_lightning_indexer", backend)(
+    return get_impl_by_name("indexer.quant_lightning_indexer", backend)(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
 
 
-@register_impl("attention.quant_lightning_indexer", "cann_ops_transformer_cann920")
+@register_impl("indexer.quant_lightning_indexer", "cann_ops_transformer_cann920")
 def _cann_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
@@ -35,7 +35,7 @@ def _cann_quant_lightning_indexer(
     return op(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer", "ops_transformer_cann910")
+@register_impl("indexer.quant_lightning_indexer", "ops_transformer_cann910")
 def _cann_9_1_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
@@ -55,11 +55,11 @@ def _cann_9_1_quant_lightning_indexer(
     )
 
 
-@register_impl("attention.quant_lightning_indexer", "torch_native")
+@register_impl("indexer.quant_lightning_indexer", "torch_native")
 def _torch_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
-    from ...implementation.torch_native.attention.quant_lightning_indexer import (
+    from ...implementation.torch_native.indexer.quant_lightning_indexer import (
         quant_lightning_indexer,
     )
 
@@ -68,7 +68,7 @@ def _torch_quant_lightning_indexer(
     )
 
 
-@register_operator("attention.quant_lightning_indexer")
+@register_operator("indexer.quant_lightning_indexer")
 def quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, *, impl="auto", **kwargs
 ):
@@ -77,7 +77,7 @@ def quant_lightning_indexer(
     impl: auto (SDK-selected), ops_transformer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    indices, values = get_impl_by_name("attention.quant_lightning_indexer", impl)(
+    indices, values = get_impl_by_name("indexer.quant_lightning_indexer", impl)(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
     return indices.to(torch.int32), (

@@ -68,7 +68,7 @@ def hardware_mode():
 
 
 def paired_inputs(data):
-    from sgl_kernel_npu.operators.attention import (
+    from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
     )

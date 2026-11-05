@@ -2,7 +2,7 @@
 
 import torch
 
-from ..kvcacheio.quantization import unpack_kv
+from ..mem_cache.quantization import unpack_kv
 from .metadata import ReferenceMetadata
 
 

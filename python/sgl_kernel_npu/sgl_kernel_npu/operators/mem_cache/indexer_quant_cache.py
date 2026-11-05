@@ -8,17 +8,17 @@ from ..utils.transformer_compat import (
 )
 
 
-@register_impl("kvcacheio.indexer_quant_cache", "auto")
+@register_impl("mem_cache.indexer_quant_cache", "auto")
 def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     backend = cann_backend()
     if backend == "cann_9_1":
         backend = "cann_recipes_infer_cann910"
-    return get_impl_by_name("kvcacheio.indexer_quant_cache", backend)(
+    return get_impl_by_name("mem_cache.indexer_quant_cache", backend)(
         cache, scale_cache, x, slot_mapping, **kwargs
     )
 
 
-@register_impl("kvcacheio.indexer_quant_cache", "cann_ops_transformer_cann920")
+@register_impl("mem_cache.indexer_quant_cache", "cann_ops_transformer_cann920")
 def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     op = require_op(
         "cann_ops_transformer",
@@ -29,7 +29,7 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     return cache, scale_cache
 
 
-@register_impl("kvcacheio.indexer_quant_cache", "cann_recipes_infer_cann910")
+@register_impl("mem_cache.indexer_quant_cache", "cann_recipes_infer_cann910")
 def _cann_9_1_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     op = require_op("custom", "indexer_compress_epilog", backend="cann_9_1")
     if kwargs.get("quant_mode", "fp8") != "fp8":
@@ -47,9 +47,9 @@ def _cann_9_1_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs)
     return cache, scale_cache
 
 
-@register_impl("kvcacheio.indexer_quant_cache", "torch_native")
+@register_impl("mem_cache.indexer_quant_cache", "torch_native")
 def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
-    from ...implementation.torch_native.kvcacheio.indexer_quant_cache import (
+    from ...implementation.torch_native.mem_cache.indexer_quant_cache import (
         indexer_quant_cache,
     )
 
@@ -63,7 +63,7 @@ def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     )
 
 
-@register_operator("kvcacheio.indexer_quant_cache")
+@register_operator("mem_cache.indexer_quant_cache")
 def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **kwargs):
     """Quantize and scatter indexer keys and fp32 scales in place.
 
@@ -72,6 +72,6 @@ def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **k
     impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    return get_impl_by_name("kvcacheio.indexer_quant_cache", impl)(
+    return get_impl_by_name("mem_cache.indexer_quant_cache", impl)(
         cache, scale_cache, x, slot_mapping, **kwargs
     )

@@ -11,7 +11,7 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
 def kv_compress_epilog(cache, x, slot_mapping, *, quant_group_size=64, quant_mode=None, round_scale=True, x_scale=1.0, impl='auto'):
     ...
@@ -61,9 +61,9 @@ Source: [sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path
+from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
 path = get_npu_kv_quant_path()  # Resolve before allocation; A5 only.
 cache = torch.empty(1, 128, 1, path.packed_dim(448, 64), device="npu", dtype=torch.uint8)
 x = torch.randn(1, 512, device="npu", dtype=torch.bfloat16)
@@ -74,7 +74,7 @@ kv_compress_epilog(cache, x, slots, impl="auto")
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/kvcacheio/test_kv_compress_epilog.py \
+python3 -m pytest tests/python/operators/mem_cache/test_kv_compress_epilog.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

@@ -98,7 +98,7 @@ def generate_data(tokens, input_kind, round_scale):
     ],
 )
 def test_indexer_cache(tokens, input_kind, round_scale):
-    from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
+    from sgl_kernel_npu.operators.mem_cache import indexer_quant_cache
 
     keys, scales, x, slots, kwargs = generate_data(tokens, input_kind, round_scale)
     executor = make_executor(

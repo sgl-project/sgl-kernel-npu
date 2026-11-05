@@ -12,19 +12,19 @@ from ..utils.transformer_compat import (
 
 
 @register_impl(
-    "kvcacheio.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
+    "mem_cache.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
 )
 def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     backend = cann_backend()
     if backend == "cann_9_1":
         backend = "ascendc"
-    return get_impl_by_name("kvcacheio.kv_compress_epilog", backend)(
+    return get_impl_by_name("mem_cache.kv_compress_epilog", backend)(
         cache, x, slot_mapping, **kwargs
     )
 
 
 @register_impl(
-    "kvcacheio.kv_compress_epilog",
+    "mem_cache.kv_compress_epilog",
     "cann_ops_transformer_cann920",
     supported_generations={Generation.ARCH35},
 )
@@ -39,7 +39,7 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 
 
 @register_impl(
-    "kvcacheio.kv_compress_epilog",
+    "mem_cache.kv_compress_epilog",
     "ascendc",
     supported_generations={Generation.ARCH35},
 )
@@ -66,19 +66,19 @@ def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 
 
 @register_impl(
-    "kvcacheio.kv_compress_epilog",
+    "mem_cache.kv_compress_epilog",
     "torch_native",
     supported_generations={Generation.ARCH35},
 )
 def _torch_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    from ...implementation.torch_native.kvcacheio.kv_compress_epilog import (
+    from ...implementation.torch_native.mem_cache.kv_compress_epilog import (
         kv_compress_epilog,
     )
 
     return kv_compress_epilog(cache, x, slot_mapping, **kwargs)
 
 
-@register_operator("kvcacheio.kv_compress_epilog")
+@register_operator("mem_cache.kv_compress_epilog")
 def kv_compress_epilog(
     cache,
     x,
@@ -116,7 +116,7 @@ def kv_compress_epilog(
         raise ValueError(
             "KV cache encoding does not match the selected SDK reader/writer contract"
         )
-    return get_impl_by_name("kvcacheio.kv_compress_epilog", impl)(
+    return get_impl_by_name("mem_cache.kv_compress_epilog", impl)(
         cache,
         x,
         slot_mapping,

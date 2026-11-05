@@ -11,7 +11,7 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
 def kv_compress_epilog(cache, x, slot_mapping, *, quant_group_size=64, quant_mode=None, round_scale=True, x_scale=1.0, impl='auto'):
     ...
@@ -61,9 +61,9 @@ Independent eager PyTorch reference for correctness; never an automatic producti
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path
+from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
 path = get_npu_kv_quant_path()  # Resolve before allocation; A5 only.
 cache = torch.empty(1, 128, 1, path.packed_dim(448, 64), device="npu", dtype=torch.uint8)
 x = torch.randn(1, 512, device="npu", dtype=torch.bfloat16)
@@ -74,7 +74,7 @@ kv_compress_epilog(cache, x, slots, impl="auto")
 Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
 
 ```bash
-python3 -m pytest tests/python/operators/kvcacheio/test_kv_compress_epilog.py \
+python3 -m pytest tests/python/operators/mem_cache/test_kv_compress_epilog.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

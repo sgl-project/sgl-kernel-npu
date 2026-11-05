@@ -11,7 +11,7 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
 def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *, impl='auto', **kwargs):
     ...
@@ -75,7 +75,7 @@ Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
 q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
 k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
@@ -92,7 +92,7 @@ indices, values = quant_lightning_indexer(q, k, w, qs, ks, 1, 2, impl="torch_nat
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/attention/test_quant_lightning_indexer.py \
+python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
