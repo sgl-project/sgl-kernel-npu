@@ -15,7 +15,10 @@ from ..utils.transformer_compat import (
     "kvcacheio.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
 )
 def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    return get_impl_by_name("kvcacheio.kv_compress_epilog", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "ascendc"
+    return get_impl_by_name("kvcacheio.kv_compress_epilog", backend)(
         cache, x, slot_mapping, **kwargs
     )
 
@@ -37,7 +40,7 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 
 @register_impl(
     "kvcacheio.kv_compress_epilog",
-    "cann_9_1",
+    "ascendc",
     supported_generations={Generation.ARCH35},
 )
 def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
@@ -89,7 +92,7 @@ def kv_compress_epilog(
 ):
     """Quantize and scatter A5 KV rows in place; -1 slots are skipped.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ascendc, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     from .layout import (

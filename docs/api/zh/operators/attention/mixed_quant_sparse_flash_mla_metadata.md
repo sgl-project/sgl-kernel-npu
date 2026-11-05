@@ -5,7 +5,8 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | 不支持 | 支持 |
-| `cann_9_1` | 不支持 | 支持 |
+| `ops_transformer_cann910` | 不支持 | 支持 |
+| `host` | 不支持 | 支持 |
 | `torch_native` | 不支持 | 支持 |
 
 ## 接口
@@ -21,7 +22,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 ## 说明
 
-仅 A5；打包格式和实现须与 mixed_quant_sparse_flash_mla 一致。
+仅 A5；打包格式和 ABI 须与 mixed_quant_sparse_flash_mla 匹配。CANN 9.1 DSpark 路径使用 `host` metadata 搭配 `ascendc` 主算子。
 
 生成混合量化注意力调度信息；显式稀疏可见性对应的 vendor 窗口约定由适配器转换。
 
@@ -40,7 +41,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
 | seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; cann_9_1 support is restricted. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
 | metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
@@ -51,7 +52,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
 | num_heads_q / num_heads_k / head_dim / batch_size / max_seqlen_q | int | Native scheduling geometry; use the same values as paired compute. |
 | has_ori_kv / has_cmp_kv | bool | Whether original/compressed streams participate. |
-| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by cann_9_1 explicit sparse metadata; no device-to-host copy is introduced. |
+| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by CANN 9.1 explicit sparse metadata; no device-to-host copy is introduced. |
 
 ## 返回值
 
@@ -63,9 +64,13 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 
-## cann_9_1
+## ops_transformer_cann910
 
-使用 CANN 9.1 绑定，在本算子文件完成输入适配；要求已初始化 CANN 9.1 SDK，不回退至 CANN 9.2。
+Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+
+## host
+
+Source: [sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp). The checked-in C++ scheduler computes metadata on the host CPU, then copies the table to NPU. It is not an Ascend C device kernel. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

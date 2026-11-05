@@ -13,7 +13,14 @@ from .attention_utils import logical_to_physical
 
 @register_impl("attention.sparse_flash_mla", "auto")
 def _auto_sparse_flash_mla(q, **kwargs):
-    return get_impl_by_name("attention.sparse_flash_mla", cann_backend())(q, **kwargs)
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = (
+            "ascendc"
+            if _uses_native_sparse_inputs(kwargs)
+            else "ops_transformer_cann910"
+        )
+    return get_impl_by_name("attention.sparse_flash_mla", backend)(q, **kwargs)
 
 
 @register_impl("attention.sparse_flash_mla", "cann_ops_transformer_cann920")
@@ -34,7 +41,28 @@ def _cann_sparse_flash_mla(q, **kwargs):
     return out, lse
 
 
-@register_impl("attention.sparse_flash_mla", "cann_9_1")
+def _uses_native_sparse_inputs(kwargs):
+    return kwargs.get("ori_sparse_indices") is not None
+
+
+@register_impl("attention.sparse_flash_mla", "ops_transformer_cann910")
+def _ops_transformer_cann910(q, **kwargs):
+    if _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Explicit sparse inputs require impl='ascendc' on CANN 9.1"
+        )
+    return _cann_9_1_sparse_flash_mla(q, **kwargs)
+
+
+@register_impl("attention.sparse_flash_mla", "ascendc")
+def _ascendc(q, **kwargs):
+    if not _uses_native_sparse_inputs(kwargs):
+        raise OperatorUnavailableError(
+            "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
+        )
+    return _cann_9_1_sparse_flash_mla(q, **kwargs)
+
+
 def _cann_9_1_sparse_flash_mla(q, **kwargs):
     indices = kwargs.get("ori_sparse_indices")
     namespace, binding = (
@@ -113,7 +141,7 @@ def _torch_sparse_flash_mla(q, **kwargs):
 def sparse_flash_mla(q, *, impl="auto", **kwargs):
     """Compute BF16 shared-KV sparse attention; return output and LSE.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910, ascendc, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.sparse_flash_mla", impl)(q, **kwargs)

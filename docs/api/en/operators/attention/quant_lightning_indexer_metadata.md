@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | supported | supported |
 | `torch_native` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `ops_transformer_cann910` | supported | supported |
 
 ## Signature
 
@@ -46,8 +46,8 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 | metadata | Tensor / ReferenceMetadata / None | Matching metadata implementation only. |
 | layout_q / layout_k | str | Reference defaults TND / PA_BBND. |
 | mask_mode / cmp_ratio | int | Reference defaults causal 3 / compression ratio 4. |
-| return_value | int | Default 0 produces empty values; nonzero score output is unsupported on cann_9_1. |
-| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | cann_9_1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
+| return_value | int | Default 0 produces empty values; nonzero score output is unsupported on CANN 9.1. |
+| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | CANN 9.1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
 
 ## Return value
 
@@ -57,11 +57,11 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 
 ## cann_ops_transformer_cann920
 
-Calls only the released CANN 9.2 binding. The old ABI is registered separately as `cann_9_1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
+Calls only the released CANN 9.2 binding. The old ABI is registered separately as `CANN 9.1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
 
-## cann_9_1
+## ops_transformer_cann910
 
-CANN 9.1 custom operator; converts cumulative/compressed lengths, layout names and operand order to the old ABI. Both metadata and compute bindings must exist.
+Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

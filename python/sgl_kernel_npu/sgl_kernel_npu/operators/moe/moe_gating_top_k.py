@@ -8,11 +8,13 @@ from ..utils.transformer_compat import cann_backend, checked_kwargs, require_op
 
 @register_impl("moe.moe_gating_top_k", "auto")
 def _auto(x, k, **kwargs):
-    backend = "cann_9_1" if cann_backend() == "cann_9_1" else "torch_npu"
+    backend = (
+        "cann_recipes_infer_cann910" if cann_backend() == "cann_9_1" else cann_backend()
+    )
     return get_impl_by_name("moe.moe_gating_top_k", backend)(x, k, **kwargs)
 
 
-@register_impl("moe.moe_gating_top_k", "torch_npu")
+@register_impl("moe.moe_gating_top_k", "cann_ops_transformer_cann920")
 def _torch_npu(
     x,
     k,
@@ -59,7 +61,7 @@ def _torch_npu(
     return weights.to(x.dtype), indices.to(torch.int32), scores
 
 
-@register_impl("moe.moe_gating_top_k", "cann_9_1")
+@register_impl("moe.moe_gating_top_k", "cann_recipes_infer_cann910")
 def _cann_9_1(
     x,
     k,
@@ -185,7 +187,8 @@ def moe_gating_top_k(
     fp32 tensor on x's device (the raw binding's unused output is unspecified).
     bias affects expert selection, not the gathered weights. The production
     wrapper resolves the native or original custom binding before execution;
-    the registered auto/torch_npu names stay stable.
+    impl selects auto, cann_recipes_infer_cann910,
+    cann_ops_transformer_cann920, or torch_native.
     """
     if (input_ids is None) != (tid2eid is None):
         raise ValueError("input_ids and tid2eid must be provided together")

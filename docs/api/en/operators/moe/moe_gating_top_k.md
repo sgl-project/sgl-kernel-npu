@@ -4,8 +4,8 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `torch_npu` | supported | supported |
-| `cann_9_1` | supported | supported |
+| `cann_ops_transformer_cann920` | supported | supported |
+| `cann_recipes_infer_cann910` | supported | supported |
 | `torch_native` | supported | supported |
 
 CANN 9.1 on A3 does not support `norm_type=2` (sqrtsoftplus). The model-mode test skips this unsupported combination instead of substituting softmax or sigmoid.
@@ -54,13 +54,13 @@ Score with softmax/sigmoid/sqrt-softplus; bias affects selection but not gathere
 | indices | int32 Tensor | [T,k] expert IDs. |
 | scores | FP32 Tensor | [T,E] if out_flag=True, otherwise empty. |
 
-## torch_npu
+## cann_ops_transformer_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## cann_9_1
+## cann_recipes_infer_cann910
 
-Uses the CANN 9.1 binding and performs input conversion in this operator module. It requires the initialized CANN 9.1 SDK and never retries a CANN 9.2 binding.
+Source: [cann-recipes-infer; aclnnMoeGatingTopKHash](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_moe_gating_top_k.cpp). The recipes custom_ops bridge calls the indicated recipes ACLNN operator. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

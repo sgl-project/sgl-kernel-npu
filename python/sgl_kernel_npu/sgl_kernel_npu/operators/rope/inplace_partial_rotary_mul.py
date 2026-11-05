@@ -6,7 +6,10 @@ from ..utils.transformer_compat import cann_backend, require_op
 
 @register_impl("rope.inplace_partial_rotary_mul", "auto")
 def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
-    return get_impl_by_name("rope.inplace_partial_rotary_mul", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "cann_recipes_infer_cann910"
+    return get_impl_by_name("rope.inplace_partial_rotary_mul", backend)(
         x, cos, sin, **kwargs
     )
 
@@ -22,7 +25,7 @@ def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     return x
 
 
-@register_impl("rope.inplace_partial_rotary_mul", "cann_9_1")
+@register_impl("rope.inplace_partial_rotary_mul", "cann_recipes_infer_cann910")
 def _cann_9_1_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     op = require_op("custom", "inplace_partial_rotary_mul", backend="cann_9_1")
     op(x, cos, sin, **kwargs)
@@ -44,7 +47,7 @@ def inplace_partial_rotary_mul(
 ):
     """Apply partial RoPE in place using fp32 intermediate arithmetic.
 
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("rope.inplace_partial_rotary_mul", impl)(

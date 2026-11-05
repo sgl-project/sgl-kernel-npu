@@ -10,7 +10,10 @@ from ..utils.transformer_compat import (
 
 @register_impl("kvcacheio.indexer_quant_cache", "auto")
 def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
-    return get_impl_by_name("kvcacheio.indexer_quant_cache", cann_backend())(
+    backend = cann_backend()
+    if backend == "cann_9_1":
+        backend = "cann_recipes_infer_cann910"
+    return get_impl_by_name("kvcacheio.indexer_quant_cache", backend)(
         cache, scale_cache, x, slot_mapping, **kwargs
     )
 
@@ -26,7 +29,7 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     return cache, scale_cache
 
 
-@register_impl("kvcacheio.indexer_quant_cache", "cann_9_1")
+@register_impl("kvcacheio.indexer_quant_cache", "cann_recipes_infer_cann910")
 def _cann_9_1_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     op = require_op("custom", "indexer_compress_epilog", backend="cann_9_1")
     if kwargs.get("quant_mode", "fp8") != "fp8":
@@ -66,7 +69,7 @@ def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **k
 
     For quant_mode="fp8", the original 9.1 binding uses unrounded FP32 scales;
     the released 9.2 binding also honors round_scale. x_scale is HiFloat8-only.
-    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("kvcacheio.indexer_quant_cache", impl)(

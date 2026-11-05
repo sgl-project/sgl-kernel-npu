@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
-| `cann_9_1` | 支持 | 支持 |
+| `ops_transformer_cann910` | 支持 | 支持 |
 
 ## 接口
 
@@ -48,8 +48,8 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
 | metadata | Tensor / ReferenceMetadata / None | Matching metadata implementation only. |
 | layout_q / layout_k | str | Reference defaults TND / PA_BBND. |
 | mask_mode / cmp_ratio | int | Reference defaults causal 3 / compression ratio 4. |
-| return_value | int | Default 0 produces empty values; nonzero score output is 不支持 on cann_9_1. |
-| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | cann_9_1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
+| return_value | int | Default 0 produces empty values; nonzero score output is 不支持 on CANN 9.1. |
+| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | CANN 9.1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
 
 ## 返回值
 
@@ -60,11 +60,11 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
 
 ## cann_ops_transformer_cann920
 
-仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `cann_9_1`。显式指定与当前 SDK 不符的实现会在执行前报错。
+仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 
-## cann_9_1
+## ops_transformer_cann910
 
-CANN 9.1 原始 custom 算子；将累计/压缩长度、布局名和参数顺序转换为旧 ABI，先检查 metadata 与计算绑定均存在。
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 

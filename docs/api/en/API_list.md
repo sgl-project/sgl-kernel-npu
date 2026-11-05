@@ -2,19 +2,19 @@
 
 | API | Supported backends |
 | --- | --- |
-| [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `torch_npu`, `cann_9_1`, `torch_native` |
-| [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [mhc_post](operators/norm/mhc_post.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [mhc_pre](operators/norm/mhc_pre.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [indexer_quant_cache](operators/kvcacheio/indexer_quant_cache.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [kv_compress_epilog](operators/kvcacheio/kv_compress_epilog.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [quant_lightning_indexer_metadata](operators/attention/quant_lightning_indexer_metadata.md) | `cann_ops_transformer_cann920`, `torch_native`, `cann_9_1` |
-| [quant_lightning_indexer](operators/attention/quant_lightning_indexer.md) | `cann_ops_transformer_cann920`, `torch_native`, `cann_9_1` |
-| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
-| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `cann_9_1`, `torch_native` |
+| [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_post](operators/norm/mhc_post.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_pre](operators/norm/mhc_pre.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [indexer_quant_cache](operators/kvcacheio/indexer_quant_cache.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [kv_compress_epilog](operators/kvcacheio/kv_compress_epilog.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
+| [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
+| [quant_lightning_indexer_metadata](operators/attention/quant_lightning_indexer_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
+| [quant_lightning_indexer](operators/attention/quant_lightning_indexer.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
+| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `host`, `torch_native` |
+| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `host`, `torch_native` |
+| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
+| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
 | [add_example](operators/examples/add_example.md) | `aicpu`, `torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
