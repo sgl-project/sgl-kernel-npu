@@ -17,12 +17,23 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     _remove_tree(package)
     package.parent.mkdir(parents=True, exist_ok=True)
     python_package = source_root / "python/sgl_kernel_npu/sgl_kernel_npu"
+    dsl_source = python_package / "implementation/cannbot-dsl/attention"
+    ignore_runtime = shutil.ignore_patterns(
+        "lib", "_cann", "__pycache__", "*.pyc", "*.so", "*.egg-info"
+    )
+
+    def ignore(directory, names):
+        ignored = ignore_runtime(directory, names)
+        if Path(directory) == dsl_source:
+            # Only stage_backend may add a validated Native bundle. Local DSL
+            # export artifacts must not leak into source-only or rebuilt wheels.
+            ignored.update({"_native", "_aicpu", "build-manifest.json"} & set(names))
+        return ignored
+
     shutil.copytree(
         python_package,
         package,
-        ignore=shutil.ignore_patterns(
-            "lib", "_cann", "__pycache__", "*.pyc", "*.so", "*.egg-info"
-        ),
+        ignore=ignore,
     )
     from build_tools.target_provider import stage_target_providers
 

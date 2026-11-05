@@ -19,7 +19,9 @@ REQUIRED_CASES = (
     "test_quant_lightning_indexer[pa128_ragged]",
     "test_quant_lightning_indexer[pa64_causal_candidates]",
     "test_quant_lightning_indexer[tnd_causal]",
-    "test_quant_sparse_lightning_indexer[",
+    "test_quant_sparse_lightning_indexer[pa128_zero_candidate_tail]",
+    "test_quant_sparse_lightning_indexer[pa64_causal_zero_candidate_tail]",
+    "test_quant_sparse_lightning_indexer[tnd_causal_zero_candidate_tail]",
     "test_mixed_quant_sparse_flash_mla[mixed_decode]",
     "test_mixed_quant_sparse_flash_mla[ori_only]",
     "test_metadata_replay_reads_updated_lengths[mqsmla]",
@@ -36,11 +38,7 @@ def check_junit(path):
         if any(c.find(tag) is not None for tag in ("skipped", "failure", "error"))
     ]
     passed = [c.get("name", "") for c in cases if c.get("name") not in unsuccessful]
-    missing = [
-        prefix
-        for prefix in REQUIRED_CASES
-        if not any(n.startswith(prefix) for n in passed)
-    ]
+    missing = [name for name in REQUIRED_CASES if name not in passed]
     if unsuccessful or missing:
         raise RuntimeError(
             f"Incomplete device validation: unsuccessful={unsuccessful}, missing={missing}"
@@ -143,7 +141,44 @@ def installed_sources():
             raise RuntimeError(
                 f"Installed artifact differs from this build: {relative}"
             )
-    return dict(package=str(package), manifest=manifest, source_hashes=hashes)
+    resources = installed_dsl_resources(package, staged, manifest)
+    return dict(
+        package=str(package),
+        manifest=manifest,
+        source_hashes=hashes,
+        resource_hashes=resources,
+    )
+
+
+def installed_dsl_resources(package, staged, manifest):
+    """Reject missing, stale or orphaned Native files after wheel installation."""
+    relative = Path("implementation/cannbot-dsl/attention")
+    bundle = manifest.get("cannbotdsl")
+    expected = bundle["resources"] if bundle is not None else {}
+    roots = (staged / relative, package / relative)
+    for root in roots:
+        actual = {
+            path.relative_to(root).as_posix(): _file_sha256(path)
+            for name in ("_native", "_aicpu")
+            for path in (root / name).rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+        }
+        if actual != expected:
+            raise RuntimeError(f"DSL resources differ from this build: {root}")
+        local_manifest = root / "build-manifest.json"
+        if bundle is None:
+            if local_manifest.exists() or any(
+                (root / name).exists() for name in ("_native", "_aicpu")
+            ):
+                raise RuntimeError(
+                    f"Unexpected DSL bundle in source-only wheel: {root}"
+                )
+        elif (
+            not local_manifest.is_file()
+            or json.loads(local_manifest.read_text(encoding="utf-8")) != bundle
+        ):
+            raise RuntimeError(f"DSL build manifest differs from this build: {root}")
+    return expected
 
 
 def main():

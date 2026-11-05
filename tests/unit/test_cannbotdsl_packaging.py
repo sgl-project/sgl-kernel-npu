@@ -5,6 +5,7 @@ import importlib
 import importlib.metadata
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -84,6 +85,42 @@ def test_resources_and_sources_are_verified_before_staging(backend, tmp_path):
     assert result["version"] == "0.8.0"
     for _, _, filename in backend.METADATA:
         assert (source / "_aicpu" / filename).read_bytes() == b"test fixture"
+
+
+def test_runtime_staging_excludes_local_dsl_exports(backend, tmp_path):
+    wheel = importlib.import_module("build_tools.torch_wheel")
+    source_root = tmp_path / "checkout"
+    package_root = source_root / "python/sgl_kernel_npu/sgl_kernel_npu"
+    source = package_root / backend.RELATIVE / "attention"
+    bundle, bundled_source = make_bundle(backend, tmp_path)
+    shutil.copytree(bundled_source, source)
+    for name in ("_native", "_aicpu"):
+        shutil.copytree(bundle / name, source / name)
+    shutil.copy2(bundle / "build-manifest.json", source / "build-manifest.json")
+    # Exercise the real staging path, including target-provider selection.
+    shutil.copytree(
+        ROOT / "python/sgl_kernel_npu/target_providers",
+        source_root / "python/sgl_kernel_npu/target_providers",
+    )
+    (source_root / "csrc/cmake").mkdir(parents=True)
+    shutil.copy2(
+        ROOT / "csrc/cmake/architectures.json",
+        source_root / "csrc/cmake/architectures.json",
+    )
+    shutil.copy2(ROOT / "config.ini", source_root / "config.ini")
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    package = tmp_path / "staged/sgl_kernel_npu"
+    wheel.stage_runtime(vendor, package, source_root, "3510")
+    destination = package / backend.RELATIVE / "attention"
+    assert (destination / "entry.py").read_bytes() == (source / "entry.py").read_bytes()
+    assert not any(
+        (destination / name).exists()
+        for name in ("_native", "_aicpu", "build-manifest.json")
+    )
+    # A fresh, verified bundle can now be staged without a stale-directory collision.
+    backend.stage_backend(bundle, package)
+    assert (destination / "_aicpu/metadata_kernel.so").is_file()
 
 
 @pytest.mark.parametrize(

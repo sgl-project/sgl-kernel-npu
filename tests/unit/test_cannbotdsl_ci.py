@@ -50,6 +50,29 @@ def test_empty_successful_pytest_run_is_not_device_validation(tmp_path):
         ci.check_junit(path)
 
 
+@pytest.mark.parametrize(
+    "name", [name for name in ci.REQUIRED_CASES if "sparse_lightning" in name]
+)
+def test_each_qsli_layout_must_execute(tmp_path, name):
+    path = report(tmp_path)
+    tree = ET.parse(path)
+    suite = tree.getroot().find("testsuite")
+    suite.remove(next(case for case in suite if case.get("name") == name))
+    tree.write(path)
+    with pytest.raises(RuntimeError, match="missing="):
+        ci.check_junit(path)
+
+
+def test_similarly_named_case_cannot_replace_a_required_case(tmp_path):
+    path = report(tmp_path)
+    tree = ET.parse(path)
+    case = tree.getroot().find(".//testcase")
+    case.set("name", case.get("name") + "_unrelated")
+    tree.write(path)
+    with pytest.raises(RuntimeError, match="missing="):
+        ci.check_junit(path)
+
+
 @pytest.fixture
 def installed_fixture(tmp_path, monkeypatch):
     source, package = tmp_path / "source", tmp_path / "installed"
@@ -97,4 +120,69 @@ def test_installed_gate_rejects_stale_helper_or_library(installed_fixture, chang
             "# old helper\n"
         )
     with pytest.raises(RuntimeError, match="differs from"):
+        ci.installed_sources()
+
+
+@pytest.fixture
+def native_install(installed_fixture):
+    staged = ci.ROOT / "build/torch/package/sgl_kernel_npu"
+    relative = Path("implementation/cannbot-dsl/attention")
+    resources = {
+        "_native/manifest.json": b"{}",
+        "_native/operators/qli/kernel.bin": b"AICore fixture",
+        "_aicpu/metadata_kernel.so": b"AICPU fixture",
+    }
+    import hashlib
+
+    bundle = {
+        "resources": {
+            name: hashlib.sha256(data).hexdigest() for name, data in resources.items()
+        }
+    }
+    for base in (staged, installed_fixture):
+        for name, data in resources.items():
+            path = base / relative / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (base / relative / "build-manifest.json").write_text(json.dumps(bundle))
+        (base / "_build_manifest.json").write_text(
+            json.dumps({"arch_version": "3510", "cannbotdsl": bundle})
+        )
+    return installed_fixture / relative, staged / relative
+
+
+def test_installed_native_resources_match_manifest(native_install):
+    result = ci.installed_sources()
+    assert result["resource_hashes"] == result["manifest"]["cannbotdsl"]["resources"]
+
+
+@pytest.mark.parametrize("location", [0, 1], ids=["installed", "staged"])
+@pytest.mark.parametrize("change", ["native", "aicpu", "missing", "extra", "manifest"])
+def test_installed_native_gate_rejects_changed_resources(
+    native_install, location, change
+):
+    root = native_install[location]
+    if change == "missing":
+        (root / "_aicpu/metadata_kernel.so").unlink()
+    elif change == "manifest":
+        (root / "build-manifest.json").write_text("{}")
+    else:
+        name = {
+            "native": "_native/operators/qli/kernel.bin",
+            "aicpu": "_aicpu/metadata_kernel.so",
+            "extra": "_native/stale.bin",
+        }[change]
+        (root / name).write_bytes(b"stale")
+    with pytest.raises(RuntimeError, match="differ.*from this build"):
+        ci.installed_sources()
+
+
+@pytest.mark.parametrize("name", ["_native", "_aicpu", "build-manifest.json"])
+def test_source_install_rejects_leftover_native_bundle(installed_fixture, name):
+    path = installed_fixture / "implementation/cannbot-dsl/attention" / name
+    if name.endswith(".json"):
+        path.write_text("{}")
+    else:
+        path.mkdir()
+    with pytest.raises(RuntimeError, match="Unexpected DSL bundle"):
         ci.installed_sources()
