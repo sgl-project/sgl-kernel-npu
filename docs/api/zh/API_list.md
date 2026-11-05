@@ -12,6 +12,8 @@
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
 | [paged_mtp_attention_decode](operators/attention/paged_mtp_attention_decode.md) | `triton`、`torch_native` |
+| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`、`torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`、`torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
