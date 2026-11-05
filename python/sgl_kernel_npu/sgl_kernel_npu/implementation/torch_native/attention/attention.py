@@ -2,8 +2,31 @@
 
 import torch
 
-from ..mem_cache.quantization import unpack_kv
 from .metadata import ReferenceMetadata
+
+
+def _fp8_to_float(value):
+    if str(value.dtype).startswith("torch.float8_") and value.device.type != "cpu":
+        return value.view(torch.uint8).cpu().view(value.dtype).float().to(value.device)
+    return value.float()
+
+
+def unpack_kv(cache):
+    rows = cache.view(torch.uint8).reshape(-1, cache.shape[-1])
+    if rows.shape[-1] not in (608, 640):
+        raise NotImplementedError("reference supports 608B and cann_9_1 640B KV rows")
+    rope = rows[:, :128].contiguous().view(torch.bfloat16).float()
+    nope = _fp8_to_float(
+        rows[:, 128:576].contiguous().view(torch.float8_e4m3fn)
+    ).reshape(-1, 7, 64)
+    if rows.shape[-1] == 640:
+        exponent = rows[:, 576:583].to(torch.int32) - 127
+        scales = torch.pow(2.0, exponent.float()).reshape(-1, 7, 1)
+    else:
+        scales = (
+            rows[:, 576:590].contiguous().view(torch.bfloat16).float().reshape(-1, 7, 1)
+        )
+    return torch.cat(((nope * scales).flatten(1), rope), -1)
 
 
 def _paged_rows(cache, table, batch, positions, quantized):

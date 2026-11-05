@@ -16,17 +16,48 @@ from tests.python.utils.common import (
 from tests.python.utils.standards import AccuracyStandard
 
 
+def _pack_kv(x, width):
+    """Build reader inputs locally; no cache-writer operator participates."""
+    values = x.float().cpu()
+    groups = values[:, :448].reshape(-1, 7, 64)
+    amax = groups.abs().amax(-1, keepdim=True)
+    if width == 640:
+        raw_scale = amax.clamp_min(1e-4) * torch.tensor(
+            1.0 / 448.0, dtype=torch.float32, device="cpu"
+        )
+        _, exponent = torch.frexp(raw_scale)
+        scales = torch.ldexp(torch.ones_like(raw_scale), exponent)
+    elif width == 608:
+        raw_scale = amax / 448.0
+        raw_scale = torch.where(raw_scale > 0, raw_scale, torch.ones_like(raw_scale))
+        scales = torch.pow(2.0, torch.ceil(torch.log2(raw_scale)))
+    else:
+        raise ValueError("attention fixture supports 608B and 640B KV rows")
+    payload = (groups / scales).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
+    packed = torch.zeros(values.shape[0], width, dtype=torch.uint8, device="cpu")
+    packed[:, :128] = values[:, 448:].to(torch.bfloat16).contiguous().view(torch.uint8)
+    packed[:, 128:576] = payload.contiguous().view(torch.uint8).reshape(-1, 448)
+    if width == 640:
+        packed[:, 576:583] = (torch.log2(scales).reshape(-1, 7) + 127).to(torch.uint8)
+    else:
+        packed[:, 576:590] = (
+            scales.to(torch.bfloat16).contiguous().view(torch.uint8).reshape(-1, 14)
+        )
+    return (
+        packed.to(x.device).reshape(1, x.shape[0], 1, width).view(torch.float8_e4m3fn)
+    )
+
+
 def generate_data(query_len):
     """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
-    from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+    from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
     if get_hardware().generation != Generation.ARCH35:
         pytest.skip("mixed-quant reader/writer requires A5")
     torch.manual_seed(13)
     x = torch.randn(128, 512, dtype=torch.bfloat16)
     q = torch.randn(query_len, 64, 512, dtype=torch.bfloat16) * 0.1
-    slots = torch.arange(128, dtype=torch.int32)
     common = dict(
         cu_seqlens_q=torch.tensor([0, query_len], dtype=torch.int32),
         seqused_q=torch.tensor([query_len], dtype=torch.int32),
@@ -41,11 +72,9 @@ def generate_data(query_len):
         quant_mode=1,
         rope_head_dim=64,
     )
-    path = get_npu_kv_quant_path()
-    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
-        torch.float8_e4m3fn
-    )
-    return x, q, slots, common, path, cache
+    width = 640 if cann_backend() == "cann_9_1" else 608
+    cache = _pack_kv(x, width)
+    return q, common, cache
 
 
 def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
@@ -53,9 +82,8 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
         mixed_quant_sparse_flash_mla,
         mixed_quant_sparse_flash_mla_metadata,
     )
-    from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-    x, q, slots, common, path, cache = data
+    q, common, cache = data
     impl, impl_ref = get_test_impls()
     skip_accuracy = get_skip_acc_check() is True
     if skip_accuracy:
@@ -63,14 +91,8 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
     else:
         require_distinct_impls(mixed_quant_sparse_flash_mla, impl, impl_ref)
     cache_ref = cache.view(torch.uint8).clone().view(torch.float8_e4m3fn)
-    writer_kwargs = dict(
-        quant_group_size=64,
-        quant_mode=path.writer_quant_mode,
-        round_scale=True,
-        x_scale=1.0,
-    )
-    # Setup is outside the executor. The writer has its own byte-accuracy test.
-    kv_compress_epilog(cache, x, slots, impl=impl, **writer_kwargs)
+    # Both readers consume identical locally packed bytes. Cache-writer
+    # accuracy is covered by its own mem_cache tests.
     metadata_kwargs = dict(
         batch_size=1,
         num_heads_q=64,
@@ -90,7 +112,6 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
     )
     executor = make_executor(mixed_quant_sparse_flash_mla, args=(q,), kwargs=kwargs)
     if not skip_accuracy:
-        kv_compress_epilog(cache_ref, x, slots, impl=impl_ref, **writer_kwargs)
         reference_kwargs = {
             **kwargs,
             "ori_kv": cache_ref,

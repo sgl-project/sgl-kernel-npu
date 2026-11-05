@@ -2,8 +2,13 @@
 
 import torch
 
-from ..attention.metadata import ReferenceMetadata
-from ..mem_cache.quantization import _fp8_to_float
+from .quant_lightning_indexer_metadata import ReferenceMetadata
+
+
+def _fp8_to_float(value):
+    if str(value.dtype).startswith("torch.float8_") and value.device.type != "cpu":
+        return value.view(torch.uint8).cpu().view(value.dtype).float().to(value.device)
+    return value.float()
 
 
 def quant_lightning_indexer(
