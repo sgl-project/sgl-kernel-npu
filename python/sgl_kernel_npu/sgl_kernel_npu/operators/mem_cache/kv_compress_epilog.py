@@ -95,7 +95,7 @@ def kv_compress_epilog(
     impl: auto (SDK-selected), ascendc, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    from .layout import (
+    from .utils.layout import (
         CANN_9_1_NPU_KV_QUANT_PATH,
         NPU_KV_QUANT_PATH,
         get_npu_kv_quant_path,
