@@ -79,7 +79,7 @@ def _ascendc(q, **kwargs):
 def _cann_9_1_sparse_flash_mla(q, **kwargs):
     indices = kwargs.get("ori_sparse_indices")
     namespace, binding = (
-        ("npu", "sparse_attn_sharedkv")
+        ("sgl_native_dsv4", "sparse_attn_sharedkv")
         if indices is not None
         else ("custom", "npu_sparse_attn_sharedkv")
     )
@@ -154,9 +154,7 @@ def _torch_sparse_flash_mla(q, **kwargs):
         isinstance(kwargs.get("metadata"), ReferenceMetadata)
         or kwargs.get("ori_sparse_indices") is not None
     ):
-        from ...implementation.torch_native.attention.attention import (
-            sparse_flash_mla,
-        )
+        from ...implementation.torch_native.attention.attention import sparse_flash_mla
     else:
         from ...implementation.torch_native.attention.sparse_flash_mla import (
             sparse_flash_mla,

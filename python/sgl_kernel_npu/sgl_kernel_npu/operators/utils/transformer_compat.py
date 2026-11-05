@@ -47,6 +47,8 @@ def require_op(namespace, name, *, backend=None, required_arguments=()):
 
     elif namespace == "sgl_native_compressor":
         from ..._third_party import sgl_native_compressor  # noqa: F401
+    elif namespace == "sgl_native_dsv4":
+        from ..._third_party import sgl_native_dsv4  # noqa: F401
     op = getattr(getattr(torch.ops, namespace), name, None)
     if op is None:
         raise OperatorUnavailableError(

@@ -117,6 +117,16 @@ def build_torch(
         raise RuntimeError("Missing Torch library: {}".format(library))
     (package / "lib").mkdir()
     shutil.copy2(library, package / "lib" / library.name)
+    run(
+        [
+            sys.executable,
+            source_root / "python/sgl_kernel_npu/build_tools/bindings.py",
+            "--package",
+            package,
+        ],
+        directory / "bindings.log",
+        cwd=source_root,
+    )
     print("TORCH_PACKAGE: " + str(package), flush=True)
     return package
 

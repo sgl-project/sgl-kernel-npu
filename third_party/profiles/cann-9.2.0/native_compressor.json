@@ -1,5 +1,6 @@
 {
   "name": "sgl_native_compressor",
+  "builder": "native_ops",
   "ops": {"arch22": ["compressor"], "arch35": ["compressor"]},
   "repository": "https://github.com/sgl-project/sgl-kernel-npu.git",
   "commit": "26ec66efe01f8acef43db55da679107702876b23",

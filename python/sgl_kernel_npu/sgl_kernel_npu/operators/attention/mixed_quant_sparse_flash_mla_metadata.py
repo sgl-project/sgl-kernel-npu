@@ -141,7 +141,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
             count = kwargs["batch_size"] + (private == "cu_seqlens_q")
             args[private] = value[:count].contiguous()
     namespace, binding = (
-        ("npu", "kv_quant_sparse_attn_sharedkv_metadata_host")
+        ("sgl_native_dsv4", "kv_quant_sparse_attn_sharedkv_metadata_host")
         if sparse
         else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
     )

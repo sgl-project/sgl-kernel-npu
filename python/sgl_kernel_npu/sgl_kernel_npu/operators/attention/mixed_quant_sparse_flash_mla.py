@@ -96,7 +96,7 @@ def _ascendc(q, **kwargs):
 def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     indices = kwargs.get("ori_sparse_indices")
     namespace, binding = (
-        ("npu", "kv_quant_sparse_attn_sharedkv")
+        ("sgl_native_dsv4", "kv_quant_sparse_attn_sharedkv")
         if indices is not None
         else ("custom", "npu_kv_quant_sparse_attn_sharedkv")
     )
