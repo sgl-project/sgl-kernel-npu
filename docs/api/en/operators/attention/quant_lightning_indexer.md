@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer` | declared; validate SDK kernel | declared; validate SDK kernel |
 | `torch_native` | declared; validate SDK kernel | declared; validate SDK kernel |
-| `legacy` | declared; validate SDK kernel | declared; validate SDK kernel |
+| `cann_9_1` | declared; validate SDK kernel | declared; validate SDK kernel |
 
 ## Signature
 
@@ -60,9 +60,9 @@ Causal TND queries and PA_BBND keys; A3 tests use INT8 with FP16 scales/weights,
 
 ## cann_ops_transformer
 
-Calls only the released CANN 9.2 binding. The old ABI is registered separately as `legacy`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
+Calls only the released CANN 9.2 binding. The old ABI is registered separately as `cann_9_1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
 
-## legacy
+## cann_9_1
 
 CANN 9.1 custom operator; converts cumulative/compressed lengths, layout names and operand order to the old ABI. Both metadata and compute bindings must exist.
 

@@ -28,11 +28,11 @@ def _cann_quant_lightning_indexer(
     return op(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
-@register_impl("attention.quant_lightning_indexer", "legacy")
+@register_impl("attention.quant_lightning_indexer", "cann_9_1")
 def _legacy_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
-    op = require_indexer_ops("legacy")[1]
+    op = require_indexer_ops("cann_9_1")[1]
     if quant_mode not in (1, 2):
         raise OperatorUnavailableError(
             "Legacy indexer supports the migrated FP8/INT8 modes only"
@@ -67,7 +67,7 @@ def quant_lightning_indexer(
 ):
     """Return logical compressed-KV top-k indices and optional values.
 
-    impl: auto (SDK-selected), legacy, cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     indices, values = get_impl_by_name("attention.quant_lightning_indexer", impl)(

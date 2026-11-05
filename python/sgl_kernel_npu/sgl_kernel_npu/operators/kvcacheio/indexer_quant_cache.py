@@ -44,7 +44,7 @@ def _torch_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
         scale_cache,
         x,
         slot_mapping,
-        _legacy=cann_backend() == "legacy",
+        _legacy=cann_backend() == "cann_9_1",
         **kwargs,
     )
 
