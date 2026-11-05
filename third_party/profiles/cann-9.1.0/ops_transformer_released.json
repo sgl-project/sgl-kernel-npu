@@ -1,0 +1,17 @@
+{
+  "_comment": "Public mHC APIs used by the existing hyper_conn tests on CANN 9.1.",
+  "builder": "ops_transformer",
+  "name": "sgl_ops_transformer",
+  "ops": {
+    "arch22": ["mhc_pre_sinkhorn", "mhc_post", "mla_prolog"],
+    "arch35": ["mhc_pre_sinkhorn", "mhc_post", "mla_prolog"]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "6f0d3ec620b338cab4f2d00322ff2e0d141419d2",
+  "commands": [
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+  ],
+  "has_aicpu": false,
+  "license": "LICENSE"
+}
