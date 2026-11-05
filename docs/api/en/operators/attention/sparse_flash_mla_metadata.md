@@ -1,102 +1,146 @@
-# Shared-KV attention metadata
+# sparse_flash_mla_metadata
+
+The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
+
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+
+
+## CANN 9.1 compatibility
+
+`cann_ops_transformer_cann920` and the upstream spelling
+`cann_ops_transformers_cann920` select the same bundled CANN 9.2 implementation.
+On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit
+original-KV sparse inputs select `ascendc` compute and `host` metadata. Those
+explicit inputs cannot also include compressed KV. Host metadata requires the
+existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
+Bindings come from the wheel's third-party payload; no standalone operator wheel
+is required. A5 uses the separate mixed-quant sparse APIs.
+
+The migrated `torch_native` metadata API returns a reference descriptor, not
+native tiling bytes. Paired migrated tests build that descriptor independently.
+The upstream compute reference also accepts opaque native metadata and covers
+SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 
 ## Hardware support
 
-| Implementation | ARCH22 / A3 | ARCH35 / A5 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | supported | supported |
-| `ops_transformer_cann910` | supported | supported |
-| `host` | supported | supported |
-| `torch_native` | supported | supported |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | Supported | Unsupported |
+| CANN 9.1 `ops_transformer_cann910`, `ascendc` / `host` | Supported | Unsupported |
+| `torch_native` (reference descriptor) | Supported | Supported |
 
 ## Signature
+
+On arch22, `auto` selects the matching CANN 9.1 or 9.2 implementation. The expanded arguments below describe the CANN 9.2 binding; omitted arguments retain the selected binding's defaults.
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
 
-def sparse_flash_mla_metadata(*, impl='auto', **kwargs):
+def sparse_flash_mla_metadata(
+    num_heads_q,
+    num_heads_kv,
+    head_dim,
+    *,
+    cu_seqlens_q=None,
+    cu_seqlens_ori_kv=None,
+    cu_seqlens_cmp_kv=None,
+    seqused_q=None,
+    seqused_ori_kv=None,
+    seqused_cmp_kv=None,
+    cmp_residual_kv=None,
+    ori_topk_length=None,
+    cmp_topk_length=None,
+    batch_size=None,
+    max_seqlen_q=None,
+    max_seqlen_ori_kv=None,
+    max_seqlen_cmp_kv=None,
+    ori_topk=None,
+    cmp_topk=None,
+    cmp_ratio=None,
+    ori_mask_mode=None,
+    cmp_mask_mode=None,
+    ori_win_left=None,
+    ori_win_right=None,
+    layout_q=None,
+    layout_kv=None,
+    has_ori_kv=None,
+    has_cmp_kv=None,
+    impl="auto",
+):
     ...
 ```
 
-`auto` selects the initialized SDK production path: original bindings on CANN 9.1, released bindings on CANN 9.2. Execution failures never trigger another backend.
-
 ## Description
 
-Use matching ABI, query lengths, mask and layout for the paired sparse_flash_mla call. On the CANN 9.1 DSpark path, pair `host` metadata with `ascendc` compute.
+Builds the AI Core task-splitting metadata consumed by
+[sparse_flash_mla](sparse_flash_mla.md). The usual flow is: prepare `q`, `ori_kv`,
+the optional `cmp_kv`, sequence lengths, sparse indices and block tables; call this
+operator to obtain `metadata`; pass `metadata` to the main operator.
 
-Build opaque native scheduling metadata. The torch reference stores a parameter descriptor; it does not reproduce CANN binary tiling bytes.
+Both calls must receive the same scheduling arguments with identical values,
+otherwise behaviour is undefined. In particular this operator defaults `cmp_ratio`,
+`ori_mask_mode`, `cmp_mask_mode`, `ori_win_left` and `ori_win_right` to `None` while
+the main operator defaults them to `1`, `0`, `0`, `-1` and `-1`, so pass these five
+arguments explicitly instead of relying on defaults.
 
-## Parameters
+Returns an opaque `int32[2048]` tensor whose contents are implementation defined and
+must not be interpreted by callers.
 
-| Name | Type | Default | Contract |
+## Parameters and return value
+
+| Parameter | Type / shape / dtype | Default | Meaning and constraints |
 | --- | --- | --- | --- |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+| `num_heads_q` | `int` | Required | Query head count; on Atlas A2/A3 one of 1, 2, 4, 8, 16, 32, 64, 128. |
+| `num_heads_kv` | `int` | Required | KV head count; only 1. |
+| `head_dim` | `int` | Required | Head width; only 512. |
+| `cu_seqlens_q`, `cu_seqlens_ori_kv`, `cu_seqlens_cmp_kv` | Optional Tensor `[B+1]`; int32 | `None` | Packed TND boundaries starting at zero and non-decreasing. |
+| `seqused_q`, `seqused_ori_kv`, `seqused_cmp_kv` | Optional Tensor `[B]`; int32 | `None` | Valid length per request. |
+| `cmp_residual_kv` | Tensor `[B]`; int32 | `None` | Compression remainder, each value below `cmp_ratio`; required with `cmp_mask_mode=3` and `cmp_ratio!=1`. |
+| `ori_topk_length` | Optional Tensor; int32 | `None` | Valid length of `ori_sparse_indices`. |
+| `cmp_topk_length` | Optional Tensor; int32; `[T,N2]` (TND) or `[B,S,N2]` | `None` | Valid length of `cmp_sparse_indices`. |
+| `batch_size` | `int` | `None` | Batch size for the BSND layout. |
+| `max_seqlen_q`, `max_seqlen_ori_kv`, `max_seqlen_cmp_kv` | `int` | `None` | Maximum valid length of each input. |
+| `ori_topk` | `int` | `None` | Sparse token count on the original side; only 0 on Atlas A2/A3. |
+| `cmp_topk` | `int` | `None` | Compressed TopK length; required for CSA and equal to the last dimension of `cmp_sparse_indices`. |
+| `cmp_ratio` | `int` | `None` | Compression ratio: 1 for SWA, 1/2/4 for CSA, 128 for HCA. |
+| `ori_mask_mode` | `int` | `None` | `0` unmasked, `3` causal, `4` sliding window. |
+| `cmp_mask_mode` | `int` | `None` | `0` unmasked, `3` causal. |
+| `ori_win_left`, `ori_win_right` | `int` | `None` | Sliding-window bounds; Atlas A3 requires 127 and 0. |
+| `layout_q` | `str` | `None` | `BSND` or `TND`. |
+| `layout_kv` | `str` | `None` | `BSND`, `TND`, or `PA_BBND`. |
+| `has_ori_kv`, `has_cmp_kv` | `bool` | `None` | Must match whether the main operator receives `ori_kv` and `cmp_kv`. |
+| `impl` | `str`, keyword only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
 
-### Keyword arguments
-
-| Name | Type | Contract |
-| --- | --- | --- |
-| ori_kv / cmp_kv | Tensor / None | Original/optional compressed paged KV [pages,page_size,1,D]; BF16 or SDK-selected packed bytes. |
-| ori_block_table / cmp_block_table | int32 Tensor / None | [B,max_pages] logical-to-physical page tables. |
-| cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
-| seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
-| ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
-| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
-| sinks | Tensor / None | Optional per-head softmax sink logits. |
-| metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
-| softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
-| ori_mask_mode / cmp_mask_mode | int | Reference supports original explicit 0 or SWA 4; compressed 0 or causal 3. |
-| ori_win_left / ori_win_right | int | Original visibility window; reference defaults 127 / 0. |
-| layout_q / layout_kv | str | Reference defaults TND / PA_BBND; BSND queries also supported. |
-| return_softmax_lse | bool | Default False; unused LSE is an empty FP32 tensor. |
-| quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
-| num_heads_q / num_heads_k / head_dim / batch_size / max_seqlen_q | int | Native scheduling geometry; use the same values as paired compute. |
-| has_ori_kv / has_cmp_kv | bool | Whether original/compressed streams participate. |
-| cu_seqlens_q_cpu / seqused_ori_kv_cpu | CPU int32 Tensor / None | Existing host mirrors required by CANN 9.1 explicit sparse metadata; no device-to-host copy is introduced. |
-
-## Return value
-
-| Name | Type | Contract |
-| --- | --- | --- |
-| metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
-
-## cann_ops_transformer_cann920
-
-Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
-
-## ops_transformer_cann910
-
-Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
-
-## host
-
-Source: [sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp). The checked-in C++ scheduler computes metadata on the host CPU, then copies the table to NPU. It is not an Ascend C device kernel. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
-
-## torch_native
-
-Independent eager PyTorch reference for correctness; never an automatic production or graph-capture fallback. Metadata descriptors are not native tiling bytes. Modes outside the documented reference domain are rejected.
+Returns `metadata`: Tensor, `int32`, shape `[2048]`, on the input device.
 
 ## Example
 
 ```python
 import torch
 import torch_npu
+
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
 
-q = torch.randn(1, 1, 512, device="npu", dtype=torch.bfloat16)
-i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
-kw = dict(cu_seqlens_q=i32([0, 1]), seqused_ori_kv=i32([1]),
-          ori_block_table=i32([[0]]), layout_q="TND", layout_kv="PA_BBND",
-          ori_mask_mode=4, cmp_mask_mode=3, cmp_ratio=1)
-cache = torch.randn(1, 128, 1, 512, device="npu", dtype=torch.bfloat16)
-metadata = sparse_flash_mla_metadata(impl="torch_native", **kw)
+boundaries = torch.tensor([0, 16], dtype=torch.int32, device="npu")
+seqused_ori = torch.tensor([128], dtype=torch.int32, device="npu")
+
+metadata = sparse_flash_mla_metadata(
+    8, 1, 512,
+    cu_seqlens_q=boundaries,
+    seqused_ori_kv=seqused_ori,
+    max_seqlen_q=16,
+    max_seqlen_ori_kv=128,
+    ori_topk=0,
+    cmp_topk=0,
+    cmp_ratio=1,
+    ori_mask_mode=4,
+    cmp_mask_mode=0,
+    ori_win_left=127,
+    ori_win_right=0,
+    layout_q="TND",
+    layout_kv="PA_BBND",
+    has_ori_kv=True,
+    has_cmp_kv=False,
+)
+print(metadata.shape, metadata.dtype)  # [2048], int32
 ```
-
-Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
-
-```bash
-python3 -m pytest tests/python/operators/attention/test_sparse_flash_mla_metadata.py \
-  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
-```
-
-[Upstream operators](https://github.com/Ascend/ops-transformer)
