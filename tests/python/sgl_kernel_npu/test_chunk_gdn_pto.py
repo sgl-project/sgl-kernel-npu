@@ -11,9 +11,6 @@ def _has_npu() -> bool:
     return hasattr(torch, "npu") and torch.npu.is_available()
 
 
-# The fused kernel is no longer compiled here: it ships in the optional
-# pto-kernels wheel. Skip when that wheel is not installed, the same way this
-# used to skip when the op was absent from a reduced build.
 pytestmark = [
     pytest.mark.skipif(not _has_npu(), reason="NPU is required"),
     pytest.mark.skipif(not is_available(), reason="pto-kernels wheel is not installed"),

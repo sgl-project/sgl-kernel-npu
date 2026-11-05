@@ -95,6 +95,11 @@ Before building from source, initialize the submodule(s):
 git submodule update --init --recursive
 ```
 
+and optionally, enable PTO mega-kernels by setting `GDN_USE_MEGA_GDN=1` and
+```bash
+pip install pto-kernels==0.2.0
+```
+
 DeepEP-Ascend: Ascend Implementation of DeepEP. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md)
 
 SGLang-Kernel-NPU: Other SGLang Kernels for Ascend NPU. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/sgl_kernel_npu/README.md)

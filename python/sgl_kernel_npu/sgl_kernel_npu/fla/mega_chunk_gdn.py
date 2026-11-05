@@ -9,15 +9,6 @@ CHUNK_SIZE = 128
 
 @lru_cache(maxsize=1)
 def _pto_gdn_mega():
-    """Return the fused chunk-GDN entry point from the pto-kernels wheel.
-
-    The kernel used to be compiled in this repository and registered as
-    ``torch.ops.npu.mega_chunk_gdn``. It now ships prebuilt in the
-    ``pto-kernels`` wheel, which is an optional dependency: it is built per
-    SOC version, and the A2/A3 build is not interchangeable with an A5 one.
-    Callers must treat an ImportError as "fast path unavailable" and fall
-    back, which is what ``sgl_kernel_npu.fla.chunk`` does.
-    """
     from pto_kernels import pto_gdn_mega
 
     return pto_gdn_mega
@@ -177,9 +168,6 @@ def run_mega_chunk_gdn(
     o_workspace_gated = torch.zeros_like(o_workspace_qk)
     out = torch.empty_like(v)
 
-    # Caller-allocates: every buffer above is written in place by the kernel.
-    # The allocation is expected to move into the wheel's C++ host wrapper in a
-    # later step, at which point this call loses most of its arguments.
     _pto_gdn_mega()(
         q=q,
         k=k,

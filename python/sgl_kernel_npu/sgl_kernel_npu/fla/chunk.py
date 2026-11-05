@@ -27,15 +27,19 @@ def _use_mega_gdn():
 
     The fused kernel ships in the optional ``pto-kernels`` wheel rather than
     being compiled here, so it may simply be absent: the wheel is built per
-    SOC version. Requiring the import to succeed keeps the Triton path working
-    on installs without it.
+    SOC version.
+
     """
     if os.getenv("GDN_USE_MEGA_GDN", "0") != "1":
         return False
 
     from sgl_kernel_npu.fla import mega_chunk_gdn
 
-    return mega_chunk_gdn.is_available()
+    if not mega_chunk_gdn.is_available():
+        raise ImportError(
+            "GDN_USE_MEGA_GDN=1 requires pto-kernels. Run pip install pto-kernels."
+        )
+    return True
 
 
 def fast_inv_tril(A: torch.Tensor):
