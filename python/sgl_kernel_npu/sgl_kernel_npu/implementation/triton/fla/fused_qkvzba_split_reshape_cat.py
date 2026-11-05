@@ -3,6 +3,7 @@
 import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
 from ..utils.triton_utils import get_device_properties
 
@@ -457,7 +458,9 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     dtype_size = mixed_qkvz.element_size()
     ub_size_bytes = UB_SPECIFICATION * 1024
 
-    target_elements_per_iter = (ub_size_bytes * 0.4) // dtype_size
+    # Use a smaller tile on A5 to avoid UB overflow.
+    ub_ratio = 0.2 if get_hardware().generation == Generation.ARCH35 else 0.4
+    target_elements_per_iter = (ub_size_bytes * ub_ratio) // dtype_size
     rows_per_iter = max(1, int(target_elements_per_iter // block_size_col))
     rows_per_iter = triton.next_power_of_2(rows_per_iter)
     rows_per_iter = min(rows_per_iter, MAX_ROWS_PER_ITER)
