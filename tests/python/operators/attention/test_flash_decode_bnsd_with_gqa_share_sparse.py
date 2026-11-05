@@ -14,7 +14,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
-from tests.python.utils.common import make_executor
+from tests.python.utils.common import make_executor, require_test_impl
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -209,27 +209,14 @@ def test_auto_keeps_sink_on_triton():
 def test_ascendc_rejects_unsupported(overrides):
     """The native op has no sink input and only D=128/block_size=128 tilings.
 
-    ``ascendc`` is registered for arch22 only, and a build without the native
-    op raises before the input asserts, so both cases skip instead of failing.
+    ``ascendc`` is arch22-only, so the framework skips this case on other
+    generations before the input asserts run.
     """
     from sgl_kernel_npu.operators.attention import (
         flash_decode_bnsd_with_gqa_share_sparse,
     )
-    from sgl_kernel_npu.operators.attention.flash_decode_bnsd_with_gqa_share_sparse import (
-        _get_native_sparse_op,
-    )
-    from sgl_kernel_npu.operators.utils.registry import (
-        UnsupportedGenerationError,
-        get_impl,
-    )
 
-    try:
-        get_impl(flash_decode_bnsd_with_gqa_share_sparse, "ascendc")
-    except UnsupportedGenerationError as error:
-        pytest.skip(str(error))
-    if _get_native_sparse_op() is None:
-        pytest.skip("the native npu_sparse_attention_score op is not in this build")
-
+    require_test_impl(flash_decode_bnsd_with_gqa_share_sparse, "ascendc")
     kwargs = build_inputs(seq_lens=(4096,), topk=4, **overrides)
     with pytest.raises(AssertionError):
         flash_decode_bnsd_with_gqa_share_sparse(**kwargs, impl="ascendc")
