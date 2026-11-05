@@ -7,26 +7,44 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
+# MiniMax NPU uses page-size-dependent sparse decode with runtime head counts.
+# The larger case uses block=128/topk=16 from that path; batch/heads are synthetic.
+perf_shape = [(2, 8, 1, 128, 128, 2048, 32)]
 
+
+@pytest.mark.parametrize("shape", [(2, 4, 2, 64, 16, 35, 4), *perf_shape])
 @pytest.mark.parametrize("sink_enabled", [False, True])
 @pytest.mark.parametrize("chunks", [1, 2])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_gqa_share_sparse_decode(sink_enabled, chunks, dtype):
+def test_gqa_share_sparse_decode(shape, sink_enabled, chunks, dtype):
     from sgl_kernel_npu.operators.attention import gqa_share_sparse_decode
 
-    q = torch.randn(2, 4, 64, dtype=dtype) * 0.1
-    k = torch.randn(4, 16, 2, 64, dtype=dtype) * 0.1
+    batch, query_heads, kv_heads, dim, block_size, context, width = shape
+    pages_per_request = (context + block_size - 1) // block_size
+    num_pages = batch * pages_per_request
+    q = torch.randn(batch, query_heads, dim, dtype=dtype) * 0.1
+    k = torch.randn(num_pages, block_size, kv_heads, dim, dtype=dtype) * 0.1
     v = torch.randn_like(k)
-    sink = torch.randn(4, 64, dtype=dtype) * 0.1 if sink_enabled else None
-    block_table = torch.tensor([[2, 0, 1], [0, 3, 1]], dtype=torch.int32)
-    lengths = torch.tensor([35, 20], dtype=torch.int32)
-    topk = torch.tensor(
-        [[[0, 1, 2, -1], [0, 1, -1, -1]], [[0, 1, 2, -1], [0, 1, -1, -1]]],
-        dtype=torch.int32,
+    sink = torch.randn(query_heads, dim, dtype=dtype) * 0.1 if sink_enabled else None
+    block_table = (
+        torch.randperm(num_pages).reshape(batch, pages_per_request).to(torch.int32)
     )
+    lengths = torch.tensor([context, context - block_size + 1], dtype=torch.int32)
+    topk = torch.full((kv_heads, batch, width), -1, dtype=torch.int32)
+    for row in range(batch):
+        valid = (int(lengths[row].item()) + block_size - 1) // block_size
+        topk[:, row, :valid] = torch.randperm(valid).to(torch.int32)
     executor = check_accuracy(
         gqa_share_sparse_decode,
-        args=(q, sink, k, v, block_table, lengths, 16, topk),
+        args=(q, sink, k, v, block_table, lengths, block_size, topk),
         kwargs={"num_topk_chunks": chunks},
     )
-    check_performance(executor, enable_perf=(not sink_enabled and chunks == 1))
+    check_performance(
+        executor,
+        enable_perf=(
+            shape in perf_shape
+            and dtype == torch.bfloat16
+            and not sink_enabled
+            and chunks == 1
+        ),
+    )

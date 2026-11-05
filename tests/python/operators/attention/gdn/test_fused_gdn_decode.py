@@ -15,18 +15,23 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
+# Qwen3-Next TP4: 4 key heads, 8 value heads, K=V=128.
+# Batch 16 is a synthetic decode load, not a captured production batch.
+perf_shape = [(16, 4, 8, 128)]
 
+
+@pytest.mark.parametrize("shape", [(4, 2, 4, 64), (16, 4, 8, 128)])
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("normalize", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_fused_gdn_decode(varlen, normalize, dtype):
+def test_fused_gdn_decode(shape, varlen, normalize, dtype):
     from sgl_kernel_npu.operators.attention.gdn import fused_gdn_decode
 
-    count, heads, value_heads, dim = 4, 2, 4, 64
-    shape = (1, count) if varlen else (count, 1)
-    q = torch.randn(*shape, heads, dim, dtype=dtype)
+    count, heads, value_heads, dim = shape
+    token_shape = (1, count) if varlen else (count, 1)
+    q = torch.randn(*token_shape, heads, dim, dtype=dtype)
     k = torch.randn_like(q)
-    v = torch.randn(*shape, value_heads, dim, dtype=dtype)
+    v = torch.randn(*token_shape, value_heads, dim, dtype=dtype)
     a = torch.randn(count, value_heads, dtype=dtype)
     b = torch.randn_like(a)
     A_log = torch.randn(value_heads, dtype=torch.float32)
@@ -72,7 +77,9 @@ def test_fused_gdn_decode(varlen, normalize, dtype):
     executor.accuracy_checked = accuracy_checked
     check_performance(
         executor,
-        enable_perf=(not varlen and normalize),
+        enable_perf=(
+            shape in perf_shape and dtype == torch.bfloat16 and not varlen and normalize
+        ),
         warmup=warmup,
         active=active,
     )

@@ -7,8 +7,11 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
+# Qwen3-Next TP4 has 8 value heads; 2048 tokens is a synthetic prefill load.
+perf_shape = [(1, 2048, 8)]
 
-@pytest.mark.parametrize("length", [64, 129])
+
+@pytest.mark.parametrize("length", [64, 129, 2048])
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
@@ -29,7 +32,13 @@ def test_chunk_local_cumsum(length, reverse, varlen, dtype):
         },
     )
     check_performance(
-        executor, enable_perf=(length == 129 and not reverse and not varlen)
+        executor,
+        enable_perf=(
+            tuple(g.shape) in perf_shape
+            and dtype == torch.bfloat16
+            and not reverse
+            and not varlen
+        ),
     )
 
 

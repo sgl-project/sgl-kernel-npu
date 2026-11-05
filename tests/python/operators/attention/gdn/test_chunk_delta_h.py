@@ -8,8 +8,11 @@ from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
+# Qwen3-Next TP4: Hg=4, H=8, K=V=128; T=2048 is synthetic prefill.
+perf_shape = [(1, 2048, 4, 8, 128, 128)]
 
-@pytest.mark.parametrize("length", [64, 129])
+
+@pytest.mark.parametrize("length", [64, 129, 2048])
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
@@ -22,13 +25,13 @@ from tests.python.utils.standards import AccuracyStandard
 def test_chunk_delta_h(length, varlen, dtype, head_dim):
     from sgl_kernel_npu.operators.attention.gdn import chunk_delta_h
 
-    k = torch.randn(1, length, 2, head_dim, dtype=dtype) * 0.05
-    w = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05
-    u = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05
-    g = -torch.rand(1, length, 4).cumsum(dim=1) * 0.01
+    k = torch.randn(1, length, 4, head_dim, dtype=dtype) * 0.05
+    w = torch.randn(1, length, 8, head_dim, dtype=dtype) * 0.05
+    u = torch.randn(1, length, 8, head_dim, dtype=dtype) * 0.05
+    g = -torch.rand(1, length, 8).cumsum(dim=1) * 0.01
     offsets = torch.tensor([0, 31, length], dtype=torch.int32) if varlen else None
     state = (
-        torch.randn(2 if varlen else 1, 4, head_dim, head_dim, dtype=torch.float32)
+        torch.randn(2 if varlen else 1, 8, head_dim, head_dim, dtype=torch.float32)
         * 0.05
     )
     executor = check_accuracy(
@@ -47,5 +50,9 @@ def test_chunk_delta_h(length, varlen, dtype, head_dim):
     )
     check_performance(
         executor,
-        enable_perf=(head_dim == 128 and length == 129 and not varlen),
+        enable_perf=(
+            (1, length, 4, 8, head_dim, head_dim) in perf_shape
+            and dtype == torch.bfloat16
+            and not varlen
+        ),
     )
