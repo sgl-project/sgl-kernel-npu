@@ -3,7 +3,7 @@
 import torch
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import cann_backend, checked_kwargs, require_op
+from ..utils.transformer_compat import cann_backend, filter_supported_kwargs, require_op
 
 
 @register_impl("moe.moe_gating_top_k", "auto")
@@ -101,7 +101,7 @@ def _cann_9_1(
         routed_scaling_factor=routed_scaling_factor,
         eps=eps,
     )
-    kwargs = checked_kwargs(
+    kwargs = filter_supported_kwargs(
         op,
         kwargs,
         defaults={

@@ -87,7 +87,7 @@ def require_op(namespace, name, *, backend=None, required_arguments=()):
             f"Missing {namespace}.{name}; register the matching operator library "
             "before the first call. No other CANN backend is tried."
         )
-    arguments = schema_arguments(op)
+    arguments = get_operator_parameter_names(op)
     if arguments is not None:
         missing = set(required_arguments) - arguments
         if missing:
@@ -97,15 +97,15 @@ def require_op(namespace, name, *, backend=None, required_arguments=()):
     return op
 
 
-def schema_arguments(op):
+def get_operator_parameter_names(op):
     if isinstance(op, torch._ops.OpOverloadPacket):
         return {arg.name for arg in op.default._schema.arguments}
     return None
 
 
-def checked_kwargs(op, kwargs, *, defaults=None):
+def filter_supported_kwargs(op, kwargs, *, defaults=None):
     """Drop only absent, semantically unused defaults in an older schema."""
-    names = schema_arguments(op)
+    names = get_operator_parameter_names(op)
     if names is None:
         return kwargs
     result = {}
