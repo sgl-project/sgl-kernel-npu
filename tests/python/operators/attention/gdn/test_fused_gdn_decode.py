@@ -37,6 +37,8 @@ def test_fused_gdn_decode(varlen, normalize, dtype):
     args = (A_log, a, bias, 1.0, 20.0, q, k, v, b)
     kwargs = {"use_qk_l2norm_in_kernel": normalize, "cu_seqlens": offsets}
 
+    # Retain the uniform 0.04 tolerances from the initial manual migration checks.
+    # These overrides have not been justified by a separate error analysis.
     standard = {
         str(dtype): AccuracyStandard(atol=0.04, rtol=0.04),
         "torch.float32": AccuracyStandard(atol=0.04, rtol=0.04),
