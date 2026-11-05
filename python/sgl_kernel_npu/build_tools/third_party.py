@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from build_tools.cann import PROJECT_ROOT, run
 
 # Explicit allowlist: configuration cannot import arbitrary Python code.
-_ADAPTERS = {"ops_transformer", "cann_recipes_infer"}
+_ADAPTERS = {"ops_transformer", "cann_recipes_infer", "zerc_moe"}
 
 
 @lru_cache(maxsize=None)
@@ -112,6 +112,11 @@ def resolve_plan(
         config = read_json(config_path)
         # Profile documentation is not part of the build configuration or cache key.
         config.pop("_comment", None)
+        opt_in = config.pop("opt_in", False)
+        if not isinstance(opt_in, bool):
+            raise ValueError("opt_in must be a boolean")
+        if opt_in and third_party is None:
+            continue
         if not isinstance(config.get("has_aicpu", False), bool):
             raise ValueError("has_aicpu must be a boolean")
         if not re.fullmatch(r"[0-9a-f]{40}", config["commit"]):
@@ -125,6 +130,12 @@ def resolve_plan(
             raise ValueError("Each architecture's ops must be a list or mapping")
         config["ops"] = ops_by_arch.get(arch_name, [])
         if not config["ops"]:
+            if opt_in and third_party is not None:
+                raise ValueError(
+                    "Third-party {} is not supported on {}".format(
+                        config_path.stem, arch_name
+                    )
+                )
             print(
                 "[INFO] No operators for third-party {}, CANN {}, {}; "
                 "skipping this library.".format(config_path.stem, version, arch_name),

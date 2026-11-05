@@ -2,6 +2,8 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [zerc_moe](operators/moe/zerc_moe.md) | `ascendc`（未验证） |
+| [create_zerc_moe_buffer](operators/moe/zerc_moe.md) | `ascendc`（未验证） |
 | [add_example](operators/examples/add_example.md) | `aicpu`、`torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
