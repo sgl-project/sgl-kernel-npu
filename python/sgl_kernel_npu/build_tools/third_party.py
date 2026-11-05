@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from build_tools.cann import PROJECT_ROOT, run
 
 # Explicit allowlist: configuration cannot import arbitrary Python code.
-_ADAPTERS = {"ops_transformer", "cann_recipes_infer"}
+_ADAPTERS = {"ops_transformer", "cann_recipes_infer", "native_compressor"}
 
 
 @lru_cache(maxsize=None)
@@ -325,11 +325,12 @@ def _build_dependency(item, root):
     ).strip()
     if head != item["commit"]:
         raise RuntimeError("Checked out unexpected dependency commit")
-    run(
-        ["git", "submodule", "update", "--init", "--recursive"],
-        directory / "submodules.log",
-        cwd=source,
-    )
+    if item.get("submodules", True):
+        run(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            directory / "submodules.log",
+            cwd=source,
+        )
     return get_adapter(item["builder"]).build(item, source, directory)
 
 

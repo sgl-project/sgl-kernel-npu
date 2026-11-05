@@ -19,6 +19,25 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
         for _dependency in json.loads(_manifest_path.read_text()).get(
             "third_party", []
         ):
+            if _dependency.get("binding") == "precompiled_native":
+                _package_name = _dependency["python_package"]
+                if pathlib.Path(
+                    _package_name
+                ).name != _package_name or _package_name in (".", ".."):
+                    raise RuntimeError(
+                        "Invalid bundled native package: " + _package_name
+                    )
+                _native_library = (
+                    pathlib.Path(__file__).resolve().parent
+                    / "_third_party"
+                    / _package_name
+                    / "lib/libsgl_native_compressor.so"
+                )
+                if not _native_library.is_file():
+                    raise RuntimeError(
+                        "Missing bundled native compressor: " + str(_native_library)
+                    )
+                continue
             _name = _dependency["vendor_directory"]
             if pathlib.Path(_name).name != _name or _name in (".", ".."):
                 raise RuntimeError("Invalid bundled vendor name: " + _name)
