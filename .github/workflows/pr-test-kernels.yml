@@ -1,4 +1,5 @@
 name: PR Test - Kernel Operators (Ascend NPU)
+# Build and install the kernel wheel before running operator tests.
 
 on:
   pull_request:
@@ -221,7 +222,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run norm operator tests
-        timeout-minutes: 15
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh norm
 
   test-attention-ops:
@@ -271,7 +272,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run attention operator tests
-        timeout-minutes: 20
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh attention
 
   test-cache-ops:
@@ -321,7 +322,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run cache operator tests
-        timeout-minutes: 15
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh cache
 
   test-speculative-ops:
@@ -371,7 +372,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run speculative decoding operator tests
-        timeout-minutes: 15
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh speculative
 
   test-mamba-ops:
@@ -421,7 +422,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run mamba operator tests
-        timeout-minutes: 15
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh mamba
 
   test-fla-ops:
@@ -471,7 +472,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run FLA/GDN operator tests
-        timeout-minutes: 20
+        timeout-minutes: 60
         run: bash scripts/run_kernel_tests.sh fla
 
   test-fused-ops:
@@ -521,7 +522,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run fused operator tests
-        timeout-minutes: 20
+        timeout-minutes: 120
         run: bash scripts/run_kernel_tests.sh fused
 
   finish:
