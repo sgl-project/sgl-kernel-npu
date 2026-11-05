@@ -89,6 +89,7 @@ constexpr int64_t BS_UPPER_BOUND = 512;
 constexpr uint64_t INIT_TILINGKEY = 30000;
 constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
+constexpr uint64_t TILING_KEY_A5_LAYERED = 53000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
 constexpr uint32_t TILINGKEY_COMM_ALG = 1000;
@@ -1423,22 +1424,41 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     std::string socVersion;
     bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
+    bool isLayered = strcmp(commAlgPtr, "hierarchy") == 0;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
     if (ccuFlag) {
         return MoeDistributeDispatchTilingImpl(context);
     }
     OP_LOGD(nodeName, "socVersion %s", socVersion.c_str());
     OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
+    if (isLayered) {
+        uint32_t opType = 18;  // BatchWrite
+        std::string algConfig = "BatchWrite=level1:hierarchy";
+        auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
+        std::string groupEp = (groupEpPtr != nullptr) ? std::string(groupEpPtr) : std::string();
+        AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType, algConfig);
+        mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);
+        mc2CcTilingConfig.GetTiling(tilingData->mc2InitTiling);
+        mc2CcTilingConfig.GetTiling(tilingData->mc2CcTiling1);
+    }
     if (socVersion == "Ascend950") {
-        tilingKey = TILING_KEY_A5_TYPE;
+        if (isLayered) {
+            tilingKey = TILING_KEY_A5_LAYERED + static_cast<uint64_t>(quantMode);
+        } else {
+            tilingKey = TILING_KEY_A5_TYPE;
+        }
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }
     uint32_t tpWorldSize = tilingData->moeDistributeDispatchV2Info.tpWorldSize;
-    CalTilingKey(tilingKey, isScales, quantMode, tpWorldSize, isSetCommAlg);
+    if (!isLayered) {
+        CalTilingKey(tilingKey, isScales, quantMode, tpWorldSize, isSetCommAlg);
+    }
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
-    SetHcommCfg(context, tilingData);
+    if (!isLayered) {
+        SetHcommCfg(context, tilingData);
+    }
     // 校验win区大小
     OP_TILING_CHECK(CheckWinSize(context, *tilingData, nodeName, isSetCommAlg, localMoeExpertNum) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling check window size failed."), return ge::GRAPH_FAILED);
