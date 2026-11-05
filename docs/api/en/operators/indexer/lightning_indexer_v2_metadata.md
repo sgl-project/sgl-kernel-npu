@@ -15,7 +15,7 @@ Upstream documentation: [lightning_indexer_v2_metadata](https://gitcode.com/cann
 `auto` and `cann_ops_transformers_cann920` select the same bundled backend, require CANN 9.2.0, and do not fall back.
 
 ```python
-from sgl_kernel_npu.operators.attention import lightning_indexer_v2_metadata
+from sgl_kernel_npu.operators.indexer import lightning_indexer_v2_metadata
 
 def lightning_indexer_v2_metadata(
     num_heads_q,
@@ -57,7 +57,7 @@ Build with the ops_transformer profile: vendor, bindings, AICPU resources and LI
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import (
+from sgl_kernel_npu.operators.indexer import (
     lightning_indexer_v2, lightning_indexer_v2_metadata, sparse_lightning_indexer,
 )
 q = torch.randn(1, 1, 32, 128, device="npu", dtype=torch.bfloat16)

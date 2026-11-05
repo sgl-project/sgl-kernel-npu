@@ -450,7 +450,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 python setup.py --arch-version 2201 --third-party ops_transformer --plan --cann-version 9.2.0
 python setup.py --arch-version 2201 --third-party ops_transformer -j 8
 python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
-python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+python -m pytest tests/python/operators/indexer/test_lightning_indexer_v2.py \
   --skip-acc-check=false --enable-perf=false -v -s -x -rs
 ```
 
@@ -474,7 +474,7 @@ python setup.py --arch-version 2201 \
   --third-party ops_transformer -j 8
 python -m pip install --force-reinstall --no-deps output/sgl_kernel_npu-*.whl
 python -m pytest tests/python/operators/attention/test_compressor_v2.py \
-  tests/python/operators/attention/test_lightning_indexer_v2.py \
+  tests/python/operators/indexer/test_lightning_indexer_v2.py \
   --skip-acc-check=false --enable-perf=false -v -s -x -rs
 ```
 

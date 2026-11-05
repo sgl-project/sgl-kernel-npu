@@ -26,10 +26,10 @@ def load(name, path):
 
 native = load(
     "indexer_reference",
-    PACKAGE / "implementation/torch_native/attention/lightning_indexer.py",
+    PACKAGE / "implementation/torch_native/indexer/lightning_indexer.py",
 )
 validation = load(
-    "indexer_validation", PACKAGE / "operators/attention/_lightning_indexer.py"
+    "indexer_validation", PACKAGE / "operators/indexer/_lightning_indexer.py"
 )
 
 
@@ -143,11 +143,11 @@ class TestIndexerPackaging(unittest.TestCase):
         for suffix in (
             "",
             ".operators",
-            ".operators.attention",
+            ".operators.indexer",
             ".operators.utils",
             ".implementation",
             ".implementation.torch_native",
-            ".implementation.torch_native.attention",
+            ".implementation.torch_native.indexer",
             "._third_party",
             "._third_party.sgl_ops_transformer",
         ):
@@ -179,13 +179,13 @@ class TestIndexerPackaging(unittest.TestCase):
                 generation, "get_hardware", return_value=hardware
             ), patch.object(cann, "detect_cann_version", return_value="9.2.0"):
                 dense = importlib.import_module(
-                    "sgl_kernel_npu.operators.attention.lightning_indexer_v2"
+                    "sgl_kernel_npu.operators.indexer.lightning_indexer_v2"
                 ).lightning_indexer_v2
                 sparse = importlib.import_module(
-                    "sgl_kernel_npu.operators.attention.sparse_lightning_indexer"
+                    "sgl_kernel_npu.operators.indexer.sparse_lightning_indexer"
                 ).sparse_lightning_indexer
                 metadata = importlib.import_module(
-                    "sgl_kernel_npu.operators.attention.lightning_indexer_v2_metadata"
+                    "sgl_kernel_npu.operators.indexer.lightning_indexer_v2_metadata"
                 ).lightning_indexer_v2_metadata
                 q = torch.ones(1, 1, 1, 128, dtype=torch.float16)
                 k = torch.ones(1, 8, 1, 128, dtype=torch.float16)

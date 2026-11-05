@@ -1,8 +1,8 @@
-# sparse_lightning_indexer
+# lightning_indexer_v2
 
 面向 CANN **9.2.0** 的 A3 接口，构建参数为 `--arch-version 2201`。
 
-上游原始文档：[sparse_lightning_indexer](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_lightning_indexer/README.md)。
+上游原始文档：[lightning_indexer_v2](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/lightning_indexer_v2/README.md)。
 
 ## 芯片支持
 
@@ -16,14 +16,13 @@
 默认 `auto` 在 CANN 9.2.0、arch22 上选择 `cann_ops_transformers_cann920`，不自动回退。
 
 ```python
-from sgl_kernel_npu.operators.attention import sparse_lightning_indexer
+from sgl_kernel_npu.operators.indexer import lightning_indexer_v2
 
-def sparse_lightning_indexer(
+def lightning_indexer_v2(
     q,
     k,
     w,
     topk,
-    candidate_block_indices,
     *,
     cu_seqlens_q=None,
     cu_seqlens_k=None,
@@ -39,8 +38,8 @@ def sparse_lightning_indexer(
     mask_mode=0,
     cmp_ratio=1,
     return_value=0,
-    candidate_block_length=None,
-    candidate_block_size=8,
+    candidate_topk_blocks=None,
+    candidate_block_size=None,
     impl='auto'
 ):
     ...
@@ -56,7 +55,7 @@ score[j] = sum_h w[h] * relu(dot(q[h], k[j, 0]))
 
 再按分数选择 TopK。`mask_mode=3` 为右下对齐因果模式；启用压缩时使用上游定义的压缩后位置域。
 
-仅在 `candidate_block_indices` 指定的候选块内选择有效位置。候选外位置不入选；候选不足时，剩余索引槽填 -1，返回分数时相应槽填 0。此处使用正式 `attention/` 目录下的实现。
+普通路径调用 `aclnnLightningIndexerV2`；候选路径调用 `aclnnLightningIndexerV3`。候选块的得分为块内最大位置分数，最后一个可达块以 +inf 固定参与块级 TopK。候选块可传给 sparse consumer，两侧必须使用相同块大小及兼容的 KV 位置域。候选只在同一次 forward 内复用。
 
 ## 参数与返回值
 
@@ -84,15 +83,19 @@ score[j] = sum_h w[h] * relu(dot(q[h], k[j, 0]))
 
 PA block size 为 16..1024 内的 16 倍数。可选索引 tensor 使用 int32；位置、长度、块号等内容必须符合上游契约，launch 路径不读回 tensor 验证数值。
 
-| 候选参数 | 类型 / shape | 默认值 | 约束 |
+| 候选参数 | 类型 | 默认值 | 约束 |
 | --- | --- | --- | --- |
-| candidate_block_indices | int32 `[B,Q,1,C]` 或 `[Tq,1,C]` | 必传 | 连续，C 为 64..2048 内的 64 倍数 |
-| candidate_block_length | int32 tensor | None | 仅接受 None / 空 tensor，当前为预留参数 |
-| candidate_block_size | int | 8 | 2/4/8/16/32/64，与 source 配置一致 |
+| candidate_topk_blocks | int | None | None：普通路径；-1：四输出但关闭候选；正值为 64..2048 内的 64 倍数 |
+| candidate_block_size | int | None | 候选路径将 None 视为 8，支持 2/4/8/16/32/64 |
 
-`topk` 为 1..2048。候选块号是压缩后 batch 内相对块号，不加 output offset。重复、负值或越界候选不会引入额外位置。
+普通路径 `topk` 支持 1..2048，以及 3072/4096/5120/6144/7168/8192；启用候选模式要求 topk<=2048。
 
-返回 `(indices, values)`。indices 为 int32，shape 为 `[B,Q,1,topk]` 或 `[Tq,1,topk]`，无效槽为 -1；values 为同设备 FP32，启用时与 indices 同形且无效槽为 0，否则为空 tensor。
+`candidate_topk_blocks=None` 返回 `(indices, values)`；显式传入（含 -1）时返回 `(indices, values, candidate_block_indices, candidate_block_length)`。
+
+- indices：int32，shape 为 `[B,Q,1,topk]` 或 `[Tq,1,topk]`，无效槽为 -1。
+- values：同设备 FP32；return_value=0 时为空，否则与 indices 同形，无效槽为 -inf。
+- candidate_block_indices：int32，shape 的前几维与 indices 相同，末维为 candidate_topk_blocks；无效槽为 -1，块号不含 output offset，槽位无序；候选关闭时为空。
+- candidate_block_length：预留的空 int32 tensor。
 
 ## cann_ops_transformers_cann920 后端
 
@@ -107,7 +110,7 @@ PA block size 为 16..1024 内的 16 倍数。可选索引 tensor 使用 int32�
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import (
+from sgl_kernel_npu.operators.indexer import (
     lightning_indexer_v2, lightning_indexer_v2_metadata, sparse_lightning_indexer,
 )
 
@@ -116,9 +119,6 @@ k = torch.randn(1, 512, 1, 128, device="npu", dtype=torch.bfloat16)
 w = torch.randn(1, 1, 32, device="npu", dtype=torch.float32)
 indices, values, blocks, length = lightning_indexer_v2(
     q, k, w, 16, candidate_topk_blocks=64, candidate_block_size=8,
-)
-indices, values = sparse_lightning_indexer(
-    q, k, w, 16, blocks, candidate_block_length=length, candidate_block_size=8,
 )
 ```
 

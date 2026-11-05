@@ -15,12 +15,12 @@ def _binding():
 
 
 @register_impl(
-    "attention.lightning_indexer_v2_metadata",
+    "indexer.lightning_indexer_v2_metadata",
     "auto",
     supported_generations={Generation.ARCH22},
 )
 @register_impl(
-    "attention.lightning_indexer_v2_metadata",
+    "indexer.lightning_indexer_v2_metadata",
     "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH22},
 )
@@ -30,7 +30,7 @@ def _cann_impl(*args, **kwargs):
     return _binding()(*args, **kwargs)
 
 
-@register_operator("attention.lightning_indexer_v2_metadata")
+@register_operator("indexer.lightning_indexer_v2_metadata")
 def lightning_indexer_v2_metadata(
     num_heads_q,
     num_heads_k,
@@ -51,8 +51,8 @@ def lightning_indexer_v2_metadata(
     *,
     impl="auto"
 ):
-    """See docs/api/{en,zh}/operators/attention/lightning_indexer_v2_metadata.md for the contract."""
-    return get_impl_by_name("attention.lightning_indexer_v2_metadata", impl)(
+    """See docs/api/{en,zh}/operators/indexer/lightning_indexer_v2_metadata.md for the contract."""
+    return get_impl_by_name("indexer.lightning_indexer_v2_metadata", impl)(
         num_heads_q=num_heads_q,
         num_heads_k=num_heads_k,
         head_dim=head_dim,

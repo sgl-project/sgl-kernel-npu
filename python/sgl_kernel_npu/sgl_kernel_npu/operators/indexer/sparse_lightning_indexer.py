@@ -18,12 +18,12 @@ def _binding():
 
 
 @register_impl(
-    "attention.sparse_lightning_indexer",
+    "indexer.sparse_lightning_indexer",
     "auto",
     supported_generations={Generation.ARCH22},
 )
 @register_impl(
-    "attention.sparse_lightning_indexer",
+    "indexer.sparse_lightning_indexer",
     "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH22},
 )
@@ -33,16 +33,16 @@ def _cann_impl(*args, **kwargs):
     return _binding()(*args, **kwargs)
 
 
-@register_impl("attention.sparse_lightning_indexer", "torch_native")
+@register_impl("indexer.sparse_lightning_indexer", "torch_native")
 def _native_impl(*args, **kwargs):
-    from ...implementation.torch_native.attention.lightning_indexer import (
+    from ...implementation.torch_native.indexer.lightning_indexer import (
         sparse_lightning_indexer,
     )
 
     return sparse_lightning_indexer(*args, **kwargs)
 
 
-@register_operator("attention.sparse_lightning_indexer")
+@register_operator("indexer.sparse_lightning_indexer")
 def sparse_lightning_indexer(
     q,
     k,
@@ -68,7 +68,7 @@ def sparse_lightning_indexer(
     candidate_block_size=8,
     impl="auto"
 ):
-    """See docs/api/{en,zh}/operators/attention/sparse_lightning_indexer.md for the contract."""
+    """See docs/api/{en,zh}/operators/indexer/sparse_lightning_indexer.md for the contract."""
     validate_inputs(
         q,
         k,
@@ -119,7 +119,7 @@ def sparse_lightning_indexer(
         or not candidate_block_indices.is_contiguous()
     ):
         raise ValueError("candidate_block_indices must be contiguous on q.device")
-    return get_impl_by_name("attention.sparse_lightning_indexer", impl)(
+    return get_impl_by_name("indexer.sparse_lightning_indexer", impl)(
         q=q,
         k=k,
         w=w,

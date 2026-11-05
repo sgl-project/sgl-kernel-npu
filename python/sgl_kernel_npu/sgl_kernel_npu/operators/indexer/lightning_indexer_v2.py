@@ -18,10 +18,10 @@ def _binding():
 
 
 @register_impl(
-    "attention.lightning_indexer_v2", "auto", supported_generations={Generation.ARCH22}
+    "indexer.lightning_indexer_v2", "auto", supported_generations={Generation.ARCH22}
 )
 @register_impl(
-    "attention.lightning_indexer_v2",
+    "indexer.lightning_indexer_v2",
     "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH22},
 )
@@ -31,16 +31,16 @@ def _cann_impl(*args, **kwargs):
     return _binding()(*args, **kwargs)
 
 
-@register_impl("attention.lightning_indexer_v2", "torch_native")
+@register_impl("indexer.lightning_indexer_v2", "torch_native")
 def _native_impl(*args, **kwargs):
-    from ...implementation.torch_native.attention.lightning_indexer import (
+    from ...implementation.torch_native.indexer.lightning_indexer import (
         lightning_indexer_v2,
     )
 
     return lightning_indexer_v2(*args, **kwargs)
 
 
-@register_operator("attention.lightning_indexer_v2")
+@register_operator("indexer.lightning_indexer_v2")
 def lightning_indexer_v2(
     q,
     k,
@@ -65,7 +65,7 @@ def lightning_indexer_v2(
     candidate_block_size=None,
     impl="auto"
 ):
-    """See docs/api/{en,zh}/operators/attention/lightning_indexer_v2.md for the contract."""
+    """See docs/api/{en,zh}/operators/indexer/lightning_indexer_v2.md for the contract."""
     validate_inputs(
         q,
         k,
@@ -106,7 +106,7 @@ def lightning_indexer_v2(
             )
     if cmp_ratio != 1 and mask_mode == 3 and cmp_residual_k is None:
         raise ValueError("Compressed causal attention requires cmp_residual_k")
-    return get_impl_by_name("attention.lightning_indexer_v2", impl)(
+    return get_impl_by_name("indexer.lightning_indexer_v2", impl)(
         q=q,
         k=k,
         w=w,

@@ -15,7 +15,7 @@
 默认 `auto` 在 CANN 9.2.0、arch22 上选择 `cann_ops_transformers_cann920`，不自动回退。
 
 ```python
-from sgl_kernel_npu.operators.attention import lightning_indexer_v2_metadata
+from sgl_kernel_npu.operators.indexer import lightning_indexer_v2_metadata
 
 def lightning_indexer_v2_metadata(
     num_heads_q,
@@ -75,7 +75,7 @@ A3 kernel 不消费该调度信息，主算子可使用 `metadata=None`；绑定
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import (
+from sgl_kernel_npu.operators.indexer import (
     lightning_indexer_v2, lightning_indexer_v2_metadata, sparse_lightning_indexer,
 )
 

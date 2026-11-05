@@ -280,20 +280,21 @@ these cases establishes a historical performance-regression baseline.
 
 ### A3 lightning indexers
 
-`operators/attention/test_lightning_indexer_v2.py` covers the dense source,
-sparse consumer, and metadata combination on CANN 9.2.0/arch22. Its generated
-inputs have distinct analytic scores; representative dimensions are not claimed
-as traced production inputs. Accuracy compares sorted index sets with associated
+`operators/indexer/test_lightning_indexer_v2.py` covers the dense source,
+sparse consumer, and metadata combination on CANN 9.2.0/arch22. Boundary cases
+use distinct analytic scores. `DeepSeek-V4.1-Flash` case IDs identify model-shaped
+prefill/decode cases with generated activations and a pinned configuration source.
+These are not captured production inputs. Accuracy compares sorted index sets with associated
 values, since upstream slot ordering is unspecified. Sorting is excluded from the
 public operator performance region. The Torch reference currently covers
 BSND/BSND, cmp_ratio=1, and masks 0/3; packed/paged/compressed KV need additional
 hardware validation.
 
 ```bash
-python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+python -m pytest tests/python/operators/indexer/test_lightning_indexer_v2.py \
   --skip-acc-check=false --enable-perf=false -v -s -x -rs
 # After accuracy passes, profile only the independently selected performance cases.
-python -m pytest tests/python/operators/attention/test_lightning_indexer_v2.py \
+python -m pytest tests/python/operators/indexer/test_lightning_indexer_v2.py \
   -k representative_performance --prof-dir=results/indexer-profilings \
   --csv-path=results/indexer-performance.csv -v -s
 # CPU reference and binding staging checks, without importing the NPU package.
@@ -311,7 +312,9 @@ backend receives its own copy of the initial cache, preserving axis-0 strides.
 Unwritten output padding is excluded. Cases cover BSH/TH, fp16/bf16, history,
 partial lengths, circular writes, empty sequences, D=128/512 and all supported
 compression ratios. Inputs are synthetic; representative H=5120 performance
-shapes do not establish production provenance.
+shapes do not establish production provenance. `DeepSeek-V4.1-Flash` cases use
+H=5120, D=512 and ratio=2 for prefill and decode, including history produced by
+a preceding prefill call. Their configuration source is linked in the test.
 
 ```bash
 python -m pytest tests/python/operators/attention/test_compressor_v2.py \

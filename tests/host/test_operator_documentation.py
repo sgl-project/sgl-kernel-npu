@@ -19,7 +19,8 @@ class TestOperatorDocumentation(unittest.TestCase):
     def test_utf8_contracts_and_examples(self):
         for language in ("en", "zh"):
             for operator in OPERATORS:
-                path = ROOT / f"docs/api/{language}/operators/attention/{operator}.md"
+                category = "attention" if operator == "compressor_v2" else "indexer"
+                path = ROOT / f"docs/api/{language}/operators/{category}/{operator}.md"
                 with self.subTest(path=path):
                     text = path.read_bytes().decode("utf-8", errors="strict")
                     self.assertNotIn("\ufffd", text)

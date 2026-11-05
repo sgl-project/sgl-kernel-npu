@@ -6,7 +6,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sgl_kernel_npu.operators.attention import (
+from sgl_kernel_npu.operators.indexer import (
     lightning_indexer_v2,
     lightning_indexer_v2_metadata,
     sparse_lightning_indexer,
@@ -132,3 +132,63 @@ def test_representative_performance(operator):
         )
         args += (candidates,)
     check_operator(operator, args, kwargs, enable_perf=True)
+
+
+@pytest.mark.parametrize(
+    "nq",
+    [16, 1],
+    ids=["DeepSeek-V4.1-Flash-chunked-prefill", "DeepSeek-V4.1-Flash-decode"],
+)
+@pytest.mark.parametrize(
+    "operator",
+    [lightning_indexer_v2, sparse_lightning_indexer],
+    ids=["source", "consumer"],
+)
+def test_model_scenario(operator, nq):
+    # Layer 20 and subsequent ratio-1 layers use a two-level indexer:
+    # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/517ef62/config.json
+    # 32 query heads, D=128, token TopK=512, 2048 candidate blocks of 8.
+    # Generated BF16 activations exercise a 32K context; no trace is claimed.
+    require_test_impl(lightning_indexer_v2, "auto")
+    torch.manual_seed(42)
+    q = torch.randn(1, nq, 32, 128, dtype=torch.bfloat16)
+    k = torch.randn(1, 32768, 1, 128, dtype=torch.bfloat16)
+    k = torch.nn.functional.normalize(k.float(), dim=-1).to(k.dtype) * 128**0.5
+    w = torch.randn(1, nq, 32, dtype=torch.float32) / (128 * 32) ** 0.5
+    args = (q, k, w, 512)
+    kwargs = dict(mask_mode=3, return_value=1)
+    if operator is lightning_indexer_v2:
+        kwargs.update(candidate_topk_blocks=2048, candidate_block_size=8)
+    else:
+        # Candidate indices are produced by the source, as in the model.
+        candidates = lightning_indexer_v2(
+            *args,
+            mask_mode=3,
+            candidate_topk_blocks=2048,
+            candidate_block_size=8,
+        )[2]
+        args += (candidates,)
+        kwargs["candidate_block_size"] = 8
+    check_operator(operator, args, kwargs)
+
+
+@pytest.mark.parametrize("model", ["DeepSeek-V4.1-Flash"])
+def test_model_metadata(model):
+    # Same model configuration as test_model_scenario; A3 ignores metadata.
+    require_test_impl(lightning_indexer_v2_metadata, "auto")
+    args = (*generate_test_data(1, 1, 32768, 32, torch.bfloat16), 512)
+    metadata = lightning_indexer_v2_metadata(
+        32,
+        1,
+        128,
+        512,
+        batch_size=1,
+        max_seqlen_q=1,
+        max_seqlen_k=32768,
+        layout_q="BSND",
+        layout_k="BSND",
+        mask_mode=3,
+        cmp_ratio=1,
+    )
+    assert metadata.dtype == torch.int32 and metadata.shape == (2048,)
+    check_operator(lightning_indexer_v2, args, dict(mask_mode=3, metadata=metadata))

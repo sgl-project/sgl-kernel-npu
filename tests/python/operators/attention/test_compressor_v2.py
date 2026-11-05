@@ -200,3 +200,45 @@ def test_representative_performance(hidden, dim, ratio):
     )
     # Aligned start positions make repeated writes idempotent; no reset/copy is timed.
     check_performance(executor, enable_perf=True)
+
+
+@pytest.mark.parametrize("packed", [False, True], ids=["BSH", "TH"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["prefill", "decode"],
+    ids=["DeepSeek-V4.1-Flash-prefill", "DeepSeek-V4.1-Flash-decode"],
+)
+def test_model_scenario(scenario, packed):
+    # Model dimensions and ratio from text_config, not captured activations:
+    # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/517ef62/config.json
+    # H=5120, KV latent D=512, ratio=2. Requests use a 256-token prompt,
+    # then one-token decode that completes the preceding partial group.
+    require_test_impl(compressor_v2, "auto")
+    args, kwargs, counts = generate_test_data(
+        torch.bfloat16,
+        packed=packed,
+        hidden=5120,
+        dim=512,
+        ratio=2,
+        length=256 if scenario == "prefill" else 1,
+    )
+    x, wkv, wgate, state, ratio = args
+    # Match normalized hidden states and fan-in-scaled projection weights.
+    x = x * 100
+    wkv = wkv * (100 / 5120**0.5)
+    wgate = wgate * (100 / 5120**0.5)
+    state.zero_()
+    if scenario == "decode":
+        history = torch.randn(2, 255, 5120, dtype=x.dtype)
+        compressor_v2(
+            history,
+            wkv,
+            wgate,
+            state,
+            ratio,
+            state_block_table=kwargs["state_block_table"],
+            impl="torch_native",
+        )
+        kwargs["start_pos"] = torch.full((2,), 255, dtype=torch.int32)
+        counts = [1, 1]
+    check_accuracy(snapshot, args=((x, wkv, wgate, state, ratio), kwargs, counts))
