@@ -11,7 +11,7 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
+from sgl_kernel_npu.operators.mem_cache import indexer_quant_cache
 
 def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl='auto', **kwargs):
     ...
@@ -64,7 +64,7 @@ Source: [cann-recipes-infer; aclnnIndexerCompressEpilog](https://gitcode.com/can
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
+from sgl_kernel_npu.operators.mem_cache import indexer_quant_cache
 
 # empty avoids 不支持 NPU zero_ on FP8; the selected row is overwritten.
 cache = torch.empty(1, 128, 1, 128, device="npu", dtype=torch.float8_e4m3fn)
@@ -77,7 +77,7 @@ indexer_quant_cache(cache, scales, x, slots, impl="auto")
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/kvcacheio/test_indexer_quant_cache.py \
+python3 -m pytest tests/python/operators/mem_cache/test_indexer_quant_cache.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

@@ -18,7 +18,7 @@ from tests.python.utils.standards import AccuracyStandard
 
 def generate_data(query_len):
     """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
-    from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path
+    from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if get_hardware().generation != Generation.ARCH35:
@@ -53,7 +53,7 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
         mixed_quant_sparse_flash_mla,
         mixed_quant_sparse_flash_mla_metadata,
     )
-    from sgl_kernel_npu.operators.kvcacheio import kv_compress_epilog
+    from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
     x, q, slots, common, path, cache = data
     impl, impl_ref = get_test_impls()

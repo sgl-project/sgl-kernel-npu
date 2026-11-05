@@ -13,8 +13,6 @@ from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
-from .quant_lightning_indexer import quant_lightning_indexer
-from .quant_lightning_indexer_metadata import quant_lightning_indexer_metadata
 from .sparse_flash_mla import sparse_flash_mla
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata
 
@@ -31,8 +29,6 @@ __all__ = [
     "paged_mtp_attention_decode",
     "quant_flash_attn",
     "quant_flash_attn_metadata",
-    "quant_lightning_indexer",
-    "quant_lightning_indexer_metadata",
     "sparse_flash_mla",
     "sparse_flash_mla_metadata",
 ]

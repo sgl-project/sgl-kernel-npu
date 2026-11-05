@@ -88,7 +88,7 @@ i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
 kw = dict(cu_seqlens_q=i32([0, 1]), seqused_ori_kv=i32([1]),
           ori_block_table=i32([[0]]), layout_q="TND", layout_kv="PA_BBND",
           ori_mask_mode=4, cmp_mask_mode=3, cmp_ratio=1)
-from sgl_kernel_npu.operators.kvcacheio import get_npu_kv_quant_path, kv_compress_epilog
+from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path, kv_compress_epilog
 path = get_npu_kv_quant_path()  # A5 only.
 cache = torch.empty(1, 128, 1, path.packed_dim(448, 64), device="npu", dtype=torch.uint8)
 kv_compress_epilog(cache, q[:, 0], i32([0]), impl="auto")

@@ -1,4 +1,4 @@
-# Quantized indexer metadata
+# Quantized lightning indexer
 
 ## Hardware support
 
@@ -11,9 +11,9 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer_metadata
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, quant_mode, *, impl='auto', **kwargs):
+def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *, impl='auto', **kwargs):
     ...
 ```
 
@@ -21,17 +21,19 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
 
 ## Description
 
-Use the same implementation and lengths as quant_lightning_indexer. Metadata is not interchangeable between ABIs.
+Causal TND queries and PA_BBND keys; A3 tests use INT8 with FP16 scales/weights, A5 tests use FP8 with FP32 scales/weights.
 
-Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-request lengths. Reference metadata is a parameter descriptor, not a byte-level tiling oracle.
+`score[j] = Σ_h weights[h] × ReLU(dot(dequant(Q[h]), dequant(K[j])))`. Select logical compressed-key Top-K within the causal prefix. Ties can have different valid orders.
 
 ## Parameters
 
 | Name | Type | Default | Contract |
 | --- | --- | --- | --- |
-| num_heads_q | int | required | Number of query heads |
-| num_heads_k | int | required | Number of key heads; reference supports 1 |
-| head_dim | int | required | Head width D |
+| q | Tensor | required | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
+| k | Tensor / int | required | Indexer: paged [pages,page_size,1,D]; MoE: requested expert count |
+| weights | Tensor | required | [T,H], indexer head weights |
+| q_scale | Tensor | required | [T,H], query dequantization scales |
+| k_scale | Tensor | required | [pages,page_size,1,1], key scales |
 | topk | int | required | Requested number of logical compressed keys |
 | quant_mode | int / str | required | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
@@ -53,7 +55,8 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 
 | Name | Type | Contract |
 | --- | --- | --- |
-| metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
+| indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
+| values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
 ## cann_ops_transformer_cann920
 
@@ -61,7 +64,7 @@ Calls only the released CANN 9.2 binding. The old ABI is registered separately a
 
 ## ops_transformer_cann910
 
-Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 
@@ -72,7 +75,7 @@ Independent eager PyTorch reference for correctness; never an automatic producti
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer_metadata
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
 q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
 k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
@@ -83,13 +86,13 @@ i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
 kw = dict(cu_seqlens_q=i32([0, 1]), seqused_k=i32([1]),
           cmp_residual_k=i32([0]), block_table=i32([[0]]),
           layout_q="TND", layout_k="PA_BBND", mask_mode=3, cmp_ratio=4)
-metadata = quant_lightning_indexer_metadata(2, 1, 128, 1, 2, impl="torch_native", **kw)
+indices, values = quant_lightning_indexer(q, k, w, qs, ks, 1, 2, impl="torch_native", **kw)
 ```
 
 Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
 
 ```bash
-python3 -m pytest tests/python/operators/attention/test_quant_lightning_indexer_metadata.py \
+python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

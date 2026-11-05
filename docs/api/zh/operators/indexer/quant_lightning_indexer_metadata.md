@@ -11,7 +11,7 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer_metadata
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer_metadata
 
 def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, quant_mode, *, impl='auto', **kwargs):
     ...
@@ -72,7 +72,7 @@ Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/o
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import quant_lightning_indexer_metadata
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer_metadata
 
 q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
 k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
@@ -89,7 +89,7 @@ metadata = quant_lightning_indexer_metadata(2, 1, 128, 1, 2, impl="torch_native"
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/attention/test_quant_lightning_indexer_metadata.py \
+python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer_metadata.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

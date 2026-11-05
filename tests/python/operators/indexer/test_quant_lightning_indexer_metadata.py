@@ -5,7 +5,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.operators.attention.indexer_inputs import (
+from tests.python.operators.indexer.indexer_inputs import (
     CASE_IDS,
     CASES,
     generate_data,
@@ -21,7 +21,7 @@ perf_shape = [CASES[1]]
 
 @pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
 def test_quant_lightning_indexer_metadata(case):
-    from sgl_kernel_npu.operators.attention import (
+    from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
     )
