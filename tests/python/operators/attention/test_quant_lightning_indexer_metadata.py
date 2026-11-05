@@ -5,7 +5,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.operators.attention._indexer_inputs import (
+from tests.python.operators.attention.indexer_inputs import (
     CASE_IDS,
     CASES,
     paired_inputs,

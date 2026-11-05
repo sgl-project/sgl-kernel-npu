@@ -23,8 +23,8 @@ perf_shape = [(1, 256, 8), (16, 256, 8)]
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_moe_gate(shape, norm_type, with_bias):
     from sgl_kernel_npu.operators.moe import moe_gating_top_k
-    from sgl_kernel_npu.operators.utils._transformer_compat import cann_backend
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+    from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
     legacy = cann_backend() == "legacy"
     if legacy and get_hardware().generation == Generation.ARCH22 and norm_type == 2:

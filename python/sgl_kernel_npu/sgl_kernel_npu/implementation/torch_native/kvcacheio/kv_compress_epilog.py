@@ -2,7 +2,7 @@
 
 import torch
 
-from ._quantization import _quantize
+from .quantization import _quantize
 
 
 def _legacy_e8m0_quantize(x):

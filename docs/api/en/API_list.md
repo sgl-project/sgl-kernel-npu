@@ -2,6 +2,19 @@
 
 | API | Supported backends |
 | --- | --- |
+| [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `torch_npu`, `torch_native` |
+| [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformer`, `torch_native` |
+| [mhc_post](operators/norm/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
+| [mhc_pre](operators/norm/mhc_pre.md) | `cann_ops_transformer`, `torch_native` |
+| [indexer_quant_cache](operators/kvcacheio/indexer_quant_cache.md) | `cann_ops_transformer`, `torch_native` |
+| [kv_compress_epilog](operators/kvcacheio/kv_compress_epilog.md) | `cann_ops_transformer`, `torch_native` |
+| [compressor](operators/attention/compressor.md) | `cann_ops_transformer`, `torch_native` |
+| [quant_lightning_indexer_metadata](operators/attention/quant_lightning_indexer_metadata.md) | `cann_ops_transformer`, `torch_native`, `legacy` |
+| [quant_lightning_indexer](operators/attention/quant_lightning_indexer.md) | `cann_ops_transformer`, `torch_native`, `legacy` |
+| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformer`, `torch_native` |
+| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformer`, `torch_native` |
+| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cann_ops_transformer`, `torch_native` |
+| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformer`, `torch_native` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |

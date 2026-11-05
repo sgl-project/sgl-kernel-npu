@@ -1,11 +1,11 @@
 """Public indexer_quant_cache operator with registered implementations."""
 
-from ..utils._transformer_compat import (
+from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.transformer_compat import (
     OperatorUnavailableError,
     cann_backend,
     select_family,
 )
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
 @register_impl("kvcacheio.indexer_quant_cache", "auto")

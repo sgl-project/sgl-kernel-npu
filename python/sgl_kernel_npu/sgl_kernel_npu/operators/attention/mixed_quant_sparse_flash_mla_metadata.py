@@ -2,10 +2,10 @@
 
 import torch
 
-from ..utils._transformer_compat import OperatorUnavailableError
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ._backend import attention_family, sparse_host_family
+from ..utils.transformer_compat import OperatorUnavailableError
+from .attention_utils import attention_family, sparse_host_family
 
 
 @register_impl(
@@ -96,7 +96,7 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.mixed_quant_sparse_flash_mla_metadata import (
+    from ...implementation.torch_native.attention.metadata import (
         mixed_quant_sparse_flash_mla_metadata,
     )
 

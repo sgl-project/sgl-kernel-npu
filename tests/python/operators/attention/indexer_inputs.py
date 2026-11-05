@@ -64,7 +64,6 @@ def paired_inputs(case):
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
     )
-
     from tests.python.utils.common import (
         get_skip_acc_check,
         get_test_impls,
