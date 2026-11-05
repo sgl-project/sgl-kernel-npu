@@ -45,7 +45,7 @@ def sparse_host_family(quantized):
             "Legacy explicit sparse attention requires the paired sgl-kernel-npu "
             f"host metadata and compute bindings: {specs}"
         )
-    return OperatorFamily("legacy", ops, specs)
+    return OperatorFamily("cann_9_1", ops, specs)
 
 
 def logical_to_physical(indices, lengths, q, table, cache, cu_q, layout):

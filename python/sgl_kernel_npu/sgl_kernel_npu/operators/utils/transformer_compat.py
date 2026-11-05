@@ -26,7 +26,7 @@ class OperatorFamily(NamedTuple):
 
     @property
     def legacy(self):
-        return self.backend == "legacy"
+        return self.backend == "cann_9_1"
 
 
 @functools.lru_cache(maxsize=1)
@@ -35,7 +35,7 @@ def cann_backend():
     version = detect_cann_version()
     release = tuple(map(int, version.split(".")))[:2]
     if release == (9, 1):
-        return "legacy"
+        return "cann_9_1"
     if release == (9, 2):
         return "cann_ops_transformer"
     raise OperatorUnavailableError(
@@ -159,8 +159,8 @@ def require_indexer_ops(backend):
         raise OperatorUnavailableError(
             f"CANN {detect_cann_version()} selects {selected}, not {backend}"
         )
-    namespace = "custom" if backend == "legacy" else "cann_ops_transformer"
-    prefix = "npu_" if backend == "legacy" else ""
+    namespace = "custom" if backend == "cann_9_1" else "cann_ops_transformer"
+    prefix = "npu_" if backend == "cann_9_1" else ""
     specs = tuple(
         (namespace, prefix + "quant_lightning_indexer" + suffix)
         for suffix in ("_metadata", "")

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
 | `torch_native` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
-| `legacy` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
+| `cann_9_1` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
 
 ## 接口
 
@@ -57,9 +57,9 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
 
 ## cann_ops_transformer
 
-仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `legacy`。显式指定与当前 SDK 不符的实现会在执行前报错。
+仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `cann_9_1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 
-## legacy
+## cann_9_1
 
 CANN 9.1 原始 custom 算子；将累计/压缩长度、布局名和参数顺序转换为旧 ABI，先检查 metadata 与计算绑定均存在。
 
