@@ -66,15 +66,20 @@ public:
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
         if (round == 1) {
-            batchRounds = 1;  // 没有开蚂蚁搬家，不需要多轮处理, 避免UB分配过大
+            batchRounds = 1;  // No multi-round processing needed for round==1, avoid oversized UB allocation
         } else {
-            if (numLocalExperts >= (EXPERT_NORMAL_NUM / 4)) {
-                batchRounds = BATCH_ROUND;
-            } else if (numExperts > EXPERT_NORMAL_NUM) {  // >512
+            // NOTE: branch on total expert num first. The original implementation put
+            // numLocalExperts >= 128 first; with ep<=4 and numExperts>512, numLocalExperts is
+            // always >= 128, so the "halved batch" branch for >512 experts became dead code,
+            // causing the UB buffer (batchRounds=16 * numExperts) to exceed 192KB and the
+            // kernel to write out of bounds (507015). See the multi-round 896-expert fix.
+            if (numExperts > EXPERT_NORMAL_NUM) {  // >512: halve the batch to keep UB bounded
                 batchRounds = BATCH_ROUND / 2;
+            } else if (numLocalExperts >= (EXPERT_NORMAL_NUM / 4)) {
+                batchRounds = BATCH_ROUND;
             } else if (numExperts <= EXPERT_NORMAL_NUM / 2) {  // <=256
                 batchRounds = BATCH_ROUND * 2;
-            } else {  // 256< exp <= 512
+            } else {  // 256 < numExperts <= 512
                 batchRounds = BATCH_ROUND;
             }
         }
