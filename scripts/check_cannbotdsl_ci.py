@@ -54,10 +54,10 @@ def environment(expected_commit):
         raise RuntimeError(f"Source commit mismatch: {actual} != {expected_commit}")
     if (
         platform.system() != "Linux"
-        or platform.machine() != "x86_64"
+        or platform.machine() not in ("x86_64", "aarch64")
         or sys.version_info[:2] != (3, 12)
     ):
-        raise RuntimeError("This CI contract requires Linux amd64 and Python 3.12")
+        raise RuntimeError("Requires Linux x86_64 or aarch64 and Python 3.12")
     sys.path.insert(0, str(ROOT / "python/sgl_kernel_npu"))
     from build_tools.third_party import detect_cann_version
 
@@ -92,6 +92,7 @@ def environment(expected_commit):
         cann=cann,
         versions=versions,
         python=sys.version,
+        host_arch=platform.machine(),
         arch=hardware.arch_id,
         device_name=torch.npu.get_device_name(0),
         visible_devices=torch.npu.device_count(),
