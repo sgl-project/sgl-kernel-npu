@@ -154,8 +154,9 @@ def _golden(
     storage_mode,
     combined_block_size,
 ):
-    # The updated reference publishes BF16 matmul output before RMSNorm.
-    key_fp32 = torch.matmul(latent, wk.T).float()
+    # Match the projection's FP32 accumulation and BF16 output boundary
+    # without relying on the host CPU's BF16 GEMM implementation.
+    key_fp32 = torch.matmul(latent.float(), wk.float().T).to(torch.bfloat16).float()
     inverse_rms = torch.rsqrt(key_fp32.square().mean(dim=-1, keepdim=True) + norm_eps)
     key = (key_fp32 * inverse_rms * norm_weight).to(torch.bfloat16)
 
