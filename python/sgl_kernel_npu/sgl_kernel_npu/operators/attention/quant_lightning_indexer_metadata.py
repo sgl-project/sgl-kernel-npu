@@ -4,7 +4,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from ..utils.transformer_compat import (
     OperatorUnavailableError,
     cann_backend,
-    require_indexer_ops,
+    require_op,
 )
 from .attention_utils import _cann_9_1_indexer_kwargs
 
@@ -22,7 +22,11 @@ def _auto_quant_lightning_indexer_metadata(
 def _cann_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    op = require_indexer_ops("cann_ops_transformer")[0]
+    op = require_op(
+        "cann_ops_transformer",
+        "quant_lightning_indexer_metadata",
+        backend="cann_ops_transformer",
+    )
     return op(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
@@ -30,7 +34,9 @@ def _cann_quant_lightning_indexer_metadata(
 def _cann_9_1_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    op = require_indexer_ops("cann_9_1")[0]
+    op = require_op(
+        "custom", "npu_quant_lightning_indexer_metadata", backend="cann_9_1"
+    )
     if quant_mode not in (1, 2):
         raise OperatorUnavailableError(
             "cann_9_1 indexer metadata supports the migrated FP8/INT8 modes only"

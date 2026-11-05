@@ -8,7 +8,6 @@ import functools
 import importlib
 import os
 from pathlib import Path
-from typing import NamedTuple
 
 import torch
 
@@ -19,19 +18,9 @@ class OperatorUnavailableError(RuntimeError):
     """The installed operator libraries cannot implement the requested API."""
 
 
-class OperatorFamily(NamedTuple):
-    backend: str
-    ops: tuple
-    names: tuple
-
-    @property
-    def cann_9_1(self):
-        return self.backend == "cann_9_1"
-
-
 @functools.lru_cache(maxsize=1)
 def cann_backend():
-    """Select the supported SDK release family without probing a fallback."""
+    """Select the supported SDK backend without probing a fallback."""
     version = detect_cann_version()
     release = tuple(map(int, version.split(".")))[:2]
     if release == (9, 1):
@@ -85,37 +74,27 @@ def optional_op(namespace, name):
     return getattr(getattr(torch.ops, namespace), name, None)
 
 
-def _lookup(specs):
-    return tuple(optional_op(namespace, name) for namespace, name in specs)
-
-
 @functools.lru_cache(maxsize=None)
-def select_family(released, cann_9_1, *, required_arguments=()):
-    """Require the complete family selected by the SDK version, without fallback."""
-    backend = cann_backend()
-    specs = released if backend == "cann_ops_transformer" else cann_9_1
-    ops = _lookup(specs)
-    missing = [f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None]
-    for op in ops:
-        if op is None:
-            continue
-        names = schema_arguments(op)
-        if names is not None:
-            missing.extend(
-                f"{op} argument {name}"
-                for name in required_arguments
-                if name not in names
+def require_op(namespace, name, *, backend=None, required_arguments=()):
+    """Load one binding and validate the requested SDK and schema."""
+    if backend is not None and backend != cann_backend():
+        raise OperatorUnavailableError(
+            f"CANN {detect_cann_version()} selects {cann_backend()}, not {backend}"
+        )
+    op = optional_op(namespace, name)
+    if op is None:
+        raise OperatorUnavailableError(
+            f"Missing {namespace}.{name}; register the matching operator library "
+            "before the first call. No other CANN backend is tried."
+        )
+    arguments = schema_arguments(op)
+    if arguments is not None:
+        missing = set(required_arguments) - arguments
+        if missing:
+            raise OperatorUnavailableError(
+                f"{namespace}.{name} is missing arguments: {', '.join(sorted(missing))}"
             )
-    if not missing:
-        return OperatorFamily(backend, ops, specs)
-    raise OperatorUnavailableError(
-        f"CANN {detect_cann_version()} requires a complete compatible "
-        f"{backend} operator family. Missing: "
-        + ", ".join(missing)
-        + ". Register the matching operator libraries before the first call; "
-        "no other CANN backend is tried. Backend selection cannot change after "
-        "KV allocation or graph capture."
-    )
+    return op
 
 
 def schema_arguments(op):
@@ -145,30 +124,3 @@ def checked_kwargs(op, kwargs, *, defaults=None):
                 f"{op} does not support requested argument {name}={value!r}"
             )
     return result
-
-
-@functools.lru_cache(maxsize=None)
-def require_indexer_ops(backend):
-    """Validate the selected ABI and its metadata/compute pair before execution.
-
-    Explicit implementations cannot override the initialized SDK. This keeps
-    opaque metadata and compute on the same ABI, without automatic fallback.
-    """
-    selected = cann_backend()
-    if backend != selected:
-        raise OperatorUnavailableError(
-            f"CANN {detect_cann_version()} selects {selected}, not {backend}"
-        )
-    namespace = "custom" if backend == "cann_9_1" else "cann_ops_transformer"
-    prefix = "npu_" if backend == "cann_9_1" else ""
-    specs = tuple(
-        (namespace, prefix + "quant_lightning_indexer" + suffix)
-        for suffix in ("_metadata", "")
-    )
-    ops = _lookup(specs)
-    missing = [f"{ns}.{name}" for (ns, name), op in zip(specs, ops) if op is None]
-    if missing:
-        raise OperatorUnavailableError(
-            f"Missing {backend} indexer metadata/compute bindings: {', '.join(missing)}"
-        )
-    return ops

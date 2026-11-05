@@ -3,21 +3,42 @@
 import torch
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import OperatorUnavailableError
-from .attention_utils import attention_family, sparse_host_family
+from ..utils.transformer_compat import (
+    OperatorUnavailableError,
+    cann_backend,
+    require_op,
+)
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "auto")
+def _auto_sparse_flash_mla_metadata(**kwargs):
+    return get_impl_by_name("attention.sparse_flash_mla_metadata", cann_backend())(
+        **kwargs
+    )
+
+
 @register_impl("attention.sparse_flash_mla_metadata", "cann_ops_transformer")
 def _cann_sparse_flash_mla_metadata(**kwargs):
-    family = attention_family(False)
+    op = require_op(
+        "cann_ops_transformer",
+        "sparse_flash_mla_metadata",
+        backend="cann_ops_transformer",
+    )
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    if not family.cann_9_1:
-        return family.ops[0](**args)
+    return op(**args)
+
+
+@register_impl("attention.sparse_flash_mla_metadata", "cann_9_1")
+def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
     sparse = (
         kwargs.get("ori_mask_mode", 4) == 0
         or kwargs.get("ori_topk_length") is not None
@@ -54,7 +75,6 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
     # Device metadata has no seqused_q scheduling-bound argument.
     args.pop("seqused_q", None)
     if sparse:
-        family = sparse_host_family(False)
         for public, private in (
             ("cu_seqlens_q_cpu", "cu_seqlens_q"),
             ("seqused_ori_kv_cpu", "seqused_kv"),
@@ -72,7 +92,13 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
             args[private] = value[:count].contiguous()
         args.pop("max_seqlen_q", None)
         args.pop("max_seqlen_kv", None)
-    return family.ops[0](**args)
+    namespace, binding = (
+        ("npu", "sparse_attn_sharedkv_metadata_host")
+        if sparse
+        else ("custom", "npu_sparse_attn_sharedkv_metadata")
+    )
+    op = require_op(namespace, binding, backend="cann_9_1")
+    return op(**args)
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "torch_native")
@@ -94,7 +120,7 @@ def _torch_sparse_flash_mla_metadata(**kwargs):
 def sparse_flash_mla_metadata(*, impl="auto", **kwargs):
     """Build BF16 attention metadata.
 
-    impl: auto (released/cann_9_1 compatibility), cann_ops_transformer, or torch_native.
+    impl: auto (SDK-selected), cann_9_1, cann_ops_transformer, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(**kwargs)

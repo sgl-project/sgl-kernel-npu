@@ -4,8 +4,11 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `torch_npu` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
-| `torch_native` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
+| `torch_npu` | 支持 | 支持 |
+| `cann_9_1` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
+
+CANN 9.1 的 A3 内核不支持 `norm_type=2`（sqrtsoftplus）；模型模式用例明确跳过该组合，不替换成 softmax 或 sigmoid。
 
 ## 接口
 
@@ -53,7 +56,11 @@ def moe_gating_top_k(x, k, *, bias=None, input_ids=None, tid2eid=None, k_group=1
 
 ## torch_npu
 
-保留现有注册名；包装器内部按 SDK 选择原始或正式绑定。metadata/计算配套检查和 A5 KV reader/writer 格式检查在分配或执行前完成。
+使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
+
+## cann_9_1
+
+使用 CANN 9.1 绑定，在本算子文件完成输入适配；要求已初始化 CANN 9.1 SDK，不回退至 CANN 9.2。
 
 ## torch_native
 

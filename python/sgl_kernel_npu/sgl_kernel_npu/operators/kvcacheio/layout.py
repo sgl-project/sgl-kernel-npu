@@ -26,10 +26,10 @@ CANN_9_1_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
 
 def get_npu_kv_quant_path():
     """Choose the immutable reader/writer contract before pool allocation."""
-    from ..attention.attention_utils import attention_family
+    from ..utils.transformer_compat import cann_backend
 
     return (
         CANN_9_1_NPU_KV_QUANT_PATH
-        if attention_family(True).cann_9_1
+        if cann_backend() == "cann_9_1"
         else NPU_KV_QUANT_PATH
     )

@@ -4,9 +4,9 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
-| `torch_native` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
-| `cann_9_1` | 已声明，需验证 SDK 内核 | 已声明，需验证 SDK 内核 |
+| `cann_ops_transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
+| `cann_9_1` | 支持 | 支持 |
 
 ## 接口
 

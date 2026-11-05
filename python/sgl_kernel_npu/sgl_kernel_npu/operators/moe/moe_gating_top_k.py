@@ -3,10 +3,15 @@
 import torch
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import checked_kwargs, select_family
+from ..utils.transformer_compat import cann_backend, checked_kwargs, require_op
 
 
 @register_impl("moe.moe_gating_top_k", "auto")
+def _auto(x, k, **kwargs):
+    backend = "cann_9_1" if cann_backend() == "cann_9_1" else "torch_npu"
+    return get_impl_by_name("moe.moe_gating_top_k", backend)(x, k, **kwargs)
+
+
 @register_impl("moe.moe_gating_top_k", "torch_npu")
 def _torch_npu(
     x,
@@ -24,54 +29,16 @@ def _torch_npu(
     routed_scaling_factor=1.0,
     eps=1e-20,
 ):
-    family = select_family(
-        (("npu", "npu_moe_gating_top_k"),),
-        (("custom", "npu_moe_gating_top_k"),),
+    op = require_op(
+        "npu",
+        "npu_moe_gating_top_k",
+        backend="cann_ops_transformer",
         required_arguments=(
             ("input_ids", "tid2eid")
             if input_ids is not None or tid2eid is not None
             else ()
         ),
     )
-    if family.cann_9_1:
-        kwargs = dict(
-            bias=bias,
-            input_ids=input_ids,
-            tid2eid=tid2eid,
-            k_group=k_group,
-            group_count=group_count,
-            group_select_mode=group_select_mode,
-            renorm=renorm,
-            norm_type=norm_type,
-            out_flag=out_flag,
-            routed_scaling_factor=routed_scaling_factor,
-            eps=eps,
-        )
-        kwargs = checked_kwargs(
-            family.ops[0],
-            kwargs,
-            defaults={
-                "k_group": 1,
-                "group_count": 1,
-                "group_select_mode": 0,
-                "renorm": 0,
-                "norm_type": 0,
-                "out_flag": False,
-                "routed_scaling_factor": 1.0,
-                "eps": 1e-20,
-            },
-        )
-        weights, indices, scores = family.ops[0](x, k, **kwargs)
-        return (
-            weights.to(x.dtype),
-            indices.to(torch.int32),
-            (
-                scores.to(torch.float32)
-                if out_flag
-                else torch.empty(0, dtype=torch.float32, device=x.device)
-            ),
-        )
-    import torch_npu  # noqa: F401 -- registers torch.ops.npu
 
     kwargs = dict(
         bias=bias,
@@ -86,10 +53,76 @@ def _torch_npu(
     )
     if input_ids is not None or tid2eid is not None:
         kwargs.update(input_ids=input_ids, tid2eid=tid2eid)
-    weights, indices, scores = family.ops[0](x, k, **kwargs)
+    weights, indices, scores = op(x, k, **kwargs)
     if not out_flag:
         scores = torch.empty(0, dtype=torch.float32, device=x.device)
     return weights.to(x.dtype), indices.to(torch.int32), scores
+
+
+@register_impl("moe.moe_gating_top_k", "cann_9_1")
+def _cann_9_1(
+    x,
+    k,
+    *,
+    bias=None,
+    input_ids=None,
+    tid2eid=None,
+    k_group=1,
+    group_count=1,
+    group_select_mode=0,
+    renorm=0,
+    norm_type=0,
+    out_flag=False,
+    routed_scaling_factor=1.0,
+    eps=1e-20,
+):
+    op = require_op(
+        "custom",
+        "npu_moe_gating_top_k",
+        backend="cann_9_1",
+        required_arguments=(
+            ("input_ids", "tid2eid")
+            if input_ids is not None or tid2eid is not None
+            else ()
+        ),
+    )
+    kwargs = dict(
+        bias=bias,
+        input_ids=input_ids,
+        tid2eid=tid2eid,
+        k_group=k_group,
+        group_count=group_count,
+        group_select_mode=group_select_mode,
+        renorm=renorm,
+        norm_type=norm_type,
+        out_flag=out_flag,
+        routed_scaling_factor=routed_scaling_factor,
+        eps=eps,
+    )
+    kwargs = checked_kwargs(
+        op,
+        kwargs,
+        defaults={
+            "k_group": 1,
+            "group_count": 1,
+            "group_select_mode": 0,
+            "renorm": 0,
+            "norm_type": 0,
+            "out_flag": False,
+            "routed_scaling_factor": 1.0,
+            "eps": 1e-20,
+        },
+    )
+    weights, indices, scores = op(x, k, **kwargs)
+    return (
+        weights.to(x.dtype),
+        indices.to(torch.int32),
+        (
+            scores.to(torch.float32)
+            if out_flag
+            else torch.empty(0, dtype=torch.float32, device=x.device)
+        ),
+    )
 
 
 @register_impl("moe.moe_gating_top_k", "torch_native")
