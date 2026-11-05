@@ -11,6 +11,7 @@ from tests.python.operators.indexer.indexer_inputs import (
     generate_data,
     hardware_mode,
     paired_inputs,
+    reference_inputs,
 )
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import get_skip_acc_check, make_executor
@@ -26,8 +27,11 @@ def test_quant_lightning_indexer(case):
     args, kwargs, kwargs_ref, _, _ = paired_inputs(generate_data(case, hardware_mode()))
     executor = make_executor(quant_lightning_indexer, args=args, kwargs=kwargs)
     if get_skip_acc_check() is not True:
+        reference_args, reference_kwargs = reference_inputs(
+            args, kwargs, kwargs_ref, executor.impl_ref
+        )
         expected = quant_lightning_indexer(
-            *args, **{**kwargs, **kwargs_ref}, impl=executor.impl_ref
+            *reference_args, **reference_kwargs, impl=executor.impl_ref
         )
         # The selected Top-K set is the contract; accelerator kernels may
         # return the same indices in a different order.
@@ -35,12 +39,12 @@ def test_quant_lightning_indexer(case):
         expected_indices, expected_values = expected
         assert_accuracy(
             (
-                actual_indices.sort(dim=-1).values,
-                actual_values,
+                actual_indices.cpu().sort(dim=-1).values,
+                actual_values.cpu(),
             ),
             (
-                expected_indices.sort(dim=-1).values,
-                expected_values,
+                expected_indices.cpu().sort(dim=-1).values,
+                expected_values.cpu(),
             ),
         )
         executor.accuracy_checked = True

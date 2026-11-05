@@ -67,6 +67,25 @@ def hardware_mode():
     return 1 if get_hardware().generation == Generation.ARCH35 else 2
 
 
+def _cpu_tensor(value):
+    if not isinstance(value, torch.Tensor):
+        return value
+    if str(value.dtype).startswith("torch.float8_"):
+        return value.view(torch.uint8).cpu().view(value.dtype)
+    return value.cpu()
+
+
+def reference_inputs(args, kwargs, kwargs_ref, impl_ref):
+    """Keep eager Top-K off NPU and copy bytes without an FP8 device cast."""
+    kwargs = {**kwargs, **kwargs_ref}
+    if impl_ref != "torch_native":
+        return args, kwargs
+    return (
+        tuple(_cpu_tensor(value) for value in args),
+        {key: _cpu_tensor(value) for key, value in kwargs.items()},
+    )
+
+
 def paired_inputs(data):
     from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
@@ -91,9 +110,12 @@ def paired_inputs(data):
     kwargs = dict(common, block_table=table, metadata=metadata, return_value=0)
     kwargs_ref = None
     if get_skip_acc_check() is not True:
+        ref_args, ref_common = reference_inputs(metadata_args, common, {}, impl_ref)
         kwargs_ref = dict(
             metadata=quant_lightning_indexer_metadata(
-                *metadata_args, impl=impl_ref, **common
+                *ref_args,
+                impl=impl_ref,
+                **ref_common,
             )
         )
     return args, kwargs, kwargs_ref, metadata_args, common
