@@ -4,8 +4,8 @@
 | --- | --- |
 | [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_post](operators/norm/mhc_post.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_pre](operators/norm/mhc_pre.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [indexer_quant_cache](operators/kvcacheio/indexer_quant_cache.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [kv_compress_epilog](operators/kvcacheio/kv_compress_epilog.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
 | [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |

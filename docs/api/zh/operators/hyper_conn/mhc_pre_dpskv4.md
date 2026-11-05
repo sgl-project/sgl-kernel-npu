@@ -11,9 +11,9 @@
 ## 接口
 
 ```python
-from sgl_kernel_npu.operators.norm import mhc_pre
+from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
-def mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, impl='auto'):
+def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, impl='auto'):
     ...
 ```
 
@@ -64,19 +64,19 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.norm import mhc_pre
+from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
 x = torch.randn(1, 4, 128, device="npu", dtype=torch.bfloat16)
 fn = torch.randn(24, 512, device="npu", dtype=torch.bfloat16)
 scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
-y, post, comb = mhc_pre(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
+y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 ```
 
 先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python3 -m pytest tests/python/operators/norm/test_mhc_pre.py \
+python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

@@ -11,9 +11,9 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.norm import mhc_post
+from sgl_kernel_npu.operators.hyper_conn import mhc_post_dpskv4
 
-def mhc_post(x, residual, post, comb, *, impl='auto'):
+def mhc_post_dpskv4(x, residual, post, comb, *, impl='auto'):
     ...
 ```
 
@@ -58,19 +58,19 @@ Independent eager PyTorch reference for correctness; never an automatic producti
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.norm import mhc_post
+from sgl_kernel_npu.operators.hyper_conn import mhc_post_dpskv4
 
 x = torch.randn(1, 128, device="npu", dtype=torch.bfloat16)
 residual = torch.randn(1, 4, 128, device="npu", dtype=x.dtype)
 post = torch.ones(1, 4, device="npu", dtype=torch.float32)
 comb = torch.eye(4, device="npu", dtype=torch.float32).unsqueeze(0)
-y = mhc_post(x, residual, post, comb, impl="torch_native")
+y = mhc_post_dpskv4(x, residual, post, comb, impl="torch_native")
 ```
 
 Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
 
 ```bash
-python3 -m pytest tests/python/operators/norm/test_mhc_post.py \
+python3 -m pytest tests/python/operators/hyper_conn/test_mhc_post_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 

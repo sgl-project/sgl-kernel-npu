@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 
 
-def mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
+def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
     if x.ndim != 3 or x.shape[1] != hc_mult:
         raise ValueError("x must be [tokens, hc_mult, hidden]")
     if sinkhorn_iters < 1:
