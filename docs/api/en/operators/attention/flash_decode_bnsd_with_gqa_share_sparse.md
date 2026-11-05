@@ -5,7 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
-| `ascendc` | Supported; requires native op in the build | Unsupported (excluded by registration) |
+| `ascendc` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
