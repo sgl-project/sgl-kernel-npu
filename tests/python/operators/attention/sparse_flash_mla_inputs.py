@@ -16,17 +16,13 @@ from tests.python.utils.common import (
 from tests.python.utils.standards import AccuracyStandard
 
 
-def run_sparse_flash_mla_case(batch, query_len, *, target):
-    from sgl_kernel_npu.operators.attention import (
-        sparse_flash_mla,
-        sparse_flash_mla_metadata,
-    )
-
+def generate_data(batch, query_len):
+    """DeepSeek-V4-Flash Q [T,64,512], shared KV and 128-token pages."""
     torch.manual_seed(12)
     q = torch.randn(batch * query_len, 64, 512, dtype=torch.bfloat16) * 0.1
-    kv = torch.randn(batch, 128, 1, 512, dtype=torch.bfloat16)
+    kv = torch.randn(batch * 2, 128, 1, 512, dtype=torch.bfloat16)
     cu = torch.arange(batch + 1, dtype=torch.int32) * query_len
-    lengths = torch.tensor([64, 128][:batch], dtype=torch.int32)
+    lengths = torch.tensor([256, 128][:batch], dtype=torch.int32)
     common = dict(
         cu_seqlens_q=cu,
         seqused_q=cu[1:] - cu[:-1],
@@ -39,6 +35,16 @@ def run_sparse_flash_mla_case(batch, query_len, *, target):
         layout_q="TND",
         layout_kv="PA_BBND",
     )
+    return q, kv, common, batch
+
+
+def check_sparse_flash_mla_accuracy(data, *, target):
+    from sgl_kernel_npu.operators.attention import (
+        sparse_flash_mla,
+        sparse_flash_mla_metadata,
+    )
+
+    q, kv, common, batch = data
     impl, impl_ref = get_test_impls()
     skip_accuracy = get_skip_acc_check() is True
     if skip_accuracy:
@@ -56,7 +62,7 @@ def run_sparse_flash_mla_case(batch, query_len, *, target):
     )
     kwargs = dict(
         ori_kv=kv,
-        ori_block_table=torch.arange(batch, dtype=torch.int32).reshape(batch, 1),
+        ori_block_table=torch.arange(batch * 2, dtype=torch.int32).reshape(batch, 2),
         sinks=torch.zeros(64, dtype=torch.float32),
         metadata=sparse_flash_mla_metadata(impl=impl, **metadata_kwargs),
         softmax_scale=512**-0.5,

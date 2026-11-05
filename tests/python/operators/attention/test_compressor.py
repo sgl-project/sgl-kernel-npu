@@ -16,13 +16,14 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 VARIANTS = [(4, 2, 128), (4, 2, 512), (128, 1, 512)]
+perf_shape = [(128, 4096, 4, 2, 512), (128, 4096, 4, 2, 128)]
 
 
 def parameters(ratio, coff, dim):
     torch.manual_seed(939)
     return (
-        torch.randn(coff * dim, 1024, dtype=torch.bfloat16) * 0.02,
-        torch.randn(coff * dim, 1024, dtype=torch.bfloat16) * 0.02,
+        torch.randn(coff * dim, 4096, dtype=torch.bfloat16) * 0.02,
+        torch.randn(coff * dim, 4096, dtype=torch.bfloat16) * 0.02,
         torch.randn(ratio, coff * dim, dtype=torch.float32) * 0.01,
         torch.ones(dim, dtype=torch.float32),
     )
@@ -44,11 +45,11 @@ def step_inputs(params, state, table, starts, counts, variant, mode, layout):
     batch, capacity = len(starts), max(counts)
     wkv, wgate, ape, norm = params
     if layout == "TH":
-        x = torch.randn(sum(counts), 1024, dtype=torch.bfloat16) * 0.1
+        x = torch.randn(sum(counts), 4096, dtype=torch.bfloat16) * 0.1
         cu = torch.tensor([0, *counts], dtype=torch.int32).cumsum(0).to(torch.int32)
         out_shape = (min(sum(counts), sum(counts) // ratio + batch), 64)
     else:
-        x = torch.randn(batch, capacity, 1024, dtype=torch.bfloat16) * 0.1
+        x = torch.randn(batch, capacity, 4096, dtype=torch.bfloat16) * 0.1
         cu = None
         out_shape = (batch, (capacity + ratio - 1) // ratio, 64)
     if mode == 1:
@@ -130,11 +131,20 @@ def assert_state_accuracy(
 def check_step(
     params, state, reference_state, table, starts, counts, variant, mode, layout
 ):
-    from sgl_kernel_npu.operators.attention import compressor
-
     args, kwargs, transform = step_inputs(
         params, state, table, starts, counts, variant, mode, layout
     )
+    return check_compressor_accuracy(
+        args, kwargs, transform, reference_state, starts, counts, variant, mode
+    )
+
+
+def check_compressor_accuracy(
+    args, kwargs, transform, reference_state, starts, counts, variant, mode
+):
+    from sgl_kernel_npu.operators.attention import compressor
+
+    state = args[3]
     reference_args = (*args[:3], reference_state, *args[4:])
     executor = make_executor(compressor, args=args, kwargs=kwargs)
     if get_skip_acc_check() is True:
@@ -161,6 +171,7 @@ def check_step(
     return executor
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "variant", VARIANTS, ids=["c4-indexer", "c4-attention", "c128-attention"]
 )
@@ -182,6 +193,7 @@ def test_compressor(variant, mode, layout, batch):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "variant", VARIANTS, ids=["c4-indexer", "c4-attention", "c128-attention"]
 )
@@ -209,3 +221,29 @@ def test_compressor_streaming(variant, mode):
         )
         start += count
     # Replaying a streaming step mutates its history; do not benchmark it.
+
+
+def generate_data(variant):
+    """DeepSeek-V4-Flash C4 attention/indexer prefill: X [128,4096]."""
+    ratio, coff, dim = variant
+    params = parameters(ratio, coff, dim)
+    state, table = state_inputs(1, ratio, coff, dim, 2, 128)
+    return step_inputs(params, state, table, [0], [128], variant, 2, "TH")
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        pytest.param((4, 2, 512), id="deepseek-v4-flash-c4-attention-t128-h4096-d512"),
+        pytest.param((4, 2, 128), id="deepseek-v4-flash-c4-indexer-t128-h4096-d128"),
+    ],
+)
+def test_deepseek_v4_flash_compressor(variant):
+    args, kwargs, transform = generate_data(variant)
+    executor = check_compressor_accuracy(
+        args, kwargs, transform, args[3].clone(), [0], [128], variant, 2
+    )
+    check_performance(
+        executor,
+        enable_perf=(args[0].shape[0], args[0].shape[-1], *variant) in perf_shape,
+    )

@@ -18,20 +18,7 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(8, 128)]
 
 
-@pytest.mark.parametrize(
-    "tokens,input_kind",
-    [
-        pytest.param(1, "random", id="synthetic-decode"),
-        pytest.param(8, "random", id="synthetic-batch"),
-        pytest.param(1, "scale-policy", id="normal-fp8-scale-policy"),
-        pytest.param(1, "boundaries", id="fp8-rne-boundaries"),
-        pytest.param(1, "zero", id="zero-row"),
-    ],
-)
-@pytest.mark.parametrize("round_scale", [False, True], ids=["round-off", "round-on"])
-def test_indexer_cache(tokens, input_kind, round_scale):
-    from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
-
+def generate_data(tokens, input_kind, round_scale):
     torch.manual_seed(16)
     x = torch.randn(tokens, 128, dtype=torch.bfloat16)
     if input_kind == "zero":
@@ -78,6 +65,42 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     # Exercise both settings: cann_9_1 9.1 ignores this normal-FP8 attribute;
     # released 9.2 honors it. The reference uses the same SDK input contract.
     kwargs = dict(quant_mode="fp8", round_scale=round_scale)
+    return keys, scales, x, slots, kwargs
+
+
+@pytest.mark.parametrize(
+    "tokens,input_kind",
+    [
+        pytest.param(1, "random", id="deepseek-v4-flash-indexer-decode-t1-d128"),
+        pytest.param(8, "random", id="deepseek-v4-flash-indexer-batch-t8-d128"),
+        pytest.param(
+            1,
+            "scale-policy",
+            id="synthetic-normal-fp8-scale-policy",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            1,
+            "boundaries",
+            id="synthetic-fp8-rne-boundaries",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            1, "zero", id="synthetic-zero-row", marks=pytest.mark.extra_checks
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "round_scale",
+    [
+        pytest.param(True, id="round-on"),
+        pytest.param(False, id="synthetic-round-off", marks=pytest.mark.extra_checks),
+    ],
+)
+def test_indexer_cache(tokens, input_kind, round_scale):
+    from sgl_kernel_npu.operators.kvcacheio import indexer_quant_cache
+
+    keys, scales, x, slots, kwargs = generate_data(tokens, input_kind, round_scale)
     executor = make_executor(
         indexer_quant_cache, args=(keys, scales, x, slots), kwargs=kwargs
     )

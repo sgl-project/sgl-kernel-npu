@@ -1,17 +1,25 @@
 """Deterministic paged inputs with strictly ordered, non-tied Top-K scores."""
 
+import pytest
 import torch
 
 CASES = [
     ((513,), (1,), (3,)),
-    ((513, 257), (2, 3), (0, 1)),
-    ((33,), (4,), (0,)),
-    ((1,), (4,), (0,)),
+    ((513,), (128,), (0,)),
+    pytest.param(((513, 257), (2, 3), (0, 1)), marks=pytest.mark.extra_checks),
+    pytest.param(((33,), (4,), (0,)), marks=pytest.mark.extra_checks),
+    pytest.param(((1,), (4,), (0,)), marks=pytest.mark.extra_checks),
 ]
-CASE_IDS = ["decode-topk", "ragged-prefill", "page-boundary", "empty-causal-prefix"]
+CASE_IDS = [
+    "deepseek-v4-flash-c4-decode-q1-n64-d128-topk512-page32",
+    "deepseek-v4-flash-c4-prefill-q128-n64-d128-topk512-page32",
+    "synthetic-ragged-prefill",
+    "synthetic-page-boundary",
+    "synthetic-empty-causal-prefix",
+]
 
 
-def make_inputs(case, mode):
+def generate_data(case, mode):
     lengths, queries, residuals = case
     dtype = torch.float8_e4m3fn if mode == 1 else torch.int8
     scale_dtype = torch.float32 if mode == 1 else torch.float16
@@ -59,11 +67,12 @@ def hardware_mode():
     return 1 if get_hardware().generation == Generation.ARCH35 else 2
 
 
-def paired_inputs(case):
+def paired_inputs(data):
     from sgl_kernel_npu.operators.attention import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
     )
+
     from tests.python.utils.common import (
         get_skip_acc_check,
         get_test_impls,
@@ -71,7 +80,7 @@ def paired_inputs(case):
         require_test_impl,
     )
 
-    args, common, table = make_inputs(case, hardware_mode())
+    args, common, table = data
     impl, impl_ref = get_test_impls()
     if get_skip_acc_check() is True:
         require_test_impl(quant_lightning_indexer, impl)

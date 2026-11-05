@@ -18,23 +18,38 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(16, 1, 64, 512)]
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((1, 1, 64, 512), id="synthetic-decode"),
-        pytest.param((16, 1, 64, 512), id="synthetic-batch"),
-    ],
-)
-@pytest.mark.parametrize("partial_slice", [[448, 512], [0, 512]], ids=["tail", "full"])
-def test_partial_rope(shape, partial_slice):
-    from sgl_kernel_npu.operators.rope import inplace_partial_rotary_mul
-
+# DeepSeek-V4-Flash attention Q: D=512, tail RoPE=[448,512].
+def generate_data(shape, partial_slice):
     torch.manual_seed(15)
     x = torch.randn(shape, dtype=torch.bfloat16)
     width = partial_slice[1] - partial_slice[0]
     angles = torch.randn(shape[0], 1, 1, width // 2).repeat_interleave(2, -1)
     cos, sin = angles.cos().bfloat16(), angles.sin().bfloat16()
     kwargs = dict(rotary_mode="interleave", partial_slice=partial_slice)
+    return (x, cos, sin), kwargs
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((1, 1, 64, 512), id="deepseek-v4-flash-decode-t1-n64-d512"),
+        pytest.param((16, 1, 64, 512), id="deepseek-v4-flash-decode-t16-n64-d512"),
+    ],
+)
+@pytest.mark.parametrize(
+    "partial_slice",
+    [
+        pytest.param([448, 512], id="rope64"),
+        pytest.param(
+            [0, 512], id="synthetic-full-rope", marks=pytest.mark.extra_checks
+        ),
+    ],
+)
+def test_partial_rope(shape, partial_slice):
+    from sgl_kernel_npu.operators.rope import inplace_partial_rotary_mul
+
+    args, kwargs = generate_data(shape, partial_slice)
+    x, cos, sin = args
     executor = make_executor(
         inplace_partial_rotary_mul, args=(x, cos, sin), kwargs=kwargs
     )

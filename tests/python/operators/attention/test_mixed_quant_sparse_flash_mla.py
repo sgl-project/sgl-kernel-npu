@@ -9,14 +9,23 @@ pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.operators.attention.mixed_quant_sparse_flash_mla_inputs import (
-    run_mixed_quant_sparse_flash_mla_case,
+    check_mixed_quant_sparse_flash_mla_accuracy,
+    generate_data,
 )
 from tests.python.utils.performance import check_performance
 
+perf_shape = [1]
+
 
 @pytest.mark.parametrize(
-    "query_len", [1, 2], ids=["synthetic-decode", "synthetic-extend"]
+    "query_len",
+    [1, 128],
+    ids=[
+        "deepseek-v4-flash-decode-q1-n64-d512-page128",
+        "deepseek-v4-flash-prefill-q128-n64-d512-page128",
+    ],
 )
 def test_mixed_quant_sparse_flash_mla(query_len):
-    executor = run_mixed_quant_sparse_flash_mla_case(query_len, target="compute")
-    check_performance(executor, enable_perf=query_len == 1)
+    data = generate_data(query_len)
+    executor = check_mixed_quant_sparse_flash_mla_accuracy(data, target="compute")
+    check_performance(executor, enable_perf=query_len in perf_shape)

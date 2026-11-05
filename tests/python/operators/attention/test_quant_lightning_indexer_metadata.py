@@ -8,11 +8,15 @@ pytest.importorskip("torch_npu")
 from tests.python.operators.attention.indexer_inputs import (
     CASE_IDS,
     CASES,
+    generate_data,
+    hardware_mode,
     paired_inputs,
 )
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import get_skip_acc_check, make_executor
 from tests.python.utils.performance import check_performance
+
+perf_shape = [CASES[1]]
 
 
 @pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
@@ -22,7 +26,9 @@ def test_quant_lightning_indexer_metadata(case):
         quant_lightning_indexer_metadata,
     )
 
-    args, kwargs, kwargs_ref, metadata_args, common = paired_inputs(case)
+    args, kwargs, kwargs_ref, metadata_args, common = paired_inputs(
+        generate_data(case, hardware_mode())
+    )
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
@@ -53,4 +59,4 @@ def test_quant_lightning_indexer_metadata(case):
         kwargs=common,
         accuracy_checked=compute.accuracy_checked,
     )
-    check_performance(executor, enable_perf=case == CASES[1])
+    check_performance(executor, enable_perf=case in perf_shape)

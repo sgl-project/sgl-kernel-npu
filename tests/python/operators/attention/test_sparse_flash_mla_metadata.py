@@ -9,20 +9,25 @@ pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.operators.attention.sparse_flash_mla_inputs import (
-    run_sparse_flash_mla_case,
+    check_sparse_flash_mla_accuracy,
+    generate_data,
 )
 from tests.python.utils.performance import check_performance
+
+perf_shape = [(1, 1), (1, 128)]
 
 
 @pytest.mark.parametrize(
     "batch,query_len",
-    [(1, 1), (2, 1), (2, 2)],
-    ids=[
-        "synthetic-single-decode",
-        "synthetic-batched-decode",
-        "synthetic-two-token-extend",
+    [
+        pytest.param(1, 1, id="deepseek-v4-flash-decode-b1-q1-n64-d512-page128"),
+        pytest.param(1, 128, id="deepseek-v4-flash-prefill-b1-q128-n64-d512-page128"),
+        pytest.param(
+            2, 2, id="synthetic-ragged-extend", marks=pytest.mark.extra_checks
+        ),
     ],
 )
 def test_sparse_flash_mla_metadata(batch, query_len):
-    executor = run_sparse_flash_mla_case(batch, query_len, target="metadata")
-    check_performance(executor, enable_perf=(batch, query_len) in [(2, 1)])
+    data = generate_data(batch, query_len)
+    executor = check_sparse_flash_mla_accuracy(data, target="metadata")
+    check_performance(executor, enable_perf=(batch, query_len) in perf_shape)
