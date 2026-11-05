@@ -19,7 +19,6 @@ def helper(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module.importlib.metadata, "version", lambda _: "0.8.0")
-    monkeypatch.delenv("CANNBOTDSL_NATIVE_BINARY_MODE", raising=False)
     return module
 
 
@@ -40,35 +39,6 @@ def test_wrong_or_missing_dsl_is_rejected_before_import(helper, monkeypatch, ver
 
 def test_source_jit_can_run_without_native_bundle(helper):
     helper.initialize_backend()
-
-
-def test_native_required_rejects_source_only_install(helper, monkeypatch):
-    monkeypatch.setenv("CANNBOTDSL_NATIVE_BINARY_MODE", "require")
-    with pytest.raises(RuntimeError, match="no CANNBot-DSL Native bundle"):
-        helper.initialize_backend()
-
-
-def test_native_setup_checks_aicpu_and_registers_only_once(
-    helper, monkeypatch, tmp_path
-):
-    monkeypatch.setattr(
-        helper, "__file__", str(tmp_path / "operators/utils/cannbot_dsl.py")
-    )
-    source = tmp_path / "implementation/cannbot-dsl/attention"
-    native = source / "_native"
-    native.mkdir(parents=True)
-    with pytest.raises(RuntimeError, match="Incomplete.*AICPU"):
-        helper.initialize_backend()
-    (source / "_aicpu").mkdir()
-    for name in helper.AICPU_LIBRARIES:
-        (source / "_aicpu" / name).write_bytes(b"fixture")
-    registrations = []
-    aot = ModuleType("cannbotdsl.aot")
-    aot.register_directory = registrations.append
-    monkeypatch.setitem(sys.modules, "cannbotdsl.aot", aot)
-    helper.initialize_backend()
-    helper.initialize_backend()
-    assert registrations == [native]
 
 
 def test_device_identity_is_cached_but_context_tracks_current_device(

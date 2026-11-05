@@ -2,18 +2,11 @@
 
 import importlib
 import importlib.metadata
-import os
 from contextlib import contextmanager
 from functools import lru_cache
 from itertools import chain
-from pathlib import Path
 
 DSL_VERSION = "0.8.0"
-AICPU_LIBRARIES = (
-    "mqsmla_metadata_kernel.so",
-    "metadata_kernel.so",
-    "qsli_metadata_kernel.so",
-)
 _NO_DEVICE = object()
 
 
@@ -77,7 +70,7 @@ def ascend950_device(*args, **kwargs):
 
 @lru_cache(maxsize=1)
 def initialize_backend():
-    """Validate the optional runtime and register a bundled Native directory once."""
+    """Validate the optional JIT runtime once."""
     try:
         version = importlib.metadata.version("cannbot-dsl")
     except importlib.metadata.PackageNotFoundError as error:
@@ -86,23 +79,6 @@ def initialize_backend():
         ) from error
     if version != DSL_VERSION:
         raise RuntimeError(f"Expected cannbot-dsl=={DSL_VERSION}; found {version}")
-    source = (
-        Path(__file__).resolve().parents[2] / "implementation/cannbot-dsl/attention"
-    )
-    native = source / "_native"
-    if native.is_dir():
-        missing = [
-            name for name in AICPU_LIBRARIES if not (source / "_aicpu" / name).is_file()
-        ]
-        if missing:
-            raise RuntimeError(f"Incomplete CANNBot-DSL AICPU bundle: {missing}")
-        from cannbotdsl.aot import register_directory
-
-        register_directory(native)
-    elif os.environ.get("CANNBOTDSL_NATIVE_BINARY_MODE") == "require":
-        raise RuntimeError(
-            "This wheel has no CANNBot-DSL Native bundle; build with --with-cannbot-dsl"
-        )
 
 
 @lru_cache(maxsize=None)

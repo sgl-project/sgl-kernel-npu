@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl, require_ascend950
+from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -43,7 +43,6 @@ def indexer_prologue_k(
     ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
     The implementation is imported on first execution.
     """
-    require_ascend950(latent)
     return get_impl_by_name("indexer.indexer_prologue_k", impl)(
         latent,
         wk,

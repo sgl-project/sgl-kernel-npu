@@ -141,44 +141,14 @@ def installed_sources():
             raise RuntimeError(
                 f"Installed artifact differs from this build: {relative}"
             )
-    resources = installed_dsl_resources(package, staged, manifest)
-    return dict(
-        package=str(package),
-        manifest=manifest,
-        source_hashes=hashes,
-        resource_hashes=resources,
-    )
-
-
-def installed_dsl_resources(package, staged, manifest):
-    """Reject missing, stale or orphaned Native files after wheel installation."""
-    relative = Path("implementation/cannbot-dsl/attention")
-    bundle = manifest.get("cannbotdsl")
-    expected = bundle["resources"] if bundle is not None else {}
-    roots = (staged / relative, package / relative)
-    for root in roots:
-        actual = {
-            path.relative_to(root).as_posix(): _file_sha256(path)
-            for name in ("_native", "_aicpu")
-            for path in (root / name).rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
-        }
-        if actual != expected:
-            raise RuntimeError(f"DSL resources differ from this build: {root}")
-        local_manifest = root / "build-manifest.json"
-        if bundle is None:
-            if local_manifest.exists() or any(
-                (root / name).exists() for name in ("_native", "_aicpu")
-            ):
-                raise RuntimeError(
-                    f"Unexpected DSL bundle in source-only wheel: {root}"
-                )
-        elif (
-            not local_manifest.is_file()
-            or json.loads(local_manifest.read_text(encoding="utf-8")) != bundle
-        ):
-            raise RuntimeError(f"DSL build manifest differs from this build: {root}")
-    return expected
+    # The wheel contains DSL source only. Reject leftovers from an older install.
+    attention = package / "implementation/cannbot-dsl/attention"
+    if any(
+        (attention / name).exists()
+        for name in ("_native", "_aicpu", "build-manifest.json")
+    ):
+        raise RuntimeError("Unexpected precompiled DSL resources in source-only wheel")
+    return dict(package=str(package), manifest=manifest, source_hashes=hashes)
 
 
 def main():

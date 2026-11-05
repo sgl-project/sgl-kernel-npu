@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl, require_ascend950
+from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -52,7 +52,6 @@ def mixed_quant_sparse_flash_mla_metadata(
     ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
     The implementation is imported on first execution.
     """
-    require_ascend950(ori_topk_length, cmp_topk_length)
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(
         ori_topk_length,
         cmp_topk_length,

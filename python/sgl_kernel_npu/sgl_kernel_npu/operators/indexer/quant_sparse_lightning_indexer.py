@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl, require_ascend950
+from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -60,7 +60,6 @@ def quant_sparse_lightning_indexer(
     ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
     The implementation is imported on first execution.
     """
-    require_ascend950(q)
     return get_impl_by_name("indexer.quant_sparse_lightning_indexer", impl)(
         q,
         k,

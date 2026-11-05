@@ -169,7 +169,6 @@ def test_public_operator_preserves_upstream_signature_and_lazy_dispatch(
             fake_device,
             raising=False,
         )
-        scoped.setattr(public_module, "require_ascend950", lambda *a, **kw: 0)
         scoped.setattr(helper.importlib, "import_module", fake_import)
         signature = inspect.signature(public)
         args = [
@@ -201,80 +200,6 @@ def test_public_operator_preserves_upstream_signature_and_lazy_dispatch(
             actual.apply_defaults()
             actual.arguments.pop("impl")
             assert actual.arguments == expected.arguments
-
-
-def test_a3_is_rejected_before_loading_dsl(monkeypatch):
-    helper_name = "sgl_kernel_npu.operators.utils.cannbot_dsl"
-    helper_path = PACKAGE / "operators" / "utils" / "cannbot_dsl.py"
-    spec = importlib.util.spec_from_file_location(helper_name, helper_path)
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-
-    torch_stub = types.ModuleType("torch")
-    torch_stub.npu = types.SimpleNamespace(
-        current_device=lambda: 0,
-        get_device_name=lambda _: "Ascend910_9362",
-    )
-    monkeypatch.setitem(sys.modules, "torch", torch_stub)
-    tensor = types.SimpleNamespace(device=types.SimpleNamespace(type="npu", index=0))
-    with pytest.raises(RuntimeError, match="Ascend 950"):
-        helper.require_ascend950(tensor)
-
-    torch_stub.npu.get_device_name = lambda _: "Ascend950PR_9599"
-    helper.require_ascend950(tensor)
-
-
-def test_mixed_npu_devices_are_rejected_before_dsl_launch(monkeypatch):
-    helper_name = "sgl_kernel_npu.operators.utils.cannbot_dsl"
-    helper_path = PACKAGE / "operators" / "utils" / "cannbot_dsl.py"
-    spec = importlib.util.spec_from_file_location(helper_name, helper_path)
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-    torch_stub = types.ModuleType("torch")
-    torch_stub.npu = types.SimpleNamespace(
-        current_device=lambda: 0,
-        get_device_name=lambda _: "Ascend950PR_9599",
-    )
-    monkeypatch.setitem(sys.modules, "torch", torch_stub)
-    first = types.SimpleNamespace(device=types.SimpleNamespace(type="npu", index=0))
-    second = types.SimpleNamespace(device=types.SimpleNamespace(type="npu", index=1))
-    with pytest.raises(RuntimeError, match="same NPU device"):
-        helper.require_ascend950(first, second)
-
-
-@pytest.mark.parametrize(
-    "name", ("indexer_prologue_k", "quant_lightning_indexer_metadata")
-)
-def test_public_api_reports_ascend950_requirement_before_arch_registry(
-    monkeypatch, name
-):
-    with monkeypatch.context() as scoped:
-        public, _, _, category = _load_public_operator(scoped, name)
-        module = sys.modules[f"sgl_kernel_npu.operators.{category}.{name}"]
-
-        def reject_device(*args, **kwargs):
-            raise RuntimeError("Ascend 950 is required; found Ascend910_9362")
-
-        def reject_generation(*args, **kwargs):
-            raise RuntimeError("arch22 unsupported")
-
-        scoped.setattr(module, "require_ascend950", reject_device)
-        scoped.setattr(module, "get_impl_by_name", reject_generation)
-        signature = inspect.signature(public)
-        required_args = [
-            object()
-            for p in signature.parameters.values()
-            if p.default is inspect.Parameter.empty
-            and p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
-        ]
-        required_kwargs = {
-            p.name: object()
-            for p in signature.parameters.values()
-            if p.default is inspect.Parameter.empty
-            and p.kind is inspect.Parameter.KEYWORD_ONLY
-        }
-        with pytest.raises(RuntimeError, match="Ascend 950"):
-            public(*required_args, **required_kwargs)
 
 
 @pytest.mark.parametrize(
@@ -404,21 +329,3 @@ def test_wheel_builders_use_expected_license_metadata():
             if keyword.arg == "license"
         ]
         assert licenses == [expected_license]
-
-
-def test_all_seven_operators_are_documented_and_indexed():
-    for language in ("zh", "en"):
-        index = (ROOT / "docs/api" / language / "API_list.md").read_text(
-            encoding="utf-8"
-        )
-        for name in SOURCE_NAMES:
-            category = "attention" if name in ATTENTION_OPS else "indexer"
-            relative = f"operators/{category}/{name}.md"
-            assert f"[{name}]({relative})" in index
-            document = ROOT / "docs/api" / language / relative
-            text = document.read_text(encoding="utf-8")
-            assert "arch35" in text
-            assert "cannbot_dsl" in text
-            assert "Ascend910_9362" in text
-            assert "71ee7fd" in text
-            assert name in text
