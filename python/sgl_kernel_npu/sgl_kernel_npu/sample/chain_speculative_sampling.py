@@ -14,11 +14,15 @@ def _chain_rejection_accept_kernel(
     uniform_samples,
     target_probs,
     draft_probs,
+    prefix_probs,
+    residual_scales,
     metadata,
     num_draft_tokens: tl.constexpr,
     num_speculative_tokens: tl.constexpr,
     num_draft_prob_rows: tl.constexpr,
     vocab_size: tl.constexpr,
+    vocab_block_size: tl.constexpr,
+    block_verification: tl.constexpr,
 ):
     req_idx = tl.program_id(0)
     row_offset = req_idx * num_draft_tokens
@@ -27,38 +31,129 @@ def _chain_rejection_accept_kernel(
     last_accepted_idx = tl.load(retrive_index + row_offset).to(tl.int64)
     num_accepted = 0
     active = tl.full((), 1, tl.int32)
+    residual_scale = 1.0
 
     tl.store(accept_index + req_idx * num_speculative_tokens, last_accepted_idx)
 
-    # Linear Leviathan/Chen verification. Candidate 0 is the root; candidate
-    # step uses probability row step - 1 until a rejection terminates the chain.
-    for step in range(1, num_draft_tokens):
-        if active == 1:
+    if block_verification:
+        # prefix acceptance probabilities are accumulated for every step first, 
+        # then the longest acceptable prefix is located with a backward scan. 
+        # The accept decision needs a vocab-wide residual-mass reduction per 
+        # candidate step, done inline here.
+        num_accepted = tl.full((), 0, tl.int32)
+        prefix_prob = 1.0
+        for step in range(1, num_draft_tokens):
             draft_token = tl.load(candidates + row_offset + step).to(tl.int64)
-            target_offset = (row_offset + cur_prob_row) * vocab_size + draft_token
-            draft_offset = (
-                req_idx * num_draft_prob_rows + cur_prob_row
-            ) * vocab_size + draft_token
-            target_prob = tl.load(target_probs + target_offset).to(tl.float32)
-            draft_prob = tl.load(draft_probs + draft_offset).to(tl.float32)
-            coin = tl.load(uniform_samples + row_offset + step - 1).to(tl.float32)
+            target_prob = tl.load(
+                target_probs + (row_offset + step - 1) * vocab_size + draft_token
+            ).to(tl.float32)
+            draft_prob = tl.load(
+                draft_probs
+                + (req_idx * num_draft_prob_rows + step - 1) * vocab_size
+                + draft_token
+            ).to(tl.float32)
+            # A proposal token must have positive probability under its draft
+            # distribution; any other value collapses the whole prefix.
+            q_is_prob = (draft_prob > 0.0) & (draft_prob <= 1.0)
+            prefix_prob = tl.where(
+                q_is_prob,
+                tl.minimum(prefix_prob * target_prob / draft_prob, 1.0),
+                0.0,
+            )
+            tl.store(
+                prefix_probs + req_idx * num_draft_prob_rows + (step - 1),
+                prefix_prob,
+            )
 
-            if coin * draft_prob < target_prob:
-                tl.store(predicts + last_accepted_idx, draft_token)
-                num_accepted += 1
-                draft_idx = tl.load(retrive_index + row_offset + step).to(tl.int64)
-                tl.store(
-                    accept_index + req_idx * num_speculative_tokens + num_accepted,
-                    draft_idx,
+        for back_idx in range(0, num_draft_tokens - 1):
+            step = num_draft_tokens - 1 - back_idx
+            if num_accepted == 0:
+                prefix_prob = tl.load(
+                    prefix_probs + req_idx * num_draft_prob_rows + (step - 1)
                 )
-                last_accepted_idx = draft_idx
-                # Keep this loop-carried value int64 across both branches.
-                # Triton infers the constexpr loop variable `step` as int32.
-                cur_prob_row = tl.full((), step, tl.int64)
-            else:
-                active = 0
+                coin = tl.load(uniform_samples + row_offset + step - 1).to(
+                    tl.float32
+                )
+                if coin < prefix_prob:
+                    accept_prob = prefix_prob
+                    # The bonus-token distribution row `step` exists only when
+                    # a shorter prefix was accepted; when prefix_prob is exactly
+                    # 1.0 the residual is scale * p - q with scale 1.0 and needs
+                    # no separate normalization here.
+                    if (step < num_draft_tokens - 1) & (prefix_prob > 0.0) & (
+                        prefix_prob < 1.0
+                    ):
+                        residual_mass = 0.0
+                        for v_start in range(0, vocab_size, vocab_block_size):
+                            v_offsets = v_start + tl.arange(0, vocab_block_size)
+                            v_mask = v_offsets < vocab_size
+                            p_next = tl.load(
+                                target_probs
+                                + (row_offset + step) * vocab_size
+                                + v_offsets,
+                                mask=v_mask,
+                                other=0.0,
+                            ).to(tl.float32)
+                            q_next = tl.load(
+                                draft_probs
+                                + (req_idx * num_draft_prob_rows + step)
+                                * vocab_size
+                                + v_offsets,
+                                mask=v_mask,
+                                other=0.0,
+                            ).to(tl.float32)
+                            residual_mass += tl.sum(
+                                tl.maximum(prefix_prob * p_next - q_next, 0.0)
+                            )
+                        accept_prob = residual_mass / (
+                            residual_mass + 1.0 - prefix_prob
+                        )
+                    if coin < accept_prob:
+                        num_accepted = step
+                        residual_scale = prefix_prob
+
+        active = (num_accepted == num_draft_tokens - 1).to(tl.int32)
+        cur_prob_row = num_accepted.to(tl.int64)
+        for step in range(1, num_accepted + 1):
+            draft_token = tl.load(candidates + row_offset + step).to(tl.int64)
+            tl.store(predicts + last_accepted_idx, draft_token)
+            draft_idx = tl.load(retrive_index + row_offset + step).to(tl.int64)
+            tl.store(
+                accept_index + req_idx * num_speculative_tokens + step,
+                draft_idx,
+            )
+            last_accepted_idx = draft_idx
+    else:
+        # Linear Leviathan/Chen verification. Candidate 0 is the root; candidate
+        # step uses probability row step - 1 until a rejection terminates the chain.
+        for step in range(1, num_draft_tokens):
+            if active == 1:
+                draft_token = tl.load(candidates + row_offset + step).to(tl.int64)
+                target_offset = (row_offset + cur_prob_row) * vocab_size + draft_token
+                draft_offset = (
+                    req_idx * num_draft_prob_rows + cur_prob_row
+                ) * vocab_size + draft_token
+                target_prob = tl.load(target_probs + target_offset).to(tl.float32)
+                draft_prob = tl.load(draft_probs + draft_offset).to(tl.float32)
+                coin = tl.load(uniform_samples + row_offset + step - 1).to(tl.float32)
+
+                if coin * draft_prob < target_prob:
+                    tl.store(predicts + last_accepted_idx, draft_token)
+                    num_accepted += 1
+                    draft_idx = tl.load(retrive_index + row_offset + step).to(tl.int64)
+                    tl.store(
+                        accept_index + req_idx * num_speculative_tokens + num_accepted,
+                        draft_idx,
+                    )
+                    last_accepted_idx = draft_idx
+                    # Keep this loop-carried value int64 across both branches.
+                    # Triton infers the constexpr loop variable `step` as int32.
+                    cur_prob_row = tl.full((), step, tl.int64)
+                else:
+                    active = 0
 
     tl.store(accept_token_num + req_idx, num_accepted)
+    tl.store(residual_scales + req_idx, residual_scale)
 
     # metadata = [target row, output slot, all drafts accepted].
     metadata_offset = req_idx * 3
@@ -71,6 +166,7 @@ def _chain_rejection_accept_kernel(
 def _chain_rejection_block_sum_kernel(
     target_probs,
     draft_probs,
+    residual_scales,
     metadata,
     block_sums,
     batch_size: tl.constexpr,
@@ -79,6 +175,7 @@ def _chain_rejection_block_sum_kernel(
     vocab_size: tl.constexpr,
     vocab_block_size: tl.constexpr,
     num_vocab_blocks: tl.constexpr,
+    block_verification: tl.constexpr,
 ):
     program_idx = tl.program_id(0)
     num_programs = tl.num_programs(0)
@@ -109,7 +206,13 @@ def _chain_rejection_block_sum_kernel(
                 mask=vocab_mask,
                 other=0.0,
             ).to(tl.float32)
-            residual = tl.maximum(target - draft, 0.0)
+            if block_verification:
+                # Zero out non-probability draft values (NaN, +-inf, negative).
+                draft = tl.where((draft >= 0.0) & (draft <= 1.0), draft, 0.0)
+                residual_scale = tl.load(residual_scales + req_idx)
+                residual = tl.maximum(residual_scale * target - draft, 0.0)
+            else:
+                residual = tl.maximum(target - draft, 0.0)
 
         tl.store(
             block_sums + req_idx * num_vocab_blocks + block_idx,
@@ -122,6 +225,7 @@ def _chain_rejection_sample_kernel(
     predicts,
     target_probs,
     draft_probs,
+    residual_scales,
     metadata,
     block_sums,
     uniform_samples_for_final_sampling,
@@ -131,6 +235,7 @@ def _chain_rejection_sample_kernel(
     vocab_block_size: tl.constexpr,
     num_vocab_blocks: tl.constexpr,
     pad_num_vocab_blocks: tl.constexpr,
+    block_verification: tl.constexpr,
 ):
     req_idx = tl.program_id(0)
     metadata_offset = req_idx * 3
@@ -175,7 +280,13 @@ def _chain_rejection_sample_kernel(
             mask=vocab_mask,
             other=0.0,
         ).to(tl.float32)
-        residual = tl.maximum(target - draft, 0.0)
+        if block_verification:
+            # Zero out non-probability draft values (NaN, +-inf, negative).
+            draft = tl.where((draft >= 0.0) & (draft <= 1.0), draft, 0.0)
+            residual_scale = tl.load(residual_scales + req_idx)
+            residual = tl.maximum(residual_scale * target - draft, 0.0)
+        else:
+            residual = tl.maximum(target - draft, 0.0)
 
     local_cdf = tl.cumsum(residual, axis=0)
     local_index = tl.sum(
@@ -216,6 +327,8 @@ def chain_speculative_sampling_triton(
     threshold_single: float = 1.0,
     threshold_acc: float = 1.0,
     deterministic: bool = True,
+    *,
+    block_verification: bool = False,
 ) -> None:
     """NPU kernel implementation of classic chain rejection sampling."""
     del retrive_next_token, retrive_next_sibling
@@ -302,6 +415,16 @@ def chain_speculative_sampling_triton(
         dtype=torch.float32,
         device=target_probs.device,
     )
+    # Scratch for block verification: per-request prefix acceptance
+    # probabilities and the residual scale selected by the backward scan.
+    prefix_probs = torch.empty(
+        (batch_size, num_draft_prob_rows),
+        dtype=torch.float32,
+        device=target_probs.device,
+    )
+    residual_scales = torch.empty(
+        (batch_size,), dtype=torch.float32, device=target_probs.device
+    )
 
     _chain_rejection_accept_kernel[(batch_size,)](
         predicts,
@@ -312,15 +435,20 @@ def chain_speculative_sampling_triton(
         uniform_samples,
         target_probs,
         draft_probs,
+        prefix_probs,
+        residual_scales,
         metadata,
         num_draft_tokens=num_draft_tokens,
         num_speculative_tokens=num_speculative_tokens,
         num_draft_prob_rows=num_draft_prob_rows,
         vocab_size=vocab_size,
+        vocab_block_size=vocab_block_size,
+        block_verification=block_verification,
     )
     _chain_rejection_block_sum_kernel[(num_block_sum_programs,)](
         target_probs,
         draft_probs,
+        residual_scales,
         metadata,
         block_sums,
         batch_size=batch_size,
@@ -329,11 +457,13 @@ def chain_speculative_sampling_triton(
         vocab_size=vocab_size,
         vocab_block_size=vocab_block_size,
         num_vocab_blocks=num_vocab_blocks,
+        block_verification=block_verification,
     )
     _chain_rejection_sample_kernel[(batch_size,)](
         predicts,
         target_probs,
         draft_probs,
+        residual_scales,
         metadata,
         block_sums,
         uniform_samples_for_final_sampling,
@@ -343,4 +473,5 @@ def chain_speculative_sampling_triton(
         vocab_block_size=vocab_block_size,
         num_vocab_blocks=num_vocab_blocks,
         pad_num_vocab_blocks=pad_num_vocab_blocks,
+        block_verification=block_verification,
     )
