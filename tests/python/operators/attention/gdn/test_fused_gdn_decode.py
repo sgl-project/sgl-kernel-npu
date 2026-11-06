@@ -20,13 +20,7 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(16, 4, 8, 128)]
 
 
-@pytest.mark.parametrize("shape", [(4, 2, 4, 64), (16, 4, 8, 128)])
-@pytest.mark.parametrize("varlen", [False, True])
-@pytest.mark.parametrize("normalize", [False, True])
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_fused_gdn_decode(shape, varlen, normalize, dtype):
-    from sgl_kernel_npu.operators.attention.gdn import fused_gdn_decode
-
+def generate_test_data(shape, varlen, normalize, dtype):
     count, heads, value_heads, dim = shape
     token_shape = (1, count) if varlen else (count, 1)
     q = torch.randn(*token_shape, heads, dim, dtype=dtype)
@@ -41,6 +35,21 @@ def test_fused_gdn_decode(shape, varlen, normalize, dtype):
     offsets = torch.arange(count + 1, dtype=torch.int32) if varlen else None
     args = (A_log, a, bias, 1.0, 20.0, q, k, v, b)
     kwargs = {"use_qk_l2norm_in_kernel": normalize, "cu_seqlens": offsets}
+    return args, kwargs, state, indices
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(4, 2, 4, 64), (16, 4, 8, 128)],
+    ids=["edge-dim64", "qwen3-next-tp4-decode"],
+)
+@pytest.mark.parametrize("varlen", [False, True])
+@pytest.mark.parametrize("normalize", [False, True])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_fused_gdn_decode(shape, varlen, normalize, dtype):
+    from sgl_kernel_npu.operators.attention.gdn import fused_gdn_decode
+
+    args, kwargs, state, indices = generate_test_data(shape, varlen, normalize, dtype)
 
     # Retain the uniform 0.04 tolerances from the initial manual migration checks.
     # These overrides have not been justified by a separate error analysis.

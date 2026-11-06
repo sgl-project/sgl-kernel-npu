@@ -2,24 +2,33 @@
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("attention.gqa_share_sparse_decode", "auto")
 @register_impl("attention.gqa_share_sparse_decode", "triton")
 def _triton(*args, **kwargs):
-    from ...implementation.triton.attention.gqa_share_sparse_attention import (
-        flash_decode_bnsd_with_gqa_share_sparse,
-    )
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.attention.gqa_share_sparse_attention import (
+            flash_decode_bnsd_with_gqa_share_sparse,
+        )
 
-    return flash_decode_bnsd_with_gqa_share_sparse(*args, **kwargs, use_native=False)
+        _triton_fn = flash_decode_bnsd_with_gqa_share_sparse
+    return _triton_fn(*args, **kwargs, use_native=False)
 
 
 @register_impl("attention.gqa_share_sparse_decode", "torch_native")
 def _native(*args, **kwargs):
-    from ...implementation.torch_native.attention.gqa_share_sparse_decode import (
-        gqa_share_sparse_decode,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.gqa_share_sparse_decode import (
+            gqa_share_sparse_decode,
+        )
 
-    return gqa_share_sparse_decode(*args, **kwargs)
+        _torch_native_fn = gqa_share_sparse_decode
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gqa_share_sparse_decode")

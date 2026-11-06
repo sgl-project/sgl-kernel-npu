@@ -9,11 +9,11 @@ import torch
 import triton
 import triton.language as tl
 from sgl_kernel_npu.indexer.flash_block_score_decode import (
-    _floor_power_of_2,
-    _get_vectorcore_num_safe,
     _native_sanitize_topk_kernel,
     _normalize_topk_idx_for_gqa,
 )
+
+from ..utils.triton_utils import _floor_power_of_2, get_device_properties
 
 # --- Native Ascend block-sparse attention (npu_sparse_attention_score) ---
 # Routes decode/verify main attention through the native op; falls back to Triton split-K.
@@ -155,7 +155,7 @@ def _choose_num_topk_chunks(
     ):
         return 1
 
-    num_vectorcore = _get_vectorcore_num_safe()
+    _, num_vectorcore = get_device_properties()
     # Ascend: saturate vector cores (1 program/core). Once B*nkvh >= vc, extra
     # chunks only add wave + merge overhead. Small batches still split.
     target_grid = num_vectorcore

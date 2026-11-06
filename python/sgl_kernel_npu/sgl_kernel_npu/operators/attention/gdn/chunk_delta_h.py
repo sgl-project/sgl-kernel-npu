@@ -2,24 +2,33 @@
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("attention.gdn.chunk_delta_h", "auto")
 @register_impl("attention.gdn.chunk_delta_h", "triton")
 def _triton(*args, **kwargs):
-    from ....implementation.triton.attention.gdn.chunk_delta_h import (
-        chunk_gated_delta_rule_fwd_h_npu,
-    )
+    global _triton_fn
+    if _triton_fn is None:
+        from ....implementation.triton.attention.gdn.chunk_delta_h import (
+            chunk_gated_delta_rule_fwd_h_npu,
+        )
 
-    return chunk_gated_delta_rule_fwd_h_npu(*args, **kwargs)
+        _triton_fn = chunk_gated_delta_rule_fwd_h_npu
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("attention.gdn.chunk_delta_h", "torch_native")
 def _native(*args, **kwargs):
-    from ....implementation.torch_native.attention.gdn.chunk_delta_h import (
-        chunk_delta_h,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ....implementation.torch_native.attention.gdn.chunk_delta_h import (
+            chunk_delta_h,
+        )
 
-    return chunk_delta_h(*args, **kwargs)
+        _torch_native_fn = chunk_delta_h
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gdn.chunk_delta_h")

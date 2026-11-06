@@ -2,24 +2,33 @@
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("attention.gdn.fused_gdn_decode", "auto")
 @register_impl("attention.gdn.fused_gdn_decode", "triton")
 def _triton(*args, **kwargs):
-    from ....implementation.triton.attention.gdn.fused_gdn_decode import (
-        fused_sigmoid_gating_delta_rule_update_decode_npu,
-    )
+    global _triton_fn
+    if _triton_fn is None:
+        from ....implementation.triton.attention.gdn.fused_gdn_decode import (
+            fused_sigmoid_gating_delta_rule_update_decode_npu,
+        )
 
-    return fused_sigmoid_gating_delta_rule_update_decode_npu(*args, **kwargs)
+        _triton_fn = fused_sigmoid_gating_delta_rule_update_decode_npu
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("attention.gdn.fused_gdn_decode", "torch_native")
 def _native(*args, **kwargs):
-    from ....implementation.torch_native.attention.gdn.fused_gdn_decode import (
-        fused_gdn_decode,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ....implementation.torch_native.attention.gdn.fused_gdn_decode import (
+            fused_gdn_decode,
+        )
 
-    return fused_gdn_decode(*args, **kwargs)
+        _torch_native_fn = fused_gdn_decode
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gdn.fused_gdn_decode")

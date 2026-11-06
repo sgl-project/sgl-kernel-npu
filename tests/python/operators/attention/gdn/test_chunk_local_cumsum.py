@@ -11,15 +11,23 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(1, 2048, 8)]
 
 
-@pytest.mark.parametrize("length", [64, 129, 2048])
+def generate_test_data(length, reverse, varlen, dtype):
+    g = torch.randn(1, length, 8, dtype=dtype)
+    offsets = torch.tensor([0, 31, length], dtype=torch.int32) if varlen else None
+    return g, offsets
+
+
+@pytest.mark.parametrize(
+    "length", [64, 129, 2048], ids=["single-chunk", "chunk-tail", "prefill-2048"]
+)
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("varlen", [False, True])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 def test_chunk_local_cumsum(length, reverse, varlen, dtype):
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
-    g = torch.randn(1, length, 8, dtype=dtype)
-    offsets = torch.tensor([0, 31, length], dtype=torch.int32) if varlen else None
+    g, offsets = generate_test_data(length, reverse, varlen, dtype)
+
     executor = check_accuracy(
         chunk_local_cumsum,
         args=(g, 64),
@@ -48,7 +56,7 @@ def test_chunk_local_cumsum(length, reverse, varlen, dtype):
 def test_matching_output_dtype(dtype, mode):
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
-    g = torch.randn(1, 64, 8, dtype=dtype)
+    g, _ = generate_test_data(64, False, False, dtype)
     output_dtype = None if mode == "none" else dtype
     result = chunk_local_cumsum(g, 64, output_dtype=output_dtype, impl="triton")
     assert result.dtype == dtype
@@ -60,7 +68,7 @@ def test_matching_output_dtype(dtype, mode):
 def test_rejects_default_mismatched_output(dtype, impl):
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
-    g = torch.randn(1, 64, 8, dtype=dtype)
+    g, _ = generate_test_data(64, False, False, dtype)
     with pytest.raises(ValueError, match="output_dtype must match g.dtype"):
         chunk_local_cumsum(g, 64, impl=impl)
 
@@ -69,7 +77,7 @@ def test_rejects_default_mismatched_output(dtype, impl):
 def test_default_output_dtype_for_float32():
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
-    g = torch.randn(1, 64, 8, dtype=torch.float32)
+    g, _ = generate_test_data(64, False, False, torch.float32)
     assert chunk_local_cumsum(g, 64, impl="triton").dtype == torch.float32
 
 
@@ -77,6 +85,6 @@ def test_default_output_dtype_for_float32():
 def test_rejects_explicit_mismatched_output():
     from sgl_kernel_npu.operators.attention.gdn import chunk_local_cumsum
 
-    g = torch.randn(1, 64, 8, dtype=torch.float32)
+    g, _ = generate_test_data(64, False, False, torch.float32)
     with pytest.raises(ValueError, match="output_dtype must match g.dtype"):
         chunk_local_cumsum(g, 64, output_dtype=torch.float16, impl="triton")

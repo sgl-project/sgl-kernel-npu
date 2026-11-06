@@ -2,20 +2,29 @@
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("attention.fia_prep", "auto")
 @register_impl("attention.fia_prep", "triton")
 def _triton(*args, **kwargs):
-    from ...implementation.triton.attention.fia_prep import fia_prep
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.attention.fia_prep import fia_prep
 
-    return fia_prep(*args, **kwargs)
+        _triton_fn = fia_prep
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("attention.fia_prep", "torch_native")
 def _native(*args, **kwargs):
-    from ...implementation.torch_native.attention.fia_prep import fia_prep
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.fia_prep import fia_prep
 
-    return fia_prep(*args, **kwargs)
+        _torch_native_fn = fia_prep
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.fia_prep")

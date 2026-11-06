@@ -12,13 +12,7 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(2, 8, 1, 128, 128, 2048, 32)]
 
 
-@pytest.mark.parametrize("shape", [(2, 4, 2, 64, 16, 35, 4), *perf_shape])
-@pytest.mark.parametrize("sink_enabled", [False, True])
-@pytest.mark.parametrize("chunks", [1, 2])
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_gqa_share_sparse_decode(shape, sink_enabled, chunks, dtype):
-    from sgl_kernel_npu.operators.attention import gqa_share_sparse_decode
-
+def generate_test_data(shape, sink_enabled, chunks, dtype):
     batch, query_heads, kv_heads, dim, block_size, context, width = shape
     pages_per_request = (context + block_size - 1) // block_size
     num_pages = batch * pages_per_request
@@ -34,6 +28,24 @@ def test_gqa_share_sparse_decode(shape, sink_enabled, chunks, dtype):
     for row in range(batch):
         valid = (int(lengths[row].item()) + block_size - 1) // block_size
         topk[:, row, :valid] = torch.randperm(valid).to(torch.int32)
+    return q, sink, k, v, block_table, lengths, topk, block_size
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(2, 4, 2, 64, 16, 35, 4), *perf_shape],
+    ids=["edge-page16", "minimax-page128-candidate"],
+)
+@pytest.mark.parametrize("sink_enabled", [False, True])
+@pytest.mark.parametrize("chunks", [1, 2])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_gqa_share_sparse_decode(shape, sink_enabled, chunks, dtype):
+    from sgl_kernel_npu.operators.attention import gqa_share_sparse_decode
+
+    q, sink, k, v, block_table, lengths, topk, block_size = generate_test_data(
+        shape, sink_enabled, chunks, dtype
+    )
+
     executor = check_accuracy(
         gqa_share_sparse_decode,
         args=(q, sink, k, v, block_table, lengths, block_size, topk),

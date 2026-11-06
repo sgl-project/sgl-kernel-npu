@@ -7,12 +7,8 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
-from sgl_kernel_npu.fla.utils import (
-    exp,
-    prepare_chunk_indices,
-    prepare_chunk_offsets,
-    safe_exp,
-)
+
+from .gdn_utils import prepare_chunk_indices, safe_exp
 
 
 @triton.heuristics(

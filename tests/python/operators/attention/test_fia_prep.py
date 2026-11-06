@@ -20,16 +20,7 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(128, 32, 128), (2048, 32, 128)]
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [(3, 4, 16), (7, 8, 32), (128, 32, 128), (2048, 32, 128)],
-    ids=["small", "multi-request", "prefill-128", "prefill-2048"],
-)
-@pytest.mark.parametrize("mode", ["mixed", "padding", "own-only", "own-missing"])
-@pytest.mark.parametrize("reuse_outputs", [False, True])
-def test_fia_prep(shape, mode, reuse_outputs):
-    from sgl_kernel_npu.operators.attention import fia_prep
-
+def generate_test_data(shape, mode, reuse_outputs):
     rows, width, block_size = shape
     num_requests, num_blocks = 3, 64
     # Different requests use shuffled physical pages rather than identity mapping.
@@ -73,6 +64,20 @@ def test_fia_prep(shape, mode, reuse_outputs):
         if candidates:
             ti[row, : len(candidates)] = torch.tensor(candidates, dtype=torch.int32)
     args = (ti, lengths, requests, pages, block_size)
+    return args, rows, width
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(3, 4, 16), (7, 8, 32), (128, 32, 128), (2048, 32, 128)],
+    ids=["small", "multi-request", "prefill-128", "prefill-2048"],
+)
+@pytest.mark.parametrize("mode", ["mixed", "padding", "own-only", "own-missing"])
+@pytest.mark.parametrize("reuse_outputs", [False, True])
+def test_fia_prep(shape, mode, reuse_outputs):
+    from sgl_kernel_npu.operators.attention import fia_prep
+
+    args, rows, width = generate_test_data(shape, mode, reuse_outputs)
 
     def isolated_prep(*, impl="auto"):
         table = torch.empty((rows, width), dtype=torch.int32) if reuse_outputs else None

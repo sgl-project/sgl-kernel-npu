@@ -4,24 +4,33 @@ import torch
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("attention.gdn.chunk_scaled_dot_kkt", "auto")
 @register_impl("attention.gdn.chunk_scaled_dot_kkt", "triton")
 def _triton(*args, **kwargs):
-    from ....implementation.triton.attention.gdn.chunk_scaled_dot_kkt import (
-        chunk_scaled_dot_kkt_fwd_npu,
-    )
+    global _triton_fn
+    if _triton_fn is None:
+        from ....implementation.triton.attention.gdn.chunk_scaled_dot_kkt import (
+            chunk_scaled_dot_kkt_fwd_npu,
+        )
 
-    return chunk_scaled_dot_kkt_fwd_npu(*args, **kwargs)
+        _triton_fn = chunk_scaled_dot_kkt_fwd_npu
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("attention.gdn.chunk_scaled_dot_kkt", "torch_native")
 def _native(*args, **kwargs):
-    from ....implementation.torch_native.attention.gdn.chunk_scaled_dot_kkt import (
-        chunk_scaled_dot_kkt,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ....implementation.torch_native.attention.gdn.chunk_scaled_dot_kkt import (
+            chunk_scaled_dot_kkt,
+        )
 
-    return chunk_scaled_dot_kkt(*args, **kwargs)
+        _torch_native_fn = chunk_scaled_dot_kkt
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gdn.chunk_scaled_dot_kkt")
