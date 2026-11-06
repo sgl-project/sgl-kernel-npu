@@ -3,7 +3,7 @@
 #include "../../../../utils/common.h"
 #include "../../../../utils/common_tiling.h"
 
-namespace pp_matmul {
+namespace optiling {
 
 constexpr uint32_t L1_DESCALE_BUFFER_LEN_MAX = 6144;
 constexpr uint32_t CONST_3 = 3;
@@ -42,7 +42,7 @@ HardwareInfo::HardwareInfo()
     l2BandWidth = 5;  // 5x faster than hbm.
 }
 
-void PpMatmulTilingData::SetBaseShape(uint32_t batchSize, uint32_t m, uint32_t k, uint32_t n)
+void BatchMatmulTransposeTilingData::SetBaseShape(uint32_t batchSize, uint32_t m, uint32_t k, uint32_t n)
 {
     opShape.batchSize = batchSize;
     opShape.m = m;
@@ -50,7 +50,8 @@ void PpMatmulTilingData::SetBaseShape(uint32_t batchSize, uint32_t m, uint32_t k
     opShape.n = n;
 }
 
-void PpMatmulTilingData::SetBaseOp(uint32_t coreNum, uint32_t mBase, uint32_t nBase, const MatMulInfo &mmInfo)
+void BatchMatmulTransposeTilingData::SetBaseOp(uint32_t coreNum, uint32_t mBase, uint32_t nBase,
+                                               const MatMulInfo &mmInfo)
 {
     opShape.m0 = mBase;
     opShape.n0 = nBase;
@@ -80,7 +81,7 @@ void PpMatmulTilingData::SetBaseOp(uint32_t coreNum, uint32_t mBase, uint32_t nB
 }
 
 // transA transB quantMode [dtype] format
-void PpMatmulTilingData::SetTilingKey(const MatMulInfo &mmInfo, uint32_t swizzleDirect, uint32_t enSplitK)
+void BatchMatmulTransposeTilingData::SetTilingKey(const MatMulInfo &mmInfo, uint32_t swizzleDirect, uint32_t enSplitK)
 {
     if (mmInfo.mmType == MmType::MATMUL_ACCUM_ATOMIC || mmInfo.mmType == MmType::MATMUL_WITH_BIAS ||
         mmInfo.mmType == MmType::MATMUL_EIN_SUM || mmInfo.mmType == MmType::MATMUL_DEQUANT || IsI8Bf16Kernel(mmInfo)) {
@@ -105,7 +106,7 @@ void PpMatmulTilingData::SetTilingKey(const MatMulInfo &mmInfo, uint32_t swizzle
     }
 }
 
-uint32_t PpMatmulTilingData::End(const MatMulInfo &mmInfo)
+uint32_t BatchMatmulTransposeTilingData::End(const MatMulInfo &mmInfo)
 {
     uint32_t cubeBlockSize = mmInfo.isInt8 ? CUBE_BLOCK_SIZE_INT8 : CUBE_BLOCK_SIZE;
     uint32_t kBlockSize = mmInfo.isInt8 ? BLOCK_SIZE_INT8_K : BLOCK_SIZE;
@@ -132,8 +133,8 @@ uint32_t PpMatmulTilingData::End(const MatMulInfo &mmInfo)
     return blockDim;
 }
 
-void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
-                       PpMatmulTilingData &tilingData)
+void TilingBatchMatmulTranspose(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
+                                BatchMatmulTransposeTilingData &tilingData)
 {
     OpShape opShape;
     opShape.batchSize = mmInfo.batchSize;
@@ -144,12 +145,14 @@ void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uin
     tilingData.quantMode = static_cast<uint32_t>(mmInfo.quantMode);
     tilingData.SetTilingKey(mmInfo, 0, 0);  // init tilingkey with transA transB.
     if (opShape.m < opShape.n) {
-        TilingFunc<false, OpShape, PpMatmulTilingData, HardwareInfo, MatMulInfo>(opShape, tilingData, hwInfo, mmInfo);
+        TilingFunc<false, OpShape, BatchMatmulTransposeTilingData, HardwareInfo, MatMulInfo>(opShape, tilingData,
+                                                                                             hwInfo, mmInfo);
     } else {
-        TilingFunc<true, OpShape, PpMatmulTilingData, HardwareInfo, MatMulInfo>(opShape, tilingData, hwInfo, mmInfo);
+        TilingFunc<true, OpShape, BatchMatmulTransposeTilingData, HardwareInfo, MatMulInfo>(opShape, tilingData, hwInfo,
+                                                                                            mmInfo);
     }
-    uint32_t direct = Swizzl<PpMatmulTilingData>(tilingData);
+    uint32_t direct = Swizzl<BatchMatmulTransposeTilingData>(tilingData);
     blockDim = tilingData.End(mmInfo);
     tilingData.SetTilingKey(mmInfo, direct, 0);
 }
-}  // namespace pp_matmul
+}  // namespace optiling

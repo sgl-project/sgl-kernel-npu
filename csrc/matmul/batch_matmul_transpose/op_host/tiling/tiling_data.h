@@ -1,8 +1,8 @@
-#ifndef PP_MATMUL_TILING_DATA
-#define PP_MATMUL_TILING_DATA
+#ifndef BATCH_MATMUL_TRANSPOSE_TILING_DATA_H
+#define BATCH_MATMUL_TRANSPOSE_TILING_DATA_H
 #include <cstdint>
 
-namespace pp_matmul {
+namespace optiling {
 struct MatMul {
     enum class MatMulType : uint32_t {
         MATMUL_DEFAULT = 0,   // C = op(A) * op(B)
@@ -63,7 +63,7 @@ struct HardwareInfo {
 };
 
 #pragma pack(push, 1)
-struct PpMatmulTilingData {
+struct BatchMatmulTransposeTilingData {
     OpShape opShape{};
     uint32_t mLoop{1};
     uint32_t kLoop{1};
@@ -84,7 +84,7 @@ struct PpMatmulTilingData {
 };
 #pragma pack(pop)
 
-void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
-                       PpMatmulTilingData &tilingData);
-}  // namespace pp_matmul
+void TilingBatchMatmulTranspose(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
+                                BatchMatmulTransposeTilingData &tilingData);
+}  // namespace optiling
 #endif

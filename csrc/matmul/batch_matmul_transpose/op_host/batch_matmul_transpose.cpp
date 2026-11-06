@@ -49,21 +49,21 @@ static ge::graphStatus TilingBatchMatmulTranspose(gert::TilingContext *context)
         return ge::GRAPH_FAILED;
     }
 
-    pp_matmul::HardwareInfo hw;
-    pp_matmul::MatMulInfo info;
+    optiling::HardwareInfo hw;
+    optiling::MatMulInfo info;
     info.batchSize = static_cast<uint32_t>(batch);
     info.m = static_cast<uint32_t>(m);
     info.k = static_cast<uint32_t>(k);
     info.n = static_cast<uint32_t>(n);
     info.dtypeA = info.dtypeB = info.dtypeC =
-        dtype == ge::DT_BF16 ? pp_matmul::TensorDType::TENSOR_DTYPE_BF16 : pp_matmul::TensorDType::TENSOR_DTYPE_FLOAT16;
-    info.formatB = nz ? pp_matmul::TensorFormat::TENSOR_FORMAT_NZ : pp_matmul::TensorFormat::TENSOR_FORMAT_ND;
-    info.mmType = pp_matmul::MatMul::MatMulType::MATMUL_EIN_SUM;
+        dtype == ge::DT_BF16 ? optiling::TensorDType::TENSOR_DTYPE_BF16 : optiling::TensorDType::TENSOR_DTYPE_FLOAT16;
+    info.formatB = nz ? optiling::TensorFormat::TENSOR_FORMAT_NZ : optiling::TensorFormat::TENSOR_FORMAT_ND;
+    info.mmType = optiling::MatMul::MatMulType::MATMUL_EIN_SUM;
     info.inDtype = info.outDtype = 2.0f;
-    info.quantMode = static_cast<pp_matmul::MatMul::QuantMode>(quantMode);
-    pp_matmul::PpMatmulTilingData data;
+    info.quantMode = static_cast<optiling::MatMul::QuantMode>(quantMode);
+    optiling::BatchMatmulTransposeTilingData data;
     uint32_t blockDim = 0;
-    pp_matmul::GetPpMatmulTiling(info, hw, blockDim, data);
+    optiling::TilingBatchMatmulTranspose(info, hw, blockDim, data);
     if (!data.opShape.m0 || !data.opShape.k0 || !data.opShape.n0 || !data.mLoop || !data.kLoop || !data.nLoop ||
         !blockDim)
         return ge::GRAPH_FAILED;
@@ -101,7 +101,8 @@ public:
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND});
         this->Attr("format_mode").AttrType(OPTIONAL).String("ND");
         this->Attr("quant_mode").AttrType(OPTIONAL).String("per_channel_symm");
-        this->AICore().SetTiling(optiling::TilingBatchMatmulTranspose);
+        this->AICore().SetTiling(
+            static_cast<ge::graphStatus (*)(gert::TilingContext *)>(optiling::TilingBatchMatmulTranspose));
         this->AICore().AddConfig("ascend910b");
         this->AICore().AddConfig("ascend910_93");
     }

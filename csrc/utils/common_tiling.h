@@ -18,6 +18,10 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "../batch_matmul_transpose/op_host/tiling/tiling_data.h"
 
+namespace optiling {
+struct BatchMatmulTransposeTilingData;
+}
+
 namespace host_utils {
 
 enum class DataType : int32_t {
@@ -201,7 +205,8 @@ void TilingFunc(OpShareType &opShape, TilingType &tilingParam, const HardwareTyp
                 continue;
             }
             costMin = cost;
-            if constexpr (std::is_same<TilingType, pp_matmul::PpMatmulTilingData>::value) {
+            if constexpr (std::is_same<TilingType, pp_matmul::PpMatmulTilingData>::value ||
+                          std::is_same<TilingType, optiling::BatchMatmulTransposeTilingData>::value) {
                 tilingParam.SetBaseOp(hwInfor.coreNum, opShape.m0, opShape.n0, mmInfo);
             } else {
                 tilingParam.SetBaseOp(hwInfor.coreNum, opShape.m0, opShape.n0);
