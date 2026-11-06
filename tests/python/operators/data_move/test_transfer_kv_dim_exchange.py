@@ -170,7 +170,8 @@ def test_transfer_kv_dim_exchange(direction, layout, pattern):
 @pytest.mark.parametrize("direction", ["D2H", "H2D"])
 @pytest.mark.parametrize("scale_ndim", [4, 5])
 @pytest.mark.parametrize("has_v", [False, True], ids=["k-only", "kv"])
-def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v):
+@pytest.mark.parametrize("page_size", [1, 4])
+def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v, page_size):
     from sgl_kernel_npu.operators.data_move import (
         TransferDirection,
         transfer_kv_dim_exchange,
@@ -178,7 +179,7 @@ def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v):
 
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
-    layers, pages, host_pages, page_size = 2, 4, 5, 4
+    layers, pages, host_pages = 2, 4, 5
     kwargs = dict(page_size=page_size, direction=TransferDirection[direction])
     pairs = []
     specifications = [("k", torch.float16, 2, 3)]
@@ -227,7 +228,12 @@ def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v):
             reference[key] = (
                 torch.empty_like(kwargs[key], pin_memory=True).copy_(kwargs[key])
                 if direction == "D2H"
-                else kwargs[key].clone()
+                else expected[key].to(device=kwargs[key].device, copy=True)
+            )
+            assert_accuracy(
+                reference[key].cpu().view(torch.uint8),
+                expected[key].view(torch.uint8),
+                path=f"initial.{key}",
             )
         for dk, hk in pairs:
             dev, host = kwargs[dk].cpu(), kwargs[hk].cpu()
@@ -247,12 +253,12 @@ def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v):
             assert_accuracy(
                 kwargs[key].cpu().view(torch.uint8),
                 expected[key].view(torch.uint8),
-                path=key,
+                path=f"aclrt.{key}",
             )
             assert_accuracy(
                 reference[key].cpu().view(torch.uint8),
                 expected[key].view(torch.uint8),
-                path=key,
+                path=f"torch_native.{key}",
             )
 
 
@@ -292,21 +298,23 @@ def test_transfer_kv_rejected(case, message):
     device = torch.arange(2 * 4 * 2 * 2 * 3, device="npu", dtype=torch.float32).reshape(
         2, 4, 2, 2, 3
     )
-    host = torch.full((5, 2, 2, 2, 3), -7, dtype=torch.float32, pin_memory=True)
+    host = torch.full(
+        (5, 2, 2, 2, 3), -7, dtype=torch.float32, pin_memory=True, device="cpu"
+    )
     if case in ("slot-gap", "layer-gap"):
         shape = (2, 8, 2, 2, 3) if case == "slot-gap" else (4, 4, 2, 2, 3)
         storage = torch.zeros(shape, device="npu")
         device = storage[:, ::2] if case == "slot-gap" else storage[::2]
     elif case == "payload-gap":
         device = device[..., ::2]
-        host = torch.zeros(5, 2, 2, 2, 2, pin_memory=True)
+        host = torch.zeros(5, 2, 2, 2, 2, pin_memory=True, device="cpu")
     elif case == "dtype":
         host = host.to(torch.int32).pin_memory()
     elif case == "host-layout":
         # Keep the same shape while introducing a gap in the last dimension.
-        host = torch.zeros(5, 2, 2, 2, 6, pin_memory=True)[..., ::2]
+        host = torch.zeros(5, 2, 2, 2, 6, pin_memory=True, device="cpu")[..., ::2]
     elif case == "host-shape":
-        host = torch.zeros(5, 2, 2, 1, 3, pin_memory=True)
+        host = torch.zeros(5, 2, 2, 1, 3, pin_memory=True, device="cpu")
     elif case == "pageable":
         host = torch.zeros_like(host, pin_memory=False)
     elif case == "device":
@@ -317,8 +325,8 @@ def test_transfer_kv_rejected(case, message):
     kwargs = dict(
         device_k=device,
         host_k=host,
-        device_v=torch.empty(0),
-        host_v=torch.empty(0),
+        device_v=torch.empty(0, device="cpu"),
+        host_v=torch.empty(0, device="cpu"),
         device_indices=indices.clone(),
         host_indices=indices.clone(),
         page_size=2,
@@ -348,10 +356,10 @@ def test_transfer_kv_rejected(case, message):
         if case == "v-device":
             kwargs["device_v"] = kwargs["device_v"].cpu()
         kwargs["host_v"] = torch.zeros(
-            5, shape[0], *shape[2:], dtype=dtype, pin_memory=True
+            5, shape[0], *shape[2:], dtype=dtype, pin_memory=True, device="cpu"
         )
         if case == "v-host-shape":
-            kwargs["host_v"] = torch.zeros(5, 2, 2, 2, 2, pin_memory=True)
+            kwargs["host_v"] = torch.zeros(5, 2, 2, 2, 2, pin_memory=True, device="cpu")
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
     if checked:
@@ -380,7 +388,7 @@ def test_transfer_kv_page_group_first_index(direction):
         2, 3, 4, 1, 2
     )
     host = (
-        torch.arange(4 * 2 * 4 * 2, dtype=torch.float32)
+        torch.arange(4 * 2 * 4 * 2, dtype=torch.float32, device="cpu")
         .reshape(4, 2, 4, 1, 2)
         .pin_memory()
     )
@@ -404,8 +412,8 @@ def test_transfer_kv_page_group_first_index(direction):
             h,
             dev,
             dst,
-            torch.empty(0),
-            torch.empty(0),
+            torch.empty(0, device="cpu"),
+            torch.empty(0, device="cpu"),
             page_size=4,
             direction=TransferDirection[direction],
             impl=backend,

@@ -137,7 +137,7 @@ def test_transfer_mamba_state_dense_transpose(direction):
     )
     device = storage.transpose(-1, -2)
     host = (
-        torch.arange(5 * 2 * 3 * 2, dtype=torch.float32)
+        torch.arange(5 * 2 * 3 * 2, dtype=torch.float32, device="cpu")
         .reshape(5, 2, 1, 3, 2)
         .pin_memory()
     )
@@ -198,7 +198,9 @@ def test_transfer_mamba_state_rejected(case, message):
     device = torch.arange(2 * 4 * 2 * 3, dtype=torch.float32, device="npu").reshape(
         2, 4, 2, 3
     )
-    host = torch.full((5, 2, 1, 2, 3), -7, dtype=device.dtype, pin_memory=True)
+    host = torch.full(
+        (5, 2, 1, 2, 3), -7, dtype=device.dtype, pin_memory=True, device="cpu"
+    )
     if case == "dtype":
         host = host.to(torch.int32).pin_memory()
     elif case in ("slot-gap", "layer-gap"):
@@ -207,7 +209,7 @@ def test_transfer_mamba_state_rejected(case, message):
         device = storage[:, ::2] if case == "slot-gap" else storage[::2]
     elif case == "payload-gap":
         device = device[..., ::2]
-        host = torch.zeros(5, 2, 1, 2, 2, pin_memory=True)
+        host = torch.zeros(5, 2, 1, 2, 2, pin_memory=True, device="cpu")
     elif case == "host-layout":
         host = host.transpose(-1, -2)
     elif case == "pageable":
@@ -217,7 +219,7 @@ def test_transfer_mamba_state_rejected(case, message):
     elif case == "host-device":
         host = host.to(device.device)
     elif case == "shape":
-        host = torch.zeros(5, 2, 1, 5, pin_memory=True)
+        host = torch.zeros(5, 2, 1, 5, pin_memory=True, device="cpu")
     d, h = torch.tensor([1], device="cpu"), torch.tensor([2], device="cpu")
     if case == "negative":
         d[0] = -1

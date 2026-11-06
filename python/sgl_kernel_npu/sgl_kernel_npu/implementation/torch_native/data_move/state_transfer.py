@@ -6,7 +6,9 @@ _copy_tensor_pf_lf and _copy_tensor_all_layers_lf_pf.
 https://github.com/sgl-project/sglang/blob/6b13469f91d6ce72d64c1760f37475626926c077/python/sglang/srt/mem_cache/pool_host/mamba.py
 
 The gather/scatter references are reused with physical payload views for ACL
-copies, whole-page indices for KV, and one call per state component.
+copies, whole-page indices for KV, and one call per state component. H2D
+updates are staged on CPU, then copied back through the original tensor shape;
+this avoids accelerator scatter writes through flattened int8 storage views.
 """
 
 import torch
@@ -106,7 +108,6 @@ def _check_transfer_indices(device_indices, host_indices):
 def _packed_views(device, host):
     # The original Mamba/KV ACL kernels compute packed pitches from sizes,
     # rather than tensor strides. Keep that byte layout in the reference too.
-    _check_packed_buffers(device, host)
     layers, slots = device.shape[:2]
     width = device[0, 0].numel()
     return (
@@ -162,6 +163,23 @@ def _copy_state(device, host, device_indices, host_indices, direction):
             )
 
 
+def _copy_packed_state(device, host, device_indices, host_indices, direction):
+    _check_packed_buffers(device, host)
+    if not device_indices.numel():
+        return
+    # Keep SGLang's gather/scatter on CPU for H2D. Snapshot every slot so that
+    # unselected pages survive, and preserve dense payload permutations for ACL's
+    # physical storage order. Copy back through the original shape, not a flat
+    # NPU view: odd-width int8 payloads must not overwrite neighbouring pages.
+    target = device
+    if direction.value != _D2H:
+        target = device.to(device="cpu", copy=True, memory_format=torch.preserve_format)
+    device_view, host_view = _packed_views(target, host)
+    _copy_state(device_view, host_view, device_indices, host_indices, direction)
+    if direction.value != _D2H:
+        device.copy_(target)
+
+
 def transfer_kv_per_layer_direct_pf_lf(
     src, dst, src_indices, dst_indices, layer_id, flags
 ):
@@ -172,9 +190,11 @@ def transfer_kv_per_layer_direct_pf_lf(
     if not 0 <= layer_id < src.size(1):
         raise RuntimeError("layer_id is outside host state layer count")
     _check_slots(pairs, dst.size(0), src.size(0))
-    device = _payload_view(dst, 1)
+    target = dst.to(device="cpu", copy=True, memory_format=torch.preserve_format)
+    device = _payload_view(target, 1)
     host = src.view(src.size(0), src.size(1), 1, device.size(-1))
     _copy_per_layer(host, device, src_indices, dst_indices, layer_id)
+    dst.copy_(target)
 
 
 def transfer_kv_all_layer_direct_lf_pf(
@@ -222,8 +242,7 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
         d, h = int(d), int(h)
         if not (0 <= d < device_buf.size(1) and 0 <= h < host_buf.size(0)):
             raise RuntimeError("slot index out of range")
-    device, host = _packed_views(device_buf, host_buf)
-    _copy_state(device, host, device_indices, host_indices, direction)
+    _copy_packed_state(device_buf, host_buf, device_indices, host_indices, direction)
 
 
 def transfer_kv_dim_exchange(
@@ -304,5 +323,4 @@ def transfer_kv_dim_exchange(
             dev.size(1),
             host.size(0),
         )
-        device, host = _packed_views(dev, host)
-        _copy_state(device, host, device_pages, host_pages, direction)
+        _copy_packed_state(dev, host, device_pages, host_pages, direction)

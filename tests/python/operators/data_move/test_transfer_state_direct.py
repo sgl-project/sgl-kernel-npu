@@ -203,7 +203,11 @@ def test_state_transfer_repeated_destination(direction):
     )
 
     impl, impl_ref = get_test_impls()
-    host = torch.arange(5 * 2 * 4, dtype=torch.float32).reshape(5, 2, 1, 4).pin_memory()
+    host = (
+        torch.arange(5 * 2 * 4, dtype=torch.float32, device="cpu")
+        .reshape(5, 2, 1, 4)
+        .pin_memory()
+    )
     device = torch.arange(2 * 5 * 4, dtype=torch.float32, device="npu").reshape(2, 5, 4)
     source_indices = torch.tensor([0, 2, 4], device="cpu")
     target_indices = torch.tensor([1, 1, 3], device="cpu")
