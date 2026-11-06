@@ -4,25 +4,15 @@ set(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 # HOST declarations are discovered before the legacy CANN declarations so the
 # unified request can be partitioned without exposing HOST IDs to CANN helpers.
 function(sgl_add_host_operator_domains)
-    sgl_get_registered_operators(cann_before)
     foreach(domain IN ITEMS data_move)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
-    sgl_get_registered_operators(cann_after)
-    if(NOT "${cann_before}" STREQUAL "${cann_after}")
-        message(FATAL_ERROR "The HOST declaration phase must not register CANN operators")
-    endif()
 endfunction()
 
 function(sgl_add_cann_operator_domains)
-    sgl_get_registered_operators(host_before EXECUTION_UNIT HOST)
     foreach(domain IN ITEMS sampler attention mem_cache lora examples)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
-    sgl_get_registered_operators(host_after EXECUTION_UNIT HOST)
-    if(NOT "${host_before}" STREQUAL "${host_after}")
-        message(FATAL_ERROR "Register HOST declarations in the HOST phase before CANN request partitioning")
-    endif()
 endfunction()
 
 # Callers with already-separated IDs (e.g. the Torch build) discover both phases.

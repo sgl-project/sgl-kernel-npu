@@ -16,7 +16,6 @@ endif()
 set(SGL_ARCH_VERSION "" CACHE STRING "Explicit architecture: 2201 or 3510")
 set(SGL_CANN_OPERATORS "ALL" CACHE STRING "ALL or a semicolon-separated list of operator IDs")
 set(SGL_NATIVE_OPERATORS "" CACHE STRING "Optional unified CLI request; empty retains the CANN-only entry")
-set(SGL_NATIVE_ARTIFACT "wheel" CACHE STRING "Requested unified artifact: run or wheel")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/cmake/architectures.json" SGL_ARCHITECTURES)
 if(NOT SGL_ARCH_VERSION MATCHES "^(2201|3510)$")
     message(FATAL_ERROR "SGL_ARCH_VERSION must be explicitly set to 2201 or 3510")
@@ -54,7 +53,7 @@ if(SGL_NATIVE_OPERATORS)
     # Read the expanded CANN request from the legacy variable, then replace
     # both local lists with the final selection. HOST IDs stay separate.
     sgl_select_native_operators(cann_operators host_operators
-        ARCH "${SGL_ARCH_VERSION}" ARTIFACT "${SGL_NATIVE_ARTIFACT}"
+        ARCH "${SGL_ARCH_VERSION}"
         OPERATORS ${SGL_CANN_OPERATORS} ${host_operators})
 else()
     sgl_select_cann_operators(cann_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
@@ -85,13 +84,6 @@ if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
     message(FATAL_ERROR "CANN operator selection changed; run with --make-clean before rebuilding")
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${cann_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
-
-# HOST-only requests use this same entry and export their selection, but do not
-# load the custom-op SDK, enable a compiler or create CANN package targets.
-if(NOT cann_operators)
-    message(STATUS "No CANN operators selected; skipping CANN codegen, device targets and packaging")
-    return()
-endif()
 
 # Load the initialized CANN SDK after declaration validation.
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
@@ -133,14 +125,19 @@ if(NOT SGL_CANN_BUILD_STAGE STREQUAL "CODEGEN" AND aicore_operators)
 endif()
 if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     sgl_add_cann_host_libraries("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${cann_operators})
-    set(device_checks)
+    set(build_checks)
     if(aicore_operators)
         sgl_add_cann_kernels("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${aicore_operators})
     endif()
     if(aicpu_operators)
         # A directory scope keeps the HCC compiler local to AICPU targets.
         add_subdirectory(cmake/aicpu aicpu)
-        list(APPEND device_checks sgl_cann_aicpu sgl_cann_aicpu_metadata)
+        list(APPEND build_checks sgl_cann_aicpu sgl_cann_aicpu_metadata)
+    endif()
+
+    if(host_operators)
+        add_subdirectory(cmake/host host)
+        list(APPEND build_checks sgl_host_operators)
     endif()
 
     # Package and check the targets created by the Host and device builders.
@@ -164,8 +161,8 @@ if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
         if(NOT TARGET binary)
             message(FATAL_ERROR "The SDK did not create the required binary build target")
         endif()
-        list(APPEND device_checks binary)
+        list(APPEND build_checks binary)
     endif()
-    add_custom_target(sgl_cann_kernel_check DEPENDS ${device_checks} ${host_libraries})
+    add_custom_target(sgl_cann_kernel_check DEPENDS ${build_checks} ${host_libraries})
 endif()
 message(STATUS "CANN checkpoint: ${SGL_CANN_BUILD_STAGE}; configuration never launches a Kernel or installs a package")

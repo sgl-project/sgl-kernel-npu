@@ -10,11 +10,12 @@ The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
-### Build a wheel or CANN installer
+### Build a wheel or native operator installer
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
-setuptools and wheel. CANN `.run` builds do not require Torch.
+setuptools and wheel. `.run` builds selecting HOST also require Torch/torch_npu
+and Python development headers; CANN-only `.run` builds do not require Torch.
 
 The examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix
 with your checkout path and initialize the SDK from its installed location:
@@ -44,7 +45,7 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | --- | --- | --- |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
-| `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
+| `--artifact run/wheel` | `wheel` | Native operator installer or installable Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
@@ -59,19 +60,21 @@ the wheel or which third-party profiles are built. Operator IDs determine their
 build paths from the shared declarations: AI Core and AICPU use CANN, while host
 C++ sources enter the Torch extension. Explicit IDs may mix all three; selection needs no additional type flag. Unsupported architectures and unknown IDs fail.
 
-For wheels, `--ops all` selects every native operator supporting the requested
-architecture. For CANN `.run` installers, `all` retains its existing CANN-only
-scope and logs why CPP IDs are excluded. Explicit CPP IDs with `.run` fail before
-compilation or third-party builds. Use explicit IDs to choose a subset of any type.
+Both wheels and `.run` installers use the same `--ops` selection. `all` selects
+every native operator supporting the requested architecture; explicit IDs select
+a subset, including any combination of AICORE, AICPU and HOST.
 
-CPP-only wheels skip the repository CANN package, codegen, Tiling, HCC and device
-Kernel compilation. They still require Linux, the initialized ACL development
-SDK, matching Torch/torch_npu and a C++17 compiler. Third-party dependencies keep
-their independent profile/toolchain requirements; use `--without-third-party` to
-build only the selected repository operators.
+The existing `csrc` project builds each selected execution unit and packages its
+outputs in one `.run`. HOST implementations compile into a PIC static archive,
+installed under `op_impl/host/lib`; the Torch adapter build links that archive
+into the existing `libsgl_kernel_npu.so`. No additional runtime shared library is
+created. HOST-only builds skip codegen, Tiling, HCC and device Kernel compilation,
+but still build and install a `.run` containing the HOST archive. Packages without
+AICORE use the existing installer's `--force` workaround and retain installation
+artifact checks. Use `--without-third-party` to build only repository operators.
 
 ```bash
-# One host C++ operator, with no repository or third-party CANN package build.
+# One host C++ operator, with no third-party or device Kernel build.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops transfer_mamba_state --without-third-party
 
@@ -83,14 +86,14 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops all --without-third-party
 
-# All repository CANN operators in an installer, excluding host C++.
+# All repository native operators in one installer, including host C++.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops all --artifact run
 ```
 
 `--plan` retains its existing third-party-only JSON output and does not resolve or
-compile repository operators. Normal builds log the native selection and exclusions
-before starting third-party compilation.
+compile repository operators. The native CMake configure logs the selected CANN
+and HOST IDs; the original third-party-first build order is preserved.
 
 `-j N` and `--jobs N` are equivalent. They pass `--parallel N` to the CANN and
 Torch CMake builds. More simultaneous jobs can reduce build time but consume
@@ -193,7 +196,8 @@ fields are rejected. `CPP_SOURCES` may be replaced by an architecture variant
 using `sgl_register_operator_variant()`. IDs are unique across all three execution units. CPP IDs
 must also have unique uppercase forms because they determine build-guard names.
 
-Add new domains to the existing `sgl_add_operator_domains()` discovery list.
+Add HOST domains to `sgl_add_host_operator_domains()` and CANN domains to
+`sgl_add_cann_operator_domains()`; `sgl_add_operator_domains()` discovers both.
 Discovery only registers declarations; it never adds unselected compilation inputs.
 One metadata table holds every declaration. The CANN-specific index is `SGL_CANN_OPERATOR_IDS`; the unified and HOST indexes
 are `SGL_NATIVE_OPERATOR_IDS` and `SGL_HOST_OPERATOR_IDS`.
@@ -203,52 +207,32 @@ retain their CANN-only meaning. Queries with `EXECUTION_UNIT HOST`,
 Direct CANN selection rejects explicit HOST IDs; the native selector combines
 the CANN and HOST indexes when processing `--ops all`.
 
-The root `setup.py::configure_native()` configures the existing
-`csrc/CMakeLists.txt` once. It registers HOST declarations first, partitions the
-original `SGL_NATIVE_OPERATORS` request using registered HOST IDs, then discovers
-CANN declarations with a CANN-only `SGL_CANN_OPERATORS` request. Existing
-declaration-local dependency expansion remains unchanged; the root no longer
-needs a deferred cache restore. The original request stays intact, and final
-expanded IDs are exported separately from request caches. It reads CANN and HOST IDs
-from `selected-operators.txt` and `selected-host-operators.txt` in `build/cann`.
-HOST-only configuration returns before SDK/compiler initialization.
+The root `setup.py` retains the original `build_cann()` → `build_torch()` →
+`build_wheel()` flow. `build_cann()` configures the existing `csrc` project,
+builds its selected targets, packages one `.run`, installs it and verifies the
+installed artifacts. There are no separate Python selection or HOST build stages.
 
-`cann.py::build_cann(configured, ...)` requires an existing `CannBuild`
-configuration; it derives the architecture, directory and operator IDs from
-that result and only builds, installs and verifies CANN operators. It never
-runs CMake configuration itself.
-Its `CannBuild` result has no HOST IDs.
+`csrc/CMakeLists.txt` registers HOST declarations first, partitions the original
+`SGL_NATIVE_OPERATORS` request, then discovers CANN declarations with a CANN-only
+`SGL_CANN_OPERATORS` request. Existing declaration-local dependency expansion
+remains unchanged. Final CANN/HOST IDs are returned through `selected-operators.txt`
+and `selected-host-operators.txt`; the original request remains intact.
+No artifact-specific selection variable or extra HOST selection cache is needed.
 
-`torch.py::configure_torch()` configures the existing Torch CMake project once,
-with HOST IDs in `SGL_HOST_OPERATORS` and CANN adapter IDs in `SGL_CANN_OPERATORS`.
-It validates Python/Torch/SDK and selection caches, but does not compile.
-`host.py::build_host()` accepts only HOST IDs and the configured directory,
-builds the `sgl_host_operators` OBJECT target from `CPP_SOURCES`.
-It takes no CANN result/vendor and compiles no adapters.
-HOST-only implementation objects still need Torch/torch_npu/ACL headers and ABI flags.
-`torch.py::build_torch()` compiles the selected CANN/HOST `TORCH_ADAPTER` files and
-links the HOST objects into the existing, single `libsgl_kernel_npu.so`.
-Object dependencies are managed by CMake; no HOST result is passed back for a
-second metadata comparison. Architecture/selection validation remains at the
-entry and CMake, while the original environment/cache and output checks remain.
-Only this extension target uses the repository-owned CANN vendor headers and
-nnopbase when CANN adapters are selected. No extra shared library is produced.
-CANN-only builds skip `build_host()`; HOST-only builds skip `build_cann()`.
+The root adds `cmake/aicpu` only when AICPU is selected and `cmake/host` only when
+HOST is selected. The latter builds `sgl_host_operators STATIC` from `CPP_SOURCES`
+and adds it to the same `.run` as the device artifacts. The original aggregate
+build target depends on this archive before packaging. No AICORE/AICPU declaration
+or device builder needs to change.
 
-The selection txt files remain the CMake-to-Python result interface. The root
-selection entry no longer writes an unused HOST cache entry. No additional
-`SGL_NATIVE_SDK_ROOT` is needed: CANN configuration reuse checks the existing
-`SGL_CANN_SDK_ROOT` before reconfiguration, and Torch checks its own SDK signature.
-`SGL_NATIVE_ARTIFACT` forwards the existing `--artifact`: historically all native
-selections were CANN, while HOST now belongs in wheel ALL and must be excluded
-from CANN .run ALL (explicit HOST requests for .run fail).
-`common.py` contains backend-independent process, cache and architecture helpers.
-
-`torch_wheel.py::stage_package()` consumes the completed `TorchBuild` and optional
-`CannBuild`, checks architecture/IDs/vendor agreement, stages Python and third-party
-payloads, and writes the manifest. `build_wheel()` only packages and verifies
-the staged content. Neither packaging stage compiles operators. There is no
-separate selection module or selection-only CMake project.
+`torch_wheel.py::build_torch()` configures the existing Torch adapter project with
+CANN and HOST IDs and the installed vendor path. It compiles selected
+`TORCH_ADAPTER` files, links the installed HOST archive when needed, then stages
+and records the resulting package. HOST implementation sources are not compiled
+a second time. `cmake/torch.cmake` shares the original Torch header and ABI
+configuration between the HOST and adapter builds. Only CANN adapters require
+the vendor ACLNN headers and nnopbase. `build_wheel()` continues to package and
+verify the staged content.
 
 Each selected CPP ID defines `SGL_CPP_<UPPERCASE_ID>=1`. Shared registration files
 must guard each declaration, schema and binding; shared implementation files must
@@ -499,8 +483,9 @@ Schema-2 wheels hash the actual native IDs for `all` as well as `custom`, so
 different actual native sets have distinct build tags, including when selected by `all`.
 The package's `_build_manifest.json` records the actual full native selection,
 `operators_by_type`, SDK targets and third-party payloads.
-CPP-only builds have no repository device compute units. The native cache checks
-include both subsets and the CANN vendor path; changing the native selection requires
+HOST-only wheels have no repository device compute units or runtime CANN vendor.
+The HOST archive is a build input and is not bundled in the wheel. The native cache
+checks include the unified request; changing the native selection requires
 `--make-clean`. The third-party cache keeps its existing independent rules.
 Subset wheels replace one another; they do not add operators to an existing
 installation. Reinstall explicitly and start a new Python process when switching:

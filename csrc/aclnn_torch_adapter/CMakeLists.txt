@@ -4,18 +4,7 @@ project(sgl_cann_torch LANGUAGES CXX)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "The CANN Torch extension requires Linux")
 endif()
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-execute_process(COMMAND "${Python3_EXECUTABLE}" -c
-    "import pathlib, torch, torch_npu; print(torch.utils.cmake_prefix_path); print(pathlib.Path(torch_npu.__file__).parent)"
-    RESULT_VARIABLE python_result OUTPUT_VARIABLE python_paths OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(NOT python_result EQUAL 0)
-    message(FATAL_ERROR "The build Python must provide torch and torch_npu")
-endif()
-string(REPLACE "\n" ";" python_paths "${python_paths}")
-list(GET python_paths 0 torch_prefix)
-list(GET python_paths 1 torch_npu_root)
-list(PREPEND CMAKE_PREFIX_PATH "${torch_prefix}")
-find_package(Torch REQUIRED)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/torch.cmake")
 find_library(TORCH_NPU_LIBRARY torch_npu PATHS "${torch_npu_root}/lib" NO_DEFAULT_PATH REQUIRED)
 set(sdk "$ENV{ASCEND_HOME_PATH}")
 find_library(ACL_LIBRARY ascendcl PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
@@ -36,7 +25,7 @@ if(SGL_CANN_OPERATORS)
     list(APPEND cann_libraries "${NNOPBASE_LIBRARY}")
     sgl_select_cann_operators(selected ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
 endif()
-sgl_collect_cpp_sources(cpp_sources cpp_adapters cpp_definitions
+sgl_collect_cpp_sources(host_sources host_adapters host_definitions
     ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_HOST_OPERATORS})
 set(adapters)
 foreach(id IN LISTS selected)
@@ -46,36 +35,28 @@ foreach(id IN LISTS selected)
     endif()
     list(APPEND adapters "${adapter}")
 endforeach()
-list(APPEND adapters ${cpp_adapters})
+list(APPEND adapters ${host_adapters})
 list(REMOVE_DUPLICATES adapters)
 if(NOT adapters)
     message(FATAL_ERROR "No CANN or HOST operators selected for the Torch library")
 endif()
 message(STATUS "Torch CANN operators: ${selected}; HOST operators: ${SGL_HOST_OPERATORS}")
-separate_arguments(torch_flags NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
-# HOST implementations form an internal object library, never another shared library.
-set(torch_targets sgl_kernel_npu)
-if(cpp_sources)
-    add_library(sgl_host_operators OBJECT ${cpp_sources})
-    set_target_properties(sgl_host_operators PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    list(APPEND torch_targets sgl_host_operators)
-endif()
 add_library(sgl_kernel_npu SHARED ${adapters})
-if(TARGET sgl_host_operators)
-    target_link_libraries(sgl_kernel_npu PRIVATE sgl_host_operators)
+if(SGL_HOST_OPERATORS)
+    # HOST implementations were compiled and installed by the native RUN build.
+    find_library(SGL_HOST_LIBRARY sgl_host_operators
+        PATHS "${SGL_CANN_VENDOR}/op_impl/host/lib" NO_DEFAULT_PATH REQUIRED)
+    target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_HOST_LIBRARY}")
 endif()
-foreach(target IN LISTS torch_targets)
-    target_compile_features(${target} PRIVATE cxx_std_17)
-    target_compile_options(${target} PRIVATE ${torch_flags})
-    target_compile_definitions(${target} PRIVATE ${cpp_definitions})
-    target_include_directories(${target} PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}" "${torch_npu_root}/include" "${sdk}/include"
-        ${Python3_INCLUDE_DIRS})
-    # HOST implementations also use ATen: preserve Torch headers and ABI flags.
-    target_link_libraries(${target} PRIVATE ${TORCH_LIBRARIES})
-    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF
-        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
-endforeach()
+target_compile_features(sgl_kernel_npu PRIVATE cxx_std_17)
+target_compile_options(sgl_kernel_npu PRIVATE ${torch_flags})
+target_compile_definitions(sgl_kernel_npu PRIVATE ${host_definitions})
+target_include_directories(sgl_kernel_npu PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}" "${torch_npu_root}/include" "${sdk}/include"
+    ${Python3_INCLUDE_DIRS})
+target_link_libraries(sgl_kernel_npu PRIVATE ${TORCH_LIBRARIES})
+set_target_properties(sgl_kernel_npu PROPERTIES CXX_EXTENSIONS OFF
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 # Only CANN adapters need the repository's installed vendor and nnopbase.
 target_include_directories(sgl_kernel_npu PRIVATE ${cann_includes})
 target_link_libraries(sgl_kernel_npu PRIVATE "${TORCH_NPU_LIBRARY}"

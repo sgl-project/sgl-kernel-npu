@@ -1,6 +1,7 @@
-"""Stage native build results, create binary wheels and verify their contents."""
+"""Continue an installed native RUN package through Torch and a binary wheel."""
 
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ import zipfile
 from configparser import ConfigParser
 from pathlib import Path
 
-from build_tools.common import PROJECT_ROOT, _remove_tree, architecture, run
+from build_tools.cann import PROJECT_ROOT, _cache, _remove_tree, architecture, run
 
 
 def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"):
@@ -33,62 +34,109 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     shutil.copy2(source_root / "config.ini", package / "config.ini")
     # This is the expanded vendor, not the installer and not SDK libraries.
     if vendor is not None:
-        shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
-
-
-def stage_package(torch, *, cann=None, source_root=PROJECT_ROOT, dependencies=()):
-    """Stage already-built native artifacts and Python sources; never compile."""
-    source_root = Path(source_root).resolve()
-    arch_version = torch.arch_version
-    cann_ids = cann.operators if cann is not None else ()
-    host_ids = torch.operators
-    vendor = cann.vendor if cann is not None else None
-    if (
-        vendor != torch.cann_vendor
-        or cann_ids != torch.cann_operators
-        or (
-            cann is not None
-            and (
-                cann.arch_version != arch_version
-                or cann.selection_kind != torch.selection_kind
-                or vendor is None
-            )
+        shutil.copytree(
+            vendor,
+            package / "_cann/vendors/sgl_kernel_npu",
+            ignore=shutil.ignore_patterns("libsgl_host_operators.a"),
         )
-    ):
-        raise ValueError("CANN payload differs from the built Torch extension")
-    if (
-        torch.library is None
-        or not torch.library.is_file()
-        or not torch.library.stat().st_size
-    ):
-        raise RuntimeError("Missing Torch library: " + str(torch.library))
-    directory = torch.directory
+
+
+def build_torch(
+    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+):
+    if cann.vendor is None:
+        raise RuntimeError("Torch requires a built and installed CANN package")
+    arch_version = str(arch_version)
+    source_root = Path(source_root).resolve()
+    directory = cann.directory.parent / "torch"
+    if directory.is_symlink():
+        raise RuntimeError("Refusing a symlinked Torch build directory")
+    expected = {
+        "CMAKE_HOME_DIRECTORY": str(source_root / "csrc/aclnn_torch_adapter"),
+        "SGL_ARCH_VERSION": arch_version,
+        "SGL_CANN_OPERATORS": ";".join(cann.operators),
+        "SGL_HOST_OPERATORS": ";".join(cann.host_operators),
+        "SGL_CANN_VENDOR": str(cann.vendor),
+        "Python3_EXECUTABLE": sys.executable,
+        "SGL_TORCH_LIBRARY_DIR": str(directory / "lib"),
+    }
+    cached = _cache(directory)
+    if cached and any(cached.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("Torch build configuration changed; rerun with --make-clean")
+    environment = {
+        "python": sys.executable,
+        "python_version": sys.version,
+        "sdk": os.environ.get("ASCEND_HOME_PATH", ""),
+    }
+    for distribution in ("torch", "torch_npu"):
+        try:
+            environment[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            environment[distribution] = None  # CMake validates real Torch imports.
+    signature = directory / "torch-environment.json"
+    if signature.exists() and json.loads(signature.read_text()) != environment:
+        raise RuntimeError(
+            "Torch/Python/SDK environment changed; rerun with --make-clean"
+        )
+    directory.mkdir(parents=True, exist_ok=True)
+    signature.write_text(json.dumps(environment, sort_keys=True) + "\n")
     package = directory / "package/sgl_kernel_npu"
-    stage_runtime(vendor, package, source_root, arch_version)
+    stage_runtime(
+        cann.vendor if cann.operators else None, package, source_root, arch_version
+    )
     from build_tools.third_party import stage_dependencies
 
     third_party = stage_dependencies(dependencies, package)
-    if cann_ids:
+    if cann.operators:
         (package / "_cann/selected-operators.txt").write_text(
-            "\n".join(cann_ids) + "\n"
+            "\n".join(cann.operators) + "\n"
         )
         (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
         "schema_version": 2,
         "build_mode": "REFACTOR",
         "arch_version": arch_version,
-        "selection_kind": torch.selection_kind,
-        # CANN dependency expansion may add IDs; record what was actually built.
-        "operators": sorted((*cann_ids, *host_ids)),
-        "operators_by_type": {"cann": sorted(cann_ids), "cpp": sorted(host_ids)},
-        "third_party": third_party,
+        "selection_kind": cann.selection_kind,
+        "operators": sorted((*cann.operators, *cann.host_operators)),
+        "operators_by_type": {
+            "cann": sorted(cann.operators),
+            "cpp": sorted(cann.host_operators),
+        },
         "compute_units": (
-            architecture(arch_version, source_root)["compute_units"] if cann_ids else []
+            architecture(arch_version, source_root)["compute_units"]
+            if cann.operators
+            else []
         ),
+        "third_party": third_party,
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    run(
+        [
+            "cmake",
+            "-S",
+            source_root / "csrc/aclnn_torch_adapter",
+            "-B",
+            directory,
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DPython3_EXECUTABLE=" + sys.executable,
+            "-DSGL_ARCH_VERSION=" + arch_version,
+            "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
+            "-DSGL_HOST_OPERATORS=" + ";".join(cann.host_operators),
+            "-DSGL_CANN_VENDOR=" + str(cann.vendor),
+            "-DSGL_TORCH_LIBRARY_DIR=" + str(directory / "lib"),
+        ],
+        directory / "configure.log",
+        cwd=source_root,
+    )
+    command = ["cmake", "--build", directory]
+    if jobs is not None:
+        command += ["--parallel", str(jobs)]
+    run(command, directory / "build.log", cwd=source_root)
+    library = directory / "lib/libsgl_kernel_npu.so"
+    if not library.is_file() or not library.stat().st_size:
+        raise RuntimeError("Missing Torch library: {}".format(library))
     (package / "lib").mkdir()
-    shutil.copy2(torch.library, package / "lib" / torch.library.name)
+    shutil.copy2(library, package / "lib" / library.name)
     print("TORCH_PACKAGE: " + str(package), flush=True)
     return package
 
