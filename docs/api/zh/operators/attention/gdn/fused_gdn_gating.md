@@ -28,7 +28,7 @@ x_{r,h}=a_{r,h}+dt\_bias_h
 $$
 
 $$
-\operatorname{softplus}_{\beta,t}(x)=
+\mathrm{softplus}_{\beta,t}(x)=
 \begin{cases}
 \frac{1}{\beta}\log(1+e^{\beta x}), & \beta x\le t\\
 x, & \beta x>t
@@ -36,8 +36,8 @@ x, & \beta x>t
 $$
 
 $$
-g_{r,h}=-\exp(A\_log_h)\operatorname{softplus}_{\beta,t}(x_{r,h}),
-\qquad beta\_output_{r,h}=\operatorname{sigmoid}(b_{r,h})
+g_{r,h}=-\exp(A\_log_h)\mathrm{softplus}_{\beta,t}(x_{r,h}),
+\qquad beta\_output_{r,h}=\mathrm{sigmoid}(b_{r,h})
 $$
 
 阈值语义与 `torch.nn.functional.softplus` 一致：`beta * x <= threshold` 时使用对数分支，
