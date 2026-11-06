@@ -5,8 +5,6 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | 支持 | 支持 |
-| `triton` | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -21,7 +19,7 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 
 ## 功能说明
 
-按槽位在设备逐层布局与主机逐页布局之间双向搬运 Mamba 状态。
+按一一对应的设备槽位和主机槽位索引，在 NPU 与锁页主机内存之间搬运 Mamba/SSM 状态，支持 H2D 恢复和 D2H 备份。设备布局为 `[层, 槽位, *状态形状]`，主机布局为 `[槽位, 层, 1, *状态形状]`；每对索引搬运该槽位的所有层，支持一维或多维状态，未选中的槽位保持不变。
 
 ## 参数与返回值
 
@@ -44,7 +42,7 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 
 ## torch_native 后端
 
-使用 PyTorch 在输入所在设备操作。
+独立的 PyTorch 参考实现：逐对读取槽位索引，将 `device_buf[:, d]` 与 `host_buf[h]` 调整为相同形状，再按方向执行 `copy_(..., non_blocking=True)`，不调用原生算子。
 
 ## 示例
 

@@ -5,8 +5,6 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
-| `triton` | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -21,7 +19,11 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 
 ## Description
 
-Copy selected Mamba slots across all layers.
+Transfer selected Mamba/SSM state slots between the NPU and pinned host memory for H2D restore
+or D2H backup. Device states use `[layers, slots, *state_shape]` ; host states use
+`[slots,
+layers, 1, *state_shape]` . Each paired device/host index transfers every layer of one
+slot, including multidimensional state payloads. Unselected slots remain unchanged.
 
 ## Parameters and return value
 
@@ -44,7 +46,9 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-Uses PyTorch operations on the input devices.
+An independent PyTorch reference iterates over paired slot indices, reshapes `host_buf[h]` to
+match `device_buf[:, d]` , and calls `copy_(..., non_blocking=True)` in the requested direction
+without invoking the native operator.
 
 ## Example
 

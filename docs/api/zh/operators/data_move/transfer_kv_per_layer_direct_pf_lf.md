@@ -5,8 +5,6 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | 支持 | 支持 |
-| `triton` | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -21,7 +19,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## 功能说明
 
-将所选主机槽位的一层恢复到设备。
+将锁页主机内存中选定槽位的指定层恢复到 NPU，方向固定为 H2D。主机源布局为 `[槽位, 层, 1, *状态形状]`，目标是设备上某一层的 `[槽位, *状态形状]` 视图；按 `src_indices[i] → dst_indices[i]` 搬运 `layer_id` 对应的数据，支持不连续索引及重复读取同一主机槽位。仅写入目标视图中选中的槽位，可用于 KV 或其他具有相同布局的状态恢复。
 
 ## 参数与返回值
 
@@ -45,7 +43,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## torch_native 后端
 
-使用 PyTorch 在输入所在设备操作。
+独立的 PyTorch 参考实现：逐对执行 `src[h, layer_id, 0] → dst[d]` 拷贝。对稠密但维度经过转置的状态，使用 `as_strided` 按物理存储顺序展平，保持与原生字节拷贝一致；通过 `copy_(..., non_blocking=True)` 写入目标。
 
 ## 示例
 

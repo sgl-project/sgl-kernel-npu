@@ -5,8 +5,6 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
-| `triton` | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -21,7 +19,12 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## Description
 
-Restore selected slots into one device layer.
+Restore one selected layer from pinned host memory to the NPU (H2D only). The source layout is
+`[slots, layers, 1, *state_shape]` , and the destination is a single device-layer view
+`[slots,
+*state_shape]` . Each `src_indices[i] → dst_indices[i]` pair copies the source at
+`layer_id` ; indices may be nonconsecutive and host source slots may repeat. Only selected
+destination slots are updated. This also applies to other state tensors with the same layout.
 
 ## Parameters and return value
 
@@ -45,7 +48,9 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-Uses PyTorch operations on the input devices.
+An independent PyTorch reference copies `src[h, layer_id, 0] → dst[d]` for each index pair using
+`copy_(..., non_blocking=True)` . Dense transposed payloads are flattened in physical storage
+order with `as_strided` to match the native byte-copy semantics.
 
 ## Example
 

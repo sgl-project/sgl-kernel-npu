@@ -5,8 +5,6 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
-| `triton` | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -21,7 +19,12 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## Description
 
-Back up selected slots of every layer and component to host.
+Back up every layer of selected NPU state slots to pinned host memory (D2H only). Each device
+component uses `[layers, slots, *state_shape]` ; its host counterpart uses
+`[slots, layers, 1,
+*state_shape]` . Each paired device/host slot index transfers all layers of
+every component. Components may have different shapes and dtypes, such as Mamba temporal and
+convolution states. Unselected host slots remain unchanged.
 
 ## Parameters and return value
 
@@ -44,7 +47,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-Uses PyTorch operations on the input devices.
+An independent PyTorch reference iterates over components, slot pairs and layers, copying
+`dev[layer, d] → host[h, layer, 0]` . Dense payloads are flattened in physical storage order
+with `as_strided` and transferred with `copy_(..., non_blocking=True)` , without calling the
+native operator.
 
 ## Example
 

@@ -5,8 +5,6 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
-| `triton` | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -21,7 +19,11 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 
 ## Description
 
-Copy selected KV pages across layer-first and page-first layouts.
+Transfer selected KV-cache pages between the NPU and pinned host memory for H2D restore or D2H
+backup. The device layout is `[layers, pages, tokens_per_page, heads, dim]` , while the host
+layout is `[pages, layers, tokens_per_page, heads, dim]` . Paired token indices identify source
+and destination pages; each transfer includes every layer of a page. K-only transfers and
+optional V, indexer keys and scales are supported. Unselected pages remain unchanged.
 
 ## Parameters and return value
 
@@ -52,7 +54,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-Uses PyTorch operations on the input devices.
+An independent PyTorch reference computes page IDs from the first token index in each
+`page_size` group, selects all layers of each page, and calls `copy_(..., non_blocking=True)` in
+the requested direction. K, V and optional indexer buffers are handled separately without
+calling the native `aclrt` operator.
 
 ## Example
 

@@ -5,8 +5,6 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | 支持 | 支持 |
-| `triton` | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -21,7 +19,7 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## 功能说明
 
-将所选槽位的所有层和状态分量备份到主机。
+将 NPU 上选定槽位的所有层备份到锁页主机内存，方向固定为 D2H。设备状态分量按 `[层, 槽位, *状态形状]` 排列，对应的主机分量按 `[槽位, 层, 1, *状态形状]` 排列；对每组设备、主机槽位索引搬运所有分量的全部层。各分量可有不同的状态形状和数据类型，例如 Mamba 的 temporal 与 conv 状态；未选中的主机槽位保持不变。
 
 ## 参数与返回值
 
@@ -44,7 +42,7 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## torch_native 后端
 
-使用 PyTorch 在输入所在设备操作。
+独立的 PyTorch 参考实现：遍历状态分量、槽位索引和层，将 `dev[layer, d]` 拷贝到 `host[h, layer, 0]`。使用 `as_strided` 按物理存储顺序展平稠密状态，再执行 `copy_(..., non_blocking=True)`，不调用原生算子。
 
 ## 示例
 

@@ -5,8 +5,6 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | 支持 | 支持 |
-| `triton` | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -21,7 +19,7 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 
 ## 功能说明
 
-按整页传输所有层的 K/V 和可选的 indexer 缓存。
+按整页在 NPU 与锁页主机内存之间搬运选中的 KV cache，支持 H2D 恢复和 D2H 备份。设备缓存按 `[层, 页, 页内 token, 头, 维度]` 排列，主机缓存按 `[页, 层, 页内 token, 头, 维度]` 排列；根据两组 token 索引确定源、目标页，一次搬运该页的所有层。可只传 K，也可同时传 V、indexer key 及其 scale，未选中的页保持不变。
 
 ## 参数与返回值
 
@@ -52,7 +50,7 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 
 ## torch_native 后端
 
-使用 PyTorch 在输入所在设备操作。
+独立的 PyTorch 参考实现：从每组 `page_size` 个索引的首项计算页号，逐页取出全部层的数据，并通过 `copy_(..., non_blocking=True)` 按传输方向写入目标；K、V 和可选 indexer 缓存分别处理，不调用 `aclrt` 原生算子。
 
 ## 示例
 
