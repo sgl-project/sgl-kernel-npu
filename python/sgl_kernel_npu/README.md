@@ -448,58 +448,56 @@ python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
 
 
-## Bundled fused compressor
+## Repository-owned DSV4 kernels
 
-The `native_compressor` third-party profile builds the original fused kernel
-from pinned sgl-kernel-npu source. It preserves RMSNorm, RoPE, mutable state,
-TH/BSH layouts and A3/A5 cycle-cache semantics. The wrapper loads only
-`sgl_kernel_npu._third_party.sgl_native_compressor`; it does not use an
-externally installed `custom_ops`, `cann_ops_transformer` or `npu.compressor`.
-CANN and the matching Torch/torch_npu remain the base build/runtime toolchain.
+Repository-owned kernels are built from this checkout into
+`sgl_kernel_npu/lib/libsgl_kernel_npu.so`, alongside the selected ACLNN Torch
+adapters. Their original `torch.ops.npu` schemas and C++ entry points are reused.
+The build does not clone another sgl-kernel-npu revision or create a private
+third-party package for these kernels.
 
-The profile is selected by default for CANN 9.1 A3 and CANN 9.2 A3/A5.
-An explicit `--third-party` list must include `native_compressor` when testing
-these compressor paths. CANN 9.1 A5 retains the bundled recipes/experimental
-compressor.
+Select them with `--ops`:
 
-For a compressor-only CANN 9.1 A3 build:
+| Target | Native operator IDs |
+| --- | --- |
+| A3 / ARCH22 | `compressor,sparse_attn_sharedkv,sparse_attn_sharedkv_metadata_host` |
+| A5 / ARCH35 | `compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata_host,kv_compress_epilog` |
+
+`--ops all` includes the supported repository native operators and declared
+ACLNN operators. A native-only wheel needs no placeholder ACLNN operator:
 
 ```bash
-python3 setup.py --arch-version 2201 --ops apply_token_bitmask \
-  --artifact wheel --third-party native_compressor --make-clean -j8
+python3 setup.py --arch-version 2201 --ops compressor \
+  --without-third-party --artifact wheel --make-clean -j8
 ```
 
-Use `3510` for CANN 9.2 A5. `apply_token_bitmask` is the minimal repository-owned
-CANN selection required by the existing wheel coordinator; the compressor is
-built separately by the third-party profile, never by that placeholder kernel.
-For the migrated suite, select
-`cann_recipes_infer,ops_transformer,native_compressor,native_dsv4` on CANN 9.1 A3,
-or `ops_transformer,native_compressor` on CANN 9.2.
-The output wheel contains the native registration library and its source license.
+Use `3510` for A5. Direct-launch native operators are wheel-only; `--artifact run`
+continues to package the selected ACLNN operators. `_build_manifest.json` records
+`cann_operators` and `native_operators` separately. Native wrappers require their
+binding to be selected in this wheel, so an environment-installed operator
+cannot replace a missing local selection.
 
-
-## Complete bundled DSV4 bindings
-
-CANN 9.1 requires the `native_dsv4` profile for DSpark explicit-index compute,
-CPU metadata and (A5 only) the original 640B KV writer. It builds the pinned
-original kernels into the wheel's private `sgl_native_dsv4` namespace. No
-installed legacy registration library is consulted. The `native_compressor`
-profile name is unchanged; both profiles share the `native_ops` build adapter.
-Sparse source checkouts and disabled submodules avoid cloning unused native
-kernel dependencies.
-
-Use these dependency selections for the migrated operator suite:
+Only external sources use `--third-party`:
 
 | SDK / target | `--third-party` |
 | --- | --- |
-| CANN 9.1 A3 | `cann_recipes_infer,ops_transformer,native_compressor,native_dsv4` |
-| CANN 9.1 A5 | `cann_recipes_infer,ops_transformer,native_dsv4` |
-| CANN 9.2 A3/A5 | `ops_transformer,native_compressor` |
+| CANN 9.1 A3/A5 | `cann_recipes_infer,ops_transformer` |
+| CANN 9.2 A3/A5 | `ops_transformer` |
 
-Omitting `--third-party` selects all matching profiles. Production
-`indexer_quant_cache` is restricted to A5; A3's eager reference remains available.
-Wheel assembly now imports the staged bundled modules and checks their actual
-Torch registrations before packaging. `_binding_manifest.json` records the
-verified bindings and whether the migrated-suite dependency set was selected.
-The complete CANN 9.2 suite also checks the base torch_npu MoE hash schema.
-This checks registration and packaging, not NPU output accuracy.
+For the migrated operator suite, use the native IDs above and the matching
+external profiles. CANN 9.1 A5 compressor still uses the external experimental
+implementation; CANN 9.1 A3 and CANN 9.2 A3/A5 use the local fused compressor.
+For example, the CANN 9.1 A3 suite builds with:
+
+```bash
+python3 setup.py --arch-version 2201 \
+  --ops compressor,sparse_attn_sharedkv,sparse_attn_sharedkv_metadata_host \
+  --third-party cann_recipes_infer,ops_transformer \
+  --artifact wheel --make-clean -j8
+```
+
+Omitting `--third-party` selects all matching external profiles. The existing
+community mHC APIs may require an additional released-ops profile on CANN 9.1;
+those APIs and profiles are unchanged. Wheel assembly checks the selected native
+and external Torch registrations before packaging. `_binding_manifest.json`
+records registration coverage; it does not claim NPU output accuracy.

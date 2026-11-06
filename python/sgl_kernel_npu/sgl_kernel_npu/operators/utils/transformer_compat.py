@@ -5,6 +5,8 @@ execution; a failed kernel is never retried with a different backend.
 """
 
 import functools
+import json
+from pathlib import Path
 
 import torch
 
@@ -31,7 +33,7 @@ def cann_backend():
 
 
 @functools.lru_cache(maxsize=None)
-def require_op(namespace, name, *, backend=None, required_arguments=()):
+def require_op(namespace, name, *, backend=None, required_arguments=(), native=False):
     """Load one bundled binding and validate the requested SDK and schema."""
     if backend is not None and backend != cann_backend():
         raise OperatorUnavailableError(
@@ -45,10 +47,15 @@ def require_op(namespace, name, *, backend=None, required_arguments=()):
     elif namespace == "cann_ops_transformer":
         from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
 
-    elif namespace == "sgl_native_compressor":
-        from ..._third_party import sgl_native_compressor  # noqa: F401
-    elif namespace == "sgl_native_dsv4":
-        from ..._third_party import sgl_native_dsv4  # noqa: F401
+    if native:
+        manifest_path = Path(__file__).resolve().parents[2] / "_build_manifest.json"
+        manifest = (
+            json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+        )
+        if namespace != "npu" or name not in manifest.get("native_operators", []):
+            raise OperatorUnavailableError(
+                f"Native operator {name} was not built into this wheel; rebuild with --ops {name}"
+            )
     op = getattr(getattr(torch.ops, namespace), name, None)
     if op is None:
         raise OperatorUnavailableError(

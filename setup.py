@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "python/sgl_kernel_npu"))
 
 from build_tools.cann import PROJECT_ROOT, _remove_tree, build_cann, parse_operators
+from build_tools.native import split_operators
 
 
 def arguments(argv=None):
@@ -97,6 +98,9 @@ def main(argv=None):
         resolve_plan,
     )
 
+    cann_operators, native_operators = split_operators(
+        args.operators, args.arch_version, include_native=args.artifact == "wheel"
+    )
     plan = []
     if not args.without_third_party and args.artifact == "wheel":
         plan = resolve_plan(
@@ -108,6 +112,7 @@ def main(argv=None):
     if args.plan:
         import json
 
+        print("NATIVE_OPERATORS: " + ",".join(native_operators), file=sys.stderr)
         print(json.dumps(plan, indent=2))
         return
     dependencies = build_dependencies(plan) if plan else []
@@ -119,7 +124,7 @@ def main(argv=None):
         path.unlink()
     result = build_cann(
         args.arch_version,
-        args.operators,
+        cann_operators,
         jobs=args.jobs,
     )
     if args.artifact == "run":
@@ -131,7 +136,11 @@ def main(argv=None):
         from build_tools.torch_wheel import build_torch, build_wheel
 
         package = build_torch(
-            result, args.arch_version, jobs=args.jobs, dependencies=dependencies
+            result,
+            args.arch_version,
+            jobs=args.jobs,
+            dependencies=dependencies,
+            native_operators=native_operators,
         )
         wheel = build_wheel(package)
         destination = output / wheel.name
