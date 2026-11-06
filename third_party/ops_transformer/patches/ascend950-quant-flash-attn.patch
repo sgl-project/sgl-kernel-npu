@@ -1,0 +1,76 @@
+diff --git a/attention/quant_flash_attn/op_host/quant_flash_attn_def.cpp b/attention/quant_flash_attn/op_host/quant_flash_attn_def.cpp
+--- a/attention/quant_flash_attn/op_host/quant_flash_attn_def.cpp
++++ b/attention/quant_flash_attn/op_host/quant_flash_attn_def.cpp
+@@ -181,72 +181,4 @@
+         this->AICore().AddConfig("ascend350", aicore_config_95);
+
+-        OpAICoreConfig aicore_config_96;
+-        aicore_config_96.Input("q")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E4M3FN,
+-                Ops::Transformer::DT_HIFLOAT4,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .AutoContiguous();
+-        aicore_config_96.Input("k")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E4M3FN,
+-                Ops::Transformer::DT_HIFLOAT4,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .IgnoreContiguous();
+-        aicore_config_96.Input("v")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E4M3FN,
+-                Ops::Transformer::DT_HIFLOAT4,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .IgnoreContiguous();
+-        aicore_config_96.Input("q_descale")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E8M0,
+-                Ops::Transformer::DT_HIFLOAT4_SCALE,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .AutoContiguous();
+-        aicore_config_96.Input("k_descale")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E8M0,
+-                Ops::Transformer::DT_HIFLOAT4_SCALE,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .IgnoreContiguous();
+-        aicore_config_96.Input("v_descale")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_FLOAT8_E8M0,
+-                Ops::Transformer::DT_HIFLOAT4_SCALE,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .IgnoreContiguous();
+-        aicore_config_96.Output("attn_out")
+-            .ParamType(REQUIRED)
+-            .DataType({
+-                Ops::Transformer::DT_BF16,
+-                Ops::Transformer::DT_BF16,
+-            })
+-            .FormatList({ge::FORMAT_ND})
+-            .AutoContiguous();
+-        aicore_config_96.DynamicCompileStaticFlag(true)
+-            .DynamicFormatFlag(true)
+-            .DynamicRankSupportFlag(true)
+-            .DynamicShapeSupportFlag(true)
+-            .NeedCheckSupportFlag(false)
+-            .PrecisionReduceFlag(true)
+-            .ExtendCfgInfo("prebuildPattern.value", "Opaque")
+-            .ExtendCfgInfo("coreType.value", "AiCore")
+-            .ExtendCfgInfo("opFile.value", "quant_flash_attn");
+-
+-        this->AICore().AddConfig("ascend960dt", aicore_config_96);
+     }
+ };
