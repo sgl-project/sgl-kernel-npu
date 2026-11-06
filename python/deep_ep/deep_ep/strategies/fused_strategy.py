@@ -9,6 +9,7 @@ import torch
 import torch.distributed as dist
 
 from ..ep_strategy import FusedEPCommStrategy, register_fused_strategy
+from ._mega_moe_compat import adapt_mega_moe_operator
 
 TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
 _MEGA_MOE_MXFP_MODES = frozenset(
@@ -163,7 +164,7 @@ class MegaMoeStrategy(FusedEPCommStrategy):
                 "(e.g. `pip install ninja`). Original error: "
                 f"{e}"
             ) from e
-        return get_symm_buffer_for_mega_moe, mega_moe
+        return get_symm_buffer_for_mega_moe, adapt_mega_moe_operator(mega_moe)
 
     @staticmethod
     def _fp4_type() -> int:

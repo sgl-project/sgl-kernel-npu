@@ -211,6 +211,7 @@ Backend highlights:
 - On A5, `FuseMode.FUSED_DEEP_MOE` supports SwiGLU and SiTU; on Atlas A3, use `FuseMode.MEGA_MOE` for SiTU.
 - `FuseMode.DISPATCH_FFN_COMBINE` supports SwiGLU only; selecting `activation="situ"` raises `NotImplementedError`.
 - `FuseMode.MEGA_MOE` supports `"swiglu"` and `"situ"`; it maps SiTU to the MegaMoe `situglu` activation and forwards `beta` and `linear_beta`.
+- For older operator bindings without `activation_params`, the loader adapts only plain `"swiglu"` with `activation_params=None`; other activations or explicit parameters fail clearly. Modern bindings are unchanged. This does not relax the CANN/platform requirements or change native workspace allocation.
 - The MegaMoe Python strategy does not query A3/A5. It maps the explicit quantization mode to CANN parameters; CANN checks hardware compatibility. Legacy BF16/INT modes keep padding/masking, while MXFP modes pass actual token lengths.
 - A3 MegaMoe accepts `quant_mode=0` / `"bf16"` and `1` / `"int8"`, retaining capacity padding and an active mask.
 - A5 MegaMoe requires `"mx_fp8_e4m3"`, `"mx_fp8_e5m2"`, `"mx_fp4_e2m1"`, or `"mx_fp8_e4m3_w4"` (A8W4-FP). It passes actual token lengths without padding or an active mask; every rank must configure the same `num_max_dispatch_tokens_per_rank` upper bound.
