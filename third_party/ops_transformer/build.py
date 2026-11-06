@@ -196,12 +196,16 @@ def inspect_vendor(vendor, item):
 
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
     for op in item["ops"]:
-        config = kernel / "config" / item["soc"] / (op + ".json")
-        if config.exists():
+        # AscendC template kernels are installed under <op>_apt, while the
+        # public operator and source directory retain the unsuffixed name.
+        for installed_name in (op, op + "_apt"):
+            config = kernel / "config" / item["soc"] / (installed_name + ".json")
+            if not config.exists():
+                continue
             read_json(require(config))
-            binaries = sorted((kernel / item["soc"] / op).glob("*.o"))
+            binaries = sorted((kernel / item["soc"] / installed_name).glob("*.o"))
             if not binaries:
-                raise RuntimeError("No AICore binaries for " + op)
+                raise RuntimeError("No AICore binaries for " + installed_name)
             for binary in binaries:
                 require(binary)
                 read_json(require(binary.with_suffix(".json")))

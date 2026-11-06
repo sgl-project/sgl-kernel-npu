@@ -68,3 +68,49 @@ def test_source_directory_checked_before_build(builder, tmp_path, experimental):
     target.parent.mkdir(parents=True)
     target.touch()
     builder.prepare_source(item, tmp_path, tmp_path)
+
+
+@pytest.mark.parametrize("soc", ["ascend910_93", "ascend950"])
+@pytest.mark.parametrize("op", ["mhc_pre_sinkhorn", "mhc_post"])
+@pytest.mark.parametrize("suffix", ["", "_apt"])
+def test_vendor_accepts_complete_kernel_layout(builder, tmp_path, soc, op, suffix):
+    vendor = tmp_path / "vendor"
+    api = vendor / "op_api/lib/libcust_opapi.so"
+    api.parent.mkdir(parents=True)
+    api.write_bytes(b"opapi fixture")
+    kernel = vendor / "op_impl/ai_core/tbe/kernel"
+    name = op + suffix
+    config = kernel / "config" / soc / (name + ".json")
+    config.parent.mkdir(parents=True)
+    config.write_text("{}")
+    binary = kernel / soc / name / "Mhc_fixture.o"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"kernel fixture")
+    binary.with_suffix(".json").write_text("{}")
+    builder.inspect_vendor(vendor, dict(ops=[op], soc=soc, has_aicpu=False))
+
+
+@pytest.mark.parametrize("missing", ["binary", "binary_metadata", "config"])
+def test_apt_source_or_partial_payload_does_not_pass(builder, tmp_path, missing):
+    vendor = tmp_path / "vendor"
+    api = vendor / "op_api/lib/libcust_opapi.so"
+    api.parent.mkdir(parents=True)
+    api.write_bytes(b"opapi fixture")
+    op = "mhc_pre_sinkhorn"
+    kernel = vendor / "op_impl/ai_core/tbe/kernel"
+    config = kernel / "config/ascend950" / (op + "_apt.json")
+    config.parent.mkdir(parents=True)
+    if missing != "config":
+        config.write_text("{}")
+    binary = kernel / "ascend950" / (op + "_apt") / "Mhc_fixture.o"
+    binary.parent.mkdir(parents=True)
+    if missing != "binary":
+        binary.write_bytes(b"kernel fixture")
+    if missing != "binary_metadata":
+        binary.with_suffix(".json").write_text("{}")
+    # Installed source code alone is not evidence of a usable kernel binary.
+    source = vendor / "op_impl/ai_core/tbe/impl" / op / "op_kernel"
+    source.mkdir(parents=True)
+    (source / (op + "_apt.cpp")).write_text("// source fixture")
+    with pytest.raises(RuntimeError):
+        builder.inspect_vendor(vendor, dict(ops=[op], soc="ascend950", has_aicpu=False))
