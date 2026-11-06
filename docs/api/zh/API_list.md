@@ -20,6 +20,7 @@
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
+| [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`、`torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
 | [flash_decode_bnsd_with_gqa_share_sparse](operators/attention/flash_decode_bnsd_with_gqa_share_sparse.md) | `triton`, `ascendc`, `torch_native` |
 | [mla_preprocess](operators/attention/mla_preprocess.md) | `ascendc`、`torch_native` |

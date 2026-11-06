@@ -10,5 +10,4 @@ sgl_register_operator(
     INFER_SOURCES op_host/sparse_attn_sharedkv_infer.cpp
     TILING_SOURCES op_host/sparse_attn_sharedkv_tiling.cpp
     KERNEL_SOURCES op_kernel/sparse_attn_sharedkv.cpp
-    KERNEL_INCLUDE_DIRECTORIES op_kernel
 )

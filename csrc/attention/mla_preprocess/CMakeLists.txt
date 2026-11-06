@@ -11,5 +11,5 @@ sgl_register_operator(
     INFER_SOURCES op_host/mla_preprocess_infer.cpp
     TILING_SOURCES op_host/mla_preprocess_tiling.cpp
     KERNEL_SOURCES op_kernel/mla_preprocess.cpp
-    KERNEL_INCLUDE_DIRECTORIES op_kernel ../../utils/kernel
+    KERNEL_INCLUDE_DIRECTORIES ../../utils/kernel
 )
