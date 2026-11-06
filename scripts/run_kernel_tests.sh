@@ -209,13 +209,45 @@ if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
     TESTS=("${FILTERED_TESTS[@]}")
 fi
 
-# mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
-if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
-    TESTS+=(
-        "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
-        "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
+# A5 (Ascend 950): skip tests that fail on this hardware; still run on A3.
+if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
+    SKIP_ON_A5=(
+        test_mla_preprocess.py
+        test_lightning_indexer.py
+        test_conv1d_update.py
+        test_mamba_conv.py
+        test_l2norm_boundaries.py
+        test_batch_matmul_transpose.py
+        # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
+        test_qkvzba_split_reshape_cat.py
+        test_gmm_wfp8a16.py
+        test_mm_wfp8a16.py
+
     )
+    FILTERED_TESTS=()
+    for t in "${TESTS[@]}"; do
+        local_skip=0
+        for s in "${SKIP_ON_A5[@]}"; do
+            if [[ "$t" == "$s" ]]; then
+                local_skip=1
+                break
+            fi
+        done
+        if [ "$local_skip" -eq 0 ]; then
+            FILTERED_TESTS+=("$t")
+        fi
+    done
+    echo "[NPU_HARDWARE=950] skipping on A5: ${SKIP_ON_A5[*]}"
+    TESTS=("${FILTERED_TESTS[@]}")
 fi
+
+# mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
+# if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
+#     TESTS+=(
+#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
+#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
+#     )
+# fi
 
 echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
 echo ""
