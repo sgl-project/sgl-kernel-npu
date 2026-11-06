@@ -85,6 +85,16 @@ SDK path requires an environment-installed `custom_ops` or
 `cann_ops_transformer` Python package. The wheel still requires the matching CANN
 SDK and torch_npu at runtime.
 
+Wheel-private `libcust_opapi.so` libraries receive distinct SONAMEs during
+staging. The filenames and absolute-path CANN lookups stay unchanged. This
+prevents a later bare-name `dlopen("libcust_opapi.so")`, such as DeepEP's, from
+reusing a previously loaded private vendor. `RTLD_LOCAL` alone does not isolate
+SONAME lookup. `_build_manifest.json` records `opapi_sonames`, and third-party
+payload hashes describe the staged binaries. Rebuild and reinstall the
+sgl-kernel-npu wheel to apply this packaging change; no DeepEP source change is
+required. This isolates library selection and does not certify graph-capture
+or communication accuracy on an NPU.
+
 
 ## Repository-owned DSV4 kernels
 
