@@ -62,6 +62,10 @@ def verify(package):
                 )
         bindings.append(namespace + "." + name)
 
+    native = set(manifest.get("native_operators", []))
+    for name in native:
+        check("npu", name, dispatch=manifest["native_dispatch_keys"][name])
+
     for item in dependencies:
         if not item.get("python_bindings", True):
             continue  # Its ACLNN/AICPU payload is checked by the vendor builder.
@@ -90,18 +94,23 @@ def verify(package):
     version = next(iter(versions), None)
     arch = manifest["arch_version"]
     if version and version.startswith("9.1."):
-        required = {
-            "sgl_cann_recipes_infer",
-            "sgl_ops_transformer_experimental",
-            "sgl_native_dsv4",
-        }
-        if arch == "2201":
-            required.add("sgl_native_compressor")
+        required = {"sgl_cann_recipes_infer", "sgl_ops_transformer_experimental"}
+        required_native = (
+            {"compressor", "sparse_attn_sharedkv", "sparse_attn_sharedkv_metadata_host"}
+            if arch == "2201"
+            else {
+                "kv_quant_sparse_attn_sharedkv",
+                "kv_quant_sparse_attn_sharedkv_metadata_host",
+                "kv_compress_epilog",
+            }
+        )
     elif version and version.startswith("9.2."):
-        required = {"sgl_ops_transformer", "sgl_native_compressor"}
+        required = {"sgl_ops_transformer"}
+        required_native = {"compressor"}
     else:
         required = None
-    ready = required is not None and required <= names
+        required_native = set()
+    ready = required is not None and required <= names and required_native <= native
     if ready and version.startswith("9.2."):
         # This is a base torch_npu API, not a separately installed op plugin.
         check("npu", "npu_moe_gating_top_k", required=("input_ids", "tid2eid"))

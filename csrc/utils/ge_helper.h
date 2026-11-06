@@ -499,7 +499,7 @@ public:
 
     const gert::StorageShape *GetOptionalInputShape(uint32_t index) const
     {
-        return &inputShape_[index];
+        return inputTensor_[index] == nullptr ? nullptr : &inputShape_[index];
     }
 
     const gert::Tensor *GetOptionalInputTensor(uint32_t index) const

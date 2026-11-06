@@ -24,7 +24,7 @@ def _cann_compressor(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
     # Use the pinned fused kernel bundled through third_party. The released
     # core-only compressor has a different computation boundary.
     op = require_op(
-        "sgl_native_compressor", "compressor", backend="cann_ops_transformer_cann920"
+        "npu", "compressor", native=True, backend="cann_ops_transformer_cann920"
     )
     return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
@@ -43,7 +43,7 @@ def _ops_transformer_cann910(x, wkv, wgate, state_cache, ape, norm_weight, **kwa
     "attention.compressor", "ascendc", supported_generations={Generation.ARCH22}
 )
 def _ascendc(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs):
-    op = require_op("sgl_native_compressor", "compressor", backend="cann_9_1")
+    op = require_op("npu", "compressor", native=True, backend="cann_9_1")
     return op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
 
 

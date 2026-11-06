@@ -33,14 +33,25 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     )
     shutil.copy2(source_root / "config.ini", package / "config.ini")
     # This is the expanded vendor, not the installer and not SDK libraries.
-    shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
+    (package / "_cann").mkdir(exist_ok=True)
+    if vendor is not None:
+        shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
 
 
 def build_torch(
-    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+    cann,
+    arch_version,
+    *,
+    jobs=None,
+    source_root=PROJECT_ROOT,
+    dependencies=(),
+    native_operators=()
 ):
-    if cann.vendor is None:
-        raise RuntimeError("Torch requires a built and installed CANN package")
+    from build_tools.native import DISPATCH_KEYS, native_soc
+
+    if cann.vendor is None and not native_operators:
+        raise RuntimeError("Torch requires a CANN package or selected native operators")
+    soc = native_soc(arch_version) if native_operators else ""
     source_root = Path(source_root).resolve()
     directory = cann.directory.parent / "torch"
     if directory.is_symlink():
@@ -49,6 +60,8 @@ def build_torch(
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc/aclnn_torch_adapter"),
         "SGL_ARCH_VERSION": arch_version,
         "SGL_CANN_OPERATORS": ";".join(cann.operators),
+        "SGL_NATIVE_OPERATORS": ";".join(native_operators),
+        "SGL_NATIVE_SOC": soc,
         "Python3_EXECUTABLE": sys.executable,
         "SGL_TORCH_LIBRARY_DIR": str(directory / "lib"),
     }
@@ -78,7 +91,7 @@ def build_torch(
 
     third_party = stage_dependencies(dependencies, package)
     (package / "_cann/selected-operators.txt").write_text(
-        "\n".join(cann.operators) + "\n"
+        "\n".join((*cann.operators, *native_operators)) + "\n"
     )
     (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
@@ -86,7 +99,13 @@ def build_torch(
         "build_mode": "REFACTOR",
         "arch_version": arch_version,
         "selection_kind": cann.selection_kind,
-        "operators": sorted(cann.operators),
+        "operators": sorted((*cann.operators, *native_operators)),
+        "cann_operators": sorted(cann.operators),
+        "native_operators": sorted(native_operators),
+        "native_soc": soc,
+        "native_dispatch_keys": {
+            name: DISPATCH_KEYS[name] for name in native_operators
+        },
         "compute_units": architecture(arch_version, source_root)["compute_units"],
         "third_party": third_party,
     }
@@ -102,7 +121,10 @@ def build_torch(
             "-DPython3_EXECUTABLE=" + sys.executable,
             "-DSGL_ARCH_VERSION=" + arch_version,
             "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
-            "-DSGL_CANN_VENDOR=" + str(cann.vendor),
+            "-DSGL_CANN_VENDOR="
+            + (str(cann.vendor) if cann.vendor is not None else ""),
+            "-DSGL_NATIVE_OPERATORS=" + ";".join(native_operators),
+            "-DSGL_NATIVE_SOC=" + soc,
             "-DSGL_TORCH_LIBRARY_DIR=" + str(directory / "lib"),
         ],
         directory / "configure.log",
@@ -141,6 +163,21 @@ def wheel_build_tag(manifest):
             hashlib.sha256(
                 ",".join(sorted(manifest["operators"])).encode()
             ).hexdigest()[:10]
+        )
+    if manifest.get("native_operators"):
+        parts.extend(
+            [
+                "native",
+                hashlib.sha256(
+                    json.dumps(
+                        {
+                            "operators": manifest["native_operators"],
+                            "soc": manifest["native_soc"],
+                        },
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest()[:10],
+            ]
         )
     if manifest.get("third_party"):
         parts.extend(
