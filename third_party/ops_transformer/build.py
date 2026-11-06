@@ -3,6 +3,8 @@
 import hashlib
 import re
 import shutil
+import sys
+import zipfile
 from pathlib import Path
 
 from build_tools.cann import run
@@ -53,6 +55,9 @@ def stage_python(wheel, item, package):
     destination = package / "_third_party" / item["python_package"]
     # Upstream adds its own package prefix; only its temporary wheel uses it.
     upstream_package = "cann_ops_transformer_" + item["vendor_name"]
+    with zipfile.ZipFile(wheel) as archive:
+        if "cann_ops_transformer/__init__.py" in archive.namelist():
+            upstream_package = "cann_ops_transformer"
     extract_python(wheel, upstream_package, destination)
     ops_root = destination / "ops"
     modules = sorted(
@@ -60,6 +65,8 @@ def stage_python(wheel, item, package):
         for path in ops_root.glob("*/*/__init__.py")
         if path.parent.name in item["ops"]
     )
+    if not modules:
+        modules = [op for op in item["ops"] if (ops_root / (op + ".py")).is_file()]
     if not modules:
         raise RuntimeError("No selected Python bindings found in upstream wheel")
     qualified = "sgl_kernel_npu._third_party." + name
@@ -71,7 +78,12 @@ def stage_python(wheel, item, package):
         + r"|cann_ops_transformer)(?=[.\s])"
     )
     for path in destination.rglob("*.py"):
-        path.write_text(re.sub(pattern, lambda m: m[1] + qualified, path.read_text()))
+        text = re.sub(
+            r"(?m)^([ \t]*import[ \t]+)cann_ops_transformer[ \t]*$",
+            lambda m: m[1] + qualified + " as cann_ops_transformer",
+            path.read_text(),
+        )
+        path.write_text(re.sub(pattern, lambda m: m[1] + qualified, text))
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(
@@ -157,6 +169,18 @@ def build(item, source, directory):
     prepare_source(item, source, directory)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
+    extension = source / "torch_extension"
+    # CANN 9.1 has a flat Python package and a setuptools entry point, rather
+    # than the per-operator --torch_extension builder shipped in CANN 9.2.
+    if item["python_bindings"] and any(
+        (extension / "cann_ops_transformer/ops" / (op + ".py")).is_file()
+        for op in item["ops"]
+    ):
+        run(
+            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", "dist"],
+            directory / "build-python.log",
+            cwd=extension,
+        )
     installers = list((source / "build_out").glob("*.run"))
     wheels = list((source / "torch_extension/dist").glob("*.whl"))
     if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
