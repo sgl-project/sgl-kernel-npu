@@ -20,6 +20,7 @@
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`, `torch_native` |
 | [fused_variance](operators/norm/fused_variance.md) | `triton`, `torch_native` |
 | [rmsnorm_bias](operators/norm/rmsnorm_bias.md) | `triton`, `torch_native` |
+| [rmsnorm_cast_before_weight](operators/diffusion/norm/rmsnorm_cast_before_weight.md) | `triton`, `torch_native` |
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
@@ -29,7 +30,9 @@
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`, `torch_native` |
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`, `torch_native` |
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`, `torch_native` |
+| [residual_gate_add](operators/diffusion/modulate/residual_gate_add.md) | `triton`, `torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`, `torch_native` |
+| [silu_mul](operators/diffusion/activation/silu_mul.md) | `triton`, `torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`, `torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`, `torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`, `torch_native` |
