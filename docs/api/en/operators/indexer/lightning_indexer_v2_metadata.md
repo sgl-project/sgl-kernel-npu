@@ -46,7 +46,26 @@ Returns opaque `int32[2048]` scheduling data. The upstream Python name is `light
 
 ## Parameters and return value
 
-`num_heads_q` is 1..64, `num_heads_k=1`, and `head_dim=128`. Length tensors are int32; TND uses cumulative boundaries `[B+1]`, and `seqused_k` has shape `[B]`. Layout, mask and compression must match the main call. None attributes use upstream defaults: batch_size=0, maximum lengths=-1, BSND/BSND, mask=0, cmp_ratio=1. There is no torch_native metadata backend: opaque scheduling data is tested in combination with the main operator.
+| Parameter | Type / shape | Default | Constraints |
+| --- | --- | --- | --- |
+| num_heads_q | int | Required | 1..64 |
+| num_heads_k | int | Required | 1 |
+| head_dim | int | Required | 128 |
+| topk | int | Required | Same supported selection count as the main call |
+| cu_seqlens_q, cu_seqlens_k | int32 tensor `[B+1]` | None | TND cumulative boundaries; no BSND key lengths |
+| seqused_q, seqused_k, cmp_residual_k | int32 tensor `[B]` | None | Follow the upstream metadata contract; A3 main calls reject seqused_q |
+| batch_size | int | None | None uses upstream default 0 |
+| max_seqlen_q, max_seqlen_k | int | None | None uses upstream default -1 |
+| layout_q | str | None | Upstream default BSND; also TND |
+| layout_k | str | None | Upstream default BSND; also TND / PA_BBND |
+| mask_mode | int | None | Upstream default 0; also 3 |
+| cmp_ratio | int | None | Upstream default 1; powers of two in 1..128 |
+| impl | str, keyword-only | auto | auto / cann_ops_transformers_cann920 |
+
+Returns an `int32[2048]` tensor on the current NPU, without modifying inputs.
+Lengths, layouts, head counts, compression and mask must match the main call.
+There is no torch_native metadata backend because the output is opaque
+scheduling data; correctness is checked in combination with the main operator.
 
 ## cann_ops_transformers_cann920 backend
 

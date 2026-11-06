@@ -1,19 +1,22 @@
 """Stateful experimental ops-transformer compressor for CANN 9.2.0 / arch22."""
 
-from functools import lru_cache
-
 import torch
 
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cann_fn = None
+_native_fn = None
 
-@lru_cache(maxsize=1)
+
 def _binding():
-    from ..._third_party.sgl_ops_transformer_experimental.ops.ds41 import compressor
+    global _cann_fn
+    if _cann_fn is None:
+        from ..._third_party.sgl_ops_transformer_experimental.ops.ds41 import compressor
 
-    return compressor
+        _cann_fn = compressor
+    return _cann_fn
 
 
 @register_impl(
@@ -32,9 +35,12 @@ def _cann_impl(*args, **kwargs):
 
 @register_impl("attention.compressor_v2", "torch_native")
 def _native_impl(*args, **kwargs):
-    from ...implementation.torch_native.attention.compressor_v2 import compressor_v2
+    global _native_fn
+    if _native_fn is None:
+        from ...implementation.torch_native.attention.compressor_v2 import compressor_v2
 
-    return compressor_v2(*args, **kwargs)
+        _native_fn = compressor_v2
+    return _native_fn(*args, **kwargs)
 
 
 @register_operator("attention.compressor_v2")
@@ -53,9 +59,23 @@ def compressor_v2(
 ):
     """Compress completed token groups and update state_cache in place.
 
-    Weights are [D,H], cache is FP32 [P,C,2*D]. The output has the input dtype;
-    padding slots are unspecified. A3 requires state_block_table. See the API
-    documents for valid output counts, circular history and reference limits.
+    The default auto implementation uses bundled CANN 9.2.0 operators on A3.
+
+    Args:
+        x (Tensor): Contiguous fp16/bf16 [B,S,H] or packed [T,H] activations.
+        wkv (Tensor): Projection weights [D,H], with the dtype of x; D=128/512.
+        wgate (Tensor): Gate weights with the shape and dtype of wkv.
+        state_cache (Tensor): FP32 circular history [P,C,2*D], updated in place.
+        cmp_ratio (int): Tokens per compressed group, a power of two in 2..128.
+        state_block_table (Tensor): Required int32 [B] physical cache block IDs.
+        cu_seqlens (Tensor | None): Int32 [B+1] cumulative TH boundaries.
+        seqused (Tensor | None): Int32 [B] valid lengths; None uses all tokens.
+        start_pos (Tensor | None): Int32 [B] absolute positions; None means zero.
+        impl (str): auto, cann_ops_transformers_cann920, or torch_native.
+
+    All tensors share x.device. Returns x.dtype compressed rows [B,ceil(S/r),D]
+    or [min(T,T//r+B),D], where r=cmp_ratio. Only completed groups are valid;
+    unused output padding is unspecified. The Torch reference requires C>=r.
     """
     if x.ndim not in (2, 3):
         raise ValueError("x must be TH or BSH")

@@ -75,11 +75,6 @@ Mapping: build/OpType `compressor_v2` / `CompressorV2`; Python export `compresso
 from `_third_party.sgl_ops_transformer_experimental.ops.ds41`; Torch name
 `cann_ops_transformer::ds41.compressor`; ACLNN `aclnnCompressorV2`.
 
-Tests clone cache for each backend and compare valid outputs plus the entire
-updated cache. Representative performance shapes are synthetic, not production
-traces; performance excludes the test's cache copy and uses aligned starts for
-idempotent repeated writes.
-
 ## torch_native backend
 
 `torch_native` independently computes in CPU FP32, supports BSH/TH and circular

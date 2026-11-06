@@ -70,10 +70,6 @@ vendor、LICENSE、manifest；实验依赖不含 AICPU。首次调用可能 JIT 
 `_third_party.sgl_ops_transformer_experimental.ops.ds41.compressor`，Torch 名为
 `cann_ops_transformer::ds41.compressor`，ACLNN 为 `aclnnCompressorV2`。
 
-测试为两个后端分别复制 cache，从相同历史开始，对比有效输出和更新后的全部 cache。
-性能 shape 为独立选择的合成输入，不声称来自生产追踪；计时不含测试层 cache 复制，
-使用对齐的起始位置保证重复写入幂等。
-
 ## torch_native 后端
 
 `torch_native` 独立使用 CPU FP32 计算，支持 BSH/TH、循环 cache 和历史续接，要求

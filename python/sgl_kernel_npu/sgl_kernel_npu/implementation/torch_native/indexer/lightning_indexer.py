@@ -115,8 +115,17 @@ def sparse_lightning_indexer(
 ):
     score = _scores(q, k, w, **kwargs)
     blocks = torch.arange(score.shape[-1], device=q.device) // candidate_block_size
-    allowed = (
-        blocks[None, None, :, None] == candidate_block_indices[..., 0, None, :]
-    ).any(-1)
+    candidates = candidate_block_indices[..., 0, :].long()
+    num_blocks = (score.shape[-1] + candidate_block_size - 1) // candidate_block_size
+    valid = (candidates >= 0) & (candidates < num_blocks)
+    # Mark blocks once instead of materializing [B,Q,K,C] comparisons. Addition
+    # preserves valid block zero when padded/duplicate candidates also occur.
+    selected = torch.zeros(
+        *score.shape[:-1], num_blocks, dtype=torch.int32, device=score.device
+    )
+    selected.scatter_add_(
+        -1, candidates.clamp(0, num_blocks - 1), valid.to(torch.int32)
+    )
+    allowed = selected.index_select(-1, blocks) != 0
     score = score.masked_fill(~allowed, -torch.inf)
     return _topk(score, topk, return_value, invalid_value=0.0)

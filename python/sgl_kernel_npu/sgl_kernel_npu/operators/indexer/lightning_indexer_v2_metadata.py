@@ -1,17 +1,19 @@
 """CANN 9.2.0 ops-transformer interface for arch22 (A3)."""
 
-from functools import lru_cache
-
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cann_fn = None
 
-@lru_cache(maxsize=1)
+
 def _binding():
-    from ..._third_party.sgl_ops_transformer.ops import lightning_indexer_metadata
+    global _cann_fn
+    if _cann_fn is None:
+        from ..._third_party.sgl_ops_transformer.ops import lightning_indexer_metadata
 
-    return lightning_indexer_metadata
+        _cann_fn = lightning_indexer_metadata
+    return _cann_fn
 
 
 @register_impl(
@@ -51,7 +53,31 @@ def lightning_indexer_v2_metadata(
     *,
     impl="auto"
 ):
-    """See docs/api/{en,zh}/operators/indexer/lightning_indexer_v2_metadata.md for the contract."""
+    """Build opaque int32[2048] scheduling data; A3 kernels ignore this data.
+
+    The default auto implementation uses bundled CANN 9.2.0 on A3.
+
+    Args:
+        num_heads_q (int): Number of query heads, in 1..64.
+        num_heads_k (int): Number of key heads; must be 1.
+        head_dim (int): Query/key head dimension; must be 128.
+        topk (int): Selected key count, matching the main operator.
+        cu_seqlens_q (Tensor | None): Int32 [B+1] query length metadata.
+        cu_seqlens_k (Tensor | None): Int32 [B+1] cumulative TND key lengths.
+        seqused_q (Tensor | None): Int32 [B] valid query lengths.
+        seqused_k (Tensor | None): Int32 [B] valid key lengths.
+        cmp_residual_k (Tensor | None): Int32 [B] compression remainders.
+        batch_size (int | None): Batch count; None uses upstream default 0.
+        max_seqlen_q (int | None): Maximum query length; None defaults to -1.
+        max_seqlen_k (int | None): Maximum key length; None defaults to -1.
+        layout_q (str | None): Query layout; None defaults to BSND.
+        layout_k (str | None): Key layout; None defaults to BSND.
+        mask_mode (int | None): Mask mode; None defaults to 0.
+        cmp_ratio (int | None): Compression ratio; None defaults to 1.
+        impl (str): auto or cann_ops_transformers_cann920.
+
+    Tensor arguments use the input device of the corresponding main call.
+    """
     return get_impl_by_name("indexer.lightning_indexer_v2_metadata", impl)(
         num_heads_q=num_heads_q,
         num_heads_k=num_heads_k,
