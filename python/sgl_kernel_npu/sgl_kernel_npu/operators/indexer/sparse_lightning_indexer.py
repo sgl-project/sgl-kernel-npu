@@ -5,7 +5,10 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from .indexer_utils import validate_candidates, validate_inputs
+from .indexer_utils import (
+    validate_lightning_indexer_candidates,
+    validate_lightning_indexer_inputs,
+)
 
 _cann_fn = None
 _native_fn = None
@@ -109,7 +112,7 @@ def sparse_lightning_indexer(
     [B,Q,1,topk] or [Tq,1,topk]. Invalid entries use -1 indices and zero scores;
     negative, duplicate and out-of-range block IDs add no extra positions.
     """
-    validate_inputs(
+    validate_lightning_indexer_inputs(
         q,
         k,
         w,
@@ -127,7 +130,7 @@ def sparse_lightning_indexer(
         output_idx_offset,
         max_seqlen_q,
     )
-    validate_candidates(
+    validate_lightning_indexer_candidates(
         topk,
         candidate_block_size,
         indices=candidate_block_indices,

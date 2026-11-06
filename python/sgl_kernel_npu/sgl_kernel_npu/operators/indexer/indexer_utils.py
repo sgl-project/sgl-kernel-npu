@@ -3,7 +3,7 @@
 import torch
 
 
-def validate_inputs(
+def validate_lightning_indexer_inputs(
     q,
     k,
     w,
@@ -74,7 +74,9 @@ def validate_inputs(
             raise ValueError("PA block size must be a multiple of 16 in [16, 1024]")
 
 
-def validate_candidates(topk, block_size, *, width=None, indices=None, length=None):
+def validate_lightning_indexer_candidates(
+    topk, block_size, *, width=None, indices=None, length=None
+):
     if block_size not in (2, 4, 8, 16, 32, 64):
         raise ValueError("candidate_block_size must be a power of two in [2, 64]")
     if indices is not None:

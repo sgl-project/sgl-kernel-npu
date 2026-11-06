@@ -5,7 +5,10 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from .indexer_utils import validate_candidates, validate_inputs
+from .indexer_utils import (
+    validate_lightning_indexer_candidates,
+    validate_lightning_indexer_inputs,
+)
 
 _cann_fn = None
 _native_fn = None
@@ -105,7 +108,7 @@ def lightning_indexer_v2(
     [B,Q,1,topk] or [Tq,1,topk], with -1/-inf invalid entries. Candidate mode
     additionally returns block indices and a reserved empty int32 tensor.
     """
-    validate_inputs(
+    validate_lightning_indexer_inputs(
         q,
         k,
         w,
@@ -124,7 +127,7 @@ def lightning_indexer_v2(
         max_seqlen_q,
     )
     if candidate_topk_blocks is not None:
-        validate_candidates(
+        validate_lightning_indexer_candidates(
             topk,
             8 if candidate_block_size is None else candidate_block_size,
             width=candidate_topk_blocks,
