@@ -46,9 +46,9 @@ def _write_cache_kernel(
         else:
             source = tl.load(StateRows + row).to(tl.int64)
             valid = valid & (source >= 0) & (source < STATE_ROWS)
-            address = source // R * STATE_STRIDE + source % R * (2 * D)
-            key = tl.load(State + address + cols, valid & (cols < D), other=0)
-            gate = tl.load(State + address + D + cols, valid & (cols < D), other=0)
+            state_address = source // R * STATE_STRIDE + source % R * (2 * D) + cols
+            key = tl.load(State + state_address, valid & (cols < D), other=0)
+            gate = tl.load(State + state_address + D, valid & (cols < D), other=0)
         # Persistent rings stay BF16; compute/state values remain FP32 until store.
         tl.store(
             TailK + dest * D + cols, key.to(TailK.dtype.element_ty), valid & (cols < D)
@@ -62,8 +62,8 @@ def _write_cache_kernel(
         valid = (source < POOLED_ROWS) & (slot >= 0) & (slot < CACHE_PAGES * PAGE)
         # A -1 mapping never reads uninitialized CANN output capacity.
         value = tl.load(Pooled + source * D + cols, valid & (cols < D), other=0)
-        address = slot // PAGE * CACHE_STRIDE + slot % PAGE * D + cols
-        tl.store(Cache + address, value, valid & (cols < D))
+        cache_address = slot // PAGE * CACHE_STRIDE + slot % PAGE * D + cols
+        tl.store(Cache + cache_address, value, valid & (cols < D))
 
 
 def key_pool_write_cache(
