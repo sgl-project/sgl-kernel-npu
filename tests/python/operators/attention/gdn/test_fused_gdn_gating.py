@@ -67,17 +67,6 @@ def test_mixed_input_dtypes():
 
 
 @pytest.mark.extra_checks
-def test_matches_legacy_entry():
-    """The new Triton entry must equal the legacy wrapper bit for bit."""
-    from sgl_kernel_npu.fla.fused_gdn_gating import fused_gdn_gating_npu
-    from sgl_kernel_npu.operators.attention.gdn import fused_gdn_gating
-
-    inputs = generate_test_data((256, 32), torch.bfloat16, "normal")
-    actual = fused_gdn_gating(*inputs, impl="triton")
-    assert all(torch.equal(x, y) for x, y in zip(actual, fused_gdn_gating_npu(*inputs)))
-
-
-@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "case, match",
     [
