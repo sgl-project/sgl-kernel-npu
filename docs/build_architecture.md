@@ -12,10 +12,7 @@ flowchart TD
     ROOT --> REG["domains.cmake / operators.cmake<br/>登记 → 展开依赖 → 按架构和执行单元选择"]
     REG --> CORE["cann_ops.cmake<br/>AICORE 接口 / Tiling / Kernel"]
     REG --> CPU["cmake/aicpu/CMakeLists.txt<br/>HCC 设备库 / 注册 JSON"]
-    REG --> HOSTDEPS{"所选 HOST_DEPENDENCIES"}
-    HOSTDEPS -->|省略| HOST["cmake/host/CMakeLists.txt<br/>Host 编译器 → PIC 静态库"]
-    HOSTDEPS -->|TORCH / TORCH_NPU| TORCHDEPS["按声明查找 Torch / torch_npu"]
-    TORCHDEPS --> HOST
+    REG --> HOST["cmake/host/CMakeLists.txt<br/>Host 编译器 → PIC 静态库"]
     CORE --> RUN["同一个 .run 安装包"]
     CPU --> RUN
     HOST --> RUN
@@ -40,7 +37,7 @@ flowchart TD
 
 ### 2. build_tools/cann.py
 
-`build_cann()` 恢复为完整的配置、编译、打包、安装入口。将用户请求通过 `SGL_NATIVE_OPERATORS` 传给现有 `csrc` 工程；CMake 负责分类，Python 不维护算子名单。`Python3_EXECUTABLE=sys.executable` 将配置固定到执行 `setup.py` 的 Python；需要 Torch 的 HOST 实现从该环境查找依赖，纯 C++ HOST 实现不会因此加载 Python/Torch 开发环境。
+`build_cann()` 恢复为完整的配置、编译、打包、安装入口。将用户请求通过 `SGL_NATIVE_OPERATORS` 传给现有 `csrc` 工程；CMake 负责分类，Python 不维护算子名单。`Python3_EXECUTABLE=sys.executable` 将配置固定到执行 `setup.py` 的 Python，使 HOST 使用同一环境中的 Torch/torch_npu；不依赖系统 PATH 恰好指向该解释器。
 
 配置后读取 `selected-operators.txt` 和 `selected-host-operators.txt`。`CannBuild.operators` 仍只记录 CANN ID，新增 `host_operators` 传递 HOST ID，供后续 Torch adapter 选择和清单记录使用。txt 是配置阶段回传实际集合的原有方式，HOST 静态库本身由 CMake target 的源码列表编译，不由 Python 二次编排。
 
@@ -54,21 +51,19 @@ flowchart TD
 
 统一选择器按注册 ID 和架构得到 CANN/HOST 两组实际集合，再将 CANN 分成 AICORE/AICPU。变量统一使用 `cann_operators`、`host_operators`、`aicore_operators`、`aicpu_operators`。
 
-删除 `SGL_NATIVE_ARTIFACT` 和 HOST 的 `.run` 排除规则：现在两种产物使用相同的原生算子集合，`all` 包含当前架构支持的三类算子。删除没有 CANN 时的提前返回；即使只选 HOST，也继续创建同一个安装包，并按需 `add_subdirectory(cmake/host host)`。只有选中 AICPU 才进入 HCC 子目录，只有选中的 HOST 实现声明了相应依赖时才加载 Torch 开发依赖。
+删除 `SGL_NATIVE_ARTIFACT` 和 HOST 的 `.run` 排除规则：现在两种产物使用相同的原生算子集合，`all` 包含当前架构支持的三类算子。删除没有 CANN 时的提前返回；即使只选 HOST，也继续创建同一个安装包，并按需 `add_subdirectory(cmake/host host)`。只有选中 AICPU 才进入 HCC 子目录，只有选中 HOST 才加载 Torch 开发依赖。
 
 注册、架构变体、源码选择和已有 CANN 依赖规则保持原义；不新增 before/after 声明阶段校验。
 
 ### 4. cmake/host/CMakeLists.txt / host_ops.cmake / torch.cmake
 
-新的 HOST 子目录与 `cmake/aicpu` 并列。`sgl_collect_host_sources()` 从同一注册表提取所选 `CPP_SOURCES`、adapters、选择宏和 `HOST_DEPENDENCIES`；子目录只编译实现源码，生成启用 PIC 的 `sgl_host_operators STATIC`。
+新的 HOST 子目录与 `cmake/aicpu` 并列。`sgl_collect_host_sources()` 从同一注册表提取所选 `CPP_SOURCES`、adapters 和选择宏；子目录只编译实现源码，生成启用 PIC 的 `sgl_host_operators STATIC`。
 
 未显式指定编译配置时，仅为 HOST 静态库加入 `-O3` 和 `NDEBUG`，对齐旧构建默认的 Release 优化。显式指定 Debug、Release 等配置时沿用工具链参数；多配置生成器使用所选配置。不再在 HOST 子目录设置无效的局部 `CMAKE_BUILD_TYPE`，也不改变父工程的 CANN 编译配置。
 
 通过 `npu_op_package_add(... FILES ... PACKAGE_PATH op_impl/host/lib)` 把静态库加入已有 `.run`，安装位置为 `vendors/sgl_kernel_npu/op_impl/host/lib/libsgl_host_operators.a`。执行 `.run` 只安装文件；HOST 包不包含 Torch 注册层，后续 `build_torch()` 编译 adapters 并链接安装后的静态库，才形成可加载的扩展。不伪造 `CANN_OP_TYPE`，不调用 HOST 不需要的 OpDef/codegen、Tiling、设备编译器。
 
-`HOST_DEPENDENCIES` 是可选的声明字段：`TORCH` 加载 Torch，`TORCH_NPU` 进一步查找 torch_npu，并隐含 Torch 依赖。只汇总本次选中 HOST 算子的依赖；省略该字段的纯 C++ 实现不会加载 Torch。当前 data_move 声明 `TORCH_NPU`。
-
-`torch.cmake` 复用 Python/Torch 头文件和 ABI 查询，`sgl_find_torch_npu()` 仅在需要时导入 torch_npu。HOST 静态库根据所选声明调用它们；后续 Torch adapter 工程始终需要两者。纯 C++ HOST 可以省略 `TORCH_ADAPTER` 构建 `.run`，构建 wheel 时则逐算子检查 adapter 是否存在。AICORE/AICPU 声明和 Python 编排入口不变，RUN 打包仍需要 CANN SDK。
+`torch.cmake` 仅提取原 Torch CMake 中已有的 Python、Torch/torch_npu 头文件和 ABI 配置查询，供 HOST 实现与 adapters 复用。当前 HOST 源码使用 ATen/torch_npu/ACL，因此包含 HOST 的 `.run` 也需要匹配的 Torch/torch_npu 开发环境；纯 CANN `.run` 保持不依赖 Torch。
 
 选择宏仍是 `SGL_CPP_<ID>=1`，用于已有共享源码的条件编译；独立源码可不引用宏。已有宏和算子实现不在本次修改范围内。
 

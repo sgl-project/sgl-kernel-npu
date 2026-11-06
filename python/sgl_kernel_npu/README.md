@@ -14,10 +14,8 @@ through that existing entry. The new entry does not schedule or change them.
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
-setuptools and wheel. HOST implementation dependencies are declared per operator:
-`TORCH` requires Torch and Python development headers; `TORCH_NPU` additionally
-requires torch_npu and implies `TORCH`. Pure C++ HOST and CANN-only `.run` builds
-do not require Torch. RUN packaging still requires the CANN SDK.
+setuptools and wheel. `.run` builds selecting HOST also require Torch/torch_npu
+and Python development headers; CANN-only `.run` builds do not require Torch.
 
 The examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix
 with your checkout path and initialize the SDK from its installed location:
@@ -198,8 +196,7 @@ for configuration, compilation, packaging and runtime-loading phases.
 
 All operators use `sgl_register_operator()` and declare one `EXECUTION_UNIT`:
 `AICORE`, `AICPU` or `HOST`. Existing AI Core/AICPU declarations need no edits.
-`HOST` identifies host C++ implementations. RUN builds provide a static archive;
-wheel builds link it into the Torch extension.
+`HOST` identifies ordinary host C++ code compiled into the Torch extension.
 Host C++ implementations declare their own source list, without dummy OpDefs,
 Tiling, device Kernels or AICPU registration metadata:
 
@@ -209,34 +206,18 @@ sgl_register_operator(
     EXECUTION_UNIT HOST
     SUPPORTED_ARCHS 2201 3510
     CPP_SOURCES transfer_mamba_state.cpp
-    HOST_DEPENDENCIES TORCH_NPU
     TORCH_ADAPTER torch_adapter.cpp
 )
 ```
 
-HOST requires `ID`, `EXECUTION_UNIT`, `SUPPORTED_ARCHS` and `CPP_SOURCES`.
-`TORCH_ADAPTER` is optional for `.run` and required for each selected wheel
-operator, just as for CANN. CANN-only fields are rejected. `CPP_SOURCES` may be replaced by an architecture variant
+HOST requires `ID`, `EXECUTION_UNIT`, `SUPPORTED_ARCHS`, `CPP_SOURCES` and
+`TORCH_ADAPTER`; CANN-only
+fields are rejected. `CPP_SOURCES` may be replaced by an architecture variant
 using `sgl_register_operator_variant()`. IDs are unique across all three execution units. CPP IDs
 must also have unique uppercase forms because they determine build-guard names.
 
-`HOST_DEPENDENCIES` is optional and describes implementation compilation only.
-Supported values are `TORCH` and `TORCH_NPU`; the latter also loads Torch.
-Only dependencies of selected HOST operators are loaded. Current data_move
-operators declare `TORCH_NPU`. A pure C++ HOST operator can omit both this field
-and the adapter when building a RUN package:
-
-```cmake
-sgl_register_operator(
-    ID host_example
-    EXECUTION_UNIT HOST
-    SUPPORTED_ARCHS 2201 3510
-    CPP_SOURCES host_example.cpp
-)
-```
-
 `host_ops.cmake::sgl_collect_host_sources()` collects implementation sources,
-adapters, selection macros and dependencies for the selected HOST IDs.
+adapters and selection macros for the selected HOST IDs.
 
 Add HOST domains to `sgl_add_host_operator_domains()` and CANN domains to
 `sgl_add_cann_operator_domains()`; `sgl_add_operator_domains()` discovers both.
@@ -331,8 +312,7 @@ fields, plus the `ID` and `ARCH` keys:
 | `EXECUTION_UNIT` | Execution unit. | Common only | Required: `AICORE`, CpuKernel-based `AICPU`, or host C++ `HOST`. |
 | `CANN_OP_TYPE` | CANN operator type used by the OpDef or AICPU registration. | Common only | Required for `AICORE`/`AICPU`; rejected for `HOST`. |
 | `SUPPORTED_ARCHS` | Architectures supported by the operator. | Common only | Required and non-empty; currently accepts `2201` and `3510`, without duplicates. |
-| `TORCH_ADAPTER` | Torch adapter source file. | Common only | Optional for RUN packages; required for each selected wheel operator. |
-| `HOST_DEPENDENCIES` | Host implementation dependencies: `TORCH` or `TORCH_NPU` (implies `TORCH`). | HOST common only | Optional; omitted means no Torch dependency for implementation compilation. |
+| `TORCH_ADAPTER` | Torch adapter source file. | Common only | Required for `HOST`; optional for CANN registration, but required for each selected wheel operator. |
 | `OPDEF_SOURCES` | CANN interface definition source files for codegen. | Common only | Required and non-empty for AI Core; optional for AICPU. |
 | `INFER_SOURCES` | Handwritten shape/type inference source files. | Common and variant | Optional; may be cleared explicitly. |
 | `ACLNN_SOURCES` | Explicit Host ACLNN implementations, alongside any generated interfaces. | Common only | Optional; used by the AICPU AddExample wrapper. |
