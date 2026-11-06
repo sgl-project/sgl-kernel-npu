@@ -83,7 +83,7 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
         if indices is not None
         else ("custom", "npu_sparse_attn_sharedkv")
     )
-    op = require_op(namespace, binding, backend="cann_9_1", native=namespace == "npu")
+    op = require_op(namespace, binding, backend="cann_9_1")
     args = {
         key: value
         for key, value in kwargs.items()

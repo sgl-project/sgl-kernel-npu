@@ -13,14 +13,11 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
     _manifest = (
         json.loads(_manifest_path.read_text()) if _manifest_path.is_file() else {}
     )
-    _cann_operators = _manifest.get("cann_operators", _manifest.get("operators"))
-    _vendors = []
-    if _cann_operators != []:
-        if not _cann_library.is_file():
-            raise RuntimeError(
-                "The wheel is missing its CANN library: {}".format(_cann_library)
-            )
-        _vendors.append(str(_cann_vendor))
+    if not _cann_library.is_file():
+        raise RuntimeError(
+            "The wheel is missing its CANN library: {}".format(_cann_library)
+        )
+    _vendors = [str(_cann_vendor)]
     for _dependency in _manifest.get("third_party", []):
         _name = _dependency["vendor_directory"]
         if pathlib.Path(_name).name != _name or _name in (".", ".."):

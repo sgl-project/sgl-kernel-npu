@@ -144,11 +144,6 @@ def build_cann(
         )
     sdk = str(sdk_path.resolve())
     env["ASCEND_HOME_PATH"] = sdk
-    if not operators:
-        # Native-only wheels have no ACLNN vendor or installer to generate.
-        return CannBuild(
-            directory, (), arch_version=str(arch_version), selection_kind="custom"
-        )
 
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc"),
