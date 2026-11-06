@@ -34,10 +34,6 @@ def diff_lines(files):
     return anchors
 
 
-def normalized_text(text):
-    return " ".join(text.casefold().split())
-
-
 def review_payload(report, files, commit, run_url, has_merge_ref=True, history=None):
     if not isinstance(report, dict) or set(report) != {"findings"}:
         raise ValueError("Expected an object containing only findings")
@@ -50,9 +46,8 @@ def review_payload(report, files, commit, run_url, has_merge_ref=True, history=N
         for comment in history
     ):
         raise ValueError("history must be a list of comments")
-    # The model handles semantic duplicates; this guard catches exact body repeats
-    # in both inline comments and older Markdown review bodies, regardless of title.
-    previous = [normalized_text(comment.get("body") or "") for comment in history]
+    # Historical issue identity is decided by the reviewer, not by text matching.
+    # Only collapse identical records within this one output batch.
     seen = set()
     anchors = diff_lines(files)
     comments, overall = [], []
@@ -82,8 +77,8 @@ def review_payload(report, files, commit, run_url, has_merge_ref=True, history=N
             or side not in ("LEFT", "RIGHT")
         ):
             raise ValueError("Invalid finding location")
-        key = normalized_text(body)
-        if key in seen or any(key in old for old in previous):
+        key = (path, side, line, title, body.strip())
+        if key in seen:
             continue
         seen.add(key)
         text = "### {}\n\n{}".format(title, body.strip())
