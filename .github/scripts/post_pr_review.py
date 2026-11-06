@@ -21,7 +21,7 @@ def diff_lines(files):
             if match:
                 left, right = map(int, match.groups())
             elif left is not None and text.startswith(" "):
-                anchors.add((path, "LEFT", left))
+                # GitHub requires RIGHT for unchanged context, LEFT for deletions.
                 anchors.add((path, "RIGHT", right))
                 left += 1
                 right += 1

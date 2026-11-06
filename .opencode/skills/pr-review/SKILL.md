@@ -177,8 +177,9 @@ duplicate findings about the same root cause. Do not invent findings to fill a
 quota or present uncertain risks as confirmed defects.
 
 Prefer an inline comment at the smallest relevant location in the PR diff.
-Use the PR head's file line number with `side="RIGHT"`, or the base-side line
-number with `side="LEFT"` for removed code. Do not use a diff position or line
+Use the PR head's file line number with `side="RIGHT"` for additions and unchanged
+context. Use the base-side line number with `side="LEFT"` only for deleted lines.
+Do not use a diff position or line
 numbers from the synthetic merge checkout. For a cross-file issue, anchor it at
 the primary cause and mention other affected paths in the same comment. Use an
 overall comment only when there is no relevant diff line; do not attach an
