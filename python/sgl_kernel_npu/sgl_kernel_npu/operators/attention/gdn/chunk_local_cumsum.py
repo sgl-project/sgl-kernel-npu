@@ -52,11 +52,35 @@ def chunk_local_cumsum(
     Triton accumulates in FP32 and casts to g.dtype before writing. Its output
     dtype must equal g.dtype: pass output_dtype=None or g.dtype for FP16/BF16
     inputs, since the default is torch.float32.
+    Triton rejects head_first with cu_seqlens and head counts yielding BLOCK_T
+    smaller than chunk_size. head_first requires T divisible by BLOCK_T.
+    BLOCK_T is the next power of two of floor(2**18 / (H * chunk_size)).
     """
     if g.ndim != 3:
         raise ValueError("scalar cumulative sum requires a 3-D input")
-    if chunk_size <= 0 or chunk_size & (chunk_size - 1):
+    if (
+        not isinstance(chunk_size, int)
+        or isinstance(chunk_size, bool)
+        or chunk_size <= 0
+        or chunk_size & (chunk_size - 1)
+    ):
         raise ValueError("chunk_size must be a positive power of two")
+    if any(dim <= 0 for dim in g.shape):
+        raise ValueError("chunk_local_cumsum requires nonempty dimensions")
+    if impl in ("auto", "triton"):
+        if head_first and cu_seqlens is not None:
+            raise ValueError("Triton does not support head_first=True with cu_seqlens")
+        H, T = (g.shape[1], g.shape[2]) if head_first else (g.shape[2], g.shape[1])
+        tile_budget = (2**18) // (H * chunk_size)
+        block_t = 1 << (max(tile_budget, 1) - 1).bit_length()
+        if tile_budget == 0 or block_t < chunk_size:
+            raise ValueError(
+                "Triton head count and chunk_size require BLOCK_T >= chunk_size"
+            )
+        if head_first and T % block_t:
+            raise ValueError(
+                f"Triton head_first requires T divisible by BLOCK_T={block_t}"
+            )
     if cu_seqlens is not None and g.shape[0] != 1:
         raise ValueError("variable-length input requires batch size 1")
     if (

@@ -46,6 +46,8 @@ Triton tensor inputs should share one NPU and use contiguous layouts; outputs re
 
 FP32 accumulation, then input-dtype rounding before store. Output dtype must equal g.dtype: low-precision inputs require None or g.dtype; default FP32 only matches FP32 inputs.
 
+The public Triton adapter rejects head_first=True with cu_seqlens. Let BLOCK_T=next_power_of_2(floor(2**18/(H*chunk_size))); the quotient must be positive and BLOCK_T >= chunk_size. Head-first input additionally requires T divisible by BLOCK_T because partial time tiles are not supported. These Triton restrictions do not apply to torch_native; all dimensions must be nonempty.
+
 ## torch_native backend
 
 Independent PyTorch operations provide the reference result. Host metadata transfers may synchronize the device; this backend is intended for accuracy comparison.

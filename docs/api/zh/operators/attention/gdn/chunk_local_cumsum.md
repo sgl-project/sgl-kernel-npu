@@ -46,6 +46,8 @@ Triton 张量输入应位于同一 NPU 并采用连续布局；输出位于输�
 
 使用 FP32 累加，写入前转为输入 dtype。输出类型必须等于 g.dtype：低精度输入须传 None 或 g.dtype；默认 FP32 仅匹配 FP32 输入。
 
+公开适配层拒绝 Triton 的 head_first=True 与 cu_seqlens 组合。令 BLOCK_T 为 floor(2**18/(H*chunk_size)) 向上取二次幂的结果，要求商为正且 BLOCK_T 不小于 chunk_size；头维优先布局还要求 T 能被 BLOCK_T 整除，不支持时间轴尾块。上述 Triton 限制不适用于 torch_native；各维度均须非空。
+
 ## torch_native 后端
 
 通过独立 PyTorch 运算生成参考结果；主机元数据传输可能触发同步，仅用于精度对比。

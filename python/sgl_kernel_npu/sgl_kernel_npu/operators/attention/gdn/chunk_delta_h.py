@@ -49,7 +49,20 @@ def chunk_delta_h(
 
     k: [B,T,Hg,K], w: [B,T,H,K], u: [B,T,H,V], g: [B,T,H].
     The existing Triton path requires g. auto selects Triton.
+    Triton supports 1 <= K,V <= 128 and the validated chunk_size=64 only.
     """
+    if (
+        not isinstance(chunk_size, int)
+        or isinstance(chunk_size, bool)
+        or chunk_size <= 0
+        or chunk_size & (chunk_size - 1)
+    ):
+        raise ValueError("chunk_size must be a positive power of two")
+    if impl in ("auto", "triton"):
+        if not (1 <= k.shape[-1] <= 128 and 1 <= u.shape[-1] <= 128):
+            raise ValueError("Triton chunk_delta_h requires 1 <= K,V <= 128")
+        if chunk_size != 64:
+            raise ValueError("Triton chunk_delta_h supports only chunk_size=64")
     if g is None:
         raise ValueError("g is required by the current Triton wrapper")
     return get_impl_by_name("attention.gdn.chunk_delta_h", impl)(

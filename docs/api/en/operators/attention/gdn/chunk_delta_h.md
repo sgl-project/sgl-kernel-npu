@@ -50,6 +50,8 @@ Triton tensor inputs should share one NPU and use contiguous layouts; outputs re
 
 Uses FP32 state accumulation with input-dtype state/projection rounding. Model tests use K=V=128; V=64 is an extra check. This fixed-width kernel does not support K>128 or V>128.
 
+The public Triton adapter rejects K/V outside [1,128] and accepts only the validated chunk_size=64. Other positive power-of-two chunk sizes remain available to torch_native.
+
 ## torch_native backend
 
 CPU FP64 reference preserves both input-dtype rounding points. Outputs retain API dtypes and return to the input device; host transfers are intended for accuracy checks.
