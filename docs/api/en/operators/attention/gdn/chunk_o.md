@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | ARCH22 | ARCH35 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
 | `torch_native` | Supported | Supported |
@@ -63,9 +63,8 @@ all chunks. Triton caches packed metadata; do not mutate cu_seqlens in place.
 
 ## triton backend
 
-Processes the query/key dimension in 128-wide tiles and values in 128-wide tiles,
-with masked feature and sequence tails. Equal-length and packed inputs retain
-all caller-provided chunk boundaries.
+Supports equal-length and packed inputs, grouped query/key heads, and feature
+and sequence tails. Both input forms retain the caller-provided chunk boundaries.
 
 ## torch_native backend
 

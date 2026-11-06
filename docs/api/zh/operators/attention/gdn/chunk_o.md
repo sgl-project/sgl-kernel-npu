@@ -2,7 +2,7 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | ARCH22 | ARCH35 |
 | --- | --- | --- |
 | `triton` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
@@ -60,8 +60,8 @@ $$
 
 ## triton 实现
 
-Query/Key 维按 128 分片，Value 维按 128 分片，并对特征和序列尾部做掩码。
-等长和打包输入均保留调用者指定的 chunk 边界。
+支持等长和打包输入、分组 Query/Key head，以及特征和序列尾部。
+两种输入形式均保留调用者指定的 chunk 边界。
 
 ## torch_native 实现
 

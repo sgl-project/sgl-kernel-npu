@@ -1,6 +1,7 @@
 """Public attention operators with explicit implementation selection."""
 
 from .chunk_gated_delta_rule import chunk_gated_delta_rule
+from .chunk_kda_fwd import chunk_kda_fwd
 from .flash_decode_bnsd_with_gqa_share_sparse import (
     flash_decode_bnsd_with_gqa_share_sparse,
 )
@@ -17,6 +18,7 @@ from .sparse_flash_mla import sparse_flash_mla, sparse_flash_mla_metadata
 
 __all__ = [
     "chunk_gated_delta_rule",
+    "chunk_kda_fwd",
     "flash_decode_bnsd_with_gqa_share_sparse",
     "flash_mla",
     "flash_mla_metadata",
