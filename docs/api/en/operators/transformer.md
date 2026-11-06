@@ -114,3 +114,9 @@ python3 setup.py --arch-version 2201 --artifact wheel -j8
 Use `3510` for A5. The matching external profiles are selected by default.
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
+
+Graph metadata allocation uses `get_transformer_metadata_size(operator_name)`
+from `operators.utils.transformer_compat`. This is a pure ABI query: it does
+not import a third-party bridge or execute an NPU kernel. The pinned CANN 9.1
+metadata buffers have 1024 int32 entries; the pinned CANN 9.2 buffers have 2048.
+Each metadata operator test also checks its actual output against this contract.
