@@ -577,8 +577,9 @@ jobs:
       - name: Run A5 MegaMoe SR A3-side cases (TC_A5MEGAMOE_002 neg4/neg5)
         if: always()
         timeout-minutes: 120
-        env:
-          DEEP_USE_MODE: MEGA_MOE
+        # NOTE: do NOT set DEEP_USE_MODE here - it is not a valid StrategyMap key and
+        # breaks Buffer creation ("Unsupported mode combination", run 42013145469);
+        # test_mega_moe.py manages the fused strategy itself.
         run: |
           RESULT_FILE=${GITHUB_WORKSPACE}/a3_megamoe_neg_results.txt
           : > ${RESULT_FILE}
@@ -690,8 +691,10 @@ jobs:
       - name: Run A5 MegaMoe SR A5-side negatives (TC_A5MEGAMOE_002 neg1/2/3)
         if: always()
         timeout-minutes: 90
-        env:
-          DEEP_USE_MODE: MEGA_MOE
+        # NOTE: do NOT set DEEP_USE_MODE here. test_mega_moe.py manages the fused
+        # strategy itself; forcing the env breaks Buffer creation with
+        # "ValueError: Unsupported mode combination: DEEP_USE_MODE=mega_moe"
+        # (ep_strategy.py:85, run 42013145469).
         run: |
           RESULT_FILE=${GITHUB_WORKSPACE}/a5_megamoe_neg_results.txt
           : > ${RESULT_FILE}
@@ -717,6 +720,9 @@ jobs:
           run_expect_fail megamoe_tc002_neg1_a5_int8_rejected python3 ${SCRIPT} --num-processes 4 --num-tokens 1024 --quant-mode int8 --hccl-buffsize 4096
           # neg2: A5 + "bf16" must be rejected by CANN mega_moe platform validation
           run_expect_fail megamoe_tc002_neg2_a5_bf16_rejected python3 ${SCRIPT} --num-processes 4 --num-tokens 1024 --quant-mode bf16 --hccl-buffsize 4096
+          # container git needs safe.directory before touching the worktree (dubious
+          # ownership killed the restore with exit 128 in run 42013145469)
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           git checkout -- tests/python/deepep/test_mega_moe.py
           if git diff --quiet -- tests/python/deepep/test_mega_moe.py; then
             echo "TEMP-PATCH restored OK"
