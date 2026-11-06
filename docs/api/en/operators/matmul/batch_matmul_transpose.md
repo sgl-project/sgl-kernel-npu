@@ -5,7 +5,7 @@
 | Implementation | arch22 (A2/A3, 2201) | arch35 (A5, 3510) |
 | --- | --- | --- |
 | `ascendc` | Supported | Unsupported |
-| `torch_native` | Supported | Supported |
+| `torch_native` | Supported | Unverified |
 
 The AscendC kernel supports Ascend A2/A3 (arch22, 2201).
 

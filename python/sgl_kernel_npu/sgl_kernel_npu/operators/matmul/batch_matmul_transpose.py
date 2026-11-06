@@ -1,5 +1,7 @@
 """Public batch matmul with transposed batch/token axes and an output buffer."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -15,8 +17,6 @@ _torch_native_fn = None
     supported_generations={Generation.ARCH22},
 )
 def _ascendc_impl(tensor_a, tensor_b, tensor_c, format_mode, quant_mode):
-    import torch
-
     return torch.ops.npu.batch_matmul_transpose(
         tensor_a, tensor_b, tensor_c, format_mode, quant_mode
     )

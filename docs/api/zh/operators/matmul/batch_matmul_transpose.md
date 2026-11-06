@@ -5,7 +5,7 @@
 | 实现 | arch22（A2/A3，2201） | arch35（A5，3510） |
 | --- | --- | --- |
 | `ascendc` | 支持 | 不支持 |
-| `torch_native` | 支持 | 支持 |
+| `torch_native` | 支持 | 待验证 |
 
 AscendC 内核支持 Ascend A2/A3（arch22，2201）。
 
