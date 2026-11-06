@@ -90,6 +90,9 @@ def build_torch(
     from build_tools.third_party import stage_dependencies
 
     third_party = stage_dependencies(dependencies, package)
+    from build_tools.elf import isolate_bundled_opapis
+
+    opapi_sonames = isolate_bundled_opapis(package, third_party)
     (package / "_cann/selected-operators.txt").write_text(
         "\n".join((*cann.operators, *native_operators)) + "\n"
     )
@@ -108,6 +111,7 @@ def build_torch(
         },
         "compute_units": architecture(arch_version, source_root)["compute_units"],
         "third_party": third_party,
+        "opapi_sonames": opapi_sonames,
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     run(
@@ -176,6 +180,15 @@ def wheel_build_tag(manifest):
                         },
                         sort_keys=True,
                     ).encode()
+                ).hexdigest()[:10],
+            ]
+        )
+    if manifest.get("opapi_sonames"):
+        parts.extend(
+            [
+                "api",
+                hashlib.sha256(
+                    json.dumps(manifest["opapi_sonames"], sort_keys=True).encode()
                 ).hexdigest()[:10],
             ]
         )
