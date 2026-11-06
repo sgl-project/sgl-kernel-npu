@@ -138,7 +138,13 @@ private:
         int64_t step = this->ubEndOffset.GetValue(rowIdx) - start;
         uint32_t tokenBytes = static_cast<uint32_t>(step * sizeof(int32_t));
         AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
-        AscendC::DataCopyPad(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], copyParams);
+        AscendC::DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        AscendC::DataCopyPad(
+            tokenPoolLocal,
+            tokenPoolGM[reqIdx * this->rowSize + start],
+            copyParams,
+            padParams
+        );
         this->inQueue1.EnQue(tokenPoolLocal);
     }
 
