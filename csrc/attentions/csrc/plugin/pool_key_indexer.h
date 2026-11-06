@@ -24,4 +24,11 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
                             std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
                             bool return_value, int64_t key_stride0);
 
+at::Tensor pool_key_indexer_tensor(const at::Tensor &query, const at::Tensor &pool_key, const at::Tensor &weights,
+                                   const at::Tensor &pool_tail_k, const c10::optional<at::Tensor> &actual_seq_q,
+                                   const c10::optional<at::Tensor> &actual_seq_k,
+                                   const c10::optional<at::Tensor> &block_table, int64_t topk, int64_t pool_size,
+                                   std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
+                                   bool return_value, int64_t key_stride0);
+
 #endif  // POOL_KEY_INDEXER_IMPL_H

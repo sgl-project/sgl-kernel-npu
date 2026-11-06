@@ -24,25 +24,17 @@ using namespace at;
 using npu_preparation = at_npu::native::OpPreparation;
 namespace {
 constexpr std::string_view POOL_KEY_INDEXER_OP_NAME = "aclnnPoolKeyIndexer";
+constexpr std::string_view POOL_KEY_INDEXER_TENSOR_OP_NAME = "aclnnPoolKeyIndexerTensor";
 }  // namespace
 
-// aclnnPoolKeyIndexer: pool-level TopK over pooled keys, expanded to token
-// indices with the incomplete tail pool appended (invalid slots filled -1).
-// C prototype (vendor op docs, aclnnPoolKeyIndexer):
-//   GetWorkspaceSize(query, poolKey, weights, poolTailK, actualSeqLengthsQuery,
-//       actualSeqLengthsKey, blockTable, qDescale, kDescale, topk, poolSize,
-//       layoutQuery, layoutKey, maskMode, quantMode, returnValue, keyStride0,
-//       kDescaleStride0, sparseIndicesOut, sparseValuesOut, &workspaceSize, &executor)
-// poolTailK / actual_seq_* are aclIntArray (host side): callers must pass host
-// values (e.g. derived from seq_lens_cpu), never device tensors.
-// quant_mode=-1 (A3): qDescale/kDescale/kDescaleStride0 are unused and passed
-// as undefined tensors / -1.
-at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key, const at::Tensor &weights,
-                            at::IntArrayRef pool_tail_k, const c10::optional<at::IntArrayRef> &actual_seq_q,
-                            const c10::optional<at::IntArrayRef> &actual_seq_k,
-                            const c10::optional<at::Tensor> &block_table, int64_t topk, int64_t pool_size,
-                            std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
-                            bool return_value, int64_t key_stride0)
+// Host metadata uses aclIntArray. Device metadata uses the Tensor workspace
+// API with the same execution API, matching CANN's Torch extension.
+template <bool TensorMetadata, typename Tail, typename Lengths>
+at::Tensor pool_key_indexer_impl(const at::Tensor &query, const at::Tensor &pool_key, const at::Tensor &weights,
+                                 Tail pool_tail_k, const Lengths &actual_seq_q, const Lengths &actual_seq_k,
+                                 const c10::optional<at::Tensor> &block_table, int64_t topk, int64_t pool_size,
+                                 std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
+                                 bool return_value, int64_t key_stride0)
 {
     TORCH_CHECK(quant_mode == -1, "pool_key_indexer binding only supports quant_mode=-1 (BF16/FP16)");
     TORCH_CHECK(!return_value,
@@ -65,8 +57,6 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
     TORCH_CHECK(pool_key.scalar_type() == query.scalar_type(), "pool_key_indexer: pool_key dtype must match query");
     TORCH_CHECK(weights.scalar_type() == query.scalar_type(), "pool_key_indexer: weights dtype must match query");
     const at::Tensor &blockTable = c10::value_or_else(block_table, [] { return at::Tensor(); });
-    auto actualSeqQ = actual_seq_q.value_or(at::IntArrayRef{});
-    auto actualSeqK = actual_seq_k.value_or(at::IntArrayRef{});
 
     // sparse_indices: TND -> (T1, topk + pool_size - 1); BSND -> (B, S1, topk + pool_size - 1)
     const int64_t outCols = topk + pool_size - 1;
@@ -92,9 +82,61 @@ at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key,
     at::Tensor kDescale;
     constexpr int64_t kDescaleStride0Unused = -1;
 
-    EXEC_NPU_CMD<POOL_KEY_INDEXER_OP_NAME>(query, pool_key, weights, pool_tail_k, actualSeqQ, actualSeqK, blockTable,
-                                           qDescale, kDescale, topk, pool_size, layoutQPtr, layoutKPtr, mask_mode,
-                                           quant_mode, return_value, key_stride0, kDescaleStride0Unused, sparseIndices,
-                                           sparseValues);
+    if constexpr (TensorMetadata) {
+        auto validateMetadata = [&](const at::Tensor &tensor, const char *name) {
+            TORCH_CHECK(tensor.scalar_type() == at::kLong && tensor.dim() == 1, "pool_key_indexer: ", name,
+                        " must be a 1-D int64 Tensor");
+            TORCH_CHECK(tensor.device() == query.device(), "pool_key_indexer: ", name, " must be on the query device");
+            TORCH_CHECK(tensor.is_contiguous(), "pool_key_indexer: ", name, " must be contiguous");
+        };
+        validateMetadata(pool_tail_k, "pool_tail_k");
+        if (actual_seq_q.has_value()) {
+            validateMetadata(*actual_seq_q, "actual_seq_q");
+            TORCH_CHECK(actual_seq_q->numel() == pool_tail_k.numel(),
+                        "pool_key_indexer: actual_seq_q and pool_tail_k must have equal lengths");
+        }
+        if (actual_seq_k.has_value()) {
+            validateMetadata(*actual_seq_k, "actual_seq_k");
+            TORCH_CHECK(actual_seq_k->numel() == pool_tail_k.numel(),
+                        "pool_key_indexer: actual_seq_k and pool_tail_k must have equal lengths");
+        }
+        auto actualSeqQ = actual_seq_q.value_or(at::Tensor());
+        auto actualSeqK = actual_seq_k.value_or(at::Tensor());
+        EXEC_NPU_CMD<POOL_KEY_INDEXER_OP_NAME, POOL_KEY_INDEXER_TENSOR_OP_NAME>(
+            query, pool_key, weights, pool_tail_k, actualSeqQ, actualSeqK, blockTable, qDescale, kDescale, topk,
+            pool_size, layoutQPtr, layoutKPtr, mask_mode, quant_mode, return_value, key_stride0, kDescaleStride0Unused,
+            sparseIndices, sparseValues);
+    } else {
+        auto actualSeqQ = actual_seq_q.value_or(at::IntArrayRef{});
+        auto actualSeqK = actual_seq_k.value_or(at::IntArrayRef{});
+        EXEC_NPU_CMD<POOL_KEY_INDEXER_OP_NAME>(query, pool_key, weights, pool_tail_k, actualSeqQ, actualSeqK,
+                                               blockTable, qDescale, kDescale, topk, pool_size, layoutQPtr, layoutKPtr,
+                                               mask_mode, quant_mode, return_value, key_stride0, kDescaleStride0Unused,
+                                               sparseIndices, sparseValues);
+    }
     return sparseIndices;
+}
+
+at::Tensor pool_key_indexer(const at::Tensor &query, const at::Tensor &pool_key, const at::Tensor &weights,
+                            at::IntArrayRef pool_tail_k, const c10::optional<at::IntArrayRef> &actual_seq_q,
+                            const c10::optional<at::IntArrayRef> &actual_seq_k,
+                            const c10::optional<at::Tensor> &block_table, int64_t topk, int64_t pool_size,
+                            std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
+                            bool return_value, int64_t key_stride0)
+{
+    return pool_key_indexer_impl<false>(query, pool_key, weights, pool_tail_k, actual_seq_q, actual_seq_k, block_table,
+                                        topk, pool_size, layout_q, layout_k, mask_mode, quant_mode, return_value,
+                                        key_stride0);
+}
+
+at::Tensor pool_key_indexer_tensor(const at::Tensor &query, const at::Tensor &pool_key, const at::Tensor &weights,
+                                   const at::Tensor &pool_tail_k, const c10::optional<at::Tensor> &actual_seq_q,
+                                   const c10::optional<at::Tensor> &actual_seq_k,
+                                   const c10::optional<at::Tensor> &block_table, int64_t topk, int64_t pool_size,
+                                   std::string layout_q, std::string layout_k, int64_t mask_mode, int64_t quant_mode,
+                                   bool return_value, int64_t key_stride0)
+{
+    return pool_key_indexer_impl<true>(query, pool_key, weights, pool_tail_k, actual_seq_q, actual_seq_k, block_table,
+                                       topk, pool_size, layout_q, layout_k, mask_mode, quant_mode, return_value,
+                                       key_stride0);
 }

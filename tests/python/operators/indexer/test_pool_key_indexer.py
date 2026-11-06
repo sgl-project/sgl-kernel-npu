@@ -119,3 +119,69 @@ def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk):
         and layout == "TND"
         and dtype == torch.bfloat16,
     )
+
+
+def test_pool_key_indexer_device_metadata_replay():
+    """Tensor lengths must change selection without capturing a new graph."""
+    from sgl_kernel_npu.operators.indexer import pool_key_indexer
+
+    impl, _ = get_test_impls()
+    require_test_impl(pool_key_indexer, impl)
+    q = torch.ones(5, 1, 128, device="npu", dtype=torch.bfloat16)
+    weights = torch.ones(5, 1, device="npu", dtype=torch.bfloat16)
+    # Noncontiguous page ownership with strictly increasing scores per page.
+    keys = torch.zeros(8, 128, 1, 128, device="npu", dtype=torch.bfloat16)
+    keys[..., 0] = torch.arange(128, device="npu").view(1, 128, 1) + 1
+    table = torch.tensor([[7], [2]], device="npu", dtype=torch.int32)
+    ends = torch.tensor([2, 5], device="npu", dtype=torch.int64)
+    lengths = torch.tensor([2, 2], device="npu", dtype=torch.int64)
+    tails = torch.tensor([0, 2], device="npu", dtype=torch.int64)
+
+    def run():
+        return pool_key_indexer(
+            q,
+            keys,
+            weights,
+            tails,
+            actual_seq_q=ends,
+            actual_seq_k=lengths,
+            block_table=table,
+            topk=4,
+            pool_size=4,
+            layout_q="TND",
+            layout_k="PA_BBND",
+            mask_mode=3,
+            impl=impl,
+        )
+
+    run()
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = run()
+    pointer = output.data_ptr()
+    for qe, kl, tl in [
+        ([2, 5], [2, 2], [0, 2]),
+        ([1, 5], [3, 2], [3, 1]),
+        ([3, 5], [2, 3], [1, 0]),
+    ]:
+        ends.copy_(torch.tensor(qe, device="npu", dtype=torch.int64))
+        lengths.copy_(torch.tensor(kl, device="npu", dtype=torch.int64))
+        tails.copy_(torch.tensor(tl, device="npu", dtype=torch.int64))
+        expected = torch.full((5, 7), -1, dtype=torch.int32, device="cpu")
+        start = 0
+        for req, end in enumerate(qe):
+            for row in range(start, end):
+                visible = kl[req] * 4 + tl[req] - (end - row - 1)
+                complete = visible // 4
+                # Increasing positive scores select the last complete pool.
+                tokens = list(range((complete - 1) * 4, complete * 4))
+                tokens += list(range(complete * 4, visible))
+                expected[row, : len(tokens)] = torch.tensor(tokens, dtype=torch.int32)
+            start = end
+        graph.replay()
+        assert output.data_ptr() == pointer
+        assert output.dtype == torch.int32
+        torch.testing.assert_close(
+            output.cpu().sort(1).values, expected.sort(1).values, rtol=0, atol=0
+        )

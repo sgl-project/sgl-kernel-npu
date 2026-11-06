@@ -585,10 +585,10 @@ inline void UnInitHugeMem(UnInitMemAddrType unInitMemAddr)
     }
 }
 
-template <std::string_view const &ApiName, typename... Args>
+template <std::string_view const &ApiName, std::string_view const &WorkspaceApiName = ApiName, typename... Args>
 void EXEC_NPU_CMD(Args &&...args)
 {
-    auto workspaceSizeApiStr = GetWorkspaceSizeApiName<ApiName>();
+    auto workspaceSizeApiStr = GetWorkspaceSizeApiName<WorkspaceApiName>();
     static const auto getWorkspaceSizeFuncAddr = GetOpApiFuncAddr(workspaceSizeApiStr.c_str());
     static const auto opApiFuncAddr = GetOpApiFuncAddr(ApiName.data());
     static const auto initMemAddr = GetOpApiFuncAddr("InitHugeMemThreadLocal");

@@ -66,7 +66,9 @@ def kpool_decode_update_and_maybe_write_cache(
             token_page_row = max(0, min(token_page_row, block_tables.shape[1] - 1))
             packed_page = block_tables[row, token_page_row].item()
             loc_token_offset = pool_id % slots_per_page
-            out_offset = packed_page * buf.stride(0) + loc_token_offset * head_dim
+            out_offset = (packed_page // pool_size) * buf.stride(
+                0
+            ) + loc_token_offset * head_dim
             buf.view(-1)[out_offset : out_offset + head_dim] = compressed
         if pos_valid:
             tail_k[req, phys_slot] = key[row]

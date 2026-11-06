@@ -18,9 +18,16 @@
 #include "sparse_block_estimate.h"
 #include "layernorm.h"
 #include "pool_key_indexer.h"
+#include "key_pool.h"
 
 TORCH_LIBRARY(attentions, m)
 {
+    m.def(
+        "key_pool(Tensor hidden_states, Tensor wk, Tensor gate_weight, Tensor ape, "
+        "Tensor(a!) state_cache, Tensor cache_block_table, Tensor start_pos, *, "
+        "Tensor? norm_weight=None, Tensor? norm_bias=None, Tensor? cos=None, Tensor? sin=None, "
+        "Tensor? cu_seqlens=None, Tensor? seqused=None, int cmp_ratio=4, float norm_eps=1e-6, "
+        "int rotary_mode=1) -> Tensor");
     m.def(
         "la(Tensor query, Tensor key, Tensor value, \
         Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? \
@@ -58,14 +65,22 @@ TORCH_LIBRARY(attentions, m)
         int topk=2048, int pool_size=16, str layout_q='BSND', str layout_k='BSND', \
         int mask_mode=3, int quant_mode=-1, bool return_value=False, int key_stride0=-1) \
         -> Tensor");
+    m.def(
+        "pool_key_indexer.tensor(Tensor query, Tensor pool_key, Tensor weights, Tensor pool_tail_k, \
+        Tensor? actual_seq_q=None, Tensor? actual_seq_k=None, Tensor? block_table=None, \
+        int topk=2048, int pool_size=16, str layout_q='BSND', str layout_k='BSND', \
+        int mask_mode=3, int quant_mode=-1, bool return_value=False, int key_stride0=-1) \
+        -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
 {
+    m.impl("key_pool", &key_pool);
     m.impl("la", &la);
     m.impl("rainfusionattention", &rainfusionattention);
     m.impl("ada_block_sparse_attention", &ada_block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
     m.impl("pool_key_indexer", &pool_key_indexer);
+    m.impl("pool_key_indexer.tensor", &pool_key_indexer_tensor);
 }

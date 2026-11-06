@@ -50,7 +50,8 @@ add_library(PTAExtensionOPS SHARED
     ./plugin/ada_block_sparse_attention.cpp
     ./plugin/sparse_block_estimate.cpp
     ./plugin/layernorm.cpp
-    ./plugin/pool_key_indexer.cpp)
+    ./plugin/pool_key_indexer.cpp
+    ./plugin/key_pool.cpp)
 
 target_compile_features(PTAExtensionOPS PRIVATE cxx_std_17)
 if(DEFINED ENV{USER_ABI_VERSION})
