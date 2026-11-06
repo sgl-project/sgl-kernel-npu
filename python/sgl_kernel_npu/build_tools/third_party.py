@@ -325,12 +325,11 @@ def _build_dependency(item, root):
     ).strip()
     if head != item["commit"]:
         raise RuntimeError("Checked out unexpected dependency commit")
-    if item.get("submodules", True):
-        run(
-            ["git", "submodule", "update", "--init", "--recursive"],
-            directory / "submodules.log",
-            cwd=source,
-        )
+    run(
+        ["git", "submodule", "update", "--init", "--recursive"],
+        directory / "submodules.log",
+        cwd=source,
+    )
     return get_adapter(item["builder"]).build(item, source, directory)
 
 

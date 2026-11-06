@@ -145,7 +145,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
         if sparse
         else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
     )
-    op = require_op(namespace, binding, backend="cann_9_1", native=namespace == "npu")
+    op = require_op(namespace, binding, backend="cann_9_1")
     return op(**args)
 
 

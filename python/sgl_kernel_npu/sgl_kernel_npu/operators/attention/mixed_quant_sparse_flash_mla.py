@@ -100,7 +100,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         if indices is not None
         else ("custom", "npu_kv_quant_sparse_attn_sharedkv")
     )
-    op = require_op(namespace, binding, backend="cann_9_1", native=namespace == "npu")
+    op = require_op(namespace, binding, backend="cann_9_1")
     if kwargs.get("quant_mode", 1) != 1:
         raise OperatorUnavailableError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"

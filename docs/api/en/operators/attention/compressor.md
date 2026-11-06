@@ -106,17 +106,14 @@ python3 -m pytest tests/python/operators/attention/test_compressor.py \
 
 ## Bundled fused compressor
 
-The repository-root builder compiles this checkout's fused host, tiling and
-kernel sources into the main Torch library. Select `--ops compressor`; no
-third-party profile or placeholder operator is needed for the native path:
+Complete wheels compile this checkout's fused host, tiling and kernel sources
+into the main Torch library automatically:
 
 ```bash
-python3 setup.py --arch-version 2201 --ops compressor \
-  --without-third-party --artifact wheel --make-clean -j8
+python3 setup.py --arch-version 2201 --artifact wheel -j8
 ```
 
 Use `3510` for A5. The direct binding remains `torch.ops.npu.compressor` with the
-original fused RMSNorm/RoPE and mutable-state contract. The installed build
-manifest must list `compressor` in `native_operators`. CANN 9.1 A5 instead selects
-the bundled recipes/experimental implementation. The optional-input shape shim
-is fixed in the current `csrc/utils/ge_helper.h`; kernel math is unchanged.
+original fused RMSNorm/RoPE and mutable-state contract. CANN 9.1 A5 selects the
+bundled recipes/experimental implementation. The optional-input shape shim is
+fixed in `csrc/utils/ge_helper.h`.

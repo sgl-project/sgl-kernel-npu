@@ -44,7 +44,7 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    op = require_op("npu", "kv_compress_epilog", backend="cann_9_1", native=True)
+    op = require_op("npu", "kv_compress_epilog", backend="cann_9_1")
     if (
         kwargs["quant_mode"] != "fp8_e8m0"
         or not kwargs["round_scale"]
