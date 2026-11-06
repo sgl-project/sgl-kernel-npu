@@ -338,6 +338,37 @@ def test_fp8_layout2_rejected():
 
 
 @pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "name,index,value",
+    [
+        pytest.param("quant_mode", 4, -1, id="negative-mode"),
+        pytest.param("quant_mode", 4, 0, id="zero-mode"),
+        pytest.param("quant_mode", 4, 3, id="unknown-mode"),
+        pytest.param("layout", 6, -1, id="negative-layout"),
+        pytest.param("layout", 6, 0, id="zero-layout"),
+        pytest.param("layout", 6, 3, id="unknown-layout"),
+    ],
+)
+def test_kv_enum_inputs_rejected(name, index, value):
+    from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
+
+    args = list(
+        generate_data(1, 1, 192, 128, 1, False, 1, True, False, False, 0, "normal")
+    )
+    args[index] = value
+    saved = args[0].clone()
+    impl = get_test_impls()[0]
+    for backend in dict.fromkeys((impl, "torch_native")):
+        require_test_impl(kv_compress_epilog, backend)
+        with pytest.raises(RuntimeError, match=f"{name} must be"):
+            kv_compress_epilog(*args, impl=backend)
+    if impl in ("ascendc", "auto"):
+        with pytest.raises(RuntimeError, match=f"{name} must be"):
+            torch.ops.npu.kv_compress_epilog(*args)
+    assert_accuracy(args[0].view(torch.uint8), saved.view(torch.uint8))
+
+
+@pytest.mark.extra_checks
 def test_ascendc_graph_replay_with_distinct_tilings():
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 

@@ -30,6 +30,8 @@ void kv_compress_epilog(at::Tensor kv_compress_cache, at::Tensor x, at::Tensor s
         cache = cache.squeeze(2);
     }
 
+    TORCH_CHECK(quant_mode == 1 || quant_mode == 2, "quant_mode must be 1 (FP8) or 2 (MXFP8), got ", quant_mode);
+    TORCH_CHECK(layout == 1 || layout == 2, "layout must be 1 or 2, got ", layout);
     if (quant_mode == 2) {
         TORCH_CHECK(quant_group_size == 64 || quant_group_size == 128, "MXFP8 quant_group_size must be 64 or 128, got ",
                     quant_group_size);

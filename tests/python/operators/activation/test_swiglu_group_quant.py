@@ -29,7 +29,8 @@ def select_backend(configure_public_interface_test):
 
 
 # DeepSeek-V4 TP=1 dimensions (2*2048 channels, 256 experts); synthetic batches.
-perf_shape = [(8, 4096)]
+# (8, 65536) is a synthetic wide-row case for column tiling.
+perf_shape = [(8, 4096), (8, 65536)]
 
 
 def _make_inputs(rows, width, dtype=torch.bfloat16, seed=0):
@@ -128,6 +129,64 @@ E5 = torch.float8_e5m2
             41,
             dict(rows=8, width=4096, counts=[3, 0, 1, 4] + [0] * 252, clamp_value=1.0),
             id="deepseek-v4-mx-tp1",
+        ),
+        pytest.param(1, 50, dict(rows=1, width=65536), id="wide-group-bf16-e4m3"),
+        pytest.param(
+            1,
+            51,
+            dict(
+                rows=8,
+                width=65792,
+                dtype=torch.float16,
+                dst_type=E5,
+                weight=True,
+                clamp_value=2.0,
+            ),
+            id="wide-group-fp16-e5m2-weight-clamp",
+        ),
+        pytest.param(2, 52, dict(rows=1, width=65536), id="wide-mx-bf16-e4m3"),
+        pytest.param(
+            2,
+            53,
+            dict(
+                rows=8,
+                width=65792,
+                dtype=torch.float16,
+                dst_type=E5,
+                weight=True,
+                clamp_value=1.0,
+            ),
+            id="wide-mx-fp16-e5m2-weight-clamp",
+        ),
+        pytest.param(
+            3,
+            54,
+            dict(rows=1, width=65536, output_origin=True),
+            id="wide-fp8-origin-bf16-e4m3",
+        ),
+        pytest.param(
+            3,
+            55,
+            dict(
+                rows=8, width=65792, dtype=torch.float16, dst_type=E5, round_scale=True
+            ),
+            id="wide-fp8-fp16-e5m2-round",
+        ),
+        pytest.param(
+            3,
+            56,
+            dict(
+                rows=4,
+                width=65536,
+                round_scale=True,
+                ue8m0_scale=True,
+                output_origin=True,
+                weight=True,
+            ),
+            id="wide-fp8-e8m0-origin-weight",
+        ),
+        pytest.param(
+            2, 57, dict(rows=8, width=65536, counts=[3, 0, 1, 4]), id="wide-mx-counts"
         ),
     ],
 )

@@ -197,6 +197,51 @@ private:
         tailRowFactorOfTailBlock_ = rowOfTailBlock_ % rowFactor_ == 0 ? rowFactor_ : rowOfTailBlock_ % rowFactor_;
     }
 
+    int64_t CalcColumnUbSize(int64_t rows, int64_t columns) const
+    {
+        const int64_t localScaleCols = CeilDiv(columns, splitFactor_);
+        const int64_t inputSize = rows * RoundUp(columns, 16) * 2 * DOUBLE_BUFFER;
+        const int64_t outputSize = rows * RoundUp(columns, 32) * DOUBLE_BUFFER;
+        int64_t totalSize = 2 * inputSize + outputSize;
+
+        if (quantMode_ == MX_QUANT) {
+            const int64_t swigluSize = rows * RoundUp(columns, 16) * 2;
+            const int64_t exponentSize = rows * RoundUp(localScaleCols, 16) * 2;
+            const int64_t scaleSize = rows * RoundUp(localScaleCols, 32) * DOUBLE_BUFFER;
+            totalSize += swigluSize + 2 * exponentSize + scaleSize;
+        } else {
+            const bool scaleE8m0 = quantMode_ == FP8_QUANT && ue8m0Scale_;
+            totalSize += scaleE8m0 ? RoundUp(rows * localScaleCols, 32) * DOUBLE_BUFFER
+                                   : RoundUp(rows * localScaleCols, 8) * 4 * DOUBLE_BUFFER;
+        }
+        if (hasTopkWeight_) {
+            totalSize += RoundUp(rows, 8) * 4 * DOUBLE_BUFFER;
+        }
+        if (quantMode_ == FP8_QUANT && outputOrigin_) {
+            totalSize += rows * RoundUp(columns, 16) * 2 * DOUBLE_BUFFER;
+        }
+        return totalSize;
+    }
+
+    bool CalcColumnTiling(int64_t rows)
+    {
+        const int64_t alignment = quantMode_ == MX_QUANT ? 2 * PER_MX_FP16 : PER_BLOCK_FP16;
+        int64_t bestFactor = 0;
+        for (int64_t candidate = alignment; candidate <= splitD_; candidate += alignment) {
+            if (CalcColumnUbSize(rows, candidate) > ubSize_) {
+                break;
+            }
+            bestFactor = candidate;
+        }
+        if (bestFactor == 0) {
+            return false;
+        }
+        dFactor_ = bestFactor;
+        dLoop_ = CeilDiv(splitD_, dFactor_);
+        tailDFactor_ = splitD_ - (dLoop_ - 1) * dFactor_;
+        return true;
+    }
+
     bool CalcMxQuantOpTiling()
     {
         int64_t rowOnceLoop = 0;
@@ -220,29 +265,8 @@ private:
             dLoop_ = 1;
             dFactor_ = splitD_;
             tailDFactor_ = dFactor_;
-        } else {
-            dFactor_ = splitD_;
-            int64_t base = 1;
-            while (totalSize < ubSize_) {
-                dFactor_ = base * splitFactor_;
-                scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-                x0Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                x1Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                swigluSize = rowOnceLoop * RoundUp(dFactor_, 16) * 2;
-                maxExpSize = rowOnceLoop * RoundUp(scaleCol_, 16) * 2;
-                invScaleSize = rowOnceLoop * RoundUp(scaleCol_, 16) * 2;
-                ySize = rowOnceLoop * RoundUp(dFactor_, 32) * 1 * DOUBLE_BUFFER;
-                scaleSize = rowOnceLoop * RoundUp(scaleCol_, 32) * 1 * DOUBLE_BUFFER;
-                totalSize = x0Size + x1Size + swigluSize + maxExpSize + invScaleSize + ySize + scaleSize;
-                if (hasTopkWeight_) {
-                    totalSize += topkWeightSize;
-                }
-                base++;
-            }
-            dFactor_ = (base - 1) * splitFactor_;
-            scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-            dLoop_ = CeilDiv(splitD_, dFactor_);
-            tailDFactor_ = splitD_ % dFactor_ == 0 ? dFactor_ : splitD_ % dFactor_;
+        } else if (!CalcColumnTiling(rowOnceLoop)) {
+            return false;
         }
 
         // d fits whole: try to pull in more rows
@@ -293,26 +317,8 @@ private:
             dLoop_ = 1;
             dFactor_ = splitD_;
             tailDFactor_ = dFactor_;
-        } else {
-            dFactor_ = splitD_;
-            int64_t base = 1;
-            while (totalSize < ubSize_) {
-                dFactor_ = base * splitFactor_;
-                scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-                x0Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                x1Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                ySize = rowOnceLoop * RoundUp(dFactor_, 32) * 1 * DOUBLE_BUFFER;
-                scaleSize = RoundUp(rowOnceLoop * scaleCol_, 8) * 4 * DOUBLE_BUFFER;
-                totalSize = x0Size + x1Size + ySize + scaleSize;
-                if (hasTopkWeight_) {
-                    totalSize += topkWeightSize;
-                }
-                base++;
-            }
-            dFactor_ = (base - 1) * splitFactor_;
-            scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-            dLoop_ = CeilDiv(splitD_, dFactor_);
-            tailDFactor_ = splitD_ % dFactor_ == 0 ? dFactor_ : splitD_ % dFactor_;
+        } else if (!CalcColumnTiling(rowOnceLoop)) {
+            return false;
         }
 
         // d fits whole: try to pull in more rows
@@ -364,30 +370,8 @@ private:
             dLoop_ = 1;
             dFactor_ = splitD_;
             tailDFactor_ = dFactor_;
-        } else {
-            dFactor_ = splitD_;
-            int64_t base = 1;
-            while (totalSize < ubSize_) {
-                dFactor_ = base * splitFactor_;
-                scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-                x0Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                x1Size = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                ySize = rowOnceLoop * RoundUp(dFactor_, 32) * 1 * DOUBLE_BUFFER;
-                scaleSize = RoundUp(rowOnceLoop * scaleCol_, 8) * 4 * DOUBLE_BUFFER;
-                totalSize = x0Size + x1Size + ySize + scaleSize;
-                if (hasTopkWeight_) {
-                    totalSize += topkWeightSize;
-                }
-                if (outputOrigin_) {
-                    yOriginSize = rowOnceLoop * RoundUp(dFactor_, 16) * 2 * DOUBLE_BUFFER;
-                    totalSize += yOriginSize;
-                }
-                base++;
-            }
-            dFactor_ = (base - 1) * splitFactor_;
-            scaleCol_ = CeilDiv(dFactor_, splitFactor_);
-            dLoop_ = CeilDiv(splitD_, dFactor_);
-            tailDFactor_ = splitD_ % dFactor_ == 0 ? dFactor_ : splitD_ % dFactor_;
+        } else if (!CalcColumnTiling(rowOnceLoop)) {
+            return false;
         }
 
         // d fits whole: try to pull in more rows

@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | Not supported | Supported |
+| `ascendc` | Unsupported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature

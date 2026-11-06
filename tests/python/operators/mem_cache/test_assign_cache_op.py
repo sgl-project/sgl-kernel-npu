@@ -50,8 +50,23 @@ def _assign_to_pool(pool, indices, starts, ends, src, impl):
     return args
 
 
-@pytest.mark.parametrize("gap,width", [(1, 1024), (2, 1024), (50000, 100000)])
-@pytest.mark.parametrize("dtype", [torch.int8, torch.int16, torch.int32, torch.int64])
+@pytest.mark.parametrize(
+    "gap,width",
+    [
+        pytest.param(1, 1024, id="single-element-segment"),
+        pytest.param(2, 1024, id="two-element-segment"),
+        pytest.param(50000, 100000, id="large-segment-50k-in-100k"),
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        pytest.param(torch.int8, id="payload-int8-1byte"),
+        pytest.param(torch.int16, id="payload-int16-2bytes"),
+        pytest.param(torch.int32, id="payload-int32-4bytes"),
+        pytest.param(torch.int64, id="payload-int64-8bytes"),
+    ],
+)
 def test_assign_cache_op(gap, width, dtype):
     from sgl_kernel_npu.operators.mem_cache import assign_cache_op
 

@@ -66,6 +66,8 @@ def _check_inputs(cache, x, slots, group, mode, layout):
             "kv_compress_cache 4D tensor requires headnum (dim 2) == 1",
         )
         cache = cache.squeeze(2)
+    check(mode in (1, 2), f"quant_mode must be 1 (FP8) or 2 (MXFP8), got {mode}")
+    check(layout in (1, 2), f"layout must be 1 or 2, got {layout}")
     if mode == 2:
         check(group in (64, 128), "MXFP8 quant_group_size must be 64 or 128")
     qcols = x.shape[1] - 64
