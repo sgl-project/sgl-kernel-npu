@@ -1,9 +1,6 @@
 include_guard(GLOBAL)
 
 function(sgl_generate_cann_interfaces output_dir)
-    if(NOT COMMAND npu_op_code_gen)
-        message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
-    endif()
     # OpDef inputs may be separate definitions or combined Host implementations.
     set(opdef_sources)
     set(header_scan_sources)
@@ -19,6 +16,13 @@ function(sgl_generate_cann_interfaces output_dir)
             endif()
         endforeach()
     endforeach()
+
+    if(NOT opdef_sources)
+        return()
+    endif()
+    if(NOT COMMAND npu_op_code_gen)
+        message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
+    endif()
 
     set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     file(MAKE_DIRECTORY "${config_dir}")
@@ -114,20 +118,69 @@ function(sgl_add_cann_tiling)
     endforeach()
 endfunction()
 
-function(sgl_add_cann_kernels output_dir)
-    file(GLOB api_sources "${output_dir}/aclnn*.cpp")
-    if(NOT api_sources OR NOT EXISTS "${output_dir}/op_proto.cc")
-        message(FATAL_ERROR "SDK did not generate the required ACLNN / op_proto sources in ${output_dir}")
-    endif()
-    # ACLNN uses generated interfaces; GRAPH combines generated proto with Infer.
-    set(infer_sources)
+function(sgl_add_cann_host_libraries output_dir)
+    # Host inputs depend on the interface path, not the Kernel execution unit.
+    set(opdef_sources)
+    set(api_sources)
+    set(api_headers)
+    set(graph_sources)
     foreach(id IN LISTS ARGN)
         sgl_resolve_operator(op "${id}" "${SGL_ARCH_VERSION}")
-        list(APPEND infer_sources ${op_INFER_SOURCES})
+        list(APPEND opdef_sources ${op_OPDEF_SOURCES})
+        list(APPEND api_sources ${op_ACLNN_SOURCES})
+        list(APPEND api_headers ${op_ACLNN_HEADERS})
+        list(APPEND graph_sources ${op_INFER_SOURCES})
     endforeach()
-    npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
-    npu_op_library(sgl_cann_proto GRAPH ${infer_sources} "${output_dir}/op_proto.cc")
-    target_include_directories(sgl_cann_proto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
+    set(explicit_api_sources ${api_sources})
+    set(explicit_api_headers ${api_headers})
+    if(opdef_sources)
+        # This OpDef codegen path produces both ACLNN and operator prototypes.
+        file(GLOB generated_api_sources "${output_dir}/aclnn*.cpp")
+        file(GLOB generated_api_headers "${output_dir}/aclnn*.h")
+        if(NOT generated_api_sources OR NOT generated_api_headers
+           OR NOT EXISTS "${output_dir}/op_proto.cc")
+            message(FATAL_ERROR "SDK did not generate the required ACLNN / op_proto sources in ${output_dir}")
+        endif()
+        list(APPEND api_sources ${generated_api_sources})
+        list(APPEND api_headers ${generated_api_headers})
+        list(APPEND graph_sources "${output_dir}/op_proto.cc")
+    endif()
+    # Explicit ACLNN interfaces use the same include directory as generated ones.
+    list(REMOVE_DUPLICATES api_headers)
+    set(SGL_CANN_ACLNN_HEADERS "${api_headers}" CACHE INTERNAL
+        "Generated and explicit ACLNN headers selected for this build" FORCE)
+    # The SDK already installs generated headers when adding the ACLNN library.
+    if(explicit_api_headers)
+        list(REMOVE_DUPLICATES explicit_api_headers)
+        npu_op_package_add(sgl_kernel_npu FILES ${explicit_api_headers} TYPE ACLNN)
+    endif()
+    if(api_sources)
+        list(REMOVE_DUPLICATES api_sources)
+        npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
+        if(explicit_api_sources)
+            # Like the reference projects' OPAPI_INCLUDE, Host opdev callers
+            # also need AICPU headers. CANN 9.2 installs aicpu_engine_struct.h
+            # under pkg_inc/aicpu, with a compatibility entry in pkg_inc.
+            set(host_api_includes)
+            foreach(prefix IN ITEMS "${ASCEND_CANN_PACKAGE_PATH}"
+                    "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux")
+                foreach(suffix IN ITEMS include/aclnn pkg_inc pkg_inc/aicpu include/aicpu)
+                    list(APPEND host_api_includes "${prefix}/${suffix}")
+                endforeach()
+            endforeach()
+            # Keep generated AI Core interfaces on the SDK's original settings.
+            set_property(SOURCE ${explicit_api_sources} TARGET_DIRECTORY sgl_cann_opapi
+                APPEND PROPERTY INCLUDE_DIRECTORIES ${host_api_includes})
+        endif()
+    endif()
+    if(graph_sources)
+        list(REMOVE_DUPLICATES graph_sources)
+        npu_op_library(sgl_cann_proto GRAPH ${graph_sources})
+        target_include_directories(sgl_cann_proto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
+    endif()
+endfunction()
+
+function(sgl_add_cann_kernels output_dir)
     # CANN 9.2 appends these Kernel handoff INIs; replay from empty files while
     # retaining the independent OpDef/ACLNN/proto cache.
     set(source_config "${output_dir}/sgl_cann_kernels_custom_source_files.ini")
@@ -169,9 +222,4 @@ function(sgl_add_cann_kernels output_dir)
     endif()
     npu_op_kernel_library(sgl_cann_kernels SRC_BASE "${CMAKE_CURRENT_SOURCE_DIR}"
         TILING_LIBRARY sgl_cann_tiling)
-    npu_op_package_add(sgl_kernel_npu LIBRARY sgl_cann_opapi sgl_cann_proto sgl_cann_tiling sgl_cann_kernels)
-    if(NOT TARGET binary)
-        message(FATAL_ERROR "The SDK did not create the required binary build target")
-    endif()
-    add_custom_target(sgl_cann_kernel_check DEPENDS binary sgl_cann_opapi sgl_cann_proto)
 endfunction()

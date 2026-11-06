@@ -140,36 +140,40 @@ architectures needs no variant.
 #### Fields and required values
 
 "Common" below means `sgl_register_operator()`; "variant" means
-`sgl_register_operator_variant()`. The declaration accepts 13 configuration
+`sgl_register_operator_variant()`. The declaration accepts 16 configuration
 fields, plus the `ID` and `ARCH` keys:
 
 | Field | Purpose | Allowed declaration | Required value |
 | --- | --- | --- | --- |
 | `ID` | Operator identifier; associates variants with the common declaration. | Common and variant | Required in every declaration. |
 | `ARCH` | Architecture selected by this variant. | Variant only | Required for a variant; must belong to the common `SUPPORTED_ARCHS`. |
-| `EXECUTION_UNIT` | Execution unit. | Common only | Required. The implemented build backend currently supports `AICORE`. |
-| `CANN_OP_TYPE` | CANN operator type registered by the OpDef. | Common only | Required. |
+| `EXECUTION_UNIT` | Execution unit. | Common only | Required: `AICORE` or CpuKernel-based `AICPU`. |
+| `CANN_OP_TYPE` | CANN operator type used by the OpDef or AICPU registration. | Common only | Required. |
 | `SUPPORTED_ARCHS` | Architectures supported by the operator. | Common only | Required and non-empty; currently accepts `2201` and `3510`, without duplicates. |
 | `TORCH_ADAPTER` | Torch adapter source file. | Common only | Optional at registration; required for each selected operator when building the Torch extension and wheel. |
-| `OPDEF_SOURCES` | CANN interface definition source files. | Common only | Required and non-empty in the common declaration. |
+| `OPDEF_SOURCES` | CANN interface definition source files for codegen. | Common only | Required and non-empty for AI Core; optional for AICPU. |
 | `INFER_SOURCES` | Handwritten shape/type inference source files. | Common and variant | Optional; may be cleared explicitly. |
-| `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected architecture. |
+| `ACLNN_SOURCES` | Explicit Host ACLNN implementations, alongside any generated interfaces. | Common only | Optional; used by the AICPU AddExample wrapper. |
+| `ACLNN_HEADERS` | Explicit ACLNN headers installed in `op_api/include/`. | Common only | Optional; declare the public headers of explicit interfaces. |
+| `AICPU_JSON` | CpuKernel registration JSON. | Common only | Required when packaging selected AICPU operators; not needed by AI Core. |
+| `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected AI Core architecture; not required for AICPU. |
 | `TILING_INCLUDE_DIRECTORIES` | Private header search directories for Tiling sources. | Common and variant | Optional; may be cleared explicitly. |
 | `TILING_COMPILE_DEFINITIONS` | Private Tiling macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
-| `KERNEL_SOURCES` | Device compilation entry. | Common and variant | The resolved list must contain exactly one entry after deduplication. |
+| `KERNEL_SOURCES` | Device compilation sources. | Common and variant | Non-empty after resolution. AI Core requires exactly one entry; AICPU accepts multiple `.cpp` files. |
 | `KERNEL_INCLUDE_DIRECTORIES` | Private header search directories for the Kernel. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_DEFINITIONS` | Private Kernel macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_OPTIONS` | Kernel compiler options. | Common and variant | Optional; may be cleared explicitly. |
 
-The common declaration therefore has **five required fields**: `ID`,
-`EXECUTION_UNIT`, `CANN_OP_TYPE`, `SUPPORTED_ARCHS` and `OPDEF_SOURCES`.
-`TILING_SOURCES` and `KERNEL_SOURCES` need not appear in the common declaration:
-they may come from a variant, provided each selected architecture resolves to
-non-empty Tiling sources and exactly one Kernel entry. A CANN-only `.run` build
-does not require `TORCH_ADAPTER`.
+The common declaration requires `ID`, `EXECUTION_UNIT`, `CANN_OP_TYPE` and
+`SUPPORTED_ARCHS`; AI Core additionally requires common `OPDEF_SOURCES`.
+`TILING_SOURCES` and `KERNEL_SOURCES` may come from a variant. Each selected AI
+Core architecture still requires non-empty Tiling sources and exactly one
+Kernel entry. AICPU requires non-empty Kernel sources, without requiring an
+AI Core OpDef or Tiling function. A CANN-only `.run` build does not require
+`TORCH_ADAPTER`.
 
-`EXECUTION_UNIT` registration recognizes `AICORE` and `AICPU`, but selecting an
-`AICPU` operator currently fails because its build backend is not implemented.
+The same `--ops` selection supports AI Core-only, AICPU-only and mixed packages.
+
 Use `SUPPORTED_ARCHS` to exclude an unsupported architecture rather than clearing
 required sources. `--ops all` excludes operators that do not support the selected
 architecture; explicitly requesting such an operator fails.
@@ -193,12 +197,13 @@ items. It never appends the common list.
 | Bare `FIELD` without a value argument | Fail with a missing-value error. |
 
 Explicit clearing is allowed for `INFER_SOURCES`, private include directories,
-private macros and Kernel compiler options. Clearing `TILING_SOURCES` or
-`KERNEL_SOURCES` fails the final required-source checks. Clearing private settings
-removes only those declared for this operator, not the build target's shared
-settings. Clearing `INFER_SOURCES` omits handwritten inference from GRAPH; the
-generated `op_proto.cc` is still compiled. Only omit inference when the operator's
-supported call paths do not require that handwritten implementation.
+private macros and Kernel compiler options. Clearing `TILING_SOURCES` for AI Core,
+or `KERNEL_SOURCES` for either execution unit, fails the final required-source
+checks. Clearing private settings removes only those declared for this operator,
+not the build target's shared settings. Clearing `INFER_SOURCES` omits handwritten inference from GRAPH; the
+generated `op_proto.cc`, when present, is still compiled. Only omit inference
+when the operator's supported call paths do not require that handwritten
+implementation.
 
 The following schematic example assumes the listed source files exist under the
 operator directory. `MODE` is an illustrative operator macro:
@@ -235,6 +240,32 @@ sources are inherited because the variant does not declare `TILING_SOURCES`.
 The variant repeats `--cce-auto-sync=off` because its compiler-option list fully
 replaces the common one. Only the final Kernel list is checked for one entry;
 the common and variant entries are not combined.
+
+#### Building and installing AICPU operators
+
+Use an initialized CANN 9.2.0 SDK with its HCC compiler and AICPU development
+files, plus matching PyTorch and torch_npu. Select AICPU operators with the same
+`--ops` option used for AI Core operators. For a repository-owned AICPU-only
+wheel on A2/A3:
+
+```bash
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 --ops add_example --artifact wheel --without-third-party --make-clean
+```
+
+On A5, use `--arch-version 3510`. For a mixed wheel, select
+`--ops apply_token_bitmask,add_example`.
+
+When installing the RUN package manually, pass `--force` to the generated installer. For the A2/A3 custom build above with `--artifact run`, install it by:
+
+```bash
+bash /workspace/sgl-kernel-npu/output/sgl_kernel_npu-2201-custom.run --install-path=/workspace/sgl-kernel-npu/installed --force
+```
+
+After installing the wheel, run the example through the public API:
+
+```bash
+python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/examples/test_add_example.py --impl aicpu --impl-ref torch_native --skip-acc-check=false --enable-perf=false -ra
+```
 
 #### Duplicate declarations and values
 
