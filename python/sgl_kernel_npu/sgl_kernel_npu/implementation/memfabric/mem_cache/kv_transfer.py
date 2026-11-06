@@ -1,7 +1,9 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
 The caller owns initialized MemFabric resources and Host storage.
-Inputs and pinned metadata staging stay alive until their completion event.
+Inputs stay alive until their completion event. The AIV kv_exchange kernel
+receives the whole transfer description inside its launch parameter block,
+so no pinned staging or meta upload remains on the submission path.
 NPU graph capture is not supported by this AIV path.
 """
 
@@ -117,17 +119,14 @@ def _resolve_host_dva(host):
     return resolve_host_dva(host)
 
 
-def _submit_aiv(
-    offload, components, di, hi, page_size, direction, device, host_layout, keepalive
-):
+def _submit_aiv(components, di, hi, page_size, direction, host_layout, keepalive):
     # Host tensors have PF-shaped metadata views even when their storage is LF.
     # Actual page/layer strides preserve the original physical layout.
-    # The C++ kv_exchange adapter builds the device-resident meta (the same
-    # component/pitch/width/layer contract) and launches the AIV kernel;
-    # it returns the pinned staging tensor for the meta upload, kept until
-    # the completion event retires the keepalive list.
+    # The C++ kv_exchange adapter packs the component/pitch/width/layer
+    # description into the kernel launch parameter block; nothing outlives
+    # the call on the host side, so the keepalive list needs no staging.
     host_dvas = [_resolve_host_dva(host) for _, host in components]
-    staging = torch.ops.npu.kv_exchange(
+    torch.ops.npu.kv_exchange(
         di,
         hi,
         [dev for dev, _ in components],
@@ -137,8 +136,6 @@ def _submit_aiv(
         direction,
         int(host_layout == "layer_first"),
     )
-    if staging is not None:
-        keepalive.append(staging)
 
 
 def transfer_kv(
@@ -194,7 +191,6 @@ def transfer_kv(
     if not device_indices.numel():
         return
     # Host addresses resolve through the registered DVA table (MF or aclrt).
-    offload = None
 
     with _submit_lock, torch.npu.device(device):
         if torch.npu.is_current_stream_capturing():
@@ -209,9 +205,9 @@ def transfer_kv(
             hi = host_indices.contiguous()
             # New contiguous copies use this stream's allocator. Keep only
             # the original inputs, which may have been allocated on other streams.
-            _submit_aiv(offload, components, di, hi, page_size, direction, device, host_layout, keepalive)  # fmt: skip
+            _submit_aiv(components, di, hi, page_size, direction, host_layout, keepalive)  # fmt: skip
         finally:
-            # Inputs and pinned metadata staging survive failures too.
+            # Inputs survive failures too.
             done = torch.npu.Event()
             done.record(stream)
             _inflight.append((done, keepalive))

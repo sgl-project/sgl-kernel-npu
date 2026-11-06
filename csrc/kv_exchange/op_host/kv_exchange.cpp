@@ -19,7 +19,6 @@
 
 #include "aclrtlaunch_kv_exchange.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
@@ -124,60 +123,44 @@ void CheckComponentPair(const at::Tensor &device_buf, const at::Tensor &host_buf
                 "(page, layer) block)");
 }
 
-// meta layout (see op_kernel/kv_exchange_kernel.cpp):
-//   [0] num_components [1] num_pages [2] page_size [3] direction
-//   [4] device_indices_ptr [5] host_indices_ptr [6] host_layout_mode [7] start_dim
-//   per component c at 8 + 9*c: dev_base, host_base(DVA), dev_layer_pitch,
-//   dev_page_pitch, host_page_pitch, host_layer_pitch, width, layer_lo, layer_hi
+// Transfer-description layout (see op_kernel/kv_exchange_kernel.cpp): the
+// production kv_exchange kernel takes the description as flat launch
+// parameters -- 8 header scalars plus 4 x 9 component scalars in the same
+// field order as the legacy device-resident meta slots.
 //
 // The component views arrive with their layer offsets already folded into
 // their base addresses (device view slicing / host DVA of the sliced view),
-// so the meta's layer range starts at 0 and the device kernel's addressing
-// format stays untouched. Components with layer_lo >= layer_hi (or
-// width <= 0) transfer nothing.
-void FillComponent(std::vector<int64_t> &meta, int64_t c, const at::Tensor &device_buf, const at::Tensor &host_buf,
-                   int64_t device_layer_offset, int64_t host_dva, int64_t host_layer_offset, int64_t layer_lo,
-                   int64_t layer_hi)
+// so the layer range starts at 0 and the device kernel's addressing format
+// stays untouched. Components with layer_lo >= layer_hi (or width <= 0)
+// transfer nothing.
+struct ComponentParams {
+    int64_t fields[9];
+};
+
+#define KV_COMPONENT_ARGS(c)                                                                   \
+    comps[c].fields[0], comps[c].fields[1], comps[c].fields[2], comps[c].fields[3],            \
+        comps[c].fields[4], comps[c].fields[5], comps[c].fields[6], comps[c].fields[7],         \
+        comps[c].fields[8]
+
+void FillComponent(ComponentParams &cp, const at::Tensor &device_buf, const at::Tensor &host_buf, int64_t host_dva,
+                   int64_t layer_lo, int64_t layer_hi)
 {
     const int64_t esz = device_buf.element_size();
-    const int64_t o = kMetaHeader + kMetaStride * c;
-    meta[o + 0] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(device_buf.data_ptr())) +
-                  device_layer_offset * device_buf.stride(0) * esz;
-    meta[o + 1] = host_dva + host_layer_offset * host_buf.stride(1) * esz;
-    meta[o + 2] = device_buf.stride(0) * esz;  // device_layer_pitch
-    meta[o + 3] = device_buf.stride(1) * esz;  // device_page_pitch
-    meta[o + 4] = host_buf.stride(0) * esz;    // host_page_pitch
-    meta[o + 5] = host_buf.stride(1) * esz;    // host_layer_pitch
+    cp.fields[0] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(device_buf.data_ptr()));
+    cp.fields[1] = host_dva;
+    cp.fields[2] = device_buf.stride(0) * esz;  // device_layer_pitch
+    cp.fields[3] = device_buf.stride(1) * esz;  // device_page_pitch
+    cp.fields[4] = host_buf.stride(0) * esz;    // host_page_pitch
+    cp.fields[5] = host_buf.stride(1) * esz;    // host_layer_pitch
     // The kernel copies this many contiguous bytes per (page, layer) block:
     // the packed extent of the trailing dims (prod(shape[2:]) * itemsize).
     int64_t width = esz;
     for (int64_t i = 2; i < host_buf.dim(); ++i) {
         width *= host_buf.size(i);
     }
-    meta[o + 6] = width;
-    meta[o + 7] = layer_lo;
-    meta[o + 8] = layer_hi;
-}
-
-// Build the device-resident meta and launch one kv_exchange kernel. The meta
-// is staged through pinned memory with a non_blocking copy -- a pageable
-// upload would end in an aclrtStreamSynchronize that drains everything
-// queued on the caller's stream. The pinned staging tensor is returned so
-// the caller can keep it alive until the submission's completion event.
-at::Tensor LaunchKvExchange(std::vector<int64_t> &meta, const at::Tensor &device_ref)
-{
-    const auto npuStream = c10_npu::getCurrentNPUStream();
-    auto options = at::TensorOptions().dtype(at::kLong);
-    at::Tensor meta_host = at::empty({kMinMetaNumel}, options.device(at::kCPU).pinned_memory(true));
-    std::copy(meta.begin(), meta.end(), meta_host.data_ptr<int64_t>());
-    at::Tensor meta_dev = at::empty({kMinMetaNumel}, options.device(device_ref.device()));
-    meta_dev.copy_(meta_host, /*non_blocking=*/true);
-    meta_dev.record_stream(npuStream);
-    // EXEC_KERNEL_CMD substitutes blockdim into a lambda capture list, so it
-    // must be a plain identifier, not a cast expression.
-    const uint32_t block_dim_u32 = ResolveBlockDim();
-    EXEC_KERNEL_CMD(kv_exchange, block_dim_u32, meta_dev);
-    return meta_host;
+    cp.fields[6] = width;
+    cp.fields[7] = layer_lo;
+    cp.fields[8] = layer_hi;
 }
 
 // Index uploads are the caller's (python) job; only the async-use lifetime
@@ -211,7 +194,7 @@ HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim)
     // EXEC_KERNEL_CMD substitutes blockdim into a lambda capture list, so it
     // must be a plain identifier, not a cast expression.
     const uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
-    EXEC_KERNEL_CMD(kv_exchange, block_dim_u32, meta);
+    EXEC_KERNEL_CMD(kv_exchange_meta, block_dim_u32, meta);
 }
 
 /*
@@ -219,15 +202,15 @@ HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim)
  *
  * The Python layer (implementation/memfabric/mem_cache/kv_transfer.py)
  * selects the paired component views, uploads the token indices and resolves
- * each host view's MF DVA; this adapter builds the device-resident
- * 44-slot meta with the same component/pitch/width/layer semantics before
- * launching the kernel, so replacing offload.kv_exchange_copy keeps the
- * original transfer logic intact.
+ * each host view's MF DVA; this adapter packs the same component/pitch/
+ * width/layer description into the kernel launch parameter block, so the
+ * description never round-trips through device memory: no device-resident
+ * meta, no pinned host staging and no separate H2D meta upload.
  */
-HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host_indices,
-                                       at::TensorList device_components, at::TensorList host_components,
-                                       const std::vector<int64_t> &host_dvas, int64_t page_size, int64_t direction,
-                                       int64_t host_layout_mode)
+HOST_API void kv_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host_indices,
+                                 at::TensorList device_components, at::TensorList host_components,
+                                 const std::vector<int64_t> &host_dvas, int64_t page_size, int64_t direction,
+                                 int64_t host_layout_mode)
 {
     TORCH_CHECK(direction == kDirectionH2D || direction == kDirectionD2H, "direction must be H2D (1) or D2H (2), got ",
                 direction);
@@ -248,24 +231,11 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
 
     const int64_t num_pages = device_indices.numel() / page_size;
     if (num_pages == 0) {
-        // Nothing to transfer; hand back an empty staging tensor so the
-        // caller's keepalive handling stays uniform.
-        return at::empty({0}, at::TensorOptions().dtype(at::kLong).device(at::kCPU).pinned_memory(true));
+        // Nothing to transfer.
+        return;
     }
 
-    std::vector<int64_t> meta(kMinMetaNumel, 0);
-    meta[0] = static_cast<int64_t>(device_components.size());
-    meta[1] = num_pages;
-    meta[2] = page_size;
-    meta[3] = direction;
-    meta[4] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(device_indices.data_ptr()));
-    meta[5] = static_cast<int64_t>(reinterpret_cast<uintptr_t>(host_indices.data_ptr()));
-    meta[6] = host_layout_mode;
-    // start_dim: negative (the default) reserves the last 2 AIV cores to
-    // match the native acc_offload kv_exchange occupancy; SGLANG_KV_
-    // EXCHANGE_START_DIM=0 re-engages all launched cores for perf sweeps.
-    meta[7] = ResolveStartDim();
-
+    ComponentParams comps[kMaxComponents] = {};
     for (int64_t c = 0; c < static_cast<int64_t>(device_components.size()); ++c) {
         const at::Tensor &device_buf = device_components[c];
         const at::Tensor &host_buf = host_components[c];
@@ -276,12 +246,21 @@ HOST_API at::Tensor kv_exchange_submit(const at::Tensor &device_indices, const a
         TORCH_CHECK(host_dvas[static_cast<size_t>(c)] != 0, "component ", c, ": MF host DVA must be non-zero");
         // Layer offsets are already folded into the component views; the
         // whole view (all its layers) is transferred.
-        FillComponent(meta, c, device_buf, host_buf, 0, host_dvas[static_cast<size_t>(c)], 0, 0, device_buf.size(0));
+        FillComponent(comps[c], device_buf, host_buf, host_dvas[static_cast<size_t>(c)], 0, device_buf.size(0));
     }
 
-    at::Tensor staging = LaunchKvExchange(meta, device_components[0]);
+    // start_dim: negative (the default) reserves the last 2 AIV cores to
+    // match the native acc_offload kv_exchange occupancy; SGLANG_KV_
+    // EXCHANGE_START_DIM=0 re-engages all launched cores for perf sweeps.
+    const int64_t start_dim = ResolveStartDim();
+    // EXEC_KERNEL_CMD substitutes blockdim into a lambda capture list, so it
+    // must be a plain identifier, not a cast expression.
+    const uint32_t block_dim_u32 = ResolveBlockDim();
+    EXEC_KERNEL_CMD(kv_exchange, block_dim_u32, device_indices, host_indices,
+                    static_cast<int64_t>(device_components.size()), num_pages, page_size, direction, host_layout_mode,
+                    start_dim, KV_COMPONENT_ARGS(0), KV_COMPONENT_ARGS(1), KV_COMPONENT_ARGS(2),
+                    KV_COMPONENT_ARGS(3));
     RecordStreamLifetime(device_components, device_indices, host_indices);
-    return staging;
 }
 
 }  // namespace npu_kernel

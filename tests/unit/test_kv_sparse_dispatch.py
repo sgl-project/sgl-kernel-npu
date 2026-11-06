@@ -120,17 +120,15 @@ class TestSparseDispatch(unittest.TestCase):
         self.stream = Stream()
 
         def submit(
-            offload,
             components,
             di,
             hi,
             page_size,
             direction,
-            device,
             host_layout,
             keepalive,
         ):
-            keepalive.append(Tensor((44,), CPU))
+            pass
 
         self.builder = Mock(side_effect=submit)
         self.torch = SimpleNamespace(
@@ -248,9 +246,8 @@ class TestSparseDispatch(unittest.TestCase):
         self.torch.npu.Event.assert_not_called()
         self.assertFalse(self.module._inflight)
 
-    def test_aiv_retains_inputs_and_pinned_metadata_staging(self):
-        staging = Tensor((44,), CPU)
-        submit = Mock(return_value=staging)
+    def test_aiv_retains_inputs_until_completion(self):
+        submit = Mock(return_value=None)
         self.torch.ops = SimpleNamespace(npu=SimpleNamespace(kv_exchange=submit))
         with patch.object(self.module, "_submit_aiv", self.real_submit), patch.object(
             self.module, "_resolve_host_dva", return_value=1 << 44
@@ -273,15 +270,14 @@ class TestSparseDispatch(unittest.TestCase):
                 self.assertEqual(submit.call_args.args[3], [host])
                 done, retained = self.module._inflight[-1]
                 self.assertIs(done.stream, self.stream)
-                for tensor in (di, hi, dev, host, staging):
+                for tensor in (di, hi, dev, host):
                     self.assertIn(tensor, retained)
         self.assertEqual(submit.call_count, 2)
         self.builder.assert_not_called()
 
     def test_aiv_transfer_runs_without_memfabric_hybrid_available(self):
         """Registered-host AIV transfers must not import MemFabric."""
-        staging = Tensor((44,), CPU)
-        submit = Mock(return_value=staging)
+        submit = Mock(return_value=None)
         self.torch.ops = SimpleNamespace(npu=SimpleNamespace(kv_exchange=submit))
         with patch.dict(sys.modules, {"memfabric_hybrid": None}), patch.object(
             self.module, "_submit_aiv", self.real_submit
@@ -527,7 +523,7 @@ class TestSparseDispatch(unittest.TestCase):
                         direction=direction,
                         **optional,
                     )
-                    pairs = self.builder.call_args.args[1]
+                    pairs = self.builder.call_args.args[0]
                     self.assertEqual(len(pairs), 2)
                     self.assertEqual(pairs[0], (k, h))
                     if missing.endswith("_scale"):
@@ -552,7 +548,7 @@ class TestSparseDispatch(unittest.TestCase):
             host_v,
             page_size=4,
         )
-        self.assertEqual(self.builder.call_args.args[1], [(k, host_k)])
+        self.assertEqual(self.builder.call_args.args[0], [(k, host_k)])
 
     def test_public_wrapper_skips_only_paired_empty_optional_buffers(self):
         call = self.public_wrapper()
@@ -569,7 +565,7 @@ class TestSparseDispatch(unittest.TestCase):
             host_index_k=Tensor((0,), CPU),
             page_size=4,
         )
-        self.assertEqual(self.builder.call_args.args[1], [(k, h), (v, hv)])
+        self.assertEqual(self.builder.call_args.args[0], [(k, h), (v, hv)])
 
     def test_public_wrapper_skips_empty_v_and_pads_indexer_scale(self):
         call = self.public_wrapper()
@@ -588,7 +584,7 @@ class TestSparseDispatch(unittest.TestCase):
             host_index_k_scale=hs,
             page_size=4,
         )
-        pairs = self.builder.call_args.args[1]
+        pairs = self.builder.call_args.args[0]
         self.assertEqual(len(pairs), 2)
         self.assertEqual(pairs[0], (k, h))
         self.assertEqual(pairs[1][0].shape, (2, 8, 4, 1, 1))
