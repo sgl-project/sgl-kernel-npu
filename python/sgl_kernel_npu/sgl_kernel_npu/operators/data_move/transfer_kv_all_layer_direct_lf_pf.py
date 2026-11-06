@@ -2,8 +2,10 @@ from typing import Sequence
 
 import torch
 
-from ._types import TransferFlag
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ._types import TransferFlag
+
+_torch_native_fn = None
 
 
 @register_impl("data_move.transfer_kv_all_layer_direct_lf_pf", "auto")
@@ -26,11 +28,14 @@ def _aclrt(
 
 @register_impl("data_move.transfer_kv_all_layer_direct_lf_pf", "torch_native")
 def _native(**kwargs):
-    from ...implementation.torch_native.data_move.state_transfer import (
-        transfer_kv_all_layer_direct_lf_pf,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.data_move.state_transfer import (
+            transfer_kv_all_layer_direct_lf_pf,
+        )
 
-    return transfer_kv_all_layer_direct_lf_pf(**kwargs)
+        _torch_native_fn = transfer_kv_all_layer_direct_lf_pf
+    return _torch_native_fn(**kwargs)
 
 
 @register_operator("data_move.transfer_kv_all_layer_direct_lf_pf")
@@ -44,6 +49,10 @@ def transfer_kv_all_layer_direct_lf_pf(
     impl="auto",
 ) -> None:
     """Back up selected slots of every layer and component to host.
+
+    Each device/host component pair must share its dtype. Device slot
+    payloads must be physically dense; host components must be contiguous
+    and pinned.
 
     Args:
         device_states: Layer-first device components [layers, slots, ...].

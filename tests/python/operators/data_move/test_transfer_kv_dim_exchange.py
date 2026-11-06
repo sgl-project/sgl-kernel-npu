@@ -1,5 +1,6 @@
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
@@ -253,3 +254,163 @@ def test_transfer_kv_indexer_scale(direction, scale_ndim, has_v):
                 expected[key].view(torch.uint8),
                 path=key,
             )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "case,message",
+    [
+        ("dtype", "same dtype"),
+        ("slot-gap", "slot pitch"),
+        ("layer-gap", "layer pitch"),
+        ("payload-gap", "physically dense"),
+        ("host-layout", "contiguous"),
+        ("host-shape", "shape|layout"),
+        ("pageable", "pinned memory"),
+        ("device", "NPU"),
+        ("host-device", "CPU"),
+        ("negative-device", "non-negative"),
+        ("negative-host", "non-negative"),
+        ("late-index", "non-negative"),
+        ("bounds", "index"),
+        ("index-rank", "one-dimensional int64"),
+        ("index-dtype", "one-dimensional int64"),
+        ("v-heads", "K/V"),
+        ("v-pages", "K/V"),
+        ("v-layers", "K/V"),
+        ("v-dtype", "K/V"),
+        ("v-device", "same NPU"),
+        ("v-host-shape", "dimension|layout"),
+    ],
+)
+def test_transfer_kv_rejected(case, message):
+    from sgl_kernel_npu.operators.data_move import (
+        TransferDirection,
+        transfer_kv_dim_exchange,
+    )
+
+    device = torch.arange(2 * 4 * 2 * 2 * 3, device="npu", dtype=torch.float32).reshape(
+        2, 4, 2, 2, 3
+    )
+    host = torch.full((5, 2, 2, 2, 3), -7, dtype=torch.float32, pin_memory=True)
+    if case in ("slot-gap", "layer-gap"):
+        shape = (2, 8, 2, 2, 3) if case == "slot-gap" else (4, 4, 2, 2, 3)
+        storage = torch.zeros(shape, device="npu")
+        device = storage[:, ::2] if case == "slot-gap" else storage[::2]
+    elif case == "payload-gap":
+        device = device[..., ::2]
+        host = torch.zeros(5, 2, 2, 2, 2, pin_memory=True)
+    elif case == "dtype":
+        host = host.to(torch.int32).pin_memory()
+    elif case == "host-layout":
+        # Keep the same shape while introducing a gap in the last dimension.
+        host = torch.zeros(5, 2, 2, 2, 6, pin_memory=True)[..., ::2]
+    elif case == "host-shape":
+        host = torch.zeros(5, 2, 2, 1, 3, pin_memory=True)
+    elif case == "pageable":
+        host = torch.zeros_like(host, pin_memory=False)
+    elif case == "device":
+        device = device.cpu()
+    elif case == "host-device":
+        host = host.to(device.device)
+    indices = torch.tensor([0, 1], device="cpu")
+    kwargs = dict(
+        device_k=device,
+        host_k=host,
+        device_v=torch.empty(0),
+        host_v=torch.empty(0),
+        device_indices=indices.clone(),
+        host_indices=indices.clone(),
+        page_size=2,
+        direction=TransferDirection.D2H,
+    )
+    if case.startswith("negative"):
+        kwargs["device_indices" if case == "negative-device" else "host_indices"][
+            0
+        ] = -1
+    elif case == "late-index":
+        kwargs["device_indices"] = torch.tensor([0, 1, -2, -1], device="cpu")
+        kwargs["host_indices"] = torch.tensor([0, 1, 2, 3], device="cpu")
+    elif case == "bounds":
+        kwargs["device_indices"][0] = 8
+    elif case == "index-rank":
+        kwargs["device_indices"] = indices.reshape(1, 2)
+    elif case == "index-dtype":
+        kwargs["device_indices"] = indices.to(torch.int32)
+    if case.startswith("v-"):
+        shape = {
+            "v-heads": (2, 4, 2, 1, 3),
+            "v-pages": (2, 3, 2, 2, 3),
+            "v-layers": (1, 4, 2, 2, 3),
+        }.get(case, (2, 4, 2, 2, 3))
+        dtype = torch.int32 if case == "v-dtype" else torch.float32
+        kwargs["device_v"] = torch.zeros(shape, device="npu", dtype=dtype)
+        if case == "v-device":
+            kwargs["device_v"] = kwargs["device_v"].cpu()
+        kwargs["host_v"] = torch.zeros(
+            5, shape[0], *shape[2:], dtype=dtype, pin_memory=True
+        )
+        if case == "v-host-shape":
+            kwargs["host_v"] = torch.zeros(5, 2, 2, 2, 2, pin_memory=True)
+    impl, impl_ref = get_test_impls()
+    checked = not get_skip_acc_check()
+    if checked:
+        require_distinct_impls(transfer_kv_dim_exchange, impl, impl_ref)
+    before = host.clone()
+    for backend in (impl, impl_ref) if checked else (impl,):
+        with pytest.raises(RuntimeError, match=message):
+            transfer_kv_dim_exchange(**kwargs, impl=backend)
+        torch.npu.synchronize()
+        if checked:
+            assert_accuracy(
+                host.contiguous().view(torch.uint8),
+                before.contiguous().view(torch.uint8),
+            )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("direction", ["H2D", "D2H"])
+def test_transfer_kv_page_group_first_index(direction):
+    from sgl_kernel_npu.operators.data_move import (
+        TransferDirection,
+        transfer_kv_dim_exchange,
+    )
+
+    device = torch.arange(2 * 3 * 4 * 2, dtype=torch.float32, device="npu").reshape(
+        2, 3, 4, 1, 2
+    )
+    host = (
+        torch.arange(4 * 2 * 4 * 2, dtype=torch.float32)
+        .reshape(4, 2, 4, 1, 2)
+        .pin_memory()
+    )
+    # The ABI ignores non-first entries. They must not become extra constraints.
+    d = torch.tensor([4, -1, 999, -7], device="cpu")
+    h = torch.tensor([8, 999, -2, -1], device="cpu")
+    impl, impl_ref = get_test_impls()
+    checked = not get_skip_acc_check()
+    if checked:
+        require_distinct_impls(transfer_kv_dim_exchange, impl, impl_ref)
+    for backend in (impl, impl_ref) if checked else (impl,):
+        dev = device.clone()
+        dst = torch.empty_like(host, pin_memory=True).copy_(host)
+        expected = dst.clone() if direction == "D2H" else dev.cpu().clone()
+        if direction == "D2H":
+            expected[2].copy_(dev[:, 1].cpu())
+        else:
+            expected[:, 1].copy_(host[2])
+        transfer_kv_dim_exchange(
+            d,
+            h,
+            dev,
+            dst,
+            torch.empty(0),
+            torch.empty(0),
+            page_size=4,
+            direction=TransferDirection[direction],
+            impl=backend,
+        )
+        torch.npu.synchronize()
+        if checked:
+            actual = dst if direction == "D2H" else dev.cpu()
+            assert_accuracy(actual.view(torch.uint8), expected.view(torch.uint8))

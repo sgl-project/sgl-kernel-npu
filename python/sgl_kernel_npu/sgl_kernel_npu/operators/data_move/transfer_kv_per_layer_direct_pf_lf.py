@@ -1,7 +1,9 @@
 import torch
 
-from ._types import TransferFlag
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ._types import TransferFlag
+
+_torch_native_fn = None
 
 
 @register_impl("data_move.transfer_kv_per_layer_direct_pf_lf", "auto")
@@ -26,11 +28,14 @@ def _aclrt(
 
 @register_impl("data_move.transfer_kv_per_layer_direct_pf_lf", "torch_native")
 def _native(**kwargs):
-    from ...implementation.torch_native.data_move.state_transfer import (
-        transfer_kv_per_layer_direct_pf_lf,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.data_move.state_transfer import (
+            transfer_kv_per_layer_direct_pf_lf,
+        )
 
-    return transfer_kv_per_layer_direct_pf_lf(**kwargs)
+        _torch_native_fn = transfer_kv_per_layer_direct_pf_lf
+    return _torch_native_fn(**kwargs)
 
 
 @register_operator("data_move.transfer_kv_per_layer_direct_pf_lf")
@@ -45,6 +50,10 @@ def transfer_kv_per_layer_direct_pf_lf(
     impl="auto",
 ) -> None:
     """Restore selected slots into one device layer.
+
+    Source and destination must share their dtype. The destination slot
+    payload must be physically dense; the host source must be contiguous
+    and pinned.
 
     Args:
         src: Pinned host state [slots, layers, 1, ...].

@@ -8,7 +8,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "acl/acl.h"
+#include "transfer_utils.h"
 #include <ATen/ATen.h>
 #include <torch_npu/csrc/core/npu/NPUStream.h>
 
@@ -24,10 +24,9 @@ enum TransferDirection : int64_t {
 
 // @direction: only support 1 or 2, 1 is H2D, 2 is D2H
 // @flags: only support 2
-void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v,
-                                       at::Tensor &host_v, const at::Tensor &device_indices,
-                                       const at::Tensor &host_indices, int64_t page_size, int64_t direction,
-                                       int64_t flags)
+void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v, at::Tensor &host_v,
+                              const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t page_size,
+                              int64_t direction, int64_t flags)
 {
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
@@ -37,23 +36,28 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tens
     TORCH_CHECK(device_k.sizes()[2] == page_size, "the 3rd dimension of device_k must be equal to page size");
     TORCH_CHECK(host_k.sizes()[2] == page_size, "the 3rd dimension of host_k must be equal to page size");
     TORCH_CHECK(page_size > 0, "Page size must be positive");
-    TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
-    TORCH_CHECK(device_indices.numel() % page_size == 0, "device indices size must be divisible by page size");
     TORCH_CHECK(direction == static_cast<int64_t>(TransferDirection::H2D) ||
                     direction == static_cast<int64_t>(TransferDirection::D2H),
-                "direction must be equal to 1(h2d) or 2(d2h)")
+                "direction must be equal to 1(h2d) or 2(d2h)");
     TORCH_CHECK((flags & KV_TRANS_FLAG_2D) == KV_TRANS_FLAG_2D, "now only support 2d(flags=2) copy");
 
+    TORCH_CHECK(device_k.sizes().slice(2) == host_k.sizes().slice(2), "device and host K page shapes must match");
+    detail::validate_packed_buffers(device_k, host_k);
+
     if (device_v.numel() != 0 && host_v.numel() != 0) {
-        TORCH_CHECK(device_v.dim() == host_v.dim(), "the number of dimensions of device_v must be equal to host_v");
-        TORCH_CHECK(device_v.dim() == 5, "the number of dimensions of device_v must be 5");
-        TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the layer number of device_v must be equal to host_v");
-        TORCH_CHECK(device_v.sizes()[2] == page_size, "the 3rd dimension of device_v must be equal to page size");
-        TORCH_CHECK(host_v.sizes()[2] == page_size, "the 3rd dimension of host_v must be equal to page size");
+        TORCH_CHECK(device_v.dim() == 5 && host_v.dim() == 5, "V caches must have five dimensions");
+        for (int64_t dim = 0; dim < 4; ++dim) {
+            TORCH_CHECK(device_v.size(dim) == device_k.size(dim) && host_v.size(dim) == host_k.size(dim),
+                        "K/V layer, page, page-size and head counts must match");
+        }
+        TORCH_CHECK(device_v.size(4) == host_v.size(4), "device and host V head dimensions must match");
+        TORCH_CHECK(device_v.scalar_type() == device_k.scalar_type(), "K/V caches must have the same dtype");
+        TORCH_CHECK(device_v.device() == device_k.device(), "K/V caches must be on the same NPU");
+        detail::validate_packed_buffers(device_v, host_v);
     }
 
-    auto device_indices_cpu = device_indices.cpu();
-    auto host_indices_cpu = host_indices.cpu();
+    const auto page_pairs =
+        detail::validate_transfer_indices(device_indices, host_indices, device_k.size(1), host_k.size(0), page_size);
     const int64_t device_pages_num = device_k.sizes()[1];
     const int64_t host_pages_num = host_k.sizes()[0];
     const int64_t total_num_layers = device_k.sizes()[0];
@@ -71,33 +75,26 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tens
     c10_npu::NPUStream current_stream = c10_npu::getCurrentNPUStream();
     aclrtStream acl_stream = current_stream.stream();
 
-    const int64_t num_pages = device_indices.size(0) / page_size;
-    for (const auto i : c10::irange(num_pages)) {
-        auto device_page_index = device_indices_cpu[i * page_size].item<int64_t>() / page_size;
-        auto host_page_index = host_indices_cpu[i * page_size].item<int64_t>() / page_size;
-        TORCH_CHECK(device_page_index < device_k.sizes()[1],
-                    "device_page_index must be less than the 2nd dim of device_k");
-        TORCH_CHECK(host_page_index < host_k.sizes()[0], "host_page_index must be less than the 1st dim of host_k");
-
+    for (const auto &[device_page_index, host_page_index] : page_pairs) {
         void *device_k_ptr = reinterpret_cast<void *>(device_k[0][device_page_index].data_ptr());
         void *host_k_ptr = reinterpret_cast<void *>(host_k[host_page_index][0].data_ptr());
         if (direction == static_cast<int64_t>(TransferDirection::D2H)) {
-            aclrtMemcpy2dAsync(host_k_ptr, k_host_pitch, device_k_ptr, k_device_pitch, k_width, height,
-                               aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
+            detail::check_copy(aclrtMemcpy2dAsync(host_k_ptr, k_host_pitch, device_k_ptr, k_device_pitch, k_width,
+                                                  height, aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream));
         } else {
-            aclrtMemcpy2dAsync(device_k_ptr, k_device_pitch, host_k_ptr, k_host_pitch, k_width, height,
-                               aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
+            detail::check_copy(aclrtMemcpy2dAsync(device_k_ptr, k_device_pitch, host_k_ptr, k_host_pitch, k_width,
+                                                  height, aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream));
         }
 
         if (device_v.numel() != 0 && host_v.numel() != 0) {
             void *device_v_ptr = reinterpret_cast<void *>(device_v[0][device_page_index].data_ptr());
             void *host_v_ptr = reinterpret_cast<void *>(host_v[host_page_index][0].data_ptr());
             if (direction == static_cast<int64_t>(TransferDirection::D2H)) {
-                aclrtMemcpy2dAsync(host_v_ptr, v_host_pitch, device_v_ptr, v_device_pitch, v_width, height,
-                                   aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
+                detail::check_copy(aclrtMemcpy2dAsync(host_v_ptr, v_host_pitch, device_v_ptr, v_device_pitch, v_width,
+                                                      height, aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream));
             } else {
-                aclrtMemcpy2dAsync(device_v_ptr, v_device_pitch, host_v_ptr, v_host_pitch, v_width, height,
-                                   aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
+                detail::check_copy(aclrtMemcpy2dAsync(device_v_ptr, v_device_pitch, host_v_ptr, v_host_pitch, v_width,
+                                                      height, aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream));
             }
         }
     }

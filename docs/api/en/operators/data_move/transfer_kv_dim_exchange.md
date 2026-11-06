@@ -20,8 +20,8 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 ## Description
 
 Transfer selected KV-cache pages between the NPU and pinned host memory for H2D restore or D2H
-backup. The device layout is `[layers, pages, tokens_per_page, heads, dim]` , while the host
-layout is `[pages, layers, tokens_per_page, heads, dim]` . Paired token indices identify source
+backup. The device layout is `[layers, pages, tokens_per_page, heads, dim]`, while the host
+layout is `[pages, layers, tokens_per_page, heads, dim]`. Paired token indices identify source
 and destination pages; each transfer includes every layer of a page. K-only transfers and
 optional V, indexer keys and scales are supported. Unselected pages remain unchanged.
 
@@ -33,13 +33,13 @@ optional V, indexer keys and scales are supported. Unselected pages remain uncha
 | `host_indices` | Tensor | [N] | int64 | Required | Matching host slot or token indices. |
 | `device_k` | Tensor | [L,D,P,A,C] | Matching payload dtype | Required | Device K [layers, pages, page_size, heads, dim]. |
 | `host_k` | Tensor | [H,L,P,A,C] | Matching payload dtype | Required | Pinned host K [pages, layers, page_size, heads, dim]. |
-| `device_v` | Tensor | [L,D,P,A,C] | Matching payload dtype | Required | Device V, or an empty tensor. |
+| `device_v` | Tensor | [L,D,P,A,C] | Matching payload dtype | Required | Device V, or an empty tensor. When copied, layers, pages, page size, heads and dtype must match K; head dimension may differ. |
 | `host_v` | Tensor | [H,L,P,A,C] | Matching payload dtype | Required | Host V, or an empty tensor. |
 | `device_index_k` | Tensor | [L,D,P,A,C] | Matching payload dtype | None | Optional device indexer key cache. |
 | `host_index_k` | Tensor | [H,L,P,A,C] | Matching payload dtype | None | Matching optional host indexer key cache. |
 | `device_index_k_scale` | Tensor | [L,D,P,1] / [L,D,P,1,1] | FP32 | None | Optional per-token device indexer scale (4D or 5D). |
 | `host_index_k_scale` | Tensor | [H,L,P,1,1] | FP32 | None | Matching optional 5D host scale. |
-| `page_size` | int | — | — | 128 | Tokens per KV page. |
+| `page_size` | int | — | — | 128 | Tokens per KV page; the index count must be divisible by this value. Only the first index of each group selects a page; other entries are ignored. |
 | `direction` | TransferDirection | — | — | TransferDirection.H2D | TransferDirection.H2D or TransferDirection.D2H. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
 | `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, or torch_native. |
@@ -50,11 +50,11 @@ optional V, indexer keys and scales are supported. Unselected pages remain uncha
 
 ## aclrt backend
 
-Submits asynchronous 2D transfers to the current NPU stream.
+Submits asynchronous 2D transfers to the current NPU stream. Device/host pairs must have matching dtypes and page shapes, with pinned contiguous host storage. Device page payloads may be densely transposed, but pages and layers must retain packed pitches. All selected page indices are validated before any copy; ACL submission errors are propagated.
 
 ## torch_native backend
 
-Adapts the PyTorch gather/scatter reference from SGLang's `MambaPoolHost` . The first token
+Adapts the PyTorch gather/scatter reference from SGLang's `MambaPoolHost`. The first token
 index in each `page_size` group determines a page ID; a physical page is treated as one slot for
 per-layer restore or all-layer backup. K, V and optional indexer/scale buffers are handled
 separately without calling the native `aclrt` operator.

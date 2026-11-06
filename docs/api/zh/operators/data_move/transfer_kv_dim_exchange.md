@@ -29,13 +29,13 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 | `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应的主机索引。 |
 | `device_k` | Tensor | [L,D,P,A,C] | 源与目标一致 | 必填 | 设备 K，按层、页排列。 |
 | `host_k` | Tensor | [H,L,P,A,C] | 源与目标一致 | 必填 | 锁页主机 K，按页、层排列。 |
-| `device_v` | Tensor | [L,D,P,A,C] | 源与目标一致 | 必填 | 设备 V，仅传 K 时使用空张量。 |
+| `device_v` | Tensor | [L,D,P,A,C] | 源与目标一致 | 必填 | 设备 V，仅传 K 时使用空张量。参与拷贝时，层数、页数、页大小、head 数和 dtype 须与 K 一致，head 维度可不同。 |
 | `host_v` | Tensor | [H,L,P,A,C] | 源与目标一致 | 必填 | 主机 V，仅传 K 时使用空张量。 |
 | `device_index_k` | Tensor | [L,D,P,A,C] | 源与目标一致 | None | 可选的设备 indexer key。 |
 | `host_index_k` | Tensor | [H,L,P,A,C] | 源与目标一致 | None | 与设备 indexer key 配对的主机缓存。 |
 | `device_index_k_scale` | Tensor | [L,D,P,1] / [L,D,P,1,1] | FP32 | None | 可选的设备逐 token scale，支持四维或五维。 |
 | `host_index_k_scale` | Tensor | [H,L,P,1,1] | FP32 | None | 配对的五维主机 scale。 |
-| `page_size` | int | — | — | 128 | 每页 token 数；索引须提供整页，每组首个索引决定页号。 |
+| `page_size` | int | — | — | 128 | 每页 token 数；索引数须为其整数倍，每组首个索引决定页号，其余索引不参与寻址。 |
 | `direction` | TransferDirection | — | — | TransferDirection.H2D | TransferDirection.H2D 或 D2H。 |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 二维拷贝标志 FAST2D。 |
 | `impl` | str | — | — | 'auto' | 选择实现，默认为 auto。 |
@@ -46,7 +46,7 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 
 ## aclrt 后端
 
-在当前 NPU 流提交异步二维拷贝。
+在当前 NPU 流提交异步二维拷贝。设备与主机须具有匹配的 dtype 和页形状，主机缓冲区须连续且锁页；设备页内数据允许稠密转置，但页间、层间 pitch 须保持紧凑。提交前检查所有待搬运页的索引，ACL 提交错误直接上抛。
 
 ## torch_native 后端
 

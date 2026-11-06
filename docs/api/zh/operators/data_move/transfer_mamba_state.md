@@ -38,7 +38,7 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 
 ## aclrt 后端
 
-在当前 NPU 流提交异步二维拷贝。
+在当前 NPU 流提交异步二维拷贝。主机缓冲区须连续且锁页；设备槽位内部须物理稠密，槽位和层间 pitch 须紧凑，允许槽位内部稠密转置。源、目标的 dtype 和槽位字节数须一致。提交前检查所有槽位索引，ACL 提交错误直接上抛。
 
 ## torch_native 后端
 

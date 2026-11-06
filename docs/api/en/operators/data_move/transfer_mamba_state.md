@@ -20,9 +20,9 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 ## Description
 
 Transfer selected Mamba/SSM state slots between the NPU and pinned host memory for H2D restore
-or D2H backup. Device states use `[layers, slots, *state_shape]` ; host states use
+or D2H backup. Device states use `[layers, slots, *state_shape]`; host states use
 `[slots,
-layers, 1, *state_shape]` . Each paired device/host index transfers every layer of one
+layers, 1, *state_shape]`. Each paired device/host index transfers every layer of one
 slot, including multidimensional state payloads. Unselected slots remain unchanged.
 
 ## Parameters and return value
@@ -42,12 +42,12 @@ slot, including multidimensional state payloads. Unselected slots remain unchang
 
 ## aclrt backend
 
-Submits asynchronous 2D transfers to the current NPU stream.
+Submits asynchronous 2D transfers to the current NPU stream. The host buffer must be pinned and contiguous; device slot payloads must be physically dense with packed slot/layer pitches. Dense payload transposes remain supported. Device/host dtypes and payload byte counts must match. All slot indices are validated before any copy, and ACL submission errors are propagated.
 
 ## torch_native backend
 
 Adapts SGLang's `MambaPoolHost` PyTorch reference: H2D restores each layer with
-`index_select/index_copy_` ; D2H gathers selected slots and moves the layer dimension after the
+`index_select/index_copy_`; D2H gathers selected slots and moves the layer dimension after the
 slot dimension. Layout views preserve native physical storage order, and repeated destination
 indices are written in input order. No native operator is called.
 

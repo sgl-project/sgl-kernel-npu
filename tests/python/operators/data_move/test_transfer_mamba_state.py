@@ -1,5 +1,6 @@
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
@@ -166,3 +167,81 @@ def test_transfer_mamba_state_dense_transpose(direction):
         reference = ref_host if direction == "D2H" else ref_storage.cpu()
         assert_accuracy(actual.view(torch.uint8), expected.view(torch.uint8))
         assert_accuracy(reference.view(torch.uint8), expected.view(torch.uint8))
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "case,message",
+    [
+        ("dtype", "same dtype"),
+        ("slot-gap", "slot pitch"),
+        ("layer-gap", "layer pitch"),
+        ("payload-gap", "physically dense"),
+        ("host-layout", "contiguous"),
+        ("pageable", "pinned memory"),
+        ("device", "NPU"),
+        ("host-device", "CPU"),
+        ("shape", "shape|buffers"),
+        ("negative", "non-negative|out of range"),
+        ("late-index", "non-negative|out of range"),
+        ("bounds", "index|out of range"),
+        ("index-rank", "one-dimensional int64"),
+        ("index-dtype", "one-dimensional int64"),
+    ],
+)
+def test_transfer_mamba_state_rejected(case, message):
+    from sgl_kernel_npu.operators.data_move import (
+        TransferDirection,
+        transfer_mamba_state,
+    )
+
+    device = torch.arange(2 * 4 * 2 * 3, dtype=torch.float32, device="npu").reshape(
+        2, 4, 2, 3
+    )
+    host = torch.full((5, 2, 1, 2, 3), -7, dtype=device.dtype, pin_memory=True)
+    if case == "dtype":
+        host = host.to(torch.int32).pin_memory()
+    elif case in ("slot-gap", "layer-gap"):
+        shape = (2, 8, 2, 3) if case == "slot-gap" else (4, 4, 2, 3)
+        storage = torch.zeros(shape, device="npu")
+        device = storage[:, ::2] if case == "slot-gap" else storage[::2]
+    elif case == "payload-gap":
+        device = device[..., ::2]
+        host = torch.zeros(5, 2, 1, 2, 2, pin_memory=True)
+    elif case == "host-layout":
+        host = host.transpose(-1, -2)
+    elif case == "pageable":
+        host = torch.zeros_like(host, pin_memory=False)
+    elif case == "device":
+        device = device.cpu()
+    elif case == "host-device":
+        host = host.to(device.device)
+    elif case == "shape":
+        host = torch.zeros(5, 2, 1, 5, pin_memory=True)
+    d, h = torch.tensor([1], device="cpu"), torch.tensor([2], device="cpu")
+    if case == "negative":
+        d[0] = -1
+    elif case == "late-index":
+        d, h = torch.tensor([1, -1], device="cpu"), torch.tensor([2, 3], device="cpu")
+    elif case == "bounds":
+        d[0] = 4
+    elif case == "index-rank":
+        d = d.reshape(1, 1)
+    elif case == "index-dtype":
+        d = d.to(torch.int32)
+    impl, impl_ref = get_test_impls()
+    checked = not get_skip_acc_check()
+    if checked:
+        require_distinct_impls(transfer_mamba_state, impl, impl_ref)
+    before = host.clone()
+    for backend in (impl, impl_ref) if checked else (impl,):
+        with pytest.raises(RuntimeError, match=message):
+            transfer_mamba_state(
+                device, host, d, h, TransferDirection.D2H, impl=backend
+            )
+        torch.npu.synchronize()
+        if checked:
+            assert_accuracy(
+                host.contiguous().view(torch.uint8),
+                before.contiguous().view(torch.uint8),
+            )

@@ -1,7 +1,9 @@
 import torch
 
-from ._types import TransferDirection
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ._types import TransferDirection
+
+_torch_native_fn = None
 
 
 @register_impl("data_move.transfer_mamba_state", "auto")
@@ -24,11 +26,14 @@ def _aclrt(
 
 @register_impl("data_move.transfer_mamba_state", "torch_native")
 def _native(**kwargs):
-    from ...implementation.torch_native.data_move.state_transfer import (
-        transfer_mamba_state,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.data_move.state_transfer import (
+            transfer_mamba_state,
+        )
 
-    return transfer_mamba_state(**kwargs)
+        _torch_native_fn = transfer_mamba_state
+    return _torch_native_fn(**kwargs)
 
 
 @register_operator("data_move.transfer_mamba_state")
@@ -42,6 +47,10 @@ def transfer_mamba_state(
     impl="auto",
 ) -> None:
     """Copy selected Mamba slots across all layers.
+
+    Device/host buffers must share their dtype and slot byte count.
+    Device payloads may be densely transposed with packed slot/layer pitches;
+    host buffers must be contiguous and pinned.
 
     Args:
         device_buf: Device state [layers, slots, *state_shape].

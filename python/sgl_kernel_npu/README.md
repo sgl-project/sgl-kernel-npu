@@ -382,7 +382,9 @@ Both `all` and `custom` hash the actual combined CANN/HOST selection. The packag
 and SDK targets. HOST-only wheels have no repository device compute units or
 runtime CANN vendor.
 Subset wheels replace one another; they do not add operators to an existing
-installation. Reinstall explicitly and start a new Python process when switching:
+installation. Legacy and REFACTOR wheels are alternative installations of the
+same package; load only one native library in a process. Reinstall explicitly
+and start a new Python process when switching:
 
 ```bash
 python3 -m pip install --force-reinstall --no-deps /workspace/sgl-kernel-npu/output/sgl_kernel_npu-*.whl

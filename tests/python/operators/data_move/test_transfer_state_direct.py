@@ -1,5 +1,6 @@
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
@@ -165,6 +166,7 @@ def test_state_transfer(flow, layout, d, h, layers):
         check_performance(executor, enable_perf=layout == "conv")
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "case,message",
     [

@@ -410,6 +410,15 @@ def verify_manifest(manifest, spec):
 def check_wheel(spec_path):
     spec = json.loads(Path(spec_path).read_text())
     with zipfile.ZipFile(spec["wheel"]) as archive:
+        libraries = {
+            name
+            for name in archive.namelist()
+            if name.startswith("sgl_kernel_npu/lib/") and name.endswith(".so")
+        }
+        if libraries != {"sgl_kernel_npu/lib/libsgl_kernel_npu.so"}:
+            raise RuntimeError(
+                f"Expected one Torch operator library, got {sorted(libraries)}"
+            )
         manifest_bytes = archive.read("sgl_kernel_npu/_build_manifest.json")
         library_bytes = archive.read("sgl_kernel_npu/lib/libsgl_kernel_npu.so")
     manifest = json.loads(manifest_bytes)

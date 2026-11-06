@@ -11,7 +11,8 @@ copies, whole-page indices for KV, and one call per state component.
 
 import torch
 
-from ....operators.data_move._types import TransferDirection
+# Native direction ABI; keep this reference independent of public facade enums.
+_D2H = 2
 
 
 def _payload(tensor):
@@ -78,9 +79,34 @@ def _payload_view(tensor, prefix_dims):
     )
 
 
+def _check_packed_buffers(device, host):
+    if device.device.type != "npu":
+        raise RuntimeError("device buffer must be on NPU")
+    if host.device.type != "cpu" or not host.is_pinned():
+        raise RuntimeError("host buffer must use pinned memory on CPU")
+    if device.dtype != host.dtype:
+        raise RuntimeError("device and host buffers must have the same dtype")
+    if not host.is_contiguous():
+        raise RuntimeError("host buffer must be contiguous")
+    elements = _payload(device[0, 0]).numel()
+    if device.size(1) != 1 and device.stride(1) != elements:
+        raise RuntimeError("device slot pitch must be packed")
+    if device.size(0) != 1 and device.stride(0) != device.size(1) * elements:
+        raise RuntimeError("device layer pitch must be packed")
+
+
+def _check_transfer_indices(device_indices, host_indices):
+    if any(
+        index.ndim != 1 or index.dtype != torch.long
+        for index in (device_indices, host_indices)
+    ):
+        raise RuntimeError("indices must be one-dimensional int64 tensors")
+
+
 def _packed_views(device, host):
     # The original Mamba/KV ACL kernels compute packed pitches from sizes,
     # rather than tensor strides. Keep that byte layout in the reference too.
+    _check_packed_buffers(device, host)
     layers, slots = device.shape[:2]
     width = device[0, 0].numel()
     return (
@@ -127,7 +153,7 @@ def _copy_all_layers(device, host, device_indices, host_indices):
 def _copy_state(device, host, device_indices, host_indices, direction):
     if not device_indices.numel():
         return
-    if direction.value == TransferDirection.D2H.value:
+    if direction.value == _D2H:
         _copy_all_layers(device, host, device_indices, host_indices)
     else:
         for layer_id in range(device.size(0)):
@@ -186,10 +212,10 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
         or not device_buf.numel()
         or not host_buf.numel()
         or device_buf.size(0) != host_buf.size(1)
-        or device_buf.dtype != host_buf.dtype
         or device_buf[0, 0].numel() != host_buf[0, 0].numel()
     ):
         raise RuntimeError("incompatible Mamba state buffers")
+    _check_transfer_indices(device_indices, host_indices)
     if device_indices.numel() != host_indices.numel() or direction.value not in (1, 2):
         raise RuntimeError("invalid Mamba transfer indices or direction")
     for d, h in zip(device_indices.tolist(), host_indices.tolist()):
@@ -215,6 +241,7 @@ def transfer_kv_dim_exchange(
     direction,
     flags,
 ):
+    _check_transfer_indices(device_indices, host_indices)
     if (
         page_size <= 0
         or device_indices.numel() != host_indices.numel()
@@ -231,6 +258,20 @@ def transfer_kv_dim_exchange(
         (device_k, host_k),
     ]
     if device_v.numel() and host_v.numel():
+        if (
+            device_v.ndim != 5
+            or host_v.ndim != 5
+            or device_v.shape[:4] != device_k.shape[:4]
+            or host_v.shape[:4] != host_k.shape[:4]
+        ):
+            raise RuntimeError("K/V layer, page, page-size and head counts must match")
+        if device_v.dtype != device_k.dtype:
+            raise RuntimeError("K/V caches must have the same dtype")
+        if device_v.device != device_k.device:
+            raise RuntimeError("K/V caches must be on the same NPU")
+        if device_v.size(4) != host_v.size(4):
+            raise RuntimeError("device and host V head dimensions must match")
+        _check_packed_buffers(device_v, host_v)
         pairs.append((device_v, host_v))
     for dev, host in (
         (device_index_k, host_index_k),
@@ -238,6 +279,11 @@ def transfer_kv_dim_exchange(
     ):
         if dev is not None and host is not None:
             pairs.append((dev, host))
+    if any(
+        (index[::page_size] < 0).any().item()
+        for index in (device_indices, host_indices)
+    ):
+        raise RuntimeError("transfer indices must be non-negative")
     # ACL uses only the first token index in each group to identify a whole page.
     device_pages = device_indices[::page_size].to(dtype=torch.long) // page_size
     host_pages = host_indices[::page_size].to(dtype=torch.long) // page_size
@@ -250,7 +296,13 @@ def transfer_kv_dim_exchange(
             or dev.size(0) != host.size(1)
             or dev.size(2) != page_size
             or host.size(2) != page_size
+            or dev.shape[2:] != host.shape[2:]
         ):
             raise RuntimeError("incompatible device and host KV page layouts")
+        _check_slots(
+            zip(device_pages.cpu().tolist(), host_pages.cpu().tolist()),
+            dev.size(1),
+            host.size(0),
+        )
         device, host = _packed_views(dev, host)
         _copy_state(device, host, device_pages, host_pages, direction)

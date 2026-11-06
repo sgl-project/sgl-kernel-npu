@@ -20,10 +20,10 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 ## Description
 
 Restore one selected layer from pinned host memory to the NPU (H2D only). The source layout is
-`[slots, layers, 1, *state_shape]` , and the destination is a single device-layer view
+`[slots, layers, 1, *state_shape]`, and the destination is a single device-layer view
 `[slots,
-*state_shape]` . Each `src_indices[i] → dst_indices[i]` pair copies the source at
-`layer_id` ; indices may be nonconsecutive and host source slots may repeat. Only selected
+*state_shape]`. Each `src_indices[i] → dst_indices[i]` pair copies the source at
+`layer_id`; indices may be nonconsecutive and host source slots may repeat. Only selected
 destination slots are updated. This also applies to other state tensors with the same layout.
 
 ## Parameters and return value
@@ -31,7 +31,7 @@ destination slots are updated. This also applies to other state tensors with the
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `src` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Pinned host state [slots, layers, 1, ...]. |
-| `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination NPU layer view [slots, ...]. |
+| `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination NPU layer view [slots, ...]; each slot payload must be physically dense. |
 | `src_indices` | Tensor | [N] | int64 | Required | Host slot indices in copy order. |
 | `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slots. |
 | `layer_id` | int | — | — | Required | Zero-based source layer. |
@@ -48,8 +48,8 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-Adapts the per-layer Torch fallback from SGLang's `MambaPoolHost` , mapping host slots to device
-slots with `index_select/index_copy_` . Dense payloads are flattened in physical storage order
+Adapts the per-layer Torch fallback from SGLang's `MambaPoolHost`, mapping host slots to device
+slots with `index_select/index_copy_`. Dense payloads are flattened in physical storage order
 so transposed states match native byte copies. Repeated destination indices are overwritten in
 input order.
 

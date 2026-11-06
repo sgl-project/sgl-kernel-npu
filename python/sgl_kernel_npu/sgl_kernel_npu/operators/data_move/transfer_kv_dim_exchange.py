@@ -2,8 +2,10 @@ from typing import Optional
 
 import torch
 
-from ._types import TransferDirection, TransferFlag
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ._types import TransferDirection, TransferFlag
+
+_torch_native_fn = None
 
 
 @register_impl("data_move.transfer_kv_dim_exchange", "auto")
@@ -67,11 +69,14 @@ def _aclrt(
 
 @register_impl("data_move.transfer_kv_dim_exchange", "torch_native")
 def _native(**kwargs):
-    from ...implementation.torch_native.data_move.state_transfer import (
-        transfer_kv_dim_exchange,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.data_move.state_transfer import (
+            transfer_kv_dim_exchange,
+        )
 
-    return transfer_kv_dim_exchange(**kwargs)
+        _torch_native_fn = transfer_kv_dim_exchange
+    return _torch_native_fn(**kwargs)
 
 
 @register_operator("data_move.transfer_kv_dim_exchange")
@@ -93,6 +98,11 @@ def transfer_kv_dim_exchange(
     impl="auto",
 ) -> None:
     """Copy selected KV pages across layer-first and page-first layouts.
+
+    Each device/host pair must share its dtype; V must also share K dtype.
+    Device page payloads may be densely transposed with packed outer pitches;
+    host buffers must be contiguous and pinned. Only page-group first indices
+    are used for addressing.
 
     Args:
         device_indices: Device slot indices (token indices for KV).
