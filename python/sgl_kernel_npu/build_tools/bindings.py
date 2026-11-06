@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-# These migrated wrappers call Torch packets directly, rather than Python APIs.
+# Check the Torch registrations behind these released public APIs as well.
 RELEASED_PACKETS = {
     "sparse_flash_mla",
     "sparse_flash_mla_metadata",
@@ -14,6 +14,7 @@ RELEASED_PACKETS = {
     "mixed_quant_sparse_flash_mla_metadata",
     "quant_lightning_indexer",
     "quant_lightning_indexer_metadata",
+    "mla_prolog",
     "mhc_pre_sinkhorn",
     "mhc_post",
     "inplace_partial_rotary_mul",

@@ -1,5 +1,5 @@
 {
-  "_comment": "Use upstream build-directory names. quant_lightning_indexer_v2 exports the Python APIs quant_lightning_indexer and quant_lightning_indexer_metadata; its paired AICPU kernel is quant_lightning_indexer_v2_metadata.",
+  "_comment": "Use upstream build-directory names and map different Python API names through python_exports. quant_lightning_indexer_v2 supplies both indexer APIs; mla_prolog_v3 exports mla_prolog and calls aclnnMlaPrologV4WeightNz.",
   "name": "sgl_ops_transformer",
   "ops": {
     "arch22": [
@@ -9,7 +9,7 @@
       "quant_lightning_indexer_v2_metadata",
       "mhc_pre_sinkhorn",
       "mhc_post",
-      "mla_prolog",
+      "mla_prolog_v3",
       "inplace_partial_rotary_mul"
     ],
     "arch35": [
@@ -24,7 +24,7 @@
       "kv_compress_epilog",
       "mhc_pre_sinkhorn",
       "mhc_post",
-      "mla_prolog",
+      "mla_prolog_v3",
       "inplace_partial_rotary_mul",
       "indexer_quant_cache"
     ]
@@ -39,6 +39,7 @@
   "license": "LICENSE",
   "python_exports": {
     "quant_lightning_indexer_v2": "quant_lightning_indexer",
-    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata"
+    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata",
+    "mla_prolog_v3": "mla_prolog"
   }
 }

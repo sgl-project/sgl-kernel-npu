@@ -97,6 +97,8 @@ Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
 `quant_lightning_indexer_v2_metadata`; their Python APIs remain
 `quant_lightning_indexer` and `quant_lightning_indexer_metadata`. CANN 9.1
 experimental builds use the original directory names without `v2`.
+The CANN 9.2 `mla_prolog` Python API comes from the `mla_prolog_v3` build
+directory; that binding calls `aclnnMlaPrologV4WeightNz` for `mlaprolog_v4`.
 
 ```bash
 # CANN 9.1.0: bundle recipes bridges, experimental ACLNN and released mHC.
