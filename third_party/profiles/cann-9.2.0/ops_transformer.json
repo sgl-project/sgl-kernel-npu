@@ -1,6 +1,11 @@
 {
   "_comment": "Use upstream build-directory names. quant_lightning_indexer_v2 supplies both indexer Python APIs; mla_prolog_v3 exports mla_prolog and calls aclnnMlaPrologV4WeightNz.",
   "name": "sgl_ops_transformer",
+  "python_exports": {
+    "quant_lightning_indexer_v2": "quant_lightning_indexer",
+    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata",
+    "mla_prolog_v3": "mla_prolog"
+  },
   "ops": {
     "arch22": [
       "sparse_flash_mla",
@@ -32,8 +37,7 @@
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "7df757adc542c75733f9702af97ee7a14fca9f51",
   "commands": [
-    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
-    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
   ],
   "has_aicpu": true,
   "license": "LICENSE"
