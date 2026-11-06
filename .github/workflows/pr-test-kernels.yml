@@ -301,7 +301,7 @@ jobs:
       group: fused
       cann_version: ${{ matrix.cann_version }}
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 120
+      timeout_minutes: 20
 
   finish:
     if: always()
