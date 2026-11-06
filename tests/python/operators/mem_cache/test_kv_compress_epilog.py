@@ -1,4 +1,4 @@
-"""Validate packed regions against the torch_native implementation, including skipped storage."""
+"""Validate packed regions against the selected reference, including skipped storage."""
 
 import pytest
 
@@ -291,8 +291,7 @@ def test_kv_compress_epilog(
 ):
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
-    impl, _ = get_test_impls()
-    impl_ref = "torch_native"
+    impl, impl_ref = get_test_impls()
     skip = bool(get_skip_acc_check())
     if skip:
         require_test_impl(kv_compress_epilog, impl)
@@ -357,8 +356,8 @@ def test_kv_enum_inputs_rejected(name, index, value):
     )
     args[index] = value
     saved = args[0].clone()
-    impl = get_test_impls()[0]
-    for backend in dict.fromkeys((impl, "torch_native")):
+    impl, impl_ref = get_test_impls()
+    for backend in dict.fromkeys((impl, impl_ref)):
         require_test_impl(kv_compress_epilog, backend)
         with pytest.raises(RuntimeError, match=f"{name} must be"):
             kv_compress_epilog(*args, impl=backend)

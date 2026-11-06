@@ -201,7 +201,7 @@ def test_swiglu_group_quant(mode, seed, options):
     rows, width = x.shape
     valid = min(rows, sum(counts)) if counts is not None else rows
     weight = kwargs.get("topk_weight")
-    impl, _ = get_test_impls()
+    impl, impl_ref = get_test_impls()
 
     def compare_outputs(actual, reference):
         y, scale, origin = actual
@@ -274,7 +274,7 @@ def test_swiglu_group_quant(mode, seed, options):
             assert stored.count_nonzero().item() > 0
         if mode == 2 and clamp and counts is None:
             _, unclamped, _ = swiglu_group_quant(
-                **dict(kwargs, clamp_value=0.0), impl="torch_native"
+                **dict(kwargs, clamp_value=0.0), impl=impl_ref
             )
             assert (
                 expected.view(torch.uint8) != unclamped[:valid].cpu().view(torch.uint8)
@@ -303,8 +303,8 @@ def test_swiglu_group_quant(mode, seed, options):
 
     checked = not get_skip_acc_check()
     if checked:
-        require_distinct_impls(swiglu_group_quant, impl, "torch_native")
-        reference = swiglu_group_quant(**kwargs, impl="torch_native")
+        require_distinct_impls(swiglu_group_quant, impl, impl_ref)
+        reference = swiglu_group_quant(**kwargs, impl=impl_ref)
         actual = swiglu_group_quant(**kwargs, impl=impl)
         compare_outputs(actual, reference)
 
@@ -312,7 +312,7 @@ def test_swiglu_group_quant(mode, seed, options):
         swiglu_group_quant,
         kwargs=kwargs,
         impl=impl,
-        impl_ref="torch_native",
+        impl_ref=impl_ref,
         accuracy_checked=checked,
     )
     check_performance(executor, enable_perf=(rows, width) in perf_shape)

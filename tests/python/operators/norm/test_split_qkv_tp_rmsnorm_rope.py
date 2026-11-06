@@ -3,6 +3,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import get_test_impls
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -62,10 +63,12 @@ def test_single_rank(shape, dtype):
 
     data = generate_data(shape, dtype)
     original = data["input"].clone()
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
         split_qkv_tp_rmsnorm_rope,
         kwargs=data,
-        impl_ref="torch_native",
+        impl=impl,
+        impl_ref=impl_ref,
         standard={"torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=1e-7)},
     )
     if executor.accuracy_checked:

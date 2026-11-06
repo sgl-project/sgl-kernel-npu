@@ -74,8 +74,7 @@ def test_assign_cache_op(gap, width, dtype):
     actual, reference = pool.clone(), pool.clone()
     inputs = (indices, starts, ends, src)
     saved = tuple(t.clone() for t in inputs)
-    impl, _ = get_test_impls()
-    impl_ref = "torch_native"
+    impl, impl_ref = get_test_impls()
     skip = bool(get_skip_acc_check())
     if skip:
         require_test_impl(assign_cache_op, impl)

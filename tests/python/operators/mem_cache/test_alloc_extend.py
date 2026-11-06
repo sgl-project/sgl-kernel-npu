@@ -232,8 +232,7 @@ def test_alloc_extend(prefix, sequence, last, free_stop, page_size):
     from sgl_kernel_npu.operators.mem_cache import alloc_extend
 
     inputs = generate_data(prefix, sequence, last, free_stop, page_size)
-    impl, _ = get_test_impls()
-    impl_ref = "torch_native"
+    impl, impl_ref = get_test_impls()
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(alloc_extend, impl)
