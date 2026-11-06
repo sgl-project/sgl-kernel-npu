@@ -115,19 +115,19 @@ jobs:
 
           gh api --paginate --slurp \
             "repos/${{ github.repository }}/pulls/${{ inputs.pr_number }}/files?per_page=100" \
-            --jq 'add' > "${PR_FILES_FILE}"
+            | jq 'add' > "${PR_FILES_FILE}"
 
           history_dir="$(mktemp -d)"
           for resource in reviews comments; do
             gh api --paginate --slurp \
               "repos/${{ github.repository }}/pulls/${{ inputs.pr_number }}/${resource}?per_page=100" \
-              --jq 'add | map({body, url: .html_url, author: .user.login, path, line})' \
+              | jq 'add | map({body, url: .html_url, author: .user.login, path, line})' \
               > "${history_dir}/${resource}.json"
           done
           # Include legacy reviews posted as ordinary PR conversation comments.
           gh api --paginate --slurp \
             "repos/${{ github.repository }}/issues/${{ inputs.pr_number }}/comments?per_page=100" \
-            --jq 'add | map({body, url: .html_url, author: .user.login})' \
+            | jq 'add | map({body, url: .html_url, author: .user.login})' \
             > "${history_dir}/discussion.json"
           jq -s 'add' "${history_dir}/reviews.json" "${history_dir}/comments.json" \
             "${history_dir}/discussion.json" > "${PR_HISTORY_FILE}"
