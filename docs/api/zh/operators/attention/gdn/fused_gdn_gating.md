@@ -40,6 +40,8 @@ g_{r,h}=-\exp(A\_log_h)\mathrm{softplus}_{\beta,t}(x_{r,h}),
 \qquad beta\_output_{r,h}=\mathrm{sigmoid}(b_{r,h})
 $$
 
+其中 $t$ 是参数 `threshold`，$\beta$ 是参数 `beta`。
+
 阈值语义与 `torch.nn.functional.softplus` 一致：`beta * x <= threshold` 时使用对数分支，
 否则直接返回 `x`。`g` 的计算使用 FP32 中间值，输出为 FP32；`beta_output` 的 dtype 与 `b` 相同。
 
