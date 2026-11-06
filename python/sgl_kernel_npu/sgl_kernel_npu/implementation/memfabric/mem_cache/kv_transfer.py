@@ -1,19 +1,18 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
-The caller owns initialized MemFabric resources and Host storage.
-Inputs stay alive until their completion event. The AIV kv_exchange kernel
+The caller owns initialized MemFabric resources and Host storage. Input
+lifetime rides on the caching allocator's stream-ordered reuse (the C++
+adapter record_stream's every NPU input). The AIV kv_exchange kernel
 receives the whole transfer description inside its launch parameter block,
-so no pinned staging or meta upload remains on the submission path.
-NPU graph capture is not supported by this AIV path.
+so no pinned staging, meta upload or per-submission event remains on the
+submission path. NPU graph capture is not supported by this AIV path.
 """
 
-from collections import deque
 from threading import Lock
 
 import torch
 
 _submit_lock = Lock()
-_inflight = deque()
 
 
 def _check_component(device, host, page_size, index_device):
@@ -119,12 +118,12 @@ def _resolve_host_dva(host):
     return resolve_host_dva(host)
 
 
-def _submit_aiv(components, di, hi, page_size, direction, host_layout, keepalive):
+def _submit_aiv(components, di, hi, page_size, direction, host_layout):
     # Host tensors have PF-shaped metadata views even when their storage is LF.
     # Actual page/layer strides preserve the original physical layout.
     # The C++ kv_exchange adapter packs the component/pitch/width/layer
-    # description into the kernel launch parameter block; nothing outlives
-    # the call on the host side, so the keepalive list needs no staging.
+    # description into the kernel launch parameter block and record_stream's
+    # every NPU input, so nothing else outlives the call on the host side.
     host_dvas = [_resolve_host_dva(host) for _, host in components]
     torch.ops.npu.kv_exchange(
         di,
@@ -191,23 +190,14 @@ def transfer_kv(
     if not device_indices.numel():
         return
     # Host addresses resolve through the registered DVA table (MF or aclrt).
+    # Input lifetime needs no Python-side event bookkeeping: the C++ adapter
+    # record_stream's every NPU input, so the caching allocator's
+    # stream-ordered reuse defers any freed slot until this submission
+    # retires, and the host component views are persistent pool buffers.
 
     with _submit_lock, torch.npu.device(device):
         if torch.npu.is_current_stream_capturing():
             raise RuntimeError("AIV KV transfer does not support NPU graph capture")
-        while _inflight and _inflight[0][0].query():
-            _inflight.popleft()
-        stream = torch.npu.current_stream()
-        keepalive = [tensor for pair in components for tensor in pair]
-        keepalive.extend((device_indices, host_indices))
-        try:
-            di = device_indices.contiguous()
-            hi = host_indices.contiguous()
-            # New contiguous copies use this stream's allocator. Keep only
-            # the original inputs, which may have been allocated on other streams.
-            _submit_aiv(components, di, hi, page_size, direction, host_layout, keepalive)  # fmt: skip
-        finally:
-            # Inputs survive failures too.
-            done = torch.npu.Event()
-            done.record(stream)
-            _inflight.append((done, keepalive))
+        di = device_indices.contiguous()
+        hi = host_indices.contiguous()
+        _submit_aiv(components, di, hi, page_size, direction, host_layout)  # fmt: skip
