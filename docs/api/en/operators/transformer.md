@@ -114,24 +114,3 @@ python3 setup.py --arch-version 2201 --artifact wheel -j8
 Use `3510` for A5. The matching external profiles are selected by default.
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
-
-
-### CANN 9.1 queued bridge lifetimes
-
-The bundled recipes bridge retains workspace and Tensor operands in the queued
-ACL callback. The pinned upstream `EXEC_NPU_CMD_V1` shadows its workspace owner
-inside an `if` block and captures only raw data descriptors; temporary storage
-can otherwise be released before kernel submission. The third-party builder
-repairs the copied bridge header before compiling, including for A3 INT8 indexer
-calls. Kernel computation, public return formats and accuracy thresholds are
-unchanged. Rebuild the wheel to apply this C++ bridge repair.
-
-Run the indexer lifetime cases with task queuing enabled:
-
-```bash
-TASK_QUEUE_ENABLE=1 python3 -m pytest \
-  tests/python/operators/indexer/test_quant_lightning_indexer.py \
-  -m extra_checks -k queued_lifetimes \
-  --impl auto --impl-ref torch_native --npu-device 0 \
-  --skip-acc-check=false --enable-perf=false -v -s -x -rs
-```

@@ -34,7 +34,6 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["bridge_patches"] = ["retain_queued_tensors"]
     config["kernel_ops"] = ";".join(
         dict.fromkeys(kernel for kernel in operators.values() if kernel is not None)
     )
@@ -46,45 +45,6 @@ def configure(config, jobs):
         for command in config["commands"]
     ]
     return config
-
-
-def fix_recipe_tensor_lifetimes(header):
-    """Retain workspace and Tensor operands until the queued ACL call runs."""
-    text = header.read_text()
-    start = text.index("#define EXEC_NPU_CMD_V1(")
-    end = text.index("#define EXEC_NPU_CMD_v0(", start)
-    macro = text[start:end]
-
-    def replace_once(old, new):
-        nonlocal macro
-        if macro.count(old) != 1:
-            raise RuntimeError("Unexpected pinned recipes tensor lifetime code: " + old)
-        macro = macro.replace(old, new, 1)
-
-    # The upstream inner 'auto' shadows the outer owner and frees the workspace
-    # at the end of the if block, before RunOpApiV2 submits the kernel.
-    replace_once(
-        "            auto workspace_tensor =", "            workspace_tensor ="
-    )
-    # ConvertTypes stores ACL descriptors with raw data pointers. Keep owning
-    # Tensor/optional Tensor arguments alive when RunOpApiV2 defers execution.
-    replace_once(
-        "        auto converted_params = ConvertTypes(",
-        "        auto input_tensors = std::make_tuple(__VA_ARGS__); \\\n"
-        "        auto converted_params = ConvertTypes(",
-    )
-    replace_once(
-        "[converted_params, workspace_addr, workspace_size, acl_stream, executor]",
-        "[converted_params, input_tensors, workspace_tensor, \\\n"
-        "                         workspace_addr, workspace_size, acl_stream, executor]",
-    )
-    replace_once(
-        "()->int {",
-        "()->int { \\\n"
-        "            (void)input_tensors; \\\n"
-        "            (void)workspace_tensor;",
-    )
-    header.write_text(text[:start] + macro + text[end:])
 
 
 def prepare_python(source, item):
@@ -99,7 +59,6 @@ def prepare_python(source, item):
     for header in upstream.glob("*.h"):
         shutil.copy2(header, sources / header.name)
     shutil.copy2(upstream / "ops_common.cpp", sources / "ops_common.cpp")
-    fix_recipe_tensor_lifetimes(sources / "ops_common.h")
     declarations = (upstream / "ops_def_registration.cpp").read_text()
     schemas = []
     for op in item["ops"]:
