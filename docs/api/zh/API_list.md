@@ -33,6 +33,7 @@
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`、`torch_native` |
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`、`torch_native` |
+| [fused_sigmoid_mul](operators/activation/fused_sigmoid_mul.md) | `triton`、`torch_native` |
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
