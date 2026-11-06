@@ -3,31 +3,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, By Triton_Ascend & sglang_ascend
 
-import os
 from typing import Optional
 
 import torch
 import triton
 import triton.language as tl
-import triton.language.extra.libdevice as tldevice
 
-from .gdn_utils import prepare_chunk_indices, prepare_lens, tensor_cache
-
-exp = tldevice.fast_expf if os.environ.get("FLA_USE_FAST_OPS", "0") == "1" else tl.exp
-
-
-@triton.jit
-def safe_exp(x):
-    return exp(tl.where(x <= 0, x, float("-inf")))
-
-
-@tensor_cache
-def prepare_chunk_offsets(
-    cu_seqlens: torch.LongTensor, chunk_size: int
-) -> torch.LongTensor:
-    return torch.cat(
-        [cu_seqlens.new_tensor([0]), triton.cdiv(prepare_lens(cu_seqlens), chunk_size)]
-    ).cumsum(-1)
+from .gdn_utils import prepare_chunk_indices, prepare_chunk_offsets, safe_exp
 
 
 @triton.heuristics(

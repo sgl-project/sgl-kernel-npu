@@ -130,8 +130,13 @@ def test_chunk_kda_fwd(shape):
     from sgl_kernel_npu.operators.attention import chunk_kda_fwd
 
     kwargs = generate_data(shape, outputs=shape not in perf_shape)
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=shape in perf_shape)
 
@@ -148,8 +153,13 @@ def test_kimi_linear_raw_gate(shape, gate_mode, lower_bound, outputs):
 
     kwargs = generate_data(shape, gate_mode=gate_mode, outputs=outputs)
     kwargs["lower_bound"] = lower_bound
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -168,8 +178,13 @@ def test_kimi_linear_packed(shape, output_h):
     boundaries = (0, 1, 64, shape[1])
     kwargs = generate_data(shape, boundaries=boundaries, outputs=False)
     kwargs["output_h"] = output_h
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -185,8 +200,13 @@ def test_gate_without_bias(gate_mode):
         beta_dtype=torch.bfloat16,
     )
     kwargs.pop("dt_bias")
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -197,8 +217,13 @@ def test_layouts_and_gates(layout, gate_mode):
     from sgl_kernel_npu.operators.attention import chunk_kda_fwd
 
     kwargs = generate_data((1, 65, 2, 4, 32, 48, 64), layout, gate_mode=gate_mode)
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -212,8 +237,13 @@ def test_gate_beta_dtypes(gate_dtype, beta_dtype, chunk_size):
     kwargs = generate_data(
         (1, 129, 1, 2, 32, 32, chunk_size), gate_dtype=gate_dtype, beta_dtype=beta_dtype
     )
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -233,8 +263,13 @@ def test_packed_states(boundaries, state_v_first, initial, with_chunk_indices):
         initial=initial,
         with_chunk_indices=with_chunk_indices,
     )
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -249,8 +284,13 @@ def test_optional_outputs(output):
     kwargs["output_final_state"] = False
     if output != "none":
         kwargs["output_" + output] = True
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -272,8 +312,13 @@ def test_zero_and_basis_inputs(mode):
         kwargs["k"][..., 0] = 1
     if mode == "custom_scale":
         kwargs["scale"] = 0.125
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     check_performance(executor, enable_perf=False)
 
@@ -302,8 +347,13 @@ def test_state_rounding(tokens, chunk_size, output_final_state):
     kwargs["beta"][:, ::chunk_size] = 1
     kwargs["initial_state"][..., 0, :] = 100.3
     kwargs.update(scale=1.0, output_final_state=output_final_state)
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     if executor.accuracy_checked:
         result = executor()
@@ -336,8 +386,13 @@ def test_state_update_precision(chunk_size, output_final_state):
     kwargs["g"].fill_(math.log(0.75) / chunk_size)
     kwargs["initial_state"][..., 0, :] = 100.3
     kwargs["output_final_state"] = output_final_state
+    impl, impl_ref = get_test_impls()
     executor = check_accuracy(
-        chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+        chunk_kda_fwd,
+        kwargs=kwargs,
+        impl=impl,
+        impl_ref=impl_ref,
+        standard=KDA_STANDARD,
     )
     if executor.accuracy_checked:
         result = executor()
@@ -367,8 +422,13 @@ def test_queued_calls(layout, gate_mode, stream_kind):
         stream = torch.npu.Stream()
         stream.wait_stream(torch.npu.current_stream())
     with torch.npu.stream(stream):
+        impl, impl_ref = get_test_impls()
         executor = check_accuracy(
-            chunk_kda_fwd, kwargs=kwargs, impl_ref="torch_native", standard=KDA_STANDARD
+            chunk_kda_fwd,
+            kwargs=kwargs,
+            impl=impl,
+            impl_ref=impl_ref,
+            standard=KDA_STANDARD,
         )
         if executor.accuracy_checked:
             results = [executor() for _ in range(8)]
