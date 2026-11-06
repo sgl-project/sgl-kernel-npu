@@ -28,10 +28,7 @@ namespace npu_kernel {
 
 namespace {
 
-constexpr int64_t kMetaHeader = 8;
-constexpr int64_t kMetaStride = 9;
 constexpr int64_t kMaxComponents = 4;
-constexpr int64_t kMinMetaNumel = kMetaHeader + kMetaStride * kMaxComponents;
 
 constexpr int64_t kDirectionH2D = 1;
 constexpr int64_t kDirectionD2H = 2;
@@ -178,25 +175,6 @@ void RecordStreamLifetime(at::TensorList device_components, const at::Tensor &de
 
 }  // namespace
 
-HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim)
-{
-    CheckNpuTensor(meta, "meta");
-    TORCH_CHECK(meta.scalar_type() == at::kLong, "meta must be int64, got ", meta.scalar_type());
-    TORCH_CHECK(meta.dim() == 1, "meta must be 1-D, got ", meta.dim());
-    TORCH_CHECK(meta.is_contiguous(), "meta must be contiguous");
-    TORCH_CHECK(meta.numel() >= kMinMetaNumel, "meta must have at least ", kMinMetaNumel, " elements, got ",
-                meta.numel());
-    TORCH_CHECK(block_dim > 0, "block_dim must be positive");
-
-    const auto npuStream = c10_npu::getCurrentNPUStream();
-    meta.record_stream(npuStream);
-
-    // EXEC_KERNEL_CMD substitutes blockdim into a lambda capture list, so it
-    // must be a plain identifier, not a cast expression.
-    const uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
-    EXEC_KERNEL_CMD(kv_exchange_meta, block_dim_u32, meta);
-}
-
 /*
  * One AIV kv_exchange submission from the split-KV component list.
  *
@@ -253,13 +231,18 @@ HOST_API void kv_exchange_submit(const at::Tensor &device_indices, const at::Ten
     // match the native acc_offload kv_exchange occupancy; SGLANG_KV_
     // EXCHANGE_START_DIM=0 re-engages all launched cores for perf sweeps.
     const int64_t start_dim = ResolveStartDim();
-    // EXEC_KERNEL_CMD substitutes blockdim into a lambda capture list, so it
-    // must be a plain identifier, not a cast expression.
+    // EXEC_KERNEL_CMD requires plain identifier arguments (blockdim goes into
+    // a lambda capture list, and the rest must bind to ConvertTypes' lvalue
+    // references), so hoist every runtime value into named locals.
+    const int64_t num_components = static_cast<int64_t>(device_components.size());
+    const int64_t num_pages_local = num_pages;
+    const int64_t page_size_local = page_size;
+    const int64_t direction_local = direction;
+    const int64_t host_layout_local = host_layout_mode;
     const uint32_t block_dim_u32 = ResolveBlockDim();
-    EXEC_KERNEL_CMD(kv_exchange, block_dim_u32, device_indices, host_indices,
-                    static_cast<int64_t>(device_components.size()), num_pages, page_size, direction, host_layout_mode,
-                    start_dim, KV_COMPONENT_ARGS(0), KV_COMPONENT_ARGS(1), KV_COMPONENT_ARGS(2),
-                    KV_COMPONENT_ARGS(3));
+    EXEC_KERNEL_CMD(kv_exchange, block_dim_u32, device_indices, host_indices, num_components, num_pages_local,
+                    page_size_local, direction_local, host_layout_local, start_dim, KV_COMPONENT_ARGS(0),
+                    KV_COMPONENT_ARGS(1), KV_COMPONENT_ARGS(2), KV_COMPONENT_ARGS(3));
     RecordStreamLifetime(device_components, device_indices, host_indices);
 }
 

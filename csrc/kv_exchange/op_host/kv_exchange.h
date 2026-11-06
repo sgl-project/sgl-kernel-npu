@@ -23,11 +23,6 @@
 namespace sglang {
 namespace npu_kernel {
 
-// Low-level launch: `meta` is a device-resident int64 tensor laid out per
-// op_kernel/kv_exchange_kernel.cpp. Exposed for tests and debugging; the
-// production entry below packs the same description into launch parameters.
-HOST_API void kv_exchange(const at::Tensor &meta, int64_t block_dim);
-
 // Submit one transfer described by the split-KV component list.
 // device_components[i] / host_components[i] are paired component views
 // (device: [L,P,T,H,D]; host: PF-shaped metadata view [P,L,T,H,D] whose

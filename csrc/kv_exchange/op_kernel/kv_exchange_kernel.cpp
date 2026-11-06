@@ -21,9 +21,8 @@
 // copied through an 88KB UB slot, entries larger than that are split.
 constexpr int64_t KV_EXCHANGE_UB_BUFFER_SIZE = 88 * 1024;
 constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
-// Transfer description. The production kv_exchange entry receives it as flat
-// kernel launch parameters (device-validated contract, same field order as
-// the legacy device-resident meta consumed by kv_exchange_meta):
+// Transfer description. The kv_exchange entry receives it as flat kernel
+// launch parameters (device-validated contract):
 //   num_components (<= 4, k/v/index_k/index_k_scale order)
 //   num_pages      page_size
 //   direction: 1 = H2D, 2 = D2H
@@ -35,24 +34,16 @@ constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
 //       native acc_offload occupancy (blockDim - 2, i.e. only the last
 //       2 AIV cores copy, keeping the rest free for concurrent compute);
 //       0 means all launched cores participate (perf-sweep override).
-//   per component c (9 values, same order for the meta slot and the launch
-//   parameter list):
+//   per component c (9 launch parameters):
 //   [0] device_base  [1] host_base (device-visible address of the host page,
 //       i.e. DVA produced by aclrtHostRegister on the caller side)
 //   [2] device_layer_pitch  [3] device_page_pitch   (bytes)
 //   [4] host_page_pitch     [5] host_layer_pitch    (bytes)
 //   [6] width (bytes of one (page, layer) row)  [7] layer_lo  [8] layer_hi
 // A component with layer_lo >= layer_hi (or width <= 0) transfers nothing.
-//
-// The legacy kv_exchange_meta entry keeps the 44-slot device-resident meta
-// (8 header values followed by 4 x 9 component values) for tests and
-// debugging.
-constexpr int32_t KV_EXCHANGE_META_HEADER = 8;
 constexpr int32_t KV_EXCHANGE_META_STRIDE = 9;
-constexpr int32_t KV_EXCHANGE_META_SIZE =
-    KV_EXCHANGE_META_HEADER + KV_EXCHANGE_META_STRIDE * KV_EXCHANGE_MAX_COMPONENTS;
 
-// meta[7] < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
+// start_dim < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
 constexpr int32_t KV_EXCHANGE_START_DIM_DEFAULT = -1;
 
 /*
@@ -89,31 +80,13 @@ public:
 
     HYBM_AICORE_KERNEL OffloadKvExchangeKernel() {}
 
-    // Legacy device-resident-meta entry point for tests and debugging.
-    HYBM_AICORE_KERNEL void Init(AscendC::TPipe *pipe, GM_ADDR meta)
-    {
-        AscendC::GlobalTensor<int64_t> metaGm;
-        metaGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(meta), KV_EXCHANGE_META_SIZE);
-        int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE] = {{0}};
-        const int64_t numComponents = metaGm.GetValue(0);
-        for (int32_t c = 0; c < numComponents && c < KV_EXCHANGE_MAX_COMPONENTS; ++c) {
-            const int32_t o = KV_EXCHANGE_META_HEADER + KV_EXCHANGE_META_STRIDE * c;
-            for (int32_t i = 0; i < KV_EXCHANGE_META_STRIDE; ++i) {
-                comps[c][i] = metaGm.GetValue(o + i);
-            }
-        }
-        InitCommon(pipe, reinterpret_cast<__gm__ int64_t *>(metaGm.GetValue(4)),
-                   reinterpret_cast<__gm__ int64_t *>(metaGm.GetValue(5)), numComponents, metaGm.GetValue(1),
-                   metaGm.GetValue(2), metaGm.GetValue(3), metaGm.GetValue(6), metaGm.GetValue(7), comps);
-    }
-
-    // Common assembly from the flat transfer description. The production
-    // kv_exchange entry passes every field as a launch parameter, so the
-    // description never round-trips through device memory.
-    HYBM_AICORE_KERNEL void InitCommon(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx,
-                                       int64_t numComponents, int64_t numPages, int64_t pageSize, int64_t direction,
-                                       int64_t hostLayoutMode, int64_t startDim,
-                                       const int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE])
+    // Assembly from the flat transfer description. The kv_exchange entry
+    // passes every field as a launch parameter, so the description never
+    // round-trips through device memory.
+    HYBM_AICORE_KERNEL void Init(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx,
+                                 int64_t numComponents, int64_t numPages, int64_t pageSize, int64_t direction,
+                                 int64_t hostLayoutMode, int64_t startDim,
+                                 const int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE])
     {
         pipe_ = pipe;
         aivNum_ = AscendC::GetBlockNum();
@@ -546,21 +519,8 @@ extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADD
         {KV_EXCHANGE_COMPONENT_ARGS(2)},
         {KV_EXCHANGE_COMPONENT_ARGS(3)},
     };
-    op.InitCommon(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices),
-                  reinterpret_cast<__gm__ int64_t *>(host_indices), num_components, num_pages, page_size, direction,
-                  host_layout, start_dim, comps);
-    op.Process();
-}
-
-/*
- * Legacy entry for tests and debugging: reads the 44-slot device-resident meta
- * (see the transfer-description comment above).
- */
-extern "C" __global__ __aicore__ void kv_exchange_meta(GM_ADDR meta)
-{
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    AscendC::TPipe pipe;
-    OffloadKvExchangeKernel op;
-    op.Init(&pipe, meta);
+    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices),
+            reinterpret_cast<__gm__ int64_t *>(host_indices), num_components, num_pages, page_size, direction,
+            host_layout, start_dim, comps);
     op.Process();
 }
