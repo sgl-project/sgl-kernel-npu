@@ -42,21 +42,21 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
 
 
 def build_torch(
-    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+    native_build, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
 ):
-    if cann.vendor is None:
+    if native_build.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
     arch_version = str(arch_version)
     source_root = Path(source_root).resolve()
-    directory = cann.directory.parent / "torch"
+    directory = native_build.directory.parent / "torch"
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked Torch build directory")
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc/aclnn_torch_adapter"),
         "SGL_ARCH_VERSION": arch_version,
-        "SGL_CANN_OPERATORS": ";".join(cann.operators),
-        "SGL_HOST_OPERATORS": ";".join(cann.host_operators),
-        "SGL_CANN_VENDOR": str(cann.vendor),
+        "SGL_CANN_OPERATORS": ";".join(native_build.cann_operators),
+        "SGL_HOST_OPERATORS": ";".join(native_build.host_operators),
+        "SGL_CANN_VENDOR": str(native_build.vendor),
         "Python3_EXECUTABLE": sys.executable,
         "SGL_TORCH_LIBRARY_DIR": str(directory / "lib"),
     }
@@ -82,29 +82,34 @@ def build_torch(
     signature.write_text(json.dumps(environment, sort_keys=True) + "\n")
     package = directory / "package/sgl_kernel_npu"
     stage_runtime(
-        cann.vendor if cann.operators else None, package, source_root, arch_version
+        native_build.vendor if native_build.cann_operators else None,
+        package,
+        source_root,
+        arch_version,
     )
     from build_tools.third_party import stage_dependencies
 
     third_party = stage_dependencies(dependencies, package)
-    if cann.operators:
+    if native_build.cann_operators:
         (package / "_cann/selected-operators.txt").write_text(
-            "\n".join(cann.operators) + "\n"
+            "\n".join(native_build.cann_operators) + "\n"
         )
         (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
         "schema_version": 1,
         "build_mode": "REFACTOR",
         "arch_version": arch_version,
-        "selection_kind": cann.selection_kind,
-        "operators": sorted((*cann.operators, *cann.host_operators)),
+        "selection_kind": native_build.selection_kind,
+        "operators": sorted(
+            (*native_build.cann_operators, *native_build.host_operators)
+        ),
         "operators_by_type": {
-            "cann": sorted(cann.operators),
-            "cpp": sorted(cann.host_operators),
+            "cann": sorted(native_build.cann_operators),
+            "cpp": sorted(native_build.host_operators),
         },
         "compute_units": (
             architecture(arch_version, source_root)["compute_units"]
-            if cann.operators
+            if native_build.cann_operators
             else []
         ),
         "third_party": third_party,
@@ -120,9 +125,9 @@ def build_torch(
             "-DCMAKE_BUILD_TYPE=Release",
             "-DPython3_EXECUTABLE=" + sys.executable,
             "-DSGL_ARCH_VERSION=" + arch_version,
-            "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
-            "-DSGL_HOST_OPERATORS=" + ";".join(cann.host_operators),
-            "-DSGL_CANN_VENDOR=" + str(cann.vendor),
+            "-DSGL_CANN_OPERATORS=" + ";".join(native_build.cann_operators),
+            "-DSGL_HOST_OPERATORS=" + ";".join(native_build.host_operators),
+            "-DSGL_CANN_VENDOR=" + str(native_build.vendor),
             "-DSGL_TORCH_LIBRARY_DIR=" + str(directory / "lib"),
         ],
         directory / "configure.log",

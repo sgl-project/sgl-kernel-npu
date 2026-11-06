@@ -31,7 +31,7 @@ flowchart TD
 
 ### 1. setup.py
 
-恢复原有的 `build_cann(arch, operators) → build_torch(result, arch) → build_wheel(package)` 流程；选择 `.run` 时不执行 Torch adapter 和 wheel 构建。第三方 profile、`--plan`、清理和最终输出流程沿用主线。
+恢复原有的 `build_cann(arch, native_operators) → build_torch(native_build, arch) → build_wheel(package)` 流程；选择 `.run` 时不执行 Torch adapter 和 wheel 构建。第三方 profile、`--plan`、清理和最终输出流程沿用主线。
 
 删除 `configure_native()` 和 Python 层的 HOST 单独调度；不再需要 `configure_torch()`、`build_host()`、`TorchBuild`，相应的 `build_tools/host.py` 和 `torch.py` 删除。公共辅助函数回到主线原有的 `cann.py`，删除本轮不再需要的 `common.py`。HOST 的构建依赖由 CMake 管理。
 
@@ -39,7 +39,7 @@ flowchart TD
 
 `build_cann()` 恢复为完整的配置、编译、打包、安装入口。将用户请求通过 `SGL_NATIVE_OPERATORS` 传给现有 `csrc` 工程；CMake 负责分类，Python 不维护算子名单。`Python3_EXECUTABLE=sys.executable` 将配置固定到执行 `setup.py` 的 Python，使 HOST 使用同一环境中的 Torch/torch_npu；不依赖系统 PATH 恰好指向该解释器。
 
-配置后读取 `selected-operators.txt` 和 `selected-host-operators.txt`。`CannBuild.operators` 仍只记录 CANN ID，新增 `host_operators` 传递 HOST ID，供后续 Torch adapter 选择和清单记录使用。txt 是配置阶段回传实际集合的原有方式，HOST 静态库本身由 CMake target 的源码列表编译，不由 Python 二次编排。
+配置后读取 `selected-operators.txt` 和 `selected-host-operators.txt`。`CannBuild.cann_operators` 只记录 CANN ID，`host_operators` 记录 HOST ID，供后续 Torch adapter 选择和清单记录使用。txt 是配置阶段回传实际集合的原有方式，HOST 静态库本身由 CMake target 的源码列表编译，不由 Python 二次编排。
 
 继续依次执行 `sgl_cann_kernel_check`、`package` 和安装命令。保留原有聚合目标名称；它现在也依赖选中的 HOST 静态库，确保打包前产物已生成。
 

@@ -74,7 +74,7 @@ def arguments(argv=None):
         ) or len(set(args.third_party)) != len(args.third_party):
             parser.error("--third-party requires distinct, nonempty profile names")
     try:
-        args.operators = parse_operators(args.ops)
+        args.native_operators = parse_operators(args.ops)
     except ValueError as error:
         parser.error(str(error))
     return args
@@ -117,21 +117,22 @@ def main(argv=None):
     extension = "whl" if args.artifact == "wheel" else "run"
     for path in output.glob(f"sgl_kernel_npu-*.{extension}"):
         path.unlink()
-    result = build_cann(
+    native_build = build_cann(
         args.arch_version,
-        args.operators,
+        args.native_operators,
         jobs=args.jobs,
     )
     if args.artifact == "run":
         destination = (
-            output / f"sgl_kernel_npu-{args.arch_version}-{result.selection_kind}.run"
+            output
+            / f"sgl_kernel_npu-{args.arch_version}-{native_build.selection_kind}.run"
         )
-        shutil.copy2(result.package, destination)
+        shutil.copy2(native_build.package, destination)
     else:
         from build_tools.torch_wheel import build_torch, build_wheel
 
         package = build_torch(
-            result, args.arch_version, jobs=args.jobs, dependencies=dependencies
+            native_build, args.arch_version, jobs=args.jobs, dependencies=dependencies
         )
         wheel = build_wheel(package)
         destination = output / wheel.name
