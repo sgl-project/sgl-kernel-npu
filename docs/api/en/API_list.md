@@ -56,6 +56,8 @@
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
 | [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`, `torch_native` |
+| [flash_prefill_bnsd_indexer](operators/indexer/flash_prefill_bnsd_indexer.md) | `triton`, `torch_native` |
+| [flash_prefill_bnsd_with_topk_idx](operators/indexer/flash_prefill_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
 
 ## Batch-invariant operators
 
