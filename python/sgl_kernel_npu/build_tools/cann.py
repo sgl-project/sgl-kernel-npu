@@ -167,6 +167,7 @@ def build_cann(
         directory,
         "-DSGL_ARCH_VERSION=" + str(arch_version),
         "-DSGL_NATIVE_OPERATORS=" + ";".join(operators),
+        # HOST compilation must discover Torch in this build Python environment.
         "-DPython3_EXECUTABLE=" + sys.executable,
         "-DSGL_CANN_BUILD_STAGE=KERNEL",
     ]

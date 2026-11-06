@@ -10,7 +10,7 @@ The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
-### Build a wheel or native operator installer
+### Build a wheel or AICORE/AICPU/HOST installer
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
@@ -44,8 +44,8 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
-| `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
-| `--artifact run/wheel` | `wheel` | Native operator installer or installable Python wheel. |
+| `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
+| `--artifact run/wheel` | `wheel` | AICORE/AICPU/HOST RUN installer or installable Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
@@ -71,7 +71,11 @@ into the existing `libsgl_kernel_npu.so`. No additional runtime shared library i
 created. HOST-only builds skip codegen, Tiling, HCC and device Kernel compilation,
 but still build and install a `.run` containing the HOST archive. Packages without
 AICORE use the existing installer's `--force` workaround and retain installation
-artifact checks. Use `--without-third-party` to build only repository operators.
+artifact checks. Executing the `.run` installs its payload; it does not execute
+operators or register Torch interfaces. A HOST-only `.run` supplies the static
+implementation archive. The wheel build compiles the Torch adapters and links
+that archive into `libsgl_kernel_npu.so`. Use `--without-third-party` to build
+only repository operators.
 
 ```bash
 # One host C++ operator, with no third-party or device Kernel build.
@@ -90,6 +94,21 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops all --artifact run
 ```
+
+A HOST-only RUN package installs the implementation archive; it does not register
+`torch.ops` interfaces. For example:
+
+```bash
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
+  --ops transfer_mamba_state --artifact run --make-clean
+
+# Install the exported package at a consumer-selected location.
+bash /workspace/sgl-kernel-npu/output/sgl_kernel_npu-2201-custom.run \
+  --install-path=/workspace/sgl-kernel-npu/installed --force
+```
+
+The installed archive must then be linked into a compatible caller. The wheel
+build performs that link and compiles the Torch registration layer automatically.
 
 `--plan` retains its existing third-party-only JSON output and does not resolve or
 compile repository operators. The native CMake configure logs the selected CANN
@@ -154,7 +173,8 @@ Omitting `--third-party` selects all profiles for the detected SDK version.
 No matching profiles, or an empty/missing operator list for the chosen
 architecture, produces an INFO message and skips that dependency. Explicitly
 requesting a profile that does not exist for the SDK version is an error.
-`--artifact run` packages only repository-owned CANN operators.
+`--artifact run` packages only selected repository-owned AICORE/AICPU/HOST
+operators; it does not include third-party dependencies.
 
 Third-party SoC detection uses the local device's `npu-smi` board information:
 `ascend910b` or `ascend910_93` for arch22, and `ascend950` for arch35. It must match
@@ -195,6 +215,9 @@ HOST requires `ID`, `EXECUTION_UNIT`, `SUPPORTED_ARCHS`, `CPP_SOURCES` and
 fields are rejected. `CPP_SOURCES` may be replaced by an architecture variant
 using `sgl_register_operator_variant()`. IDs are unique across all three execution units. CPP IDs
 must also have unique uppercase forms because they determine build-guard names.
+
+`host_ops.cmake::sgl_collect_host_sources()` collects implementation sources,
+adapters and selection macros for the selected HOST IDs.
 
 Add HOST domains to `sgl_add_host_operator_domains()` and CANN domains to
 `sgl_add_cann_operator_domains()`; `sgl_add_operator_domains()` discovers both.
@@ -481,6 +504,8 @@ the optional `tp_<dependency-id>` identifies bundled third-party contents with a
 10-character SHA-256 fingerprint. Neither ID is a source Git commit.
 Schema-2 wheels hash the actual native IDs for `all` as well as `custom`, so
 different actual native sets have distinct build tags, including when selected by `all`.
+Schema 1 recorded only CANN IDs; schema 2 makes `operators` the combined CANN/HOST
+selection and adds `operators_by_type` for the separate subsets.
 The package's `_build_manifest.json` records the actual full native selection,
 `operators_by_type`, SDK targets and third-party payloads.
 HOST-only wheels have no repository device compute units or runtime CANN vendor.

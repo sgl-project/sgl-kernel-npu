@@ -1,14 +1,14 @@
 # Declarations and selected architecture metadata only; no Torch or CANN SDK.
 include_guard(GLOBAL)
 
-set(_SGL_OPERATOR_FIELDS CPP_SOURCES EXECUTION_UNIT CANN_OP_TYPE SUPPORTED_ARCHS TORCH_ADAPTER
+set(_SGL_OPERATOR_FIELDS EXECUTION_UNIT CANN_OP_TYPE SUPPORTED_ARCHS TORCH_ADAPTER
     OPDEF_SOURCES INFER_SOURCES ACLNN_SOURCES ACLNN_HEADERS AICPU_JSON
     TILING_SOURCES TILING_INCLUDE_DIRECTORIES
     TILING_COMPILE_DEFINITIONS KERNEL_SOURCES KERNEL_INCLUDE_DIRECTORIES
-    KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS)
-set(_SGL_VARIANT_FIELDS CPP_SOURCES INFER_SOURCES TILING_SOURCES TILING_INCLUDE_DIRECTORIES
+    KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS CPP_SOURCES)
+set(_SGL_VARIANT_FIELDS INFER_SOURCES TILING_SOURCES TILING_INCLUDE_DIRECTORIES
     TILING_COMPILE_DEFINITIONS KERNEL_SOURCES KERNEL_INCLUDE_DIRECTORIES
-    KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS)
+    KERNEL_COMPILE_DEFINITIONS KERNEL_COMPILE_OPTIONS CPP_SOURCES)
 
 # Resolve paths at the declaration, even when its CMake file was included.
 function(_sgl_operator_source_paths output base_dir)
@@ -40,36 +40,17 @@ endfunction()
 function(sgl_register_operator)
     _sgl_check_operator_keywords("ID;${_SGL_OPERATOR_FIELDS}" ${ARGV})
     cmake_parse_arguments(PARSE_ARGV 0 op "" "ID;EXECUTION_UNIT;CANN_OP_TYPE;TORCH_ADAPTER;AICPU_JSON"
-        "SUPPORTED_ARCHS;CPP_SOURCES;OPDEF_SOURCES;INFER_SOURCES;ACLNN_SOURCES;ACLNN_HEADERS;TILING_SOURCES;TILING_INCLUDE_DIRECTORIES;TILING_COMPILE_DEFINITIONS;KERNEL_SOURCES;KERNEL_INCLUDE_DIRECTORIES;KERNEL_COMPILE_DEFINITIONS;KERNEL_COMPILE_OPTIONS")
+        "SUPPORTED_ARCHS;OPDEF_SOURCES;INFER_SOURCES;ACLNN_SOURCES;ACLNN_HEADERS;TILING_SOURCES;TILING_INCLUDE_DIRECTORIES;TILING_COMPILE_DEFINITIONS;KERNEL_SOURCES;KERNEL_INCLUDE_DIRECTORIES;KERNEL_COMPILE_DEFINITIONS;KERNEL_COMPILE_OPTIONS;CPP_SOURCES")
     if(NOT "${op_UNPARSED_ARGUMENTS}" STREQUAL "" OR NOT "${op_KEYWORDS_MISSING_VALUES}" STREQUAL "")
         message(FATAL_ERROR "Invalid operator arguments: ${op_UNPARSED_ARGUMENTS}; missing values: ${op_KEYWORDS_MISSING_VALUES}")
     endif()
-    # Execution unit alone determines the construction contract. Existing
-    # AICORE/AICPU declarations retain their fields and semantics unchanged.
-    foreach(field IN ITEMS ID EXECUTION_UNIT SUPPORTED_ARCHS)
-        if(NOT DEFINED op_${field} OR "${op_${field}}" STREQUAL "")
-            message(FATAL_ERROR "Operator declaration is missing required field: ${field}")
-        endif()
-    endforeach()
-    if(NOT op_EXECUTION_UNIT MATCHES "^(AICORE|AICPU|HOST)$")
-        message(FATAL_ERROR "Unknown EXECUTION_UNIT: ${op_EXECUTION_UNIT}")
-    endif()
-    set(required)
+    set(required ID EXECUTION_UNIT SUPPORTED_ARCHS)
     if(op_EXECUTION_UNIT STREQUAL "HOST")
         list(APPEND required CPP_SOURCES TORCH_ADAPTER)
-        foreach(field IN LISTS _SGL_OPERATOR_FIELDS)
-            if(NOT field MATCHES "^(EXECUTION_UNIT|CPP_SOURCES|SUPPORTED_ARCHS|TORCH_ADAPTER)$"
-               AND DEFINED op_${field})
-                message(FATAL_ERROR "CANN field ${field} is not valid for EXECUTION_UNIT HOST: ${op_ID}")
-            endif()
-        endforeach()
     else()
         list(APPEND required CANN_OP_TYPE)
         if(op_EXECUTION_UNIT STREQUAL "AICORE")
             list(APPEND required OPDEF_SOURCES)
-        endif()
-        if(DEFINED op_CPP_SOURCES)
-            message(FATAL_ERROR "CPP_SOURCES requires EXECUTION_UNIT HOST: ${op_ID}")
         endif()
     endif()
     foreach(field IN LISTS required)
@@ -87,6 +68,19 @@ function(sgl_register_operator)
     if(NOT op_EXECUTION_UNIT STREQUAL "HOST" AND NOT op_CANN_OP_TYPE MATCHES "^[A-Za-z][A-Za-z0-9_]*$")
         message(FATAL_ERROR "Invalid CANN_OP_TYPE: ${op_CANN_OP_TYPE}")
     endif()
+    if(NOT op_EXECUTION_UNIT MATCHES "^(AICORE|AICPU|HOST)$")
+        message(FATAL_ERROR "Unknown EXECUTION_UNIT: ${op_EXECUTION_UNIT}")
+    endif()
+    if(op_EXECUTION_UNIT STREQUAL "HOST")
+        foreach(field IN LISTS _SGL_OPERATOR_FIELDS)
+            if(NOT field MATCHES "^(EXECUTION_UNIT|CPP_SOURCES|SUPPORTED_ARCHS|TORCH_ADAPTER)$"
+               AND DEFINED op_${field})
+                message(FATAL_ERROR "CANN field ${field} is not valid for EXECUTION_UNIT HOST: ${op_ID}")
+            endif()
+        endforeach()
+    elseif(DEFINED op_CPP_SOURCES)
+        message(FATAL_ERROR "CPP_SOURCES requires EXECUTION_UNIT HOST: ${op_ID}")
+    endif()
     set(archs)
     foreach(arch IN LISTS op_SUPPORTED_ARCHS)
         if(NOT arch MATCHES "^(2201|3510)$" OR arch IN_LIST archs)
@@ -100,7 +94,7 @@ function(sgl_register_operator)
     endif()
     set(aliases)
     if(NOT op_EXECUTION_UNIT STREQUAL "HOST")
-        # Alias collisions concern CANN interfaces only; CPP has no OpType.
+        # Alias collisions concern CANN interfaces only; HOST has no OpType.
         get_property(ids GLOBAL PROPERTY SGL_CANN_OPERATOR_IDS)
         # CANN derives a snake_case API/file alias from OpType. Reject collisions too.
         string(REGEX REPLACE "([A-Z]+)([A-Z][a-z])" "\\1_\\2" alias "${op_CANN_OP_TYPE}")
@@ -128,7 +122,7 @@ function(sgl_register_operator)
         foreach(id IN LISTS ids)
             string(TOUPPER "${id}" existing_macro)
             if(macro STREQUAL existing_macro)
-                message(FATAL_ERROR "CPP operator guard collision: ${id}, ${op_ID}")
+                message(FATAL_ERROR "HOST operator guard collision: ${id}, ${op_ID}")
             endif()
         endforeach()
     endif()
@@ -328,7 +322,7 @@ function(sgl_select_cann_operators output)
         endif()
         sgl_get_operator_field(unit "${id}" EXECUTION_UNIT)
         if(unit STREQUAL "HOST")
-            message(FATAL_ERROR "CANN selection cannot contain a CPP operator: ${id}")
+            message(FATAL_ERROR "CANN selection cannot contain a HOST operator: ${id}")
         endif()
         sgl_get_operator_field(archs "${id}" SUPPORTED_ARCHS)
         if(NOT selection_ARCH IN_LIST archs)

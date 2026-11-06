@@ -1,7 +1,7 @@
 # Entered only for selected HOST operators at the KERNEL checkpoint.
 include("${CMAKE_CURRENT_LIST_DIR}/../torch.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/../cpp_ops.cmake")
-sgl_collect_cpp_sources(host_sources host_adapters host_definitions
+include("${CMAKE_CURRENT_LIST_DIR}/../host_ops.cmake")
+sgl_collect_host_sources(host_sources host_adapters host_definitions
     ARCH "${SGL_ARCH_VERSION}" OPERATORS ${host_operators})
 
 # Keep Torch registrations in the final extension, so static linking cannot
@@ -25,7 +25,8 @@ set_target_properties(sgl_host_operators PROPERTIES
     CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
-# Reuse the same installer as AICORE/AICPU, without adding a runtime shared library.
+# RUN installs this archive; build_torch() later links it with the Torch adapters.
+# Executing the installer does not execute or register the HOST operators.
 npu_op_package_add(sgl_kernel_npu
     FILES "${CMAKE_CURRENT_BINARY_DIR}/libsgl_host_operators.a"
     PACKAGE_PATH op_impl/host/lib)

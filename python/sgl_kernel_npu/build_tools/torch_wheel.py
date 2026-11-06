@@ -93,6 +93,7 @@ def build_torch(
         )
         (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
+        # Schema 1 listed CANN IDs only; schema 2 records CANN + HOST and their subsets.
         "schema_version": 2,
         "build_mode": "REFACTOR",
         "arch_version": arch_version,

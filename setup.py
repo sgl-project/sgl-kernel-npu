@@ -25,13 +25,13 @@ def arguments(argv=None):
     parser.add_argument(
         "--ops",
         default="all",
-        help="all supported migrated native operators, or comma-separated operator IDs",
+        help="all supported AICORE/AICPU/HOST operators, or comma-separated operator IDs",
     )
     parser.add_argument(
         "--artifact",
         choices=("run", "wheel"),
         default="wheel",
-        help="native operator installer or complete sgl-kernel-npu wheel",
+        help="AICORE/AICPU/HOST RUN installer or complete sgl-kernel-npu wheel",
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
     third_party = parser.add_mutually_exclusive_group()

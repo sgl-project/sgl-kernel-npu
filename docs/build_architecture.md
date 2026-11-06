@@ -37,7 +37,7 @@ flowchart TD
 
 ### 2. build_tools/cann.py
 
-`build_cann()` 恢复为完整的配置、编译、打包、安装入口。将用户请求通过 `SGL_NATIVE_OPERATORS` 传给现有 `csrc` 工程；CMake 负责分类，Python 不维护算子名单。
+`build_cann()` 恢复为完整的配置、编译、打包、安装入口。将用户请求通过 `SGL_NATIVE_OPERATORS` 传给现有 `csrc` 工程；CMake 负责分类，Python 不维护算子名单。`Python3_EXECUTABLE=sys.executable` 将配置固定到执行 `setup.py` 的 Python，使 HOST 使用同一环境中的 Torch/torch_npu；不依赖系统 PATH 恰好指向该解释器。
 
 配置后读取 `selected-operators.txt` 和 `selected-host-operators.txt`。`CannBuild.operators` 仍只记录 CANN ID，新增 `host_operators` 传递 HOST ID，供后续 Torch adapter 选择和清单记录使用。txt 是配置阶段回传实际集合的原有方式，HOST 静态库本身由 CMake target 的源码列表编译，不由 Python 二次编排。
 
@@ -55,13 +55,13 @@ flowchart TD
 
 注册、架构变体、源码选择和已有 CANN 依赖规则保持原义；不新增 before/after 声明阶段校验。
 
-### 4. cmake/host/CMakeLists.txt / cpp_ops.cmake / torch.cmake
+### 4. cmake/host/CMakeLists.txt / host_ops.cmake / torch.cmake
 
-新的 HOST 子目录与 `cmake/aicpu` 并列。`sgl_collect_cpp_sources()` 从同一注册表提取所选 `CPP_SOURCES`、adapters 和选择宏；子目录只编译实现源码，生成启用 PIC 的 `sgl_host_operators STATIC`。
+新的 HOST 子目录与 `cmake/aicpu` 并列。`sgl_collect_host_sources()` 从同一注册表提取所选 `CPP_SOURCES`、adapters 和选择宏；子目录只编译实现源码，生成启用 PIC 的 `sgl_host_operators STATIC`。
 
 未显式指定编译配置时，仅为 HOST 静态库加入 `-O3` 和 `NDEBUG`，对齐旧构建默认的 Release 优化。显式指定 Debug、Release 等配置时沿用工具链参数；多配置生成器使用所选配置。不再在 HOST 子目录设置无效的局部 `CMAKE_BUILD_TYPE`，也不改变父工程的 CANN 编译配置。
 
-通过 `npu_op_package_add(... FILES ... PACKAGE_PATH op_impl/host/lib)` 把静态库加入已有 `.run`，安装位置为 `vendors/sgl_kernel_npu/op_impl/host/lib/libsgl_host_operators.a`。不伪造 `CANN_OP_TYPE`，不调用 HOST 不需要的 OpDef/codegen、Tiling、设备编译器。
+通过 `npu_op_package_add(... FILES ... PACKAGE_PATH op_impl/host/lib)` 把静态库加入已有 `.run`，安装位置为 `vendors/sgl_kernel_npu/op_impl/host/lib/libsgl_host_operators.a`。执行 `.run` 只安装文件；HOST 包不包含 Torch 注册层，后续 `build_torch()` 编译 adapters 并链接安装后的静态库，才形成可加载的扩展。不伪造 `CANN_OP_TYPE`，不调用 HOST 不需要的 OpDef/codegen、Tiling、设备编译器。
 
 `torch.cmake` 仅提取原 Torch CMake 中已有的 Python、Torch/torch_npu 头文件和 ABI 配置查询，供 HOST 实现与 adapters 复用。当前 HOST 源码使用 ATen/torch_npu/ACL，因此包含 HOST 的 `.run` 也需要匹配的 Torch/torch_npu 开发环境；纯 CANN `.run` 保持不依赖 Torch。
 
@@ -73,7 +73,7 @@ flowchart TD
 
 Torch CMake 只编译选中的 `TORCH_ADAPTER`，不再创建 HOST 对象目标。存在 HOST 时，从已安装 vendor 查找静态库并链接；不存在 HOST 时不查找。CANN adapters 继续使用已安装 ACLNN 头文件及原 SDK 依赖。
 
-wheel 清单继续记录两组实际 ID。HOST 静态库只用于最终链接，不复制进 wheel；HOST-only 的 wheel 不需要仓内 CANN vendor。既有运行时加载路径、第三方依赖和 wheel 校验不变。
+wheel 清单使用 schema 2：schema 1 的 `operators` 只表示 CANN ID，schema 2 改为 CANN/HOST 并集，并通过 `operators_by_type` 记录两组实际 ID。HOST 静态库只用于最终链接，不复制进 wheel；HOST-only 的 wheel 不需要仓内 CANN vendor。既有运行时加载路径、第三方依赖和 wheel 校验不变。
 
 ## 构建目录与验证边界
 

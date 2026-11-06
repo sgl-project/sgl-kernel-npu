@@ -11,7 +11,7 @@ find_library(ACL_LIBRARY ascendcl PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/operators.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/domains.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/cpp_ops.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/host_ops.cmake")
 sgl_add_operator_domains()
 set(selected)
 set(cann_includes)
@@ -25,7 +25,7 @@ if(SGL_CANN_OPERATORS)
     list(APPEND cann_libraries "${NNOPBASE_LIBRARY}")
     sgl_select_cann_operators(selected ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
 endif()
-sgl_collect_cpp_sources(host_sources host_adapters host_definitions
+sgl_collect_host_sources(host_sources host_adapters host_definitions
     ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_HOST_OPERATORS})
 set(adapters)
 foreach(id IN LISTS selected)
