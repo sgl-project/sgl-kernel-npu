@@ -46,9 +46,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-An independent PyTorch reference iterates over paired slot indices, reshapes `host_buf[h]` to
-match `device_buf[:, d]` , and calls `copy_(..., non_blocking=True)` in the requested direction
-without invoking the native operator.
+Adapts SGLang's `MambaPoolHost` PyTorch reference: H2D restores each layer with
+`index_select/index_copy_` ; D2H gathers selected slots and moves the layer dimension after the
+slot dimension. Layout views preserve native physical storage order, and repeated destination
+indices are written in input order. No native operator is called.
 
 ## Example
 

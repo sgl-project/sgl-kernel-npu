@@ -48,9 +48,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-An independent PyTorch reference copies `src[h, layer_id, 0] → dst[d]` for each index pair using
-`copy_(..., non_blocking=True)` . Dense transposed payloads are flattened in physical storage
-order with `as_strided` to match the native byte-copy semantics.
+Adapts the per-layer Torch fallback from SGLang's `MambaPoolHost` , mapping host slots to device
+slots with `index_select/index_copy_` . Dense payloads are flattened in physical storage order
+so transposed states match native byte copies. Repeated destination indices are overwritten in
+input order.
 
 ## Example
 

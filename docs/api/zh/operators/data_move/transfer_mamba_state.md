@@ -42,7 +42,7 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 
 ## torch_native 后端
 
-独立的 PyTorch 参考实现：逐对读取槽位索引，将 `device_buf[:, d]` 与 `host_buf[h]` 调整为相同形状，再按方向执行 `copy_(..., non_blocking=True)`，不调用原生算子。
+复用 SGLang `MambaPoolHost` 的 PyTorch 参考逻辑：H2D 使用 `index_select/index_copy_` 逐层恢复，D2H 收集所选槽位并将层维移到槽位维之后。布局适配按原生算子的物理存储顺序解释状态，重复目标索引按输入顺序写入；不调用原生算子。
 
 ## 示例
 

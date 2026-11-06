@@ -120,3 +120,49 @@ def test_transfer_mamba_state(
             accuracy_checked=checked,
         )
         check_performance(executor, enable_perf=payload == (128, 3))
+
+
+@pytest.mark.parametrize("direction", ["D2H", "H2D"])
+def test_transfer_mamba_state_dense_transpose(direction):
+    from sgl_kernel_npu.operators.data_move import (
+        TransferDirection,
+        transfer_mamba_state,
+    )
+
+    impl, impl_ref = get_test_impls()
+    checked = not get_skip_acc_check()
+    storage = torch.arange(2 * 4 * 2 * 3, device="npu", dtype=torch.float32).reshape(
+        2, 4, 2, 3
+    )
+    device = storage.transpose(-1, -2)
+    host = (
+        torch.arange(5 * 2 * 3 * 2, dtype=torch.float32)
+        .reshape(5, 2, 1, 3, 2)
+        .pin_memory()
+    )
+    d, h = torch.tensor([2, 0], device="cpu"), torch.tensor([1, 4], device="cpu")
+    args = (d, h, TransferDirection[direction])
+    if checked:
+        require_distinct_impls(transfer_mamba_state, impl, impl_ref)
+        expected = host.clone() if direction == "D2H" else storage.cpu().clone()
+        for device_slot, host_slot in zip(d.tolist(), h.tolist()):
+            for layer in range(2):
+                if direction == "D2H":
+                    expected[host_slot, layer, 0].copy_(
+                        storage[layer, device_slot].cpu().reshape(3, 2)
+                    )
+                else:
+                    expected[layer, device_slot].copy_(
+                        host[host_slot, layer, 0].reshape(2, 3)
+                    )
+        ref_storage = storage.clone()
+        ref_device = ref_storage.transpose(-1, -2)
+        ref_host = torch.empty_like(host, pin_memory=True).copy_(host)
+        transfer_mamba_state(ref_device, ref_host, *args, impl=impl_ref)
+    transfer_mamba_state(device, host, *args, impl=impl)
+    torch.npu.synchronize()
+    if checked:
+        actual = host if direction == "D2H" else storage.cpu()
+        reference = ref_host if direction == "D2H" else ref_storage.cpu()
+        assert_accuracy(actual.view(torch.uint8), expected.view(torch.uint8))
+        assert_accuracy(reference.view(torch.uint8), expected.view(torch.uint8))

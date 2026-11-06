@@ -42,7 +42,7 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## torch_native 后端
 
-独立的 PyTorch 参考实现：遍历状态分量、槽位索引和层，将 `dev[layer, d]` 拷贝到 `host[h, layer, 0]`。使用 `as_strided` 按物理存储顺序展平稠密状态，再执行 `copy_(..., non_blocking=True)`，不调用原生算子。
+复用 SGLang `MambaPoolHost` 的全层 Torch fallback：通过 `index_select` 收集设备槽位，将层维移到槽位维之后，再写入主机。逐个处理状态分量，以物理存储视图保留转置稠密状态的字节顺序；重复目标索引按输入顺序覆盖。
 
 ## 示例
 

@@ -47,10 +47,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-An independent PyTorch reference iterates over components, slot pairs and layers, copying
-`dev[layer, d] → host[h, layer, 0]` . Dense payloads are flattened in physical storage order
-with `as_strided` and transferred with `copy_(..., non_blocking=True)` , without calling the
-native operator.
+Adapts the all-layer Torch fallback from SGLang's `MambaPoolHost` : gather device slots with
+`index_select` , move the layer dimension after the slot dimension, and write to the host.
+Components are handled separately; physical storage views preserve dense transposed payloads.
+Repeated destination indices are overwritten in input order.
 
 ## Example
 

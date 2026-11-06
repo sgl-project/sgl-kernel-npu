@@ -1,4 +1,15 @@
-"""PyTorch implementations of layer-first / page-first transfers."""
+"""PyTorch references adapted from SGLang's MambaPoolHost (Apache-2.0).
+
+Source: sgl-project/sglang@6b13469f91d6ce72d64c1760f37475626926c077,
+python/sglang/srt/mem_cache/pool_host/mamba.py:
+_copy_tensor_pf_lf and _copy_tensor_all_layers_lf_pf.
+https://github.com/sgl-project/sglang/blob/6b13469f91d6ce72d64c1760f37475626926c077/python/sglang/srt/mem_cache/pool_host/mamba.py
+
+The gather/scatter references are reused with physical payload views for ACL
+copies, whole-page indices for KV, and one call per state component.
+"""
+
+import torch
 
 from ....operators.data_move._types import TransferDirection
 
@@ -58,6 +69,73 @@ def _check_layer(layer, host):
         raise RuntimeError("slot payload must be contiguous")
 
 
+def _payload_view(tensor, prefix_dims):
+    """Flatten each dense payload in storage order, preserving outer pitches."""
+    payload = _payload(tensor[(0,) * prefix_dims])
+    return tensor.as_strided(
+        (*tensor.shape[:prefix_dims], payload.numel()),
+        (*tensor.stride()[:prefix_dims], 1),
+    )
+
+
+def _packed_views(device, host):
+    # The original Mamba/KV ACL kernels compute packed pitches from sizes,
+    # rather than tensor strides. Keep that byte layout in the reference too.
+    layers, slots = device.shape[:2]
+    width = device[0, 0].numel()
+    return (
+        device.as_strided((layers, slots, width), (slots * width, width, 1)),
+        host.as_strided(
+            (host.size(0), layers, 1, width), (layers * width, width, width, 1)
+        ),
+    )
+
+
+def _write_slots(dst, indices, values):
+    indices = indices.to(device="cpu", dtype=torch.long).reshape(-1)
+    # ACL submits copies in input order. index_copy_ with repeated destinations
+    # does not guarantee that order on accelerators, so retain ordered writes.
+    if indices.unique().numel() != indices.numel():
+        for i, index in enumerate(indices.tolist()):
+            dst[index].copy_(values[i])
+    else:
+        dst.index_copy_(0, indices.to(dst.device), values)
+
+
+def _copy_per_layer(host, device, host_indices, device_indices, layer_id):
+    # SGLang MambaPoolHost._copy_tensor_pf_lf: sync Torch fallback.
+    host_indices = host_indices.to(dtype=torch.long, device=host.device).reshape(-1)
+    values = host.select(1, layer_id).index_select(0, host_indices).select(1, 0)
+    _write_slots(device, device_indices, values.to(device=device.device))
+
+
+def _copy_all_layers(device, host, device_indices, host_indices):
+    # SGLang MambaPoolHost._copy_tensor_all_layers_lf_pf: per-layer fallback.
+    device_indices = device_indices.to(dtype=torch.long, device=device.device).reshape(
+        -1
+    )
+    values = (
+        device.index_select(1, device_indices)
+        .movedim(0, 1)
+        .unsqueeze(2)
+        .contiguous()
+        .to(device=host.device)
+    )
+    _write_slots(host, host_indices, values)
+
+
+def _copy_state(device, host, device_indices, host_indices, direction):
+    if not device_indices.numel():
+        return
+    if direction.value == TransferDirection.D2H.value:
+        _copy_all_layers(device, host, device_indices, host_indices)
+    else:
+        for layer_id in range(device.size(0)):
+            _copy_per_layer(
+                host, device[layer_id], host_indices, device_indices, layer_id
+            )
+
+
 def transfer_kv_per_layer_direct_pf_lf(
     src, dst, src_indices, dst_indices, layer_id, flags
 ):
@@ -68,8 +146,9 @@ def transfer_kv_per_layer_direct_pf_lf(
     if not 0 <= layer_id < src.size(1):
         raise RuntimeError("layer_id is outside host state layer count")
     _check_slots(pairs, dst.size(0), src.size(0))
-    for d, h in pairs:
-        _payload(dst[d]).copy_(_payload(src[h, layer_id, 0]), non_blocking=True)
+    device = _payload_view(dst, 1)
+    host = src.view(src.size(0), src.size(1), 1, device.size(-1))
+    _copy_per_layer(host, device, src_indices, dst_indices, layer_id)
 
 
 def transfer_kv_all_layer_direct_lf_pf(
@@ -95,18 +174,9 @@ def transfer_kv_all_layer_direct_lf_pf(
             raise RuntimeError("device layer pitch overlaps adjacent slots")
         _check_slots(pairs, dev.size(1), host.size(0))
     for dev, host in zip(device_states, host_states):
-        for d, h in pairs:
-            for layer in range(layers):
-                _payload(host[h, layer, 0]).copy_(
-                    _payload(dev[layer, d]), non_blocking=True
-                )
-
-
-def _copy(dev, host, direction):
-    src, dst = (
-        (host, dev) if direction.value == TransferDirection.H2D.value else (dev, host)
-    )
-    dst.copy_(src, non_blocking=True)
+        device = _payload_view(dev[:layers], 2)
+        host = host.view(host.size(0), host.size(1), 1, device.size(-1))
+        _copy_all_layers(device, host[:, :layers], device_indices, host_indices)
 
 
 def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, direction):
@@ -126,7 +196,8 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
         d, h = int(d), int(h)
         if not (0 <= d < device_buf.size(1) and 0 <= h < host_buf.size(0)):
             raise RuntimeError("slot index out of range")
-        _copy(device_buf[:, d], host_buf[h].reshape_as(device_buf[:, d]), direction)
+    device, host = _packed_views(device_buf, host_buf)
+    _copy_state(device, host, device_indices, host_indices, direction)
 
 
 def transfer_kv_dim_exchange(
@@ -158,23 +229,28 @@ def transfer_kv_dim_exchange(
         device_index_k_scale = device_index_k_scale.unsqueeze(-1)
     pairs = [
         (device_k, host_k),
-        (device_v, host_v),
+    ]
+    if device_v.numel() and host_v.numel():
+        pairs.append((device_v, host_v))
+    for dev, host in (
         (device_index_k, host_index_k),
         (device_index_k_scale, host_index_k_scale),
-    ]
+    ):
+        if dev is not None and host is not None:
+            pairs.append((dev, host))
+    # ACL uses only the first token index in each group to identify a whole page.
+    device_pages = device_indices[::page_size].to(dtype=torch.long) // page_size
+    host_pages = host_indices[::page_size].to(dtype=torch.long) // page_size
     for dev, host in pairs:
-        if dev is None or host is None or not dev.numel() or not host.numel():
-            continue
         if (
-            dev.ndim != 5
+            not dev.numel()
+            or not host.numel()
+            or dev.ndim != 5
             or host.ndim != 5
             or dev.size(0) != host.size(1)
             or dev.size(2) != page_size
             or host.size(2) != page_size
         ):
             raise RuntimeError("incompatible device and host KV page layouts")
-        for d, h in zip(
-            device_indices[::page_size].tolist(), host_indices[::page_size].tolist()
-        ):
-            block = dev[:, d // page_size]
-            _copy(block, host[h // page_size].reshape_as(block), direction)
+        device, host = _packed_views(dev, host)
+        _copy_state(device, host, device_pages, host_pages, direction)

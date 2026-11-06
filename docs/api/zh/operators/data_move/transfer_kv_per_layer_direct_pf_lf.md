@@ -43,7 +43,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## torch_native 后端
 
-独立的 PyTorch 参考实现：逐对执行 `src[h, layer_id, 0] → dst[d]` 拷贝。对稠密但维度经过转置的状态，使用 `as_strided` 按物理存储顺序展平，保持与原生字节拷贝一致；通过 `copy_(..., non_blocking=True)` 写入目标。
+复用 SGLang `MambaPoolHost` 的单层 Torch fallback，通过 `index_select/index_copy_` 完成主机槽位到设备槽位的映射。先将稠密状态按物理存储顺序展平，保持转置状态与原生字节拷贝一致；重复目标索引按输入顺序覆盖。
 
 ## 示例
 

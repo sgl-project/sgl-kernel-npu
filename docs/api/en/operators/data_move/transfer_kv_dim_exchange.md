@@ -54,10 +54,10 @@ Submits asynchronous 2D transfers to the current NPU stream.
 
 ## torch_native backend
 
-An independent PyTorch reference computes page IDs from the first token index in each
-`page_size` group, selects all layers of each page, and calls `copy_(..., non_blocking=True)` in
-the requested direction. K, V and optional indexer buffers are handled separately without
-calling the native `aclrt` operator.
+Adapts the PyTorch gather/scatter reference from SGLang's `MambaPoolHost` . The first token
+index in each `page_size` group determines a page ID; a physical page is treated as one slot for
+per-layer restore or all-layer backup. K, V and optional indexer/scale buffers are handled
+separately without calling the native `aclrt` operator.
 
 ## Example
 
