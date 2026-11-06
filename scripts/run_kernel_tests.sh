@@ -244,7 +244,7 @@ fi
 # mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
 if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
     TESTS+=(
-        #"${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
+        "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
     )
 fi
