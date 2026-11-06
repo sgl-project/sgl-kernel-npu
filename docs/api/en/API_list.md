@@ -55,7 +55,14 @@
 | [kpool_decode_update_and_maybe_write_cache](operators/mem_cache/kpool_decode_update_and_maybe_write_cache.md) | `triton`, `torch_native` |
 | [kpool_write_tail_and_maybe_compress](operators/mem_cache/kpool_write_tail_and_maybe_compress.md) | `triton`, `torch_native` |
 | [scatter_kpool_tail_updates](operators/mem_cache/scatter_kpool_tail_updates.md) | `triton`, `torch_native` |
+| [situ_and_mul](operators/activation/situ_and_mul.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`, `torch_native` |
+| [chunk_local_cumsum](operators/attention/gdn/chunk_local_cumsum.md) | `triton`, `torch_native` |
+| [chunk_scaled_dot_kkt](operators/attention/gdn/chunk_scaled_dot_kkt.md) | `triton`, `torch_native` |
+| [chunk_delta_h](operators/attention/gdn/chunk_delta_h.md) | `triton`, `torch_native` |
+| [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
+| [fused_gdn_decode](operators/attention/gdn/fused_gdn_decode.md) | `triton`, `torch_native` |
+| [gqa_share_sparse_decode](operators/attention/gqa_share_sparse_decode.md) | `triton`, `torch_native` |
 | [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
 | [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
 | [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`, `torch_native` |
