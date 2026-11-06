@@ -111,3 +111,24 @@ Torch registrations before packaging. `_binding_manifest.json` records the
 verified bindings and whether the migrated-suite dependency set was selected.
 The complete CANN 9.2 suite also checks the base torch_npu MoE hash schema.
 This checks registration and packaging, not NPU output accuracy.
+
+
+### CANN 9.1 queued bridge lifetimes
+
+The bundled recipes bridge retains workspace and Tensor operands in the queued
+ACL callback. The pinned upstream `EXEC_NPU_CMD_V1` shadows its workspace owner
+inside an `if` block and captures only raw data descriptors; temporary storage
+can otherwise be released before kernel submission. The third-party builder
+repairs the copied bridge header before compiling, including for A3 INT8 indexer
+calls. Kernel computation, public return formats and accuracy thresholds are
+unchanged. Rebuild the wheel to apply this C++ bridge repair.
+
+Run the indexer lifetime cases with task queuing enabled:
+
+```bash
+TASK_QUEUE_ENABLE=1 python3 -m pytest \
+  tests/python/operators/indexer/test_quant_lightning_indexer.py \
+  -m extra_checks -k queued_lifetimes \
+  --impl auto --impl-ref torch_native --npu-device 0 \
+  --skip-acc-check=false --enable-perf=false -v -s -x -rs
+```
