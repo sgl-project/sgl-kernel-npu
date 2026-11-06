@@ -466,6 +466,9 @@ jobs:
       - name: Build and install kernel module
         run: bash scripts/prepare_kernel_tests.sh
 
+      - name: Install PTO kernels
+        run: python3 -m pip install 'pto-kernels>=0.2.0'
+
       - name: Run FLA/GDN operator tests
         timeout-minutes: 20
         run: bash scripts/run_kernel_tests.sh fla
