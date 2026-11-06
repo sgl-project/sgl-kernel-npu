@@ -29,11 +29,17 @@ def configure(config, jobs):
     if not isinstance(config["python_bindings"], bool):
         raise ValueError("python_bindings must be a boolean")
     config["source_patches"] = {}
-    if config["soc"] == "ascend950" and "indexer_quant_cache" in config["ops"]:
-        patch = Path(__file__).parent / "patches/ascend950-indexer-quant-cache.patch"
-        config["source_patches"][patch.name] = hashlib.sha256(
-            patch.read_bytes()
-        ).hexdigest()
+    if config["soc"] == "ascend950":
+        # The 9.2 SDK cannot generate APIs for the 960-only HiFloat4 schemas.
+        for operator, filename in (
+            ("indexer_quant_cache", "ascend950-indexer-quant-cache.patch"),
+            ("quant_flash_attn", "ascend950-quant-flash-attn.patch"),
+        ):
+            if operator in config["ops"]:
+                patch = Path(__file__).parent / "patches" / filename
+                config["source_patches"][patch.name] = hashlib.sha256(
+                    patch.read_bytes()
+                ).hexdigest()
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
