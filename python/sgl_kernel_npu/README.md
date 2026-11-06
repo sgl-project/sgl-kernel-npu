@@ -137,9 +137,15 @@ available Python bindings and licenses are bundled into the same wheel; users do
 not need to install the dependency `.run` or wheel separately. The CANN 9.1
 experimental ops-transformer profile is vendor-only: selected recipes bridges
 provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
-operator profiles also bundle Python bindings. Successful dependency builds
-are cached under `build/third_party/` and reused when the build fingerprint and
-artifact checksums match. Changes to the profile, build scripts or relevant build
+operator profiles also bundle Python bindings. CANN 9.1's flat released package
+uses the upstream setuptools entry point; CANN 9.2 uses the upstream
+`build.sh --torch_extension` entry point. The CANN
+9.1 released profile includes mHC pre/post; that source revision has no
+`mla_prolog` Python binding.
+
+Successful dependency builds are cached under `build/third_party/` and reused
+when the build fingerprint and artifact checksums match. Changes to the profile,
+build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
 ### CANN operator declarations
