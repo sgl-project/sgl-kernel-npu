@@ -1,6 +1,6 @@
 {
   "_comment": {
-    "ops": "Per-architecture mapping of Python interface names to recipes Ascend C build names. Null means the bridge calls the separately bundled experimental ops-transformer vendor. An empty mapping or list skips this library for that architecture."
+    "ops": "Per-architecture mapping of Python interfaces to one kernel name or a list of kernel dependencies. Null means the bridge calls the separately bundled experimental ops-transformer vendor. An empty mapping or list skips this library for that architecture."
   },
   "name": "sgl_cann_recipes_infer",
   "ops": {
@@ -16,7 +16,7 @@
     },
     "arch35": {
       "npu_hc_post": "hc_post",
-      "npu_hc_pre": "hc_pre",
+      "npu_hc_pre": ["hc_pre", "hc_pre_inv_rms", "hc_pre_sinkhorn"],
       "inplace_partial_rotary_mul": "inplace_partial_rotary_mul",
       "indexer_compress_epilog": "indexer_compress_epilog",
       "npu_moe_gating_top_k": "moe_gating_top_k_hash",

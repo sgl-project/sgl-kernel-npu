@@ -17,11 +17,17 @@ def configure(config, jobs):
     if not isinstance(operators, dict) or not operators:
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
-        if not re.fullmatch(r"[a-z][a-z0-9_]*", interface) or (
-            kernel is not None
-            and (
-                not isinstance(kernel, str)
-                or not re.fullmatch(r"[a-z][a-z0-9_]*", kernel)
+        kernels = kernel if isinstance(kernel, list) else [kernel]
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9_]*", interface)
+            or not kernels
+            or any(
+                name is not None
+                and (
+                    not isinstance(name, str)
+                    or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
+                )
+                for name in kernels
             )
         ):
             raise ValueError("Invalid recipes interface or kernel name")
@@ -34,9 +40,7 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(
-        dict.fromkeys(kernel for kernel in operators.values() if kernel is not None)
-    )
+    config["kernel_ops"] = ";".join(selected_kernels(config))
     if not config["kernel_ops"]:
         raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
@@ -45,6 +49,18 @@ def configure(config, jobs):
         for command in config["commands"]
     ]
     return config
+
+
+def selected_kernels(item):
+    """Include every kernel a selected bridge can dispatch to."""
+    return list(
+        dict.fromkeys(
+            name
+            for kernels in item["ops"].values()
+            for name in (kernels if isinstance(kernels, list) else [kernels])
+            if name is not None
+        )
+    )
 
 
 def prepare_python(source, item):
@@ -148,14 +164,11 @@ def inspect_vendor(vendor, item):
 
     require(vendor / "op_api/lib/libcust_opapi.so")
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
-    for op in item["ops"]:
-        name = item["ops"][op]
-        if name is None:
-            continue  # The ACLNN kernel is bundled by ops-transformer.
+    for name in selected_kernels(item):
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
-            raise RuntimeError("No recipes AICore binaries for " + op)
+            raise RuntimeError("No recipes AICore binaries for " + name)
         for binary in binaries:
             require(binary)
             read_json(require(binary.with_suffix(".json")))

@@ -1,6 +1,8 @@
 """Build and package the custom ops-transformer vendor and Python bindings."""
 
+import ast
 import hashlib
+import os
 import re
 import shutil
 import sys
@@ -50,40 +52,101 @@ def configure(config, jobs):
     return config
 
 
+def selected_python_modules(candidates, item):
+    """Resolve build-directory aliases against real upstream Python exports."""
+    exports = {}
+    for module, path in candidates:
+        tree = ast.parse(path.read_text(), filename=str(path))
+        names = set()
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.ImportFrom):
+                names.update(alias.asname or alias.name for alias in node.names)
+            elif isinstance(node, ast.Assign):
+                names.update(
+                    target.id for target in node.targets if isinstance(target, ast.Name)
+                )
+        exports[module] = names
+    selected = set()
+    aliases = item.get("python_exports", {})
+    for op in item["ops"]:
+        name = aliases.get(op, op)
+        matches = [module for module, names in exports.items() if name in names]
+        if len(matches) != 1:
+            raise RuntimeError(
+                "Expected one upstream Python binding for {} (export {}), found {}".format(
+                    op, name, matches
+                )
+            )
+        selected.add(matches[0])
+    return sorted(selected)
+
+
+def source_python_modules(source, item):
+    """Check pinned sources before spending time on kernel compilation."""
+    ops = source / "torch_extension/cann_ops_transformer/ops"
+    flat = [(path.stem, path) for path in ops.glob("*.py") if path.stem != "__init__"]
+    if flat:
+        return selected_python_modules(flat, item)
+    modules = [
+        (".".join(path.parent.relative_to(source).parts[:-1]), path)
+        for path in source.glob("*/*/torch_extension/__init__.py")
+        if path.parent.parent.name in item["ops"]
+    ]
+    return selected_python_modules(modules, item)
+
+
 def stage_python(wheel, item, package):
     name = item["name"]
     destination = package / "_third_party" / item["python_package"]
     # Upstream adds its own package prefix; only its temporary wheel uses it.
     upstream_package = "cann_ops_transformer_" + item["vendor_name"]
     with zipfile.ZipFile(wheel) as archive:
-        if "cann_ops_transformer/__init__.py" in archive.namelist():
-            upstream_package = "cann_ops_transformer"
+        roots = {name.split("/", 1)[0] for name in archive.namelist()}
+    # The pinned 9.1 setup.py predates vendor-suffixed packages and op folders.
+    if upstream_package not in roots:
+        upstream_package = "cann_ops_transformer"
     extract_python(wheel, upstream_package, destination)
     ops_root = destination / "ops"
-    modules = sorted(
-        ".".join(path.parent.relative_to(ops_root).parts)
+    candidates = [
+        (".".join(path.parent.relative_to(ops_root).parts), path)
         for path in ops_root.glob("*/*/__init__.py")
-        if path.parent.name in item["ops"]
-    )
-    if not modules:
-        modules = [op for op in item["ops"] if (ops_root / (op + ".py")).is_file()]
-    if not modules:
-        raise RuntimeError("No selected Python bindings found in upstream wheel")
+    ] + [(path.stem, path) for path in ops_root.glob("*.py") if path.stem != "__init__"]
+    modules = selected_python_modules(candidates, item)
     qualified = "sgl_kernel_npu._third_party." + name
     # Upstream's builder still contains absolute imports of the unsuffixed package.
     # Rewrite imports only; Torch operator namespaces are not Python module paths.
     pattern = (
-        r"(?m)^(\s*(?:from|import)\s+)(?:"
+        r"(?m)^(\s*from\s+)(?:"
         + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
+    imports = (
+        r"(?m)^(\s*import\s+)("
+        + re.escape(upstream_package)
+        + r"|cann_ops_transformer)(\.[\w.]+)?(?:\s+as\s+(\w+))?[ \t]*$"
+    )
     for path in destination.rglob("*.py"):
-        text = re.sub(
-            r"(?m)^([ \t]*import[ \t]+)cann_ops_transformer[ \t]*$",
-            lambda m: m[1] + qualified + " as cann_ops_transformer",
-            path.read_text(),
-        )
-        path.write_text(re.sub(pattern, lambda m: m[1] + qualified, text))
+        text = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
+
+        def rewrite_import(match):
+            prefix, original, suffix, alias = match.groups()
+            if suffix and not alias:
+                # Keep Python's original root binding for `old.submodule` uses.
+                return (
+                    prefix
+                    + qualified
+                    + suffix
+                    + "\n"
+                    + prefix
+                    + qualified
+                    + " as "
+                    + original
+                )
+            return prefix + qualified + (suffix or "") + " as " + (alias or original)
+
+        path.write_text(re.sub(imports, rewrite_import, text))
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(
@@ -165,26 +228,40 @@ def prepare_source(item, source, directory):
         )
 
 
+def build_python_wheel(item, source, directory):
+    """Build source bindings with the same interpreter as the parent build."""
+    # The pinned 9.1 build.sh has no --torch_extension option. Both pinned
+    # setup.py versions can build the source wheel with the active Python.
+    wheel_dir = directory / "python-wheel"
+    environment = dict(
+        os.environ,
+        TORCH_EXTENSION_OPS=",".join(item["ops"]),
+        TORCH_EXTENSION_VENDOR=item["vendor_name"],
+    )
+    run(
+        [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", wheel_dir],
+        directory / "build-python.log",
+        cwd=source / "torch_extension",
+        env=environment,
+    )
+    wheels = list(wheel_dir.glob("*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError("Expected one selected upstream Python wheel")
+    return wheels[0]
+
+
 def build(item, source, directory):
+    if item["python_bindings"]:
+        source_python_modules(source, item)
     prepare_source(item, source, directory)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
-    extension = source / "torch_extension"
-    # CANN 9.1 has a flat Python package and a setuptools entry point, rather
-    # than the per-operator --torch_extension builder shipped in CANN 9.2.
-    if item["python_bindings"] and any(
-        (extension / "cann_ops_transformer/ops" / (op + ".py")).is_file()
-        for op in item["ops"]
-    ):
-        run(
-            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", "dist"],
-            directory / "build-python.log",
-            cwd=extension,
-        )
+    wheel = (
+        build_python_wheel(item, source, directory) if item["python_bindings"] else None
+    )
     installers = list((source / "build_out").glob("*.run"))
-    wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
-        raise RuntimeError("Expected one upstream .run and the selected Python wheel")
+    if len(installers) != 1:
+        raise RuntimeError("Expected one upstream .run")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -198,8 +275,8 @@ def build(item, source, directory):
     vendor = vendors[0]
     inspect_vendor(vendor, item)
     result = dict(config=item, vendor=vendor, license=source / item["license"])
-    if item["python_bindings"]:
-        result["wheel"] = wheels[0]
+    if wheel is not None:
+        result["wheel"] = wheel
     return result
 
 

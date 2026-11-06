@@ -99,6 +99,16 @@ Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
 experimental builds use the original directory names without `v2`.
 The CANN 9.2 `mla_prolog` Python API comes from the `mla_prolog_v3` build
 directory; that binding calls `aclnnMlaPrologV4WeightNz` for `mlaprolog_v4`.
+Profiles record these Python export aliases explicitly. The build checks every
+selected binding against the pinned source before compiling kernels, then checks
+the extracted wheel again. Both the flat CANN 9.1 Python package and the
+vendor-suffixed CANN 9.2 package are staged under the wheel's private namespace.
+The adapter builds these source wheels with the active Python and upstream
+`setup.py`; it does not require the newer `build.sh --torch_extension` command
+that is absent from the pinned CANN 9.1 source.
+The pinned CANN 9.1 released bindings provide mHC only, without a `mla_prolog`
+Python API. Its recipes profile also includes the A5 `hc_pre_inv_rms` and
+`hc_pre_sinkhorn` kernels used by the `npu_hc_pre` composite branch.
 
 ```bash
 # CANN 9.1.0: bundle recipes bridges, experimental ACLNN and released mHC.
@@ -137,11 +147,8 @@ available Python bindings and licenses are bundled into the same wheel; users do
 not need to install the dependency `.run` or wheel separately. The CANN 9.1
 experimental ops-transformer profile is vendor-only: selected recipes bridges
 provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
-operator profiles also bundle Python bindings. CANN 9.1's flat released package
-uses the upstream setuptools entry point; CANN 9.2 uses the upstream
-`build.sh --torch_extension` entry point. The CANN
-9.1 released profile includes mHC pre/post; that source revision has no
-`mla_prolog` Python binding.
+operator profiles also bundle Python bindings. Both versions use the upstream
+setuptools entry point with the active build interpreter.
 
 Successful dependency builds are cached under `build/third_party/` and reused
 when the build fingerprint and artifact checksums match. Changes to the profile,
