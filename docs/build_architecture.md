@@ -59,6 +59,8 @@ flowchart TD
 
 新的 HOST 子目录与 `cmake/aicpu` 并列。`sgl_collect_cpp_sources()` 从同一注册表提取所选 `CPP_SOURCES`、adapters 和选择宏；子目录只编译实现源码，生成启用 PIC 的 `sgl_host_operators STATIC`。
 
+未显式指定编译配置时，仅为 HOST 静态库加入 `-O3` 和 `NDEBUG`，对齐旧构建默认的 Release 优化。显式指定 Debug、Release 等配置时沿用工具链参数；多配置生成器使用所选配置。不再在 HOST 子目录设置无效的局部 `CMAKE_BUILD_TYPE`，也不改变父工程的 CANN 编译配置。
+
 通过 `npu_op_package_add(... FILES ... PACKAGE_PATH op_impl/host/lib)` 把静态库加入已有 `.run`，安装位置为 `vendors/sgl_kernel_npu/op_impl/host/lib/libsgl_host_operators.a`。不伪造 `CANN_OP_TYPE`，不调用 HOST 不需要的 OpDef/codegen、Tiling、设备编译器。
 
 `torch.cmake` 仅提取原 Torch CMake 中已有的 Python、Torch/torch_npu 头文件和 ABI 配置查询，供 HOST 实现与 adapters 复用。当前 HOST 源码使用 ATen/torch_npu/ACL，因此包含 HOST 的 `.run` 也需要匹配的 Torch/torch_npu 开发环境；纯 CANN `.run` 保持不依赖 Torch。

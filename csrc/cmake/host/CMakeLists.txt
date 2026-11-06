@@ -6,13 +6,16 @@ sgl_collect_cpp_sources(host_sources host_adapters host_definitions
 
 # Keep Torch registrations in the final extension, so static linking cannot
 # discard their initializers. Only the implementations belong in this archive.
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-endif()
 add_library(sgl_host_operators STATIC ${host_sources})
 target_compile_features(sgl_host_operators PRIVATE cxx_std_17)
 target_compile_options(sgl_host_operators PRIVATE ${torch_flags})
 target_compile_definitions(sgl_host_operators PRIVATE ${host_definitions})
+# Match the legacy Release defaults without changing the parent CANN configuration.
+# Explicit build configurations keep their toolchain-provided flags.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    target_compile_options(sgl_host_operators PRIVATE -O3)
+    target_compile_definitions(sgl_host_operators PRIVATE NDEBUG)
+endif()
 target_include_directories(sgl_host_operators PRIVATE
     "${torch_npu_root}/include" "${ASCEND_CANN_PACKAGE_PATH}/include"
     ${Python3_INCLUDE_DIRS})
