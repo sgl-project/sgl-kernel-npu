@@ -198,7 +198,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 ### HiCache host-to-device copies
 
-Set `SGL_KERNEL_NPU_COALESCE_KV_H2D=1` before starting a worker to enable coalescing for dense K-only `transfer_kv_dim_exchange` calls. When both sets of page IDs advance together, a long run can be submitted with one 2D copy per layer. K/V pairs and device-to-host transfers continue to use the page loop. An explicit `TransferFlag.FAST2D` selects the original path for comparisons.
+Set `SGL_KERNEL_NPU_COALESCE_KV_H2D=1` before starting a worker to enable queued, coalesced `transfer_kv_dim_exchange` H2D calls with CPU indices. K/V, index and scale components share one native submission and may use outer layer/page strides with contiguous page payloads. When both sets of page IDs advance together, a long run can use one 2D copy per layer. An explicit `TransferFlag.FAST2D` and device-to-host transfers retain the original path. See the [API and migration validation status](../../docs/api/en/operators/mem_cache/transfer_kv_dim_exchange.md); the latest queued-copy integration has not been rerun on hardware.
 
 ### Test
 Execute sgl_kernel_npu test scripts, for example

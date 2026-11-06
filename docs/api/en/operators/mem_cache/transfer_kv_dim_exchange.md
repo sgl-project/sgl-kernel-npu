@@ -1,6 +1,6 @@
 # transfer_kv_dim_exchange
 
-HiCache uses this helper to copy selected KV pages between page-first host storage and layer-first NPU storage. The public import is `sgl_kernel_npu.kvcacheio.transfer_kv_dim_exchange`. The copy is enqueued on the current NPU stream. Tested on Ascend 910B4 (A2) with CANN 9.1.0.
+HiCache uses this helper to copy selected KV pages between page-first host storage and layer-first NPU storage. The public import is `sgl_kernel_npu.kvcacheio.transfer_kv_dim_exchange`. The copy is enqueued on the current NPU stream. The original K-only PR and the queued-copy prototype were measured separately on Ascend 910B4 (A2) with CANN 9.1.0. The latest integration of the prototype has not been rerun on hardware.
 
 ## Signature
 
@@ -30,7 +30,21 @@ Returns `None` and writes the selected destination pages in place. Synchronize t
 
 ## Ascend native backend
 
-With `flags=None`, the default is `FAST2D`. Setting `SGL_KERNEL_NPU_COALESCE_KV_H2D=1` before import selects `FAST2D_COALESCED_H2D` for H2D. The native implementation can group dense K-only runs when both host and device page IDs advance together. Explicit `FAST2D`, K/V pairs and D2H keep page-wise copies.
+With `flags=None`, the default is `FAST2D`. Setting `SGL_KERNEL_NPU_COALESCE_KV_H2D=1` before import selects `FAST2D_COALESCED_H2D` for H2D. For CPU int64 indices, the wrapper submits K, V, index and scale components in one queued native call. Each nonempty component is five-dimensional (four-dimensional components are padded with a final singleton dimension). The page payload must be contiguous; outer layer/page strides may contain gaps, including layer slices of packed host pools. Each host/device pair must have matching dtype and payload dimensions; different pairs can have different dtypes, widths and layer counts.
+
+Both host and device page IDs must advance together before descriptors are combined. Repeated destinations retain input order. The planner uses actual byte strides and checks page alignment, complete token pages, bounds and the supported copy pitches before submitting. Unsupported payload strides are rejected by the queued path, not silently repacked.
+
+The native call uses Torch-NPU `OpCommand::RunOpApi` and the current stream without draining the host task queue. It captures tensor owners until submission; the Python helper additionally holds the component views and indices until a completion event retires on a subsequent call from the same thread. Callers must keep the submitting thread alive until copies complete and must not modify source buffers before completion. An event protects lifetime, not concurrent writes.
+
+Explicit `FAST2D` and D2H retain the existing implementation. Calls with non-CPU indices or unsupported tensor ranks retain the original #947 path. No private GLM environment variable, dynamic extension loader or SGLang monkey patch is needed.
+
+## Migration and validation status
+
+The queued implementation is ported from the previously measured GLM-5.2 extension (`glm52_cache_copy.cpp`, SHA256 `e19368569eb484d605b57920d57ce677c46814ceb3e82fcc2e2503d7d72a6960`). Its measured binary SHA256 was `c0bb68872171ccd5f41b4d9719f846feb6d002670138ff89d0a89c8c88664f71`.
+
+Historical prototype tests passed 21 combinations in each of task-queue modes 0 and 2, five-component layer-slice byte checks, and six-generation lifetime/stream-order checks. Two diagnostic model replays completed 36/36 requests each. These are historical prototype results, not validation or a performance claim for the latest PR integration. Native registration, wrapper routing, device selection for completion events, and acceptance of repeated destinations are integration adaptations; no new NPU experiment was run for this migration.
+
+The original #947 page-order/scale test remains applicable. The prototype's layer-slice, lifetime and invalid-index cases are carried into `tests/python/sgl_kernel_npu/test_queued_h2d.py` for subsequent hardware validation. Run that file separately with `TASK_QUEUE_ENABLE=0` and `TASK_QUEUE_ENABLE=2`.
 
 ## Example
 

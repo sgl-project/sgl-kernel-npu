@@ -4,6 +4,8 @@ from typing import Optional, Sequence
 
 import torch
 
+from ._queued_h2d import queued_h2d_copy
+
 
 class TransferDirection(Enum):
     H2D = 1
@@ -92,6 +94,33 @@ def transfer_kv_dim_exchange(
             if _COALESCE_KV_H2D and direction == TransferDirection.H2D
             else TransferFlag.FAST2D
         )
+    if (
+        direction == TransferDirection.H2D
+        and flags == TransferFlag.FAST2D_COALESCED_H2D
+        and host_indices.device.type == "cpu"
+        and device_indices.device.type == "cpu"
+    ):
+        components = []
+        for device, host in (
+            (device_k, host_k),
+            (device_v, host_v),
+            (device_index_k, host_index_k),
+            (device_index_k_scale, host_index_k_scale),
+        ):
+            if device is None or host is None or not device.numel() or not host.numel():
+                continue
+            if device.dim() == 4:
+                device = device.unsqueeze(-1)
+            if host.dim() == 4:
+                host = host.unsqueeze(-1)
+            if device.dim() != 5 or host.dim() != 5:
+                break
+            components.append((device, host))
+        else:
+            if components:
+                queued_h2d_copy(components, host_indices, device_indices, page_size)
+                return
+
     torch.ops.npu.transfer_kv_dim_exchange(
         device_k,
         host_k,

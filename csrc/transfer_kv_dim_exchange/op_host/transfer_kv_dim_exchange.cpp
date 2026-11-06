@@ -8,6 +8,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <ATen/DeviceGuard.h>
+
 #include "acl/acl.h"
 #include "defines.h"
 #include "kv_h2d_copy_plan.h"
@@ -141,6 +143,115 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
             }
         }
     }
+}
+
+// Port of the GLM-5.2 queued H2D implementation measured on Ascend 910B4.
+// Tensor handles are captured through submission; the Python wrapper retains them
+// through a completion event. Each component uses its actual outer byte strides.
+struct QueuedH2dCopy {
+    uintptr_t dst, src;
+    size_t dpitch, spitch, width, height;
+};
+struct QueuedH2dRun {
+    int64_t h, d, n;
+};
+
+HOST_API std::vector<int64_t> transfer_kv_dim_exchange_h2d(std::vector<at::Tensor> devices,
+                                                           std::vector<at::Tensor> hosts, at::Tensor host_idx,
+                                                           at::Tensor device_idx, int64_t page_size, bool coalesce)
+{
+    TORCH_CHECK(page_size > 0 && !devices.empty() && devices.size() == hosts.size(), "invalid pools");
+    TORCH_CHECK(host_idx.device().is_cpu() && device_idx.device().is_cpu(), "indices must already be on CPU");
+    TORCH_CHECK(host_idx.scalar_type() == at::kLong && device_idx.scalar_type() == at::kLong, "indices must be int64");
+    TORCH_CHECK(host_idx.dim() == 1 && device_idx.dim() == 1 && host_idx.numel() == device_idx.numel() &&
+                    host_idx.numel() % page_size == 0,
+                "complete matching token pages required");
+    auto hi = host_idx.contiguous();
+    auto di = device_idx.contiguous();
+    const int64_t *hp = hi.data_ptr<int64_t>();
+    const int64_t *dp = di.data_ptr<int64_t>();
+    const int64_t pages = hi.numel() / page_size;
+    std::vector<QueuedH2dRun> runs;
+    int64_t maxh = -1, maxd = -1;
+    for (int64_t i = 0; i < pages; ++i) {
+        int64_t h = hp[i * page_size], d = dp[i * page_size];
+        TORCH_CHECK(h >= 0 && d >= 0 && h % page_size == 0 && d % page_size == 0, "page alignment invalid");
+        for (int64_t j = 1; j < page_size; ++j)
+            TORCH_CHECK(hp[i * page_size + j] == h + j && dp[i * page_size + j] == d + j,
+                        "indices do not describe whole contiguous pages");
+        h /= page_size;
+        d /= page_size;
+        // Keep repeated destinations in input order, as required by the public API.
+        maxh = std::max(maxh, h);
+        maxd = std::max(maxd, d);
+        if (coalesce && !runs.empty() && h == runs.back().h + runs.back().n && d == runs.back().d + runs.back().n)
+            ++runs.back().n;
+        else
+            runs.push_back({h, d, 1});
+    }
+    at::DeviceGuard guard(devices.front().device());
+    std::vector<QueuedH2dCopy> plan;
+    int64_t total_bytes = 0, stock_calls = 0;
+    for (size_t k = 0; k < devices.size(); ++k) {
+        auto &dev = devices[k];
+        auto &host = hosts[k];
+        TORCH_CHECK(dev.device().type() == c10::DeviceType::PrivateUse1 && dev.device() == devices.front().device() &&
+                        host.device().is_cpu(),
+                    "pool devices invalid");
+        TORCH_CHECK(dev.dim() == 5 && host.dim() == 5 && dev.scalar_type() == host.scalar_type(),
+                    "pool shape/dtype invalid");
+        TORCH_CHECK(dev.size(0) == host.size(1) && dev.size(2) == page_size && host.size(2) == page_size &&
+                        dev.size(3) == host.size(3) && dev.size(4) == host.size(4),
+                    "pool dimensions differ");
+        TORCH_CHECK(dev.stride(4) == 1 && host.stride(4) == 1 && dev.stride(3) == dev.size(4) &&
+                        host.stride(3) == host.size(4) && dev.stride(2) == dev.size(3) * dev.size(4) &&
+                        host.stride(2) == host.size(3) * host.size(4),
+                    "inner dimensions must be contiguous");
+        TORCH_CHECK(maxd < dev.size(1) && maxh < host.size(0), "page index out of bounds");
+        if (!pages) continue;
+        const int64_t elem = dev.element_size(), layers = dev.size(0);
+        const int64_t width = page_size * dev.size(3) * dev.size(4) * elem;
+        const int64_t ds0 = dev.stride(0) * elem, ds1 = dev.stride(1) * elem;
+        const int64_t hs0 = host.stride(0) * elem, hs1 = host.stride(1) * elem;
+        TORCH_CHECK(
+            layers > 0 && width > 0 && width <= 5000000 && ds0 >= width && ds1 >= width && hs0 >= width && hs1 >= width,
+            "unsupported copy pitches");
+        TORCH_CHECK((layers - 1) * ds0 + maxd * ds1 + width <=
+                            static_cast<int64_t>(dev.storage().nbytes()) - dev.storage_offset() * elem &&
+                        maxh * hs0 + (layers - 1) * hs1 + width <=
+                            static_cast<int64_t>(host.storage().nbytes()) - host.storage_offset() * elem,
+                    "strided copy exceeds storage");
+        const uintptr_t db = reinterpret_cast<uintptr_t>(dev.data_ptr());
+        const uintptr_t hb = reinterpret_cast<uintptr_t>(host.data_ptr());
+        total_bytes += pages * layers * width;
+        stock_calls += pages;
+        for (const auto &r : runs) {
+            if (coalesce && r.n >= layers) {
+                for (int64_t l = 0; l < layers; ++l)
+                    plan.push_back({db + l * ds0 + r.d * ds1, hb + r.h * hs0 + l * hs1, static_cast<size_t>(ds1),
+                                    static_cast<size_t>(hs0), static_cast<size_t>(width), static_cast<size_t>(r.n)});
+            } else {
+                for (int64_t j = 0; j < r.n; ++j)
+                    plan.push_back({db + (r.d + j) * ds1, hb + (r.h + j) * hs0, static_cast<size_t>(ds0),
+                                    static_cast<size_t>(hs1), static_cast<size_t>(width), static_cast<size_t>(layers)});
+            }
+        }
+    }
+    for (const auto &c : plan)
+        TORCH_CHECK(c.height > 0 && c.height <= 5242880, "copy height invalid");
+    const auto stream = c10_npu::getCurrentNPUStream().stream(false);
+    // Capture owning Tensor handles until the host task is submitted. The
+    // Python wrapper additionally retains them until a completion event retires.
+    if (!plan.empty())
+        at_npu::native::OpCommand::RunOpApi("sgl_kernel_queued_h2d", [plan, devices, hosts, stream]() -> int {
+            for (const auto &c : plan) {
+                int rc = aclrtMemcpy2dAsync(reinterpret_cast<void *>(c.dst), c.dpitch, reinterpret_cast<void *>(c.src),
+                                            c.spitch, c.width, c.height, ACL_MEMCPY_HOST_TO_DEVICE, stream);
+                if (rc != ACL_SUCCESS) return rc;
+            }
+            return 0;
+        });
+    return {total_bytes, static_cast<int64_t>(plan.size()), stock_calls, static_cast<int64_t>(runs.size()), pages};
 }
 
 }  // namespace npu_kernel
