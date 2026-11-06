@@ -254,3 +254,72 @@ def test_sparse_flash_mla(batch, query_len):
     data = generate_data(batch, query_len)
     executor = check_sparse_flash_mla_accuracy(data, target="compute")
     check_performance(executor, enable_perf=(batch, query_len) in perf_shape)
+
+
+@pytest.mark.parametrize("batch", [1, 10], ids=["draft-b1", "draft-b10"])
+def test_dspark_sparse_flash_mla_graph_replay(batch):
+    from sgl_kernel_npu.operators.attention import (
+        sparse_flash_mla,
+        sparse_flash_mla_metadata,
+    )
+    from sgl_kernel_npu.operators.utils.transformer_compat import (
+        get_transformer_metadata_size,
+    )
+
+    from tests.python.operators.attention.sparse_flash_mla_inputs import (
+        generate_dspark_data,
+    )
+    from tests.python.utils.accuracy import assert_accuracy
+    from tests.python.utils.common import (
+        get_skip_acc_check,
+        get_test_impls,
+        require_distinct_impls,
+    )
+    from tests.python.utils.standards import AccuracyStandard
+
+    impl, impl_ref = get_test_impls()
+    require_distinct_impls(sparse_flash_mla, impl, impl_ref)
+    query, metadata_kwargs, kwargs = generate_dspark_data(batch, 6)
+    # Allocation must not launch metadata work on temporary synthetic inputs.
+    metadata = torch.zeros(
+        get_transformer_metadata_size("sparse_flash_mla_metadata"),
+        dtype=torch.int32,
+        device=query.device,
+    )
+    metadata.copy_(sparse_flash_mla_metadata(impl=impl, **metadata_kwargs))
+    kwargs["metadata"] = metadata
+    sparse_flash_mla(query, impl=impl, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        actual = sparse_flash_mla(query, impl=impl, **kwargs)
+    pointer = metadata.data_ptr()
+    for step in (1, 2):
+        lengths = [
+            256 - step * 16 if b % 2 == 0 else 128 - step * 8 for b in range(batch)
+        ]
+        query_new, metadata_new, kwargs_new = generate_dspark_data(batch, 6, lengths)
+        query.copy_(query_new * (1.0 / (step + 1)))
+        for key in ("seqused_ori_kv", "ori_topk_length", "ori_sparse_indices"):
+            kwargs[key].copy_(kwargs_new[key])
+        metadata_kwargs["seqused_ori_kv_cpu"].copy_(metadata_new["seqused_ori_kv_cpu"])
+        metadata.copy_(sparse_flash_mla_metadata(impl=impl, **metadata_kwargs))
+        graph.replay()
+        torch.npu.synchronize()
+        assert metadata.data_ptr() == pointer
+        if get_skip_acc_check() is not True:
+            expected = sparse_flash_mla(
+                query,
+                impl=impl_ref,
+                **{
+                    **kwargs,
+                    "metadata": sparse_flash_mla_metadata(
+                        impl=impl_ref, **metadata_kwargs
+                    ),
+                },
+            )
+            assert_accuracy(
+                actual,
+                expected,
+                {"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
+            )

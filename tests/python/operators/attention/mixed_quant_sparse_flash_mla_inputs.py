@@ -132,7 +132,13 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
-    assert metadata.ndim == 1 and metadata.numel() > 0
+    from sgl_kernel_npu.operators.utils.transformer_compat import (
+        get_transformer_metadata_size,
+    )
+
+    assert metadata.shape == (
+        get_transformer_metadata_size("mixed_quant_sparse_flash_mla_metadata"),
+    )
     assert metadata.is_contiguous()
     # Opaque metadata is checked through paired compute, not byte comparison.
     return make_executor(

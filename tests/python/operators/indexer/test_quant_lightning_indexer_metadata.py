@@ -33,7 +33,13 @@ def test_quant_lightning_indexer_metadata(case):
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
-    assert metadata.ndim == 1 and metadata.numel() > 0
+    from sgl_kernel_npu.operators.utils.transformer_compat import (
+        get_transformer_metadata_size,
+    )
+
+    assert metadata.shape == (
+        get_transformer_metadata_size("quant_lightning_indexer_metadata"),
+    )
     assert metadata.is_contiguous()
     # Binary tiling is not comparable to the eager reference descriptor.
     compute = make_executor(quant_lightning_indexer, args=args, kwargs=kwargs)

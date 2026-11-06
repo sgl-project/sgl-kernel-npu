@@ -22,7 +22,7 @@ def generate_data(batch, query_len):
     q = torch.randn(batch * query_len, 64, 512, dtype=torch.bfloat16) * 0.1
     kv = torch.randn(batch * 2, 128, 1, 512, dtype=torch.bfloat16)
     cu = torch.arange(batch + 1, dtype=torch.int32) * query_len
-    lengths = torch.tensor([256, 128][:batch], dtype=torch.int32)
+    lengths = torch.tensor(([256, 128] * batch)[:batch], dtype=torch.int32)
     common = dict(
         cu_seqlens_q=cu,
         seqused_q=cu[1:] - cu[:-1],
@@ -88,7 +88,13 @@ def check_sparse_flash_mla_accuracy(data, *, target):
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
-    assert metadata.ndim == 1 and metadata.numel() > 0
+    from sgl_kernel_npu.operators.utils.transformer_compat import (
+        get_transformer_metadata_size,
+    )
+
+    assert metadata.shape == (
+        get_transformer_metadata_size("sparse_flash_mla_metadata"),
+    )
     assert metadata.is_contiguous()
     # Opaque metadata is checked through paired compute, not byte comparison.
     return make_executor(
@@ -96,3 +102,53 @@ def check_sparse_flash_mla_accuracy(data, *, target):
         kwargs=metadata_kwargs,
         accuracy_checked=executor.accuracy_checked,
     )
+
+
+def generate_dspark_data(batch, query_len, kv_lengths=None):
+    """Explicit logical sparse rows for the DSpark multi-token draft ABI."""
+    q, kv, common, _ = generate_data(batch, query_len)
+    lengths = common["seqused_ori_kv"]
+    if kv_lengths is not None:
+        lengths.copy_(torch.tensor(kv_lengths, dtype=torch.int32, device=q.device))
+    lengths_cpu = lengths.cpu()
+    width = ((128 + query_len + 127) // 128) * 128
+    indices_cpu = torch.full(
+        (batch * query_len, 1, width), -1, dtype=torch.int32, device="cpu"
+    )
+    counts_cpu = torch.zeros(batch * query_len, 1, dtype=torch.int32, device="cpu")
+    for b, kv_len in enumerate(lengths_cpu.tolist()):
+        for offset in range(query_len):
+            end = kv_len - query_len + offset + 1
+            start = max(0, end - 128)
+            row = b * query_len + offset
+            count = end - start
+            indices_cpu[row, 0, :count] = torch.arange(
+                start, end, dtype=torch.int32, device="cpu"
+            )
+            counts_cpu[row, 0] = count
+    common.update(
+        ori_mask_mode=0,
+        ori_win_left=127 + query_len,
+        ori_topk_length=counts_cpu.to(q.device),
+        cu_seqlens_q_cpu=common["cu_seqlens_q"].cpu(),
+        seqused_ori_kv_cpu=lengths_cpu,
+    )
+    metadata_kwargs = dict(
+        num_heads_q=64,
+        num_heads_kv=1,
+        head_dim=512,
+        batch_size=batch,
+        has_ori_kv=True,
+        has_cmp_kv=False,
+        ori_topk=width,
+        **common,
+    )
+    kwargs = dict(
+        ori_kv=kv,
+        ori_block_table=torch.arange(batch * 2, dtype=torch.int32).reshape(batch, 2),
+        ori_sparse_indices=indices_cpu.to(q.device),
+        sinks=torch.zeros(64, dtype=torch.float32),
+        softmax_scale=512**-0.5,
+        **common,
+    )
+    return q, metadata_kwargs, kwargs

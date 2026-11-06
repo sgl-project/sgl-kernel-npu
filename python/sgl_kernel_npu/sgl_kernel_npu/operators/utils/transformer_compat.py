@@ -30,6 +30,22 @@ def cann_backend():
     )
 
 
+def get_transformer_metadata_size(operator_name):
+    """Return the pinned metadata ABI length without executing an NPU kernel.
+
+    All three migrated metadata APIs emit int32 buffers. The bundled 9.1
+    bindings use 1024 elements; the bundled 9.2 bindings use 2048 elements.
+    Graph setup must query this contract rather than launch synthetic work.
+    """
+    if operator_name not in (
+        "sparse_flash_mla_metadata",
+        "mixed_quant_sparse_flash_mla_metadata",
+        "quant_lightning_indexer_metadata",
+    ):
+        raise ValueError(f"Unknown transformer metadata operator: {operator_name}")
+    return 1024 if cann_backend() == "cann_9_1" else 2048
+
+
 @functools.lru_cache(maxsize=None)
 def require_op(namespace, name, *, backend=None, required_arguments=()):
     """Load one bundled binding and validate the requested SDK and schema."""
