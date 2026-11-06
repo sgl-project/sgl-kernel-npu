@@ -34,11 +34,26 @@ def diff_lines(files):
     return anchors
 
 
-def review_payload(report, files, commit, run_url, has_merge_ref=True):
+def normalized_text(text):
+    return " ".join(text.casefold().split())
+
+
+def review_payload(report, files, commit, run_url, has_merge_ref=True, history=None):
     if not isinstance(report, dict) or set(report) != {"findings"}:
         raise ValueError("Expected an object containing only findings")
     if not isinstance(report["findings"], list):
         raise ValueError("findings must be a list")
+    history = [] if history is None else history
+    if not isinstance(history, list) or any(
+        not isinstance(comment, dict)
+        or (comment.get("body") is not None and not isinstance(comment["body"], str))
+        for comment in history
+    ):
+        raise ValueError("history must be a list of comments")
+    # The model handles semantic duplicates; this guard catches exact body repeats
+    # in both inline comments and older Markdown review bodies, regardless of title.
+    previous = [normalized_text(comment.get("body") or "") for comment in history]
+    seen = set()
     anchors = diff_lines(files)
     comments, overall = [], []
     for finding in report["findings"]:
@@ -67,6 +82,10 @@ def review_payload(report, files, commit, run_url, has_merge_ref=True):
             or side not in ("LEFT", "RIGHT")
         ):
             raise ValueError("Invalid finding location")
+        key = normalized_text(body)
+        if key in seen or any(key in old for old in previous):
+            continue
+        seen.add(key)
         text = "### {}\n\n{}".format(title, body.strip())
         if (path, side, line) in anchors:
             comments.append(dict(path=path, line=line, side=side, body=text))
@@ -80,7 +99,9 @@ def review_payload(report, files, commit, run_url, has_merge_ref=True):
             overall.append(text + location)
         if len(text.encode("utf-8")) > 60000:
             raise ValueError("Finding exceeds the comment size limit")
-    if not report["findings"]:
+    if not comments and not overall and history:
+        return None
+    if not comments and not overall:
         overall.append("No actionable findings.")
     if not has_merge_ref:
         overall.append("No merge ref was available; reviewed the PR head only.")
@@ -108,6 +129,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--files", required=True, type=Path)
+    parser.add_argument("--history", type=Path)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr", required=True, type=int)
     parser.add_argument("--commit", required=True)
@@ -120,7 +142,11 @@ def main():
         args.commit,
         args.run_url,
         has_merge_ref=not args.head_only,
+        history=json.loads(args.history.read_text()) if args.history else [],
     )
+    if payload is None:
+        print("No new findings; no review posted.")
+        return
     endpoint = "repos/{}/pulls/{}".format(args.repo, args.pr)
     if gh_api(endpoint)["head"]["sha"] != args.commit:
         raise RuntimeError(
