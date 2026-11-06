@@ -212,6 +212,13 @@ def inspect_vendor(vendor, item):
 
 def prepare_source(item, source, directory):
     """Apply checked target-specific patches before compiling upstream code."""
+    # Check the pinned tree before spending time compiling the vendor package.
+    experimental = any("--experimental" in command for command in item["commands"])
+    root = source / "experimental" if experimental else source
+    for op in item["ops"]:
+        matches = list(root.glob("*/" + op + "/CMakeLists.txt"))
+        if len(matches) != 1:
+            raise RuntimeError("Expected one upstream operator directory for " + op)
     for name, expected in item["source_patches"].items():
         patch = Path(__file__).parent / "patches" / name
         if hashlib.sha256(patch.read_bytes()).hexdigest() != expected:
