@@ -28,6 +28,12 @@ def configure(config, jobs):
     config["python_bindings"] = config.get("python_bindings", True)
     if not isinstance(config["python_bindings"], bool):
         raise ValueError("python_bindings must be a boolean")
+    config["source_patches"] = {}
+    if config["soc"] == "ascend950" and "indexer_quant_cache" in config["ops"]:
+        patch = Path(__file__).parent / "patches/ascend950-indexer-quant-cache.patch"
+        config["source_patches"][patch.name] = hashlib.sha256(
+            patch.read_bytes()
+        ).hexdigest()
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -123,7 +129,26 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def prepare_source(item, source, directory):
+    """Apply checked target-specific patches before compiling upstream code."""
+    for name, expected in item["source_patches"].items():
+        patch = Path(__file__).parent / "patches" / name
+        if hashlib.sha256(patch.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Third-party source patch changed: " + name)
+        run(
+            ["git", "apply", "--check", patch],
+            directory / (name + ".check.log"),
+            cwd=source,
+        )
+        run(
+            ["git", "apply", patch],
+            directory / (name + ".apply.log"),
+            cwd=source,
+        )
+
+
 def build(item, source, directory):
+    prepare_source(item, source, directory)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     installers = list((source / "build_out").glob("*.run"))
