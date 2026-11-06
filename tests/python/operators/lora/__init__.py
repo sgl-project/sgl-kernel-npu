@@ -1,1 +1,1 @@
-"""Public-interface tests for LoRA sgemmv_expand."""
+"""Public-interface tests for LoRA operators."""

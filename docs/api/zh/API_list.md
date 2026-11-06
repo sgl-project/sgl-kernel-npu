@@ -76,6 +76,9 @@
 | [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
 | [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`、`torch_native` |
 | [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`、`torch_native` |
+| [sgemmv_shrink](operators/lora/sgemmv_shrink.md) | `ascendc`、`torch_native` |
+| [sgemmc_expand](operators/lora/sgemmc_expand.md) | `ascendc`、`torch_native` |
+| [sgemmc_shrink](operators/lora/sgemmc_shrink.md) | `ascendc`、`torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
 | [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`、`torch_native` |
