@@ -93,8 +93,7 @@ def build_torch(
         )
         (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
-        # Schema 1 listed CANN IDs only; schema 2 records CANN + HOST and their subsets.
-        "schema_version": 2,
+        "schema_version": 1,
         "build_mode": "REFACTOR",
         "arch_version": arch_version,
         "selection_kind": cann.selection_kind,
@@ -149,12 +148,11 @@ def wheel_build_tag(manifest):
     # Preserve main's tag format and third-party fingerprint. Native ALL is also
     # hashed because native selections can contain CANN, CPP or both.
     parts = ["1", "refactor", manifest["arch_version"], kind]
-    if kind == "custom" or manifest.get("schema_version", 1) >= 2:
-        parts.append(
-            hashlib.sha256(
-                ",".join(sorted(manifest["operators"])).encode()
-            ).hexdigest()[:10]
-        )
+    parts.append(
+        hashlib.sha256(",".join(sorted(manifest["operators"])).encode()).hexdigest()[
+            :10
+        ]
+    )
     if manifest.get("third_party"):
         parts.extend(
             [

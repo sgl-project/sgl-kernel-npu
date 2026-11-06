@@ -73,7 +73,7 @@ flowchart TD
 
 Torch CMake 只编译选中的 `TORCH_ADAPTER`，不再创建 HOST 对象目标。存在 HOST 时，从已安装 vendor 查找静态库并链接；不存在 HOST 时不查找。CANN adapters 继续使用已安装 ACLNN 头文件及原 SDK 依赖。
 
-wheel 清单使用 schema 2：schema 1 的 `operators` 只表示 CANN ID，schema 2 改为 CANN/HOST 并集，并通过 `operators_by_type` 记录两组实际 ID。HOST 静态库只用于最终链接，不复制进 wheel；HOST-only 的 wheel 不需要仓内 CANN vendor。既有运行时加载路径、第三方依赖和 wheel 校验不变。
+wheel 清单沿用 `schema_version: 1`，`operators` 记录 CANN/HOST 并集，并通过 `operators_by_type` 记录两组实际 ID。wheel 标签统一计算实际算子集合的哈希，不按 schema 版本分支。HOST 静态库只用于最终链接，不复制进 wheel；HOST-only 的 wheel 不需要仓内 CANN vendor。既有运行时加载路径、第三方依赖和 wheel 校验不变。
 
 ## 构建目录与验证边界
 

@@ -502,12 +502,12 @@ Build-tag fields use underscores. `<set-id>` is the first 10 hexadecimal charact
 of the selected native operator list's SHA-256 hash. `tp` means `third_party`;
 the optional `tp_<dependency-id>` identifies bundled third-party contents with a
 10-character SHA-256 fingerprint. Neither ID is a source Git commit.
-Schema-2 wheels hash the actual native IDs for `all` as well as `custom`, so
+Wheels hash the actual native IDs for `all` as well as `custom`, so
 different actual native sets have distinct build tags, including when selected by `all`.
-Schema 1 recorded only CANN IDs; schema 2 makes `operators` the combined CANN/HOST
-selection and adds `operators_by_type` for the separate subsets.
-The package's `_build_manifest.json` records the actual full native selection,
-`operators_by_type`, SDK targets and third-party payloads.
+The package's `_build_manifest.json` retains `schema_version: 1`. Its `operators`
+list records the actual combined CANN/HOST selection, while `operators_by_type`
+records the separate subsets, alongside SDK targets and third-party payloads.
+Wheel tags are computed from the actual selection, independently of the schema version.
 HOST-only wheels have no repository device compute units or runtime CANN vendor.
 The HOST archive is a build input and is not bundled in the wheel. The native cache
 checks include the unified request; changing the native selection requires
