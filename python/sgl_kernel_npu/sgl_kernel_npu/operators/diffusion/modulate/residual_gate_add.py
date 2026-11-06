@@ -53,8 +53,9 @@ def residual_gate_add(residual, update, gate, *, impl="auto"):
         torch.Tensor: Newly allocated BF16 result with ``residual``'s shape and
         device. Inputs are not modified.
 
-    The Triton backend requires a power-of-two last dimension and at least 16
-    rows per tile; other shapes are rejected before launch.
+    The Triton backend requires a power-of-two last dimension that fits one
+    8192-element tile and an exact row split; other shapes are rejected before
+    launch.
     """
     impl_fn = get_impl_by_name("diffusion.residual_gate_add", impl)
     return impl_fn(residual, update, gate)

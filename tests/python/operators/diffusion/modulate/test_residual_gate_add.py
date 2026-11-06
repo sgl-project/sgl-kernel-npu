@@ -40,6 +40,11 @@ def generate_data(shape, gate_mode, seed=42):
         pytest.param((1, 4096, 4096), id="qwen-image-2.1-block-width"),
         pytest.param((1, 16, 128), id="edge-minimum-tile"),
         pytest.param(
+            (1, 8, 128),
+            id="edge-small-row-tile",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
             (2, 64, 256),
             id="edge-two-batches",
             marks=pytest.mark.extra_checks,
@@ -67,7 +72,6 @@ def test_residual_gate_add(shape, gate_mode):
     "shape",
     [
         pytest.param((1, 16, 129), id="non-power-of-two-width"),
-        pytest.param((1, 8, 128), id="fewer-than-minimum-rows"),
     ],
 )
 def test_residual_gate_add_rejects_unsupported_shape(shape):

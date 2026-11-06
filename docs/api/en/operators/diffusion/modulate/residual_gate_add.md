@@ -45,7 +45,7 @@ The result is bitwise identical to separate eager BF16 multiply and add operatio
 ## triton backend
 
 - Processes `[ROWS, C]` tiles; `ROWS` is clamped by the UB budget and by row divisibility, and each program walks several tiles.
-- Requires a power-of-two last dimension and at least 16 rows per tile with an exact row split; otherwise raises `ValueError` before launch.
+- Requires a power-of-two last dimension that fits one 8192-element tile and an exact row split; otherwise raises `ValueError` before launch.
 - Accumulates in FP32, rounds the product to BF16 explicitly, then adds in FP32 and rounds once on store.
 
 ## torch_native backend

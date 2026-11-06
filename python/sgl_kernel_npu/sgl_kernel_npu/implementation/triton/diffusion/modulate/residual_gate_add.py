@@ -18,10 +18,6 @@ DEFAULT_ROWS = 16
 # FP32 elements per tile: four live buffers at 8192 elements are about 128 KB,
 # which stays inside the 192 KB UB budget.
 ELEMENTS_BUDGET = 8192
-# Keeps the broadcast-gate tile at the same 16-row floor as the RMSNorm kernel,
-# where triton_ascend 3.2.2 returns wrong values below it; smaller inputs are
-# rejected instead of silently miscomputed.
-MIN_ROWS = 16
 # The kernel indexes with 32-bit offsets; larger tensors need a different layout.
 MAX_NUMEL = 2**31
 
@@ -79,14 +75,17 @@ def residual_gate_add(residual, update, gate):
     cols = residual.shape[-1]
     if cols & (cols - 1):
         raise ValueError("the last dimension must be a power of two")
+    if cols > ELEMENTS_BUDGET:
+        raise ValueError(
+            f"the last dimension must fit one tile of {ELEMENTS_BUDGET} elements"
+        )
     rows = numel // cols
     rows_per_tile = min(DEFAULT_ROWS, max(1, ELEMENTS_BUDGET // cols))
     while rows_per_tile > 1 and rows % rows_per_tile:
         rows_per_tile //= 2
-    if rows % rows_per_tile or rows_per_tile < MIN_ROWS:
+    if rows % rows_per_tile:
         raise ValueError(
-            "rows must divide into tiles of at least "
-            f"{MIN_ROWS} rows; got {rows} rows of {cols} columns"
+            f"rows must divide into tiles; got {rows} rows of {cols} columns"
         )
 
     if not gate.is_contiguous():
