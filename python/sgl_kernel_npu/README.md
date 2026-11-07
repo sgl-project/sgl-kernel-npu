@@ -10,7 +10,7 @@ The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
-### Build a wheel or native operator installer
+### Build a wheel or `.run` installer
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
@@ -45,7 +45,7 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | --- | --- | --- |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
-| `--artifact run/wheel` | `wheel` | Native operator installer or installable Python wheel. |
+| `--artifact run/wheel` | `wheel` | Build a `.run` operator installer or an installable Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
