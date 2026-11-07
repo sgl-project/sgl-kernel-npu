@@ -103,9 +103,9 @@ previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place
 Wheel builds read `third_party/profiles/cann-<SDK-version>/*.json`, then select
 the profile's `ops.arch22` or `ops.arch35` list using `--arch-version`.
 Profiles pin the source repository, commit, operators and build commands.
-`--ops` selects this repository's CANN and host C++ operators; `--third-party`
-independently selects external libraries. The profile filename, not its internal
-package name, is passed to `--third-party`.
+`--ops` selects repository-owned native operators; `--third-party` independently
+selects external libraries. The profile filename, not its internal package name,
+is passed to `--third-party`.
 
 ```bash
 # CANN 9.1.0: build one CANN operator and bundle the recipes dependency.
