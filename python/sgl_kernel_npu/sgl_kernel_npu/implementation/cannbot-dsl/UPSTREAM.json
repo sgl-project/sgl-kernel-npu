@@ -10,7 +10,8 @@
     {
       "path": "samples/attention/indexer_prologue_k/indexer_prologue_k.py",
       "file": "indexer_prologue_k.py",
-      "sha256": "132b87236afd8efcea3b0263a2a68e391e100a53ff32d2eddd255b99374a38b5"
+      "sha256": "2516abac336155cd15e3d8b72547f04fec1fede785155f12becd1db0f0344f9a",
+      "upstream_sha256": "132b87236afd8efcea3b0263a2a68e391e100a53ff32d2eddd255b99374a38b5"
     },
     {
       "path": "samples/attention/mixed_quant_sparse_flash_mla/mixed_quant_sparse_flash_mla.py",
@@ -41,6 +42,13 @@
       "path": "samples/attention/quant_sparse_lightning_indexer_metadata/quant_sparse_lightning_indexer_metadata.py",
       "file": "quant_sparse_lightning_indexer_metadata.py",
       "sha256": "c75be92de66a0307500bb5da12f622ad35df87f2dd9bee15a09bbc4d3a19a0a4"
+    }
+  ],
+  "patches": [
+    {
+      "file": "indexer_prologue_k.py",
+      "upstream_commit": "31bbd706a4e6a72b278da4b70718e60286ccb9e7",
+      "description": "Pad projection backing to BASE_M rows while preserving logical T."
     }
   ]
 }

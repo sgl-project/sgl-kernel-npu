@@ -6,6 +6,7 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE.cannbot-dsl in the root of the software repository for the full text of the License.
 
+import importlib
 import math
 
 import pytest
@@ -14,6 +15,56 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("cannbotdsl")
 import torch
 from sgl_kernel_npu.operators.indexer import indexer_prologue_k
+
+
+@pytest.mark.npu
+@pytest.mark.parametrize("t", [1, 17])
+def test_projection_tail_stays_inside_allocation(t, monkeypatch):
+    """A full fixpipe tail tile must not corrupt storage after the allocation."""
+    import torch_npu
+
+    module = importlib.import_module(
+        "sgl_kernel_npu.implementation.cannbot-dsl.attention.indexer_prologue_k"
+    )
+    d = 128
+    inputs = _make_inputs(t, 512, d, 64, 2, 64, 0, -1, True, 20261001)
+    latent, wk, norm, sin, cos, cache, indices, scale = inputs
+    wk = torch_npu.npu_format_cast(wk.npu(), torch_npu.Format.FRACTAL_NZ)
+    allocation = {}
+
+    class GuardedTorch:
+        def __getattr__(self, name):
+            return getattr(torch, name)
+
+        def empty(self, size, *args, **kwargs):
+            if (
+                len(size) == 2
+                and size[1] == d
+                and t <= size[0] <= t + 16
+                and kwargs.get("dtype") == torch.bfloat16
+            ):
+                backing = torch.empty((size[0] + 16, d), *args, **kwargs)
+                backing.view(torch.int16).fill_(0x7FFF)
+                allocation.update(rows=size[0], backing=backing)
+                return backing[: size[0]]
+            return torch.empty(size, *args, **kwargs)
+
+    monkeypatch.setattr(module, "torch", GuardedTorch())
+    indexer_prologue_k(
+        latent.npu(),
+        wk,
+        norm.npu(),
+        sin.npu(),
+        cos.npu(),
+        cache.npu(),
+        k_scale_cache=scale.npu(),
+        cache_index=indices.npu(),
+        storage_mode=0,
+        norm_eps=1e-6,
+    )
+    torch.npu.synchronize()
+    guard = allocation["backing"][allocation["rows"] :].view(torch.int16).cpu()
+    assert bool((guard == 0x7FFF).all())
 
 
 def _make_rope(t, dr, generator):
@@ -270,8 +321,7 @@ def _run_case(
                 (index, int(actual_cache[index]), int(expected_cache[index]))
             )
         pytest.fail(
-            f"k_cache mismatch_count={mismatch.shape[0]}, "
-            f"first_mismatches={details}"
+            f"k_cache mismatch_count={mismatch.shape[0]}, first_mismatches={details}"
         )
     if scale_npu is not None:
         actual_scale = scale_npu.cpu()

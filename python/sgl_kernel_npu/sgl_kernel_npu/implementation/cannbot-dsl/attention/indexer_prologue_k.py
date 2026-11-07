@@ -1215,9 +1215,11 @@ def indexer_prologue_k(
         scale_bytes,
     )
 
-    projected = torch.empty(
-        (total_rows, index_head_dim), dtype=latent.dtype, device=latent.device
+    projected_rows = _ceil_div(total_rows, BASE_M) * BASE_M
+    projected_storage = torch.empty(
+        (projected_rows, index_head_dim), dtype=latent.dtype, device=latent.device
     )
+    projected = projected_storage[:total_rows]
     write_scale_cache = storage_mode == 0 and k_scale_cache is not None
     if write_scale_cache:
         scale_cache_arg = k_scale_cache
