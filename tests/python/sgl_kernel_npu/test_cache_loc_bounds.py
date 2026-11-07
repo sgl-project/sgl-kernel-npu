@@ -15,7 +15,7 @@ import sgl_kernel_npu
 import torch
 import torch_npu
 
-MAX_STEP = 16  # csrc/cache_location_assign/op_host/tiling/cache_loc_assign.h
+MAX_STEP = 16  # historical per-row limit this test guards against
 POOL_ROWS = 512
 ROW_LEN = 8192
 
@@ -73,20 +73,23 @@ def run(bs, step, req_dtype, at_block_end, seed=0):
     ), "cache_loc_assign modified its input"
     print(
         f"  bs={bs:4d} step={step:2d} {str(req_dtype).split('.')[-1]:>5s} "
-        f"out={n:5d} int32 (kernel must not touch {bs * MAX_STEP:5d}) "
+        f"out={n:5d} int32 (historical limit {bs * MAX_STEP:5d}) "
         f"{'at block end' if at_block_end else 'fresh block'}: ok"
     )
 
 
 if __name__ == "__main__":
-    # step < MAX_STEP is the overrun regime: the kernel would read and store back
-    # bs * MAX_STEP entries for a tensor holding bs * step.
+    # step < 16 is the overrun regime; step > 16 is the old truncation regime.
     print("out_cache_loc pinned at the end of its own block:")
     for req_dtype in (torch.int64, torch.int32):
         for bs, step in [(1, 4), (9, 4), (15, 4), (16, 4), (64, 1), (300, 2)]:
             run(bs, step, req_dtype, at_block_end=True)
+        for bs, step in [(1, 17), (8, 17), (1, 32), (1, 49), (8, 49)]:
+            run(bs, step, req_dtype, at_block_end=True)
     print("out_cache_loc in a fresh block, both index dtypes:")
     for req_dtype in (torch.int64, torch.int32):
         for bs, step in [(15, 4), (37, 3), (128, MAX_STEP)]:
+            run(bs, step, req_dtype, at_block_end=False)
+        for bs, step in [(1, 17), (8, 17), (1, 49), (8, 49)]:
             run(bs, step, req_dtype, at_block_end=False)
     print("PASSED")

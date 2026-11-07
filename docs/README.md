@@ -8,6 +8,11 @@ We recommend new contributors start from writing documentation, which helps you 
 
 Operator documentation is organized by `api/<language>/operators/<category>/<operator>.md`.
 
+## Tree Operator Guides
+
+- [DSV4 DSpark Tree 四算子说明](tree_ops_overview.md)
+- [Tree operator implementation semantics](tree_ops_semantics.md)
+
 ## Docs Workflow
 
 ### Update Documentation
