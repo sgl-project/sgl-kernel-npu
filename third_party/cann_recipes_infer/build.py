@@ -10,6 +10,8 @@ from pathlib import Path
 from build_tools.cann import run
 from build_tools.third_party import detect_soc_version, extract_python, read_json
 
+from third_party.opapi import isolate_staged_opapis
+
 
 def configure(config, jobs):
     config = dict(config)
@@ -209,6 +211,7 @@ def stage(result, package):
     shutil.copytree(vendor, target)
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     extract_python(
         result["wheel"],
         item["python_package"],
@@ -224,4 +227,10 @@ def stage(result, package):
         for path in target.rglob("*")
         if path.is_file()
     }
-    return dict(item, vendor_directory=vendor.name, files=files, binding="precompiled")
+    return dict(
+        item,
+        vendor_directory=vendor.name,
+        files=files,
+        binding="precompiled",
+        opapi_soname=opapi_sonames[vendor.name],
+    )

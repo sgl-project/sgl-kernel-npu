@@ -89,8 +89,9 @@ Wheel-private `libcust_opapi.so` libraries receive distinct SONAMEs during
 staging. The filenames and absolute-path CANN lookups stay unchanged. This
 prevents a later bare-name `dlopen("libcust_opapi.so")`, such as DeepEP's, from
 reusing a previously loaded private vendor. `RTLD_LOCAL` alone does not isolate
-SONAME lookup. `_build_manifest.json` records `opapi_sonames`, and third-party
-payload hashes describe the staged binaries. Rebuild and reinstall the
+SONAME lookup. Each third-party adapter isolates the staged vendors before
+hashing its payload; `_build_manifest.json` records each dependency's
+`opapi_soname` and hashes of the staged binaries. Rebuild and reinstall the
 sgl-kernel-npu wheel to apply this packaging change; no DeepEP source change is
 required. This isolates library selection and does not certify graph-capture
 or communication accuracy on an NPU.
