@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "python/sgl_kernel_npu/sgl_kernel_npu"
 REQUIRED_CASES = (
+    "test_projection_tail_stays_inside_allocation[1]",
+    "test_projection_tail_stays_inside_allocation[17]",
     "test_indexer_prologue_k_npu[mode0_with_scale]",
     "test_indexer_prologue_k_npu[mode1_g8]",
     "test_indexer_prologue_k_duplicate_indices_npu[mode0_with_scale]",
@@ -89,16 +91,16 @@ def environment(expected_commit):
     hardware = generation.get_hardware()
     if hardware.arch_id != 3510:
         raise RuntimeError(f"Expected A5 / ARCH 3510, found {hardware}")
-    return dict(
-        commit=actual,
-        cann=cann,
-        versions=versions,
-        python=sys.version,
-        host_arch=platform.machine(),
-        arch=hardware.arch_id,
-        device_name=torch.npu.get_device_name(0),
-        visible_devices=torch.npu.device_count(),
-    )
+    return {
+        "commit": actual,
+        "cann": cann,
+        "versions": versions,
+        "python": sys.version,
+        "host_arch": platform.machine(),
+        "arch": hardware.arch_id,
+        "device_name": torch.npu.get_device_name(0),
+        "visible_devices": torch.npu.device_count(),
+    }
 
 
 def _file_sha256(path):
@@ -151,7 +153,7 @@ def installed_sources():
         for name in ("_native", "_aicpu", "build-manifest.json")
     ):
         raise RuntimeError("Unexpected precompiled DSL resources in source-only wheel")
-    return dict(package=str(package), manifest=manifest, source_hashes=hashes)
+    return {"package": str(package), "manifest": manifest, "source_hashes": hashes}
 
 
 def main():

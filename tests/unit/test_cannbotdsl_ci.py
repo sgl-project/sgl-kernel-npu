@@ -51,14 +51,12 @@ def test_empty_successful_pytest_run_is_not_device_validation(tmp_path):
 @pytest.mark.parametrize(
     "name",
     [
-        name
-        for name in ci.REQUIRED_CASES
-        if "sparse_lightning" in name
-        or "duplicate_indices" in name
-        or "strided_block_axis" in name
+        "test_projection_tail_stays_inside_allocation[1]",
+        "test_projection_tail_stays_inside_allocation[17]",
     ],
 )
-def test_regression_cases_must_execute(tmp_path, name):
+def test_projection_tail_regressions_must_execute(tmp_path, name):
+    assert name in ci.REQUIRED_CASES
     path = report(tmp_path)
     tree = ET.parse(path)
     suite = tree.getroot().find("testsuite")

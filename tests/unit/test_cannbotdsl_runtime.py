@@ -22,7 +22,7 @@ def helper(monkeypatch):
     return module
 
 
-@pytest.mark.parametrize("version", [None, "0.7.1", "0.9.0"])
+@pytest.mark.parametrize("version", [None, "0.7.1", "0.8.2"])
 def test_wrong_or_missing_dsl_is_rejected_before_import(helper, monkeypatch, version):
     def installed(name):
         if version is None:
