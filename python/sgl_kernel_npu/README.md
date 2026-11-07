@@ -96,6 +96,12 @@ selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`; selecting `ops_transformer` on CANN 9.1 selects
 both builds.
 
+A build object may also declare `additional_builds` with overrides for separate
+vendors. On CANN 9.2, the DSV4 operators retain their release-branch revision;
+the mainline A3 lightning indexers and experimental CompressorV2 retain the
+community profile's revision in separate vendors and private Python packages.
+This keeps their distinct source APIs without requiring external operator wheels.
+
 Operator selections use upstream build-directory names, which can differ from
 Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
 `quant_lightning_indexer_v2_metadata`; their Python APIs remain

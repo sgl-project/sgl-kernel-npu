@@ -1,5 +1,5 @@
 {
-  "_comment": "Use upstream build-directory names. quant_lightning_indexer_v2 supplies both indexer Python APIs; mla_prolog_v3 exports mla_prolog and calls aclnnMlaPrologV4WeightNz.",
+  "_comment": "Use upstream build-directory names. quant_lightning_indexer_v2 supplies both indexer Python APIs; mla_prolog_v3 exports mla_prolog and calls aclnnMlaPrologV4WeightNz. Mainline-only A3 indexers and CompressorV2 retain their mainline pin in separate vendors.",
   "name": "sgl_ops_transformer",
   "python_exports": {
     "quant_lightning_indexer_v2": "quant_lightning_indexer",
@@ -40,5 +40,40 @@
     ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
   ],
   "has_aicpu": true,
-  "license": "LICENSE"
+  "license": "LICENSE",
+  "additional_builds": [
+    {
+      "name": "sgl_ops_transformer_indexer",
+      "commit": "e7da18105f08b06e01ef0fff78f439098d483746",
+      "ops": {
+        "arch22": [
+          "lightning_indexer_v2",
+          "lightning_indexer_v2_metadata",
+          "sparse_lightning_indexer"
+        ],
+        "arch35": []
+      },
+      "python_exports": {
+        "lightning_indexer_v2": "lightning_indexer",
+        "lightning_indexer_v2_metadata": "lightning_indexer_metadata"
+      }
+    },
+    {
+      "name": "sgl_ops_transformer_experimental",
+      "ops": {
+        "arch22": [
+          "compressor_v2"
+        ],
+        "arch35": []
+      },
+      "commands": [
+        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
+      ],
+      "has_aicpu": false,
+      "commit": "e7da18105f08b06e01ef0fff78f439098d483746",
+      "python_exports": {
+        "compressor_v2": "ds41"
+      }
+    }
+  ]
 }

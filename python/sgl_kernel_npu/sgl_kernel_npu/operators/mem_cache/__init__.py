@@ -1,3 +1,5 @@
+from .alloc_extend import alloc_extend
+from .assign_cache_op import assign_cache_op
 from .cache_locations import cache_loc_assign, cache_loc_update
 from .indexer_quant_cache import indexer_quant_cache
 from .kpool_assemble_softmax_rotate_write_cache import (
@@ -22,4 +24,6 @@ __all__ = [
     "kpool_decode_update_and_maybe_write_cache",
     "kpool_write_tail_and_maybe_compress",
     "scatter_kpool_tail_updates",
+    "alloc_extend",
+    "assign_cache_op",
 ]

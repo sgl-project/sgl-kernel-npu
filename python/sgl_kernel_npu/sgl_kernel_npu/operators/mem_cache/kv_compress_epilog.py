@@ -11,6 +11,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     "mem_cache.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
 )
 def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
+    if isinstance(kwargs["quant_mode"], int):
+        return _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs)
     cann_version = detect_cann_version()
     if cann_version.startswith("9.1."):
         backend = "ascendc"
@@ -31,6 +33,8 @@ def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
+    if isinstance(kwargs["quant_mode"], int):
+        raise ValueError("The released KV writer requires a packed quant_mode string")
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
@@ -53,6 +57,8 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
+    if isinstance(kwargs["quant_mode"], int):
+        return torch.ops.npu.kv_compress_epilog(cache, x, slot_mapping, **kwargs)
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
@@ -86,7 +92,6 @@ def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 @register_impl(
     "mem_cache.kv_compress_epilog",
     "torch_native",
-    supported_generations={Generation.ARCH35},
 )
 def _torch_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     from ...implementation.torch_native.mem_cache.kv_compress_epilog import (
@@ -98,21 +103,47 @@ def _torch_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 
 @register_operator("mem_cache.kv_compress_epilog")
 def kv_compress_epilog(
-    cache,
+    kv_compress_cache,
     x,
     slot_mapping,
-    *,
     quant_group_size=64,
     quant_mode=None,
+    round_scale_flag=None,
+    layout=None,
+    *,
     round_scale=True,
     x_scale=1.0,
     impl="auto",
 ):
-    """Quantize and scatter A5 KV rows in place; -1 slots are skipped.
+    """Quantize and scatter KV rows in place; -1 slots are skipped.
+
+    Integer quant_mode=1/2 with round_scale_flag and layout retains the native
+    FP8/MXFP8 interface and returns None. Auto uses ascendc for that interface.
+    Omitted/string quant_mode selects the DSV4 SDK-specific 608B/640B encoding
+    with 64-element groups and 448+64 input width, returning the mutated cache.
 
     impl: auto (SDK-selected), ascendc, cann_ops_transformer_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
+    cache = kv_compress_cache
+    if isinstance(quant_mode, int):
+        if round_scale_flag is None or layout is None:
+            raise TypeError("Integer quant_mode requires round_scale_flag and layout")
+        if not round_scale or x_scale != 1.0:
+            raise ValueError(
+                "round_scale and x_scale apply only to the packed interface"
+            )
+        return get_impl_by_name("mem_cache.kv_compress_epilog", impl)(
+            cache,
+            x,
+            slot_mapping,
+            quant_group_size=quant_group_size,
+            quant_mode=quant_mode,
+            round_scale_flag=round_scale_flag,
+            layout=layout,
+        )
+    if round_scale_flag is not None or layout is not None:
+        raise ValueError("round_scale_flag and layout require an integer quant_mode")
     from .mem_cache_utils import (
         CANN_9_1_NPU_KV_QUANT_PATH,
         NPU_KV_QUANT_PATH,

@@ -77,9 +77,11 @@ def source_python_modules(source, item):
     flat = [(path.stem, path) for path in ops.glob("*.py") if path.stem != "__init__"]
     if flat:
         return selected_python_modules(flat, item)
+    experimental = any("--experimental" in command for command in item["commands"])
+    root = source / "experimental" if experimental else source
     modules = [
-        (".".join(path.parent.relative_to(source).parts[:-1]), path)
-        for path in source.glob("*/*/torch_extension/__init__.py")
+        (".".join(path.parent.relative_to(root).parts[:-1]), path)
+        for path in root.glob("*/*/torch_extension/__init__.py")
         if path.parent.parent.name in item["ops"]
     ]
     return selected_python_modules(modules, item)
@@ -104,7 +106,7 @@ def stage_python(wheel, item, package):
     modules = selected_python_modules(candidates, item)
     qualified = "sgl_kernel_npu._third_party." + name
     # Upstream's builder still contains absolute imports of the unsuffixed package.
-    # Rewrite imports only; Torch operator namespaces are not Python module paths.
+    # Rewrite Python module paths; Torch operator namespaces must remain intact.
     pattern = (
         r"(?m)^(\s*from\s+)(?:"
         + re.escape(upstream_package)
@@ -134,7 +136,13 @@ def stage_python(wheel, item, package):
                 )
             return prefix + qualified + (suffix or "") + " as " + (alias or original)
 
-        path.write_text(re.sub(imports, rewrite_import, text))
+        text = re.sub(imports, rewrite_import, text)
+        # CompressorV2 publishes its ds41 alias under the private package.
+        text = text.replace(
+            'sys.modules["cann_ops_transformer.ops"]',
+            'sys.modules["{}.ops"]'.format(qualified),
+        )
+        path.write_text(text)
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(
@@ -222,6 +230,11 @@ def build_python_wheel(item, source, directory):
         os.environ,
         TORCH_EXTENSION_OPS=",".join(item["ops"]),
         TORCH_EXTENSION_VENDOR=item["vendor_name"],
+        TORCH_EXTENSION_EXPERIMENTAL=(
+            "TRUE"
+            if any("--experimental" in command for command in item["commands"])
+            else "FALSE"
+        ),
     )
     run(
         [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", wheel_dir],
