@@ -1,6 +1,7 @@
 "Public attention operators with explicit implementation selection."
 
 from .chunk_gated_delta_rule import chunk_gated_delta_rule
+from .compressor import compressor
 from .compressor_v2 import compressor_v2
 from .fia_prep import fia_prep
 from .flash_decode_bnsd_with_gqa_share_sparse import (
@@ -22,6 +23,7 @@ from .sparse_flash_attention import sparse_flash_attention
 from .sparse_flash_mla import sparse_flash_mla, sparse_flash_mla_metadata
 
 __all__ = [
+    "compressor",
     "fia_prep",
     "gqa_share_sparse_decode",
     "chunk_gated_delta_rule",
