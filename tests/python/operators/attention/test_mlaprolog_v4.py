@@ -93,13 +93,19 @@ def enable_arch22_internal_format():
         yield
         return
 
-    original = torch_npu.npu.config.allow_internal_format
+    # The config attribute has a setter but no getter. Preserve the underlying
+    # option instead, including its unset (empty string) representation.
+    original = torch_npu._C._npu_getOption("ALLOW_INTERNAL_FORMAT")
+    if original is None:
+        raise RuntimeError("torch_npu does not expose ALLOW_INTERNAL_FORMAT")
+    if isinstance(original, bytes):
+        original = original.decode()
     try:
         # Keep NZ weights enabled through accuracy checks and profiling.
-        torch_npu.npu.config.allow_internal_format = True
+        torch_npu.npu.set_option({"ALLOW_INTERNAL_FORMAT": "enable"})
         yield
     finally:
-        torch_npu.npu.config.allow_internal_format = original
+        torch_npu.npu.set_option({"ALLOW_INTERNAL_FORMAT": original})
 
 
 def generate_data(
