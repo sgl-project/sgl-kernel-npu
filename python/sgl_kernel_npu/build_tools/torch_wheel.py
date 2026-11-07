@@ -11,6 +11,7 @@ from configparser import ConfigParser
 from pathlib import Path
 
 from build_tools.cann import PROJECT_ROOT, _cache, _remove_tree, architecture, run
+from build_tools.compressor import build_compressor
 
 
 def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"):
@@ -89,6 +90,7 @@ def build_torch(
         "operators": sorted(cann.operators),
         "compute_units": architecture(arch_version, source_root)["compute_units"],
         "third_party": third_party,
+        "native_libraries": ["libsgl_compressor.so"],
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     run(
@@ -117,6 +119,13 @@ def build_torch(
         raise RuntimeError("Missing Torch library: {}".format(library))
     (package / "lib").mkdir()
     shutil.copy2(library, package / "lib" / library.name)
+    compressor = build_compressor(
+        directory.parent / "compressor",
+        arch_version,
+        source_root=source_root,
+        jobs=jobs,
+    )
+    shutil.copy2(compressor, package / "lib" / compressor.name)
     print("TORCH_PACKAGE: " + str(package), flush=True)
     return package
 
