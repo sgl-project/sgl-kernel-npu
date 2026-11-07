@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | A2/A3 compilation passed; device accuracy pending | Unsupported |
-| `torch_native` | Implemented; device accuracy pending | Pending validation |
+| `ascendc` | Supported | Unsupported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
