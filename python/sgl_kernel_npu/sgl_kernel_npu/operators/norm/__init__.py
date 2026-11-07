@@ -13,6 +13,7 @@ from .split_qkv_rmsnorm_rope import (
 from .split_qkv_rmsnorm_rope_pos_cache_half_npu import (
     split_qkv_rmsnorm_rope_pos_cache_half_npu,
 )
+from .split_qkv_tp_rmsnorm_rope import split_qkv_tp_rmsnorm_rope
 
 __all__ = [
     "add_rmsnorm_bias",
@@ -26,5 +27,6 @@ __all__ = [
     "rmsnorm_bias",
     "split_qkv_rmsnorm_rope",
     "split_qkv_rmsnorm_rope_pos_cache_half_npu",
+    "split_qkv_tp_rmsnorm_rope",
     "split_qkvgate_gemma_rmsnorm_rope",
 ]

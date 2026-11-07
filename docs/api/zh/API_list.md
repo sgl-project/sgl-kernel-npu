@@ -2,8 +2,31 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc` (ARCH35), `torch_native` |
+| [alloc_extend](operators/mem_cache/alloc_extend.md) | `ascendc`, `torch_native` |
+| [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
+| [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `ascendc` (ARCH35), `torch_native` |
+| [split_qkv_tp_rmsnorm_rope](operators/norm/split_qkv_tp_rmsnorm_rope.md) | `triton`、`torch_native` |
+| [add_example](operators/examples/add_example.md) | `aicpu`、`torch_native` |
+| [compressor_v2](operators/attention/compressor_v2.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [lightning_indexer_v2](operators/indexer/lightning_indexer_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [lightning_indexer_v2_metadata](operators/indexer/lightning_indexer_v2_metadata.md) | `cann_ops_transformers_cann920` |
+| [sparse_lightning_indexer](operators/indexer/sparse_lightning_indexer.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
+| [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |
+| [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
+| [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
+| [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`、`torch_native` |
+| [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
+| [flash_decode_bnsd_with_gqa_share_sparse](operators/attention/flash_decode_bnsd_with_gqa_share_sparse.md) | `triton`, `ascendc`, `torch_native` |
+| [mla_preprocess](operators/attention/mla_preprocess.md) | `ascendc`、`torch_native` |
+| [paged_mtp_attention_decode](operators/attention/paged_mtp_attention_decode.md) | `triton`、`torch_native` |
+| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformers_cann920`、`torch_native` |
+| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [add_rmsnorm_bias](operators/norm/add_rmsnorm_bias.md) | `triton`、`torch_native` |
 | [fused_rmsnorm_without_weight](operators/norm/fused_rmsnorm_without_weight.md) | `triton`、`torch_native` |
 | [fused_rsqrt_mul](operators/norm/fused_rsqrt_mul.md) | `triton`、`torch_native` |
@@ -14,18 +37,49 @@
 | [split_qkvgate_gemma_rmsnorm_rope](operators/norm/split_qkvgate_gemma_rmsnorm_rope.md) | `triton`、`torch_native` |
 | [split_qkv_rmsnorm_rope_pos_cache_half_npu](operators/norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.md) | `triton`、`torch_native` |
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
+| [fused_gdn_gating](operators/attention/gdn/fused_gdn_gating.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`、`torch_native` |
+| [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`、`torch_native` |
+| [fused_sigmoid_mul](operators/activation/fused_sigmoid_mul.md) | `triton`、`torch_native` |
+| [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
+| [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`、`torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
+| [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
+| [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
+| [expand_causal_seqlens](operators/indexer/expand_causal_seqlens.md) | `triton`, `torch_native` |
+| [expand_kpool_group_and_tail_to_topk](operators/indexer/expand_kpool_group_and_tail_to_topk.md) | `triton`, `torch_native` |
+| [kpool_indexer_prepare_decode_input](operators/indexer/kpool_indexer_prepare_decode_input.md) | `triton`, `torch_native` |
+| [build_pooled_page_table](operators/indexer/build_pooled_page_table.md) | `torch_native` |
+| [kpool_assemble_softmax_rotate_write_cache](operators/mem_cache/kpool_assemble_softmax_rotate_write_cache.md) | `triton`, `torch_native` |
+| [kpool_decode_update_and_maybe_write_cache](operators/mem_cache/kpool_decode_update_and_maybe_write_cache.md) | `triton`, `torch_native` |
+| [kpool_write_tail_and_maybe_compress](operators/mem_cache/kpool_write_tail_and_maybe_compress.md) | `triton`, `torch_native` |
+| [scatter_kpool_tail_updates](operators/mem_cache/scatter_kpool_tail_updates.md) | `triton`, `torch_native` |
+| [situ_and_mul](operators/activation/situ_and_mul.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`、`torch_native` |
+| [chunk_local_cumsum](operators/attention/gdn/chunk_local_cumsum.md) | `triton`, `torch_native` |
+| [chunk_scaled_dot_kkt](operators/attention/gdn/chunk_scaled_dot_kkt.md) | `triton`, `torch_native` |
+| [chunk_delta_h](operators/attention/gdn/chunk_delta_h.md) | `triton`, `torch_native` |
+| [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
+| [fused_gdn_decode](operators/attention/gdn/fused_gdn_decode.md) | `triton`, `torch_native` |
+| [gqa_share_sparse_decode](operators/attention/gqa_share_sparse_decode.md) | `triton`, `torch_native` |
+| [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
+| [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
+| [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`、`torch_native` |
+| [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`、`torch_native` |
+| [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`、`torch_native` |
+| [flash_prefill_bnsd_indexer](operators/indexer/flash_prefill_bnsd_indexer.md) | `triton`、`torch_native` |
+| [flash_prefill_bnsd_with_topk_idx](operators/indexer/flash_prefill_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [swiglu_oai_quant](operators/activation/swiglu_oai_quant.md) | `triton`, `torch_native` |
 
 ## batch invariant 算子
 
@@ -43,3 +97,5 @@
 | [fused_linear_online_max_sum](operators/batch_invariant/fused_linear_online_max_sum.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score](operators/batch_invariant/fused_infer_attention_score.md) | `batch_invariant_ops` |
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
+| [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
+| [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |

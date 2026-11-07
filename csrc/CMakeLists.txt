@@ -7,6 +7,7 @@ endif()
 cmake_minimum_required(VERSION 3.20)
 project(sgl_cann_ops LANGUAGES NONE)
 
+# Validate the explicit build stage and architecture.
 set(SGL_CANN_BUILD_STAGE CODEGEN CACHE STRING "CANN checkpoint: CODEGEN, TILING or KERNEL")
 set_property(CACHE SGL_CANN_BUILD_STAGE PROPERTY STRINGS CODEGEN TILING KERNEL)
 if(NOT SGL_CANN_BUILD_STAGE MATCHES "^(CODEGEN|TILING|KERNEL)$")
@@ -26,20 +27,35 @@ foreach(index RANGE ${last})
     list(APPEND SGL_CANN_COMPUTE_UNITS "${unit}")
 endforeach()
 
+# Discover declarations, then validate only the selected implementations.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/operators.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/domains.cmake")
 sgl_add_operator_domains()
 sgl_select_operators(selected_operators ARCH "${SGL_ARCH_VERSION}" OPERATORS ${SGL_CANN_OPERATORS})
+set(aicore_operators)
+set(aicpu_operators)
+foreach(id IN LISTS selected_operators)
+    sgl_get_operator_field(unit "${id}" EXECUTION_UNIT)
+    if(unit STREQUAL "AICORE")
+        list(APPEND aicore_operators "${id}")
+    else()
+        list(APPEND aicpu_operators "${id}")
+    endif()
+endforeach()
+# Hand the selected AICPU IDs to the existing Python package coordinator.
+set(SGL_CANN_AICPU_OPERATORS "${aicpu_operators}" CACHE INTERNAL
+    "AICPU operators selected for this CANN build" FORCE)
 message(STATUS "Selected CANN operators: ${selected_operators}; ARCH: ${SGL_ARCH_VERSION}; SDK targets: ${SGL_CANN_COMPUTE_UNITS}")
 string(REPLACE ";" "\n" selection_text "${selected_operators}")
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/selected-operators.txt"
     CONTENT "${selection_text}\n" @ONLY)
 if(DEFINED SGL_CANN_CONFIGURED_OPERATORS
    AND NOT "${SGL_CANN_CONFIGURED_OPERATORS}" STREQUAL "${selected_operators}")
-    message(FATAL_ERROR "CANN operator selection changed; run with --make_clean before rebuilding")
+    message(FATAL_ERROR "CANN operator selection changed; run with --make-clean before rebuilding")
 endif()
 set(SGL_CANN_CONFIGURED_OPERATORS "${selected_operators}" CACHE INTERNAL "Configured operator selection" FORCE)
 
+# Load the initialized CANN SDK after declaration validation.
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "CANN code generation requires Linux")
 endif()
@@ -66,6 +82,7 @@ find_package(ASC REQUIRED CONFIG PATHS
     NO_DEFAULT_PATH
 )
 
+# Build interfaces, Tiling and Kernel/package targets in dependency order.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cann_ops.cmake")
 if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     npu_op_package(sgl_kernel_npu TYPE RUN
@@ -73,10 +90,44 @@ if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
     set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/package-stage")
 endif()
 sgl_generate_cann_interfaces("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${selected_operators})
-if(NOT SGL_CANN_BUILD_STAGE STREQUAL "CODEGEN")
-    sgl_add_cann_tiling(${selected_operators})
+if(NOT SGL_CANN_BUILD_STAGE STREQUAL "CODEGEN" AND aicore_operators)
+    sgl_add_cann_tiling(${aicore_operators})
 endif()
 if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
-    sgl_add_cann_kernels("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${selected_operators})
+    sgl_add_cann_host_libraries("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${selected_operators})
+    set(device_checks)
+    if(aicore_operators)
+        sgl_add_cann_kernels("${CMAKE_CURRENT_BINARY_DIR}/autogen" ${aicore_operators})
+    endif()
+    if(aicpu_operators)
+        # A directory scope keeps the HCC compiler local to AICPU targets.
+        add_subdirectory(cmake/aicpu aicpu)
+        list(APPEND device_checks sgl_cann_aicpu sgl_cann_aicpu_metadata)
+    endif()
+
+    # Package and check the targets created by the Host and device builders.
+    set(host_libraries)
+    foreach(target IN ITEMS sgl_cann_opapi sgl_cann_proto)
+        if(TARGET ${target})
+            list(APPEND host_libraries ${target})
+        endif()
+    endforeach()
+    set(SGL_CANN_HOST_LIBRARIES "${host_libraries}" CACHE INTERNAL
+        "Host libraries expected in this CANN package" FORCE)
+    set(package_libraries ${host_libraries})
+    if(aicore_operators)
+        list(APPEND package_libraries sgl_cann_tiling sgl_cann_kernels)
+    endif()
+    if(package_libraries)
+        npu_op_package_add(sgl_kernel_npu LIBRARY ${package_libraries})
+    endif()
+    # CANN creates binary when the Kernel library is added to the package.
+    if(aicore_operators)
+        if(NOT TARGET binary)
+            message(FATAL_ERROR "The SDK did not create the required binary build target")
+        endif()
+        list(APPEND device_checks binary)
+    endif()
+    add_custom_target(sgl_cann_kernel_check DEPENDS ${device_checks} ${host_libraries})
 endif()
 message(STATUS "CANN checkpoint: ${SGL_CANN_BUILD_STAGE}; configuration never launches a Kernel or installs a package")
