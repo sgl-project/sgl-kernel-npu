@@ -185,98 +185,10 @@ def test_kimi_linear_packed(shape, output_h):
     check_performance(executor, enable_perf=False)
 
 
-# @pytest.mark.parametrize(
-#     "gate_mode",
-#     [
-#         "softplus",  # accuracy below threshold
-#         # "bounded",  # execution stuck
-#     ],
-# )
-# def test_gate_without_bias(gate_mode):  # accuracy below threshold
-#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-#
-#     kwargs = generate_data(
-#         (1, 65, 2, 4, 32, 48, 64),
-#         gate_mode=gate_mode,
-#         gate_dtype=torch.bfloat16,
-#         beta_dtype=torch.bfloat16,
-#     )
-#     kwargs.pop("dt_bias")
-#     executor = check_accuracy(
-#         chunk_kda_fwd,
-#         kwargs=kwargs,
-#         standard=KDA_STANDARD,
-#     )
-#     check_performance(executor, enable_perf=False)
-
-
-# @pytest.mark.parametrize(
-#     "gate_mode,layout",
-#     [
-#         ("external", "BSND"),  # accuracy below threshold
-#         ("external", "BNSD"),  # accuracy below threshold
-#         ("external", "TND"),  # accuracy below threshold
-#         ("external", "NTD"),  # accuracy below threshold
-#         ("softplus", "BSND"),  # accuracy below threshold
-#         ("softplus", "BNSD"),  # accuracy below threshold
-#         ("softplus", "TND"),  # accuracy below threshold
-#         ("softplus", "NTD"),  # accuracy below threshold
-#         # ("bounded", "BSND"),  # execution stuck
-#         # ("bounded", "BNSD"),  # execution stuck
-#         # ("bounded", "TND"),  # execution stuck
-#         # ("bounded", "NTD"),  # execution stuck
-#     ],
-# )
-# def test_layouts_and_gates(layout, gate_mode):  # accuracy below threshold
-#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-#
-#     kwargs = generate_data((1, 65, 2, 4, 32, 48, 64), layout, gate_mode=gate_mode)
-#     executor = check_accuracy(
-#         chunk_kda_fwd,
-#         kwargs=kwargs,
-#         standard=KDA_STANDARD,
-#     )
-#     check_performance(executor, enable_perf=False)
-
-
-# @pytest.mark.parametrize("gate_dtype", [torch.float32, torch.bfloat16])
-# @pytest.mark.parametrize("beta_dtype", [torch.float32, torch.bfloat16])
-# @pytest.mark.parametrize("chunk_size", [64, 128])
-# def test_gate_beta_dtypes(gate_dtype, beta_dtype, chunk_size):  # execution stuck
-#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-#
-#     kwargs = generate_data(
-#         (1, 129, 1, 2, 32, 32, chunk_size), gate_dtype=gate_dtype, beta_dtype=beta_dtype
-#     )
-#     executor = check_accuracy(
-#         chunk_kda_fwd,
-#         kwargs=kwargs,
-#         standard=KDA_STANDARD,
-#     )
-#     check_performance(executor, enable_perf=False)
-
-
-# @pytest.mark.parametrize("boundaries", [(0, 1, 64, 129), (0, 64, 65, 129)])
-# @pytest.mark.parametrize("state_v_first", [False, True])
-# @pytest.mark.parametrize("initial", [False, True])
-# @pytest.mark.parametrize("with_chunk_indices", [False, True])
-# def test_packed_states(boundaries, state_v_first, initial, with_chunk_indices):  # accuracy below threshold
-#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-#
-#     kwargs = generate_data(
-#         (1, 129, 1, 2, 32, 32, 64),
-#         "TND",
-#         boundaries,
-#         state_v_first=state_v_first,
-#         initial=initial,
-#         with_chunk_indices=with_chunk_indices,
-#     )
-#     executor = check_accuracy(
-#         chunk_kda_fwd,
-#         kwargs=kwargs,
-#         standard=KDA_STANDARD,
-#     )
-#     check_performance(executor, enable_perf=False)
+# K=32/V=48 without dt_bias: softplus accuracy below threshold; bounded execution stuck.
+# K=32/V=48 across layouts: external/softplus accuracy below threshold; bounded execution stuck.
+# K=V=32 with FP32/BF16 gate/beta and chunks 64/128: execution stuck.
+# Packed K=V=32 with state/chunk-index variants: accuracy below threshold.
 
 
 @pytest.mark.parametrize(
@@ -401,34 +313,7 @@ def test_state_update_precision(chunk_size, output_final_state):
     check_performance(executor, enable_perf=False)
 
 
-# @pytest.mark.parametrize("layout", ["BSND", "TND"])
-# @pytest.mark.parametrize("gate_mode", ["external", "softplus"])
-# @pytest.mark.parametrize("stream_kind", ["default", "custom"])
-# def test_queued_calls(layout, gate_mode, stream_kind):  # accuracy below threshold
-#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-#
-#     kwargs = generate_data((1, 65, 1, 2, 32, 32, 64), layout, gate_mode=gate_mode)
-#     for name, value in kwargs.items():
-#         if isinstance(value, torch.Tensor):
-#             kwargs[name] = torch.stack((value, value), dim=-1)[..., 0]
-#     stream = torch.npu.current_stream()
-#     if stream_kind == "custom":
-#         stream = torch.npu.Stream()
-#         stream.wait_stream(torch.npu.current_stream())
-#     with torch.npu.stream(stream):
-#         executor = check_accuracy(
-#             chunk_kda_fwd,
-#             kwargs=kwargs,
-#             standard=KDA_STANDARD,
-#         )
-#         if executor.accuracy_checked:
-#             results = [executor() for _ in range(8)]
-#         stream.synchronize()
-#         if executor.accuracy_checked:
-#             reference = chunk_kda_fwd(**kwargs, impl=executor.impl_ref)
-#             for result in results:
-#                 assert_accuracy(result, reference, standard=KDA_STANDARD)
-#         check_performance(executor, enable_perf=False)
+# Queued K=V=32 with noncontiguous inputs on default/custom streams: accuracy below threshold.
 
 
 @pytest.mark.extra_checks
