@@ -303,9 +303,8 @@ def chunk_kda_fwd(
                     + causal.float() @ new_value.float()
                 )
                 out[b, start:end] = result.transpose(0, 1).to(q.dtype)
-                update_state = current if output_final_state else entering.float()
                 current = (
-                    update_state * gn[:, -1].exp()[:, :, None]
+                    current * gn[:, -1].exp()[:, :, None]
                     + kgc.float().transpose(-1, -2) @ new_value.float()
                 )
                 chunk_id += 1

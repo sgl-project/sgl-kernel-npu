@@ -365,7 +365,7 @@ def test_state_update_precision(chunk_size, output_final_state):
         result = executor()
         expected_h = torch.zeros_like(result[10])
         expected_h[:, 0, :, 0, :] = 100.5
-        expected_h[:, 1, :, 0, :] = 75.0 if output_final_state else 75.5
+        expected_h[:, 1, :, 0, :] = 75.0
         assert_accuracy(
             result[10],
             expected_h,
