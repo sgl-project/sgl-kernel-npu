@@ -209,9 +209,7 @@ class TestSparseAttnSharedkvMetadataHost(unittest.TestCase):
             host_call(cu, skv, 7, True, cmp_topk=512)
 
     # --- optional cross-check vs the live AICPU op (decode only) ----------------
-    @unittest.skipUnless(
-        _aicpu_ok(), "bundled CANN 9.1 AICPU op is not available"
-    )
+    @unittest.skipUnless(_aicpu_ok(), "bundled CANN 9.1 AICPU op is not available")
     def test_byte_identical_decode_vs_aicpu(self):
         # Decode is M=1 -> version-insensitive, so host matches any deployed AICPU build.
         B = 8
