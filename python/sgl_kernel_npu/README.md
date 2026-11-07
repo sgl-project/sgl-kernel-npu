@@ -88,9 +88,13 @@ previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place
 Wheel builds read `third_party/profiles/cann-<SDK-version>/*.json`, then select
 the profile's `ops.arch22` or `ops.arch35` list using `--arch-version`.
 Profiles pin the source repository, commit, operators and build commands.
+Each profile contains one build object or an array of build objects. CANN 9.1's
+`ops_transformer.json` contains both the experimental ACLNN and released mHC
+builds, retaining their separate vendors and Python-binding settings.
 `--ops` selects repository-owned native operators; `--third-party` independently
 selects external libraries. The profile filename, not its internal package name,
-is passed to `--third-party`.
+is passed to `--third-party`; selecting `ops_transformer` on CANN 9.1 selects
+both builds.
 
 Operator selections use upstream build-directory names, which can differ from
 Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
