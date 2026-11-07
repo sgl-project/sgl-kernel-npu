@@ -166,6 +166,11 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
     if x_fp8.numel() == 0:
         return x_fp8.to(torch.bfloat16)
 
+    # x_fp8 / x_scales 是 combined buffer 的 strided view，转成连续张量。FP4 不需要前置 contiguous 转化。
+    if x_fp8.dtype != torch.float4_e2m1fn_x2:
+        x_fp8 = x_fp8.contiguous()
+    x_scales = x_scales.contiguous()
+
     # x_scales 现在是 FP8 E8M0 格式（uint8 或 int8 存储）
     # 需要先解码为 float32
 
