@@ -17,8 +17,6 @@ from tests.python.utils.performance import check_performance
 # SGLang MLA/DSA post-attention: shape=(tokens, local_heads, kv_lora_rank,
 # v_head_dim), local_heads=num_attention_heads/effective_attention_tp.
 # Caller snapshot: sglang 2456c9111a121a02e41e625e3930e1eb143fe9bf.
-# Model config sources and routing analysis:
-# docs/api/en/operators/matmul/batch_matmul_transpose.md#model-shaped-tests
 # Ordinary MLA reaches this operator only when M>=65536, B*K>=65536 or
 # N>=65536. With M<=1024 and these model dimensions, only attention TP=1
 # qualifies. DSA decode/verify on A2/A3 also reaches it at higher attention TP.
