@@ -28,7 +28,8 @@ git switch -c feature/new-operator
 python/sgl_kernel_npu/sgl_kernel_npu/
 ├── implementation/
 │   ├── triton/<module>/example_op.py
-│   └── torch_native/<module>/example_op.py
+│   ├── torch_native/<module>/example_op.py
+│   └── cpu_reference/<module>/example_op.py  # 可选的存量 CPU 参考实现
 └── operators/<module>/
     ├── __init__.py
     └── example_op.py
@@ -42,6 +43,7 @@ docs/api/en/operators/<module>/example_op.md
 - 实现特有的限制在 wrapper 中、启动 kernel 前检查；优先检查 shape、dtype、stride 等元信息，错误信息需明确限制。
 - 提供语义一致、独立计算的 `torch_native` 实现作为对比后端，避免调用待测 kernel。
 - 确实无法提供 torch_native 时，选择其他可信的独立参考实现，并在 PR 中说明。
+- 已有 CPU 参考实现可归档到 `implementation/cpu_reference/<module>`，注册为 `impl="cpu_reference"`。计算应独立于 NPU 后端，并遵守公开接口的输入输出契约，包括原地修改及返回设备；迁移时如调整原参考语义，需明确说明。例如 `sampler.apply_token_bitmask` 将 NPU 输入复制到 CPU 计算，再回写原 logits。这类实现用于精度对照，不用于 NPU 性能测试。
 - Ascend C 算子通过 operators 中的适配入口调用已暴露的原生绑定，见第 3 节；其他外部算子同样通过其公开接口接入。
 - 需要管理 buffer、handle 或通信状态的接口，应先明确生命周期和模块层设计。
 
