@@ -196,10 +196,8 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
 {
     pageAttentionParams_->blockNum = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_0);
     pageAttentionParams_->blockSize = context_->stateCache.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
-    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CONTINUOUS)) {
-        pageAttentionParams_->maxBlockNumPerBatch =
-            context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
-    }
+    pageAttentionParams_->maxBlockNumPerBatch =
+        context_->stateBlockTable.shape->GetStorageShape().GetDim(COMPRESSOR_DIM_INDEX_1);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -852,15 +850,6 @@ ge::graphStatus CompressorTiling::CheckFeature() const
         pageAttentionParams_->blockSize < MIN_BLOCK_SIZE,
         OP_LOGE(context_->opName, "blockSize should not be less than 1, but got %u", pageAttentionParams_->blockSize),
         return ge::GRAPH_FAILED);
-    if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CYCLE)) {
-        OP_CHECK_IF(
-            pageAttentionParams_->blockNum < baseParams_->batchSize,
-            OP_LOGE(context_->opName,
-                    "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
-                    "but got %u",
-                    static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize, pageAttentionParams_->blockNum),
-            return ge::GRAPH_FAILED);
-    }
     uint64_t cacheStride =
         context_->stateCache.shape->GetShape().GetDim(1) * context_->stateCache.shape->GetShape().GetDim(2);
     OP_CHECK_IF(
