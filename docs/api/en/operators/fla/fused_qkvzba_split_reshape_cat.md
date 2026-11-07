@@ -6,10 +6,6 @@
 | --- | --- | --- |
 | `triton` | To be verified | To be verified |
 | `torch_native` | To be verified | To be verified |
-| `tilelang` | Not implemented | Not implemented |
-| `ascendc` | Not implemented | Not implemented |
-
-`tilelang` and `ascendc` are not implemented: the operator ships only the `triton` and `torch_native` backends.
 
 ## Signature
 

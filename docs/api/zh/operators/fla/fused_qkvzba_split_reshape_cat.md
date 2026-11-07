@@ -6,10 +6,6 @@
 | --- | --- | --- |
 | `triton` | 待验证 | 待验证 |
 | `torch_native` | 待验证 | 待验证 |
-| `tilelang` | 未实现 | 未实现 |
-| `ascendc` | 未实现 | 未实现 |
-
-`tilelang` 与 `ascendc` 未实现：本算子只提供 `triton` 与 `torch_native` 两种实现。
 
 ## 函数原型
 
