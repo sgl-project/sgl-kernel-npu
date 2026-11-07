@@ -49,14 +49,20 @@ def stage_python(wheel, item, package):
         raise RuntimeError("No selected Python bindings found in upstream wheel")
     qualified = "sgl_kernel_npu._third_party." + name
     # Upstream's builder still contains absolute imports of the unsuffixed package.
-    # Rewrite imports only; Torch operator namespaces are not Python module paths.
+    # Rewrite Python module paths; Torch operator namespaces must remain intact.
     pattern = (
         r"(?m)^(\s*(?:from|import)\s+)(?:"
         + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
     for path in destination.rglob("*.py"):
-        path.write_text(re.sub(pattern, lambda m: m[1] + qualified, path.read_text()))
+        source = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
+        # CompressorV2 creates ops.ds41 using a Python module-cache lookup.
+        source = source.replace(
+            'sys.modules["cann_ops_transformer.ops"]',
+            'sys.modules["{}.ops"]'.format(qualified),
+        )
+        path.write_text(source)
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(

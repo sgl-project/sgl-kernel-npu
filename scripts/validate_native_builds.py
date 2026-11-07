@@ -52,6 +52,30 @@ OPERATORS = {
     "cache_loc_update": ("mem_cache/test_cache_locations.py", "cache_loc_update"),
     "sgemmv_expand": ("lora/test_sgemmv_expand.py", "sgemmv_expand"),
     "add_example": ("examples/test_add_example.py", "sgl_add_example"),
+    "alloc_extend": ("mem_cache/test_alloc_extend.py", "alloc_extend"),
+    "assign_cache_op": ("mem_cache/test_assign_cache_op.py", "assign_cache_op"),
+    "batch_matmul_transpose": (
+        "matmul/test_batch_matmul_transpose.py",
+        "batch_matmul_transpose",
+    ),
+    "compressor": ("attention/test_compressor.py", "compressor"),
+    "kv_compress_epilog": (
+        "mem_cache/test_kv_compress_epilog.py",
+        "kv_compress_epilog",
+    ),
+    "mla_preprocess": ("attention/test_mla_preprocess.py", "mla_preprocess"),
+    "sparse_attn_sharedkv": (
+        "attention/test_sparse_attn_sharedkv.py",
+        "sparse_attn_sharedkv",
+    ),
+    "sparse_flash_attention": (
+        "attention/test_sparse_flash_attention.py",
+        "sparse_flash_attention",
+    ),
+    "swiglu_group_quant": (
+        "activation/test_swiglu_group_quant.py",
+        "swiglu_group_quant",
+    ),
     "transfer_kv_dim_exchange": (
         "data_move/test_transfer_kv_dim_exchange.py",
         "transfer_kv_dim_exchange",
