@@ -26,6 +26,8 @@ def compressor(
     rotary_mode=2,
     cache_mode=1,
     state_cache_stride_dim0=0,
+    *,
+    arch35=False,
 ):
     # Check the semantics used by this reference, not NPU tiling limits.
     if x.ndim not in (2, 3):
@@ -40,6 +42,8 @@ def compressor(
         raise ValueError(
             "compressor reference: cache table is required; cu_seqlens is required only for TH"
         )
+    if cache_mode == 2 and state_block_table.ndim != 2:
+        raise ValueError("compressor reference: mode 2 requires a 2D state_block_table")
     if cu_seqlens is not None and (cu_seqlens.ndim != 1 or cu_seqlens.numel() < 1):
         raise ValueError("compressor reference: cu_seqlens must be a nonempty vector")
 
@@ -85,10 +89,10 @@ def compressor(
         if cache_mode == 1:
             block = int(table[b, position // block_size])
             return block * block_size + position % block_size, block != 0
-        if table.ndim == 1:
-            return int(table[b]) * block_size + position % block_size, True
         return int(table[b, coff * ratio + position - starts[b]]), True
 
+    full_load = arch35 and not merged and x.shape[1] <= 4 and tokens.shape[0] <= 256
+    preserve_page_tails = arch35 and cache_mode == 2 and coff == 2 and not full_load
     packed_row = 0
     for b in range(batch):
         start, count = starts[b], used[b]
@@ -142,21 +146,22 @@ def compressor(
         # Match the copied native SaveState implementations, which clip by
         # absolute token position, including a partial compression chunk.
         keep = max(boundary - (coff - 1) * ratio, 0)
-        full_load = (
-            cache_mode == 2
-            and table.ndim == 1
-            and not merged
-            and x.shape[1] <= 4
-            and tokens.shape[0] <= 256
-        )
         # arch35 FULL_LOAD preserves the original no-pad policy. The arch22
         # PERF and arch35 NORMAL implementations also retain MTP tail rows.
         if not full_load and block_size > coff * ratio:
             pad = block_size - coff * ratio + 2
             keep = min(keep, max(start + count - pad, 0))
         first = 0 if cache_mode == 1 else max(keep - start, 0)
-        for t in range(first, count):
-            loc, writable = location(b, start + t)
+        for t in range(count):
+            pos = start + t
+            loc, writable = location(b, pos)
+            # Different rows a ring apart indicate a page tail worth retaining.
+            if t < first and (
+                not preserve_page_tails
+                or t + block_size >= count
+                or loc == location(b, pos + block_size)[0]
+            ):
+                continue
             if writable:
                 flat_state[loc, :width] = projected_kv[t]
                 flat_state[loc, width:] = projected_score[t]
