@@ -1,0 +1,29 @@
+{
+  "name": "sgl_ops_transformer",
+  "ops": {
+    "arch22": ["lightning_indexer_v2", "lightning_indexer_v2_metadata", "sparse_lightning_indexer", "sparse_flash_mla", "sparse_flash_mla_metadata"],
+    "arch35": ["flash_mla", "flash_mla_metadata"]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "e7da18105f08b06e01ef0fff78f439098d483746",
+  "commands": [
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE",
+  "additional_builds": [
+    {
+      "name": "sgl_ops_transformer_experimental",
+      "ops": {
+        "arch22": ["compressor_v2"],
+        "arch35": []
+      },
+      "commands": [
+        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+        ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
+      ],
+      "has_aicpu": false
+    }
+  ]
+}
