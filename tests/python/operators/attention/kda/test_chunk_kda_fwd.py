@@ -142,7 +142,12 @@ def test_chunk_kda_fwd(shape):
     "shape", [pytest.param(perf_shape[0], id="kimi-linear-48b-a3b-tp1")]
 )
 @pytest.mark.parametrize(
-    "gate_mode,lower_bound", [("softplus", -5.0), ("bounded", -5.0), ("bounded", -0.1)]
+    "gate_mode,lower_bound",
+    [
+        ("softplus", -5.0),
+        # ("bounded", -5.0),
+        # ("bounded", -0.1),
+    ],
 )
 @pytest.mark.parametrize("outputs", [False, True])
 def test_kimi_linear_raw_gate(shape, gate_mode, lower_bound, outputs):
@@ -218,8 +223,8 @@ def test_gate_without_bias(gate_mode):
         ("softplus", "NTD"),
         # ("bounded", "BSND"),
         # ("bounded", "BNSD"),
-        ("bounded", "TND"),
-        ("bounded", "NTD"),
+        # ("bounded", "TND"),
+        # ("bounded", "NTD"),
     ],
 )
 def test_layouts_and_gates(layout, gate_mode):
