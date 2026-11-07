@@ -259,11 +259,9 @@ def test_sparse_flash_mla(batch, query_len):
 @pytest.mark.parametrize("batch", [1, 10], ids=["draft-b1", "draft-b10"])
 def test_dspark_sparse_flash_mla_graph_replay(batch):
     from sgl_kernel_npu.operators.attention import (
+        get_sparse_flash_mla_metadata_size,
         sparse_flash_mla,
         sparse_flash_mla_metadata,
-    )
-    from sgl_kernel_npu.operators.utils.transformer_compat import (
-        get_transformer_metadata_size,
     )
 
     from tests.python.operators.attention.sparse_flash_mla_inputs import (
@@ -282,7 +280,7 @@ def test_dspark_sparse_flash_mla_graph_replay(batch):
     query, metadata_kwargs, kwargs = generate_dspark_data(batch, 6)
     # Allocation must not launch metadata work on temporary synthetic inputs.
     metadata = torch.zeros(
-        get_transformer_metadata_size("sparse_flash_mla_metadata"),
+        get_sparse_flash_mla_metadata_size(),
         dtype=torch.int32,
         device=query.device,
     )

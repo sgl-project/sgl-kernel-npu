@@ -16,7 +16,7 @@ Each operator has an individual [English](../API_list.md) and [Chinese](../../zh
 - [inplace_partial_rotary_mul](rope/inplace_partial_rotary_mul.md)
 - [moe_gating_top_k](moe/moe_gating_top_k.md)
 
-Shared implementation helpers use descriptive module names. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Binding selection and schema guards are in `operators/utils/transformer_compat.py`, and SDK release parsing is in `operators/utils/cann.py`. Sparse-index conversion and original indexer argument mapping share `operators/attention/attention_utils.py`.
+Shared implementation helpers use descriptive module names. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Each operator selects its SDK implementation directly using `detect_cann_version()` from `operators/utils/cann.py` and loads its bundled binding locally. MoE schema compatibility stays in `operators/moe/moe_gating_top_k.py`. Sparse-index conversion and original indexer argument mapping share `operators/attention/attention_utils.py`.
 
 The initialized SDK selects the ABI. On CANN 9.1, each operator chooses a
 source-specific implementation; on CANN 9.2 all 13 APIs register
@@ -108,8 +108,11 @@ build remains unchanged.
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
 
-Graph metadata allocation uses `get_transformer_metadata_size(operator_name)`
-from `operators.utils.transformer_compat`. This is a pure ABI query: it does
-not import a third-party bridge or execute an NPU kernel. The pinned CANN 9.1
-metadata buffers and the pinned CANN 9.2 release-branch buffers have 1024 int32 entries.
-Each metadata operator test also checks its actual output against this contract.
+Graph metadata allocation uses the size API beside each metadata operator:
+`get_sparse_flash_mla_metadata_size()`,
+`get_mixed_quant_sparse_flash_mla_metadata_size()`, and
+`get_quant_lightning_indexer_metadata_size()`. These pure ABI queries do not
+load a third-party bridge or execute an NPU kernel. The pinned CANN 9.1
+metadata buffers and the pinned CANN 9.2 release-branch buffers have 1024 int32
+entries.
+Each metadata operator test checks its actual output against its size API.

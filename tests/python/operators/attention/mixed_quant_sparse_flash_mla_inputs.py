@@ -50,8 +50,8 @@ def _pack_kv(x, width):
 
 def generate_data(query_len):
     """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-    from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
     if get_hardware().generation != Generation.ARCH35:
         pytest.skip("mixed-quant reader/writer requires A5")
@@ -72,7 +72,7 @@ def generate_data(query_len):
         quant_mode=1,
         rope_head_dim=64,
     )
-    width = 640 if cann_backend() == "cann_9_1" else 608
+    width = 640 if detect_cann_version().startswith("9.1.") else 608
     cache = _pack_kv(x, width)
     return q, common, cache
 
@@ -132,13 +132,11 @@ def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
-    from sgl_kernel_npu.operators.utils.transformer_compat import (
-        get_transformer_metadata_size,
+    from sgl_kernel_npu.operators.attention import (
+        get_mixed_quant_sparse_flash_mla_metadata_size,
     )
 
-    assert metadata.shape == (
-        get_transformer_metadata_size("mixed_quant_sparse_flash_mla_metadata"),
-    )
+    assert metadata.shape == (get_mixed_quant_sparse_flash_mla_metadata_size(),)
     assert metadata.is_contiguous()
     # Opaque metadata is checked through paired compute, not byte comparison.
     return make_executor(

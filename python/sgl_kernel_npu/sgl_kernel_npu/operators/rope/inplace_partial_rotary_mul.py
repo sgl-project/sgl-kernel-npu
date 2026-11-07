@@ -1,14 +1,22 @@
 """Public inplace_partial_rotary_mul operator with registered implementations."""
 
+import torch
+
+from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import cann_backend, require_op
 
 
 @register_impl("rope.inplace_partial_rotary_mul", "auto")
 def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
     return get_impl_by_name("rope.inplace_partial_rotary_mul", backend)(
         x, cos, sin, **kwargs
     )
@@ -16,18 +24,36 @@ def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
 
 @register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformer_cann920")
 def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
-    op = require_op(
-        "cann_ops_transformer",
-        "inplace_partial_rotary_mul",
-        backend="cann_ops_transformer_cann920",
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(torch.ops.cann_ops_transformer, "inplace_partial_rotary_mul", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.inplace_partial_rotary_mul in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     op(x, cos, sin, **kwargs)
     return x
 
 
 @register_impl("rope.inplace_partial_rotary_mul", "cann_recipes_infer_cann910")
 def _cann_9_1_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
-    op = require_op("custom", "inplace_partial_rotary_mul", backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+    op = getattr(torch.ops.sgl_cann_recipes_infer, "inplace_partial_rotary_mul", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator sgl_cann_recipes_infer.inplace_partial_rotary_mul in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     op(x, cos, sin, **kwargs)
     return x
 

@@ -2,13 +2,21 @@
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import (
-    OperatorUnavailableError,
-    cann_backend,
-    require_op,
-)
+
+
+def get_mixed_quant_sparse_flash_mla_metadata_size():
+    """Return this operator's int32 metadata length without launching a kernel."""
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
+        return 1024
+    if cann_version.startswith("9.2."):
+        return 1024
+    raise RuntimeError(
+        f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+    )
 
 
 @register_impl(
@@ -17,10 +25,16 @@ from ..utils.transformer_compat import (
     supported_generations={Generation.ARCH35},
 )
 def _auto_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = (
             "host" if _uses_native_sparse_inputs(kwargs) else "ops_transformer_cann910"
+        )
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
         )
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", backend)(
         **kwargs
@@ -33,11 +47,20 @@ def _auto_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    op = require_op(
-        "cann_ops_transformer",
-        "mixed_quant_sparse_flash_mla_metadata",
-        backend="cann_ops_transformer_cann920",
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(
+        torch.ops.cann_ops_transformer, "mixed_quant_sparse_flash_mla_metadata", None
     )
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.mixed_quant_sparse_flash_mla_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     args = {
         key: value
         for key, value in kwargs.items()
@@ -63,9 +86,7 @@ def _uses_native_sparse_inputs(kwargs):
 )
 def _ops_transformer_cann910(**kwargs):
     if _uses_native_sparse_inputs(kwargs):
-        raise OperatorUnavailableError(
-            "Explicit sparse inputs require impl='host' on CANN 9.1"
-        )
+        raise RuntimeError("Explicit sparse inputs require impl='host' on CANN 9.1")
     return _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs)
 
 
@@ -76,7 +97,7 @@ def _ops_transformer_cann910(**kwargs):
 )
 def _host(**kwargs):
     if not _uses_native_sparse_inputs(kwargs):
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
         )
     return _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs)
@@ -90,7 +111,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     }
     sparse = _uses_native_sparse_inputs(kwargs)
     if sparse and kwargs.get("has_cmp_kv", False):
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
         )
     args.pop("seqused_cmp_kv", None)
@@ -102,13 +123,11 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     elif layout not in ("BSND", "TND"):
         raise ValueError(f"Unsupported shared-KV layout: {layout}")
     if args.pop("topk_value_mode", 1) != 1:
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "cann_9_1 attention only supports logical compressed top-k indices"
         )
     if args.pop("cmp_topk_length", None) is not None:
-        raise OperatorUnavailableError(
-            "cann_9_1 attention does not accept cmp_topk_length"
-        )
+        raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
     args.pop("ori_topk_length", None)
     args.pop("ori_topk", None)
     if args.get("ori_mask_mode", 4) == 0:
@@ -118,10 +137,10 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
         args["cmp_mask_mode"] = 3
     if args.pop("quant_mode", 1) != 1:
-        raise OperatorUnavailableError("cann_9_1 packed KV supports quant_mode=1 only")
+        raise RuntimeError("cann_9_1 packed KV supports quant_mode=1 only")
     args.update(kv_quant_mode=1, tile_size=64)
     if args.get("rope_head_dim", 64) != 64:
-        raise OperatorUnavailableError("cann_9_1 packed KV requires rope_head_dim=64")
+        raise RuntimeError("cann_9_1 packed KV requires rope_head_dim=64")
     # Device metadata has no seqused_q scheduling-bound argument.
     args.pop("seqused_q", None)
     if sparse:
@@ -145,7 +164,20 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
         if sparse
         else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
     )
-    op = require_op(namespace, binding, backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    if namespace == "custom":
+        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+        namespace = "sgl_cann_recipes_infer"
+    op = getattr(getattr(torch.ops, namespace), binding, None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     return op(**args)
 
 

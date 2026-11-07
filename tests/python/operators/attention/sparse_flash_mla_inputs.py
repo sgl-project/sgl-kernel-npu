@@ -88,13 +88,9 @@ def check_sparse_flash_mla_accuracy(data, *, target):
     metadata = kwargs["metadata"]
     assert isinstance(metadata, torch.Tensor)
     assert metadata.dtype == torch.int32
-    from sgl_kernel_npu.operators.utils.transformer_compat import (
-        get_transformer_metadata_size,
-    )
+    from sgl_kernel_npu.operators.attention import get_sparse_flash_mla_metadata_size
 
-    assert metadata.shape == (
-        get_transformer_metadata_size("sparse_flash_mla_metadata"),
-    )
+    assert metadata.shape == (get_sparse_flash_mla_metadata_size(),)
     assert metadata.is_contiguous()
     # Opaque metadata is checked through paired compute, not byte comparison.
     return make_executor(

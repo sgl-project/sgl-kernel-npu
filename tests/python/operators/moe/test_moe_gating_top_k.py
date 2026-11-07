@@ -24,10 +24,10 @@ perf_shape = [(1, 256, 6), (16, 256, 6)]
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_moe_gate(shape, norm_type, with_bias):
     from sgl_kernel_npu.operators.moe import moe_gating_top_k
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-    from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
-    cann_9_1 = cann_backend() == "cann_9_1"
+    cann_9_1 = detect_cann_version().startswith("9.1.")
     if cann_9_1 and get_hardware().generation == Generation.ARCH22 and norm_type == 2:
         pytest.skip("CANN 9.1 A3 does not support norm_type=2; requires Ascend 950")
     # Deployed cann_9_1 custom bindings reject renorm=1. Exercise their supported
@@ -89,10 +89,13 @@ def generate_data(tokens):
 )
 def test_deepseek_v4_flash_moe_gate(tokens):
     from sgl_kernel_npu.operators.moe import moe_gating_top_k
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-    from sgl_kernel_npu.operators.utils.transformer_compat import cann_backend
 
-    if cann_backend() == "cann_9_1" and get_hardware().generation == Generation.ARCH22:
+    if (
+        detect_cann_version().startswith("9.1.")
+        and get_hardware().generation == Generation.ARCH22
+    ):
         pytest.skip(
             "CANN 9.1 A3 kernel does not support the model's sqrtsoftplus mode (norm_type=2)"
         )

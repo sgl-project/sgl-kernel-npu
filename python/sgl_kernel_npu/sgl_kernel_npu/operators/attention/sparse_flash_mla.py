@@ -2,13 +2,9 @@
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import (
-    OperatorUnavailableError,
-    cann_backend,
-    require_op,
-)
 from .attention_utils import logical_to_physical
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
 
@@ -17,12 +13,18 @@ from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
     "attention.sparse_flash_mla", "auto", supported_generations={Generation.ARCH22}
 )
 def _auto_sparse_flash_mla(q, **kwargs):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = (
             "ascendc"
             if _uses_native_sparse_inputs(kwargs)
             else "ops_transformer_cann910"
+        )
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
         )
     return get_impl_by_name("attention.sparse_flash_mla", backend)(q, **kwargs)
 
@@ -38,11 +40,18 @@ def _auto_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH22},
 )
 def _cann_sparse_flash_mla(q, **kwargs):
-    op = require_op(
-        "cann_ops_transformer",
-        "sparse_flash_mla",
-        backend="cann_ops_transformer_cann920",
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.sparse_flash_mla in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     args = {
         key: value
         for key, value in kwargs.items()
@@ -61,16 +70,14 @@ def _uses_native_sparse_inputs(kwargs):
 @register_impl("attention.sparse_flash_mla", "ops_transformer_cann910")
 def _ops_transformer_cann910(q, **kwargs):
     if _uses_native_sparse_inputs(kwargs):
-        raise OperatorUnavailableError(
-            "Explicit sparse inputs require impl='ascendc' on CANN 9.1"
-        )
+        raise RuntimeError("Explicit sparse inputs require impl='ascendc' on CANN 9.1")
     return _cann_9_1_sparse_flash_mla(q, **kwargs)
 
 
 @register_impl("attention.sparse_flash_mla", "ascendc")
 def _ascendc(q, **kwargs):
     if not _uses_native_sparse_inputs(kwargs):
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
         )
     return _cann_9_1_sparse_flash_mla(q, **kwargs)
@@ -83,7 +90,20 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
         if indices is not None
         else ("custom", "npu_sparse_attn_sharedkv")
     )
-    op = require_op(namespace, binding, backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    if namespace == "custom":
+        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+        namespace = "sgl_cann_recipes_infer"
+    op = getattr(getattr(torch.ops, namespace), binding, None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     args = {
         key: value
         for key, value in kwargs.items()
@@ -102,13 +122,11 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
     elif layout not in ("BSND", "TND"):
         raise ValueError(f"Unsupported shared-KV layout: {layout}")
     if args.pop("topk_value_mode", 1) != 1:
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "cann_9_1 attention only supports logical compressed top-k indices"
         )
     if args.pop("cmp_topk_length", None) is not None:
-        raise OperatorUnavailableError(
-            "cann_9_1 attention does not accept cmp_topk_length"
-        )
+        raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
     args.pop("ori_topk_length", None)
     args.pop("ori_topk", None)
     if args.get("ori_mask_mode", 4) == 0:
@@ -123,7 +141,7 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
         )
     if indices is not None:
         if kwargs.get("cmp_kv") is not None:
-            raise OperatorUnavailableError(
+            raise RuntimeError(
                 "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
             )
         args["ori_sparse_indices"] = logical_to_physical(

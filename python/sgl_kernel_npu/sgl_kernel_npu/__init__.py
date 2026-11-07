@@ -45,8 +45,8 @@ _load_sgl_kernel_npu()
 
 
 # Register the bundled CANN 9.1 bridge before the first NPU use. Loading it
-# lazily from require_op after device initialization can yield zero indexer
-# outputs even though the matching metadata and ACLNN symbols are present.
+# lazily on the first operator call after device initialization can yield
+# zero indexer outputs even when matching metadata and ACLNN symbols are present.
 if any(
     dependency.get("name") == "sgl_cann_recipes_infer"
     for dependency in globals().get("_manifest", {}).get("third_party", [])
