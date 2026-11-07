@@ -118,6 +118,9 @@ def test_sparse_block_estimate(shape, dtype, layout, causal):
     )
 
 
+# Extended parameter combinations are excluded by the repository's default
+# marker expression; the accuracy and performance regression cases above stay.
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
     "causal,mode",
