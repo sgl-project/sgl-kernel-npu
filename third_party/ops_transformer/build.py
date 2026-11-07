@@ -12,6 +12,8 @@ from pathlib import Path
 from build_tools.cann import run
 from build_tools.third_party import detect_soc_version, extract_python, read_json
 
+from third_party.opapi import isolate_staged_opapis
+
 
 def configure(config, jobs):
     """Resolve ops-transformer's names and command placeholders."""
@@ -299,6 +301,7 @@ def stage(result, package):
     # Installer-generated scripts embed the temporary absolute installation path.
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     if item["python_bindings"]:
         stage_python(result["wheel"], item, package)
     licenses = package / "_third_party/licenses" / item["name"]
@@ -314,4 +317,5 @@ def stage(result, package):
         vendor_directory=vendor.name,
         files=hashes,
         binding="upstream_jit" if item["python_bindings"] else "vendor_only",
+        opapi_soname=opapi_sonames[vendor.name],
     )

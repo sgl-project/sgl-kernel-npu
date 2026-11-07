@@ -88,8 +88,13 @@ def isolate_opapi_library(path, owner):
     return name
 
 
-def isolate_bundled_opapis(package, dependencies):
-    """Isolate every staged vendor and refresh third-party payload hashes."""
+def isolate_staged_opapis(package):
+    """Isolate vendors staged so far before an adapter computes payload hashes.
+
+    Adapters call this after copying their vendor. Rechecking earlier vendors is
+    idempotent, so their recorded hashes stay valid. The repository-owned vendor
+    is staged before dependencies and is isolated on the first adapter call.
+    """
     vendors = Path(package) / "_cann/vendors"
     names = {}
     for library in sorted(vendors.glob("*/op_api/lib/libcust_opapi.so")):
@@ -100,13 +105,4 @@ def isolate_bundled_opapis(package, dependencies):
         if name is not None and name in names.values():
             raise RuntimeError("Private CANN SONAME collision: " + name)
         names[owner] = name
-    for dependency in dependencies:
-        owner = dependency["vendor_directory"]
-        if owner not in names:
-            raise RuntimeError("Missing staged CANN vendor: " + owner)
-        relative = "op_api/lib/libcust_opapi.so"
-        dependency["files"][relative] = hashlib.sha256(
-            (vendors / owner / relative).read_bytes()
-        ).hexdigest()
-        dependency["opapi_soname"] = names[owner]
     return names

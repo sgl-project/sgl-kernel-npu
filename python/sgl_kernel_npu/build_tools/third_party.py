@@ -105,25 +105,11 @@ def resolve_plan(
             flush=True,
         )
         return []
-    definitions = []
+    builds = []
     for config_path in configs:
         if root.resolve() not in config_path.resolve().parents:
             raise ValueError("Dependency configuration escapes third_party")
-        entries = read_json(config_path)
-        if isinstance(entries, dict):
-            entries = [entries]
-        if (
-            not isinstance(entries, list)
-            or not entries
-            or any(not isinstance(entry, dict) for entry in entries)
-        ):
-            raise ValueError(
-                "Profile must contain a build object or a nonempty array of build objects: "
-                + str(config_path)
-            )
-        definitions.extend((config_path, entry) for entry in entries)
-    builds = []
-    for config_path, config in definitions:
+        config = read_json(config_path)
         # Profile documentation is not part of the build configuration or cache key.
         config.pop("_comment", None)
         # One upstream profile can require separate regular/experimental vendors.
@@ -243,7 +229,7 @@ def _artifact_hashes(result, root):
     """Check all delivered files, including missing/added files and symlink targets."""
     hashes = {}
     for key in ("vendor", "wheel", "license"):
-        if key not in result:
+        if key == "wheel" and not result["config"].get("python_bindings", True):
             continue
         path = result[key]
         if not path.exists():
@@ -317,7 +303,7 @@ def build_dependencies(plan, source_root=PROJECT_ROOT):
                     "artifacts": {
                         key: result[key].relative_to(root).as_posix()
                         for key in ("vendor", "wheel", "license")
-                        if key in result
+                        if key != "wheel" or item.get("python_bindings", True)
                     },
                     "hashes": _artifact_hashes(result, root),
                 }

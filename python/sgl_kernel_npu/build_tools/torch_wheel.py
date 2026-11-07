@@ -41,13 +41,6 @@ def build_torch(
 ):
     if cann.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
-    from build_tools.third_party import detect_soc_version
-
-    soc = {
-        "ascend910b": "Ascend910B1",
-        "ascend910_93": "Ascend910_9382",
-        "ascend950": "Ascend950PR_9599",
-    }[detect_soc_version()]
     source_root = Path(source_root).resolve()
     directory = cann.directory.parent / "torch"
     if directory.is_symlink():
@@ -56,7 +49,6 @@ def build_torch(
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc/aclnn_torch_adapter"),
         "SGL_ARCH_VERSION": arch_version,
         "SGL_CANN_OPERATORS": ";".join(cann.operators),
-        "SOC_VERSION": soc,
         "Python3_EXECUTABLE": sys.executable,
         "SGL_TORCH_LIBRARY_DIR": str(directory / "lib"),
     }
@@ -85,9 +77,6 @@ def build_torch(
     from build_tools.third_party import stage_dependencies
 
     third_party = stage_dependencies(dependencies, package)
-    from build_tools.elf import isolate_bundled_opapis
-
-    opapi_sonames = isolate_bundled_opapis(package, third_party)
     (package / "_cann/selected-operators.txt").write_text(
         "\n".join(cann.operators) + "\n"
     )
@@ -100,7 +89,6 @@ def build_torch(
         "operators": sorted(cann.operators),
         "compute_units": architecture(arch_version, source_root)["compute_units"],
         "third_party": third_party,
-        "opapi_sonames": opapi_sonames,
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     run(
@@ -115,7 +103,6 @@ def build_torch(
             "-DSGL_ARCH_VERSION=" + arch_version,
             "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
             "-DSGL_CANN_VENDOR=" + str(cann.vendor),
-            "-DSOC_VERSION=" + soc,
             "-DSGL_TORCH_LIBRARY_DIR=" + str(directory / "lib"),
         ],
         directory / "configure.log",
@@ -144,15 +131,6 @@ def wheel_build_tag(manifest):
             hashlib.sha256(
                 ",".join(sorted(manifest["operators"])).encode()
             ).hexdigest()[:10]
-        )
-    if manifest.get("opapi_sonames"):
-        parts.extend(
-            [
-                "api",
-                hashlib.sha256(
-                    json.dumps(manifest["opapi_sonames"], sort_keys=True).encode()
-                ).hexdigest()[:10],
-            ]
         )
     if manifest.get("third_party"):
         parts.extend(
