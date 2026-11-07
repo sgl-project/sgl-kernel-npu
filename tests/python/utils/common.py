@@ -74,17 +74,15 @@ def require_distinct_impls(operator, impl, impl_ref):
         get_impl,
     )
 
-    unsupported = None
     try:
         actual_entry = get_impl(operator, impl)
     except UnsupportedGenerationError as error:
-        unsupported = error
-    # Reference errors take priority over a DUT generation skip.
-    comparison_entry = get_impl(operator, impl_ref)
-    if unsupported is not None:
+        # Skip before resolving the reference: both sides may be unavailable
+        # when the whole operator targets another generation.
         import pytest
 
-        pytest.skip(str(unsupported))
+        pytest.skip(str(error))
+    comparison_entry = get_impl(operator, impl_ref)
     if actual_entry is comparison_entry:
         raise ValueError(
             f"{operator!r}: {impl!r} and {impl_ref!r} resolve to the "

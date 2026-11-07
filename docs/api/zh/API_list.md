@@ -41,6 +41,7 @@
 | [fused_gdn_gating](operators/attention/gdn/fused_gdn_gating.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
+| [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`、`torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
