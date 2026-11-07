@@ -122,10 +122,16 @@ def resolve_plan(
                 + str(config_path)
             )
         definitions.extend((config_path, entry) for entry in entries)
-    plan = []
+    builds = []
     for config_path, config in definitions:
         # Profile documentation is not part of the build configuration or cache key.
         config.pop("_comment", None)
+        # One upstream profile can require separate regular/experimental vendors.
+        additional = config.pop("additional_builds", [])
+        builds.append((config_path, config))
+        builds.extend((config_path, dict(config, **build)) for build in additional)
+    plan = []
+    for config_path, config in builds:
         if not isinstance(config.get("has_aicpu", False), bool):
             raise ValueError("has_aicpu must be a boolean")
         if not re.fullmatch(r"[0-9a-f]{40}", config["commit"]):
