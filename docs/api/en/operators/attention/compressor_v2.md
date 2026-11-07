@@ -65,8 +65,7 @@ the caller guarantees valid tensor contents and available history.
 ## cann_ops_transformers_cann920 backend
 
 Build with the `ops_transformer` profile. Its `additional_builds` entry schedules
-CompressorV2 with `--experimental` for the vendor build and
-`TORCH_EXTENSION_EXPERIMENTAL=TRUE` for the source Python wheel. The experimental
+CompressorV2 with `--experimental` on both upstream commands. The experimental
 vendor and Python package differ from the regular build, so both can ship in one
 wheel. The package includes the complete vendor,
 LICENSE and manifest; this experimental dependency has no AICPU. First use may

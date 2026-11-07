@@ -222,9 +222,17 @@ def prepare_source(item, source, directory):
 
 
 def build_python_wheel(item, source, directory):
-    """Build source bindings with the same interpreter as the parent build."""
-    # The pinned 9.1 build.sh has no --torch_extension option. Both pinned
-    # setup.py versions can build the source wheel with the active Python.
+    """Collect the profile-built wheel, or build the older 9.1 source bindings."""
+    if any("--torch_extension" in command for command in item["commands"]):
+        wheel_dir = source / "torch_extension/dist"
+        wheels = list(wheel_dir.glob("*.whl"))
+        if len(wheels) != 1:
+            raise RuntimeError(
+                "Expected one Python wheel from build.sh --torch_extension in "
+                + str(wheel_dir)
+            )
+        return wheels[0]
+    # The pinned 9.1 build.sh has no --torch_extension option.
     wheel_dir = directory / "python-wheel"
     environment = dict(
         os.environ,
