@@ -17,13 +17,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from tests.python.operators.norm.norm_utils import generate_qkv_data
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
     require_test_impl,
 )
-from tests.python.utils.norm import generate_qkv_data
 from tests.python.utils.performance import check_performance
 
 # (model/scenario, global Q heads, global KV heads, D, R, eps, TP, token loads).

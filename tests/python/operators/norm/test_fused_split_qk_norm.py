@@ -13,13 +13,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from tests.python.operators.norm.norm_utils import generate_mla_data
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
     require_test_impl,
 )
-from tests.python.utils.norm import generate_mla_data
 from tests.python.utils.performance import check_performance
 
 perf_shape = [(tokens, 1536, 512, 64) for tokens in (1, 16, 128, 2048)]

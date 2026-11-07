@@ -16,13 +16,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from tests.python.operators.norm.norm_utils import generate_pos_cache_data
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
     require_test_impl,
 )
-from tests.python.utils.norm import generate_pos_cache_data
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
