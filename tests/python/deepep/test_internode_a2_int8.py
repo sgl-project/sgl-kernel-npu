@@ -1,4 +1,4 @@
-"""A2 dynamic INT8 dispatch regression; run on two nodes with eight NPUs each.
+r"""A2 dynamic INT8 dispatch regression; run on two nodes with eight NPUs each.
 
 On each node, with NODE_RANK set to 0 or 1 and MASTER_ADDR set to node 0:
 
@@ -9,6 +9,11 @@ On each node, with NODE_RANK set to 0 or 1 and MASTER_ADDR set to node 0:
 
 Use an A2 DeepEP build and leave HCCL_OP_EXPANSION_MODE unset. Clearing both
 HCCL_INTRA_* variables exercises the alternative dynamic INT8 tiling key.
+
+For before/after accuracy, run this SAME script against the installed builds of
+26ec66e (before) and 04ed4ca (after), adding --label before or --label after.
+Use identical arguments and save stdout/stderr. Each run independently checks
+INT8 values, scales, routing weights and expert counts against a CPU reference.
 """
 
 import argparse
@@ -70,6 +75,17 @@ def check_dispatch(recv_x, recv_weights, counts, expected):
     assert isinstance(recv_x, tuple), "Dispatch must return INT8 tokens and scales"
     quantized, scales = (tensor.cpu() for tensor in recv_x)
     expected_x, expected_scales, expected_weights, expected_counts = expected
+    if (
+        dist.get_rank() == 0
+        and quantized.shape == expected_x.shape
+        and scales.shape == expected_scales.shape
+    ):
+        mismatches = int((quantized != expected_x).sum())
+        scale_error = float(((scales - expected_scales).abs() / expected_scales).max())
+        print(
+            f"  rank 0: INT8 mismatches={mismatches}, scale max relative error={scale_error:.6g}",
+            flush=True,
+        )
     assert torch.isfinite(scales).all() and (scales > 0).all()
     torch.testing.assert_close(quantized, expected_x, rtol=0, atol=0)
     # No absolute tolerance: it would hide missing scales for tiny/zero rows.
@@ -109,6 +125,7 @@ def main():
     parser.add_argument("--hidden", type=int, nargs="+", default=[32, 256, 7168])
     parser.add_argument("--num-tokens", type=int, nargs="+", default=[8, 65])
     parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument("--label", default="current", help="Label the before/after run")
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
@@ -139,11 +156,18 @@ def main():
         ), "This regression requires the A2 internode implementation"
         for hidden in args.hidden:
             for num_tokens in args.num_tokens:
+                if rank == 0:
+                    print(
+                        f"[{args.label}] tokens={num_tokens}, hidden={hidden}",
+                        flush=True,
+                    )
                 # Repeat with new data to catch stale scratch/metadata reuse.
                 for iteration in range(args.repeat):
                     run_case(buffer, rank, world_size, num_tokens, hidden, iteration)
+                # PASS means every rank completed all accuracy assertions.
+                dist.barrier()
                 if rank == 0:
-                    print(f"Passed: tokens={num_tokens}, hidden={hidden}", flush=True)
+                    print(f"[{args.label}] PASS on all {world_size} ranks", flush=True)
     finally:
         dist.destroy_process_group()
 
