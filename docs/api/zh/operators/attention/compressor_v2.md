@@ -61,8 +61,7 @@ B/S/T 可为 0，权重与 cache 仍须非空。上游 Python 签名的 state_bl
 ## cann_ops_transformers_cann920 后端
 
 使用 `ops_transformer` profile 构建，其中 `additional_builds` 声明 CompressorV2 的独立构建，
-vendor 构建命令带 `--experimental`，源码 Python wheel 构建设置
-`TORCH_EXTENSION_EXPERIMENTAL=TRUE`。
+两条上游命令均带 `--experimental`。
 该依赖使用独立 vendor 和 Python 包，可与普通 profile 一起随 wheel 分发，保留完整
 vendor、LICENSE、manifest；实验依赖不含 AICPU。首次调用可能 JIT 编译 C++ 绑定，
 需要编译器及匹配的 CANN、Torch、torch_npu。

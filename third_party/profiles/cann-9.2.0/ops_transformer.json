@@ -37,7 +37,8 @@
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "3baf8ac0eba25fa464260a43bab8d5bac1fefb8a",
   "commands": [
-    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
   ],
   "has_aicpu": true,
   "license": "LICENSE",
@@ -67,7 +68,8 @@
         "arch35": []
       },
       "commands": [
-        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
+        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+        ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
       ],
       "has_aicpu": false,
       "commit": "e7da18105f08b06e01ef0fff78f439098d483746",

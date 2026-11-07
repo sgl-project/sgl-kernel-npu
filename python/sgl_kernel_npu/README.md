@@ -113,9 +113,10 @@ Profiles record these Python export aliases explicitly. The build checks every
 selected binding against the pinned source before compiling kernels, then checks
 the extracted wheel again. Both the flat CANN 9.1 Python package and the
 vendor-suffixed CANN 9.2 package are staged under the wheel's private namespace.
-The adapter builds these source wheels with the active Python and upstream
-`setup.py`; it does not require the newer `build.sh --torch_extension` command
-that is absent from the pinned CANN 9.1 source.
+CANN 9.2 retains the profile's `build.sh --torch_extension` command; the adapter
+collects its wheel from `torch_extension/dist` without rebuilding it. CANN 9.1
+builds the source wheel with the active Python and upstream `setup.py` because
+its pinned `build.sh` has no `--torch_extension` option.
 The pinned CANN 9.1 released bindings provide mHC only, without a `mla_prolog`
 Python API. Its recipes profile also includes the A5 `hc_pre_inv_rms` and
 `hc_pre_sinkhorn` kernels used by the `npu_hc_pre` composite branch.
