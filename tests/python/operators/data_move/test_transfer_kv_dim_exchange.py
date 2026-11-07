@@ -366,7 +366,15 @@ def test_transfer_kv_rejected(case, message):
         require_distinct_impls(transfer_kv_dim_exchange, impl, impl_ref)
     before = host.clone()
     for backend in (impl, impl_ref) if checked else (impl,):
-        with pytest.raises(RuntimeError, match=message):
+        error_type, error_message = RuntimeError, message
+        if case == "device" and backend in ("auto", "aclrt"):
+            # All-CPU inputs fail dispatch before the NPU kernel's validation.
+            error_type = NotImplementedError
+            error_message = (
+                "Could not run 'npu::transfer_kv_dim_exchange' "
+                "with arguments from the 'CPU' backend"
+            )
+        with pytest.raises(error_type, match=error_message):
             transfer_kv_dim_exchange(**kwargs, impl=backend)
         torch.npu.synchronize()
         if checked:

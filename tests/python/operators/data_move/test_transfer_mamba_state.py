@@ -237,7 +237,15 @@ def test_transfer_mamba_state_rejected(case, message):
         require_distinct_impls(transfer_mamba_state, impl, impl_ref)
     before = host.clone()
     for backend in (impl, impl_ref) if checked else (impl,):
-        with pytest.raises(RuntimeError, match=message):
+        error_type, error_message = RuntimeError, message
+        if case == "device" and backend in ("auto", "aclrt"):
+            # All-CPU inputs fail dispatch before the NPU kernel's validation.
+            error_type = NotImplementedError
+            error_message = (
+                "Could not run 'npu::transfer_mamba_state' "
+                "with arguments from the 'CPU' backend"
+            )
+        with pytest.raises(error_type, match=error_message):
             transfer_mamba_state(
                 device, host, d, h, TransferDirection.D2H, impl=backend
             )
