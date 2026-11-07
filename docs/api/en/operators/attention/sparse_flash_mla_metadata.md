@@ -2,7 +2,7 @@
 
 The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
 
 
 ## CANN 9.1 compatibility
@@ -83,7 +83,7 @@ otherwise behaviour is undefined. In particular this operator defaults `cmp_rati
 the main operator defaults them to `1`, `0`, `0`, `-1` and `-1`, so pass these five
 arguments explicitly instead of relying on defaults.
 
-Returns an opaque `int32[2048]` tensor whose contents are implementation defined and
+Returns an opaque `int32[1024]` tensor whose contents are implementation defined and
 must not be interpreted by callers.
 
 ## Parameters and return value
@@ -111,7 +111,7 @@ must not be interpreted by callers.
 | `has_ori_kv`, `has_cmp_kv` | `bool` | `None` | Must match whether the main operator receives `ori_kv` and `cmp_kv`. |
 | `impl` | `str`, keyword only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
 
-Returns `metadata`: Tensor, `int32`, shape `[2048]`, on the input device.
+Returns `metadata`: Tensor, `int32`, shape `[1024]`, on the input device.
 
 ## Example
 
@@ -142,5 +142,5 @@ metadata = sparse_flash_mla_metadata(
     has_ori_kv=True,
     has_cmp_kv=False,
 )
-print(metadata.shape, metadata.dtype)  # [2048], int32
+print(metadata.shape, metadata.dtype)  # [1024], int32
 ```

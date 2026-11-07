@@ -111,5 +111,5 @@ CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
 Graph metadata allocation uses `get_transformer_metadata_size(operator_name)`
 from `operators.utils.transformer_compat`. This is a pure ABI query: it does
 not import a third-party bridge or execute an NPU kernel. The pinned CANN 9.1
-metadata buffers have 1024 int32 entries; the pinned CANN 9.2 buffers have 2048.
+metadata buffers and the pinned CANN 9.2 release-branch buffers have 1024 int32 entries.
 Each metadata operator test also checks its actual output against this contract.

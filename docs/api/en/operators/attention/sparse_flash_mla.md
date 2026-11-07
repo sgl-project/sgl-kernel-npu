@@ -2,7 +2,7 @@
 
 The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
 
 
 ## CANN 9.1 compatibility
@@ -135,7 +135,7 @@ page count.
 | `ori_topk_length` | Optional Tensor; int32 | `None` | Valid length for `ori_sparse_indices`; unused on A2/A3. |
 | `cmp_topk_length` | Optional Tensor; int32; `[T,N2]` (TND) or `[B,S,N2]` | `None` | Valid length of `cmp_sparse_indices`; reserved on Atlas A2/A3 and must be omitted there. |
 | `sinks` | Tensor `[N1]`; float32 | `None` | Per-head softmax sink logits; the Atlas A2/A3 kernel requires it, so it cannot be omitted or empty. |
-| `metadata` | Tensor `[2048]`; int32 | Required | Scheduling data from [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md). |
+| `metadata` | Tensor `[1024]`; int32 | Required | Scheduling data from [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md). |
 | `softmax_scale` | `float` | `1.0` | QK score scale; never inferred from the head width. |
 | `cmp_ratio` | `int` | `1` | Compression ratio: 1 for SWA, 1/2/4 for CSA, 128 for HCA. |
 | `ori_mask_mode` | `int` | `0` | `0` unmasked, `3` causal, `4` sliding window. |

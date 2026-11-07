@@ -35,7 +35,7 @@
     ]
   },
   "repository": "https://gitcode.com/cann/ops-transformer.git",
-  "commit": "7df757adc542c75733f9702af97ee7a14fca9f51",
+  "commit": "3baf8ac0eba25fa464260a43bab8d5bac1fefb8a",
   "commands": [
     ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
   ],

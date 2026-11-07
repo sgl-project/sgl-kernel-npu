@@ -32,18 +32,6 @@ def configure(config, jobs):
     config["python_bindings"] = config.get("python_bindings", True)
     if not isinstance(config["python_bindings"], bool):
         raise ValueError("python_bindings must be a boolean")
-    config["source_patches"] = {}
-    if config["soc"] == "ascend950":
-        # The 9.2 SDK cannot generate APIs for the 960-only HiFloat4 schemas.
-        for operator, filename in (
-            ("indexer_quant_cache", "ascend950-indexer-quant-cache.patch"),
-            ("quant_flash_attn", "ascend950-quant-flash-attn.patch"),
-        ):
-            if operator in config["ops"]:
-                patch = Path(__file__).parent / "patches" / filename
-                config["source_patches"][patch.name] = hashlib.sha256(
-                    patch.read_bytes()
-                ).hexdigest()
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -215,7 +203,7 @@ def inspect_vendor(vendor, item):
 
 
 def prepare_source(item, source, directory):
-    """Apply checked target-specific patches before compiling upstream code."""
+    """Validate selected directories without modifying the pinned source."""
     # Check the pinned tree before spending time compiling the vendor package.
     experimental = any("--experimental" in command for command in item["commands"])
     root = source / "experimental" if experimental else source
@@ -223,20 +211,6 @@ def prepare_source(item, source, directory):
         matches = list(root.glob("*/" + op + "/CMakeLists.txt"))
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream operator directory for " + op)
-    for name, expected in item["source_patches"].items():
-        patch = Path(__file__).parent / "patches" / name
-        if hashlib.sha256(patch.read_bytes()).hexdigest() != expected:
-            raise RuntimeError("Third-party source patch changed: " + name)
-        run(
-            ["git", "apply", "--check", patch],
-            directory / (name + ".check.log"),
-            cwd=source,
-        )
-        run(
-            ["git", "apply", patch],
-            directory / (name + ".apply.log"),
-            cwd=source,
-        )
 
 
 def build_python_wheel(item, source, directory):

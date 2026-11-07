@@ -72,13 +72,13 @@ Use tensors on the same device; the CANN implementation requires NPU tensors. Be
 | `cache_seqlens` | Optional Tensor `[B]`; int32 | `None` | Required valid KV lengths, within the referenced cache capacity. |
 | `cu_seqlens_q` | Optional Tensor `[B+1]`; int32 | `None` | Required for TND, absent for other query layouts. Starts at zero and ends at `T`; differences give physical query lengths. |
 | `seqused_q` | Optional Tensor `[B]`; int32 | `None` | Actual query lengths, no larger than the physical segments; omission uses the full segments. |
-| `sinks` | Optional Tensor `[N]`; float32 | `None` | Per-head softmax sink logits. CANN also accepts an empty tensor to disable sinks. |
+| `sinks` | Optional Tensor `[N]`; float32 | `None` | The pinned release supports `None` only; non-empty sinks are unavailable. |
 | `attn_mask` | Optional Tensor `[2048,2048]`; int8 | `None` | Required in modes 3/4: standard compressed upper-triangular mask, with ones above the diagonal. Absent in mode 0. |
 | `metadata` | Optional Tensor `[M]`; int32 | `None` | Scheduling data from [flash_mla_metadata](flash_mla_metadata.md), on the query device and generated for matching inputs/attributes. |
 | `head_dim_v` | `int` | `512` | Value/output width; CANN requires 512. |
 | `softmax_scale` | `float` | `1.0` | Multiplier applied to QK scores; not inferred from the head width. |
-| `mask_mode` | `int` | `0` | `0`: unmasked; `3`: right-aligned causal; `4`: right-aligned sliding window. |
-| `win_left`, `win_right` | `int` | `-1` | Window bounds in mode 4; `-1` means unbounded. Other modes require `-1`. |
+| `mask_mode` | `int` | `0` | The pinned release supports `0` (unmasked) and `3` (right-aligned causal). |
+| `win_left`, `win_right` | `int` | `-1` | Must remain `-1` for the pinned release; sliding windows are unavailable. |
 | `max_seqlen_q`, `max_seqlen_kv` | `int` | `-1` | Upstream maximum-length attributes; `-1` uses upstream defaults, otherwise nonnegative. |
 | `layout_q` | `str` | `"BSND"` | `BSND`, `BNSD`, or `TND`. |
 | `layout_kv` | `str` | `"PA_BBND"` | `PA_BBND`, `PA_BNBD`, or `PA_NZ`. |
