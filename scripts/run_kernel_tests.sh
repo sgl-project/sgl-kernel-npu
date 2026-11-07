@@ -25,7 +25,7 @@ run_test() {
             (
                 cd "$GITHUB_WORKSPACE" || exit 1
                 PYTHONPATH="${GITHUB_WORKSPACE}${PYTHONPATH:+:${PYTHONPATH}}" \
-                    python3 -u -m pytest "$test_file" -vv -s -x --enable-perf=false -o faulthandler_timeout=120
+                    python3 -m pytest "$test_file" -q -x --enable-perf=false
             ) || exit_code=$?
         else
             python3 -m pytest "$test_file" -q -x || exit_code=$?
