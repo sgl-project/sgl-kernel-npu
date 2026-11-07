@@ -465,19 +465,12 @@ python3 tests/python/sgl_kernel_npu/test_hello_world.py
 
 ## Repository-owned DSV4 kernels
 
-Complete wheels compile this checkout's fused compressor and DSpark kernels
-into `sgl_kernel_npu/lib/libsgl_kernel_npu.so`, alongside the selected ACLNN
-Torch adapters. The original `torch.ops.npu` schemas and C++ entry points are
-reused. Required repository kernels are included automatically for the selected
-architecture; `--ops` keeps selecting declared CANN operators as in the existing
-build flow.
+The root `setup.py` builds declared CANN operators and their Torch adapters;
+it does not add the legacy direct-launch compressor, DSpark or SwiGLU kernels.
+Paths using their `torch.ops.npu` bindings require a separately validated native
+build and packaging integration. The root wheel alone does not guarantee all
+bindings needed to run a complete DSV4 service. The existing `build.sh` native
+build remains unchanged.
 
-Initialize the target CANN SDK, then build the complete wheel:
-
-```bash
-python3 setup.py --arch-version 2201 --artifact wheel -j8
-```
-
-Use `3510` for A5. The matching external profiles are selected by default.
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.

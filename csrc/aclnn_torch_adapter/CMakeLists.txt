@@ -19,11 +19,11 @@ find_package(Torch REQUIRED)
 find_library(TORCH_NPU_LIBRARY torch_npu PATHS "${torch_npu_root}/lib" NO_DEFAULT_PATH REQUIRED)
 set(sdk "$ENV{ASCEND_HOME_PATH}")
 find_library(ACL_LIBRARY ascendcl PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
-get_filename_component(SGL_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 find_library(NNOPBASE_LIBRARY nnopbase PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
 if(NOT IS_DIRECTORY "${SGL_CANN_VENDOR}/op_api/include")
     message(FATAL_ERROR "SGL_CANN_VENDOR must name this build's installed CANN vendor")
 endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/operators.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/domains.cmake")
 sgl_add_operator_domains()
@@ -40,18 +40,12 @@ separate_arguments(torch_flags NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
 foreach(target IN ITEMS sgl_kernel_npu)
     add_library(${target} SHARED ${adapters})
     target_compile_features(${target} PRIVATE cxx_std_17)
-    get_target_property(torch_cxx_standard torch CXX_STANDARD)
-    if(torch_cxx_standard)
-        set_property(TARGET ${target} PROPERTY CXX_STANDARD ${torch_cxx_standard})
-    endif()
     target_compile_options(${target} PRIVATE ${torch_flags})
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${torch_npu_root}/include" "${sdk}/include" "${SGL_CANN_VENDOR}/op_api/include"
         ${Python3_INCLUDE_DIRS})
     target_link_libraries(${target} PRIVATE ${TORCH_LIBRARIES} "${TORCH_NPU_LIBRARY}"
         "${ACL_LIBRARY}" "${NNOPBASE_LIBRARY}" ${CMAKE_DL_LIBS})
-    include("${CMAKE_CURRENT_LIST_DIR}/../cmake/native_ops.cmake")
-    sgl_add_native_operators(${target})
     # Dependencies are loaded by torch/torch_npu and the initialized CANN runtime.
     # Do not bake the build machine's absolute directories into the wheel.
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF
