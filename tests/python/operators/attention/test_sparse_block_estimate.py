@@ -10,12 +10,37 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(1, 4, 4, 4096, 64)]
 
 
-def generate_test_data(shape, dtype, layout, mode, seed=42):
-    """Full written rows for check_accuracy; partial lengths have a separate test."""
+def generate_test_data(
+    shape, dtype, layout, mode, seed=42, *, stride=8, sparse_size=128
+):
+    """Separate block scores; partial lengths have a separate test.
+
+    A positive Q signal and shuffled, block-wise K offsets separate logits.
+    Bound their range to avoid an almost one-hot softmax on long sequences.
+    Small random perturbations retain variation across tokens, heads and
+    batches. Ties and zero scale remain explicit cases.
+    """
     batch, heads, kv_heads, seq, dim = shape
     torch.npu.manual_seed(seed)
-    q = torch.randn((batch, heads, seq, dim), dtype=dtype) * 0.1
-    k = torch.randn((batch, kv_heads, seq, dim), dtype=dtype) * 0.1
+    q = torch.randn((batch, heads, seq, dim), dtype=torch.float32) / 64 + 0.25
+    k = torch.randn((batch, kv_heads, seq, dim), dtype=torch.float32) / 256
+    span = seq * (kv_heads if layout != "BNSD" else 1)
+    blocks = (span + sparse_size - 1) // sparse_size
+    levels = torch.randperm(blocks, device=k.device).to(torch.float32)
+    gap = min(0.5, 8.0 / max(blocks - 1, 1))
+    levels = (levels - (blocks - 1) / 2) * gap
+    scale = dim**-0.5 if mode == "scaled" else 1.0
+    offsets = levels / (stride * dim * 0.25 * scale)
+    if layout == "BNSD":
+        block_ids = torch.arange(seq, device=k.device) // sparse_size
+        k += offsets[block_ids].view(1, 1, seq, 1)
+    else:
+        # The legacy BSND/BSH Matmul consumes raw contiguous K spans across
+        # heads. Give each such span its own offset rather than repeating
+        # one offset across multiple spans of the same logical token block.
+        block_ids = torch.arange(span, device=k.device).view(seq, kv_heads).T
+        k += offsets[block_ids // sparse_size].view(1, kv_heads, seq, 1)
+    q, k = q.to(dtype), k.to(dtype)
     if layout != "BNSD":
         q, k = q.transpose(1, 2).contiguous(), k.transpose(1, 2).contiguous()
         if layout == "BSH":
@@ -32,7 +57,13 @@ def generate_test_data(shape, dtype, layout, mode, seed=42):
     if mode == "ties":
         q.zero_()
         k.zero_()
-    kwargs = dict(input_layout=layout, num_heads=heads, num_key_value_heads=kv_heads)
+    kwargs = dict(
+        input_layout=layout,
+        num_heads=heads,
+        num_key_value_heads=kv_heads,
+        stride=stride,
+        sparse_size=sparse_size,
+    )
     if mode == "none":
         kwargs.update(actual_seq_lengths=None, actual_seq_lengths_kv=None)
     elif mode == "empty":
@@ -136,9 +167,14 @@ def test_sparse_block_estimate_block_sizes(stride, sparse_size):
     from sgl_kernel_npu.operators.attention import sparse_block_estimate
 
     q, k, kwargs = generate_test_data(
-        (1, 1, 1, 2048, 64), torch.float16, "BNSD", "normal"
+        (1, 1, 1, 2048, 64),
+        torch.float16,
+        "BNSD",
+        "normal",
+        stride=stride,
+        sparse_size=sparse_size,
     )
-    kwargs.update(stride=stride, sparse_size=sparse_size, threshold=0.8)
+    kwargs["threshold"] = 0.8
     executor = check_accuracy(sparse_block_estimate, args=(q, k), kwargs=kwargs)
     check_performance(executor, enable_perf=False)
 
