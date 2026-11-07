@@ -14,11 +14,11 @@
 #define __aicore__ [aicore]
 #include "kernel_operator.h"
 #include "../op_host/tiling/tiling_data.h"
-#include "../../../mla_preprocess/op_kernel/kernel/common.h"
-#include "../../../mla_preprocess/op_kernel/kernel/hardware.h"
-#include "../../../mla_preprocess/op_kernel/kernel/mma.h"
-#include "../../../mla_preprocess/op_kernel/kernel/utils.h"
-#include "../../../mla_preprocess/op_kernel/kernel/iterator.h"
+#include "../../../utils/kernel/device_prims/common.h"
+#include "../../../utils/kernel/device_prims/hardware.h"
+#include "../../../utils/kernel/device_prims/mma.h"
+#include "../../../utils/kernel/device_prims/utils.h"
+#include "../../../utils/kernel/device_prims/iterator.h"
 #include "../../../utils/kernel/math_utils.h"
 
 constexpr uint32_t L0_PINGPONG_BUFFER_LEN = 16384;

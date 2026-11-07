@@ -64,7 +64,7 @@ Host 调度接入 CANN Tiling 回调，沿用原 `HardwareInfo()` 构造函数�
 通过 `PlatformInfo::Instance()` 获取硬件信息。
 Tiling 存储由 CANN 管理，不再使用旧的进程级 1024 槽位张量及同步 H2D 拷贝；
 接口仍保留 `M <= 1024` 限制。Torch adapter 使用包内 ACLNN 和当前 NPU stream。
-Kernel 的共享辅助代码仍来自 `csrc/mla_preprocess` 和 `csrc/utils`。
+Kernel 复用 `csrc/utils/kernel/device_prims` 的设备基础接口和 `csrc/utils/kernel/math_utils.h` 的数学辅助函数。
 
 当前 SGLang MLA 调用点在调用 Torch 算子前，已经按指定 dtype 分配 `[M, B, N]` 输出。
 本次接入采用 ACLNN 单算子路径，不注册手写 shape/dtype 推导。

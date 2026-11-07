@@ -71,7 +71,8 @@ Tiling callback, retaining the original `HardwareInfo()` constructor and
 storage; the old process-global 1024-slot tiling tensor and synchronous host-to-
 device copies are not used. The original `M <= 1024` interface limit is retained.
 The Torch adapter uses the bundled ACLNN implementation and current NPU stream.
-The kernel's shared helpers still come from `csrc/mla_preprocess` and `csrc/utils`.
+The kernel reuses device primitives from `csrc/utils/kernel/device_prims`
+and math helpers from `csrc/utils/kernel/math_utils.h`.
 
 The current SGLang MLA callers allocate `[M, B, N]` output tensors with the
 required dtype before invoking the Torch operator. This integration uses the
