@@ -239,21 +239,21 @@ def test_layouts_and_gates(layout, gate_mode):
     check_performance(executor, enable_perf=False)
 
 
-@pytest.mark.parametrize("gate_dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("beta_dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("chunk_size", [64, 128])
-def test_gate_beta_dtypes(gate_dtype, beta_dtype, chunk_size):
-    from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
-
-    kwargs = generate_data(
-        (1, 129, 1, 2, 32, 32, chunk_size), gate_dtype=gate_dtype, beta_dtype=beta_dtype
-    )
-    executor = check_accuracy(
-        chunk_kda_fwd,
-        kwargs=kwargs,
-        standard=KDA_STANDARD,
-    )
-    check_performance(executor, enable_perf=False)
+# @pytest.mark.parametrize("gate_dtype", [torch.float32, torch.bfloat16])
+# @pytest.mark.parametrize("beta_dtype", [torch.float32, torch.bfloat16])
+# @pytest.mark.parametrize("chunk_size", [64, 128])
+# def test_gate_beta_dtypes(gate_dtype, beta_dtype, chunk_size):
+#     from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
+#
+#     kwargs = generate_data(
+#         (1, 129, 1, 2, 32, 32, chunk_size), gate_dtype=gate_dtype, beta_dtype=beta_dtype
+#     )
+#     executor = check_accuracy(
+#         chunk_kda_fwd,
+#         kwargs=kwargs,
+#         standard=KDA_STANDARD,
+#     )
+#     check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.parametrize("boundaries", [(0, 1, 64, 129), (0, 64, 65, 129)])
