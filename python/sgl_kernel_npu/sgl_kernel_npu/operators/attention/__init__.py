@@ -21,6 +21,7 @@ from .paged_mtp_attention import paged_mtp_attention_decode
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
 from .sparse_attn_sharedkv import sparse_attn_sharedkv
+from .sparse_block_estimate import sparse_block_estimate
 from .sparse_flash_attention import sparse_flash_attention
 from .sparse_flash_mla import sparse_flash_mla, sparse_flash_mla_metadata
 
@@ -43,6 +44,7 @@ __all__ = [
     "compressor_v2",
     "flash_decode_bnsd_with_gqa_share_sparse",
     "sparse_attn_sharedkv",
+    "sparse_block_estimate",
     "sparse_flash_attention",
     "sparse_flash_mla",
     "sparse_flash_mla_metadata",
