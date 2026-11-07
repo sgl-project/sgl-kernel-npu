@@ -134,9 +134,9 @@ def main():
     try:
         rank = dist.get_rank()
         buffer = deep_ep.Buffer(dist.group.WORLD, int(2e9), 0, num_qps_per_rank=1)
-        assert buffer.runtime.get_num_rdma_ranks() == world_size // 8, (
-            "This regression requires the A2 internode implementation"
-        )
+        assert (
+            buffer.runtime.get_num_rdma_ranks() == world_size // 8
+        ), "This regression requires the A2 internode implementation"
         for hidden in args.hidden:
             for num_tokens in args.num_tokens:
                 # Repeat with new data to catch stale scratch/metadata reuse.

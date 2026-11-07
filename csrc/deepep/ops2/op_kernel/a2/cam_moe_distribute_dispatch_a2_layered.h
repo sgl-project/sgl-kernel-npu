@@ -424,8 +424,8 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         if constexpr (DynamicQuant || StaticQuant) {
             DataCopyPad(tokenTempTensorU8_, xGMTensorU8_[(startTokenId + i) * axisH_ * sizeof(XType)],
                         tokenCopyParamsQuant, tokenPadParams);
-            LocalTensor<float> tokenCastLt = tBuf.GetWithOffset<float>(
-                axisH_, RoundUp(TBUF_TEMP_OFFSET + tokenUbSize, UB_32B_ALIGN));
+            LocalTensor<float> tokenCastLt =
+                tBuf.GetWithOffset<float>(axisH_, RoundUp(TBUF_TEMP_OFFSET + tokenUbSize, UB_32B_ALIGN));
             QuantProcess(1, tokenLt, tokenCastLt);
             // Quantization reads the BF16 region that metadata is about to
             // overwrite. Complete both the vector output and scalar scale.
