@@ -19,7 +19,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 )
 def _cannbot_dsl_impl(*args, **kwargs):
     with ascend950_device(*args, **kwargs):
-        return load_cannbot_dsl("quant_lightning_indexer_metadata")(*args, **kwargs)
+        operator = load_cannbot_dsl("quant_lightning_indexer_metadata")
+        return operator(*args, **kwargs)
 
 
 @register_operator("indexer.quant_lightning_indexer_metadata")
@@ -45,10 +46,9 @@ def quant_lightning_indexer_metadata(
     candidate_block_size=-1,
     impl="auto",
 ):
-    """Invoke the upstream DeepSeek V4.1 operator with its original ABI.
+    """Build scheduling metadata for ``quant_lightning_indexer``.
 
-    ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
-    The implementation is imported on first execution.
+    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
     """
     return get_impl_by_name("indexer.quant_lightning_indexer_metadata", impl)(
         cu_seqlens_q,

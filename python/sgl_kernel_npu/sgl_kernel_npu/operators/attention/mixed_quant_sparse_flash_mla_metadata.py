@@ -19,9 +19,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 )
 def _cannbot_dsl_impl(*args, **kwargs):
     with ascend950_device(*args, **kwargs):
-        return load_cannbot_dsl("mixed_quant_sparse_flash_mla_metadata")(
-            *args, **kwargs
-        )
+        operator = load_cannbot_dsl("mixed_quant_sparse_flash_mla_metadata")
+        return operator(*args, **kwargs)
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla_metadata")
@@ -47,10 +46,9 @@ def mixed_quant_sparse_flash_mla_metadata(
     has_cmp_kv=True,
     impl="auto",
 ):
-    """Invoke the upstream DeepSeek V4.1 operator with its original ABI.
+    """Build scheduling metadata for ``mixed_quant_sparse_flash_mla``.
 
-    ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
-    The implementation is imported on first execution.
+    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(
         ori_topk_length,

@@ -19,7 +19,8 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 )
 def _cannbot_dsl_impl(*args, **kwargs):
     with ascend950_device(*args, **kwargs):
-        return load_cannbot_dsl("indexer_prologue_k")(*args, **kwargs)
+        operator = load_cannbot_dsl("indexer_prologue_k")
+        return operator(*args, **kwargs)
 
 
 @register_operator("indexer.indexer_prologue_k")
@@ -38,10 +39,9 @@ def indexer_prologue_k(
     combined_block_size: int = -1,
     impl="auto",
 ):
-    """Invoke the upstream DeepSeek V4.1 operator with its original ABI.
+    """Update the key cache and optional scale cache in place.
 
-    ``auto`` selects CANNBot-DSL on arch35. ``cannbot_dsl`` is explicit.
-    The implementation is imported on first execution.
+    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
     """
     return get_impl_by_name("indexer.indexer_prologue_k", impl)(
         latent,
