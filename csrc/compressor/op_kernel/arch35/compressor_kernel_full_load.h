@@ -185,6 +185,7 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::InitTilingData()
     constInfo.stateCacheStrideDim0 = tilingData_->baseParams.stateCacheStrideDim0;
     constInfo.reciprocalD = tilingData_->baseParams.reciprocalD;
     constInfo.usedCoreNum = tilingData_->baseParams.usedCoreNum;
+    constInfo.batchConsistency = tilingData_->baseParams.batchConsistency;
 
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;

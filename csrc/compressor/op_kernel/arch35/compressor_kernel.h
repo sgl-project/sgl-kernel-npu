@@ -195,6 +195,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData()
     constInfo.stateCacheStrideDim0 = tilingData_->baseParams.stateCacheStrideDim0;
     constInfo.reciprocalD = tilingData_->baseParams.reciprocalD;
     constInfo.usedCoreNum = tilingData_->baseParams.usedCoreNum;
+    constInfo.batchConsistency = tilingData_->baseParams.batchConsistency;
 
     constInfo.blockNum = tilingData_->pageAttentionParams.blockNum;
     constInfo.blockSize = tilingData_->pageAttentionParams.blockSize;
@@ -216,7 +217,8 @@ __aicore__ inline void CompressorKernel<COMP>::SplitK()
     }
 
     uint32_t mBaseNum = CeilDivT(mSize, constInfo.mBaseSize);
-    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum) {
+    if (constInfo.dBasicBlockNum * mBaseNum < constInfo.usedCoreNum &&
+        constInfo.batchConsistency != BATCH_CONSISTENCY) {
         constInfo.kBaseNum = constInfo.usedCoreNum / constInfo.dBasicBlockNum;
         uint32_t kAlignSize = CeilDivT(
             Align(constInfo.hSize, static_cast<uint32_t>(BUFFER_SIZE_BYTE_32B / sizeof(X_T))), constInfo.kBaseNum);
@@ -261,6 +263,7 @@ __aicore__ inline void CompressorKernel<COMP>::SkipInvalidBatch(BatchInfo &batch
         batchInfo.bStartPos = tools_.GetStartPos(batchInfo.bIdx);
         batchInfo.sIdx = 0;
         batchInfo.headHolderSeq = batchInfo.bStartPos & (constInfo.cmpRatio - 1);
+        batchInfo.mBaseResidue = batchInfo.bStartPos & (constInfo.mBaseSize - 1);
         batchInfo.tcNum = (batchInfo.bStartPos + batchInfo.seqCnt + constInfo.cmpRatio - 1) / constInfo.cmpRatio -
                           batchInfo.bStartPos / constInfo.cmpRatio;
         batchInfo.compressedTcNum = (batchInfo.bStartPos + batchInfo.seqUsedCnt) / constInfo.cmpRatio -
@@ -353,6 +356,7 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
     uint32_t totalDataSize = constInfo.mGroupNum * constInfo.mBaseSize - quota;
     // 2. Start offset of the current group
     uint32_t currentGroupStart = constInfo.mCurGroupIdx * constInfo.mBaseSize;
+    uint32_t absResidue = (batchInfo.bIdx == 0U) ? batchInfo.mBaseResidue : 0U;
 
     // 3. Safety check
     if (currentGroupStart >= totalDataSize) {
@@ -361,7 +365,11 @@ __aicore__ inline BasicBlockInfo CompressorKernel<COMP>::SkipOneLoop(BatchInfo &
     } else {
         // still within the valid range; compute the remaining amount
         uint32_t remaining = totalDataSize - currentGroupStart;
-        basicBlockInfo.dealSeqCnt = (remaining < constInfo.mBaseSize) ? remaining : constInfo.mBaseSize;
+        uint32_t cap = constInfo.mBaseSize;
+        if (currentGroupStart == 0U && absResidue != 0U) {
+            cap = constInfo.mBaseSize - absResidue;
+        }
+        basicBlockInfo.dealSeqCnt = (remaining < cap) ? remaining : cap;
     }
     return basicBlockInfo;
 }
@@ -445,7 +453,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitWorkspace(__gm__ uint8_t *wor
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, bool isNeedExcute)
 {
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
         // wait every AIV finished the previous generation of mm1[dbIdx] (bypass DCache)
         uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
         uint32_t aivNum = tilingData_->workspaceParams.aivNum;
@@ -472,7 +480,8 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
     blockVec_.ComputeVec1(info);
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
-    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
+        // Deferred for every ratio; see the ring-row invariant in OverLap.
         SyncAll();
         blockVec_.CommitState(info);
         // AIV publishes the generation it just finished (bypass DCache)

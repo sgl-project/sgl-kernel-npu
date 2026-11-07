@@ -19,6 +19,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 
 const uint32_t CMP_MAX_AIC_CORE_NUM = 36;  // A5 maximum number of cores (arch35)
+constexpr uint32_t BATCH_CONSISTENCY = 3;  // batch-consistency mode: no K-split / no h-stagger (shape-invariant)
 
 namespace optiling {
 struct CompressorSplitCoreParams {
@@ -50,6 +51,7 @@ struct CompressorBaseParams {
     uint32_t kBaseSize = 0;
     uint32_t coreGroupNum = 0;
     uint32_t mLoopNum = 0;
+    uint32_t batchConsistency = 0;  // BATCH_CONSISTENCY => shape-invariant K reduction (no K-split / no h-stagger)
     CompressorSplitCoreParams splitCoreParam[CMP_MAX_AIC_CORE_NUM];
 };
 

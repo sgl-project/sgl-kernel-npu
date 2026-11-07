@@ -81,7 +81,7 @@ enum class ROTARY_MODE : std::uint8_t {
 
 enum class CACHE_MODE : std::uint8_t {
     CONTINUOUS = static_cast<std::uint8_t>(1),
-    CYCLE = static_cast<std::uint8_t>(2)
+    EXPLICIT = static_cast<std::uint8_t>(2)
 };
 
 enum class TEMPLATE_ID : uint8_t { NORMAL = 0, EMPTY_X = 1, FULL_LOAD = 2 };
@@ -129,6 +129,7 @@ struct BatchInfo {
     uint32_t seqUsedCnt = 0;
     uint32_t headHolderSeq = 0;
     uint32_t bStartPos = 0;
+    uint32_t mBaseResidue = 0;
     uint32_t bIdx = 0;
     uint32_t sIdx = 0;
 };
@@ -160,6 +161,7 @@ struct ConstInfo {
     uint32_t kStart = 0;
     uint32_t kEnd = 0;
     uint32_t mLoopNum = 0;
+    uint32_t batchConsistency = 0;  // BATCH_CONSISTENCY => shape-invariant K reduction (no K-split / no h-stagger)
     uint32_t bIdxOfLastTc = 0;
     uint32_t sIdxOfLastTc = 0;
     uint32_t mGroupNum = 0;
