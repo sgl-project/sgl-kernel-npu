@@ -1,6 +1,8 @@
 from sgl_kernel_npu.sparsity_driven_kv_offload.ops import (
     create_shm_tensor,
     free_shm,
+    fused_lightning_indexer_manage,
+    restore_short_kv_history_inplace,
     slot_map_lookup,
     unidex_copy_inplace,
 )
@@ -8,6 +10,20 @@ from sgl_kernel_npu.sparsity_driven_kv_offload.ops import (
 __all__ = [
     "create_shm_tensor",
     "free_shm",
+    "fused_lightning_indexer_manage",
+    "plan_sparse_kv_cache",
+    "restore_short_kv_history_inplace",
     "slot_map_lookup",
     "unidex_copy_inplace",
 ]
+
+
+def __getattr__(name):
+    # Keep the planner module optional for older offload-only deployments.
+    if name == "plan_sparse_kv_cache":
+        from sgl_kernel_npu.sparsity_driven_kv_offload.cache_planner import (
+            plan_sparse_kv_cache,
+        )
+
+        return plan_sparse_kv_cache
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

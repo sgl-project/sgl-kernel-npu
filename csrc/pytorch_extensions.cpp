@@ -12,6 +12,7 @@
 // limitations under the License.
 
 #include "version.h"
+#include "fused_lightning_indexer_manage/op_kernel/upstream/fused_lightning_indexer_manage_constants.h"
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
@@ -150,6 +151,22 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
+    m.def(
+        "plan_sparse_kv_cache(Tensor(a!) source_to_slot, Tensor(b!) slot_to_source, "
+        "Tensor req_ids, Tensor topk_input, Tensor(c!) topk_src_ids, Tensor(d!) topk_dst_slots, "
+        "Tensor(e!) topk_miss_counts, Tensor(f!) miss_src_ids, Tensor(g!) miss_dst_slots, Tensor(h!) miss_counts, "
+        "int max_context_len, int cache_capacity) -> ()");
+
+    m.def(
+        "fused_scatter_copy_sparse_flash_attention(Tensor query, Tensor query_rope, "
+        "Tensor(a!) combined_hbm_cache, Tensor actual_seq_lengths_query, Tensor actual_seq_lengths_kv, "
+        "Tensor num_cache_tokens, Tensor topk_src_ids, Tensor topk_dst_slots, Tensor topk_miss_counts, "
+        "Tensor miss_src_ids, Tensor miss_dst_slots, Tensor miss_counts, Tensor hbm_block_table, "
+        "Tensor dram_block_table, int dram_kv_dev_ptr, Tensor(b!) attention_out, float scale_value, bool "
+        "full_visible=False, bool resident_refresh_tail=False, Tensor? current=None, Tensor? positions=None, "
+        "Tensor? valid=None, Tensor? request_slots=None, Tensor? req_to_token=None, "
+        "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0) -> ()");
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -187,6 +204,19 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? actual_seq_lengths=None, Tensor? actual_seq_lengths_kv=None, "
         "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
         "int top_k=16, int inner_precise=0) -> Tensor");
+    m.def("lim_full_visible_max_query_width() -> int", []() -> int64_t { return LIMConfig::MAX_ROUTES; });
+    m.def(
+        "fused_lightning_indexer_manage("
+        "Tensor index_weights, Tensor query_dequant_scale, Tensor query, "
+        "Tensor index_key_dequant_scale, Tensor index_key_cache, "
+        "Tensor index_block_table, Tensor actual_seq_lengths_query, "
+        "Tensor actual_seq_lengths_key, Tensor offload_seq_lengths_key, "
+        "Tensor num_cache_tokens, Tensor request_state, Tensor req_pool_entries, "
+        "Tensor(a!) cache_slots_pool, Tensor(b!) topk_src_ids, "
+        "Tensor(c!) topk_dst_slots, Tensor(d!) topk_miss_counts, "
+        "Tensor(e!) miss_src_ids, Tensor(f!) miss_dst_slots, "
+        "Tensor(g!) miss_counts, bool full_visible=False) -> ()");
+
     m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
@@ -211,6 +241,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor dst_index, Tensor valid_mask, int src_rows, int dst_rows, "
         "int block_bytes, int max_copy, int block_dim=8, "
         "int? src_ptr=None, int? dst_ptr=None) -> ()");
+
+    m.def(
+        "restore_short_kv_history(Tensor host, Tensor(a!) cache, Tensor req_to_token, Tensor requests, "
+        "Tensor lengths, Tensor first_positions, Tensor old_begin, Tensor old_end, Tensor(b!) next_begin, "
+        "Tensor(c!) next_end, Tensor(d!) next_first, int capacity, int context_len, int src_ptr, int block_dim=48) -> "
+        "()");
 
     m.def(
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
@@ -391,7 +427,14 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("plan_sparse_kv_cache", TORCH_FN(sglang::npu_kernel::plan_sparse_kv_cache));
+    m.impl("fused_scatter_copy_sparse_flash_attention",
+           TORCH_FN(sglang::npu_kernel::fused_scatter_copy_sparse_flash_attention));
+#endif
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
+    m.impl("restore_short_kv_history", TORCH_FN(sglang::npu_kernel::restore_short_kv_history));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
 #endif
@@ -404,6 +447,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("fused_lightning_indexer_manage", TORCH_FN(sglang::npu_kernel::fused_lightning_indexer_manage));
 
     m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
 

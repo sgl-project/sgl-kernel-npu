@@ -1,5 +1,8 @@
 default_stages: [pre-commit, pre-push, manual]
 
+# Preserve the pinned upstream device headers byte-for-byte.
+exclude: ^csrc/fused_lightning_indexer_manage/op_kernel/upstream/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

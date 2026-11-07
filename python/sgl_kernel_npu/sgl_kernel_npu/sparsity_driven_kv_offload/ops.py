@@ -138,6 +138,50 @@ def unidex_copy_inplace(
     return dst
 
 
+def restore_short_kv_history_inplace(
+    host,
+    cache,
+    req_to_token,
+    requests,
+    lengths,
+    first_positions,
+    old_begin,
+    old_end,
+    next_begin,
+    next_end,
+    next_first,
+    capacity,
+    context_len,
+    *,
+    src_ptr: int,
+    block_dim: int = 48,
+):
+    """Restore missing short-request history and write separate next extents.
+
+    ``src_ptr`` must address the registered host storage on the NPU. The caller
+    owns that storage until the current stream completes. All extent buffers
+    must be distinct and active request IDs must be unique.
+    """
+    torch.ops.npu.restore_short_kv_history(
+        host,
+        cache,
+        req_to_token,
+        requests,
+        lengths,
+        first_positions,
+        old_begin,
+        old_end,
+        next_begin,
+        next_end,
+        next_first,
+        capacity,
+        context_len,
+        src_ptr,
+        block_dim,
+    )
+    return cache
+
+
 def slot_map_lookup(
     slot_map: torch.Tensor,
     req_indices: torch.Tensor,
@@ -156,3 +200,54 @@ def slot_map_lookup(
         block_dim,
     )
     return token_on_device, device_token_pos
+
+
+def fused_lightning_indexer_manage(
+    index_weights,
+    query_dequant_scale,
+    query,
+    index_key_dequant_scale,
+    index_key_cache,
+    index_block_table,
+    actual_seq_lengths_query,
+    actual_seq_lengths_key,
+    offload_seq_lengths_key,
+    num_cache_tokens,
+    request_state,
+    req_pool_entries,
+    cache_slots_pool,
+    topk_src_ids,
+    topk_dst_slots,
+    topk_miss_counts,
+    miss_src_ids,
+    miss_dst_slots,
+    miss_counts,
+    full_visible=False,
+):
+    """Produce TopK/cache plans in place using the wheel's native A2/A3 LIM.
+
+    All 19 tensors are preallocated NPU tensors. Main KV payload copies and
+    attention remain separate operations. No custom vendor installation is used.
+    """
+    torch.ops.npu.fused_lightning_indexer_manage(
+        index_weights,
+        query_dequant_scale,
+        query,
+        index_key_dequant_scale,
+        index_key_cache,
+        index_block_table,
+        actual_seq_lengths_query,
+        actual_seq_lengths_key,
+        offload_seq_lengths_key,
+        num_cache_tokens,
+        request_state,
+        req_pool_entries,
+        cache_slots_pool,
+        topk_src_ids,
+        topk_dst_slots,
+        topk_miss_counts,
+        miss_src_ids,
+        miss_dst_slots,
+        miss_counts,
+        full_visible,
+    )
