@@ -10,7 +10,7 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.attention import chunk_kda_fwd
+from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
 
 def chunk_kda_fwd(
     q, k, v, g, beta, *,
@@ -79,7 +79,7 @@ A device-preserving PyTorch implementation accepting the same arguments and outp
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import chunk_kda_fwd
+from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
 
 q = torch.nn.functional.normalize(torch.randn(1, 64, 1, 128, device="npu"), dim=-1).bfloat16()
 k = torch.nn.functional.normalize(torch.randn_like(q.float()), dim=-1).bfloat16()

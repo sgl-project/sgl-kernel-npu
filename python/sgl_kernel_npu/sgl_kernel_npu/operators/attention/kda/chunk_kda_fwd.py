@@ -2,13 +2,13 @@ from typing import Optional
 
 import torch
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
 
 
-@register_impl("attention.chunk_kda_fwd", "auto")
-@register_impl("attention.chunk_kda_fwd", "ascendc")
+@register_impl("attention.kda.chunk_kda_fwd", "auto")
+@register_impl("attention.kda.chunk_kda_fwd", "ascendc")
 def _ascendc_impl(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -66,7 +66,7 @@ def _ascendc_impl(
     )
 
 
-@register_impl("attention.chunk_kda_fwd", "torch_native")
+@register_impl("attention.kda.chunk_kda_fwd", "torch_native")
 def _torch_native_impl(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -97,7 +97,9 @@ def _torch_native_impl(
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.chunk_kda_fwd import chunk_kda_fwd
+        from ....implementation.torch_native.attention.kda.chunk_kda_fwd import (
+            chunk_kda_fwd,
+        )
 
         _torch_native_fn = chunk_kda_fwd
     return _torch_native_fn(
@@ -129,7 +131,7 @@ def _torch_native_impl(
     )
 
 
-@register_operator("attention.chunk_kda_fwd")
+@register_operator("attention.kda.chunk_kda_fwd")
 def chunk_kda_fwd(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -202,7 +204,7 @@ def chunk_kda_fwd(
             state_v_first=True. Unrequested optional outputs are None.
 
     Example:
-        >>> from sgl_kernel_npu.operators.attention import chunk_kda_fwd
+        >>> from sgl_kernel_npu.operators.attention.kda import chunk_kda_fwd
         >>> q = torch.randn(1, 64, 1, 128, device="npu", dtype=torch.bfloat16)
         >>> k, v = torch.randn_like(q), torch.randn_like(q)
         >>> g = torch.full(q.shape, -0.01, device=q.device, dtype=torch.float32)
@@ -211,7 +213,7 @@ def chunk_kda_fwd(
         >>> outputs[0].shape
         torch.Size([1, 64, 1, 128])
     """
-    return get_impl_by_name("attention.chunk_kda_fwd", impl)(
+    return get_impl_by_name("attention.kda.chunk_kda_fwd", impl)(
         q=q,
         k=k,
         v=v,

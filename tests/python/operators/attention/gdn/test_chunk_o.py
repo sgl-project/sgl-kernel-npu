@@ -40,8 +40,7 @@ INTEGRATION_CASES = [
 
 def check_integration_accuracy(operator, kwargs):
     """Use max-absolute or relative-RMS error for the full-GDN input domains."""
-    impl, impl_ref = get_test_impls()
-    executor = make_executor(operator, kwargs=kwargs, impl=impl, impl_ref=impl_ref)
+    executor = make_executor(operator, kwargs=kwargs)
     if get_skip_acc_check() is True:
         require_test_impl(operator, executor.impl)
         return executor
@@ -186,8 +185,7 @@ def test_chunk_o(shape, boundaries, dtype, mode):
     from sgl_kernel_npu.operators.attention.gdn import chunk_fwd_o
 
     kwargs = generate_data(shape, dtype, boundaries, mode=mode)
-    impl, impl_ref = get_test_impls()
-    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs, impl=impl, impl_ref=impl_ref)
+    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs)
     check_performance(
         executor,
         enable_perf=shape in perf_shape
@@ -204,8 +202,7 @@ def test_chunk_o_packed_index_and_scale(index_dtype):
         (1, 33, 1, 2, 32, 48, 16), torch.float32, (0, 1, 33), index_dtype=index_dtype
     )
     kwargs["scale"] = 0.25
-    impl, impl_ref = get_test_impls()
-    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs, impl=impl, impl_ref=impl_ref)
+    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs)
     check_performance(executor, enable_perf=False)
 
 
@@ -249,6 +246,5 @@ def test_chunk_o_gate_storage_offset(dtype):
 
     kwargs = generate_data((1, 17, 1, 1, 16, 16, 16), dtype, mode="offset_gate")
     assert kwargs["g"].storage_offset() == 8
-    impl, impl_ref = get_test_impls()
-    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs, impl=impl, impl_ref=impl_ref)
+    executor = check_accuracy(chunk_fwd_o, kwargs=kwargs)
     check_performance(executor, enable_perf=False)
