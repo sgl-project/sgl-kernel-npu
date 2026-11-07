@@ -1,7 +1,5 @@
 """CANN 9.1 indexer argument conversion."""
 
-from ..utils.transformer_compat import OperatorUnavailableError
-
 
 def _cann_9_1_indexer_kwargs(kwargs):
     args = dict(kwargs)
@@ -23,10 +21,10 @@ def _cann_9_1_indexer_kwargs(kwargs):
         actual_k = actual_k + residual
     for name in ("cu_seqlens_k", "output_idx_offset"):
         if args.pop(name, None) is not None:
-            raise OperatorUnavailableError(f"cann_9_1 indexer does not support {name}")
+            raise RuntimeError(f"cann_9_1 indexer does not support {name}")
     args.pop("max_seqlen_q", None)
     if args.pop("return_value", 0) != 0:
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "cann_9_1 indexer score outputs are not part of the migrated contract"
         )
     layout_q = args.pop("layout_q", "BSND")

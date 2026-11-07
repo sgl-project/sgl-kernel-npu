@@ -1,15 +1,23 @@
 """Public mhc_post operator with registered implementations."""
 
+import torch
+
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import cann_backend, require_op
 
 
 @register_impl("hyper_conn.mhc_post_dpskv4", "auto")
 def _auto_mhc_post(x, residual, post, comb):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
     return get_impl_by_name("hyper_conn.mhc_post_dpskv4", backend)(
         x, residual, post, comb
     )
@@ -17,15 +25,35 @@ def _auto_mhc_post(x, residual, post, comb):
 
 @register_impl("hyper_conn.mhc_post_dpskv4", "cann_ops_transformer_cann920")
 def _cann_mhc_post(x, residual, post, comb):
-    op = require_op(
-        "cann_ops_transformer", "mhc_post", backend="cann_ops_transformer_cann920"
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(torch.ops.cann_ops_transformer, "mhc_post", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.mhc_post in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     return op(residual, comb, x, post)
 
 
 @register_impl("hyper_conn.mhc_post_dpskv4", "cann_recipes_infer_cann910")
 def _cann_9_1_mhc_post(x, residual, post, comb):
-    op = require_op("custom", "npu_hc_post", backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_post", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator sgl_cann_recipes_infer.npu_hc_post in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     if get_hardware().generation == Generation.ARCH35:
         return op(
             x.unsqueeze(0), residual.unsqueeze(0), post.unsqueeze(0), comb.unsqueeze(0)

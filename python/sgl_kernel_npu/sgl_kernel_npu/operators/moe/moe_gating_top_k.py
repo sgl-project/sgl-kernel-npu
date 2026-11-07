@@ -2,15 +2,43 @@
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import cann_backend, filter_supported_kwargs, require_op
+
+
+def _filter_moe_gating_kwargs(op, kwargs, *, defaults):
+    """Omit only unused defaults absent from the original MoE schema."""
+    if not isinstance(op, torch._ops.OpOverloadPacket):
+        return kwargs
+    names = {arg.name for arg in op.default._schema.arguments}
+    result = {}
+    for name, value in kwargs.items():
+        if name in names:
+            result[name] = value
+        elif value is None or (
+            name in defaults
+            and not isinstance(value, torch.Tensor)
+            and value == defaults[name]
+        ):
+            continue
+        else:
+            raise RuntimeError(
+                f"{op} does not support requested argument {name}={value!r}"
+            )
+    return result
 
 
 @register_impl("moe.moe_gating_top_k", "auto")
 def _auto(x, k, **kwargs):
-    backend = (
-        "cann_recipes_infer_cann910" if cann_backend() == "cann_9_1" else cann_backend()
-    )
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
+        backend = "cann_recipes_infer_cann910"
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
     return get_impl_by_name("moe.moe_gating_top_k", backend)(x, k, **kwargs)
 
 
@@ -31,16 +59,30 @@ def _torch_npu(
     routed_scaling_factor=1.0,
     eps=1e-20,
 ):
-    op = require_op(
-        "npu",
-        "npu_moe_gating_top_k",
-        backend="cann_ops_transformer_cann920",
-        required_arguments=(
-            ("input_ids", "tid2eid")
-            if input_ids is not None or tid2eid is not None
-            else ()
-        ),
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    op = getattr(torch.ops.npu, "npu_moe_gating_top_k", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator npu.npu_moe_gating_top_k in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
+    if isinstance(op, torch._ops.OpOverloadPacket):
+        names = {arg.name for arg in op.default._schema.arguments}
+        missing = (
+            set(
+                ("input_ids", "tid2eid")
+                if input_ids is not None or tid2eid is not None
+                else ()
+            )
+            - names
+        )
+        if missing:
+            raise RuntimeError(
+                f"{op} is missing arguments: {', '.join(sorted(missing))}"
+            )
 
     kwargs = dict(
         bias=bias,
@@ -78,16 +120,32 @@ def _cann_9_1(
     routed_scaling_factor=1.0,
     eps=1e-20,
 ):
-    op = require_op(
-        "custom",
-        "npu_moe_gating_top_k",
-        backend="cann_9_1",
-        required_arguments=(
-            ("input_ids", "tid2eid")
-            if input_ids is not None or tid2eid is not None
-            else ()
-        ),
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_moe_gating_top_k", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator sgl_cann_recipes_infer.npu_moe_gating_top_k in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
+    if isinstance(op, torch._ops.OpOverloadPacket):
+        names = {arg.name for arg in op.default._schema.arguments}
+        missing = (
+            set(
+                ("input_ids", "tid2eid")
+                if input_ids is not None or tid2eid is not None
+                else ()
+            )
+            - names
+        )
+        if missing:
+            raise RuntimeError(
+                f"{op} is missing arguments: {', '.join(sorted(missing))}"
+            )
     kwargs = dict(
         bias=bias,
         input_ids=input_ids,
@@ -101,7 +159,7 @@ def _cann_9_1(
         routed_scaling_factor=routed_scaling_factor,
         eps=eps,
     )
-    kwargs = filter_supported_kwargs(
+    kwargs = _filter_moe_gating_kwargs(
         op,
         kwargs,
         defaults={

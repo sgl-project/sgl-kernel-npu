@@ -2,8 +2,6 @@
 
 import torch
 
-from ..utils.transformer_compat import OperatorUnavailableError
-
 
 def logical_to_physical(indices, lengths, q, table, cache, cu_q, layout):
     """Resolve original-KV indices for the native DSpark ABI using tensor ops."""
@@ -17,9 +15,7 @@ def logical_to_physical(indices, lengths, q, table, cache, cu_q, layout):
     elif layout == "BSND":
         batch = torch.arange(q.shape[0], device=q.device).repeat_interleave(q.shape[1])
     else:
-        raise OperatorUnavailableError(
-            "cann_9_1 sparse indices support TND or BSND queries"
-        )
+        raise RuntimeError("cann_9_1 sparse indices support TND or BSND queries")
     flat = indices.reshape(-1, indices.shape[-1]).long()
     valid = flat >= 0
     if lengths is not None:

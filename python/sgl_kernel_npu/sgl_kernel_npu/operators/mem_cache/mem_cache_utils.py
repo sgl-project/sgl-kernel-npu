@@ -26,10 +26,13 @@ CANN_9_1_NPU_KV_QUANT_PATH = NpuKvQuantPath(64, 1, 128, 1, "fp8_e8m0")
 
 def get_npu_kv_quant_path():
     """Choose the immutable reader/writer contract before pool allocation."""
-    from ..utils.transformer_compat import cann_backend
+    from ..utils.cann import detect_cann_version
 
-    return (
-        CANN_9_1_NPU_KV_QUANT_PATH
-        if cann_backend() == "cann_9_1"
-        else NPU_KV_QUANT_PATH
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
+        return CANN_9_1_NPU_KV_QUANT_PATH
+    if cann_version.startswith("9.2."):
+        return NPU_KV_QUANT_PATH
+    raise RuntimeError(
+        f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
     )

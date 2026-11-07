@@ -1,14 +1,22 @@
 """Public mhc_pre operator with registered implementations."""
 
+import torch
+
+from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import cann_backend, require_op
 
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "auto")
 def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
     return get_impl_by_name("hyper_conn.mhc_pre_dpskv4", backend)(
         x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
     )
@@ -16,11 +24,18 @@ def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformer_cann920")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    op = require_op(
-        "cann_ops_transformer",
-        "mhc_pre_sinkhorn",
-        backend="cann_ops_transformer_cann920",
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(torch.ops.cann_ops_transformer, "mhc_pre_sinkhorn", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.mhc_pre_sinkhorn in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     shape = x.shape
     h_in, h_post, h_res, *_ = op(
         x.reshape(-1, 1, hc_mult, shape[-1]),
@@ -44,7 +59,18 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
 def _cann_9_1_mhc_pre(
     x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
 ):
-    op = require_op("custom", "npu_hc_pre", backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_pre", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator sgl_cann_recipes_infer.npu_hc_pre in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     y, post, comb = op(
         x,
         fn,

@@ -2,22 +2,24 @@
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from ..utils.transformer_compat import (
-    OperatorUnavailableError,
-    cann_backend,
-    require_op,
-)
 
 
 @register_impl(
     "mem_cache.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
 )
 def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    backend = cann_backend()
-    if backend == "cann_9_1":
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
         backend = "ascendc"
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformer_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
     return get_impl_by_name("mem_cache.kv_compress_epilog", backend)(
         cache, x, slot_mapping, **kwargs
     )
@@ -29,11 +31,18 @@ def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    op = require_op(
-        "cann_ops_transformer",
-        "kv_compress_epilog",
-        backend="cann_ops_transformer_cann920",
-    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+
+    op = getattr(torch.ops.cann_ops_transformer, "kv_compress_epilog", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator cann_ops_transformer.kv_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     op(cache.view(torch.uint8), x, slot_mapping, **kwargs)
     return cache
 
@@ -44,13 +53,22 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    op = require_op("npu", "kv_compress_epilog", backend="cann_9_1")
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    op = getattr(torch.ops.npu, "kv_compress_epilog", None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator npu.kv_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
     if (
         kwargs["quant_mode"] != "fp8_e8m0"
         or not kwargs["round_scale"]
         or kwargs["x_scale"] != 1.0
     ):
-        raise OperatorUnavailableError(
+        raise RuntimeError(
             "cann_9_1 640B KV writer requires fp8_e8m0, round_scale=True and x_scale=1"
         )
     op(
