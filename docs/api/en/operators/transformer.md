@@ -99,12 +99,20 @@ or communication accuracy on an NPU.
 
 ## Repository-owned DSV4 kernels
 
-The root `setup.py` builds declared CANN operators and their Torch adapters;
-it does not add the legacy direct-launch compressor, DSpark or SwiGLU kernels.
-Paths using their `torch.ops.npu` bindings require a separately validated native
-build and packaging integration. The root wheel alone does not guarantee all
-bindings needed to run a complete DSV4 service. The existing `build.sh` native
-build remains unchanged.
+The root `setup.py` additionally builds the existing fused compressor into
+`sgl_kernel_npu/lib/libsgl_compressor.so`. The build reuses this checkout's
+compressor kernel, host implementation and architecture-specific tiling without
+changing C++ sources. Its original Torch schema is extracted from
+`csrc/pytorch_extensions.cpp`; package import loads the library before the first
+NPU use and checks that `torch.ops.npu.compressor` is registered. The main library
+continues to contain the selected migrated CANN adapters.
+
+Compressor intermediates are kept under `build/compressor` for incremental
+builds. `--make-clean` removes that directory along with the other local build
+outputs, while preserving third-party dependency caches. The existing
+`build.sh` native build remains unchanged. Legacy direct-launch DSpark bindings
+still require their existing native build integration; this compressor fix does
+not assert complete DSV4 service coverage.
 
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
