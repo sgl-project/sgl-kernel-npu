@@ -9,7 +9,7 @@ sgl_register_operator(
     OPDEF_SOURCES op_host/batch_matmul_transpose.cpp op_host/tiling/tiling_data.cpp
     TILING_SOURCES op_host/batch_matmul_transpose.cpp op_host/tiling/tiling_data.cpp
     KERNEL_SOURCES op_kernel/batch_matmul_transpose_kernel.cpp
-    # Resolve relative headers even when the SDK compiles a copied source tree.
-    KERNEL_INCLUDE_DIRECTORIES op_kernel
+    # Resolve the relative tiling header in copied sources and expose shared kernel headers.
+    KERNEL_INCLUDE_DIRECTORIES op_kernel ../../utils/kernel
     TORCH_ADAPTER torch_adapter.cpp
 )
