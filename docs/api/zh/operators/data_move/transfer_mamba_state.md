@@ -27,8 +27,8 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
 | --- | --- | --- | --- | --- | --- |
 | `device_buf` | Tensor | [L,D,...] | 源与目标一致 | 必填 | 按层排列的设备状态。 |
 | `host_buf` | Tensor | [H,L,1,...] | 源与目标一致 | 必填 | 按槽位排列的锁页主机状态。 |
-| `device_indices` | Tensor | [N] | int64 | 必填 | 设备槽位索引。KV 接口传 token 索引。 |
-| `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应的主机索引。 |
+| `device_indices` | Tensor | [N] | int64 | 必填 | 非负且小于 D 的设备槽位索引，直接寻址，不按页大小换算。 |
+| `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应、非负且小于 H 的主机槽位索引。 |
 | `direction` | TransferDirection | — | — | TransferDirection.H2D | TransferDirection.H2D 或 D2H。 |
 | `impl` | str | — | — | 'auto' | 选择实现，默认为 auto。 |
 

@@ -11,9 +11,11 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-# Keep the existing sparse MLA/indexer case as the profiling shape:
 # (layers, device pages, tokens per page, heads, head width).
-perf_shape = [(2, 4, 128, 1, 1)]
+perf_shape = [
+    (64, 30, 128, 4, 128),  # Qwen3-32B TP=2 KV cache, H2D and D2H.
+    (2, 4, 128, 1, 1),  # Sparse MLA/indexer pages.
+]
 
 
 def generate_data(direction, layout, pattern):
@@ -308,7 +310,12 @@ def test_transfer_kv_dim_exchange(direction, layout, pattern):
         accuracy_checked=checked,
     )
     check_performance(
-        executor, enable_perf=tuple(kwargs["device_k"].shape) in perf_shape
+        executor,
+        enable_perf=(
+            tuple(kwargs["device_k"].shape) in perf_shape
+            and layout in ("kv", "mla")
+            and pattern == "varied"
+        ),
     )
 
 

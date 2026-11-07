@@ -52,8 +52,8 @@ def transfer_kv_per_layer_direct_pf_lf(
     """Restore selected slots into one device layer.
 
     Source and destination must share their dtype. The destination slot
-    payload must be physically dense; the host source must be contiguous
-    and pinned.
+    payload must be physically dense with packed slots; the host source must
+    be contiguous and pinned.
 
     Args:
         src: Pinned host state [slots, layers, 1, ...].

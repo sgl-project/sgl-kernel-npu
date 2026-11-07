@@ -157,7 +157,6 @@ def test_state_transfer(flow, layout, d, h, layers):
             hosts,
             ref_hosts,
         )
-        check_performance(executor, enable_perf=tuple(devices[0].shape) in perf_shape)
         if checked and flow == "D2H":
             for storage, host in zip(storage_views, hosts):
                 # ACL copies physical payloads; use the original contiguous
@@ -167,6 +166,7 @@ def test_state_transfer(flow, layout, d, h, layers):
                     host[h, :, 0].flatten(2).view(torch.uint8),
                     selected.flatten(2).view(torch.uint8),
                 )
+        check_performance(executor, enable_perf=tuple(devices[0].shape) in perf_shape)
     if flow != "D2H":
         for layer in layers:
             for i, (dev, host) in enumerate(zip(devices, hosts)):

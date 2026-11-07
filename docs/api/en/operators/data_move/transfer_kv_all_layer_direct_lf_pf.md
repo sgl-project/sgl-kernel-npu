@@ -31,9 +31,9 @@ convolution states. Unselected host slots remain unchanged.
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `device_states` | Sequence[Tensor] | [L,D,...] | Matching payload dtype | Required | Layer-first device components [layers, slots, ...]; each slot payload must be physically dense. |
-| `host_states` | Sequence[Tensor] | [H,L,1,...] | Matching payload dtype | Required | Corresponding pinned host components [slots, layers, 1, ...]. |
-| `device_indices` | Tensor | [N] | int64 | Required | Device slot indices (token indices for KV). |
-| `host_indices` | Tensor | [N] | int64 | Required | Matching host slot or token indices. |
+| `host_states` | Sequence[Tensor] | [H,L,1,...] | Matching payload dtype | Required | Corresponding contiguous, pinned host components [slots, layers, 1, ...]. |
+| `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices within every component's slot count; no page-size conversion. |
+| `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices within every component's slot count. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
 | `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, or torch_native. |
 
@@ -43,7 +43,12 @@ convolution states. Unselected host slots remain unchanged.
 
 ## aclrt backend
 
-Submits asynchronous 2D transfers to the current NPU stream.
+Submits asynchronous 2D transfers to the current NPU stream. Host components must be
+contiguous and pinned. Device slot payloads must be physically dense, with the slot
+pitch equal to the payload size. Device layers may have padding, provided the layer
+pitch is at least the number of device slots times the slot pitch. Each device/host
+component pair must have matching dtypes and payload shapes. All components and slot
+indices are validated before any copy; ACL submission errors are propagated.
 
 ## torch_native backend
 

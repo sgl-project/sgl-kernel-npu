@@ -55,8 +55,8 @@ def transfer_mamba_state(
     Args:
         device_buf: Device state [layers, slots, *state_shape].
         host_buf: Pinned host state [slots, layers, 1, *state_shape].
-        device_indices: Device slot indices (token indices for KV).
-        host_indices: Matching host slot or token indices.
+        device_indices: Non-negative device slot indices, used without page-size conversion.
+        host_indices: Corresponding non-negative host slot indices.
         direction: TransferDirection.H2D or TransferDirection.D2H.
         impl: auto (ACL Runtime), aclrt, or torch_native.
 

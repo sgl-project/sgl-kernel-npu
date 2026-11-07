@@ -31,8 +31,8 @@ slot, including multidimensional state payloads. Unselected slots remain unchang
 | --- | --- | --- | --- | --- | --- |
 | `device_buf` | Tensor | [L,D,...] | Matching payload dtype | Required | Device state [layers, slots, *state_shape]. |
 | `host_buf` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Pinned host state [slots, layers, 1, *state_shape]. |
-| `device_indices` | Tensor | [N] | int64 | Required | Device slot indices (token indices for KV). |
-| `host_indices` | Tensor | [N] | int64 | Required | Matching host slot or token indices. |
+| `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices, less than D; used directly without page-size conversion. |
+| `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices, less than H. |
 | `direction` | TransferDirection | — | — | TransferDirection.H2D | TransferDirection.H2D or TransferDirection.D2H. |
 | `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, or torch_native. |
 

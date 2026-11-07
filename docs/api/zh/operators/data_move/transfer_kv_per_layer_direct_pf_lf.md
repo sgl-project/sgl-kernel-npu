@@ -25,7 +25,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 | 参数 | 类型 | 形状 | 数据类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `src` | Tensor | [H,L,1,...] | 源与目标一致 | 必填 | 锁页主机源状态，按槽位、层、页内位置排列。 |
+| `src` | Tensor | [H,L,1,...] | 源与目标一致 | 必填 | 连续锁页主机源状态，按槽位、层、页内位置排列。 |
 | `dst` | Tensor | [D,...] | 源与目标一致 | 必填 | 目标设备上的单层视图。 |
 | `src_indices` | Tensor | [N] | int64 | 必填 | 按传输顺序给出的主机槽位。 |
 | `dst_indices` | Tensor | [N] | int64 | 必填 | 对应的设备槽位。 |
@@ -39,7 +39,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## aclrt 后端
 
-在当前 NPU 流提交异步二维拷贝。
+在当前 NPU 流提交异步二维拷贝。主机源状态须连续且锁页；设备目标槽位内部须物理稠密，槽位 pitch 须等于槽位数据大小。源、目标的 dtype 和状态形状须一致；槽位索引须非负且小于各自缓冲区的槽位数，`layer_id` 须在主机层范围内。提交前校验输入，ACL 提交错误直接上抛。
 
 ## torch_native 后端
 

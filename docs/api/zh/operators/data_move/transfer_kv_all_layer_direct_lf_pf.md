@@ -27,8 +27,8 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 | --- | --- | --- | --- | --- | --- |
 | `device_states` | Sequence[Tensor] | [L,D,...] | 源与目标一致 | 必填 | 逐层排列的设备状态分量列表。每个槽位的物理存储须稠密。 |
 | `host_states` | Sequence[Tensor] | [H,L,1,...] | 源与目标一致 | 必填 | 与设备分量一一对应的连续锁页主机缓冲区。 |
-| `device_indices` | Tensor | [N] | int64 | 必填 | 设备槽位索引。KV 接口传 token 索引。 |
-| `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应的主机索引。 |
+| `device_indices` | Tensor | [N] | int64 | 必填 | 直接寻址的设备槽位索引，不按页大小换算；须非负且小于每个设备分量的槽位数。 |
+| `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应的主机槽位索引；须非负且小于每个主机分量的槽位数。 |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 二维拷贝标志 FAST2D。 |
 | `impl` | str | — | — | 'auto' | 选择实现，默认为 auto。 |
 
@@ -38,7 +38,7 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## aclrt 后端
 
-在当前 NPU 流提交异步二维拷贝。
+在当前 NPU 流提交异步二维拷贝。主机分量须连续且锁页；设备槽位内部须物理稠密，槽位 pitch 须等于槽位数据大小。设备层间允许留空，层 pitch 须不小于设备槽位数乘以槽位 pitch。每对设备、主机分量的 dtype 和状态形状须一致。提交前校验全部分量和槽位索引，ACL 提交错误直接上抛。
 
 ## torch_native 后端
 

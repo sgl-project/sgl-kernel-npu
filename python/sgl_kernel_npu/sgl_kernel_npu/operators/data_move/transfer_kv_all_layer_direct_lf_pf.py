@@ -51,14 +51,14 @@ def transfer_kv_all_layer_direct_lf_pf(
     """Back up selected slots of every layer and component to host.
 
     Each device/host component pair must share its dtype. Device slot
-    payloads must be physically dense; host components must be contiguous
-    and pinned.
+    payloads must be physically dense with packed slots. Layers may have
+    non-overlapping padding; host components must be contiguous and pinned.
 
     Args:
         device_states: Layer-first device components [layers, slots, ...].
         host_states: Corresponding pinned host components [slots, layers, 1, ...].
-        device_indices: Device slot indices (token indices for KV).
-        host_indices: Matching host slot or token indices.
+        device_indices: Non-negative device slot indices valid for every component, without page-size conversion.
+        host_indices: Corresponding non-negative host slot indices valid for every component.
         flags: TransferFlag.FAST2D for 2D copies.
         impl: auto (ACL Runtime), aclrt, or torch_native.
 

@@ -30,7 +30,7 @@ destination slots are updated. This also applies to other state tensors with the
 
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `src` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Pinned host state [slots, layers, 1, ...]. |
+| `src` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Contiguous, pinned host state [slots, layers, 1, ...]. |
 | `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination NPU layer view [slots, ...]; each slot payload must be physically dense. |
 | `src_indices` | Tensor | [N] | int64 | Required | Host slot indices in copy order. |
 | `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slots. |
@@ -44,7 +44,12 @@ destination slots are updated. This also applies to other state tensors with the
 
 ## aclrt backend
 
-Submits asynchronous 2D transfers to the current NPU stream.
+Submits asynchronous 2D transfers to the current NPU stream. The host source must be
+contiguous and pinned. Destination slot payloads must be physically dense, with the
+slot pitch equal to the payload size. Source and destination dtypes and payload
+shapes must match. Slot indices must be non-negative and within their respective
+buffer's slot count; `layer_id` must be within the host layer count. Inputs are
+validated before any copy, and ACL submission errors are propagated.
 
 ## torch_native backend
 
