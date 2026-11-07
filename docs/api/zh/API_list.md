@@ -72,6 +72,7 @@
 | [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`、`torch_native` |
 | [flash_prefill_bnsd_indexer](operators/indexer/flash_prefill_bnsd_indexer.md) | `triton`、`torch_native` |
 | [flash_prefill_bnsd_with_topk_idx](operators/indexer/flash_prefill_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [swiglu_oai_quant](operators/activation/swiglu_oai_quant.md) | `triton`, `torch_native` |
 
 ## batch invariant 算子
 
