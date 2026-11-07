@@ -11,6 +11,60 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+# LFM2 convolution state, shared by all-layer D2H and per-layer H2D:
+# (layers, device slots, convolution width, channels).
+perf_shape = [(2, 4, 128, 3)]
+
+
+def generate_data(flow, layout, d, h):
+    n, slots, host_slots = (2, 4, 5) if layout == "conv" else (3, 8, 10)
+    shapes = [(128, 3)] if layout == "conv" else [(2, 4)]
+    if layout in ("multi", "multi-transpose"):
+        shapes.append((3,))
+    devices, hosts, storage_views = [], [], []
+    for shape, dtype in zip(shapes, (torch.float32, torch.float16)):
+        dev = torch.randn(n, slots, *shape, dtype=dtype, device="npu")
+        storage_views.append(dev)
+        if layout in ("transpose", "multi-transpose") and len(shape) > 1:
+            dev = dev.transpose(-1, -2)
+        host = torch.empty(
+            host_slots, n, 1, *dev.shape[2:], dtype=dtype, pin_memory=True, device="cpu"
+        )
+        if flow == "H2D":
+            host.normal_()
+        else:
+            host.zero_()
+        devices.append(dev)
+        hosts.append(host)
+    d, h = torch.tensor(d, dtype=torch.long, device="cpu"), torch.tensor(
+        h, dtype=torch.long, device="cpu"
+    )
+    return devices, hosts, storage_views, d, h
+
+
+def generate_rejected_data(case):
+    dst = torch.zeros(8, 2, 4, device="npu")
+    if case == "strided":
+        dst = dst[..., ::2]
+    host = torch.zeros(
+        10, 3, 1, *dst.shape[1:], pin_memory=case != "pageable", device="cpu"
+    )
+    source_indices = torch.tensor([0], device="cpu")
+    target_indices = torch.tensor([8 if case == "bounds" else 0], device="cpu")
+    return host, dst, source_indices, target_indices
+
+
+def generate_repeated_destination_data():
+    host = (
+        torch.arange(5 * 2 * 4, dtype=torch.float32, device="cpu")
+        .reshape(5, 2, 1, 4)
+        .pin_memory()
+    )
+    device = torch.arange(2 * 5 * 4, dtype=torch.float32, device="npu").reshape(2, 5, 4)
+    source_indices = torch.tensor([0, 2, 4], device="cpu")
+    target_indices = torch.tensor([1, 1, 3], device="cpu")
+    return host, device, source_indices, target_indices
+
 
 @pytest.mark.parametrize(
     "flow,layout,d,h,layers",
@@ -64,28 +118,7 @@ def test_state_transfer(flow, layout, d, h, layers):
         transfer_kv_per_layer_direct_pf_lf,
     )
 
-    n, slots, host_slots = (2, 4, 5) if layout == "conv" else (3, 8, 10)
-    shapes = [(128, 3)] if layout == "conv" else [(2, 4)]
-    if layout in ("multi", "multi-transpose"):
-        shapes.append((3,))
-    devices, hosts, storage_views = [], [], []
-    for shape, dtype in zip(shapes, (torch.float32, torch.float16)):
-        dev = torch.randn(n, slots, *shape, dtype=dtype, device="npu")
-        storage_views.append(dev)
-        if layout in ("transpose", "multi-transpose") and len(shape) > 1:
-            dev = dev.transpose(-1, -2)
-        host = torch.empty(
-            host_slots, n, 1, *dev.shape[2:], dtype=dtype, pin_memory=True, device="cpu"
-        )
-        if flow == "H2D":
-            host.normal_()
-        else:
-            host.zero_()
-        devices.append(dev)
-        hosts.append(host)
-    d, h = torch.tensor(d, dtype=torch.long, device="cpu"), torch.tensor(
-        h, dtype=torch.long, device="cpu"
-    )
+    devices, hosts, storage_views, d, h = generate_data(flow, layout, d, h)
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
     stream = torch.npu.Stream()
@@ -124,7 +157,7 @@ def test_state_transfer(flow, layout, d, h, layers):
             hosts,
             ref_hosts,
         )
-        check_performance(executor, enable_perf=layout == "conv")
+        check_performance(executor, enable_perf=tuple(devices[0].shape) in perf_shape)
         if checked and flow == "D2H":
             for storage, host in zip(storage_views, hosts):
                 # ACL copies physical payloads; use the original contiguous
@@ -163,7 +196,7 @@ def test_state_transfer(flow, layout, d, h, layers):
             assert_accuracy(actual.view(torch.uint8), expected.view(torch.uint8))
 
         # Profile a single layer/component call after checking every requested write.
-        check_performance(executor, enable_perf=layout == "conv")
+        check_performance(executor, enable_perf=tuple(devices[0].shape) in perf_shape)
 
 
 @pytest.mark.extra_checks
@@ -178,18 +211,13 @@ def test_state_transfer(flow, layout, d, h, layers):
 def test_state_transfer_rejected(case, message):
     from sgl_kernel_npu.operators.data_move import transfer_kv_per_layer_direct_pf_lf
 
-    dst = torch.zeros(8, 2, 4, device="npu")
-    if case == "strided":
-        dst = dst[..., ::2]
-    host = torch.zeros(
-        10, 3, 1, *dst.shape[1:], pin_memory=case != "pageable", device="cpu"
-    )
+    host, dst, source_indices, target_indices = generate_rejected_data(case)
     with pytest.raises(RuntimeError, match=message):
         transfer_kv_per_layer_direct_pf_lf(
             host,
             dst,
-            torch.tensor([0], device="cpu"),
-            torch.tensor([8 if case == "bounds" else 0], device="cpu"),
+            source_indices,
+            target_indices,
             0,
             impl=get_test_impls()[0],
         )
@@ -203,14 +231,7 @@ def test_state_transfer_repeated_destination(direction):
     )
 
     impl, impl_ref = get_test_impls()
-    host = (
-        torch.arange(5 * 2 * 4, dtype=torch.float32, device="cpu")
-        .reshape(5, 2, 1, 4)
-        .pin_memory()
-    )
-    device = torch.arange(2 * 5 * 4, dtype=torch.float32, device="npu").reshape(2, 5, 4)
-    source_indices = torch.tensor([0, 2, 4], device="cpu")
-    target_indices = torch.tensor([1, 1, 3], device="cpu")
+    host, device, source_indices, target_indices = generate_repeated_destination_data()
     if direction == "D2H":
         op = transfer_kv_all_layer_direct_lf_pf
         expected = host.clone()

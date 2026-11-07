@@ -11,6 +11,72 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
+# LFM2 convolution state: (layers, device slots, convolution width, channels).
+perf_shape = [(2, 4, 128, 3)]
+
+
+def generate_data(layers, slots, host_slots, payload, dtype, d, h):
+    dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
+    host = torch.randn(
+        host_slots, layers, 1, *payload, dtype=dtype, pin_memory=True, device="cpu"
+    )
+    d, h = torch.tensor(d, device="cpu"), torch.tensor(h, device="cpu")
+    return dev, host, d, h
+
+
+def generate_dense_transpose_data():
+    storage = torch.arange(2 * 4 * 2 * 3, device="npu", dtype=torch.float32).reshape(
+        2, 4, 2, 3
+    )
+    device = storage.transpose(-1, -2)
+    host = (
+        torch.arange(5 * 2 * 3 * 2, dtype=torch.float32, device="cpu")
+        .reshape(5, 2, 1, 3, 2)
+        .pin_memory()
+    )
+    d, h = torch.tensor([2, 0], device="cpu"), torch.tensor([1, 4], device="cpu")
+    return storage, device, host, d, h
+
+
+def generate_rejected_data(case):
+    device = torch.arange(2 * 4 * 2 * 3, dtype=torch.float32, device="npu").reshape(
+        2, 4, 2, 3
+    )
+    host = torch.full(
+        (5, 2, 1, 2, 3), -7, dtype=device.dtype, pin_memory=True, device="cpu"
+    )
+    if case == "dtype":
+        host = host.to(torch.int32).pin_memory()
+    elif case in ("slot-gap", "layer-gap"):
+        shape = (2, 8, 2, 3) if case == "slot-gap" else (4, 4, 2, 3)
+        storage = torch.zeros(shape, device="npu")
+        device = storage[:, ::2] if case == "slot-gap" else storage[::2]
+    elif case == "payload-gap":
+        device = device[..., ::2]
+        host = torch.zeros(5, 2, 1, 2, 2, pin_memory=True, device="cpu")
+    elif case == "host-layout":
+        host = host.transpose(-1, -2)
+    elif case == "pageable":
+        host = torch.zeros_like(host, pin_memory=False)
+    elif case == "device":
+        device = device.cpu()
+    elif case == "host-device":
+        host = host.to(device.device)
+    elif case == "shape":
+        host = torch.zeros(5, 2, 1, 5, pin_memory=True, device="cpu")
+    d, h = torch.tensor([1], device="cpu"), torch.tensor([2], device="cpu")
+    if case == "negative":
+        d[0] = -1
+    elif case == "late-index":
+        d, h = torch.tensor([1, -1], device="cpu"), torch.tensor([2, 3], device="cpu")
+    elif case == "bounds":
+        d[0] = 4
+    elif case == "index-rank":
+        d = d.reshape(1, 1)
+    elif case == "index-dtype":
+        d = d.to(torch.int32)
+    return device, host, d, h
+
 
 @pytest.mark.parametrize(
     "direction,layers,slots,host_slots,payload,dtype,d,h",
@@ -81,11 +147,7 @@ def test_transfer_mamba_state(
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_mamba_state, impl, impl_ref)
-    dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = torch.randn(
-        host_slots, layers, 1, *payload, dtype=dtype, pin_memory=True, device="cpu"
-    )
-    d, h = torch.tensor(d, device="cpu"), torch.tensor(h, device="cpu")
+    dev, host, d, h = generate_data(layers, slots, host_slots, payload, dtype, d, h)
     stream = torch.npu.Stream()
     original = dev.clone() if direction == "roundtrip" and checked else None
     for step in ("D2H", "H2D") if direction == "roundtrip" else (direction,):
@@ -120,7 +182,7 @@ def test_transfer_mamba_state(
             impl_ref=impl_ref,
             accuracy_checked=checked,
         )
-        check_performance(executor, enable_perf=payload == (128, 3))
+        check_performance(executor, enable_perf=tuple(dev.shape) in perf_shape)
 
 
 @pytest.mark.parametrize("direction", ["D2H", "H2D"])
@@ -132,16 +194,7 @@ def test_transfer_mamba_state_dense_transpose(direction):
 
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
-    storage = torch.arange(2 * 4 * 2 * 3, device="npu", dtype=torch.float32).reshape(
-        2, 4, 2, 3
-    )
-    device = storage.transpose(-1, -2)
-    host = (
-        torch.arange(5 * 2 * 3 * 2, dtype=torch.float32, device="cpu")
-        .reshape(5, 2, 1, 3, 2)
-        .pin_memory()
-    )
-    d, h = torch.tensor([2, 0], device="cpu"), torch.tensor([1, 4], device="cpu")
+    storage, device, host, d, h = generate_dense_transpose_data()
     args = (d, h, TransferDirection[direction])
     if checked:
         require_distinct_impls(transfer_mamba_state, impl, impl_ref)
@@ -195,42 +248,7 @@ def test_transfer_mamba_state_rejected(case, message):
         transfer_mamba_state,
     )
 
-    device = torch.arange(2 * 4 * 2 * 3, dtype=torch.float32, device="npu").reshape(
-        2, 4, 2, 3
-    )
-    host = torch.full(
-        (5, 2, 1, 2, 3), -7, dtype=device.dtype, pin_memory=True, device="cpu"
-    )
-    if case == "dtype":
-        host = host.to(torch.int32).pin_memory()
-    elif case in ("slot-gap", "layer-gap"):
-        shape = (2, 8, 2, 3) if case == "slot-gap" else (4, 4, 2, 3)
-        storage = torch.zeros(shape, device="npu")
-        device = storage[:, ::2] if case == "slot-gap" else storage[::2]
-    elif case == "payload-gap":
-        device = device[..., ::2]
-        host = torch.zeros(5, 2, 1, 2, 2, pin_memory=True, device="cpu")
-    elif case == "host-layout":
-        host = host.transpose(-1, -2)
-    elif case == "pageable":
-        host = torch.zeros_like(host, pin_memory=False)
-    elif case == "device":
-        device = device.cpu()
-    elif case == "host-device":
-        host = host.to(device.device)
-    elif case == "shape":
-        host = torch.zeros(5, 2, 1, 5, pin_memory=True, device="cpu")
-    d, h = torch.tensor([1], device="cpu"), torch.tensor([2], device="cpu")
-    if case == "negative":
-        d[0] = -1
-    elif case == "late-index":
-        d, h = torch.tensor([1, -1], device="cpu"), torch.tensor([2, 3], device="cpu")
-    elif case == "bounds":
-        d[0] = 4
-    elif case == "index-rank":
-        d = d.reshape(1, 1)
-    elif case == "index-dtype":
-        d = d.to(torch.int32)
+    device, host, d, h = generate_rejected_data(case)
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
     if checked:
