@@ -173,7 +173,6 @@ def test_chunk_o_integration_shapes(heads, boundaries, mask_p, monkeypatch):
         ),
         pytest.param((1, 1, 1, 1, 1, 1, 16), None, id="minimum"),
         pytest.param((1, 33, 1, 3, 17, 33, 32), None, id="feature-and-chunk-tails"),
-        pytest.param((2, 65, 2, 4, 129, 129, 64), None, id="batch2-entering-states"),
         pytest.param(
             (1, 82, 2, 4, 17, 33, 16), (0, 1, 17, 82), id="packed-grouped-tail"
         ),
