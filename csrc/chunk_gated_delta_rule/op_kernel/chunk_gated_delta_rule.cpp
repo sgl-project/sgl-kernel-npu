@@ -20,10 +20,10 @@ using namespace AscendC;
 using namespace matmul;
 using namespace ChunkGatedDeltaRule;
 
-extern "C" __global__ __aicore__ void chunk_gated_delta_rule(GM_ADDR query, GM_ADDR key, GM_ADDR value, GM_ADDR beta,
-                                                             GM_ADDR initialState, GM_ADDR seqlens, GM_ADDR gOptional,
-                                                             GM_ADDR out, GM_ADDR finalState, GM_ADDR chunkState,
-                                                             GM_ADDR workspaceGM, GM_ADDR tilingGM)
+extern "C" __global__ __aicore__ void chunk_gated_delta_rule(
+    GM_ADDR query, GM_ADDR key, GM_ADDR value, GM_ADDR beta, GM_ADDR initialState, GM_ADDR seqlens, GM_ADDR gOptional,
+    GM_ADDR out, GM_ADDR finalState, GM_ADDR chunkState, GM_ADDR initialStateIndices, GM_ADDR finalStateIndices,
+    GM_ADDR hasInitialState, GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(ChunkGatedDeltaRuleTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
@@ -40,7 +40,9 @@ extern "C" __global__ __aicore__ void chunk_gated_delta_rule(GM_ADDR query, GM_A
     ChunkGatedDeltaRuleTilingData *tilingData = reinterpret_cast<ChunkGatedDeltaRuleTilingData *>(tilingBuf);
 
     CGDR<bfloat16_t, float> op(&pipe, tilingData);
-    CGDRInitParams initParams{query, key, value, beta, initialState, seqlens, gOptional, out, finalState, chunkState};
+    CGDRInitParams initParams{query,         key,          value,          beta,           initialState,
+                              seqlens,       gOptional,    out,            finalState,     chunkState,
+                              initialStateIndices, finalStateIndices, hasInitialState};
     op.Init(initParams, user);
     op.Process();
 }

@@ -39,6 +39,9 @@ struct CGDRInitParams {
     GM_ADDR attnOut;
     GM_ADDR finalState;
     GM_ADDR chunkState;
+    GM_ADDR initialStateIndices;
+    GM_ADDR finalStateIndices;
+    GM_ADDR hasInitialState;
 };
 
 template <typename srcType, typename dstType>
@@ -166,6 +169,19 @@ public:
         }
 
         actualSeqLens_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.seqlens), tiling_->b);
+        if (tiling_->indexedState != 0) {
+            initStateIndices_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.initialStateIndices),
+                                              tiling_->b);
+            finalStateIndices_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.finalStateIndices),
+                                               tiling_->b);
+            hasInitialStateMask_ = initParams.hasInitialState != nullptr;
+            if (hasInitialStateMask_) {
+                hasInitialState_.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(initParams.hasInitialState),
+                                                 tiling_->b);
+            }
+        } else {
+            hasInitialStateMask_ = false;
+        }
 
         uint64_t offset = 0;
         gCum_.SetGlobalBuffer(reinterpret_cast<__gm__ highType *>(user + offset));
@@ -216,21 +232,37 @@ public:
             int32_t length = actualSeqLens_.GetValue(bid);
             seqStart = seqEnd;
             seqEnd = seqStart + (int64_t)length;
+            int64_t dstSlot = (tiling_->indexedState != 0) ? finalStateIndices_.GetValue(bid) : bid;
+            if (length <= 0 || dstSlot < 0) {
+                if (length > 0) {
+                    globalChunkOffset += (length + tiling_->chunkSize - 1) / tiling_->chunkSize;
+                }
+                continue;
+            }
+            int64_t srcSlot = (tiling_->indexedState != 0) ? initStateIndices_.GetValue(bid) : bid;
+            bool hasInitialState = srcSlot >= 0;
+            if (hasInitialStateMask_) {
+                hasInitialState = hasInitialState && hasInitialState_.GetValue(bid) != 0;
+            }
+            auto finalState = finalState_[dstSlot * tiling_->finalStateStride0];
+            if (!hasInitialState) {
+                ZeroState(finalState);
+                SyncAll<false>();
+            }
             for (int64_t pos = seqStart; pos < seqEnd; pos += tiling_->maxGroupLength) {
-                // set chunk group
                 cg.startPos = pos;
                 if (pos + tiling_->maxGroupLength > seqEnd) {
                     cg.length = seqEnd - pos;
                 } else {
                     cg.length = tiling_->maxGroupLength;
                 }
-                auto curState = (pos == seqStart) ? initState_[bid * tiling_->nv * tiling_->dv * tiling_->dk]
-                                                  : finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
-                // compute this chunk group
+                bool useInitialState = (pos == seqStart) && hasInitialState;
+                auto curState = useInitialState ? initState_[srcSlot * tiling_->stateStride0] : finalState;
+                int64_t stateInStride1 = useInitialState ? tiling_->stateStride1 : tiling_->finalStateStride1;
                 RunStage1(cg);
                 SyncAll<false>();
 
-                RunStage2(cg, curState, finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk], globalChunkOffset);
+                RunStage2(cg, curState, finalState, stateInStride1, globalChunkOffset);
                 SyncAll<false>();
 
                 int64_t chunksInGroup = (cg.length + tiling_->chunkSize - 1) / tiling_->chunkSize;
@@ -243,6 +275,27 @@ public:
     }
 
 private:
+    __aicore__ inline void ZeroState(GlobalTensor<lowType> stateOut)
+    {
+        if ASCEND_IS_AIV {
+            TQue<QuePosition::VECOUT, BUFFER_NUM_ONE> zeroQueue;
+            uint32_t stateSize = tiling_->dv * tiling_->dk;
+            pipe_->InitBuffer(zeroQueue, BUFFER_NUM_ONE, stateSize * sizeof(lowType));
+            auto zeroLocal = zeroQueue.AllocTensor<lowType>();
+            Duplicate<lowType>(zeroLocal, static_cast<lowType>(0), stateSize);
+            zeroQueue.EnQue(zeroLocal);
+            auto outLocal = zeroQueue.DeQue<lowType>();
+            DataCopyExtParams copyParams{static_cast<uint16_t>(tiling_->dv),
+                                         static_cast<uint32_t>(tiling_->dk * sizeof(lowType)), 0, 0, 0};
+            for (int64_t nvId = 0; nvId < tiling_->nv; ++nvId) {
+                DataCopyPad(stateOut[nvId * tiling_->finalStateStride1], outLocal, copyParams);
+            }
+            PipeBarrier<PIPE_MTE3>();
+            zeroQueue.FreeTensor(outLocal);
+            pipe_->Reset();
+        }
+    }
+
     __aicore__ inline void RunStage1(const ChunkGroup &cg)
     {
         GDRStageOneInitParams initStageOneParams{query_, key_,         value_,        beta_,   g_,
@@ -254,7 +307,7 @@ private:
     }
 
     __aicore__ inline void RunStage2(ChunkGroup &cg, GlobalTensor<lowType> stateIn, GlobalTensor<lowType> stateOut,
-                                     int64_t globalChunkOffset)
+                                     int64_t stateInStride1, int64_t globalChunkOffset)
     {
         Stage2 stageTwoOp;
         StageTwoParams initStageTwoParams{qPrime_,
@@ -273,6 +326,8 @@ private:
                                           tiling_->nk,
                                           tiling_->dv,
                                           tiling_->dk,
+                                          stateInStride1,
+                                          tiling_->finalStateStride1,
                                           gFlag_,
                                           chunkState_,
                                           globalChunkOffset,
@@ -313,6 +368,10 @@ private:
     GlobalTensor<lowType> initState_;
     GlobalTensor<lowType> chunkState_;
     GlobalTensor<int32_t> actualSeqLens_;
+    GlobalTensor<int32_t> initStateIndices_;
+    GlobalTensor<int32_t> finalStateIndices_;
+    GlobalTensor<uint8_t> hasInitialState_;
+    bool hasInitialStateMask_ = false;
 
     GlobalTensor<highType> gCum_;      // (Nv, maxGroupLength)
     GlobalTensor<lowType> kCumDecay_;  // (Nv, maxGroupLength, Dk)

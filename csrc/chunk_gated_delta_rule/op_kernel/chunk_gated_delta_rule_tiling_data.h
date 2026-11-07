@@ -41,6 +41,9 @@ struct alignas(STRUCT_ALIGNAS) ChunkGatedDeltaRuleTilingData {
     int64_t stateIsFp32;
     int64_t stateStride0;
     int64_t stateStride1;
+    int64_t finalStateStride0;
+    int64_t finalStateStride1;
+    int64_t indexedState;
     int64_t outputChunkState;
 };
 #pragma pack(pop)
