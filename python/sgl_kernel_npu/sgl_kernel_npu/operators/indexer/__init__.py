@@ -9,19 +9,27 @@ from .kpool_indexer_prepare_decode_input import kpool_indexer_prepare_decode_inp
 from .lightning_indexer_v2 import lightning_indexer_v2
 from .lightning_indexer_v2_metadata import lightning_indexer_v2_metadata
 from .pool_key_indexer import pool_key_indexer
+from .quant_lightning_indexer import quant_lightning_indexer
+from .quant_lightning_indexer_metadata import (
+    get_quant_lightning_indexer_metadata_size,
+    quant_lightning_indexer_metadata,
+)
 from .sparse_lightning_indexer import sparse_lightning_indexer
 
 __all__ = [
-    "lightning_indexer_v2",
-    "lightning_indexer_v2_metadata",
-    "sparse_lightning_indexer",
-    "append_local_block_to_topk_idx",
+    "quant_lightning_indexer_metadata",
+    "get_quant_lightning_indexer_metadata_size",
+    "quant_lightning_indexer",
     "build_pooled_page_table",
     "expand_causal_seqlens",
     "expand_kpool_group_and_tail_to_topk",
     "flash_decode_bnsd_with_topk_idx",
-    "flash_prefill_bnsd_indexer",
-    "flash_prefill_bnsd_with_topk_idx",
     "kpool_indexer_prepare_decode_input",
     "pool_key_indexer",
+    "lightning_indexer_v2",
+    "lightning_indexer_v2_metadata",
+    "sparse_lightning_indexer",
+    "append_local_block_to_topk_idx",
+    "flash_prefill_bnsd_indexer",
+    "flash_prefill_bnsd_with_topk_idx",
 ]

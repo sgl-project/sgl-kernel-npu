@@ -1,19 +1,35 @@
 # sparse_flash_mla_metadata
 
-该算子是 CANN 9.2.0 版本引入的非正式算子。
+下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
 
-上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+
+
+## CANN 9.1 兼容
+
+`cann_ops_transformer_cann920` 与主仓的
+`cann_ops_transformers_cann920` 是同一个随包 CANN 9.2 实现的注册名。
+CANN 9.1 的窗口输入走 `ops_transformer_cann910`；显式原始 KV 稀疏输入
+使用 `ascendc` 计算和 `host` metadata，并且不能同时提供压缩 KV。
+Host metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
+`seqused_ori_kv_cpu` 镜像。绑定从 wheel 的 third-party 目录加载，无需独立算子包。
+A5 使用单独的 mixed-quant sparse API。
+
+迁移测试中的 `torch_native` metadata 返回独立参考描述符，不生成原生 tiling
+字节；配对测试分别构造参考描述符。主仓计算参考也接受不透明的原生 metadata，
+并覆盖 SWA/CSA/HCA 与 BSND。原生 metadata 的字节布局取决于 SDK。
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | 支持 | 不支持 |
-| `torch_native` | 不支持 | 不支持 |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | 支持 | 不支持 |
+| CANN 9.1 `ops_transformer_cann910`、`ascendc` / `host` | 支持 | 不支持 |
+| `torch_native`（参考描述符） | 支持 | 支持 |
 
 ## 函数原型
 
-默认 `auto` 在 CANN 9.2.0、arch22 上选择 `cann_ops_transformers_cann920`。
+在 arch22 上，`auto` 根据当前 SDK 选择 CANN 9.1 或 9.2 实现。下列完整参数说明对应 CANN 9.2；未传参数使用所选绑定的默认值。
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
@@ -58,7 +74,7 @@ def sparse_flash_mla_metadata(
 
 两次调用中参与任务切分的参数必须成对传入且取值完全一致，否则行为未定义。特别是本接口的 `cmp_ratio`、`ori_mask_mode`、`cmp_mask_mode`、`ori_win_left`、`ori_win_right` 默认为 `None`，而主算子对应默认值为 `1`、`0`、`0`、`-1`、`-1`，因此应显式传入这几个参数，不要依赖默认值。
 
-返回一个不透明的 `int32[2048]` 张量，内容由实现决定，调用方不应解析。
+返回一个不透明的 `int32[1024]` 张量，内容由实现决定，调用方不应解析。
 
 ## 参数与返回值
 
@@ -85,7 +101,7 @@ def sparse_flash_mla_metadata(
 | `has_ori_kv`、`has_cmp_kv` | `bool` | `None` | 与主算子实际传入 `ori_kv`、`cmp_kv` 的状态一致。 |
 | `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers_cann920`。 |
 
-返回 `metadata`：Tensor，`int32`，shape 为 `[2048]`，与输入同设备。
+返回 `metadata`：Tensor，`int32`，shape 为 `[1024]`，与输入同设备。
 
 ## 调用示例
 
@@ -116,5 +132,5 @@ metadata = sparse_flash_mla_metadata(
     has_ori_kv=True,
     has_cmp_kv=False,
 )
-print(metadata.shape, metadata.dtype)  # [2048], int32
+print(metadata.shape, metadata.dtype)  # [1024], int32
 ```

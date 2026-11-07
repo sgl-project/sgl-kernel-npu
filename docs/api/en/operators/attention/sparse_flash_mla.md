@@ -1,19 +1,37 @@
 # sparse_flash_mla
 
-This is a non-official operator introduced in CANN 9.2.0.
+The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+
+
+## CANN 9.1 compatibility
+
+`cann_ops_transformer_cann920` and the upstream spelling
+`cann_ops_transformers_cann920` select the same bundled CANN 9.2 implementation.
+On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit
+original-KV sparse inputs select `ascendc` compute and `host` metadata. Those
+explicit inputs cannot also include compressed KV. Host metadata requires the
+existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
+Bindings come from the wheel's third-party payload; no standalone operator wheel
+is required. A5 uses the separate mixed-quant sparse APIs.
+
+The migrated `torch_native` metadata API returns a reference descriptor, not
+native tiling bytes. Paired migrated tests build that descriptor independently.
+The upstream compute reference also accepts opaque native metadata and covers
+SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | Supported | Unsupported |
+| CANN 9.1 `ops_transformer_cann910`, `ascendc` / `host` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers_cann920` on CANN 9.2.0 and arch22.
+On arch22, `auto` selects the matching CANN 9.1 or 9.2 implementation. The expanded arguments below describe the CANN 9.2 binding; omitted arguments retain the selected binding's defaults.
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla
@@ -117,7 +135,7 @@ page count.
 | `ori_topk_length` | Optional Tensor; int32 | `None` | Valid length for `ori_sparse_indices`; unused on A2/A3. |
 | `cmp_topk_length` | Optional Tensor; int32; `[T,N2]` (TND) or `[B,S,N2]` | `None` | Valid length of `cmp_sparse_indices`; reserved on Atlas A2/A3 and must be omitted there. |
 | `sinks` | Tensor `[N1]`; float32 | `None` | Per-head softmax sink logits; the Atlas A2/A3 kernel requires it, so it cannot be omitted or empty. |
-| `metadata` | Tensor `[2048]`; int32 | Required | Scheduling data from [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md). |
+| `metadata` | Tensor `[1024]`; int32 | Required | Scheduling data from [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md). |
 | `softmax_scale` | `float` | `1.0` | QK score scale; never inferred from the head width. |
 | `cmp_ratio` | `int` | `1` | Compression ratio: 1 for SWA, 1/2/4 for CSA, 128 for HCA. |
 | `ori_mask_mode` | `int` | `0` | `0` unmasked, `3` causal, `4` sliding window. |

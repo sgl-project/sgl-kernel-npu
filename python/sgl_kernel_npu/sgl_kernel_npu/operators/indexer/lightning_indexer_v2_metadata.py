@@ -10,7 +10,9 @@ _cann_fn = None
 def _binding():
     global _cann_fn
     if _cann_fn is None:
-        from ..._third_party.sgl_ops_transformer.ops import lightning_indexer_metadata
+        from ..._third_party.sgl_ops_transformer_indexer.ops import (
+            lightning_indexer_metadata,
+        )
 
         _cann_fn = lightning_indexer_metadata
     return _cann_fn

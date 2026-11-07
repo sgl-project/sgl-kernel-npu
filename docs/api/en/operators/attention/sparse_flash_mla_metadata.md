@@ -1,19 +1,37 @@
 # sparse_flash_mla_metadata
 
-This is a non-official operator introduced in CANN 9.2.0.
+The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+
+
+## CANN 9.1 compatibility
+
+`cann_ops_transformer_cann920` and the upstream spelling
+`cann_ops_transformers_cann920` select the same bundled CANN 9.2 implementation.
+On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit
+original-KV sparse inputs select `ascendc` compute and `host` metadata. Those
+explicit inputs cannot also include compressed KV. Host metadata requires the
+existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
+Bindings come from the wheel's third-party payload; no standalone operator wheel
+is required. A5 uses the separate mixed-quant sparse APIs.
+
+The migrated `torch_native` metadata API returns a reference descriptor, not
+native tiling bytes. Paired migrated tests build that descriptor independently.
+The upstream compute reference also accepts opaque native metadata and covers
+SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
-| `torch_native` | Unsupported | Unsupported |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | Supported | Unsupported |
+| CANN 9.1 `ops_transformer_cann910`, `ascendc` / `host` | Supported | Unsupported |
+| `torch_native` (reference descriptor) | Supported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers_cann920` on CANN 9.2.0 and arch22.
+On arch22, `auto` selects the matching CANN 9.1 or 9.2 implementation. The expanded arguments below describe the CANN 9.2 binding; omitted arguments retain the selected binding's defaults.
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
@@ -65,7 +83,7 @@ otherwise behaviour is undefined. In particular this operator defaults `cmp_rati
 the main operator defaults them to `1`, `0`, `0`, `-1` and `-1`, so pass these five
 arguments explicitly instead of relying on defaults.
 
-Returns an opaque `int32[2048]` tensor whose contents are implementation defined and
+Returns an opaque `int32[1024]` tensor whose contents are implementation defined and
 must not be interpreted by callers.
 
 ## Parameters and return value
@@ -93,7 +111,7 @@ must not be interpreted by callers.
 | `has_ori_kv`, `has_cmp_kv` | `bool` | `None` | Must match whether the main operator receives `ori_kv` and `cmp_kv`. |
 | `impl` | `str`, keyword only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
 
-Returns `metadata`: Tensor, `int32`, shape `[2048]`, on the input device.
+Returns `metadata`: Tensor, `int32`, shape `[1024]`, on the input device.
 
 ## Example
 
@@ -124,5 +142,5 @@ metadata = sparse_flash_mla_metadata(
     has_ori_kv=True,
     has_cmp_kv=False,
 )
-print(metadata.shape, metadata.dtype)  # [2048], int32
+print(metadata.shape, metadata.dtype)  # [1024], int32
 ```

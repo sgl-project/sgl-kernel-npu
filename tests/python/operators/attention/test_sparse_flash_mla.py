@@ -3,8 +3,8 @@
 import pytest
 
 # Import the package before torch_npu initializes the CANN op store. Otherwise
-# CANN's built-in SparseFlashMla shadows the bundled vendor and rejects the
-# 2048-element metadata with "metadata dim 0 must be 1024".
+# CANN may select its built-in SparseFlashMla instead of the bundled vendor.
+# Matching metadata lengths alone do not identify the selected implementation.
 try:
     import sgl_kernel_npu  # noqa: F401
 except ImportError:  # pragma: no cover - the NPU runtime is optional here
@@ -12,6 +12,10 @@ except ImportError:  # pragma: no cover - the NPU runtime is optional here
 
 torch = pytest.importorskip("torch")
 
+from tests.python.operators.attention.sparse_flash_mla_inputs import (
+    check_sparse_flash_mla_accuracy,
+    generate_data,
+)
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.common import require_test_impl
 from tests.python.utils.performance import check_performance
@@ -23,6 +27,16 @@ PAGE_SIZE = 128
 
 # Production decode batch: 16 requests x 8 tokens (Kimi K3-like shape).
 DECODE_BATCH = 16
+
+
+def _require_cann92_arch22():
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH22:
+        pytest.skip("CANN 9.2 sparse Flash MLA requires arch22")
+    if detect_cann_version() != "9.2.0":
+        pytest.skip("Upstream SWA/CSA/HCA cases require the CANN 9.2 ABI")
 
 
 def _paged(length):
@@ -143,6 +157,7 @@ def test_sparse_flash_mla_paged(
         sparse_flash_mla_metadata,
     )
 
+    _require_cann92_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     q, inputs, _ = _build_paged_case(
         cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
@@ -171,6 +186,7 @@ def test_sparse_flash_mla_bsnd_swa():
         sparse_flash_mla_metadata,
     )
 
+    _require_cann92_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     torch.npu.manual_seed(42)
     length = 16
@@ -219,3 +235,89 @@ def test_sparse_flash_mla_bsnd_swa():
         ),
     )
     check_performance(executor, enable_perf=True)
+
+
+perf_shape = [(1, 1), (1, 128)]
+
+
+@pytest.mark.parametrize(
+    "batch,query_len",
+    [
+        pytest.param(1, 1, id="deepseek-v4-flash-decode-b1-q1-n64-d512-page128"),
+        pytest.param(1, 128, id="deepseek-v4-flash-prefill-b1-q128-n64-d512-page128"),
+        pytest.param(
+            2, 2, id="synthetic-ragged-extend", marks=pytest.mark.extra_checks
+        ),
+    ],
+)
+def test_sparse_flash_mla(batch, query_len):
+    data = generate_data(batch, query_len)
+    executor = check_sparse_flash_mla_accuracy(data, target="compute")
+    check_performance(executor, enable_perf=(batch, query_len) in perf_shape)
+
+
+@pytest.mark.parametrize("batch", [1, 10], ids=["draft-b1", "draft-b10"])
+def test_dspark_sparse_flash_mla_graph_replay(batch):
+    from sgl_kernel_npu.operators.attention import (
+        get_sparse_flash_mla_metadata_size,
+        sparse_flash_mla,
+        sparse_flash_mla_metadata,
+    )
+
+    from tests.python.operators.attention.sparse_flash_mla_inputs import (
+        generate_dspark_data,
+    )
+    from tests.python.utils.accuracy import assert_accuracy
+    from tests.python.utils.common import (
+        get_skip_acc_check,
+        get_test_impls,
+        require_distinct_impls,
+    )
+    from tests.python.utils.standards import AccuracyStandard
+
+    impl, impl_ref = get_test_impls()
+    require_distinct_impls(sparse_flash_mla, impl, impl_ref)
+    query, metadata_kwargs, kwargs = generate_dspark_data(batch, 6)
+    # Allocation must not launch metadata work on temporary synthetic inputs.
+    metadata = torch.zeros(
+        get_sparse_flash_mla_metadata_size(),
+        dtype=torch.int32,
+        device=query.device,
+    )
+    metadata.copy_(sparse_flash_mla_metadata(impl=impl, **metadata_kwargs))
+    kwargs["metadata"] = metadata
+    sparse_flash_mla(query, impl=impl, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        actual = sparse_flash_mla(query, impl=impl, **kwargs)
+    pointer = metadata.data_ptr()
+    for step in (1, 2):
+        lengths = [
+            256 - step * 16 if b % 2 == 0 else 128 - step * 8 for b in range(batch)
+        ]
+        query_new, metadata_new, kwargs_new = generate_dspark_data(batch, 6, lengths)
+        query.copy_(query_new * (1.0 / (step + 1)))
+        for key in ("seqused_ori_kv", "ori_topk_length", "ori_sparse_indices"):
+            kwargs[key].copy_(kwargs_new[key])
+        metadata_kwargs["seqused_ori_kv_cpu"].copy_(metadata_new["seqused_ori_kv_cpu"])
+        metadata.copy_(sparse_flash_mla_metadata(impl=impl, **metadata_kwargs))
+        graph.replay()
+        torch.npu.synchronize()
+        assert metadata.data_ptr() == pointer
+        if get_skip_acc_check() is not True:
+            expected = sparse_flash_mla(
+                query,
+                impl=impl_ref,
+                **{
+                    **kwargs,
+                    "metadata": sparse_flash_mla_metadata(
+                        impl=impl_ref, **metadata_kwargs
+                    ),
+                },
+            )
+            assert_accuracy(
+                actual,
+                expected,
+                {"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
+            )

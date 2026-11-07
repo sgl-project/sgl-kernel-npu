@@ -88,16 +88,47 @@ previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place
 Wheel builds read `third_party/profiles/cann-<SDK-version>/*.json`, then select
 the profile's `ops.arch22` or `ops.arch35` list using `--arch-version`.
 Profiles pin the source repository, commit, operators and build commands.
+Each profile contains one build object or an array of build objects. CANN 9.1's
+`ops_transformer.json` contains both the experimental ACLNN and released mHC
+builds, retaining their separate vendors and Python-binding settings.
 `--ops` selects repository-owned native operators; `--third-party` independently
 selects external libraries. The profile filename, not its internal package name,
-is passed to `--third-party`.
+is passed to `--third-party`; selecting `ops_transformer` on CANN 9.1 selects
+both builds.
+
+A build object may also declare `additional_builds` with overrides for separate
+vendors. On CANN 9.2, the DSV4 operators retain their release-branch revision;
+the mainline A3 lightning indexers and experimental CompressorV2 retain the
+community profile's revision in separate vendors and private Python packages.
+This keeps their distinct source APIs without requiring external operator wheels.
+
+Operator selections use upstream build-directory names, which can differ from
+Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
+`quant_lightning_indexer_v2_metadata`; their Python APIs remain
+`quant_lightning_indexer` and `quant_lightning_indexer_metadata`. CANN 9.1
+experimental builds use the original directory names without `v2`.
+The CANN 9.2 `mla_prolog` Python API comes from the `mla_prolog_v3` build
+directory; that binding calls `aclnnMlaPrologV4WeightNz` for `mlaprolog_v4`.
+Profiles record these Python export aliases explicitly. The build checks every
+selected binding against the pinned source before compiling kernels, then checks
+the extracted wheel again. Both the flat CANN 9.1 Python package and the
+vendor-suffixed CANN 9.2 package are staged under the wheel's private namespace.
+CANN 9.2 retains the profile's `build.sh --torch_extension` command; the adapter
+collects its wheel from `torch_extension/dist` without rebuilding it. CANN 9.1
+builds the source wheel with the active Python and upstream `setup.py` because
+its pinned `build.sh` has no `--torch_extension` option.
+The pinned CANN 9.1 released bindings provide mHC only, without a `mla_prolog`
+Python API. Its recipes profile also includes the A5 `hc_pre_inv_rms` and
+`hc_pre_sinkhorn` kernels used by the `npu_hc_pre` composite branch.
 
 ```bash
-# CANN 9.1.0: build one native operator and bundle the recipes dependency.
-python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
-  --ops apply_token_bitmask --third-party cann_recipes_infer -j8
+# CANN 9.1.0: bundle recipes bridges, experimental ACLNN and released mHC.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 -j8
 
-# CANN 9.2.0 / arch35: bundle the ops-transformer dependency.
+# CANN 9.2.0 / arch35: bundle the released ops-transformer operators.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 -j8
+
+# Build only the selected released dependency when developing an operator.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 \
   --ops apply_token_bitmask --third-party ops_transformer -j8
 
@@ -107,7 +138,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 
 # Preview dependency commands; no compilation or cloning is performed.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
-  --third-party cann_recipes_infer --plan --cann-version 9.1.0
+  --plan --cann-version 9.1.0
 ```
 
 Omitting `--third-party` selects all profiles for the detected SDK version.
@@ -123,10 +154,23 @@ operators to build; `--cann-version` changes profile selection, not the installe
 SDK or local SoC.
 
 Dependencies are built before repository-owned operators. Their vendor resources,
-Python bindings and licenses are bundled into the same wheel; users do not need
-to install the dependency `.run` or wheel separately. Successful dependency builds
-are cached under `build/third_party/` and reused when the build fingerprint and
-artifact checksums match. Changes to the profile, build scripts or relevant build
+available Python bindings and licenses are bundled into the same wheel; users do
+not need to install the dependency `.run` or wheel separately. The CANN 9.1
+experimental ops-transformer profile is vendor-only: selected recipes bridges
+provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
+operator profiles also bundle Python bindings. Both versions use the upstream
+setuptools entry point with the active build interpreter.
+
+The CANN 9.2 ops-transformer profile pins commit
+`3baf8ac0eba25fa464260a43bab8d5bac1fefb8a` from upstream's `9.2.0` branch.
+The selected IndexerQuantCache and QuantFlashAttn declarations do not reference
+the unsupported HiFloat4 types; this build applies no source patches. Changing
+the pin invalidates the dependency cache automatically. CANN SDK compilation
+and on-device accuracy must still be validated on the target host.
+
+Successful dependency builds are cached under `build/third_party/` and reused
+when the build fingerprint and artifact checksums match. Changes to the profile,
+build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
 ### CANN operator declarations
@@ -320,7 +364,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --make-clean
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 --ops all
 ```
 
-Cleanup removes `build/cann`, `build/torch` and `build/wheel`. Existing builds may
+Cleanup removes `build/cann`, `build/torch`, `build/compressor` and `build/wheel`. Existing builds may
 still clear the shared `build/` directory; rerunning the new entry reconstructs
 its intermediates. Do not run both builds concurrently in one checkout.
 
@@ -435,3 +479,24 @@ Execute sgl_kernel_npu test scripts, for example
 ```bash
 python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
+
+
+## Repository-owned DSV4 kernels
+
+The root `setup.py` additionally builds the existing fused compressor into
+`sgl_kernel_npu/lib/libsgl_compressor.so`. The build reuses this checkout's
+compressor kernel, host implementation and architecture-specific tiling without
+changing C++ sources. Its original Torch schema is extracted from
+`csrc/pytorch_extensions.cpp`; package import loads the library before the first
+NPU use and checks that `torch.ops.npu.compressor` is registered. The main library
+continues to contain the selected migrated CANN adapters.
+
+Compressor intermediates are kept under `build/compressor` for incremental
+builds. `--make-clean` removes that directory along with the other local build
+outputs, while preserving third-party dependency caches. The existing
+`build.sh` native build remains unchanged. Legacy direct-launch DSpark bindings
+still require their existing native build integration; this compressor fix does
+not assert complete DSV4 service coverage.
+
+CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
+CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.

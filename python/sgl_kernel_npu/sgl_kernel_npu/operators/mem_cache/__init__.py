@@ -1,6 +1,7 @@
 from .alloc_extend import alloc_extend
 from .assign_cache_op import assign_cache_op
 from .cache_locations import cache_loc_assign, cache_loc_update
+from .indexer_quant_cache import indexer_quant_cache
 from .kpool_assemble_softmax_rotate_write_cache import (
     kpool_assemble_softmax_rotate_write_cache,
 )
@@ -9,11 +10,13 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
+from .mem_cache_utils import NPU_KV_QUANT_PATH, get_npu_kv_quant_path
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 
 __all__ = [
-    "alloc_extend",
-    "assign_cache_op",
+    "NPU_KV_QUANT_PATH",
+    "get_npu_kv_quant_path",
+    "indexer_quant_cache",
     "kv_compress_epilog",
     "cache_loc_assign",
     "cache_loc_update",
@@ -21,4 +24,6 @@ __all__ = [
     "kpool_decode_update_and_maybe_write_cache",
     "kpool_write_tail_and_maybe_compress",
     "scatter_kpool_tail_updates",
+    "alloc_extend",
+    "assign_cache_op",
 ]

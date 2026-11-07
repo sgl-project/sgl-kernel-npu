@@ -10,6 +10,8 @@ from pathlib import Path
 from build_tools.cann import run
 from build_tools.third_party import detect_soc_version, extract_python, read_json
 
+from third_party.opapi import isolate_staged_opapis
+
 
 def configure(config, jobs):
     config = dict(config)
@@ -17,9 +19,18 @@ def configure(config, jobs):
     if not isinstance(operators, dict) or not operators:
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
-        if any(
-            not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
-            for name in (interface, kernel)
+        kernels = kernel if isinstance(kernel, list) else [kernel]
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9_]*", interface)
+            or not kernels
+            or any(
+                name is not None
+                and (
+                    not isinstance(name, str)
+                    or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
+                )
+                for name in kernels
+            )
         ):
             raise ValueError("Invalid recipes interface or kernel name")
     config["soc"] = detect_soc_version()
@@ -31,13 +42,27 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(dict.fromkeys(operators.values()))
+    config["kernel_ops"] = ";".join(selected_kernels(config))
+    if not config["kernel_ops"]:
+        raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
     config["commands"] = [
         [argument.format(**values) for argument in command]
         for command in config["commands"]
     ]
     return config
+
+
+def selected_kernels(item):
+    """Include every kernel a selected bridge can dispatch to."""
+    return list(
+        dict.fromkeys(
+            name
+            for kernels in item["ops"].values()
+            for name in (kernels if isinstance(kernels, list) else [kernels])
+            if name is not None
+        )
+    )
 
 
 def prepare_python(source, item):
@@ -49,8 +74,9 @@ def prepare_python(source, item):
     sources = destination / "csrc"
     sources.mkdir()
     upstream = original / "csrc"
-    for filename in ("ops_common.h", "ops_common.cpp"):
-        shutil.copy2(upstream / filename, sources / filename)
+    for header in upstream.glob("*.h"):
+        shutil.copy2(header, sources / header.name)
+    shutil.copy2(upstream / "ops_common.cpp", sources / "ops_common.cpp")
     declarations = (upstream / "ops_def_registration.cpp").read_text()
     schemas = []
     for op in item["ops"]:
@@ -58,11 +84,40 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        content = (upstream / (op + ".cpp")).read_text()
-        content = content.replace(
-            "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
+        # Some upstream bridge source files carry a prefix distinct from the
+        # Torch schema. Select by the registered interface, never by guessing
+        # a filename from the public operator name.
+        direct = upstream / (op + ".cpp")
+        prefixed = upstream / ("npu_" + op + ".cpp")
+        candidates = (
+            [direct]
+            if direct.is_file()
+            else (
+                [prefixed]
+                if prefixed.is_file()
+                else [
+                    path
+                    for path in upstream.glob("*.cpp")
+                    if path.name != "ops_def_registration.cpp"
+                    and re.search(
+                        r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,", path.read_text()
+                    )
+                    and re.search(r"\b" + re.escape(op) + r"\b", path.read_text())
+                ]
+            )
         )
-        (sources / (op + ".cpp")).write_text(content)
+        if len(candidates) != 1:
+            raise RuntimeError(
+                "Expected one upstream C++ bridge for {}: {}".format(op, candidates)
+            )
+        content, count = re.subn(
+            r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,",
+            "TORCH_LIBRARY_IMPL(" + item["name"] + ",",
+            candidates[0].read_text(),
+        )
+        if not count:
+            raise RuntimeError("Missing upstream custom registration for " + op)
+        (sources / candidates[0].name).write_text(content)
     notice = declarations[: declarations.index("#include")]
     (sources / "ops_def_registration.cpp").write_text(
         notice
@@ -111,12 +166,11 @@ def inspect_vendor(vendor, item):
 
     require(vendor / "op_api/lib/libcust_opapi.so")
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
-    for op in item["ops"]:
-        name = item["ops"][op]
+    for name in selected_kernels(item):
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
-            raise RuntimeError("No recipes AICore binaries for " + op)
+            raise RuntimeError("No recipes AICore binaries for " + name)
         for binary in binaries:
             require(binary)
             read_json(require(binary.with_suffix(".json")))
@@ -157,6 +211,7 @@ def stage(result, package):
     shutil.copytree(vendor, target)
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     extract_python(
         result["wheel"],
         item["python_package"],
@@ -172,4 +227,10 @@ def stage(result, package):
         for path in target.rglob("*")
         if path.is_file()
     }
-    return dict(item, vendor_directory=vendor.name, files=files, binding="precompiled")
+    return dict(
+        item,
+        vendor_directory=vendor.name,
+        files=files,
+        binding="precompiled",
+        opapi_soname=opapi_sonames[vendor.name],
+    )

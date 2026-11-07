@@ -72,13 +72,13 @@ $$
 | `cache_seqlens` | 可选 Tensor `[B]`；int32 | `None` | 必需的有效 KV 长度，不超过引用缓存的容量。 |
 | `cu_seqlens_q` | 可选 Tensor `[B+1]`；int32 | `None` | TND 必填，其他 Query 布局不传；首项为零、末项为 `T`，相邻差值为物理 Query 长度。 |
 | `seqused_q` | 可选 Tensor `[B]`；int32 | `None` | 实际 Query 长度，不超过对应物理分段长度；省略时使用完整分段。 |
-| `sinks` | 可选 Tensor `[N]`；float32 | `None` | 每个 head 的 softmax sink logit；CANN 也接受空 tensor 表示关闭。 |
+| `sinks` | 可选 Tensor `[N]`；float32 | `None` | 固定的 release 版本要求为 `None`，不支持 sinks。 |
 | `attn_mask` | 可选 Tensor `[2048,2048]`；int8 | `None` | 模式 3/4 必填，使用对角线上方为 1 的标准压缩上三角掩码；模式 0 不传。 |
 | `metadata` | 可选 Tensor `[M]`；int32 | `None` | [flash_mla_metadata](flash_mla_metadata.md) 生成的调度信息；与 Query 同设备，生成参数需与本次调用匹配。 |
 | `head_dim_v` | `int` | `512` | Value/输出维度；CANN 要求为 512。 |
 | `softmax_scale` | `float` | `1.0` | QK 分数的缩放系数，不会根据 head 维度自动推断。 |
-| `mask_mode` | `int` | `0` | `0`：无掩码；`3`：右对齐因果；`4`：右对齐滑动窗口。 |
-| `win_left`、`win_right` | `int` | `-1` | 模式 4 的窗口范围，`-1` 表示无界；其他模式必须为 `-1`。 |
+| `mask_mode` | `int` | `0` | 固定的 release 版本支持 `0`（无掩码）和 `3`（右对齐因果）。 |
+| `win_left`、`win_right` | `int` | `-1` | 固定的 release 版本要求为 `-1`，不支持滑动窗口。 |
 | `max_seqlen_q`、`max_seqlen_kv` | `int` | `-1` | 上游最大长度属性；`-1` 使用上游默认值，否则为非负值。 |
 | `layout_q` | `str` | `"BSND"` | `BSND`、`BNSD` 或 `TND`。 |
 | `layout_kv` | `str` | `"PA_BBND"` | `PA_BBND`、`PA_BNBD` 或 `PA_NZ`。 |

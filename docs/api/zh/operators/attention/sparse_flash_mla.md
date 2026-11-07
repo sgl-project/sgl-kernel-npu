@@ -1,19 +1,35 @@
 # sparse_flash_mla
 
-该算子是 CANN 9.2.0 版本引入的非正式算子。
+下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
 
-上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+
+
+## CANN 9.1 兼容
+
+`cann_ops_transformer_cann920` 与主仓的
+`cann_ops_transformers_cann920` 是同一个随包 CANN 9.2 实现的注册名。
+CANN 9.1 的窗口输入走 `ops_transformer_cann910`；显式原始 KV 稀疏输入
+使用 `ascendc` 计算和 `host` metadata，并且不能同时提供压缩 KV。
+Host metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
+`seqused_ori_kv_cpu` 镜像。绑定从 wheel 的 third-party 目录加载，无需独立算子包。
+A5 使用单独的 mixed-quant sparse API。
+
+迁移测试中的 `torch_native` metadata 返回独立参考描述符，不生成原生 tiling
+字节；配对测试分别构造参考描述符。主仓计算参考也接受不透明的原生 metadata，
+并覆盖 SWA/CSA/HCA 与 BSND。原生 metadata 的字节布局取决于 SDK。
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | 支持 | 不支持 |
+| `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | 支持 | 不支持 |
+| CANN 9.1 `ops_transformer_cann910`、`ascendc` / `host` | 支持 | 不支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-默认 `auto` 在 CANN 9.2.0、arch22 上选择 `cann_ops_transformers_cann920`。
+在 arch22 上，`auto` 根据当前 SDK 选择 CANN 9.1 或 9.2 实现。下列完整参数说明对应 CANN 9.2；未传参数使用所选绑定的默认值。
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla
@@ -103,7 +119,7 @@ $\alpha$ 为 `softmax_scale`。无 sink 时 $\delta=0$；存在第 $n$ 个 head 
 | `ori_topk_length` | 可选 Tensor；int32 | `None` | 对应 `ori_sparse_indices` 的有效长度，A2/A3 不使用。 |
 | `cmp_topk_length` | 可选 Tensor；int32；TND 为 `[T,N2]`，BSND 为 `[B,S,N2]` | `None` | `cmp_sparse_indices` 的有效长度；Atlas A2/A3 为保留字段，必须不传。 |
 | `sinks` | Tensor `[N1]`；float32 | `None` | 每个 head 的 softmax sink logit；Atlas A2/A3 的 kernel 要求必须传入（不能为空、也不能省略）。 |
-| `metadata` | Tensor `[2048]`；int32 | 必填 | [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 生成的分核信息。 |
+| `metadata` | Tensor `[1024]`；int32 | 必填 | [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 生成的分核信息。 |
 | `softmax_scale` | `float` | `1.0` | QK 分数缩放系数，不会根据头维度自动推断。 |
 | `cmp_ratio` | `int` | `1` | 压缩倍率；SWA 为 1，CSA 为 1/2/4，HCA 为 128。 |
 | `ori_mask_mode` | `int` | `0` | `0` 无掩码；`3` 因果；`4` 滑动窗口。 |

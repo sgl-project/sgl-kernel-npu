@@ -102,6 +102,11 @@ def configure_npu(request):
         raise pytest.UsageError(str(error)) from error
     torch = pytest.importorskip("torch")
     pytest.importorskip("torch_npu")
+    # Package import installs the bundled vendor paths and CANN 9.1 bridges.
+    # It must precede device setup: current_device() in use_npu_device can
+    # initialize the runtime before a test imports its public operator.
+    import sgl_kernel_npu  # noqa: F401
+
     if not torch.npu.is_available():
         pytest.skip("An Ascend NPU is required")
     if index is not None and index >= torch.npu.device_count():
