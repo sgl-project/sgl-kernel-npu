@@ -2,7 +2,7 @@
 
 下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
 
-上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
 
 
 ## CANN 9.1 兼容
@@ -119,7 +119,7 @@ $\alpha$ 为 `softmax_scale`。无 sink 时 $\delta=0$；存在第 $n$ 个 head 
 | `ori_topk_length` | 可选 Tensor；int32 | `None` | 对应 `ori_sparse_indices` 的有效长度，A2/A3 不使用。 |
 | `cmp_topk_length` | 可选 Tensor；int32；TND 为 `[T,N2]`，BSND 为 `[B,S,N2]` | `None` | `cmp_sparse_indices` 的有效长度；Atlas A2/A3 为保留字段，必须不传。 |
 | `sinks` | Tensor `[N1]`；float32 | `None` | 每个 head 的 softmax sink logit；Atlas A2/A3 的 kernel 要求必须传入（不能为空、也不能省略）。 |
-| `metadata` | Tensor `[2048]`；int32 | 必填 | [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 生成的分核信息。 |
+| `metadata` | Tensor `[1024]`；int32 | 必填 | [sparse_flash_mla_metadata](sparse_flash_mla_metadata.md) 生成的分核信息。 |
 | `softmax_scale` | `float` | `1.0` | QK 分数缩放系数，不会根据头维度自动推断。 |
 | `cmp_ratio` | `int` | `1` | 压缩倍率；SWA 为 1，CSA 为 1/2/4，HCA 为 128。 |
 | `ori_mask_mode` | `int` | `0` | `0` 无掩码；`3` 因果；`4` 滑动窗口。 |

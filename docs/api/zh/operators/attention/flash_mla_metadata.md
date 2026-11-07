@@ -57,8 +57,8 @@ def flash_mla_metadata(
 | `max_seqlen_q`、`max_seqlen_kv` | `int` | `-1` | 上游最大长度属性；`-1` 使用上游默认值，否则为非负值。 |
 | `head_dim_qk` | `int` | `576` | 必须为 576，包含 Key 的全部通道。 |
 | `head_dim_v` | `int` | `512` | 必须为 512。 |
-| `mask_mode` | `int` | `0` | `0`：无掩码；`3`：右对齐因果；`4`：右对齐滑动窗口。 |
-| `win_left`、`win_right` | `int` | `-1` | 模式 4 的窗口范围，`-1` 表示无界；其他模式必须为 `-1`。 |
+| `mask_mode` | `int` | `0` | 固定的 release 版本支持 `0`（无掩码）和 `3`（右对齐因果）。 |
+| `win_left`、`win_right` | `int` | `-1` | 固定的 release 版本要求为 `-1`，不支持滑动窗口。 |
 | `layout_q` | `str` | `"BSND"` | `BSND`、`BNSD` 或 `TND`，与主算子一致。 |
 | `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers_cann920`。 |
 

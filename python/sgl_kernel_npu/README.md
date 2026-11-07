@@ -150,6 +150,13 @@ provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
 operator profiles also bundle Python bindings. Both versions use the upstream
 setuptools entry point with the active build interpreter.
 
+The CANN 9.2 ops-transformer profile pins commit
+`3baf8ac0eba25fa464260a43bab8d5bac1fefb8a` from upstream's `9.2.0` branch.
+The selected IndexerQuantCache and QuantFlashAttn declarations do not reference
+the unsupported HiFloat4 types; this build applies no source patches. Changing
+the pin invalidates the dependency cache automatically. CANN SDK compilation
+and on-device accuracy must still be validated on the target host.
+
 Successful dependency builds are cached under `build/third_party/` and reused
 when the build fingerprint and artifact checksums match. Changes to the profile,
 build scripts or relevant build

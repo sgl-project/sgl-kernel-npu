@@ -3,8 +3,8 @@
 import pytest
 
 # Import the package before torch_npu initializes the CANN op store. Otherwise
-# CANN's built-in SparseFlashMla shadows the bundled vendor and rejects the
-# 2048-element metadata with "metadata dim 0 must be 1024".
+# CANN may select its built-in SparseFlashMla instead of the bundled vendor.
+# Matching metadata lengths alone do not identify the selected implementation.
 try:
     import sgl_kernel_npu  # noqa: F401
 except ImportError:  # pragma: no cover - the NPU runtime is optional here
