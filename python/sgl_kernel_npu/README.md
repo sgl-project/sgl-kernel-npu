@@ -10,7 +10,7 @@ The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
-### Build a wheel or `.run` installer
+### Build CANN and host C++ operators
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
@@ -23,10 +23,10 @@ with your checkout path and initialize the SDK from its installed location:
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
-# Complete Python package and all supported migrated native operators.
+# Complete Python package and all supported CANN and host C++ operators.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201
 
-# One migrated native operator, packaged with the same Python sources.
+# One CANN operator, packaged with the same Python sources.
 python3 /workspace/sgl-kernel-npu/setup.py \
   --arch-version 2201 --ops apply_token_bitmask
 
@@ -45,7 +45,7 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | --- | --- | --- |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
-| `--artifact run/wheel` | `wheel` | Build a `.run` operator installer or an installable Python wheel. |
+| `--artifact run/wheel` | `wheel` | Package CANN and host C++ operators in a `.run` installer or a Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
@@ -55,9 +55,9 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | `-h` / `--help` | Off | Print the supported options and exit without building. |
 
 `--ops` accepts comma-separated IDs; do not mix `all` with IDs or repeat an ID.
-It selects native operators only, not which Python modules enter the wheel.
+It selects CANN and host C++ operators; all Python modules are included in the wheel.
 Both artifact types support AICORE, AICPU and HOST IDs in the same selection;
-`all` selects every native operator supporting the requested architecture.
+`all` selects every CANN and host C++ operator supporting the requested architecture.
 
 ```bash
 # Mix AI Core, AICPU and host C++ operators in one wheel.
@@ -103,12 +103,12 @@ previous `sgl_kernel_npu-*.run` files. Other packages' outputs are left in place
 Wheel builds read `third_party/profiles/cann-<SDK-version>/*.json`, then select
 the profile's `ops.arch22` or `ops.arch35` list using `--arch-version`.
 Profiles pin the source repository, commit, operators and build commands.
-`--ops` selects repository-owned native operators; `--third-party` independently
-selects external libraries. The profile filename, not its internal package name,
-is passed to `--third-party`.
+`--ops` selects this repository's CANN and host C++ operators; `--third-party`
+independently selects external libraries. The profile filename, not its internal
+package name, is passed to `--third-party`.
 
 ```bash
-# CANN 9.1.0: build one native operator and bundle the recipes dependency.
+# CANN 9.1.0: build one CANN operator and bundle the recipes dependency.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops apply_token_bitmask --third-party cann_recipes_infer -j8
 
@@ -145,7 +145,7 @@ are cached under `build/third_party/` and reused when the build fingerprint and
 artifact checksums match. Changes to the profile, build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
-### Native operator declarations
+### CANN and host C++ operator declarations
 
 Declare an operator in `csrc/<domain>/<operator>/CMakeLists.txt` with
 `sgl_register_operator()`. Optionally add `sgl_register_operator_variant()` calls
@@ -364,7 +364,8 @@ its intermediates. Do not run both builds concurrently in one checkout.
 ### Installation and public API
 
 The distribution name remains `sgl-kernel-npu`, imported as `sgl_kernel_npu`.
-Wheel build tags distinguish architecture, native operator selection, and bundled third-party dependencies:
+Wheel build tags distinguish architecture, the selected CANN and host C++ operators,
+and bundled third-party dependencies:
 
 ```text
 sgl_kernel_npu-<version>-1_refactor_2201_all_<set-id>-<python>-<abi>-<platform>.whl
@@ -374,7 +375,7 @@ sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>_tp_<dependency-id>-<pyt
 
 Omitted `--ops` or `--ops all` produces `all`; explicit IDs produce `custom`.
 Build-tag fields use underscores. `<set-id>` is the first 10 hexadecimal characters
-of the selected native operator list's SHA-256 hash. `tp` means `third_party`;
+of the selected CANN and host C++ operator list's SHA-256 hash. `tp` means `third_party`;
 the optional `tp_<dependency-id>` identifies bundled third-party contents with a
 10-character SHA-256 fingerprint. Neither ID is a source Git commit.
 Both `all` and `custom` hash the actual combined CANN/HOST selection. The package's
@@ -383,8 +384,8 @@ and SDK targets. HOST-only wheels have no repository device compute units or
 runtime CANN vendor.
 Subset wheels replace one another; they do not add operators to an existing
 installation. Legacy and REFACTOR wheels are alternative installations of the
-same package; load only one native library in a process. Reinstall explicitly
-and start a new Python process when switching:
+same package; load only one version of the package's operator library in a process.
+Reinstall explicitly and start a new Python process when switching:
 
 ```bash
 python3 -m pip install --force-reinstall --no-deps /workspace/sgl-kernel-npu/output/sgl_kernel_npu-*.whl
@@ -394,7 +395,7 @@ python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/sampler/test_
 The public entry is `sgl_kernel_npu.operators.sampler.apply_token_bitmask`.
 `impl="auto"` and `impl="ascendc"` call `torch.ops.npu.apply_token_bitmask`;
 `impl="torch_native"` selects the reference explicitly. There is no automatic
-fallback when the native operator is absent. See the API documentation in
+fallback when the CANN implementation is not installed. See the API documentation in
 [English](../../docs/api/en/operators/sampler/apply_token_bitmask.md) or
 [Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
 

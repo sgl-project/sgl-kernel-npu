@@ -50,7 +50,7 @@ def transfer_kv_dim_exchange(device_indices, host_indices, device_k, host_k, dev
 
 ## torch_native 后端
 
-复用 SGLang `MambaPoolHost` 的 PyTorch gather/scatter 参考逻辑：从每组 `page_size` 个 token 索引的首项计算页号，将整页物理存储适配为一个槽位，再按方向执行单层恢复或全层备份。K、V 和可选 indexer/scale 分别处理，不调用 `aclrt` 原生算子。
+复用 SGLang `MambaPoolHost` 的 PyTorch gather/scatter 参考逻辑：从每组 `page_size` 个 token 索引的首项计算页号，将整页物理存储适配为一个槽位，再按方向执行单层恢复或全层备份。K、V 和可选 indexer/scale 分别处理，不调用 `aclrt` 实现。
 
 ## 示例
 

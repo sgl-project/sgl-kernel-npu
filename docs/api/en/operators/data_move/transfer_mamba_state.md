@@ -48,8 +48,9 @@ Submits asynchronous 2D transfers to the current NPU stream. The host buffer mus
 
 Adapts SGLang's `MambaPoolHost` PyTorch reference: H2D restores each layer with
 `index_select/index_copy_`; D2H gathers selected slots and moves the layer dimension after the
-slot dimension. Layout views preserve native physical storage order, and repeated destination
-indices are written in input order. No native operator is called.
+slot dimension. Layout views preserve the physical storage order used by the `aclrt`
+implementation, and repeated destination indices are written in input order.
+The reference does not call the `aclrt` implementation.
 
 ## Example
 

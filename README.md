@@ -97,7 +97,7 @@ Choose the build path:
 
 The [complete new-build option reference](python/sgl_kernel_npu/README.md#command-line-options) lists defaults, valid combinations and examples. Use `python3 setup.py --help` for the new entry or `bash build.sh -h` for the existing build.
 
-For migrated native operators, see [operator declarations](python/sgl_kernel_npu/README.md#native-operator-declarations) for supported fields, required values, architecture variants and replacement rules.
+For CANN and host C++ operators, see [operator declarations](python/sgl_kernel_npu/README.md#cann-and-host-c-operator-declarations) for supported fields, required values, architecture variants and replacement rules.
 
 Before the legacy whole-repository build, initialize the submodules:
 ```bash
