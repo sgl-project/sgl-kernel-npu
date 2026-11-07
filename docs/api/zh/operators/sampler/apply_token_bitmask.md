@@ -19,7 +19,7 @@ from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 apply_token_bitmask(logits, bitmask, indices=None, *, impl="auto")
 ```
 
-`auto` 与 `ascendc` 都调用 `torch.ops.npu.apply_token_bitmask`。未注册该原生算子时，由 Torch 查找时报错，不自动回退；实现名不存在时，由公共注册工具报错。`torch_native` 必须显式选择。请安装与设备架构匹配的 wheel。安装的原生实现仍可通过 `torch.ops.npu.apply_token_bitmask` 直接调用。
+`auto` 与 `ascendc` 都调用 `torch.ops.npu.apply_token_bitmask`。未注册该 CANN 实现时，由 Torch 查找时报错，不自动回退；实现名不存在时，由公共注册工具报错。`torch_native` 必须显式选择。请安装与设备架构匹配的 wheel。安装的 CANN 实现仍可通过 `torch.ops.npu.apply_token_bitmask` 直接调用。
 
 ## 参数与语义
 
@@ -49,4 +49,4 @@ assert result.data_ptr() == logits.data_ptr()
 torch.testing.assert_close(result, expected, atol=0, rtol=0)
 ```
 
-完整 Python 接口会进入每个 REFACTOR wheel，但原生实现只包含本次 `--ops` 选择的已迁移算子。不同子集 wheel 使用同一发行包身份，安装后相互替换，不会叠加；完整清单见安装包内 `_build_manifest.json`。
+完整 Python 接口会进入每个 REFACTOR wheel，但只编译本次 `--ops` 选择的 CANN 和 host C++ 算子。不同子集 wheel 使用同一发行包身份，安装后相互替换，不会叠加；完整清单见安装包内 `_build_manifest.json`。

@@ -20,7 +20,7 @@ from sgl_kernel_npu.operators.sampler import apply_token_bitmask
 apply_token_bitmask(logits, bitmask, indices=None, *, impl="auto")
 ```
 
-`auto` and `ascendc` call `torch.ops.npu.apply_token_bitmask`. If the native operator is not registered, the Torch lookup fails; there is no fallback. Unknown implementation names are rejected by the shared registry. Select `torch_native` explicitly to use the reference. Install a wheel built for your device's architecture. The installed native implementation remains directly callable through `torch.ops.npu.apply_token_bitmask`.
+`auto` and `ascendc` call `torch.ops.npu.apply_token_bitmask`. If the CANN implementation is not registered, the Torch lookup fails; there is no fallback. Unknown implementation names are rejected by the shared registry. Select `torch_native` explicitly to use the reference. Install a wheel built for your device's architecture. The installed CANN implementation remains directly callable through `torch.ops.npu.apply_token_bitmask`.
 
 ## Parameters and semantics
 
@@ -50,4 +50,4 @@ assert result.data_ptr() == logits.data_ptr()
 torch.testing.assert_close(result, expected, atol=0, rtol=0)
 ```
 
-Every REFACTOR wheel includes the Python interfaces, but only migrated native operators selected by `--ops` are compiled. Subset wheels share one distribution identity and replace each other; they are not additive. The complete selection is recorded in `_build_manifest.json`.
+Every REFACTOR wheel includes the Python interfaces, but only CANN and host C++ operators selected by `--ops` are compiled. Subset wheels share one distribution identity and replace each other; they are not additive. The complete selection is recorded in `_build_manifest.json`.
