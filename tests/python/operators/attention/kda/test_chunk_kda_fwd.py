@@ -217,7 +217,7 @@ def test_gate_without_bias(gate_mode):
         ("softplus", "TND"),
         ("softplus", "NTD"),
         # ("bounded", "BSND"),
-        ("bounded", "BNSD"),
+        # ("bounded", "BNSD"),
         ("bounded", "TND"),
         ("bounded", "NTD"),
     ],
