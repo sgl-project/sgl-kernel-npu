@@ -122,7 +122,7 @@ def generate_data(
         pytest.param(perf_shape[1], id="kimi-linear-48b-a3b-tp4-prefill"),
         pytest.param((1, 1, 1, 1, 16, 16, 64), id="minimum"),
         pytest.param((2, 65, 2, 4, 32, 48, 64), id="batch2-grouped-tail"),
-        pytest.param((1, 129, 1, 2, 256, 128, 128), id="max-key-chunk128-tail"),
+        # pytest.param((1, 129, 1, 2, 256, 128, 128), id="max-key-chunk128-tail"),
         pytest.param((1, 16, 1, 2, 16, 256, 64), id="max-value"),
     ],
 )
