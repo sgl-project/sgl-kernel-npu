@@ -155,6 +155,32 @@ when the build fingerprint and artifact checksums match. Changes to the profile,
 build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
+### Refreshing the metadata Python helper
+
+If a completed build is missing only `get_transformer_metadata_size`, update the
+checkout and run this from the repository root, using the Python that installed
+the existing wheel:
+
+```bash
+python3 scripts/repack_metadata_helper.py --install
+```
+
+This backs up the staged module, updates that helper from the checkout, and
+repackages the existing package into `output/`. It uses
+`build/torch/package/sgl_kernel_npu` when available; otherwise it copies the
+installed package into a new directory under `build/` first. It reuses native
+binaries and bundled dependencies without cloning, running CMake or compiling.
+`--install` force-reinstalls that exact wheel without installing dependencies,
+then checks the helper import. Omit `--install` to create the wheel only.
+The script rejects other code differences in this module, and automatic
+installation requires matching installed/staged build manifests.
+
+Keep `build/torch` when available; an installed complete PR wheel is sufficient
+when that cache has been removed. For a normal incremental build, retain the
+build directories and run
+`python3 setup.py --arch-version 3510 -j8` (use `2201` for A3). Existing dependency
+caches and native build intermediates can then be reused.
+
 ### CANN operator declarations
 
 Declare an operator in `csrc/<domain>/<operator>/CMakeLists.txt` with
