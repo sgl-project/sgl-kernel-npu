@@ -122,6 +122,55 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     int64_t attention_mode, bool return_softmax_lse);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+/**
+ * @brief Grouped RMS norm with a unit-offset, cycling weight slice.
+ *
+ * Groups are the `group_size`-long spans of x in row-major order. Group g
+ * scales by 1 + weight[(g * group_size) % weight.numel() + j]. The group count
+ * must be a whole number of weight periods. An absent group_size uses x's last
+ * dimension. The kernel block count is keyed on x.size(0), so the leading
+ * dimension should be the token count; a leading batch dimension (such as
+ * [1, S, D]) selects fewer blocks than optimal. Writes into `out` when
+ * supplied. bfloat16 only.
+ */
+at::Tensor hyper_conn_grouped_norm(const at::Tensor &x,
+                                   const at::Tensor &weight,
+                                   c10::optional<int64_t> group_size,
+                                   double eps,
+                                   const c10::optional<at::Tensor> &out);
+
+/**
+ * @brief SiLU of x / scale in float32, rounded to bfloat16 on output.
+ *
+ * x is 2-D with a unit column stride; its row pitch may exceed its column
+ * count. scale must be a positive power of two. bfloat16 only.
+ */
+at::Tensor hyper_conn_scaled_silu(const at::Tensor &x, double scale);
+
+/**
+ * @brief Gated reduction over the branch axis of a [rows, branches * width]
+ * pair.
+ *
+ * Returns [rows, width]. branches must be a power of two. bfloat16 only.
+ */
+at::Tensor hyper_conn_branch_mix(const at::Tensor &normed,
+                                 const at::Tensor &gate_logits,
+                                 int64_t branches);
+
+/**
+ * @brief Gated residual combine broadcasting one block output onto every
+ * branch.
+ *
+ * Returns residual's shape (writing into `out` when supplied). gate_logits is
+ * [rows, branches] with a unit column stride. branches must be a power of two.
+ * bfloat16 only.
+ */
+at::Tensor hyper_conn_branch_combine(const at::Tensor &block,
+                                     const at::Tensor &residual,
+                                     const at::Tensor &gate_logits,
+                                     int64_t branches,
+                                     const c10::optional<at::Tensor> &out);
+
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
