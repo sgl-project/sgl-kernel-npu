@@ -1,19 +1,5 @@
 include_guard(GLOBAL)
 
-# Official CANN host helpers use base headers such as alog_pub.h and err_msg.h.
-# SDK layouts expose these either directly or below the host platform directory.
-function(sgl_cann_host_include_dirs output)
-    set(paths "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
-    foreach(path IN ITEMS
-            "${ASCEND_CANN_PACKAGE_PATH}/include/base"
-            "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include/base")
-        if(IS_DIRECTORY "${path}")
-            list(APPEND paths "${path}")
-        endif()
-    endforeach()
-    set(${output} "${paths}" PARENT_SCOPE)
-endfunction()
-
 function(sgl_generate_cann_interfaces output_dir)
     if(NOT COMMAND npu_op_code_gen)
         message(FATAL_ERROR "The selected CANN SDK does not provide npu_op_code_gen")
@@ -39,11 +25,6 @@ function(sgl_generate_cann_interfaces output_dir)
     endforeach()
     file(CONFIGURE OUTPUT "${config_dir}/sgl_operator_config.h" CONTENT
         "#pragma once\ninline constexpr const char* SGL_CANN_CONFIGS[] = {${configs}};\n")
-    sgl_cann_host_include_dirs(host_include_dirs)
-    set(host_compile_options)
-    foreach(directory IN LISTS host_include_dirs)
-        list(APPEND host_compile_options "-I${directory}")
-    endforeach()
     # Regenerate SDK metadata only when its inputs change. Device .cpp changes
     # remain ordinary Kernel build dependencies; shared tiling headers are tracked.
     set(inputs ${host_sources} ${tiling_headers} "${config_dir}/sgl_operator_config.h"
@@ -81,7 +62,7 @@ function(sgl_generate_cann_interfaces output_dir)
         file(REMOVE_RECURSE "${output_dir}")
         file(MAKE_DIRECTORY "${output_dir}")
         npu_op_code_gen(SRC ${host_sources} PACKAGE sgl_kernel_npu
-            COMPILE_OPTIONS ${host_compile_options} OUT_DIR "${output_dir}")
+            COMPILE_OPTIONS "-I${config_dir}" OUT_DIR "${output_dir}")
         file(WRITE "${stamp}" "${signature}")
     else()
         # These are the codegen handoff properties consumed by the SDK's
@@ -99,8 +80,7 @@ function(sgl_add_cann_tiling)
         list(APPEND host_sources ${sources})
     endforeach()
     npu_op_library(sgl_cann_tiling TILING ${host_sources})
-    sgl_cann_host_include_dirs(host_include_dirs)
-    target_include_directories(sgl_cann_tiling PRIVATE ${host_include_dirs})
+    target_include_directories(sgl_cann_tiling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     set(SGL_CANN_HOST_SOURCES "${host_sources}" PARENT_SCOPE)
 endfunction()
 
@@ -111,8 +91,7 @@ function(sgl_add_cann_kernels output_dir)
     endif()
     npu_op_library(sgl_cann_opapi ACLNN ${api_sources})
     npu_op_library(sgl_cann_proto GRAPH ${SGL_CANN_HOST_SOURCES} "${output_dir}/op_proto.cc")
-    sgl_cann_host_include_dirs(host_include_dirs)
-    target_include_directories(sgl_cann_proto PRIVATE ${host_include_dirs})
+    target_include_directories(sgl_cann_proto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/operator-config")
     foreach(id IN LISTS ARGN)
         sgl_get_operator(op_type "${id}" CANN_OP_TYPE)
         sgl_get_operator(sources "${id}" KERNEL_SOURCES)

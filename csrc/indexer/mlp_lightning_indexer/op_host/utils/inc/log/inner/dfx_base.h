@@ -33,8 +33,8 @@
 #define REPORT_INNER_ERR_MSG(...) (1)
 #define MSG_LENGTH 1024
 #else
-#include <alog_pub.h>
-#include <err_msg.h>
+#include <base/alog_pub.h>
+#include <base/err_msg.h>
 #endif
 
 namespace ops {
