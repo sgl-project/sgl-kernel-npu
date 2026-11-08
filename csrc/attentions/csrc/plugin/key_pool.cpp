@@ -82,8 +82,9 @@ at::Tensor key_pool(const at::Tensor &hidden_states, const at::Tensor &wk, const
             at::empty({batch, (hidden_states.size(1) + cmp_ratio - 1) / cmp_ratio, width}, hidden_states.options());
     }
     // Device metadata is passed directly, including during NPUGraph replay.
+    const auto state_cache_stride = state_cache.stride(0);
     EXEC_NPU_CMD<KEY_POOL_OP_NAME>(hidden_states, wk, gate_weight, ape, state_cache, cache_block_table, start_pos,
                                    norm_weight, norm_bias, cos, sin, cu_seqlens, seqused, cmp_ratio, norm_eps,
-                                   rotary_mode, state_cache.stride(0), pooled);
+                                   rotary_mode, state_cache_stride, pooled);
     return pooled;
 }
