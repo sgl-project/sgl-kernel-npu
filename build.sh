@@ -502,6 +502,14 @@ function build_cmake_modules()
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
+    unset SGL_KERNEL_NPU_CANN_VENDOR
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" && "$SGL_KERNEL_NPU_BUILD_TARGET" == "Ascend910" ]]; then
+        python3 "$PROJECT_ROOT/setup.py" --arch-version 2201 \
+            --ops compute_n_gram_ids,update_oe_token_table,mlp_lightning_indexer --artifact run
+        export SGL_KERNEL_NPU_CANN_VENDOR="$BUILD_DIR/cann/installed/vendors/sgl_kernel_npu"
+        cmake_args+=("-DSGL_CANN_VENDOR=$SGL_KERNEL_NPU_CANN_VENDOR")
+    fi
+
     cmake "${cmake_args[@]}" \
         -B "$BUILD_DIR" \
         -S "$PROJECT_ROOT"

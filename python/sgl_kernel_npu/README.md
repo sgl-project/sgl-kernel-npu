@@ -4,20 +4,9 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build:
-
-| Operator ID | Architecture coverage | Public module |
-| --- | --- | --- |
-| `apply_token_bitmask` | `2201`, `3510` | `operators.sampler` |
-| `compute_n_gram_ids` | `2201` | `operators.embedding` |
-| `update_oe_token_table` | `2201` | `operators.embedding` |
-| `mlp_lightning_indexer` | `2201` | `operators.indexer` |
-
-`--ops all` selects all migrated native operators supported by the target, not
-unmigrated legacy operators. Build the three LongCat2 operators through this
-REFACTOR entry. Their native bindings use CANN/ACLNN and retain their public
-API names and calling conventions. NPU compilation, accuracy, graph replay,
-and performance must be validated for this ACLNN path.
+native, plus the migrated AscendC operators selected for this build. Only
+`apply_token_bitmask` has been migrated so far; `--ops all` does not include
+unmigrated legacy native operators.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
@@ -42,17 +31,9 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201
 python3 /workspace/sgl-kernel-npu/setup.py \
   --arch-version 2201 --ops apply_token_bitmask
 
-# Three LongCat2 operators, with the same Python sources and public APIs.
-python3 /workspace/sgl-kernel-npu/setup.py \
-  --arch-version 2201 \
-  --ops compute_n_gram_ids,update_oe_token_table,mlp_lightning_indexer \
-  --artifact wheel
-
 # CANN installer only, for direct ACLNN use; no Torch adapter or wheel.
 python3 /workspace/sgl-kernel-npu/setup.py \
-  --arch-version 2201 \
-  --ops compute_n_gram_ids,update_oe_token_table,mlp_lightning_indexer \
-  --artifact run
+  --arch-version 2201 --ops apply_token_bitmask --artifact run
 ```
 
 ### Command-line options
@@ -92,8 +73,7 @@ python3 /workspace/sgl-kernel-npu/setup.py \
 
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
 `ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used
-only by this build. Each operator declares its supported subset with
-`SUPPORTED_ARCHS`; the three LongCat2 declarations use only `2201`.
+only by this build. Operator declarations use `SUPPORTED_ARCHS 2201 3510`;
 API documentation follows the shared framework's `arch22` and `arch35` names.
 
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
@@ -141,18 +121,6 @@ The public entry is `sgl_kernel_npu.operators.sampler.apply_token_bitmask`.
 fallback when the native operator is absent. See the API documentation in
 [English](../../docs/api/en/operators/sampler/apply_token_bitmask.md) or
 [Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
-
-The LongCat2 entries are
-`sgl_kernel_npu.operators.embedding.compute_n_gram_ids`,
-`sgl_kernel_npu.operators.embedding.update_oe_token_table`, and
-`sgl_kernel_npu.operators.indexer.mlp_lightning_indexer`. Their `auto` and
-`ascendc` implementations retain the corresponding `torch.ops.npu` names and
-execute the bundled ACLNN operators; `torch_native` is an explicit reference.
-The update operator returns the same table it modifies, and MLP length tensors
-remain caller-supplied int64. See the API indexes in
-[English](../../docs/api/en/API_list.md) and [Chinese](../../docs/api/zh/API_list.md).
-A LongCat2 subset wheel does not supply other unmigrated native operators that a
-full model may require.
 
 ## Legacy build: software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
