@@ -50,8 +50,98 @@ perf_shape = [
 ]
 
 
-def generate_test_data(shape, acceptance):
-    """Use full-vocabulary distributions with a controlled rejection position."""
+def generate_test_data(shape, acceptance, case="model"):
+    """Preserve model, legacy and boundary inputs; only their test runner is shared.
+
+    Legacy inputs: tests/python/sgl_kernel_npu/test_chain_speculative_sampling.py
+    at sgl-project/sgl-kernel-npu commit 15ea25766eb0f9a30951d7d127af8600998272ea.
+    """
+    if case.startswith("legacy"):
+        large_vocab = case == "legacy-large"
+        with torch.device("cpu"):
+            batch_size, num_draft_tokens = 2, 4
+            retrive_index = torch.arange(batch_size * num_draft_tokens).view(
+                batch_size, num_draft_tokens
+            )
+            if large_vocab:
+                vocab_size = 151552
+                candidates = torch.tensor([[0, 11, 22, 33], [0, 44, 55, 66]])
+                target_probs = torch.zeros(batch_size, num_draft_tokens, vocab_size)
+                draft_probs = torch.zeros(batch_size, num_draft_tokens - 1, vocab_size)
+                for row, token in enumerate(candidates[0, 1:]):
+                    target_probs[0, row, token] = 0.8
+                    target_probs[0, row, 0] = 0.2
+                    draft_probs[0, row, token] = 0.5
+                    draft_probs[0, row, 0] = 0.5
+                target_probs[0, -1, 0] = 0.25
+                target_probs[0, -1, -1] = 0.75
+                target_probs[1, 0, candidates[1, 1]] = 0.1
+                target_probs[1, 0, -1] = 0.9
+                draft_probs[1, 0, candidates[1, 1]] = 0.9
+                draft_probs[1, 0, -1] = 0.1
+                for row, token in enumerate(candidates[1, 2:], start=1):
+                    target_probs[1, row, token] = 1.0
+                    draft_probs[1, row, token] = 1.0
+                target_probs[1, -1, -1] = 1.0
+                uniforms = torch.tensor([[0.1, 0.1, 0.1, 0.0], [0.9, 0.0, 0.0, 0.0]])
+                final_uniforms = torch.tensor([0.5, 0.5])
+            else:
+                vocab_size = 11
+                candidates = torch.tensor([[0, 2, 3, 4], [0, 5, 6, 7]])
+                target_probs = torch.softmax(
+                    torch.tensor(
+                        [
+                            [
+                                [0.1, 0.2, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                                [0.1, 0.2, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                                [0.1, 0.2, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                                [0.1, 0.2, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                            ],
+                            [
+                                [0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 2.0, 0.1, 0.1, 0.1],
+                                [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.2, 0.1, 0.1, 0.1],
+                                [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1],
+                                [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1],
+                            ],
+                        ],
+                        dtype=torch.float32,
+                    ),
+                    dim=-1,
+                )
+                draft_probs = torch.softmax(
+                    torch.tensor(
+                        [
+                            [
+                                [0.1] * vocab_size,
+                                [0.1] * vocab_size,
+                                [0.1] * vocab_size,
+                            ],
+                            [
+                                [0.1] * vocab_size,
+                                [0.1] * vocab_size,
+                                [0.1] * vocab_size,
+                            ],
+                        ],
+                        dtype=torch.float32,
+                    ),
+                    dim=-1,
+                )
+                draft_probs[1, 0, 5] = 0.9
+                draft_probs[1, 0] /= draft_probs[1, 0].sum()
+                uniforms = torch.tensor([[0.1, 0.1, 0.1, 0.0], [0.99, 0.0, 0.0, 0.0]])
+                final_uniforms = torch.tensor([0.37, 0.61])
+            inputs = {
+                "candidates": candidates,
+                "retrive_index": retrive_index,
+                "retrive_next_token": torch.full_like(candidates, -1),
+                "retrive_next_sibling": torch.full_like(candidates, -1),
+                "uniform_samples": uniforms,
+                "uniform_samples_for_final_sampling": final_uniforms,
+                "target_probs": target_probs,
+                "draft_probs": draft_probs,
+            }
+        return {name: value.npu() for name, value in inputs.items()}
+
     batch, draft_tokens, draft_rows, vocab = shape
     candidates = (
         torch.arange(batch * draft_tokens, dtype=torch.int64).reshape(
@@ -80,7 +170,7 @@ def generate_test_data(shape, acceptance):
         uniform_samples[:, 0] = 0.5
     elif acceptance == "reject-partial":
         uniform_samples[:, 1] = 0.5
-    return {
+    inputs = {
         "candidates": candidates,
         "retrive_index": retrive_index,
         "retrive_next_token": torch.full_like(candidates, -1),
@@ -92,51 +182,78 @@ def generate_test_data(shape, acceptance):
         "target_probs": target_probs,
         "draft_probs": draft_probs,
     }
+    if case in ("block-tail", "permuted-slots"):
+        inputs["uniform_samples_for_final_sampling"].fill_(0.9999)
+    if case == "permuted-slots":
+        inputs["retrive_index"] = (
+            inputs["retrive_index"].flatten().flip(0).reshape(shape[0], shape[1])
+        )
+    elif case == "strict-acceptance":
+        inputs["target_probs"][0, 0] = torch.tensor([0.25, 0.25, 0.25, 0.25])
+        inputs["draft_probs"][0, 0] = torch.tensor([0.25, 0.5, 0.25, 0.0])
+        # candidate=1, p=.25, q=.5 and u=.5: strict '<' rejects equality.
+        inputs["uniform_samples"][0, 0] = 0.5
+    elif case == "cdf-plateau":
+        inputs["target_probs"][0, 0] = torch.tensor([0.25, 0.0, 0.75, 0.0, 0.0])
+        inputs["uniform_samples_for_final_sampling"][0] = 0.25
+    return inputs
 
 
-def _output_buffers(inputs):
-    candidates = inputs["candidates"]
-    return {
-        "predicts": torch.full(
-            (candidates.numel(),), -1, dtype=torch.int32, device=candidates.device
-        ),
-        "accept_index": torch.full_like(candidates, -1, dtype=torch.int32),
-        "accept_token_num": torch.zeros(
-            candidates.shape[0], dtype=torch.int32, device=candidates.device
-        ),
-    }
-
-
-def _check_case(inputs, *, enable_perf=False):
+@pytest.mark.parametrize(
+    "shape,acceptance,case",
+    [
+        pytest.param(
+            shape,
+            acceptance,
+            "model",
+            id=f"{model}-{acceptance}",
+            marks=() if shape in default_shapes else pytest.mark.extra_checks,
+        )
+        for model, shapes in model_cases.items()
+        for shape in shapes
+        for acceptance in ("all-accepted", "reject-first", "reject-partial")
+    ]
+    + [
+        pytest.param(
+            shape, "all-accepted", case, id=case, marks=pytest.mark.extra_checks
+        )
+        for shape, case in [
+            ((2, 4, 3, 11), "legacy-small"),
+            ((2, 4, 3, 151552), "legacy-large"),
+            ((0, 4, 3, 11), "empty-batch"),
+            ((1, 1, 1, 1), "root-only-one-token-vocab"),
+            ((2, 4, 4, 2049), "block-tail"),
+            ((2, 4, 3, 4097), "permuted-slots"),
+            ((1, 2, 1, 4), "strict-acceptance"),
+            ((1, 1, 1, 5), "cdf-plateau"),
+        ]
+    ],
+)
+def test_chain_speculative_sampling(shape, acceptance, case):
     from sgl_kernel_npu.operators.speculative import chain_speculative_sampling
 
+    inputs = generate_test_data(shape, acceptance, case)
+    candidates = inputs["candidates"]
+    outputs = {
+        "predicts": torch.full((candidates.numel(),), -1, dtype=torch.int32),
+        "accept_index": torch.full_like(candidates, -1, dtype=torch.int32),
+        "accept_token_num": torch.zeros(candidates.shape[0], dtype=torch.int32),
+    }
     impl, impl_ref = get_test_impls()
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(chain_speculative_sampling, impl)
     else:
         require_distinct_impls(chain_speculative_sampling, impl, impl_ref)
-
-    outputs = _output_buffers(inputs)
-    if not skip_accuracy:
         snapshots = {name: value.clone() for name, value in inputs.items()}
-        reference_outputs = _output_buffers(inputs)
-        reference_result = chain_speculative_sampling(
-            **reference_outputs, **inputs, impl=impl_ref
-        )
-        assert reference_result is None
-        for name, value in inputs.items():
-            assert torch.equal(value, snapshots[name]), f"reference modified {name}"
-
-        result = chain_speculative_sampling(**outputs, **inputs, impl=impl)
-        assert result is None
-        assert_accuracy(outputs, reference_outputs)
-        for name, value in inputs.items():
-            assert torch.equal(
-                value, snapshots[name]
-            ), f"implementation modified {name}"
-
-        del snapshots, reference_outputs
+        reference = {name: value.clone() for name, value in outputs.items()}
+        for backend, buffers in ((impl_ref, reference), (impl, outputs)):
+            result = chain_speculative_sampling(**buffers, **inputs, impl=backend)
+            assert result is None
+            for name, value in inputs.items():
+                assert torch.equal(value, snapshots[name]), f"{backend} modified {name}"
+        assert_accuracy(outputs, reference)
+        del snapshots, reference
 
     executor = make_executor(
         chain_speculative_sampling,
@@ -145,158 +262,7 @@ def _check_case(inputs, *, enable_perf=False):
         impl_ref=impl_ref,
         accuracy_checked=not skip_accuracy,
     )
-    check_performance(executor, enable_perf=enable_perf)
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param(
-            shape,
-            id=model,
-            marks=() if shape in default_shapes else pytest.mark.extra_checks,
-        )
-        for model, shapes in model_cases.items()
-        for shape in shapes
-    ],
-)
-@pytest.mark.parametrize(
-    "acceptance", ["all-accepted", "reject-first", "reject-partial"]
-)
-def test_chain_speculative_sampling(shape, acceptance):
-    inputs = generate_test_data(shape, acceptance)
-    _check_case(inputs, enable_perf=shape in perf_shape)
-
-
-def generate_legacy_test_data(large_vocab):
-    """Preserve the two original #623 cases, including CPU input generation.
-
-    Source: tests/python/sgl_kernel_npu/test_chain_speculative_sampling.py at
-    sgl-project/sgl-kernel-npu commit 15ea25766eb0f9a30951d7d127af8600998272ea.
-    """
-    with torch.device("cpu"):
-        batch_size, num_draft_tokens = 2, 4
-        retrive_index = torch.arange(batch_size * num_draft_tokens).view(
-            batch_size, num_draft_tokens
-        )
-        if large_vocab:
-            vocab_size = 151552
-            candidates = torch.tensor([[0, 11, 22, 33], [0, 44, 55, 66]])
-            target_probs = torch.zeros(batch_size, num_draft_tokens, vocab_size)
-            draft_probs = torch.zeros(batch_size, num_draft_tokens - 1, vocab_size)
-            for row, token in enumerate(candidates[0, 1:]):
-                target_probs[0, row, token] = 0.8
-                target_probs[0, row, 0] = 0.2
-                draft_probs[0, row, token] = 0.5
-                draft_probs[0, row, 0] = 0.5
-            target_probs[0, -1, 0] = 0.25
-            target_probs[0, -1, -1] = 0.75
-            target_probs[1, 0, candidates[1, 1]] = 0.1
-            target_probs[1, 0, -1] = 0.9
-            draft_probs[1, 0, candidates[1, 1]] = 0.9
-            draft_probs[1, 0, -1] = 0.1
-            for row, token in enumerate(candidates[1, 2:], start=1):
-                target_probs[1, row, token] = 1.0
-                draft_probs[1, row, token] = 1.0
-            target_probs[1, -1, -1] = 1.0
-            uniforms = torch.tensor([[0.1, 0.1, 0.1, 0.0], [0.9, 0.0, 0.0, 0.0]])
-            final_uniforms = torch.tensor([0.5, 0.5])
-        else:
-            vocab_size = 11
-            candidates = torch.tensor([[0, 2, 3, 4], [0, 5, 6, 7]])
-            target_probs = torch.softmax(
-                torch.tensor(
-                    [
-                        [
-                            [0.1, 0.2, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-                            [0.1, 0.2, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-                            [0.1, 0.2, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-                            [0.1, 0.2, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-                        ],
-                        [
-                            [0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 2.0, 0.1, 0.1, 0.1],
-                            [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.2, 0.1, 0.1, 0.1],
-                            [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1],
-                            [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 2.0, 0.1, 0.1, 0.1],
-                        ],
-                    ],
-                    dtype=torch.float32,
-                ),
-                dim=-1,
-            )
-            draft_probs = torch.softmax(
-                torch.tensor(
-                    [
-                        [[0.1] * vocab_size, [0.1] * vocab_size, [0.1] * vocab_size],
-                        [[0.1] * vocab_size, [0.1] * vocab_size, [0.1] * vocab_size],
-                    ],
-                    dtype=torch.float32,
-                ),
-                dim=-1,
-            )
-            draft_probs[1, 0, 5] = 0.9
-            draft_probs[1, 0] /= draft_probs[1, 0].sum()
-            uniforms = torch.tensor([[0.1, 0.1, 0.1, 0.0], [0.99, 0.0, 0.0, 0.0]])
-            final_uniforms = torch.tensor([0.37, 0.61])
-        inputs = {
-            "candidates": candidates,
-            "retrive_index": retrive_index,
-            "retrive_next_token": torch.full_like(candidates, -1),
-            "retrive_next_sibling": torch.full_like(candidates, -1),
-            "uniform_samples": uniforms,
-            "uniform_samples_for_final_sampling": final_uniforms,
-            "target_probs": target_probs,
-            "draft_probs": draft_probs,
-        }
-    return {name: value.npu() for name, value in inputs.items()}
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize(
-    "large_vocab", [False, True], ids=["legacy-2x4x11", "legacy-2x4x151552"]
-)
-def test_chain_speculative_sampling_legacy_cases(large_vocab):
-    _check_case(generate_legacy_test_data(large_vocab))
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize(
-    "shape,permuted_indices",
-    [
-        pytest.param((0, 4, 3, 11), False, id="empty-batch"),
-        pytest.param((1, 1, 1, 1), False, id="root-only-one-token-vocab"),
-        pytest.param((2, 4, 4, 2049), False, id="extra-draft-row-block-tail"),
-        pytest.param((2, 4, 3, 4097), True, id="permuted-global-slots-block-tail"),
-    ],
-)
-def test_chain_speculative_sampling_boundaries(shape, permuted_indices):
-    inputs = generate_test_data(shape, "all-accepted")
-    if shape[3] > 2048:
-        # Select the one-token final block in both unaligned vocabularies.
-        inputs["uniform_samples_for_final_sampling"].fill_(0.9999)
-    if permuted_indices:
-        inputs["retrive_index"] = (
-            inputs["retrive_index"].flatten().flip(0).reshape(shape[0], shape[1])
-        )
-    _check_case(inputs)
-
-
-@pytest.mark.extra_checks
-def test_chain_speculative_sampling_strict_acceptance():
-    inputs = generate_test_data((1, 2, 1, 4), "all-accepted")
-    inputs["target_probs"][0, 0] = torch.tensor([0.25, 0.25, 0.25, 0.25])
-    inputs["draft_probs"][0, 0] = torch.tensor([0.25, 0.5, 0.25, 0.0])
-    # candidate=1, p=.25, q=.5 and u=.5: strict '<' rejects equality.
-    inputs["uniform_samples"][0, 0] = 0.5
-    _check_case(inputs)
-
-
-@pytest.mark.extra_checks
-def test_chain_speculative_sampling_cdf_plateau():
-    inputs = generate_test_data((1, 1, 1, 5), "all-accepted")
-    inputs["target_probs"][0, 0] = torch.tensor([0.25, 0.0, 0.75, 0.0, 0.0])
-    inputs["uniform_samples_for_final_sampling"][0] = 0.25
-    _check_case(inputs)
+    check_performance(executor, enable_perf=shape in perf_shape)
 
 
 @pytest.mark.extra_checks
@@ -314,5 +280,10 @@ def test_chain_speculative_sampling_invalid_inputs(invalid_input):
         storage[:, ::2] = inputs["candidates"]
         inputs["candidates"] = storage[:, ::2]
         error, message = ValueError, "all tensors must be contiguous"
+    outputs = {
+        "predicts": torch.full((4,), -1, dtype=torch.int32),
+        "accept_index": torch.full((1, 4), -1, dtype=torch.int32),
+        "accept_token_num": torch.zeros(1, dtype=torch.int32),
+    }
     with pytest.raises(error, match=message):
-        chain_speculative_sampling(**_output_buffers(inputs), **inputs, impl="triton")
+        chain_speculative_sampling(**outputs, **inputs, impl="triton")

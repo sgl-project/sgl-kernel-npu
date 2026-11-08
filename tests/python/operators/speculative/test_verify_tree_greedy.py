@@ -51,8 +51,21 @@ perf_shape = [
 ]
 
 
-def generate_test_data(shape, mode, dtype=torch.int64):
-    """Synthetic token IDs with canonical slots and a known first mismatch."""
+def generate_test_data(shape, mode, dtype, case):
+    """Original int32 fixture or synthetic chain with a known first mismatch."""
+    if case == "legacy-simple":
+        candidates = torch.tensor([[10375, 28], [223, 15098]], dtype=torch.int32)
+        target_predict = torch.tensor([[28, 334], [15098, 18]], dtype=torch.int32)
+        retrive_next_sibling = torch.tensor([[-1, -1], [-1, -1]], dtype=torch.int32)
+        retrive_index = torch.tensor([[0, 1], [2, 3]], dtype=torch.int32)
+        retrive_next_token = torch.tensor([[1, -1], [1, -1]], dtype=torch.int32)
+        return dict(
+            candidates=candidates,
+            retrive_index=retrive_index,
+            retrive_next_token=retrive_next_token,
+            retrive_next_sibling=retrive_next_sibling,
+            target_predict=target_predict,
+        )
     batch, width, depth, vocab = shape
     assert depth == width, "the migrated Triton kernel requires S=D"
     candidates = torch.arange(batch * width, dtype=dtype).reshape(batch, width) % vocab
@@ -75,59 +88,85 @@ def generate_test_data(shape, mode, dtype=torch.int64):
     )
 
 
-def _output_buffers(inputs, depth=None, predict_fill=-1):
-    candidates = inputs["candidates"]
-    if depth is None:
-        depth = candidates.shape[1]
-    return dict(
-        predicts=torch.full(
-            (candidates.numel(),),
-            predict_fill,
-            dtype=torch.int32,
-            device=candidates.device,
-        ),
-        accept_index=torch.full(
-            (candidates.shape[0], depth),
-            -1,
-            dtype=torch.int32,
-            device=candidates.device,
-        ),
-        accept_token_num=torch.zeros(
-            candidates.shape[0], dtype=torch.int32, device=candidates.device
-        ),
-    )
-
-
-def _check_case(inputs, *, predict_fill=-1, expected_accept=None, enable_perf=False):
+@pytest.mark.parametrize(
+    "shape,mode,dtype,case",
+    [
+        pytest.param(
+            shape,
+            mode,
+            torch.int64,
+            "model",
+            id=f"{model}-{mode}",
+            marks=() if shape in default_shapes else pytest.mark.extra_checks,
+        )
+        for model, shapes in model_cases.items()
+        for shape in shapes
+        for mode in ("all-accepted", "reject-first", "reject-partial")
+    ]
+    + [
+        pytest.param(
+            shape,
+            mode,
+            dtype,
+            "boundary",
+            id=f"{case}-{dtype}",
+            marks=pytest.mark.extra_checks,
+        )
+        for dtype in (torch.int32, torch.int64)
+        for shape, mode, case in [
+            ((1, 1, 1, 20), "all-accepted", "root-only"),
+            ((2, 3, 3, 20), "reject-partial", "padded-width-three"),
+            ((2, 5, 5, 20), "reject-first", "padded-width-five"),
+        ]
+    ]
+    + [
+        pytest.param(
+            (2, 2, 2, None),
+            "all-accepted",
+            torch.int32,
+            "legacy-simple",
+            id="legacy-simple",
+            marks=pytest.mark.extra_checks,
+        )
+    ],
+)
+def test_verify_tree_greedy(shape, mode, dtype, case):
     from sgl_kernel_npu.operators.speculative import verify_tree_greedy
 
+    inputs = generate_test_data(shape, mode, dtype, case)
+    batch, width, depth, _ = shape
+    expected_accept = {
+        "all-accepted": width - 1,
+        "reject-first": 0,
+        "reject-partial": 1,
+    }[mode]
+    outputs = {
+        "predicts": torch.full(
+            (batch * width,), 0 if case == "legacy-simple" else -1, dtype=torch.int32
+        ),
+        "accept_index": torch.full((batch, depth), -1, dtype=torch.int32),
+        "accept_token_num": torch.zeros(batch, dtype=torch.int32),
+    }
     impl, impl_ref = get_test_impls()
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(verify_tree_greedy, impl)
     else:
         require_distinct_impls(verify_tree_greedy, impl, impl_ref)
-    outputs = _output_buffers(inputs, predict_fill=predict_fill)
-    if not skip_accuracy:
         snapshots = {name: value.clone() for name, value in inputs.items()}
-        reference = _output_buffers(inputs, predict_fill=predict_fill)
-        reference_result = verify_tree_greedy(**reference, **inputs, impl=impl_ref)
-        assert reference_result is None
-        for name, value in inputs.items():
-            assert torch.equal(value, snapshots[name]), f"reference modified {name}"
-        if expected_accept is not None:
-            assert_accuracy(
-                reference["accept_token_num"],
-                torch.full_like(reference["accept_token_num"], expected_accept),
-            )
-        result = verify_tree_greedy(**outputs, **inputs, impl=impl)
-        assert result is None
+        reference = {name: value.clone() for name, value in outputs.items()}
+        for backend, buffers in ((impl_ref, reference), (impl, outputs)):
+            result = verify_tree_greedy(**buffers, **inputs, impl=backend)
+            assert result is None
+            for name, value in inputs.items():
+                assert torch.equal(value, snapshots[name]), f"{backend} modified {name}"
+        assert_accuracy(
+            reference["accept_token_num"],
+            torch.full_like(reference["accept_token_num"], expected_accept),
+        )
         assert_accuracy(outputs, reference)
-        for name, value in inputs.items():
-            assert torch.equal(
-                value, snapshots[name]
-            ), f"implementation modified {name}"
         del snapshots, reference
+
     executor = make_executor(
         verify_tree_greedy,
         kwargs={**outputs, **inputs},
@@ -135,27 +174,19 @@ def _check_case(inputs, *, predict_fill=-1, expected_accept=None, enable_perf=Fa
         impl_ref=impl_ref,
         accuracy_checked=not skip_accuracy,
     )
-    check_performance(executor, enable_perf=enable_perf)
+    check_performance(executor, enable_perf=shape in perf_shape)
 
 
-def generate_legacy_simple_data():
-    """Original int32 B=2/D=2 fixture, using the configured default NPU."""
-    candidates = torch.tensor([[10375, 28], [223, 15098]], dtype=torch.int32)
-    target_predict = torch.tensor([[28, 334], [15098, 18]], dtype=torch.int32)
-    retrive_next_sibling = torch.tensor([[-1, -1], [-1, -1]], dtype=torch.int32)
-    retrive_index = torch.tensor([[0, 1], [2, 3]], dtype=torch.int32)
-    retrive_next_token = torch.tensor([[1, -1], [1, -1]], dtype=torch.int32)
-    return dict(
-        candidates=candidates,
-        retrive_index=retrive_index,
-        retrive_next_token=retrive_next_token,
-        retrive_next_sibling=retrive_next_sibling,
-        target_predict=target_predict,
-    )
+@pytest.mark.extra_checks
+def test_existing_native_general_tree_case():
+    # The original test calls only verify_tree_greedy_native for this S<D tree.
+    # Preserve its values and expected results without launching the linear-only
+    # Triton kernel, whose accept_index row stride is D rather than S.
+    if bool(get_skip_acc_check()):
+        return
+    from sgl_kernel_npu.operators.speculative import verify_tree_greedy
 
-
-def generate_legacy_general_tree_data():
-    """Original B=2/D=6/S=4 fixture for native-only regression."""
+    require_test_impl(verify_tree_greedy, "torch_native")
     candidates = torch.tensor(
         [
             [0, 1, 2, 3, 4, 5],
@@ -195,71 +226,19 @@ def generate_legacy_general_tree_data():
             if torch.max(target_logits[i][j]) < 10:
                 target_logits[i][j][18] = 10
     target_predict = torch.argmax(target_logits, dim=-1)
-    return dict(
+    inputs = dict(
         candidates=candidates,
         retrive_index=retrive_index,
         retrive_next_token=retrive_next_token,
         retrive_next_sibling=retrive_next_sibling,
         target_predict=target_predict,
     )
-
-
-@pytest.mark.extra_checks
-def test_verify_tree_greedy_legacy_simple():
-    _check_case(generate_legacy_simple_data(), predict_fill=0, expected_accept=1)
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param(
-            shape,
-            id=model,
-            marks=() if shape in default_shapes else pytest.mark.extra_checks,
-        )
-        for model, shapes in model_cases.items()
-        for shape in shapes
-    ],
-)
-@pytest.mark.parametrize("mode", ["all-accepted", "reject-first", "reject-partial"])
-def test_verify_tree_greedy_model_shapes(shape, mode):
-    expected = {"all-accepted": shape[1] - 1, "reject-first": 0, "reject-partial": 1}[
-        mode
-    ]
-    _check_case(
-        generate_test_data(shape, mode),
-        expected_accept=expected,
-        enable_perf=shape in perf_shape,
-    )
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
-@pytest.mark.parametrize(
-    "shape,mode,accepted",
-    [
-        pytest.param((1, 1, 1, 20), "all-accepted", 0, id="root-only"),
-        pytest.param((2, 3, 3, 20), "reject-partial", 1, id="padded-width-three"),
-        pytest.param((2, 5, 5, 20), "reject-first", 0, id="padded-width-five"),
-    ],
-)
-def test_verify_tree_greedy_boundaries(shape, mode, accepted, dtype):
-    _check_case(generate_test_data(shape, mode, dtype), expected_accept=accepted)
-
-
-@pytest.mark.extra_checks
-def test_existing_native_general_tree_case():
-    # The original test calls only verify_tree_greedy_native for this S<D tree.
-    # Preserve its values and expected results without launching the linear-only
-    # Triton kernel, whose accept_index row stride is D rather than S.
-    if bool(get_skip_acc_check()):
-        return
-    from sgl_kernel_npu.operators.speculative import verify_tree_greedy
-
-    require_test_impl(verify_tree_greedy, "torch_native")
-    inputs = generate_legacy_general_tree_data()
     snapshots = {name: value.clone() for name, value in inputs.items()}
-    outputs = _output_buffers(inputs, depth=4)
+    outputs = {
+        "predicts": torch.full((12,), -1, dtype=torch.int32),
+        "accept_index": torch.full((2, 4), -1, dtype=torch.int32),
+        "accept_token_num": torch.zeros(2, dtype=torch.int32),
+    }
     result = verify_tree_greedy(**outputs, **inputs, impl="torch_native")
     assert result is None
     expected = dict(
