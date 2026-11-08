@@ -127,23 +127,11 @@ python -m pytest "$SGL_RGDR_ROOT/tests/python/operators/attention/test_recurrent
 `--enable-perf=true` 会测全部八个输入族，显著增加内存占用：最大工作池为 520 MiB，
 性能入口预先准备 11 份工作副本。
 
-## 旧包、新包同输入回放
+## 旧版、新版验收
 
-使用分别装有旧 wheel、新 wheel 的两个 Python 环境。把 `SGL_RGDR_OLD_PYTHON`、
-`SGL_RGDR_NEW_PYTHON` 设置为各自 Python 的绝对路径，`SGL_RGDR_REPLAY` 设置为
-尚不存在的绝对输出目录。两边从当前 checkout 运行同一测试模块，但加载各环境安装的
-wheel。compatible 原脚本没有固定 seed，因此保存真实输入进行回放，不另设种子。
+旧内核、新内核和 `torch_native` 的同输入三方对照属于独立的本地验收：
+保存同一份输入，检查新旧输出及整个状态池逐位一致，再分别与独立参考比较。
+上面的正式单算子测试覆盖公开接口；旧版捕获、回放工具作为本地开发材料保留。
 
-```bash
-cd "$SGL_RGDR_ROOT"
-"$SGL_RGDR_OLD_PYTHON" -m tests.python.operators.attention.test_recurrent_gated_delta_rule \
-  --capture-legacy "$SGL_RGDR_REPLAY" --benchmark
-"$SGL_RGDR_NEW_PYTHON" -m tests.python.operators.attention.test_recurrent_gated_delta_rule \
-  --compare-legacy "$SGL_RGDR_REPLAY" --benchmark --prof-dir "$SGL_RGDR_ROOT/profilings/rgdr-replay-new"
-```
-
-回放要求旧包、新包输出及整个状态池逐位相等，并分别与 `torch_native` 比较。
-两份 `performance.csv` 用同一个公共 profiler 测同四组配置。比较耗时前应记录并对齐
-设备、CANN、驱动、编译器、PyTorch、torch_npu 版本，不直接与旧 Triton 脚本的
-墙钟耗时比较。回放、profiling 目录不能预先存在。不测性能时去掉 `--benchmark`，
-并一并去掉 `--prof-dir`。以上是待执行的上机步骤，不表示 NPU 验证已经通过。
+旧版、新版的 NPU 回放和同设备性能回归仍待执行。验收时应记录并对齐设备、CANN、
+驱动、编译器、PyTorch 和 torch_npu 版本；上面的命令本身不表示这些验收已经通过。

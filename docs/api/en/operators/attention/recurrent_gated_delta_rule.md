@@ -137,27 +137,15 @@ State copies are prepared before profiling. Explicit `--enable-perf=true` enable
 all eight families and substantially increases memory use; the largest working
 pool is 520 MiB and profiling prepares 11 working copies.
 
-## Identical-input old/new replay
+## Old/new acceptance
 
-Use separate Python environments for the old wheel and the new wheel. Set
-`SGL_RGDR_OLD_PYTHON` / `SGL_RGDR_NEW_PYTHON` to their absolute Python paths, and
-set `SGL_RGDR_REPLAY` to a new absolute output directory. The test module is run
-from the current checkout in both environments; it loads the wheel installed in
-that environment. The compatible source cases have no fixed seed, so replay
-stores inputs rather than inventing a seed.
+A separate local acceptance run must compare the old kernel, the migrated kernel
+and `torch_native` using identical saved inputs. It checks bitwise equality of
+old/new outputs and complete state pools, then compares both kernels with the
+independent reference. The formal operator test above covers the public API;
+legacy capture/replay tools remain local development materials.
 
-```bash
-cd "$SGL_RGDR_ROOT"
-"$SGL_RGDR_OLD_PYTHON" -m tests.python.operators.attention.test_recurrent_gated_delta_rule \
-  --capture-legacy "$SGL_RGDR_REPLAY" --benchmark
-"$SGL_RGDR_NEW_PYTHON" -m tests.python.operators.attention.test_recurrent_gated_delta_rule \
-  --compare-legacy "$SGL_RGDR_REPLAY" --benchmark --prof-dir "$SGL_RGDR_ROOT/profilings/rgdr-replay-new"
-```
-
-Replay requires bitwise equality between old and new outputs/state pools and
-compares both with `torch_native`. The two `performance.csv` files measure the
-same four cases with the same shared profiler. Record the device and matching
-CANN, driver, compiler, PyTorch and torch_npu versions before comparing latency.
-Do not compare these values directly with the old Triton script's wall time.
-Replay/profile directories must not already exist. Without `--benchmark`, omit
-`--prof-dir` too. These commands do not supply an NPU validation result themselves.
+Old/new NPU replay and same-device performance regression results are still
+pending. Record matching device, CANN, driver, compiler, PyTorch and torch_npu
+versions for that acceptance run; the commands above do not establish those
+results.
