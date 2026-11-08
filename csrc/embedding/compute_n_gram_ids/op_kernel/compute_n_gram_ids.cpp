@@ -12,7 +12,7 @@ extern "C" __global__ __aicore__ void compute_n_gram_ids(GM_ADDR oe_weights, GM_
     GET_TILING_DATA(tiling_data, tiling);
     // 获取参数
     int batchSize = tiling_data.batchSize;
-    int oeN = tiling_data.oeN;
+    int oeN = tiling_data.oeN;  // codespell:ignore oen
     int oeK = tiling_data.oeK;
     int coreNum = tiling_data.coreNum;
     int totalTask = tiling_data.totalTask;
@@ -20,9 +20,9 @@ extern "C" __global__ __aicore__ void compute_n_gram_ids(GM_ADDR oe_weights, GM_
 
     // 实例化算子对象
     ComputeNGramIds op;
-    op.Init(oeN, oeK, oe_weights, oe_mods, exclusive_oe_embeder_size_sums, tokens, exclusive_req_len_sums,
-            oe_token_table, row_indices, column_starts, maxContextLen, oe_n_gram_ids, totalTask, coreNum, batchSize,
-            &pipe);
+    op.Init(oeN, oeK, oe_weights, oe_mods, exclusive_oe_embeder_size_sums,  // codespell:ignore oen
+            tokens, exclusive_req_len_sums, oe_token_table, row_indices, column_starts, maxContextLen, oe_n_gram_ids,
+            totalTask, coreNum, batchSize, &pipe);
     // 执行主逻辑
     if (TILING_KEY_IS(1)) {
         op.Process();

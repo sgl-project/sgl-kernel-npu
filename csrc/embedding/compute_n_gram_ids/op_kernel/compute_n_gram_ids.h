@@ -58,7 +58,7 @@ public:
     {
         int coreId = AscendC::GetBlockIdx();
         // AscendC::printf("coreId: %d %d start\n", coreId, max_context_len);
-        oeN = oe_n;
+        oeN = oe_n;  // codespell:ignore oen
         oeK = oe_k;
         oeModsSize = (oe_n - 1) * oe_k;
         oeWeightsSize = oeModsSize * oe_n;
@@ -75,7 +75,7 @@ public:
         rowIndicesGm.SetGlobalBuffer((__gm__ int64_t *)row_indices, batch_size);
         columnStartsGm.SetGlobalBuffer((__gm__ int32_t *)column_starts, batch_size);
 
-        oeNGramIdsGm.SetGlobalBuffer((__gm__ int32_t *)oe_n_gram_ids);  // [token_num*(oeN-1)*oeK]
+        oeNGramIdsGm.SetGlobalBuffer((__gm__ int32_t *)oe_n_gram_ids);  // [token_num*(oeN-1)*oeK] codespell:ignore oen
 
         pipe->InitBuffer(oeWeightsBuf, oeWeightsSize * sizeof(int32_t));
         pipe->InitBuffer(oeModsBuf, oeModsSize * sizeof(int32_t));
@@ -92,8 +92,9 @@ public:
         endTask = (coreId + 1) * taskPerCore;
         endTask = min(endTask, totalTask);
         batchSize = batch_size;
-        // AscendC::printf("coreId: %d, startTask: %d, endTask: %d oeN: %d, oeK: %d, oeWeightsSize: %d, oeModsSize:
-        // %d\n", coreId, startTask, endTask, oeN, oeK, oeWeightsSize, oeModsSize);
+        // AscendC::printf("coreId: %d, startTask: %d, endTask: %d oeN: %d, oeK: %d,  // codespell:ignore oen
+        // oeWeightsSize: %d, oeModsSize: %d\n", coreId, startTask, endTask, oeN, oeK,  // codespell:ignore oen
+        // oeWeightsSize, oeModsSize);
     }
 
     __aicore__ inline void Process()
@@ -125,7 +126,7 @@ public:
             int other = task_id % oeModsSize;
             int n = other / oeK;
             int k = other % oeK;
-            const int oe_weight_base_idx = n * oeK * oeN + k * oeN;
+            const int oe_weight_base_idx = n * oeK * oeN + k * oeN;  // codespell:ignore oen
             // 计算当前请求在token table中的起始index,cur index
             const int req_token_table_index = (int)rowIndicesLocal.GetValue(req_id) * maxContextLen;
             const int req_token_table_index_cur = req_token_table_index + columnStartsLocal.GetValue(req_id);
@@ -136,7 +137,7 @@ public:
                 start = exclusiveReqLenSumsLocal.GetValue(req_id - 1);
             }
             int32_t end = exclusiveReqLenSumsLocal.GetValue(req_id);
-            uint64_t oe_mod = (uint64_t)oeModsLocal.GetValue(n * oeK + k);  // shape: [oeN-1, oeK]
+            uint64_t oe_mod = (uint64_t)oeModsLocal.GetValue(n * oeK + k);  // shape: [oeN-1, oeK] codespell:ignore oen
             // AscendC::printf("coreId: %d, task_id: %d, b: %d, n: %d, k: %d start: %d end: %d\n", coreId, task_id,
             // req_id, n, k, start, end);
             for (int i = start; i < end; ++i) {
@@ -162,10 +163,10 @@ public:
                 n_gram_id = n_gram_id % oe_mod;
                 //        add bias
                 n_gram_id = n_gram_id + exclusiveEmbedderSizeSumsLocal.GetValue(n * oeK + k);
-                int store_idx = i * (oeN - 1) * oeK + n * oeK + k;
+                int store_idx = i * (oeN - 1) * oeK + n * oeK + k;  // codespell:ignore oen
                 // AscendC::printf("coreId: %d, task_id: %d, store_idx: %d, i: %d, n: %d, k: %d, n_gram_id: %llu\n",
                 // coreId, task_id, store_idx, i, n, k, n_gram_id);
-                // shape: [seq_len, oeN-1, oeK]
+                // shape: [seq_len, oeN-1, oeK] codespell:ignore oen
                 auto nGramIdLocal = oeNGramIdsQueue.AllocTensor<int32_t>();
                 nGramIdLocal.SetValue(0, (int32_t)n_gram_id);
                 DataCopyU2G(oeNGramIdsGm[store_idx], nGramIdLocal, 1);
@@ -199,7 +200,7 @@ private:
     int startTask;
     int endTask;
 
-    int oeN;
+    int oeN;  // codespell:ignore oen
     int oeK;
     int oeWeightsSize;
     int oeModsSize;

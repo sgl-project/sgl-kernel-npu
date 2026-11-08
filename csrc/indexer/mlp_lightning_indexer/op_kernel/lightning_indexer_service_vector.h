@@ -356,7 +356,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // block reduce: blockLen->1, here blockLen*8->1
                 // 用高阶api Sum对s2维度reduce(不支持源操作数与目的操作数地址重叠)
                 AscendC::SumParams params;
-                params.outter = cuS2LenVecAlign * 8 / (constInfo_.blockLen * 8);
+                params.outter = cuS2LenVecAlign * 8 / (constInfo_.blockLen * 8);  // codespell:ignore outter
                 params.n = (constInfo_.blockLen * 8);
                 params.inner = (constInfo_.blockLen * 8);
                 // 得到 cuS2LenVecAlign / BLOCK_LEN个结果
@@ -368,7 +368,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
             } else if (constInfo_.blockLen > 4) {  // blockLen is 8 or 16
                 // 用高阶api Sum对s2维度reduce(不支持源操作数与目的操作数地址重叠)
                 AscendC::SumParams params;
-                params.outter = blockS2LenVecAlign;
+                params.outter = blockS2LenVecAlign;  // codespell:ignore outter
                 params.n = constInfo_.blockLen;
                 params.inner = constInfo_.blockLen;
                 // 得到 cuS2LenVecAlign / BLOCK_LEN个结果
