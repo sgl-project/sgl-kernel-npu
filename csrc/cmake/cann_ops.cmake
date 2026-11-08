@@ -26,10 +26,7 @@ function(sgl_generate_cann_interfaces output_dir)
         sgl_get_operator(kernel_sources "${id}" KERNEL_SOURCES)
         foreach(source IN LISTS sources kernel_sources)
             get_filename_component(directory "${source}" DIRECTORY)
-            # Official operators may keep shared host helpers beside op_host/op_kernel.
-            file(GLOB_RECURSE headers CONFIGURE_DEPENDS
-                "${directory}/*.h" "${directory}/*.hpp"
-                "${directory}/../utils/*.h" "${directory}/../utils/*.hpp")
+            file(GLOB_RECURSE headers CONFIGURE_DEPENDS "${directory}/*.h" "${directory}/*.hpp")
             list(APPEND tiling_headers ${headers})
         endforeach()
     endforeach()
