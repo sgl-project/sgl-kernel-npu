@@ -8,8 +8,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 已实现；本次整改待上机验收 | 已实现；待上机验收 |
-| `torch_native` | 已实现；NPU 待验收 | 已实现；NPU 待验收 |
+| `ascendc` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 接口
 
