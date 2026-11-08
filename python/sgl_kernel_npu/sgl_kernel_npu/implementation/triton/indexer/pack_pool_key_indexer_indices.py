@@ -21,7 +21,7 @@ def _pack_indices_kernel(
 ):
     row = tl.program_id(0)
     cols = tl.arange(0, BLOCK)
-    valid_row = tl.load(valid_mask + row)
+    valid_row = tl.load(valid_mask + row) != 0
     position = tl.load(positions + row, valid_row, other=0).to(tl.int64)
     tail_start = (position + 1) // POOL_SIZE * POOL_SIZE
     history = tl.minimum(tail_start, TOPK).to(tl.int32)
