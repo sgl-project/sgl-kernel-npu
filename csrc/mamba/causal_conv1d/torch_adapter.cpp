@@ -150,11 +150,11 @@ at::Tensor causal_conv1d(const at::Tensor &x, const at::Tensor &weight, const at
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sgl_causal_conv1d(Tensor x, Tensor weight, Tensor(a!) conv_states, Tensor? bias=None, "
+        "causal_conv1d(Tensor x, Tensor weight, Tensor(a!) conv_states, Tensor? bias=None, "
         "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
         "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, int run_mode=0) -> Tensor");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sgl_causal_conv1d", &causal_conv1d);
+    m.impl("causal_conv1d", &causal_conv1d);
 }

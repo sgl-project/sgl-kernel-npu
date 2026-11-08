@@ -72,12 +72,12 @@ void build_tree(const at::Tensor &parentList, const at::Tensor &selectedIndex, c
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sgl_build_tree(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
+        "build_tree(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
         "Tensor(a!) tree_mask, Tensor(b!) positions, Tensor(c!) retrive_index, "
         "Tensor(d!) retrive_next_token, Tensor(e!) retrive_next_sibling, "
         "int topk, int depth, int draft_token_num, int tree_mask_mode) -> ()");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sgl_build_tree", &build_tree);
+    m.impl("build_tree", &build_tree);
 }

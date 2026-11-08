@@ -24,7 +24,7 @@ def _ascendc_impl(
 ):
     import torch
 
-    return torch.ops.npu.sgl_causal_conv1d(
+    return torch.ops.npu.causal_conv1d(
         x,
         weight,
         conv_states,

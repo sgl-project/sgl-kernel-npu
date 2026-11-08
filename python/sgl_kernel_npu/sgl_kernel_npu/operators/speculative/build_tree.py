@@ -12,7 +12,7 @@ _torch_native_fn = None
 def _ascendc_impl(*args):
     import torch
 
-    return torch.ops.npu.sgl_build_tree(*args)
+    return torch.ops.npu.build_tree(*args)
 
 
 @register_impl(
