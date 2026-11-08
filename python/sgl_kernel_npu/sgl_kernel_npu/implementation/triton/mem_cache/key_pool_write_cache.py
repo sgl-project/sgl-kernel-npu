@@ -44,9 +44,11 @@ def _write_cache_kernel(
             key = tl.load(Key + row * D + cols, valid & (cols < D), other=0)
             gate = tl.load(Gate + row * D + cols, valid & (cols < D), other=0)
         else:
-            source = tl.load(StateRows + row).to(tl.int64)
-            valid = valid & (source >= 0) & (source < STATE_ROWS)
-            state_address = source // R * STATE_STRIDE + source % R * (2 * D) + cols
+            state_row = tl.load(StateRows + row).to(tl.int64)
+            valid = valid & (state_row >= 0) & (state_row < STATE_ROWS)
+            state_address = (
+                state_row // R * STATE_STRIDE + state_row % R * (2 * D) + cols
+            )
             key = tl.load(State + state_address, valid & (cols < D), other=0)
             gate = tl.load(State + state_address + D, valid & (cols < D), other=0)
         # Persistent rings stay BF16; compute/state values remain FP32 until store.
@@ -57,11 +59,11 @@ def _write_cache_kernel(
             TailG + dest * D + cols, gate.to(TailG.dtype.element_ty), valid & (cols < D)
         )
     else:
-        source = row - TAIL_ROWS
-        slot = tl.load(Slots + source).to(tl.int64)
-        valid = (source < POOLED_ROWS) & (slot >= 0) & (slot < CACHE_PAGES * PAGE)
+        pooled_row = row - TAIL_ROWS
+        slot = tl.load(Slots + pooled_row).to(tl.int64)
+        valid = (pooled_row < POOLED_ROWS) & (slot >= 0) & (slot < CACHE_PAGES * PAGE)
         # A -1 mapping never reads uninitialized CANN output capacity.
-        value = tl.load(Pooled + source * D + cols, valid & (cols < D), other=0)
+        value = tl.load(Pooled + pooled_row * D + cols, valid & (cols < D), other=0)
         cache_address = slot // PAGE * CACHE_STRIDE + slot % PAGE * D + cols
         tl.store(Cache + cache_address, value, valid & (cols < D))
 
