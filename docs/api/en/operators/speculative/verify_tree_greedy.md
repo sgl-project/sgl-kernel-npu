@@ -4,13 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Registered; device validation pending | Registered; device validation pending |
-| `torch_native` | Registered; device validation pending | Registered; device validation pending |
-
-`auto` selects `triton`, with no shape-dependent fallback. Registration does not
-establish NPU correctness or performance.
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
+
+The default `auto` option selects the same entry point as `triton`.
 
 ```python
 from sgl_kernel_npu.operators.speculative import verify_tree_greedy
@@ -30,38 +29,25 @@ def verify_tree_greedy(
     ...
 ```
 
-## Behavior and actual support
+## Description
 
-The SGLang greedy path takes argmax over target logits before calling this operator.
-It then verifies the longest matching draft prefix and writes one final target
-token. Probability tensors, random samples and vocabulary size are not operator
-inputs. Model execution, argmax and KV-state updates belong to the caller.
+Verifies a draft prefix against the target model's next-token predictions in
+greedy speculative decoding. Starting at column `j=1`, accept while
+`candidates[b,j] == target_predict[b,j-1]` and stop at the first mismatch.
 
-**The migrated Triton kernel verifies a linear chain.** It compares columns in
-order without reading child/sibling links. Its physical accepted-index row stride
-is the candidate width `D`. The common backend comparison contract uses contiguous
-`[B,D]` chains, `accept_index[B,D]`, and canonical global slots
-`retrive_index[b,j] = b*D+j`.
+For `a` accepted drafts, write the root and accepted slots to
+`accept_index[b,0:a+1]` and set `accept_token_num[b] = a`. With canonical slots,
+write `predicts[b*D+j] = target_predict[b,j]` for `0 <= j <= a`; the last token
+is the final target prediction. The caller computes `target_predict` using
+argmax before calling this operator.
 
-Arbitrary branching trees and index buffers narrowed to `S<D` are unsupported by
-this Triton kernel. The original `B=2,D=6,S=4` branching-tree test executes only
-the original native implementation. It is retained, with an additional public
-`torch_native` regression; Triton is not launched on that data. The original
-wrapper has no validation, and this migration preserves that behavior. An
-incorrect accepted-index row stride can cause out-of-bounds writes, so callers
-must satisfy the documented contract.
+## Parameters and return value
 
-Write `c_j=candidates[b,j]` and `t_j=target_predict[b,j]`. Starting at `j=1`,
-accept while `c_j == t_(j-1)` and stop at the first mismatch. If `a` drafts were
-accepted:
-
-- `accept_token_num[b] = a`, in `[0,D-1]`.
-- Write the root and accepted slots to `accept_index[b,0:a+1]`.
-- For canonical slots, write `predicts[b*D+j] = t_j` for `0 <= j <= a`.
-  The last value is the final target token; SGLang includes it in decoding advance.
-- Leave other output positions unchanged and return `None`.
-
-## Parameters
+`B` is the request count and `D` the candidate width including the root. The
+common backend contract uses a linear chain, contiguous tensors on one NPU,
+`B >= 1`, `D >= 1`, `accept_index[B,D]`, and canonical slots
+`retrive_index[b,j] = b*D+j`. Provide chain links for the native backend.
+Token IDs and slots must fit the int32 outputs.
 
 | Parameter | Shape / dtype | Meaning |
 | --- | --- | --- |
@@ -75,78 +61,57 @@ accepted:
 | `target_predict` | `[B,D]`, int32 or int64 | Target model's next-token prediction at each node. |
 | `impl` | str, default `"auto"` | `"auto"`, `"triton"`, or `"torch_native"`. |
 
-Use contiguous tensors on one NPU with `B>=1`, `D>=1`. The original regression
-uses int32 inputs; model cases use int64 inputs matching SGLang's index buffers
-and argmax IDs. NPU execution of both input types remains pending in this round.
-Output write ranges must not overlap inputs or other outputs. Tokens and slots
-must fit the int32 outputs. Empty batches and arbitrary strided layouts are not
-declared supported.
+Returns `None`. The caller allocates and initializes the three output buffers;
+unwritten positions retain their initial values. Output write regions must be
+disjoint and must not overlap inputs.
 
-## Implementations and provenance
+## triton backend
 
-`triton` copies the complete kernel and wrapper from this repository's original
-`sample/verify_tree_greedy.py`. Each request has one program. Candidate, slot and
-target vectors are padded to a power-of-two width for masked loading, followed
-by sequential prefix verification. There are no probability scratch buffers,
-reductions or random draws. The recorded introduction is commit
-`96dfd27fbc15bf893f96d8d7837d818086d23d04` (#165). The direct copied source is
-baseline `26ec66efe01f8acef43db55da679107702876b23`, including the #473 CANN API
-adaptation.
+- Uses one program per request, masked power-of-two loads and sequential prefix
+  comparison. Child/sibling links are ignored.
+- Requires linear chains and an accepted-index row stride of `D`. Branching trees
+  and `accept_index` widths smaller than `D` are unsupported. The wrapper forwards
+  arguments without validation.
 
-`torch_native` copies this repository's `speculative.py::verify_tree_greedy_native`
-as a private helper, preserving its computation and return behavior. A new
-eight-argument wrapper invokes its default `topk=-1` in-place traversal path
-and discards the returned three tensors to match the public `None` return.
-The original `topk=1,D=2` fast path allocates replacement outputs and is therefore
-not selected by the public wrapper. This does not change the candidate tree's
-topk: neither the public signature nor the original Triton signature takes topk.
+## torch_native backend
 
-Native follows child/sibling links and can express the original branching-tree
-fixture. It is an independent reference within the common linear contract;
-its broader reference behavior does not extend Triton's supported inputs. Neither
-backend calls the other. Original operators, `speculative.py` and tests remain
-unchanged.
+- Reuses the existing `speculative.py::verify_tree_greedy_native` helper through
+  its in-place traversal path, adapting the return value to `None`.
+- Traverses child/sibling links and also supports branching trees. Backend
+  accuracy comparisons use the common linear-chain contract.
 
-## Tests and validation status
+## Example
 
-The complete suite retains the original fixtures and eleven model configurations
-with three acceptance paths each. The full model shape coverage is:
+```python
+import torch
+import torch_npu
 
-| Scenario | `D=S` | Token-ID range `V` | `B` |
-| --- | --- | --- | --- |
-| GLM-4.7-Flash, NEXTN greedy, TP2, topk1 | 4 | 154880 | 1, 2, 4, 8, 16, 32 |
-| Qwen3.5-9B, NEXTN greedy, TP2, topk1 | 4 | 248320 | 1, 2, 4, 8, 16 |
+from sgl_kernel_npu.operators.speculative import verify_tree_greedy
 
-`V` supplies legal token IDs, not an input tensor dimension. Shapes reuse the
-confirmed model/deployment coverage. Candidate IDs, match positions and final
-tokens are synthetic inputs designed for this suite. The source NPU CI recipes
-do not enable NEXTN, so these combined configurations are not production traces.
-Test comments record the fixed SGLang recipes and official model configs.
-Default coverage selects GLM `(B,D,S,V)=(1,4,4,154880)` and Qwen
-`(16,4,4,248320)`. Each runs all-accepted, reject-first and reject-partial paths,
-giving six default cases. The other model shapes, original int32 chain, six
-root-only/padded-width/dtype cases and the original branching-tree regression are
-marked `extra_checks`, giving 35 supplementary cases and 41 cases in total.
-Use `-m extra_checks` for supplementary cases only, or `-m ""` for all cases.
+# B=2, D=2; the original int32 chain fixture.
+candidates = torch.tensor([[10375, 28], [223, 15098]], dtype=torch.int32, device="npu")
+target = torch.tensor([[28, 334], [15098, 18]], dtype=torch.int32, device="npu")
+slots = torch.tensor([[0, 1], [2, 3]], dtype=torch.int32, device="npu")
+children = torch.tensor([[1, -1], [1, -1]], dtype=torch.int32, device="npu")
+siblings = torch.full_like(children, -1)
 
-The existing profiling list still selects each model's smallest and largest B.
-Default case selection profiles only the two model shapes above; other profiling
-points require selecting supplementary cases. The shared CLI can override whether
-selected cases collect performance.
+for impl in ("triton", "torch_native"):
+    predicts = torch.zeros(4, dtype=torch.int32, device="npu")
+    accept_index = torch.full((2, 2), -1, dtype=torch.int32, device="npu")
+    accept_token_num = torch.zeros(2, dtype=torch.int32, device="npu")
+    result = verify_tree_greedy(
+        predicts, accept_index, accept_token_num,
+        candidates, slots, children, siblings, target, impl=impl,
+    )
+    assert result is None
+    print(impl, predicts, accept_index, accept_token_num)
+```
 
-The branching-tree regression always checks `torch_native` with its original
-expected values,
-independently of the DUT option, and does not collect performance.
-The shared CLI accuracy-skip option also disables this fixed-output regression.
+## Tests
 
-The two backends receive separate int32 output buffers. Tests compare complete
-outputs using the shared exact integer standard and check return values and
-read-only inputs. CPU reference replay checks only native
-migration and fixtures; it does not execute Triton. Direct old/new NPU comparison,
-independent-reference accuracy and same-device performance remain required.
-
-Sources: [original Triton](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/python/sgl_kernel_npu/sgl_kernel_npu/sample/verify_tree_greedy.py),
-[original native](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/python/sgl_kernel_npu/sgl_kernel_npu/speculative.py#L135),
-[SGLang greedy call](https://github.com/sgl-project/sglang/blob/77c3bcbe2c28e1a6d1ad4121ee57231582d39bdc/python/sglang/srt/speculative/eagle_utils.py#L733-L745),
-[NPU dispatch](https://github.com/sgl-project/sglang/blob/77c3bcbe2c28e1a6d1ad4121ee57231582d39bdc/python/sglang/kernels/ops/speculative/spec_tree.py#L523-L536).
-Use the standard CLI in [the test framework guide](../../../../../tests/python/README.md).
+The [operator tests](../../../../../tests/python/operators/speculative/test_verify_tree_greedy.py)
+cover full acceptance, early mismatch, model shapes, root-only inputs, padded
+widths and int32/int64 inputs. They compare independent integer outputs exactly.
+A separate branching-tree regression checks `torch_native` against fixed outputs.
+See the [test framework guide](../../../../../tests/python/README.md) for accuracy
+and performance options.

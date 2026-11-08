@@ -4,15 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Registered; refactor validation pending | Registered; refactor validation pending |
-| `torch_native` | Registered; refactor validation pending | Registered; refactor validation pending |
-
-`auto` selects `triton` without fallback. Registration is a support declaration,
-not evidence of device correctness or performance. This migration preserves the
-existing Triton computation and launch settings; NPU accuracy and performance
-comparisons against the pre-migration implementation remain required.
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
+
+The default `auto` option selects the same entry point as `triton`.
 
 ```python
 from sgl_kernel_npu.operators.speculative import chain_speculative_sampling
@@ -40,36 +37,24 @@ def chain_speculative_sampling(
 
 ## Description
 
-Verifies a **linear** draft chain in non-greedy speculative decoding, after the
-target model has produced verification probabilities. SGLang's NPU EAGLE/NEXTN
-rejection-sampling path and dense DSpark acceptance path use this operation.
-Logit processing, probability normalization, random-number generation and KV
-cache updates are performed by the caller.
+Verifies a linear draft chain during non-greedy speculative decoding. For each
+draft token `x = candidates[b,j]`, starting at `j=1`, acceptance requires
+`uniform_samples[b,j-1] * draft_probs[b,j-1,x] < target_probs[b,j-1,x]`.
+Verification stops at the first rejection.
 
-Let `B` be the actual verification request count, `D` the candidate width including
-the root at column 0, `R` the draft probability row count, and `V` the full vocabulary
-width. For draft token `x = candidates[b, j]`, `j = 1, ..., D-1`, accept while
-`uniform_samples[b, j-1] * draft_probs[b, j-1, x] < target_probs[b, j-1, x]`.
-Stop at the first rejection. If `a` drafts were accepted, sample a final token
-using row `a`:
-
-- All drafts accepted: weights `w = target_probs[b, a]`.
-- A draft rejected: weights `w = max(target_probs[b, a] - draft_probs[b, a], 0)`.
-
-Choose the first token whose cumulative weight is strictly greater than
-`uniform_samples_for_final_sampling[b] * sum(w)`. The implementation does not
-normalize the residual. The existing end-of-CDF fallback is retained: Triton
-uses the last positive entry in the selected vocabulary block, or `V-1` if that
-block has no positive entries; the PyTorch reference searches the entire row.
+After accepting `a` drafts, sample one final token from row `a`. The sampling
+weights are `target_probs[b,a]` when all drafts are accepted, or
+`max(target_probs[b,a] - draft_probs[b,a], 0)` after a rejection. Select the first
+token whose cumulative weight exceeds
+`uniform_samples_for_final_sampling[b] * sum(weights)`.
 
 ## Parameters and return value
 
-All participating tensors must be contiguous and on the same NPU device.
-Inputs are read-only except for the three explicitly marked outputs. `B > 0`
-requires `D >= 1` and `R >= max(D-1, 1)`. Use a nonempty vocabulary and valid
-token/slot indices; the wrapper does not check index ranges or probability values.
-Existing parameter names such as `retrive_index` are retained for keyword
-compatibility.
+`B` is the request count, `D` the candidate width including the root, `R` the
+draft-probability row count, and `V` the vocabulary size. Use contiguous tensors
+on the same NPU, with `D >= 1`, `R >= max(D-1,1)`, and a nonempty vocabulary.
+The caller supplies valid token IDs, global output slots, probabilities and
+random samples.
 
 | Parameter | Shape / dtype | Meaning |
 | --- | --- | --- |
@@ -87,51 +72,60 @@ compatibility.
 | `deterministic` | bool, default `True` | Ignored compatibility argument; this operator draws no random numbers. |
 | `impl` | str, default `"auto"` | `"auto"`, `"triton"`, or `"torch_native"`. |
 
-Returns `None`. The caller allocates and initializes all three output buffers;
-unwritten slots keep their previous values. Output buffers must not overlap inputs or one another; disjoint output
-views into a shared allocation are allowed. For `B == 0`, Triton returns after checking candidate and target
-ranks, before the other parameter checks.
+Returns `None`. The caller allocates and initializes the three output buffers.
+Unwritten slots retain their initial values. Outputs must have disjoint write
+regions and must not overlap inputs. For `B == 0`, Triton returns after checking
+the candidate and target tensor ranks.
 
-## Implementations
+## triton backend
 
-`triton` keeps three sequential kernels: accept a prefix, sum residual weights in
-blocks of 2048 vocabulary entries, and sample the final token. Temporary metadata
-has shape `[B,3]` and dtype int64; block sums have shape `[B,ceil(V/2048)]` and dtype
-float32. The existing shape, dtype, contiguity and same-device checks are retained.
+- Uses three kernels for prefix acceptance, residual sums over 2048-token blocks,
+  and final sampling. The wrapper checks shape, dtype, device and contiguity.
+- At the end of the cumulative distribution, selects the last positive entry in
+  the chosen block, or `V-1` if that block has no positive entries.
 
-`torch_native` reuses the original repository test's `chain_rejection_reference`
-calculation with the public signature. It does not duplicate Triton's input
-validation. It uses Python scalar floats for acceptance and whole-row PyTorch
-`sum`/`cumsum`, while Triton uses FP32 arithmetic and block reductions. Near
-decision boundaries, roundoff can change a discrete token selection. Integer
-output comparisons remain exact; a disagreement requires investigation.
+## torch_native backend
 
-The original implementation under `sgl_kernel_npu.sample`, its package exports,
-and its original tests remain unchanged. Existing imports of
-`chain_speculative_sampling_triton` continue to execute that original copy.
-This new architecture has its own implementation copy; new integrations should
-use `operators`.
+- Reuses `chain_rejection_reference` from the existing repository test, adapted to
+  the public signature and in-place output buffers.
+- Uses Python scalar acceptance checks and whole-row PyTorch `sum`/`cumsum`.
+  The cumulative-distribution fallback searches the entire row. Floating-point
+  rounding near acceptance or sampling boundaries can change a token choice.
 
-## Test coverage
+## Example
 
-The unified suite uses independent output buffers, compares all three complete
-int32 outputs with the shared accuracy helper, then invokes the shared performance
-helper. It preserves both original fixtures and covers these deployment-derived
-scenarios in FP32 with model-specific pytest IDs:
+```python
+import torch
+import torch_npu
 
-| Model | `(D,R,V)` | `B` |
-| --- | --- | --- |
-| GLM-4.7-Flash | `(4,3,154880)` | 1, 2, 4, 8, 16, 32 |
-| Qwen3.5-9B | `(4,3,248320)` | 1, 2, 4, 8, 16 |
-| DeepSeek-V4-Flash | `(6,5,129280)`<br>`(7,6,129280)` | 1, 2, 4, 8<br>1, 2, 4, 6, 8, 10, 12 |
+from sgl_kernel_npu.operators.speculative import chain_speculative_sampling
 
-Default coverage selects four `(B,D,R,V)` shapes: GLM `(1,4,3,154880)`,
-Qwen `(16,4,3,248320)`, and DeepSeek `(8,6,5,129280)` / `(12,7,6,129280)`.
-Each runs all-accepted, reject-first and reject-partial paths, giving 12 default
-cases. The remaining model shapes, both legacy fixtures and boundary checks are
-marked `extra_checks`, giving 64 supplementary cases and 76 cases in total.
-Use `-m extra_checks` for supplementary cases only, or `-m ""` for all cases.
-The existing profiling shape list is unchanged; supplementary profiling points
-run only when those cases are selected.
+# B=1, D=2, R=1, V=4; acceptance is exactly at the rejection boundary.
+candidates = torch.tensor([[0, 1]], dtype=torch.int64, device="npu")
+slots = torch.arange(2, dtype=torch.int64, device="npu").reshape(1, 2)
+links = torch.full_like(candidates, -1)
+target = torch.full((1, 2, 4), 0.25, dtype=torch.float32, device="npu")
+draft = torch.tensor([[[0.25, 0.5, 0.25, 0.0]]], device="npu")
+coins = torch.tensor([[0.5, 0.125]], device="npu")
+final_coin = torch.tensor([0.37], device="npu")
 
-Use the standard test CLI described in [the test framework guide](../../../../../tests/python/README.md).
+for impl in ("triton", "torch_native"):
+    predicts = torch.full((2,), -1, dtype=torch.int32, device="npu")
+    accept_index = torch.full((1, 2), -1, dtype=torch.int32, device="npu")
+    accept_token_num = torch.zeros(1, dtype=torch.int32, device="npu")
+    result = chain_speculative_sampling(
+        predicts, accept_index, accept_token_num,
+        candidates, slots, links, links, coins, final_coin, target, draft,
+        impl=impl,
+    )
+    assert result is None
+    print(impl, predicts, accept_index, accept_token_num)
+```
+
+## Tests
+
+The [operator tests](../../../../../tests/python/operators/speculative/test_chain_speculative_sampling.py)
+cover full acceptance, early rejection, model shapes, legacy cases and boundaries.
+They compare independent output buffers with exact integer checks.
+See the [test framework guide](../../../../../tests/python/README.md) for accuracy
+and performance options.

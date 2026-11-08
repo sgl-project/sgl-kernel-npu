@@ -1,16 +1,15 @@
 # tree_speculative_sampling_target_only
 
-## 硬件支持
+## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | 已注册，重构版本待实机验证 | 已注册，重构版本待实机验证 |
-| `torch_native` | 已注册，重构版本待实机验证 | 已注册，重构版本待实机验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
-`auto` 选择 `triton`，实现解析或执行错误直接向调用方报告。当前登记的是支持
-范围，NPU 精度和性能仍需在对应设备上与旧实现对照验收。
+## 函数原型
 
-## 接口签名
+默认选项 `auto` 与 `triton` 使用同一个入口。
 
 ```python
 from sgl_kernel_npu.operators.speculative import tree_speculative_sampling_target_only
@@ -38,38 +37,25 @@ def tree_speculative_sampling_target_only(
 
 ## 功能说明
 
-目标模型完成验证前向并得到目标概率后，本算子沿候选树选择一条接受路径，
-然后补采一个最终 token。调用方负责提供树结构、目标概率与随机数，并消费
-输出以推进解码。
-
-`B` 是请求数，`D` 是每个请求包含根节点的候选节点数，`S` 是接受索引的宽度，
-`V` 是词表宽度。根位于局部节点 0。`retrive_next_token` 指向第一个子节点，
-`retrive_next_sibling` 指向下一个兄弟节点，`-1` 表示该链接结束。
-
-开始时当前概率行为根节点行 `r=0`，随机数为 `uniform_samples[b,0]`。
-每层按兄弟链接顺序尝试子节点，对候选词 `x` 读取 `p=target_probs[b,r,x]`，
-并把 `p` 累加到本层的 `prob_acc`。满足以下任一条件时接受该节点。
+根据目标概率在候选树中选择一条接受路径，然后补采一个最终 token。从根节点
+0 出发，按兄弟链接顺序尝试子节点，将目标概率累加到 `prob_acc`。候选概率为
+`p` 时，满足以下任一条件即接受。
 
 - `coin <= prob_acc / max(float(threshold_acc), 1e-9)`。
 - `p >= threshold_single`。
 
-接受后将 token 写入上一个接受节点的全局输出槽，登记本节点槽号，将概率行
-切换为本节点行，并使用该节点对应的 `uniform_samples`。拒绝时，把该词的
-目标概率写入 `draft_probs[b,r,x]`，继续尝试兄弟节点。没有可接受的子节点时
-结束路径。接受索引最多容纳根和 `S-1` 个已接受草稿。
+接受后记录节点槽号，使用该节点的概率行和随机数继续遍历。拒绝后将概率写入
+`draft_probs`，尝试下一个兄弟节点。接受路径包含根和最多 `S-1` 个草稿节点。
 
-在最终概率行 `r`，计算 `w=max(target_probs[b,r]-draft_probs[b,r],0)`。
-选择累计权重严格大于 `uniform_samples_for_final_sampling[b] * sum(w)` 的
-第一个词，写入最后一个接受节点的输出槽。Triton 到达累计分布末尾时取所选
-词块内最后一个正权重词，该块没有正权重时取 `V-1`。PyTorch 参考在整行中
-查找最后一个正权重词，整行没有正权重时取 `V-1`。
+在最终概率行 `r`，使用 `max(target_probs[b,r] - draft_probs[b,r], 0)` 补采。
+选择累计权重严格大于 `uniform_samples_for_final_sampling[b] * sum(weights)`
+的第一个 token。
 
 ## 参数与返回值
 
-Triton 执行使用同一 NPU 上连续存储的张量。非空批要求 `D >= 1` 和
-`1 <= S <= D`。调用方须提供非空词表、合法无环树、有效的 token ID 和全局
-输出槽。原 wrapper 检查形状、类型、设备和连续性，索引范围、树的有效性及
-概率值由调用方保证。保留 `retrive_index` 等旧参数名，确保关键字调用兼容。
+`B` 为请求数，`D` 为含根节点的节点数，`S` 为接受路径容量，`V` 为词表大小。
+张量须连续并位于同一 NPU，要求 `D >= 1`、`1 <= S <= D`、词表非空。
+调用方提供无环树、有效的 token ID 和输出槽、概率和随机数。
 
 | 参数 | shape / dtype | 含义 |
 | --- | --- | --- |
@@ -89,78 +75,63 @@ Triton 执行使用同一 NPU 上连续存储的张量。非空批要求 `D >= 1
 | `deterministic` | bool，默认 `True` | 保留参数，当前实现忽略其值，所有随机数均由调用方提供。 |
 | `impl` | str，默认 `"auto"` | 可选 `"auto"`、`"triton"`、`"torch_native"`。 |
 
-返回 `None`。三只整数输出缓冲由调用方分配并初始化，未写位置保留原值。
-`draft_probs` 允许使用 `empty_like(target_probs)` 分配，调用会覆盖其全部内容。
-它须使用与目标概率分离的存储，旧 wrapper 在二者 `data_ptr()` 相等时报错。
-四只可变缓冲须与只读输入分离，各自的写入范围也须互不重叠。
+返回 `None`。调用方分配并初始化三只整数输出缓冲，未写位置保留初值。
+非空调用每次清零 `draft_probs`，可用 `empty_like(target_probs)` 分配。
+四只可变缓冲的写入范围须互不重叠，并与输入分离。Triton 会拒绝
+`draft_probs` 与目标张量的 `data_ptr()` 相等的情况。
+`B == 0` 时，Triton 在维数检查后直接返回，native 清零空 scratch 后返回。
 
-`B == 0` 时，Triton 在检查 `candidates` 和 `target_probs` 的维数后直接返回，
-此时其他校验及 scratch 清零均跳过。PyTorch 参考先读取候选形状和
-`accept_index.shape[1]`，转换累计阈值并执行 scratch 清零，再进入空请求循环。
-符合上述形状契约的空批返回 `None`，scratch 此时也为空。
+## triton 后端
 
-## 后端实现与来源
+- 清零 scratch 后启动三个 kernel，依次执行树遍历接受、按 2048 个 token
+  分块求残差权重和、最终采样。wrapper 检查形状、dtype、设备和连续性。
+- 到达累计分布末尾时，取所选词块内最后一个正权重位置，该块无正权重时取 `V-1`。
 
-`triton` 在清零 scratch 后顺序启动三个 kernel，依次执行树遍历接受、按
-2048 个词分块求残差权重和、最终采样。临时 `metadata` 为 `[B,2]` int64，
-保存最终概率行与最终输出槽，`block_sums` 为 `[B,ceil(V/2048)]` float32。
-词块数量补齐到 2 的幂供末尾采样使用。首尾两次启动各有 `B` 个程序，中间
-启动数量为 `min(B*ceil(V/2048), 设备向量核数)`，各程序跨步处理词块。
-性能测量需要包含 wrapper 中的 scratch 清零及三次 kernel 执行。
+## torch_native 后端
 
-新 Triton 计算与完整 wrapper 复制自本仓原 `sample` 实现，仅将设备属性工具
-导入改到实现层。来源记录为 #623 合入提交。新旧目录各自保留独立实现副本。
-[原始 Triton 实现](https://github.com/sgl-project/sgl-kernel-npu/blob/15ea25766eb0f9a30951d7d127af8600998272ea/python/sgl_kernel_npu/sgl_kernel_npu/sample/tree_speculative_sampling_target_only.py)
+- 复用仓库已有测试的 `target_only_tree_reference`，适配公开签名，以
+  `draft_probs` 作为拒绝概率 scratch。
+- 用 Python 标量遍历树，用 PyTorch 整行 `sum`/`cumsum` 采样，末尾回退在整行
+  查找。接近接受或采样边界时，浮点舍入可能影响 token 选择。
 
-`torch_native` 的计算主体复制自本仓旧测试中的 `target_only_tree_reference`，
-该参考已经包含一般树的子节点和兄弟遍历、阈值以及 scratch 写入。本轮将完整
-签名对齐公开接口，令原参考变量 `rejected_probs` 指向 `draft_probs`，忽略
-`deterministic`，并把原参考返回四元组的接口适配为原地写入后返回 `None`。
-[原始 PyTorch 树参考](https://github.com/sgl-project/sgl-kernel-npu/blob/15ea25766eb0f9a30951d7d127af8600998272ea/tests/python/sgl_kernel_npu/test_tree_speculative_sampling_target_only.py#L10-L77)
+## 调用示例
 
-显式输入校验位于 Triton wrapper。PyTorch 后端直接执行已有参考计算，
-输入须满足接口契约，错误检查时机与 Triton 有所区别。它用 Python float 累加概率和判断接受条件，并用
-PyTorch 整行 `sum`/`cumsum`。Triton 使用 FP32 累加和分块归约。接近接受阈值
-或累计分布边界时，已有舍入差可能改变 token 选择，精确整数比较发现分歧后
-需要定位原因。
+```python
+import torch
+import torch_npu
 
-旧 `sgl_kernel_npu.sample` 目录中的实现、包导出及旧测试原样保留。原有导入
-继续使用旧副本，新增接入通过 `sgl_kernel_npu.operators.speculative` 选择
-本次新增的独立实现。
+from sgl_kernel_npu.operators.speculative import tree_speculative_sampling_target_only
 
-## 测试覆盖
+# B=2、D=S=4、V=32，线性候选树。
+candidates = torch.tensor([[0, 3, 4, 5], [0, 7, 8, 9]], device="npu")
+slots = torch.arange(8, device="npu").reshape(2, 4)
+children = torch.tensor([[1, 2, 3, -1], [1, 2, 3, -1]], device="npu")
+siblings = torch.full_like(children, -1)
+target = torch.full((2, 4, 32), 1.0 / 32, device="npu")
+for b in range(2):
+    for j in range(1, 4):
+        target[b, j - 1] *= 0.2
+        target[b, j - 1, candidates[b, j]] += 0.8
+        target[b, j - 1] /= target[b, j - 1].sum()
+coins = torch.tensor([[0.1, 0.9, 0.2, 0.0], [0.7, 0.2, 0.95, 0.0]], device="npu")
+final_coin = torch.tensor([0.25, 0.75], device="npu")
 
-完整回归保留旧测试的 24 组输入，包括 3 组一般树阈值、18 组线性树和 3 组
-线性树阈值。两个后端使用各自的整数输出及 scratch，统一精度工具比较四个
-可变缓冲。三只整数输出精确比较，scratch 沿用原一般树测试的零容差比较。
-只读输入同时检查调用前后一致性。
+for impl in ("triton", "torch_native"):
+    predicts = torch.full((8,), -1, dtype=torch.int32, device="npu")
+    accept_index = torch.full((2, 4), -1, dtype=torch.int32, device="npu")
+    accept_token_num = torch.zeros(2, dtype=torch.int32, device="npu")
+    scratch = torch.empty_like(target)
+    result = tree_speculative_sampling_target_only(
+        predicts, accept_index, accept_token_num,
+        candidates, slots, children, siblings, coins, final_coin, target, scratch,
+        impl=impl,
+    )
+    assert result is None
+    print(impl, predicts, accept_index, accept_token_num)
+```
 
-另外覆盖以下 11 组 FP32 模型形状。均使用 NEXTN、TP2、topk=1 的线性候选树，
-关闭 rejection sampling，两个接受阈值均为默认 `1.0`。
+## 测试
 
-| 场景 | `(D,S,V)` | `B` |
-| --- | --- | --- |
-| GLM-4.7-Flash，NEXTN，TP2，topk=1 | `(4,4,154880)` | 1、2、4、8、16、32 |
-| Qwen3.5-9B，NEXTN，TP2，topk=1 | `(4,4,248320)` | 1、2、4、8、16 |
-
-B 档位参考 [GLM NPU CI](https://github.com/sgl-project/sglang/blob/77c3bcbe2c28e1a6d1ad4121ee57231582d39bdc/test/registered/npu/accuracy/glm4_7_flash/test_npu_glm4_7_flash_1p_gsm8k.py#L21-L52)
-和 [Qwen NPU CI](https://github.com/sgl-project/sglang/blob/77c3bcbe2c28e1a6d1ad4121ee57231582d39bdc/test/registered/npu/accuracy/qwen3_5_9b/test_npu_qwen3_5_9b_bf16_1p_gsm8k.py#L24-L48)。
-Qwen 的 1、2、4、8 为补充覆盖档位；两份 NPU CI 本身未开启推测解码。
-D/S 来自 SGLang 的 NEXTN 配置与路径容量约定，V 来自模型官方配置，具体来源
-见测试文件。它们是组合构造的回归工况，不能表述为已有 target-only 整网调用 trace。
-
-新模型输入复用旧线性树测试的随机种子公式、概率构造和稳定最终采样随机数
-生成规则，没有复制生产概率。原有多分支树用例完整保留，tree 套件共 35 项。
-
-默认只运行 3 项：GLM `(B,D,S,V)=(1,4,4,154880)`、Qwen
-`(16,4,4,248320)`，以及旧多分支树 `(2,6,4,20)`，阈值均为 `(1.0,1.0)`。
-这样保留模型覆盖，以及 `S<D` 的非线性树遍历。其余 32 项标记为
-`extra_checks`；`-m extra_checks` 只运行补充检查，`-m ""` 运行全部 35 项。
-
-性能 shape 列表仍保留每个模型最小和最大 B。默认 case 只采集上述两个模型
-shape；其他性能档位需要选中对应补充用例。公共 CLI 可以覆盖选中 case 是否
-计时，但不覆盖 pytest 的 marker 选择。
-
-固定输入下，重复调用会再次清零 scratch 并写入相同槽位，可复用预分配输出
-进行公共性能测量。NPU 新旧直接对照、各自对独立参考的比较以及性能验收
-仍须在目标设备完成。执行参数沿用[测试框架说明](../../../../../tests/python/README.md)。
+[算子测试](../../../../../tests/python/operators/speculative/test_tree_speculative_sampling_target_only.py)
+覆盖多分支树、线性链、阈值及模型形状。两个后端各用独立输出与 scratch，全部零容差比较。
+精度与性能执行参数见[测试框架说明](../../../../../tests/python/README.md)。

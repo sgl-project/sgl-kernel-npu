@@ -1,17 +1,15 @@
 # chain_speculative_sampling
 
-## 硬件支持
+## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | 已注册；重构版本待实机验证 | 已注册；重构版本待实机验证 |
-| `torch_native` | 已注册；重构版本待实机验证 | 已注册；重构版本待实机验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
-`auto` 选择 `triton`，不进行失败回退。注册代表支持声明，不代表设备精度或
-性能已验证。本次迁移保留原 Triton 计算和启动配置，仍需与迁移前版本进行
-NPU 精度和性能对照。
+## 函数原型
 
-## 接口签名
+默认选项 `auto` 与 `triton` 使用同一个入口。
 
 ```python
 from sgl_kernel_npu.operators.speculative import chain_speculative_sampling
@@ -39,30 +37,21 @@ def chain_speculative_sampling(
 
 ## 功能说明
 
-在非贪心推测解码中，目标模型完成验证前向、得到概率后，本算子验证一条
-**线性草稿链**。SGLang 的 NPU EAGLE/NEXTN 拒绝采样和稠密 DSpark 接受路径
-使用它。logits 处理、概率归一化、随机数生成和 KV 缓存更新由调用方完成。
+在非贪心推测解码中验证一条线性草稿链。从 `j=1` 起，对候选
+`x = candidates[b,j]` 检查接受条件
+`uniform_samples[b,j-1] * draft_probs[b,j-1,x] < target_probs[b,j-1,x]`，
+第一次拒绝即停止。
 
-`B` 是实际验证请求数，`D` 是包含第 0 列根节点的候选宽度，`R` 是草稿概率
-行数，`V` 是完整词表宽度。依次检查草稿 `x = candidates[b, j]`，其中
-`j = 1, ..., D-1`，接受条件为
-`uniform_samples[b, j-1] * draft_probs[b, j-1, x] < target_probs[b, j-1, x]`。
-第一次拒绝即停止。若共接受 `a` 个草稿，使用第 `a` 行补采一个最终 token：
-
-- 全部接受时，权重 `w = target_probs[b, a]`。
-- 发生拒绝时，权重 `w = max(target_probs[b, a] - draft_probs[b, a], 0)`。
-
-选择累计权重严格大于 `uniform_samples_for_final_sampling[b] * sum(w)` 的
-第一个 token。无需对残差再次归一化。保留已有累计分布末尾回退行为：
-Triton 取所选词块内最后一个正权重位置，块内没有正权重时取 `V-1`；
-PyTorch 参考在整行中查找最后一个正权重位置。
+接受 `a` 个草稿后，使用第 `a` 行补采一个最终 token。全部接受时采样权重为
+`target_probs[b,a]`，发生拒绝时为
+`max(target_probs[b,a] - draft_probs[b,a], 0)`。选择累计权重严格大于
+`uniform_samples_for_final_sampling[b] * sum(weights)` 的第一个 token。
 
 ## 参数与返回值
 
-参与计算的张量须连续、位于同一 NPU。除明确标注的三只输出缓冲外，输入只读。
-非空批要求 `D >= 1`、`R >= max(D-1, 1)`。调用方须提供非空词表及有效的
-token/槽号，wrapper 不检查索引范围或概率值。保留 `retrive_index` 等旧参数名，
-确保关键字调用兼容。
+`B` 为请求数，`D` 为包含根节点的候选宽度，`R` 为草稿概率行数，`V` 为词表
+大小。张量须连续并位于同一 NPU，要求 `D >= 1`、`R >= max(D-1,1)`、词表非空。
+调用方提供有效的 token ID、全局输出槽、概率和随机数。
 
 | 参数 | shape / dtype | 含义 |
 | --- | --- | --- |
@@ -80,43 +69,54 @@ token/槽号，wrapper 不检查索引范围或概率值。保留 `retrive_index
 | `deterministic` | bool，默认 `True` | 忽略的兼容参数；算子内部不生成随机数。 |
 | `impl` | str，默认 `"auto"` | 可选 `"auto"`、`"triton"`、`"torch_native"`。 |
 
-返回 `None`。调用方分配并初始化三只输出缓冲，未写入的槽保留原值；
-输出不得与输入或其他输出重叠；允许三只输出使用同一分配中互不重叠的视图。`B == 0` 时，Triton 仅检查候选和目标
-张量的维数，随后直接返回，不执行其他参数检查。
+返回 `None`。调用方分配并初始化三只输出缓冲，未写位置保留初值。各输出的
+写入范围须互不重叠，并与输入分离。`B == 0` 时，Triton 检查候选和目标张量
+的维数后直接返回。
 
-## 后端实现
+## triton 后端
 
-`triton` 顺序执行三个 kernel：接受前缀、按 2048 个词分块求残差权重和、
-补采最终 token。临时元数据为 `[B,3]` int64，词块和为
-`[B,ceil(V/2048)]` float32。保留原 shape、dtype、连续性和同设备检查。
+- 使用三个 kernel，依次执行前缀接受、按 2048 个 token 分块求残差权重和、
+  最终采样。wrapper 检查形状、dtype、设备和连续性。
+- 到达累计分布末尾时，取所选词块内最后一个正权重位置，该块无正权重时取 `V-1`。
 
-`torch_native` 复用仓库旧测试的 `chain_rejection_reference` 计算主体，适配
-完整公开签名，不重复 Triton 的输入校验。它用 Python float 进行标量接受
-判断，并用 PyTorch 整行 `sum`/`cumsum`；Triton 使用 FP32 运算和分块归约。
-接近决策边界时，舍入可能改变离散 token 选择。整数输出仍要求精确相等，
-出现分歧需分析原因。
+## torch_native 后端
 
-旧 `sgl_kernel_npu.sample` 下的算子实现、包导出和原测试保持原样。
-现有 `chain_speculative_sampling_triton` 导入继续执行旧目录中的实现副本。
-本次新架构保留独立的实现副本，新增接入统一使用 `operators`。
+- 复用仓库已有测试的 `chain_rejection_reference`，适配公开签名和原地输出缓冲。
+- 用 Python 标量判断接受条件，用 PyTorch 整行 `sum`/`cumsum` 采样，末尾回退
+  在整行查找。接近接受或采样边界时，浮点舍入可能影响 token 选择。
 
-## 测试覆盖
+## 调用示例
 
-统一测试为两个后端分配独立输出缓冲，用公共精度工具比较完整的三只 int32
-输出，再调用公共性能工具。两组原测试完整保留，并以模型 pytest ID 覆盖以下
-部署推导的 FP32 场景：
+```python
+import torch
+import torch_npu
 
-| 模型 | `(D,R,V)` | `B` |
-| --- | --- | --- |
-| GLM-4.7-Flash | `(4,3,154880)` | 1、2、4、8、16、32 |
-| Qwen3.5-9B | `(4,3,248320)` | 1、2、4、8、16 |
-| DeepSeek-V4-Flash | `(6,5,129280)`<br>`(7,6,129280)` | 1、2、4、8<br>1、2、4、6、8、10、12 |
+from sgl_kernel_npu.operators.speculative import chain_speculative_sampling
 
-默认选取 4 组 `(B,D,R,V)`：GLM `(1,4,3,154880)`、Qwen
-`(16,4,3,248320)`，以及 DeepSeek `(8,6,5,129280)` / `(12,7,6,129280)`。
-每组保留全接受、首次拒绝、部分接受三条路径，共 12 项默认用例。其余模型
-形状、两组旧回归和边界检查标记为 `extra_checks`，共 64 项补充检查，全量
-仍为 76 项。`-m extra_checks` 只运行补充检查，`-m ""` 运行全部用例。
-原有性能 shape 列表不变；其中的补充档位仅在选中对应 case 时运行。
+# B=1、D=2、R=1、V=4，接受判断恰好落在拒绝边界。
+candidates = torch.tensor([[0, 1]], dtype=torch.int64, device="npu")
+slots = torch.arange(2, dtype=torch.int64, device="npu").reshape(1, 2)
+links = torch.full_like(candidates, -1)
+target = torch.full((1, 2, 4), 0.25, dtype=torch.float32, device="npu")
+draft = torch.tensor([[[0.25, 0.5, 0.25, 0.0]]], device="npu")
+coins = torch.tensor([[0.5, 0.125]], device="npu")
+final_coin = torch.tensor([0.37], device="npu")
 
-执行参数沿用[测试框架说明](../../../../../tests/python/README.md)。
+for impl in ("triton", "torch_native"):
+    predicts = torch.full((2,), -1, dtype=torch.int32, device="npu")
+    accept_index = torch.full((1, 2), -1, dtype=torch.int32, device="npu")
+    accept_token_num = torch.zeros(1, dtype=torch.int32, device="npu")
+    result = chain_speculative_sampling(
+        predicts, accept_index, accept_token_num,
+        candidates, slots, links, links, coins, final_coin, target, draft,
+        impl=impl,
+    )
+    assert result is None
+    print(impl, predicts, accept_index, accept_token_num)
+```
+
+## 测试
+
+[算子测试](../../../../../tests/python/operators/speculative/test_chain_speculative_sampling.py)
+覆盖全接受、提前拒绝、模型形状、旧回归及边界，使用独立输出缓冲并精确比较整数结果。
+精度与性能执行参数见[测试框架说明](../../../../../tests/python/README.md)。
