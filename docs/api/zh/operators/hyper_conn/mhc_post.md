@@ -7,7 +7,7 @@
 | cann_ops_transformer | 已验证 | 已验证 |
 | torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
 
-已在 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 环境验证：每台设备的 16 项独立 Torch 参考精度用例全部通过，覆盖 FP16/BF16 激活与 FP32 参数。
+保留的 4 项独立 Torch 参考精度用例已在此前 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 验证中通过，覆盖 FP16/BF16 激活与 FP32 参数。测试采用 GLM-5.3-Flash 的 hidden_size=4096，token 数为 1 和 128。
 
 ## 函数原型
 
@@ -42,7 +42,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
+使用 wheel 内置的 `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_post`，构建时须包含匹配 CANN 9.1 或 9.2 的第三方 profile，无需单独安装 `cann_ops_transformer`。首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
 
 参数顺序与 vendor API 一致：残差流、残差矩阵、层输出、post 门值。
 

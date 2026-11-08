@@ -1,8 +1,11 @@
 """Build and package the custom ops-transformer vendor and Python bindings."""
 
 import hashlib
+import os
 import re
 import shutil
+import sys
+import zipfile
 from pathlib import Path
 
 from build_tools.cann import run
@@ -38,6 +41,11 @@ def stage_python(wheel, item, package):
     destination = package / "_third_party" / item["python_package"]
     # Upstream adds its own package prefix; only its temporary wheel uses it.
     upstream_package = "cann_ops_transformer_" + item["vendor_name"]
+    with zipfile.ZipFile(wheel) as archive:
+        roots = {name.split("/", 1)[0] for name in archive.namelist()}
+    # CANN 9.1 predates vendor-suffixed Python packages.
+    if upstream_package not in roots:
+        upstream_package = "cann_ops_transformer"
     extract_python(wheel, upstream_package, destination)
     ops_root = destination / "ops"
     modules = sorted(
@@ -46,17 +54,43 @@ def stage_python(wheel, item, package):
         if path.parent.name in item["ops"]
     )
     if not modules:
+        modules = sorted(
+            path.stem for path in ops_root.glob("*.py") if path.stem in item["ops"]
+        )
+    if not modules:
         raise RuntimeError("No selected Python bindings found in upstream wheel")
     qualified = "sgl_kernel_npu._third_party." + name
     # Upstream's builder still contains absolute imports of the unsuffixed package.
     # Rewrite Python module paths; Torch operator namespaces must remain intact.
     pattern = (
-        r"(?m)^(\s*(?:from|import)\s+)(?:"
+        r"(?m)^(\s*from\s+)(?:"
         + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
+    imports = (
+        r"(?m)^(\s*import\s+)("
+        + re.escape(upstream_package)
+        + r"|cann_ops_transformer)(\.[\w.]+)?(?:\s+as\s+(\w+))?[ \t]*$"
+    )
     for path in destination.rglob("*.py"):
         source = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
+
+        def rewrite_import(match):
+            prefix, original, suffix, alias = match.groups()
+            if suffix and not alias:
+                return (
+                    prefix
+                    + qualified
+                    + suffix
+                    + "\n"
+                    + prefix
+                    + qualified
+                    + " as "
+                    + original
+                )
+            return prefix + qualified + (suffix or "") + " as " + (alias or original)
+
+        source = re.sub(imports, rewrite_import, source)
         # CompressorV2 creates ops.ds41 using a Python module-cache lookup.
         source = source.replace(
             'sys.modules["cann_ops_transformer.ops"]',
@@ -112,12 +146,15 @@ def inspect_vendor(vendor, item):
 
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
     for op in item["ops"]:
-        config = kernel / "config" / item["soc"] / (op + ".json")
-        if config.exists():
+        # Template kernels retain the public name but install under *_apt.
+        for installed_name in (op, op + "_apt"):
+            config = kernel / "config" / item["soc"] / (installed_name + ".json")
+            if not config.exists():
+                continue
             read_json(require(config))
-            binaries = sorted((kernel / item["soc"] / op).glob("*.o"))
+            binaries = sorted((kernel / item["soc"] / installed_name).glob("*.o"))
             if not binaries:
-                raise RuntimeError("No AICore binaries for " + op)
+                raise RuntimeError("No AICore binaries for " + installed_name)
             for binary in binaries:
                 require(binary)
                 read_json(require(binary.with_suffix(".json")))
@@ -126,13 +163,36 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def build_python_wheel(item, source, directory):
+    """Use the profile command, or package CANN 9.1's selected bindings."""
+    if any("--torch_extension" in command for command in item["commands"]):
+        wheels = list((source / "torch_extension/dist").glob("*.whl"))
+    else:
+        wheel_dir = directory / "python-wheel"
+        run(
+            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", wheel_dir],
+            directory / "build-python.log",
+            cwd=source / "torch_extension",
+            env=dict(
+                os.environ,
+                TORCH_EXTENSION_OPS=",".join(item["ops"]),
+                TORCH_EXTENSION_VENDOR=item["vendor_name"],
+                TORCH_EXTENSION_EXPERIMENTAL="FALSE",
+            ),
+        )
+        wheels = list(wheel_dir.glob("*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError("Expected exactly one selected upstream Python wheel")
+    return wheels[0]
+
+
 def build(item, source, directory):
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     installers = list((source / "build_out").glob("*.run"))
-    wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    if len(installers) != 1 or len(wheels) != 1:
-        raise RuntimeError("Expected exactly one upstream .run and Python wheel")
+    wheel = build_python_wheel(item, source, directory)
+    if len(installers) != 1:
+        raise RuntimeError("Expected exactly one upstream .run")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -148,7 +208,7 @@ def build(item, source, directory):
     return dict(
         config=item,
         vendor=vendor,
-        wheel=wheels[0],
+        wheel=wheel,
         license=source / item["license"],
     )
 
