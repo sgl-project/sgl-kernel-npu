@@ -2,10 +2,18 @@
 
 ## 芯片支持
 
-| 实现 | arch22（2201） | arch35（3510） |
-| --- | --- | --- |
-| `ascendc` | BF16 状态 | BF16 / FP32 状态 |
-| `torch_native` | BF16 / FP32 状态 | BF16 / FP32 状态 |
+| 实现 | 状态 dtype | arch22（2201） | arch35（3510） |
+| --- | --- | --- | --- |
+| `ascendc` | BF16 | 支持 | 支持 |
+| `ascendc` | FP32 | 不支持 | 支持 |
+| `torch_native` | BF16 | 支持 | 支持 |
+| `torch_native` | FP32 | 支持 | 支持 |
+
+状态 dtype 指 `initial_state`、`final_state` 和可选 `chunk_state` 的类型。
+已确认的精度覆盖为 A3 / A5 各 15 组 BF16 状态用例，新版 `ascendc` 对照
+`torch_native`；FP32 状态尚未验证。用例共用一组 shape：
+`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，组合为 5 种 scale × 3 种块状态布局，
+详见[测试源码](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py)。
 
 ## 函数原型
 

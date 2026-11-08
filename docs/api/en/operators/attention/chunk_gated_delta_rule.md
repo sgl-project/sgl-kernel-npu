@@ -2,10 +2,19 @@
 
 ## Hardware support
 
-| Implementation | arch22 (2201) | arch35 (3510) |
-| --- | --- | --- |
-| `ascendc` | BF16 state | BF16 / FP32 state |
-| `torch_native` | BF16 / FP32 state | BF16 / FP32 state |
+| Implementation | State dtype | arch22 (2201) | arch35 (3510) |
+| --- | --- | --- | --- |
+| `ascendc` | BF16 | Supported | Supported |
+| `ascendc` | FP32 | Not supported | Supported |
+| `torch_native` | BF16 | Supported | Supported |
+| `torch_native` | FP32 | Supported | Supported |
+
+State dtype applies to `initial_state`, `final_state` and optional `chunk_state`.
+Confirmed accuracy coverage consists of 15 BF16-state cases on each of A3 and A5,
+comparing the new `ascendc` implementation with `torch_native`. FP32 state remains
+unverified. All cases use `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale
+settings crossed with three chunk-state layouts. See the
+[test source](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py).
 
 ## Signature
 
