@@ -14,16 +14,14 @@ native, plus the migrated AscendC operators selected for this build:
 | `mlp_lightning_indexer` | `2201` | `operators.indexer` |
 
 `--ops all` selects all migrated native operators supported by the target, not
-unmigrated legacy operators. The three LongCat2 native bindings use the same
-CANN/ACLNN implementation in both this build and the A2/A3 `build.sh` build.
-Their public API names and calling conventions are retained. NPU compilation,
-accuracy, graph replay, and performance must be validated for this ACLNN path.
+unmigrated legacy operators. Build the three LongCat2 operators through this
+REFACTOR entry. Their native bindings use CANN/ACLNN and retain their public
+API names and calling conventions. NPU compilation, accuracy, graph replay,
+and performance must be validated for this ACLNN path.
 
-The existing `build.sh` also builds the full native library. On A2/A3 it first
-builds the three LongCat2 CANN operators, links their Torch adapters into that
-library, and bundles their CANN runtime resources in the same wheel. DeepEP,
-memory saver and attentions remain independent packages built through that
-existing entry. The new entry does not schedule or change them.
+The existing `build.sh` and nested Python `setup.py` keep their original build
+behavior. DeepEP, memory saver and attentions remain independent packages built
+through that existing entry. The new entry does not schedule or change them.
 
 ### Build a wheel or CANN installer
 
@@ -93,10 +91,9 @@ python3 /workspace/sgl-kernel-npu/setup.py \
 ```
 
 `2201` builds both CANN targets `ascend910b` and `ascend910_93`; `3510` builds
-`ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json`; the A2/A3
-`build.sh` path also uses the `2201` build for LongCat2. Each operator declares
-its supported subset with `SUPPORTED_ARCHS`; the three LongCat2 declarations
-use only `2201`.
+`ascend950`. The SDK mapping lives in `csrc/cmake/architectures.json` and is used
+only by this build. Each operator declares its supported subset with
+`SUPPORTED_ARCHS`; the three LongCat2 declarations use only `2201`.
 API documentation follows the shared framework's `arch22` and `arch35` names.
 
 Final artifacts go to `/workspace/sgl-kernel-npu/output/`. A wheel build removes
@@ -155,8 +152,7 @@ The update operator returns the same table it modifies, and MLP length tensors
 remain caller-supplied int64. See the API indexes in
 [English](../../docs/api/en/API_list.md) and [Chinese](../../docs/api/zh/API_list.md).
 A LongCat2 subset wheel does not supply other unmigrated native operators that a
-full model may require. Use `bash build.sh -a kernels` on A2/A3 to package both
-sets in one wheel.
+full model may require.
 
 ## Legacy build: software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
@@ -168,15 +164,6 @@ Supporting Software
 - pybind11 (install via `pip install pybind11`)
 
 ## Legacy build: quick start
-
-On A2/A3, this entry also builds `compute_n_gram_ids`, `update_oe_token_table`,
-and `mlp_lightning_indexer` through the existing CANN/ACLNN build. Their adapters
-join the original `libsgl_kernel_npu.so`; CANN libraries, metadata and device
-binaries are staged under `sgl_kernel_npu/_cann` in the same wheel. No second
-wheel or separate CANN installer is required. Ascend 950 builds exclude these
-arch22-only operators. The CANN SDK must provide the code-generation and
-packaging tools required by the REFACTOR build above.
-
 ### Compile and Run
 1. Prepare the CANN environment variables (modify according to the installation path)
 ```bash

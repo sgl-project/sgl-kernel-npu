@@ -13,7 +13,6 @@ REQUESTED_SOC_VERSION=""
 SOC_VERSION=""
 CMAKE_SOC_VERSION="Ascend910_9382"
 SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
-SGL_KERNEL_NPU_CANN_VENDOR=""
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
@@ -503,15 +502,6 @@ function build_cmake_modules()
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
-    if [[ "$BUILD_KERNELS_MODULE" == "ON" && "$SGL_KERNEL_NPU_BUILD_TARGET" == "Ascend910" ]]; then
-        # Reuse the ACLNN build, then link its adapters into the full native library.
-        python3 "$PROJECT_ROOT/setup.py" --arch-version 2201 \
-            --ops compute_n_gram_ids,update_oe_token_table,mlp_lightning_indexer \
-            --artifact run -j 16
-        SGL_KERNEL_NPU_CANN_VENDOR="$BUILD_DIR/cann/installed/vendors/sgl_kernel_npu"
-        cmake_args+=("-DSGL_CANN_VENDOR=$SGL_KERNEL_NPU_CANN_VENDOR")
-    fi
-
     cmake "${cmake_args[@]}" \
         -B "$BUILD_DIR" \
         -S "$PROJECT_ROOT"
@@ -579,11 +569,10 @@ function make_sgl_kernel_npu_package()
 {
     (
         cd "$PROJECT_ROOT/python/sgl_kernel_npu"
-        rm -rf build dist
+        rm -rf dist
         cp -v "$PROJECT_ROOT/config.ini" sgl_kernel_npu/
         python3 setup.py clean --all
-        SGL_KERNEL_NPU_CANN_VENDOR="$SGL_KERNEL_NPU_CANN_VENDOR" \
-            python3 setup.py bdist_wheel
+        python3 setup.py bdist_wheel
         mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )

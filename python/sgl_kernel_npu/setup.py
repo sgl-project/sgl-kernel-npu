@@ -4,7 +4,6 @@
 """python api for sgl_kernel_npu."""
 
 import os
-import shutil
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -44,14 +43,6 @@ class TargetBuildPy(build_py):
             build_lib=Path(self.build_lib),
             target=target,
         )
-
-        cann_vendor = os.environ.get("SGL_KERNEL_NPU_CANN_VENDOR")
-        if cann_vendor:
-            shutil.copytree(
-                cann_vendor,
-                Path(self.build_lib) / "sgl_kernel_npu/_cann/vendors/sgl_kernel_npu",
-                dirs_exist_ok=True,
-            )
 
 
 class BinaryDistribution(Distribution):

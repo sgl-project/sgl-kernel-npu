@@ -386,27 +386,6 @@ ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
-if(SGL_CANN_VENDOR)
-    include("${PROJECT_OP_SRC_BASE}/cmake/operators.cmake")
-    include("${PROJECT_OP_SRC_BASE}/cmake/domains.cmake")
-    sgl_add_operator_domains()
-    file(STRINGS "${PROJECT_BUILD_PATH}/cann/selected-operators.txt" cann_operators)
-    foreach(id IN LISTS cann_operators)
-        sgl_get_operator(adapter "${id}" TORCH_ADAPTER)
-        target_sources(${OP_PLUGIN_NAME} PRIVATE ${adapter})
-    endforeach()
-
-    set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE}")
-    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-    find_library(NNOPBASE_LIBRARY nnopbase PATHS "${ASCEND_HOME_PATH}/lib64" NO_DEFAULT_PATH REQUIRED)
-    target_include_directories(${OP_PLUGIN_NAME} PRIVATE
-        "${PROJECT_OP_SRC_BASE}/aclnn_torch_adapter"
-        "${SGL_CANN_VENDOR}/op_api/include"
-        "${ASCEND_HOME_PATH}/include"
-        ${Python3_INCLUDE_DIRS})
-    target_link_libraries(${OP_PLUGIN_NAME} PRIVATE "${NNOPBASE_LIBRARY}")
-endif()
-
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         ${A5_ONLY_KERNEL_TARGETS}
@@ -432,7 +411,6 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 # Enable OpenMP for the pure-host metadata scheduler (parallel per-row cache build).
 target_compile_options(${OP_PLUGIN_NAME} PRIVATE -fopenmp)
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE gomp)
-
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils

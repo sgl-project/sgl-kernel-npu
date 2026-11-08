@@ -24,8 +24,7 @@ python3 setup.py --arch-version 2201 \
 
 arch22 的 `--ops all` 包含这两个算子。需要三个 LongCat2 算子时，在上述 `--ops`
 列表加入 `mlp_lightning_indexer`；单独生成 CANN 安装包则使用 `--artifact run`。
-需要同时包含原有 native 算子和三个 LongCat2 ACLNN 算子的完整 A2/A3 wheel 时，
-使用 `bash build.sh -a kernels`。子集 wheel 替换现有安装，不与旧 wheel 叠加。
+子集 wheel 替换现有安装，不与旧 wheel 叠加。
 安装步骤见[构建指南](../../../../../python/sgl_kernel_npu/README.md)。
 
 架构声明表示实现范围；本次 ACLNN 迁移后的 NPU 编译、精度、性能及已有 graph
