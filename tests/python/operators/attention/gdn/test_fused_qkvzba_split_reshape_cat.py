@@ -39,7 +39,6 @@ def generate_test_data(shape, dtype, ba_dtype=None):
         pytest.param((8192, 4, 8), torch.float16, None, id="prefill-tp4-b8192-4x8"),
         pytest.param((8192, 4, 8), torch.bfloat16, None, id="prefill-tp4-bf16"),
         pytest.param((7, 4, 8), torch.bfloat16, None, id="edge-b7-4x8"),
-        # Head-group ratio boundaries served by SGLang (1 and 4).
         pytest.param((4, 4, 4), torch.bfloat16, None, id="ratio1-4x4"),
         pytest.param((4, 2, 8), torch.bfloat16, None, id="ratio4-2x8"),
         # b/a follow mixed_ba while mixed_qkv/z follow mixed_qkvz.
@@ -60,6 +59,7 @@ def test_fused_qkvzba_split_reshape_cat(shape, dtype, ba_dtype):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "case,match",
     [

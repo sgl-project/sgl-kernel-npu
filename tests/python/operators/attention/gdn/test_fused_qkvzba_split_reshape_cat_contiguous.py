@@ -58,6 +58,7 @@ def test_fused_qkvzba_split_reshape_cat_contiguous(shape, dtype, ba_dtype):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "case,match",
     [
