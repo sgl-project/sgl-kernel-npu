@@ -89,16 +89,3 @@ out_t = scale * (S_t @ q_t)
 - `initial_state` 不被修改。连续的 `chunk_state` 原地写入各块的进入状态，
   先按序列、再按块排序；非连续缓冲区使用临时副本，不回写原张量。
   函数只返回 `(out, final_state)`。
-
-## 测试覆盖
-
-15 个 BF16 状态精度用例已在 arch 2201 和 arch 3510 通过。用例使用
-`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
-不提供、连续和非连续。
-
-在 arch 3510 上，相同的 15 个组合使用 FP32 状态测试，均已通过。
-
-每种状态 dtype 的性能测试默认仅测
-显式 `scale=128**-0.5` 且不提供 `chunk_state` 的配置。
-沿用公共框架的 5 次 warmup 和 5 次 active。
-详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。

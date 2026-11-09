@@ -94,15 +94,3 @@ Usage notes:
   with each chunk's entering state, ordered by sequence then chunk. A
   noncontiguous buffer uses a temporary copy without writing back to the input.
   Only `(out, final_state)` is returned.
-
-## Test coverage
-
-The 15 BF16-state accuracy cases passed on arch 2201 and arch 3510. They use
-`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings and three
-chunk-state layouts: absent, contiguous and noncontiguous.
-
-The same 15 combinations passed on arch 3510 with FP32 state.
-
-For each state dtype, the default performance case uses explicit
-`scale=128**-0.5` and no `chunk_state`, with five warmup and five active calls. See the
-[test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).
