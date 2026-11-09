@@ -88,8 +88,8 @@ std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
 
     static auto getWorkspaceSize = reinterpret_cast<decltype(&aclnnSglMlpLightningIndexerGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglMlpLightningIndexerGetWorkspaceSize"));
-    static auto execute =
-        reinterpret_cast<decltype(&aclnnSglMlpLightningIndexer)>(sgl_cann::op_api_symbol("aclnnSglMlpLightningIndexer"));
+    static auto execute = reinterpret_cast<decltype(&aclnnSglMlpLightningIndexer)>(
+        sgl_cann::op_api_symbol("aclnnSglMlpLightningIndexer"));
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
     auto status =

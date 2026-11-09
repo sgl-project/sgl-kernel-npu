@@ -2,10 +2,10 @@
 #include "compute_n_gram_ids.h"
 
 extern "C" __global__ __aicore__ void sgl_compute_n_gram_ids(GM_ADDR oe_weights, GM_ADDR oe_mods,
-                                                         GM_ADDR exclusive_oe_embeder_size_sums, GM_ADDR tokens,
-                                                         GM_ADDR exclusive_req_len_sums, GM_ADDR oe_token_table,
-                                                         GM_ADDR row_indices, GM_ADDR column_starts,
-                                                         GM_ADDR oe_n_gram_ids, GM_ADDR workspace, GM_ADDR tiling)
+                                                             GM_ADDR exclusive_oe_embeder_size_sums, GM_ADDR tokens,
+                                                             GM_ADDR exclusive_req_len_sums, GM_ADDR oe_token_table,
+                                                             GM_ADDR row_indices, GM_ADDR column_starts,
+                                                             GM_ADDR oe_n_gram_ids, GM_ADDR workspace, GM_ADDR tiling)
 {
     // AscendC::printf("start\n");
     AscendC::TPipe pipe;
