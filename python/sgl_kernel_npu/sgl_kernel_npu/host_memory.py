@@ -54,10 +54,61 @@ def _load_offload():
     return offload
 
 
+# The Offload instance that owns the registered host pool. The memfabric
+# backend's register/get-device-pointer calls live on the instance, so the
+# pool owner (SGLang's MemfabricHostMemoryBackend) publishes it here once
+# after initialize; None falls back to the legacy module-level API.
+_MF_POOL = None
+
+
+def set_memfabric_pool(pool) -> None:
+    """Publish the memfabric Offload instance that owns the host pool."""
+    global _MF_POOL
+    _MF_POOL = pool
+
+
+def _register_mf_block(host_ptr: int) -> int:
+    """Register one MF-allocated block; return 0 on success.
+
+    Prefers the published Offload instance (release/1.3 instance API,
+    idempotent on the pre-registered pool); falls back to the legacy
+    module-level ``offload.host_register`` when no pool was published.
+    """
+    if _MF_POOL is not None:
+        return int(_MF_POOL.host_register(host_ptr))
+    offload = _load_offload()
+    legacy = getattr(offload, "host_register", None)
+    if legacy is None:
+        raise RuntimeError(
+            "memfabric host_register is only available on an Offload "
+            "instance in this build; call set_memfabric_pool(pool) after "
+            "pool.initialize first"
+        )
+    return int(legacy(host_ptr))
+
+
+def _mf_device_pointer(host_ptr: int) -> int:
+    """Return the device pointer of an MF host block, 0 on failure."""
+    if _MF_POOL is not None:
+        return int(_MF_POOL.host_get_device_pointer(host_ptr))
+    offload = _load_offload()
+    legacy = getattr(offload, "host_get_device_pointer", None)
+    if legacy is None:
+        return 0
+    return int(legacy(host_ptr))
+
+
+def _uninitialize_memfabric() -> None:
+    if _MF_POOL is not None:
+        _MF_POOL.uninitialize()
+        return
+    _load_offload().uninitialize()
+
+
 def _register_host_block(host_ptr: int, nbytes: int) -> HostMemoryMapping:
     """Register one MF-allocated block and return its kernel-visible DVA.
 
-    MemFabric only accepts the base pointer returned by offload.malloc/empty.
+    MemFabric only accepts the base pointer returned by pool.malloc/empty.
     Registered blocks remain alive until uninitialize_host_memory().
     """
     if host_ptr <= 0 or nbytes <= 0:
@@ -65,15 +116,14 @@ def _register_host_block(host_ptr: int, nbytes: int) -> HostMemoryMapping:
             f"host_ptr and nbytes must be positive, got {host_ptr}, {nbytes}"
         )
 
-    offload = _load_offload()
-    ret = offload.host_register(host_ptr)
+    ret = _register_mf_block(host_ptr)
     if ret != 0:
         raise RuntimeError(
             f"MF host_register failed for {hex(host_ptr)} "
             f"({nbytes} bytes): ret={ret}; allocate the tensor with "
-            "offload.empty before registering it"
+            "pool.empty before registering it"
         )
-    device_ptr = offload.host_get_device_pointer(host_ptr)
+    device_ptr = _mf_device_pointer(host_ptr)
     if not device_ptr:
         raise RuntimeError(
             f"MF host_get_device_pointer failed for registered host block {hex(host_ptr)}"
@@ -312,6 +362,6 @@ def uninitialize_host_memory() -> None:
     has_mf = any(mapping.kind == "memfabric" for _, _, mapping in _G_MAPPINGS)
     try:
         if has_mf:
-            _load_offload().uninitialize()
+            _uninitialize_memfabric()
     finally:
         _G_MAPPINGS.clear()
