@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.common import get_test_impls
 from tests.python.utils.performance import check_performance
