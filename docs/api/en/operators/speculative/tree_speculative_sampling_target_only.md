@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
 | `torch_native` | Supported | Supported |
