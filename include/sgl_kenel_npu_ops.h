@@ -436,6 +436,12 @@ shm_allocator_create_and_register(int64_t size, int64_t device_id,
  * @brief Unregister and free all shared-memory entries for one device.
  */
 void shm_allocator_free_all(int64_t device_id);
+
+// Private host storage for fused LIM/CopySFA; legacy allocation stays separate.
+std::tuple<int64_t, int64_t>
+fused_shm_allocator_create_and_register(int64_t size, int64_t device_id,
+                                        c10::string_view name);
+void fused_shm_allocator_free_all(int64_t device_id);
 #endif
 
 } // namespace npu_kernel

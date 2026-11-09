@@ -25,7 +25,7 @@ def test_short_resident_current_and_history(width, old_end, graph):
     logical[first:] = current_cpu[:width, 0]
     # The current rows must come from the device tensor, not the host mapping.
     host_values[mapping[first:length].long()] = 37
-    host, _, host_ptr = ops.create_shm_tensor(
+    host, _, host_ptr = ops.create_fused_shm_tensor(
         (host_rows, 1, 576), dtype, device_id=device_id, name="copy_sfa_fused_resident"
     )
     host[:, 0].copy_(host_values)
@@ -174,7 +174,7 @@ def test_short_resident_current_and_history(width, old_end, graph):
         )
     finally:
         torch.npu.synchronize()
-        ops.free_shm(device_id)
+        ops.free_fused_shm(device_id)
 
 
 def _check_long_first_fill(width, graph, missing_current_page=False):

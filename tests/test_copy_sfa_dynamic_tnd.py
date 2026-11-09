@@ -33,7 +33,9 @@ def _require_npu():
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("NPU is required for native Copy-SFA integration tests")
     importlib.import_module("sgl_kernel_npu")  # register native operators
-    return importlib.import_module("sgl_kernel_npu.sparsity_driven_kv_offload")
+    return importlib.import_module(
+        "sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm"
+    )
 
 
 def _prefix_sum(values: list[int]) -> list[int]:
@@ -71,7 +73,7 @@ class _DynamicTndCase:
         poisoned_future_tail: bool = False,
     ) -> None:
         ops = _require_npu()
-        self.free_shm = ops.free_shm
+        self.free_shm = ops.free_fused_shm
         self.device_id = torch.npu.current_device()
         self.device = torch.device("npu", self.device_id)
         self.query_counts = query_counts
@@ -170,7 +172,7 @@ class _DynamicTndCase:
         dram_kpe_cpu = torch.randn(self.dram_blocks, BLOCK_SIZE, KPE_DIM, dtype=dtype)
         dram_ckv_cpu = torch.randn(self.dram_blocks, BLOCK_SIZE, CKV_DIM, dtype=dtype)
         dram_cpu = torch.cat((dram_ckv_cpu, dram_kpe_cpu), dim=-1)
-        self.dram, _, self.dram_dev_ptr = ops.create_shm_tensor(
+        self.dram, _, self.dram_dev_ptr = ops.create_fused_shm_tensor(
             (self.dram_blocks, BLOCK_SIZE, TOKEN_STRIDE),
             dtype,
             device_id=self.device_id,
@@ -412,7 +414,7 @@ class _C0DenseMixedGraphCase:
 
     def __init__(self) -> None:
         ops = _require_npu()
-        self.free_shm = ops.free_shm
+        self.free_shm = ops.free_fused_shm
         self.device_id = torch.npu.current_device()
         self.device = torch.device("npu", self.device_id)
         self.heads = 8
@@ -445,7 +447,7 @@ class _C0DenseMixedGraphCase:
         self.miss_dst_cpu = torch.full_like(self.miss_src_cpu, -1)
         self.miss_counts_cpu = torch.zeros(3, dtype=torch.int32)
 
-        self.dram, _, self.dram_dev_ptr = ops.create_shm_tensor(
+        self.dram, _, self.dram_dev_ptr = ops.create_fused_shm_tensor(
             (1, BLOCK_SIZE, TOKEN_STRIDE),
             torch.bfloat16,
             device_id=self.device_id,

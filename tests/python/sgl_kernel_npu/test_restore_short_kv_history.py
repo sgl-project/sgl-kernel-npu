@@ -3,10 +3,12 @@ import unittest
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.sparsity_driven_kv_offload import (
-    create_shm_tensor,
-    free_shm,
-    restore_short_kv_history_inplace,
+from sgl_kernel_npu.sparsity_driven_kv_offload import restore_short_kv_history_inplace
+from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+    create_fused_shm_tensor as create_shm_tensor,
+)
+from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+    free_fused_shm as free_shm,
 )
 
 

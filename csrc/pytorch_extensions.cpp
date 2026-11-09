@@ -254,8 +254,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int block_dim=0) -> ()");
 
     m.def("shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
+    m.def("fused_shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
 
     m.def("shm_allocator_free_all(int device_id) -> ()");
+    m.def("fused_shm_allocator_free_all(int device_id) -> ()");
 
     m.def(
         "sparse_attn_sharedkv_metadata_host("
@@ -328,8 +330,11 @@ TORCH_LIBRARY_IMPL(npu, CatchAll, m)
     // These control-plane operators have no Tensor arguments, so backend
     // dispatch cannot infer PrivateUse1 from their inputs.
     m.impl("shm_allocator_create_and_register", TORCH_FN(sglang::npu_kernel::shm_allocator_create_and_register));
+    m.impl("fused_shm_allocator_create_and_register",
+           TORCH_FN(sglang::npu_kernel::fused_shm_allocator_create_and_register));
 
     m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
+    m.impl("fused_shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::fused_shm_allocator_free_all));
 }
 #endif
 

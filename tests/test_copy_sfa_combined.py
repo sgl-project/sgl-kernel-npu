@@ -22,7 +22,9 @@ def _require_npu():
     if not hasattr(torch, "npu") or not torch.npu.is_available():
         pytest.skip("NPU is required for native Copy-SFA integration tests")
     package = importlib.import_module("sgl_kernel_npu")  # loads native operators
-    offload_ops = importlib.import_module("sgl_kernel_npu.sparsity_driven_kv_offload")
+    offload_ops = importlib.import_module(
+        "sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm"
+    )
     return package, offload_ops
 
 
@@ -41,8 +43,8 @@ class _CopySfaCase:
         max_context_len: int = 8192,
     ):
         _, offload_ops = _require_npu()
-        self.create_shm_tensor = offload_ops.create_shm_tensor
-        self.free_shm = offload_ops.free_shm
+        self.create_shm_tensor = offload_ops.create_fused_shm_tensor
+        self.free_shm = offload_ops.free_fused_shm
         self.device_id = torch.npu.current_device()
         self.device = torch.device("npu", self.device_id)
         self.real_request_count = real_request_count
