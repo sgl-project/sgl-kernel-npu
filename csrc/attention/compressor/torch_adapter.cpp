@@ -13,6 +13,7 @@
 #include "aclnn_sgl_compressor.h"
 #include <c10/core/DeviceGuard.h>
 #include <torch/library.h>
+#include <torch_npu/csrc/core/npu/NPUGraphsUtils.h>
 #include <limits>
 
 namespace {
@@ -132,7 +133,15 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const at::Tens
         TORCH_CHECK(result == ACL_SUCCESS, "compressor ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnSglCompressor", launch);
+    if (c10_npu::currentStreamCaptureStatus() == c10_npu::CaptureStatus::Active) {
+        // Preserve host submission order, including workspace zeroing, without
+        // synchronizing the device. Release captured Tensors on this capture
+        // thread rather than the task queue's separate resource-release thread.
+        TORCH_CHECK(stream.stream() != nullptr, "compressor: failed to drain the host task queue");
+        launch();
+    } else {
+        at_npu::native::OpCommand::RunOpApi("aclnnSglCompressor", launch);
+    }
     return output;
 }
 }  // namespace

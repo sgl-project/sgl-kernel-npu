@@ -412,7 +412,13 @@ def test_compressor_async_execution(execution):
         stream.synchronize()
         graph = torch.npu.NPUGraph()
         with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
-            out = executor()
+            # Each recorded launch starts with the same history so the final
+            # replay result remains comparable to one reference invocation.
+            for _ in range(32):
+                actual["state_cache"].copy_(data["state_cache"])
+                out = executor()
+        # Match the failing service phase: cleanup before the first replay.
+        torch.npu.empty_cache()
         torch.npu.synchronize()
         actual["state_cache"].copy_(data["state_cache"])
         actual["x"].mul_(0.75)
