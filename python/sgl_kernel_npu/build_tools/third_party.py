@@ -53,10 +53,25 @@ def detect_cann_version():
 @lru_cache(maxsize=1)
 def detect_soc_version():
     """Detect the local build target without importing Torch or initializing NPU."""
-    for arguments in (
-        ["npu-smi", "info", "-t", "board", "-i", "0"],
-        ["npu-smi", "info", "-t", "board", "-i", "0", "-c", "0"],
-    ):
+    try:
+        mapping = subprocess.check_output(
+            ["npu-smi", "info", "-m"], text=True, stderr=subprocess.STDOUT, timeout=10
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("Cannot query NPU device mapping with npu-smi info -m") from exc
+
+    # The first columns are NPU ID, Chip ID and Chip Logic ID.
+    devices = re.findall(r"(?m)^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+\S", mapping)
+    if not devices:
+        raise RuntimeError("No visible NPU devices found in npu-smi info -m output")
+
+    queries = {}
+    for card_id, chip_id in devices:
+        queries[(card_id,)] = None
+        queries[(card_id, "-c", chip_id)] = None
+
+    for query in queries:
+        arguments = ["npu-smi", "info", "-t", "board", "-i", *query]
         try:
             output = subprocess.check_output(
                 arguments, text=True, stderr=subprocess.STDOUT, timeout=10
