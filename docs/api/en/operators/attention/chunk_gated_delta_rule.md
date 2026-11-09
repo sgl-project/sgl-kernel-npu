@@ -2,20 +2,10 @@
 
 ## Hardware support
 
-| Implementation | State dtype | arch22 (2201) | arch35 (3510) |
-| --- | --- | --- | --- |
-| `ascendc` | BF16 | Supported | Supported |
-| `ascendc` | FP32 | Unsupported | Unverified |
-| `torch_native` | BF16 | Supported | Supported |
-| `torch_native` | FP32 | Unverified | Unverified |
-
-State dtype applies to `initial_state`, `final_state` and optional `chunk_state`.
-The A5 `ascendc` kernel has an FP32 state path. The `torch_native` implementation
-accepts FP32 state on both architectures. The accuracy tests compare `ascendc`
-against `torch_native` in 15 BF16-state cases on each of A3 and A5. All cases use
-`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings crossed with three
-chunk-state layouts. See the
-[test source](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py).
+| Implementation | arch22 (2201) | arch35 (3510) |
+| --- | --- | --- |
+| `ascendc` | BF16 state | BF16 / FP32 state |
+| `torch_native` | BF16 / FP32 state | BF16 / FP32 state |
 
 ## Signature
 
@@ -71,7 +61,7 @@ and value head counts, and `Dk` and `Dv` their feature dimensions.
 | `query`, `key` | `[T, Nk, Dk]` | BF16 | Must have equal shapes. |
 | `value` | `[T, Nv, Dv]` | BF16 | Value tensor. |
 | `beta` | `[T, Nv]` | BF16, required | Delta update coefficient. |
-| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32, required | Initial state. See [hardware support](#hardware-support) for FP32 status. |
+| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32, required | Initial state; FP32 state in `ascendc` requires arch35. |
 | `actual_seq_lengths` | `[B]` | int32, required | Sequence lengths, not cumulative boundaries; `ascendc` requires positive lengths summing to `T`. |
 | `scale` | — | float / `None` | Output multiplier; `None` means `1.0`. |
 | `g` | `[T, Nv]` | FP32 / `None` | Log decay; `None` means no decay. |
