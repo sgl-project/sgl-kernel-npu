@@ -1,5 +1,7 @@
 """Public dispatch for token-major causal convolution with mutable state."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
@@ -20,8 +22,6 @@ def _ascendc_impl(
     pad_slot_id,
     run_mode,
 ):
-    import torch
-
     return torch.ops.npu.causal_conv1d(
         x,
         weight,

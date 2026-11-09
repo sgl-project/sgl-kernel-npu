@@ -1,5 +1,7 @@
 """Public dispatch for verification-tree construction and five in-place outputs."""
 
+import torch
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
@@ -8,8 +10,6 @@ _torch_native_fn = None
 @register_impl("speculative.build_tree", "auto")
 @register_impl("speculative.build_tree", "ascendc")
 def _ascendc_impl(*args):
-    import torch
-
     return torch.ops.npu.build_tree(*args)
 
 
