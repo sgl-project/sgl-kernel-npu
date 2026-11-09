@@ -10,5 +10,4 @@ sgl_register_operator(
     TILING_SOURCES op_host/tiling/sparse_attention_score_tiling.cpp
     TORCH_ADAPTER torch_adapter.cpp
     KERNEL_SOURCES op_kernel/sparse_attention_score.cpp
-    KERNEL_INCLUDE_DIRECTORIES op_kernel
 )
