@@ -1,259 +1,134 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# High precision mode for CANN operators (may help with quantization precision)
 export ACL_OP_SELECT_IMPL_MODE=high_precision
 
-TEST_DIR="${GITHUB_WORKSPACE}/tests/python/sgl_kernel_npu"
-cd "$TEST_DIR" || { echo "Directory not found: $TEST_DIR"; exit 1; }
-
-PASSED=()
-FAILED=()
-
-run_test() {
-    local test_file="$1"
-    local exit_code=0
-    echo "=========================================="
-    echo "Running: $test_file"
-    echo "=========================================="
-    if grep -q '__main__' "$test_file"; then
-        # Script-style test with a __main__ entry: run it directly
-        python3 "$test_file" || exit_code=$?
-    elif grep -q 'def test_' "$test_file"; then
-        # Pytest-style test without __main__: collect and run it with pytest.
-        # Direct 'python3 file.py' would only import and falsely pass.
-        if [[ "$test_file" = /* ]]; then
-            (
-                cd "$GITHUB_WORKSPACE" || exit 1
-                PYTHONPATH="${GITHUB_WORKSPACE}${PYTHONPATH:+:${PYTHONPATH}}" \
-                    python3 -m pytest "$test_file" -q -x --enable-perf=false
-            ) || exit_code=$?
-        else
-            python3 -m pytest "$test_file" -q -x || exit_code=$?
-        fi
-    else
-        # Plain script (e.g. test_hello_world.py): run it directly
-        python3 "$test_file" || exit_code=$?
-    fi
-    if [ "$exit_code" -eq 0 ]; then
-        PASSED+=("$test_file")
-        echo "PASSED: $test_file"
-    else
-        FAILED+=("$test_file")
-        echo "FAILED: $test_file"
-    fi
-    echo ""
-}
-
-SMOKE_TESTS=(
-    test_hello_world.py
-)
-
-NORM_TESTS=(
-    # test_add_rmsnorm_bias.py  # FAILING: add_rmsnorm_bias() got multiple values for 'norm_bias'
-    test_rmsnorm_split.py
-    test_rmsnorm_without_weight.py
-    test_l1_norm.py
-    test_scale_shift.py
-)
-
-ATTENTION_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
-    # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
-    test_mla_preprocess.py
-    test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
-    test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
-    test_split_qkv_tp_rmsnorm_rope.py
-    test_fused_rope_qk_mqa.py
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_kpool_indexer_prepare_decode_input.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_kpool_group_and_tail_to_topk.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_causal_seqlens.py"
-)
-
-CACHE_TESTS=(
-    test_alloc_extend_slot.py
-    test_cache_assign.py
-    test_cache_loc_bounds.py
-    test_cache_update.py
-    test_inplace_assign_cache.py
-    test_lightning_indexer.py
-    test_transfer_kv_dim_exchange.py
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_rotate_write_cache.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_scatter_kpool_tail_updates.py"
-)
-
-SPECULATIVE_TESTS=(
-    test_build_tree.py
-    test_verify_tree.py
-    test_apply_token_bitmask.py
-    test_argmax_softmax_prob.py
-)
-
-MAMBA_TESTS=(
-    test_conv1d_prefill.py
-    test_conv1d_update.py
-    test_mamba_conv.py
-    # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
-)
-
-FLA_TESTS=(
-    test_gated_delta_ascendc_tri_inv.py
-    test_chunk_gdn_pto.py
-    test_chunk_gdn_triton.py
-    test_l2norm.py
-    test_recurrent_gated_delta_rule.py
-    test_fused_gdn_gating_without_sigmoid.py
-    test_solve_tril.py
-    test_triangular_inverse.py
-    test_l2norm_boundaries.py
-)
-
-FUSED_TESTS=(
-    "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
-    test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
-    test_batch_matmul_transpose.py
-    # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
-    test_qkvzba_split_reshape_cat.py
-    test_lora_kernels.py
-    test_gmm_wfp8a16.py
-    test_mm_wfp8a16.py
-)
-
-ALL_TESTS=(
-    "${SMOKE_TESTS[@]}"
-    "${NORM_TESTS[@]}"
-    "${ATTENTION_TESTS[@]}"
-    "${CACHE_TESTS[@]}"
-    "${SPECULATIVE_TESTS[@]}"
-    "${MAMBA_TESTS[@]}"
-    "${FLA_TESTS[@]}"
-    "${FUSED_TESTS[@]}"
-)
-
-SMALL_BATCH_TESTS=(
-    test_hello_world.py
-    test_decode_attention.py
-    test_mla_preprocess.py
-    test_add_rmsnorm_bias.py
-    test_split_qkv_rmsnorm_rope.py
-    test_alloc_extend_slot.py
-    test_cache_assign.py
-    test_cache_loc_bounds.py
-    test_cache_update.py
-)
-
-TEST_GROUP="${1:-small}"
+WORKSPACE="$(cd "${GITHUB_WORKSPACE:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd -P)"
+TEST_ROOT="$WORKSPACE/tests/python"
+TEST_GROUP="${1:-all}"
 
 case "$TEST_GROUP" in
-    small)
-        TESTS=("${SMALL_BATCH_TESTS[@]}")
-        ;;
-    all)
-        TESTS=("${ALL_TESTS[@]}")
-        ;;
-    smoke)
-        TESTS=("${SMOKE_TESTS[@]}")
-        ;;
-    norm)
-        TESTS=("${NORM_TESTS[@]}")
-        ;;
-    attention)
-        TESTS=("${ATTENTION_TESTS[@]}")
-        ;;
-    cache)
-        TESTS=("${CACHE_TESTS[@]}")
-        ;;
-    speculative)
-        TESTS=("${SPECULATIVE_TESTS[@]}")
-        ;;
-    mamba)
-        TESTS=("${MAMBA_TESTS[@]}")
-        ;;
-    fla)
-        TESTS=("${FLA_TESTS[@]}")
-        ;;
-    fused)
-        TESTS=("${FUSED_TESTS[@]}")
-        ;;
+    attention)          TEST_DIRS=("$TEST_ROOT/operators/attention") ;;
+    batch_invariant)    TEST_DIRS=("$TEST_ROOT/operators/batch_invariant") ;;
+    elementwise)        TEST_DIRS=("$TEST_ROOT/operators/elementwise") ;;
+    examples)           TEST_DIRS=("$TEST_ROOT/operators/examples") ;;
+    hyper_conn)         TEST_DIRS=("$TEST_ROOT/operators/hyper_conn") ;;
+    indexer)            TEST_DIRS=("$TEST_ROOT/operators/indexer") ;;
+    lora)               TEST_DIRS=("$TEST_ROOT/operators/lora") ;;
+    mem_cache)          TEST_DIRS=("$TEST_ROOT/operators/mem_cache") ;;
+    multimodal)         TEST_DIRS=("$TEST_ROOT/operators/multimodal") ;;
+    norm)               TEST_DIRS=("$TEST_ROOT/operators/norm") ;;
+    rope)               TEST_DIRS=("$TEST_ROOT/operators/rope") ;;
+    sample)             TEST_DIRS=("$TEST_ROOT/operators/sample") ;;
+    sampler)            TEST_DIRS=("$TEST_ROOT/operators/sampler") ;;
+    operator_framework) TEST_DIRS=("$TEST_ROOT/framework/operator_framework") ;;
+    testing_framework)  TEST_DIRS=("$TEST_ROOT/framework/testing_framework") ;;
+    all)                TEST_DIRS=("$TEST_ROOT/operators" "$TEST_ROOT/framework") ;;
     *)
-        echo "Unknown test group: $TEST_GROUP"
-        echo "Available groups: small, all, smoke, norm, attention, cache, speculative, mamba, fla, fused"
+        echo "Unknown test group: $TEST_GROUP" >&2
         exit 1
         ;;
 esac
 
-# CANN 9.1.0: skip flaky/broken fla tests that only fail on this image.
-# - test_triangular_inverse.py: torch_npu builtin op output mismatch (DTS 20260819-#2)
-# - test_chunk_gdn_triton.py:    intermittent aicore timeout, error 507014 (DTS 20260819-#3)
-# Both still run on CANN 9.0.0 where they pass.
-if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
-    SKIP_ON_910=(
-        test_triangular_inverse.py
-        test_chunk_gdn_triton.py
-    )
-    FILTERED_TESTS=()
-    for t in "${TESTS[@]}"; do
-        local_skip=0
-        for s in "${SKIP_ON_910[@]}"; do
-            if [[ "$t" == "$s" ]]; then
-                local_skip=1
-                break
-            fi
-        done
-        if [ "$local_skip" -eq 0 ]; then
-            FILTERED_TESTS+=("$t")
+cd "$WORKSPACE"
+export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
+
+TESTS=()
+PASSED=()
+FAILED=()
+
+discover_tests() {
+    local discovered test_file relative_path
+    discovered=$(find "$@" -type f -name 'test_*.py' | LC_ALL=C sort) || return 1
+
+    while IFS= read -r test_file; do
+        [[ -n "$test_file" ]] || continue
+        relative_path="${test_file#"$WORKSPACE"/}"
+        TESTS+=("$relative_path")
+    done <<< "$discovered"
+}
+
+filter_tests() {
+    local test_file name
+    local -a filtered=()
+
+    for test_file in "${TESTS[@]}"; do
+        name="${test_file##*/}"
+
+        # Keep the two mHC tests temporarily disabled.
+        case "$test_file" in
+            tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
+            tests/python/operators/hyper_conn/test_mhc_post.py)
+                echo "Skipping temporarily disabled test: $test_file"
+                continue
+                ;;
+        esac
+
+        if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
+            case "$name" in
+                test_triangular_inverse.py|test_chunk_gdn_triton.py)
+                    echo "[CANN_VERSION=$CANN_VERSION] Skipping: $test_file"
+                    continue
+                    ;;
+            esac
         fi
+
+        if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
+            case "$name" in
+                test_mla_preprocess.py|test_lightning_indexer.py|\
+                test_conv1d_update.py|test_mamba_conv.py|\
+                test_l2norm_boundaries.py|test_batch_matmul_transpose.py|\
+                test_qkvzba_split_reshape_cat.py|test_gmm_wfp8a16.py|\
+                test_mm_wfp8a16.py)
+                    echo "[NPU_HARDWARE=$NPU_HARDWARE] Skipping: $test_file"
+                    continue
+                    ;;
+            esac
+        fi
+
+        filtered+=("$test_file")
     done
-    echo "[CANN_VERSION=$CANN_VERSION] skipping on 9.1.0: ${SKIP_ON_910[*]}"
-    TESTS=("${FILTERED_TESTS[@]}")
+
+    TESTS=("${filtered[@]}")
+}
+
+run_test() {
+    local test_file="$1"
+    local exit_code=0
+
+    echo "=========================================="
+    echo "Running: $test_file"
+    echo "=========================================="
+
+    python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        PASSED+=("$test_file")
+        echo "PASSED: $test_file"
+    else
+        FAILED+=("$test_file")
+        echo "FAILED: $test_file (exit code: $exit_code)"
+    fi
+    echo
+}
+
+discover_tests "${TEST_DIRS[@]}"
+
+if [[ "${#TESTS[@]}" -eq 0 ]]; then
+    echo "No test files found in group: $TEST_GROUP" >&2
+    exit 1
 fi
 
-# A5 (Ascend 950): skip tests that fail on this hardware; still run on A3.
-if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
-    SKIP_ON_A5=(
-        test_mla_preprocess.py
-        test_lightning_indexer.py
-        test_conv1d_update.py
-        test_mamba_conv.py
-        test_l2norm_boundaries.py
-        test_batch_matmul_transpose.py
-        # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
-        test_qkvzba_split_reshape_cat.py
-        test_gmm_wfp8a16.py
-        test_mm_wfp8a16.py
+filter_tests
 
-    )
-    FILTERED_TESTS=()
-    for t in "${TESTS[@]}"; do
-        local_skip=0
-        for s in "${SKIP_ON_A5[@]}"; do
-            if [[ "$t" == "$s" ]]; then
-                local_skip=1
-                break
-            fi
-        done
-        if [ "$local_skip" -eq 0 ]; then
-            FILTERED_TESTS+=("$t")
-        fi
-    done
-    echo "[NPU_HARDWARE=950] skipping on A5: ${SKIP_ON_A5[*]}"
-    TESTS=("${FILTERED_TESTS[@]}")
+if [[ "${#TESTS[@]}" -eq 0 ]]; then
+    echo "All test files in group '$TEST_GROUP' were skipped by environment rules."
+    exit 0
 fi
 
-# mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
-# if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
-#     TESTS+=(
-#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
-#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
-#     )
-# fi
-
-echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
-echo ""
-
-for test in "${TESTS[@]}"; do
-    run_test "$test"
+echo "Running test group: $TEST_GROUP (${#TESTS[@]} test files)"
+for test_file in "${TESTS[@]}"; do
+    run_test "$test_file"
 done
 
 echo "=========================================="
@@ -263,14 +138,8 @@ echo "Total:  ${#TESTS[@]}"
 echo "Passed: ${#PASSED[@]}"
 echo "Failed: ${#FAILED[@]}"
 
-if [ ${#FAILED[@]} -gt 0 ]; then
-    echo ""
-    echo "Failed tests:"
-    for test in "${FAILED[@]}"; do
-        echo "  - $test"
-    done
+if [[ "${#FAILED[@]}" -gt 0 ]]; then
+    echo "Failed test files:"
+    printf '  - %s\n' "${FAILED[@]}"
     exit 1
 fi
-
-echo ""
-echo "All tests passed!"
