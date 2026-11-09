@@ -156,9 +156,9 @@ def _packed_conv(
     channel = tl.arange(0, BLOCK)
     iw = tl.arange(0, BLOCK * K)
     # Reuse is safe only if this program visits the same channels in each batch.
-    REUSE: tl.constexpr = TASKS > GRID and GRID % tl.cdiv(C, BLOCK) == 0
+    REUSE: tl.constexpr = TASKS > GRID and GRID % ((C + BLOCK - 1) // BLOCK) == 0
     if REUSE:
-        c0 = (tl.program_id(0) % tl.cdiv(C, BLOCK)) * BLOCK
+        c0 = (tl.program_id(0) % ((C + BLOCK - 1) // BLOCK)) * BLOCK
         w = tl.load(Weight + c0 * K + iw)
         w0 = tl.gather(w, channel * K, 0).to(tl.float32)
         w1 = tl.gather(w, channel * K + 1, 0).to(tl.float32)
@@ -166,8 +166,8 @@ def _packed_conv(
         w3 = tl.gather(w, channel * K + 3, 0).to(tl.float32)
     for task in range(tl.program_id(0), TASKS, GRID):
         # One task covers one batch row and one consecutive group of channels.
-        b = task // tl.cdiv(C, BLOCK)
-        c0 = (task % tl.cdiv(C, BLOCK)) * BLOCK
+        b = task // ((C + BLOCK - 1) // BLOCK)
+        c0 = (task % ((C + BLOCK - 1) // BLOCK)) * BLOCK
         ix = tl.arange(0, LOAD)
         x = tl.load(
             X + b * C * T + c0 * T + ix,

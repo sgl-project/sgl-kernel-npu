@@ -47,6 +47,12 @@ jobs:
         with:
           files_yaml: |
             norm:
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/norm/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/norm/layer_norm_fwd.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/hyper_conn/hc*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/hyper_conn/hc.py
+              - tests/python/operators/norm/test_grouped_gemma_rmsnorm.py
+              - tests/python/operators/norm/test_layer_norm_fwd.py
               - csrc/rmsnorm/**
               - csrc/add_rmsnorm_bias/**
               - csrc/l1_norm/**
@@ -57,9 +63,16 @@ jobs:
               - tests/python/sgl_kernel_npu/test_l1_norm.py
               - tests/python/sgl_kernel_npu/test_scale_shift.py
             attention:
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/qsa_*.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/__init__.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/indexer/qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/attention/qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/indexer/qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/attention/qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/indexer/qsa_*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/attention/qsa_*.py
+              - tests/python/operators/indexer/test_qsa_*.py
+              - tests/python/operators/attention/test_qsa_sparse_attention.py
               - csrc/attentions/**
               - csrc/mla_preprocess/**
               - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
@@ -104,9 +117,10 @@ jobs:
               - tests/python/sgl_kernel_npu/test_apply_token_bitmask.py
               - tests/python/sgl_kernel_npu/test_argmax_softmax_prob.py
             mamba:
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/short_conv.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_short_conv.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/mamba/*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/mamba/*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/mamba/*.py
+              - tests/python/operators/mamba/test_short_conv.py
               - csrc/causal_conv1d/**
               - csrc/causal_conv1d_update/**
               - python/sgl_kernel_npu/sgl_kernel_npu/mamba/**
@@ -132,10 +146,10 @@ jobs:
               - tests/python/sgl_kernel_npu/test_triangular_inverse.py
               - tests/python/sgl_kernel_npu/test_l2norm_boundaries.py
             fused:
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/__init__.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/hc.py
-              - python/sgl_kernel_npu/sgl_kernel_npu/qwen3_8_flash_next/hc_core.py
-              - tests/python/sgl_kernel_npu/test_qwen3_8_flash_next_hc.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/hyper_conn/*.py
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/norm/grouped_gemma_rmsnorm.py
+              - tests/python/operators/hyper_conn/test_hc.py
+              - tests/python/operators/norm/test_grouped_gemma_rmsnorm.py
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/hyper_conn/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/hyper_conn/**
               - tests/python/operators/hyper_conn/**
@@ -175,6 +189,7 @@ jobs:
               - tests/python/conftest.py
               - tests/python/utils/**
               - tests/python/operators/__init__.py
+              - tests/python/operators/qsa_test_utils.py
               - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules

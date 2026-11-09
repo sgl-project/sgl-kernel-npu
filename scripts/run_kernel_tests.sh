@@ -49,6 +49,8 @@ SMOKE_TESTS=(
 )
 
 NORM_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/norm/test_layer_norm_fwd.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/norm/test_grouped_gemma_rmsnorm.py"
     # test_add_rmsnorm_bias.py  # FAILING: add_rmsnorm_bias() got multiple values for 'norm_bias'
     test_rmsnorm_split.py
     test_rmsnorm_without_weight.py
@@ -57,10 +59,10 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    test_qwen3_8_flash_next_qsa_expansion.py
-    test_qwen3_8_flash_next_qsa_topk.py
-    test_qwen3_8_flash_next_qsa_mqa.py
-    test_qwen3_8_flash_next_qsa_sparse_attention.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_qsa_expansion.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_qsa_topk.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_qsa_mqa.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_qsa_sparse_attention.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
@@ -95,7 +97,7 @@ SPECULATIVE_TESTS=(
 )
 
 MAMBA_TESTS=(
-    test_qwen3_8_flash_next_short_conv.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/mamba/test_short_conv.py"
     test_conv1d_prefill.py
     test_conv1d_update.py
     test_mamba_conv.py
@@ -115,7 +117,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
-    test_qwen3_8_flash_next_hc.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_hc.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py

@@ -132,8 +132,10 @@ def layer_norm_fwd(
     MAX_FUSED_SIZE = 65536 // x.element_size()
     BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
 
-    # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
-    BLOCK_M = 48
+    # Bound the live FP32 normalization/gating tiles as feature width grows.
+    # A fixed 48x4096 tile exceeds the compiler's local-memory budget.
+    tile_elements = 4096 if z is not None else 8192
+    BLOCK_M = min(48, max(1, tile_elements // BLOCK_N))
     _, num_vectorcore = get_device_properties()
     num_blocks_m = min(triton.cdiv(M, BLOCK_M), num_vectorcore)
 

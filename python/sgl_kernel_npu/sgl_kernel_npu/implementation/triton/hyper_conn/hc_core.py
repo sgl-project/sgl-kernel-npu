@@ -1,4 +1,4 @@
-"""Hyperconnection core: FP32 norm and native-GEMM hybrid mix/combine.
+"""Hyperconnection core: public norm/activation and native-GEMM hybrid mix/combine.
 
 Norm follows the GPU FP32 statistics/scaling stages without compensation.
 Reduction order and backend math are not bitwise CUDA parity guarantees.
@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+from sgl_kernel_npu.operators.activation import fused_sigmoid_mul
+from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
 
 @lru_cache(None)
@@ -23,26 +25,6 @@ def _vector_cores(device):
 
 def _grid(tensor, tasks):
     return (min(tasks, _vector_cores(tensor.device.index)),)
-
-
-@triton.jit
-def _norm(X, W, Y, GROUPS: tl.constexpr, EPS: tl.constexpr):
-    col = tl.arange(0, 4096)
-    for group in range(tl.program_id(0), GROUPS, tl.num_programs(0)):
-        offset = group.to(tl.int64) * 2560 + col
-        x = tl.load(X + offset, col < 2560, other=0).to(tl.float32)
-        w = tl.load(W + (group % 4) * 2560 + col, col < 2560, other=0).to(tl.float32)
-        inv = tl.rsqrt(tl.sum(x * x, 0) / 2560.0 + EPS)
-        y = (x * inv) * (1.0 + w)
-        tl.store(Y + offset, y, col < 2560)
-
-
-@triton.jit
-def _silu(X, Y, N: tl.constexpr, BLOCK: tl.constexpr):
-    for task in range(tl.program_id(0), tl.cdiv(N, BLOCK), tl.num_programs(0)):
-        i = task.to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
-        x = tl.load(X + i, i < N, other=0) * 0.25
-        tl.store(Y + i, x * tl.sigmoid(x), i < N)
 
 
 @triton.jit
@@ -78,11 +60,16 @@ def _combine(B, R, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
 
 
 def grouped_norm(x, weight, group_size, eps):
-    y = torch.empty_like(x)
-    _norm[_grid(x, x.shape[0] * 4)](
-        x, weight, y, x.shape[0] * 4, eps, enable_fp_fusion=False
+    # Conversion stays in the captured invocation, so replay sees weight updates.
+    out, _, _ = layer_norm_fwd(
+        x,
+        weight.float() + 1.0,
+        None,
+        eps,
+        group_size=group_size,
+        is_rms_norm=True,
     )
-    return y
+    return out
 
 
 # At 4096 rows the measured unchunked FP32 mix uses about 203 MiB extra.
@@ -96,10 +83,8 @@ DIRECT_ROWS = 2 * ROW_BLOCK
 
 def _mix_project(x, down32, up32, out):
     hidden = F.linear(x.float(), down32)
-    activated = torch.empty_like(hidden)
-    _silu[_grid(x, triton.cdiv(hidden.numel(), 256))](
-        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False
-    )
+    scaled = hidden * 0.25
+    activated = fused_sigmoid_mul(scaled, scaled)
     gates = F.linear(activated, up32)
     _mix[_grid(x, x.shape[0] * 10)](
         x, gates, out, x.shape[0], 256, enable_fp_fusion=False
@@ -110,10 +95,8 @@ def mix(x, down, up, hc, hs):
     # Native GEMMs retain FP32 intermediates. Converted weights belong to this
     # invocation, so graph replay observes in-place updates at stable addresses.
     hidden = F.linear(x.float(), down.float())
-    activated = torch.empty_like(hidden)
-    _silu[_grid(x, triton.cdiv(hidden.numel(), 256))](
-        hidden, activated, hidden.numel(), 256, enable_fp_fusion=False
-    )
+    scaled = hidden * 0.25
+    activated = fused_sigmoid_mul(scaled, scaled)
     gates = F.linear(activated, up.float())
     y = x.new_empty((x.shape[0], 2560))
     _mix[_grid(x, x.shape[0] * 10)](
