@@ -16,7 +16,7 @@
 
 arch 3510 的 `ascendc` FP32 状态路径采用混合精度，部分内部矩阵运算仍使用 BF16。
 arch 2201 的 `ascendc` 仅支持 BF16 状态。`torch_native` 在两种架构上均接受 FP32 状态。
-arch 3510 的 FP32 状态仍待上机验证。
+FP32 状态的实机精度尚未验证通过。
 
 ## 函数原型
 
@@ -96,12 +96,11 @@ out_t = scale * (S_t @ q_t)
 
 ## 测试覆盖
 
-原有 15 个 BF16 状态精度用例已在 arch 2201 和 arch 3510 通过。新增 15 个
-arch 3510 FP32 状态用例，尚待上机验证，在 arch 2201 上跳过。两组用例均使用
+15 个 BF16 状态精度用例已在 arch 2201 和 arch 3510 通过。用例使用
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
-不提供、连续和非连续。
+不提供、连续和非连续。FP32 状态不在当前测试范围内。
 
 精度使用公共框架按 dtype 对比 `ascendc` 与 `torch_native`。
-性能沿用公共框架的 5 次 warmup 和 5 次 active；每种状态 dtype 默认仅测
+性能沿用公共框架的 5 次 warmup 和 5 次 active；默认仅测
 显式 `scale=128**-0.5` 且不提供 `chunk_state` 的配置。
 详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。

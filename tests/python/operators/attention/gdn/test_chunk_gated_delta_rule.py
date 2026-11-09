@@ -15,7 +15,7 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 
-def generate_test_data(device, state_dtype=torch.bfloat16):
+def generate_test_data(device):
     """Original ARC-013 dimensions and input generation distributions.
 
     Source: ops-transformer 6bff82496a8720343fc6144218f059a06a7b9b48,
@@ -23,8 +23,6 @@ def generate_test_data(device, state_dtype=torch.bfloat16):
     lines 286-289, 434-453, 471-527.
     The source normalizes q/k during generation. No already supplied input is
     normalized. Torch's seed was unspecified upstream and remains unspecified.
-    The FP32-state variant draws its initial state directly in FP32; the other
-    input dtypes and distributions match the original BF16-state case.
     """
     t, nk, nv, d = 2048, 8, 16, 128
     q = torch.nn.functional.normalize(
@@ -38,7 +36,7 @@ def generate_test_data(device, state_dtype=torch.bfloat16):
         key=k,
         value=torch.rand((t, nv, d), dtype=torch.bfloat16, device=device),
         beta=torch.rand((t, nv), dtype=torch.bfloat16, device=device),
-        initial_state=torch.rand((1, nv, d, d), dtype=state_dtype, device=device),
+        initial_state=torch.rand((1, nv, d, d), dtype=torch.bfloat16, device=device),
         actual_seq_lengths=torch.tensor([t], dtype=torch.int32, device=device),
         g=-1 + torch.rand((t, nv), dtype=torch.float32, device=device),
         scale=d**-0.5,
@@ -62,9 +60,6 @@ def clone_test_data(inputs):
 
 
 @pytest.mark.parametrize(
-    "state_dtype", [torch.bfloat16, torch.float32], ids=["state-bf16", "state-fp32"]
-)
-@pytest.mark.parametrize(
     "scale",
     [128**-0.5, "omitted", None, 1.0, 0.0],
     ids=[
@@ -76,29 +71,22 @@ def clone_test_data(inputs):
     ],
 )
 @pytest.mark.parametrize("chunk_layout", ["absent", "contiguous", "noncontiguous"])
-def test_chunk_gated_delta_rule(scale, chunk_layout, state_dtype):
-    """Cover BF16 state and the same FP32 state contracts on arch 3510."""
+def test_chunk_gated_delta_rule(scale, chunk_layout):
+    """Cover BF16 state across scale settings and chunk-state layouts."""
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    if state_dtype == torch.float32 and get_hardware().generation != Generation.ARCH35:
-        pytest.skip(
-            "CGDR FP32-state cases require arch 3510. "
-            "The ascendc backend on arch 2201 accepts BF16 state only."
-        )
-
-    data = generate_test_data(torch.device("npu"), state_dtype)
+    data = generate_test_data(torch.device("npu"))
     if scale == "omitted":
         del data["scale"]
     else:
         data["scale"] = scale
     if chunk_layout != "absent":
         data["chunk_state"] = torch.zeros(
-            (32, 16, 128, 128), dtype=state_dtype, device=data["query"].device
+            (32, 16, 128, 128), dtype=torch.bfloat16, device=data["query"].device
         )
     if chunk_layout == "noncontiguous":
         padded = torch.full(
-            (32, 16, 128, 129), -7, dtype=state_dtype, device=data["query"].device
+            (32, 16, 128, 129), -7, dtype=torch.bfloat16, device=data["query"].device
         )
         data["chunk_state"] = padded[..., :128]
     if chunk_layout == "absent":

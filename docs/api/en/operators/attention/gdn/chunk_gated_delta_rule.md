@@ -17,7 +17,7 @@ is FP32 and `actual_seq_lengths` is int32.
 The `ascendc` FP32-state path on arch 3510 uses mixed precision. Some internal
 matrix operations still use BF16. On arch 2201, `ascendc` accepts BF16 state
 only. `torch_native` accepts FP32 state on both architectures. FP32-state device
-validation on arch 3510 remains pending.
+accuracy remains unverified.
 
 ## Signature
 
@@ -102,13 +102,13 @@ Usage notes:
 
 ## Test coverage
 
-The 15 original BF16-state accuracy cases passed on arch 2201 and arch 3510.
-Another 15 cases cover FP32 state on arch 3510 and await device validation.
-These cases are skipped on arch 2201. Both sets use `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings
-and three chunk-state layouts: absent, contiguous and noncontiguous.
+The 15 BF16-state accuracy cases passed on arch 2201 and arch 3510. They use
+`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings and three
+chunk-state layouts: absent, contiguous and noncontiguous. FP32 state is outside
+this test suite.
 
 Accuracy compares `ascendc` with `torch_native` using the shared dtype-specific
 standards. Performance uses the shared framework with five warmup and five active
-calls. For each state dtype, the default performance case uses explicit
+calls. The default performance case uses explicit
 `scale=128**-0.5` and no `chunk_state`. See the
 [test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).
