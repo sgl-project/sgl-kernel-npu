@@ -52,6 +52,8 @@ Semantics (BF16 rounding at quantized compute boundaries):
 z_i = softmax_scale * dot(q, dequant(k_i)); out = sum_i exp(z_i) * dequant(v_i) / (exp(sink) + sum_i exp(z_i)); lse = log(exp(sink) + sum_i exp(z_i))
 ```
 
+Original KV stores E4M3FN values with one BF16 scale per 32 features. Compressed KV stores signed E2M1 values with one BF16 scale per 16 features, low nibble first. Both use `dequant(value, scale) = value * scale` without a zero point and round the dequantized values to BF16. The PV weights are rounded to BF16 before the value product. The sink contributes to the softmax denominator and LSE, with zero value contribution.
+
 ## Parameters
 
 T is query rows, B requests, P physical pages and S slots per page.

@@ -43,6 +43,8 @@ Semantics (BF16 rounding at quantized compute boundaries):
 p = BF16(latent @ wk.T); k = RoPE(BF16(p / sqrt(mean(p**2) + norm_eps) * norm_weight)); cache = MXFP4(k)
 ```
 
+Each group of 32 values shares a power-of-two scale `s = 2**ceil(log2(max(amax, 6 * 2**-126) / 6))`. Magnitudes are mapped to E2M1 levels `{0, 0.5, 1, 1.5, 2, 3, 4, 6}` with no zero point; midpoint ties select the smaller magnitude and values saturate at 6. The first value occupies the low nibble and the second the high nibble. The E8M0 scale byte stores `log2(s) + 127`.
+
 ## Parameters
 
 T is query rows, B requests, P physical pages and S slots per page.

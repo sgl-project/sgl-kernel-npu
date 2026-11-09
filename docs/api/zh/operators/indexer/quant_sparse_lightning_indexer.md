@@ -57,6 +57,8 @@ MXFP4 Sparse Lightning Indexer：只访问 QLI 给出的候选 Key 块，再选�
 s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0), i in visible candidate blocks; indices = TopK(s)
 ```
 
+`dequant(code, e) = signed_E2M1(code) * 2**(e - 127)`，每 32 个逻辑值共用一个 E8M0 指数字节，无 zero point。E2M1 幅值为 `{0, 0.5, 1, 1.5, 2, 3, 4, 6}`，每字节低半字节存第一个值。QK 结果、头权重及每次加权头累加的结果均舍入到 BF16。
+
 ## 参数
 
 T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。

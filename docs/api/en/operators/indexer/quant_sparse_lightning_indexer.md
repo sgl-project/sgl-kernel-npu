@@ -57,6 +57,8 @@ Semantics (BF16 rounding at quantized compute boundaries):
 s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0), i in visible candidate blocks; indices = TopK(s)
 ```
 
+`dequant(code, e) = signed_E2M1(code) * 2**(e - 127)`, with one E8M0 exponent byte per 32 logical values and no zero point. E2M1 uses magnitudes `{0, 0.5, 1, 1.5, 2, 3, 4, 6}`; the first value is in the low nibble. QK results, head weights, and each weighted head accumulation are rounded to BF16.
+
 ## Parameters
 
 T is query rows, B requests, P physical pages and S slots per page.

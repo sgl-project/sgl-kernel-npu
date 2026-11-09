@@ -52,6 +52,8 @@ def mixed_quant_sparse_flash_mla(
 z_i = softmax_scale * dot(q, dequant(k_i)); out = sum_i exp(z_i) * dequant(v_i) / (exp(sink) + sum_i exp(z_i)); lse = log(exp(sink) + sum_i exp(z_i))
 ```
 
+原始 KV 使用 E4M3FN，每 32 个特征共用一个 BF16 scale；压缩 KV 使用带符号 E2M1，每 16 个特征共用一个 BF16 scale，低半字节在前。两者均按 `dequant(value, scale) = value * scale` 解量化，无 zero point，结果舍入到 BF16。PV 权重在与 value 相乘前舍入到 BF16。sink 参与 softmax 分母和 LSE，value 贡献为零。
+
 ## 参数
 
 T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。

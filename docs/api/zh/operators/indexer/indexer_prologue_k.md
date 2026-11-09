@@ -43,6 +43,8 @@ Indexer K 前处理：BF16 投影、RMSNorm、RoPE、MXFP4 E2M1 量化，并写�
 p = BF16(latent @ wk.T); k = RoPE(BF16(p / sqrt(mean(p**2) + norm_eps) * norm_weight)); cache = MXFP4(k)
 ```
 
+每 32 个值共用一个 2 的整数次幂 scale：`s = 2**ceil(log2(max(amax, 6 * 2**-126) / 6))`。幅值映射到 E2M1 的 `{0, 0.5, 1, 1.5, 2, 3, 4, 6}`，无 zero point；中点取较小幅值，超过范围饱和到 6。每字节低半字节存第一个值，高半字节存第二个值。E8M0 scale 字节保存 `log2(s) + 127`。
+
 ## 参数
 
 T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
