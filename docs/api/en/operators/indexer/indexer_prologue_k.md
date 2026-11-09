@@ -2,10 +2,10 @@
 
 ## Hardware support
 
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | Supported | Unverified | Unsupported |
-| torch_native | Unverified | Unverified | Unverified |
+| impl | arch22 | arch35 |
+| --- | --- | --- |
+| cannbot_dsl | Unsupported | Supported |
+| torch_native | Unverified | Unverified |
 
 ## Signature
 

@@ -2,9 +2,9 @@
 
 ## 芯片支持
 
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | 支持 | 未验证 | 不支持 |
+| impl | arch22 | arch35 |
+| --- | --- | --- |
+| cannbot_dsl | 不支持 | 支持 |
 
 ## 函数原型
 

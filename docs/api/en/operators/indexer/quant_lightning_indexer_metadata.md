@@ -2,9 +2,9 @@
 
 ## Hardware support
 
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | Supported | Unverified | Unsupported |
+| impl | arch22 | arch35 |
+| --- | --- | --- |
+| cannbot_dsl | Unsupported | Supported |
 
 ## Signature
 
