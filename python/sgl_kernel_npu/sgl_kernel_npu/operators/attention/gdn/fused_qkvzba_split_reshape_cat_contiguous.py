@@ -1,17 +1,17 @@
 """Public QKVZ/BA split operator for contiguous [q|k|v|z] inputs."""
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("fla.fused_qkvzba_split_reshape_cat_contiguous", "auto")
-@register_impl("fla.fused_qkvzba_split_reshape_cat_contiguous", "triton")
+@register_impl("attention.gdn.fused_qkvzba_split_reshape_cat_contiguous", "auto")
+@register_impl("attention.gdn.fused_qkvzba_split_reshape_cat_contiguous", "triton")
 def _triton_impl(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.fla.fused_qkvzba_split_reshape_cat import (
+        from ....implementation.triton.attention.gdn.fused_qkvzba_split_reshape_cat import (
             fused_qkvzba_split_reshape_cat_contiguous,
         )
 
@@ -19,13 +19,15 @@ def _triton_impl(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_
     return _triton_fn(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v)
 
 
-@register_impl("fla.fused_qkvzba_split_reshape_cat_contiguous", "torch_native")
+@register_impl(
+    "attention.gdn.fused_qkvzba_split_reshape_cat_contiguous", "torch_native"
+)
 def _torch_native_impl(
     mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.fla.fused_qkvzba_split_reshape_cat import (
+        from ....implementation.torch_native.attention.gdn.fused_qkvzba_split_reshape_cat import (
             fused_qkvzba_split_reshape_cat_contiguous,
         )
 
@@ -35,7 +37,7 @@ def _torch_native_impl(
     )
 
 
-@register_operator("fla.fused_qkvzba_split_reshape_cat_contiguous")
+@register_operator("attention.gdn.fused_qkvzba_split_reshape_cat_contiguous")
 def fused_qkvzba_split_reshape_cat_contiguous(
     mixed_qkvz,
     mixed_ba,
@@ -55,5 +57,7 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     are [all b | all a]. Inputs are 2-D contiguous tensors on one NPU and are
     not modified.
     """
-    impl_fn = get_impl_by_name("fla.fused_qkvzba_split_reshape_cat_contiguous", impl)
+    impl_fn = get_impl_by_name(
+        "attention.gdn.fused_qkvzba_split_reshape_cat_contiguous", impl
+    )
     return impl_fn(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v)

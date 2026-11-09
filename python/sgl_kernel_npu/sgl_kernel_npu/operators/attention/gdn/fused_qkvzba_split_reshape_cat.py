@@ -1,17 +1,17 @@
 """Public QKVZ/BA split operator for per-head-group interleaved inputs."""
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("fla.fused_qkvzba_split_reshape_cat", "auto")
-@register_impl("fla.fused_qkvzba_split_reshape_cat", "triton")
+@register_impl("attention.gdn.fused_qkvzba_split_reshape_cat", "auto")
+@register_impl("attention.gdn.fused_qkvzba_split_reshape_cat", "triton")
 def _triton_impl(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.fla.fused_qkvzba_split_reshape_cat import (
+        from ....implementation.triton.attention.gdn.fused_qkvzba_split_reshape_cat import (
             fused_qkvzba_split_reshape_cat,
         )
 
@@ -19,13 +19,13 @@ def _triton_impl(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_
     return _triton_fn(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v)
 
 
-@register_impl("fla.fused_qkvzba_split_reshape_cat", "torch_native")
+@register_impl("attention.gdn.fused_qkvzba_split_reshape_cat", "torch_native")
 def _torch_native_impl(
     mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.fla.fused_qkvzba_split_reshape_cat import (
+        from ....implementation.torch_native.attention.gdn.fused_qkvzba_split_reshape_cat import (
             fused_qkvzba_split_reshape_cat,
         )
 
@@ -35,7 +35,7 @@ def _torch_native_impl(
     )
 
 
-@register_operator("fla.fused_qkvzba_split_reshape_cat")
+@register_operator("attention.gdn.fused_qkvzba_split_reshape_cat")
 def fused_qkvzba_split_reshape_cat(
     mixed_qkvz,
     mixed_ba,
@@ -56,5 +56,5 @@ def fused_qkvzba_split_reshape_cat(
     [rows, num_heads_v, head_v], and ``b``/``a`` of [rows, num_heads_v].
     Inputs are not modified.
     """
-    impl_fn = get_impl_by_name("fla.fused_qkvzba_split_reshape_cat", impl)
+    impl_fn = get_impl_by_name("attention.gdn.fused_qkvzba_split_reshape_cat", impl)
     return impl_fn(mixed_qkvz, mixed_ba, num_heads_qk, num_heads_v, head_qk, head_v)

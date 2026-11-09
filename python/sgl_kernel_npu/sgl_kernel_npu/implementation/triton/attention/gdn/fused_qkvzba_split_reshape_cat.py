@@ -4,7 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from ..utils.triton_utils import get_device_properties
+from ...utils.triton_utils import get_device_properties
 
 MAX_ROWS_PER_ITER = 64
 # 85 is deployed because A3 ub-size is 192kb and taking double buffer and extra memory into consideration.

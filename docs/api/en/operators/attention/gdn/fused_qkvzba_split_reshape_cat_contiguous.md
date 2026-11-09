@@ -10,7 +10,7 @@
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.fla import fused_qkvzba_split_reshape_cat_contiguous
+from sgl_kernel_npu.operators.attention.gdn import fused_qkvzba_split_reshape_cat_contiguous
 
 def fused_qkvzba_split_reshape_cat_contiguous(
     mixed_qkvz: torch.Tensor,
@@ -93,7 +93,7 @@ The independent PyTorch reference uses column slicing, reshape and concatenation
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.fla import fused_qkvzba_split_reshape_cat_contiguous
+from sgl_kernel_npu.operators.attention.gdn import fused_qkvzba_split_reshape_cat_contiguous
 
 QK, V, HEAD = 2, 4, 128  # Qwen3.5 TP=8 shard
 rows = 1
