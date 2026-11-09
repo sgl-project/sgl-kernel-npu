@@ -69,7 +69,7 @@ def generate_data(shape, dtypes=(torch.uint8,), mode="normal", index_dtype=torch
                 torch.int64,
                 id=f"byte-tail-{stride}",
             )
-            for stride in (1, 31, 1023, 1024, 1025, 65521, 70001)
+            for stride in (1, 31, 1023, 1024, 1025, 4095, 4096, 4097, 65521, 70001)
         ],
         pytest.param(
             (3, 9, 35),
