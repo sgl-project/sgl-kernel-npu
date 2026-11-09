@@ -37,6 +37,7 @@ def generate_test_data(shape, dtype, ba_dtype=None):
         pytest.param((1, 16, 32), torch.float32, None, id="decode-tp1-b1-16x32"),
         pytest.param((8192, 2, 4), torch.bfloat16, None, id="prefill-tp8-b8192-2x4"),
         pytest.param((8192, 4, 8), torch.float16, None, id="prefill-tp4-b8192-4x8"),
+        pytest.param((8192, 4, 8), torch.bfloat16, None, id="prefill-tp4-bf16"),
         pytest.param((7, 4, 8), torch.bfloat16, None, id="edge-b7-4x8"),
         # Head-group ratio boundaries served by SGLang (1 and 4).
         pytest.param((4, 4, 4), torch.bfloat16, None, id="ratio1-4x4"),
