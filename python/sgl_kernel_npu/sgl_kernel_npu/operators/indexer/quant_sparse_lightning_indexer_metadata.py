@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
+from importlib import import_module
+
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -21,11 +24,16 @@ _cannbot_dsl_fn = None
 )
 def _cannbot_dsl_impl(*args, **kwargs):
     global _cannbot_dsl_fn
-    with ascend950_device(*args, **kwargs):
+    # Positional arguments are optional sequence tensors.
+    device = next(
+        (value.device for value in args if value is not None),
+        torch.npu.current_device(),
+    )
+    with torch.npu.device(device):
         if _cannbot_dsl_fn is None:
-            _cannbot_dsl_fn = load_cannbot_dsl(
-                "quant_sparse_lightning_indexer_metadata"
-            )
+            _cannbot_dsl_fn = import_module(
+                "sgl_kernel_npu.implementation.cannbot-dsl.indexer.quant_sparse_lightning_indexer_metadata"
+            ).quant_sparse_lightning_indexer_metadata
         return _cannbot_dsl_fn(*args, **kwargs)
 
 

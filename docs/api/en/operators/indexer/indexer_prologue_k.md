@@ -37,7 +37,7 @@ def indexer_prologue_k(
 
 Projects BF16 latent states, applies RMSNorm and RoPE, quantizes to MXFP4 E2M1, and writes paged K cache.
 
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 BF16 `latent[T,H]`, FRACTAL_NZ `wk[D,H]`, FP32 normalization/RoPE inputs, and INT64 `cache_index[T]` are required. A `-1` cache index skips the write. `storage_mode=0` uses a separate scale cache; mode 1 combines rows according to `combined_block_size`.
 
@@ -74,7 +74,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 ## cannbot_dsl
 
-`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 ## torch_native
 

@@ -43,7 +43,7 @@ def mixed_quant_sparse_flash_mla_metadata(
 
 Plans full-row or FlashDecode split work on AICPU from the original and compressed TopK lengths.
 
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 `ori_topk_length` and `cmp_topk_length` describe valid sparse lengths per query/head. The `has_ori_kv` and `has_cmp_kv` flags must match the main operator. This profile uses `num_heads_q=64`, `num_heads_kv=1`, `head_dim=512`, and `quant_mode=1`.
 
@@ -81,7 +81,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 ## cannbot_dsl
 
-`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 Metadata encodes a device-specific schedule, with no unique Torch numerical answer. No torch_native alias is provided. The paired compute reference checks output semantics; this entry tests eager/graph parity after length updates.
 

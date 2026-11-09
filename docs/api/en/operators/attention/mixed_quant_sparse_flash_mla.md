@@ -48,7 +48,7 @@ def mixed_quant_sparse_flash_mla(
 
 Computes sparse MLA over BF16 queries, FP8 original KV, and optional FP4 compressed KV.
 
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 BF16 TND `q[T1,64,512]`, UINT8 paged original KV, sparse indices and block tables are required for active KV sides. `quant_mode=1`; metadata must come from `mixed_quant_sparse_flash_mla_metadata` with matching configuration. The caller allocates `out` and `lse`.
 
@@ -96,7 +96,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 ## cannbot_dsl
 
-`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 ## torch_native
 

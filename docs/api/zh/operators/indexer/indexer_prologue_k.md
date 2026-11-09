@@ -37,7 +37,7 @@ def indexer_prologue_k(
 
 Indexer K 前处理：BF16 投影、RMSNorm、RoPE、MXFP4 E2M1 量化，并写入分页 K cache。
 
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 输入 `latent` 为 BF16 `[T,H]`，`wk` 为 BF16 `[D,H]` 的 FRACTAL_NZ 权重；`norm_weight`、`rope_sin`、`rope_cos` 为 FP32。`cache_index` 为 INT64 `[T]`，值 `-1` 跳过写入。`k_cache` 为 UINT8；`storage_mode=0` 时使用独立 `k_scale_cache`，`storage_mode=1` 时按 `combined_block_size` 合并存储。`D` 是 32 的倍数，RoPE 维度为偶数。
 
@@ -74,7 +74,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
 ## cannbot_dsl
 
-`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
 
 ## torch_native
 

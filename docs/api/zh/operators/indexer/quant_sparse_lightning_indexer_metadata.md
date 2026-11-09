@@ -44,7 +44,7 @@ def quant_sparse_lightning_indexer_metadata(
 
 QSLI 的 AICPU 调度算子：按每行候选长度和序列可见范围规划分核与跨核归并。
 
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `candidate_block_length` 为每个 Query 的有效候选块数量，`cu_seqlens_q/k`、`seqused_q/k` 描述存储和有效长度；`candidate_block_size=8`、`quant_mode=1` 应与主算子一致。候选长度或静态属性变化后需重建 metadata；不可用 QLI metadata 替代。
 
@@ -83,7 +83,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
 ## cannbot_dsl
 
-`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
 
 metadata 是该设备实现的调度计划，不存在唯一的 Torch 数值答案，因此不提供同名 torch_native 别名。配套计算算子的独立参考验证结果语义，本入口测试长度更新后的 eager/graph 一致性。
 

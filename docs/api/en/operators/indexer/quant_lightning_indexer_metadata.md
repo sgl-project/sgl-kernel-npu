@@ -43,7 +43,7 @@ def quant_lightning_indexer_metadata(
 
 Builds QLI AICPU scheduling and cross-core merge metadata from lengths, mask, compression ratio, and TopK.
 
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 Cumulative and used sequence lengths are INT32. Geometry is `num_heads_q=32`, `num_heads_k=1`, `head_dim=128`. Candidate settings must match the main QLI call; regenerate metadata when lengths or static settings change.
 
@@ -81,7 +81,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 ## cannbot_dsl
 
-`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 Metadata encodes a device-specific schedule, with no unique Torch numerical answer. No torch_native alias is provided. The paired compute reference checks output semantics; this entry tests eager/graph parity after length updates.
 

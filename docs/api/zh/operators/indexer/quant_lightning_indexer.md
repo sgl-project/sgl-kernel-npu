@@ -49,7 +49,7 @@ def quant_lightning_indexer(
 
 MXFP4 Lightning Indexer：遍历可见 Key，按 Query head 加权得分选取 TopK token；可同时输出 QSLI 的候选块。
 
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `q` 为 UINT8 `[T1,32,64]`，`k` 为打包 MXFP4 Key（PA_BBND 或 TND），`descale_q` 与 `descale_k` 为 E8M0 scale。`metadata` 必须由同配置的 `quant_lightning_indexer_metadata` 生成。`quant_mode=1`；`layout_q="TND"`，`layout_k` 支持 `TND`/`PA_BBND`；候选输出启用时 `candidate_block_size=8`。
 
@@ -100,7 +100,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
 ## cannbot_dsl
 
-`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
 
 ## torch_native
 

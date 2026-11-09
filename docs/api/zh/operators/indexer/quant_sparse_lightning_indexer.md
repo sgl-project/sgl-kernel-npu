@@ -50,7 +50,7 @@ def quant_sparse_lightning_indexer(
 
 MXFP4 Sparse Lightning Indexer：只访问 QLI 给出的候选 Key 块，再选出 TopK token。
 
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `q` 为 UINT8 `[T1,32,64]`；`candidate_block_indices` 为 INT32 候选块号，`candidate_block_length` 给出每行有效前缀。`descale_k` 为 E8M0 scale，`metadata` 需由同配置的 QSLI metadata 算子生成。`candidate_block_size=8`、`quant_mode=1`；K 可为 `TND` 或 `PA_BBND`。
 
@@ -101,7 +101,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
 ## cannbot_dsl
 
-`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
 
 ## torch_native
 

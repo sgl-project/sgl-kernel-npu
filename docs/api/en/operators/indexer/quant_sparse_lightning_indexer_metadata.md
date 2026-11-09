@@ -44,7 +44,7 @@ def quant_sparse_lightning_indexer_metadata(
 
 Plans QSLI AICPU work from each row’s candidate length and visible sequence range.
 
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 `candidate_block_length`, cumulative/used Q and K lengths, candidate block size, and quantization mode must match the main QSLI call. QLI metadata cannot substitute for QSLI metadata.
 
@@ -83,7 +83,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 ## cannbot_dsl
 
-`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 Metadata encodes a device-specific schedule, with no unique Torch numerical answer. No torch_native alias is provided. The paired compute reference checks output semantics; this entry tests eager/graph parity after length updates.
 

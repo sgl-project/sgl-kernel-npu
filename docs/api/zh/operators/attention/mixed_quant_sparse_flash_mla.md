@@ -48,7 +48,7 @@ def mixed_quant_sparse_flash_mla(
 
 混合量化稀疏 MLA：对 BF16 Query、FP8 原始 KV 和可选 FP4 压缩 KV 执行稀疏注意力。
 
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `q` 为 BF16 TND `[T1,64,512]`；`ori_kv` 为 UINT8 PA_BBND `[pages,page_size,1,544]`，`cmp_kv` 可选，格式为 `[pages,page_size,1,320]`。两侧需分别提供稀疏索引、页表与可选有效 TopK 长度。`metadata` 来自 `mixed_quant_sparse_flash_mla_metadata`；`quant_mode=1`。`out` 和 `lse` 由调用方预分配。
 
@@ -96,7 +96,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
 ## cannbot_dsl
 
-`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
 
 ## torch_native
 
