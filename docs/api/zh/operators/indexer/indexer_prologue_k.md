@@ -9,6 +9,8 @@
 
 ## 函数原型
 
+`from sgl_kernel_npu.operators.indexer import indexer_prologue_k`
+
 ```python
 import torch
 

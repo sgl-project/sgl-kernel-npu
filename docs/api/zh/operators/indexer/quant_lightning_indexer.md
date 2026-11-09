@@ -9,6 +9,8 @@
 
 ## 函数原型
 
+`from sgl_kernel_npu.operators.indexer import quant_lightning_indexer`
+
 ```python
 import torch
 from typing import Optional
@@ -72,7 +74,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | `cmp_residual_k` | `None` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
 | `block_table` | `None` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
 | `output_idx_offset` | `None` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
-| `metadata` | `None` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
+| `metadata` | `None` | cannbot_dsl 必需的 INT32 [1024] 设备调度数据；torch_native 不使用该参数。 |
 | `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
 | `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
 | `max_seqlen_q` | `-1` | int 或 None，每个请求的查询容量；未指定时推导。 |

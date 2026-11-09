@@ -93,7 +93,7 @@ def quant_sparse_lightning_indexer(
         cmp_residual_k: Optional INT32 [B], uncompressed residual tokens for causal compression.
         block_table: Optional INT32 [B,max_blocks], logical-to-physical PA page map.
         output_idx_offset: Optional INT32 [T,1], added to each valid selected token index.
-        metadata: Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling.
+        metadata: INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it.
         descale_k: UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage.
         topk: int, maximum selected tokens per query, in [1,8192].
         candidate_block_size: int, use 8 tokens per candidate block when enabled.

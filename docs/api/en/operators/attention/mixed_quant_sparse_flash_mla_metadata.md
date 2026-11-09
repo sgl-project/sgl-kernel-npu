@@ -8,6 +8,8 @@
 
 ## Signature
 
+`from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla_metadata`
+
 ```python
 def mixed_quant_sparse_flash_mla_metadata(
     ori_topk_length,
@@ -45,23 +47,23 @@ T is query rows, B requests, P physical pages and S slots per page.
 
 | Parameter | Default | Type, shape and meaning |
 | --- | --- | --- |
-| `ori_topk_length` | Required | INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled. |
-| `cmp_topk_length` | Required | INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled. |
+| `ori_topk_length` | Required | Required contiguous INT32 [T,1], valid original sparse prefix per query. |
+| `cmp_topk_length` | Required | Required contiguous INT32 [T,1]; pass zeros when has_cmp_kv=False. |
 | `cu_seqlens_q` | `None` | Optional INT32 [B+1], cumulative query row boundaries. |
-| `seqused_q` | `None` | Optional INT32 [B], valid query rows per request. |
+| `seqused_q` | `None` | Optional INT32 [B], compatibility argument; scheduling uses cu_seqlens_q. |
 | `seqused_ori_kv` | `None` | Optional INT32 [B], original KV lengths; retained for API compatibility. |
 | `seqused_cmp_kv` | `None` | Optional INT32 [B], compressed KV lengths; retained for API compatibility. |
-| `batch_size` | `None` | Optional int B, request count; infer from query boundaries when omitted. |
-| `max_seqlen_q` | `None` | int or None, query capacity per request; infer when unspecified. |
+| `batch_size` | `None` | Optional int, compatibility argument; B is derived from cu_seqlens_q (one batch if absent). |
+| `max_seqlen_q` | `None` | Optional int, compatibility argument; query rows come from the length tensor shape. |
 | `max_seqlen_ori_kv` | `None` | Optional int, original KV capacity (compatibility argument). |
 | `max_seqlen_cmp_kv` | `None` | Optional int, compressed KV capacity (compatibility argument). |
-| `num_heads_q` | Required | int, query heads: 32 for indexers, 64 for MLA. |
+| `num_heads_q` | Required | int, query heads; use 64. |
 | `num_heads_kv` | Required | int, shared MLA KV heads; use 1. |
-| `head_dim` | Required | int, logical head dimension: 128 for indexers, 512 for MLA. |
+| `head_dim` | Required | int, logical head dimension; use 512. |
 | `quant_mode` | Required | int, use 1 for the supported quantized profile. |
 | `layout_q` | `'TND'` | str, use TND (flattened query tokens). |
 | `layout_kv` | `'PA_BBND'` | str, use PA_BBND packed paged KV. |
-| `has_ori_kv` | `True` | bool, whether the consuming attention call has original KV. |
+| `has_ori_kv` | `True` | bool, must be True for this implementation. |
 | `has_cmp_kv` | `True` | bool, whether the consuming attention call has compressed KV. |
 | `impl` | `'auto'` | str, auto and cannbot_dsl select the same AICPU schedule implementation. |
 
@@ -84,21 +86,13 @@ Construct a small input and its metadata:
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import (
-    mixed_quant_sparse_flash_mla,
-    mixed_quant_sparse_flash_mla_metadata,
-)
+from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla_metadata
 
-q = torch.randn(1, 64, 512, device="npu", dtype=torch.bfloat16)
-kv = torch.zeros(1, 128, 1, 544, device="npu", dtype=torch.uint8)
-kv[..., 512:] = torch.ones(1, 128, 1, 16, device="npu", dtype=torch.bfloat16).view(
-    torch.uint8
-)
 cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
 length = torch.tensor([[128]], device="npu", dtype=torch.int32)
 metadata = mixed_quant_sparse_flash_mla_metadata(
     length,
-    None,
+    torch.zeros_like(length),
     cu_seqlens_q=cu,
     num_heads_q=64,
     num_heads_kv=1,

@@ -89,7 +89,7 @@ def quant_lightning_indexer(
         cmp_residual_k: Optional INT32 [B], uncompressed residual tokens for causal compression.
         block_table: Optional INT32 [B,max_blocks], logical-to-physical PA page map.
         output_idx_offset: Optional INT32 [T,1], added to each valid selected token index.
-        metadata: Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling.
+        metadata: INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it.
         topk: int, maximum selected tokens per query, in [1,8192].
         quant_mode: int, use 1 for the supported quantized profile.
         max_seqlen_q: int or None, query capacity per request; infer when unspecified.

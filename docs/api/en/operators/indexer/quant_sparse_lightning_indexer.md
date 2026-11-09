@@ -9,6 +9,8 @@
 
 ## Signature
 
+`from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer`
+
 ```python
 import torch
 from typing import Optional
@@ -74,7 +76,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 | `cmp_residual_k` | `None` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
 | `block_table` | `None` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
 | `output_idx_offset` | `None` | Optional INT32 [T,1], added to each valid selected token index. |
-| `metadata` | `None` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
+| `metadata` | `None` | INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it. |
 | `descale_k` | `None` | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
 | `topk` | Required | int, maximum selected tokens per query, in [1,8192]. |
 | `candidate_block_size` | Required | int, use 8 tokens per candidate block when enabled. |

@@ -8,6 +8,8 @@
 
 ## Signature
 
+`from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata`
+
 ```python
 def quant_sparse_lightning_indexer_metadata(
     candidate_block_length,
@@ -52,12 +54,12 @@ T is query rows, B requests, P physical pages and S slots per page.
 | `seqused_q` | `None` | Optional INT32 [B], valid query rows per request. |
 | `seqused_k` | `None` | Optional INT32 [B], valid key tokens per request. |
 | `cmp_residual_k` | `None` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
-| `batch_size` | `None` | Optional int B, request count; infer from query boundaries when omitted. |
-| `max_seqlen_q` | `-1` | int or None, query capacity per request; infer when unspecified. |
+| `batch_size` | `None` | Optional int B for PA_BBND; TND requires None and infers B from query boundaries. |
+| `max_seqlen_q` | `-1` | int, query capacity per request; -1 derives it from sequence lengths. |
 | `max_seqlen_k` | `-1` | int, key capacity per request; -1 means infer. |
-| `num_heads_q` | Required | int, query heads: 32 for indexers, 64 for MLA. |
+| `num_heads_q` | Required | int, query heads; use 32. |
 | `num_heads_k` | Required | int, shared index key heads; use 1. |
-| `head_dim` | Required | int, logical head dimension: 128 for indexers, 512 for MLA. |
+| `head_dim` | Required | int, logical head dimension; use 128. |
 | `topk` | Required | int, maximum selected tokens per query, in [1,8192]. |
 | `quant_mode` | Required | int, use 1 for the supported quantized profile. |
 | `candidate_block_size` | Required | int, use 8 tokens per candidate block when enabled. |
@@ -86,22 +88,11 @@ Construct a small input and its metadata:
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.indexer import (
-    quant_sparse_lightning_indexer,
-    quant_sparse_lightning_indexer_metadata,
-)
+from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
 
-q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
-qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
-w = torch.ones(1, 32, device="npu")
 cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
 lengths = torch.tensor([64], device="npu", dtype=torch.int32)
-table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
 attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
-k = torch.zeros(1, 8, 544, device="npu", dtype=torch.uint8)
-k[..., 512:] = 127
-candidates = torch.full((1, 1, 2048), -1, device="npu", dtype=torch.int32)
-candidates[..., :8] = torch.arange(8, device="npu", dtype=torch.int32)
 count = torch.tensor([[8]], device="npu", dtype=torch.int32)
 metadata = quant_sparse_lightning_indexer_metadata(
     cu_seqlens_q=cu,

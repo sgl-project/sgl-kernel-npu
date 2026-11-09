@@ -58,9 +58,11 @@ def generate_data(rows, ori_count, cmp_count):
             sinks=torch.randn(64, generator=generator),
             cu_seqlens_q=torch.tensor([0, rows], dtype=torch.int32),
             quant_mode=1,
-            return_softmax_lse=True,
+            return_softmax_lse=cmp_count is not None,
         )
         for side, fp4, count in [("ori", False, ori_count), ("cmp", True, cmp_count)]:
+            if count is None:
+                continue
             physical, table = _make_kv(1, 1024, 128, fp4, generator)
             row_bytes = 320 if fp4 else 544
             physical = physical.reshape(-1, 128, 1, row_bytes)
@@ -89,7 +91,8 @@ def generate_data(rows, ori_count, cmp_count):
             k: v.npu() if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()
         }
     kwargs["out"] = torch.empty_like(kwargs["q"])
-    kwargs["lse"] = torch.empty((1, rows, 64), dtype=torch.float32)
+    lse_shape = (1, rows, 64) if kwargs["return_softmax_lse"] else (0,)
+    kwargs["lse"] = torch.empty(lse_shape, dtype=torch.float32)
     return kwargs
 
 
@@ -98,6 +101,7 @@ def generate_data(rows, ori_count, cmp_count):
     [
         pytest.param((1, 128, 512), id="dsv41-decode-mixed-kv"),
         pytest.param((6, 128, 512), id="dsv41-static-verify6-mixed-kv"),
+        pytest.param((1, 128, None), id="dsv41-decode-original-kv-no-lse"),
         pytest.param((1, 0, 0), id="edge-empty-sparse-row"),
     ],
 )
@@ -109,16 +113,20 @@ def test_mixed_quant_sparse_flash_mla(shape):
 
     require_test_impl(mixed_quant_sparse_flash_mla_metadata, "auto")
     kwargs = generate_data(*shape)
+    cmp_length = kwargs.get("cmp_topk_length")
+    if cmp_length is None:
+        # Metadata requires both length tensors even when compressed KV is absent.
+        cmp_length = torch.zeros_like(kwargs["ori_topk_length"])
     kwargs["metadata"] = mixed_quant_sparse_flash_mla_metadata(
         kwargs["ori_topk_length"],
-        kwargs["cmp_topk_length"],
+        cmp_length,
         cu_seqlens_q=kwargs["cu_seqlens_q"],
         num_heads_q=64,
         num_heads_kv=1,
         head_dim=512,
         quant_mode=1,
         has_ori_kv=True,
-        has_cmp_kv=True,
+        has_cmp_kv="cmp_kv" in kwargs,
     )
     executor = make_executor(mixed_quant_sparse_flash_mla, kwargs=kwargs)
     if get_skip_acc_check():

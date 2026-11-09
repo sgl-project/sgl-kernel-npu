@@ -9,6 +9,8 @@
 
 ## 函数原型
 
+`from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla`
+
 ```python
 def mixed_quant_sparse_flash_mla(
     q,
@@ -57,27 +59,27 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | 参数 | 默认值 | 类型、形状与含义 |
 | --- | --- | --- |
 | `q` | 必填 | BF16 [T,64,512]，attention 查询。 |
-| `ori_kv` | `None` | 可选 UINT8 [P,S,1,544]，FP8 KV 字节与 BF16 分组 scale。 |
+| `ori_kv` | `None` | UINT8 [P,S,1,544]，FP8 KV 字节与 BF16 分组 scale；cannbot_dsl 必需。 |
 | `cmp_kv` | `None` | 可选 UINT8 [P,S,1,320]，打包 FP4 KV 字节与 BF16 分组 scale。 |
-| `ori_sparse_indices` | `None` | 可选 INT32 [T,1,Kori]，原始 KV 逻辑 token ID；-1 为填充。 |
+| `ori_sparse_indices` | `None` | 必需的 INT32 [T,1,Kori] 原始 KV 逻辑 token ID；-1 为填充。 |
 | `cmp_sparse_indices` | `None` | 可选 INT32 [T,1,Kcmp]，压缩 KV 逻辑 token ID；-1 为填充。 |
-| `ori_block_table` | `None` | 可选 INT32 [B,max_ori_blocks]，原始 KV 页映射。 |
+| `ori_block_table` | `None` | 必需的 INT32 [B,max_ori_blocks] 原始 KV 页映射。 |
 | `cmp_block_table` | `None` | 可选 INT32 [B,max_cmp_blocks]，压缩 KV 页映射。 |
-| `cu_seqlens_q` | `None` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
-| `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `cu_seqlens_q` | `None` | cannbot_dsl 必需的 INT32 [B+1] 查询累计边界，末项为 T。 |
+| `seqused_q` | `None` | 可选 INT32 [B]；提供时必须等于 cu_seqlens_q 的相邻差值，不支持填充查询行。 |
 | `seqused_ori_kv` | `None` | 可选 INT32 [B]，原始 KV 长度；保留该兼容参数。 |
 | `seqused_cmp_kv` | `None` | 可选 INT32 [B]，压缩 KV 长度；保留该兼容参数。 |
-| `ori_topk_length` | `None` | INT32 [T,1]，每个查询原始稀疏索引的有效前缀长度；启用原始 KV 时必需。 |
-| `cmp_topk_length` | `None` | INT32 [T,1]，每个查询压缩稀疏索引的有效前缀长度；启用压缩 KV 时必需。 |
+| `ori_topk_length` | `None` | 可选 INT32 [T,1] 有效稀疏前缀长度；None 使用原始索引的全部列。 |
+| `cmp_topk_length` | `None` | 可选 INT32 [T,1] 有效稀疏前缀长度；None 使用压缩索引的全部列。无 cmp_kv 时省略。 |
 | `sinks` | `None` | FP32 [64]，attention sink 的 logit（不贡献 value）。 |
-| `metadata` | `None` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
+| `metadata` | `None` | cannbot_dsl 必需的 INT32 [1024] 设备调度数据；torch_native 不使用该参数。 |
 | `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
 | `softmax_scale` | `None` | 可选 float，默认 1/sqrt(512)。 |
 | `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
 | `layout_kv` | `'PA_BBND'` | str，使用 PA_BBND 打包分页 KV。 |
 | `return_softmax_lse` | `False` | bool，True 时写入 lse。 |
 | `out` | 必填 | 可写 BF16 [T,64,512] 输出张量。 |
-| `lse` | 必填 | 可写 FP32 [1,T,64] logsumexp 张量。 |
+| `lse` | 必填 | return_softmax_lse=True 时为可写 FP32 [1,T,64]；否则传入空的 FP32 [0] 张量。 |
 | `impl` | `'auto'` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
 
 ## 返回值
@@ -113,7 +115,7 @@ cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
 length = torch.tensor([[128]], device="npu", dtype=torch.int32)
 metadata = mixed_quant_sparse_flash_mla_metadata(
     length,
-    None,
+    torch.zeros_like(length),
     cu_seqlens_q=cu,
     num_heads_q=64,
     num_heads_kv=1,

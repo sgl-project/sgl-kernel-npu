@@ -78,27 +78,27 @@ def mixed_quant_sparse_flash_mla(
 
     Args:
         q: BF16 [T,64,512], attention queries.
-        ori_kv: Optional UINT8 [P,S,1,544], FP8 KV bytes plus BF16 group scales.
+        ori_kv: UINT8 [P,S,1,544], FP8 KV bytes plus BF16 scales; required by cannbot_dsl.
         cmp_kv: Optional UINT8 [P,S,1,320], packed FP4 KV bytes plus BF16 group scales.
-        ori_sparse_indices: Optional INT32 [T,1,Kori], original logical token IDs; -1 is padding.
+        ori_sparse_indices: INT32 [T,1,Kori], required original logical token IDs; -1 is padding.
         cmp_sparse_indices: Optional INT32 [T,1,Kcmp], compressed logical token IDs; -1 is padding.
-        ori_block_table: Optional INT32 [B,max_ori_blocks], original KV page map.
+        ori_block_table: Required INT32 [B,max_ori_blocks], original KV page map.
         cmp_block_table: Optional INT32 [B,max_cmp_blocks], compressed KV page map.
-        cu_seqlens_q: Optional INT32 [B+1], cumulative query row boundaries.
-        seqused_q: Optional INT32 [B], valid query rows per request.
+        cu_seqlens_q: INT32 [B+1], required by cannbot_dsl; cumulative boundaries ending at T.
+        seqused_q: Optional INT32 [B]; when supplied, must equal cu_seqlens_q spans (no padded rows).
         seqused_ori_kv: Optional INT32 [B], original KV lengths; retained for API compatibility.
         seqused_cmp_kv: Optional INT32 [B], compressed KV lengths; retained for API compatibility.
-        ori_topk_length: INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled.
-        cmp_topk_length: INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled.
+        ori_topk_length: Optional INT32 [T,1], valid sparse prefix; None uses all original index columns.
+        cmp_topk_length: Optional INT32 [T,1], valid sparse prefix; None uses all compressed index columns. Omit when cmp_kv is absent.
         sinks: FP32 [64], attention-sink logits (zero value contribution).
-        metadata: Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling.
+        metadata: INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it.
         quant_mode: int, use 1 for the supported quantized profile.
         softmax_scale: Optional float, defaults to 1/sqrt(512).
         layout_q: str, use TND (flattened query tokens).
         layout_kv: str, use PA_BBND packed paged KV.
         return_softmax_lse: bool, write lse when True.
         out: Writable BF16 [T,64,512] output tensor.
-        lse: Writable FP32 [1,T,64] logsumexp tensor.
+        lse: Writable FP32 [1,T,64] when return_softmax_lse=True; otherwise pass an empty FP32 [0] tensor.
         impl: str, auto selects cannbot_dsl; torch_native is an independent compute reference.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

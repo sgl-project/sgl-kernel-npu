@@ -72,12 +72,12 @@ def quant_sparse_lightning_indexer_metadata(
         seqused_q: Optional INT32 [B], valid query rows per request.
         seqused_k: Optional INT32 [B], valid key tokens per request.
         cmp_residual_k: Optional INT32 [B], uncompressed residual tokens for causal compression.
-        batch_size: Optional int B, request count; infer from query boundaries when omitted.
-        max_seqlen_q: int or None, query capacity per request; infer when unspecified.
+        batch_size: Optional int B for PA_BBND; TND requires None and infers B from query boundaries.
+        max_seqlen_q: int, query capacity per request; -1 derives it from sequence lengths.
         max_seqlen_k: int, key capacity per request; -1 means infer.
-        num_heads_q: int, query heads: 32 for indexers, 64 for MLA.
+        num_heads_q: int, query heads; use 32.
         num_heads_k: int, shared index key heads; use 1.
-        head_dim: int, logical head dimension: 128 for indexers, 512 for MLA.
+        head_dim: int, logical head dimension; use 128.
         topk: int, maximum selected tokens per query, in [1,8192].
         quant_mode: int, use 1 for the supported quantized profile.
         candidate_block_size: int, use 8 tokens per candidate block when enabled.

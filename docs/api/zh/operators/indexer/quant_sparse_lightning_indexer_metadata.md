@@ -8,6 +8,8 @@
 
 ## 函数原型
 
+`from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata`
+
 ```python
 def quant_sparse_lightning_indexer_metadata(
     candidate_block_length,
@@ -52,12 +54,12 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
 | `seqused_k` | `None` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
 | `cmp_residual_k` | `None` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
-| `batch_size` | `None` | 可选 int B，请求数；省略时从查询边界推导。 |
-| `max_seqlen_q` | `-1` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `batch_size` | `None` | PA_BBND 下可选 int B；TND 必须为 None，由查询边界推导 B。 |
+| `max_seqlen_q` | `-1` | int，每个请求的查询容量；-1 表示由序列长度推导。 |
 | `max_seqlen_k` | `-1` | int，每个请求的 K 容量；-1 表示推导。 |
-| `num_heads_q` | 必填 | int，查询头数：Indexer 为 32，MLA 为 64。 |
+| `num_heads_q` | 必填 | int，查询头数，使用 32。 |
 | `num_heads_k` | 必填 | int，共享 Index K 头数，使用 1。 |
-| `head_dim` | 必填 | int，逻辑头维度：Indexer 为 128，MLA 为 512。 |
+| `head_dim` | 必填 | int，逻辑头维度，使用 128。 |
 | `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
 | `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
 | `candidate_block_size` | 必填 | int，启用候选块时每块使用 8 个 token。 |
@@ -86,22 +88,11 @@ metadata 是该设备实现的调度计划，不存在唯一的 Torch 数值答�
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.indexer import (
-    quant_sparse_lightning_indexer,
-    quant_sparse_lightning_indexer_metadata,
-)
+from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
 
-q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
-qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
-w = torch.ones(1, 32, device="npu")
 cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
 lengths = torch.tensor([64], device="npu", dtype=torch.int32)
-table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
 attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
-k = torch.zeros(1, 8, 544, device="npu", dtype=torch.uint8)
-k[..., 512:] = 127
-candidates = torch.full((1, 1, 2048), -1, device="npu", dtype=torch.int32)
-candidates[..., :8] = torch.arange(8, device="npu", dtype=torch.int32)
 count = torch.tensor([[8]], device="npu", dtype=torch.int32)
 metadata = quant_sparse_lightning_indexer_metadata(
     cu_seqlens_q=cu,
