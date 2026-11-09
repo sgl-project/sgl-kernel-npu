@@ -18,8 +18,11 @@ sgl_register_operator(
         op_kernel op_host ../../kv_quant_sparse_attn_sharedkv/op_kernel
         ../../utils/kernel ../../attentions/csrc/ops/utils/inc/kernel
     KERNEL_COMPILE_OPTIONS
-        --cce-auto-sync=off -Wno-deprecated-declarations
-        "SHELL:-mllvm -cce-vf-remove-membar=false"
-        "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm
+        -cce-vf-remove-membar=false
+        -mllvm
+        -cce-aicore-hoist-movemask=false
     TORCH_ADAPTER torch_adapter.cpp
 )
