@@ -1,10 +1,10 @@
 # mixed_quant_sparse_flash_mla_metadata
 
-## 功能与支持范围
+## 芯片支持
 
-MQSMLA 的 AICPU 调度算子：根据两侧 TopK 长度生成整行或 FlashDecode 分片执行计划。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见下表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | 支持 | 未验证 | 不支持 |
 
 ## 函数原型
 
@@ -39,45 +39,39 @@ def mixed_quant_sparse_flash_mla_metadata(
 ): ...
 ```
 
-## 输入约束
+## 功能说明
+
+MQSMLA 的 AICPU 调度算子：根据两侧 TopK 长度生成整行或 FlashDecode 分片执行计划。
+
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
 
 `ori_topk_length` 与 `cmp_topk_length` 是每个 Query 行两侧的有效稀疏长度；`has_ori_kv` 与 `has_cmp_kv` 应与主算子提供的 KV 侧一致。`num_heads_q=64`、`num_heads_kv=1`、`head_dim=512`、`quant_mode=1`。
 
-## 返回值与调用顺序
-
-返回 INT32 `[1024]` metadata；同一 NPU stream 中先生成，再传给 `mixed_quant_sparse_flash_mla(..., metadata=metadata)`。
-
-## 硬件支持
-
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | 支持 | 未验证 | 不支持 |
-
 ## 参数
 
-T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。可选张量默认 None；其他默认值见函数原型。
+T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
-| 参数 | 类型、形状与含义 |
-| --- | --- |
-| `ori_topk_length` | INT32 [T,1]，每个查询原始稀疏索引的有效前缀长度；启用原始 KV 时必需。 |
-| `cmp_topk_length` | INT32 [T,1]，每个查询压缩稀疏索引的有效前缀长度；启用压缩 KV 时必需。 |
-| `cu_seqlens_q` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
-| `seqused_q` | 可选 INT32 [B]，每个请求的有效查询行数。 |
-| `seqused_ori_kv` | 可选 INT32 [B]，原始 KV 长度；保留该兼容参数。 |
-| `seqused_cmp_kv` | 可选 INT32 [B]，压缩 KV 长度；保留该兼容参数。 |
-| `batch_size` | 可选 int B，请求数；省略时从查询边界推导。 |
-| `max_seqlen_q` | int 或 None，每个请求的查询容量；未指定时推导。 |
-| `max_seqlen_ori_kv` | 可选 int，原始 KV 容量（兼容参数）。 |
-| `max_seqlen_cmp_kv` | 可选 int，压缩 KV 容量（兼容参数）。 |
-| `num_heads_q` | int，查询头数：Indexer 为 32，MLA 为 64。 |
-| `num_heads_kv` | int，共享 MLA KV 头数，使用 1。 |
-| `head_dim` | int，逻辑头维度：Indexer 为 128，MLA 为 512。 |
-| `quant_mode` | int，当前支持的量化配置使用 1。 |
-| `layout_q` | str，使用 TND（展平查询 token）。 |
-| `layout_kv` | str，使用 PA_BBND 打包分页 KV。 |
-| `has_ori_kv` | bool，消费该 metadata 的 attention 是否包含原始 KV。 |
-| `has_cmp_kv` | bool，消费该 metadata 的 attention 是否包含压缩 KV。 |
-| `impl` | str，auto 与 cannbot_dsl 选择同一个 AICPU 调度实现。 |
+| 参数 | 默认值 | 类型、形状与含义 |
+| --- | --- | --- |
+| `ori_topk_length` | 必填 | INT32 [T,1]，每个查询原始稀疏索引的有效前缀长度；启用原始 KV 时必需。 |
+| `cmp_topk_length` | 必填 | INT32 [T,1]，每个查询压缩稀疏索引的有效前缀长度；启用压缩 KV 时必需。 |
+| `cu_seqlens_q` | `None` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
+| `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `seqused_ori_kv` | `None` | 可选 INT32 [B]，原始 KV 长度；保留该兼容参数。 |
+| `seqused_cmp_kv` | `None` | 可选 INT32 [B]，压缩 KV 长度；保留该兼容参数。 |
+| `batch_size` | `None` | 可选 int B，请求数；省略时从查询边界推导。 |
+| `max_seqlen_q` | `None` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `max_seqlen_ori_kv` | `None` | 可选 int，原始 KV 容量（兼容参数）。 |
+| `max_seqlen_cmp_kv` | `None` | 可选 int，压缩 KV 容量（兼容参数）。 |
+| `num_heads_q` | 必填 | int，查询头数：Indexer 为 32，MLA 为 64。 |
+| `num_heads_kv` | 必填 | int，共享 MLA KV 头数，使用 1。 |
+| `head_dim` | 必填 | int，逻辑头维度：Indexer 为 128，MLA 为 512。 |
+| `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
+| `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
+| `layout_kv` | `'PA_BBND'` | str，使用 PA_BBND 打包分页 KV。 |
+| `has_ori_kv` | `True` | bool，消费该 metadata 的 attention 是否包含原始 KV。 |
+| `has_cmp_kv` | `True` | bool，消费该 metadata 的 attention 是否包含压缩 KV。 |
+| `impl` | `'auto'` | str，auto 与 cannbot_dsl 选择同一个 AICPU 调度实现。 |
 
 ## 返回值
 

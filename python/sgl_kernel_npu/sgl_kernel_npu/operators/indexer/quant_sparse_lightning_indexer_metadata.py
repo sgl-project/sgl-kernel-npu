@@ -6,6 +6,8 @@ from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cannbot_dsl_fn = None
+
 
 @register_impl(
     "indexer.quant_sparse_lightning_indexer_metadata",
@@ -18,9 +20,13 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
     supported_generations={Generation.ARCH35},
 )
 def _cannbot_dsl_impl(*args, **kwargs):
+    global _cannbot_dsl_fn
     with ascend950_device(*args, **kwargs):
-        operator = load_cannbot_dsl("quant_sparse_lightning_indexer_metadata")
-        return operator(*args, **kwargs)
+        if _cannbot_dsl_fn is None:
+            _cannbot_dsl_fn = load_cannbot_dsl(
+                "quant_sparse_lightning_indexer_metadata"
+            )
+        return _cannbot_dsl_fn(*args, **kwargs)
 
 
 @register_operator("indexer.quant_sparse_lightning_indexer_metadata")

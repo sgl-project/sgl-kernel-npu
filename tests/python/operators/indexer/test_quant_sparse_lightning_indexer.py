@@ -2,6 +2,7 @@
 
 import pytest
 
+from tests.python.utils.common import require_test_impl
 from tests.python.utils.performance import check_performance
 
 from .indexer_utils import check_indexer, generate_data
@@ -23,6 +24,7 @@ def test_quant_sparse_lightning_indexer(shape):
         quant_sparse_lightning_indexer_metadata,
     )
 
+    require_test_impl(quant_sparse_lightning_indexer_metadata, "auto")
     args, kwargs, meta = generate_data(*shape, sparse=True)
     kwargs["metadata"] = quant_sparse_lightning_indexer_metadata(**meta)
     executor = check_indexer(quant_sparse_lightning_indexer, args, kwargs, shape[1])

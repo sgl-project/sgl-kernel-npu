@@ -11,6 +11,7 @@ from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
+_cannbot_dsl_fn = None
 
 
 @register_impl("indexer.quant_lightning_indexer", "torch_native")
@@ -34,9 +35,11 @@ def _torch_native_impl(*args, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cannbot_dsl_impl(*args, **kwargs):
+    global _cannbot_dsl_fn
     with ascend950_device(*args, **kwargs):
-        operator = load_cannbot_dsl("quant_lightning_indexer")
-        return operator(*args, **kwargs)
+        if _cannbot_dsl_fn is None:
+            _cannbot_dsl_fn = load_cannbot_dsl("quant_lightning_indexer")
+        return _cannbot_dsl_fn(*args, **kwargs)
 
 
 @register_operator("indexer.quant_lightning_indexer")

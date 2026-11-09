@@ -86,7 +86,6 @@ def initialize_backend():
         raise RuntimeError(f"Expected cannbot-dsl=={DSL_VERSION}; found {version}")
 
 
-@lru_cache(maxsize=None)
 def load_cannbot_dsl(name):
     initialize_backend()
     domain = "attention" if name.startswith("mixed_quant_") else "indexer"

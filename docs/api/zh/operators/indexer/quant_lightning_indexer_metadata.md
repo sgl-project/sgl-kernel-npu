@@ -1,10 +1,10 @@
 # quant_lightning_indexer_metadata
 
-## 功能与支持范围
+## 芯片支持
 
-QLI 的 AICPU 调度算子：由序列长度、mask、压缩比例和 TopK 生成分核与跨核归并计划。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见下表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | 支持 | 未验证 | 不支持 |
 
 ## 函数原型
 
@@ -39,45 +39,39 @@ def quant_lightning_indexer_metadata(
 ): ...
 ```
 
-## 输入约束
+## 功能说明
+
+QLI 的 AICPU 调度算子：由序列长度、mask、压缩比例和 TopK 生成分核与跨核归并计划。
+
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
 
 `cu_seqlens_q/k` 为 INT32 累积长度，`seqused_q/k` 为 INT32 有效长度；`num_heads_q=32`、`num_heads_k=1`、`head_dim=128` 与 QLI 配套。候选块参数必须与 QLI 主算子一致。长度或静态属性变化后需重建 metadata。
 
-## 返回值与调用顺序
-
-返回当前 NPU 上的 INT32 `[1024]` metadata，原样传给 `quant_lightning_indexer(..., metadata=metadata)`；不应手工修改内部布局。
-
-## 硬件支持
-
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | 支持 | 未验证 | 不支持 |
-
 ## 参数
 
-T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。可选张量默认 None；其他默认值见函数原型。
+T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
-| 参数 | 类型、形状与含义 |
-| --- | --- |
-| `cu_seqlens_q` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
-| `cu_seqlens_k` | 可选 INT32 [B+1]，TND K 的累计边界。 |
-| `seqused_q` | 可选 INT32 [B]，每个请求的有效查询行数。 |
-| `seqused_k` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
-| `cmp_residual_k` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
-| `batch_size` | 可选 int B，请求数；省略时从查询边界推导。 |
-| `max_seqlen_q` | int 或 None，每个请求的查询容量；未指定时推导。 |
-| `max_seqlen_k` | int，每个请求的 K 容量；-1 表示推导。 |
-| `num_heads_q` | int，查询头数：Indexer 为 32，MLA 为 64。 |
-| `num_heads_k` | int，共享 Index K 头数，使用 1。 |
-| `head_dim` | int，逻辑头维度：Indexer 为 128，MLA 为 512。 |
-| `topk` | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
-| `mask_mode` | int：0 使用可见 K，3 使用因果掩码。 |
-| `cmp_ratio` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
-| `layout_q` | str，使用 TND（展平查询 token）。 |
-| `layout_k` | str，TND 或 PA_BBND 的 K 存储布局。 |
-| `candidate_topk_blocks` | int，候选块输出容量；-1 禁用该输出。 |
-| `candidate_block_size` | int，启用候选块时每块使用 8 个 token。 |
-| `impl` | str，auto 与 cannbot_dsl 选择同一个 AICPU 调度实现。 |
+| 参数 | 默认值 | 类型、形状与含义 |
+| --- | --- | --- |
+| `cu_seqlens_q` | `None` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
+| `cu_seqlens_k` | `None` | 可选 INT32 [B+1]，TND K 的累计边界。 |
+| `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `seqused_k` | `None` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
+| `cmp_residual_k` | `None` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
+| `batch_size` | `None` | 可选 int B，请求数；省略时从查询边界推导。 |
+| `max_seqlen_q` | `-1` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `max_seqlen_k` | `-1` | int，每个请求的 K 容量；-1 表示推导。 |
+| `num_heads_q` | 必填 | int，查询头数：Indexer 为 32，MLA 为 64。 |
+| `num_heads_k` | 必填 | int，共享 Index K 头数，使用 1。 |
+| `head_dim` | 必填 | int，逻辑头维度：Indexer 为 128，MLA 为 512。 |
+| `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
+| `mask_mode` | `0` | int：0 使用可见 K，3 使用因果掩码。 |
+| `cmp_ratio` | `1` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
+| `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
+| `layout_k` | `'TND'` | str，TND 或 PA_BBND 的 K 存储布局。 |
+| `candidate_topk_blocks` | `-1` | int，候选块输出容量；-1 禁用该输出。 |
+| `candidate_block_size` | `-1` | int，启用候选块时每块使用 8 个 token。 |
+| `impl` | `'auto'` | str，auto 与 cannbot_dsl 选择同一个 AICPU 调度实现。 |
 
 ## 返回值
 

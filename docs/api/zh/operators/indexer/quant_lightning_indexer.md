@@ -1,10 +1,11 @@
 # quant_lightning_indexer
 
-## 功能与支持范围
+## 芯片支持
 
-MXFP4 Lightning Indexer：遍历可见 Key，按 Query head 加权得分选取 TopK token；可同时输出 QSLI 的候选块。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见下表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | 支持 | 未验证 | 不支持 |
+| torch_native | 未验证 | 未验证 | 未验证 |
 
 ## 函数原型
 
@@ -44,51 +45,50 @@ def quant_lightning_indexer(
 ): ...
 ```
 
-## 输入约束
+## 功能说明
+
+MXFP4 Lightning Indexer：遍历可见 Key，按 Query head 加权得分选取 TopK token；可同时输出 QSLI 的候选块。
+
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
 
 `q` 为 UINT8 `[T1,32,64]`，`k` 为打包 MXFP4 Key（PA_BBND 或 TND），`descale_q` 与 `descale_k` 为 E8M0 scale。`metadata` 必须由同配置的 `quant_lightning_indexer_metadata` 生成。`quant_mode=1`；`layout_q="TND"`，`layout_k` 支持 `TND`/`PA_BBND`；候选输出启用时 `candidate_block_size=8`。
 
-## 返回值与调用顺序
+计算语义（量化边界使用 BF16）：
 
-返回 `(indices, values, candidates, candidate_length)`；`indices` 为 INT32 `[T1,1,topk]`，`values` 为 BF16；关闭分数或候选输出时相应 Tensor 为空。无效索引为 `-1`。
-
-## 硬件支持
-
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | 支持 | 未验证 | 不支持 |
-| torch_native | 未验证 | 未验证 | 未验证 |
+```text
+s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
+```
 
 ## 参数
 
-T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。可选张量默认 None；其他默认值见函数原型。
+T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 
-| 参数 | 类型、形状与含义 |
-| --- | --- |
-| `q` | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
-| `k` | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
-| `w` | FP32 [T,32]，查询头的分数权重。 |
-| `descale_q` | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
-| `descale_k` | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
-| `cu_seqlens_q` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
-| `cu_seqlens_k` | 可选 INT32 [B+1]，TND K 的累计边界。 |
-| `seqused_q` | 可选 INT32 [B]，每个请求的有效查询行数。 |
-| `seqused_k` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
-| `cmp_residual_k` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
-| `block_table` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
-| `output_idx_offset` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
-| `metadata` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
-| `topk` | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
-| `quant_mode` | int，当前支持的量化配置使用 1。 |
-| `max_seqlen_q` | int 或 None，每个请求的查询容量；未指定时推导。 |
-| `mask_mode` | int：0 使用可见 K，3 使用因果掩码。 |
-| `cmp_ratio` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
-| `layout_q` | str，使用 TND（展平查询 token）。 |
-| `layout_k` | str，TND 或 PA_BBND 的 K 存储布局。 |
-| `return_value` | bool，True 时同时返回 BF16 选中分数。 |
-| `candidate_topk_blocks` | int，候选块输出容量；-1 禁用该输出。 |
-| `candidate_block_size` | int，启用候选块时每块使用 8 个 token。 |
-| `impl` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
+| 参数 | 默认值 | 类型、形状与含义 |
+| --- | --- | --- |
+| `q` | 必填 | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
+| `k` | 必填 | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
+| `w` | 必填 | FP32 [T,32]，查询头的分数权重。 |
+| `descale_q` | 必填 | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
+| `descale_k` | 必填 | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
+| `cu_seqlens_q` | `None` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
+| `cu_seqlens_k` | `None` | 可选 INT32 [B+1]，TND K 的累计边界。 |
+| `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `seqused_k` | `None` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
+| `cmp_residual_k` | `None` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
+| `block_table` | `None` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
+| `output_idx_offset` | `None` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
+| `metadata` | `None` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
+| `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
+| `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
+| `max_seqlen_q` | `-1` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `mask_mode` | `0` | int：0 使用可见 K，3 使用因果掩码。 |
+| `cmp_ratio` | `1` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
+| `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
+| `layout_k` | `'TND'` | str，TND 或 PA_BBND 的 K 存储布局。 |
+| `return_value` | `False` | bool，True 时同时返回 BF16 选中分数。 |
+| `candidate_topk_blocks` | `-1` | int，候选块输出容量；-1 禁用该输出。 |
+| `candidate_block_size` | `-1` | int，启用候选块时每块使用 8 个 token。 |
+| `impl` | `'auto'` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
 
 ## 返回值
 
@@ -97,12 +97,6 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | indices | INT32 [T,1,topk]; -1 表示无效项。 |
 | values | BF16 [T,1,topk]; 禁用时为空，无效项为 -inf。 |
 | candidates, candidate_length | INT32 [T,1,candidate_topk_blocks], INT32 [T,1]; 禁用时为空。 |
-
-计算语义（量化边界使用 BF16）：
-
-```text
-s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
-```
 
 ## cannbot_dsl
 

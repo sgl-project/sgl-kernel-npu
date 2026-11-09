@@ -107,6 +107,7 @@ def test_mixed_quant_sparse_flash_mla(shape):
         mixed_quant_sparse_flash_mla_metadata,
     )
 
+    require_test_impl(mixed_quant_sparse_flash_mla_metadata, "auto")
     kwargs = generate_data(*shape)
     kwargs["metadata"] = mixed_quant_sparse_flash_mla_metadata(
         kwargs["ori_topk_length"],

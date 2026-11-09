@@ -1,10 +1,11 @@
 # quant_lightning_indexer
 
-## Purpose and support
+## Hardware support
 
-Scores visible MXFP4 keys and selects TopK tokens, optionally producing candidate blocks for QSLI.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed below. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | Supported | Unverified | Unsupported |
+| torch_native | Unverified | Unverified | Unverified |
 
 ## Signature
 
@@ -44,51 +45,50 @@ def quant_lightning_indexer(
 ): ...
 ```
 
-## Inputs
+## Behavior
+
+Scores visible MXFP4 keys and selects TopK tokens, optionally producing candidate blocks for QSLI.
+
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 UINT8 `q[T1,32,64]`, packed MXFP4 K, E8M0 query/key descales, and metadata from `quant_lightning_indexer_metadata` are required. Use `quant_mode=1`; K layout may be TND or PA_BBND. Candidate mode requires `candidate_block_size=8`.
 
-## Output and ordering
+Semantics (BF16 rounding at quantized compute boundaries):
 
-Returns `(indices, values, candidates, candidate_length)`. Indices are INT32 `[T1,1,topk]`; disabled optional outputs are empty tensors and invalid indices are `-1`.
-
-## Hardware support
-
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | Supported | Unverified | Unsupported |
-| torch_native | Unverified | Unverified | Unverified |
+```text
+s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
+```
 
 ## Parameters
 
-T is query rows, B requests, P physical pages and S slots per page. Optional tensors default to None; scalar defaults are shown in the signature.
+T is query rows, B requests, P physical pages and S slots per page.
 
-| Parameter | Type, shape and meaning |
-| --- | --- |
-| `q` | UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128. |
-| `k` | UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes. |
-| `w` | FP32 [T,32], query-head score weights. |
-| `descale_q` | UINT8/E8M0 [T,32,2,2], one scale per 32 logical features. |
-| `descale_k` | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
-| `cu_seqlens_q` | Optional INT32 [B+1], cumulative query row boundaries. |
-| `cu_seqlens_k` | Optional INT32 [B+1], cumulative TND key boundaries. |
-| `seqused_q` | Optional INT32 [B], valid query rows per request. |
-| `seqused_k` | Optional INT32 [B], valid key tokens per request. |
-| `cmp_residual_k` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
-| `block_table` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
-| `output_idx_offset` | Optional INT32 [T,1], added to each valid selected token index. |
-| `metadata` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
-| `topk` | int, maximum selected tokens per query, in [1,8192]. |
-| `quant_mode` | int, use 1 for the supported quantized profile. |
-| `max_seqlen_q` | int or None, query capacity per request; infer when unspecified. |
-| `mask_mode` | int: 0 for visible keys, 3 for causal masking. |
-| `cmp_ratio` | int in [1,128], compression ratio used to calculate causal visibility. |
-| `layout_q` | str, use TND (flattened query tokens). |
-| `layout_k` | str, TND or PA_BBND key storage. |
-| `return_value` | bool, also return BF16 selected scores when True. |
-| `candidate_topk_blocks` | int, candidate-block output capacity; -1 disables the output. |
-| `candidate_block_size` | int, use 8 tokens per candidate block when enabled. |
-| `impl` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
+| Parameter | Default | Type, shape and meaning |
+| --- | --- | --- |
+| `q` | Required | UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128. |
+| `k` | Required | UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes. |
+| `w` | Required | FP32 [T,32], query-head score weights. |
+| `descale_q` | Required | UINT8/E8M0 [T,32,2,2], one scale per 32 logical features. |
+| `descale_k` | Required | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
+| `cu_seqlens_q` | `None` | Optional INT32 [B+1], cumulative query row boundaries. |
+| `cu_seqlens_k` | `None` | Optional INT32 [B+1], cumulative TND key boundaries. |
+| `seqused_q` | `None` | Optional INT32 [B], valid query rows per request. |
+| `seqused_k` | `None` | Optional INT32 [B], valid key tokens per request. |
+| `cmp_residual_k` | `None` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
+| `block_table` | `None` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
+| `output_idx_offset` | `None` | Optional INT32 [T,1], added to each valid selected token index. |
+| `metadata` | `None` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
+| `topk` | Required | int, maximum selected tokens per query, in [1,8192]. |
+| `quant_mode` | Required | int, use 1 for the supported quantized profile. |
+| `max_seqlen_q` | `-1` | int or None, query capacity per request; infer when unspecified. |
+| `mask_mode` | `0` | int: 0 for visible keys, 3 for causal masking. |
+| `cmp_ratio` | `1` | int in [1,128], compression ratio used to calculate causal visibility. |
+| `layout_q` | `'TND'` | str, use TND (flattened query tokens). |
+| `layout_k` | `'TND'` | str, TND or PA_BBND key storage. |
+| `return_value` | `False` | bool, also return BF16 selected scores when True. |
+| `candidate_topk_blocks` | `-1` | int, candidate-block output capacity; -1 disables the output. |
+| `candidate_block_size` | `-1` | int, use 8 tokens per candidate block when enabled. |
+| `impl` | `'auto'` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
 
 ## Returns
 
@@ -97,12 +97,6 @@ T is query rows, B requests, P physical pages and S slots per page. Optional ten
 | indices | INT32 [T,1,topk]; -1 marks invalid entries. |
 | values | BF16 [T,1,topk]; empty when disabled; invalid entries are -inf. |
 | candidates, candidate_length | INT32 [T,1,candidate_topk_blocks], INT32 [T,1]; empty when disabled. |
-
-Semantics (BF16 rounding at quantized compute boundaries):
-
-```text
-s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
-```
 
 ## cannbot_dsl
 

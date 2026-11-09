@@ -1,10 +1,11 @@
 # mixed_quant_sparse_flash_mla
 
-## Purpose and support
+## Hardware support
 
-Computes sparse MLA over BF16 queries, FP8 original KV, and optional FP4 compressed KV.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed below. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | Supported | Unverified | Unsupported |
+| torch_native | Unverified | Unverified | Unverified |
 
 ## Signature
 
@@ -43,56 +44,13 @@ def mixed_quant_sparse_flash_mla(
 ): ...
 ```
 
-## Inputs
+## Behavior
+
+Computes sparse MLA over BF16 queries, FP8 original KV, and optional FP4 compressed KV.
+
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 BF16 TND `q[T1,64,512]`, UINT8 paged original KV, sparse indices and block tables are required for active KV sides. `quant_mode=1`; metadata must come from `mixed_quant_sparse_flash_mla_metadata` with matching configuration. The caller allocates `out` and `lse`.
-
-## Output and ordering
-
-Writes BF16 results into `out` and FP32 log-sum-exp into `lse`; follows the upstream no-return ABI. With `return_softmax_lse=False`, pass an empty LSE tensor.
-
-## Hardware support
-
-| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
-| --- | --- | --- | --- |
-| cannbot_dsl | Supported | Unverified | Unsupported |
-| torch_native | Unverified | Unverified | Unverified |
-
-## Parameters
-
-T is query rows, B requests, P physical pages and S slots per page. Optional tensors default to None; scalar defaults are shown in the signature.
-
-| Parameter | Type, shape and meaning |
-| --- | --- |
-| `q` | BF16 [T,64,512], attention queries. |
-| `ori_kv` | Optional UINT8 [P,S,1,544], FP8 KV bytes plus BF16 group scales. |
-| `cmp_kv` | Optional UINT8 [P,S,1,320], packed FP4 KV bytes plus BF16 group scales. |
-| `ori_sparse_indices` | Optional INT32 [T,1,Kori], original logical token IDs; -1 is padding. |
-| `cmp_sparse_indices` | Optional INT32 [T,1,Kcmp], compressed logical token IDs; -1 is padding. |
-| `ori_block_table` | Optional INT32 [B,max_ori_blocks], original KV page map. |
-| `cmp_block_table` | Optional INT32 [B,max_cmp_blocks], compressed KV page map. |
-| `cu_seqlens_q` | Optional INT32 [B+1], cumulative query row boundaries. |
-| `seqused_q` | Optional INT32 [B], valid query rows per request. |
-| `seqused_ori_kv` | Optional INT32 [B], original KV lengths; retained for API compatibility. |
-| `seqused_cmp_kv` | Optional INT32 [B], compressed KV lengths; retained for API compatibility. |
-| `ori_topk_length` | INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled. |
-| `cmp_topk_length` | INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled. |
-| `sinks` | FP32 [64], attention-sink logits (zero value contribution). |
-| `metadata` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
-| `quant_mode` | int, use 1 for the supported quantized profile. |
-| `softmax_scale` | Optional float, defaults to 1/sqrt(512). |
-| `layout_q` | str, use TND (flattened query tokens). |
-| `layout_kv` | str, use PA_BBND packed paged KV. |
-| `return_softmax_lse` | bool, write lse when True. |
-| `out` | Writable BF16 [T,64,512] output tensor. |
-| `lse` | Writable FP32 [1,T,64] logsumexp tensor. |
-| `impl` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
-
-## Returns
-
-| Value | Meaning |
-| --- | --- |
-| None | Writes out and, when requested, lse in place. |
 
 Semantics (BF16 rounding at quantized compute boundaries):
 
@@ -100,13 +58,49 @@ Semantics (BF16 rounding at quantized compute boundaries):
 z_i = softmax_scale * dot(q, dequant(k_i)); out = sum_i exp(z_i) * dequant(v_i) / (exp(sink) + sum_i exp(z_i)); lse = log(exp(sink) + sum_i exp(z_i))
 ```
 
+## Parameters
+
+T is query rows, B requests, P physical pages and S slots per page.
+
+| Parameter | Default | Type, shape and meaning |
+| --- | --- | --- |
+| `q` | Required | BF16 [T,64,512], attention queries. |
+| `ori_kv` | `None` | Optional UINT8 [P,S,1,544], FP8 KV bytes plus BF16 group scales. |
+| `cmp_kv` | `None` | Optional UINT8 [P,S,1,320], packed FP4 KV bytes plus BF16 group scales. |
+| `ori_sparse_indices` | `None` | Optional INT32 [T,1,Kori], original logical token IDs; -1 is padding. |
+| `cmp_sparse_indices` | `None` | Optional INT32 [T,1,Kcmp], compressed logical token IDs; -1 is padding. |
+| `ori_block_table` | `None` | Optional INT32 [B,max_ori_blocks], original KV page map. |
+| `cmp_block_table` | `None` | Optional INT32 [B,max_cmp_blocks], compressed KV page map. |
+| `cu_seqlens_q` | `None` | Optional INT32 [B+1], cumulative query row boundaries. |
+| `seqused_q` | `None` | Optional INT32 [B], valid query rows per request. |
+| `seqused_ori_kv` | `None` | Optional INT32 [B], original KV lengths; retained for API compatibility. |
+| `seqused_cmp_kv` | `None` | Optional INT32 [B], compressed KV lengths; retained for API compatibility. |
+| `ori_topk_length` | `None` | INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled. |
+| `cmp_topk_length` | `None` | INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled. |
+| `sinks` | `None` | FP32 [64], attention-sink logits (zero value contribution). |
+| `metadata` | `None` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
+| `quant_mode` | Required | int, use 1 for the supported quantized profile. |
+| `softmax_scale` | `None` | Optional float, defaults to 1/sqrt(512). |
+| `layout_q` | `'TND'` | str, use TND (flattened query tokens). |
+| `layout_kv` | `'PA_BBND'` | str, use PA_BBND packed paged KV. |
+| `return_softmax_lse` | `False` | bool, write lse when True. |
+| `out` | Required | Writable BF16 [T,64,512] output tensor. |
+| `lse` | Required | Writable FP32 [1,T,64] logsumexp tensor. |
+| `impl` | `'auto'` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
+
+## Returns
+
+| Value | Meaning |
+| --- | --- |
+| None | Writes out and, when requested, lse in place. |
+
 ## cannbot_dsl
 
 `auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
 
 ## torch_native
 
-Independent CPU Torch accuracy reference; results are copied back to the input device, preserving in-place semantics. Does not require DSL. Not intended for performance or NPU graph capture. Equal-score TopK order may differ.
+Independent CPU Torch accuracy reference; results are copied back to the input device, preserving in-place semantics. Does not require DSL. Not intended for performance or NPU graph capture.
 
 ## Example
 
