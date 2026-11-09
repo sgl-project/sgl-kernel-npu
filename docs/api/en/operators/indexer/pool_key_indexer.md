@@ -2,9 +2,9 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `aclnn` | Unverified | Verified |
+| `aclnn` | Supported | Supported |
 
 ## Signature
 
@@ -48,9 +48,9 @@ The output contains int32 indices rather than scores, with unused tail positions
 | `query` | `torch.Tensor` | `[B,S,H,D]` / `[T,H,D]` / `[T,H*D]` | `float16` / `bfloat16` | Required | BSND / TND query; rank-2 input is forwarded without reshaping. |
 | `pool_key` | `torch.Tensor` | `[B,P,1,D]` (BSND); layout-dependent for PA | Same as query | Required | Pooled keys; paged layouts require a compatible page table. |
 | `weights` | `torch.Tensor` | `[B,S,H]` (BSND) / `[T,H]` (TND) | Same as query | Required | Per-query, per-head indexer weights. |
-| `pool_tail_k` | `Sequence[int]` | `[B]` | Host integers | Required | Number of incomplete-tail tokens per request, in `[0,pool_size)`; pass a host list/tuple, never an NPU tensor. |
-| `actual_seq_q` | `Sequence[int]` or `None` | `[B]` or — | Host integers | `None` | Cumulative query endpoints for packed TND; None forwards an empty aclIntArray. |
-| `actual_seq_k` | `Sequence[int]` or `None` | `[B]` or — | Host integers | `None` | Valid pooled-key lengths per request for the paged workload; None forwards an empty aclIntArray. |
+| `pool_tail_k` | `Sequence[int]` or Tensor | `[B]` | Host integers or NPU int64 | Required | Incomplete-tail token counts. |
+| `actual_seq_q` | `Sequence[int]`, Tensor or None | `[B]` or — | Host integers or NPU int64 | `None` | Cumulative packed-query ends. |
+| `actual_seq_k` | `Sequence[int]`, Tensor or None | `[B]` or — | Host integers or NPU int64 | `None` | Complete pooled-key counts per request. |
 | `block_table` | `torch.Tensor` or `None` | `[B,M]` or — | `int32` | `None` | NPU page IDs for paged keys; None forwards an undefined optional tensor. |
 | `topk` | `int` | — | — | `2048` | Token-level selection width, at least pool_size; use a multiple of pool_size and enough valid pools. |
 | `pool_size` | `int` | — | — | `16` | Positive number of tokens represented by each complete pool. |
@@ -66,13 +66,19 @@ The output contains int32 indices rather than scores, with unused tail positions
 | --- | --- | --- | --- | --- |
 | `indices` | `torch.Tensor` | `[B,S,topk+K-1]` (rank-4 query) or `[T,topk+K-1]` (rank-2/3 query) | `torch.int32` | New output on the query NPU. |
 
-All tensors must share an NPU and use contiguous ND storage matching the layout; lengths and `pool_tail_k` remain host integer sequences. The binding accepts `TND*`, `PA_*` and `BSND*` prefixes, which does not establish vendor support for every suffix, shape or stride.
+All tensors share an NPU and use contiguous ND storage matching the layout.
+Pass all three metadata arguments as host sequences or as contiguous int64 device
+tensors; do not mix the two. Device metadata can be updated during graph replay.
+For zero-pool or all-padding TND inputs, use `prepare_pool_key_indexer_inputs`
+before CANN and pack the cropped output with the original query boundaries.
 
 ## aclnn backend
 
 The facade calls `torch.ops.attentions.pool_key_indexer`; the C++ binding forwards to `aclnnPoolKeyIndexer`. Build/install the separate `csrc/attentions` extension and provide a CANN/custom-op environment containing the vendor operator; the main kernel package alone is insufficient. Rank-2/3 queries are forwarded without conversion to BSND.
 
-Only BF16/FP16, `quant_mode=-1` and `return_value=False` are supported. No independent `torch_native` backend exists: `auto` and `aclnn` are aliases and cannot serve as mutual accuracy references. Tests use an independent deterministic ranking fixture; hardware accuracy and performance acceptance of this binding remain unverified.
+Only BF16/FP16, `quant_mode=-1` and `return_value=False` are supported.
+There is no independent `torch_native` backend: `auto` and `aclnn` are aliases.
+Tests use independently known ranking results and the empty-history replay regression.
 
 ## Example
 

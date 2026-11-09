@@ -2,24 +2,33 @@
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
+_torch_native_fn = None
+
 
 @register_impl("indexer.pack_pool_key_indexer_indices", "auto")
 @register_impl("indexer.pack_pool_key_indexer_indices", "triton")
 def _triton_impl(*args, **kwargs):
-    from ...implementation.triton.indexer.pack_pool_key_indexer_indices import (
-        pack_pool_key_indexer_indices,
-    )
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.indexer.pack_pool_key_indexer_indices import (
+            pack_pool_key_indexer_indices,
+        )
 
-    return pack_pool_key_indexer_indices(*args, **kwargs)
+        _triton_fn = pack_pool_key_indexer_indices
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("indexer.pack_pool_key_indexer_indices", "torch_native")
 def _torch_native_impl(*args, **kwargs):
-    from ...implementation.torch_native.indexer.pack_pool_key_indexer_indices import (
-        pack_pool_key_indexer_indices,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.pack_pool_key_indexer_indices import (
+            pack_pool_key_indexer_indices,
+        )
 
-    return pack_pool_key_indexer_indices(*args, **kwargs)
+        _torch_native_fn = pack_pool_key_indexer_indices
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("indexer.pack_pool_key_indexer_indices")

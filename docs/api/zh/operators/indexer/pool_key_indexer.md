@@ -2,9 +2,9 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `aclnn` | 未验证 | 已验证 |
+| `aclnn` | 支持 | 支持 |
 
 ## 函数原型
 
@@ -48,9 +48,9 @@ def pool_key_indexer(
 | `query` | `torch.Tensor` | `[B,S,H,D]` / `[T,H,D]` / `[T,H*D]` | `float16` / `bfloat16` | 必填 | BSND / TND query；二维输入直接转发，不在 binding 中 reshape。 |
 | `pool_key` | `torch.Tensor` | `[B,P,1,D]` (BSND); layout-dependent for PA | 与 query 相同 | 必填 | pool key；PA 分页布局须配套页表。 |
 | `weights` | `torch.Tensor` | `[B,S,H]` (BSND) / `[T,H]` (TND) | 与 query 相同 | 必填 | 逐 query、逐 head 的 indexer 权重。 |
-| `pool_tail_k` | `Sequence[int]` | `[B]` | host 整数 | 必填 | 每请求未成 pool 的 tail token 数，范围 `[0,pool_size)`；传 host list/tuple，不得传 NPU tensor。 |
-| `actual_seq_q` | `Sequence[int]` or `None` | `[B]` or — | host 整数 | `None` | packed TND 的 query 累积结束位置；None 转为空 aclIntArray。 |
-| `actual_seq_k` | `Sequence[int]` or `None` | `[B]` or — | host 整数 | `None` | 分页场景逐请求的有效 pooled-key 长度；None 转为空 aclIntArray。 |
+| `pool_tail_k` | `Sequence[int]` 或 Tensor | `[B]` | host 整数或 NPU int64 | 必填 | 每请求尚未压缩的 tail token 数。 |
+| `actual_seq_q` | `Sequence[int]`、Tensor 或 None | `[B]` 或 — | host 整数或 NPU int64 | `None` | 打包 query 的累积结束位置。 |
+| `actual_seq_k` | `Sequence[int]`、Tensor 或 None | `[B]` 或 — | host 整数或 NPU int64 | `None` | 每请求的完整压缩池数量。 |
 | `block_table` | `torch.Tensor` or `None` | `[B,M]` or — | `int32` | `None` | 分页 key 的 NPU 页 ID；None 转为空 optional tensor。 |
 | `topk` | `int` | — | — | `2048` | token 级选取宽度，至少为 pool_size；按 pool_size 的倍数使用，并提供足够有效 pool。 |
 | `pool_size` | `int` | — | — | `16` | 每个完整 pool 对应的 token 数，须为正数。 |
@@ -66,13 +66,18 @@ def pool_key_indexer(
 | --- | --- | --- | --- | --- |
 | `indices` | `torch.Tensor` | `[B,S,topk+K-1]`（四维 query）或 `[T,topk+K-1]`（二维/三维 query） | `torch.int32` | query 所在 NPU 上的新输出。 |
 
-所有 tensor 须位于同一 NPU，采用与布局匹配的连续 ND 存储；序列长度和 `pool_tail_k` 保持 host 整数序列。布局前缀检查允许 `TND*`、`PA_*`、`BSND*`，但不代表所有后缀、shape 或 stride 均被 vendor 支持。
+所有 tensor 位于同一 NPU，采用与布局匹配的连续 ND 存储。
+三个 metadata 参数统一使用 host 序列或连续 int64 设备张量，不混用；设备张量可在图回放时更新。
+TND 空历史或全 padding 场景先调用 `prepare_pool_key_indexer_inputs`，
+CANN 输出裁掉新增行后，再按原始 query 边界执行 packing。
 
 ## aclnn 后端
 
 公共适配层调用 `torch.ops.attentions.pool_key_indexer`，由 C++ binding 转发到 `aclnnPoolKeyIndexer`。需要单独构建并安装 `csrc/attentions` 扩展，以及提供该 vendor 算子的 CANN/custom-op 环境；仅安装主 kernel 包不足以运行。二维/三维 query 直接转发，不转换成 BSND。
 
-仅支持 BF16/FP16、`quant_mode=-1`、`return_value=False`。无独立 `torch_native` 后端；`auto`/`aclnn` 是同一实现，不能相互作为精度基准。现有测试使用独立的确定性排名数据，尚无该 binding 的硬件精度或性能验收结论。
+仅支持 BF16/FP16、`quant_mode=-1`、`return_value=False`。
+无独立 `torch_native` 后端；`auto`/`aclnn` 为同一实现。
+测试使用可独立确定排名的数据，并覆盖空历史图回放回归。
 
 ## 调用示例
 

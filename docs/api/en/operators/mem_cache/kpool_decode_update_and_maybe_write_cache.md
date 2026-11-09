@@ -2,10 +2,10 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `triton` | Supported | Verified |
-| `torch_native` | Supported | Verified |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
@@ -41,6 +41,10 @@ def kpool_decode_update_and_maybe_write_cache(
 Write the current decode key and score into the request's tail ring. When this token completes a pool, combine it with the stored tail history, apply channel-wise softmax pooling, and write the BF16 result to the pooled cache using the page table.
 
 Pooling uses FP32 arithmetic and includes positional scores. Invalid request rows leave all state unchanged. `out_cache_loc` controls whether the row is valid; the pooled-cache destination is resolved separately from the page table.
+
+`block_tables` contains physical KV page IDs. One logical allocator page owns
+pool_size consecutive KV pages and one compressed index page; cache writes use
+that compressed page. GLM-5.3-Flash uses 512-token logical pages and 128-row index pages.
 
 ## Parameters and return value
 
