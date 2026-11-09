@@ -386,23 +386,6 @@ ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
-if(SGL_KERNEL_ARCH STREQUAL "arch22" AND SGL_CANN_VENDOR)
-    set(SGL_LONGCAT_TORCH_ADAPTERS
-        "${PROJECT_OP_SRC_BASE}/embedding/compute_n_gram_ids/torch_adapter.cpp"
-        "${PROJECT_OP_SRC_BASE}/embedding/update_oe_token_table/torch_adapter.cpp"
-        "${PROJECT_OP_SRC_BASE}/indexer/mlp_lightning_indexer/torch_adapter.cpp")
-    target_sources(${OP_PLUGIN_NAME} PRIVATE ${SGL_LONGCAT_TORCH_ADAPTERS})
-    set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE}")
-    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-    find_library(SGL_CANN_NNOPBASE nnopbase PATHS "${ASCEND_HOME_PATH}/lib64" NO_DEFAULT_PATH REQUIRED)
-    set_property(SOURCE ${SGL_LONGCAT_TORCH_ADAPTERS} APPEND PROPERTY INCLUDE_DIRECTORIES
-        "${PROJECT_OP_SRC_BASE}/aclnn_torch_adapter"
-        "${SGL_CANN_VENDOR}/op_api/include"
-        "${ASCEND_HOME_PATH}/include"
-        ${Python3_INCLUDE_DIRS})
-    target_link_libraries(${OP_PLUGIN_NAME} PRIVATE "${SGL_CANN_NNOPBASE}")
-endif()
-
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         ${A5_ONLY_KERNEL_TARGETS}
