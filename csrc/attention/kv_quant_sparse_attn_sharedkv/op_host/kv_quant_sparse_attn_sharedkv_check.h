@@ -51,7 +51,11 @@ template <typename... Args>
 inline void Error(const char *opName, const char *format, Args... args)
 {
     char message[1024];
-    std::snprintf(message, sizeof(message), format, args...);
+    if constexpr (sizeof...(args) == 0) {
+        std::snprintf(message, sizeof(message), "%s", format);
+    } else {
+        std::snprintf(message, sizeof(message), format, args...);
+    }
     LastError() = message;
     std::fprintf(stderr, "[%s] %s\n", opName, message);
 }
@@ -64,7 +68,11 @@ inline void Info(const char *opName, const char *format, Args... args)
         return;
     }
     std::fprintf(stderr, "[%s] ", opName);
-    std::fprintf(stderr, format, args...);
+    if constexpr (sizeof...(args) == 0) {
+        std::fputs(format, stderr);
+    } else {
+        std::fprintf(stderr, format, args...);
+    }
     std::fprintf(stderr, "\n");
 }
 }  // namespace kv_quant_sas_log
