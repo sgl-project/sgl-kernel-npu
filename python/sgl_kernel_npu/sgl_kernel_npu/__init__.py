@@ -39,18 +39,6 @@ def _load_sgl_kernel_npu():
     npu_path = pathlib.Path(__file__).parents[0]
     so_path = os.path.join(npu_path, "lib", "libsgl_kernel_npu.so")
     torch.ops.load_library(so_path)
-    if "libsgl_compressor.so" in globals().get("_manifest", {}).get(
-        "native_libraries", []
-    ):
-        compressor_path = npu_path / "lib/libsgl_compressor.so"
-        if not compressor_path.is_file():
-            raise RuntimeError("The wheel is missing its fused compressor library")
-        if getattr(torch.ops.npu, "compressor", None) is None:
-            torch.ops.load_library(str(compressor_path))
-        if getattr(torch.ops.npu, "compressor", None) is None:
-            raise RuntimeError(
-                "The fused compressor library did not register npu.compressor"
-            )
 
 
 _load_sgl_kernel_npu()

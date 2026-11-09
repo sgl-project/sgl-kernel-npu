@@ -364,7 +364,7 @@ python3 /workspace/sgl-kernel-npu/setup.py --make-clean
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 3510 --ops all
 ```
 
-Cleanup removes `build/cann`, `build/torch`, `build/compressor` and `build/wheel`. Existing builds may
+Cleanup removes `build/cann`, `build/torch` and `build/wheel`. Existing builds may
 still clear the shared `build/` directory; rerunning the new entry reconstructs
 its intermediates. Do not run both builds concurrently in one checkout.
 
@@ -483,20 +483,15 @@ python3 tests/python/sgl_kernel_npu/test_hello_world.py
 
 ## Repository-owned DSV4 kernels
 
-The root `setup.py` additionally builds the existing fused compressor into
-`sgl_kernel_npu/lib/libsgl_compressor.so`. The build reuses this checkout's
-compressor kernel, host implementation and architecture-specific tiling without
-changing C++ sources. Its original Torch schema is extracted from
-`csrc/pytorch_extensions.cpp`; package import loads the library before the first
-NPU use and checks that `torch.ops.npu.compressor` is registered. The main library
-continues to contain the selected migrated CANN adapters.
+The root `setup.py` includes the repository's fused compressor and legacy
+DSpark compute/host-metadata bindings in `lib/libsgl_kernel_npu.so` through
+`csrc/cmake/native_ops.cmake`. It reuses the existing C++ entry points and Torch
+schemas. If a selected mainline ACLNN adapter already registers a legacy name
+(such as SwiGLU or the KV writer), the native build omits that duplicate.
 
-Compressor intermediates are kept under `build/compressor` for incremental
-builds. `--make-clean` removes that directory along with the other local build
-outputs, while preserving third-party dependency caches. The existing
-`build.sh` native build remains unchanged. Legacy direct-launch DSpark bindings
-still require their existing native build integration; this compressor fix does
-not assert complete DSV4 service coverage.
+There is no separate `libsgl_compressor.so` or compressor-specific loader.
+The existing `build.sh` native build remains unchanged. This build integration
+must still be validated with the target CANN SDK and on-device tests.
 
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.

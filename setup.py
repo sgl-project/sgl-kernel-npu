@@ -85,7 +85,7 @@ def main(argv=None):
     if (PROJECT_ROOT / "build").is_symlink():
         raise RuntimeError("Refusing a symlinked build root")
     if args.make_clean:
-        for name in ("cann", "torch", "wheel", "compressor"):
+        for name in ("cann", "torch", "wheel"):
             _remove_tree(PROJECT_ROOT / "build" / name)
         if not args.arch_version:
             print("sgl-kernel-npu intermediates removed")
