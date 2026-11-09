@@ -58,7 +58,9 @@ def detect_soc_version():
             ["npu-smi", "info", "-m"], text=True, stderr=subprocess.STDOUT, timeout=10
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError("Cannot query NPU device mapping with npu-smi info -m") from exc
+        raise RuntimeError(
+            "Cannot query NPU device mapping with npu-smi info -m"
+        ) from exc
 
     # The first columns are NPU ID, Chip ID and Chip Logic ID.
     devices = re.findall(r"(?m)^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+\S", mapping)
