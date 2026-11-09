@@ -147,7 +147,8 @@ void fused_scatter_copy_sparse_flash_attention(
     const c10::optional<at::Tensor> &request_slots,
     const c10::optional<at::Tensor> &req_to_token,
     const c10::optional<at::Tensor> &resident_begin,
-    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity);
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity,
+    int64_t dram_rope_dev_ptr);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>

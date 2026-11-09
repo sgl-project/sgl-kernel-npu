@@ -64,7 +64,7 @@ void fused_scatter_copy_sparse_flash_attention(
     bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
     const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
     const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
-    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity)
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
 {
     const bool resident = current.has_value();
     TORCH_CHECK(resident == positions.has_value() && resident == valid.has_value() &&
@@ -120,6 +120,7 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(combined_hbm_cache.size(0) > 0, "combined_hbm_cache must contain at least one page");
     TORCH_CHECK(attention_out.sizes() == query.sizes() && attention_out.scalar_type() == query.scalar_type(),
                 "attention_out must match query shape and dtype");
+    TORCH_CHECK(dram_rope_dev_ptr >= 0, "dram_rope_dev_ptr must be zero or a registered host pointer");
     TORCH_CHECK(dram_kv_dev_ptr > 0, "dram_kv_dev_ptr must be a registered host pointer");
     TORCH_CHECK(hbm_block_table.dim() == 2 && hbm_block_table.size(0) == batchSize && hbm_block_table.size(1) > 0,
                 "hbm_block_table must be [B, hbm_pages_per_request]");
@@ -207,6 +208,7 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(sfaData.GetDataSize() == sizeof(SparseFlashAttentionTilingDataMla),
                 "unexpected SFA tiling prefix size");
     sfaData.SaveToBuffer(reinterpret_cast<uint8_t *>(&fusedTilingData), sizeof(SparseFlashAttentionTilingDataMla));
+    fusedTilingData.splitHost = dram_rope_dev_ptr != 0;
     fusedTilingData.fullVisible = full_visible ? 1U : 0U;
     fusedTilingData.residentRefreshTail = resident_refresh_tail ? 1U : 0U;
     fusedTilingData.residentEnabled = resident ? 1U : 0U;
@@ -226,7 +228,8 @@ void fused_scatter_copy_sparse_flash_attention(
     auto tilingTensor = context->GetTilingTensor(tilingBytes);
     auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, query.options().dtype(at::kByte));
     auto *dramKv = reinterpret_cast<void *>(static_cast<uintptr_t>(dram_kv_dev_ptr));
-    auto *dramRope = reinterpret_cast<void *>(static_cast<uintptr_t>(dram_kv_dev_ptr + kKvDim * 2));
+    auto *dramRope = reinterpret_cast<void *>(
+        static_cast<uintptr_t>(dram_rope_dev_ptr ? dram_rope_dev_ptr : dram_kv_dev_ptr + kKvDim * 2));
     auto *hbmRope = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(combined_hbm_cache.data_ptr()) + kKvDim * 2);
 
     LaunchCombined(tiling.GetBlockDim(), query, cacheKey, cacheKey, topk_dst_slots, num_cache_tokens, hbm_block_table,

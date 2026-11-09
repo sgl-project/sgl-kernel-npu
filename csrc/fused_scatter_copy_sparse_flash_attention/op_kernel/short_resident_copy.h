@@ -16,14 +16,17 @@ template <typename T>
 class Copy
 {
 public:
-    __aicore__ inline void Init(TPipe *pipe, GM_ADDR current, GM_ADDR host, GM_ADDR cache, GM_ADDR table, GM_ADDR slots,
-                                GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds, GM_ADDR hbmTable, GM_ADDR lengths,
-                                GM_ADDR cacheTokens, GM_ADDR oldBegin, GM_ADDR oldEnd, uint32_t batch, uint32_t rows,
-                                uint32_t context, uint32_t capacity, uint32_t sourceRows, uint32_t currentRows,
-                                uint32_t hbmPages, uint32_t cores, bool allocateQueue)
+    __aicore__ inline void Init(TPipe *pipe, GM_ADDR current, GM_ADDR host, GM_ADDR hostRope, GM_ADDR cache,
+                                GM_ADDR table, GM_ADDR slots, GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds,
+                                GM_ADDR hbmTable, GM_ADDR lengths, GM_ADDR cacheTokens, GM_ADDR oldBegin,
+                                GM_ADDR oldEnd, uint32_t batch, uint32_t rows, uint32_t context, uint32_t capacity,
+                                uint32_t sourceRows, uint32_t currentRows, uint32_t hbmPages, uint32_t cores,
+                                bool allocateQueue, bool splitHost)
     {
         current_.SetGlobalBuffer((__gm__ T *)current);
         host_.SetGlobalBuffer((__gm__ T *)host);
+        hostRope_.SetGlobalBuffer((__gm__ T *)hostRope);
+        splitHost_ = splitHost;
         cache_.SetGlobalBuffer((__gm__ T *)cache);
         table_.SetGlobalBuffer((__gm__ int32_t *)table);
         slots_.SetGlobalBuffer((__gm__ int32_t *)slots);
@@ -77,7 +80,12 @@ public:
                 ASSERT_MSG(physical >= 0 && physical < sourceRows_, "short history source out of bounds");
                 if (physical < 0 || physical >= sourceRows_) continue;
                 const int64_t destination = Destination(b, pos);
-                if (destination >= 0) Transfer(host_, static_cast<int64_t>(physical) * FEATURES, destination);
+                if (destination >= 0) {
+                    if (splitHost_)
+                        TransferSplitHost(physical, destination);
+                    else
+                        Transfer(host_, static_cast<int64_t>(physical) * FEATURES, destination);
+                }
             }
             for (int32_t q = startQ + core_; q < endQ; q += cores_) {
                 if (valid_.GetValue(q) == 0 || positions_.GetValue(q) != first + q - startQ) continue;
@@ -168,7 +176,22 @@ private:
         DataCopyPad(cache_[dstOffset], local, params);
         queue_.FreeTensor(local);
     }
-    GlobalTensor<T> current_, host_, cache_;
+    __aicore__ inline void TransferSplitHost(int64_t row, int64_t dstOffset)
+    {
+        auto local = queue_.AllocTensor<T>();
+        DataCopyExtParams kv{1, 512 * sizeof(T), 0, 0, 0};
+        DataCopyExtParams rope{1, 64 * sizeof(T), 0, 0, 0};
+        DataCopyPadExtParams<T> pad{false, 0, 0, 0};
+        DataCopyPad(local, host_[row * 512], kv, pad);
+        DataCopyPad(local[512], hostRope_[row * 64], rope, pad);
+        queue_.EnQue(local);
+        local = queue_.DeQue<T>();
+        DataCopyExtParams all{1, BYTES, 0, 0, 0};
+        DataCopyPad(cache_[dstOffset], local, all);
+        queue_.FreeTensor(local);
+    }
+    GlobalTensor<T> current_, host_, hostRope_, cache_;
+    bool splitHost_;
     GlobalTensor<int32_t> table_, slots_, qEnds_, hbmTable_, lengths_, cacheTokens_, oldBegin_, oldEnd_;
     GlobalTensor<int64_t> positions_;
     GlobalTensor<uint8_t> valid_;

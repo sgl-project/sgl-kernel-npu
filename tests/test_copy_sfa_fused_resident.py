@@ -10,11 +10,12 @@ from test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
 @pytest.mark.parametrize("width", [1, 2, 3, 4, 5, 8, 14])
 @pytest.mark.parametrize("old_end", [-1, 124, 127])
 @pytest.mark.parametrize("graph", [False, True])
-def test_short_resident_current_and_history(width, old_end, graph):
+def test_short_resident_current_and_history(width, old_end, graph, split_host=False):
     ops = _require_npu()
     device_id = torch.npu.current_device()
     device = torch.device("npu", device_id)
-    capacity, context, first, host_rows = 2048, 2048, 127, 2048
+    capacity = context = host_rows = 2048
+    first = 129 if split_host else 127
     length = first + width
     generator = torch.Generator().manual_seed(20261103 + width)
     dtype = torch.bfloat16
@@ -25,11 +26,24 @@ def test_short_resident_current_and_history(width, old_end, graph):
     logical[first:] = current_cpu[:width, 0]
     # The current rows must come from the device tensor, not the host mapping.
     host_values[mapping[first:length].long()] = 37
-    host, _, host_ptr = ops.create_fused_shm_tensor(
-        (host_rows, 1, 576), dtype, device_id=device_id, name="copy_sfa_fused_resident"
-    )
-    host[:, 0].copy_(host_values)
     try:
+        host, _, combined_ptr = ops.create_fused_shm_tensor(
+            (host_rows, 1, 576),
+            dtype,
+            device_id=device_id,
+            name="copy_sfa_fused_resident",
+        )
+        host[:, 0].copy_(host_values)
+        host_ptr, rope_ptr = combined_ptr, 0
+        if split_host:
+            host_k, _, host_ptr = ops.create_fused_shm_tensor(
+                (host_rows, 512), dtype, device_id=device_id, name="copy_sfa_short_k"
+            )
+            host_rope, _, rope_ptr = ops.create_fused_shm_tensor(
+                (host_rows, 64), dtype, device_id=device_id, name="copy_sfa_short_rope"
+            )
+            host_k.copy_(host_values[:, :512])
+            host_rope.copy_(host_values[:, 512:])
 
         def npu(value):
             return value.to(device)
@@ -99,6 +113,7 @@ def test_short_resident_current_and_history(width, old_end, graph):
                 resident_begin=begin,
                 resident_end=end,
                 host_token_capacity=host_rows,
+                **({"dram_rope_dev_ptr": rope_ptr} if split_host else {}),
             )
 
         if graph:
@@ -144,7 +159,7 @@ def test_short_resident_current_and_history(width, old_end, graph):
             zero,
             hbm_table,
             dram_table,
-            host_ptr,
+            combined_ptr,
             old_output,
             scale,
             full_visible=True,
@@ -175,6 +190,12 @@ def test_short_resident_current_and_history(width, old_end, graph):
     finally:
         torch.npu.synchronize()
         ops.free_fused_shm(device_id)
+
+
+@pytest.mark.parametrize("graph", [False, True])
+def test_split_host_short_resident_crosses_page(graph):
+    # Restore across the page boundary through a permuted physical mapping.
+    test_short_resident_current_and_history(4, -1, graph, split_host=True)
 
 
 def _check_long_first_fill(width, graph, missing_current_page=False):
@@ -548,5 +569,90 @@ def test_mixed_short_first_fill_and_padding(graph):
             ) * case.scale
             expected = torch.softmax(scores, -1) @ visible[:, :512]
             torch.testing.assert_close(actual[route], expected, atol=0.003, rtol=0.02)
+    finally:
+        case.close()
+
+
+@pytest.mark.parametrize("graph", [False, True])
+def test_split_host_long_misses_match_combined_across_pages(graph):
+    case = _DynamicTndCase(
+        query_counts=[1],
+        heads=8,
+        cache_budgets=[4096],
+        steady_miss_requests={0},
+        tail_tokens=0,
+    )
+    try:
+        ops = _require_npu()
+        rows = case.dram.view(-1, 576)
+        host_k, _, k_ptr = ops.create_fused_shm_tensor(
+            (rows.shape[0], 512),
+            case.dtype,
+            device_id=case.device_id,
+            name="copy_sfa_long_k",
+        )
+        host_rope, _, rope_ptr = ops.create_fused_shm_tensor(
+            (rows.shape[0], 64),
+            case.dtype,
+            device_id=case.device_id,
+            name="copy_sfa_long_rope",
+        )
+        host_k.copy_(rows[:, :512])
+        host_rope.copy_(rows[:, 512:])
+        # Adjacent logical tokens straddle a page and map to distant physical
+        # pages, exposing row-stride and page-table mistakes independently.
+        pages = torch.arange(case.dram_blocks - 1, -1, -1, dtype=torch.int32)
+        case.dram_block_table.copy_(pages.view_as(case.dram_block_table))
+        case.topk_src[0, 0, :2] = torch.tensor([127, 128], device=case.device)
+        case.topk_miss_counts[0] = 2
+        case.miss_src[0, :2] = torch.tensor([127, 128], device=case.device)
+        case.miss_dst[0, :2] = torch.tensor([0, 1], device=case.device)
+        case.miss_counts[0] = 2
+        initial = case.hbm.clone()
+        expected = torch.stack(
+            (rows[int(pages[0]) * 128 + 127], rows[int(pages[1]) * 128])
+        )
+
+        def run(kv_ptr, split_ptr):
+            torch.ops.npu.fused_scatter_copy_sparse_flash_attention(
+                case.query,
+                case.query_rope,
+                case.hbm,
+                case.actual_q,
+                case.actual_kv,
+                case.cache_tokens,
+                case.topk_src,
+                case.sparse_slots,
+                case.topk_miss_counts,
+                case.miss_src,
+                case.miss_dst,
+                case.miss_counts,
+                case.hbm_block_table,
+                case.dram_block_table,
+                kv_ptr,
+                case.output,
+                case.scale,
+                dram_rope_dev_ptr=split_ptr,
+            )
+
+        run(case.dram_dev_ptr, 0)
+        torch.npu.synchronize()
+        combined_hbm, combined_output = case.hbm.clone(), case.output.clone()
+        page = int(case.hbm_block_table_cpu[0, 0])
+        torch.testing.assert_close(
+            combined_hbm[page, :2, 0].cpu(), expected, atol=0, rtol=0
+        )
+        case.hbm.copy_(initial)
+        if graph:
+            capture = torch.npu.NPUGraph()
+            with torch.npu.graph(capture):
+                run(k_ptr, rope_ptr)
+            case.hbm.copy_(initial)
+            capture.replay()
+        else:
+            run(k_ptr, rope_ptr)
+        torch.npu.synchronize()
+        torch.testing.assert_close(case.hbm, combined_hbm, atol=0, rtol=0)
+        torch.testing.assert_close(case.output, combined_output, atol=0, rtol=0)
     finally:
         case.close()

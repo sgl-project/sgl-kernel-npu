@@ -36,6 +36,7 @@ public:
         blockIdx_ = GetBlockIdx();
         refreshOnly_ = refreshOnly;
         residentEnabled_ = residentEnabled;
+        splitHost_ = COMBINED_LAYOUT && tiling_->splitHost != 0;
         qEndsGm_.SetGlobalBuffer((__gm__ int32_t *)qEnds);
         if (residentEnabled_) {
             currentGm_.SetGlobalBuffer((__gm__ T *)current);
@@ -220,9 +221,11 @@ private:
             if (residentEnabled_ && srcRow >= tiling_->residentHostRows) return false;
         }
         if constexpr (COMBINED_LAYOUT) {
-            if (!address.fromCurrent) address.srcKv = srcRow * COMBINED_TOKEN_STRIDE;
+            if (!address.fromCurrent) {
+                address.srcKv = srcRow * (splitHost_ ? KV_CACHE_DIM : COMBINED_TOKEN_STRIDE);
+                address.srcRope = srcRow * (splitHost_ ? K_ROPE_DIM : COMBINED_TOKEN_STRIDE);
+            }
             address.dstKv = dstRow * COMBINED_TOKEN_STRIDE;
-            if (!address.fromCurrent) address.srcRope = srcRow * COMBINED_TOKEN_STRIDE;
             address.dstRope = dstRow * COMBINED_TOKEN_STRIDE;
         } else {
             address.srcKv = srcRow * KV_CACHE_DIM;
@@ -280,6 +283,7 @@ private:
     int32_t cachedCopyStart_ = 0;
     bool refreshOnly_ = false;
     bool residentEnabled_ = false;
+    bool splitHost_ = false;
     GlobalTensor<int32_t> qEndsGm_;
 
     GlobalTensor<T> hbmKRoPEGm_;

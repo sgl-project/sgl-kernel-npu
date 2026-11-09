@@ -29,6 +29,7 @@ struct alignas(8) FusedCopySfaTilingData {
     uint32_t residentHostRows;
     uint32_t residentCurrentRows;
     uint32_t residentHbmPages;
+    uint32_t splitHost;
 };
 
 static_assert(sizeof(SparseFlashAttentionTilingDataMla) == 144);
@@ -46,6 +47,7 @@ static_assert(offsetof(FusedCopySfaTilingData, hbmMaxBlockNum) == 152);
 static_assert(offsetof(FusedCopySfaTilingData, dramMaxBlockNum) == 156);
 static_assert(offsetof(FusedCopySfaTilingData, fullVisible) == 160);
 static_assert(offsetof(FusedCopySfaTilingData, residentRefreshTail) == 164);
-static_assert(sizeof(FusedCopySfaTilingData) == 192);
+static_assert(offsetof(FusedCopySfaTilingData, splitHost) == 192);
+static_assert(sizeof(FusedCopySfaTilingData) == 200);
 
 #endif  // SGL_KERNEL_NPU_FUSED_COPY_SFA_TILING_DATA_H

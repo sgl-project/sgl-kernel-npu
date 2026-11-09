@@ -270,6 +270,7 @@ private:
     uint32_t currentRows_ = 0;
     uint32_t hostRows_ = 0;
     bool currentEnabled_ = false;
+    bool splitHost_ = false;
     GlobalTensor<int32_t> dramBlockTableGm_;
     GlobalTensor<int32_t> sourceTokenIdsGm_;
     GlobalTensor<int32_t> copyCountsGm_;
@@ -398,6 +399,7 @@ __aicore__ inline void SFAVectorService<SFAT>::InitParams(
 {
     this->constInfo = constInfo;
     this->tilingData = tilingData;
+    this->splitHost_ = tilingData->splitHost != 0;
 }
 
 template <typename SFAT>
@@ -1153,8 +1155,9 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInDramKv(int64_t &mte2Size, i
     if (dramOffset < 0) return;
 
     const int64_t ubRow = mte2Size - mte3Size;
-    const uint64_t keyRowStride = SFAT::combinedKvStorage ? constInfo.storageTokenStride : constInfo.headDim;
-    const uint64_t ropeRowStride = SFAT::combinedKvStorage ? constInfo.storageTokenStride : constInfo.headDimRope;
+    const bool combinedHost = SFAT::combinedKvStorage && !splitHost_;
+    const uint64_t keyRowStride = combinedHost ? constInfo.storageTokenStride : constInfo.headDim;
+    const uint64_t ropeRowStride = combinedHost ? constInfo.storageTokenStride : constInfo.headDimRope;
     DataCopyExtParams copyParams;
     copyParams.blockCount = 1;
     copyParams.blockLen = constInfo.headDim * sizeof(KV_T);

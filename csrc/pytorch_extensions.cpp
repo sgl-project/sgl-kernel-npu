@@ -165,7 +165,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor dram_block_table, int dram_kv_dev_ptr, Tensor(b!) attention_out, float scale_value, bool "
         "full_visible=False, bool resident_refresh_tail=False, Tensor? current=None, Tensor? positions=None, "
         "Tensor? valid=None, Tensor? request_slots=None, Tensor? req_to_token=None, "
-        "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0) -> ()");
+        "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0, "
+        "int dram_rope_dev_ptr=0) -> ()");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
