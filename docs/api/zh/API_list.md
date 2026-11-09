@@ -25,6 +25,8 @@
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |
 | [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
+| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cannbot_dsl`, `torch_native` |
+| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cannbot_dsl` |
 | [batch_matmul_transpose](operators/matmul/batch_matmul_transpose.md) | `ascendc`、`torch_native` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [la](operators/attention/laser_attention.md) | `ascendc`（ARCH22）、`torch_native` |
@@ -65,13 +67,21 @@
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
-| [build_tree](operators/speculative/build_tree.md) | `ascendc`, `torch_native` |
-| [causal_conv1d](operators/mamba/causal_conv1d.md) | `ascendc`, `torch_native` |
+| [build_tree](operators/speculative/build_tree.md) | `ascendc`、`torch_native` |
+| [causal_conv1d](operators/mamba/causal_conv1d.md) | `ascendc`、`torch_native` |
+| [chain_speculative_sampling](operators/speculative/chain_speculative_sampling.md) | `triton`、`torch_native` |
+| [tree_speculative_sampling_target_only](operators/speculative/tree_speculative_sampling_target_only.md) | `triton`、`torch_native` |
+| [verify_tree_greedy](operators/speculative/verify_tree_greedy.md) | `triton`、`torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`、`torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
 | [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
+| [indexer_prologue_k](operators/indexer/indexer_prologue_k.md) | `cannbot_dsl`, `torch_native` |
+| [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cannbot_dsl`, `torch_native` |
+| [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cannbot_dsl` |
+| [quant_sparse_lightning_indexer](operators/indexer/quant_sparse_lightning_indexer.md) | `cannbot_dsl`, `torch_native` |
+| [quant_sparse_lightning_indexer_metadata](operators/indexer/quant_sparse_lightning_indexer_metadata.md) | `cannbot_dsl` |
 | [expand_causal_seqlens](operators/indexer/expand_causal_seqlens.md) | `triton`, `torch_native` |
 | [expand_kpool_group_and_tail_to_topk](operators/indexer/expand_kpool_group_and_tail_to_topk.md) | `triton`, `torch_native` |
 | [kpool_indexer_prepare_decode_input](operators/indexer/kpool_indexer_prepare_decode_input.md) | `triton`, `torch_native` |
