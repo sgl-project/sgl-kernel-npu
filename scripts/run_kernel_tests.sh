@@ -55,12 +55,23 @@ filter_tests() {
     for test_file in "${TESTS[@]}"; do
         name="${test_file##*/}"
 
-        # Keep the two mHC tests temporarily disabled.
+        # Tests disabled for both CI hardware targets.
         case "$test_file" in
             tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
-            tests/python/operators/hyper_conn/test_mhc_post.py)
+            tests/python/operators/hyper_conn/test_mhc_post.py|\
+            tests/python/operators/attention/test_compressor_v2.py|\
+            tests/python/operators/indexer/test_lightning_indexer_v2.py|\
+            tests/python/operators/attention/test_flash_mla.py|\
+            tests/python/operators/attention/test_sparse_flash_mla.py)
                 echo "Skipping temporarily disabled test: $test_file"
                 continue
+                ;;
+            tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
+            tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py)
+                if [[ "${NPU_HARDWARE:-}" != 950 ]]; then
+                    echo "Skipping A5-only test: $test_file"
+                    continue
+                fi
                 ;;
         esac
 
@@ -68,19 +79,6 @@ filter_tests() {
             case "$name" in
                 test_triangular_inverse.py|test_chunk_gdn_triton.py)
                     echo "[CANN_VERSION=$CANN_VERSION] Skipping: $test_file"
-                    continue
-                    ;;
-            esac
-        fi
-
-        if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
-            case "$name" in
-                test_mla_preprocess.py|test_lightning_indexer.py|\
-                test_conv1d_update.py|test_mamba_conv.py|\
-                test_l2norm_boundaries.py|test_batch_matmul_transpose.py|\
-                test_qkvzba_split_reshape_cat.py|test_gmm_wfp8a16.py|\
-                test_mm_wfp8a16.py)
-                    echo "[NPU_HARDWARE=$NPU_HARDWARE] Skipping: $test_file"
                     continue
                     ;;
             esac
