@@ -15,12 +15,12 @@ accepts FP32 state on both architectures. The accuracy tests compare `ascendc`
 against `torch_native` in 15 BF16-state cases on each of A3 and A5. All cases use
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings crossed with three
 chunk-state layouts. See the
-[test source](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py).
+[test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).
 
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
 
 def chunk_gated_delta_rule(
     query,

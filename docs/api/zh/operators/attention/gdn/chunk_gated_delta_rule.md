@@ -13,12 +13,12 @@
 A5 的 `ascendc` 内核有 FP32 状态实现，`torch_native` 在两种架构上均接受 FP32 状态。
 精度测试在 A3 和 A5 上各使用 15 组 BF16 状态用例，对比 `ascendc` 和 `torch_native`。
 所有用例的形状均为 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局，
-详见[测试源码](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py)。
+详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。
 
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
 
 def chunk_gated_delta_rule(
     query,

@@ -73,7 +73,7 @@ def clone_test_data(inputs):
 @pytest.mark.parametrize("chunk_layout", ["absent", "contiguous", "noncontiguous"])
 def test_chunk_gated_delta_rule(scale, chunk_layout):
     """Original explicit scale and separately labelled default/zero variants."""
-    from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
+    from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
 
     data = generate_test_data(torch.device("npu"))
     if scale == "omitted":

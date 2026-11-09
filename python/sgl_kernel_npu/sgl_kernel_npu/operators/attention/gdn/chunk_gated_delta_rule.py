@@ -1,14 +1,14 @@
 """Public CGDR dispatch for the independent attention CANN operator."""
 
-from ..utils.generation import Generation
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.generation import Generation
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
 _GENERATIONS = (Generation.ARCH22, Generation.ARCH35)
 
 
-@register_impl("attention.chunk_gated_delta_rule", "auto")
-@register_impl("attention.chunk_gated_delta_rule", "ascendc")
+@register_impl("attention.gdn.chunk_gated_delta_rule", "auto")
+@register_impl("attention.gdn.chunk_gated_delta_rule", "ascendc")
 def _ascendc_impl(
     query, key, value, beta, initial_state, actual_seq_lengths, scale, g, chunk_state
 ):
@@ -27,13 +27,13 @@ def _ascendc_impl(
     )
 
 
-@register_impl("attention.chunk_gated_delta_rule", "torch_native")
+@register_impl("attention.gdn.chunk_gated_delta_rule", "torch_native")
 def _torch_native_impl(
     query, key, value, beta, initial_state, actual_seq_lengths, scale, g, chunk_state
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.chunk_gated_delta_rule import (
+        from ....implementation.torch_native.attention.gdn.chunk_gated_delta_rule import (
             chunk_gated_delta_rule,
         )
 
@@ -51,7 +51,7 @@ def _torch_native_impl(
     )
 
 
-@register_operator("attention.chunk_gated_delta_rule")
+@register_operator("attention.gdn.chunk_gated_delta_rule")
 def chunk_gated_delta_rule(
     query,
     key,
@@ -73,7 +73,7 @@ def chunk_gated_delta_rule(
     uses a temporary with no copyback, preserving the old Host contract.
     """
     effective_scale = 1.0 if scale is None else scale
-    return get_impl_by_name("attention.chunk_gated_delta_rule", impl)(
+    return get_impl_by_name("attention.gdn.chunk_gated_delta_rule", impl)(
         query,
         key,
         value,

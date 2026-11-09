@@ -175,7 +175,7 @@ def check_result(out, data, ref_out, ref_data, original, family):
 
 @pytest.mark.parametrize("family,shape", CASES, ids=CASE_IDS)
 def test_recurrent_gated_delta_rule(family, shape):
-    from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+    from sgl_kernel_npu.operators.attention.gdn import recurrent_gated_delta_rule
 
     impl, impl_ref = get_test_impls()
     skip = bool(get_skip_acc_check())

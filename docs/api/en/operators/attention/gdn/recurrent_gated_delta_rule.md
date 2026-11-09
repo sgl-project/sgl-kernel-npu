@@ -4,15 +4,15 @@
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` / `auto` | Unverified | Supported |
-| `torch_native` | Unverified | Supported |
+| `ascendc` / `auto` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
 The default `auto` selects the same entry point as `ascendc`.
 
 ```python
-from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import recurrent_gated_delta_rule
 
 def recurrent_gated_delta_rule(
     mix_qkv, recurrent_state, beta, scale, actual_seq_lengths,
@@ -109,7 +109,7 @@ Backend calls use separate initial state pools.
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import recurrent_gated_delta_rule
 
 b, s, nk, nv, dk, dv = 2, 1, 8, 16, 128, 128
 device, dtype = "npu", torch.bfloat16

@@ -4,15 +4,15 @@
 
 | 实现 | arch22（2201） | arch35（3510） |
 | --- | --- | --- |
-| `ascendc` / `auto` | 未验证 | 支持 |
-| `torch_native` | 未验证 | 支持 |
+| `ascendc` / `auto` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
 默认 `auto` 与 `ascendc` 使用同一入口。
 
 ```python
-from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import recurrent_gated_delta_rule
 
 def recurrent_gated_delta_rule(
     mix_qkv, recurrent_state, beta, scale, actual_seq_lengths,
@@ -103,7 +103,7 @@ out_t = H_t @ q_t
 import torch
 import torch_npu
 
-from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import recurrent_gated_delta_rule
 
 b, s, nk, nv, dk, dv = 2, 1, 8, 16, 128, 128
 device, dtype = "npu", torch.bfloat16

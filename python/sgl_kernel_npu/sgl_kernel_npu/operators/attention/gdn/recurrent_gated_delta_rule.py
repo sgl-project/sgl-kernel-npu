@@ -1,16 +1,16 @@
 """Public packed recurrent gated delta rule with caller-owned mutable state."""
 
-from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _native = None
 
 
 @register_impl(
-    "attention.recurrent_gated_delta_rule",
+    "attention.gdn.recurrent_gated_delta_rule",
     "auto",
 )
 @register_impl(
-    "attention.recurrent_gated_delta_rule",
+    "attention.gdn.recurrent_gated_delta_rule",
     "ascendc",
 )
 def _ascendc_impl(*args, **kwargs):
@@ -19,11 +19,11 @@ def _ascendc_impl(*args, **kwargs):
     return torch.ops.npu.recurrent_gated_delta_rule(*args, **kwargs)
 
 
-@register_impl("attention.recurrent_gated_delta_rule", "torch_native")
+@register_impl("attention.gdn.recurrent_gated_delta_rule", "torch_native")
 def _torch_native_impl(*args, **kwargs):
     global _native
     if _native is None:
-        from ...implementation.torch_native.attention.recurrent_gated_delta_rule import (
+        from ....implementation.torch_native.attention.gdn.recurrent_gated_delta_rule import (
             recurrent_gated_delta_rule,
         )
 
@@ -31,7 +31,7 @@ def _torch_native_impl(*args, **kwargs):
     return _native(*args, **kwargs)
 
 
-@register_operator("attention.recurrent_gated_delta_rule")
+@register_operator("attention.gdn.recurrent_gated_delta_rule")
 def recurrent_gated_delta_rule(
     mix_qkv,
     recurrent_state,
@@ -82,7 +82,7 @@ def recurrent_gated_delta_rule(
     working pool uses a temporary without copyback. See the API page for the
     complete state-selection protocol and native copy-size limits.
     """
-    return get_impl_by_name("attention.recurrent_gated_delta_rule", impl)(
+    return get_impl_by_name("attention.gdn.recurrent_gated_delta_rule", impl)(
         mix_qkv,
         recurrent_state,
         beta,
