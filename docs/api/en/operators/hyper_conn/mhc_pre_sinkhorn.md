@@ -7,7 +7,7 @@
 | cann_ops_transformer | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
-The retained 8 independent Torch-reference cases passed in the previous CANN 9.1 validation on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582), covering FP16/BF16 activations and FP32 parameters. Tests use GLM-5.3-Flash dimensions with hidden size 4096; token counts are 1 and 128. Small-width synthetic cases are omitted because the CANN 9.2 Ascend950 implementation requires hidden size 4096 or 7168.
+CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. On Ascend950, CANN 9.2.0 only supports hidden sizes 4096 and 7168. The GLM-5.3-Flash hidden size of 4096 is supported by both versions. These constraints apply to the hidden dimension, not the token count.
 
 ## Signature
 
