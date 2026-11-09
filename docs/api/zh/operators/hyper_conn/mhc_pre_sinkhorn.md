@@ -7,7 +7,7 @@
 | cann_ops_transformer | 已验证 | 已验证 |
 | torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
 
-CANN 9.1.0 在 A3 和 Ascend950 上支持 hidden_size=128、256 等小尺寸；CANN 9.2.0 在 Ascend950 上仅支持 hidden_size=4096 或 7168。GLM-5.3-Flash 的 hidden_size=4096 可用于两个版本。此处限制的是隐藏维度，不是 token 数。
+CANN 9.1.0 在 A3 和 Ascend950 上支持 hidden_size=128、256 等小尺寸；CANN 9.2.0 在 Ascend950 上仅支持 hidden_size=4096 或 7168。GLM-5.3-Flash 的 hidden_size=4096 可用于两个版本。
 
 ## 函数原型
 

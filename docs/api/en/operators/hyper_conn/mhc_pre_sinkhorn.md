@@ -7,7 +7,7 @@
 | cann_ops_transformer | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
-CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. On Ascend950, CANN 9.2.0 only supports hidden sizes 4096 and 7168. The GLM-5.3-Flash hidden size of 4096 is supported by both versions. These constraints apply to the hidden dimension, not the token count.
+CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. On Ascend950, CANN 9.2.0 only supports hidden sizes 4096 and 7168. The GLM-5.3-Flash hidden size of 4096 is supported by both versions.
 
 ## Signature
 
