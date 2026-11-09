@@ -48,9 +48,9 @@ def pool_key_indexer(
 | `query` | `torch.Tensor` | `[B,S,H,D]` / `[T,H,D]` / `[T,H*D]` | `float16` / `bfloat16` | 必填 | BSND / TND query；二维输入直接转发，不在 binding 中 reshape。 |
 | `pool_key` | `torch.Tensor` | `[B,P,1,D]` (BSND); layout-dependent for PA | 与 query 相同 | 必填 | pool key；PA 分页布局须配套页表。 |
 | `weights` | `torch.Tensor` | `[B,S,H]` (BSND) / `[T,H]` (TND) | 与 query 相同 | 必填 | 逐 query、逐 head 的 indexer 权重。 |
-| `pool_tail_k` | `Sequence[int]` / `Tensor` | `[B]` | host 整数 / NPU int64 | 必填 | 每请求未成 pool 的 tail token 数，范围 `[0,pool_size)`；支持 host list/tuple，或 query 同设备的连续 int64 Tensor。 |
-| `actual_seq_q` | `Sequence[int]` / `Tensor` or `None` | `[B]` or — | host 整数 / NPU int64 | `None` | packed TND 的 query 累积结束位置；None 按对应 overload 传空参数。 |
-| `actual_seq_k` | `Sequence[int]` / `Tensor` or `None` | `[B]` or — | host 整数 / NPU int64 | `None` | 分页场景逐请求的有效 pooled-key 长度；None 按对应 overload 传空参数。 |
+| `pool_tail_k` | `Sequence[int]` | `[B]` | host 整数 | 必填 | 每请求未成 pool 的 tail token 数，范围 `[0,pool_size)`；传 host list/tuple，不得传 NPU tensor。 |
+| `actual_seq_q` | `Sequence[int]` or `None` | `[B]` or — | host 整数 | `None` | packed TND 的 query 累积结束位置；None 转为空 aclIntArray。 |
+| `actual_seq_k` | `Sequence[int]` or `None` | `[B]` or — | host 整数 | `None` | 分页场景逐请求的有效 pooled-key 长度；None 转为空 aclIntArray。 |
 | `block_table` | `torch.Tensor` or `None` | `[B,M]` or — | `int32` | `None` | 分页 key 的 NPU 页 ID；None 转为空 optional tensor。 |
 | `topk` | `int` | — | — | `2048` | token 级选取宽度，至少为 pool_size；按 pool_size 的倍数使用，并提供足够有效 pool。 |
 | `pool_size` | `int` | — | — | `16` | 每个完整 pool 对应的 token 数，须为正数。 |
@@ -66,7 +66,7 @@ def pool_key_indexer(
 | --- | --- | --- | --- | --- |
 | `indices` | `torch.Tensor` | `[B,S,topk+K-1]`（四维 query）或 `[T,topk+K-1]`（二维/三维 query） | `torch.int32` | query 所在 NPU 上的新输出。 |
 
-所有 tensor 须位于同一 NPU，采用与布局匹配的连续 ND 存储；三个 metadata 参数必须统一使用 host 整数序列，或 query 同设备的连续 int64 Tensor，不混用两种形式。布局前缀检查允许 `TND*`、`PA_*`、`BSND*`，但不代表所有后缀、shape 或 stride 均被 vendor 支持。
+所有 tensor 须位于同一 NPU，采用与布局匹配的连续 ND 存储；序列长度和 `pool_tail_k` 保持 host 整数序列。布局前缀检查允许 `TND*`、`PA_*`、`BSND*`，但不代表所有后缀、shape 或 stride 均被 vendor 支持。
 
 ## aclnn 后端
 
@@ -95,5 +95,3 @@ indices = pool_key_indexer(
 )
 assert indices.shape == (1, 1, 19) and indices.dtype == torch.int32
 ```
-
-Tensor metadata 经 `attentions.pool_key_indexer.tensor` 调用 `aclnnPoolKeyIndexerTensorGetWorkspaceSize`，执行仍使用 `aclnnPoolKeyIndexer`；不进行 D2H，支持修改 buffer 后同图 replay。host overload 保持不变。需要提供上述 Tensor workspace 符号的 CANN/custom-op 版本；本轮无目标硬件编译或图执行结果。

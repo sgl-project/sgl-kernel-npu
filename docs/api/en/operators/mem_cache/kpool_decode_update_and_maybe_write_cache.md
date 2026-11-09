@@ -112,5 +112,3 @@ kpool_decode_update_and_maybe_write_cache(
     impl='torch_native',
 )
 ```
-
-Paging contract: block_tables contains original physical KV page IDs, with pool_size consecutive physical pages per logical allocator page. The index page ID is the group-head physical page ID // pool_size; slots_per_page counts compressed keys. For GLM r=4, physical page 28 maps to index page 7 with slots_per_page=128.
