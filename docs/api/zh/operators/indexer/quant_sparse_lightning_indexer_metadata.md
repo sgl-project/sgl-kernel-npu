@@ -9,12 +9,6 @@
 ## 函数原型
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
-
-
 def quant_sparse_lightning_indexer_metadata(
     candidate_block_length,
     cu_seqlens_q=None,
@@ -43,8 +37,6 @@ def quant_sparse_lightning_indexer_metadata(
 ## 功能说明
 
 QSLI 的 AICPU 调度算子：按每行候选长度和序列可见范围规划分核与跨核归并。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `candidate_block_length` 为每个 Query 的有效候选块数量，`cu_seqlens_q/k`、`seqused_q/k` 描述存储和有效长度；`candidate_block_size=8`、`quant_mode=1` 应与主算子一致。候选长度或静态属性变化后需重建 metadata；不可用 QLI metadata 替代。
 

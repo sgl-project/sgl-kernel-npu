@@ -13,9 +13,6 @@
 import torch
 from typing import Optional
 
-from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer
-
-
 def quant_sparse_lightning_indexer(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -49,8 +46,6 @@ def quant_sparse_lightning_indexer(
 ## 功能说明
 
 MXFP4 Sparse Lightning Indexer：只访问 QLI 给出的候选 Key 块，再选出 TopK token。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `q` 为 UINT8 `[T1,32,64]`；`candidate_block_indices` 为 INT32 候选块号，`candidate_block_length` 给出每行有效前缀。`descale_k` 为 E8M0 scale，`metadata` 需由同配置的 QSLI metadata 算子生成。`candidate_block_size=8`、`quant_mode=1`；K 可为 `TND` 或 `PA_BBND`。
 

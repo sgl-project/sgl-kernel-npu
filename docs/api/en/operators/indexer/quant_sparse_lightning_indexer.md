@@ -13,9 +13,6 @@
 import torch
 from typing import Optional
 
-from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer
-
-
 def quant_sparse_lightning_indexer(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -49,8 +46,6 @@ def quant_sparse_lightning_indexer(
 ## Behavior
 
 Scores only the candidate key blocks selected by QLI and returns sparse TopK tokens.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 UINT8 `q[T1,32,64]`, INT32 candidate block indices/lengths, E8M0 key descale, and matching QSLI metadata are required. Use `candidate_block_size=8` and `quant_mode=1`; K may be TND or PA_BBND.
 

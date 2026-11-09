@@ -9,12 +9,6 @@
 ## Signature
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
-
-
 def quant_sparse_lightning_indexer_metadata(
     candidate_block_length,
     cu_seqlens_q=None,
@@ -43,8 +37,6 @@ def quant_sparse_lightning_indexer_metadata(
 ## Behavior
 
 Plans QSLI AICPU work from each row’s candidate length and visible sequence range.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 `candidate_block_length`, cumulative/used Q and K lengths, candidate block size, and quantization mode must match the main QSLI call. QLI metadata cannot substitute for QSLI metadata.
 

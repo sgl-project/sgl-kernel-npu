@@ -11,10 +11,6 @@
 
 ```python
 import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.indexer import indexer_prologue_k
-
 
 def indexer_prologue_k(
     latent: torch.Tensor,
@@ -36,8 +32,6 @@ def indexer_prologue_k(
 ## 功能说明
 
 Indexer K 前处理：BF16 投影、RMSNorm、RoPE、MXFP4 E2M1 量化，并写入分页 K cache。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 输入 `latent` 为 BF16 `[T,H]`，`wk` 为 BF16 `[D,H]` 的 FRACTAL_NZ 权重；`norm_weight`、`rope_sin`、`rope_cos` 为 FP32。`cache_index` 为 INT64 `[T]`，值 `-1` 跳过写入。`k_cache` 为 UINT8；`storage_mode=0` 时使用独立 `k_scale_cache`，`storage_mode=1` 时按 `combined_block_size` 合并存储。`D` 是 32 的倍数，RoPE 维度为偶数。
 

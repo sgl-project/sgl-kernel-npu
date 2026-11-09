@@ -9,12 +9,6 @@
 ## Signature
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.indexer import quant_lightning_indexer_metadata
-
-
 def quant_lightning_indexer_metadata(
     cu_seqlens_q=None,
     cu_seqlens_k=None,
@@ -42,8 +36,6 @@ def quant_lightning_indexer_metadata(
 ## Behavior
 
 Builds QLI AICPU scheduling and cross-core merge metadata from lengths, mask, compression ratio, and TopK.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 Cumulative and used sequence lengths are INT32. Geometry is `num_heads_q=32`, `num_heads_k=1`, `head_dim=128`. Candidate settings must match the main QLI call; regenerate metadata when lengths or static settings change.
 

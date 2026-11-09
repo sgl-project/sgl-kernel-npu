@@ -9,12 +9,6 @@
 ## 函数原型
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla_metadata
-
-
 def mixed_quant_sparse_flash_mla_metadata(
     ori_topk_length,
     cmp_topk_length,
@@ -42,8 +36,6 @@ def mixed_quant_sparse_flash_mla_metadata(
 ## 功能说明
 
 MQSMLA 的 AICPU 调度算子：根据两侧 TopK 长度生成整行或 FlashDecode 分片执行计划。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `ori_topk_length` 与 `cmp_topk_length` 是每个 Query 行两侧的有效稀疏长度；`has_ori_kv` 与 `has_cmp_kv` 应与主算子提供的 KV 侧一致。`num_heads_q=64`、`num_heads_kv=1`、`head_dim=512`、`quant_mode=1`。
 

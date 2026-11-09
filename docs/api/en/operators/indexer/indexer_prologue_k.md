@@ -11,10 +11,6 @@
 
 ```python
 import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.indexer import indexer_prologue_k
-
 
 def indexer_prologue_k(
     latent: torch.Tensor,
@@ -36,8 +32,6 @@ def indexer_prologue_k(
 ## Behavior
 
 Projects BF16 latent states, applies RMSNorm and RoPE, quantizes to MXFP4 E2M1, and writes paged K cache.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 BF16 `latent[T,H]`, FRACTAL_NZ `wk[D,H]`, FP32 normalization/RoPE inputs, and INT64 `cache_index[T]` are required. A `-1` cache index skips the write. `storage_mode=0` uses a separate scale cache; mode 1 combines rows according to `combined_block_size`.
 

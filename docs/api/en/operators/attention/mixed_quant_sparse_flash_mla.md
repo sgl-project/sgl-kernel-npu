@@ -10,12 +10,6 @@
 ## Signature
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
-
-
 def mixed_quant_sparse_flash_mla(
     q,
     *,
@@ -47,8 +41,6 @@ def mixed_quant_sparse_flash_mla(
 ## Behavior
 
 Computes sparse MLA over BF16 queries, FP8 original KV, and optional FP4 compressed KV.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 BF16 TND `q[T1,64,512]`, UINT8 paged original KV, sparse indices and block tables are required for active KV sides. `quant_mode=1`; metadata must come from `mixed_quant_sparse_flash_mla_metadata` with matching configuration. The caller allocates `out` and `lse`.
 

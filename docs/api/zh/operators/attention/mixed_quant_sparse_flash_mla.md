@@ -10,12 +10,6 @@
 ## 函数原型
 
 ```python
-import torch
-from typing import Optional
-
-from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
-
-
 def mixed_quant_sparse_flash_mla(
     q,
     *,
@@ -47,8 +41,6 @@ def mixed_quant_sparse_flash_mla(
 ## 功能说明
 
 混合量化稀疏 MLA：对 BF16 Query、FP8 原始 KV 和可选 FP4 压缩 KV 执行稀疏注意力。
-
-DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见芯片支持表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。
 
 `q` 为 BF16 TND `[T1,64,512]`；`ori_kv` 为 UINT8 PA_BBND `[pages,page_size,1,544]`，`cmp_kv` 可选，格式为 `[pages,page_size,1,320]`。两侧需分别提供稀疏索引、页表与可选有效 TopK 长度。`metadata` 来自 `mixed_quant_sparse_flash_mla_metadata`；`quant_mode=1`。`out` 和 `lse` 由调用方预分配。
 

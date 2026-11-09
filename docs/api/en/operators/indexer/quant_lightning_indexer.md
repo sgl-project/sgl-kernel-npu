@@ -13,9 +13,6 @@
 import torch
 from typing import Optional
 
-from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
-
-
 def quant_lightning_indexer(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -48,8 +45,6 @@ def quant_lightning_indexer(
 ## Behavior
 
 Scores visible MXFP4 keys and selects TopK tokens, optionally producing candidate blocks for QSLI.
-
-The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed in the hardware support table. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend.
 
 UINT8 `q[T1,32,64]`, packed MXFP4 K, E8M0 query/key descales, and metadata from `quant_lightning_indexer_metadata` are required. Use `quant_mode=1`; K layout may be TND or PA_BBND. Candidate mode requires `candidate_block_size=8`.
 
