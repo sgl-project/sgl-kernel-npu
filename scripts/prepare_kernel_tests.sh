@@ -44,29 +44,26 @@ uv pip install expecttest einops pytest packaging ninja
 # --- Step 2: Build and install kernel module ---
 
 case "${NPU_HARDWARE:-}" in
-    a3)
-        ARCH_VERSION=2201
-        BUILD_SOC=ascend910_93
-        ;;
-    950)
-        ARCH_VERSION=3510
-        BUILD_SOC=ascend950
-        ;;
+    a3) ARCH_VERSION=2201 ;;
+    950) ARCH_VERSION=3510 ;;
     *)
         echo "Unsupported NPU_HARDWARE: ${NPU_HARDWARE:-unset} (expected a3 or 950)" >&2
         exit 1
         ;;
 esac
 
-if SGL_KERNEL_BUILD_SOC="$BUILD_SOC" python3 setup.py --arch-version "$ARCH_VERSION" --artifact wheel; then
-    python3 -m pip install output/sgl_kernel_npu-*.whl --no-cache-dir --force-reinstall --no-deps
-else
-    build_status=$?
-    echo "Kernel build failed. NPU board information for $NPU_HARDWARE:" >&2
-    npu-smi info -t board -i 0 || true
-    npu-smi info -t board -i 0 -c 0 || true
-    exit "$build_status"
-fi
+echo '=== npu-smi info -t board -i 0 ==='
+probe_status=0
+npu-smi info -t board -i 0 2>&1 || probe_status=$?
+echo "npu-smi exit code: $probe_status"
+
+echo '=== npu-smi info -t board -i 0 -c 0 ==='
+probe_status=0
+npu-smi info -t board -i 0 -c 0 2>&1 || probe_status=$?
+echo "npu-smi exit code: $probe_status"
+
+python3 setup.py --arch-version "$ARCH_VERSION" --artifact wheel
+python3 -m pip install output/sgl_kernel_npu-*.whl --no-cache-dir --force-reinstall --no-deps
 
 # --- Step 3: CI workarounds for test-side issues ---
 
