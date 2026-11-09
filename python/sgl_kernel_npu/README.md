@@ -4,17 +4,18 @@
 
 The repository-root `setup.py` builds the new `sgl-kernel-npu` package. It includes
 all Python interfaces and implementation sources, including Triton and Torch
-native, plus the migrated AscendC operators selected for this build.
+native, plus selected CANN (AI Core/AICPU) and host C++ operators.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
 behavior. DeepEP, memory saver and attentions remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
-### Build a wheel or CANN installer
+### Build CANN and host C++ operators
 
 Use Linux, an initialized CANN development SDK, CMake >=3.20 and a C++17 compiler.
 Wheel builds also require matching Torch/torch_npu, Python development headers,
-setuptools and wheel. CANN `.run` builds do not require Torch.
+setuptools and wheel. `.run` builds selecting HOST also require Torch/torch_npu
+and Python development headers; CANN-only `.run` builds do not require Torch.
 
 The examples use `/workspace/sgl-kernel-npu` as the checkout. Replace that prefix
 with your checkout path and initialize the SDK from its installed location:
@@ -22,10 +23,10 @@ with your checkout path and initialize the SDK from its installed location:
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
-# Complete Python package and all supported migrated native operators.
+# Complete Python package and all supported CANN and host C++ operators.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201
 
-# One migrated native operator, packaged with the same Python sources.
+# One CANN operator, packaged with the same Python sources.
 python3 /workspace/sgl-kernel-npu/setup.py \
   --arch-version 2201 --ops apply_token_bitmask
 
@@ -43,8 +44,8 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
-| `--ops all` or `--ops ID[,ID...]` | `all` | All supported migrated native operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
-| `--artifact run/wheel` | `wheel` | CANN installer or installable Python wheel. |
+| `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
+| `--artifact run/wheel` | `wheel` | Package CANN and host C++ operators in a `.run` installer or a Python wheel. |
 | `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
@@ -54,7 +55,21 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | `-h` / `--help` | Off | Print the supported options and exit without building. |
 
 `--ops` accepts comma-separated IDs; do not mix `all` with IDs or repeat an ID.
-It selects native operators only, not which Python modules enter the wheel.
+It selects CANN and host C++ operators; all Python modules are included in the wheel.
+Both artifact types support AICORE, AICPU and HOST IDs in the same selection;
+`all` selects every CANN and host C++ operator supporting the requested architecture.
+
+```bash
+# Mix AI Core, AICPU and host C++ operators in one wheel.
+python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
+  --ops apply_token_bitmask,add_example,transfer_mamba_state --without-third-party
+```
+
+HOST implementations are packaged as a static archive in the same `.run` as
+CANN outputs. The wheel links this archive and the selected Torch adapters into
+`libsgl_kernel_npu.so`. Executing the `.run` installs its contents; use a wheel
+to call HOST operators through `torch.ops`.
+
 `-j N` and `--jobs N` are equivalent. They pass `--parallel N` to the CANN and
 Torch CMake builds. More simultaneous jobs can reduce build time but consume
 more CPU and memory. This setting does not change the operator's runtime
@@ -93,7 +108,7 @@ selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`.
 
 ```bash
-# CANN 9.1.0: build one native operator and bundle the recipes dependency.
+# CANN 9.1.0: build one CANN operator and bundle the recipes dependency.
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --ops apply_token_bitmask --third-party cann_recipes_infer -j8
 
@@ -114,7 +129,8 @@ Omitting `--third-party` selects all profiles for the detected SDK version.
 No matching profiles, or an empty/missing operator list for the chosen
 architecture, produces an INFO message and skips that dependency. Explicitly
 requesting a profile that does not exist for the SDK version is an error.
-`--artifact run` packages only repository-owned CANN operators.
+`--artifact run` packages only selected repository-owned AICORE/AICPU/HOST
+operators; it does not include third-party dependencies.
 
 Third-party SoC detection uses the local device's `npu-smi` board information:
 `ascend910b` or `ascend910_93` for arch22, and `ascend950` for arch35. It must match
@@ -129,7 +145,7 @@ are cached under `build/third_party/` and reused when the build fingerprint and
 artifact checksums match. Changes to the profile, build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
-### CANN operator declarations
+### CANN and host C++ operator declarations
 
 Declare an operator in `csrc/<domain>/<operator>/CMakeLists.txt` with
 `sgl_register_operator()`. Optionally add `sgl_register_operator_variant()` calls
@@ -137,20 +153,41 @@ for architecture-specific implementations. Register the common declaration
 before its variants. An operator with one implementation for all supported
 architectures needs no variant.
 
+#### Host C++ operators
+
+Use `EXECUTION_UNIT HOST` and `CPP_SOURCES` for host implementations; existing
+AICORE/AICPU declarations are unchanged. For example:
+
+```cmake
+sgl_register_operator(
+    ID transfer_mamba_state
+    EXECUTION_UNIT HOST
+    SUPPORTED_ARCHS 2201 3510
+    CPP_SOURCES transfer_mamba_state.cpp
+    TORCH_ADAPTER torch_adapter.cpp
+)
+```
+
+HOST requires `CPP_SOURCES` and `TORCH_ADAPTER` instead of CANN-specific fields.
+Register its domain in `sgl_add_host_operator_domains()` in `csrc/cmake/domains.cmake`.
+Shared sources can guard individual implementations and registrations with the
+selected operator's `SGL_CPP_<UPPERCASE_ID>` macro; separate source files need no guards.
+
 #### Fields and required values
 
 "Common" below means `sgl_register_operator()`; "variant" means
-`sgl_register_operator_variant()`. The declaration accepts 16 configuration
+`sgl_register_operator_variant()`. The shared declaration accepts 17 configuration
 fields, plus the `ID` and `ARCH` keys:
 
 | Field | Purpose | Allowed declaration | Required value |
 | --- | --- | --- | --- |
 | `ID` | Operator identifier; associates variants with the common declaration. | Common and variant | Required in every declaration. |
 | `ARCH` | Architecture selected by this variant. | Variant only | Required for a variant; must belong to the common `SUPPORTED_ARCHS`. |
-| `EXECUTION_UNIT` | Execution unit. | Common only | Required: `AICORE` or CpuKernel-based `AICPU`. |
-| `CANN_OP_TYPE` | CANN operator type used by the OpDef or AICPU registration. | Common only | Required. |
+| `CPP_SOURCES` | Host C++ implementation sources. | Common and variant | Required for `HOST`; rejected for `AICORE`/`AICPU`. |
+| `EXECUTION_UNIT` | Execution unit. | Common only | Required: `AICORE`, CpuKernel-based `AICPU`, or host C++ `HOST`. |
+| `CANN_OP_TYPE` | CANN operator type used by the OpDef or AICPU registration. | Common only | Required for `AICORE`/`AICPU`; rejected for `HOST`. |
 | `SUPPORTED_ARCHS` | Architectures supported by the operator. | Common only | Required and non-empty; currently accepts `2201` and `3510`, without duplicates. |
-| `TORCH_ADAPTER` | Torch adapter source file. | Common only | Optional at registration; required for each selected operator when building the Torch extension and wheel. |
+| `TORCH_ADAPTER` | Torch adapter source file. | Common only | Required for `HOST`; optional for CANN registration, but required for each selected wheel operator. |
 | `OPDEF_SOURCES` | CANN interface definition source files for codegen. | Common only | Required and non-empty for AI Core; optional for AICPU. |
 | `INFER_SOURCES` | Handwritten shape/type inference source files. | Common and variant | Optional; may be cleared explicitly. |
 | `ACLNN_SOURCES` | Explicit Host ACLNN implementations, alongside any generated interfaces. | Common only | Optional; used by the AICPU AddExample wrapper. |
@@ -159,12 +196,12 @@ fields, plus the `ID` and `ARCH` keys:
 | `TILING_SOURCES` | Host Tiling source files. | Common and variant | The resolved list must be non-empty for each selected AI Core architecture; not required for AICPU. |
 | `TILING_INCLUDE_DIRECTORIES` | Private header search directories for Tiling sources. | Common and variant | Optional; may be cleared explicitly. |
 | `TILING_COMPILE_DEFINITIONS` | Private Tiling macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
-| `KERNEL_SOURCES` | Device compilation sources. | Common and variant | Non-empty after resolution. AI Core requires exactly one entry; AICPU accepts multiple `.cpp` files. |
+| `KERNEL_SOURCES` | Device compilation sources. | Common and variant | Required for CANN after resolution; rejected for `HOST`. AI Core requires exactly one entry; AICPU accepts multiple `.cpp` files. |
 | `KERNEL_INCLUDE_DIRECTORIES` | Private header search directories for the Kernel. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_DEFINITIONS` | Private Kernel macros, written as `NAME` or `NAME=value`. | Common and variant | Optional; may be cleared explicitly. |
 | `KERNEL_COMPILE_OPTIONS` | Kernel compiler options. | Common and variant | Optional; may be cleared explicitly. |
 
-The common declaration requires `ID`, `EXECUTION_UNIT`, `CANN_OP_TYPE` and
+CANN declarations require `ID`, `EXECUTION_UNIT`, `CANN_OP_TYPE` and
 `SUPPORTED_ARCHS`; AI Core additionally requires common `OPDEF_SOURCES`.
 `TILING_SOURCES` and `KERNEL_SOURCES` may come from a variant. Each selected AI
 Core architecture still requires non-empty Tiling sources and exactly one
@@ -172,7 +209,7 @@ Kernel entry. AICPU requires non-empty Kernel sources, without requiring an
 AI Core OpDef or Tiling function. A CANN-only `.run` build does not require
 `TORCH_ADAPTER`.
 
-The same `--ops` selection supports AI Core-only, AICPU-only and mixed packages.
+The same `--ops` selection supports AICORE, AICPU, HOST and mixed packages.
 
 Use `SUPPORTED_ARCHS` to exclude an unsupported architecture rather than clearing
 required sources. `--ops all` excludes operators that do not support the selected
@@ -185,7 +222,7 @@ exist. Compiler macros use `NAME` or `NAME=value`, without a `-D` prefix.
 
 #### Variant inheritance, replacement and clearing
 
-All eight fields allowed in variants use the same rule, including
+All fields allowed in variants use the same rule, including
 `KERNEL_SOURCES`: a variant replaces the **entire field**, not individual list
 items. It never appends the common list.
 
@@ -327,22 +364,28 @@ its intermediates. Do not run both builds concurrently in one checkout.
 ### Installation and public API
 
 The distribution name remains `sgl-kernel-npu`, imported as `sgl_kernel_npu`.
-Wheel build tags distinguish architecture, native operator selection, and bundled third-party dependencies:
+Wheel build tags distinguish architecture, the selected CANN and host C++ operators,
+and bundled third-party dependencies:
 
 ```text
-sgl_kernel_npu-<version>-1_refactor_2201_all-<python>-<abi>-<platform>.whl
+sgl_kernel_npu-<version>-1_refactor_2201_all_<set-id>-<python>-<abi>-<platform>.whl
 sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>-<python>-<abi>-<platform>.whl
 sgl_kernel_npu-<version>-1_refactor_2201_custom_<set-id>_tp_<dependency-id>-<python>-<abi>-<platform>.whl
 ```
 
 Omitted `--ops` or `--ops all` produces `all`; explicit IDs produce `custom`.
 Build-tag fields use underscores. `<set-id>` is the first 10 hexadecimal characters
-of the selected native operator list's SHA-256 hash. `tp` means `third_party`;
+of the selected CANN and host C++ operator list's SHA-256 hash. `tp` means `third_party`;
 the optional `tp_<dependency-id>` identifies bundled third-party contents with a
 10-character SHA-256 fingerprint. Neither ID is a source Git commit.
-The package's `_build_manifest.json` records the full selection and SDK targets.
+Both `all` and `custom` hash the actual combined CANN/HOST selection. The package's
+`_build_manifest.json` records this selection, its `operators_by_type` subsets
+and SDK targets. HOST-only wheels have no repository device compute units or
+runtime CANN vendor.
 Subset wheels replace one another; they do not add operators to an existing
-installation. Reinstall explicitly and start a new Python process when switching:
+installation. Legacy and REFACTOR wheels are alternative installations of the
+same package; load only one version of the package's operator library in a process.
+Reinstall explicitly and start a new Python process when switching:
 
 ```bash
 python3 -m pip install --force-reinstall --no-deps /workspace/sgl-kernel-npu/output/sgl_kernel_npu-*.whl
@@ -352,7 +395,7 @@ python3 -m pytest /workspace/sgl-kernel-npu/tests/python/operators/sampler/test_
 The public entry is `sgl_kernel_npu.operators.sampler.apply_token_bitmask`.
 `impl="auto"` and `impl="ascendc"` call `torch.ops.npu.apply_token_bitmask`;
 `impl="torch_native"` selects the reference explicitly. There is no automatic
-fallback when the native operator is absent. See the API documentation in
+fallback when the CANN implementation is not installed. See the API documentation in
 [English](../../docs/api/en/operators/sampler/apply_token_bitmask.md) or
 [Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
 
