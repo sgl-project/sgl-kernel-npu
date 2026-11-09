@@ -36,17 +36,23 @@ perf_shape = [(78, 21, 128, 512, 64, 128)]
 @pytest.fixture
 def offload_runtime():
     from memfabric_hybrid import offload
-    from sgl_kernel_npu.host_memory import uninitialize_host_memory
+    from sgl_kernel_npu.host_memory import (
+        set_memfabric_pool,
+        uninitialize_host_memory,
+    )
 
+    pool = offload.Offload()
     config = offload.OffloadConfig()
     config.device_id = torch.npu.current_device()
     config.reserve_size = 8 << 30
-    config.flags = offload.OFFLOAD_FLAG_HOST_MEM
+    config.alloc_size = 8 << 30
+    config.flags = 0
     config.scene = offload.Scene.LOCAL
-    ret = offload.initialize(config)
+    ret = pool.initialize(config)
     if ret != 0:
         raise RuntimeError(f"MemFabric initialize failed: {ret}")
-    yield offload
+    set_memfabric_pool(pool)
+    yield pool
     torch.npu.synchronize()
     uninitialize_host_memory()
 
@@ -58,7 +64,7 @@ def token_indices(pages, page_size, device="cpu"):
     ).flatten()
 
 
-def generate_data(offload, layout, shape, dtype, packed):
+def generate_data(pool, layout, shape, dtype, packed):
     from sgl_kernel_npu.host_memory import register_host_memory
 
     layers, index_layers, ps, k_width, v_width, index_width = shape
@@ -86,9 +92,9 @@ def generate_data(offload, layout, shape, dtype, packed):
         full_shape = (host_pages, count + 2, ps, 1, max(width, 1))
         if layout == "layer_first":
             full_shape = (count + 2, host_pages, ps, 1, max(width, 1))
-        host = offload.empty(list(full_shape), dtype=component_dtype).fill_(77)
+        host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
         ref_device = values.npu()
-        ref_host = offload.empty(list(full_shape), dtype=component_dtype).fill_(77)
+        ref_host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
         register_host_memory(host)
         register_host_memory(ref_host)
         full_host, full_ref_host = host, ref_host

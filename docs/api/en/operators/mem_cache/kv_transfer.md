@@ -81,7 +81,7 @@ Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer
 
 Resolves registered Host device addresses through `host_memory.resolve_host_dva` and submits through the in-tree `kv_exchange` CANN operator (`torch.ops.npu.kv_exchange`): the C++ adapter builds the device-resident 44-slot metadata -- actual layer/page strides, full-page byte width, PF/LF traversal mode and per-component layer ranges -- and launches the AIV kernel on the caller's stream. The pinned staging that carries the metadata upload is returned to the wrapper and retained until the completion event.
 
-The AIV path requires MF `host_register` / `host_get_device_pointer` support. Initialize `Scene.LOCAL` with `OFFLOAD_FLAG_HOST_MEM`, allocate Host buffers with `offload.empty`, and call `host_memory.register_host_memory` once per full allocation before passing its views to the transfer APIs.
+The AIV path requires registered host memory. Create a `memfabric_hybrid.offload.Offload` instance, initialize `Scene.LOCAL` with `alloc_size == reserve_size`, publish it with `host_memory.set_memfabric_pool`, allocate Host buffers with `pool.empty`, and call `host_memory.register_host_memory` once per full allocation before passing its views to the transfer APIs.
 
 ## torch_native
 
@@ -101,23 +101,29 @@ The AIV transfer path does not support NPU graph capture.
 import torch
 import torch_npu
 from memfabric_hybrid import offload
-from sgl_kernel_npu.host_memory import register_host_memory, uninitialize_host_memory
+from sgl_kernel_npu.host_memory import (
+    register_host_memory,
+    set_memfabric_pool,
+    uninitialize_host_memory,
+)
 from sgl_kernel_npu.operators.mem_cache import (
     transfer_kv_all_layer_kv_split_lf_pf as backup,
     transfer_kv_per_layer_kv_split_pf_lf as load,
 )
 
 torch.npu.set_device(0)
+pool = offload.Offload()
 config = offload.OffloadConfig()
 config.device_id = 0
 config.reserve_size = 1 << 30
-config.flags = offload.OFFLOAD_FLAG_HOST_MEM
+config.alloc_size = 1 << 30
 config.scene = offload.Scene.LOCAL
-assert offload.initialize(config) == 0
+assert pool.initialize(config) == 0
+set_memfabric_pool(pool)
 ps = 4
 original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to(torch.bfloat16)
 dev = original.npu()
-host = offload.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
+host = pool.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
 register_host_memory(host)
 empty_dev, empty_host = torch.empty(0, device="npu"), torch.empty(0, device="cpu")
 source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")

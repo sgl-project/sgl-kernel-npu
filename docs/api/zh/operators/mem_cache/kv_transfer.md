@@ -81,7 +81,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 构造驻留设备的 44 槽 metadata（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间）并在调用方流上启动 AIV kernel。承载 metadata 上传的 pinned staging 会返回给 wrapper，由完成事件保活。
 
-AIV 路径需要 MF 的 `host_register` / `host_get_device_pointer`。使用 `Scene.LOCAL` 和 `OFFLOAD_FLAG_HOST_MEM` 初始化，通过 `offload.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。
+AIV 路径需要已注册的 Host 内存。创建 `memfabric_hybrid.offload.Offload` 实例，以 `Scene.LOCAL` 且 `alloc_size == reserve_size` 初始化，通过 `host_memory.set_memfabric_pool` 发布实例，用 `pool.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。
 
 ## torch_native
 
@@ -101,23 +101,29 @@ AIV 路径需要 MF 的 `host_register` / `host_get_device_pointer`。使用 `Sc
 import torch
 import torch_npu
 from memfabric_hybrid import offload
-from sgl_kernel_npu.host_memory import register_host_memory, uninitialize_host_memory
+from sgl_kernel_npu.host_memory import (
+    register_host_memory,
+    set_memfabric_pool,
+    uninitialize_host_memory,
+)
 from sgl_kernel_npu.operators.mem_cache import (
     transfer_kv_all_layer_kv_split_lf_pf as backup,
     transfer_kv_per_layer_kv_split_pf_lf as load,
 )
 
 torch.npu.set_device(0)
+pool = offload.Offload()
 config = offload.OffloadConfig()
 config.device_id = 0
 config.reserve_size = 1 << 30
-config.flags = offload.OFFLOAD_FLAG_HOST_MEM
+config.alloc_size = 1 << 30
 config.scene = offload.Scene.LOCAL
-assert offload.initialize(config) == 0
+assert pool.initialize(config) == 0
+set_memfabric_pool(pool)
 ps = 4
 original = torch.arange(3 * 4 * ps * 8, device="cpu").reshape(3, 4, ps, 1, 8).to(torch.bfloat16)
 dev = original.npu()
-host = offload.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
+host = pool.empty([6, 5, ps, 1, 8], dtype=torch.bfloat16)
 register_host_memory(host)
 empty_dev, empty_host = torch.empty(0, device="npu"), torch.empty(0, device="cpu")
 source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
