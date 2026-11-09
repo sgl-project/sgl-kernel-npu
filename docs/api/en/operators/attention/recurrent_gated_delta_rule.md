@@ -1,17 +1,15 @@
 # recurrent_gated_delta_rule
 
-## Hardware and implementations
+## Hardware support
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` / `auto` | Declared; NPU validation pending | Declared; NPU validation pending |
-| `torch_native` | Independent PyTorch reference | Independent PyTorch reference |
-
-The native implementation preserves the legacy BF16 kernel, including its
-arch35 internal branch. CPU reference checks do not establish NPU support.
-Unavailable native implementations raise an error without switching backends.
+| `ascendc` / `auto` | Unverified | Supported |
+| `torch_native` | Unverified | Supported |
 
 ## Signature
+
+The default `auto` selects the same entry point as `ascendc`.
 
 ```python
 from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
@@ -29,33 +27,7 @@ The legacy name `torch.ops.npu.recurrent_gated_delta_rule` is retained.
 The public API uses this name to call the installed package's implementation
 for `auto` / `ascendc`, and independent equations for `torch_native`.
 
-## Inputs and result
-
-| Parameter | Shape / dtype | Meaning |
-| --- | --- | --- |
-| `mix_qkv` | `[B,S,2*Nk*Dk+Nv*Dv]`, BF16 | Packed Q, K, V in this order. |
-| `recurrent_state` | `[N,Nv,Dv,Dk]`, BF16 | Mutable state pool, or recurrent seed pool when an intermediate pool is supplied. |
-| `beta` | `[B,S,Nv]`, BF16 | Pre-sigmoid logits. |
-| `scale` | Required float | Q multiplier; `0.0` is preserved. Narrowed to FP32 as in the old launch. |
-| `actual_seq_lengths` | `[B]`, int32 | Per-sequence lengths, not cumulative boundaries. Each sequence starts at its fixed `b*S` offset. |
-| `ssm_state_indices` | `[B,S]`, int32 | Initial-state selection and per-token output slots. |
-| `nk`, `nv` | Positive integers | Q/K and value head counts; `Nv % Nk == 0`. |
-| `intermediate_state` | Complete `[Nv,Dv,Dk]` slots, BF16 / `None` | Optional working pool, commonly `[N*S,Nv,Dv,Dk]`. |
-| `cache_indices` | At least `B` elements / `None` | Recurrent seed slot per sequence; required with an intermediate pool. Cast to contiguous int32. |
-| `num_accepted_tokens` | At least `B` elements / `None` | Selects initial-state column `accepted[b]-1`; cast to contiguous int32. Does not shorten the sequence. |
-| `g` | At least `B*S*Nv` elements / `None` | Log decay; cast to contiguous FP32, then exponentiated. Missing means decay 1. |
-| `gk` | Optional tensor | Converted to contiguous FP32 for compatibility; the legacy computation ignores it. |
-| `impl` | `auto`, `ascendc`, `torch_native` | Keyword-only implementation selector. |
-
-Returns only BF16 `out` of shape `[B,S,Nv,Dv]`. State changes are caller-visible
-side effects, not additional return values. Outputs after each sequence's valid
-length are unspecified. Dimensions are positive, `1 <= S <= 8`, and valid lengths
-must lie in `[1,S]`. All tensors must be on the same NPU for `ascendc` or on the
-same device for `torch_native`. State slots must be valid for their respective
-pools. The caller must avoid conflicting state reads/writes between sequences;
-native metadata validation does not read tensor values back to the host.
-
-## Equations and state protocol
+## Description
 
 For value head `h`, use Q/K head `h // (Nv // Nk)`:
 
@@ -80,6 +52,36 @@ snapshots are written after each token without reloading the rounded snapshots.
    from `recurrent_state[cache_indices[b]]`; otherwise read the selected working
    slot. Write token `t` to `indices[b,t]` in the working pool.
 
+## Parameters and return value
+
+| Parameter | Shape / dtype | Meaning |
+| --- | --- | --- |
+| `mix_qkv` | `[B,S,2*Nk*Dk+Nv*Dv]`, BF16 | Packed Q, K, V in this order. |
+| `recurrent_state` | `[N,Nv,Dv,Dk]`, BF16 | Mutable state pool, or recurrent seed pool when an intermediate pool is supplied. |
+| `beta` | `[B,S,Nv]`, BF16 | Pre-sigmoid logits. |
+| `scale` | Required float | Q multiplier; `0.0` is preserved. Narrowed to FP32 as in the old launch. |
+| `actual_seq_lengths` | `[B]`, int32 | Per-sequence lengths, not cumulative boundaries. Each sequence starts at its fixed `b*S` offset. |
+| `ssm_state_indices` | `[B,S]`, int32 | Initial-state selection and per-token output slots. |
+| `nk`, `nv` | Positive integers | Q/K and value head counts; `Nv % Nk == 0`. |
+| `intermediate_state` | Complete `[Nv,Dv,Dk]` slots, BF16 / `None` | Default `None`; working pool, commonly `[N*S,Nv,Dv,Dk]`. |
+| `cache_indices` | At least `B` elements / `None` | Default `None`; recurrent seed slot per sequence; required with an intermediate pool. Cast to contiguous int32. |
+| `num_accepted_tokens` | At least `B` elements / `None` | Default `None` (column 0); selects initial-state column `accepted[b]-1`; cast to contiguous int32. Does not shorten the sequence. |
+| `g` | At least `B*S*Nv` elements / `None` | Default `None`; log decay, cast to contiguous FP32, then exponentiated. Missing means decay 1. |
+| `gk` | Optional tensor | Default `None`; converted to contiguous FP32 for compatibility; the legacy computation ignores it. |
+| `impl` | `str`, default `"auto"` | Keyword-only; `auto`, `ascendc` or `torch_native`. |
+
+| Return value | Type | Shape | Dtype | Description |
+| --- | --- | --- | --- | --- |
+| `out` | `torch.Tensor` | `[B,S,Nv,Dv]` | BF16 | Newly allocated output; only tokens below each valid length are defined. State pools are updated in place. |
+
+Dimensions are positive, `1 <= S <= 8`, and valid lengths
+must lie in `[1,S]`. All tensors must be on the same NPU for `ascendc` or on the
+same device for `torch_native`. State slots must be valid for their respective
+pools. The caller must avoid conflicting state reads/writes between sequences;
+native metadata validation does not read tensor values back to the host.
+
+## ascendc backend
+
 Required QKV, beta, lengths, indices and recurrent state retain the old
 `data_ptr()` interpretation: read dense physical spans starting at their storage
 offsets, irrespective of logical Tensor strides. They are not made contiguous.
@@ -88,64 +90,47 @@ converted and made contiguous. An already contiguous intermediate pool is
 updated in place; a noncontiguous one uses a temporary with **no copyback**,
 matching the old Host. Use contiguous pools for visible state updates.
 
-## Validation
+Native gate copies require `S*Nv*2 <= 65535` bytes for beta and, when `g`
+is supplied, `S*Nv*4 <= 65535` bytes for g. On arch22, the aligned FP32 row
+stride must also fit 255 blocks of 32 bytes. Invalid sizes are rejected before launch.
 
-The public pytest suite preserves these eight source input families, all BF16:
+## torch_native backend
 
-| Family | `(B,S,Nk,Nv,Dk,Dv)` | Accepted counts | Default profiling |
-| --- | --- | --- | --- |
-| compatible | `(2,1,8,16,128,128)` | Original random counts | No |
-| compatible | `(64,2,8,16,128,128)` | Original random counts | No |
-| compatible | `(32,8,8,16,128,128)` | Original random counts | No |
-| compatible | `(32,8,16,32,128,128)` | Original random counts | No |
-| benchmark | `(2,1,8,16,128,128)` | `None`, seed 42 | Yes |
-| benchmark | `(4,4,8,16,128,128)` | `None`, seed 42 | Yes |
-| benchmark | `(8,8,8,16,128,128)` | `None`, seed 42 | Yes |
-| benchmark | `(2,4,8,16,64,32)` | `None`, seed 42 | Yes |
+Uses independent PyTorch equations, with FP32 recurrence and BF16 output/state
+snapshots. It follows the same state-selection and storage-span semantics; the
+native copy-field limits do not apply to this reference.
 
-Checks cover valid output tokens, every state slot, unchanged seed/unused slots,
-and read-only inputs. Shared accuracy standards apply, plus the stricter source
-thresholds: compatible `atol=rtol=2**-8`; benchmark `atol=0.01, rtol=0`.
-The non-square case remains unchanged; establish its old/new result on each
-target architecture before claiming support.
+## Example
 
-In the repository root, set an absolute root and your actual architecture:
+This uses the existing `(B,S,Nk,Nv,Dk,Dv)=(2,1,8,16,128,128)` configuration.
+Backend calls use separate initial state pools.
 
-```bash
-export SGL_RGDR_ROOT="$(pwd -P)"
-export SGL_RGDR_ARCH=YOUR_ARCH  # Replace with 2201 or 3510.
-python "$SGL_RGDR_ROOT/setup.py" --arch-version "$SGL_RGDR_ARCH" \
-  --ops recurrent_gated_delta_rule --artifact wheel --without-third-party
-python -m pip install --force-reinstall --no-deps "$SGL_RGDR_ROOT"/output/sgl_kernel_npu-*.whl
-python -m pytest "$SGL_RGDR_ROOT/tests/python/operators/attention/test_recurrent_gated_delta_rule.py" \
-  -q --impl=ascendc --impl-ref=torch_native --skip-acc-check=false --enable-perf=false
+```python
+import torch
+import torch_npu
+
+from sgl_kernel_npu.operators.attention import recurrent_gated_delta_rule
+
+b, s, nk, nv, dk, dv = 2, 1, 8, 16, 128, 128
+device, dtype = "npu", torch.bfloat16
+q = torch.randn(b, s, nk, dk, device=device, dtype=dtype)
+k = torch.randn_like(q)
+v = torch.randn(b, s, nv, dv, device=device, dtype=dtype)
+state = 0.1 * torch.randn(b * s, nv, dv, dk, device=device, dtype=dtype)
+state_ref = state.clone()
+inputs = dict(
+    mix_qkv=torch.cat([q.flatten(2), k.flatten(2), v.flatten(2)], dim=-1),
+    beta=torch.randn(b, s, nv, device=device, dtype=dtype),
+    scale=dk**-0.5,
+    actual_seq_lengths=torch.full((b,), s, device=device, dtype=torch.int32),
+    ssm_state_indices=torch.arange(b * s, device=device, dtype=torch.int32).view(b, s),
+    nk=nk,
+    nv=nv,
+    g=-(0.05 + 0.95 * torch.rand(b, s, nv, device=device)),
+)
+out = recurrent_gated_delta_rule(**inputs, recurrent_state=state)  # auto: ascendc
+out_ref = recurrent_gated_delta_rule(
+    **inputs, recurrent_state=state_ref, impl="torch_native"
+)
+print(out.shape, out_ref.shape)  # torch.Size([2, 1, 16, 128])
 ```
-
-After loading the server's normal CANN/PyTorch environment, use the same Python
-for building, installing and testing. Setup prints the exact `ARTIFACT` path.
-To also profile the four original benchmark cases, omit `--enable-perf=false`:
-
-```bash
-python -m pytest "$SGL_RGDR_ROOT/tests/python/operators/attention/test_recurrent_gated_delta_rule.py" \
-  -q --impl=ascendc --impl-ref=torch_native --skip-acc-check=false \
-  --prof-dir="$SGL_RGDR_ROOT/profilings/rgdr-new" --csv-path="$SGL_RGDR_ROOT/rgdr-new.csv"
-```
-
-Profiling uses the shared device-task measurement, with one unprofiled call,
-5 warmup calls and 5 active calls, each using a separate initial working pool.
-State copies are prepared before profiling. Explicit `--enable-perf=true` enables
-all eight families and substantially increases memory use; the largest working
-pool is 520 MiB and profiling prepares 11 working copies.
-
-## Old/new acceptance
-
-A separate local acceptance run must compare the old kernel, the migrated kernel
-and `torch_native` using identical saved inputs. It checks bitwise equality of
-old/new outputs and complete state pools, then compares both kernels with the
-independent reference. The formal operator test above covers the public API;
-legacy capture/replay tools remain local development materials.
-
-Old/new NPU replay and same-device performance regression results are still
-pending. Record matching device, CANN, driver, compiler, PyTorch and torch_npu
-versions for that acceptance run; the commands above do not establish those
-results.

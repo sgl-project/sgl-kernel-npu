@@ -9,7 +9,7 @@
  */
 
 // Provenance: csrc/recurrent_gated_delta_rule at upstream dc112d9ef68cbec1a2ccb9e275db1f758fa45543.
-// Computation is copied unchanged; only the CANN entry and tiling transport are adapted.
+// Preserve the state protocol and equations; derive arch22 row strides from the actual column width.
 
 #ifndef SGL_CANN_RECURRENT_GATED_DELTA_RULE_KERNEL_H
 #define SGL_CANN_RECURRENT_GATED_DELTA_RULE_KERNEL_H
@@ -472,12 +472,14 @@ private:
         RecurrentGatedDeltaRuleRegbase::RowDotRegbase(deltaInUb, stateInUb, kInUb[curQKOffset], curSingleV, alignK_,
                                                       realK_);
 #else
+        // Repeat strides count 32-byte blocks of FP32 state, not BF16 input blocks.
+        const auto stateRowStride = static_cast<uint8_t>(alignK_ / FP32_NUM_PER_BLOCK);
         for (uint32_t i = 0; i < alignK_ / VEC_FLOAT; i++) {
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
 
             Mul<float, false>(broadTmpInUb[index], stateInUb[index], kInUb[curQKOffset + index], MASK_PLACEHOLDER,
-                              curSingleV, {1, 1, 1, 16, 16, 0});
+                              curSingleV, {1, 1, 1, stateRowStride, stateRowStride, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 
@@ -519,7 +521,7 @@ private:
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
             MulAddDst<float, float, false>(stateInUb[index], broadTmpInUb, kInUb[curQKOffset + index], MASK_PLACEHOLDER,
-                                           curSingleV, {1, 0, 1, 16, 1, 0});
+                                           curSingleV, {1, 0, 1, stateRowStride, 1, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 #endif
@@ -544,7 +546,7 @@ private:
             uint32_t index = i * VEC_FLOAT;  // 0, 64
 
             Mul<float, false>(broadTmpInUb[index], stateInUb[index], qInUb[curQKOffset + index], MASK_PLACEHOLDER,
-                              curSingleV, {1, 1, 1, 16, 16, 0});
+                              curSingleV, {1, 1, 1, stateRowStride, stateRowStride, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 

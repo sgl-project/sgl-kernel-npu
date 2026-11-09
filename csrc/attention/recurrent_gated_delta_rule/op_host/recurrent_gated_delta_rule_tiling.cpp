@@ -67,6 +67,11 @@ static ge::graphStatus TilingRecurrentGatedDeltaRule(gert::TilingContext *contex
             return ge::GRAPH_FAILED;
     }
     const bool gamma = context->GetOptionalInputDesc(8) != nullptr;
+    // Gate copies use uint16 byte counts. Bound the maximum sequence length
+    // without reading actual_seq_lengths back from the device.
+    constexpr int64_t COPY_LIMIT = std::numeric_limits<uint16_t>::max();
+    if (nv > COPY_LIMIT / sizeof(uint16_t) / s || (gamma && nv > COPY_LIMIT / sizeof(float) / s))
+        return ge::GRAPH_FAILED;
     if (gamma) {
         const auto *shape = context->GetOptionalInputShape(8);
         if (!shape || context->GetOptionalInputDesc(8)->GetDataType() != ge::DT_FLOAT ||
@@ -89,6 +94,8 @@ static ge::graphStatus TilingRecurrentGatedDeltaRule(gert::TilingContext *contex
     auto align = [](int64_t n, int64_t a) { return (n + a - 1) & ~(a - 1); };
     auto ceilDiv = [](int64_t n, int64_t d) { return (n + d - 1) / d; };
     const int64_t aNv = align(nv, 16), aDv = align(dv, 16), aDk = align(dk, 16);
+    // arch22 BinaryRepeatParams stores FP32 row strides in uint8 32-byte blocks.
+    if (!arch35 && aDk / (32 / sizeof(float)) > std::numeric_limits<uint8_t>::max()) return ge::GRAPH_FAILED;
     int64_t used = 8 * (4 * aDk + 2 * aDv) + 128 + 8 * (4 * aNv + 2 * aNv);
     int64_t rest = static_cast<int64_t>(ubSize) - used;
     used += 8 * (8 * aDk + 4 * aDv + 4 * aNv);

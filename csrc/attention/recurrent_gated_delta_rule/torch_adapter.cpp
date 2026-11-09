@@ -60,6 +60,13 @@ at::Tensor recurrent_gated_delta_rule(const at::Tensor &mix_qkv, const at::Tenso
     TORCH_CHECK(b > 0 && s > 0 && s <= 8 && nk > 0 && nv > 0 && dv > 0 && dk > 0 && nk <= LIMIT && nv <= LIMIT &&
                     dk <= LIMIT / 16 && dv <= LIMIT / 16 && b <= LIMIT / s && b <= LIMIT / nv && nv % nk == 0,
                 "RGDR requires positive representable dimensions, S <= 8 and nv divisible by nk");
+    // DataCopyPad's gate block lengths are uint16 byte counts, even though the
+    // later vector operations consume the full S*nv elements.
+    constexpr int64_t COPY_LIMIT = std::numeric_limits<uint16_t>::max();
+    TORCH_CHECK(nv <= COPY_LIMIT / sizeof(c10::BFloat16) / s,
+                "RGDR beta copy requires S*nv*sizeof(bfloat16) <= 65535 bytes");
+    TORCH_CHECK(!present(g) || nv <= COPY_LIMIT / sizeof(float) / s,
+                "RGDR g copy requires S*nv*sizeof(float) <= 65535 bytes");
     TORCH_CHECK(nk <= (LIMIT / 2) / (2 * dk) && nv <= (LIMIT / 2 - 2 * nk * dk) / dv,
                 "RGDR packed width exceeds the kernel index range");
     TORCH_CHECK(mix_qkv.size(2) == 2 * nk * dk + nv * dv, "mix_qkv width must equal 2*nk*dk + nv*dv");

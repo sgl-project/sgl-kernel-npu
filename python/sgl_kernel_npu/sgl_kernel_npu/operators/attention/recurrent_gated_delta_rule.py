@@ -1,9 +1,7 @@
 """Public packed recurrent gated delta rule with caller-owned mutable state."""
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_GENERATIONS = (Generation.ARCH22, Generation.ARCH35)
 _native = None
 
 
@@ -53,15 +51,36 @@ def recurrent_gated_delta_rule(
 ):
     """Return BF16 [B,S,Nv,Dv] and write per-token states; auto selects ascendc.
 
-    mix_qkv is BF16 [B,S,2*Nk*Dk+Nv*Dv], beta is BF16 [B,S,Nv], and
-    recurrent_state is BF16 [N,Nv,Dv,Dk]. scale is required and zero is kept.
-    actual_seq_lengths is int32 [B], not a cumulative prefix sum; state indices
-    are int32 [B,S]. nk/nv are positive head counts, with nv divisible by nk.
-    Optional intermediate_state supplies the mutable working pool; cache_indices
-    selects its recurrent seeds. Optional num_accepted_tokens selects the initial
-    state index column. g is an FP32 log-decay after conversion; gk is accepted
-    for legacy compatibility but ignored. See the API page for full state/stride
-    semantics, optional conversions and the S <= 8 restriction.
+    Args:
+        mix_qkv: BF16 Tensor [B,S,2*Nk*Dk+Nv*Dv], packed Q, K, V; S <= 8.
+        recurrent_state: BF16 Tensor [N,Nv,Dv,Dk], mutable state pool or,
+            when intermediate_state is supplied, the unchanged seed pool.
+        beta: BF16 Tensor [B,S,Nv], pre-sigmoid update logits.
+        scale: Required float Q multiplier, narrowed to FP32; zero is preserved.
+        actual_seq_lengths: int32 Tensor [B], lengths in [1,S], not prefix sums.
+        ssm_state_indices: int32 Tensor [B,S], initial and per-token state slots.
+        nk: Positive int Q/K head count.
+        nv: Positive int value head count, divisible by nk.
+        intermediate_state: Optional BF16 Tensor of complete [Nv,Dv,Dk] slots;
+            defaults to None. A contiguous pool receives per-token states.
+        cache_indices: Optional Tensor with at least B seed slots, converted
+            to contiguous int32; defaults to None, required with an intermediate pool.
+        num_accepted_tokens: Optional Tensor with at least B counts in [1,S],
+            converted to contiguous int32; selects initial column count-1.
+            Defaults to None (column 0); does not shorten the output sequence.
+        g: Optional Tensor with at least B*S*Nv log-decay values, converted to
+            contiguous FP32. Defaults to None (decay 1).
+        gk: Optional Tensor of any shape, converted to contiguous FP32 but
+            ignored by the computation; defaults to None.
+        impl: Keyword-only str, "auto" (default), "ascendc" or "torch_native".
+
+    Returns:
+        BF16 Tensor [B,S,Nv,Dv]; only tokens below each valid length are defined.
+
+    All tensors share a device (NPU for ascendc). Required tensors retain dense
+    physical-span reads regardless of logical strides. A noncontiguous optional
+    working pool uses a temporary without copyback. See the API page for the
+    complete state-selection protocol and native copy-size limits.
     """
     return get_impl_by_name("attention.recurrent_gated_delta_rule", impl)(
         mix_qkv,

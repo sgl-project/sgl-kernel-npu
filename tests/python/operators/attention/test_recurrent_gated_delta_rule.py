@@ -7,6 +7,10 @@ All eight input families retain their original dimensions, BF16 data, state
 capacity, gates and accepted-token settings. Compatible inputs have no fixed
 seed in the source; benchmark inputs retain seed 42. Device defaults never move
 CPU masks/metadata onto NPU. No Triton implementation is called by this suite.
+Scenario: SGLang AscendGDNAttnBackend.fused_recurrent_gated_delta_rule_update
+passes packed QKV, BF16 beta, per-sequence lengths and per-token state slots.
+These source fixtures check that protocol, including S=1/S=8 and Dk != Dv;
+their dimensions are not presented as captured production requests.
 """
 
 from copy import deepcopy
@@ -19,6 +23,7 @@ from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
+    make_executor,
     require_distinct_impls,
     require_test_impl,
 )
@@ -201,23 +206,30 @@ def test_recurrent_gated_delta_rule(family, shape):
     )
     states = None
 
-    def executor():
+    executor = make_executor(
+        recurrent_gated_delta_rule,
+        kwargs=inputs,
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=not skip,
+    )
+
+    def execute():
         nonlocal states
         # Prepare every working pool before profiler collection, not in timed calls.
         if states is None:
             states = iter(
                 [inputs[state_name].clone() for _ in range(1 + WARMUP + ACTIVE)]
             )
-        return recurrent_gated_delta_rule(
-            **{**inputs, state_name: next(states)}, impl=impl
-        )
+        executor.keywords[state_name] = next(states)
+        return executor()
 
-    executor.func = recurrent_gated_delta_rule
-    executor.impl = impl
-    executor.impl_ref = impl_ref
-    executor.accuracy_checked = not skip
+    execute.func = executor.func
+    execute.impl = executor.impl
+    execute.impl_ref = executor.impl_ref
+    execute.accuracy_checked = executor.accuracy_checked
     check_performance(
-        executor,
+        execute,
         enable_perf=family == "benchmark" and shape in perf_shape,
         warmup=WARMUP,
         active=ACTIVE,
