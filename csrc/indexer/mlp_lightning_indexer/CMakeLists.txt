@@ -5,9 +5,8 @@ sgl_register_operator(
     CANN_OP_TYPE MlpLightningIndexer
     TORCH_ADAPTER torch_adapter.cpp
     SUPPORTED_ARCHS 2201
-    HOST_SOURCES
-        op_host/lightning_indexer_def.cpp
-        op_host/lightning_indexer_proto.cpp
-        op_host/lightning_indexer_tiling.cpp
+    OPDEF_SOURCES op_host/lightning_indexer_def.cpp
+    INFER_SOURCES op_host/lightning_indexer_proto.cpp
+    TILING_SOURCES op_host/lightning_indexer_tiling.cpp
     KERNEL_SOURCES op_kernel/mlp_lightning_indexer.cpp
 )
