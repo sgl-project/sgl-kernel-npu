@@ -68,9 +68,9 @@ Framework configuration (SGLang):
 **Note**: DeepEP A2 only supports HCCL communication domain. When DeepEP is enabled, `HCCL_BUFFSIZE` **must** be set, otherwise dispatch & combine operators will fail. The minimum required size depends on the communication mode:
 
 - **Non-layered (single-node)**: `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`
-- **Layered (dual-node)**: `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`
+- **Layered (dual-node)**: `num_experts × bs × (hidden × 2B + 4 × align8(topk) × 4B) + 4MB + 800MB + 400MB`
 
-Where `bs` = max tokens per rank, `hidden` = hidden size, `topk` = num top-k experts, `num_local_experts` = `num_experts / ep_world_size`. A5 subtracts 1MB state zone from the configured value.
+Where `bs` = max tokens per rank, `hidden` = hidden size, `topk` = num top-k experts (`align8(topk)` = `topk` rounded up to a multiple of 8), `num_local_experts` = `num_experts / ep_world_size`. A5 subtracts 1MB state zone from the configured value. The layered layout reserves a fixed 1204MB (800MB RDMA double buffer + 4MB IPC offset + 400MB notify region) before any token data; the authoritative formula is the kernel `winSizeMin` mirrored by the host tiling check (`csrc/deepep/ops2/op_kernel/moe_distribute_a2_layered_winsize.h`), which rejects undersized windows at tiling time.
 
 **"Ant moving home" (long sequence) feature**: When the input sequence length exceeds 8192, enable this feature in both dispatch and combine phases:
 
@@ -235,9 +235,9 @@ DeepEp 向上层提供以下核心接口：
 **注意**：当前deepep A2仅支持HCCL通信域通信，开启deepep后，必须设置的`HCCL_BUFFSIZE`大小，否则dispatch&combine算子会报错。最小需求取决于通信模式：
 
 - **非分层（单机）**：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`
-- **分层（双机）**：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`
+- **分层（双机）**：`num_experts × bs × (hidden × 2B + 4 × align8(topk) × 4B) + 4MB + 800MB + 400MB`
 
-其中 `bs` = 每 rank 最大 token 数，`hidden` = 隐藏层大小，`topk` = top-k 专家数，`num_local_experts` = `num_experts / ep_world_size`。A5 从配置值中扣除 1MB 状态区。
+其中 `bs` = 每 rank 最大 token 数，`hidden` = 隐藏层大小，`topk` = top-k 专家数（`align8(topk)` 为 `topk` 向上对齐到 8 的倍数），`num_local_experts` = `num_experts / ep_world_size`。A5 从配置值中扣除 1MB 状态区。分层布局在任何 token 数据之前固定预留 1204MB（RDMA 双缓冲 800MB + IPC 偏移 4MB + notify 区 400MB）；公式以 kernel `winSizeMin` 及与之同源的 host tiling 校验为准（`csrc/deepep/ops2/op_kernel/moe_distribute_a2_layered_winsize.h`），窗口不足会在 tiling 阶段直接报错拒绝执行。
 
 **蚂蚁搬家（长序列）特性**：当输入序列长度超过 8192 时，建议在 dispatch 和 combine 阶段均开启蚂蚁搬家功能：
 

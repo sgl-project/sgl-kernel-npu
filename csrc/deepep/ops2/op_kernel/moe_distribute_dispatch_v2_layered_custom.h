@@ -10,6 +10,8 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "moe_distribute_base.h"
+#include "moe_distribute_a2_layered_winsize.h"
+#include "check_winsize.h"
 
 namespace MoeDistributeDispatchA2Impl {
 #define TemplateMC2TypeA2layeredClass \
@@ -30,8 +32,10 @@ public:
     constexpr static uint32_t UB_32B_ALIGN = 32;
     constexpr static uint32_t EXP_TOKEN_COUNT_FLAG_CNT = UB_32B_ALIGN / sizeof(int32_t);  // 8
     constexpr static uint32_t TBUF_SIZE = 190 * 1024;
-    constexpr static uint32_t IPC_DATA_OFFSET = 4 * 1024 * 1024;
-    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
+    // Window layout constants are single-sourced from moe_distribute_a2_layered_winsize.h (shared with the host tiling
+    // check)
+    constexpr static uint32_t IPC_DATA_OFFSET = static_cast<uint32_t>(MoeDistributeA2Layered::IPC_DATA_OFFSET);
+    constexpr static uint32_t RDMA_DATA_SIZE = static_cast<uint32_t>(MoeDistributeA2Layered::RDMA_DATA_SIZE);
     constexpr static uint32_t IPC_FLAG_OFFSET = 1 * 1024 * 1024;
     constexpr static uint32_t IPC_TOKEN_CNT_OFFSET = 2 * 1024 * 1024;
     constexpr static uint32_t IPC_MAGIC_OFFSET = IPC_TOKEN_CNT_OFFSET - 128 * 32;
@@ -48,8 +52,10 @@ public:
     constexpr static uint32_t WAIT_STATUS = 1;
     constexpr static uint32_t ARRIVAL_STATUS = 2;
     constexpr static uint32_t SKIP_STATUS = 3;
-    constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
-    constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
+    // expert ids / weights / quant scales / arrival flag
+    constexpr static uint32_t EXTRA_TOKEN_INFO_NUM =
+        static_cast<uint32_t>(MoeDistributeA2Layered::EXTRA_TOKEN_INFO_NUM);
+    constexpr static uint32_t NOTIFY_DATA_SIZE = static_cast<uint32_t>(MoeDistributeA2Layered::NOTIFY_DATA_SIZE);
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -245,14 +251,22 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
            tilingData.moeDistributeDispatchV2Info.h, tilingData.moeDistributeDispatchV2Info.aivNum,
            tilingData.moeDistributeDispatchV2Info.isQuant, tilingData.moeDistributeDispatchV2Info.totalUbSize,
            tilingData.moeDistributeDispatchV2Info.expertTokenNumsType);
+    // The assert above is compiled out in release builds; report through the shared exception
+    // path so an undersized window fails deterministically, instead of letting the unsigned
+    // subtraction below wrap around into out-of-window writes (invalid GM address).
+    CheckWindowSize(winSizeMin, static_cast<uint64_t>(winContext_->winSize), tpipe_, expandXOut);
 
     // RDMA buffer init
     bufferChosenGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + WIN_SIZE + worldSize_ * STATE_OFFSET));
     bufferId_ = bufferChosenGlobal_(0);
     windowInGM_ = windowInGM_ + halfWinSize_ * bufferId_;
     windowOutGM_ = windowOutGM_ + halfWinSize_ * bufferId_;
+    // Fixed overhead = RDMA double buffer + IPC offset + NOTIFY region. On a smaller window
+    // the unsigned subtraction would wrap around into a huge offset; clamp to 0 to stop
+    // callers that bypass host tiling and construct tiling data directly.
+    constexpr uint32_t FIXED_WIN_OVERHEAD = static_cast<uint32_t>(MoeDistributeA2Layered::FIXED_WIN_OVERHEAD);
     RANK_SIZE_ON_IPC =
-        (totalSize_ - totalWinSize_ - IPC_DATA_OFFSET - NOTIFY_DATA_SIZE) / (localMoeExpertNum_ * worldSize_);
+        (totalSize_ > FIXED_WIN_OVERHEAD) ? (totalSize_ - FIXED_WIN_OVERHEAD) / (localMoeExpertNum_ * worldSize_) : 0U;
     RANK_SIZE_ON_IPC = (RANK_SIZE_ON_IPC / IPC_BUFF_ALIGN) * IPC_BUFF_ALIGN;
 
     // IPC buffer init
