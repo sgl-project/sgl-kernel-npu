@@ -8,7 +8,7 @@
 | [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [indexer_quant_cache](operators/mem_cache/indexer_quant_cache.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
-| [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
+| [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
 | [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
 | [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
 | [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `host`, `torch_native` |

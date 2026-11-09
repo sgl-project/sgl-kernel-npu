@@ -23,8 +23,7 @@
       "npu_kv_quant_sparse_attn_sharedkv": null,
       "npu_kv_quant_sparse_attn_sharedkv_metadata": null,
       "npu_quant_lightning_indexer": null,
-      "npu_quant_lightning_indexer_metadata": null,
-      "compressor": null
+      "npu_quant_lightning_indexer_metadata": null
     }
   },
   "repository": "https://gitcode.com/cann/cann-recipes-infer.git",

@@ -12,8 +12,7 @@
       "kv_quant_sparse_attn_sharedkv",
       "kv_quant_sparse_attn_sharedkv_metadata",
       "quant_lightning_indexer",
-      "quant_lightning_indexer_metadata",
-      "compressor"
+      "quant_lightning_indexer_metadata"
     ]
   },
   "repository": "https://gitcode.com/cann/ops-transformer.git",

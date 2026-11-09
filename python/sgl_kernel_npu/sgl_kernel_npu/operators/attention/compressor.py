@@ -13,11 +13,9 @@ _torch_native_fn = None
 def _auto_impl(*args):
     version = detect_cann_version()
     if version.startswith("9.1."):
-        backend = (
-            "ops_transformer_cann910"
-            if get_hardware().generation == Generation.ARCH35
-            else "ascendc"
-        )
+        # The fused repository kernel preserves old ring history until reads
+        # finish. The 9.1 experimental provider writes overlapping slots first.
+        backend = "ascendc"
     elif version.startswith("9.2."):
         backend = "cann_ops_transformer_cann920"
     else:
@@ -33,48 +31,6 @@ def _cann920_impl(*args):
     if not version.startswith("9.2."):
         raise RuntimeError(f"This implementation requires CANN 9.2.x, got {version}")
     return _ascendc_impl(*args)
-
-
-@register_impl(
-    "attention.compressor",
-    "ops_transformer_cann910",
-    supported_generations={Generation.ARCH35},
-)
-def _cann910_impl(*args):
-    version = detect_cann_version()
-    if not version.startswith("9.1."):
-        raise RuntimeError(f"This implementation requires CANN 9.1.x, got {version}")
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "compressor", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing bundled CANN 9.1 compressor binding for CANN {version}"
-        )
-    names = (
-        "rope_sin",
-        "rope_cos",
-        "state_block_table",
-        "cu_seqlens",
-        "seqused",
-        "start_pos",
-        "rope_head_dim",
-        "cmp_ratio",
-        "coff",
-        "norm_eps",
-        "rotary_mode",
-        "cache_mode",
-        "state_cache_stride_dim0",
-    )
-    kwargs = dict(zip(names, args[6:]))
-    # The recipes binding derives this stride from state_cache and has no
-    # state_cache_stride_dim0 schema argument.
-    stride = kwargs.pop("state_cache_stride_dim0")
-    if stride not in (0, args[3].stride(0)):
-        raise ValueError(
-            "The CANN 9.1 compressor derives its cache stride from state_cache"
-        )
-    return op(*args[:6], **kwargs)
 
 
 @register_impl("attention.compressor", "ascendc")
@@ -118,8 +74,8 @@ def compressor(
 ):
     """Compress KV groups, apply RMSNorm/RoPE, and update state_cache in place.
 
-    ``auto`` selects the SDK-specific implementation: the bundled experimental
-    compressor for CANN 9.1 A5, and the framework Ascend C operator otherwise.
+    ``auto`` uses the repository's fused Ascend C operator on A3 and A5:
+    ``ascendc`` on CANN 9.1, its ``cann_ops_transformer_cann920`` alias on 9.2.
     All tensors are contiguous on the same NPU.
     Args:
         x: FP16/BF16 input [B, S, H] or packed [T, H].
@@ -145,7 +101,8 @@ def compressor(
             a compiled kernel; other values are rejected before launch.
         cache_mode: Integer 1 for paged cache or 2 for explicit/ring cache.
         state_cache_stride_dim0: Integer cache stride; 0 derives L*2*coff*D.
-        impl: Backend name, default "auto"; also "ascendc" or "torch_native".
+        impl: Backend name, default "auto"; also "ascendc",
+            "cann_ops_transformer_cann920" (CANN 9.2), or "torch_native".
     Returns:
         Same dtype as x, [B, ceil(S/r), D] or [min(T,T//r+B), D]. Only
         completed groups are written; remaining output rows are unspecified.

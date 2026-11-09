@@ -38,7 +38,7 @@ remains an internal SDK/format label and is no longer a registered implementatio
 | `attention.mixed_quant_sparse_flash_mla_metadata` | `ops_transformer_cann910`<br>`host` | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata)<br>[sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp) |
 | `indexer.quant_lightning_indexer` | `ops_transformer_cann910` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer) |
 | `indexer.quant_lightning_indexer_metadata` | `ops_transformer_cann910` | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata) |
-| `attention.compressor` | `ops_transformer_cann910`<br>`ascendc` | [A5 ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/compressor)<br>[A3 sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/compressor/op_kernel/compressor.cpp) |
+| `attention.compressor` | `ascendc` | [sgl-kernel-npu fused device kernel, A3/A5](https://github.com/sgl-project/sgl-kernel-npu/tree/6ef048785a68379dc6bebe327d43e59c17228ac4/csrc/attention/compressor/op_kernel) |
 | `mem_cache.kv_compress_epilog` | `ascendc` | [sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp) |
 | `mem_cache.indexer_quant_cache` | `cann_recipes_infer_cann910` | [cann-recipes-infer; aclnnIndexerCompressEpilog](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_indexer_compress_epilog.cpp) |
 | `hyper_conn.mhc_pre_dpskv4` | `cann_recipes_infer_cann910` | [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_hc_pre.cpp) |
@@ -62,7 +62,7 @@ inventory, calls `aclnnHcPre`; its `npu_moe_gating_top_k` calls
 For CANN 9.1 attention, window-only inputs select the experimental implementation;
 explicit sparse original-KV inputs select the checked-in `ascendc` compute and
 `host` metadata pair. An explicitly selected source rejects the other input
-contract. Compressor selects `ascendc` on A3 and `ops_transformer_cann910` on A5.
+contract. Compressor selects the repository's fused `ascendc` on both A3 and A5.
 `host` metadata is CPU C++ scheduling code that copies the resulting table to NPU;
 this is distinct from the experimental AICPU metadata kernels.
 
@@ -125,8 +125,8 @@ There is no separate compressor library or loader. The existing legacy
 `build.sh` sources remain available. Target-SDK compilation and NPU execution
 must still be verified on the corresponding hardware.
 
-CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
-CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
+CANN 9.1 and 9.2 A3/A5 use the repository's fused compressor, which preserves
+pre-call ring history before committing state updates.
 
 Graph metadata allocation uses the size API beside each metadata operator:
 `get_sparse_flash_mla_metadata_size()`,
