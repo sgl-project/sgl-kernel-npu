@@ -1,4 +1,4 @@
-"""PyTorch reference for vllm-ascend's causal pooled-index packing."""
+"""PyTorch reference for causal pooled-index packing."""
 
 import torch
 
@@ -16,7 +16,7 @@ def pack_pool_key_indexer_indices(
     tail_start = torch.div(visible, pool_size, rounding_mode="floor") * pool_size
     history = tail_start.clamp_max(topk)
     cols = torch.arange(width, device=indices.device).unsqueeze(0)
-    # Causal CANN supplies valid history indices; match the upstream pack kernel.
+    # Causal CANN supplies valid history indices.
     result = torch.where(cols < history, indices[:, :width], -1)
     tail_col = cols - history
     tail_valid = (tail_col >= 0) & (tail_col < visible - tail_start)

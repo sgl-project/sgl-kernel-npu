@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """GLM-5.3-Flash sentinel preparation and empty-history regression."""
 
 import pytest
