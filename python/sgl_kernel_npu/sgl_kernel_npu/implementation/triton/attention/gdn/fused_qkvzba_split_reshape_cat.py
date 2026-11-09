@@ -11,6 +11,14 @@ MAX_ROWS_PER_ITER = 64
 UB_SPECIFICATION = 85
 
 
+# A5 cannot hold the double-buffered pipeline for the larger row tiles, while
+# A3 gains from it; let autotune keep the config that fits and is fastest.
+@triton.autotune(
+    configs=[
+        triton.Config({"multibuffer": multibuffer}) for multibuffer in (False, True)
+    ],
+    key=["NUM_HEADS_QK", "NUM_HEADS_V", "HEAD_QK", "HEAD_V", "ROWS_PER_ITER"],
+)
 @triton.jit(do_not_specialize=["total_rows", "rows_per_vec"])
 def fused_qkvzba_split_reshape_cat_kernel(
     mixed_qkv,
@@ -287,6 +295,14 @@ def fused_qkvzba_split_reshape_cat(
     return mixed_qkv, z, b, a
 
 
+# A5 cannot hold the double-buffered pipeline for the larger row tiles, while
+# A3 gains from it; let autotune keep the config that fits and is fastest.
+@triton.autotune(
+    configs=[
+        triton.Config({"multibuffer": multibuffer}) for multibuffer in (False, True)
+    ],
+    key=["NUM_HEADS_QK", "NUM_HEADS_V", "HEAD_QK", "HEAD_V", "ROWS_PER_ITER"],
+)
 @triton.jit
 def fused_qkvzba_split_reshape_cat_contiguous_kernel(
     mixed_qkv,
