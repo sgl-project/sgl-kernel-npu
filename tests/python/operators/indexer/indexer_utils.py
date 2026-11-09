@@ -22,12 +22,12 @@ SCORE_RTOL = 1 / 128
 SCORE_ATOL = 2.5e-5
 
 
-def _check_topk(indices, values, scores, allowed, offset=0):
+def _check_topk(indices, values, scores, allowed):
     """Check values, completeness and the TopK boundary without ordering ties."""
     valid = indices != -1
     if values is not None:
         assert torch.isneginf(values[~valid]).all(), "Invalid TopK values must be -inf"
-    selected = indices[valid].long() - offset
+    selected = indices[valid].long()
     assert selected.numel() == min(indices.numel(), int(allowed.sum()))
     assert selected.unique().numel() == selected.numel()
     assert ((selected >= 0) & (selected < scores.numel())).all()

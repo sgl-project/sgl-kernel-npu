@@ -31,8 +31,6 @@ def generate_data(rows):
         layout_k="PA_BBND",
         max_seqlen_q=rows,
         max_seqlen_k=4096,
-    )
-    kwargs.update(
         candidate_block_length=torch.full((rows, 1), 512, dtype=torch.int32),
         candidate_block_size=8,
         quant_mode=1,

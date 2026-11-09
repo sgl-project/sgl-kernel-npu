@@ -31,17 +31,14 @@ perf_shape = [(1, 0), (6, 1)]
 )
 def test_projection_tail_stays_inside_allocation(t, monkeypatch):
     """A full fixpipe tail tile must not corrupt storage after the allocation."""
-    import torch_npu
     from sgl_kernel_npu.operators.indexer import indexer_prologue_k
 
     require_test_impl(indexer_prologue_k, "cannbot_dsl")
     module = importlib.import_module(
         "sgl_kernel_npu.implementation.cannbot-dsl.indexer.indexer_prologue_k"
     )
-    d = 128
-    inputs = _make_inputs(t, 512, d, 64, 2, 64, 0, -1, True, 20261001)
-    latent, wk, norm, sin, cos, cache, indices, scale = inputs
-    wk = torch_npu.npu_format_cast(wk.npu(), torch_npu.Format.FRACTAL_NZ)
+    args, kwargs = generate_data(t, 0, seed=20261001)
+    d = args[1].shape[0]
     allocation = {}
 
     class GuardedTorch:
@@ -62,19 +59,7 @@ def test_projection_tail_stays_inside_allocation(t, monkeypatch):
             return torch.empty(size, *args, **kwargs)
 
     monkeypatch.setattr(module, "torch", GuardedTorch())
-    indexer_prologue_k(
-        latent.npu(),
-        wk,
-        norm.npu(),
-        sin.npu(),
-        cos.npu(),
-        cache.npu(),
-        k_scale_cache=scale.npu(),
-        cache_index=indices.npu(),
-        storage_mode=0,
-        norm_eps=1e-6,
-        impl="cannbot_dsl",
-    )
+    indexer_prologue_k(*args, **kwargs, impl="cannbot_dsl")
     torch.npu.synchronize()
     guard = allocation["backing"][allocation["rows"] :].view(torch.int16).cpu()
     assert bool((guard == 0x7FFF).all())
@@ -91,73 +76,47 @@ def _make_rope(t, dr, generator):
     return torch.sin(angles).contiguous(), torch.cos(angles).contiguous()
 
 
-def _make_inputs_cpu(
-    t,
-    h,
-    d,
-    dr,
-    block_num,
-    block_size,
-    storage_mode,
-    combined_block_size,
-    with_scale_cache,
-    seed,
-):
-    generator = torch.Generator(device="cpu").manual_seed(seed)
-    latent = torch.randn(t, h, generator=generator).to(torch.bfloat16)
-    wk = (
-        torch.randn(d, h, generator=generator, dtype=torch.float32) / math.sqrt(h)
-    ).to(torch.bfloat16)
-    norm_weight = torch.randn(d, generator=generator, dtype=torch.float32)
-    rope_sin, rope_cos = _make_rope(t, dr, generator)
-    value_bytes = d // 2
-    scale_bytes = d // 32
-    if storage_mode == 0:
-        cache_shape = (block_num, block_size, 1, value_bytes)
-    else:
-        cache_shape = (
-            block_num,
-            block_size // combined_block_size,
-            1,
-            combined_block_size * (value_bytes + scale_bytes),
-        )
-    k_cache = torch.randint(0, 256, cache_shape, generator=generator, dtype=torch.uint8)
-    k_scale_cache = None
-    if storage_mode == 0 and with_scale_cache:
-        k_scale_cache = torch.randint(
-            0,
-            256,
-            (block_num, block_size, 1, scale_bytes),
-            generator=generator,
-            dtype=torch.uint8,
-        )
-    slots = torch.randperm(block_num * block_size, generator=generator)[:t]
-    cache_index = slots.to(torch.int64)
-    if t > 1 and seed % 3 == 0:
-        cache_index[-1] = -1
-    return (
-        latent,
-        wk,
-        norm_weight,
-        rope_sin,
-        rope_cos,
-        k_cache,
-        cache_index,
-        k_scale_cache,
-    )
-
-
-def _make_inputs(*args):
+def _make_inputs(t, storage_mode, seed):
     with torch.device("cpu"):
-        return _make_inputs_cpu(*args)
+        # DSV4.1 compressor latent 512 -> index head 128, with 64 RoPE features.
+        generator = torch.Generator(device="cpu").manual_seed(seed)
+        latent = torch.randn(t, 512, generator=generator).bfloat16()
+        wk = (
+            torch.randn(128, 512, generator=generator, dtype=torch.float32)
+            / math.sqrt(512)
+        ).bfloat16()
+        norm_weight = torch.randn(128, generator=generator, dtype=torch.float32)
+        rope_sin, rope_cos = _make_rope(t, 64, generator)
+        # A token stores 64 K bytes and 4 scale bytes; mode 1 packs eight tokens.
+        cache_shape = (2, 64, 1, 64) if storage_mode == 0 else (2, 8, 1, 8 * (64 + 4))
+        k_cache = torch.randint(
+            0, 256, cache_shape, generator=generator, dtype=torch.uint8
+        )
+        k_scale_cache = (
+            torch.randint(0, 256, (2, 64, 1, 4), generator=generator, dtype=torch.uint8)
+            if storage_mode == 0
+            else None
+        )
+        cache_index = torch.randperm(2 * 64, generator=generator)[:t]
+        if t > 1 and seed % 3 == 0:
+            cache_index[-1] = -1
+        return (
+            latent,
+            wk,
+            norm_weight,
+            rope_sin,
+            rope_cos,
+            k_cache,
+            cache_index,
+            k_scale_cache,
+        )
 
 
-def generate_data(rows, mode):
+def generate_data(rows, mode, *, seed=None):
     import torch_npu
 
-    # Compressor latent is width 512; index projection is 512 -> 128.
     x, w, norm, sin, cos, cache, indices, scale = _make_inputs(
-        rows, 512, 128, 64, 2, 64, mode, 8, mode == 0, 20260917 + mode
+        rows, mode, 20260917 + mode if seed is None else seed
     )
     args = (
         x.npu(),
