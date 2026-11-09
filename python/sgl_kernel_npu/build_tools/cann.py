@@ -1,4 +1,4 @@
-"""Build a CANN package independently of Torch; reusable by wheel build hooks."""
+"""Build and install the native RUN package through the existing CANN project."""
 
 import json
 import os
@@ -8,6 +8,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,11 +18,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 @dataclass
 class CannBuild:
     directory: Path
-    operators: tuple
+    cann_operators: tuple
     package: Path = None
     vendor: Path = None
     arch_version: str = ""
     selection_kind: str = "all"
+    host_operators: tuple = ()
 
 
 def architecture(arch_version, source_root=PROJECT_ROOT):
@@ -86,9 +88,9 @@ def _cache(directory):
     return values
 
 
-def _selection(directory):
-    path = directory / "selected-operators.txt"
-    return tuple(path.read_text().splitlines()) if path.is_file() else ()
+def _selection(directory, name="selected-operators.txt"):
+    path = directory / name
+    return tuple(filter(None, path.read_text().splitlines())) if path.is_file() else ()
 
 
 def _cache_list(values, key):
@@ -100,31 +102,31 @@ def _cache_list(values, key):
 def parse_operators(value):
     if value == "all":
         return ("ALL",)
-    operators = tuple(part.strip() for part in value.split(","))
-    if not operators or any(
-        not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", item) for item in operators
+    native_operators = tuple(part.strip() for part in value.split(","))
+    if not native_operators or any(
+        not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", item) for item in native_operators
     ):
         raise ValueError("--ops must be 'all' or comma-separated operator IDs")
     if (
-        "all" in operators
-        or "ALL" in operators
-        or len(set(operators)) != len(operators)
+        "all" in native_operators
+        or "ALL" in native_operators
+        or len(set(native_operators)) != len(native_operators)
     ):
         raise ValueError(
             "--ops must not mix 'all' with IDs, use reserved 'ALL', or repeat an ID"
         )
-    return operators
+    return native_operators
 
 
 def build_cann(
     arch_version,
-    operators=("ALL",),
+    native_operators=("ALL",),
     *,
     jobs=None,
     source_root=PROJECT_ROOT,
     build_root=None,
 ):
-    """Build and stage a CANN package for the selected operators."""
+    """Configure, build, package and install the selected native operators."""
     compute_units = architecture(arch_version, source_root)["compute_units"]
     if jobs is not None and jobs < 1:
         raise ValueError("--jobs must be positive")
@@ -148,7 +150,7 @@ def build_cann(
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc"),
         "SGL_ARCH_VERSION": str(arch_version),
-        "SGL_CANN_OPERATORS": ";".join(operators),
+        "SGL_NATIVE_OPERATORS": ";".join(native_operators),
         "SGL_CANN_SDK_ROOT": sdk,
     }
     cached = _cache(directory)
@@ -164,19 +166,23 @@ def build_cann(
         "-B",
         directory,
         "-DSGL_ARCH_VERSION=" + str(arch_version),
-        "-DSGL_CANN_OPERATORS=" + ";".join(operators),
+        "-DSGL_NATIVE_OPERATORS=" + ";".join(native_operators),
+        # HOST compilation must discover Torch in this build Python environment.
+        "-DPython3_EXECUTABLE=" + sys.executable,
         "-DSGL_CANN_BUILD_STAGE=KERNEL",
     ]
     run(command, directory / "configure.log", cwd=source_root, env=env)
-    selected = _selection(directory)
-    if not selected:
+    cann_operators = _selection(directory)
+    host_operators = _selection(directory, "selected-host-operators.txt")
+    if not cann_operators and not host_operators:
         raise RuntimeError("CMake did not produce a nonempty operator selection")
     aicpu_operators = _cache_list(_cache(directory), "SGL_CANN_AICPU_OPERATORS")
-    if not set(aicpu_operators).issubset(selected):
+    if not set(aicpu_operators).issubset(cann_operators):
         raise RuntimeError("CMake exported AICPU operators outside this selection")
     has_aicpu = bool(aicpu_operators)
-    has_aicore = bool(set(selected).difference(aicpu_operators))
-    print("SELECTED_OPERATORS: " + ",".join(selected), flush=True)
+    has_aicore = bool(set(cann_operators).difference(aicpu_operators))
+    print("SELECTED_CANN_OPERATORS: " + ",".join(cann_operators), flush=True)
+    print("SELECTED_HOST_OPERATORS: " + ",".join(host_operators), flush=True)
     # The SDK's package target does not build device binaries automatically.
     for target, log_name in (
         ("sgl_cann_kernel_check", "kernel-build.log"),
@@ -191,9 +197,10 @@ def build_cann(
     _remove_tree(installed)
     installed.mkdir()
     install_command = ["bash", package, "--quiet", "--install-path=" + str(installed)]
-    if has_aicpu and not has_aicore:
-        # CANN 9.2 requires opmaster even without Core Tiling. --force skips
-        # the installer's entire Host-library validation, not file installation.
+    if not has_aicore:
+        # Packages without AICORE have no opmaster library. Reuse the AICPU-only
+        # installer workaround for HOST-only and AICPU/HOST packages too.
+        # Verify the selected artifacts below even when using --force.
         install_command.append("--force")
     run(
         install_command,
@@ -202,18 +209,24 @@ def build_cann(
         env=env,
     )
     vendor, _, _ = inspect_installation(
-        installed, directory, compute_units, aicore=has_aicore, aicpu=has_aicpu
+        installed,
+        directory,
+        compute_units,
+        aicore=has_aicore,
+        aicpu=has_aicpu,
+        host=bool(host_operators),
     )
     print("RUN_PACKAGE: " + str(package), flush=True)
     print("INSTALLED_VENDOR: " + str(vendor), flush=True)
-    print("PASS: CANN package built and staged; no NPU execution or wheel build")
+    print("PASS: Native package built and staged; no NPU execution or wheel build")
     return CannBuild(
         directory,
-        selected,
+        cann_operators,
         package,
         vendor,
         str(arch_version),
-        "all" if operators == ("ALL",) else "custom",
+        "all" if native_operators == ("ALL",) else "custom",
+        host_operators,
     )
 
 
@@ -238,19 +251,21 @@ def find_run_package(stage_build):
     return packages[0]
 
 
-def inspect_installation(install_dir, stage_build, compute_units, *, aicore, aicpu):
+def inspect_installation(
+    install_dir, stage_build, compute_units, *, aicore, aicpu, host=False
+):
     vendor = install_dir / "vendors/sgl_kernel_npu"
     tbe = vendor / "op_impl/ai_core/tbe"
     cache = _cache(stage_build)
-    host_libraries = _cache_list(cache, "SGL_CANN_HOST_LIBRARIES")
+    cann_host_libraries = _cache_list(cache, "SGL_CANN_HOST_LIBRARIES")
     headers = [Path(path) for path in _cache_list(cache, "SGL_CANN_ACLNN_HEADERS")]
     libraries = []
-    if "sgl_cann_opapi" in host_libraries:
+    if "sgl_cann_opapi" in cann_host_libraries:
         libraries.append(vendor / "op_api/lib/libcust_opapi.so")
         if not headers:
             raise RuntimeError("CMake created ACLNN without exporting its headers")
     library_searches = []
-    if "sgl_cann_proto" in host_libraries:
+    if "sgl_cann_proto" in cann_host_libraries:
         library_searches.append((vendor / "op_proto", "libcust_opsproto_rt2.0.so"))
     if aicore:
         library_searches.append((tbe / "op_tiling", "libcust_opmaster_rt2.0.so"))
@@ -306,6 +321,13 @@ def inspect_installation(install_dir, stage_build, compute_units, *, aicore, aic
                 cpu / "aicpu_kernel/impl/libsgl_kernel_npu_aicpu.so",
             ),
         ]
+    if host:
+        pairs.append(
+            (
+                stage_build / "host/libsgl_host_operators.a",
+                vendor / "op_impl/host/lib/libsgl_host_operators.a",
+            )
+        )
     for source, installed in pairs:
         if not source.is_file() or not source.stat().st_size:
             raise RuntimeError(f"Missing or empty build artifact: {source}")

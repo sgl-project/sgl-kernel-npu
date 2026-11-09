@@ -9,13 +9,15 @@
 | `torch_native` | BF16 | Supported | Supported |
 | `torch_native` | FP32 | Unverified | Unverified |
 
-State dtype applies to `initial_state`, `final_state` and optional `chunk_state`.
-The A5 `ascendc` kernel has an FP32 state path. The `torch_native` implementation
-accepts FP32 state on both architectures. The accuracy tests compare `ascendc`
-against `torch_native` in 15 BF16-state cases on each of A3 and A5. All cases use
-`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings crossed with three
-chunk-state layouts. See the
-[test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).
+State dtype is selected by `initial_state` (BF16 or FP32). Optional `chunk_state`
+must use the same dtype, and the returned `final_state` retains that dtype.
+`query`, `key`, `value`, `beta` and the returned `out` remain BF16; optional `g`
+is FP32 and `actual_seq_lengths` is int32.
+
+The A5 `ascendc` FP32-state path uses mixed precision: some internal matrix
+operations still use BF16. A3 `ascendc` does not support FP32 state.
+`torch_native` accepts FP32 state on both architectures. A5 FP32-state device
+validation remains pending.
 
 ## Signature
 
@@ -97,3 +99,16 @@ Usage notes:
   with each chunk's entering state, ordered by sequence then chunk. A
   noncontiguous buffer uses a temporary copy without writing back to the input.
   Only `(out, final_state)` is returned.
+
+## Test coverage
+
+The 15 original BF16-state accuracy cases passed on A3 and A5. Another 15 cases
+cover FP32 state on A5 and await device validation; these cases are skipped on
+A3. Both sets use `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings
+and three chunk-state layouts: absent, contiguous and noncontiguous.
+
+Accuracy compares `ascendc` with `torch_native` using the shared dtype-specific
+standards. Performance uses the shared framework with five warmup and five active
+calls. For each state dtype, the default performance case uses explicit
+`scale=128**-0.5` and no `chunk_state`. See the
+[test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).

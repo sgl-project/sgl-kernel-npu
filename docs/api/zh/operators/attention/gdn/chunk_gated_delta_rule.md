@@ -5,15 +5,18 @@
 | 实现 | 状态 dtype | arch22（2201） | arch35（3510） |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | 支持 | 支持 |
-| `ascendc` | FP32 | 不支持 | 待验证 |
+| `ascendc` | FP32 | 不支持 | 未验证 |
 | `torch_native` | BF16 | 支持 | 支持 |
-| `torch_native` | FP32 | 待验证 | 待验证 |
+| `torch_native` | FP32 | 未验证 | 未验证 |
 
-状态 dtype 指 `initial_state`、`final_state` 和可选 `chunk_state` 的类型。
-A5 的 `ascendc` 内核有 FP32 状态实现，`torch_native` 在两种架构上均接受 FP32 状态。
-精度测试在 A3 和 A5 上各使用 15 组 BF16 状态用例，对比 `ascendc` 和 `torch_native`。
-所有用例的形状均为 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局，
-详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。
+状态 dtype 由 `initial_state` 决定，可选 BF16 或 FP32。可选输入 `chunk_state`
+必须使用相同 dtype，返回值 `final_state` 也保持该 dtype。
+`query`、`key`、`value`、`beta` 和返回值 `out` 均为 BF16；可选输入 `g`
+为 FP32，`actual_seq_lengths` 为 int32。
+
+A5 的 `ascendc` FP32 状态路径采用混合精度，部分内部矩阵运算仍使用 BF16。
+A3 的 `ascendc` 不支持 FP32 状态；`torch_native` 在两种架构上均接受 FP32 状态。
+A5 的 FP32 状态仍待上机验证。
 
 ## 函数原型
 
@@ -90,3 +93,15 @@ out_t = scale * (S_t @ q_t)
 - `initial_state` 不被修改。连续的 `chunk_state` 原地写入各块的进入状态，
   先按序列、再按块排序；非连续缓冲区使用临时副本，不回写原张量。
   函数只返回 `(out, final_state)`。
+
+## 测试覆盖
+
+原有 15 个 BF16 状态精度用例已在 A3 和 A5 通过。新增 15 个 A5 FP32 状态用例，
+尚待上机验证，在 A3 上跳过。两组用例均使用
+`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
+不提供、连续和非连续。
+
+精度使用公共框架按 dtype 对比 `ascendc` 与 `torch_native`。
+性能沿用公共框架的 5 次 warmup 和 5 次 active；每种状态 dtype 默认仅测
+显式 `scale=128**-0.5` 且不提供 `chunk_state` 的配置。
+详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。

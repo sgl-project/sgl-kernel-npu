@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build sgl-kernel-npu from migrated AscendC operators and Python sources."""
+"""Build sgl-kernel-npu from selected AICORE, AICPU and HOST operators and Python sources."""
 import argparse
 import os
 import re
@@ -25,13 +25,13 @@ def arguments(argv=None):
     parser.add_argument(
         "--ops",
         default="all",
-        help="all supported migrated native operators, or comma-separated operator IDs",
+        help="all supported AICORE/AICPU/HOST operators, or comma-separated operator IDs",
     )
     parser.add_argument(
         "--artifact",
         choices=("run", "wheel"),
         default="wheel",
-        help="CANN installer or complete sgl-kernel-npu wheel",
+        help="AICORE/AICPU/HOST RUN installer or complete sgl-kernel-npu wheel",
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
     third_party = parser.add_mutually_exclusive_group()
@@ -74,7 +74,7 @@ def arguments(argv=None):
         ) or len(set(args.third_party)) != len(args.third_party):
             parser.error("--third-party requires distinct, nonempty profile names")
     try:
-        args.operators = parse_operators(args.ops)
+        args.native_operators = parse_operators(args.ops)
     except ValueError as error:
         parser.error(str(error))
     return args
@@ -117,21 +117,22 @@ def main(argv=None):
     extension = "whl" if args.artifact == "wheel" else "run"
     for path in output.glob(f"sgl_kernel_npu-*.{extension}"):
         path.unlink()
-    result = build_cann(
+    native_build = build_cann(
         args.arch_version,
-        args.operators,
+        args.native_operators,
         jobs=args.jobs,
     )
     if args.artifact == "run":
         destination = (
-            output / f"sgl_kernel_npu-{args.arch_version}-{result.selection_kind}.run"
+            output
+            / f"sgl_kernel_npu-{args.arch_version}-{native_build.selection_kind}.run"
         )
-        shutil.copy2(result.package, destination)
+        shutil.copy2(native_build.package, destination)
     else:
         from build_tools.torch_wheel import build_torch, build_wheel
 
         package = build_torch(
-            result, args.arch_version, jobs=args.jobs, dependencies=dependencies
+            native_build, args.arch_version, jobs=args.jobs, dependencies=dependencies
         )
         wheel = build_wheel(package)
         destination = output / wheel.name

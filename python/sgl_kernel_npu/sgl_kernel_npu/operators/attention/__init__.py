@@ -1,5 +1,6 @@
 "Public attention operators with explicit implementation selection."
 
+from .ada_block_sparse_attention import ada_block_sparse_attention
 from .compressor import compressor
 from .compressor_v2 import compressor_v2
 from .fia_prep import fia_prep
@@ -7,14 +8,13 @@ from .flash_decode_bnsd_with_gqa_share_sparse import (
     flash_decode_bnsd_with_gqa_share_sparse,
 )
 from .flash_mla import flash_mla, flash_mla_metadata
-
-# Retain the existing package-level imports; GDN owns the implementations.
-from .gdn import chunk_gated_delta_rule, recurrent_gated_delta_rule
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
+from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
     kv_quant_sparse_attn_sharedkv_metadata_host,
 )
+from .laser_attention import la
 from .mla_preprocess import mla_preprocess
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
@@ -25,20 +25,21 @@ from .sparse_flash_attention import sparse_flash_attention
 from .sparse_flash_mla import sparse_flash_mla, sparse_flash_mla_metadata
 
 __all__ = [
+    "ada_block_sparse_attention",
     "compressor",
     "fia_prep",
     "gqa_share_sparse_decode",
-    "chunk_gated_delta_rule",
+    "chunk_kda_fwd",
     "flash_mla",
     "flash_mla_metadata",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
+    "la",
     "mlaprolog_v4",
     "mla_preprocess",
     "paged_mtp_attention_decode",
     "quant_flash_attn",
     "quant_flash_attn_metadata",
-    "recurrent_gated_delta_rule",
     "compressor_v2",
     "flash_decode_bnsd_with_gqa_share_sparse",
     "sparse_attn_sharedkv",
