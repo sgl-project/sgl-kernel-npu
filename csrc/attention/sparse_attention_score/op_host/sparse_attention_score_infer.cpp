@@ -2,7 +2,7 @@
 // Licensed under CANN Open Software License Agreement Version 2.0.
 #include "register/op_impl_registry.h"
 namespace ops {
-static ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShapeSparseAttentionScore(gert::InferShapeContext *context)
 {
     const auto *query = context->GetInputShape(0);
     *context->GetOutputShape(0) = *query;
@@ -13,11 +13,13 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     lse->SetDim(2, 1);
     return ge::GRAPH_SUCCESS;
 }
-static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataTypeSparseAttentionScore(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(0));
     context->SetOutputDataType(1, ge::DT_FLOAT);
     return ge::GRAPH_SUCCESS;
 }
-IMPL_OP_INFERSHAPE(SglSparseAttentionScore).InferShape(InferShape).InferDataType(InferDataType);
+IMPL_OP_INFERSHAPE(SglSparseAttentionScore)
+    .InferShape(InferShapeSparseAttentionScore)
+    .InferDataType(InferDataTypeSparseAttentionScore);
 }  // namespace ops
