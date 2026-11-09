@@ -19,7 +19,7 @@
 #include <graph/utils/type_utils.h>
 #include <tiling/platform/platform_ascendc.h>
 #include "ge_helper.h"
-#include "../../attention/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv_tiling_data.h"
+#include "kv_quant_sparse_attn_sharedkv_tiling_data.h"
 #include "kv_quant_sparse_attn_sharedkv_check.h"
 
 namespace optiling {

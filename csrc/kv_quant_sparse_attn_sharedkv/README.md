@@ -109,7 +109,7 @@ kernel. The device entry in
 selects the kernel specialization. The main loop reads the metadata task table,
 loads and dequantizes selected KV rows, and performs `QKᵀ`, softmax, and the
 weighted sum with V in blocks. The separate
-[`metadata` operator](../attention/kv_quant_sparse_attn_sharedkv_metadata_host/README.md)
+[`metadata` operator](../kv_quant_sparse_attn_sharedkv_metadata/README.md)
 generates the task table on the host.
 
 ## Build and test
