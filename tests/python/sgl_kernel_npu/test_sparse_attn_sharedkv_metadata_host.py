@@ -14,7 +14,7 @@ import unittest
 
 import sgl_kernel_npu  # noqa: F401  (loads libsgl_kernel_npu.so -> registers torch.ops.npu.*)
 import torch
-import torch_npu
+import torch_npu  # noqa: F401 (registers the NPU backend)
 
 HOST = torch.ops.npu.sparse_attn_sharedkv_metadata_host
 

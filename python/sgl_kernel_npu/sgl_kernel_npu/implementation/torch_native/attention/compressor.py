@@ -1,9 +1,11 @@
-"""Independent eager reference for compressor."""
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# Licensed under CANN Open Software License Agreement Version 2.0.
+"""Independent PyTorch reference for the stateful KV compressor."""
 
 import torch
-import torch.nn.functional as F
 
 
+@torch.no_grad()
 def compressor(
     x,
     wkv,
@@ -11,113 +13,152 @@ def compressor(
     state_cache,
     ape,
     norm_weight,
-    *,
     rope_sin,
     rope_cos,
-    rope_head_dim,
-    cmp_ratio,
-    state_block_table,
+    state_block_table=None,
     cu_seqlens=None,
     seqused=None,
     start_pos=None,
+    rope_head_dim=64,
+    cmp_ratio=4,
     coff=1,
     norm_eps=1e-6,
     rotary_mode=2,
-    cache_mode=2,
+    cache_mode=1,
+    state_cache_stride_dim0=0,
 ):
-    if coff not in (1, 2) or cache_mode not in (1, 2) or rotary_mode not in (1, 2):
-        raise NotImplementedError(
-            "reference supports coff=1/2, paged/cycle cache and half/interleaved RoPE"
+    # Check the semantics used by this reference, not NPU tiling limits.
+    if x.ndim not in (2, 3):
+        raise ValueError("compressor reference: x must be TH or BSH")
+    if cmp_ratio <= 0 or coff not in (1, 2) or cache_mode not in (1, 2):
+        raise ValueError("compressor reference: invalid compression or cache mode")
+    if rotary_mode != 2 or rope_head_dim != 64:
+        raise ValueError(
+            "compressor reference: only interleaved RoPE with width 64 is implemented"
         )
-    if state_cache.ndim != 3 or state_cache.dtype != torch.float32:
-        raise ValueError("state_cache must be FP32 [pages, slots, 2*coff*head_dim]")
-    d = wkv.shape[0] // coff
-    batch = len(start_pos)
-    tnd = cu_seqlens is not None
-    flat = x.reshape(-1, x.shape[-1])
-    kv = F.linear(flat.float(), wkv.float())
-    score = F.linear(flat.float(), wgate.float())
-    out_shape = (
-        (min(flat.shape[0], flat.shape[0] // cmp_ratio + batch), d)
-        if tnd
-        else (batch, (x.shape[1] + cmp_ratio - 1) // cmp_ratio, d)
+    if state_block_table is None or (x.ndim == 2) != (cu_seqlens is not None):
+        raise ValueError(
+            "compressor reference: cache table is required; cu_seqlens is required only for TH"
+        )
+    if cu_seqlens is not None and (cu_seqlens.ndim != 1 or cu_seqlens.numel() < 1):
+        raise ValueError("compressor reference: cu_seqlens must be a nonempty vector")
+
+    # CPU FP32 math is deliberately independent of the Ascend C matmul,
+    # softmax and normalization. Only metadata/indices cross to Python lists.
+    merged = x.ndim == 2
+    lengths = cu_seqlens.cpu().tolist() if merged else None
+    batch = len(lengths) - 1 if merged else x.shape[0]
+    dim = norm_weight.numel()
+    ratio = cmp_ratio
+    out_rows = (
+        min(x.shape[0], x.shape[0] // ratio + batch)
+        if merged
+        else (x.shape[1] + ratio - 1) // ratio
     )
-    out = x.new_zeros(out_shape)
-    rows = state_cache.reshape(-1, state_cache.shape[-1])
-    ring = state_cache.shape[1]
-    history = coff * cmp_ratio
+    out_shape = (out_rows, dim) if merged else (batch, out_rows, dim)
+    output = torch.empty(out_shape, dtype=torch.float32, device="cpu")
+    if (merged and x.shape[0] == 0) or (not merged and (batch == 0 or x.shape[1] == 0)):
+        return output.to(device=x.device, dtype=x.dtype)
+    starts = start_pos.cpu().tolist() if start_pos is not None else [0] * batch
+    used = (
+        seqused.cpu().tolist()
+        if seqused is not None
+        else [
+            lengths[b + 1] - lengths[b] if merged else x.shape[1] for b in range(batch)
+        ]
+    )
+    tokens = x.detach().to(device="cpu", dtype=torch.float32).reshape(-1, x.shape[-1])
+    keys = tokens @ wkv.detach().to(device="cpu", dtype=torch.float32).T
+    scores = tokens @ wgate.detach().to(device="cpu", dtype=torch.float32).T
+    position_weight = ape.detach().cpu()
+    norm = norm_weight.detach().cpu()
+    sine, cosine = rope_sin.detach().cpu(), rope_cos.detach().cpu()
+    table = state_block_table.detach().cpu()
+    state = state_cache.detach().cpu().clone()
+    initial = state.clone()
+    width = coff * dim
+    block_size = state.shape[1]
+    flat_state = state.reshape(-1, 2 * width)
+    flat_initial = initial.reshape(-1, 2 * width)
 
-    def slot(b, p, start):
+    def location(b, position):
         if cache_mode == 1:
-            return int(state_block_table[b, p // ring]) * ring + p % ring
-        if state_block_table.ndim == 1:
-            return int(state_block_table[b]) * ring + p % ring
-        return int(state_block_table[b, history + p - start])
+            block = int(table[b, position // block_size])
+            return block * block_size + position % block_size, block != 0
+        if table.ndim == 1:
+            return int(table[b]) * block_size + position % block_size, True
+        return int(table[b, coff * ratio + position - starts[b]]), True
 
-    offset = 0
+    packed_row = 0
     for b in range(batch):
-        start = int(start_pos[b])
-        qstart = int(cu_seqlens[b]) if tnd else b * x.shape[1]
-        count = (
-            int(seqused[b])
-            if seqused is not None
-            else int(cu_seqlens[b + 1]) - qstart if tnd else x.shape[1]
-        )
-        end = start + count
-        boundary = end // cmp_ratio * cmp_ratio
-        # Snapshot before updates so long prefills cannot overwrite ring history.
-        previous = {}
-        for p in range(max(0, start - history), start):
-            previous[p] = rows[slot(b, p, start)].clone()
-        for i in range(count):
-            p = start + i
-            previous[p] = torch.cat(
-                (kv[qstart + i], score[qstart + i] + ape[p % cmp_ratio].float())
+        start, count = starts[b], used[b]
+        base = lengths[b] if merged else b * x.shape[1]
+        projected_kv = keys[base : base + count]
+        projected_score = scores[base : base + count].clone()
+        for t in range(count):
+            projected_score[t] += position_weight[(start + t) % ratio]
+        boundary = (start + count) // ratio * ratio
+        row = 0
+        for end in range((start // ratio + 1) * ratio, boundary + 1, ratio):
+            group_keys = torch.zeros(
+                (coff * ratio, dim), dtype=torch.float32, device="cpu"
             )
-        batch_out = 0
-        for stop in range((start // cmp_ratio + 1) * cmp_ratio, end + 1, cmp_ratio):
-            keys, logits = [], []
-            for j in range(coff):
-                lo = stop - (coff - j) * cmp_ratio
-                for p in range(lo, lo + cmp_ratio):
-                    if p < 0:
-                        keys.append(torch.zeros(d, device=x.device))
-                        logits.append(torch.full((d,), -torch.inf, device=x.device))
+            group_scores = torch.full_like(group_keys, -float("inf"))
+            for c in range(coff):
+                feature = slice(c * dim, (c + 1) * dim)
+                for offset in range(ratio):
+                    pos = end - (coff - c) * ratio + offset
+                    target = c * ratio + offset
+                    if pos < 0:
+                        continue
+                    if pos >= start:
+                        group_keys[target] = projected_kv[pos - start, feature]
+                        group_scores[target] = projected_score[pos - start, feature]
                     else:
-                        value = previous[p]
-                        keys.append(value[j * d : (j + 1) * d])
-                        logits.append(value[coff * d + j * d : coff * d + (j + 1) * d])
-            compressed = (torch.stack(logits).softmax(0) * torch.stack(keys)).sum(0)
+                        loc, _ = location(b, pos)
+                        group_keys[target] = flat_initial[loc, :width][feature]
+                        group_scores[target] = flat_initial[loc, width:][feature]
+            compressed = (torch.softmax(group_scores, dim=0) * group_keys).sum(dim=0)
             compressed = (
-                compressed
-                * torch.rsqrt(compressed.square().mean() + norm_eps)
-                * norm_weight.float()
+                compressed * torch.rsqrt(compressed.square().mean() + norm_eps) * norm
             )
-            index = offset if tnd else b * out.shape[1] + batch_out
-            if rope_head_dim:
-                part = compressed[-rope_head_dim:]
-                if rotary_mode == 2:
-                    rotated = torch.stack((-part[1::2], part[::2]), -1).flatten()
-                else:
-                    a, c = part.chunk(2)
-                    rotated = torch.cat((-c, a))
-                cos = rope_cos.reshape(-1, rope_head_dim)[index].float()
-                sin = rope_sin.reshape(-1, rope_head_dim)[index].float()
-                compressed[-rope_head_dim:] = part * cos + rotated * sin
-            out.reshape(-1, d)[index] = compressed.to(x.dtype)
-            offset += 1
-            batch_out += 1
-        # Match the native retention rule, including extra verification tail rows.
-        window = coff * cmp_ratio
-        pad = ring - window + 2 if ring > window else 0
-        keep = max(0, boundary - (coff - 1) * cmp_ratio)
-        if pad:
-            keep = min(keep, end - pad if end > pad else 0)
-        for p in range(start, end):
-            # Native SaveState clamps its first row to keep, even when keep
-            # lies inside a compression group (e.g. token 118 with ratio 4).
-            if cache_mode == 1 or p >= keep:
-                destination = slot(b, p, start)
-                if cache_mode != 1 or destination // ring != 0:
-                    rows[destination].copy_(previous[p])
-    return out
+            sin = sine[packed_row] if merged else sine[b, row]
+            cos = cosine[packed_row] if merged else cosine[b, row]
+            rotary = compressed[-rope_head_dim:].clone()
+            # The migrated kernel compiles interleaved RoPE only (mode 2).
+            compressed[-rope_head_dim::2] = (
+                rotary[0::2] * cos[0::2] - rotary[1::2] * sin[0::2]
+            )
+            compressed[-rope_head_dim + 1 :: 2] = (
+                rotary[0::2] * sin[1::2] + rotary[1::2] * cos[1::2]
+            )
+            if merged:
+                output[packed_row] = compressed
+            else:
+                output[b, row] = compressed
+            row += 1
+            packed_row += 1
+
+        # Match the copied native SaveState implementations, which clip by
+        # absolute token position, including a partial compression chunk.
+        keep = max(boundary - (coff - 1) * ratio, 0)
+        full_load = (
+            cache_mode == 2
+            and table.ndim == 1
+            and not merged
+            and x.shape[1] <= 4
+            and tokens.shape[0] <= 256
+        )
+        # arch35 FULL_LOAD preserves the original no-pad policy. The arch22
+        # PERF and arch35 NORMAL implementations also retain MTP tail rows.
+        if not full_load and block_size > coff * ratio:
+            pad = block_size - coff * ratio + 2
+            keep = min(keep, max(start + count - pad, 0))
+        first = 0 if cache_mode == 1 else max(keep - start, 0)
+        for t in range(first, count):
+            loc, writable = location(b, start + t)
+            if writable:
+                flat_state[loc, :width] = projected_kv[t]
+                flat_state[loc, width:] = projected_score[t]
+    state_cache.copy_(state.to(state_cache.device))
+    return output.to(device=x.device, dtype=x.dtype)

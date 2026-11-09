@@ -79,7 +79,7 @@ For 9.1, the bundled `sgl_kernel_npu._third_party.sgl_cann_recipes_infer`
 extension registers selected recipes bridges in the private
 `torch.ops.sgl_cann_recipes_infer` namespace. The old experimental ACLNN kernels
 are built from the pinned ops-transformer source and bundled as a separate vendor;
-checked-in kernels require the existing native build's registrations. The existing public
+checked-in kernels use the unified CANN/HOST build registrations. The existing public
 mHC APIs also use a separately bundled released ops-transformer binding. Neither
 SDK path requires an environment-installed `custom_ops` or
 `cann_ops_transformer` Python package. The wheel still requires the matching CANN
@@ -99,15 +99,31 @@ or communication accuracy on an NPU.
 
 ## Repository-owned DSV4 kernels
 
-The root `setup.py` includes the repository's fused compressor and legacy
-DSpark compute/host-metadata bindings in `lib/libsgl_kernel_npu.so` through
-`csrc/cmake/native_ops.cmake`. It reuses the existing C++ entry points and Torch
-schemas. If a selected mainline ACLNN adapter already registers a legacy name
-(such as SwiGLU or the KV writer), the native build omits that duplicate.
+Repository-owned compute follows the unified CANN registration and ACLNN
+adapter flow used by PR #968. The fused compressor and A3 sparse attention reuse
+the mainline migrations; A5 quantized sparse attention is declared under
+`csrc/attention/kv_quant_sparse_attn_sharedkv`. CPU metadata schedulers are
+registered as HOST operators through the framework's existing HOST build.
+Their original scheduling implementations are reused without changing their math.
 
-There is no separate `libsgl_compressor.so` or compressor-specific loader.
-The existing `build.sh` native build remains unchanged. This build integration
-must still be validated with the target CANN SDK and on-device tests.
+`--ops all` selects every supported declaration for the requested architecture.
+Explicit subsets must include their compute and metadata IDs. For example:
+
+```bash
+# A3: fused compressor and DSpark compute/host metadata.
+python3 setup.py --arch-version 2201 --artifact wheel \
+  --ops compressor,sparse_attn_sharedkv,sparse_attn_sharedkv_metadata_host -j8
+
+# A5: the corresponding native compute/host metadata and packed KV writer.
+python3 setup.py --arch-version 3510 --artifact wheel \
+  --ops compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata_host,kv_compress_epilog -j8
+```
+
+The old `native_ops.cmake` hook and generated Torch registration are removed.
+Each selected operator registers its schema exactly once through its own adapter.
+There is no separate compressor library or loader. The existing legacy
+`build.sh` sources remain available. Target-SDK compilation and NPU execution
+must still be verified on the corresponding hardware.
 
 CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
 CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.

@@ -8,16 +8,20 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
     _cann_vendor = (
         pathlib.Path(__file__).resolve().parent / "_cann/vendors/sgl_kernel_npu"
     )
-    _cann_library = _cann_vendor / "op_api/lib/libcust_opapi.so"
     _manifest_path = pathlib.Path(__file__).resolve().parent / "_build_manifest.json"
     _manifest = (
         json.loads(_manifest_path.read_text()) if _manifest_path.is_file() else {}
     )
-    if not _cann_library.is_file():
-        raise RuntimeError(
-            "The wheel is missing its CANN library: {}".format(_cann_library)
-        )
-    _vendors = [str(_cann_vendor)]
+    _vendors = []
+    # CPP-only wheels may bundle third-party CANN vendors without a repository-
+    # owned vendor. Older manifests retain their original required-vendor check.
+    if _manifest.get("operators_by_type", {}).get("cann", True):
+        _cann_library = _cann_vendor / "op_api/lib/libcust_opapi.so"
+        if not _cann_library.is_file():
+            raise RuntimeError(
+                "The wheel is missing its CANN library: {}".format(_cann_library)
+            )
+        _vendors.append(str(_cann_vendor))
     for _dependency in _manifest.get("third_party", []):
         _name = _dependency["vendor_directory"]
         if pathlib.Path(_name).name != _name or _name in (".", ".."):
@@ -42,7 +46,6 @@ def _load_sgl_kernel_npu():
 
 
 _load_sgl_kernel_npu()
-
 
 # Register the bundled CANN 9.1 bridge before the first NPU use. Loading it
 # lazily on the first operator call after device initialization can yield

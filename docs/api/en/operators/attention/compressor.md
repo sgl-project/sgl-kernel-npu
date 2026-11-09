@@ -1,119 +1,169 @@
-# Fused KV compressor
+# compressor
 
 ## Hardware support
 
-| Implementation | ARCH22 / A3 | ARCH35 / A5 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | supported | supported |
-| `ops_transformer_cann910` | unsupported | supported |
-| `ascendc` | supported | unsupported |
-| `torch_native` | supported | supported |
+| `ascendc` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
 ```python
 from sgl_kernel_npu.operators.attention import compressor
 
-def compressor(x, wkv, wgate, state_cache, ape, norm_weight, *, impl='auto', **kwargs):
-    ...
+compressor(
+    x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos,
+    state_block_table=None, cu_seqlens=None, seqused=None, start_pos=None,
+    rope_head_dim=64, cmp_ratio=4, coff=1, norm_eps=1e-6,
+    rotary_mode=2, cache_mode=1, state_cache_stride_dim0=0, *, impl="auto",
+)
 ```
 
-`auto` selects the initialized SDK production path: original bindings on CANN 9.1, released bindings on CANN 9.2. Execution failures never trigger another backend.
+`auto` selects `ascendc` without fallback. `rotary_mode` defaults to `2`
+(interleaved), the only compiled mode. The legacy default was `1`; omitting
+this argument now selects mode 2. Explicit mode 1 is rejected before launch.
+
+Mode 1 has an intentional error-handling difference: for otherwise valid,
+nonempty inputs, the legacy entry could reach a device `Trap` because it had no
+matching computation branch; the new entry rejects the call before launch.
+For empty inputs that passed the old checks, the legacy path could return
+without computation even with mode 1. The new entry rejects mode 1 for empty
+inputs too. Mode 2 computation is unchanged.
 
 ## Description
 
-Preserves the fused RMSNorm/RoPE contract. Do not replace with the released core-only compressor. State is mutated in place.
+DeepSeek-V4 KV compression combines projected tokens over groups, applies
+RMSNorm and interleaved RoPE, and updates the KV/score state cache in place.
+Let `r=cmp_ratio`, `c=coff`, and `D=len(norm_weight)`. In FP32:
 
-Project KV and gates; combine each compression window using normalized gate weights and positional bias; apply RMSNorm and partial RoPE. Return completed compressed rows and retain unfinished/overlap state.
+\[
+ K_t=x_t W_{kv}^{T},\qquad
+ G_t=x_t W_{gate}^{T}+APE_{p_t\bmod r}.
+\]
 
-## Parameters
+For a completed group ending at absolute position `e` (exclusive, a multiple
+of `r`), overlap lane `j=0,...,c-1` uses positions
+`e-(c-j)r,...,e-(c-j-1)r-1` and feature slice `jD:(j+1)D`.
+For each feature, softmax over these `c*r` scores weights the corresponding
+keys. Positions before zero contribute zero keys and negative-infinite scores;
+positions before this call's start come from the state cache.
 
-| Name | Type | Default | Contract |
-| --- | --- | --- | --- |
-| x | Tensor | required | Input activation; shape described below; production device NPU |
-| wkv | Tensor | required | [coff*D,C] KV projection weight |
-| wgate | Tensor | required | [coff*D,C] gate projection weight |
-| state_cache | Tensor | required | Mutable FP32 [pages,slots,2*coff*D] history |
-| ape | Tensor | required | [cmp_ratio,coff*D] positional gate bias |
-| norm_weight | Tensor | required | [D] RMSNorm weight |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+\[
+ u_d=\sum_{j,t}\operatorname{softmax}_{j,t}(G_{t,jD+d})K_{t,jD+d},\quad
+ v_d=\gamma_d u_d/\sqrt{D^{-1}\sum_i u_i^2+\epsilon}.
+\]
 
-### Keyword arguments
+Interleaved RoPE rotates adjacent pairs in the last 64 features using the
+provided sine/cosine values, then casts the output to `x.dtype`.
+For request start `p` and used length `n`, exactly
+`floor((p+n)/r)-floor(p/r)` output rows are valid. BSH stores them at the
+beginning of each request's output; TH packs all requests' valid rows together.
+Unused output rows are unspecified and must not be read.
 
-| Name | Type | Contract |
+Paged mode saves new KV/score rows except writes to dummy page 0. Mode 2
+saves a suffix of the current raw tokens. Let `E=p+n`, `q=floor(E/r)*r`, and
+`keep=max(q-(c-1)*r,0)`. The arch22 and arch35 NORMAL implementations also
+retain verification tail rows: when `L>c*r`, set `pad=L-c*r+2` and lower
+`keep` to `min(keep,max(E-pad,0))`. The arch35 short-BSH FULL_LOAD path
+(`S<=4` and `B*S<=256`) uses the original `keep` without this pad.
+New rows with absolute position at least `keep` are written, including a
+partial compression chunk; other cache rows retain their values.
+
+## Parameters and return value
+
+All tensors must be contiguous and on the same NPU. `H` is a multiple of 512
+in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
+`Sr=ceil(S/r)` for BSH and `Sr=min(T,T//r+B)` for TH.
+
+| Parameter | Type | Meaning and constraints |
 | --- | --- | --- |
-| rope_sin / rope_cos | FP32 Tensor | Rotary factors for compressed output rows. |
-| rope_head_dim / cmp_ratio | int | Rotary width / compression ratio, required. |
-| state_block_table | int32 Tensor | Required: paged table in mode 1; A3 explicit slots or A5 request-bank IDs in mode 2. |
-| cu_seqlens / seqused / start_pos | int32 Tensor / None | Cumulative TH offsets (None for BSH), per-request counts, absolute starts. |
-| coff / norm_eps | int / float | Defaults 1 / 1e-6; reference coff is 1 or 2. |
-| rotary_mode / cache_mode | int | Defaults 2 / 2; reference supports 1 or 2. |
+| `x` | Tensor | FP16/BF16 `[B,S,H]` (BSH) or `[T,H]` (TH). Token axes may be zero. |
+| `wkv` | Tensor | Same dtype as `x`, `[W,H]`, KV projection. |
+| `wgate` | Tensor | Same dtype as `x`, `[W,H]`, score projection. |
+| `state_cache` | Tensor | Mutable FP32 `[P,L,2*W]`, `L>=1`; KV followed by scores. Provide valid history for nonzero start positions. |
+| `ape` | Tensor | FP32 `[r,W]`, position-dependent score bias. |
+| `norm_weight` | Tensor | FP32 `[D]`, RMSNorm scale. |
+| `rope_sin` | Tensor | FP32 `[B,Sr,64]` for BSH or `[Sr,64]` for TH, using the output row layout. |
+| `rope_cos` | Tensor | FP32, same shape as `rope_sin`. |
+| `state_block_table` | Tensor | INT32, required despite default `None`. Mode 1: `[B,M]` page IDs. Mode 2 on arch22: `[B,c*r+capacity]` flattened token locations, column `c*r+t-p` for absolute position `t`. Mode 2 on arch35: `[B]` request bank IDs, location `bank*L+t%L`, with `P>=B`. Legacy arch22 mode-1 `[B]` single-page tables are also accepted. For arch35 mode 2, contiguous `[B,M]` tables use the first B flattened entries as bank IDs (including `[B,1]`). All accessed locations must be within the cache; supply enough columns for history/current tokens. |
+| `cu_seqlens` | Tensor or None | INT32 `[B+1]`, default `None`. Required for TH, forbidden for BSH; nondecreasing, first 0, last T. Differences give input capacities. `[0]` represents zero requests when `T=0`. |
+| `seqused` | Tensor or None | INT32 `[B]`, default `None` uses full capacities. Values in `[0,capacity]`. |
+| `start_pos` | Tensor or None | INT32 `[B]`, nonnegative absolute starts; default `None` means zero. |
+| `rope_head_dim` | int | Must be 64; default 64. |
+| `cmp_ratio` | int | 2, 4, 8, 16, 32, 64 or 128; default 4. |
+| `coff` | int | 1 or 2; default 1. The latter includes one previous group. |
+| `norm_eps` | float | RMSNorm epsilon; default `1e-6`. |
+| `rotary_mode` | int | Default 2 (interleaved), the only supported mode. |
+| `cache_mode` | int | 1 (paged) or 2 (explicit/ring); default 1. |
+| `state_cache_stride_dim0` | int | Default 0 derives `L*2*W`; an explicit value must equal it and fit signed INT32. |
+| `impl` | str | `auto` (default), `ascendc`, or `torch_native`. |
 
-## Return value
-
-| Name | Type | Contract |
+| Return | Type | Meaning |
 | --- | --- | --- |
-| output | Tensor | TH: [capacity,D]; BSH: [B,capacity,D]. Only completed compressed rows are valid; padding is unspecified. state_cache is also mutated. |
+| Compressed KV | Tensor | Contiguous, same device/dtype as `x`; `[B,Sr,D]` or `[Sr,D]`. Only valid rows described above are defined. `state_cache` is updated in place. |
 
-## cann_ops_transformer_cann920
+## ascendc backend
 
-Uses the bundled native fused compressor compiled against CANN 9.2 and rejects a different initialized SDK. The implementation key is retained for compatibility; it does not call the released core-only compressor. `auto` dispatches by the cached SDK version.
+Uses the existing architecture-specific Ascend C computation through CANN/ACLNN.
+Supports FP16/BF16, TH/BSH, overlap and paged/explicit/ring caches. Mode 2's
+cache table formats differ by architecture and are not interchangeable.
+Input values and table entries must describe valid, nonconflicting requests;
+metadata validation does not inspect device index values.
 
-The native fused compressor is compiled from this checkout into `libsgl_kernel_npu.so` for CANN 9.1 A3 and CANN 9.2 A3/A5. CANN 9.1 A5 uses the separately bundled recipes/experimental compressor.
+Python selects the backend and normalizes legacy cache-table views. The Torch
+adapter checks device, storage, dtype and metadata needed to allocate the output.
+The original Host tiling checks supported parameter values and tensor-shape
+relations through CANN. Empty inputs follow the ACLNN query/execution path too.
+Absent optional tensors use CANN's missing-input representation, avoiding the
+legacy helper's non-null empty shape for `None`.
 
-## ops_transformer_cann910
+## torch_native backend
 
-Source: [A5 ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/compressor). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+This reference checks its supported modes and required metadata, without
+repeating native hardware and tiling constraints.
 
-## ascendc
-
-Source: [A3 sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/compressor/op_kernel/compressor.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
-
-## torch_native
-
-Independent eager PyTorch reference for correctness; never an automatic production or graph-capture fallback. Metadata descriptors are not native tiling bytes. Modes outside the documented reference domain are rejected.
+An independent reference uses CPU FP32 PyTorch operations and copies the output
+and updated cache to the input device. It is intended for correctness comparison
+and does not support NPU graph capture. Small floating-point differences from
+Ascend C reductions and matrix multiplication are expected.
 
 ## Example
+
+This paged example works with either cache-table architecture.
 
 ```python
 import torch
 import torch_npu
 from sgl_kernel_npu.operators.attention import compressor
 
-x = torch.randn(4, 1024, device="npu", dtype=torch.bfloat16)
-wkv = torch.randn(128, 1024, device="npu", dtype=x.dtype) * 0.02
+device = "npu"
+B, S, H, D, r = 1, 4, 1024, 128, 4
+x = torch.randn(B, S, H, device=device, dtype=torch.bfloat16) * 0.02
+wkv = torch.randn(D, H, device=device, dtype=x.dtype) * 0.02
 wgate = torch.randn_like(wkv) * 0.02
-state = torch.zeros(2, 16, 256, device="npu", dtype=torch.float32)
-ape = torch.zeros(4, 128, device="npu", dtype=torch.float32)
-norm = torch.ones(128, device="npu", dtype=torch.float32)
-i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
-y = compressor(x, wkv, wgate, state, ape, norm,
-    rope_sin=torch.zeros(2, 64, device="npu"),
-    rope_cos=torch.ones(2, 64, device="npu"), rope_head_dim=64, cmp_ratio=4,
-    state_block_table=i32([[1]]), cu_seqlens=i32([0, 4]),
-    seqused=i32([4]), start_pos=i32([0]), cache_mode=1, impl="torch_native")
+state = torch.zeros(2, 16, 2 * D, device=device)
+out = compressor(
+    x, wkv, wgate, state,
+    torch.zeros(r, D, device=device), torch.ones(D, device=device),
+    torch.zeros(B, 1, 64, device=device), torch.ones(B, 1, 64, device=device),
+    state_block_table=torch.ones(B, 1, device=device, dtype=torch.int32),
+    cmp_ratio=r, rotary_mode=2, cache_mode=1, impl="ascendc",
+)
+print(out.shape)  # [1, 1, 128]; state is updated in place.
 ```
 
-Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
 
-```bash
-python3 -m pytest tests/python/operators/attention/test_compressor.py \
-  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
-```
+## CANN release compatibility
 
-[Upstream operators](https://github.com/Ascend/ops-transformer)
+This PR keeps the community Ascend C implementation and its complete API.
+`auto` chooses `ops_transformer_cann910` on CANN 9.1 A5, `ascendc` on CANN 9.1
+A3, and `cann_ops_transformer_cann920` on CANN 9.2 A3/A5. The last name is a
+compatibility key for the same fused framework operator, preserving RMSNorm,
+RoPE and in-place state updates. It does not substitute the released core-only
+compressor. Explicit `ascendc` is available on both registered generations.
 
-
-## Bundled fused compressor
-
-Complete wheels compile this checkout's fused host, tiling and kernel sources
-into the main Torch library automatically:
-
-```bash
-python3 setup.py --arch-version 2201 --artifact wheel -j8
-```
-
-Use `3510` for A5. The direct binding remains `torch.ops.npu.compressor` with the
-original fused RMSNorm/RoPE and mutable-state contract. CANN 9.1 A5 selects the
-bundled recipes/experimental implementation. The optional-input shape shim is
-fixed in `csrc/utils/ge_helper.h`.
+The 9.1 A5 binding comes from the bundled recipes/experimental vendor. It derives
+`state_cache_stride_dim0` from the tensor stride; only zero (derive) or the actual
+stride may be requested. SDK/input incompatibilities raise before execution,
+with no fallback. `torch_native` remains an independent reference.
