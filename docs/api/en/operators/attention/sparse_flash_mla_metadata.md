@@ -10,10 +10,12 @@ Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/op
 `cann_ops_transformer_cann920` and the upstream spelling
 `cann_ops_transformers_cann920` select the same bundled CANN 9.2 implementation.
 On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit
-original-KV sparse inputs select `ascendc` compute and `host` metadata. Those
-explicit inputs cannot also include compressed KV. Host metadata requires the
+original-KV sparse inputs select `ascendc` compute and CPU metadata internally
+through metadata `impl="auto"`. No separate `host` implementation name is
+registered by the metadata adapter. Those explicit inputs cannot also include
+compressed KV. CPU metadata requires the
 existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
-Bindings come from the wheel's third-party payload; no standalone operator wheel
+All production bindings are bundled in the wheel; no standalone operator wheel
 is required. A5 uses the separate mixed-quant sparse APIs.
 
 The migrated `torch_native` metadata API returns a reference descriptor, not
@@ -26,7 +28,8 @@ SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | Supported | Unsupported |
-| CANN 9.1 `ops_transformer_cann910`, `ascendc` / `host` | Supported | Unsupported |
+| `auto` (SDK/input selection) | Supported | Unsupported |
+| `ops_transformer_cann910` (CANN 9.1 window inputs) | Supported | Unsupported |
 | `torch_native` (reference descriptor) | Supported | Supported |
 
 ## Signature
@@ -109,7 +112,7 @@ must not be interpreted by callers.
 | `layout_q` | `str` | `None` | `BSND` or `TND`. |
 | `layout_kv` | `str` | `None` | `BSND`, `TND`, or `PA_BBND`. |
 | `has_ori_kv`, `has_cmp_kv` | `bool` | `None` | Must match whether the main operator receives `ori_kv` and `cmp_kv`. |
-| `impl` | `str`, keyword only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
+| `impl` | `str`, keyword only | `"auto"` | `auto`, `ops_transformer_cann910`, `cann_ops_transformer_cann920` (alias `cann_ops_transformers_cann920`), or `torch_native`. CANN 9.1 explicit sparse inputs require `auto`. |
 
 Returns `metadata`: Tensor, `int32`, shape `[1024]`, on the input device.
 

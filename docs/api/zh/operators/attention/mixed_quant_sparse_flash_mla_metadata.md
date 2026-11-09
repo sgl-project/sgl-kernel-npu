@@ -4,9 +4,9 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
+| `auto` | 不支持 | 支持 |
 | `cann_ops_transformer_cann920` | 不支持 | 支持 |
 | `ops_transformer_cann910` | 不支持 | 支持 |
-| `host` | 不支持 | 支持 |
 | `torch_native` | 不支持 | 支持 |
 
 ## 接口
@@ -22,7 +22,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 ## 说明
 
-仅 A5；打包格式和 ABI 须与 mixed_quant_sparse_flash_mla 匹配。CANN 9.1 DSpark 路径使用 `host` metadata 搭配 `ascendc` 主算子。
+仅 A5；打包格式和 ABI 须与 mixed_quant_sparse_flash_mla 匹配。CANN 9.1 DSpark 路径由 metadata 的 `impl="auto"` 在内部选择 CPU 调度，搭配 `ascendc` 主算子。
 
 生成混合量化注意力调度信息；显式稀疏可见性对应的 vendor 窗口约定由适配器转换。
 
@@ -68,9 +68,13 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
-## host
+## auto
 
-Source: [sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp). The checked-in C++ scheduler computes metadata on the host CPU, then copies the table to NPU. It is not an Ascend C device kernel. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+CANN 9.1 的窗口输入选择 `ops_transformer_cann910`；显式原始 KV 稀疏输入在
+内部调用本仓库的 CPU 调度器，再将元数据表拷到 NPU。须提供已有的 CPU int32
+`cu_seqlens_q_cpu` 和 `seqused_ori_kv_cpu` 镜像。该适配 API 不再单独注册
+`host` 实现名，此路径使用 `impl="auto"`。
+CANN 9.2 的 `auto` 选择 `cann_ops_transformer_cann920`。
 
 ## torch_native
 

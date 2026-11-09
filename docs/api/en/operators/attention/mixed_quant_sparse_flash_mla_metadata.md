@@ -4,10 +4,10 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | unsupported | supported |
-| `ops_transformer_cann910` | unsupported | supported |
-| `host` | unsupported | supported |
-| `torch_native` | unsupported | supported |
+| `auto` | Unsupported | Supported |
+| `cann_ops_transformer_cann920` | Unsupported | Supported |
+| `ops_transformer_cann910` | Unsupported | Supported |
+| `torch_native` | Unsupported | Supported |
 
 ## Signature
 
@@ -22,7 +22,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 ## Description
 
-A5 only; use matching packing and ABI for mixed_quant_sparse_flash_mla. On the CANN 9.1 DSpark path, pair `host` metadata with `ascendc` compute.
+A5 only; use matching packing and ABI for mixed_quant_sparse_flash_mla. On the CANN 9.1 DSpark path, metadata `impl="auto"` privately selects CPU scheduling paired with `ascendc` compute.
 
 Prepare scheduling for mixed-quant attention. Explicit sparse visibility is translated to the vendor window convention inside the adapter.
 
@@ -68,9 +68,14 @@ Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispat
 
 Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
-## host
+## auto
 
-Source: [sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp). The checked-in C++ scheduler computes metadata on the host CPU, then copies the table to NPU. It is not an Ascend C device kernel. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit sparse
+original-KV inputs call the repository's CPU scheduler privately. It computes
+metadata on the host and copies the table to NPU. Supply existing CPU int32
+`cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors. There is no separate `host`
+implementation name in this adapter; use `impl="auto"` for this path.
+On CANN 9.2, `auto` selects `cann_ops_transformer_cann920`.
 
 ## torch_native
 

@@ -27,9 +27,9 @@ def get_sparse_flash_mla_metadata_size():
 def _auto_sparse_flash_mla_metadata(**kwargs):
     cann_version = detect_cann_version()
     if cann_version.startswith("9.1."):
-        backend = (
-            "host" if _uses_native_sparse_inputs(kwargs) else "ops_transformer_cann910"
-        )
+        if _uses_native_sparse_inputs(kwargs):
+            return _cann_9_1_sparse_flash_mla_metadata(**kwargs)
+        backend = "ops_transformer_cann910"
     elif cann_version.startswith("9.2."):
         backend = "cann_ops_transformer_cann920"
     else:
@@ -81,16 +81,7 @@ def _uses_native_sparse_inputs(kwargs):
 @register_impl("attention.sparse_flash_mla_metadata", "ops_transformer_cann910")
 def _ops_transformer_cann910(**kwargs):
     if _uses_native_sparse_inputs(kwargs):
-        raise RuntimeError("Explicit sparse inputs require impl='host' on CANN 9.1")
-    return _cann_9_1_sparse_flash_mla_metadata(**kwargs)
-
-
-@register_impl("attention.sparse_flash_mla_metadata", "host")
-def _host(**kwargs):
-    if not _uses_native_sparse_inputs(kwargs):
-        raise RuntimeError(
-            "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
-        )
+        raise RuntimeError("Explicit sparse metadata requires impl='auto' on CANN 9.1")
     return _cann_9_1_sparse_flash_mla_metadata(**kwargs)
 
 
@@ -190,7 +181,9 @@ def sparse_flash_mla_metadata(
 ):
     """Build BF16 attention metadata.
 
-    impl: auto (SDK-selected), ops_transformer_cann910, host, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformer_cann910,
+        cann_ops_transformer_cann920 (alias cann_ops_transformers_cann920), or torch_native.
+    CANN 9.1 explicit sparse inputs use CPU scheduling internally through auto.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(

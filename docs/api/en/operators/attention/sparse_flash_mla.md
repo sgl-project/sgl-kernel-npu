@@ -10,10 +10,12 @@ Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/op
 `cann_ops_transformer_cann920` and the upstream spelling
 `cann_ops_transformers_cann920` select the same bundled CANN 9.2 implementation.
 On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit
-original-KV sparse inputs select `ascendc` compute and `host` metadata. Those
-explicit inputs cannot also include compressed KV. Host metadata requires the
+original-KV sparse inputs select `ascendc` compute and CPU metadata internally
+through metadata `impl="auto"`. No separate `host` implementation name is
+registered by the metadata adapter. Those explicit inputs cannot also include
+compressed KV. CPU metadata requires the
 existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
-Bindings come from the wheel's third-party payload; no standalone operator wheel
+All production bindings are bundled in the wheel; no standalone operator wheel
 is required. A5 uses the separate mixed-quant sparse APIs.
 
 The migrated `torch_native` metadata API returns a reference descriptor, not
@@ -26,7 +28,7 @@ SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | Supported | Unsupported |
-| CANN 9.1 `ops_transformer_cann910`, `ascendc` / `host` | Supported | Unsupported |
+| CANN 9.1 `ops_transformer_cann910`, `ascendc` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
 ## Signature

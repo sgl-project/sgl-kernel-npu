@@ -10,9 +10,10 @@
 `cann_ops_transformer_cann920` 与主仓的
 `cann_ops_transformers_cann920` 是同一个随包 CANN 9.2 实现的注册名。
 CANN 9.1 的窗口输入走 `ops_transformer_cann910`；显式原始 KV 稀疏输入
-使用 `ascendc` 计算和 `host` metadata，并且不能同时提供压缩 KV。
-Host metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
-`seqused_ori_kv_cpu` 镜像。绑定从 wheel 的 third-party 目录加载，无需独立算子包。
+使用 `ascendc` 计算；metadata 的 `impl="auto"` 在内部选择 CPU 调度路径，
+该适配 API 不再单独注册 `host` 实现名。显式稀疏输入不能同时提供压缩 KV。
+CPU metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
+`seqused_ori_kv_cpu` 镜像。生产绑定均随 wheel 打包，无需独立算子包。
 A5 使用单独的 mixed-quant sparse API。
 
 迁移测试中的 `torch_native` metadata 返回独立参考描述符，不生成原生 tiling
@@ -24,7 +25,8 @@ A5 使用单独的 mixed-quant sparse API。
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `cann_ops_transformer_cann920` / `cann_ops_transformers_cann920` | 支持 | 不支持 |
-| CANN 9.1 `ops_transformer_cann910`、`ascendc` / `host` | 支持 | 不支持 |
+| `auto`（按 SDK 和输入选择） | 支持 | 不支持 |
+| `ops_transformer_cann910`（CANN 9.1 窗口输入） | 支持 | 不支持 |
 | `torch_native`（参考描述符） | 支持 | 支持 |
 
 ## 函数原型
@@ -99,7 +101,7 @@ def sparse_flash_mla_metadata(
 | `layout_q` | `str` | `None` | `BSND` 或 `TND`。 |
 | `layout_kv` | `str` | `None` | `BSND`、`TND` 或 `PA_BBND`。 |
 | `has_ori_kv`、`has_cmp_kv` | `bool` | `None` | 与主算子实际传入 `ori_kv`、`cmp_kv` 的状态一致。 |
-| `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers_cann920`。 |
+| `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`ops_transformer_cann910`、`cann_ops_transformer_cann920`（别名 `cann_ops_transformers_cann920`）或 `torch_native`；CANN 9.1 显式稀疏输入须使用 `auto`。 |
 
 返回 `metadata`：Tensor，`int32`，shape 为 `[1024]`，与输入同设备。
 
