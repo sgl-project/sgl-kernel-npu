@@ -2,15 +2,22 @@
 
 ## Hardware support
 
-| Implementation | arch22 (2201) | arch35 (3510) |
-| --- | --- | --- |
-| `ascendc` | BF16 state | BF16 / FP32 state |
-| `torch_native` | BF16 / FP32 state | BF16 / FP32 state |
+| Implementation | State dtype | arch 2201 | arch 3510 |
+| --- | --- | --- | --- |
+| `ascendc` | BF16 | Supported | Supported |
+| `ascendc` | FP32 | Unsupported | Supported |
+| `torch_native` | BF16 | Supported | Supported |
+| `torch_native` | FP32 | Unverified | Supported |
+
+State dtype is selected by `initial_state` (BF16 or FP32). Optional `chunk_state`
+must use the same dtype, and the returned `final_state` retains that dtype.
+`query`, `key`, `value`, `beta` and the returned `out` remain BF16; optional `g`
+is FP32 and `actual_seq_lengths` is int32.
 
 ## Signature
 
 ```python
-from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
 
 def chunk_gated_delta_rule(
     query,
@@ -61,7 +68,7 @@ and value head counts, and `Dk` and `Dv` their feature dimensions.
 | `query`, `key` | `[T, Nk, Dk]` | BF16 | Must have equal shapes. |
 | `value` | `[T, Nv, Dv]` | BF16 | Value tensor. |
 | `beta` | `[T, Nv]` | BF16, required | Delta update coefficient. |
-| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32, required | Initial state; FP32 state in `ascendc` requires arch35. |
+| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32, required | Initial state. See [hardware support](#hardware-support) for FP32 status. |
 | `actual_seq_lengths` | `[B]` | int32, required | Sequence lengths, not cumulative boundaries; `ascendc` requires positive lengths summing to `T`. |
 | `scale` | — | float / `None` | Output multiplier; `None` means `1.0`. |
 | `g` | `[T, Nv]` | FP32 / `None` | Log decay; `None` means no decay. |

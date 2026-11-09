@@ -2,15 +2,22 @@
 
 ## 芯片支持
 
-| 实现 | arch22（2201） | arch35（3510） |
-| --- | --- | --- |
-| `ascendc` | BF16 状态 | BF16 / FP32 状态 |
-| `torch_native` | BF16 / FP32 状态 | BF16 / FP32 状态 |
+| 实现 | 状态 dtype | arch 2201 | arch 3510 |
+| --- | --- | --- | --- |
+| `ascendc` | BF16 | 支持 | 支持 |
+| `ascendc` | FP32 | 不支持 | 支持 |
+| `torch_native` | BF16 | 支持 | 支持 |
+| `torch_native` | FP32 | 未验证 | 支持 |
+
+状态 dtype 由 `initial_state` 决定，可选 BF16 或 FP32。可选输入 `chunk_state`
+必须使用相同 dtype，返回值 `final_state` 也保持该 dtype。
+`query`、`key`、`value`、`beta` 和返回值 `out` 均为 BF16；可选输入 `g`
+为 FP32，`actual_seq_lengths` 为 int32。
 
 ## 函数原型
 
 ```python
-from sgl_kernel_npu.operators.attention import chunk_gated_delta_rule
+from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
 
 def chunk_gated_delta_rule(
     query,
@@ -59,7 +66,7 @@ out_t = scale * (S_t @ q_t)
 | `query`、`key` | `[T, Nk, Dk]` | BF16 | 两者形状相同。 |
 | `value` | `[T, Nv, Dv]` | BF16 | Value 张量。 |
 | `beta` | `[T, Nv]` | BF16，必填 | Delta 更新系数。 |
-| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32，必填 | 初始状态；`ascendc` 的 FP32 状态仅支持 arch35。 |
+| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32，必填 | 初始状态。FP32 状态详见[芯片支持](#芯片支持)。 |
 | `actual_seq_lengths` | `[B]` | int32，必填 | 各序列长度，不是累计边界；`ascendc` 要求每项大于零、总和为 `T`。 |
 | `scale` | — | float / `None` | 输出缩放，`None` 时为 `1.0`。 |
 | `g` | `[T, Nv]` | FP32 / `None` | 对数衰减，`None` 表示不衰减。 |
