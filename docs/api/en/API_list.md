@@ -48,6 +48,8 @@
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [fused_gdn_gating](operators/attention/gdn/fused_gdn_gating.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
+| [fused_qkvzba_split_reshape_cat](operators/attention/gdn/fused_qkvzba_split_reshape_cat.md) | `triton`, `torch_native` |
+| [fused_qkvzba_split_reshape_cat_contiguous](operators/attention/gdn/fused_qkvzba_split_reshape_cat_contiguous.md) | `triton`, `torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
 | [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`, `torch_native` |
