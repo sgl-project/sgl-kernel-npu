@@ -8,6 +8,7 @@ from .flash_prefill_bnsd_with_topk_idx import flash_prefill_bnsd_with_topk_idx
 from .kpool_indexer_prepare_decode_input import kpool_indexer_prepare_decode_input
 from .lightning_indexer_v2 import lightning_indexer_v2
 from .lightning_indexer_v2_metadata import lightning_indexer_v2_metadata
+from .mlp_lightning_indexer import mlp_lightning_indexer
 from .pool_key_indexer import pool_key_indexer
 from .sparse_lightning_indexer import sparse_lightning_indexer
 
@@ -23,5 +24,6 @@ __all__ = [
     "flash_prefill_bnsd_indexer",
     "flash_prefill_bnsd_with_topk_idx",
     "kpool_indexer_prepare_decode_input",
+    "mlp_lightning_indexer",
     "pool_key_indexer",
 ]

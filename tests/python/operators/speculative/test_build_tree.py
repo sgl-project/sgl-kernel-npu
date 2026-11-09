@@ -4,6 +4,10 @@ Fixture source: tests/python/sgl_kernel_npu/test_build_tree.py at the PR #976
 baseline. parent_list is cat(parents_list[:-1]); selected_index is the sorted
 top-7 score indices from that fixture, with no changed scores or dimensions.
 The low-level tree operator does not consume token IDs or scores themselves.
+Scenario: SGLang speculative/eagle_utils.py::build_tree_kernel_efficient passes
+these parent/selection/prefix tensors and five output buffers to the NPU op.
+This synthetic fixture checks that protocol with branching and unequal prefixes;
+its dimensions are not presented as a captured production request.
 """
 
 import pytest
@@ -21,8 +25,8 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 
-def generate_test_data(device):
-    """Inputs reaching the old kernel: B=2, k=4, depth=4, D=8, L=[5,10]."""
+def generate_test_data(device, prefix_lengths=(5, 10)):
+    """Keep the legacy B=2 tree and select its verified-prefix lengths."""
     inputs = dict(
         parent_list=torch.tensor(
             [
@@ -37,14 +41,14 @@ def generate_test_data(device):
             dtype=torch.int64,
             device=device,
         ),
-        verified_seq_len=torch.tensor([5, 10], dtype=torch.int64, device=device),
+        verified_seq_len=torch.tensor(prefix_lengths, dtype=torch.int64, device=device),
         topk=4,
         depth=4,
         draft_token_num=8,
     )
 
     batch, width = 2, 8
-    size = (5 + 10) * width + batch * width * width
+    size = sum(prefix_lengths) * width + batch * width * width
     outputs = dict(
         tree_mask=torch.ones(size, dtype=torch.bool, device=device),
         positions=torch.full((batch * width,), -1, dtype=torch.int64, device=device),
@@ -60,10 +64,17 @@ def generate_test_data(device):
     return inputs, outputs
 
 
-def assert_fixture_expectations(outputs):
+def assert_fixture_expectations(outputs, prefix_lengths=(5, 10)):
     device = outputs["positions"].device
     expected = dict(
-        positions=[5, 6, 6, 7, 7, 8, 8, 9, 10, 11, 12, 12, 12, 12, 13, 14],
+        positions=[
+            length + node_depth
+            for length, depths in zip(
+                prefix_lengths,
+                ([0, 1, 1, 2, 2, 3, 3, 4], [0, 1, 2, 2, 2, 2, 3, 4]),
+            )
+            for node_depth in depths
+        ],
         retrive_index=[[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15]],
         retrive_next_token=[[1, 3, 4, 5, 6, 7, -1, -1], [1, 2, -1, 6, -1, -1, 7, -1]],
         retrive_next_sibling=[
@@ -101,7 +112,7 @@ def assert_fixture_expectations(outputs):
         ],
     ]
     offset = 0
-    for length, rows in zip((5, 10), ancestors):
+    for length, rows in zip(prefix_lengths, ancestors):
         columns = length + 8
         actual = outputs["tree_mask"][offset : offset + 8 * columns].view(8, columns)
         golden = torch.zeros((8, 8), dtype=torch.bool, device=device)
@@ -116,7 +127,18 @@ def assert_fixture_expectations(outputs):
         offset += 8 * columns
 
 
-def test_build_tree():
+@pytest.mark.parametrize(
+    "prefix_lengths",
+    [
+        pytest.param((5, 10), id="full-mask-b2-topk4-depth4-draft8-prefix5-10"),
+        pytest.param(
+            (0, 0),
+            marks=pytest.mark.extra_checks,
+            id="full-mask-b2-topk4-depth4-draft8-prefix0-0",
+        ),
+    ],
+)
+def test_build_tree(prefix_lengths):
     from sgl_kernel_npu.operators.speculative import build_tree
 
     impl, impl_ref = get_test_impls()
@@ -127,7 +149,7 @@ def test_build_tree():
         require_distinct_impls(build_tree, impl, impl_ref)
         results = []
         for backend in (impl_ref, impl):
-            inputs, outputs = generate_test_data("npu")
+            inputs, outputs = generate_test_data("npu", prefix_lengths)
             identities = {
                 name: (id(value), value.data_ptr()) for name, value in outputs.items()
             }
@@ -142,12 +164,12 @@ def test_build_tree():
                 assert (id(value), value.data_ptr()) == identities[name], name
             for name, value in snapshots.items():
                 assert_accuracy(inputs[name], value, path=f"unchanged_input.{name}")
-            assert_fixture_expectations(outputs)
+            assert_fixture_expectations(outputs, prefix_lengths)
             results.append(outputs)
         assert_accuracy(results[1], results[0])
 
     # FULL_MASK overwrites the same tree area and preserves prefix columns.
-    inputs, outputs = generate_test_data("npu")
+    inputs, outputs = generate_test_data("npu", prefix_lengths)
     executor = make_executor(
         build_tree,
         kwargs={**inputs, **outputs, "tree_mask_mode": 0},
@@ -155,4 +177,4 @@ def test_build_tree():
         impl_ref=impl_ref,
         accuracy_checked=not skip_accuracy,
     )
-    check_performance(executor, enable_perf=True)
+    check_performance(executor, enable_perf=prefix_lengths == (5, 10))

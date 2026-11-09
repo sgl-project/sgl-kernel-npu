@@ -68,7 +68,8 @@ retain verification tail rows: when `L>c*r`, set `pad=L-c*r+2` and lower
 `keep` to `min(keep,max(E-pad,0))`. The arch35 short-BSH FULL_LOAD path
 (`S<=4` and `B*S<=256`) uses the original `keep` without this pad.
 New rows with absolute position at least `keep` are written, including a
-partial compression chunk; other cache rows retain their values.
+partial compression chunk. In arch35 NORMAL mode with overlap, earlier page
+tails are also written so a later call can resume from a cached SWA page.
 
 ## Parameters and return value
 
@@ -86,7 +87,7 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 | `norm_weight` | Tensor | FP32 `[D]`, RMSNorm scale. |
 | `rope_sin` | Tensor | FP32 `[B,Sr,64]` for BSH or `[Sr,64]` for TH, using the output row layout. |
 | `rope_cos` | Tensor | FP32, same shape as `rope_sin`. |
-| `state_block_table` | Tensor | INT32, required despite default `None`. Mode 1: `[B,M]` page IDs. Mode 2 on arch22: `[B,c*r+capacity]` flattened token locations, column `c*r+t-p` for absolute position `t`. Mode 2 on arch35: `[B]` request bank IDs, location `bank*L+t%L`, with `P>=B`. Legacy arch22 mode-1 `[B]` single-page tables are also accepted. For arch35 mode 2, contiguous `[B,M]` tables use the first B flattened entries as bank IDs (including `[B,1]`). All accessed locations must be within the cache; supply enough columns for history/current tokens. |
+| `state_block_table` | Tensor | Required INT32 tensor. Mode 1 takes `[B,M]` page IDs and also accepts the arch22 single-page `[B]` form. Mode 2 takes `[B,c*r+capacity]` physical state row IDs on both architectures, with column `c*r+t-p` for absolute position `t`. Supply at least one current-token column, enough columns for all accessed positions, and row IDs within the state cache. |
 | `cu_seqlens` | Tensor or None | INT32 `[B+1]`, default `None`. Required for TH, forbidden for BSH; nondecreasing, first 0, last T. Differences give input capacities. `[0]` represents zero requests when `T=0`. |
 | `seqused` | Tensor or None | INT32 `[B]`, default `None` uses full capacities. Values in `[0,capacity]`. |
 | `start_pos` | Tensor or None | INT32 `[B]`, nonnegative absolute starts; default `None` means zero. |
@@ -95,7 +96,7 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 | `coff` | int | 1 or 2; default 1. The latter includes one previous group. |
 | `norm_eps` | float | RMSNorm epsilon; default `1e-6`. |
 | `rotary_mode` | int | Default 2 (interleaved), the only supported mode. |
-| `cache_mode` | int | 1 (paged) or 2 (explicit/ring); default 1. |
+| `cache_mode` | int | 1 (paged) or 2 (explicit state rows). Default 1. |
 | `state_cache_stride_dim0` | int | Default 0 derives `L*2*W`; an explicit value must equal it and fit signed INT32. |
 | `impl` | str | `auto` (default), `ascendc`, or `torch_native`. |
 
@@ -106,8 +107,8 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 ## ascendc backend
 
 Uses the existing architecture-specific Ascend C computation through CANN/ACLNN.
-Supports FP16/BF16, TH/BSH, overlap and paged/explicit/ring caches. Mode 2's
-cache table formats differ by architecture and are not interchangeable.
+Supports FP16/BF16, TH/BSH, overlap and paged or explicitly addressed caches.
+Both architectures use the same mode-2 state table format.
 Input values and table entries must describe valid, nonconflicting requests;
 metadata validation does not inspect device index values.
 

@@ -7,9 +7,12 @@ Ordinary update reuses the same nine configurations. Two speculative update
 configurations come from tests/python/sgl_kernel_npu/test_conv1d_update.py;
 their shapes were confirmed for this integrated AscendC path. They do not call
 the standalone causal_conv1d_update operator or the original Triton wrappers.
+Scenario: SGLang AscendGDNAttnBackend calls the token-major prefill/update API
+with transposed contiguous weights and caller-owned cache slots. These fixtures
+exercise that protocol; no shape is claimed to be a captured production request.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import accumulate
 from typing import Optional
 
@@ -206,12 +209,19 @@ CASES = [
 ]
 
 
+EXTRA_DIMS = {"prefill-cutbsd": 4224, "update-fallback": 1000}
+
+
 def generate_test_data(case_index, run_mode=0):
     """Keep the original CPU RNG stream and every declared input unchanged."""
-    if case_index < len(CASES):
+    cases = CASES
+    if isinstance(case_index, str):
+        cases = [replace(CASES[0], dim=EXTRA_DIMS[case_index])]
+        case_index = 0
+    if case_index < len(cases):
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(SEED)
-            for case in CASES[: case_index + 1]:
+            for case in cases[: case_index + 1]:
                 lengths = (
                     [case.seq_len] * case.batch
                     if case.input_mode == "3d"
@@ -357,8 +367,20 @@ def check_result(actual_y, actual, reference_y, reference, original, label):
 @pytest.mark.parametrize(
     "run_mode,case_index",
     [(0, index) for index in range(len(CASES))]
-    + [(1, index) for index in range(len(UPDATE_CASE_NAMES))],
-    ids=[case.name for case in CASES] + UPDATE_CASE_NAMES,
+    + [(1, index) for index in range(len(UPDATE_CASE_NAMES))]
+    + [
+        pytest.param(0, "prefill-cutbsd", marks=pytest.mark.extra_checks),
+        pytest.param(1, "update-fallback", marks=pytest.mark.extra_checks),
+    ],
+    ids=[
+        f"{mode}-{case.name}-b{case.batch}-"
+        f"{'l' + str(case.seq_len) if case.seq_len is not None else 'lens' + '-'.join(map(str, case.lengths))}-"
+        f"d{case.dim}-k{case.width}-state{case.state_len}-{case.dtype}"
+        for mode in ("prefill", "update")
+        for case in CASES
+    ]
+    + UPDATE_CASE_NAMES[len(CASES) :]
+    + ["extra-prefill-cutbsd-b2-l6-d4224", "extra-update-fallback-b2-l6-d1000"],
 )
 def test_causal_conv1d(run_mode, case_index):
     from sgl_kernel_npu.operators.mamba import causal_conv1d

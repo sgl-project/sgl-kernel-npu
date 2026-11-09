@@ -2,6 +2,9 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [compute_n_gram_ids](operators/embedding/compute_n_gram_ids.md) | `ascendc`、`torch_native` |
+| [update_oe_token_table](operators/embedding/update_oe_token_table.md) | `ascendc`、`torch_native` |
+| [mlp_lightning_indexer](operators/indexer/mlp_lightning_indexer.md) | `ascendc`、`torch_native` |
 | [chunk_kda_fwd](operators/attention/kda/chunk_kda_fwd.md) | `ascendc`, `torch_native` |
 | [chunk_fwd_o](operators/attention/gdn/chunk_o.md) | `triton`, `torch_native` |
 | [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |
@@ -30,6 +33,7 @@
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
 | [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`、`torch_native` |
+| [sparse_block_estimate](operators/attention/sparse_block_estimate.md) | `ascendc` (ARCH22)、`torch_native` |
 | [mlaprolog_v4](operators/attention/mlaprolog_v4.md) | `cann`、`torch_native` |
 | [flash_decode_bnsd_with_gqa_share_sparse](operators/attention/flash_decode_bnsd_with_gqa_share_sparse.md) | `triton`, `ascendc`, `torch_native` |
 | [mla_preprocess](operators/attention/mla_preprocess.md) | `ascendc`、`torch_native` |
@@ -48,6 +52,8 @@
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [fused_gdn_gating](operators/attention/gdn/fused_gdn_gating.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
+| [fused_qkvzba_split_reshape_cat](operators/attention/gdn/fused_qkvzba_split_reshape_cat.md) | `triton`、`torch_native` |
+| [fused_qkvzba_split_reshape_cat_contiguous](operators/attention/gdn/fused_qkvzba_split_reshape_cat_contiguous.md) | `triton`、`torch_native` |
 | [apply_token_bitmask](operators/sampler/apply_token_bitmask.md) | `ascendc`, `torch_native` |
 | [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`、`torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |

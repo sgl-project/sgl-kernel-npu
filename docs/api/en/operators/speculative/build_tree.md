@@ -51,8 +51,11 @@ index `b*D+i`. Child links follow increasing node indices.
 | `tree_mask_mode` | Required `int` | `0` selects FULL_MASK; see modes below. |
 | `impl` | `str`, default `"auto"` | Keyword-only; `auto`, `ascendc` or `torch_native`. |
 
-Returns `None`. All five output buffers retain their storage; read-only inputs
-are unchanged. All tensors must share a device and use contiguous buffers with
+| Return value | Type | Description |
+| --- | --- | --- |
+| `None` | `NoneType` | Writes the five caller-provided buffers in place, preserving their storage; read-only inputs are unchanged. |
+
+All tensors must share a device and use contiguous buffers with
 sufficient capacity. Output buffers must not overlap.
 
 ## Mask modes
@@ -76,3 +79,39 @@ sufficient capacity. Output buffers must not overlap.
 
 - Constructs the tree and masks using independent PyTorch operations.
 - Preserves output shapes, dtypes and the in-place interface.
+
+## Example
+
+Uses the existing FULL_MASK configuration, with separate caller buffers for
+each backend.
+
+```python
+import torch
+import torch_npu
+
+from sgl_kernel_npu.operators.speculative import build_tree
+
+inputs = dict(
+    parent_list=torch.tensor([
+        [-1, 0, 1, 2, 3, 4, 8, 9, 10, 20, 24, 21, 28],
+        [-1, 0, 1, 2, 3, 4, 5, 6, 7, 24, 28, 20, 21],
+    ], device="npu", dtype=torch.int64),
+    selected_index=torch.tensor([
+        [0, 1, 4, 8, 20, 24, 36], [0, 4, 5, 6, 7, 24, 36],
+    ], device="npu", dtype=torch.int64),
+    verified_seq_len=torch.tensor([5, 10], device="npu", dtype=torch.int64),
+    topk=4, depth=4, draft_token_num=8, tree_mask_mode=0,
+)
+outputs = dict(
+    tree_mask=torch.ones((5 + 10) * 8 + 2 * 8 * 8, device="npu", dtype=torch.bool),
+    positions=torch.full((16,), -1, device="npu", dtype=torch.int64),
+    retrive_index=torch.full((2, 8), -1, device="npu", dtype=torch.int64),
+    retrive_next_token=torch.full((2, 8), -1, device="npu", dtype=torch.int64),
+    retrive_next_sibling=torch.full((2, 8), -1, device="npu", dtype=torch.int64),
+)
+reference = {name: tensor.clone() for name, tensor in outputs.items()}
+result = build_tree(**inputs, **outputs)  # auto: ascendc
+build_tree(**inputs, **reference, impl="torch_native")
+assert result is None
+print(outputs["positions"].reshape(2, 8))
+```

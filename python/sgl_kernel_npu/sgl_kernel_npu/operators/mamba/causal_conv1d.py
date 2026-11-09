@@ -1,14 +1,12 @@
 """Public dispatch for token-major causal convolution with mutable state."""
 
-from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_GENERATIONS = (Generation.ARCH22, Generation.ARCH35)
 _torch_native_fn = None
 
 
-@register_impl("mamba.causal_conv1d", "auto", supported_generations=_GENERATIONS)
-@register_impl("mamba.causal_conv1d", "ascendc", supported_generations=_GENERATIONS)
+@register_impl("mamba.causal_conv1d", "auto")
+@register_impl("mamba.causal_conv1d", "ascendc")
 def _ascendc_impl(
     x,
     weight,
@@ -91,11 +89,35 @@ def causal_conv1d(
 ):
     """Return y and update conv_states in place; auto selects ascendc.
 
-    x is [T, D] or [B, L, D], weight is [K, D], and conv_states is
-    [slots, S, D]. K is 2, 3 or 4. A 2D x requires query_start_loc in both
-    modes. run_mode=1 selects the integrated update; every other value uses
-    prefill. Nonzero activation_mode applies SiLU. Padded y rows are undefined.
-    See the API documentation for history selection and speculative writeback.
+    Args:
+        x: Contiguous BF16/FP16 Tensor [T,D] or [B,L,D], token-major inputs.
+        weight: Contiguous Tensor [K,D], same dtype as x; K is 2, 3 or 4.
+        conv_states: Mutable contiguous Tensor [slots,S,D], same dtype as x;
+            each live slot holds at least K-1 history rows.
+        bias: Optional Tensor [D], same dtype as x; defaults to None.
+        query_start_loc: Optional Tensor [B+1] of packed token boundaries,
+            converted to int64; defaults to None. Required for 2D x in both modes,
+            ignored for 3D x.
+        cache_indices: Optional Tensor [B], converted to int64; defaults to
+            None (sequence b uses slot b).
+        has_initial_state: Optional Tensor [B], converted to int64; nonzero
+            makes prefill read history. Defaults to None (zero history),
+            ignored by update.
+        num_accepted_tokens: Optional Tensor [B], converted to int32; selects
+            speculative history for update with K=4. Defaults to None.
+        activation_mode: Int, default 0; any nonzero value applies SiLU.
+        pad_slot_id: Int, default -1; matching explicit cache indices skip a
+            sequence, leaving its state unchanged and output undefined.
+        run_mode: Int, default 0; 1 selects integrated update, others prefill.
+        impl: Keyword-only str, "auto" (default), "ascendc" or "torch_native".
+
+    Returns:
+        Newly allocated Tensor with x's shape, dtype and device.
+
+    All tensors share a device (NPU for ascendc). Empty optional tensors count
+    as absent. State writes store raw input/history, preserving unused rows.
+    Optional metadata/bias use dense physical spans after dtype conversion.
+    See the API page for speculative history selection and writeback.
     """
     return get_impl_by_name("mamba.causal_conv1d", impl)(
         x,

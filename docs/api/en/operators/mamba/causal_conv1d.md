@@ -96,3 +96,35 @@ inside this operator.
 - Uses independent PyTorch operations with FP32 accumulation before bias, SiLU
   and output casting.
 - Preserves history selection, state updates and optional-argument semantics.
+
+## Example
+
+Uses the existing BF16 prefill configuration and its corresponding ordinary
+update configuration. Each backend owns its state pool.
+
+```python
+import torch
+import torch_npu
+
+from sgl_kernel_npu.operators.mamba import causal_conv1d
+
+x = torch.randn(2, 6, 4096, device="npu", dtype=torch.bfloat16)
+weight = torch.randn(4, 4096, device="npu", dtype=x.dtype)
+state = torch.randn(8, 3, 4096, device="npu", dtype=x.dtype)
+state_ref = state.clone()
+inputs = dict(
+    x=x, weight=weight,
+    cache_indices=torch.tensor([0, 1], device="npu", dtype=torch.int64),
+    has_initial_state=torch.tensor([False, False], device="npu"),
+)
+y = causal_conv1d(**inputs, conv_states=state)  # auto: ascendc, prefill
+y_ref = causal_conv1d(**inputs, conv_states=state_ref, impl="torch_native")
+print(y.shape, y_ref.shape)  # torch.Size([2, 6, 4096])
+
+# Integrated update starts from the state written by each backend's prefill.
+y_update = causal_conv1d(**inputs, conv_states=state, run_mode=1)
+y_update_ref = causal_conv1d(
+    **inputs, conv_states=state_ref, run_mode=1, impl="torch_native"
+)
+print(y_update.shape, y_update_ref.shape)
+```

@@ -88,3 +88,34 @@ pad 序列不修改状态，输出行未初始化；默认槽映射不检查 `pa
 
 - 使用独立 PyTorch 运算，以 FP32 累加，再处理 bias、SiLU 和输出类型转换。
 - 保持相同的历史选择、状态回写和可选参数语义。
+
+## 调用示例
+
+沿用现有 BF16 prefill 配置及其对应的普通 update 配置，两后端各自维护状态池。
+
+```python
+import torch
+import torch_npu
+
+from sgl_kernel_npu.operators.mamba import causal_conv1d
+
+x = torch.randn(2, 6, 4096, device="npu", dtype=torch.bfloat16)
+weight = torch.randn(4, 4096, device="npu", dtype=x.dtype)
+state = torch.randn(8, 3, 4096, device="npu", dtype=x.dtype)
+state_ref = state.clone()
+inputs = dict(
+    x=x, weight=weight,
+    cache_indices=torch.tensor([0, 1], device="npu", dtype=torch.int64),
+    has_initial_state=torch.tensor([False, False], device="npu"),
+)
+y = causal_conv1d(**inputs, conv_states=state)  # auto: ascendc, prefill
+y_ref = causal_conv1d(**inputs, conv_states=state_ref, impl="torch_native")
+print(y.shape, y_ref.shape)  # torch.Size([2, 6, 4096])
+
+# Integrated update starts from the state written by each backend's prefill.
+y_update = causal_conv1d(**inputs, conv_states=state, run_mode=1)
+y_update_ref = causal_conv1d(
+    **inputs, conv_states=state_ref, run_mode=1, impl="torch_native"
+)
+print(y_update.shape, y_update_ref.shape)
+```
