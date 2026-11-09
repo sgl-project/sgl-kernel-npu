@@ -10,6 +10,7 @@ from .flash_decode_bnsd_with_gqa_share_sparse import (
 )
 from .flash_mla import flash_mla, flash_mla_metadata
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
+from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
     kv_quant_sparse_attn_sharedkv_metadata_host,
@@ -30,6 +31,7 @@ __all__ = [
     "fia_prep",
     "gqa_share_sparse_decode",
     "chunk_gated_delta_rule",
+    "chunk_kda_fwd",
     "flash_mla",
     "flash_mla_metadata",
     "kv_quant_sparse_attn_sharedkv",
