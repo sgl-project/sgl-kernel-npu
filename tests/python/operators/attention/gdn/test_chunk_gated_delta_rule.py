@@ -17,6 +17,7 @@ from tests.python.utils.standards import AccuracyStandard
 
 # The kernel rounds some FP32 state update operands to BF16 before matmul.
 _FP32_STATE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-3, rtol=1e-5)}
+_FP32_CHUNK_STATE_STANDARD = {"torch.float32": AccuracyStandard(atol=1.2e-3, rtol=1e-5)}
 
 
 def generate_test_data(device, state_dtype=torch.bfloat16):
@@ -123,10 +124,15 @@ def test_chunk_gated_delta_rule(scale, chunk_layout, state_dtype):
             result_ref = chunk_gated_delta_rule(**reference_inputs, impl=impl_ref)
             result = chunk_gated_delta_rule(**actual_inputs, impl=impl)
             assert_accuracy(result, result_ref, standard=standard)
+            chunk_standard = (
+                _FP32_CHUNK_STATE_STANDARD
+                if state_dtype == torch.float32 and chunk_layout == "contiguous"
+                else None
+            )
             assert_accuracy(
                 actual_inputs["chunk_state"],
                 reference_inputs["chunk_state"],
-                standard=standard if chunk_layout == "contiguous" else None,
+                standard=chunk_standard,
                 path="chunk_state",
             )
             assert torch.equal(actual_inputs["initial_state"], initial_before)

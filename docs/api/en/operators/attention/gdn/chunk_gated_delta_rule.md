@@ -107,8 +107,9 @@ The 15 BF16-state accuracy cases passed on arch 2201 and arch 3510. They use
 chunk-state layouts: absent, contiguous and noncontiguous.
 
 The same 15 combinations cover FP32 state on arch 3510. Accuracy compares
-`ascendc` with `torch_native`. FP32 `final_state` and contiguous `chunk_state`
-use `atol=1e-3` and `rtol=1e-5` to account for BF16 rounding in the kernel.
+`ascendc` with `torch_native`. The FP32 absolute tolerance is `1e-3` for
+`final_state` and `1.2e-3` for contiguous `chunk_state`, with `rtol=1e-5`
+for both. These tolerances account for BF16 rounding in the kernel.
 BF16 outputs use the shared standard. The test checks noncontiguous
 `chunk_state` for exact preservation.
 

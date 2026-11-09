@@ -102,7 +102,8 @@ out_t = scale * (S_t @ q_t)
 
 arch 3510 上的 FP32 状态测试覆盖相同的 15 个组合。精度测试对比
 `ascendc` 与 `torch_native`。考虑到内核中的 BF16 舍入，FP32 `final_state`
-和连续 `chunk_state` 使用 `atol=1e-3` 和 `rtol=1e-5`。BF16 输出按公共标准比较。
+的 `atol` 为 `1e-3`，连续 `chunk_state` 的 `atol` 为 `1.2e-3`。
+两者的 `rtol` 均为 `1e-5`。BF16 输出按公共标准比较。
 非连续 `chunk_state` 逐元素检查是否保持原值。
 
 每种状态 dtype 的性能测试默认仅测
