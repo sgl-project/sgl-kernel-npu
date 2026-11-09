@@ -746,8 +746,6 @@ def prepare_scene_weights(
     weights.update(
         {
             "quant_mode": quant_mode,
-            # Both w4a8 and w8a8 keep the dispatch path quantized to int8
-            # (COMM_QUANT_MODE_INT8); the deep_ep API expresses this via quant_mode=1.
             "api_quant_mode": 1,
         }
     )
