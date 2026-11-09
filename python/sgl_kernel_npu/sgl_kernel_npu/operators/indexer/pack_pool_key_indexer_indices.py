@@ -1,4 +1,4 @@
-"""Public pooled-index packing with per-query tails and padding masks."""
+"""Public pooled-index packing with per-query tails and real query boundaries."""
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -13,11 +13,20 @@ def _triton_impl(*args, **kwargs):
     return pack_pool_key_indexer_indices(*args, **kwargs)
 
 
+@register_impl("indexer.pack_pool_key_indexer_indices", "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    from ...implementation.torch_native.indexer.pack_pool_key_indexer_indices import (
+        pack_pool_key_indexer_indices,
+    )
+
+    return pack_pool_key_indexer_indices(*args, **kwargs)
+
+
 @register_operator("indexer.pack_pool_key_indexer_indices")
 def pack_pool_key_indexer_indices(
     indices,
     positions,
-    valid_mask,
+    query_ends,
     topk,
     pool_size,
     *,
@@ -27,13 +36,16 @@ def pack_pool_key_indexer_indices(
     """Pack history and per-query tails into int32 [T,topk+pool_size-1].
 
     The default output aliases indices; an optional output buffer may be wider.
-    Invalid query rows become -1. Positions and the boolean valid mask are
-    contiguous token-aligned vectors on the same device as indices.
+    Rows after query_ends[-1] become -1. Positions are token-aligned int64 [T];
+    query_ends is the original int64 [B] cumulative real-query boundary vector.
+    Both are contiguous and on the same device as indices. History candidates
+    are consumed as returned by causal CANN; artificial history is discarded
+    using the original positions. auto selects Triton; torch_native is a reference.
     """
     return get_impl_by_name("indexer.pack_pool_key_indexer_indices", impl)(
         indices,
         positions,
-        valid_mask,
+        query_ends,
         topk,
         pool_size,
         output_buffer=output_buffer,
