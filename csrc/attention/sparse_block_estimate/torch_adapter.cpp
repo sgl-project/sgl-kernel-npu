@@ -18,7 +18,6 @@
 #include <torch/library.h>
 #include <torch_npu/csrc/core/npu/NPUFormat.h>
 #include <torch_npu/csrc/framework/utils/OpAdapter.h>
-#include <iostream>
 #include <string>
 #include <tuple>
 #include <vector>
