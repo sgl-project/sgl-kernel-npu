@@ -13,7 +13,11 @@ _torch_native_fn = None
 _cannbot_dsl_fn = None
 
 
-@register_impl("attention.mixed_quant_sparse_flash_mla", "torch_native")
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "torch_native",
+    supported_generations={Generation.ARCH35},
+)
 def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:

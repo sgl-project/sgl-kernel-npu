@@ -5,7 +5,7 @@
 | impl | arch22 | arch35 |
 | --- | --- | --- |
 | cannbot_dsl | 不支持 | 支持 |
-| torch_native | 未验证 | 未验证 |
+| torch_native | 不支持 | 支持 |
 
 ## 函数原型
 

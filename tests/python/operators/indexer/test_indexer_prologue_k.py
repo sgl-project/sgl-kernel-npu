@@ -147,6 +147,7 @@ def generate_data(rows, mode, *, seed=None):
 def test_indexer_prologue_k(shape):
     from sgl_kernel_npu.operators.indexer import indexer_prologue_k
 
+    require_test_impl(indexer_prologue_k, "auto")
     args, kwargs = generate_data(*shape)
     executor = make_executor(indexer_prologue_k, args=args, kwargs=kwargs)
     if get_skip_acc_check():

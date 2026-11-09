@@ -5,7 +5,7 @@
 | impl | arch22 | arch35 |
 | --- | --- | --- |
 | cannbot_dsl | Unsupported | Supported |
-| torch_native | Unverified | Unverified |
+| torch_native | Unsupported | Supported |
 
 ## Signature
 
