@@ -1,10 +1,16 @@
-"""Shared sparse-index and CANN 9.1 indexer input conversions."""
+"""CANN 9.1 DSpark conversion of logical original-KV indices to cache slots."""
 
 import torch
 
 
-def logical_to_physical(indices, lengths, q, table, cache, cu_q, layout):
-    """Resolve original-KV indices for the native DSpark ABI using tensor ops."""
+def logical_kv_indices_to_physical_slots(
+    indices, lengths, q, table, cache, cu_q, layout
+):
+    """Map sparse original-KV indices through each request's page table.
+
+    Physical slot = table[request, index // page_size] * page_size
+    + index % page_size. Negative and length-masked entries become -1.
+    """
     if table is None:
         raise ValueError("cann_9_1 sparse original KV requires ori_block_table")
     if layout == "TND":

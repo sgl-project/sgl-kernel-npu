@@ -16,7 +16,7 @@ Each operator has an individual [English](../API_list.md) and [Chinese](../../zh
 - [inplace_partial_rotary_mul](rope/inplace_partial_rotary_mul.md)
 - [moe_gating_top_k](moe/moe_gating_top_k.md)
 
-Shared implementation helpers use descriptive module names. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Each operator selects its SDK implementation directly using `detect_cann_version()` from `operators/utils/cann.py` and loads its bundled binding locally. MoE schema compatibility stays in `operators/moe/moe_gating_top_k.py`. Sparse-index conversion and original indexer argument mapping share `operators/attention/attention_utils.py`.
+Shared implementation helpers use descriptive module names. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Each operator selects its SDK implementation directly using `detect_cann_version()` from `operators/utils/cann.py` and loads its bundled binding locally. MoE schema compatibility stays in `operators/moe/moe_gating_top_k.py`. CANN 9.1 DSpark logical original-KV indices are mapped to physical cache slots by `logical_kv_indices_to_physical_slots()` in `operators/attention/cann_9_1_sparse_kv_indices.py`; original indexer argument mapping stays in `operators/indexer/indexer_utils.py`.
 
 The initialized SDK selects the ABI. On CANN 9.1, each operator chooses a
 source-specific implementation; on CANN 9.2 all 13 APIs register

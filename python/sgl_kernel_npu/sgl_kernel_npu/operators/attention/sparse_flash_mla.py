@@ -5,7 +5,7 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from .attention_utils import logical_to_physical
+from .cann_9_1_sparse_kv_indices import logical_kv_indices_to_physical_slots
 from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
 
 
@@ -144,7 +144,7 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
             raise RuntimeError(
                 "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
             )
-        args["ori_sparse_indices"] = logical_to_physical(
+        args["ori_sparse_indices"] = logical_kv_indices_to_physical_slots(
             indices,
             kwargs.get("ori_topk_length"),
             q,
