@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | Supported implementation | Unsupported |
 | `torch_native` | Independent reference | Unsupported |
 
-Build and install through the [CANN/ACLNN embedding-operator build](README.md).
+See the [build and installation guide](../../../../../python/sgl_kernel_npu/README.md).
 This table describes implementation scope, not a new hardware validation result.
 
 ## Signature

@@ -7,7 +7,7 @@
 | `auto` / `ascendc` | 支持实现 | 不支持 |
 | `torch_native` | 独立参考实现 | 不支持 |
 
-通过 [embedding 算子的 CANN/ACLNN 入口](README.md) 构建和安装。
+构建和安装步骤见[公共构建指南](../../../../../python/sgl_kernel_npu/README.md)。
 此表表示实现范围，不表示本次新增的硬件验证结果。
 
 ## 函数原型
