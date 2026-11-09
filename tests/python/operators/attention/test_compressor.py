@@ -16,7 +16,7 @@ from tests.python.utils.standards import AccuracyStandard
 
 # DeepSeek-V4 config defaults: H=4096, index D=128, attention D=512.
 # SGLang ascend_dsv4_backend.forward_compress uses TH, r4/coff2 or r128/coff1,
-# cache_mode=2, and architecture-specific tables. B/S are example serving loads,
+# and cache_mode=2 with explicit state rows. B/S are example serving loads,
 # not captured traces. The remaining small widths isolate legacy regressions.
 perf_shape = [(2, 8, 4096, 512), (1, 129, 4096, 512)]
 # Keep the legacy output tolerances with the shared accuracy checker.
@@ -28,12 +28,18 @@ OUTPUT_STANDARD = {
 STATE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-2, rtol=0)}
 
 
-def _make_explicit_state_table(starts, capacity, block_size, history):
-    # arch22 EXPLICIT is a physical-location table, not arch35's single-bank
-    # ring ABI. The unchanged overlap kernel can save new rows before reading
-    # history, so keep the entire history/current interval free of aliases.
-    banks_per_request = max(
-        2, (history + max(capacity, 1) + block_size - 1) // block_size
+def _make_explicit_state_table(starts, capacity, block_size, ratio, coff):
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    history = coff * ratio
+    arch35 = get_hardware().generation == Generation.ARCH35
+    # A5 C4 uses one ring per SWA page. Other A5 cases use a request ring.
+    # Keep arch22's entire history/current interval free of aliases.
+    page_size = 128 if arch35 else block_size
+    banks_per_request = (
+        1
+        if arch35 and (ratio, coff) != (4, 2)
+        else max(2, (history + max(capacity, 1) + page_size - 1) // page_size)
     )
     dummy_bank = len(starts) * banks_per_request
     table = torch.full(
@@ -48,15 +54,13 @@ def _make_explicit_state_table(starts, capacity, block_size, history):
             if position >= 0:
                 bank = (
                     request * banks_per_request
-                    + (position // block_size) % banks_per_request
+                    + (position // page_size) % banks_per_request
                 )
                 table[request, column] = bank * block_size + position % block_size
     return table, dummy_bank + 1
 
 
 def generate_data(shape, layout, ratio, coff, cache_mode, start, ring, defaults, dtype):
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
     b, s, h, d = shape
     w = coff * d
     # Use an explicit CPU generator; conftest selects the NPU default device.
@@ -69,18 +73,14 @@ def generate_data(shape, layout, ratio, coff, cache_mode, start, ring, defaults,
     used = [s] * b
     if not defaults and b > 1:
         used[-1] = max(s - 1, 0)  # Include a partial final request.
-    bank = cache_mode == 2 and get_hardware().generation == Generation.ARCH35
     if cache_mode == 1:
         block = max(1, (start + s + ring - 1) // ring)
         table = torch.arange(1, b * block + 1, dtype=torch.int32, device="cpu").reshape(
             b, block
         )
         banks = 1 + b * block  # Bank 0 is a protected dummy page.
-    elif bank:
-        table = torch.arange(b, dtype=torch.int32, device="cpu")
-        banks = b + 1  # Extra untouched bank checks write bounds.
     else:
-        table, banks = _make_explicit_state_table(starts, s, ring, coff * ratio)
+        table, banks = _make_explicit_state_table(starts, s, ring, ratio, coff)
     sr = min(b * s, b * s // ratio + b) if layout == "TH" else (s + ratio - 1) // ratio
     rope_shape = (sr, 64) if layout == "TH" else (b, sr, 64)
     # Distinct RoPE rows expose packed-vs-padded BSH indexing mistakes.
@@ -337,10 +337,10 @@ def test_compressor(
             if actual["start_pos"] is not None:
                 actual["start_pos"].fill_(position)
                 expected["start_pos"].fill_(position)
-            if cache_mode == 2 and actual["state_block_table"].ndim == 2:
+            if cache_mode == 2:
                 table = actual["state_block_table"]
                 locations, banks = _make_explicit_state_table(
-                    [position] * shape[0], shape[1], ring, coff * ratio
+                    [position] * shape[0], shape[1], ring, ratio, coff
                 )
                 assert banks == actual["state_cache"].shape[0]
                 table.copy_(locations.to(table.device))
@@ -374,6 +374,48 @@ def test_compressor(
     reset_executor = ResetExecutor(executor, perf_data["state_cache"], initial)
     check_performance(
         reset_executor, enable_perf=shape in perf_shape and dtype == torch.bfloat16
+    )
+
+
+@pytest.mark.parametrize("ring", [8, 16])
+def test_compressor_arch35_c4_resume_from_swa_page_tail(ring):
+    from sgl_kernel_npu.operators.attention import compressor
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("A5 C4 SWA page-tail retention")
+    if get_skip_acc_check():
+        pytest.skip("Requires comparing full and resumed prefill outputs")
+
+    prefix_tokens = 128
+    total_tokens = 148
+    suffix_tokens = total_tokens - prefix_tokens
+    data = generate_data(
+        (1, total_tokens, 1024, 128), "TH", 4, 2, 2, 0, ring, False, torch.bfloat16
+    )
+    executor = make_executor(compressor, kwargs=data)
+    require_test_impl(compressor, executor.impl)
+    full = executor()
+
+    # The matched prefix's page is in the middle of the full prefill. Resume
+    # using the state it left behind, with the same suffix inputs and RoPE rows.
+    table, _ = _make_explicit_state_table([prefix_tokens], suffix_tokens, ring, 4, 2)
+    suffix = dict(
+        data,
+        x=data["x"][prefix_tokens:],
+        state_cache=data["state_cache"].clone(),
+        state_block_table=table.to(data["x"].device),
+        cu_seqlens=data["cu_seqlens"].new_tensor([0, suffix_tokens]),
+        seqused=data["seqused"].new_tensor([suffix_tokens]),
+        start_pos=data["start_pos"].new_tensor([prefix_tokens]),
+        rope_sin=data["rope_sin"][prefix_tokens // 4 :],
+        rope_cos=data["rope_cos"][prefix_tokens // 4 :],
+    )
+    resumed = compressor(**suffix, impl=executor.impl)
+    assert_accuracy(
+        resumed[valid_mask(suffix, resumed)],
+        full[valid_mask(data, full)][prefix_tokens // 4 :],
+        standard=OUTPUT_STANDARD,
     )
 
 
@@ -427,44 +469,30 @@ def test_compressor_async_execution(execution):
 
 
 @pytest.mark.extra_checks
-@pytest.mark.parametrize(
-    "table_form", ["arch22-single-page", "arch35-column-banks", "arch35-wide-banks"]
-)
-def test_compressor_legacy_table_forms(table_form):
+def test_compressor_arch22_single_page_table():
     from sgl_kernel_npu.operators.attention import compressor
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    mode = 1 if table_form == "arch22-single-page" else 2
+    if get_hardware().generation != Generation.ARCH22:
+        pytest.skip("The mode-1 single-page shorthand is supported on arch22")
     data = generate_data(
         (2, 8, 1024, 128),
         "TH",
         4,
         2,
-        mode,
+        1,
         8,
-        16 if mode == 1 else 8,
+        16,
         False,
         torch.bfloat16,
     )
     actual, expected = clone_inputs(data), clone_inputs(data)
+    actual["state_block_table"] = actual["state_block_table"].view(-1)
     executor = make_executor(compressor, kwargs=actual)
     if get_skip_acc_check():
         require_test_impl(compressor, executor.impl)
     else:
         require_distinct_impls(compressor, executor.impl, executor.impl_ref)
-    target = Generation.ARCH22 if mode == 1 else Generation.ARCH35
-    if get_hardware().generation != target:
-        pytest.skip("This legacy table form belongs to a different cache ABI")
-    table = actual["state_block_table"]
-    if table_form == "arch22-single-page":
-        actual["state_block_table"] = table.view(-1)
-    elif table_form == "arch35-column-banks":
-        actual["state_block_table"] = table.view(-1, 1)
-    else:
-        # Bank IDs are flat entries, not the first column of a 2D table.
-        actual["state_block_table"] = torch.cat((table, torch.zeros_like(table))).view(
-            2, 2
-        )
     if not get_skip_acc_check():
         out = compressor(**actual, impl=executor.impl)
         ref = compressor(**expected, impl=executor.impl_ref)

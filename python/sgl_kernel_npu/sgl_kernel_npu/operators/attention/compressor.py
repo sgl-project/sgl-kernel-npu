@@ -21,7 +21,9 @@ def _torch_native_impl(*args):
         from ...implementation.torch_native.attention.compressor import compressor
 
         _torch_native_fn = compressor
-    return _torch_native_fn(*args)
+    return _torch_native_fn(
+        *args, arch35=get_hardware().generation == Generation.ARCH35
+    )
 
 
 @register_operator("attention.compressor")
@@ -61,9 +63,8 @@ def compressor(
         rope_sin: FP32 sine [B, ceil(S/r), 64] or [min(T,T//r+B), 64].
         rope_cos: FP32 cosine, same shape as rope_sin.
         state_block_table: Required INT32 cache locations; paged [B, M],
-            explicit [B, coff*r+capacity] on arch22, or banks [B] on arch35.
-            Legacy arch22 single-page [B] and arch35 bank [B, M]
-            forms are also accepted; bank IDs are the first B flat entries.
+            or explicit physical state rows [B, coff*r+capacity] on both
+            architectures. Legacy arch22 mode-1 single-page [B] is also accepted.
         cu_seqlens: INT32 cumulative token offsets [B+1], required only for TH.
         seqused: Optional INT32 used lengths [B]; None uses input capacities.
         start_pos: Optional INT32 absolute starting positions [B]; None means 0.
@@ -73,26 +74,27 @@ def compressor(
         norm_eps: Float RMSNorm epsilon (default 1e-6).
         rotary_mode: Integer RoPE mode, default 2 (interleaved). Only 2 has
             a compiled kernel; other values are rejected before launch.
-        cache_mode: Integer 1 for paged cache or 2 for explicit/ring cache.
+        cache_mode: Integer 1 for paged cache or 2 for explicit state rows.
         state_cache_stride_dim0: Integer cache stride; 0 derives L*2*coff*D.
         impl: Backend name, default "auto"; also "ascendc" or "torch_native".
     Returns:
         Same dtype as x, [B, ceil(S/r), D] or [min(T,T//r+B), D]. Only
         completed groups are written; remaining output rows are unspecified.
     """
-    # Preserve legacy table layouts without changing their physical locations.
+    # Mode 2 indexes physical rows. Keep the arch22 mode-1 single-page shorthand.
     if state_block_table is not None:
-        generation = get_hardware().generation
-        if (
-            cache_mode == 2
-            and generation == Generation.ARCH35
-            and state_block_table.ndim == 2
+        if cache_mode == 2 and (
+            state_block_table.ndim != 2
+            or state_block_table.shape[1] <= coff * cmp_ratio
         ):
-            state_block_table = state_block_table.view(-1)[: state_block_table.shape[0]]
+            raise ValueError(
+                "compressor: mode 2 requires a 2D state_block_table with "
+                "at least coff*cmp_ratio+1 columns"
+            )
         elif (
             cache_mode == 1
-            and generation == Generation.ARCH22
             and state_block_table.ndim == 1
+            and get_hardware().generation == Generation.ARCH22
         ):
             state_block_table = state_block_table.view(-1, 1)
     return get_impl_by_name("attention.compressor", impl)(

@@ -61,7 +61,8 @@ TH 按请求顺序紧密排列所有有效行。剩余输出行内容未定义�
 arch22 和 arch35 NORMAL 实现还保留验证所需的尾部：当 `L>c*r` 时，
 令 `pad=L-c*r+2`，将 `keep` 降为 `min(keep,max(E-pad,0))`。
 arch35 短 BSH 的 FULL_LOAD 路径（`S<=4` 且 `B*S<=256`）使用原始 `keep`，不加该 pad。
-绝对位置不小于 `keep` 的新行会被写入，允许从压缩块内部开始；其他缓存行保留原值。
+绝对位置不小于 `keep` 的新行会被写入，允许从压缩块内部开始。
+arch35 NORMAL 路径在重叠压缩时也保存中间 SWA 页的页尾状态，供后续请求从缓存页续算。
 
 ## 参数与返回值
 
@@ -79,7 +80,7 @@ TH 的 `Sr=min(T,T//r+B)`。
 | `norm_weight` | Tensor | FP32 `[D]`，RMSNorm 缩放权重。 |
 | `rope_sin` | Tensor | FP32，BSH 为 `[B,Sr,64]`，TH 为 `[Sr,64]`，与输出行布局对应。 |
 | `rope_cos` | Tensor | FP32，与 `rope_sin` 同形状。 |
-| `state_block_table` | Tensor | INT32，虽然默认 `None`，实际必需。模式 1 为 `[B,M]` 页号；arch22 模式 2 为 `[B,c*r+capacity]` 的展平 token 位置表，绝对位置 `t` 使用列 `c*r+t-p`；arch35 模式 2 为 `[B]` 请求 bank 号，位置为 `bank*L+t%L`，要求 `P>=B`。也兼容 arch22 模式 1 的单页 `[B]` 表；arch35 模式 2 的连续 `[B,M]` 表取展平后的前 B 项作为 bank 号（包括 `[B,1]`）。所有访问位置须落在缓存内，并提供足够的历史和当前 token 列。 |
+| `state_block_table` | Tensor | 必需的 INT32 张量。模式 1 接收 `[B,M]` 页号，arch22 也支持单页 `[B]` 表。两种架构的模式 2 都接收 `[B,c*r+capacity]` 的物理状态行号，绝对位置 `t` 使用列 `c*r+t-p`。至少提供一列当前 token，并覆盖所有读写位置，行号须在状态缓存范围内。 |
 | `cu_seqlens` | Tensor 或 None | INT32 `[B+1]`，默认 `None`。TH 必需，BSH 禁止；非递减、首项 0、末项 T，相邻差为输入容量；`T=0` 时 `[0]` 表示零请求。 |
 | `seqused` | Tensor 或 None | INT32 `[B]`，默认 `None` 使用完整容量；各项位于 `[0,capacity]`。 |
 | `start_pos` | Tensor 或 None | INT32 `[B]`，非负绝对起始位置；默认 `None` 表示零。 |
@@ -88,7 +89,7 @@ TH 的 `Sr=min(T,T//r+B)`。
 | `coff` | int | 1 或 2，默认 1；2 表示包含一个前置组。 |
 | `norm_eps` | float | RMSNorm epsilon，默认 `1e-6`。 |
 | `rotary_mode` | int | 默认 2（交错），仅支持此模式。 |
-| `cache_mode` | int | 1（分页）或 2（显式位置/ring），默认 1。 |
+| `cache_mode` | int | 1（分页）或 2（显式状态行号），默认 1。 |
 | `state_cache_stride_dim0` | int | 默认 0 推导为 `L*2*W`；显式值须等于该值且不超过有符号 INT32 范围。 |
 | `impl` | str | `auto`（默认）、`ascendc` 或 `torch_native`。 |
 
@@ -99,8 +100,7 @@ TH 的 `Sr=min(T,T//r+B)`。
 ## ascendc 后端
 
 通过 CANN/ACLNN 调用原有的架构专用 Ascend C 计算实现，支持 FP16/BF16、
-TH/BSH、重叠压缩和分页/显式位置/ring 缓存。
-模式 2 的缓存表格式随架构不同，不能互换。
+TH/BSH、重叠压缩以及分页或显式寻址的缓存。两种架构的模式 2 使用相同的状态表格式。
 输入值和表项须描述合法且无写入冲突的请求；元数据检查不会读取设备索引值。
 
 Python 入口负责选择后端并兼容旧缓存表的视图。Torch 适配层检查设备、
