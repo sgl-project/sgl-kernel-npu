@@ -91,8 +91,8 @@ def tree_speculative_sampling_target_only(
 
 - 复用仓库已有测试的 `target_only_tree_reference`，适配公开签名，以
   `draft_probs` 作为拒绝概率 scratch。
-- 用 Python 标量遍历树，用 PyTorch 整行 `sum`/`cumsum` 采样，末尾回退在整行
-  查找。接近接受或采样边界时，浮点舍入可能影响 token 选择。
+- 用 Python 标量遍历树。最终补采使用 FP64 累计残差权重，并取累计结果的最后一项
+  作为总权重，减少采样边界附近的舍入差异。末尾回退在整行查找。
 
 ## 调用示例
 

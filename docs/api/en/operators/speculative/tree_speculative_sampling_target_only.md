@@ -98,9 +98,10 @@ empty scratch before returning.
 
 - Reuses `target_only_tree_reference` from the existing repository test, with the
   public signature and `draft_probs` as rejection scratch.
-- Uses Python scalar tree traversal and whole-row PyTorch `sum`/`cumsum`. The
-  cumulative-distribution fallback searches the entire row. Floating-point
-  rounding near acceptance or sampling boundaries can change a token choice.
+- Uses Python scalar tree traversal. For final sampling, computes the cumulative
+  residual weights in FP64 and uses the last cumulative value as the total
+  weight. This reduces rounding differences near sampling boundaries. The
+  fallback searches the entire row.
 
 ## Example
 
