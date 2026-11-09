@@ -2,6 +2,9 @@
 
 | API | Supported backends |
 | --- | --- |
+| [compute_n_gram_ids](operators/embedding/compute_n_gram_ids.md) | `ascendc`, `torch_native` |
+| [update_oe_token_table](operators/embedding/update_oe_token_table.md) | `ascendc`, `torch_native` |
+| [mlp_lightning_indexer](operators/indexer/mlp_lightning_indexer.md) | `ascendc`, `torch_native` |
 | [chunk_kda_fwd](operators/attention/kda/chunk_kda_fwd.md) | `ascendc`, `torch_native` |
 | [chunk_fwd_o](operators/attention/gdn/chunk_o.md) | `triton`, `torch_native` |
 | [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |
