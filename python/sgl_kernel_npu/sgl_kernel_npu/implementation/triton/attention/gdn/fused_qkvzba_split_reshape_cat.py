@@ -287,13 +287,15 @@ def fused_qkvzba_split_reshape_cat(
     return mixed_qkv, z, b, a
 
 
-# A5 cannot hold the double-buffered pipeline for the larger row tiles, while
-# A3 gains from it; let autotune keep the config that fits and is fastest.
+# UB pressure scales with the number of rows moved per iteration, and the
+# affordable tile differs per generation. Tiles 8..32 correspond to roughly
+# 0.2..0.4 of the 85 KB budget the wrapper used before. Let autotune pick one: a
+# candidate that does not fit fails at compile time with a UB overflow, is
+# dropped, and the rest are benchmarked. rows_per_vec keeps decode (one row per
+# program) from inheriting the prefill choice.
 @triton.autotune(
-    configs=[
-        triton.Config({"multibuffer": multibuffer}) for multibuffer in (False, True)
-    ],
-    key=["NUM_HEADS_QK", "NUM_HEADS_V", "HEAD_QK", "HEAD_V", "ROWS_PER_ITER"],
+    configs=[triton.Config({"ROWS_PER_ITER": rows}) for rows in (8, 16, 32)],
+    key=["NUM_HEADS_QK", "NUM_HEADS_V", "HEAD_QK", "HEAD_V", "rows_per_vec"],
 )
 @triton.jit
 def fused_qkvzba_split_reshape_cat_contiguous_kernel(
@@ -462,16 +464,7 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     grid_size = min(num_vectorcore, total_rows)
     grid_size = max(1, grid_size)
 
-    dtype_size = mixed_qkvz.element_size()
-    ub_size_bytes = UB_SPECIFICATION * 1024
-
-    target_elements_per_iter = (ub_size_bytes * 0.4) // dtype_size
-    rows_per_iter = max(1, int(target_elements_per_iter // block_size_col))
-    rows_per_iter = triton.next_power_of_2(rows_per_iter)
-    rows_per_iter = min(rows_per_iter, MAX_ROWS_PER_ITER)
-
     rows_per_vec = triton.cdiv(total_rows, grid_size)
-    rows_per_vec = max(rows_per_vec, rows_per_iter)
 
     grid = (grid_size,)
     fused_qkvzba_split_reshape_cat_contiguous_kernel[grid](
@@ -492,8 +485,7 @@ def fused_qkvzba_split_reshape_cat_contiguous(
         qkv_row_stride,
         z_row_stride,
         ba_out_row_stride,
-        rows_per_iter,
-        block_size_col,
+        BLOCK_SIZE_COL=block_size_col,
     )
 
     return mixed_qkv, z, b, a
