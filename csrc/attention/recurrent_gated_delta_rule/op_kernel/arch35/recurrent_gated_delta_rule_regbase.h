@@ -10,9 +10,9 @@
 
 /*!
  * \file recurrent_gated_delta_rule_regbase.h
- * \brief Register-based vector blocks used by recurrent_gated_delta_rule on Ascend 950 (arch35).
+ * \brief Register-based vector blocks used by recurrent_gated_delta_rule on arch 3510.
  *
- * The arch22 kernel relies on repeat-stride and mask-register block APIs. On arch35 the same math is
+ * The arch 2201 kernel uses repeat-stride and mask-register block APIs. On arch 3510 the same math is
  * written with MicroAPI registers, following the arch35 recurrent_gated_delta_rule kernel in vllm-ascend.
  * Matrices are stored row-major with `rowStride` elements per row; only the first `cols` elements of each
  * row take part in the computation.

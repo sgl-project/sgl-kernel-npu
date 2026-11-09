@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Implementation | arch22 (2201) | arch35 (3510) |
+| Implementation | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` / `auto` | Supported | Supported |
 | `torch_native` | Supported | Supported |
@@ -91,7 +91,7 @@ updated in place; a noncontiguous one uses a temporary with **no copyback**,
 matching the old Host. Use contiguous pools for visible state updates.
 
 Native gate copies require `S*Nv*2 <= 65535` bytes for beta and, when `g`
-is supplied, `S*Nv*4 <= 65535` bytes for g. On arch22, the aligned FP32 row
+is supplied, `S*Nv*4 <= 65535` bytes for g. On arch 2201, the aligned FP32 row
 stride must also fit 255 blocks of 32 bytes. Invalid sizes are rejected before launch.
 
 ## torch_native backend

@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Implementation | State dtype | arch22 (2201) | arch35 (3510) |
+| Implementation | State dtype | arch 2201 | arch 3510 |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | Supported | Supported |
 | `ascendc` | FP32 | Unsupported | Unverified |
@@ -14,10 +14,10 @@ must use the same dtype, and the returned `final_state` retains that dtype.
 `query`, `key`, `value`, `beta` and the returned `out` remain BF16; optional `g`
 is FP32 and `actual_seq_lengths` is int32.
 
-The A5 `ascendc` FP32-state path uses mixed precision: some internal matrix
-operations still use BF16. A3 `ascendc` does not support FP32 state.
-`torch_native` accepts FP32 state on both architectures. A5 FP32-state device
-validation remains pending.
+The `ascendc` FP32-state path on arch 3510 uses mixed precision. Some internal
+matrix operations still use BF16. On arch 2201, `ascendc` accepts BF16 state
+only. `torch_native` accepts FP32 state on both architectures. FP32-state device
+validation on arch 3510 remains pending.
 
 ## Signature
 
@@ -102,9 +102,9 @@ Usage notes:
 
 ## Test coverage
 
-The 15 original BF16-state accuracy cases passed on A3 and A5. Another 15 cases
-cover FP32 state on A5 and await device validation; these cases are skipped on
-A3. Both sets use `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings
+The 15 original BF16-state accuracy cases passed on arch 2201 and arch 3510.
+Another 15 cases cover FP32 state on arch 3510 and await device validation.
+These cases are skipped on arch 2201. Both sets use `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings
 and three chunk-state layouts: absent, contiguous and noncontiguous.
 
 Accuracy compares `ascendc` with `torch_native` using the shared dtype-specific

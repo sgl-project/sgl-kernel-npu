@@ -2,7 +2,7 @@
 
 ## 芯片支持
 
-| 实现 | 状态 dtype | arch22（2201） | arch35（3510） |
+| 实现 | 状态 dtype | arch 2201 | arch 3510 |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | 支持 | 支持 |
 | `ascendc` | FP32 | 不支持 | 未验证 |
@@ -14,9 +14,9 @@
 `query`、`key`、`value`、`beta` 和返回值 `out` 均为 BF16；可选输入 `g`
 为 FP32，`actual_seq_lengths` 为 int32。
 
-A5 的 `ascendc` FP32 状态路径采用混合精度，部分内部矩阵运算仍使用 BF16。
-A3 的 `ascendc` 不支持 FP32 状态；`torch_native` 在两种架构上均接受 FP32 状态。
-A5 的 FP32 状态仍待上机验证。
+arch 3510 的 `ascendc` FP32 状态路径采用混合精度，部分内部矩阵运算仍使用 BF16。
+arch 2201 的 `ascendc` 仅支持 BF16 状态。`torch_native` 在两种架构上均接受 FP32 状态。
+arch 3510 的 FP32 状态仍待上机验证。
 
 ## 函数原型
 
@@ -96,8 +96,8 @@ out_t = scale * (S_t @ q_t)
 
 ## 测试覆盖
 
-原有 15 个 BF16 状态精度用例已在 A3 和 A5 通过。新增 15 个 A5 FP32 状态用例，
-尚待上机验证，在 A3 上跳过。两组用例均使用
+原有 15 个 BF16 状态精度用例已在 arch 2201 和 arch 3510 通过。新增 15 个
+arch 3510 FP32 状态用例，尚待上机验证，在 arch 2201 上跳过。两组用例均使用
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
 不提供、连续和非连续。
 

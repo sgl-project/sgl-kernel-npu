@@ -77,14 +77,14 @@ def clone_test_data(inputs):
 )
 @pytest.mark.parametrize("chunk_layout", ["absent", "contiguous", "noncontiguous"])
 def test_chunk_gated_delta_rule(scale, chunk_layout, state_dtype):
-    """Preserve BF16 cases and cover the same contracts with FP32 state on A5."""
+    """Cover BF16 state and the same FP32 state contracts on arch 3510."""
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if state_dtype == torch.float32 and get_hardware().generation != Generation.ARCH35:
         pytest.skip(
-            "CGDR FP32-state cases require A5 (arch35/3510); "
-            "the A3 AscendC implementation supports BF16 state only"
+            "CGDR FP32-state cases require arch 3510. "
+            "The ascendc backend on arch 2201 accepts BF16 state only."
         )
 
     data = generate_test_data(torch.device("npu"), state_dtype)

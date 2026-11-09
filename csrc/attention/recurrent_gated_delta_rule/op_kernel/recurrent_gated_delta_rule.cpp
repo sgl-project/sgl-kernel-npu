@@ -178,7 +178,7 @@ public:
         buffOffset += kSize;
 
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
-        // Ascend 950 normalizes q/k in registers and needs neither qTempInUb/kTempInUb nor qSumLocal/kSumLocal.
+        // On arch 3510, the kernel normalizes q/k in registers and needs neither qTempInUb/kTempInUb nor qSumLocal/kSumLocal.
 #else
         qTempInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(MAX_MTP * alignK_), buffOffset);
         buffOffset += kSize;
