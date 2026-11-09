@@ -8,7 +8,7 @@ _torch_native_fn = None
 
 @register_impl("speculative.tree_speculative_sampling_target_only", "auto")
 @register_impl("speculative.tree_speculative_sampling_target_only", "triton")
-def _triton_impl(**kwargs):
+def _triton_impl(*args, **kwargs):
     global _triton_fn
     if _triton_fn is None:
         from ...implementation.triton.speculative.tree_speculative_sampling_target_only import (
@@ -16,11 +16,11 @@ def _triton_impl(**kwargs):
         )
 
         _triton_fn = tree_speculative_sampling_target_only
-    return _triton_fn(**kwargs)
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("speculative.tree_speculative_sampling_target_only", "torch_native")
-def _torch_native_impl(**kwargs):
+def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
         from ...implementation.torch_native.speculative.tree_speculative_sampling_target_only import (
@@ -28,7 +28,7 @@ def _torch_native_impl(**kwargs):
         )
 
         _torch_native_fn = tree_speculative_sampling_target_only_torch
-    return _torch_native_fn(**kwargs)
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("speculative.tree_speculative_sampling_target_only")
