@@ -2,7 +2,7 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
@@ -59,7 +59,7 @@ def build_tree(
 
 - `0`（FULL_MASK）：顺次拼接每条请求的 `[D,L_b+D]` 掩码，总长度为
   `D*sum(L_b)+B*D*D`。只写每行最后 `D` 列，已验证前缀列由调用方初始化并保持不变。
-- `1`（QLEN_ONLY）：掩码为展平的 `[B,D,D]`。当前 AscendC 实现保留旧行地址问题，
+- `1`（QLEN_ONLY）：掩码为展平的 `[B,D,D]`。当前 `ascendc` 后端保留旧行地址问题，
   可能覆盖错误行或越界；请使用 FULL_MASK。`torch_native` 按正确逐节点行地址计算。
 - `2`（QLEN_ONLY_BITPACKING）：未实现，调用时报错。
 

@@ -92,7 +92,7 @@ def build_tree(
             if tree_mask_mode == 0:
                 start = full_mask_base + node * (prefix_length + width) + prefix_length
             else:
-                # Correct QLEN_ONLY rows intentionally differ from old/new Ascend C.
+                # Correct QLEN_ONLY rows intentionally differ from the legacy and current native backends.
                 start = b * width * width + node * width
             row = mask[start : start + width]
             row.fill_(False)

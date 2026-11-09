@@ -2,7 +2,7 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |

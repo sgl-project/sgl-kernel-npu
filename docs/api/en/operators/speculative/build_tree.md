@@ -2,7 +2,7 @@
 
 ## Hardware support
 
-| Implementation | arch22 | arch35 |
+| Implementation | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` | Supported | Supported |
 | `torch_native` | Supported | Supported |
@@ -63,7 +63,7 @@ sufficient capacity. Output buffers must not overlap.
 - `0` (FULL_MASK): concatenates each request's `[D,L_b+D]` mask, totaling
   `D*sum(L_b)+B*D*D` elements. Only the last `D` columns of each row are written;
   the caller initializes verified-prefix columns, which remain unchanged.
-- `1` (QLEN_ONLY): a flat `[B,D,D]` mask. AscendC retains a legacy row-address
+- `1` (QLEN_ONLY): a flat `[B,D,D]` mask. The `ascendc` backend retains a legacy row-address
   defect that can overwrite incorrect rows or exceed the buffer; use FULL_MASK.
   `torch_native` uses correct per-node row addresses.
 - `2` (QLEN_ONLY_BITPACKING): not implemented; raises an error.
