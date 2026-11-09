@@ -85,7 +85,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_block_estimate(const at::Tensor &query
         d = query.size(2) / num_heads;
         nq = num_heads;
     } else {
-        std::cerr << "Error: input_layout only support BNSD, BSND, BSH!!!" << std::endl;
+        TORCH_CHECK(false, "input_layout only support BNSD, BSND, BSH");
     }
     const int64_t blocks = (s + sparse_size - 1) / sparse_size;
     const int64_t aligned = (blocks + 31) / 32 * 32;
