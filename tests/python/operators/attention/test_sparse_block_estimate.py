@@ -1,9 +1,3 @@
-"""Reduced sparse estimation suite: first 86 of the original 172 cases.
-
-The previously reported nine mask mismatches remain unresolved; reducing
-coverage does not establish full AscendC/reference or old/new equivalence.
-"""
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -139,7 +133,6 @@ def test_sparse_block_estimate(shape, dtype, layout, causal):
             "offset",
             "ties",
         )
-        # The halfway point precedes the non-causal ties case.
         if causal or mode != "ties"
     ],
 )
