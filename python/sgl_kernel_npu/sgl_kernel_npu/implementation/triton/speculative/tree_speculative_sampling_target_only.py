@@ -310,6 +310,7 @@ def tree_speculative_sampling_target_only(
 
     threshold_acc = max(float(threshold_acc), 1e-9)
     vocab_size = target_probs.shape[-1]
+    # Vocabulary block width for residual sums and final sampling.
     vocab_block_size = 2048
     num_vocab_blocks = triton.cdiv(vocab_size, vocab_block_size)
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)

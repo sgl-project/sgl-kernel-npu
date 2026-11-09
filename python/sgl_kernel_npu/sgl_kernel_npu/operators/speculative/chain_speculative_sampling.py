@@ -50,12 +50,38 @@ def chain_speculative_sampling(
     *,
     impl="auto",
 ):
-    """Accept a draft prefix and sample a final token into three output buffers.
+    """Verify a linear draft chain and sample a final token.
 
-    Candidate rows contain the root followed by a linear draft chain. Outputs
-    are updated in place; unwritten slots retain their initial values. Returns
-    None. Tree links, thresholds and deterministic are compatibility arguments
-    ignored by both implementations; random samples are supplied by the caller.
+    The default impl="auto" selects Triton. B is the request count, D is the
+    candidate width including the root, R is the draft probability row count,
+    and V is the vocabulary size. Unwritten output slots retain their values.
+
+    Args:
+        predicts (torch.Tensor): One-dimensional int32 output for accepted and
+            sampled token IDs, with space for every slot in retrive_index.
+        accept_index (torch.Tensor): int32 [B, D] output for root and accepted
+            slots, in path order.
+        accept_token_num (torch.Tensor): int32 [B] output counting accepted
+            drafts, excluding the final sampled token.
+        candidates (torch.Tensor): int64 [B, D] root and draft token IDs.
+        retrive_index (torch.Tensor): int64 [B, D] global output slots.
+        retrive_next_token (torch.Tensor): Compatibility child links, normally
+            int64 [B, D]. Ignored.
+        retrive_next_sibling (torch.Tensor): Compatibility sibling links,
+            normally int64 [B, D]. Ignored.
+        uniform_samples (torch.Tensor): float32 [B, D] acceptance samples in
+            [0, 1). The last column is unused.
+        uniform_samples_for_final_sampling (torch.Tensor): float32 [B] final
+            sampling values in [0, 1).
+        target_probs (torch.Tensor): Read-only float32 [B, D, V] target probabilities.
+        draft_probs (torch.Tensor): Read-only float32 [B, R, V] draft probabilities.
+        threshold_single (float): Ignored compatibility threshold. Defaults to 1.0.
+        threshold_acc (float): Ignored compatibility threshold. Defaults to 1.0.
+        deterministic (bool): Ignored compatibility flag. Defaults to True.
+        impl (str): "auto", "triton", or "torch_native". Defaults to "auto".
+
+    Returns:
+        None. The three output tensors are updated in place.
     """
     return get_impl_by_name("speculative.chain_speculative_sampling", impl)(
         predicts=predicts,

@@ -44,11 +44,30 @@ def verify_tree_greedy(
     *,
     impl="auto",
 ):
-    """Write accepted tokens, indices and draft counts in place; return None.
+    """Verify drafts against the target model's greedy token predictions.
 
-    The migrated Triton implementation verifies a linear chain with [B,D]
-    accepted-index storage and canonical global slots. Tree links are retained
-    in its signature but are not traversed by that implementation.
+    The default impl="auto" selects Triton. B is the request count, D is the
+    candidate width including the root, and S is the accepted path capacity.
+    Triton verifies linear chains with S=D and slots retrive_index[b, j]=b*D+j.
+
+    Args:
+        predicts (torch.Tensor): One-dimensional int32 output for accepted and
+            final token IDs, with space for every slot in retrive_index.
+        accept_index (torch.Tensor): int32 [B, S] output for root and accepted
+            slots, in path order.
+        accept_token_num (torch.Tensor): int32 [B] output counting accepted
+            drafts, excluding the final target token.
+        candidates (torch.Tensor): int32 or int64 [B, D] root and draft token IDs.
+        retrive_index (torch.Tensor): int32 or int64 [B, D] global output slots.
+        retrive_next_token (torch.Tensor): int32 or int64 [B, D] local first-child
+            indices, with -1 for no child. Used by torch_native.
+        retrive_next_sibling (torch.Tensor): int32 or int64 [B, D] local next-sibling
+            indices, with -1 at the end of the chain. Used by torch_native.
+        target_predict (torch.Tensor): int32 or int64 [B, D] target next-token IDs.
+        impl (str): "auto", "triton", or "torch_native". Defaults to "auto".
+
+    Returns:
+        None. Outputs are updated in place. Unwritten slots retain their values.
     """
     return get_impl_by_name("speculative.verify_tree_greedy", impl)(
         predicts=predicts,

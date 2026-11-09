@@ -52,9 +52,39 @@ def tree_speculative_sampling_target_only(
 ):
     """Traverse a draft tree using target probabilities and sample a final token.
 
-    Writes predicts, accept_index and accept_token_num in place. draft_probs is
-    scratch: it is cleared and filled with rejected sibling probabilities.
-    Returns None. Random samples come from the caller; deterministic is ignored.
+    The default impl="auto" selects Triton. B is the request count, D is the
+    node count including the root, S is the path capacity, and V is the
+    vocabulary size. Unwritten integer output slots retain their values.
+
+    Args:
+        predicts (torch.Tensor): One-dimensional int32 output for accepted and
+            sampled token IDs, with space for every slot in retrive_index.
+        accept_index (torch.Tensor): int32 [B, S] output for root and accepted
+            slots, in path order.
+        accept_token_num (torch.Tensor): int32 [B] output counting accepted
+            drafts, excluding the final sampled token.
+        candidates (torch.Tensor): int64 [B, D] root and candidate token IDs.
+        retrive_index (torch.Tensor): int64 [B, D] global output slots.
+        retrive_next_token (torch.Tensor): int64 [B, D] local first-child indices.
+            Use -1 when a node has no child.
+        retrive_next_sibling (torch.Tensor): int64 [B, D] local next-sibling
+            indices. Use -1 at the end of a sibling chain.
+        uniform_samples (torch.Tensor): float32 [B, D] acceptance samples in
+            [0, 1), indexed by the current accepted node.
+        uniform_samples_for_final_sampling (torch.Tensor): float32 [B] final
+            sampling values in [0, 1).
+        target_probs (torch.Tensor): Read-only float32 [B, D, V] target probabilities.
+        draft_probs (torch.Tensor): Writable float32 [B, D, V] scratch. Nonempty
+            calls clear it and record rejected siblings' target probabilities.
+        threshold_single (float): Target probability for immediate acceptance.
+            Defaults to 1.0.
+        threshold_acc (float): Divisor for cumulative acceptance probability,
+            clamped to at least 1e-9. Defaults to 1.0.
+        deterministic (bool): Ignored compatibility flag. Defaults to True.
+        impl (str): "auto", "triton", or "torch_native". Defaults to "auto".
+
+    Returns:
+        None. The integer outputs and rejection scratch are updated in place.
     """
     return get_impl_by_name("speculative.tree_speculative_sampling_target_only", impl)(
         predicts=predicts,

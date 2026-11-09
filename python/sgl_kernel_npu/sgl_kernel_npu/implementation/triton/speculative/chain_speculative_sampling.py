@@ -288,6 +288,7 @@ def chain_speculative_sampling_triton(
     num_speculative_tokens = accept_index.shape[1]
     num_draft_prob_rows = draft_probs.shape[1]
     vocab_size = target_probs.shape[-1]
+    # Vocabulary block width for residual sums and final sampling.
     vocab_block_size = 2048
     num_vocab_blocks = triton.cdiv(vocab_size, vocab_block_size)
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)
