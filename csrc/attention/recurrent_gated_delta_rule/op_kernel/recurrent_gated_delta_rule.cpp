@@ -227,7 +227,7 @@ public:
         for (uint64_t workIdx = startIdx; workIdx < endIdx; workIdx++) {
             uint64_t batchIdx = workIdx / NV_;
             uint64_t headIdx = workIdx % NV_;
-            // Each batch has only one token. seq0 = batchIdx, seq1 = batchIdx + 1
+            // Each batch occupies S_ token slots. [seq0, seq1) covers its valid tokens.
             uint64_t seq0 = batchIdx * S_;
             uint64_t seq1 = seq0 + cuSeqlensGm_.GetValue(batchIdx);
 

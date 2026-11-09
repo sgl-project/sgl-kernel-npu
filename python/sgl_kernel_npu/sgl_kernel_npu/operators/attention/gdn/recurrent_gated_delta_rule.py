@@ -1,5 +1,7 @@
 """Public packed recurrent gated delta rule with caller-owned mutable state."""
 
+import torch
+
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _native = None
@@ -14,8 +16,6 @@ _native = None
     "ascendc",
 )
 def _ascendc_impl(*args, **kwargs):
-    import torch
-
     return torch.ops.npu.recurrent_gated_delta_rule(*args, **kwargs)
 
 
