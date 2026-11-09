@@ -8,7 +8,7 @@ _torch_native_fn = None
 
 @register_impl("speculative.verify_tree_greedy", "auto")
 @register_impl("speculative.verify_tree_greedy", "triton")
-def _triton_impl(**kwargs):
+def _triton_impl(*args, **kwargs):
     global _triton_fn
     if _triton_fn is None:
         from ...implementation.triton.speculative.verify_tree_greedy import (
@@ -16,11 +16,11 @@ def _triton_impl(**kwargs):
         )
 
         _triton_fn = verify_tree_greedy
-    return _triton_fn(**kwargs)
+    return _triton_fn(*args, **kwargs)
 
 
 @register_impl("speculative.verify_tree_greedy", "torch_native")
-def _torch_native_impl(**kwargs):
+def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
         from ...implementation.torch_native.speculative.verify_tree_greedy import (
@@ -28,7 +28,7 @@ def _torch_native_impl(**kwargs):
         )
 
         _torch_native_fn = verify_tree_greedy_torch
-    return _torch_native_fn(**kwargs)
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("speculative.verify_tree_greedy")
