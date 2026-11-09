@@ -5,14 +5,14 @@
 | 实现 | 状态 dtype | arch22（2201） | arch35（3510） |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | 支持 | 支持 |
-| `ascendc` | FP32 | 不支持 | 支持 |
+| `ascendc` | FP32 | 不支持 | 待验证 |
 | `torch_native` | BF16 | 支持 | 支持 |
-| `torch_native` | FP32 | 支持 | 支持 |
+| `torch_native` | FP32 | 待验证 | 待验证 |
 
 状态 dtype 指 `initial_state`、`final_state` 和可选 `chunk_state` 的类型。
-已确认的精度覆盖为 A3 / A5 各 15 组 BF16 状态用例，新版 `ascendc` 对照
-`torch_native`；FP32 状态尚未验证。用例共用一组 shape：
-`B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，组合为 5 种 scale × 3 种块状态布局，
+A5 的 `ascendc` 内核有 FP32 状态实现，`torch_native` 在两种架构上均接受 FP32 状态。
+精度测试在 A3 和 A5 上各使用 15 组 BF16 状态用例，对比 `ascendc` 和 `torch_native`。
+所有用例的形状均为 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局，
 详见[测试源码](../../../../../tests/python/operators/attention/test_chunk_gated_delta_rule.py)。
 
 ## 函数原型
@@ -67,7 +67,7 @@ out_t = scale * (S_t @ q_t)
 | `query`、`key` | `[T, Nk, Dk]` | BF16 | 两者形状相同。 |
 | `value` | `[T, Nv, Dv]` | BF16 | Value 张量。 |
 | `beta` | `[T, Nv]` | BF16，必填 | Delta 更新系数。 |
-| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32，必填 | 初始状态；`ascendc` 的 FP32 状态仅支持 arch35。 |
+| `initial_state` | `[B, Nv, Dv, Dk]` | BF16 / FP32，必填 | 初始状态。FP32 状态详见[芯片支持](#芯片支持)。 |
 | `actual_seq_lengths` | `[B]` | int32，必填 | 各序列长度，不是累计边界；`ascendc` 要求每项大于零、总和为 `T`。 |
 | `scale` | — | float / `None` | 输出缩放，`None` 时为 `1.0`。 |
 | `g` | `[T, Nv]` | FP32 / `None` | 对数衰减，`None` 表示不衰减。 |
