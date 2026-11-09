@@ -49,8 +49,8 @@ public:
 
     __aicore__ inline void operator()(SasaKernelParamsArch35 const &params)
     {
-        __gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData =
-            reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(params.tiling);
+        __gm__ optiling::SparseAttentionScoreTilingData *tilingData =
+            reinterpret_cast<__gm__ optiling::SparseAttentionScoreTilingData *>(params.tiling);
         FetchBaseShapeInfo(tilingData);
         CalcOnChipBufTileInfo(tilingData);
 
@@ -259,7 +259,7 @@ public:
     }
 
 private:
-    __aicore__ inline void FetchBaseShapeInfo(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void FetchBaseShapeInfo(__gm__ optiling::SparseAttentionScoreTilingData *tilingData)
     {
         batch_ = tilingData->batch;
         qHeads_ = tilingData->numHeads;
@@ -278,7 +278,7 @@ private:
         actSeqAval_ = true;
     }
 
-    __aicore__ inline void CalcOnChipBufTileInfo(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void CalcOnChipBufTileInfo(__gm__ optiling::SparseAttentionScoreTilingData *tilingData)
     {
         mm1L1TileM_ = tilingData->mm1L1TileM;
         mm1L1TileN_ = tilingData->mm1L1TileN;

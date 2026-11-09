@@ -16,7 +16,7 @@
 namespace sglang {
 namespace SAHost {
 
-// Host-side mirror of SparseAttn::SparseAttentionScoreTilingData (kernel_common.hpp).
+// Host-side mirror of optiling::SparseAttentionScoreTilingData (kernel_common.hpp).
 // Field order/type MUST stay byte-identical: the kernel reinterprets the GM tiling
 // blob as that struct. Natural alignment under aarch64 ABI; no #pragma pack needed.
 struct SATilingData {

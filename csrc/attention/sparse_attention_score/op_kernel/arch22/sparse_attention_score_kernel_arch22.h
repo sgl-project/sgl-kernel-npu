@@ -53,8 +53,8 @@ public:
 
     __aicore__ inline void operator()(SasaKernelParamsArch22 const &params)
     {
-        __gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData =
-            reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(params.tiling);
+        __gm__ optiling::SparseAttentionScoreTilingData *tilingData =
+            reinterpret_cast<__gm__ optiling::SparseAttentionScoreTilingData *>(params.tiling);
         FetchTilingData(tilingData);
 
         AscendC::GlobalTensor<ElementQ> gQ;
@@ -363,7 +363,7 @@ public:
     }
 
 private:
-    __aicore__ inline void FetchTilingData(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void FetchTilingData(__gm__ optiling::SparseAttentionScoreTilingData *tilingData)
     {
         batch_ = tilingData->batch;
         qHeads_ = tilingData->numHeads;

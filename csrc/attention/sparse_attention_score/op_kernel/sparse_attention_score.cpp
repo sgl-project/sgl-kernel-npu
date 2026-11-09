@@ -12,7 +12,7 @@
 #include "kernel_operator_list_tensor_intf.h"
 #include "sparse_attention_score_tilingkey.h"
 #include "sparse_attention_score_kernel_interface.cpp"
-#include "kernel_common.hpp"  // SparseAttn::SparseAttentionScoreTilingData (host/kernel tiling blob contract)
+#include "kernel_common.hpp"  // optiling::SparseAttentionScoreTilingData (host/kernel tiling blob contract)
 
 // NOTE: use GM_ADDR here, not the equivalent `__gm__ uint8_t *`: CANN extract_host_stub.py
 // mis-parses the explicit form, generating a broken indirect wrapper. Host passes raw GM addresses.
@@ -21,9 +21,9 @@ extern "C" __global__ __aicore__ void sgl_sparse_attention_score(
     GM_ADDR actualSeqLengths, GM_ADDR actualSeqLengthsKv, GM_ADDR qDequantScale, GM_ADDR kDequantScale,
     GM_ADDR vDequantScale, GM_ADDR attentionOut, GM_ADDR softmaxLse, GM_ADDR workspace, GM_ADDR tiling)
 {
-    REGISTER_TILING_DEFAULT(SparseAttn::SparseAttentionScoreTilingData);
+    REGISTER_TILING_DEFAULT(optiling::SparseAttentionScoreTilingData);
     // Preserve GM-blob dispatch; the CANN callback publishes the same key.
-    auto tilingData = reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(tiling);
+    auto tilingData = reinterpret_cast<__gm__ optiling::SparseAttentionScoreTilingData *>(tiling);
     auto tilingKey = tilingData->tilingKey;
     if (tilingKey >= SASA_BASE_TILING) {
         __gm__ uint8_t *user = AscendC::GetUserWorkspace(workspace);

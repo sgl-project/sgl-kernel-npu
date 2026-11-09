@@ -13,7 +13,7 @@
 
 #include "kernel_operator.h"
 
-namespace SparseAttn {
+namespace optiling {
 
 struct SparseAttentionScoreTilingData {
     uint32_t batch;
@@ -54,6 +54,6 @@ struct SparseAttentionScoreTilingData {
     uint32_t pL1BufNum;
 };
 
-}  // namespace SparseAttn
+}  // namespace optiling
 
 #endif  // KERNEL_COMMON_HPP
