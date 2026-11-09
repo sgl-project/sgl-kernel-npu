@@ -1,5 +1,7 @@
 """Legacy-compatible sparse block estimation with explicit backend selection."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -15,8 +17,6 @@ _torch_native_fn = None
     supported_generations={Generation.ARCH22},
 )
 def _ascendc_impl(*args):
-    import torch
-
     return torch.ops.attentions.sparse_block_estimate(*args)
 
 
