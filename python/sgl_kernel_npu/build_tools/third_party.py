@@ -53,6 +53,12 @@ def detect_cann_version():
 @lru_cache(maxsize=1)
 def detect_soc_version():
     """Detect the local build target without importing Torch or initializing NPU."""
+    explicit_soc = os.environ.get("SGL_KERNEL_BUILD_SOC")
+    if explicit_soc is not None:
+        if explicit_soc not in {"ascend910b", "ascend910_93", "ascend950"}:
+            raise ValueError(f"Unsupported SGL_KERNEL_BUILD_SOC: {explicit_soc!r}")
+        return explicit_soc
+
     for arguments in (
         ["npu-smi", "info", "-t", "board", "-i", "0"],
         ["npu-smi", "info", "-t", "board", "-i", "0", "-c", "0"],
