@@ -107,6 +107,7 @@ def test_checksum(shape, dtypes, mode, index_dtype):
 
 
 # Specialized mutation, legacy pointer-input and invalid-input checks follow.
+@pytest.mark.extra_checks
 def test_selection_and_corruption():
     from sgl_kernel_npu.operators.mem_cache import adler32_strided_checksum
 
@@ -132,6 +133,7 @@ def test_selection_and_corruption():
     assert executor() != changed
 
 
+@pytest.mark.extra_checks
 def test_integer_addresses():
     from sgl_kernel_npu.operators.mem_cache import adler32_strided_checksum
 
@@ -154,6 +156,7 @@ def test_integer_addresses():
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("invalid", ["lengths", "rank", "dtype", "cpu"])
 def test_invalid_descriptors(invalid):
     from sgl_kernel_npu.operators.mem_cache import adler32_strided_checksum

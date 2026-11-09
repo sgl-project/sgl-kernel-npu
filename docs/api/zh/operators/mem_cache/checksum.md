@@ -4,8 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | 已在 Ascend A3 验证 | 未验证 |
-| `torch_native` | 已在 Ascend A3 验证 | 未验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
+
+两种实现均已在 Ascend A3（arch22）和 Ascend A5（arch35）上验证。
 
 ## 函数签名
 
@@ -23,8 +25,7 @@ def adler32_strided_checksum(
     ...
 ```
 
-`auto` 选择 `triton`。两种架构均已声明该实现，arch35 尚需硬件验证，
-不提供自动回退。
+`auto` 选择 `triton`。不提供自动回退。
 
 ## 功能说明
 

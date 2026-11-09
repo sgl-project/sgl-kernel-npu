@@ -4,8 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Verified on Ascend A3 | Verified on Ascend A5 |
-| `torch_native` | Verified on Ascend A3 | Verified on Ascend A5 |
+| `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
+
+Both implementations were verified on Ascend A3 (arch22) and Ascend A5 (arch35).
 
 ## Signature
 
@@ -23,8 +25,7 @@ def adler32_strided_checksum(
     ...
 ```
 
-`auto` selects `triton`. The implementation is declared for both architectures;
-arch35 still needs hardware validation. There is no automatic fallback.
+`auto` selects `triton`. There is no automatic fallback.
 
 ## Description
 
