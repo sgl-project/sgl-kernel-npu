@@ -4,8 +4,8 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Verified on Ascend A3 | Unverified |
-| `torch_native` | Verified on Ascend A3 | Unverified |
+| `triton` | Verified on Ascend A3 | Verified on Ascend A5 |
+| `torch_native` | Verified on Ascend A3 | Verified on Ascend A5 |
 
 ## Signature
 
