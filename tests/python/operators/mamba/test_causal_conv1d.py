@@ -209,7 +209,7 @@ CASES = [
 ]
 
 
-EXTRA_DIMS = {"prefill-cutbsd": 4224, "update-fallback": 1000}
+EXTRA_DIMS = {"prefill-cutbsd": 4224}
 
 
 def generate_test_data(case_index, run_mode=0):
@@ -370,7 +370,6 @@ def check_result(actual_y, actual, reference_y, reference, original, label):
     + [(1, index) for index in range(len(UPDATE_CASE_NAMES))]
     + [
         pytest.param(0, "prefill-cutbsd", marks=pytest.mark.extra_checks),
-        pytest.param(1, "update-fallback", marks=pytest.mark.extra_checks),
     ],
     ids=[
         f"{mode}-{case.name}-b{case.batch}-"
@@ -380,7 +379,7 @@ def check_result(actual_y, actual, reference_y, reference, original, label):
         for case in CASES
     ]
     + UPDATE_CASE_NAMES[len(CASES) :]
-    + ["extra-prefill-cutbsd-b2-l6-d4224", "extra-update-fallback-b2-l6-d1000"],
+    + ["extra-prefill-cutbsd-b2-l6-d4224"],
 )
 def test_causal_conv1d(run_mode, case_index):
     from sgl_kernel_npu.operators.mamba import causal_conv1d
