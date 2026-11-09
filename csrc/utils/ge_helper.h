@@ -47,6 +47,8 @@ constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
             return ge::DT_BOOL;
         case at::ScalarType::BFloat16:
             return ge::DT_BF16;
+        case at::ScalarType::Float8_e4m3fn:
+            return ge::DT_FLOAT8_E4M3FN;
         default:
             return ge::DT_FLOAT16;
     }
@@ -81,6 +83,8 @@ constexpr uint32_t GE_DATATYPE_TO_KEY(ge::DataType geDatatype)
             return 11;
         case ge::DT_BF16:
             return 12;
+        case ge::DT_FLOAT8_E4M3FN:
+            return 13;
         default:
             return 1;
     }
@@ -144,13 +148,23 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached and the 512-entry cache is full; "
                         "NPU graph capture cannot use a one-shot tiling address");
-            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            // Overflow: keep using at::empty, but reuse ONE held slab instead of
+            // allocating a throw-away block per call. A freed block can be handed to
+            // another tensor and overwritten before the kernel reads it; a slab held
+            // in DeviceCache for the process lifetime never can (the overflow path is
+            // eager-only, so there is no graph-capture re-map to worry about here).
+            // The tensor handed to the kernel is a non-allocator from_blob view of the
+            // slab, so the caching allocator does not own the address the kernel reads.
+            if (!cache.overflowBuffer.defined()) {
+                cache.overflowBuffer = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            }
+            // Hand the kernel a non-allocator (from_blob) view of the slab. The local
+            // reference keeps data_ptr<...>() a non-dependent expression, which GCC
+            // needs when it is written directly on a member of this template.
+            const at::Tensor &overflowSlab = cache.overflowBuffer;
+            auto tilingTensor = at::from_blob(overflowSlab.data_ptr<uint8_t>(), at::IntArrayRef(&tilingSize, 1),
+                                              at::TensorOptions().device(device).dtype(at::kByte));
             CopyTo_(tilingTensor, tilingData, opName);
-            // The async kernel launched right after this returns reads this
-            // one-shot buffer, so tell the caching allocator to keep the block
-            // alive until the current stream has drained (it is recorded when
-            // the tensor is freed, i.e. after the launch).
-            tilingTensor.record_stream(c10_npu::getCurrentNPUStream());
             return tilingTensor;
         }
 
@@ -214,6 +228,7 @@ private:
     }
     struct DeviceCache {
         at::Tensor buffer;
+        at::Tensor overflowBuffer;
         std::unordered_map<std::string, int64_t> slots;
         int64_t nextSlot = 0;
     };
