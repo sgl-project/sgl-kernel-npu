@@ -104,11 +104,14 @@ Usage notes:
 
 The 15 BF16-state accuracy cases passed on arch 2201 and arch 3510. They use
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings and three
-chunk-state layouts: absent, contiguous and noncontiguous. FP32 state is outside
-this test suite.
+chunk-state layouts: absent, contiguous and noncontiguous.
 
-Accuracy compares `ascendc` with `torch_native` using the shared dtype-specific
-standards. Performance uses the shared framework with five warmup and five active
-calls. The default performance case uses explicit
-`scale=128**-0.5` and no `chunk_state`. See the
+The same 15 combinations cover FP32 state on arch 3510. Accuracy compares
+`ascendc` with `torch_native`. FP32 `final_state` and contiguous `chunk_state`
+use `atol=1e-3` and `rtol=1e-5` to account for BF16 rounding in the kernel.
+BF16 outputs use the shared standard. The test checks noncontiguous
+`chunk_state` for exact preservation.
+
+For each state dtype, the default performance case uses explicit
+`scale=128**-0.5` and no `chunk_state`, with five warmup and five active calls. See the
 [test source](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py).

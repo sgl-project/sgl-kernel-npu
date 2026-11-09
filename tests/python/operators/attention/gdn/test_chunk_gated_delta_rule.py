@@ -13,9 +13,13 @@ from tests.python.utils.common import (
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
+
+# The kernel rounds some FP32 state update operands to BF16 before matmul.
+_FP32_STATE_STANDARD = {"torch.float32": AccuracyStandard(atol=1e-3, rtol=1e-5)}
 
 
-def generate_test_data(device):
+def generate_test_data(device, state_dtype=torch.bfloat16):
     """Original ARC-013 dimensions and input generation distributions.
 
     Source: ops-transformer 6bff82496a8720343fc6144218f059a06a7b9b48,
@@ -36,7 +40,7 @@ def generate_test_data(device):
         key=k,
         value=torch.rand((t, nv, d), dtype=torch.bfloat16, device=device),
         beta=torch.rand((t, nv), dtype=torch.bfloat16, device=device),
-        initial_state=torch.rand((1, nv, d, d), dtype=torch.bfloat16, device=device),
+        initial_state=torch.rand((1, nv, d, d), dtype=state_dtype, device=device),
         actual_seq_lengths=torch.tensor([t], dtype=torch.int32, device=device),
         g=-1 + torch.rand((t, nv), dtype=torch.float32, device=device),
         scale=d**-0.5,
@@ -60,6 +64,9 @@ def clone_test_data(inputs):
 
 
 @pytest.mark.parametrize(
+    "state_dtype", [torch.bfloat16, torch.float32], ids=["state-bf16", "state-fp32"]
+)
+@pytest.mark.parametrize(
     "scale",
     [128**-0.5, "omitted", None, 1.0, 0.0],
     ids=[
@@ -71,27 +78,34 @@ def clone_test_data(inputs):
     ],
 )
 @pytest.mark.parametrize("chunk_layout", ["absent", "contiguous", "noncontiguous"])
-def test_chunk_gated_delta_rule(scale, chunk_layout):
-    """Cover BF16 state across scale settings and chunk-state layouts."""
+def test_chunk_gated_delta_rule(scale, chunk_layout, state_dtype):
+    """Cover scale settings and chunk-state layouts for both state dtypes."""
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    data = generate_test_data(torch.device("npu"))
+    if state_dtype == torch.float32 and get_hardware().generation != Generation.ARCH35:
+        pytest.skip("CGDR FP32 state cases require arch 3510")
+
+    standard = _FP32_STATE_STANDARD if state_dtype == torch.float32 else None
+    data = generate_test_data(torch.device("npu"), state_dtype)
     if scale == "omitted":
         del data["scale"]
     else:
         data["scale"] = scale
     if chunk_layout != "absent":
         data["chunk_state"] = torch.zeros(
-            (32, 16, 128, 128), dtype=torch.bfloat16, device=data["query"].device
+            (32, 16, 128, 128), dtype=state_dtype, device=data["query"].device
         )
     if chunk_layout == "noncontiguous":
         padded = torch.full(
-            (32, 16, 128, 129), -7, dtype=torch.bfloat16, device=data["query"].device
+            (32, 16, 128, 129), -7, dtype=state_dtype, device=data["query"].device
         )
         data["chunk_state"] = padded[..., :128]
     if chunk_layout == "absent":
         initial_before = data["initial_state"].clone()
-        executor = check_accuracy(chunk_gated_delta_rule, kwargs=data)
+        executor = check_accuracy(
+            chunk_gated_delta_rule, kwargs=data, standard=standard
+        )
         if executor.accuracy_checked:
             assert torch.equal(data["initial_state"], initial_before)
     else:
@@ -108,9 +122,12 @@ def test_chunk_gated_delta_rule(scale, chunk_layout):
             chunk_before = actual_inputs["chunk_state"].clone()
             result_ref = chunk_gated_delta_rule(**reference_inputs, impl=impl_ref)
             result = chunk_gated_delta_rule(**actual_inputs, impl=impl)
-            assert_accuracy(result, result_ref)
+            assert_accuracy(result, result_ref, standard=standard)
             assert_accuracy(
-                actual_inputs["chunk_state"], reference_inputs["chunk_state"]
+                actual_inputs["chunk_state"],
+                reference_inputs["chunk_state"],
+                standard=standard if chunk_layout == "contiguous" else None,
+                path="chunk_state",
             )
             assert torch.equal(actual_inputs["initial_state"], initial_before)
             if chunk_layout == "noncontiguous":

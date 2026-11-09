@@ -98,9 +98,14 @@ out_t = scale * (S_t @ q_t)
 
 15 个 BF16 状态精度用例已在 arch 2201 和 arch 3510 通过。用例使用
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
-不提供、连续和非连续。FP32 状态不在当前测试范围内。
+不提供、连续和非连续。
 
-精度使用公共框架按 dtype 对比 `ascendc` 与 `torch_native`。
-性能沿用公共框架的 5 次 warmup 和 5 次 active；默认仅测
+arch 3510 上的 FP32 状态测试覆盖相同的 15 个组合。精度测试对比
+`ascendc` 与 `torch_native`。考虑到内核中的 BF16 舍入，FP32 `final_state`
+和连续 `chunk_state` 使用 `atol=1e-3` 和 `rtol=1e-5`。BF16 输出按公共标准比较。
+非连续 `chunk_state` 逐元素检查是否保持原值。
+
+每种状态 dtype 的性能测试默认仅测
 显式 `scale=128**-0.5` 且不提供 `chunk_state` 的配置。
+沿用公共框架的 5 次 warmup 和 5 次 active。
 详见[测试源码](../../../../../../tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py)。
