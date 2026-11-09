@@ -65,8 +65,8 @@ a[t, g*r + j]                      = mixed_ba[t, g*2*r + r + j]
 | `mixed_ba` | Tensor `[rows, 2*num_heads_v]`, floating point | Required | 2-D and contiguous; may use a different dtype than `mixed_qkvz`. |
 | `num_heads_qk` | `int` | Required | Number of q/k heads; must be positive. |
 | `num_heads_v` | `int` | Required | Number of v heads; must be positive and divisible by `num_heads_qk`. |
-| `head_qk` | `int` | Required | Per-head q/k dimension; must be positive. Triton requires a power of two. |
-| `head_v` | `int` | Required | Per-head v/z dimension; must be positive. Triton requires a power of two. |
+| `head_qk` | `int` | Required | Per-head q/k dimension; must be positive. |
+| `head_v` | `int` | Required | Per-head v/z dimension; must be positive. |
 | `impl` | `str` | `"auto"` | Keyword-only; `auto`, `triton` or `torch_native`. |
 
 | Return value | Shape / dtype | Meaning |
@@ -78,7 +78,7 @@ a[t, g*r + j]                      = mixed_ba[t, g*2*r + r + j]
 
 **Asserted constraints**: both inputs are 2-D, share the same row count, are contiguous, `num_heads_v % num_heads_qk == 0`, both row widths match the formulas above, and `rows > 0`. Checks run before the kernel launch and report the actual shape/stride.
 
-**Caller requirements**: pass both inputs on the same NPU. Triton also requires `num_heads_v // num_heads_qk` to be a power of two. Inputs are not modified; the Triton backend allocates all four outputs.
+**Caller requirements**: pass both inputs on the same NPU. Inputs are not modified; the Triton backend allocates all four outputs.
 
 ## triton backend
 

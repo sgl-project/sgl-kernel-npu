@@ -65,8 +65,8 @@ a[t, g*r + j]                      = mixed_ba[t, g*2*r + r + j]
 | `mixed_ba` | Tensor `[rows, 2*num_heads_v]`，浮点 | 必填 | 二维、连续；dtype 可与 `mixed_qkvz` 不同。 |
 | `num_heads_qk` | `int` | 必填 | q/k 头数，必须为正数。 |
 | `num_heads_v` | `int` | 必填 | v 头数，必须为正数且能被 `num_heads_qk` 整除。 |
-| `head_qk` | `int` | 必填 | q/k 单头维度，必须为正数；Triton 要求为 2 的幂。 |
-| `head_v` | `int` | 必填 | v/z 单头维度，必须为正数；Triton 要求为 2 的幂。 |
+| `head_qk` | `int` | 必填 | q/k 单头维度，必须为正数。 |
+| `head_v` | `int` | 必填 | v/z 单头维度，必须为正数。 |
 | `impl` | `str` | `"auto"` | 仅限关键字；`auto`、`triton`、`torch_native`。 |
 
 | 返回值 | Shape / Dtype | 含义 |
@@ -78,7 +78,7 @@ a[t, g*r + j]                      = mixed_ba[t, g*2*r + r + j]
 
 **被断言的约束**：两个输入均为二维、行数相同、均连续、`num_heads_v % num_heads_qk == 0`、两个输入行宽分别等于上述公式、`rows > 0`。断言在启动 kernel 前执行，错误信息带实际 shape/stride。
 
-**调用要求**：两个输入需位于同一 NPU。Triton 还要求 `num_heads_v // num_heads_qk` 为 2 的幂。输入不被修改；Triton 后端会分配四个输出。
+**调用要求**：两个输入需位于同一 NPU。输入不被修改；Triton 后端会分配四个输出。
 
 ## triton 后端
 

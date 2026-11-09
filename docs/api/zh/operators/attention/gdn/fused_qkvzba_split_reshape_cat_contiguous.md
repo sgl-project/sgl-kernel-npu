@@ -64,7 +64,7 @@ a[t, h]                          = mixed_ba[t, V + h]
 | `mixed_qkvz` | Tensor `[rows, 2*num_heads_qk*head_qk + 2*num_heads_v*head_v]`，浮点 | 必填 | 二维、连续；行宽必须等于 `2*num_heads_qk*head_qk + 2*num_heads_v*head_v`。 |
 | `mixed_ba` | Tensor `[rows, 2*num_heads_v]`，浮点 | 必填 | 二维、连续；dtype 可与 `mixed_qkvz` 不同。 |
 | `num_heads_qk` | `int` | 必填 | q/k 头数，必须为正数。 |
-| `num_heads_v` | `int` | 必填 | v 头数，必须为正数且能被 `num_heads_qk` 整除；Triton 要求其为 2 的幂。 |
+| `num_heads_v` | `int` | 必填 | v 头数，必须为正数且能被 `num_heads_qk` 整除。 |
 | `head_qk` | `int` | 必填 | q/k 单头维度，必须为正数。 |
 | `head_v` | `int` | 必填 | v/z 单头维度，必须为正数。 |
 | `impl` | `str` | `"auto"` | 仅限关键字；`auto`、`triton`、`torch_native`。 |

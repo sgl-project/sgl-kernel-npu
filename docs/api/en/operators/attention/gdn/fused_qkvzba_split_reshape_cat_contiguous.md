@@ -64,7 +64,7 @@ This is a data-reordering operation: it does not change element values, but the 
 | `mixed_qkvz` | Tensor `[rows, 2*num_heads_qk*head_qk + 2*num_heads_v*head_v]`, floating point | Required | 2-D and contiguous; the row width must equal `2*num_heads_qk*head_qk + 2*num_heads_v*head_v`. |
 | `mixed_ba` | Tensor `[rows, 2*num_heads_v]`, floating point | Required | 2-D and contiguous; may use a different dtype than `mixed_qkvz`. |
 | `num_heads_qk` | `int` | Required | Number of q/k heads; must be positive. |
-| `num_heads_v` | `int` | Required | Number of v heads; must be positive, divisible by `num_heads_qk`, and a power of two for Triton. |
+| `num_heads_v` | `int` | Required | Number of v heads; must be positive and divisible by `num_heads_qk`. |
 | `head_qk` | `int` | Required | Per-head q/k dimension; must be positive. |
 | `head_v` | `int` | Required | Per-head v/z dimension; must be positive. |
 | `impl` | `str` | `"auto"` | Keyword-only; `auto`, `triton` or `torch_native`. |
