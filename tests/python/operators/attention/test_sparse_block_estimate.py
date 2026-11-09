@@ -5,7 +5,7 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
-perf_shape = [(1, 4, 4, 4096, 64)]
+perf_shape = [(1, 4, 4, 4096, 64)]  # The only shape measured for performance.
 
 
 def generate_test_data(
@@ -86,10 +86,11 @@ def generate_test_data(
 @pytest.mark.parametrize(
     "shape",
     [
-        (1, 1, 1, 256, 64),  # Causal <=2 blocks shortcut.
-        (2, 4, 2, 2048, 64),  # GQA and row_sparse's >=10 block branch.
-        (1, 4, 4, 4096, 64),
-        (1, 1, 1, 8200, 64),  # Sparse tail, >32 columns, multiple inner tiles.
+        pytest.param((1, 1, 1, 256, 64), id="edge-causal-shortcut"),
+        pytest.param((2, 4, 2, 2048, 64), id="gqa-row-sparse-branch"),
+        # Same tuple as perf_shape; the only case that is timed.
+        pytest.param((1, 4, 4, 4096, 64), id="perf-4k-mha"),
+        pytest.param((1, 1, 1, 8200, 64), id="edge-sparse-tail"),
     ],
 )
 @pytest.mark.parametrize("causal", [True, False])
