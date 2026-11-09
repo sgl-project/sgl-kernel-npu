@@ -244,12 +244,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? src_ptr=None, int? dst_ptr=None) -> ()");
 
     m.def(
-        "restore_short_kv_history(Tensor host, Tensor(a!) cache, Tensor req_to_token, Tensor requests, "
-        "Tensor lengths, Tensor first_positions, Tensor old_begin, Tensor old_end, Tensor(b!) next_begin, "
-        "Tensor(c!) next_end, Tensor(d!) next_first, int capacity, int context_len, int src_ptr, int block_dim=48) -> "
-        "()");
-
-    m.def(
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
         "Tensor(a!) token_on_device, Tensor(b!) device_token_pos, "
         "int block_dim=0) -> ()");
@@ -440,7 +434,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
-    m.impl("restore_short_kv_history", TORCH_FN(sglang::npu_kernel::restore_short_kv_history));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
 #endif

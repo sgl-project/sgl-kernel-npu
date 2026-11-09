@@ -2,7 +2,6 @@ from sgl_kernel_npu.sparsity_driven_kv_offload.ops import (
     create_shm_tensor,
     free_shm,
     fused_lightning_indexer_manage,
-    restore_short_kv_history_inplace,
     slot_map_lookup,
     unidex_copy_inplace,
 )
@@ -12,7 +11,6 @@ __all__ = [
     "free_shm",
     "fused_lightning_indexer_manage",
     "plan_sparse_kv_cache",
-    "restore_short_kv_history_inplace",
     "slot_map_lookup",
     "unidex_copy_inplace",
 ]
