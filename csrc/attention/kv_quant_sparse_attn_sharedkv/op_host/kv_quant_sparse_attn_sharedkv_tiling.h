@@ -20,7 +20,7 @@
 #include <tiling/platform/platform_ascendc.h>
 #include "exe_graph/runtime/tiling_context.h"
 #include "register/op_impl_registry.h"
-#include "kv_quant_sparse_attn_sharedkv_tiling_data.h"
+#include "../op_kernel/kv_quant_sparse_attn_sharedkv_tiling_data.h"
 #include "kv_quant_sparse_attn_sharedkv_check.h"
 
 namespace optiling {

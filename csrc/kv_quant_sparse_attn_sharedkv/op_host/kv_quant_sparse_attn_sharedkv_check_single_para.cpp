@@ -14,7 +14,6 @@
  */
 
 #include "kv_quant_sparse_attn_sharedkv_check.h"
-#include "../op_kernel/kv_quant_sparse_attn_sharedkv_metadata.h"
 
 using namespace ge;
 using namespace AscendC;

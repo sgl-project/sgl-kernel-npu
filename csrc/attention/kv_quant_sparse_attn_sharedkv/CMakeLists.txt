@@ -13,10 +13,9 @@ sgl_register_operator(
         op_host/kv_quant_sparse_attn_sharedkv_check_feature.cpp
         op_host/kv_quant_sparse_attn_sharedkv_check_single_para.cpp
     KERNEL_SOURCES op_kernel/kv_quant_sparse_attn_sharedkv.cpp
-    # Reuse the existing device implementation and shared utilities unchanged.
+    # Operator-specific headers live here; util.h is shared with other kernels.
     KERNEL_INCLUDE_DIRECTORIES
-        op_kernel op_host ../../kv_quant_sparse_attn_sharedkv/op_kernel
-        ../../utils/kernel ../../attentions/csrc/ops/utils/inc/kernel
+        op_kernel ../../utils/kernel
     KERNEL_COMPILE_OPTIONS
         --cce-auto-sync=off
         -Wno-deprecated-declarations

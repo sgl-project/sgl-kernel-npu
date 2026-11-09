@@ -78,7 +78,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
-    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
+    ${PROJECT_OP_SRC_BASE}/attention/sparse_attn_sharedkv_metadata_host/op_host/sparse_attn_sharedkv_metadata.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/sparse_flash_attention.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling/sparse_flash_attention_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
@@ -115,7 +115,7 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_feature.cpp
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check_single_para.cpp
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_tiling.cpp
-        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/kv_quant_sparse_attn_sharedkv_metadata_host/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp
         ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_host/situ_mxfp8_quant.cpp
         ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_host/swiglu_group_quant.cpp
     )
@@ -342,7 +342,7 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp
     )
     ascendc_include_directories(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel
+        ${PROJECT_OP_SRC_BASE}/attention/kv_quant_sparse_attn_sharedkv/op_kernel
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/attentions/csrc/ops/utils/inc/kernel
         ${PROJECT_OP_SRC_BASE}/utils/kernel
