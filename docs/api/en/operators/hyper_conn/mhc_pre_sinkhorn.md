@@ -7,7 +7,7 @@
 | cann_ops_transformer | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
-Accuracy validated on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582) with CANN 9.1: all 24 independent Torch-reference cases passed on each device, covering FP16/BF16 activations and FP32 parameters.
+The retained 8 independent Torch-reference cases passed in the previous CANN 9.1 validation on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582), covering FP16/BF16 activations and FP32 parameters. Tests use GLM-5.3-Flash dimensions with hidden size 4096; token counts are 1 and 128. Small-width synthetic cases are omitted because the CANN 9.2 Ascend950 implementation requires hidden size 4096 or 7168.
 
 ## Signature
 
