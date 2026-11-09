@@ -1,0 +1,77 @@
+name: PR Test - MegaMoE public interfaces
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "python/sgl_kernel_npu/sgl_kernel_npu/operators/moe/**"
+      - "python/sgl_kernel_npu/sgl_kernel_npu/operators/utils/**"
+      - "cmake/legacy_kernels.cmake"
+      - "csrc/situ_mxfp8_quant/op_kernel/situ_mxfp8_quant.cpp"
+      - "csrc/activation/common/kernel/mx_quant_kernel.h"
+      - "tests/python/operators/moe/**"
+      - "tests/python/sgl_kernel_npu/test_mega_moe_registration.py"
+      - "tests/python/sgl_kernel_npu/test_mega_moe_reference.py"
+      - ".github/workflows/pr-test-mega-moe.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mega-moe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  distributed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: A3
+            runner: linux-aarch64-a3-800t-16
+            hardware: a3
+            soc: Ascend910_9382
+            provider_variable: MEGAMOE_PROVIDER_WHEEL_A3
+          - platform: A5
+            runner: linux-amd64-a5-4
+            hardware: 950
+            soc: Ascend950
+            provider_variable: MEGAMOE_PROVIDER_WHEEL_A5
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    container:
+      image: quay.io/ascend/cann:9.2.0-${{ matrix.hardware }}-ubuntu22.04-py3.12
+    env:
+      # Configure architecture-specific, version-pinned provider wheel URLs.
+      # A missing dependency fails explicitly, never turns accuracy into skips.
+      MEGAMOE_PROVIDER_WHEEL: ${{ vars[matrix.provider_variable] }}
+      HCCL_BUFFSIZE: 4096
+      ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Check provider configuration
+        run: |
+          if [ -z "$MEGAMOE_PROVIDER_WHEEL" ]; then
+            echo "Set MEGAMOE_PROVIDER_WHEEL_${{ matrix.platform }} to a CANN 9.2.0 MegaMoE provider wheel URL."
+            exit 1
+          fi
+      - name: Install dependencies
+        run: |
+          bash scripts/npu_ci_install_dependency.sh --cann-version 9.2.0
+          python3 -m pip install pytest ninja einops expecttest "$MEGAMOE_PROVIDER_WHEEL"
+          python3 -c 'from cann_ops_transformer.ops import mega_moe, get_symm_buffer_for_mega_moe'
+      - name: Build current checkout
+        run: |
+          bash build.sh -a kernels "${{ matrix.soc }}"
+          python3 -m pip install --force-reinstall --no-deps output/sgl_kernel_npu*.whl
+      - name: Run registration and four-rank correctness tests
+        timeout-minutes: 90
+        run: |
+          python3 -m pytest -q tests/python/sgl_kernel_npu/test_mega_moe_registration.py tests/python/sgl_kernel_npu/test_mega_moe_reference.py
+          python3 -m pytest -v -s -x tests/python/operators/moe/test_mega_moe.py --enable-perf=false --junitxml=mega-moe-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mega-moe-${{ matrix.platform }}
+          path: mega-moe-results.xml
