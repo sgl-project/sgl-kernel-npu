@@ -11,5 +11,5 @@ TILING_DATA_FIELD_DEF(int32_t, oeK);
 TILING_DATA_FIELD_DEF(int32_t, maxContextLen);
 END_TILING_DATA_DEF;
 
-REGISTER_TILING_DATA_CLASS(ComputeNGramIds, ComputeNGramIdsTilingData)
+REGISTER_TILING_DATA_CLASS(SglComputeNGramIds, ComputeNGramIdsTilingData)
 }  // namespace optiling

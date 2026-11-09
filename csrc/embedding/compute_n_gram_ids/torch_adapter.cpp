@@ -1,5 +1,5 @@
 #include "aclnn_runtime.h"
-#include "aclnn_compute_n_gram_ids.h"
+#include "aclnn_sgl_compute_n_gram_ids.h"
 
 #include <array>
 #include <c10/core/DeviceGuard.h>
@@ -48,10 +48,10 @@ at::Tensor compute_n_gram_ids(const at::Tensor &oe_weights, const at::Tensor &oe
     const c10::DeviceGuard device_guard(tokens.device());
     auto output = at::empty({tokens.size(0), (oe_n - 1) * oe_k}, tokens.options().dtype(at::kInt));
 
-    static auto query = reinterpret_cast<decltype(&aclnnComputeNGramIdsGetWorkspaceSize)>(
-        sgl_cann::op_api_symbol("aclnnComputeNGramIdsGetWorkspaceSize"));
+    static auto query = reinterpret_cast<decltype(&aclnnSglComputeNGramIdsGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglComputeNGramIdsGetWorkspaceSize"));
     static auto execute =
-        reinterpret_cast<decltype(&aclnnComputeNGramIds)>(sgl_cann::op_api_symbol("aclnnComputeNGramIds"));
+        reinterpret_cast<decltype(&aclnnSglComputeNGramIds)>(sgl_cann::op_api_symbol("aclnnSglComputeNGramIds"));
     std::array<at::Tensor, 9> tensors = {oe_weights,
                                          oe_mods,
                                          exclusive_oe_embeder_size_sums,
@@ -84,7 +84,7 @@ at::Tensor compute_n_gram_ids(const at::Tensor &oe_weights, const at::Tensor &oe
         TORCH_CHECK(result == ACL_SUCCESS, "ComputeNGramIds ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnComputeNGramIds", launch);
+    at_npu::native::OpCommand::RunOpApi("aclnnSglComputeNGramIds", launch);
     return output;
 }
 

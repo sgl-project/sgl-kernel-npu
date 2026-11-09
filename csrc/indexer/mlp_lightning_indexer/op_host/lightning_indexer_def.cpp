@@ -17,10 +17,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MlpLightningIndexer : public OpDef
+class SglMlpLightningIndexer : public OpDef
 {
 public:
-    explicit MlpLightningIndexer(const char *name) : OpDef(name)
+    explicit SglMlpLightningIndexer(const char *name) : OpDef(name)
     {
         this->Input("query")
             .ParamType(REQUIRED)
@@ -90,5 +90,5 @@ public:
         this->AICore().AddConfig("ascend910_93", aicore_config);
     }
 };
-OP_ADD(MlpLightningIndexer);
+OP_ADD(SglMlpLightningIndexer);
 }  // namespace ops

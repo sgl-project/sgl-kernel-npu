@@ -782,7 +782,7 @@ ge::graphStatus TilingForLightningIndexer(gert::TilingContext *context)
 }
 
 // --------------------------Tiling函数及TilingPrepare函数注册--------
-IMPL_OP_OPTILING(MlpLightningIndexer)
+IMPL_OP_OPTILING(SglMlpLightningIndexer)
     .Tiling(TilingForLightningIndexer)
     .TilingParse<LICompileInfo>(TilingPrepareForLightningIndexer);
 

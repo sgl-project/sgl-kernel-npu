@@ -1,5 +1,5 @@
 #include "aclnn_runtime.h"
-#include "aclnn_mlp_lightning_indexer.h"
+#include "aclnn_sgl_mlp_lightning_indexer.h"
 
 #include <c10/core/DeviceGuard.h>
 #include <torch/library.h>
@@ -86,10 +86,10 @@ std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
                                                : nullptr);
     }
 
-    static auto getWorkspaceSize = reinterpret_cast<decltype(&aclnnMlpLightningIndexerGetWorkspaceSize)>(
-        sgl_cann::op_api_symbol("aclnnMlpLightningIndexerGetWorkspaceSize"));
+    static auto getWorkspaceSize = reinterpret_cast<decltype(&aclnnSglMlpLightningIndexerGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglMlpLightningIndexerGetWorkspaceSize"));
     static auto execute =
-        reinterpret_cast<decltype(&aclnnMlpLightningIndexer)>(sgl_cann::op_api_symbol("aclnnMlpLightningIndexer"));
+        reinterpret_cast<decltype(&aclnnSglMlpLightningIndexer)>(sgl_cann::op_api_symbol("aclnnSglMlpLightningIndexer"));
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
     auto status =
@@ -116,7 +116,7 @@ std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
         TORCH_CHECK(result == ACL_SUCCESS, "MlpLightningIndexer ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnMlpLightningIndexer", launch);
+    at_npu::native::OpCommand::RunOpApi("aclnnSglMlpLightningIndexer", launch);
     return {sparseIndices, sparseValues};
 }
 

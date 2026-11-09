@@ -113,7 +113,7 @@ Outputs are new tensors on the query device. Inputs are not modified.
 
 Uses the official CANN OpDef, shape/dtype inference, tiling, and template kernel
 through this repository's Torch adapter, calling
-`aclnnMlpLightningIndexerGetWorkspaceSize` and `aclnnMlpLightningIndexer`.
+`aclnnSglMlpLightningIndexerGetWorkspaceSize` and `aclnnSglMlpLightningIndexer`.
 CANN manages tiling and kernel dispatch; the private tiling cache from the old
 direct-launch path is no longer used. The public API retains the historical BSND
 signature and branch without expanding it. TND with PA_BSND is the paired

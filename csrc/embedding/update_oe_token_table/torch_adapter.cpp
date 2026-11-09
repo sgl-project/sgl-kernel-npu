@@ -1,5 +1,5 @@
 #include "aclnn_runtime.h"
-#include "aclnn_update_oe_token_table.h"
+#include "aclnn_sgl_update_oe_token_table.h"
 
 #include <array>
 #include <c10/core/DeviceGuard.h>
@@ -54,10 +54,10 @@ at::Tensor update_oe_token_table(const at::Tensor &tokens, const at::Tensor &req
     CheckUpdateOeTokenTableInputs(tokens, req_lens, row_indices, column_starts, ignore_tokens, oe_token_table,
                                   batch_size, max_context_len);
     const c10::DeviceGuard device_guard(oe_token_table.device());
-    static auto query = reinterpret_cast<decltype(&aclnnUpdateOeTokenTableGetWorkspaceSize)>(
-        sgl_cann::op_api_symbol("aclnnUpdateOeTokenTableGetWorkspaceSize"));
+    static auto query = reinterpret_cast<decltype(&aclnnSglUpdateOeTokenTableGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglUpdateOeTokenTableGetWorkspaceSize"));
     static auto execute =
-        reinterpret_cast<decltype(&aclnnUpdateOeTokenTable)>(sgl_cann::op_api_symbol("aclnnUpdateOeTokenTable"));
+        reinterpret_cast<decltype(&aclnnSglUpdateOeTokenTable)>(sgl_cann::op_api_symbol("aclnnSglUpdateOeTokenTable"));
     std::array<at::Tensor, 6> tensors = {tokens, req_lens, row_indices, column_starts, ignore_tokens, oe_token_table};
     std::array<std::shared_ptr<aclTensor>, 6> descriptors;
     for (size_t i = 0; i < tensors.size(); ++i) {
@@ -82,7 +82,7 @@ at::Tensor update_oe_token_table(const at::Tensor &tokens, const at::Tensor &req
         TORCH_CHECK(result == ACL_SUCCESS, "UpdateOeTokenTable ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnUpdateOeTokenTable", launch);
+    at_npu::native::OpCommand::RunOpApi("aclnnSglUpdateOeTokenTable", launch);
     return oe_token_table;
 }
 

@@ -107,7 +107,7 @@ static ge::graphStatus InferDataTypeLightningIndexer(gert::InferDataTypeContext 
     return GRAPH_SUCCESS;
 }
 
-IMPL_OP_INFERSHAPE(MlpLightningIndexer)
+IMPL_OP_INFERSHAPE(SglMlpLightningIndexer)
     .InferShape(InferShapeLightningIndexer)
     .InferDataType(InferDataTypeLightningIndexer);
 }  // namespace ops

@@ -103,7 +103,7 @@ Tensor 输入沿用同一 NPU、连续存储的调用约定。Q/K dtype 相同�
 ## ascendc 后端
 
 沿用官方 CANN OpDef、shape/dtype 推导、tiling 和模板 kernel，通过本仓库的 Torch
-adapter 调用 `aclnnMlpLightningIndexerGetWorkspaceSize` 和 `aclnnMlpLightningIndexer`。
+adapter 调用 `aclnnSglMlpLightningIndexerGetWorkspaceSize` 和 `aclnnSglMlpLightningIndexer`。
 CANN 管理 tiling 与 kernel 调度，不再使用旧直接启动路径的私有 tiling cache。
 公共 API 保留历史 BSND 签名和分支，本次迁移不扩展该分支。TND + PA_BSND 是配套
 LongCat2 路径；继续由调用方提供 int64 长度。

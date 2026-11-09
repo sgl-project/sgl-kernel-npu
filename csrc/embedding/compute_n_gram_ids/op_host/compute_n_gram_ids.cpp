@@ -62,10 +62,10 @@ static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 }  // namespace ge
 
 namespace ops {
-class ComputeNGramIds : public OpDef
+class SglComputeNGramIds : public OpDef
 {
 public:
-    explicit ComputeNGramIds(const char *name) : OpDef(name)
+    explicit SglComputeNGramIds(const char *name) : OpDef(name)
     {
         this->Input("oe_weights")
             .ParamType(REQUIRED)
@@ -126,5 +126,5 @@ public:
     }
 };
 
-OP_ADD(ComputeNGramIds);
+OP_ADD(SglComputeNGramIds);
 }  // namespace ops

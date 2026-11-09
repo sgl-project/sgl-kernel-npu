@@ -77,8 +77,8 @@ Write ranges and packed request lengths are supplied consistently by the caller.
 ## ascendc backend
 
 Uses the official standalone CANN host, tiling, and kernel through this
-repository's Torch adapter, calling `aclnnComputeNGramIdsGetWorkspaceSize` and
-`aclnnComputeNGramIds`. CANN manages tiling and kernel dispatch; the handwritten
+repository's Torch adapter, calling `aclnnSglComputeNGramIdsGetWorkspaceSize` and
+`aclnnSglComputeNGramIds`. CANN manages tiling and kernel dispatch; the handwritten
 tiling cache from the old direct-launch path is no longer used. The public API
 adds no input normalization or new input checks. Use the root REFACTOR build;
 `--ops all` includes this operator on arch22.

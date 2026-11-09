@@ -15,7 +15,7 @@ TILING_DATA_FIELD_DEF(uint32_t, maxContextLen);
 TILING_DATA_FIELD_DEF(uint32_t, ignoreTokenNum);
 END_TILING_DATA_DEF;
 
-REGISTER_TILING_DATA_CLASS(UpdateOeTokenTable, UpdateOeTokenTableTilingData)
+REGISTER_TILING_DATA_CLASS(SglUpdateOeTokenTable, UpdateOeTokenTableTilingData)
 }  // namespace optiling
 
 #endif  // __UPDATE_OE_TOKEN_TABLE_H

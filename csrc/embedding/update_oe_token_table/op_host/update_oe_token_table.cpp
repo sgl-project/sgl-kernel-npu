@@ -88,10 +88,10 @@ static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 }  // namespace ge
 
 namespace ops {
-class UpdateOeTokenTable : public OpDef
+class SglUpdateOeTokenTable : public OpDef
 {
 public:
-    explicit UpdateOeTokenTable(const char *name) : OpDef(name)
+    explicit SglUpdateOeTokenTable(const char *name) : OpDef(name)
     {
         this->Input("tokens")
             .ParamType(REQUIRED)
@@ -134,5 +134,5 @@ public:
     }
 };
 
-OP_ADD(UpdateOeTokenTable);
+OP_ADD(SglUpdateOeTokenTable);
 }  // namespace ops

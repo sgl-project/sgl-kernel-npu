@@ -74,7 +74,7 @@ id[i, f] = offset[f] + (sum_j ((history[p-j] * weight[n-2,k,j]) % mod[n-2,k])) %
 ## ascendc 后端
 
 沿用官方独立 CANN 版本的 host、tiling 和 kernel，通过本仓库的 Torch adapter 调用
-`aclnnComputeNGramIdsGetWorkspaceSize` 和 `aclnnComputeNGramIds`。CANN 管理 tiling
+`aclnnSglComputeNGramIdsGetWorkspaceSize` 和 `aclnnSglComputeNGramIds`。CANN 管理 tiling
 与 kernel 调度，不再使用旧直接启动路径的手写 tiling cache。公共 API 不增加输入归一化
 或新的输入校验。使用根目录 REFACTOR 构建，arch22 的 `--ops all` 包含此算子。
 

@@ -98,7 +98,7 @@ TILING_DATA_FIELD_DEF(int64_t, nextTokens)
 TILING_DATA_FIELD_DEF(int8_t, returnValue)
 
 END_TILING_DATA_DEF
-REGISTER_TILING_DATA_CLASS(MlpLightningIndexer, LITilingData)
+REGISTER_TILING_DATA_CLASS(SglMlpLightningIndexer, LITilingData)
 
 // -----------算子CompileInfo定义-------------------
 struct LICompileInfo {};

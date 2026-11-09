@@ -69,8 +69,8 @@ not additional checks in the public wrapper.
 ## ascendc backend
 
 Uses the official standalone CANN host, tiling, and kernel through this
-repository's Torch adapter, calling `aclnnUpdateOeTokenTableGetWorkspaceSize` and
-`aclnnUpdateOeTokenTable`. The original table is passed as the ACLNN output and
+repository's Torch adapter, calling `aclnnSglUpdateOeTokenTableGetWorkspaceSize` and
+`aclnnSglUpdateOeTokenTable`. The original table is passed as the ACLNN output and
 returned by the adapter; its Torch schema marks `oe_token_table` and the return
 value with the same `Tensor(a!)` alias. CANN manages tiling and kernel
 dispatch; the old handwritten tiling cache is no longer used. Use the root
