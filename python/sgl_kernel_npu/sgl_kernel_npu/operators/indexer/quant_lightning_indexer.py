@@ -10,6 +10,20 @@ from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_torch_native_fn = None
+
+
+@register_impl("indexer.quant_lightning_indexer", "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.quant_lightning_indexer import (
+            quant_lightning_indexer,
+        )
+
+        _torch_native_fn = quant_lightning_indexer
+    return _torch_native_fn(*args, **kwargs)
+
 
 @register_impl(
     "indexer.quant_lightning_indexer", "auto", supported_generations={Generation.ARCH35}
@@ -55,7 +69,33 @@ def quant_lightning_indexer(
 ):
     """Select top-k key indices, optionally returning their scores.
 
-    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
+    ``auto`` selects the lazy A5 CANNBot-DSL backend.
+
+    Args:
+        q: UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128.
+        k: UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes.
+        w: FP32 [T,32], query-head score weights.
+        descale_q: UINT8/E8M0 [T,32,2,2], one scale per 32 logical features.
+        descale_k: UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage.
+        cu_seqlens_q: Optional INT32 [B+1], cumulative query row boundaries.
+        cu_seqlens_k: Optional INT32 [B+1], cumulative TND key boundaries.
+        seqused_q: Optional INT32 [B], valid query rows per request.
+        seqused_k: Optional INT32 [B], valid key tokens per request.
+        cmp_residual_k: Optional INT32 [B], uncompressed residual tokens for causal compression.
+        block_table: Optional INT32 [B,max_blocks], logical-to-physical PA page map.
+        output_idx_offset: Optional INT32 [T,1], added to each valid selected token index.
+        metadata: Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling.
+        topk: int, maximum selected tokens per query, in [1,8192].
+        quant_mode: int, use 1 for the supported quantized profile.
+        max_seqlen_q: int or None, query capacity per request; infer when unspecified.
+        mask_mode: int: 0 for visible keys, 3 for causal masking.
+        cmp_ratio: int in [1,128], compression ratio used to calculate causal visibility.
+        layout_q: str, use TND (flattened query tokens).
+        layout_k: str, TND or PA_BBND key storage.
+        return_value: bool, also return BF16 selected scores when True.
+        candidate_topk_blocks: int, candidate-block output capacity; -1 disables the output.
+        candidate_block_size: int, use 8 tokens per candidate block when enabled.
+        impl: str, auto selects cannbot_dsl; torch_native is an independent compute reference.
     """
     return get_impl_by_name("indexer.quant_lightning_indexer", impl)(
         q,

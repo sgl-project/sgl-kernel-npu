@@ -17,23 +17,12 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     _remove_tree(package)
     package.parent.mkdir(parents=True, exist_ok=True)
     python_package = source_root / "python/sgl_kernel_npu/sgl_kernel_npu"
-    dsl_source = python_package / "implementation/cannbot-dsl/attention"
-    ignore_runtime = shutil.ignore_patterns(
-        "lib", "_cann", "__pycache__", "*.pyc", "*.so", "*.egg-info"
-    )
-
-    def ignore(directory, names):
-        ignored = ignore_runtime(directory, names)
-        if Path(directory) == dsl_source:
-            # DSL operators ship as source; local precompiled exports must
-            # not leak into the wheel.
-            ignored.update({"_native", "_aicpu", "build-manifest.json"} & set(names))
-        return ignored
-
     shutil.copytree(
         python_package,
         package,
-        ignore=ignore,
+        ignore=shutil.ignore_patterns(
+            "lib", "_cann", "__pycache__", "*.pyc", "*.so", "*.egg-info"
+        ),
     )
     from build_tools.target_provider import stage_target_providers
 
@@ -311,7 +300,6 @@ def setup_refactor():
             "torch==" + torch.__version__.split("+")[0],
             "torch_npu==" + torch_npu.__version__.split("+")[0],
         ],
-        extras_require={"cannbot_dsl": ["cannbot-dsl==0.8.0"]},
         url="https://github.com/sgl-project/sgl-kernel-npu/",
         license="BSD 3 License",
     )

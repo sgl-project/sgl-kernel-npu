@@ -30,48 +30,46 @@ from typing import Optional
 
 import cannbotdsl
 import torch
+from cannbotdsl import MemLoc, Tensor, TensorSpec, dtypes
 from cannbotdsl.aot import export
-
-from cannbotdsl import MemLoc, Tensor, dtypes
-from cannbotdsl.buffer import UB, make_buffer
-from cannbotdsl.lang.jit import jit
-from cannbotdsl.lang.host import host
-from cannbotdsl.lang.kernel import kernel
-from cannbotdsl import TensorSpec
-from cannbotdsl.lang.vf import vf
+from cannbotdsl.buffer import L0B, L0C, UB, make_buffer
+from cannbotdsl.lang.constexpr import const_expr, range_constexpr
 from cannbotdsl.lang.control_flow import range as dsl_range
-from cannbotdsl.lang.constexpr import range_constexpr
-from cannbotdsl.ops.arch import get_block_idx, get_subblock_id
+from cannbotdsl.lang.host import host
+from cannbotdsl.lang.jit import jit
+from cannbotdsl.lang.kernel import kernel
+from cannbotdsl.lang.vf import vf
+from cannbotdsl.ops import reg as rr
+from cannbotdsl.ops.arch import (
+    get_block_idx,
+    get_squeeze_status,
+    get_subblock_id,
+    is_aiv,
+)
 from cannbotdsl.ops.matmul import matmul as dsl_matmul
-from cannbotdsl.ops.memcpy import mem_copy
+from cannbotdsl.ops.memcpy import copy_options, mem_copy, relu
 from cannbotdsl.ops.sync import (
     PIPE,
+    cube_sync_all,
+    cube_sync_intra_arrive,
+    cube_sync_intra_wait,
     global_sync_all,
     vec_sync_all,
-    cube_sync_intra_wait,
-    cube_sync_intra_arrive,
-    vec_sync_intra_wait,
+    vec_sync_block_arrive,
+    vec_sync_block_wait,
     vec_sync_intra_arrive,
+    vec_sync_intra_wait,
     vec_sync_notify,
     vec_sync_wait,
 )
+from cannbotdsl.ring_buffer import RingBuffer, make_ring_buffer
 from cannbotdsl.tensor import (
-    reinterpret,
+    make_layout,
     make_pointer,
     make_tensor,
-    make_layout,
+    reinterpret,
     tile_slice,
 )
-from cannbotdsl.ops import reg as rr
-
-from cannbotdsl.ops.sync import cube_sync_all
-from cannbotdsl.buffer import L0B, L0C
-from cannbotdsl.ring_buffer import RingBuffer, make_ring_buffer
-from cannbotdsl.lang.constexpr import const_expr
-from cannbotdsl.ops.arch import is_aiv, get_squeeze_status
-from cannbotdsl.ops.memcpy import copy_options, relu
-from cannbotdsl.ops.sync import vec_sync_block_arrive, vec_sync_block_wait
-
 
 # Group six N1=32 query rows into an M192 tile; N1=64 uses four rows.
 QUERY_TILE_ROWS = 6
@@ -4913,7 +4911,8 @@ class DmaTopKSelectPreprocessor(TopKSelectPreprocessor):
                     mem_copy(
                         slot[
                             0:1,
-                            page * DMA_TOPK_SELECT_PAGE_SIZE : page
+                            page
+                            * DMA_TOPK_SELECT_PAGE_SIZE : page
                             * DMA_TOPK_SELECT_PAGE_SIZE
                             + count,
                         ],
@@ -5545,9 +5544,11 @@ class QliFusedKernel:
             ),
             pipelined=self.cache_enabled,
             live_histogram=(
-                CACHED_HISTOGRAM_UB_OFFSET
-                if self.cache_enabled
-                else self.tile_m * QK_ROW_BYTES + HISTOGRAM_AFTER_QK_BYTES,
+                (
+                    CACHED_HISTOGRAM_UB_OFFSET
+                    if self.cache_enabled
+                    else self.tile_m * QK_ROW_BYTES + HISTOGRAM_AFTER_QK_BYTES
+                ),
                 (
                     CACHED_HISTOGRAM_UB_OFFSET
                     if self.cache_enabled
@@ -5571,9 +5572,11 @@ class QliFusedKernel:
             self.candidate_topk_count,
             n1,
             query_rows,
-            CACHED_VECTOR_UB_OFFSET
-            if self.cache_enabled
-            else self.tile_m * QK_ROW_BYTES + VECTOR_AFTER_QK_BYTES,
+            (
+                CACHED_VECTOR_UB_OFFSET
+                if self.cache_enabled
+                else self.tile_m * QK_ROW_BYTES + VECTOR_AFTER_QK_BYTES
+            ),
             self.cache_enabled,
         )
         self.stream_supported = (
@@ -5591,9 +5594,11 @@ class QliFusedKernel:
             (self.vec_rows * 2, 128),
             dtypes.uint16,
             stride=(256, 1),
-            addr=CACHED_HISTOGRAM_UB_OFFSET
-            if self.cache_enabled
-            else self.tile_m * QK_ROW_BYTES + HISTOGRAM_AFTER_QK_BYTES,
+            addr=(
+                CACHED_HISTOGRAM_UB_OFFSET
+                if self.cache_enabled
+                else self.tile_m * QK_ROW_BYTES + HISTOGRAM_AFTER_QK_BYTES
+            ),
         )
         self.hist_slot1 = _ub_buffer(
             self.ub_pool,
@@ -5601,11 +5606,13 @@ class QliFusedKernel:
             (self.vec_rows * 2, 128),
             dtypes.uint16,
             stride=(256, 1),
-            addr=CACHED_HISTOGRAM_UB_OFFSET + HISTOGRAM_SLOT_OFFSET
-            if self.cache_enabled
-            else self.tile_m * QK_ROW_BYTES
-            + HISTOGRAM_AFTER_QK_BYTES
-            + HISTOGRAM_SLOT_OFFSET,
+            addr=(
+                CACHED_HISTOGRAM_UB_OFFSET + HISTOGRAM_SLOT_OFFSET
+                if self.cache_enabled
+                else self.tile_m * QK_ROW_BYTES
+                + HISTOGRAM_AFTER_QK_BYTES
+                + HISTOGRAM_SLOT_OFFSET
+            ),
         )
         # Partition-local pruning adds threshold/packing work without reducing
         # the final LD merge. Keep exact local TopK; whole-row TopKSelect remains.
@@ -7994,15 +8001,21 @@ def quant_lightning_indexer(
     candidate_length_1d = candidate_length_1d[:t]
     return (
         sparse_indices_2d.view(t, N2, int(topk)),
-        sparse_values_2d.view(t, N2, int(topk))
-        if return_value
-        else sparse_values_2d.reshape(-1)[:0],
-        candidate_indices_2d.view(t, N2, candidate_count)
-        if candidate_enabled
-        else candidate_indices_2d.reshape(-1),
-        candidate_length_1d.view(t, N2)
-        if candidate_enabled
-        else candidate_length_1d[:0],
+        (
+            sparse_values_2d.view(t, N2, int(topk))
+            if return_value
+            else sparse_values_2d.reshape(-1)[:0]
+        ),
+        (
+            candidate_indices_2d.view(t, N2, candidate_count)
+            if candidate_enabled
+            else candidate_indices_2d.reshape(-1)
+        ),
+        (
+            candidate_length_1d.view(t, N2)
+            if candidate_enabled
+            else candidate_length_1d[:0]
+        ),
     )
 
 

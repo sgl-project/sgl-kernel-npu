@@ -29,21 +29,11 @@ import json
 import os
 
 import torch
-
-from cannbotdsl import (
-    Dim,
-    MemLoc,
-    Tensor,
-    TensorSpec,
-    compile as dsl_compile,
-    const_expr,
-    dtypes,
-    get_platform_info,
-    make_layout,
-)
+from cannbotdsl import Dim, MemLoc, Tensor, TensorSpec
+from cannbotdsl import compile as dsl_compile
+from cannbotdsl import const_expr, dtypes, get_platform_info, make_layout
 from cannbotdsl.aot import export
 from cannbotdsl.buffer import Buffer
-from cannbotdsl.ring_buffer import RingBuffer
 from cannbotdsl.lang.host import host
 from cannbotdsl.lang.jit import jit
 from cannbotdsl.lang.kernel import kernel
@@ -54,6 +44,7 @@ from cannbotdsl.ops.arch import get_block_idx, get_block_num
 from cannbotdsl.ops.matmul import matmul
 from cannbotdsl.ops.memcpy import mem_copy
 from cannbotdsl.ops.sync import vec_sync_all
+from cannbotdsl.ring_buffer import RingBuffer
 from cannbotdsl.tensor import ceil_div, tile_slice
 
 __all__ = [

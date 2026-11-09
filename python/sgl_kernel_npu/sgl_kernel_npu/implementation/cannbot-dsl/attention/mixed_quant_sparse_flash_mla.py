@@ -11,85 +11,93 @@ import threading
 from functools import lru_cache
 from itertools import product
 from types import SimpleNamespace
+
 import cannbotdsl
 import torch
+from cannbotdsl import (
+    PIPE,
+    CArray,
+    Dim,
+    MemLoc,
+    ProfileSpec,
+    Tensor,
+    TensorSpec,
+    datastruct,
+    dtypes,
+    host,
+    is_aic,
+    make_layout,
+)
 from cannbotdsl.aot import export
-
-from cannbotdsl.ring_buffer import RingBuffer
+from cannbotdsl.buffer import Buffer
 from cannbotdsl.lang.constexpr import const_expr, range_constexpr
-from cannbotdsl.ops.arch import get_subblock_id, get_block_idx, get_subblock_dim
-from cannbotdsl import dtypes
-from cannbotdsl import Dim, ProfileSpec, TensorSpec, host
 from cannbotdsl.lang.jit import jit
 from cannbotdsl.lang.kernel import kernel
-from cannbotdsl.ops.matmul import matmul
-from cannbotdsl.ops.cube import set_mmad_direction
-from cannbotdsl.ops.memcpy import copy_options, mem_copy
-from cannbotdsl import MemLoc, PIPE, Tensor, is_aic, CArray, datastruct, make_layout
-from cannbotdsl.tensor import (
-    tile_slice,
-    reinterpret,
-)
-from cannbotdsl.buffer import Buffer
 from cannbotdsl.lang.vf import vf
+from cannbotdsl.ops import reg as rr
+from cannbotdsl.ops.arch import get_block_idx, get_subblock_dim, get_subblock_id
+from cannbotdsl.ops.cube import set_mmad_direction
+from cannbotdsl.ops.matmul import matmul
+from cannbotdsl.ops.memcpy import copy_options, mem_copy
+from cannbotdsl.ops.scalar import vec_store_bypass
 from cannbotdsl.ops.sync import (
     cube_sync_block_arrive,
     cube_sync_intra_wait,
     global_sync_all,
-    vec_sync_block_wait,
-    vec_sync_all,
+    onchip_rewind,
     vec_busy_wait,
+    vec_sync_all,
+    vec_sync_block_wait,
     vec_sync_intra_arrive,
 )
-from cannbotdsl.ops.sync import onchip_rewind
-from cannbotdsl.ops.scalar import vec_store_bypass
-from cannbotdsl.ops import reg as rr
+from cannbotdsl.ring_buffer import RingBuffer
+from cannbotdsl.tensor import reinterpret, tile_slice
 
 # Metadata constants and public host entry are re-exported from the metadata module.
 if __package__:
     from .mixed_quant_sparse_flash_mla_metadata import (
         AIC_CORE_MAX_NUM,
-        MQSMLA_METADATA_TOTAL_SIZE,
-        FA_METADATA_SIZE,
-        FA_BN2_START_INDEX,
-        FA_M_START_INDEX,
-        FA_S2_START_INDEX,
         FA_BN2_END_INDEX,
-        FA_M_END_INDEX,
-        FA_S2_END_INDEX,
+        FA_BN2_START_INDEX,
         FA_FIRST_FD_DATA_WORKSPACE_IDX_INDEX,
+        FA_M_END_INDEX,
+        FA_M_START_INDEX,
+        FA_METADATA_SIZE,
+        FA_S2_END_INDEX,
+        FA_S2_START_INDEX,
+        FD_BN2_IDX_INDEX,
+        FD_CORE_ENABLE_INDEX,
+        FD_M_IDX_INDEX,
+        FD_M_START_INDEX,
         FD_METADATA_BASE,
         FD_METADATA_SIZE,
-        FD_CORE_ENABLE_INDEX,
-        FD_BN2_IDX_INDEX,
-        FD_M_IDX_INDEX,
+        FD_USED_VEC_NUM_WORD,
         FD_WORKSPACE_IDX_INDEX,
         FD_WORKSPACE_NUM_INDEX,
-        FD_M_START_INDEX,
-        FD_USED_VEC_NUM_WORD,
+        MQSMLA_METADATA_TOTAL_SIZE,
         _get_cube_core_num,
     )
 else:
     from mixed_quant_sparse_flash_mla_metadata import (
         AIC_CORE_MAX_NUM,
-        MQSMLA_METADATA_TOTAL_SIZE,
-        FA_METADATA_SIZE,
-        FA_BN2_START_INDEX,
-        FA_M_START_INDEX,
-        FA_S2_START_INDEX,
         FA_BN2_END_INDEX,
-        FA_M_END_INDEX,
-        FA_S2_END_INDEX,
+        FA_BN2_START_INDEX,
         FA_FIRST_FD_DATA_WORKSPACE_IDX_INDEX,
+        FA_M_END_INDEX,
+        FA_M_START_INDEX,
+        FA_METADATA_SIZE,
+        FA_S2_END_INDEX,
+        FA_S2_START_INDEX,
+        FD_BN2_IDX_INDEX,
+        FD_CORE_ENABLE_INDEX,
+        FD_M_IDX_INDEX,
+        FD_M_START_INDEX,
         FD_METADATA_BASE,
         FD_METADATA_SIZE,
-        FD_CORE_ENABLE_INDEX,
-        FD_BN2_IDX_INDEX,
-        FD_M_IDX_INDEX,
+        FD_USED_VEC_NUM_WORD,
         FD_WORKSPACE_IDX_INDEX,
         FD_WORKSPACE_NUM_INDEX,
-        FD_M_START_INDEX,
-        FD_USED_VEC_NUM_WORD,
+        MQSMLA_METADATA_TOTAL_SIZE,
         _get_cube_core_num,
     )
 
@@ -175,7 +183,7 @@ _ROW_BF16 = ROW_BF16_ORI  # Both input pools use the ORI 544-byte UB row stride.
 _SCALE_BF16_OFF = SCALE_BF16_OFF_ORI  # ORI scale offset in the shared input layout.
 
 _VL = 128  # BF16 vector width for dequantization.
-_TILE_ROWS = 16  # Rows per dequantization subtile and per NZ face.
+_TILE_ROWS = 16  # Rows per dequantization block and per NZ face.
 # Sentinel beyond every valid query index; prevents reads past the final cu_q span.
 _ADDR_M_INF = 1 << 40
 
@@ -317,7 +325,7 @@ class Matmul:
                 MemLoc.L1,
                 dtypes.bfloat16,
                 make_layout((tile_n // 2 * D,)),
-                data_format="nd",
+                data_format="nd",  # codespell:ignore nd
                 depth=_KV_RING,
             )
         ]
@@ -329,7 +337,7 @@ class Matmul:
                 MemLoc.L1,
                 dtypes.bfloat16,
                 make_layout((tile_n // 2 * D,)),
-                data_format="nd",
+                data_format="nd",  # codespell:ignore nd
                 depth=_KV_RING,
             )
         )
@@ -1494,7 +1502,7 @@ class MqsmlaKernel:
                 dtypes.float32,
                 make_layout((2 * tile_vec_m, 256)),
                 depth=1,
-                data_format="nd",
+                data_format="nd",  # codespell:ignore nd
             )
             for half in range(2)
         ]
@@ -1503,7 +1511,7 @@ class MqsmlaKernel:
             dtypes.float32,
             make_layout((tile_vec_m, tile_n)),
             depth=1,
-            data_format="nd",
+            data_format="nd",  # codespell:ignore nd
         )
         self.p_out = Buffer(
             MemLoc.UB, dtypes.bfloat16, make_layout(((tile_vec_m + 1) * tile_n,))
@@ -1630,7 +1638,7 @@ class MqsmlaKernel:
             kv_fp8,
             layout=make_layout((_TILE_ROWS, _ROW_BF16)),
             dtype=dtypes.bfloat16,
-            data_format="nd",
+            data_format="nd",  # codespell:ignore nd
         )
         with vf(mode="simd"):
             m32, _ = rr.update_mask(_TILE_SIZE, elem_bits=32)
@@ -1694,7 +1702,7 @@ class MqsmlaKernel:
             kv_fp8,
             layout=make_layout((_TILE_ROWS, _ROW_BF16)),
             dtype=dtypes.bfloat16,
-            data_format="nd",
+            data_format="nd",  # codespell:ignore nd
         )
         with vf(mode="simd"):
             m16, _ = rr.update_mask(_VL, elem_bits=16)
@@ -1795,7 +1803,7 @@ class MqsmlaKernel:
             # Read the already-published PA row table directly in scalar gather.
             tab = self._addr_tab
             col_base = self._avec_k1_tab if const_expr(is_cmp) else 0
-        # Every enqueued tile has n_real > 0. Write all subtiles, including
+        # Every enqueued tile has n_real > 0. Write all 16-row tiles, including
         # padding, so both AIVs publish one complete KV slot. QK masks padding;
         # PV uses zero probabilities there. Never publish an empty alias of KV.
         for chunk in range_constexpr(2):
@@ -1920,7 +1928,7 @@ class MqsmlaKernel:
                 l1_nd = reinterpret(
                     kv_lower_rows_l1,
                     layout=make_layout((D // 16, self.tile_n // 2 * 16)),
-                    data_format="nd",
+                    data_format="nd",  # codespell:ignore nd
                 )
                 dst = tile_slice(l1_nd, (D // 16, subtile_rows * 16), (0, lt))
                 mem_copy(dst, src)
@@ -1928,7 +1936,7 @@ class MqsmlaKernel:
                 l1_nd = reinterpret(
                     kv_upper_rows_l1,
                     layout=make_layout((D // 16, self.tile_n // 2 * 16)),
-                    data_format="nd",
+                    data_format="nd",  # codespell:ignore nd
                 )
                 dst = tile_slice(l1_nd, (D // 16, subtile_rows * 16), (0, lt))
                 mem_copy(dst, src)
@@ -2497,7 +2505,7 @@ class MqsmlaKernel:
             reinterpret(
                 p_l1_write,
                 layout=make_layout((self.tile_n // 16, self.tile_cube_m * 16)),
-                data_format="nd",
+                data_format="nd",  # codespell:ignore nd
             ),
             (self.tile_n // 16, self.tile_vec_m * 16),
             (0, self.subblock_idx),
@@ -3362,22 +3370,26 @@ def _compile_mqsmla(
         TensorSpec((batch + 1,), i32),
         TensorSpec((MQSMLA_METADATA_TOTAL_SIZE,), i32),
         TensorSpec((workspace_bytes,), dtypes.uint8),
-        TensorSpec(
-            (Dim("CMP_PAGES", min=1), cmp_block_size, N2, KV_ROW_BYTES_CMP),
-            dtypes.uint8,
-            stride=(cmp_stride, KV_ROW_BYTES_CMP, KV_ROW_BYTES_CMP, 1),
-        )
-        if has_cmp
-        else None,
+        (
+            TensorSpec(
+                (Dim("CMP_PAGES", min=1), cmp_block_size, N2, KV_ROW_BYTES_CMP),
+                dtypes.uint8,
+                stride=(cmp_stride, KV_ROW_BYTES_CMP, KV_ROW_BYTES_CMP, 1),
+            )
+            if has_cmp
+            else None
+        ),
         TensorSpec((rows, N2, cmp_slots), i32) if has_cmp else None,
         TensorSpec((batch, cmp_table_width), i32) if has_cmp else None,
         TensorSpec((rows, N2), i32) if has_cmp_length else None,
         TensorSpec((N2, rows, N1), dtypes.float32) if has_lse else None,
         dtypes.float32,
         i32,
-        TensorSpec((Dim("ADDR_WS_BYTES", min=1),), dtypes.uint8)
-        if addr_mode != "off"
-        else None,
+        (
+            TensorSpec((Dim("ADDR_WS_BYTES", min=1),), dtypes.uint8)
+            if addr_mode != "off"
+            else None
+        ),
     )
     return cannbotdsl.compile(_run_mqsmla, *specs)
 

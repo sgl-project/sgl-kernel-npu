@@ -18,19 +18,13 @@ indices directly. Odd lengths use a final tail.
 
 __all__ = ["quant_lightning_indexer_metadata"]
 
-from functools import lru_cache
 import tempfile
-import torch
-from cannbotdsl.aicpu import (
-    gm_in as GmIn,
-    gm_out as GmOut,
-    I32,
-    I64,
-    U32,
-    aicpu_kernel,
-    current_raw_stream,
-)
+from functools import lru_cache
 
+import torch
+from cannbotdsl.aicpu import I32, I64, U32, aicpu_kernel, current_raw_stream
+from cannbotdsl.aicpu import gm_in as GmIn
+from cannbotdsl.aicpu import gm_out as GmOut
 
 # LI/LD 固定输出布局；第 36 行为 LD/FD 归并记录起始位置。
 METADATA_ELEMENTS = 1024
@@ -496,6 +490,7 @@ def metadata_kernel(args: Args):
 @lru_cache(None)
 def compiled_metadata():
     from pathlib import Path
+
     from cannbotdsl.aicpu.toolchain import CompiledAicpuKernel, compile_aicpu_kernel
 
     binary = Path(__file__).parent / "_aicpu" / "metadata_kernel.so"

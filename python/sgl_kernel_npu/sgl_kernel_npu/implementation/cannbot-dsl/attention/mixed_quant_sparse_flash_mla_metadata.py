@@ -9,7 +9,7 @@
 import tempfile
 import threading
 
-from cannbotdsl.aicpu import gm_in, gm_out, I32, I64, aicpu_kernel, current_raw_stream
+from cannbotdsl.aicpu import I32, I64, aicpu_kernel, current_raw_stream, gm_in, gm_out
 
 AIC_CORE_MAX_NUM = 36
 AIV_CORE_MAX_NUM = 72
@@ -501,6 +501,7 @@ def _get_compiled_metadata():
     """Load or compile the mqsmla metadata AICPU kernel once per process."""
     global _METADATA_COMPILED, _METADATA_DIRECTORY
     from pathlib import Path
+
     from cannbotdsl.aicpu.toolchain import CompiledAicpuKernel, compile_aicpu_kernel
 
     with _METADATA_LOCK:

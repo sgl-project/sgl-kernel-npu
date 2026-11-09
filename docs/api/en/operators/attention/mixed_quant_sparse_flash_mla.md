@@ -4,7 +4,7 @@
 
 Computes sparse MLA over BF16 queries, FP8 original KV, and optional FP4 compressed KV.
 
-Supports Ascend 950PR/950DT (`arch35`). `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed below. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 ## Signature
 
@@ -14,7 +14,33 @@ from typing import Optional
 
 from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
 
-mixed_quant_sparse_flash_mla(q, *, ori_kv=None, cmp_kv=None, ori_sparse_indices=None, cmp_sparse_indices=None, ori_block_table=None, cmp_block_table=None, cu_seqlens_q=None, seqused_q=None, seqused_ori_kv=None, seqused_cmp_kv=None, ori_topk_length=None, cmp_topk_length=None, sinks=None, metadata=None, quant_mode, softmax_scale=None, layout_q='TND', layout_kv='PA_BBND', return_softmax_lse=False, out, lse, impl='auto')
+
+def mixed_quant_sparse_flash_mla(
+    q,
+    *,
+    ori_kv=None,
+    cmp_kv=None,
+    ori_sparse_indices=None,
+    cmp_sparse_indices=None,
+    ori_block_table=None,
+    cmp_block_table=None,
+    cu_seqlens_q=None,
+    seqused_q=None,
+    seqused_ori_kv=None,
+    seqused_cmp_kv=None,
+    ori_topk_length=None,
+    cmp_topk_length=None,
+    sinks=None,
+    metadata=None,
+    quant_mode,
+    softmax_scale=None,
+    layout_q="TND",
+    layout_kv="PA_BBND",
+    return_softmax_lse=False,
+    out,
+    lse,
+    impl="auto"
+): ...
 ```
 
 ## Inputs
@@ -25,8 +51,112 @@ BF16 TND `q[T1,64,512]`, UINT8 paged original KV, sparse indices and block table
 
 Writes BF16 results into `out` and FP32 log-sum-exp into `lse`; follows the upstream no-return ABI. With `return_softmax_lse=False`, pass an empty LSE tensor.
 
+## Hardware support
+
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | Supported | Unverified | Unsupported |
+| torch_native | Unverified | Unverified | Unverified |
+
+## Parameters
+
+T is query rows, B requests, P physical pages and S slots per page. Optional tensors default to None; scalar defaults are shown in the signature.
+
+| Parameter | Type, shape and meaning |
+| --- | --- |
+| `q` | BF16 [T,64,512], attention queries. |
+| `ori_kv` | Optional UINT8 [P,S,1,544], FP8 KV bytes plus BF16 group scales. |
+| `cmp_kv` | Optional UINT8 [P,S,1,320], packed FP4 KV bytes plus BF16 group scales. |
+| `ori_sparse_indices` | Optional INT32 [T,1,Kori], original logical token IDs; -1 is padding. |
+| `cmp_sparse_indices` | Optional INT32 [T,1,Kcmp], compressed logical token IDs; -1 is padding. |
+| `ori_block_table` | Optional INT32 [B,max_ori_blocks], original KV page map. |
+| `cmp_block_table` | Optional INT32 [B,max_cmp_blocks], compressed KV page map. |
+| `cu_seqlens_q` | Optional INT32 [B+1], cumulative query row boundaries. |
+| `seqused_q` | Optional INT32 [B], valid query rows per request. |
+| `seqused_ori_kv` | Optional INT32 [B], original KV lengths; retained for API compatibility. |
+| `seqused_cmp_kv` | Optional INT32 [B], compressed KV lengths; retained for API compatibility. |
+| `ori_topk_length` | INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled. |
+| `cmp_topk_length` | INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled. |
+| `sinks` | FP32 [64], attention-sink logits (zero value contribution). |
+| `metadata` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
+| `quant_mode` | int, use 1 for the supported quantized profile. |
+| `softmax_scale` | Optional float, defaults to 1/sqrt(512). |
+| `layout_q` | str, use TND (flattened query tokens). |
+| `layout_kv` | str, use PA_BBND packed paged KV. |
+| `return_softmax_lse` | bool, write lse when True. |
+| `out` | Writable BF16 [T,64,512] output tensor. |
+| `lse` | Writable FP32 [1,T,64] logsumexp tensor. |
+| `impl` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
+
+## Returns
+
+| Value | Meaning |
+| --- | --- |
+| None | Writes out and, when requested, lse in place. |
+
+Semantics (BF16 rounding at quantized compute boundaries):
+
+```text
+z_i = softmax_scale * dot(q, dequant(k_i)); out = sum_i exp(z_i) * dequant(v_i) / (exp(sink) + sum_i exp(z_i)); lse = log(exp(sink) + sum_i exp(z_i))
+```
+
+## cannbot_dsl
+
+`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+
+## torch_native
+
+Independent CPU Torch accuracy reference; results are copied back to the input device, preserving in-place semantics. Does not require DSL. Not intended for performance or NPU graph capture. Equal-score TopK order may differ.
+
+## Example
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.attention import (
+    mixed_quant_sparse_flash_mla,
+    mixed_quant_sparse_flash_mla_metadata,
+)
+
+q = torch.randn(1, 64, 512, device="npu", dtype=torch.bfloat16)
+kv = torch.zeros(1, 128, 1, 544, device="npu", dtype=torch.uint8)
+kv[..., 512:] = torch.ones(1, 128, 1, 16, device="npu", dtype=torch.bfloat16).view(
+    torch.uint8
+)
+cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
+length = torch.tensor([[128]], device="npu", dtype=torch.int32)
+metadata = mixed_quant_sparse_flash_mla_metadata(
+    length,
+    None,
+    cu_seqlens_q=cu,
+    num_heads_q=64,
+    num_heads_kv=1,
+    head_dim=512,
+    quant_mode=1,
+    has_cmp_kv=False,
+)
+out = torch.empty_like(q)
+lse = torch.empty(1, 1, 64, device="npu")
+mixed_quant_sparse_flash_mla(
+    q,
+    ori_kv=kv,
+    ori_sparse_indices=torch.arange(128, device="npu", dtype=torch.int32).reshape(
+        1, 1, -1
+    ),
+    ori_block_table=torch.zeros(1, 1, device="npu", dtype=torch.int32),
+    cu_seqlens_q=cu,
+    ori_topk_length=length,
+    sinks=torch.zeros(64, device="npu"),
+    metadata=metadata,
+    quant_mode=1,
+    out=out,
+    lse=lse,
+    return_softmax_lse=True,
+)
+```
+
 ## Device test
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_mixed_quant_sparse_flash_mla.py --npu-device 0 -q
+python -m pytest tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py --npu-device=0 --enable-perf=false -v -s
 ```

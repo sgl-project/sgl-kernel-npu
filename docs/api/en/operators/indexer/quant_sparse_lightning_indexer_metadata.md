@@ -4,7 +4,7 @@
 
 Plans QSLI AICPU work from each row’s candidate length and visible sequence range.
 
-Supports Ascend 950PR/950DT (`arch35`). `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed below. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 ## Signature
 
@@ -14,7 +14,30 @@ from typing import Optional
 
 from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer_metadata
 
-quant_sparse_lightning_indexer_metadata(candidate_block_length, cu_seqlens_q=None, cu_seqlens_k=None, seqused_q=None, seqused_k=None, cmp_residual_k=None, *, batch_size=None, max_seqlen_q=-1, max_seqlen_k=-1, num_heads_q, num_heads_k, head_dim, topk, quant_mode, candidate_block_size, mask_mode=0, cmp_ratio=1, layout_q='TND', layout_k='TND', impl='auto')
+
+def quant_sparse_lightning_indexer_metadata(
+    candidate_block_length,
+    cu_seqlens_q=None,
+    cu_seqlens_k=None,
+    seqused_q=None,
+    seqused_k=None,
+    cmp_residual_k=None,
+    *,
+    batch_size=None,
+    max_seqlen_q=-1,
+    max_seqlen_k=-1,
+    num_heads_q,
+    num_heads_k,
+    head_dim,
+    topk,
+    quant_mode,
+    candidate_block_size,
+    mask_mode=0,
+    cmp_ratio=1,
+    layout_q="TND",
+    layout_k="TND",
+    impl="auto"
+): ...
 ```
 
 ## Inputs
@@ -25,8 +48,92 @@ quant_sparse_lightning_indexer_metadata(candidate_block_length, cu_seqlens_q=Non
 
 Returns INT32 `[1024]` metadata for `quant_sparse_lightning_indexer(..., metadata=metadata)`.
 
+## Hardware support
+
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | Supported | Unverified | Unsupported |
+
+## Parameters
+
+T is query rows, B requests, P physical pages and S slots per page. Optional tensors default to None; scalar defaults are shown in the signature.
+
+| Parameter | Type, shape and meaning |
+| --- | --- |
+| `candidate_block_length` | INT32 [T,1], valid candidate block count per query. |
+| `cu_seqlens_q` | Optional INT32 [B+1], cumulative query row boundaries. |
+| `cu_seqlens_k` | Optional INT32 [B+1], cumulative TND key boundaries. |
+| `seqused_q` | Optional INT32 [B], valid query rows per request. |
+| `seqused_k` | Optional INT32 [B], valid key tokens per request. |
+| `cmp_residual_k` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
+| `batch_size` | Optional int B, request count; infer from query boundaries when omitted. |
+| `max_seqlen_q` | int or None, query capacity per request; infer when unspecified. |
+| `max_seqlen_k` | int, key capacity per request; -1 means infer. |
+| `num_heads_q` | int, query heads: 32 for indexers, 64 for MLA. |
+| `num_heads_k` | int, shared index key heads; use 1. |
+| `head_dim` | int, logical head dimension: 128 for indexers, 512 for MLA. |
+| `topk` | int, maximum selected tokens per query, in [1,8192]. |
+| `quant_mode` | int, use 1 for the supported quantized profile. |
+| `candidate_block_size` | int, use 8 tokens per candidate block when enabled. |
+| `mask_mode` | int: 0 for visible keys, 3 for causal masking. |
+| `cmp_ratio` | int in [1,128], compression ratio used to calculate causal visibility. |
+| `layout_q` | str, use TND (flattened query tokens). |
+| `layout_k` | str, TND or PA_BBND key storage. |
+| `impl` | str, auto and cannbot_dsl select the same AICPU schedule implementation. |
+
+## Returns
+
+| Value | Meaning |
+| --- | --- |
+| metadata | INT32 [1024], backend-specific schedule. |
+
+## cannbot_dsl
+
+`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+
+Metadata encodes a device-specific schedule, with no unique Torch numerical answer. No torch_native alias is provided. The paired compute reference checks output semantics; this entry tests eager/graph parity after length updates.
+
+## Example
+
+Construct a small input and its metadata:
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.indexer import (
+    quant_sparse_lightning_indexer,
+    quant_sparse_lightning_indexer_metadata,
+)
+
+q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
+qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
+w = torch.ones(1, 32, device="npu")
+cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
+lengths = torch.tensor([64], device="npu", dtype=torch.int32)
+table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
+attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
+k = torch.zeros(1, 8, 544, device="npu", dtype=torch.uint8)
+k[..., 512:] = 127
+candidates = torch.full((1, 1, 2048), -1, device="npu", dtype=torch.int32)
+candidates[..., :8] = torch.arange(8, device="npu", dtype=torch.int32)
+count = torch.tensor([[8]], device="npu", dtype=torch.int32)
+metadata = quant_sparse_lightning_indexer_metadata(
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    num_heads_q=32,
+    num_heads_k=1,
+    head_dim=128,
+    max_seqlen_q=1,
+    max_seqlen_k=64,
+    **attrs,
+    candidate_block_length=count,
+    candidate_block_size=8,
+    quant_mode=1
+)
+```
+
 ## Device test
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_sparse_lightning_indexer_metadata.py --npu-device 0 -q
+python -m pytest tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata.py --npu-device=0 --enable-perf=false -v -s
 ```

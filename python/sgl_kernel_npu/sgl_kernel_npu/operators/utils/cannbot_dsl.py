@@ -89,7 +89,8 @@ def initialize_backend():
 @lru_cache(maxsize=None)
 def load_cannbot_dsl(name):
     initialize_backend()
+    domain = "attention" if name.startswith("mixed_quant_") else "indexer"
     module = importlib.import_module(
-        f"sgl_kernel_npu.implementation.cannbot-dsl.attention.{name}"
+        f"sgl_kernel_npu.implementation.cannbot-dsl.{domain}.{name}"
     )
     return getattr(module, name)

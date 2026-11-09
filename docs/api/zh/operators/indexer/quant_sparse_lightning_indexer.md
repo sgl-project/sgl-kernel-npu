@@ -4,7 +4,7 @@
 
 MXFP4 Sparse Lightning Indexer：只访问 QLI 给出的候选 Key 块，再选出 TopK token。
 
-支持 Ascend 950PR/950DT（`arch35`），`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见下表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
 
 ## 函数原型
 
@@ -14,7 +14,35 @@ from typing import Optional
 
 from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer
 
-quant_sparse_lightning_indexer(q: torch.Tensor, k: torch.Tensor, w: torch.Tensor, descale_q: torch.Tensor, candidate_block_indices: torch.Tensor, candidate_block_length: torch.Tensor, cu_seqlens_q: Optional[torch.Tensor]=None, cu_seqlens_k: Optional[torch.Tensor]=None, seqused_q: Optional[torch.Tensor]=None, seqused_k: Optional[torch.Tensor]=None, cmp_residual_k: Optional[torch.Tensor]=None, block_table: Optional[torch.Tensor]=None, output_idx_offset: Optional[torch.Tensor]=None, metadata: Optional[torch.Tensor]=None, *, descale_k: Optional[torch.Tensor]=None, topk: int, candidate_block_size: int, quant_mode: int, max_seqlen_q: int=-1, mask_mode: int=0, cmp_ratio: int=1, layout_q: str='TND', layout_k: str='TND', return_value: bool=False, impl='auto')
+
+def quant_sparse_lightning_indexer(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    w: torch.Tensor,
+    descale_q: torch.Tensor,
+    candidate_block_indices: torch.Tensor,
+    candidate_block_length: torch.Tensor,
+    cu_seqlens_q: Optional[torch.Tensor] = None,
+    cu_seqlens_k: Optional[torch.Tensor] = None,
+    seqused_q: Optional[torch.Tensor] = None,
+    seqused_k: Optional[torch.Tensor] = None,
+    cmp_residual_k: Optional[torch.Tensor] = None,
+    block_table: Optional[torch.Tensor] = None,
+    output_idx_offset: Optional[torch.Tensor] = None,
+    metadata: Optional[torch.Tensor] = None,
+    *,
+    descale_k: Optional[torch.Tensor] = None,
+    topk: int,
+    candidate_block_size: int,
+    quant_mode: int,
+    max_seqlen_q: int = -1,
+    mask_mode: int = 0,
+    cmp_ratio: int = 1,
+    layout_q: str = "TND",
+    layout_k: str = "TND",
+    return_value: bool = False,
+    impl="auto"
+): ...
 ```
 
 ## 输入约束
@@ -25,8 +53,120 @@ quant_sparse_lightning_indexer(q: torch.Tensor, k: torch.Tensor, w: torch.Tensor
 
 返回 `(indices, values)`；INT32 索引与 BF16 分数均为 `[T1,1,topk]`。`return_value=False` 时 values 为空 Tensor；不足 TopK 的位置为索引 `-1`、分数 `-inf`。
 
+## 硬件支持
+
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | 支持 | 未验证 | 不支持 |
+| torch_native | 未验证 | 未验证 | 未验证 |
+
+## 参数
+
+T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。可选张量默认 None；其他默认值见函数原型。
+
+| 参数 | 类型、形状与含义 |
+| --- | --- |
+| `q` | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
+| `k` | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
+| `w` | FP32 [T,32]，查询头的分数权重。 |
+| `descale_q` | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
+| `candidate_block_indices` | INT32 [T,1,2048]，候选逻辑块 ID；有效前缀由 length 指定。 |
+| `candidate_block_length` | INT32 [T,1]，每个查询的有效候选块数。 |
+| `cu_seqlens_q` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
+| `cu_seqlens_k` | 可选 INT32 [B+1]，TND K 的累计边界。 |
+| `seqused_q` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `seqused_k` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
+| `cmp_residual_k` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
+| `block_table` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
+| `output_idx_offset` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
+| `metadata` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
+| `descale_k` | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
+| `topk` | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
+| `candidate_block_size` | int，启用候选块时每块使用 8 个 token。 |
+| `quant_mode` | int，当前支持的量化配置使用 1。 |
+| `max_seqlen_q` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `mask_mode` | int：0 使用可见 K，3 使用因果掩码。 |
+| `cmp_ratio` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
+| `layout_q` | str，使用 TND（展平查询 token）。 |
+| `layout_k` | str，TND 或 PA_BBND 的 K 存储布局。 |
+| `return_value` | bool，True 时同时返回 BF16 选中分数。 |
+| `impl` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
+
+## 返回值
+
+| 值 | 含义 |
+| --- | --- |
+| indices | INT32 [T,1,topk]; -1 表示无效项。 |
+| values | BF16 [T,1,topk]; 禁用时为空，无效项为 -inf。 |
+
+计算语义（量化边界使用 BF16）：
+
+```text
+s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0), i in visible candidate blocks; indices = TopK(s)
+```
+
+## cannbot_dsl
+
+`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+
+## torch_native
+
+独立的 CPU Torch 精度参考，结果复制回输入设备，保留原地输出语义。无需 DSL；不适合性能执行或 NPU graph capture。Top-K 同分项允许不同排序。
+
+## 示例
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.indexer import (
+    quant_sparse_lightning_indexer,
+    quant_sparse_lightning_indexer_metadata,
+)
+
+q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
+qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
+w = torch.ones(1, 32, device="npu")
+cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
+lengths = torch.tensor([64], device="npu", dtype=torch.int32)
+table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
+attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
+k = torch.zeros(1, 8, 544, device="npu", dtype=torch.uint8)
+k[..., 512:] = 127
+candidates = torch.full((1, 1, 2048), -1, device="npu", dtype=torch.int32)
+candidates[..., :8] = torch.arange(8, device="npu", dtype=torch.int32)
+count = torch.tensor([[8]], device="npu", dtype=torch.int32)
+metadata = quant_sparse_lightning_indexer_metadata(
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    num_heads_q=32,
+    num_heads_k=1,
+    head_dim=128,
+    max_seqlen_q=1,
+    max_seqlen_k=64,
+    **attrs,
+    candidate_block_length=count,
+    candidate_block_size=8,
+    quant_mode=1
+)
+result = quant_sparse_lightning_indexer(
+    q,
+    k,
+    w,
+    qs,
+    candidates,
+    count,
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    block_table=table,
+    metadata=metadata,
+    quant_mode=1,
+    **attrs,
+    candidate_block_size=8
+)
+```
+
 ## 设备测试
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_sparse_lightning_indexer.py --npu-device 0 -q
+python -m pytest tests/python/operators/indexer/test_quant_sparse_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
 ```

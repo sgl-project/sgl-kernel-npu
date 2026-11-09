@@ -48,7 +48,28 @@ def mixed_quant_sparse_flash_mla_metadata(
 ):
     """Build scheduling metadata for ``mixed_quant_sparse_flash_mla``.
 
-    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
+    ``auto`` selects the lazy A5 CANNBot-DSL backend.
+
+    Args:
+        ori_topk_length: INT32 [T,1], valid original sparse prefix per query; required when original KV is enabled.
+        cmp_topk_length: INT32 [T,1], valid compressed sparse prefix per query; required when compressed KV is enabled.
+        cu_seqlens_q: Optional INT32 [B+1], cumulative query row boundaries.
+        seqused_q: Optional INT32 [B], valid query rows per request.
+        seqused_ori_kv: Optional INT32 [B], original KV lengths; retained for API compatibility.
+        seqused_cmp_kv: Optional INT32 [B], compressed KV lengths; retained for API compatibility.
+        batch_size: Optional int B, request count; infer from query boundaries when omitted.
+        max_seqlen_q: int or None, query capacity per request; infer when unspecified.
+        max_seqlen_ori_kv: Optional int, original KV capacity (compatibility argument).
+        max_seqlen_cmp_kv: Optional int, compressed KV capacity (compatibility argument).
+        num_heads_q: int, query heads: 32 for indexers, 64 for MLA.
+        num_heads_kv: int, shared MLA KV heads; use 1.
+        head_dim: int, logical head dimension: 128 for indexers, 512 for MLA.
+        quant_mode: int, use 1 for the supported quantized profile.
+        layout_q: str, use TND (flattened query tokens).
+        layout_kv: str, use PA_BBND packed paged KV.
+        has_ori_kv: bool, whether the consuming attention call has original KV.
+        has_cmp_kv: bool, whether the consuming attention call has compressed KV.
+        impl: str, auto and cannbot_dsl select the same AICPU schedule implementation.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla_metadata", impl)(
         ori_topk_length,

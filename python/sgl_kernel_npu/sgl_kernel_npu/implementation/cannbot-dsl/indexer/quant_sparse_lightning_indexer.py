@@ -27,42 +27,32 @@ from typing import Optional
 
 import cannbotdsl
 import torch
+from cannbotdsl import MemLoc, ProfileSpec, Tensor, dtypes, onchip_rewind
 from cannbotdsl.aot import export
-
-from cannbotdsl import MemLoc, ProfileSpec, Tensor, dtypes
 from cannbotdsl.buffer import Buffer
+from cannbotdsl.lang.constexpr import const_expr, range_constexpr
 from cannbotdsl.lang.control_flow import range as dsl_range
-from cannbotdsl.lang.constexpr import range_constexpr, const_expr
-from cannbotdsl.lang.jit import jit
 from cannbotdsl.lang.host import host
+from cannbotdsl.lang.jit import jit
 from cannbotdsl.lang.kernel import kernel
 from cannbotdsl.lang.vf import vf
 from cannbotdsl.ops import reg as rr
 from cannbotdsl.ops.arch import get_block_idx, get_subblock_id
 from cannbotdsl.ops.matmul import matmul as dsl_matmul
-from cannbotdsl.ops.memcpy import mem_copy
+from cannbotdsl.ops.memcpy import copy_options, mem_copy, pad
 from cannbotdsl.ops.sync import (
     PIPE,
-    global_sync_all,
-    cube_sync_intra_wait,
     cube_sync_intra_arrive,
+    cube_sync_intra_wait,
+    global_sync_all,
+    vec_sync_intra_arrive,
     vec_sync_intra_wait,
     vec_sync_notify,
     vec_sync_wait,
-    vec_sync_intra_arrive,
 )
-from cannbotdsl.tensor import (
-    tile_slice as tile_view,
-    make_pointer,
-    make_tensor,
-    make_layout,
-    reinterpret,
-)
-
-from cannbotdsl import onchip_rewind
 from cannbotdsl.ring_buffer import RingBuffer
-from cannbotdsl.ops.memcpy import copy_options, pad
-
+from cannbotdsl.tensor import make_layout, make_pointer, make_tensor, reinterpret
+from cannbotdsl.tensor import tile_slice as tile_view
 
 TILE_M = 32
 TILE_N = 512

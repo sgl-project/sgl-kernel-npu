@@ -8,6 +8,20 @@ from ..utils.cannbot_dsl import ascend950_device, load_cannbot_dsl
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_torch_native_fn = None
+
+
+@register_impl("indexer.indexer_prologue_k", "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.indexer_prologue_k import (
+            indexer_prologue_k,
+        )
+
+        _torch_native_fn = indexer_prologue_k
+    return _torch_native_fn(*args, **kwargs)
+
 
 @register_impl(
     "indexer.indexer_prologue_k", "auto", supported_generations={Generation.ARCH35}
@@ -41,7 +55,21 @@ def indexer_prologue_k(
 ):
     """Update the key cache and optional scale cache in place.
 
-    ``auto`` and ``cannbot_dsl`` select the same lazy-loaded A5 implementation.
+    ``auto`` selects the lazy A5 CANNBot-DSL backend.
+
+    Args:
+        latent: BF16 [T,H], compressor latent before RoPE.
+        wk: BF16 [D,H], projection weight; FRACTAL_NZ on the DSL path.
+        norm_weight: FP32 [D], RMSNorm weight.
+        rope_sin: FP32 [T,Dr], sine coefficients for the last Dr features.
+        rope_cos: FP32 [T,Dr], cosine coefficients for the last Dr features.
+        k_cache: UINT8 writable cache: mode 0 [P,S,1,D/2]; mode 1 [P,S/G,1,G*(D/2+D/32)].
+        k_scale_cache: Optional UINT8 [P,S,1,D/32], separate E8M0 scales for mode 0.
+        cache_index: INT64 [T], flattened cache slots; -1 skips a row.
+        storage_mode: int: 0 for separate data/scales, 1 for combined storage.
+        norm_eps: float, RMSNorm epsilon.
+        combined_block_size: int G, rows per combined record; mode 1 requires a positive divisor of S.
+        impl: str, auto selects cannbot_dsl; torch_native is an independent compute reference.
     """
     return get_impl_by_name("indexer.indexer_prologue_k", impl)(
         latent,

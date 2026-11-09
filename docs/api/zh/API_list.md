@@ -22,7 +22,7 @@
 | [flash_mla_metadata](operators/attention/flash_mla_metadata.md) | `cann_ops_transformers_cann920` |
 | [quant_flash_attn](operators/attention/quant_flash_attn.md) | `cann_ops_transformer`、`torch_native` |
 | [quant_flash_attn_metadata](operators/attention/quant_flash_attn_metadata.md) | `cann_ops_transformer` |
-| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cannbot_dsl` |
+| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cannbot_dsl`, `torch_native` |
 | [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cannbot_dsl` |
 | [batch_matmul_transpose](operators/matmul/batch_matmul_transpose.md) | `ascendc`、`torch_native` |
 | [chunk_gated_delta_rule](operators/attention/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
@@ -66,10 +66,10 @@
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
 | [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
-| [indexer_prologue_k](operators/indexer/indexer_prologue_k.md) | `cannbot_dsl` |
-| [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cannbot_dsl` |
+| [indexer_prologue_k](operators/indexer/indexer_prologue_k.md) | `cannbot_dsl`, `torch_native` |
+| [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cannbot_dsl` |
-| [quant_sparse_lightning_indexer](operators/indexer/quant_sparse_lightning_indexer.md) | `cannbot_dsl` |
+| [quant_sparse_lightning_indexer](operators/indexer/quant_sparse_lightning_indexer.md) | `cannbot_dsl`, `torch_native` |
 | [quant_sparse_lightning_indexer_metadata](operators/indexer/quant_sparse_lightning_indexer_metadata.md) | `cannbot_dsl` |
 | [expand_causal_seqlens](operators/indexer/expand_causal_seqlens.md) | `triton`, `torch_native` |
 | [expand_kpool_group_and_tail_to_topk](operators/indexer/expand_kpool_group_and_tail_to_topk.md) | `triton`, `torch_native` |

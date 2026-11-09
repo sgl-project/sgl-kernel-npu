@@ -6,9 +6,6 @@ We recommend new contributors start from writing documentation, which helps you 
 
 [API index](api/en/API_list.md)
 
-DSv4.1 CANNBot-DSL build and A5 validation:
-[English](developer_guide/cannbotdsl.md) / [中文](developer_guide/cannbotdsl.zh.md).
-
 Operator documentation is organized by `api/<language>/operators/<category>/<operator>.md`.
 
 ## Docs Workflow

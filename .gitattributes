@@ -1,2 +1,0 @@
-# Keep vendored upstream source bytes stable across platforms.
-python/sgl_kernel_npu/sgl_kernel_npu/implementation/cannbot-dsl/attention/*.py text eol=lf

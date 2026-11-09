@@ -4,7 +4,7 @@
 
 Scores only the candidate key blocks selected by QLI and returns sparse TopK tokens.
 
-Supports Ascend 950PR/950DT (`arch35`). `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
+The DSL targets Ascend 950PR/950DT (`arch35`); validation status is listed below. `impl="auto"` and `impl="cannbot_dsl"` select the same source JIT backend. See the [build and validation guide](../../../../developer_guide/cannbotdsl.md) for dependencies and validation status.
 
 ## Signature
 
@@ -14,7 +14,35 @@ from typing import Optional
 
 from sgl_kernel_npu.operators.indexer import quant_sparse_lightning_indexer
 
-quant_sparse_lightning_indexer(q: torch.Tensor, k: torch.Tensor, w: torch.Tensor, descale_q: torch.Tensor, candidate_block_indices: torch.Tensor, candidate_block_length: torch.Tensor, cu_seqlens_q: Optional[torch.Tensor]=None, cu_seqlens_k: Optional[torch.Tensor]=None, seqused_q: Optional[torch.Tensor]=None, seqused_k: Optional[torch.Tensor]=None, cmp_residual_k: Optional[torch.Tensor]=None, block_table: Optional[torch.Tensor]=None, output_idx_offset: Optional[torch.Tensor]=None, metadata: Optional[torch.Tensor]=None, *, descale_k: Optional[torch.Tensor]=None, topk: int, candidate_block_size: int, quant_mode: int, max_seqlen_q: int=-1, mask_mode: int=0, cmp_ratio: int=1, layout_q: str='TND', layout_k: str='TND', return_value: bool=False, impl='auto')
+
+def quant_sparse_lightning_indexer(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    w: torch.Tensor,
+    descale_q: torch.Tensor,
+    candidate_block_indices: torch.Tensor,
+    candidate_block_length: torch.Tensor,
+    cu_seqlens_q: Optional[torch.Tensor] = None,
+    cu_seqlens_k: Optional[torch.Tensor] = None,
+    seqused_q: Optional[torch.Tensor] = None,
+    seqused_k: Optional[torch.Tensor] = None,
+    cmp_residual_k: Optional[torch.Tensor] = None,
+    block_table: Optional[torch.Tensor] = None,
+    output_idx_offset: Optional[torch.Tensor] = None,
+    metadata: Optional[torch.Tensor] = None,
+    *,
+    descale_k: Optional[torch.Tensor] = None,
+    topk: int,
+    candidate_block_size: int,
+    quant_mode: int,
+    max_seqlen_q: int = -1,
+    mask_mode: int = 0,
+    cmp_ratio: int = 1,
+    layout_q: str = "TND",
+    layout_k: str = "TND",
+    return_value: bool = False,
+    impl="auto"
+): ...
 ```
 
 ## Inputs
@@ -25,8 +53,120 @@ UINT8 `q[T1,32,64]`, INT32 candidate block indices/lengths, E8M0 key descale, an
 
 Returns `(indices, values)` with INT32 indices and BF16 scores of shape `[T1,1,topk]`. If `return_value=False`, values are empty; unfilled indices are `-1`.
 
+## Hardware support
+
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | Supported | Unverified | Unsupported |
+| torch_native | Unverified | Unverified | Unverified |
+
+## Parameters
+
+T is query rows, B requests, P physical pages and S slots per page. Optional tensors default to None; scalar defaults are shown in the signature.
+
+| Parameter | Type, shape and meaning |
+| --- | --- |
+| `q` | UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128. |
+| `k` | UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes. |
+| `w` | FP32 [T,32], query-head score weights. |
+| `descale_q` | UINT8/E8M0 [T,32,2,2], one scale per 32 logical features. |
+| `candidate_block_indices` | INT32 [T,1,2048], candidate logical block IDs; valid prefix given by lengths. |
+| `candidate_block_length` | INT32 [T,1], valid candidate block count per query. |
+| `cu_seqlens_q` | Optional INT32 [B+1], cumulative query row boundaries. |
+| `cu_seqlens_k` | Optional INT32 [B+1], cumulative TND key boundaries. |
+| `seqused_q` | Optional INT32 [B], valid query rows per request. |
+| `seqused_k` | Optional INT32 [B], valid key tokens per request. |
+| `cmp_residual_k` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
+| `block_table` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
+| `output_idx_offset` | Optional INT32 [T,1], added to each valid selected token index. |
+| `metadata` | Optional INT32 device schedule from the paired metadata entry; torch_native ignores scheduling. |
+| `descale_k` | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
+| `topk` | int, maximum selected tokens per query, in [1,8192]. |
+| `candidate_block_size` | int, use 8 tokens per candidate block when enabled. |
+| `quant_mode` | int, use 1 for the supported quantized profile. |
+| `max_seqlen_q` | int or None, query capacity per request; infer when unspecified. |
+| `mask_mode` | int: 0 for visible keys, 3 for causal masking. |
+| `cmp_ratio` | int in [1,128], compression ratio used to calculate causal visibility. |
+| `layout_q` | str, use TND (flattened query tokens). |
+| `layout_k` | str, TND or PA_BBND key storage. |
+| `return_value` | bool, also return BF16 selected scores when True. |
+| `impl` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
+
+## Returns
+
+| Value | Meaning |
+| --- | --- |
+| indices | INT32 [T,1,topk]; -1 marks invalid entries. |
+| values | BF16 [T,1,topk]; empty when disabled; invalid entries are -inf. |
+
+Semantics (BF16 rounding at quantized compute boundaries):
+
+```text
+s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0), i in visible candidate blocks; indices = TopK(s)
+```
+
+## cannbot_dsl
+
+`auto` selects this backend. Requires A5 and cannbot-dsl 0.8.0; the project validation target is CANN 9.2.0. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+
+## torch_native
+
+Independent CPU Torch accuracy reference; results are copied back to the input device, preserving in-place semantics. Does not require DSL. Not intended for performance or NPU graph capture. Equal-score TopK order may differ.
+
+## Example
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.indexer import (
+    quant_sparse_lightning_indexer,
+    quant_sparse_lightning_indexer_metadata,
+)
+
+q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
+qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
+w = torch.ones(1, 32, device="npu")
+cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
+lengths = torch.tensor([64], device="npu", dtype=torch.int32)
+table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
+attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
+k = torch.zeros(1, 8, 544, device="npu", dtype=torch.uint8)
+k[..., 512:] = 127
+candidates = torch.full((1, 1, 2048), -1, device="npu", dtype=torch.int32)
+candidates[..., :8] = torch.arange(8, device="npu", dtype=torch.int32)
+count = torch.tensor([[8]], device="npu", dtype=torch.int32)
+metadata = quant_sparse_lightning_indexer_metadata(
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    num_heads_q=32,
+    num_heads_k=1,
+    head_dim=128,
+    max_seqlen_q=1,
+    max_seqlen_k=64,
+    **attrs,
+    candidate_block_length=count,
+    candidate_block_size=8,
+    quant_mode=1
+)
+result = quant_sparse_lightning_indexer(
+    q,
+    k,
+    w,
+    qs,
+    candidates,
+    count,
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    block_table=table,
+    metadata=metadata,
+    quant_mode=1,
+    **attrs,
+    candidate_block_size=8
+)
+```
+
 ## Device test
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_sparse_lightning_indexer.py --npu-device 0 -q
+python -m pytest tests/python/operators/indexer/test_quant_sparse_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
 ```

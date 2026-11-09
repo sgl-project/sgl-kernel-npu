@@ -16,19 +16,13 @@ M is the operator's query tile index; S2 is a 512-token tile index.
 
 __all__ = ["quant_sparse_lightning_indexer_metadata"]
 
-from functools import lru_cache
 import tempfile
-import torch
-from cannbotdsl.aicpu import (
-    gm_in as GmIn,
-    gm_out as GmOut,
-    I32,
-    I64,
-    U32,
-    aicpu_kernel,
-    current_raw_stream,
-)
+from functools import lru_cache
 
+import torch
+from cannbotdsl.aicpu import I32, I64, U32, aicpu_kernel, current_raw_stream
+from cannbotdsl.aicpu import gm_in as GmIn
+from cannbotdsl.aicpu import gm_out as GmOut
 
 # metadata 为 int32[1024]；每条分核记录包含 8 个字段。
 METADATA_ELEMENTS = 1024
@@ -370,6 +364,7 @@ def metadata_kernel(args: Args):
 @lru_cache(None)
 def compiled_metadata():
     from pathlib import Path
+
     from cannbotdsl.aicpu.toolchain import CompiledAicpuKernel, compile_aicpu_kernel
 
     binary = Path(__file__).parent / "_aicpu" / "qsli_metadata_kernel.so"

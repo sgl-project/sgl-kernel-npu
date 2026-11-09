@@ -4,7 +4,7 @@
 
 MXFP4 Lightning Indexer：遍历可见 Key，按 Query head 加权得分选取 TopK token；可同时输出 QSLI 的候选块。
 
-支持 Ascend 950PR/950DT（`arch35`），`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
+DSL 面向 Ascend 950PR/950DT（`arch35`），设备验证状态见下表，`impl="auto"` 与 `impl="cannbot_dsl"` 选择同一个源码 JIT 实现。依赖版本、构建和验证状态见[开发指南](../../../../developer_guide/cannbotdsl.zh.md)。
 
 ## 函数原型
 
@@ -14,7 +14,34 @@ from typing import Optional
 
 from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-quant_lightning_indexer(q: torch.Tensor, k: torch.Tensor, w: torch.Tensor, descale_q: torch.Tensor, descale_k: torch.Tensor, cu_seqlens_q: Optional[torch.Tensor]=None, cu_seqlens_k: Optional[torch.Tensor]=None, seqused_q: Optional[torch.Tensor]=None, seqused_k: Optional[torch.Tensor]=None, cmp_residual_k: Optional[torch.Tensor]=None, block_table: Optional[torch.Tensor]=None, output_idx_offset: Optional[torch.Tensor]=None, metadata: Optional[torch.Tensor]=None, *, topk: int, quant_mode: int, max_seqlen_q: int=-1, mask_mode: int=0, cmp_ratio: int=1, layout_q: str='TND', layout_k: str='TND', return_value: bool=False, candidate_topk_blocks: int=-1, candidate_block_size: int=-1, impl='auto')
+
+def quant_lightning_indexer(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    w: torch.Tensor,
+    descale_q: torch.Tensor,
+    descale_k: torch.Tensor,
+    cu_seqlens_q: Optional[torch.Tensor] = None,
+    cu_seqlens_k: Optional[torch.Tensor] = None,
+    seqused_q: Optional[torch.Tensor] = None,
+    seqused_k: Optional[torch.Tensor] = None,
+    cmp_residual_k: Optional[torch.Tensor] = None,
+    block_table: Optional[torch.Tensor] = None,
+    output_idx_offset: Optional[torch.Tensor] = None,
+    metadata: Optional[torch.Tensor] = None,
+    *,
+    topk: int,
+    quant_mode: int,
+    max_seqlen_q: int = -1,
+    mask_mode: int = 0,
+    cmp_ratio: int = 1,
+    layout_q: str = "TND",
+    layout_k: str = "TND",
+    return_value: bool = False,
+    candidate_topk_blocks: int = -1,
+    candidate_block_size: int = -1,
+    impl="auto"
+): ...
 ```
 
 ## 输入约束
@@ -25,8 +52,112 @@ quant_lightning_indexer(q: torch.Tensor, k: torch.Tensor, w: torch.Tensor, desca
 
 返回 `(indices, values, candidates, candidate_length)`；`indices` 为 INT32 `[T1,1,topk]`，`values` 为 BF16；关闭分数或候选输出时相应 Tensor 为空。无效索引为 `-1`。
 
+## 硬件支持
+
+| impl | Ascend 950PR | Ascend 950DT | Ascend 910C |
+| --- | --- | --- | --- |
+| cannbot_dsl | 支持 | 未验证 | 不支持 |
+| torch_native | 未验证 | 未验证 | 未验证 |
+
+## 参数
+
+T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。可选张量默认 None；其他默认值见函数原型。
+
+| 参数 | 类型、形状与含义 |
+| --- | --- |
+| `q` | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
+| `k` | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
+| `w` | FP32 [T,32]，查询头的分数权重。 |
+| `descale_q` | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
+| `descale_k` | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
+| `cu_seqlens_q` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
+| `cu_seqlens_k` | 可选 INT32 [B+1]，TND K 的累计边界。 |
+| `seqused_q` | 可选 INT32 [B]，每个请求的有效查询行数。 |
+| `seqused_k` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
+| `cmp_residual_k` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
+| `block_table` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
+| `output_idx_offset` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
+| `metadata` | 可选 INT32 设备调度数据，由配套 metadata 入口生成；torch_native 不依赖调度数据。 |
+| `topk` | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
+| `quant_mode` | int，当前支持的量化配置使用 1。 |
+| `max_seqlen_q` | int 或 None，每个请求的查询容量；未指定时推导。 |
+| `mask_mode` | int：0 使用可见 K，3 使用因果掩码。 |
+| `cmp_ratio` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
+| `layout_q` | str，使用 TND（展平查询 token）。 |
+| `layout_k` | str，TND 或 PA_BBND 的 K 存储布局。 |
+| `return_value` | bool，True 时同时返回 BF16 选中分数。 |
+| `candidate_topk_blocks` | int，候选块输出容量；-1 禁用该输出。 |
+| `candidate_block_size` | int，启用候选块时每块使用 8 个 token。 |
+| `impl` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
+
+## 返回值
+
+| 值 | 含义 |
+| --- | --- |
+| indices | INT32 [T,1,topk]; -1 表示无效项。 |
+| values | BF16 [T,1,topk]; 禁用时为空，无效项为 -inf。 |
+| candidates, candidate_length | INT32 [T,1,candidate_topk_blocks], INT32 [T,1]; 禁用时为空。 |
+
+计算语义（量化边界使用 BF16）：
+
+```text
+s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
+```
+
+## cannbot_dsl
+
+`auto` 默认选择此后端。需要 A5、cannbot-dsl 0.8.0；本项目验证目标为 CANN 9.2.0。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+
+## torch_native
+
+独立的 CPU Torch 精度参考，结果复制回输入设备，保留原地输出语义。无需 DSL；不适合性能执行或 NPU graph capture。Top-K 同分项允许不同排序。
+
+## 示例
+
+```python
+import torch
+import torch_npu
+from sgl_kernel_npu.operators.indexer import (
+    quant_lightning_indexer,
+    quant_lightning_indexer_metadata,
+)
+
+q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
+qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
+w = torch.ones(1, 32, device="npu")
+cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
+lengths = torch.tensor([64], device="npu", dtype=torch.int32)
+table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
+attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
+k = torch.zeros(1, 64, 1, 64, device="npu", dtype=torch.uint8)
+ks = torch.full((1, 64, 1, 2, 2), 127, device="npu", dtype=torch.uint8)
+metadata = quant_lightning_indexer_metadata(
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    num_heads_q=32,
+    num_heads_k=1,
+    head_dim=128,
+    max_seqlen_q=1,
+    max_seqlen_k=64,
+    **attrs
+)
+result = quant_lightning_indexer(
+    q,
+    k,
+    w,
+    qs,
+    ks,
+    cu_seqlens_q=cu,
+    seqused_k=lengths,
+    block_table=table,
+    metadata=metadata,
+    quant_mode=1,
+    **attrs
+)
+```
+
 ## 设备测试
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/dsv41_cannbot_dsl/test_quant_lightning_indexer.py --npu-device 0 -q
+python -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
 ```
