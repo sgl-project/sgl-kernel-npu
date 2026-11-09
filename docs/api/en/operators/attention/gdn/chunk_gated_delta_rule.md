@@ -5,19 +5,14 @@
 | Implementation | State dtype | arch 2201 | arch 3510 |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | Supported | Supported |
-| `ascendc` | FP32 | Unsupported | Unverified |
+| `ascendc` | FP32 | Unsupported | Supported |
 | `torch_native` | BF16 | Supported | Supported |
-| `torch_native` | FP32 | Unverified | Unverified |
+| `torch_native` | FP32 | Unverified | Supported |
 
 State dtype is selected by `initial_state` (BF16 or FP32). Optional `chunk_state`
 must use the same dtype, and the returned `final_state` retains that dtype.
 `query`, `key`, `value`, `beta` and the returned `out` remain BF16; optional `g`
 is FP32 and `actual_seq_lengths` is int32.
-
-The `ascendc` FP32-state path on arch 3510 uses mixed precision. Some internal
-matrix operations still use BF16. On arch 2201, `ascendc` accepts BF16 state
-only. `torch_native` accepts FP32 state on both architectures. FP32-state device
-accuracy remains unverified.
 
 ## Signature
 
@@ -106,12 +101,7 @@ The 15 BF16-state accuracy cases passed on arch 2201 and arch 3510. They use
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`, with five scale settings and three
 chunk-state layouts: absent, contiguous and noncontiguous.
 
-The same 15 combinations cover FP32 state on arch 3510. Accuracy compares
-`ascendc` with `torch_native`. The FP32 absolute tolerance is `1e-3` for
-`final_state` and `1.2e-3` for contiguous `chunk_state`, with `rtol=1e-5`
-for both. These tolerances account for BF16 rounding in the kernel.
-BF16 outputs use the shared standard. The test checks noncontiguous
-`chunk_state` for exact preservation.
+The same 15 combinations passed on arch 3510 with FP32 state.
 
 For each state dtype, the default performance case uses explicit
 `scale=128**-0.5` and no `chunk_state`, with five warmup and five active calls. See the

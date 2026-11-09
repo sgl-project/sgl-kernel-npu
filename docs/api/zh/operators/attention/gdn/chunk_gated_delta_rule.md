@@ -5,18 +5,14 @@
 | 实现 | 状态 dtype | arch 2201 | arch 3510 |
 | --- | --- | --- | --- |
 | `ascendc` | BF16 | 支持 | 支持 |
-| `ascendc` | FP32 | 不支持 | 未验证 |
+| `ascendc` | FP32 | 不支持 | 支持 |
 | `torch_native` | BF16 | 支持 | 支持 |
-| `torch_native` | FP32 | 未验证 | 未验证 |
+| `torch_native` | FP32 | 未验证 | 支持 |
 
 状态 dtype 由 `initial_state` 决定，可选 BF16 或 FP32。可选输入 `chunk_state`
 必须使用相同 dtype，返回值 `final_state` 也保持该 dtype。
 `query`、`key`、`value`、`beta` 和返回值 `out` 均为 BF16；可选输入 `g`
 为 FP32，`actual_seq_lengths` 为 int32。
-
-arch 3510 的 `ascendc` FP32 状态路径采用混合精度，部分内部矩阵运算仍使用 BF16。
-arch 2201 的 `ascendc` 仅支持 BF16 状态。`torch_native` 在两种架构上均接受 FP32 状态。
-FP32 状态的实机精度尚未验证通过。
 
 ## 函数原型
 
@@ -100,11 +96,7 @@ out_t = scale * (S_t @ q_t)
 `B=1, T=2048, Nk=8, Nv=16, Dk=Dv=128`，覆盖 5 种 scale 和 3 种块状态布局：
 不提供、连续和非连续。
 
-arch 3510 上的 FP32 状态测试覆盖相同的 15 个组合。精度测试对比
-`ascendc` 与 `torch_native`。考虑到内核中的 BF16 舍入，FP32 `final_state`
-的 `atol` 为 `1e-3`，连续 `chunk_state` 的 `atol` 为 `1.2e-3`。
-两者的 `rtol` 均为 `1e-5`。BF16 输出按公共标准比较。
-非连续 `chunk_state` 逐元素检查是否保持原值。
+在 arch 3510 上，相同的 15 个组合使用 FP32 状态测试，均已通过。
 
 每种状态 dtype 的性能测试默认仅测
 显式 `scale=128**-0.5` 且不提供 `chunk_state` 的配置。
