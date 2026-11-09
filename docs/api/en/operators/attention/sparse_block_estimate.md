@@ -21,7 +21,7 @@ def sparse_block_estimate(
     ...
 ```
 
-`auto` and `ascendc` use the same entry, without fallback. Importing sgl_kernel_npu also registers the compatible `torch.ops.attentions.sparse_block_estimate`. Its business parameters and defaults match this signature; it has no impl argument.
+`auto` and `ascendc` use the same entry, without fallback. Importing sgl_kernel_npu also registers the native `torch.ops.npu.sparse_block_estimate`. Its business parameters and defaults match this signature; it has no impl argument.
 
 ## Description
 

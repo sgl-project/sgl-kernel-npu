@@ -17,7 +17,7 @@ _torch_native_fn = None
     supported_generations={Generation.ARCH22},
 )
 def _ascendc_impl(*args):
-    return torch.ops.attentions.sparse_block_estimate(*args)
+    return torch.ops.npu.sparse_block_estimate(*args)
 
 
 @register_impl("attention.sparse_block_estimate", "torch_native")
@@ -55,7 +55,7 @@ def sparse_block_estimate(
     """Return (int8 sparse_mask, int32 sparse_count_table).
 
     auto selects ascendc. The positional parameters and defaults match
-    torch.ops.attentions.sparse_block_estimate, including causal=True.
+    torch.ops.npu.sparse_block_estimate, including causal=True.
     """
     return get_impl_by_name("attention.sparse_block_estimate", impl)(
         query,

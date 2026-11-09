@@ -21,7 +21,7 @@ def sparse_block_estimate(
     ...
 ```
 
-`auto` 与 `ascendc` 指向同一入口，没有自动回退。`import sgl_kernel_npu` 后可直接调用兼容入口 `torch.ops.attentions.sparse_block_estimate`；其业务参数和默认值一致，没有 `impl`。
+`auto` 与 `ascendc` 指向同一入口，没有自动回退。`import sgl_kernel_npu` 后可直接调用 `torch.ops.npu.sparse_block_estimate`；其业务参数和默认值一致，没有 `impl`。
 
 ## 功能说明
 

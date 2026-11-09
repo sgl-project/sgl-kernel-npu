@@ -123,7 +123,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_block_estimate(const at::Tensor &query
 }
 }  // namespace
 
-TORCH_LIBRARY_FRAGMENT(attentions, m)
+TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
         "sparse_block_estimate(Tensor query, Tensor key, int[]? actual_seq_lengths=None, "
@@ -131,7 +131,7 @@ TORCH_LIBRARY_FRAGMENT(attentions, m)
         "int num_heads=1, int num_key_value_heads=1, float scale_value=1, float threshold=1, "
         "bool causal=True, bool keep_sink=True, bool keep_recent=True, float row_sparse=1) -> (Tensor, Tensor)");
 }
-TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
+TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("sparse_block_estimate", &sparse_block_estimate);
 }
