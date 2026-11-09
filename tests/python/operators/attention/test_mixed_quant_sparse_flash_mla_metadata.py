@@ -8,6 +8,9 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
+
 from tests.python.operators.attention.mixed_quant_sparse_flash_mla_inputs import (
     check_mixed_quant_sparse_flash_mla_accuracy,
     generate_data,

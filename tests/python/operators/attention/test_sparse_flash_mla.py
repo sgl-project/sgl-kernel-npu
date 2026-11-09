@@ -5,10 +5,7 @@ import pytest
 # Import the package before torch_npu initializes the CANN op store. Otherwise
 # CANN may select its built-in SparseFlashMla instead of the bundled vendor.
 # Matching metadata lengths alone do not identify the selected implementation.
-try:
-    import sgl_kernel_npu  # noqa: F401
-except ImportError:  # pragma: no cover - the NPU runtime is optional here
-    pass
+import sgl_kernel_npu  # noqa: F401
 
 torch = pytest.importorskip("torch")
 

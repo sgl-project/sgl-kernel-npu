@@ -1,5 +1,5 @@
 {
-  "_comment": "Use upstream build-directory names. quant_lightning_indexer_v2 supplies both indexer Python APIs; mla_prolog_v3 exports mla_prolog and calls aclnnMlaPrologV4WeightNz. Mainline-only A3 indexers and CompressorV2 retain their mainline pin in separate vendors.",
+  "_comment": "Released CANN 9.2 DSV4 bindings. quant_lightning_indexer_v2 and its metadata export the quantized indexer APIs; mla_prolog_v3 exports mla_prolog. Mainline nonquantized A3 indexers and CompressorV2 have independent profiles.",
   "name": "sgl_ops_transformer",
   "python_exports": {
     "quant_lightning_indexer_v2": "quant_lightning_indexer",
@@ -37,45 +37,23 @@
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "3baf8ac0eba25fa464260a43bab8d5bac1fefb8a",
   "commands": [
-    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
-    ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+    [
+      "bash",
+      "build.sh",
+      "--pkg",
+      "--soc={soc}",
+      "--vendor_name={vendor_name}",
+      "--ops={ops}",
+      "-j{jobs}"
+    ],
+    [
+      "bash",
+      "build.sh",
+      "--torch_extension",
+      "--ops={ops}",
+      "--vendor_name={vendor_name}"
+    ]
   ],
   "has_aicpu": true,
-  "license": "LICENSE",
-  "additional_builds": [
-    {
-      "name": "sgl_ops_transformer_indexer",
-      "commit": "e7da18105f08b06e01ef0fff78f439098d483746",
-      "ops": {
-        "arch22": [
-          "lightning_indexer_v2",
-          "lightning_indexer_v2_metadata",
-          "sparse_lightning_indexer"
-        ],
-        "arch35": []
-      },
-      "python_exports": {
-        "lightning_indexer_v2": "lightning_indexer",
-        "lightning_indexer_v2_metadata": "lightning_indexer_metadata"
-      }
-    },
-    {
-      "name": "sgl_ops_transformer_experimental",
-      "ops": {
-        "arch22": [
-          "compressor_v2"
-        ],
-        "arch35": []
-      },
-      "commands": [
-        ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
-        ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
-      ],
-      "has_aicpu": false,
-      "commit": "e7da18105f08b06e01ef0fff78f439098d483746",
-      "python_exports": {
-        "compressor_v2": "ds41"
-      }
-    }
-  ]
+  "license": "LICENSE"
 }

@@ -111,11 +111,14 @@ selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`; selecting `ops_transformer` on CANN 9.1 selects
 both builds.
 
-A build object may also declare `additional_builds` with overrides for separate
-vendors. On CANN 9.2, the DSV4 operators retain their release-branch revision;
-the mainline A3 lightning indexers and experimental CompressorV2 retain the
-community profile's revision in separate vendors and private Python packages.
-This keeps their distinct source APIs without requiring external operator wheels.
+On CANN 9.2, `ops_transformer.json` builds the DSV4 operators at their release
+revision, including `quant_lightning_indexer_v2` and its metadata. The mainline
+A3 nonquantized indexers and CompressorV2 are separate dependencies in
+`ops_transformer_indexer.json` and `ops_transformer_experimental.json`; they
+retain the mainline revision and their private Python packages. They are not
+dependencies of the DSV4 quantized indexer. The default wheel includes all three
+profiles to preserve the mainline APIs; `--third-party ops_transformer` selects
+only the released profile when developing DSV4 operators.
 
 Operator selections use upstream build-directory names, which can differ from
 Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
@@ -552,5 +555,5 @@ There is no separate compressor library or loader. The existing legacy
 `build.sh` sources remain available. Target-SDK compilation and NPU execution
 must still be verified on the corresponding hardware.
 
-CANN 9.1 A5 compressor uses the bundled recipes/experimental implementation;
-CANN 9.1 A3 and CANN 9.2 A3/A5 use the repository's fused compressor.
+CANN 9.1 and 9.2 A3/A5 use the repository's fused compressor, which preserves
+pre-call ring history before committing state updates.

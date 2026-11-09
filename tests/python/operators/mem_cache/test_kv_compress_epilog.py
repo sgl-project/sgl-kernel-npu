@@ -4,6 +4,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
+
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,

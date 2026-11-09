@@ -8,6 +8,24 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from .attention_utils import logical_to_physical
 
 
+def _packed_kv_width(scale_itemsize, row_alignment):
+    # DeepSeek-V4's 512-dimensional KV has 448 FP8 NoPE values, 64 BF16
+    # RoPE values, and one scale for each group of 64 NoPE values (7 scales).
+    # CANN 9.2 BF16 scales: 448 + 64*2 + 7*2 = 590 bytes;
+    # align the row to 32 bytes -> 608 bytes.
+    # CANN 9.1 E8M0 scales: 448 + 64*2 + 7*1 = 583 bytes;
+    # align the row to 128 bytes -> 640 bytes.
+    # Scale dtype and row alignment are part of each reader/writer's KV ABI.
+    nope_dim, rope_dim, group_size = 448, 64, 64
+    scale_count = (nope_dim + group_size - 1) // group_size
+    size = nope_dim + 2 * rope_dim + scale_count * scale_itemsize
+    return (size + row_alignment - 1) // row_alignment * row_alignment
+
+
+_CANN_920_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=2, row_alignment=32)
+_CANN_910_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=1, row_alignment=128)
+
+
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
     "auto",
@@ -54,7 +72,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
         raise RuntimeError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"
         )
-    width = 608
+    width = _CANN_920_KV_ROW_BYTES
     for name in ("ori_kv", "cmp_kv"):
         cache = kwargs.get(name)
         if cache is not None and cache.shape[-1] != width:
@@ -125,7 +143,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         raise RuntimeError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"
         )
-    width = 640
+    width = _CANN_910_KV_ROW_BYTES
     for name in ("ori_kv", "cmp_kv"):
         cache = kwargs.get(name)
         if cache is not None and cache.shape[-1] != width:

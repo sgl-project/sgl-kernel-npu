@@ -4,8 +4,6 @@ set(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 # HOST declarations are discovered before the legacy CANN declarations so the
 # unified request can be partitioned without exposing HOST IDs to CANN helpers.
 function(sgl_add_host_operator_domains)
-    include("${SGL_OPERATOR_DOMAIN_ROOT}/attention/sparse_attn_sharedkv_metadata_host/CMakeLists.txt")
-    include("${SGL_OPERATOR_DOMAIN_ROOT}/attention/kv_quant_sparse_attn_sharedkv_metadata_host/CMakeLists.txt")
     foreach(domain IN ITEMS data_move)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()

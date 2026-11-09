@@ -4,7 +4,9 @@ Covers:
   * output contract (device int32[1024], enabled-core counts within hardware limits),
   * schedule validity (the FA cores form a contiguous partition that covers all batches),
   * input-contract rejection (invalid cmp_topk / cmp_ratio),
-  * (optional) byte-identical to the bundled CANN 9.1 AICPU op on decode.
+  * (optional) byte-identical to the live AICPU op on decode — only when the custom_ops
+    vendor env is loaded; decode is version-insensitive so it matches regardless of which
+    AICPU build is deployed.
 
 Run:
     python tests/python/sgl_kernel_npu/test_sparse_attn_sharedkv_metadata_host.py
@@ -14,7 +16,7 @@ import unittest
 
 import sgl_kernel_npu  # noqa: F401  (loads libsgl_kernel_npu.so -> registers torch.ops.npu.*)
 import torch
-import torch_npu  # noqa: F401 (registers the NPU backend)
+import torch_npu
 
 HOST = torch.ops.npu.sparse_attn_sharedkv_metadata_host
 
@@ -26,11 +28,12 @@ AIV = int(_PROPS.vector_core_num)
 FA_SLOTS = 36  # AIC_CORE_NUM
 FD_SLOTS = 72  # AIV_CORE_NUM
 
-# Optional live AICPU op from the bundled recipes bridge.
+# Optional live AICPU op (needs the custom_ops package + vendor aclnn env). Only used for
+# the decode byte-identical cross-check.
 try:
-    from sgl_kernel_npu._third_party import sgl_cann_recipes_infer  # noqa: F401
+    import custom_ops  # noqa: F401
 
-    _AICPU_OP = torch.ops.sgl_cann_recipes_infer.npu_sparse_attn_sharedkv_metadata
+    _AICPU_OP = torch.ops.custom.npu_sparse_attn_sharedkv_metadata
 except Exception:  # pragma: no cover - env dependent
     _AICPU_OP = None
 
@@ -209,7 +212,9 @@ class TestSparseAttnSharedkvMetadataHost(unittest.TestCase):
             host_call(cu, skv, 7, True, cmp_topk=512)
 
     # --- optional cross-check vs the live AICPU op (decode only) ----------------
-    @unittest.skipUnless(_aicpu_ok(), "bundled CANN 9.1 AICPU op is not available")
+    @unittest.skipUnless(
+        _aicpu_ok(), "live AICPU op (custom_ops + vendor aclnn) not runnable"
+    )
     def test_byte_identical_decode_vs_aicpu(self):
         # Decode is M=1 -> version-insensitive, so host matches any deployed AICPU build.
         B = 8
