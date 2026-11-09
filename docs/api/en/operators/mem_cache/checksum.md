@@ -8,7 +8,6 @@
 | `torch_native` | Supported | Supported |
 
 Both implementations were verified on Ascend A3 (arch22) and Ascend A5 (arch35).
-The tiled Triton implementation has been verified on A3.
 
 ## Signature
 
@@ -65,9 +64,10 @@ pointers do not carry allocation bounds or synchronization metadata.
 
 ## triton backend
 
-Each Triton program processes up to 4 KiB of a selected row. It reduces the
-local byte sums before applying the Adler-32 modulus to the tile's contribution.
-Descriptor and index ordering match SGLang's CUDA checksum.
+The kernel reads selected rows as bytes, computes weighted partial sums modulo
+65521, and reduces them to a checksum. It uses the same descriptor and index
+ordering as SGLang's CUDA checksum. This migration preserves the kernel math
+and launch plan.
 
 ## torch_native backend
 

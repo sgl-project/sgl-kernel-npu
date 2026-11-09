@@ -8,7 +8,6 @@
 | `torch_native` | 支持 | 支持 |
 
 两种实现均已在 Ascend A3（arch22）和 Ascend A5（arch35）上验证。
-按字节块并行的 Triton 优化版已在 A3 上验证。
 
 ## 函数签名
 
@@ -62,8 +61,9 @@ def adler32_strided_checksum(
 
 ## triton 后端
 
-每个 Triton program 处理选中行中最多 4 KiB 的字节。先归约块内的字节和，
-再对该块的贡献应用 Adler-32 取模。描述符和索引的顺序与 SGLang CUDA 实现一致。
+按字节读取选中的行，计算模 65521 的加权部分和，再归约得到 checksum。
+描述符和索引的顺序语义与 SGLang CUDA 实现一致。本次迁移保持原有计算公式
+和启动配置。
 
 ## torch_native 后端
 
