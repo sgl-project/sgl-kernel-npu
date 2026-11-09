@@ -61,10 +61,11 @@ def tree_speculative_sampling_target_only_torch(
         residual = (
             target_probs[req_idx, cur_prob_row] - rejected_probs[req_idx, cur_prob_row]
         ).clamp_min(0.0)
-        target = float(uniform_samples_for_final_sampling[req_idx]) * float(
-            residual.sum()
-        )
-        sampled_token = int((residual.cumsum(0) <= target).sum())
+        # Roundoff near a CDF boundary can change the sampled token. Use the
+        # same FP64 cumulative sum for the total and the token comparison.
+        cdf = residual.cumsum(0, dtype=torch.float64)
+        target = float(uniform_samples_for_final_sampling[req_idx]) * float(cdf[-1])
+        sampled_token = int((cdf <= target).sum())
         if sampled_token == residual.numel():
             positive = torch.nonzero(residual > 0.0).flatten()
             sampled_token = (
