@@ -1,10 +1,6 @@
 {
   "_comment": "Migrated DSV4 released bindings not already supplied by the mainline profile use this pinned commit and private package. BF16 sparse MLA and the other mainline operators remain in ops_transformer.json at their original revision.",
   "name": "sgl_ops_transformer_dsv4",
-  "python_exports": {
-    "quant_lightning_indexer_v2": "quant_lightning_indexer",
-    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata"
-  },
   "ops": {
     "arch22": [
       "quant_lightning_indexer_v2",

@@ -20,17 +20,9 @@ def configure(config, jobs):
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
         kernels = kernel if isinstance(kernel, list) else [kernel]
-        if (
-            not re.fullmatch(r"[a-z][a-z0-9_]*", interface)
-            or not kernels
-            or any(
-                name is not None
-                and (
-                    not isinstance(name, str)
-                    or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
-                )
-                for name in kernels
-            )
+        if not kernels or any(
+            not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
+            for name in [interface] + [name for name in kernels if name is not None]
         ):
             raise ValueError("Invalid recipes interface or kernel name")
     config["soc"] = detect_soc_version()
@@ -42,7 +34,14 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(selected_kernels(config))
+    config["kernel_ops"] = ";".join(
+        dict.fromkeys(
+            name
+            for kernel in operators.values()
+            for name in (kernel if isinstance(kernel, list) else [kernel])
+            if name is not None
+        )
+    )
     if not config["kernel_ops"]:
         raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
@@ -51,18 +50,6 @@ def configure(config, jobs):
         for command in config["commands"]
     ]
     return config
-
-
-def selected_kernels(item):
-    """Include every kernel a selected bridge can dispatch to."""
-    return list(
-        dict.fromkeys(
-            name
-            for kernels in item["ops"].values()
-            for name in (kernels if isinstance(kernels, list) else [kernels])
-            if name is not None
-        )
-    )
 
 
 def prepare_python(source, item):
@@ -83,40 +70,12 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        # Some upstream bridge source files carry a prefix distinct from the
-        # Torch schema. Select by the registered interface, never by guessing
-        # a filename from the public operator name.
-        direct = upstream / (op + ".cpp")
-        prefixed = upstream / ("npu_" + op + ".cpp")
-        candidates = (
-            [direct]
-            if direct.is_file()
-            else (
-                [prefixed]
-                if prefixed.is_file()
-                else [
-                    path
-                    for path in upstream.glob("*.cpp")
-                    if path.name != "ops_def_registration.cpp"
-                    and re.search(
-                        r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,", path.read_text()
-                    )
-                    and re.search(r"\b" + re.escape(op) + r"\b", path.read_text())
-                ]
-            )
+        source_name = "npu_" + op if op == "indexer_compress_epilog" else op
+        content = (upstream / (source_name + ".cpp")).read_text()
+        content = content.replace(
+            "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
         )
-        if len(candidates) != 1:
-            raise RuntimeError(
-                "Expected one upstream C++ bridge for {}: {}".format(op, candidates)
-            )
-        content, count = re.subn(
-            r"TORCH_LIBRARY_IMPL\s*\(\s*custom\s*,",
-            "TORCH_LIBRARY_IMPL(" + item["name"] + ",",
-            candidates[0].read_text(),
-        )
-        if not count:
-            raise RuntimeError("Missing upstream custom registration for " + op)
-        (sources / candidates[0].name).write_text(content)
+        (sources / (op + ".cpp")).write_text(content)
     notice = declarations[: declarations.index("#include")]
     (sources / "ops_def_registration.cpp").write_text(
         notice
@@ -165,7 +124,7 @@ def inspect_vendor(vendor, item):
 
     require(vendor / "op_api/lib/libcust_opapi.so")
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
-    for name in selected_kernels(item):
+    for name in item["kernel_ops"].split(";"):
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
