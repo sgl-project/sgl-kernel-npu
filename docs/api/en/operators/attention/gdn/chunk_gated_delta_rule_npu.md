@@ -77,8 +77,9 @@ its import-time behavior for intermediate retention. Both switches preserve
 legacy behavior; the default path uses migrated Triton implementations.
 
 No new `torch_native` production backend is added in this import-only migration.
-Tests use an independent tokenwise recurrence plus the old wrapper, comparing
-all three returns. Device accuracy and performance require A3/A5 execution.
+Tests use an independent tokenwise recurrence for all three returns on both
+decomposed and mega paths, without importing the old `fla` implementation.
+Device accuracy and performance require A3/A5 execution.
 
 ## Example
 

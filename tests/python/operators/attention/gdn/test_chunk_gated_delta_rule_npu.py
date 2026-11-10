@@ -124,7 +124,6 @@ def test_chunk_gated_delta_rule_npu(
     noncontiguous,
     monkeypatch,
 ):
-    from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_npu as legacy
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
 
     monkeypatch.setenv("GDN_USE_MEGA_GDN", "0")
@@ -136,8 +135,8 @@ def test_chunk_gated_delta_rule_npu(
     if not output_final_state:
         options["output_final_state"] = False
     actual = chunk_gated_delta_rule_npu(**data, **options, impl=impl)
-    expected_legacy = legacy(**data, **options)
-    assert_accuracy(actual, expected_legacy)
+    # Use the independent recurrence for every case. The legacy fixed-length
+    # WY kernel references an undefined i_t and cannot serve as an oracle.
     reference = list(
         recurrent_reference(
             **data,
@@ -156,14 +155,18 @@ def test_chunk_gated_delta_rule_npu(
 
 @pytest.mark.parametrize("output_final_state", [False, True])
 def test_chunk_gated_delta_rule_npu_mega(output_final_state, monkeypatch):
-    from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_npu as legacy
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
 
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        pytest.skip("The legacy mega_chunk_gdn native operator is required")
+        pytest.skip("The mega_chunk_gdn native operator is required")
     monkeypatch.setenv("GDN_USE_MEGA_GDN", "1")
     data = generate_data((0, 31, 100), torch.float16)
     options = dict(output_final_state=output_final_state)
-    assert_accuracy(
-        chunk_gated_delta_rule_npu(**data, **options), legacy(**data, **options)
+    actual = chunk_gated_delta_rule_npu(**data, **options)
+    reference = list(
+        recurrent_reference(**data, scale=None, normalize=False, chunk_size=128)
     )
+    if not output_final_state:
+        reference[1] = None
+    standard = {"torch.float32": DEFAULT_STANDARDS["torch.float16"]}
+    assert_accuracy(actual, tuple(reference), standard=standard)
