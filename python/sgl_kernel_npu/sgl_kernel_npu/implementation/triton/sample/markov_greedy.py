@@ -8,6 +8,8 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
     get_device_properties,
 )
 
+# The small-batch path splits a row into 4096-token tiles to expose parallel
+# work across the vocabulary when there are fewer rows than vector cores.
 _BLOCK_V = 4096
 _IDX_SENTINEL = tl.constexpr(2147483647)
 _STEP_DTYPES = {
@@ -161,8 +163,11 @@ def markov_greedy_step_triton(
     step_dtype = _STEP_DTYPES[torch.promote_types(base_logits.dtype, bias.dtype)]
     cores = get_device_properties()[1]
     if bs >= 32:
+        # 4096 FP32 values or 8192 16-bit values take 16 KiB per input tile.
+        # The winning-index pass uses up to 2048 values to limit its UB usage.
         tile = 4096 if step_dtype == tl.float32 else 8192
         tile = min(tile, triton.next_power_of_2(vocab))
+        # Assign up to one program per vector core and stride over remaining rows.
         _markov_greedy_row_kernel[(min(cores, bs),)](
             base_logits,
             bias,
@@ -181,6 +186,8 @@ def markov_greedy_step_triton(
     parts = triton.cdiv(vocab, _BLOCK_V)
     vals = torch.empty((bs, parts), dtype=torch.float32, device=base_logits.device)
     idxs = torch.empty((bs, parts), dtype=torch.int32, device=base_logits.device)
+    # Partial work is split by (row, tile), then combined by row. Both grids
+    # are capped at the vector-core count since programs loop over excess work.
     _markov_greedy_add_argmax_kernel[(min(cores, bs * parts),)](
         base_logits,
         bias,

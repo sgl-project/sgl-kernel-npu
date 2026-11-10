@@ -102,6 +102,8 @@ def schedule_verify_lens_topk_triton(
     survival = torch.empty((num_requests, cols), dtype=torch.float32, device=device)
     verify_lens = torch.empty(num_requests, dtype=torch.int32, device=device)
     confidence = confidence.contiguous()
+    # Each program computes one request's prefix products. Pad gamma to a
+    # power of two for the scan and mask the padded lanes.
     _schedule_topk_prep_kernel[(num_requests,)](
         confidence,
         survival,
@@ -111,6 +113,9 @@ def schedule_verify_lens_topk_triton(
         G_P2=triton.next_power_of_2(max(gamma, 1)),
     )
     if budget > 0 and n > 0:
+        # Keep the original 16-by-128 rank tile from #913. Each program ranks
+        # 16 candidates and scans 128 opponents at a time, limiting the live
+        # pairwise comparison to 2048 elements.
         _schedule_topk_selected_extra_kernel[(triton.cdiv(n, 16),)](
             survival,
             selected_extra,
@@ -121,6 +126,8 @@ def schedule_verify_lens_topk_triton(
             BLOCK_C=16,
             BLOCK_CP=128,
         )
+    # The #913 finalize tile groups 256 independent lengths (1 KiB of int32
+    # output) per program and masks any tail requests.
     _schedule_topk_finalize_kernel[(triton.cdiv(num_requests, 256),)](
         selected_extra,
         verify_lens,

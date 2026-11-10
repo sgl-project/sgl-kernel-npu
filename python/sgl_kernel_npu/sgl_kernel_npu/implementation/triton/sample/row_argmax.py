@@ -67,6 +67,7 @@ def row_argmax(x: torch.Tensor) -> torch.Tensor:
     out = torch.empty(rows, dtype=torch.int64, device=x.device)
     if rows == 0:
         return out
+    # Each program reduces one independent logits row to a single token index.
     _row_argmax_kernel[(rows,)](
         x, out, n, x.stride(0), rows, triton.cdiv(n, _TILE), TILE=_TILE
     )
