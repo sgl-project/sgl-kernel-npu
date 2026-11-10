@@ -1,6 +1,7 @@
 from .alloc_extend import alloc_extend
 from .assign_cache_op import assign_cache_op
 from .cache_locations import cache_loc_assign, cache_loc_update
+from .checksum import adler32_strided_checksum
 from .kpool_assemble_softmax_rotate_write_cache import (
     kpool_assemble_softmax_rotate_write_cache,
 )
@@ -12,6 +13,7 @@ from .kv_compress_epilog import kv_compress_epilog
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 
 __all__ = [
+    "adler32_strided_checksum",
     "alloc_extend",
     "assign_cache_op",
     "kv_compress_epilog",
