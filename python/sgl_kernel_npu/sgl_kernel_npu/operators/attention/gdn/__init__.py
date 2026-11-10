@@ -1,3 +1,4 @@
+from .chunk import chunk_gated_delta_rule_npu
 from .chunk_delta_h import chunk_delta_h
 from .chunk_gated_delta_rule import chunk_gated_delta_rule
 from .chunk_local_cumsum import chunk_local_cumsum
@@ -14,6 +15,7 @@ from .recurrent_gated_delta_rule import recurrent_gated_delta_rule
 from .solve_tril import solve_tril
 
 __all__ = [
+    "chunk_gated_delta_rule_npu",
     "chunk_fwd_o",
     "chunk_gated_delta_rule",
     "chunk_local_cumsum",
