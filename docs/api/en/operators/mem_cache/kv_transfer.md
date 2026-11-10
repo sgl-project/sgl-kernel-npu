@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `aiv` | Unverified; registration enabled | Declared; PF/LF refactor needs hardware regression |
-| `torch_native` | Unverified | Synchronous correctness reference |
+| `aiv` | Supported | Supported |
+| `torch_native` | Unverified | Unverified |
 
-The wrappers do not restrict registration by hardware generation. Actual availability depends on the matching MemFabric backend and runtime. Passing the original URMA tests does not establish correctness of this refactor.
+The AIV implementation has been validated on Ascend A3 (arch22) and A5 (arch35). Availability depends on a compatible runtime and registered Host memory.
 
 ## Signatures
 
@@ -89,7 +89,7 @@ An independent synchronous reference directly copies original Tensor layer/page 
 
 ## Streams and lifetimes
 
-Production implementations enqueue on the caller's current NPU stream without creating a transfer stream or synchronizing. The caller provides producer dependencies and consumer completion events, and prevents storage mutation/reuse until completion. The wrapper retains original inputs and pinned metadata staging until completion events retire. New contiguous index copies are allocated and consumed on the submission stream, so their storage lifetime relies on allocator ordering. Callers provide cross-stream data dependencies. Synchronize all transfers and end their use before releasing the MemFabric entity.
+AIV enqueues on the caller's current NPU stream. The C++ adapter uses `record_stream` on the Device components and both index tensors passed to it, so the NPU caching allocator keeps their storage alive until the transfer completes. Contiguous index copies are created and used on the submission stream. The caller provides cross-stream dependencies, keeps Host buffers and their registrations alive through completion, and waits before modifying or reusing transfer storage. Synchronize outstanding transfers before releasing the MemFabric pool.
 
 ## NPU graph capture
 

@@ -417,12 +417,15 @@ private:
         }
 
         // Resolve the page pair at pagePos_ and peek ahead: extend mergeCount_
-        // while both the host and device page numbers stay contiguous, so the
-        // whole run is transferred as one wide row.
+        // while both sides have contiguous payload bytes and page numbers.
         HYBM_AICORE_KERNEL void LoadMerged()
         {
             k_->LoadPages(cur_, pagePos_);
             mergeCount_ = 1;
+            const Component &component = k_->comps_[cur_.comp];
+            if (component.hostPagePitch != component.width || component.devicePagePitch != component.width) {
+                return;
+            }
             while (pagePos_ + mergeCount_ < pageEnd_) {
                 const int64_t nextToken = (pagePos_ + mergeCount_) * k_->pageSize_;
                 const int64_t nextHost = k_->hostIdxGm_.GetValue(nextToken) / k_->pageSize_;
@@ -490,25 +493,24 @@ private:
 
 // Per-component launch parameters (9 scalars each, same field order as the
 // legacy meta slots); c is the component index 0..3.
-#define KV_EXCHANGE_COMPONENT_PARAMS(c)                                                        \
+#define KV_EXCHANGE_COMPONENT_PARAMS(c)                                                                  \
     int64_t deviceBase##c, int64_t hostBase##c, int64_t deviceLayerPitch##c, int64_t devicePagePitch##c, \
-        int64_t hostPagePitch##c, int64_t hostLayerPitch##c, int64_t width##c, int64_t layerLo##c,  \
-        int64_t layerHi##c
+        int64_t hostPagePitch##c, int64_t hostLayerPitch##c, int64_t width##c, int64_t layerLo##c, int64_t layerHi##c
 
-#define KV_EXCHANGE_COMPONENT_ARGS(c)                                                          \
-    deviceBase##c, hostBase##c, deviceLayerPitch##c, devicePagePitch##c, hostPagePitch##c,       \
-        hostLayerPitch##c, width##c, layerLo##c, layerHi##c
+#define KV_EXCHANGE_COMPONENT_ARGS(c)                                                                         \
+    deviceBase##c, hostBase##c, deviceLayerPitch##c, devicePagePitch##c, hostPagePitch##c, hostLayerPitch##c, \
+        width##c, layerLo##c, layerHi##c
 
 /*
  * Production entry: the whole transfer description travels inside the kernel
  * launch parameter block. No device-resident meta, no pinned host staging and
  * no separate H2D meta upload remain on the submission path.
  */
-extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADDR host_indices,
-                                                int64_t num_components, int64_t num_pages, int64_t page_size,
-                                                int64_t direction, int64_t host_layout, int64_t start_dim,
-                                                KV_EXCHANGE_COMPONENT_PARAMS(0), KV_EXCHANGE_COMPONENT_PARAMS(1),
-                                                KV_EXCHANGE_COMPONENT_PARAMS(2), KV_EXCHANGE_COMPONENT_PARAMS(3))
+extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADDR host_indices, int64_t num_components,
+                                                  int64_t num_pages, int64_t page_size, int64_t direction,
+                                                  int64_t host_layout, int64_t start_dim,
+                                                  KV_EXCHANGE_COMPONENT_PARAMS(0), KV_EXCHANGE_COMPONENT_PARAMS(1),
+                                                  KV_EXCHANGE_COMPONENT_PARAMS(2), KV_EXCHANGE_COMPONENT_PARAMS(3))
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     AscendC::TPipe pipe;
@@ -519,8 +521,7 @@ extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADD
         {KV_EXCHANGE_COMPONENT_ARGS(2)},
         {KV_EXCHANGE_COMPONENT_ARGS(3)},
     };
-    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices),
-            reinterpret_cast<__gm__ int64_t *>(host_indices), num_components, num_pages, page_size, direction,
-            host_layout, start_dim, comps);
+    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices), reinterpret_cast<__gm__ int64_t *>(host_indices),
+            num_components, num_pages, page_size, direction, host_layout, start_dim, comps);
     op.Process();
 }

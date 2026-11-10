@@ -134,10 +134,9 @@ struct ComponentParams {
     int64_t fields[9];
 };
 
-#define KV_COMPONENT_ARGS(c)                                                                   \
-    comps[c].fields[0], comps[c].fields[1], comps[c].fields[2], comps[c].fields[3],            \
-        comps[c].fields[4], comps[c].fields[5], comps[c].fields[6], comps[c].fields[7],         \
-        comps[c].fields[8]
+#define KV_COMPONENT_ARGS(c)                                                                            \
+    comps[c].fields[0], comps[c].fields[1], comps[c].fields[2], comps[c].fields[3], comps[c].fields[4], \
+        comps[c].fields[5], comps[c].fields[6], comps[c].fields[7], comps[c].fields[8]
 
 void FillComponent(ComponentParams &cp, const at::Tensor &device_buf, const at::Tensor &host_buf, int64_t host_dva,
                    int64_t layer_lo, int64_t layer_hi)
@@ -204,6 +203,8 @@ HOST_API void kv_exchange_submit(const at::Tensor &device_indices, const at::Ten
 
     CheckNpuTensor(device_indices, "device_indices");
     CheckNpuTensor(host_indices, "host_indices");
+    TORCH_CHECK(device_indices.scalar_type() == at::kLong && host_indices.scalar_type() == at::kLong,
+                "device and host indices must have dtype int64");
     TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device/host indices must have the same length");
     TORCH_CHECK(device_indices.numel() % page_size == 0, "indices size must be divisible by page_size");
 

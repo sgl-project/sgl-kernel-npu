@@ -10,13 +10,6 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sgl_kernel_npu.operators.mem_cache import (
-    transfer_kv_all_layer_kv_split,
-    transfer_kv_all_layer_kv_split_lf_pf,
-    transfer_kv_per_layer_kv_split,
-    transfer_kv_per_layer_kv_split_pf_lf,
-)
-
 from tests.python.utils.common import (
     get_test_impls,
     make_executor,
@@ -24,19 +17,30 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-OPERATORS = {
-    "page_first": (
-        transfer_kv_all_layer_kv_split_lf_pf,
-        transfer_kv_per_layer_kv_split_pf_lf,
-    ),
-    "layer_first": (transfer_kv_all_layer_kv_split, transfer_kv_per_layer_kv_split),
-}
 perf_shape = [(78, 21, 128, 512, 64, 128)]
 
 # One guard slot on each side of the slot/layer axis: the untouched slots
 # make out-of-bounds layer writes visible and give indexer views a non-zero
 # offset inside the block.
 GUARD_SLOTS_PER_SIDE = 1
+
+
+@pytest.fixture
+def operators(configure_npu):
+    from sgl_kernel_npu.operators.mem_cache import (
+        transfer_kv_all_layer_kv_split,
+        transfer_kv_all_layer_kv_split_lf_pf,
+        transfer_kv_per_layer_kv_split,
+        transfer_kv_per_layer_kv_split_pf_lf,
+    )
+
+    return {
+        "page_first": (
+            transfer_kv_all_layer_kv_split_lf_pf,
+            transfer_kv_per_layer_kv_split_pf_lf,
+        ),
+        "layer_first": (transfer_kv_all_layer_kv_split, transfer_kv_per_layer_kv_split),
+    }
 
 
 @pytest.fixture
@@ -155,8 +159,8 @@ def assert_bytes_equal(actual, expected):
         ),
     ],
 )
-def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
-    backup, load = OPERATORS[layout]
+def test_roundtrip(offload_runtime, operators, layout, shape, dtype, packed):
+    backup, load = operators[layout]
     impl, impl_ref = get_test_impls()
     require_distinct_impls(backup, impl, impl_ref)
     require_distinct_impls(load, impl, impl_ref)
@@ -230,6 +234,63 @@ def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
         check_performance(executor, enable_perf=shape in perf_shape)
 
 
+def test_layer_first_does_not_merge_strided_host_pages(
+    offload_runtime, operators, monkeypatch
+):
+    from sgl_kernel_npu.host_memory import register_host_memory
+
+    # Give each AIV core two consecutive pages, even on different SoCs.
+    monkeypatch.setenv("SGLANG_KV_EXCHANGE_BLOCK_DIM", "2")
+    monkeypatch.setenv("SGLANG_KV_EXCHANGE_START_DIM", "0")
+    page_count, page_size, width = 4, 4, 8
+    values = torch.arange(page_count * page_size * width, dtype=torch.uint8).view(
+        1, page_count, page_size, 1, width
+    )
+    host_shape = (1, page_count * 2, page_size, 1, width)
+    host_storage = offload_runtime.empty(list(host_shape), dtype=values.dtype).fill_(
+        255
+    )
+    register_host_memory(host_storage)
+    host_k = host_storage[:, ::2]
+    device_k = values.npu()
+    indices = token_indices(list(range(page_count)), page_size, "npu")
+    backup, _ = operators["layer_first"]
+    impl, _ = get_test_impls()
+    backup(
+        indices,
+        indices,
+        device_k=device_k,
+        host_k=host_k,
+        device_v=device_k.new_empty((0,)),
+        host_v=host_k.new_empty((0,)),
+        page_size=page_size,
+        impl=impl,
+    )
+    torch.npu.synchronize()
+    expected = torch.full(host_shape, 255, dtype=values.dtype)
+    expected[:, ::2].copy_(values)
+    assert_bytes_equal(host_storage, expected)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.usefixtures("operators")
+@pytest.mark.parametrize(
+    "device_dtype,host_dtype",
+    [(torch.int32, torch.int64), (torch.int64, torch.int32)],
+)
+def test_native_submit_rejects_non_int64_indices(device_dtype, host_dtype):
+    device_indices = torch.empty(0, dtype=device_dtype, device="npu")
+    host_indices = torch.empty(0, dtype=host_dtype, device="npu")
+    device_k = torch.empty((1, 1, 1, 1, 1), device="npu")
+    host_k = torch.empty_like(device_k, device="cpu")
+    # Zero pages exercise the adapter checks without submitting a copy.
+    with pytest.raises(RuntimeError, match="int64"):
+        torch.ops.npu.kv_exchange(
+            device_indices, host_indices, [device_k], [host_k], [0], 1, 2, 1
+        )
+
+
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize(
     "selection",
@@ -239,8 +300,8 @@ def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
         {"device_layer_id": 0, "host_layer_id": 0, "device_index_layer_id": 0},
     ],
 )
-def test_reject_invalid_layer_selection(offload_runtime, layout, selection):
-    _, load = OPERATORS[layout]
+def test_reject_invalid_layer_selection(offload_runtime, operators, layout, selection):
+    _, load = operators[layout]
     _, actual, _, _, _, _, _ = generate_data(
         offload_runtime, layout, (3, 2, 4, 7, 3, 5), torch.bfloat16, False
     )

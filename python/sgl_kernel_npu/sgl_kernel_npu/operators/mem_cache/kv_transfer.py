@@ -85,7 +85,7 @@ def transfer_kv_per_layer_kv_split_pf_lf(
     """H2D one KV layer and its optional Indexer slot.
 
     Device K/V: [L,P,T,H,D]; Host storage: [P,L,T,H,D].
-    Indices are int64 complete-page token slots on CPU or this NPU.
+    Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
@@ -129,7 +129,7 @@ def transfer_kv_all_layer_kv_split_lf_pf(
     """D2H every Device KV layer into Host layers starting at host_layer_start.
 
     Device K/V: [L,P,T,H,D]; Host storage: [P,L,T,H,D].
-    Indices are int64 complete-page token slots on CPU or this NPU.
+    Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
@@ -176,7 +176,7 @@ def transfer_kv_per_layer_kv_split(
     """H2D one KV layer and its optional Indexer slot.
 
     Device K/V: [L,P,T,H,D]; Host storage: [L,P,T,H,D].
-    Indices are int64 complete-page token slots on CPU or this NPU.
+    Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
@@ -220,7 +220,7 @@ def transfer_kv_all_layer_kv_split(
     """D2H every Device KV layer into Host layers starting at host_layer_start.
 
     Device K/V: [L,P,T,H,D]; Host storage: [L,P,T,H,D].
-    Indices are int64 complete-page token slots on CPU or this NPU.
+    Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
     auto selects aiv; explicit impl can override it.
