@@ -1,19 +1,37 @@
 # sparse_flash_mla_metadata
 
-该算子是 CANN 9.2.0 版本引入的非正式算子。
+下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
+保留的主仓 CANN 9.2 绑定返回 2048 个 int32 元素；CANN 9.1 仍为 1024 个。分配图缓冲区前应调用 `get_sparse_flash_mla_metadata_size()`。
 
-上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+
+
+## CANN 9.1 兼容
+
+`cann_ops_transformers_cann920` 是随包 CANN 9.2 实现的注册名。
+CANN 9.1 的窗口输入走 `ops_transformers_cann910`；显式原始 KV 稀疏输入
+使用 `ascendc` 计算；metadata 的 `impl="auto"` 在内部选择 CPU 调度路径，
+该适配 API 不再单独注册 `host` 实现名。显式稀疏输入不能同时提供压缩 KV。
+CPU metadata 需要已有的 CPU int32 `cu_seqlens_q_cpu`、
+`seqused_ori_kv_cpu` 镜像。生产绑定均随 wheel 打包，无需独立算子包。
+A5 使用单独的 mixed-quant sparse API。
+
+迁移测试中的 `torch_native` metadata 返回独立参考描述符，不生成原生 tiling
+字节；配对测试分别构造参考描述符。主仓计算参考也接受不透明的原生 metadata，
+并覆盖 SWA/CSA/HCA 与 BSND。原生 metadata 的字节布局取决于 SDK。
 
 ## 芯片支持
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | 支持 | 不支持 |
-| `torch_native` | 不支持 | 不支持 |
+| `cann_ops_transformers_cann920` | 支持 | 不支持 |
+| `auto`（按 SDK 和输入选择） | 支持 | 不支持 |
+| `ops_transformers_cann910`（CANN 9.1 窗口输入） | 支持 | 不支持 |
+| `torch_native`（参考描述符） | 支持 | 支持 |
 
 ## 函数原型
 
-默认 `auto` 在 CANN 9.2.0、arch22 上选择 `cann_ops_transformers_cann920`。
+在 arch22 上，`auto` 根据当前 SDK 选择 CANN 9.1 或 9.2 实现。下列完整参数说明对应 CANN 9.2；未传参数使用所选绑定的默认值。
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
@@ -83,7 +101,7 @@ def sparse_flash_mla_metadata(
 | `layout_q` | `str` | `None` | `BSND` 或 `TND`。 |
 | `layout_kv` | `str` | `None` | `BSND`、`TND` 或 `PA_BBND`。 |
 | `has_ori_kv`、`has_cmp_kv` | `bool` | `None` | 与主算子实际传入 `ori_kv`、`cmp_kv` 的状态一致。 |
-| `impl` | `str`，仅关键字传入 | `"auto"` | `auto` 或 `cann_ops_transformers_cann920`。 |
+| `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`ops_transformers_cann910`、`cann_ops_transformers_cann920`或 `torch_native`；CANN 9.1 显式稀疏输入须使用 `auto`。 |
 
 返回 `metadata`：Tensor，`int32`，shape 为 `[2048]`，与输入同设备。
 

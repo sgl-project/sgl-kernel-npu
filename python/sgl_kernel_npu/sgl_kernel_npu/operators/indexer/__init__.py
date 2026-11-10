@@ -11,7 +11,12 @@ from .lightning_indexer_v2 import lightning_indexer_v2
 from .lightning_indexer_v2_metadata import lightning_indexer_v2_metadata
 from .mlp_lightning_indexer import mlp_lightning_indexer
 from .pool_key_indexer import pool_key_indexer
+from .quant_lightning_indexer import quant_lightning_indexer
 from .quant_lightning_indexer_dsl import quant_lightning_indexer_dsl
+from .quant_lightning_indexer_metadata import (
+    get_quant_lightning_indexer_metadata_size,
+    quant_lightning_indexer_metadata,
+)
 from .quant_lightning_indexer_metadata_dsl import quant_lightning_indexer_metadata_dsl
 from .quant_sparse_lightning_indexer_dsl import quant_sparse_lightning_indexer_dsl
 from .quant_sparse_lightning_indexer_metadata_dsl import (
@@ -38,4 +43,7 @@ __all__ = [
     "quant_lightning_indexer_metadata_dsl",
     "quant_sparse_lightning_indexer_dsl",
     "quant_sparse_lightning_indexer_metadata_dsl",
+    "quant_lightning_indexer_metadata",
+    "get_quant_lightning_indexer_metadata_size",
+    "quant_lightning_indexer",
 ]
