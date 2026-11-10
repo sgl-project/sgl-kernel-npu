@@ -1,3 +1,6 @@
+"""Public state-space model operators."""
+
+from .causal_conv1d import causal_conv1d
 from .short_conv import short_conv
 
-__all__ = ["short_conv"]
+__all__ = ["causal_conv1d", "short_conv"]
