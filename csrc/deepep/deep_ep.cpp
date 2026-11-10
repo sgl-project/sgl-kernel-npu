@@ -409,8 +409,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         } else if (is_no_scales) {
             data_bytes = hidden * 2;  // bf16/fp16
             out_dtype = x.scalar_type();
+        } else if (quant_mode == DYNAMIC_SCALES) {
+            data_bytes = hidden;  // int8: 1 byte per element
+            out_dtype = at::kChar;
         } else {
-            data_bytes = hidden;  // fp8/int8: 1 byte per element
+            data_bytes = hidden;  // fp8: 1 byte per element
             out_dtype = (is_mxfp8 && quant_type == "mx_fp8_e5m2") ? at::kFloat8_e5m2 : at::kFloat8_e4m3fn;
         }
         int64_t hUBAlignSize = ((data_bytes + UB_ALIGN - 1) / UB_ALIGN) * UB_ALIGN;
