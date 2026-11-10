@@ -4,8 +4,6 @@ import torch
 import triton
 import triton.language as tl
 
-_schedule_launchers = {}
-
 
 @triton.jit
 def _schedule_topk_prep_kernel(
@@ -45,7 +43,7 @@ def _schedule_topk_finalize_kernel(
     tl.store(out_ptr + offs, lens, mask=mask)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["budget", "survival_eps"])
 def _schedule_topk_selected_extra_kernel(
     survival_ptr,
     selected_extra_ptr,
@@ -104,63 +102,39 @@ def schedule_verify_lens_topk_triton(
     survival = torch.empty((num_requests, cols), dtype=torch.float32, device=device)
     verify_lens = torch.empty(num_requests, dtype=torch.int32, device=device)
     confidence = confidence.contiguous()
-    # Cache compiled launchers, not tensors. Budget, threshold, pointers and the
-    # current stream remain runtime inputs, including during graph capture.
-    key = (
-        device,
-        confidence.dtype,
-        num_requests,
+    # Each program computes one request's prefix products. Pad gamma to a
+    # power of two for the scan and mask the padded lanes.
+    _schedule_topk_prep_kernel[(num_requests,)](
+        confidence,
+        survival,
+        selected_extra,
         gamma,
-        max_len,
-        int(cfg.min_verify_len),
-        confidence.data_ptr() % 16,
+        cols,
+        G_P2=triton.next_power_of_2(max(gamma, 1)),
     )
-    launchers = _schedule_launchers.get(key)
-    if launchers is None:
-        prep = _schedule_topk_prep_kernel.warmup(
-            confidence,
+    if budget > 0 and n > 0:
+        # Keep the original 16-by-128 rank tile from #913. Each program ranks
+        # 16 candidates and scans 128 opponents at a time, limiting the live
+        # pairwise comparison to 2048 elements.
+        _schedule_topk_selected_extra_kernel[(triton.cdiv(n, 16),)](
             survival,
             selected_extra,
-            gamma,
+            min(int(budget), n),
             cols,
-            G_P2=triton.next_power_of_2(max(gamma, 1)),
-            grid=(num_requests,),
+            n,
+            float(cfg.survival_eps),
+            BLOCK_C=16,
+            BLOCK_CP=128,
         )
-        finalize = _schedule_topk_finalize_kernel.warmup(
-            selected_extra,
-            verify_lens,
-            int(cfg.min_verify_len),
-            max(cfg.min_verify_len, 1),
-            int(max_len),
-            num_requests,
-            BLOCK=256,
-            grid=(triton.cdiv(num_requests, 256),),
-        )
-        launchers = [
-            prep[(num_requests, 1, 1)],
-            None,
-            finalize[(triton.cdiv(num_requests, 256), 1, 1)],
-        ]
-        _schedule_launchers[key] = launchers
-    launchers[0](confidence, survival, selected_extra)
-    if budget > 0 and n > 0:
-        if launchers[1] is None:
-            # Representative non-special scalar values keep budget/epsilon in
-            # the compiled ABI (even when a later call uses budget=1 or eps=0).
-            rank = _schedule_topk_selected_extra_kernel.warmup(
-                survival,
-                selected_extra,
-                2,
-                cols,
-                n,
-                0.5,
-                BLOCK_C=16,
-                BLOCK_CP=128,
-                grid=(triton.cdiv(n, 16),),
-            )
-            launchers[1] = rank[(triton.cdiv(n, 16), 1, 1)]
-        launchers[1](
-            survival, selected_extra, min(int(budget), n), float(cfg.survival_eps)
-        )
-    launchers[2](selected_extra, verify_lens)
+    # The #913 finalize tile groups 256 independent lengths (1 KiB of int32
+    # output) per program and masks any tail requests.
+    _schedule_topk_finalize_kernel[(triton.cdiv(num_requests, 256),)](
+        selected_extra,
+        verify_lens,
+        int(cfg.min_verify_len),
+        max(cfg.min_verify_len, 1),
+        int(max_len),
+        num_requests,
+        BLOCK=256,
+    )
     return verify_lens

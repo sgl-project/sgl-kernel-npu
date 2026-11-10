@@ -10,7 +10,7 @@ function(sgl_add_host_operator_domains)
 endfunction()
 
 function(sgl_add_cann_operator_domains)
-    foreach(domain IN ITEMS sampler attention mem_cache lora examples activation matmul)
+    foreach(domain IN ITEMS sampler attention mem_cache lora examples activation matmul embedding indexer speculative mamba)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
 endfunction()
