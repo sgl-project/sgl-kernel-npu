@@ -1,8 +1,9 @@
 # sparse_flash_mla_metadata
 
 下文描述 CANN 9.2 原生接口；公共 API 同时适配 CANN 9.1。
+保留的主仓 CANN 9.2 绑定返回 2048 个 int32 元素；CANN 9.1 仍为 1024 个。分配图缓冲区前应调用 `get_sparse_flash_mla_metadata_size()`。
 
-上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/3baf8ac0eba25fa464260a43bab8d5bac1fefb8a/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
+上游原始文档：[Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md)。
 
 
 ## CANN 9.1 兼容
@@ -75,7 +76,7 @@ def sparse_flash_mla_metadata(
 
 两次调用中参与任务切分的参数必须成对传入且取值完全一致，否则行为未定义。特别是本接口的 `cmp_ratio`、`ori_mask_mode`、`cmp_mask_mode`、`ori_win_left`、`ori_win_right` 默认为 `None`，而主算子对应默认值为 `1`、`0`、`0`、`-1`、`-1`，因此应显式传入这几个参数，不要依赖默认值。
 
-返回一个不透明的 `int32[1024]` 张量，内容由实现决定，调用方不应解析。
+返回一个不透明的 `int32[2048]` 张量，内容由实现决定，调用方不应解析。
 
 ## 参数与返回值
 
@@ -102,7 +103,7 @@ def sparse_flash_mla_metadata(
 | `has_ori_kv`、`has_cmp_kv` | `bool` | `None` | 与主算子实际传入 `ori_kv`、`cmp_kv` 的状态一致。 |
 | `impl` | `str`，仅关键字传入 | `"auto"` | `auto`、`ops_transformers_cann910`、`cann_ops_transformers_cann920`或 `torch_native`；CANN 9.1 显式稀疏输入须使用 `auto`。 |
 
-返回 `metadata`：Tensor，`int32`，shape 为 `[1024]`，与输入同设备。
+返回 `metadata`：Tensor，`int32`，shape 为 `[2048]`，与输入同设备。
 
 ## 调用示例
 
@@ -133,5 +134,5 @@ metadata = sparse_flash_mla_metadata(
     has_ori_kv=True,
     has_cmp_kv=False,
 )
-print(metadata.shape, metadata.dtype)  # [1024], int32
+print(metadata.shape, metadata.dtype)  # [2048], int32
 ```

@@ -277,7 +277,7 @@ def _schedule(inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length
     "query_lengths,ori_length,cmp_ratio,cmp_length,cmp_topk,index_pool",
     [
         pytest.param((16, 8), 128, 1, 0, 0, 24, id="swa"),
-        # The pinned 9.2.0 release branch supports CSA ratio 4 on arch22.
+        pytest.param((16, 8), 128, 2, 64, 8, 24, id="csa-ratio-2"),
         pytest.param((16, 8), 128, 4, 32, 8, 24, id="csa-ratio-4"),
         pytest.param((16, 8), 128, 128, 2, 0, 24, id="hca-ratio-128"),
         # Production decode shape: 16 requests x 8 tokens over 16008 tokens.
@@ -315,7 +315,7 @@ def test_sparse_flash_mla_paged(
     check_performance(executor, enable_perf=True)
 
 
-@pytest.mark.parametrize("cmp_ratio", [1, 2], ids=["csa-ratio-1", "csa-ratio-2"])
+@pytest.mark.parametrize("cmp_ratio", [3, 128], ids=["csa-ratio-3", "csa-ratio-128"])
 def test_sparse_flash_mla_metadata_rejects_unsupported_csa_ratio(cmp_ratio):
     from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
 
@@ -327,9 +327,8 @@ def test_sparse_flash_mla_metadata_rejects_unsupported_csa_ratio(cmp_ratio):
     _, inputs, _ = _build_paged_case(
         cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, 24
     )
-    # Preserve coverage of the older pin's ratios as explicit rejection cases.
-    # Do not treat a rejected metadata call as an attention precision failure.
-    with pytest.raises(RuntimeError, match=r"(?s)cmp_ratio.*must be 4"):
+    # The mainline pin accepts CSA ratios 1, 2 and 4; other ratios are invalid.
+    with pytest.raises(RuntimeError, match=r"(?s)cmp_ratio.*must be 1, 2 or 4"):
         _schedule(inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length)
 
 

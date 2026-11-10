@@ -72,17 +72,19 @@ this is distinct from the experimental AICPU metadata kernels.
 
 The 9.2 name `cann_ops_transformers_cann920` is a registry key. The Torch
 namespace remains `cann_ops_transformer`; its Python binding is loaded from the
-bundled `sgl_kernel_npu._third_party.sgl_ops_transformer_dsv4` package. MoE keeps the native
+bundled `sgl_kernel_npu._third_party.sgl_ops_transformer_dsv4` package, except
+BF16 sparse MLA and its metadata, which retain the mainline
+`sgl_kernel_npu._third_party.sgl_ops_transformer` package. MoE keeps the native
 `torch.ops.npu.npu_moe_gating_top_k` binding, and compressor keeps the existing
 `torch.ops.npu.compressor` fused RMSNorm/RoPE contract. The latter remains the
 checked-in kernel, not the released core-only compressor.
 
-On CANN 9.2, `ops_transformer_dsv4.json` builds only the migrated bindings at
+On CANN 9.2, `ops_transformer_dsv4.json` builds the additional migrated bindings at
 `3baf8ac0eba25fa464260a43bab8d5bac1fefb8a`. The original `ops_transformer.json`
-keeps the nonquantized indexers, Flash MLA and experimental CompressorV2 at
-`e7da18105f08b06e01ef0fff78f439098d483746`, with their original internal import
-paths. Migrated sparse MLA is selected only by the DSV4 profile so each Torch
-operator is registered once.
+keeps BF16 sparse MLA and its metadata, the nonquantized indexers, Flash MLA and
+experimental CompressorV2 at `e7da18105f08b06e01ef0fff78f439098d483746`, with
+their original internal import paths. BF16 sparse MLA is selected only by the
+mainline profile so each Torch operator is registered once.
 
 For 9.1, the bundled `sgl_kernel_npu._third_party.sgl_cann_recipes_infer`
 extension registers selected recipes bridges in the private
@@ -142,6 +144,7 @@ Graph metadata allocation uses the size API beside each metadata operator:
 `get_mixed_quant_sparse_flash_mla_metadata_size()`, and
 `get_quant_lightning_indexer_metadata_size()`. These pure ABI queries do not
 load a third-party bridge or execute an NPU kernel. The pinned CANN 9.1
-metadata buffers and the pinned CANN 9.2 release-branch buffers have 1024 int32
-entries.
+metadata buffers and the pinned CANN 9.2 DSV4 release-branch buffers have 1024
+int32 entries. The preserved mainline CANN 9.2 BF16 sparse MLA metadata buffer
+has 2048 int32 entries.
 Each metadata operator test checks its actual output against its size API.

@@ -6,19 +6,20 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-# Fixed metadata ABI: CANN 9.1's SAS_META_SIZE and the bundled CANN 9.2
-# sparse metadata producer use 1024 int32 entries (4096 bytes).
+# Fixed metadata ABI: CANN 9.1's SAS_META_SIZE is 1024 int32 entries.
+# The CANN 9.2 mainline binding at e7da181 uses SMLA_METADATA_SIZE=2048.
 # Graph setup queries this count to allocate buffers without running the producer.
-_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
+_CANN_910_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
+_CANN_920_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 2048
 
 
 def get_sparse_flash_mla_metadata_size():
     """Return metadata length in int32 elements without launching a kernel."""
     cann_version = detect_cann_version()
     if cann_version.startswith("9.1."):
-        return _SPARSE_FLASH_MLA_METADATA_INT32_COUNT
+        return _CANN_910_SPARSE_FLASH_MLA_METADATA_INT32_COUNT
     if cann_version.startswith("9.2."):
-        return _SPARSE_FLASH_MLA_METADATA_INT32_COUNT
+        return _CANN_920_SPARSE_FLASH_MLA_METADATA_INT32_COUNT
     raise RuntimeError(
         f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
     )
@@ -55,7 +56,7 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla_metadata", None)
     if op is None:

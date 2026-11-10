@@ -40,7 +40,7 @@ def _cann_sparse_flash_mla(q, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla", None)
     if op is None:

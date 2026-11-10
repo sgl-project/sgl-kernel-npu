@@ -115,10 +115,12 @@ On CANN 9.2, `ops_transformer_dsv4.json` builds the migrated DSV4 operators at
 their release revision, including `quant_lightning_indexer_v2` and its metadata,
 in the private `sgl_ops_transformer_dsv4` package. The original
 `ops_transformer.json` preserves the mainline revision, internal package names
-and imports for the nonquantized indexers, Flash MLA and experimental CompressorV2.
-Migrated sparse MLA belongs only to the DSV4 profile to avoid duplicate Torch
-registrations. The default wheel includes both profiles;
-`--third-party ops_transformer_dsv4` selects only the migrated CANN 9.2 bindings.
+and imports for BF16 sparse MLA and its metadata, the nonquantized indexers,
+Flash MLA and experimental CompressorV2. BF16 sparse MLA belongs only to the
+mainline profile to avoid duplicate Torch registrations. The default wheel
+includes both profiles; `--third-party ops_transformer_dsv4` selects only the
+additional migrated CANN 9.2 bindings. Include `ops_transformer` when building
+BF16 sparse MLA for A3.
 
 Operator selections use upstream build-directory names, which can differ from
 Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with
@@ -180,7 +182,7 @@ provide its Torch interface. The CANN 9.1 released mHC and CANN 9.2 released
 operator profiles also bundle Python bindings. Both versions use the upstream
 setuptools entry point with the active build interpreter.
 
-The CANN 9.2 ops-transformer profile pins commit
+The CANN 9.2 DSV4 ops-transformer profile pins commit
 `3baf8ac0eba25fa464260a43bab8d5bac1fefb8a` from upstream's `9.2.0` branch.
 The selected IndexerQuantCache and QuantFlashAttn declarations do not reference
 the unsupported HiFloat4 types; this build applies no source patches. Changing
