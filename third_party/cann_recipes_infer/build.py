@@ -74,9 +74,8 @@ def prepare_python(source, item):
     sources = destination / "csrc"
     sources.mkdir()
     upstream = original / "csrc"
-    for header in upstream.glob("*.h"):
-        shutil.copy2(header, sources / header.name)
-    shutil.copy2(upstream / "ops_common.cpp", sources / "ops_common.cpp")
+    for filename in ("ops_common.h", "ops_common.cpp"):
+        shutil.copy2(upstream / filename, sources / filename)
     declarations = (upstream / "ops_def_registration.cpp").read_text()
     schemas = []
     for op in item["ops"]:
