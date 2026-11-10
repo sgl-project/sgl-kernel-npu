@@ -17,9 +17,7 @@ _native_fn = None
 def _binding():
     global _cann_fn
     if _cann_fn is None:
-        from ..._third_party.sgl_ops_transformer_indexer.ops import (
-            sparse_lightning_indexer,
-        )
+        from ..._third_party.sgl_ops_transformer.ops import sparse_lightning_indexer
 
         _cann_fn = sparse_lightning_indexer
     return _cann_fn

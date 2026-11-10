@@ -13,9 +13,9 @@ def _auto_quant_lightning_indexer(
 ):
     cann_version = detect_cann_version()
     if cann_version.startswith("9.1."):
-        backend = "ops_transformer_cann910"
+        backend = "ops_transformers_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -25,7 +25,7 @@ def _auto_quant_lightning_indexer(
     )
 
 
-@register_impl("indexer.quant_lightning_indexer", "cann_ops_transformer_cann920")
+@register_impl("indexer.quant_lightning_indexer", "cann_ops_transformers_cann920")
 def _cann_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
@@ -34,7 +34,7 @@ def _cann_quant_lightning_indexer(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "quant_lightning_indexer", None)
     if op is None:
@@ -44,7 +44,7 @@ def _cann_quant_lightning_indexer(
     return op(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
-@register_impl("indexer.quant_lightning_indexer", "ops_transformer_cann910")
+@register_impl("indexer.quant_lightning_indexer", "ops_transformers_cann910")
 def _cann_9_1_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
@@ -92,7 +92,7 @@ def quant_lightning_indexer(
 ):
     """Return logical compressed-KV top-k indices and optional values.
 
-    impl: auto (SDK-selected), ops_transformer_cann910, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformers_cann910, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     indices, values = get_impl_by_name("indexer.quant_lightning_indexer", impl)(

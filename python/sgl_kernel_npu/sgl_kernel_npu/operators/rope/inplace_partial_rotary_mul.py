@@ -12,7 +12,7 @@ def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -22,14 +22,14 @@ def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     )
 
 
-@register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformer_cann920")
+@register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformers_cann920")
 def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "inplace_partial_rotary_mul", None)
     if op is None:
@@ -73,7 +73,7 @@ def inplace_partial_rotary_mul(
 ):
     """Apply partial RoPE in place using fp32 intermediate arithmetic.
 
-    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("rope.inplace_partial_rotary_mul", impl)(

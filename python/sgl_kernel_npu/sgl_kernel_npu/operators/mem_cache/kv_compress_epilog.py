@@ -17,7 +17,7 @@ def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     if cann_version.startswith("9.1."):
         backend = "ascendc"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -29,7 +29,7 @@ def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
 
 @register_impl(
     "mem_cache.kv_compress_epilog",
-    "cann_ops_transformer_cann920",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
@@ -40,7 +40,7 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "kv_compress_epilog", None)
     if op is None:
@@ -122,7 +122,7 @@ def kv_compress_epilog(
     Omitted/string quant_mode selects the DSV4 SDK-specific 608B/640B encoding
     with 64-element groups and 448+64 input width, returning the mutated cache.
 
-    impl: auto (SDK-selected), ascendc, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ascendc, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     cache = kv_compress_cache

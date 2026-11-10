@@ -1,12 +1,15 @@
-"""CANN 9.1 DSpark conversion of logical original-KV indices to cache slots."""
+"""Shared helpers for sparse-attention operator adapters."""
 
 import torch
 
 
-def logical_kv_indices_to_physical_slots(
+def cann_9_1_dspark_kv_indices_to_physical_slots(
     indices, lengths, q, table, cache, cu_q, layout
 ):
-    """Map sparse original-KV indices through each request's page table.
+    """Map CANN 9.1 DSpark original-KV indices to physical cache slots.
+
+    Used by the explicit sparse paths of sparse_flash_mla (A3) and
+    mixed_quant_sparse_flash_mla (A5), whose native kernels read physical slots.
 
     Physical slot = table[request, index // page_size] * page_size
     + index % page_size. Negative and length-masked entries become -1.

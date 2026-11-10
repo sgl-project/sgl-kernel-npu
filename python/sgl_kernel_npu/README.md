@@ -111,14 +111,14 @@ selects external libraries. The profile filename, not its internal package name,
 is passed to `--third-party`; selecting `ops_transformer` on CANN 9.1 selects
 both builds.
 
-On CANN 9.2, `ops_transformer.json` builds the DSV4 operators at their release
-revision, including `quant_lightning_indexer_v2` and its metadata. The mainline
-A3 nonquantized indexers and CompressorV2 are separate dependencies in
-`ops_transformer_indexer.json` and `ops_transformer_experimental.json`; they
-retain the mainline revision and their private Python packages. They are not
-dependencies of the DSV4 quantized indexer. The default wheel includes all three
-profiles to preserve the mainline APIs; `--third-party ops_transformer` selects
-only the released profile when developing DSV4 operators.
+On CANN 9.2, `ops_transformer_dsv4.json` builds the migrated DSV4 operators at
+their release revision, including `quant_lightning_indexer_v2` and its metadata,
+in the private `sgl_ops_transformer_dsv4` package. The original
+`ops_transformer.json` preserves the mainline revision, internal package names
+and imports for the nonquantized indexers, Flash MLA and experimental CompressorV2.
+Migrated sparse MLA belongs only to the DSV4 profile to avoid duplicate Torch
+registrations. The default wheel includes both profiles;
+`--third-party ops_transformer_dsv4` selects only the migrated CANN 9.2 bindings.
 
 Operator selections use upstream build-directory names, which can differ from
 Python API names. CANN 9.2 builds `quant_lightning_indexer_v2` together with

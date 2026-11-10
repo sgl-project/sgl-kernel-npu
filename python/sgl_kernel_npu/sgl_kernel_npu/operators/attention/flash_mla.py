@@ -27,13 +27,6 @@ def _auto_impl(*args, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
-    if kwargs.pop("sinks", None) is not None:
-        raise ValueError("The pinned CANN 9.2.0 Flash MLA does not support sinks")
-    for name in ("win_left", "win_right"):
-        if kwargs.pop(name, -1) != -1:
-            raise ValueError("The pinned CANN 9.2.0 Flash MLA does not support windows")
-    if kwargs.get("mask_mode") == 4:
-        raise ValueError("The pinned CANN 9.2.0 Flash MLA does not support mask_mode=4")
     global _cann_fn
     if _cann_fn is None:
         from ..._third_party.sgl_ops_transformer.ops import flash_mla
@@ -92,13 +85,13 @@ def flash_mla(
     cache_seqlens (Tensor): int32 [B], valid KV lengths.
     cu_seqlens_q (Tensor | None): int32 [B+1], packed query boundaries.
     seqused_q (Tensor | None): int32 [B], valid query lengths.
-    sinks (Tensor | None): must be None for the pinned CANN release.
+    sinks (Tensor | None): float32 [N], optional per-head softmax sink logits.
     attn_mask (Tensor | None): upstream attention mask for the selected mode.
     metadata (Tensor | None): opaque int32 scheduling data from flash_mla_metadata.
     head_dim_v (int): value width, 512 for the CANN kernel.
     softmax_scale (float): multiplier applied to QK scores.
-    mask_mode (int): 0 unmasked or 3 right-aligned causal.
-    win_left/win_right (int): must remain -1 for the pinned CANN release.
+    mask_mode (int): 0 unmasked, 3 right-aligned causal, 4 sliding window.
+    win_left/win_right (int): window bounds, -1 for upstream defaults.
     max_seqlen_q/max_seqlen_kv (int): upstream length attributes; use -1.
     layout_q/layout_kv/layout_out (str): input and output layouts.
     return_softmax_lse (bool): return FP32 log-sum-exp alongside the output.
@@ -155,11 +148,6 @@ def _auto_metadata(*args, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_metadata(*args, **kwargs):
-    for name in ("win_left", "win_right"):
-        if kwargs.pop(name, -1) != -1:
-            raise ValueError("The pinned CANN 9.2.0 Flash MLA does not support windows")
-    if kwargs.get("mask_mode") == 4:
-        raise ValueError("The pinned CANN 9.2.0 Flash MLA does not support mask_mode=4")
     global _metadata_fn
     if _metadata_fn is None:
         from ..._third_party.sgl_ops_transformer.ops import flash_mla_metadata
@@ -200,7 +188,7 @@ def flash_mla_metadata(
     max_seqlen_q/max_seqlen_kv (int): use -1 for upstream defaults.
     head_dim_qk/head_dim_v (int): QK/value widths.
     mask_mode (int): attention mask mode; layout_q (str): query layout.
-    win_left/win_right (int): must remain -1 for the pinned CANN release.
+    win_left/win_right (int): window bounds, -1 for upstream defaults.
     impl (str): auto or cann_ops_transformers_cann920.
     Returns an opaque one-dimensional int32 tensor sized by batch/core counts.
     """

@@ -1,0 +1,53 @@
+{
+  "_comment": "Only the migrated DSV4 released bindings use this pinned commit and private package. Mainline non-DSV4 operators remain in ops_transformer.json at their original revision.",
+  "name": "sgl_ops_transformer_dsv4",
+  "python_exports": {
+    "quant_lightning_indexer_v2": "quant_lightning_indexer",
+    "quant_lightning_indexer_v2_metadata": "quant_lightning_indexer_metadata"
+  },
+  "ops": {
+    "arch22": [
+      "sparse_flash_mla",
+      "sparse_flash_mla_metadata",
+      "quant_lightning_indexer_v2",
+      "quant_lightning_indexer_v2_metadata",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "inplace_partial_rotary_mul"
+    ],
+    "arch35": [
+      "mixed_quant_sparse_flash_mla",
+      "mixed_quant_sparse_flash_mla_metadata",
+      "quant_lightning_indexer_v2",
+      "quant_lightning_indexer_v2_metadata",
+      "kv_compress_epilog",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "inplace_partial_rotary_mul",
+      "indexer_quant_cache"
+    ]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "3baf8ac0eba25fa464260a43bab8d5bac1fefb8a",
+  "commands": [
+    [
+      "bash",
+      "build.sh",
+      "--pkg",
+      "--soc={soc}",
+      "--vendor_name={vendor_name}",
+      "--ops={ops}",
+      "-j{jobs}"
+    ],
+    [
+      "bash",
+      "build.sh",
+      "--torch_extension",
+      "--ops={ops}",
+      "--vendor_name={vendor_name}"
+    ]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE",
+  "builder": "ops_transformer"
+}

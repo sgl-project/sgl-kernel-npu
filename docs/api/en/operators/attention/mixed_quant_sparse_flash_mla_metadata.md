@@ -5,8 +5,8 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `auto` | Unsupported | Supported |
-| `cann_ops_transformer_cann920` | Unsupported | Supported |
-| `ops_transformer_cann910` | Unsupported | Supported |
+| `cann_ops_transformers_cann920` | Unsupported | Supported |
+| `ops_transformers_cann910` | Unsupported | Supported |
 | `torch_native` | Unsupported | Supported |
 
 ## Signature
@@ -60,22 +60,22 @@ Prepare scheduling for mixed-quant attention. Explicit sparse visibility is tran
 | --- | --- | --- |
 | metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## ops_transformer_cann910
+## ops_transformers_cann910
 
 Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## auto
 
-On CANN 9.1, window-only inputs select `ops_transformer_cann910`; explicit sparse
+On CANN 9.1, window-only inputs select `ops_transformers_cann910`; explicit sparse
 original-KV inputs call the repository's CPU scheduler privately. It computes
 metadata on the host and copies the table to NPU. Supply existing CPU int32
 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors. There is no separate `host`
 implementation name in this adapter; use `impl="auto"` for this path.
-On CANN 9.2, `auto` selects `cann_ops_transformer_cann920`.
+On CANN 9.2, `auto` selects `cann_ops_transformers_cann920`.
 
 ## torch_native
 

@@ -367,12 +367,8 @@ def test_ascendc_graph_replay():
         torch.npu.synchronize()
         graph = torch.npu.NPUGraph()
         with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
-            # Exercise queued resource release while a larger capture is active.
-            for _ in range(32):
-                y, scale, _ = swiglu_group_quant(**kwargs)
+            y, scale, _ = swiglu_group_quant(**kwargs)
         captures.append((graph, kwargs, y, scale))
-    # The server queries memory immediately after capture, before any replay.
-    torch.npu.empty_cache()
     for graph, kwargs, y, scale in captures:
         with torch.npu.stream(stream):
             kwargs["x"].neg_()

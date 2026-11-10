@@ -17,7 +17,7 @@ def _auto_impl(*args):
         # finish. The 9.1 experimental provider writes overlapping slots first.
         backend = "ascendc"
     elif version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {version}; expected CANN 9.1.x or 9.2.x"
@@ -25,7 +25,7 @@ def _auto_impl(*args):
     return get_impl_by_name("attention.compressor", backend)(*args)
 
 
-@register_impl("attention.compressor", "cann_ops_transformer_cann920")
+@register_impl("attention.compressor", "cann_ops_transformers_cann920")
 def _cann920_impl(*args):
     version = detect_cann_version()
     if not version.startswith("9.2."):
@@ -75,7 +75,7 @@ def compressor(
     """Compress KV groups, apply RMSNorm/RoPE, and update state_cache in place.
 
     ``auto`` uses the repository's fused Ascend C operator on A3 and A5:
-    ``ascendc`` on CANN 9.1, its ``cann_ops_transformer_cann920`` alias on 9.2.
+    ``ascendc`` on CANN 9.1, its ``cann_ops_transformers_cann920`` alias on 9.2.
     All tensors are contiguous on the same NPU.
     Args:
         x: FP16/BF16 input [B, S, H] or packed [T, H].
@@ -102,7 +102,7 @@ def compressor(
         cache_mode: Integer 1 for paged cache or 2 for explicit/ring cache.
         state_cache_stride_dim0: Integer cache stride; 0 derives L*2*coff*D.
         impl: Backend name, default "auto"; also "ascendc",
-            "cann_ops_transformer_cann920" (CANN 9.2), or "torch_native".
+            "cann_ops_transformers_cann920" (CANN 9.2), or "torch_native".
     Returns:
         Same dtype as x, [B, ceil(S/r), D] or [min(T,T//r+B), D]. Only
         completed groups are written; remaining output rows are unspecified.

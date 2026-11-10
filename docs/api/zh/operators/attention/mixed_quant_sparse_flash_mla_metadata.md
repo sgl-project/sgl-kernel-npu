@@ -5,8 +5,8 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `auto` | 不支持 | 支持 |
-| `cann_ops_transformer_cann920` | 不支持 | 支持 |
-| `ops_transformer_cann910` | 不支持 | 支持 |
+| `cann_ops_transformers_cann920` | 不支持 | 支持 |
+| `ops_transformers_cann910` | 不支持 | 支持 |
 | `torch_native` | 不支持 | 支持 |
 
 ## 接口
@@ -60,21 +60,21 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | --- | --- | --- |
 | metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 
-## ops_transformer_cann910
+## ops_transformers_cann910
 
 Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## auto
 
-CANN 9.1 的窗口输入选择 `ops_transformer_cann910`；显式原始 KV 稀疏输入在
+CANN 9.1 的窗口输入选择 `ops_transformers_cann910`；显式原始 KV 稀疏输入在
 内部调用本仓库的 CPU 调度器，再将元数据表拷到 NPU。须提供已有的 CPU int32
 `cu_seqlens_q_cpu` 和 `seqused_ori_kv_cpu` 镜像。该适配 API 不再单独注册
 `host` 实现名，此路径使用 `impl="auto"`。
-CANN 9.2 的 `auto` 选择 `cann_ops_transformer_cann920`。
+CANN 9.2 的 `auto` 选择 `cann_ops_transformers_cann920`。
 
 ## torch_native
 

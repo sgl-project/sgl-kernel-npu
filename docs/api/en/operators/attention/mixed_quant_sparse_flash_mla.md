@@ -4,8 +4,8 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | unsupported | supported |
-| `ops_transformer_cann910` | unsupported | supported |
+| `cann_ops_transformers_cann920` | unsupported | supported |
+| `ops_transformers_cann910` | unsupported | supported |
 | `ascendc` | unsupported | supported |
 | `torch_native` | unsupported | supported |
 
@@ -63,11 +63,11 @@ Dequantize each 64-value NoPE group as `K = payload × scale`, concatenate the u
 | out | Tensor | Query token/head geometry with KV value width, query activation dtype. |
 | lse | FP32 Tensor | Per-query/head LSE if requested, otherwise empty. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 
-## ops_transformer_cann910
+## ops_transformers_cann910
 
 Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 

@@ -71,7 +71,7 @@ kv_compress_epilog(cache, x, slots, quant_group_size=64, quant_mode=2,
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | unsupported | supported |
+| `cann_ops_transformers_cann920` | unsupported | supported |
 | `ascendc` | unsupported | supported |
 | `torch_native` | unsupported | supported |
 
@@ -111,7 +111,7 @@ Quantize NoPE in groups and scatter packed rows, keeping the RoPE tail unquantiz
 | --- | --- | --- |
 | cache | Tensor | The same mutated packed input cache. |
 
-### cann_ops_transformer_cann920
+### cann_ops_transformers_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 

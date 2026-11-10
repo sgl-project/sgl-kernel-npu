@@ -5,7 +5,7 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from .cann_9_1_sparse_kv_indices import logical_kv_indices_to_physical_slots
+from .attention_utils import cann_9_1_dspark_kv_indices_to_physical_slots
 
 
 def _packed_kv_width(scale_itemsize, row_alignment):
@@ -37,10 +37,10 @@ def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
         backend = (
             "ascendc"
             if _uses_native_sparse_inputs(kwargs)
-            else "ops_transformer_cann910"
+            else "ops_transformers_cann910"
         )
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -52,7 +52,7 @@ def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
 
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
-    "cann_ops_transformer_cann920",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
@@ -61,7 +61,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "mixed_quant_sparse_flash_mla", None)
     if op is None:
@@ -96,10 +96,10 @@ def _uses_native_sparse_inputs(kwargs):
 
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
-    "ops_transformer_cann910",
+    "ops_transformers_cann910",
     supported_generations={Generation.ARCH35},
 )
-def _ops_transformer_cann910(q, **kwargs):
+def _ops_transformers_cann910(q, **kwargs):
     if _uses_native_sparse_inputs(kwargs):
         raise RuntimeError("Explicit sparse inputs require impl='ascendc' on CANN 9.1")
     return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
@@ -113,7 +113,7 @@ def _ops_transformer_cann910(q, **kwargs):
 def _ascendc(q, **kwargs):
     if not _uses_native_sparse_inputs(kwargs):
         raise RuntimeError(
-            "Window-only inputs require impl='ops_transformer_cann910' on CANN 9.1"
+            "Window-only inputs require impl='ops_transformers_cann910' on CANN 9.1"
         )
     return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
 
@@ -189,7 +189,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
             raise RuntimeError(
                 "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
             )
-        args["ori_sparse_indices"] = logical_kv_indices_to_physical_slots(
+        args["ori_sparse_indices"] = cann_9_1_dspark_kv_indices_to_physical_slots(
             indices,
             kwargs.get("ori_topk_length"),
             q,
@@ -232,7 +232,7 @@ def mixed_quant_sparse_flash_mla(
 ):
     """Compute A5 mixed-quant sparse attention; return output and LSE.
 
-    impl: auto (SDK-selected), ops_transformer_cann910, ascendc, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), ops_transformers_cann910, ascendc, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

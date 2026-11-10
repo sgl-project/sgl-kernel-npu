@@ -2,19 +2,19 @@
 
 | API | Supported backends |
 | --- | --- |
-| [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [indexer_quant_cache](operators/mem_cache/indexer_quant_cache.md) | `cann_ops_transformer_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
-| [compressor](operators/attention/compressor.md) | `cann_ops_transformer_cann920`, `ascendc`, `torch_native` |
-| [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
-| [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
-| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
-| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `torch_native` |
-| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
-| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformer_cann920`, `ops_transformer_cann910`, `ascendc`, `torch_native` |
+| [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [indexer_quant_cache](operators/mem_cache/indexer_quant_cache.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
+| [compressor](operators/attention/compressor.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
+| [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
+| [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
+| [mixed_quant_sparse_flash_mla_metadata](operators/attention/mixed_quant_sparse_flash_mla_metadata.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
+| [sparse_flash_mla_metadata](operators/attention/sparse_flash_mla_metadata.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
+| [mixed_quant_sparse_flash_mla](operators/attention/mixed_quant_sparse_flash_mla.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `ascendc`, `torch_native` |
+| [sparse_flash_mla](operators/attention/sparse_flash_mla.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `ascendc`, `torch_native` |
 | [chunk_kda_fwd](operators/attention/kda/chunk_kda_fwd.md) | `ascendc`, `torch_native` |
 | [chunk_fwd_o](operators/attention/gdn/chunk_o.md) | `triton`, `torch_native` |
 | [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |

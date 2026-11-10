@@ -57,8 +57,8 @@ All tensor inputs must be on the current NPU. `B` is the request count and `T` i
 | `max_seqlen_q`, `max_seqlen_kv` | `int` | `-1` | Upstream maximum-length attributes; `-1` uses upstream defaults, otherwise nonnegative. |
 | `head_dim_qk` | `int` | `576` | Must be 576, including all key channels. |
 | `head_dim_v` | `int` | `512` | Must be 512. |
-| `mask_mode` | `int` | `0` | The pinned release supports `0` (unmasked) and `3` (right-aligned causal). |
-| `win_left`, `win_right` | `int` | `-1` | Must remain `-1` for the pinned release; sliding windows are unavailable. |
+| `mask_mode` | `int` | `0` | `0`: unmasked; `3`: right-aligned causal; `4`: right-aligned sliding window. |
+| `win_left`, `win_right` | `int` | `-1` | Window bounds in mode 4, with `-1` meaning unbounded; other modes require `-1`. |
 | `layout_q` | `str` | `"BSND"` | `BSND`, `BNSD`, or `TND`; same as the attention call. |
 | `impl` | `str`, keyword-only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
 

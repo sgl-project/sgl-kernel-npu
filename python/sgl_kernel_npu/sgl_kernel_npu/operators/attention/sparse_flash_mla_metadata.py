@@ -6,14 +6,19 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+# Fixed metadata ABI: CANN 9.1's SAS_META_SIZE and the bundled CANN 9.2
+# sparse metadata producer use 1024 int32 entries (4096 bytes).
+# Graph setup queries this count to allocate buffers without running the producer.
+_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
+
 
 def get_sparse_flash_mla_metadata_size():
-    """Return this operator's int32 metadata length without launching a kernel."""
+    """Return metadata length in int32 elements without launching a kernel."""
     cann_version = detect_cann_version()
     if cann_version.startswith("9.1."):
-        return 1024
+        return _SPARSE_FLASH_MLA_METADATA_INT32_COUNT
     if cann_version.startswith("9.2."):
-        return 1024
+        return _SPARSE_FLASH_MLA_METADATA_INT32_COUNT
     raise RuntimeError(
         f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
     )
@@ -29,9 +34,9 @@ def _auto_sparse_flash_mla_metadata(**kwargs):
     if cann_version.startswith("9.1."):
         if _uses_native_sparse_inputs(kwargs):
             return _cann_9_1_sparse_flash_mla_metadata(**kwargs)
-        backend = "ops_transformer_cann910"
+        backend = "ops_transformers_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -44,18 +49,13 @@ def _auto_sparse_flash_mla_metadata(**kwargs):
     "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH22},
 )
-@register_impl(
-    "attention.sparse_flash_mla_metadata",
-    "cann_ops_transformer_cann920",
-    supported_generations={Generation.ARCH22},
-)
 def _cann_sparse_flash_mla_metadata(**kwargs):
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla_metadata", None)
     if op is None:
@@ -78,8 +78,8 @@ def _uses_native_sparse_inputs(kwargs):
     )
 
 
-@register_impl("attention.sparse_flash_mla_metadata", "ops_transformer_cann910")
-def _ops_transformer_cann910(**kwargs):
+@register_impl("attention.sparse_flash_mla_metadata", "ops_transformers_cann910")
+def _ops_transformers_cann910(**kwargs):
     if _uses_native_sparse_inputs(kwargs):
         raise RuntimeError("Explicit sparse metadata requires impl='auto' on CANN 9.1")
     return _cann_9_1_sparse_flash_mla_metadata(**kwargs)
@@ -181,8 +181,8 @@ def sparse_flash_mla_metadata(
 ):
     """Build BF16 attention metadata.
 
-    impl: auto (SDK-selected), ops_transformer_cann910,
-        cann_ops_transformer_cann920 (alias cann_ops_transformers_cann920), or torch_native.
+    impl: auto (SDK-selected), ops_transformers_cann910,
+        cann_ops_transformers_cann920, or torch_native.
     CANN 9.1 explicit sparse inputs use CPU scheduling internally through auto.
     torch_native is an eager correctness reference, not a graph fallback.
     """

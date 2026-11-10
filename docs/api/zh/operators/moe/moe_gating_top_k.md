@@ -4,7 +4,7 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
@@ -54,7 +54,7 @@ def moe_gating_top_k(x, k, *, bias=None, input_ids=None, tid2eid=None, k_group=1
 | indices | int32 Tensor | [T,k] expert IDs. |
 | scores | FP32 Tensor | [T,E] if out_flag=True, otherwise empty. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 

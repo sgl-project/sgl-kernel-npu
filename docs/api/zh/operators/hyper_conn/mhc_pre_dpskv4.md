@@ -4,7 +4,7 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
@@ -47,7 +47,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 | post | Tensor | [T,n], reference FP32. |
 | comb | Tensor | [T,n,n], reference FP32. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
 

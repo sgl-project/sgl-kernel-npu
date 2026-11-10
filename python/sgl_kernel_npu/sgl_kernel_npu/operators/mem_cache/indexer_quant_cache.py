@@ -15,7 +15,7 @@ def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
     if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -27,7 +27,7 @@ def _auto_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
 
 @register_impl(
     "mem_cache.indexer_quant_cache",
-    "cann_ops_transformer_cann920",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
 def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
@@ -36,7 +36,7 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "indexer_quant_cache", None)
     if op is None:
@@ -109,7 +109,7 @@ def indexer_quant_cache(cache, scale_cache, x, slot_mapping, *, impl="auto", **k
 
     For quant_mode="fp8", the original 9.1 binding uses unrounded FP32 scales;
     the released 9.2 binding also honors round_scale. x_scale is HiFloat8-only.
-    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("mem_cache.indexer_quant_cache", impl)(

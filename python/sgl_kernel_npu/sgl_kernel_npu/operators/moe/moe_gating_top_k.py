@@ -34,7 +34,7 @@ def _auto(x, k, **kwargs):
     if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -42,7 +42,7 @@ def _auto(x, k, **kwargs):
     return get_impl_by_name("moe.moe_gating_top_k", backend)(x, k, **kwargs)
 
 
-@register_impl("moe.moe_gating_top_k", "cann_ops_transformer_cann920")
+@register_impl("moe.moe_gating_top_k", "cann_ops_transformers_cann920")
 def _torch_npu(
     x,
     k,
@@ -246,7 +246,7 @@ def moe_gating_top_k(
     bias affects expert selection, not the gathered weights. The production
     wrapper resolves the native or original custom binding before execution;
     impl selects auto, cann_recipes_infer_cann910,
-    cann_ops_transformer_cann920, or torch_native.
+    cann_ops_transformers_cann920, or torch_native.
     """
     if (input_ids is None) != (tid2eid is None):
         raise ValueError("input_ids and tid2eid must be provided together")

@@ -12,7 +12,7 @@ def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
     if cann_version.startswith("9.1."):
         backend = "cann_recipes_infer_cann910"
     elif cann_version.startswith("9.2."):
-        backend = "cann_ops_transformer_cann920"
+        backend = "cann_ops_transformers_cann920"
     else:
         raise RuntimeError(
             f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
@@ -22,14 +22,14 @@ def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
     )
 
 
-@register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformer_cann920")
+@register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformers_cann920")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
 
     op = getattr(torch.ops.cann_ops_transformer, "mhc_pre_sinkhorn", None)
     if op is None:
@@ -99,7 +99,7 @@ def mhc_pre_dpskv4(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformer_cann920, or torch_native.
+    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("hyper_conn.mhc_pre_dpskv4", impl)(

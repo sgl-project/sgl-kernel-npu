@@ -5,7 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | Supported | Supported |
-| `cann_ops_transformer_cann920` | Supported | Supported |
+| `cann_ops_transformers_cann920` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -22,7 +22,7 @@ compressor(
 ```
 
 `auto` selects `ascendc` on CANN 9.1 and its
-`cann_ops_transformer_cann920` alias on CANN 9.2, without fallback. Both call
+`cann_ops_transformers_cann920` alias on CANN 9.2, without fallback. Both call
 the repository's fused compressor on A3 and A5. `rotary_mode` defaults to `2`
 (interleaved), the only compiled mode. The legacy default was `1`; omitting
 this argument now selects mode 2. Explicit mode 1 is rejected before launch.
@@ -102,7 +102,7 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 | `rotary_mode` | int | Default 2 (interleaved), the only supported mode. |
 | `cache_mode` | int | 1 (paged) or 2 (explicit/ring); default 1. |
 | `state_cache_stride_dim0` | int | Default 0 derives `L*2*W`; an explicit value must equal it and fit signed INT32. |
-| `impl` | str | `auto` (default), `ascendc`, `cann_ops_transformer_cann920` (CANN 9.2 only), or `torch_native`. |
+| `impl` | str | `auto` (default), `ascendc`, `cann_ops_transformers_cann920` (CANN 9.2 only), or `torch_native`. |
 
 | Return | Type | Meaning |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ relations through CANN. Empty inputs follow the ACLNN query/execution path too.
 Absent optional tensors use CANN's missing-input representation, avoiding the
 legacy helper's non-null empty shape for `None`.
 
-## cann_ops_transformer_cann920 backend
+## cann_ops_transformers_cann920 backend
 
 CANN 9.2-only alias of the fused `ascendc` implementation described above.
 It uses the repository's `torch.ops.npu.compressor` binding rather than the
@@ -169,7 +169,7 @@ print(out.shape)  # [1, 1, 128]; state is updated in place.
 
 This PR keeps the community Ascend C implementation and its complete API.
 `auto` chooses `ascendc` on CANN 9.1 A3/A5 and
-`cann_ops_transformer_cann920` on CANN 9.2 A3/A5. The last name is a
+`cann_ops_transformers_cann920` on CANN 9.2 A3/A5. The last name is a
 compatibility key for the same fused framework operator, preserving RMSNorm,
 RoPE and in-place state updates. It does not substitute the released core-only
 compressor. Explicit `ascendc` is available on both registered generations.

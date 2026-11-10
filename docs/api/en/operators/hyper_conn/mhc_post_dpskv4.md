@@ -4,7 +4,7 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | supported | supported |
+| `cann_ops_transformers_cann920` | supported | supported |
 | `cann_recipes_infer_cann910` | supported | supported |
 | `torch_native` | supported | supported |
 
@@ -41,7 +41,7 @@ Combines a layer output with n residual streams; public operand order is stable 
 | --- | --- | --- |
 | output | Tensor | [T,n,C], x.dtype. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 Uses the CANN 9.2 binding and rejects a different initialized SDK. `auto` dispatches by the cached SDK version. A5 KV reader/writer formats are derived from the same version before allocation; each operator requires only its own binding.
 

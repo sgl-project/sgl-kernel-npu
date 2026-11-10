@@ -5,7 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | 支持 | 支持 |
-| `cann_ops_transformer_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数签名
@@ -22,7 +22,7 @@ compressor(
 ```
 
 `auto` 在 CANN 9.1 选择 `ascendc`，在 CANN 9.2 选择其别名
-`cann_ops_transformer_cann920`，不会自动回退。两者在 A3/A5 上均调用本仓库的
+`cann_ops_transformers_cann920`，不会自动回退。两者在 A3/A5 上均调用本仓库的
 融合 compressor。`rotary_mode` 默认值为 `2`（交错），
 这是唯一已编译的模式。旧默认值为 `1`；现在省略该参数会使用模式 2。
 显式传入模式 1 会在启动前报错。
@@ -94,7 +94,7 @@ TH 的 `Sr=min(T,T//r+B)`。
 | `rotary_mode` | int | 默认 2（交错），仅支持此模式。 |
 | `cache_mode` | int | 1（分页）或 2（显式位置/ring），默认 1。 |
 | `state_cache_stride_dim0` | int | 默认 0 推导为 `L*2*W`；显式值须等于该值且不超过有符号 INT32 范围。 |
-| `impl` | str | `auto`（默认）、`ascendc`、`cann_ops_transformer_cann920`（仅 CANN 9.2）或 `torch_native`。 |
+| `impl` | str | `auto`（默认）、`ascendc`、`cann_ops_transformers_cann920`（仅 CANN 9.2）或 `torch_native`。 |
 
 | 返回值 | 类型 | 含义 |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ Python 入口负责选择后端并兼容旧缓存表的视图。Torch 适配层�
 继续由原有 Host tiling 通过 CANN 检查。空输入也走 ACLNN 查询与执行流程。
 缺省可选张量使用 CANN 的缺省输入表示，避免旧 helper 对 `None` 返回非空空形状的问题。
 
-## cann_ops_transformer_cann920 后端
+## cann_ops_transformers_cann920 后端
 
 上述融合 `ascendc` 实现的 CANN 9.2 专用别名，调用本仓库的
 `torch.ops.npu.compressor` 绑定，保留融合计算及状态更新语义。
@@ -155,7 +155,7 @@ print(out.shape)  # [1, 1, 128]；state 同时被原地更新。
 
 保留社区 Ascend C 实现和完整公共接口。`auto` 在 CANN 9.1 A3/A5 选择
 `ascendc`，在 CANN 9.2
-A3/A5 选择 `cann_ops_transformer_cann920`。最后一个名称是统一框架融合算子的
+A3/A5 选择 `cann_ops_transformers_cann920`。最后一个名称是统一框架融合算子的
 兼容注册名，保留 RMSNorm、RoPE 和 state_cache 原地更新语义。显式 `ascendc`
 在两个已注册硬件代际均可用。
 

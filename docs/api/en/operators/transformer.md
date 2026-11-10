@@ -16,11 +16,11 @@ Each operator has an individual [English](../API_list.md) and [Chinese](../../zh
 - [inplace_partial_rotary_mul](rope/inplace_partial_rotary_mul.md)
 - [moe_gating_top_k](moe/moe_gating_top_k.md)
 
-Shared implementation helpers use descriptive module names. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Each operator selects its SDK implementation directly using `detect_cann_version()` from `operators/utils/cann.py` and loads its bundled binding locally. MoE schema compatibility stays in `operators/moe/moe_gating_top_k.py`. CANN 9.1 DSpark logical original-KV indices are mapped to physical cache slots by `logical_kv_indices_to_physical_slots()` in `operators/attention/cann_9_1_sparse_kv_indices.py`; original indexer argument mapping stays in `operators/indexer/indexer_utils.py`.
+Shared implementation helpers use domain-local utility modules. Eager attention math is in `implementation/torch_native/attention/attention.py`; metadata descriptors are in `metadata.py`. Each operator selects its SDK implementation directly using `detect_cann_version()` from `operators/utils/cann.py` and loads its bundled binding locally. MoE schema compatibility stays in `operators/moe/moe_gating_top_k.py`. The CANN 9.1 DSpark explicit sparse paths of `sparse_flash_mla` (A3) and `mixed_quant_sparse_flash_mla` (A5) map logical original-KV indices to physical cache slots with `cann_9_1_dspark_kv_indices_to_physical_slots()` in `operators/attention/attention_utils.py`; original indexer argument mapping stays in `operators/indexer/indexer_utils.py`.
 
 The initialized SDK selects the ABI. On CANN 9.1, each operator chooses a
 source-specific implementation; on CANN 9.2 all 13 APIs register
-`cann_ops_transformer_cann920`. A5 packed KV still requires a matching reader,
+`cann_ops_transformers_cann920`. A5 packed KV still requires a matching reader,
 metadata and writer because the SDKs use different encodings. Kernel errors
 never trigger a retry with another implementation.
 
@@ -32,12 +32,12 @@ remains an internal SDK/format label and is no longer a registered implementatio
 
 | Public API | CANN 9.1 implementation | Verified source |
 | --- | --- | --- |
-| `attention.sparse_flash_mla` | `ops_transformer_cann910`<br>`ascendc` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv)<br>[sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp) |
-| `attention.sparse_flash_mla_metadata` | `ops_transformer_cann910`<br>`auto` (private CPU path) | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv_metadata)<br>[sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp) |
-| `attention.mixed_quant_sparse_flash_mla` | `ops_transformer_cann910`<br>`ascendc` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv)<br>[sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp) |
-| `attention.mixed_quant_sparse_flash_mla_metadata` | `ops_transformer_cann910`<br>`auto` (private CPU path) | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata)<br>[sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp) |
-| `indexer.quant_lightning_indexer` | `ops_transformer_cann910` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer) |
-| `indexer.quant_lightning_indexer_metadata` | `ops_transformer_cann910` | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata) |
+| `attention.sparse_flash_mla` | `ops_transformers_cann910`<br>`ascendc` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv)<br>[sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp) |
+| `attention.sparse_flash_mla_metadata` | `ops_transformers_cann910`<br>`auto` (private CPU path) | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/sparse_attn_sharedkv_metadata)<br>[sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp) |
+| `attention.mixed_quant_sparse_flash_mla` | `ops_transformers_cann910`<br>`ascendc` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv)<br>[sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp) |
+| `attention.mixed_quant_sparse_flash_mla_metadata` | `ops_transformers_cann910`<br>`auto` (private CPU path) | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv_metadata)<br>[sgl-kernel-npu CPU scheduling](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv_metadata/op_host/kv_quant_sparse_attn_sharedkv_metadata.cpp) |
+| `indexer.quant_lightning_indexer` | `ops_transformers_cann910` | [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer) |
+| `indexer.quant_lightning_indexer_metadata` | `ops_transformers_cann910` | [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata) |
 | `attention.compressor` | `ascendc` | [sgl-kernel-npu fused device kernel, A3/A5](https://github.com/sgl-project/sgl-kernel-npu/tree/6ef048785a68379dc6bebe327d43e59c17228ac4/csrc/attention/compressor/op_kernel) |
 | `mem_cache.kv_compress_epilog` | `ascendc` | [sgl-kernel-npu device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp) |
 | `mem_cache.indexer_quant_cache` | `cann_recipes_infer_cann910` | [cann-recipes-infer; aclnnIndexerCompressEpilog](https://gitcode.com/cann/cann-recipes-infer/blob/35a476c2b1ea61990380a7115ea991023aedc7d0/ops/ascendc/torch_ops_extension/custom_ops/csrc/npu_indexer_compress_epilog.cpp) |
@@ -63,29 +63,36 @@ For CANN 9.1 attention, window-only inputs select the experimental implementatio
 explicit sparse original-KV inputs select the checked-in `ascendc` compute and
 the CPU metadata path selected privately by metadata `impl="auto"`. The metadata
 adapters do not register a separate `host` implementation name; explicit sparse
-metadata requires `auto`, while explicit `ops_transformer_cann910` remains
+metadata requires `auto`, while explicit `ops_transformers_cann910` remains
 window-only. Compressor selects the repository's fused `ascendc` on both A3 and A5.
 The retained CPU C++ metadata code copies the resulting table to NPU;
 this is distinct from the experimental AICPU metadata kernels.
 
 ## Binding loading and CANN 9.2
 
-The 9.2 name `cann_ops_transformer_cann920` is a registry key. The Torch
+The 9.2 name `cann_ops_transformers_cann920` is a registry key. The Torch
 namespace remains `cann_ops_transformer`; its Python binding is loaded from the
-bundled `sgl_kernel_npu._third_party.sgl_ops_transformer` package. MoE keeps the native
+bundled `sgl_kernel_npu._third_party.sgl_ops_transformer_dsv4` package. MoE keeps the native
 `torch.ops.npu.npu_moe_gating_top_k` binding, and compressor keeps the existing
 `torch.ops.npu.compressor` fused RMSNorm/RoPE contract. The latter remains the
 checked-in kernel, not the released core-only compressor.
+
+On CANN 9.2, `ops_transformer_dsv4.json` builds only the migrated bindings at
+`3baf8ac0eba25fa464260a43bab8d5bac1fefb8a`. The original `ops_transformer.json`
+keeps the nonquantized indexers, Flash MLA and experimental CompressorV2 at
+`e7da18105f08b06e01ef0fff78f439098d483746`, with their original internal import
+paths. Migrated sparse MLA is selected only by the DSV4 profile so each Torch
+operator is registered once.
 
 For 9.1, the bundled `sgl_kernel_npu._third_party.sgl_cann_recipes_infer`
 extension registers selected recipes bridges in the private
 `torch.ops.sgl_cann_recipes_infer` namespace. The old experimental ACLNN kernels
 are built from the pinned ops-transformer source and bundled as a separate vendor;
-checked-in kernels use the unified CANN/HOST build registrations. The existing public
-mHC APIs also use a separately bundled released ops-transformer binding. Neither
+checked-in kernels use the unified CANN/HOST build registrations. Neither migrated
 SDK path requires an environment-installed `custom_ops` or
 `cann_ops_transformer` Python package. The wheel still requires the matching CANN
-SDK and torch_npu at runtime.
+SDK and torch_npu at runtime. Existing APIs outside this migration retain their
+original imports and dependency requirements.
 
 Wheel-private `libcust_opapi.so` libraries receive distinct SONAMEs during
 staging. The filenames and absolute-path CANN lookups stay unchanged. This

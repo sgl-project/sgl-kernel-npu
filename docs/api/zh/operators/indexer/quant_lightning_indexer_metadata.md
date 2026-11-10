@@ -4,9 +4,9 @@
 
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformer_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
-| `ops_transformer_cann910` | 支持 | 支持 |
+| `ops_transformers_cann910` | 支持 | 支持 |
 
 ## 接口
 
@@ -55,11 +55,11 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
 | --- | --- | --- |
 | metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
 
-## cann_ops_transformer_cann920
+## cann_ops_transformers_cann920
 
 仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 
-## ops_transformer_cann910
+## ops_transformers_cann910
 
 Source: [ops-transformer experimental AICPU metadata](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer_metadata). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
