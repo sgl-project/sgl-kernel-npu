@@ -33,6 +33,11 @@ OPERATORS = {
 }
 perf_shape = [(78, 21, 128, 512, 64, 128)]
 
+# One guard slot on each side of the slot/layer axis: the untouched slots
+# make out-of-bounds layer writes visible and give indexer views a non-zero
+# offset inside the block.
+GUARD_SLOTS_PER_SIDE = 1
+
 
 @pytest.fixture
 def offload_runtime():
@@ -87,9 +92,10 @@ def generate_data(pool, layout, shape, dtype, packed):
             % 127
         ).to(component_dtype)
         device = values.npu()
-        full_shape = (host_pages, count + 2, ps, 1, max(width, 1))
+        slots = count + 2 * GUARD_SLOTS_PER_SIDE
+        full_shape = (host_pages, slots, ps, 1, max(width, 1))
         if layout == "layer_first":
-            full_shape = (count + 2, host_pages, ps, 1, max(width, 1))
+            full_shape = (slots, host_pages, ps, 1, max(width, 1))
         host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
         ref_device = values.npu()
         ref_host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
@@ -98,15 +104,16 @@ def generate_data(pool, layout, shape, dtype, packed):
         full_host, full_ref_host = host, ref_host
         if name.startswith("index_"):
             # Indexer storage has its own slot space, independent of KV layers.
+            first = GUARD_SLOTS_PER_SIDE
             host = (
-                host[:, 1 : count + 1]
+                host[:, first : first + count]
                 if layout == "page_first"
-                else host[1 : count + 1]
+                else host[first : first + count]
             )
             ref_host = (
-                ref_host[:, 1 : count + 1]
+                ref_host[:, first : first + count]
                 if layout == "page_first"
-                else ref_host[1 : count + 1]
+                else ref_host[first : first + count]
             )
         if name == "index_k_scale":
             device, ref_device = device.squeeze(-1), ref_device.squeeze(-1)
@@ -196,7 +203,7 @@ def test_roundtrip(offload_runtime, layout, shape, dtype, packed):
             continue
         # Check an independent CPU snapshot of D2H, beyond implementation agreement.
         payload = host if layout == "page_first" else host.transpose(0, 1)
-        first_layer = 0 if name.startswith("index_") else 1
+        first_layer = 0 if name.startswith("index_") else GUARD_SLOTS_PER_SIDE
         expected = original[:, source]
         copied = payload[saved, first_layer : first_layer + dev.shape[0]].transpose(
             0, 1
