@@ -3,6 +3,7 @@
 
 #include "../op_kernel/mega_chunk_gdn_tiling_data.h"
 #include "register/op_impl_registry.h"
+#include "tiling/platform/platform_ascendc.h"
 #include <cstring>
 #include <limits>
 
@@ -42,7 +43,10 @@ static ge::graphStatus Tiling(gert::TilingContext *context)
     raw->SetDataSize(sizeof(data));
     context->SetBlockDim(static_cast<uint32_t>(*block_dim));
     context->SetTilingKey(0);
-    workspace[0] = 0;
+    // CANN's generated ARCH22 MIX wrapper clears its system workspace.
+    // The unchanged PTO scratch buffers are separate tensor arguments.
+    platform_ascendc::PlatformAscendC platform(context->GetPlatformInfo());
+    workspace[0] = platform.GetLibApiWorkSpaceSize();
     return ge::GRAPH_SUCCESS;
 }
 struct CompileInfo {};
