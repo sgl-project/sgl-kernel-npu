@@ -2,6 +2,8 @@
 // Framework adaptation of csrc/mega_chunk_gdn; PTO computation is unchanged.
 
 #include "kernel_operator.h"
+// CANN's generated MIX wrapper calls matmul::clearWorkspace.
+#include "lib/matmul_intf.h"
 #include "mega_chunk_gdn_tiling_data.h"
 #include "mega_kernel_impl.h"
 
