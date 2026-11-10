@@ -16,6 +16,7 @@ from sgl_kernel_npu.operators.mem_cache import (
     transfer_kv_per_layer_kv_split,
     transfer_kv_per_layer_kv_split_pf_lf,
 )
+
 from tests.python.utils.common import (
     get_test_impls,
     make_executor,
@@ -36,10 +37,7 @@ perf_shape = [(78, 21, 128, 512, 64, 128)]
 @pytest.fixture
 def offload_runtime():
     from memfabric_hybrid import offload
-    from sgl_kernel_npu.host_memory import (
-        set_memfabric_pool,
-        uninitialize_host_memory,
-    )
+    from sgl_kernel_npu.host_memory import set_memfabric_pool, uninitialize_host_memory
 
     pool = offload.Offload()
     config = offload.OffloadConfig()
