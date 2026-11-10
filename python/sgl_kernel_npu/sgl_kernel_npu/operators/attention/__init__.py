@@ -15,8 +15,10 @@ from .kv_quant_sparse_attn_sharedkv_metadata import (
     kv_quant_sparse_attn_sharedkv_metadata_host,
 )
 from .laser_attention import la
-from .mixed_quant_sparse_flash_mla import mixed_quant_sparse_flash_mla
-from .mixed_quant_sparse_flash_mla_metadata import mixed_quant_sparse_flash_mla_metadata
+from .mixed_quant_sparse_flash_mla_dsl import mixed_quant_sparse_flash_mla_dsl
+from .mixed_quant_sparse_flash_mla_metadata_dsl import (
+    mixed_quant_sparse_flash_mla_metadata_dsl,
+)
 from .mla_preprocess import mla_preprocess
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
@@ -39,8 +41,8 @@ __all__ = [
     "kv_quant_sparse_attn_sharedkv_metadata_host",
     "la",
     "mlaprolog_v4",
-    "mixed_quant_sparse_flash_mla",
-    "mixed_quant_sparse_flash_mla_metadata",
+    "mixed_quant_sparse_flash_mla_dsl",
+    "mixed_quant_sparse_flash_mla_metadata_dsl",
     "mla_preprocess",
     "paged_mtp_attention_decode",
     "quant_flash_attn",
