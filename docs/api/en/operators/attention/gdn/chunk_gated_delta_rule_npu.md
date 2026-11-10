@@ -2,11 +2,15 @@
 
 ## Hardware support
 
-| Implementation | ARCH22 | ARCH35 |
+| Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` (also `auto`) | Unverified for this composition | Unverified for this composition |
+| `triton` | Supported | Supported |
 
 ## Signature
+
+Omitting `impl` or passing `"auto"` selects `"triton"` without automatic fallback.
+The default path uses decomposed Triton kernels. Setting `GDN_USE_MEGA_GDN=1`
+selects the mega path, which requires ARCH22 and the native `mega_chunk_gdn` operator.
 
 ```python
 from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
@@ -19,73 +23,66 @@ def chunk_gated_delta_rule_npu(
     ...
 ```
 
-`auto` selects `triton`. This is the legacy `fla.chunk` decomposed wrapper,
-separate from the fused CANN `chunk_gated_delta_rule` API.
-
 ## Description
 
-Copy the legacy forward orchestration without changing its function bodies.
-Only implementation imports are redirected to the migrated implementations:
-optional Q/K L2 normalization, chunk-local cumulative sum, scaled KKT,
-triangular inverse, WY recomputation, chunk state update and output reconstruction.
-The default chunk width is 64. Intermediate dtypes, casts and launch choices
-remain those of the existing implementations.
+Computes the gated delta rule forward pass, returning attention output, optional
+final recurrent states, and the states entering each chunk. Each group of `H/Hg`
+value heads shares one query/key head. `g` contains per-token log decay;
+`beta` controls the state update.
 
-The mathematical token recurrence is
-`S_t = exp(g_t) * S_(t-1) + beta_t * k_t ⊗ (v_t - k_t^T exp(g_t) S_(t-1))`,
-`o_t = scale * q_t^T S_t`. Heads share Q/K according to `H/Hg`.
-Optional L2 normalization uses `x / sqrt(sum(x*x) + 1e-6)` before the recurrence.
-The chunk implementation retains its existing low-precision rounding points.
+The default path processes chunks of 64 tokens. Optional Q/K L2 normalization
+computes `x / sqrt(sum(x*x) + 1e-6)` before attention. `scale=None` uses `K**-0.5`;
+an explicit zero scale is preserved. Packed sequences have independent states.
+
+This is the decomposed GDN interface used by SGLang's linear-attention path.
+It is registered separately from the fused CANN `chunk_gated_delta_rule` API.
 
 ## Parameters and return value
 
-| Parameter | Type / shape | Default | Meaning |
-| --- | --- | --- | --- |
-| `q`, `k` | NPU Tensor `[B,T,Hg,K]` | Required | Matching FP16/BF16 dtype and device. |
-| `v` | NPU Tensor `[B,T,H,V]` | Required | Same dtype as q/k; H is a multiple of Hg. |
-| `g` | NPU Tensor `[B,T,H]` | Required | Per-token log decay, usually FP32; not cumulative. |
-| `beta` | NPU Tensor `[B,T,H]` | Required | Update weights. |
-| `scale` | float or None | None | None means `K**-0.5`; explicit zero is retained. |
-| `initial_state` | NPU Tensor `[N,H,K,V]` or None | None | None means zero state. |
-| `output_final_state` | bool | True | Return the final state, or None when false. |
-| `cu_seqlens` | NPU int32/int64 Tensor `[N+1]` or None | None | Packed B=1 boundaries; first=0, last=T, positive lengths. |
-| `head_first` | bool | False | True raises the legacy DeprecationWarning exception. |
-| `use_qk_l2norm_in_kernel` | bool | False | Normalize Q/K using the existing L2 implementation. |
-| `impl` | str | `"auto"` | `auto` or `triton`; no backend fallback. |
+| Parameter | Type | Shape | Dtype | Default | Description and constraints |
+| --- | --- | --- | --- | --- | --- |
+| `q`, `k` | `torch.Tensor` | `[B,T,Hg,K]` | `torch.float16`, `torch.bfloat16` | Required | Query and key tensors on the same NPU; matching dtype. |
+| `v` | `torch.Tensor` | `[B,T,H,V]` | Same as `q` | Required | Value tensor on the same NPU; `H` must be a multiple of `Hg`. |
+| `g` | `torch.Tensor` | `[B,T,H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | Per-token log decay, before cumulative summation; on the input NPU. |
+| `beta` | `torch.Tensor` | `[B,T,H]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | Required | State-update weights on the input NPU. |
+| `scale` | `float` or `None` | — | — | `None` | Output scale; `None` uses `K**-0.5`. |
+| `initial_state` | `torch.Tensor` or `None` | `[N,H,K,V]` | `torch.float32`, `torch.float16`, `torch.bfloat16` | `None` | Initial states on the input NPU; `None` starts from zero. |
+| `output_final_state` | `bool` | — | — | `True` | Whether to return final states. |
+| `cu_seqlens` | `torch.Tensor` or `None` | `[N+1]` | `torch.int32`, `torch.int64` | `None` | Packed sequence boundaries on the input NPU: first value 0, last value `T`, positive sequence lengths. `None` means fixed-length input. |
+| `head_first` | `bool` | — | — | `False` | Only `False` is supported; `True` raises `DeprecationWarning`. |
+| `use_qk_l2norm_in_kernel` | `bool` | — | — | `False` | Normalize Q/K along the last dimension before attention. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"` or `"triton"`. |
 
-| Return | Shape / dtype | Meaning |
-| --- | --- | --- |
-| `o` | `[B,T,H,V]`, q.dtype | Attention output. |
-| `final_state` | `[N,H,K,V]`, FP32 or None | Final recurrent states. |
-| `h` | `[1,total_chunks,H,K,V]` for packed input, q.dtype | States entering each chunk, in sequence/chunk order. |
+| Return value | Type | Shape | Dtype | Description and constraints |
+| --- | --- | --- | --- | --- |
+| `o` | `torch.Tensor` | `[B,T,H,V]` | `q.dtype` | Attention output on `q.device`; inputs are not modified. |
+| `final_state` | `torch.Tensor` or `None` | `[N,H,K,V]` | `torch.float32` | Final states on `q.device`; `None` when `output_final_state=False`. |
+| `h` | `torch.Tensor` | `[1,NT,H,K,V]` | `q.dtype` | States entering each chunk on `q.device`, ordered by sequence and chunk. |
 
-## Triton implementation
+Use fixed `B=1` or packed `B=1` inputs with `K,V <= 128`. `N` is the number
+of sequences; without `cu_seqlens`, `N=1`. `NT` is the total number of chunks,
+summing `ceil(sequence_length / chunk_size)` over sequences. Packed initial
+states must have `N=len(cu_seqlens)-1`. Do not modify cached sequence boundaries
+in place. Shape, dtype and device requirements are caller preconditions; only
+some are explicitly validated.
 
-Inputs are made contiguous and execution enters the input tensor's NPU device
-context, preserving the legacy input guard. The copied wrapper retains
-`torch.compiler.disable`; this change does not add full-graph support.
-The ordinary path uses K,V <= 128 as supported by the migrated state kernel.
-Use fixed B=1 or packed B=1 multi-sequence inputs: fixed B>1 inherits the
-existing state/output kernels' gate-offset limitation. No new validation or
-kernel correction is introduced. Do not mutate cached sequence boundaries in place.
+## triton backend
 
-`GDN_USE_MEGA_GDN=1` selects the byte-identical legacy mega helper (128-token
-chunks, head dimension 128, B=1 assumptions); it requires the migrated native
-`mega_chunk_gdn` operator selected in the standalone ARCH22 build. Its unchanged
-helper lives under `implementation/ascendc/attention/gdn`; see [mega_chunk_gdn](mega_chunk_gdn.md). `GDN_RECOMPUTE_SUPPRESS_LEVEL` retains
-its import-time behavior for intermediate retention. Both switches preserve
-legacy behavior; the default path uses migrated Triton implementations.
-
-No new `torch_native` production backend is added in this import-only migration.
-Tests use an independent tokenwise recurrence for all three returns on both
-decomposed and mega paths, without importing the old `fla` implementation.
-Device accuracy and performance require A3/A5 execution.
+- Makes tensor inputs contiguous and selects their NPU device context.
+- Composes chunk-local cumulative sum, scaled KKT, triangular inverse, WY
+  recomputation, state update and output reconstruction with 64-token chunks.
+- With `GDN_USE_MEGA_GDN=1`, uses the 128-token native
+  [mega_chunk_gdn](mega_chunk_gdn.md) path and its shape/dtype constraints.
+  This path is ARCH22-only; it does not fall back automatically on ARCH35.
+- Provides forward execution for inference, preserving the existing intermediate
+  dtypes and casts. This interface has no `torch_native` backend.
 
 ## Example
 
 ```python
 import torch
 import torch_npu
+
 from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
 
 q = torch.randn(1, 65, 4, 128, device="npu", dtype=torch.bfloat16)
@@ -96,6 +93,6 @@ beta = torch.rand(1, 65, 8, device="npu", dtype=q.dtype)
 cu_seqlens = torch.tensor([0, 31, 65], device="npu", dtype=torch.int32)
 o, final_state, h = chunk_gated_delta_rule_npu(
     q, k, v, g, beta, cu_seqlens=cu_seqlens,
-    use_qk_l2norm_in_kernel=True, impl="triton",
+    use_qk_l2norm_in_kernel=True,
 )
 ```
