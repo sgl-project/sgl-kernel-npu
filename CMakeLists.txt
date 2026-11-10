@@ -75,3 +75,8 @@ endif ()
 if (BUILD_DEEPEP_MODULE)
     add_subdirectory(csrc/deepep)
 endif ()
+
+if (BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests/csrc)
+endif ()

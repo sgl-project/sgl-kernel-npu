@@ -52,6 +52,12 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               const at::Tensor &host_indices, int64_t page_size,
                               int64_t direction, int64_t flags);
 
+std::vector<int64_t>
+transfer_kv_dim_exchange_h2d(std::vector<at::Tensor> devices,
+                             std::vector<at::Tensor> hosts,
+                             at::Tensor host_indices, at::Tensor device_indices,
+                             int64_t page_size, bool coalesce);
+
 void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
                           const at::Tensor &device_indices,
                           const at::Tensor &host_indices, int64_t direction);

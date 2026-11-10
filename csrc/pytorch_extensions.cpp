@@ -53,6 +53,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
 
     m.def(
+        "transfer_kv_dim_exchange_h2d(Tensor[] devices, Tensor[] hosts, "
+        "Tensor host_indices, Tensor device_indices, int page_size, bool coalesce) -> int[]");
+
+    m.def(
         "transfer_mamba_state(Tensor device_buf, Tensor host_buf, "
         "Tensor device_indices, Tensor host_indices, int direction) -> ()");
 
@@ -312,6 +316,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("build_tree_kernel_efficient", TORCH_FN(sglang::npu_kernel::build_tree_efficient));
 
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
+
+    m.impl("transfer_kv_dim_exchange_h2d", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange_h2d));
 
     m.impl("transfer_mamba_state", TORCH_FN(sglang::npu_kernel::transfer_mamba_state));
     m.impl("transfer_state_per_layer_direct_pf_lf",
