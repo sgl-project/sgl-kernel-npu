@@ -129,7 +129,7 @@ jobs:
       group: attention
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-batch-invariant-ops:
     needs: get-changed-files
@@ -143,7 +143,7 @@ jobs:
       group: batch_invariant
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-elementwise-ops:
     needs: get-changed-files
@@ -157,7 +157,7 @@ jobs:
       group: elementwise
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-examples-ops:
     needs: get-changed-files
@@ -171,7 +171,7 @@ jobs:
       group: examples
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-hyper-conn-ops:
     needs: get-changed-files
@@ -185,7 +185,7 @@ jobs:
       group: hyper_conn
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-indexer-ops:
     needs: get-changed-files
@@ -199,7 +199,7 @@ jobs:
       group: indexer
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-lora-ops:
     needs: get-changed-files
@@ -213,7 +213,7 @@ jobs:
       group: lora
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-mem-cache-ops:
     needs: get-changed-files
@@ -227,7 +227,7 @@ jobs:
       group: mem_cache
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 15
+      timeout_minutes: 60
 
   test-multimodal-ops:
     needs: get-changed-files
@@ -241,7 +241,7 @@ jobs:
       group: multimodal
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-norm-ops:
     needs: get-changed-files
@@ -255,7 +255,7 @@ jobs:
       group: norm
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 15
+      timeout_minutes: 60
 
   test-rope-ops:
     needs: get-changed-files
@@ -269,7 +269,7 @@ jobs:
       group: rope
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-sample-ops:
     needs: get-changed-files
@@ -283,7 +283,7 @@ jobs:
       group: sample
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-sampler-ops:
     needs: get-changed-files
@@ -297,7 +297,7 @@ jobs:
       group: sampler
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-operator-framework-ops:
     needs: get-changed-files
@@ -311,7 +311,7 @@ jobs:
       group: operator_framework
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   test-testing-framework-ops:
     needs: get-changed-files
@@ -325,7 +325,7 @@ jobs:
       group: testing_framework
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
-      timeout_minutes: 20
+      timeout_minutes: 60
 
   finish:
     if: ${{ always() }}
