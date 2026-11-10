@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `aiv` | Supported | Supported |
+| `memfabric_aiv` | Supported | Supported |
 | `torch_native` | Unverified | Unverified |
 
 The AIV implementation has been validated on Ascend A3 (arch22) and A5 (arch35). Availability depends on a compatible runtime and registered Host memory.
@@ -49,7 +49,7 @@ def transfer_kv_all_layer_kv_split(
 
 ```
 
-`auto` selects `aiv` for all four APIs, for both per-layer H2D and all-layer D2H. Explicit choices are `aiv` and `torch_native`.
+`auto` selects `memfabric_aiv` for all four APIs, for both per-layer H2D and all-layer D2H. Explicit choices are `memfabric_aiv` and `torch_native`.
 
 ## Description
 
@@ -75,13 +75,13 @@ Indices pair Device/Host pages in order. Payload bytes are unchanged, with no qu
 | `impl` | Keyword-only, default auto; see backend descriptions |
 | Return value | None; H2D mutates Device, D2H mutates Host |
 
-Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer views are allowed. Callers supply Host storage allocated/registered through the matching MemFabric path.
+Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer views are allowed. Callers register the complete Host allocation through MemFabric or ACL before passing its views.
 
-## aiv
+## memfabric_aiv
 
 Resolves registered Host device addresses through `host_memory.resolve_host_dva` and submits through the in-tree `kv_exchange` CANN operator (`torch.ops.npu.kv_exchange`): the C++ adapter packs the transfer description -- actual layer/page strides, full-page byte width, PF/LF traversal mode and per-component layer ranges -- into the kernel launch parameter block and launches the AIV kernel on the caller's stream. The description never round-trips through device memory: no device-resident meta, no pinned staging and no separate H2D meta upload remain on the submission path.
 
-The AIV path requires registered host memory. Create a `memfabric_hybrid.offload.Offload` instance, initialize `Scene.LOCAL` with `alloc_size == reserve_size`, publish it with `host_memory.set_memfabric_pool`, allocate Host buffers with `pool.empty`, and call `host_memory.register_host_memory` once per full allocation before passing its views to the transfer APIs.
+For MemFabric, create a `memfabric_hybrid.offload.Offload` instance, initialize `Scene.LOCAL` with `alloc_size == reserve_size`, publish it with `host_memory.set_memfabric_pool`, allocate Host buffers with `pool.empty`, and call `host_memory.register_host_memory` once per full allocation before passing its views to the transfer APIs. For ACL, allocate CPU tensors and call `host_memory.register_acl_host_memory` once per full allocation.
 
 ## torch_native
 
@@ -130,9 +130,9 @@ source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
 saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="npu")
 target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="npu")
 backup(source, saved, dev, host, empty_dev, empty_host, page_size=ps,
-       host_layer_start=1, impl="aiv")
+       host_layer_start=1, impl="memfabric_aiv")
 load(target, saved, dev, host, empty_dev, empty_host, page_size=ps,
-     device_layer_id=2, host_layer_id=1, impl="aiv")
+     device_layer_id=2, host_layer_id=1, impl="memfabric_aiv")
 torch.npu.synchronize()
 assert torch.equal(dev[2, 3].cpu(), original[0, 1])
 del host
@@ -145,7 +145,7 @@ For LF Host, allocate `[5,6,ps,1,8]`, meaning `[host_layers,host_pages,ps,1,8]`,
 ## Validation
 
 ```bash
-python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aiv --impl-ref torch_native --enable-perf=false -v -s -rs
+python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl memfabric_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
 ```
 
-The fixture initializes the LOCAL host-memory entry and registers Host allocations for both `auto` and `aiv`. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Shared profiling reports summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately. An available NPU and matching CANN/Torch/MemFabric build containing the in-tree `kv_exchange` operator are required.
+The fixture initializes the LOCAL host-memory entry and registers Host allocations for both `auto` and `memfabric_aiv`. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Shared profiling reports summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately. An available NPU and matching CANN/Torch/MemFabric build containing the in-tree `kv_exchange` operator are required.

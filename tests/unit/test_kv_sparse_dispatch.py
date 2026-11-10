@@ -373,13 +373,13 @@ class TestSparseDispatch(unittest.TestCase):
         args = ("di", "hi", "dk", "hk", "dv", "hv")
         for suffix in ("_pf_lf", ""):
             fn = getattr(public, "transfer_kv_per_layer_kv_split" + suffix)
-            for impl in ("auto", "aiv"):
+            for impl in ("auto", "memfabric_aiv"):
                 fn(*args, device_layer_id=2, host_layer_id=4, impl=impl)
                 kw = public._memfabric_fn.call_args.kwargs
                 self.assertEqual(kw["direction"], 1)
         for suffix in ("_lf_pf", ""):
             fn = getattr(public, "transfer_kv_all_layer_kv_split" + suffix)
-            for impl in ("auto", "aiv"):
+            for impl in ("auto", "memfabric_aiv"):
                 fn(*args, impl=impl)
                 kw = public._memfabric_fn.call_args.kwargs
                 self.assertEqual(kw["direction"], 2)
@@ -422,13 +422,13 @@ class TestSparseDispatch(unittest.TestCase):
         with patch.dict(os.environ, {"SGLANG_HICACHE_HOST_MEM_BACKEND": "acl"}):
             for suffix in ("_pf_lf", ""):
                 fn = getattr(public, "transfer_kv_per_layer_kv_split" + suffix)
-                for impl in ("auto", "aiv"):
+                for impl in ("auto", "memfabric_aiv"):
                     fn(*args, device_layer_id=2, host_layer_id=4, impl=impl)
                     kw = public._memfabric_fn.call_args.kwargs
                     self.assertEqual(kw["direction"], 1)
             for suffix in ("_lf_pf", ""):
                 fn = getattr(public, "transfer_kv_all_layer_kv_split" + suffix)
-                for impl in ("auto", "aiv"):
+                for impl in ("auto", "memfabric_aiv"):
                     fn(*args, impl=impl)
                     kw = public._memfabric_fn.call_args.kwargs
                     self.assertEqual(kw["direction"], 2)
@@ -439,7 +439,9 @@ class TestSparseDispatch(unittest.TestCase):
             )
         self.assertIs(
             implementations["mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "auto"],
-            implementations["mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "aiv"],
+            implementations[
+                "mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "memfabric_aiv"
+            ],
         )
 
     def test_public_wrapper_rejects_invalid_required_or_empty_buffers(self):

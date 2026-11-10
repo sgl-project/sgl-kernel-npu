@@ -1,7 +1,7 @@
 """Split-KV public API: exact D2H/all-layer and H2D/per-layer copies.
 
 Run on NPU with a matching MemFabric host-registration installation.
-Both --impl=auto and --impl=aiv use the in-tree AIV kv_exchange operator.
+Both --impl=auto and --impl=memfabric_aiv use the in-tree AIV kv_exchange operator.
 Production dimensions below are borrowed from GLM-5.2, rather than asserted to
 be a captured service call.
 """

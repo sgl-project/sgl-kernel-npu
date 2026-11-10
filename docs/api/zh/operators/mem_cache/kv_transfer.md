@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `aiv` | 支持 | 支持 |
+| `memfabric_aiv` | 支持 | 支持 |
 | `torch_native` | 未验证 | 未验证 |
 
 AIV 实现已在 Ascend A3（arch22）和 A5（arch35）上验证。运行时需匹配对应硬件，并提供已注册的 Host 内存。
@@ -49,7 +49,7 @@ def transfer_kv_all_layer_kv_split(
 
 ```
 
-四个入口的 `auto` 均选择 `aiv`，支持逐层 H2D 和全层 D2H。显式 `impl` 可选 `aiv`、`torch_native`。
+四个入口的 `auto` 均选择 `memfabric_aiv`，支持逐层 H2D 和全层 D2H。显式 `impl` 可选 `memfabric_aiv`、`torch_native`。
 
 ## 行为
 
@@ -75,13 +75,13 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 | `impl` | 关键字参数，默认 auto；见各后端说明 |
 | 返回值 | None；H2D 原地修改 Device，D2H 原地修改 Host |
 
-每个 `(page,layer)` 内的载荷必须连续，允许 Host 层切片形成的跨页间隙。Host 缓冲区须由调用者通过匹配的 MemFabric 分配/注册流程提供。
+每个 `(page,layer)` 内的载荷必须连续，允许 Host 层切片形成的跨页间隙。调用者通过 MemFabric 或 ACL 注册完整的 Host 缓冲区后，再传入其视图。
 
-## aiv
+## memfabric_aiv
 
 通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 将传输描述（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间）打包进 kernel launch 参数块，并在调用方流上启动 AIV kernel。描述不再经过 device 内存中转：提交路径上没有驻留设备的 meta、没有 pinned staging，也没有独立的 H2D meta 上传。
 
-AIV 路径需要已注册的 Host 内存。创建 `memfabric_hybrid.offload.Offload` 实例，以 `Scene.LOCAL` 且 `alloc_size == reserve_size` 初始化，通过 `host_memory.set_memfabric_pool` 发布实例，用 `pool.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。
+使用 MemFabric 时，创建 `memfabric_hybrid.offload.Offload` 实例，以 `Scene.LOCAL` 且 `alloc_size == reserve_size` 初始化，通过 `host_memory.set_memfabric_pool` 发布实例，用 `pool.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。使用 ACL 时，分配 CPU 张量，并为每个完整分配调用一次 `host_memory.register_acl_host_memory`。
 
 ## torch_native
 
@@ -130,9 +130,9 @@ source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
 saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="npu")
 target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="npu")
 backup(source, saved, dev, host, empty_dev, empty_host, page_size=ps,
-       host_layer_start=1, impl="aiv")
+       host_layer_start=1, impl="memfabric_aiv")
 load(target, saved, dev, host, empty_dev, empty_host, page_size=ps,
-     device_layer_id=2, host_layer_id=1, impl="aiv")
+     device_layer_id=2, host_layer_id=1, impl="memfabric_aiv")
 torch.npu.synchronize()
 assert torch.equal(dev[2, 3].cpu(), original[0, 1])
 del host
@@ -145,7 +145,7 @@ LF Host 可改为 `[5,6,ps,1,8]`，即 `[host_layers,host_pages,ps,1,8]` 分配�
 ## 验证
 
 ```bash
-python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl aiv --impl-ref torch_native --enable-perf=false -v -s -rs
+python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl memfabric_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
 ```
 
-测试为 `auto` 和 `aiv` 均初始化 LOCAL Host-memory entry，并注册完整 Host 分配。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。需要可用 NPU、匹配的 CANN/Torch/MemFabric，以及包含仓内 `kv_exchange` 算子的构建。
+测试为 `auto` 和 `memfabric_aiv` 均初始化 LOCAL Host-memory entry，并注册完整 Host 分配。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。需要可用 NPU、匹配的 CANN/Torch/MemFabric，以及包含仓内 `kv_exchange` 算子的构建。

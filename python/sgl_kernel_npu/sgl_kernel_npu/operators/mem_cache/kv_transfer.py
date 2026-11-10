@@ -8,19 +8,19 @@ _reference_fn = None
 
 @register_impl(
     "mem_cache.transfer_kv_per_layer_kv_split_pf_lf",
-    "aiv",
+    "memfabric_aiv",
 )
 @register_impl(
     "mem_cache.transfer_kv_all_layer_kv_split_lf_pf",
-    "aiv",
+    "memfabric_aiv",
 )
 @register_impl(
     "mem_cache.transfer_kv_per_layer_kv_split",
-    "aiv",
+    "memfabric_aiv",
 )
 @register_impl(
     "mem_cache.transfer_kv_all_layer_kv_split",
-    "aiv",
+    "memfabric_aiv",
 )
 @register_impl(
     "mem_cache.transfer_kv_all_layer_kv_split_lf_pf",
@@ -88,7 +88,7 @@ def transfer_kv_per_layer_kv_split_pf_lf(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aiv; explicit impl can override it.
+    auto selects memfabric_aiv; explicit impl can override it.
     """
     return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", impl)(
         device_indices,
@@ -132,7 +132,7 @@ def transfer_kv_all_layer_kv_split_lf_pf(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aiv; explicit impl can override it.
+    auto selects memfabric_aiv; explicit impl can override it.
     """
     return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", impl)(
         device_indices,
@@ -179,7 +179,7 @@ def transfer_kv_per_layer_kv_split(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aiv; explicit impl can override it.
+    auto selects memfabric_aiv; explicit impl can override it.
     """
     return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split", impl)(
         device_indices,
@@ -223,7 +223,7 @@ def transfer_kv_all_layer_kv_split(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects aiv; explicit impl can override it.
+    auto selects memfabric_aiv; explicit impl can override it.
     """
     return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split", impl)(
         device_indices,
