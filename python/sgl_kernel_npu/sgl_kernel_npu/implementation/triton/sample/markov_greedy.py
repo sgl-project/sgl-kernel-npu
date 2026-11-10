@@ -15,7 +15,6 @@ _STEP_DTYPES = {
     torch.bfloat16: tl.bfloat16,
     torch.float32: tl.float32,
 }
-_markov_launchers = {}
 
 
 @triton.jit
@@ -160,70 +159,42 @@ def markov_greedy_step_triton(
         return (base_logits + bias).argmax(-1)
     out = torch.empty((bs,), dtype=torch.int64, device=base_logits.device)
     step_dtype = _STEP_DTYPES[torch.promote_types(base_logits.dtype, bias.dtype)]
-    parts = triton.cdiv(vocab, _BLOCK_V)
-    inputs = (base_logits, bias)
-    key = (
-        base_logits.device,
-        bs,
-        vocab,
-        tuple((x.dtype, x.stride(0), x.data_ptr() % 16) for x in inputs),
-    )
-    launchers = _markov_launchers.get(key)
-    stream = triton.runtime.driver.active.get_current_stream(base_logits.device.index)
+    cores = get_device_properties()[1]
     if bs >= 32:
-        if launchers is None:
-            cores = get_device_properties()[1]
-            tile = 4096 if step_dtype == tl.float32 else 8192
-            tile = min(tile, triton.next_power_of_2(vocab))
-            grid = (min(cores, bs),)
-            kernel = _markov_greedy_row_kernel.warmup(
-                *inputs,
-                out,
-                vocab,
-                bs,
-                base_logits.stride(0),
-                bias.stride(0),
-                tile,
-                min(tile, 2048),
-                step_dtype,
-                grid=grid,
-                multibuffer=False,
-            )
-            launchers = (kernel[(*grid, 1, 1)],)
-            _markov_launchers[key] = launchers
-        launchers[0](*inputs, out, stream=stream)
-        return out
-    vals = torch.empty((bs, parts), dtype=torch.float32, device=base_logits.device)
-    idxs = torch.empty((bs, parts), dtype=torch.int32, device=base_logits.device)
-    if launchers is None:
-        cores = get_device_properties()[1]
-        grid = (min(cores, bs * parts),)
-        partial = _markov_greedy_add_argmax_kernel.warmup(
-            *inputs,
-            vals,
-            idxs,
+        tile = 4096 if step_dtype == tl.float32 else 8192
+        tile = min(tile, triton.next_power_of_2(vocab))
+        _markov_greedy_row_kernel[(min(cores, bs),)](
+            base_logits,
+            bias,
+            out,
             vocab,
             bs,
             base_logits.stride(0),
             bias.stride(0),
-            parts,
-            _BLOCK_V,
+            tile,
+            min(tile, 2048),
             step_dtype,
-            grid=grid,
+            multibuffer=False,
         )
-        combine_grid = (min(cores, bs),)
-        combine = _markov_greedy_combine_kernel.warmup(
-            vals,
-            idxs,
-            out,
-            parts,
-            bs,
-            triton.next_power_of_2(parts),
-            grid=combine_grid,
-        )
-        launchers = (partial[(*grid, 1, 1)], combine[(*combine_grid, 1, 1)])
-        _markov_launchers[key] = launchers
-    partial_launch, combine_launch = launchers
-    partial_launch(*inputs, vals, idxs, stream=stream)
-    combine_launch(vals, idxs, out, stream=stream)
+        return out
+
+    parts = triton.cdiv(vocab, _BLOCK_V)
+    vals = torch.empty((bs, parts), dtype=torch.float32, device=base_logits.device)
+    idxs = torch.empty((bs, parts), dtype=torch.int32, device=base_logits.device)
+    _markov_greedy_add_argmax_kernel[(min(cores, bs * parts),)](
+        base_logits,
+        bias,
+        vals,
+        idxs,
+        vocab,
+        bs,
+        base_logits.stride(0),
+        bias.stride(0),
+        parts,
+        _BLOCK_V,
+        step_dtype,
+    )
+    _markov_greedy_combine_kernel[(min(cores, bs),)](
+        vals, idxs, out, parts, bs, triton.next_power_of_2(parts)
+    )
     return out
