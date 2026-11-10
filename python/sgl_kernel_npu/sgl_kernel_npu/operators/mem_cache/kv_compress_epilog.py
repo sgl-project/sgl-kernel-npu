@@ -139,7 +139,7 @@ def kv_compress_epilog(
         )
     if round_scale_flag is not None or layout is not None:
         raise ValueError("round_scale_flag and layout require an integer quant_mode")
-    from .mem_cache_utils import (
+    from .get_npu_kv_quant_path import (
         CANN_9_1_NPU_KV_QUANT_PATH,
         NPU_KV_QUANT_PATH,
         get_npu_kv_quant_path,
