@@ -109,5 +109,5 @@ indexer_prologue_k_dsl(
 ## 设备测试
 
 ```bash
-python -m pytest tests/python/operators/indexer/test_indexer_prologue_k.py --npu-device=0 --enable-perf=false -v -s
+python -m pytest tests/python/operators/indexer/test_indexer_prologue_k_dsl.py --npu-device=0 --enable-perf=false -v -s
 ```

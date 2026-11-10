@@ -161,5 +161,5 @@ result = quant_sparse_lightning_indexer_dsl(
 ## Device test
 
 ```bash
-python -m pytest tests/python/operators/indexer/test_quant_sparse_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
+python -m pytest tests/python/operators/indexer/test_quant_sparse_lightning_indexer_dsl.py --npu-device=0 --enable-perf=false -v -s
 ```

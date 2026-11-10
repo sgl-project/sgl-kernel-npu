@@ -105,5 +105,5 @@ metadata = mixed_quant_sparse_flash_mla_metadata_dsl(
 ## Device test
 
 ```bash
-python -m pytest tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata.py --npu-device=0 --enable-perf=false -v -s
+python -m pytest tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py --npu-device=0 --enable-perf=false -v -s
 ```
