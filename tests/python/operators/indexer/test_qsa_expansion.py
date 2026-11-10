@@ -2,6 +2,11 @@
 
 Independent scalar reference. Exact equality, including tail placement and -1
 padding. K=512/2048; the current model uses ratio=4 and output width 2051.
+Qwen3.8-Flash-Next uses K512/ratio4 at every TP/attention DP/EP degree.
+SGLang qsa_indexer.py expands local query rows: decode B1/B8, verify B*W4,
+prefill T4096, and row chunks T512 for a 262144-token prefix. CP8 passes
+zigzag local positions with global sequence lengths; only that contract is tested.
+Inputs are synthetic, not captured tensors.
 """
 
 import pytest
@@ -17,11 +22,35 @@ pytestmark = pytest.mark.skipif(
     reason="These model operator contracts are validated only on arch22",
 )
 
-perf_shape = [(1, 512, 4), (128, 512, 4)]
+perf_shape = [(1, 512, 4), (8, 512, 4), (32, 512, 4), (4096, 512, 4)]
 
 
 def generate_data(rows, k, ratio, mode):
     columns = torch.arange(k, dtype=torch.int32)[None, :]
+    if mode in ("decode", "verify", "prefill", "prefix", "cp8"):
+        positions = torch.arange(rows, dtype=torch.int32)
+        if mode == "decode":
+            positions = 4092 + positions % 4
+        elif mode == "verify":
+            positions = 4092 + positions % 4
+        elif mode == "prefix":
+            positions += 262144 - rows
+        elif mode == "cp8":
+            positions = torch.cat(
+                (torch.arange(256, 512), torch.arange(3584, 3840))
+            ).int()
+        lengths = (
+            positions + 1
+            if mode in ("decode", "verify")
+            else torch.full_like(positions, 262144 if mode == "prefix" else 4096)
+        )
+        visible = (positions + 1) // ratio
+        count = visible.clamp(max=k)
+        # Use the last visible blocks so long-prefix indices exceed 2048 tokens.
+        blocks = torch.where(
+            columns < count[:, None], columns + (visible - count)[:, None], -1
+        ).contiguous()
+        return blocks, positions, lengths, ratio, k * ratio
     count = torch.arange(rows, dtype=torch.int32) % (k + 1)
     if mode == "full":
         count.fill_(k)
@@ -36,23 +65,37 @@ def generate_data(rows, k, ratio, mode):
 
 
 @pytest.mark.parametrize(
-    "rows",
-    [0, 1, 8, 127, 128, 129],
-    ids=[
-        "empty",
-        "single-token",
-        "decode-batch",
-        "before-row-boundary",
-        "row-boundary",
-        "row-tail",
+    "rows,k,ratio,mode",
+    [
+        pytest.param(
+            1, 512, 4, "decode", id="qwen3-8-flash-next-decode-b1-k512-ratio4"
+        ),
+        pytest.param(
+            8, 512, 4, "decode", id="qwen3-8-flash-next-decode-b8-k512-ratio4"
+        ),
+        pytest.param(
+            4, 512, 4, "verify", id="qwen3-8-flash-next-verify-b1-w4-t4-k512-ratio4"
+        ),
+        pytest.param(
+            32, 512, 4, "verify", id="qwen3-8-flash-next-verify-b8-w4-t32-k512-ratio4"
+        ),
+        pytest.param(
+            4096, 512, 4, "prefill", id="qwen3-8-flash-next-prefill-t4096-k512-ratio4"
+        ),
+        pytest.param(
+            512, 512, 4, "prefix", id="qwen3-8-flash-next-prefix-t512-context262144"
+        ),
+        pytest.param(
+            512, 512, 4, "cp8", id="qwen3-8-flash-next-cp8-prefill-local-t512"
+        ),
+        pytest.param(0, 512, 4, "empty", id="edge-empty-rows"),
+        pytest.param(8, 512, 4, "empty", id="edge-empty-sequences"),
+        pytest.param(8, 512, 4, "short", id="edge-short-sequences"),
+        pytest.param(129, 512, 4, "short", id="edge-row-tail-r129"),
+        pytest.param(8, 2048, 4, "full", id="edge-large-k2048"),
+        pytest.param(8, 512, 3, "full", id="edge-ratio3"),
     ],
 )
-@pytest.mark.parametrize(
-    "k,ratio",
-    [(512, 4), (2048, 4), (512, 3)],
-    ids=["model-k512-ratio4", "large-k2048-ratio4", "ratio3-edge"],
-)
-@pytest.mark.parametrize("mode", ["full", "short", "empty"])
 def test_qsa_expansion_accuracy(rows, k, ratio, mode):
     # At ratio 4, block 2 expands to token indices [8, 9, 10, 11].
     args = generate_data(rows, k, ratio, mode)
@@ -61,14 +104,22 @@ def test_qsa_expansion_accuracy(rows, k, ratio, mode):
     assert executor().is_contiguous()
     _assert_unchanged(args, saved)
     check_performance(
-        executor, enable_perf=(rows, k, ratio) in perf_shape and mode == "short"
+        executor,
+        enable_perf=(rows, k, ratio) in perf_shape
+        and mode in ("decode", "verify", "prefill"),
     )
 
 
-@pytest.mark.parametrize("rows", [8, 128], ids=["decode-batch", "row-boundary"])
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param(8, id="qwen3-8-flash-next-decode-r8-k512-ratio4"),
+        pytest.param(32, id="qwen3-8-flash-next-mtp-r32-k512-ratio4"),
+    ],
+)
 def test_qsa_expansion_graph_updates(rows):
     args = generate_data(rows, 512, 4, "short")
-    replacement = generate_data(rows, 512, 4, "full")
+    replacement = generate_data(rows, 512, 4, "verify" if rows == 32 else "decode")
 
     def update():
         for x, new in zip(args[:3], replacement[:3]):

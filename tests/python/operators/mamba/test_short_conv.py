@@ -2,6 +2,10 @@
 
 Reference: native NPU F.conv1d outside capture. BF16 atol=rtol=.02;
 FP16 atol=rtol=.003. State writes and SiLU belong to framework tests.
+Qwen3.8-Flash-Next uses BF16, decode W1 and four-token MTP verification.
+B1/B8 follow the serving setup; inputs are synthetic, not captured tensors.
+SGLang qwen4_exp.py uses local batches under attention DP; TP/EP do not
+split the 10240 channels. Prefill uses a different convolution path.
 """
 
 import pytest
@@ -22,7 +26,7 @@ STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0.02, rtol=0.02),
     "torch.float16": AccuracyStandard(atol=0.003, rtol=0.003),
 }
-perf_shape = [(1, 1), (8, 4), (32, 4)]
+perf_shape = [(1, 1, True), (8, 1, True), (8, 4, False)]
 
 
 def generate_data(batch, width, dtype):
@@ -34,23 +38,39 @@ def generate_data(batch, width, dtype):
     )
 
 
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
 @pytest.mark.parametrize(
-    "batch",
-    [0, 1, 3, 8, 32, 65],
-    ids=[
-        "empty",
-        "single-request",
-        "batch-tail",
-        "decode-batch",
-        "large-batch",
-        "multi-tile-tail",
+    "batch,width,single,dtype",
+    [
+        pytest.param(
+            1, 1, True, torch.bfloat16, id="qwen3-8-flash-next-decode-b1-w1-bf16"
+        ),
+        pytest.param(
+            8, 1, True, torch.bfloat16, id="qwen3-8-flash-next-decode-b8-w1-bf16"
+        ),
+        pytest.param(
+            1, 4, False, torch.bfloat16, id="qwen3-8-flash-next-mtp-b1-w4-bf16"
+        ),
+        pytest.param(
+            8, 4, False, torch.bfloat16, id="qwen3-8-flash-next-mtp-b8-w4-bf16"
+        ),
+        pytest.param(
+            3,
+            1,
+            True,
+            torch.bfloat16,
+            id="qwen3-8-flash-next-attn-dp-uneven-local-b3-w1-bf16",
+        ),
+        pytest.param(0, 1, True, torch.bfloat16, id="edge-empty-flat-output"),
+        pytest.param(0, 4, False, torch.bfloat16, id="edge-empty-token-output"),
+        pytest.param(3, 1, False, torch.bfloat16, id="edge-w1-token-output"),
+        pytest.param(3, 2, False, torch.bfloat16, id="edge-width2-bf16"),
+        pytest.param(3, 3, False, torch.bfloat16, id="edge-width3-bf16"),
+        pytest.param(65, 4, False, torch.bfloat16, id="edge-batch-tail-b65"),
+        pytest.param(1, 1, True, torch.float16, id="edge-width1-fp16"),
+        pytest.param(3, 2, False, torch.float16, id="edge-width2-fp16"),
+        pytest.param(3, 3, False, torch.float16, id="edge-width3-fp16"),
+        pytest.param(8, 4, False, torch.float16, id="edge-width4-fp16"),
     ],
-)
-@pytest.mark.parametrize(
-    "width,single",
-    [(1, True), (1, False), (2, False), (3, False), (4, False)],
-    ids=["decode-flat-output", "decode-token-output", "verify2", "verify3", "verify4"],
 )
 def test_short_conv_accuracy(batch, width, single, dtype):
     # For W=4, 13 input positions produce four output tokens.
@@ -63,22 +83,37 @@ def test_short_conv_accuracy(batch, width, single, dtype):
     assert out.shape == ((batch, 10240) if single else (batch, width, 10240))
     assert out.is_contiguous()
     _assert_unchanged(args, saved)
-    check_performance(executor, enable_perf=(batch, width) in perf_shape and not single)
+    check_performance(
+        executor,
+        enable_perf=(batch, width, single) in perf_shape and dtype == torch.bfloat16,
+    )
 
 
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
 @pytest.mark.parametrize(
-    "batch,width",
-    [(1, 1), (3, 2), (8, 3), (32, 4)],
-    ids=["single-decode", "small-verify2", "batch-verify3", "large-verify4"],
+    "batch,width,single,dtype",
+    [
+        pytest.param(
+            1, 1, True, torch.bfloat16, id="qwen3-8-flash-next-decode-b1-w1-bf16"
+        ),
+        pytest.param(
+            8, 1, True, torch.bfloat16, id="qwen3-8-flash-next-decode-b8-w1-bf16"
+        ),
+        pytest.param(
+            8, 4, False, torch.bfloat16, id="qwen3-8-flash-next-mtp-b8-w4-bf16"
+        ),
+        pytest.param(
+            1, 4, False, torch.bfloat16, id="qwen3-8-flash-next-verify-b1-w4-bf16"
+        ),
+    ],
 )
-def test_short_conv_graph_updates(batch, width, dtype):
+def test_short_conv_graph_updates(batch, width, single, dtype):
     args = generate_data(batch, width, dtype)
     _check_graph_updates(
         short_conv,
         args,
         [lambda: args[0].mul_(-0.7), lambda: args[1].mul_(0.3)],
         standard=STANDARD,
+        kwargs={"single_token": single},
     )
 
 

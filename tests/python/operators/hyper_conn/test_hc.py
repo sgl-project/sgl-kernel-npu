@@ -2,6 +2,11 @@
 
 Independent CPU FP64 reference, BF16 output; atol=.005, rtol=.01.
 Inputs and learned weights must remain unchanged; graph reads updated weights.
+Qwen3.8-Flash-Next: H2560 * HC4 and low rank 320 are replicated under TP/EP.
+Attention DP uses local token counts; verify B1/B8 * W4 gives T4/T32.
+SGLang's gated layer-boundary adapter slices rows for SP, not hidden width;
+T4096 / attention TP8 gives T512. PP also preserves the stream width.
+Inputs are synthetic, not captured tensors.
 """
 
 import pytest
@@ -37,28 +42,42 @@ def _cpu_inputs(op, rows):
     return rand((rows, 2560)), x, rand((rows, 10240)), rand((4, 10240), 0.02), 4, 2560
 
 
-def generate_data(op, rows):
-    return tuple(
+def generate_data(op, rows, row_offset=0):
+    args = list(
         x.to("npu") if isinstance(x, torch.Tensor) else x for x in _cpu_inputs(op, rows)
     )
+    # SP rank 1's residual is a contiguous row view with a nonzero offset.
+    for index in [0] if op == "mix" else [0, 1, 2]:
+        x = args[index]
+        if row_offset:
+            backing = torch.zeros(
+                (rows + row_offset, x.shape[1]), dtype=x.dtype, device=x.device
+            )
+            args[index] = backing[row_offset:].copy_(x)
+            assert args[index].storage_offset() == row_offset * x.shape[1]
+    return tuple(args)
 
 
 @pytest.mark.parametrize("op", ["mix", "combine"])
 @pytest.mark.parametrize(
-    "rows",
-    [0, 1, 32, 33, 4096, 8193],
-    ids=[
-        "empty",
-        "single-token",
-        "decode-batch",
-        "row-tail",
-        "prefill",
-        "chunk-boundary-tail",
+    "rows,row_offset",
+    [
+        pytest.param(1, 0, id="qwen3-8-flash-next-decode-b1-h10240"),
+        pytest.param(8, 0, id="qwen3-8-flash-next-decode-b8-h10240"),
+        pytest.param(4, 0, id="qwen3-8-flash-next-verify-b1-w4-t4-h10240"),
+        pytest.param(32, 0, id="qwen3-8-flash-next-verify-b8-w4-t32-h10240"),
+        pytest.param(4096, 0, id="qwen3-8-flash-next-prefill-t4096-h10240"),
+        pytest.param(
+            512, 512, id="qwen3-8-flash-next-sp8-prefill-local-t512-offset512"
+        ),
+        pytest.param(0, 0, id="edge-empty"),
+        pytest.param(33, 0, id="edge-row-tail-r33"),
+        pytest.param(8193, 0, id="edge-chunk-tail-r8193"),
     ],
 )
-def test_hc_accuracy(op, rows):
+def test_hc_accuracy(op, rows, row_offset):
     # Mix reduces four groups; combine adds a gated block to each residual group.
-    args = generate_data(op, rows)
+    args = generate_data(op, rows, row_offset)
     saved = [x.clone() for x in args if isinstance(x, torch.Tensor)]
     executor = check_accuracy(OPERATORS[op], args=args, standard=STANDARD)
     assert executor().is_contiguous()
@@ -68,7 +87,11 @@ def test_hc_accuracy(op, rows):
 
 @pytest.mark.parametrize("op", ["mix", "combine"])
 @pytest.mark.parametrize(
-    "rows", [33, 8193], ids=["direct-row-tail", "chunked-row-tail"]
+    "rows",
+    [
+        pytest.param(8, id="qwen3-8-flash-next-decode-r8-h10240"),
+        pytest.param(32, id="qwen3-8-flash-next-verify-b8-w4-t32-h10240"),
+    ],
 )
 def test_hc_graph_input_and_weight_updates(op, rows):
     args = generate_data(op, rows)

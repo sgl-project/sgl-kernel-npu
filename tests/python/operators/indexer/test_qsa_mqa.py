@@ -2,6 +2,12 @@
 
 Independent per-row/head CPU FP64 reference; atol=rtol=2e-5.
 Indexer heads stay four for every attention TP degree. Pages contain 16 keys.
+Qwen3.8-Flash-Next: TP/attention DP/EP do not shard the replicated indexer.
+SGLang qsa_indexer.py caps prefill scores at 128 MiB: M65536 gives T512,
+two packed long requests give M131072/T256. CP8 of T4096 has T512 local Q
+and all 1024 compressed keys. This tests its local contract, not CP transport.
+Decode graph capacity is 262144 / 4 = 65536, even for short live sequences.
+Verify B1/B8 * W4 gives T4/T32. All tensor values are synthetic.
 """
 
 import pytest
@@ -19,10 +25,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 STANDARD = {"torch.float32": AccuracyStandard(atol=2e-5, rtol=2e-5)}
-perf_shape = [(1, 1024), (32, 1040)]
+perf_shape = [
+    ("packed", 4096, 1024),
+    ("packed", 512, 65536),
+    ("paged", 1, 65536),
+    ("paged", 8, 65536),
+    ("paged", 32, 65536),
+]
 
 
-def generate_data(kind, rows, width):
+def generate_data(kind, rows, width, scenario="edge"):
     torch.manual_seed(73)
     q = torch.randn(rows, 4, 128, dtype=torch.bfloat16)
     lengths = (
@@ -38,41 +50,100 @@ def generate_data(kind, rows, width):
         if rows > 1:
             starts[rows // 2 :] = width // 2
             lengths[rows // 2 :] = width
+        if scenario != "edge":
+            starts.zero_()
+            positions = torch.arange(rows, dtype=torch.int32)
+            if scenario == "prefix":
+                positions += width * 4 - rows
+            elif scenario == "packed_prefix":
+                # Two requests share the score buffer, not their key ranges.
+                starts[rows // 2 :] = width // 2
+                positions = positions % (rows // 2) + width // 2 * 4 - rows // 2
+            elif scenario == "cp8":
+                # Zigzag rank 1 gets chunks 1 and 14 of a 4096-token prefill.
+                positions = torch.cat(
+                    (torch.arange(256, 512), torch.arange(3584, 3840))
+                ).int()
+            lengths = starts + (positions + 1) // 4
         return qsa_mqa_packed, (q, k, starts, lengths)
     pages = width // 16
     cache = torch.randn(max(1, pages + 2), 16, 1, 128, dtype=torch.bfloat16)
     table = torch.arange(1, pages + 1, dtype=torch.int32).repeat(rows, 1)
     cache[0] = float("nan")  # An unused physical page must never contaminate scores.
+    if scenario == "verify":
+        lengths = width - 1 + ((torch.arange(rows, dtype=torch.int32) % 4 + 1) // 4)
     return qsa_mqa_paged, (q, cache, table, lengths, width)
 
 
-@pytest.mark.parametrize("kind", ["packed", "paged"])
 @pytest.mark.parametrize(
-    "rows,width",
-    [(0, 16), (3, 0), (1, 1024), (8, 48), (32, 1040), (33, 256), (129, 128)],
-    ids=[
-        "empty-queries",
-        "empty-keys",
-        "single-query-context",
-        "small-paged-context",
-        "mtp-context",
-        "row-tail",
-        "multi-tile-tail",
+    "kind,rows,width,scenario",
+    [
+        pytest.param(
+            "packed", 4096, 1024, "prefill", id="qwen3-8-flash-next-prefill-t4096-m1024"
+        ),
+        pytest.param(
+            "packed", 512, 65536, "prefix", id="qwen3-8-flash-next-prefix-t512-m65536"
+        ),
+        pytest.param(
+            "packed",
+            256,
+            131072,
+            "packed_prefix",
+            id="qwen3-8-flash-next-packed-b2-prefix-t256-m131072",
+        ),
+        pytest.param(
+            "packed",
+            512,
+            1024,
+            "cp8",
+            id="qwen3-8-flash-next-cp8-prefill-local-t512-m1024",
+        ),
+        pytest.param(
+            "paged", 1, 65536, "decode", id="qwen3-8-flash-next-decode-b1-m65536"
+        ),
+        pytest.param(
+            "paged", 8, 65536, "decode", id="qwen3-8-flash-next-decode-b8-m65536"
+        ),
+        pytest.param(
+            "paged", 4, 65536, "verify", id="qwen3-8-flash-next-verify-b1-w4-t4-m65536"
+        ),
+        pytest.param(
+            "paged",
+            32,
+            65536,
+            "verify",
+            id="qwen3-8-flash-next-verify-b8-w4-t32-m65536",
+        ),
+        pytest.param("packed", 0, 16, "edge", id="edge-packed-empty-queries"),
+        pytest.param("paged", 0, 16, "edge", id="edge-paged-empty-queries"),
+        pytest.param("packed", 3, 0, "edge", id="edge-packed-empty-keys"),
+        pytest.param("paged", 3, 0, "edge", id="edge-paged-empty-keys"),
+        pytest.param("packed", 33, 256, "edge", id="edge-packed-row-tail-r33"),
+        pytest.param("paged", 33, 256, "edge", id="edge-paged-row-tail-r33"),
     ],
 )
-def test_qsa_mqa_accuracy(kind, rows, width):
+def test_qsa_mqa_accuracy(kind, rows, width, scenario):
     # Each query head contributes max(q @ k, 0) / sqrt(128) to the score.
-    operator, args = generate_data(kind, rows, width)
+    operator, args = generate_data(kind, rows, width, scenario)
     saved = [x.clone() for x in args if isinstance(x, torch.Tensor)]
     executor = check_accuracy(operator, args=args, standard=STANDARD)
     assert executor().is_contiguous()
     _assert_unchanged(args, saved)
-    check_performance(executor, enable_perf=(rows, width) in perf_shape)
+    check_performance(executor, enable_perf=(kind, rows, width) in perf_shape)
 
 
-@pytest.mark.parametrize("kind", ["packed", "paged"])
-def test_qsa_mqa_graph_updates(kind):
-    operator, args = generate_data(kind, 8, 1040)
+@pytest.mark.parametrize(
+    "kind,rows,width",
+    [
+        pytest.param("packed", 8, 1040, id="edge-packed-graph-r8-k1040"),
+        pytest.param("paged", 8, 65536, id="qwen3-8-flash-next-decode-b8-m65536"),
+        pytest.param(
+            "paged", 32, 65536, id="qwen3-8-flash-next-verify-b8-w4-t32-m65536"
+        ),
+    ],
+)
+def test_qsa_mqa_graph_updates(kind, rows, width):
+    operator, args = generate_data(kind, rows, width)
     updates = [
         lambda: args[0].mul_(-0.5),
         lambda: args[1].mul_(0.25),
@@ -81,6 +152,8 @@ def test_qsa_mqa_graph_updates(kind):
     if kind == "packed":
         updates[-1] = lambda: (args[2].zero_(), args[3].fill_(17))
     else:
+        args[3].fill_(1024)  # Live length changes; graph capacity stays 65536.
+        updates.insert(2, lambda: args[3].fill_(width))
         updates.insert(2, lambda: args[2].copy_(args[2].flip(1)))
     _check_graph_updates(operator, args, updates, standard=STANDARD)
 

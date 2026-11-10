@@ -2,6 +2,11 @@
 
 Independent CPU FP64 reference; atol=.005, rtol=.01 for BF16 outputs.
 All row counts use the same tolerance, including R4096 and R8193.
+Qwen3.8-Flash-Next: H2560 * HC4 stays 10240 under TP, attention DP and EP.
+Decode uses local B1/B8; verify B1/B8 * W4 gives R4/R32. Prefill T4096
+can be split into T512 row views by attention TP8 (SP). PP keeps this width.
+Shapes follow SGLang hyperconnection.py and the gated layer-boundary adapter;
+inputs are synthetic, not captured tensors.
 """
 
 import pytest
@@ -23,29 +28,39 @@ STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0.005, rtol=0.01)}
 perf_shape = [1, 32, 4096]
 
 
-def generate_data(rows):
+def generate_data(rows, row_offset=0):
     generator = torch.Generator(device="cpu").manual_seed(73)
-    x = torch.randn(rows, 10240, generator=generator, device="cpu").to(torch.bfloat16)
+    x = torch.randn(rows + row_offset, 10240, generator=generator, device="cpu").to(
+        torch.bfloat16
+    )
     weight = (torch.randn(10240, generator=generator, device="cpu") * 0.1).to(
         torch.bfloat16
     )
-    return x.to("npu"), weight.to("npu"), 2560, 1e-6
+    # Slice after transfer: SP rank 1 keeps a nonzero offset on the device.
+    x = x.to("npu")[row_offset:]
+    assert x.is_contiguous() and x.storage_offset() == row_offset * 10240
+    return x, weight.to("npu"), 2560, 1e-6
 
 
 @pytest.mark.parametrize(
-    "rows",
+    "rows,row_offset",
     [
-        pytest.param(0, id="empty"),
-        pytest.param(1, id="single-token"),
-        pytest.param(32, id="decode-batch"),
-        pytest.param(33, id="decode-row-tail"),
-        pytest.param(4096, id="prefill"),
-        pytest.param(8193, id="large-prefill-row-tail"),
+        pytest.param(1, 0, id="qwen3-8-flash-next-decode-b1-h10240"),
+        pytest.param(8, 0, id="qwen3-8-flash-next-decode-b8-h10240"),
+        pytest.param(4, 0, id="qwen3-8-flash-next-verify-b1-w4-t4-h10240"),
+        pytest.param(32, 0, id="qwen3-8-flash-next-verify-b8-w4-t32-h10240"),
+        pytest.param(4096, 0, id="qwen3-8-flash-next-prefill-t4096-h10240"),
+        pytest.param(
+            512, 512, id="qwen3-8-flash-next-sp8-prefill-local-t512-offset512"
+        ),
+        pytest.param(0, 0, id="edge-empty"),
+        pytest.param(33, 0, id="edge-row-tail-r33"),
+        pytest.param(8193, 0, id="edge-large-row-tail-r8193"),
     ],
 )
-def test_grouped_gemma_rmsnorm_accuracy(rows):
+def test_grouped_gemma_rmsnorm_accuracy(rows, row_offset):
     # Each row contains four groups; an odd row count also checks the last tile.
-    args = generate_data(rows)
+    args = generate_data(rows, row_offset)
     saved = [x.clone() for x in args[:2]]
     executor = check_accuracy(grouped_gemma_rmsnorm, args=args, standard=STANDARD)
     assert executor().is_contiguous()
@@ -53,8 +68,11 @@ def test_grouped_gemma_rmsnorm_accuracy(rows):
     check_performance(executor, enable_perf=rows in perf_shape)
 
 
-def test_grouped_gemma_rmsnorm_graph_updates():
-    args = generate_data(8)
+@pytest.mark.parametrize(
+    "rows", [pytest.param(8, id="qwen3-8-flash-next-decode-r8-h10240")]
+)
+def test_grouped_gemma_rmsnorm_graph_updates(rows):
+    args = generate_data(rows)
     _check_graph_updates(
         grouped_gemma_rmsnorm,
         args,

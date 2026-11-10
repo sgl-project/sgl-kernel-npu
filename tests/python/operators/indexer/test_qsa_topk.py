@@ -2,6 +2,12 @@
 
 Reference: independent torch_native selection. Exact score multiset, membership,
 uniqueness, ordered short rows and -1 suffix; equal-score indices may differ.
+Qwen3.8-Flash-Next selects 512 blocks from contiguous MQA scores. Its replicated
+indexer keeps the same heads under TP/attention DP/EP. Local B1/B8 with W4
+verification gives T4/T32. Decode graph M=262144/4=65536; live lengths vary.
+SGLang qsa_indexer.py caps packed scores at 128 MiB; metadata.py supplies causal
+request ranges. CP8 uses local zigzag queries against global keys. The CP case
+tests only that input contract, not distributed execution. Values are synthetic.
 """
 
 import pytest
@@ -24,12 +30,14 @@ pytestmark = pytest.mark.skipif(
     reason="These model operator contracts are validated only on arch22",
 )
 
-perf_shape = [(8, 4096), (256, 16384)]
+perf_shape = [(8, 65536), (32, 65536), (512, 65536), (4096, 1024)]
 
 
 def generate_data(rows, width, topk, pattern):
     torch.manual_seed(11)
-    storage = torch.randn(rows, width + 19, dtype=torch.float32)
+    storage = torch.randn(
+        rows, width + (19 if pattern == "strided" else 0), dtype=torch.float32
+    )
     score = storage[:, :width]
     if pattern == "ties":
         score.zero_()
@@ -37,11 +45,31 @@ def generate_data(rows, width, topk, pattern):
         score.copy_((score > 0).float())
     starts = torch.zeros(rows, dtype=torch.int32)
     lengths = torch.full((rows,), width, dtype=torch.int32)
-    if rows >= 4:
+    if pattern in ("prefill", "prefix", "packed_prefix", "cp8"):
+        positions = torch.arange(rows, dtype=torch.int32)
+        if pattern == "prefix":
+            positions += width * 4 - rows
+        elif pattern == "packed_prefix":
+            starts[rows // 2 :] = width // 2
+            positions = positions % (rows // 2) + width // 2 * 4 - rows // 2
+        elif pattern == "cp8":
+            positions = torch.cat(
+                (torch.arange(256, 512), torch.arange(3584, 3840))
+            ).int()
+        lengths = (positions + 1) // 4
+        columns = torch.arange(width)[None, :]
+        score.masked_fill_(
+            (columns < starts[:, None]) | (columns >= (starts + lengths)[:, None]),
+            -float("inf"),
+        )
+    elif pattern == "verify":
+        lengths = width - 1 + ((torch.arange(rows, dtype=torch.int32) % 4 + 1) // 4)
+    elif rows >= 4:
         lengths[:4] = torch.tensor(
             [0, 1, min(topk, width), min(topk + 1, width)], dtype=torch.int32
         )
-        starts[1] = min(3, max(0, width - 1))
+        if pattern != "decode":
+            starts[1] = min(3, max(0, width - 1))
         score[0] = float("nan")
     return score, lengths, topk, starts
 
@@ -105,20 +133,56 @@ def check_accuracy(args):
     )
 
 
-@pytest.mark.parametrize("topk", [512, 2048], ids=["k512", "k2048"])
 @pytest.mark.parametrize(
-    "rows,width",
-    [(0, 4096), (8, 256), (8, 4096), (33, 8193), (256, 16384), (2, 262145)],
-    ids=[
-        "empty",
-        "short-row-padding",
-        "decode-context",
-        "row-and-column-tail",
-        "prefill-context",
-        "wide-selection-boundary",
+    "rows,width,topk,pattern",
+    [
+        pytest.param(
+            1, 65536, 512, "decode", id="qwen3-8-flash-next-decode-b1-m65536-k512"
+        ),
+        pytest.param(
+            8, 65536, 512, "decode", id="qwen3-8-flash-next-decode-b8-m65536-k512"
+        ),
+        pytest.param(
+            4, 65536, 512, "verify", id="qwen3-8-flash-next-verify-b1-w4-t4-m65536-k512"
+        ),
+        pytest.param(
+            32,
+            65536,
+            512,
+            "verify",
+            id="qwen3-8-flash-next-verify-b8-w4-t32-m65536-k512",
+        ),
+        pytest.param(
+            4096, 1024, 512, "prefill", id="qwen3-8-flash-next-prefill-t4096-m1024-k512"
+        ),
+        pytest.param(
+            512, 65536, 512, "prefix", id="qwen3-8-flash-next-prefix-t512-m65536-k512"
+        ),
+        pytest.param(
+            256,
+            131072,
+            512,
+            "packed_prefix",
+            id="qwen3-8-flash-next-packed-b2-prefix-t256-m131072-k512",
+        ),
+        pytest.param(
+            512,
+            1024,
+            512,
+            "cp8",
+            id="qwen3-8-flash-next-cp8-prefill-local-t512-m1024-k512",
+        ),
+        pytest.param(0, 4096, 512, "random", id="edge-empty"),
+        pytest.param(8, 256, 512, "random", id="edge-short-row-padding"),
+        pytest.param(33, 8193, 512, "strided", id="edge-strided-row-and-column-tail"),
+        pytest.param(8, 4096, 512, "ties", id="edge-k512-equal-scores"),
+        pytest.param(8, 4096, 512, "binary", id="edge-k512-binary-scores"),
+        pytest.param(8, 4096, 2048, "random", id="edge-large-k2048"),
+        pytest.param(8, 4096, 2048, "ties", id="edge-k2048-equal-scores"),
+        pytest.param(2, 262145, 512, "random", id="edge-wide-selection-k512"),
+        pytest.param(2, 262145, 2048, "random", id="edge-wide-selection-k2048"),
     ],
 )
-@pytest.mark.parametrize("pattern", ["random", "ties", "binary"])
 def test_qsa_topk_accuracy(rows, width, topk, pattern):
     # A length-3 row keeps [0, 1, 2] and pads the remaining slots with -1.
     args = generate_data(rows, width, topk, pattern)
@@ -127,24 +191,32 @@ def test_qsa_topk_accuracy(rows, width, topk, pattern):
     for x, before in zip([args[0], args[1], args[3]], saved):
         torch.testing.assert_close(x, before, atol=0, rtol=0, equal_nan=True)
     check_performance(
-        executor, enable_perf=(rows, width) in perf_shape and pattern == "random"
+        executor,
+        enable_perf=(rows, width) in perf_shape and topk == 512,
     )
 
 
-@pytest.mark.parametrize("topk", [512, 2048], ids=["k512", "k2048"])
 @pytest.mark.parametrize(
-    "width",
-    [256, 4096, 262145],
-    ids=["short-row-padding", "decode-context", "wide-selection-boundary"],
+    "topk,width",
+    [
+        pytest.param(512, 65536, id="qwen3-8-flash-next-decode-b8-m65536-k512"),
+        pytest.param(512, 256, id="edge-short-row-padding"),
+        pytest.param(2048, 262145, id="edge-wide-selection-k2048"),
+    ],
 )
 def test_qsa_topk_graph_updates(topk, width):
     args = generate_data(8, width, topk, "random")
     score, lengths, _, starts = args
+    if width == 65536:
+        score.nan_to_num_()
+        starts.zero_()
+        lengths.fill_(1024)
     _check_graph_updates(
         qsa_topk,
         args,
         [
             lambda: score.neg_(),
+            lambda: (score.nan_to_num_(), starts.zero_(), lengths.fill_(width)),
             lambda: (score.nan_to_num_(), lengths.fill_(17)),
             lambda: starts.fill_(3),
         ],
