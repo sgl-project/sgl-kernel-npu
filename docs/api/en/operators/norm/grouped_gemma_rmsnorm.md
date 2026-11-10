@@ -60,4 +60,4 @@ weight = torch.zeros(10240, device="npu", dtype=x.dtype)
 y = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6, impl="auto")
 ```
 
-The strict CPU FP64 regression uses atol=rtol=0.005. Historical large-row failures remain mandatory tests; graph/eager agreement alone is not an accuracy result.
+The independent CPU FP64 regression uses atol=0.005 and rtol=0.01 for BF16 output. All shapes, including R=4096 and R=8193, use the same tolerance; graph/eager agreement alone is not an accuracy result.

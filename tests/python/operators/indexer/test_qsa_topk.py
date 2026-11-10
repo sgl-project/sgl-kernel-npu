@@ -7,8 +7,9 @@ uniqueness, ordered short rows and -1 suffix; equal-score indices may differ.
 import pytest
 import torch
 from sgl_kernel_npu.operators.indexer import qsa_topk
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-from tests.python.operators.qsa_test_utils import ARCH22_ONLY, check_graph_updates
+from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
@@ -18,7 +19,10 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-pytestmark = ARCH22_ONLY
+pytestmark = pytest.mark.skipif(
+    get_hardware().generation != Generation.ARCH22,
+    reason="These model operator contracts are validated only on arch22",
+)
 
 perf_shape = [(8, 4096), (256, 16384)]
 
@@ -123,7 +127,7 @@ def test_qsa_topk_accuracy(rows, width, topk, pattern):
 def test_qsa_topk_graph_updates(topk, width):
     args = generate_data(8, width, topk, "random")
     score, lengths, _, starts = args
-    check_graph_updates(
+    _check_graph_updates(
         qsa_topk,
         args,
         [
@@ -148,3 +152,45 @@ def test_qsa_topk_rejects_metadata(bad):
         args[1] = torch.stack((args[1], args[1]), -1)[:, 0]
     with pytest.raises(ValueError):
         qsa_topk(*args)
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

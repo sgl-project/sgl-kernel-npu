@@ -7,17 +7,16 @@ FP16 atol=rtol=.003. State writes and SiLU belong to framework tests.
 import pytest
 import torch
 from sgl_kernel_npu.operators.mamba import short_conv
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-from tests.python.operators.qsa_test_utils import (
-    ARCH22_ONLY,
-    assert_unchanged,
-    check_graph_updates,
-)
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-pytestmark = ARCH22_ONLY
+pytestmark = pytest.mark.skipif(
+    get_hardware().generation != Generation.ARCH22,
+    reason="These model operator contracts are validated only on arch22",
+)
 
 STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0.02, rtol=0.02),
@@ -49,7 +48,7 @@ def test_short_conv_accuracy(batch, width, single, dtype):
     out = executor()
     assert out.shape == ((batch, 10240) if single else (batch, width, 10240))
     assert out.is_contiguous()
-    assert_unchanged(args, saved)
+    _assert_unchanged(args, saved)
     check_performance(executor, enable_perf=(batch, width) in perf_shape and not single)
 
 
@@ -57,7 +56,7 @@ def test_short_conv_accuracy(batch, width, single, dtype):
 @pytest.mark.parametrize("batch,width", [(1, 1), (3, 2), (8, 3), (32, 4)])
 def test_short_conv_graph_updates(batch, width, dtype):
     args = generate_data(batch, width, dtype)
-    check_graph_updates(
+    _check_graph_updates(
         short_conv,
         args,
         [lambda: args[0].mul_(-0.7), lambda: args[1].mul_(0.3)],
@@ -97,3 +96,45 @@ def test_short_conv_storage_offsets_and_padding(width):
     before = backing.clone()
     check_accuracy(short_conv, args=(x, weight, dilation), standard=STANDARD)
     torch.testing.assert_close(backing, before, atol=0, rtol=0)
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

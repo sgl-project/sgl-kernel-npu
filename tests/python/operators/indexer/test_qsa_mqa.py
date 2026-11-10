@@ -7,17 +7,16 @@ Indexer heads stay four for every attention TP degree. Pages contain 16 keys.
 import pytest
 import torch
 from sgl_kernel_npu.operators.indexer import qsa_mqa_packed, qsa_mqa_paged
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-from tests.python.operators.qsa_test_utils import (
-    ARCH22_ONLY,
-    assert_unchanged,
-    check_graph_updates,
-)
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-pytestmark = ARCH22_ONLY
+pytestmark = pytest.mark.skipif(
+    get_hardware().generation != Generation.ARCH22,
+    reason="These model operator contracts are validated only on arch22",
+)
 
 STANDARD = {"torch.float32": AccuracyStandard(atol=2e-5, rtol=2e-5)}
 perf_shape = [(1, 1024), (32, 1040)]
@@ -57,7 +56,7 @@ def test_qsa_mqa_accuracy(kind, rows, width):
     saved = [x.clone() for x in args if isinstance(x, torch.Tensor)]
     executor = check_accuracy(operator, args=args, standard=STANDARD)
     assert executor().is_contiguous()
-    assert_unchanged(args, saved)
+    _assert_unchanged(args, saved)
     check_performance(executor, enable_perf=(rows, width) in perf_shape)
 
 
@@ -73,7 +72,7 @@ def test_qsa_mqa_graph_updates(kind):
         updates[-1] = lambda: (args[2].zero_(), args[3].fill_(17))
     else:
         updates.insert(2, lambda: args[2].copy_(args[2].flip(1)))
-    check_graph_updates(operator, args, updates, standard=STANDARD)
+    _check_graph_updates(operator, args, updates, standard=STANDARD)
 
 
 @pytest.mark.parametrize("kind", ["packed", "paged"])
@@ -117,3 +116,45 @@ def test_qsa_mqa_invalid_unused_pages():
     check_accuracy(
         qsa_mqa_paged, args=(q, cache, table, lengths, 64), standard=STANDARD
     )
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

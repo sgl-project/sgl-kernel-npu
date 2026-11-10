@@ -7,17 +7,16 @@ atol=rtol=.02; all-padding rows must be exactly zero. No input may be modified.
 import pytest
 import torch
 from sgl_kernel_npu.operators.attention import qsa_sparse_attention
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-from tests.python.operators.qsa_test_utils import (
-    ARCH22_ONLY,
-    assert_unchanged,
-    check_graph_updates,
-)
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-pytestmark = ARCH22_ONLY
+pytestmark = pytest.mark.skipif(
+    get_hardware().generation != Generation.ARCH22,
+    reason="These model operator contracts are validated only on arch22",
+)
 
 STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0.02, rtol=0.02)}
 perf_shape = [(1, 3, 1), (32, 3, 1)]
@@ -60,7 +59,7 @@ def test_qsa_sparse_attention_accuracy(rows, heads, kv_heads, width):
     assert out.is_contiguous()
     if rows:
         assert torch.equal(out[0], torch.zeros_like(out[0]))
-    assert_unchanged(args, saved)
+    _assert_unchanged(args, saved)
     check_performance(
         executor, enable_perf=(rows, heads, kv_heads) in perf_shape and width == 2051
     )
@@ -76,7 +75,7 @@ def test_qsa_sparse_attention_graph_updates(heads, kv_heads):
         args[3].fill_(-1)
         args[3][1:, :17] = 0
 
-    check_graph_updates(
+    _check_graph_updates(
         qsa_sparse_attention,
         args,
         [
@@ -130,7 +129,7 @@ def test_qsa_sparse_attention_scan_boundaries(rows, width):
             for column in sorted({0, min(31, last), last}):
                 slots[1:, column] = (column + 7) % 72
 
-    check_graph_updates(
+    _check_graph_updates(
         qsa_sparse_attention,
         args,
         [
@@ -174,7 +173,7 @@ def test_qsa_sparse_attention_anomaly_isolation(rows, target, value):
         else:
             torch.testing.assert_close(out, reference, atol=0.02, rtol=0.02)
 
-    check_graph_updates(
+    _check_graph_updates(
         qsa_sparse_attention,
         args,
         [
@@ -216,3 +215,45 @@ def test_qsa_sparse_attention_wide_address_graph():
         expected = torch.zeros_like(q)
         expected[1] = (1 + last) / 2
         torch.testing.assert_close(out, expected, atol=0, rtol=0)
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

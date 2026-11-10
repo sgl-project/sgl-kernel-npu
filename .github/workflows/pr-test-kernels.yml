@@ -189,7 +189,6 @@ jobs:
               - tests/python/conftest.py
               - tests/python/utils/**
               - tests/python/operators/__init__.py
-              - tests/python/operators/qsa_test_utils.py
               - third_party/pto-isa/**
               - third_party/catlass/**
               - .gitmodules

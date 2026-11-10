@@ -7,16 +7,15 @@ padding. K=512/2048; the current model uses ratio=4 and output width 2051.
 import pytest
 import torch
 from sgl_kernel_npu.operators.indexer import expand_qsa_blocks
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-from tests.python.operators.qsa_test_utils import (
-    ARCH22_ONLY,
-    assert_unchanged,
-    check_graph_updates,
-)
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 
-pytestmark = ARCH22_ONLY
+pytestmark = pytest.mark.skipif(
+    get_hardware().generation != Generation.ARCH22,
+    reason="These model operator contracts are validated only on arch22",
+)
 
 perf_shape = [(1, 512, 4), (128, 512, 4)]
 
@@ -44,7 +43,7 @@ def test_qsa_expansion_accuracy(rows, k, ratio, mode):
     saved = [x.clone() for x in args[:3]]
     executor = check_accuracy(expand_qsa_blocks, args=args)
     assert executor().is_contiguous()
-    assert_unchanged(args, saved)
+    _assert_unchanged(args, saved)
     check_performance(
         executor, enable_perf=(rows, k, ratio) in perf_shape and mode == "short"
     )
@@ -59,7 +58,7 @@ def test_qsa_expansion_graph_updates(rows):
         for x, new in zip(args[:3], replacement[:3]):
             x.copy_(new)
 
-    check_graph_updates(expand_qsa_blocks, args, [update])
+    _check_graph_updates(expand_qsa_blocks, args, [update])
 
 
 def test_qsa_expansion_short_tail_and_strided_inputs():
@@ -89,3 +88,45 @@ def test_qsa_expansion_rejects_metadata(bad):
         args[1] = args[1][:1]
     with pytest.raises(ValueError):
         expand_qsa_blocks(*args)
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

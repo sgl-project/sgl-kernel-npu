@@ -60,4 +60,4 @@ weight = torch.zeros(10240, device="npu", dtype=x.dtype)
 y = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6, impl="auto")
 ```
 
-严格 CPU FP64 回归维持 atol=rtol=0.005。历史大行数失败保留为必测项；graph 与 eager 一致不能替代精度验证。
+独立 CPU FP64 回归对 BF16 输出使用 atol=0.005、rtol=0.01。包括 R=4096 和 R=8193 在内的所有形状使用相同容差；graph 与 eager 一致不能替代精度验证。
