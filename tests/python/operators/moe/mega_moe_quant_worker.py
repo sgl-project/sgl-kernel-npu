@@ -125,6 +125,9 @@ def run_quantized_case(
     # Each implementation owns its own symmetric buffer and communicator.
     reference_group = dist.new_group(backend="hccl")
     try:
+        # The provider looks up an existing HCCL handle. Unlike the test group
+        # above, the new reference group has not performed any collectives yet.
+        reference_group._get_backend(device).get_hccl_comm_name(rank)
         with ExitStack() as cleanup:
             ref_buffer = create_reference(reference_group, **buffer_options)
             cleanup.callback(ref_buffer.destroy)
