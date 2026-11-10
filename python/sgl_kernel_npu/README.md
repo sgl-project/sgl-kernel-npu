@@ -158,8 +158,7 @@ python3 setup.py --arch-version 2201 --ops mega_chunk_gdn --without-third-party
 
 The original PTO computation and Python helper are retained; only the CANN
 launch bridge and framework registration are new. ARCH35 is not supported by
-this native implementation. Full SDK compilation and device validation remain
-pending for this migration.
+this native implementation.
 
 ### CANN and host C++ operator declarations
 
