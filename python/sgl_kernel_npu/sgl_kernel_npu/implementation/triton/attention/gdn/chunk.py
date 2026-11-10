@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 from einops import rearrange
 
+from ....ascendc.attention.gdn.mega_chunk_gdn import run_mega_chunk_gdn
 from ...norm.l2norm_fwd import l2norm_fwd
 from .chunk_delta_h import (
     chunk_gated_delta_rule_fwd_h_npu as chunk_gated_delta_rule_fwd_h,
@@ -17,7 +18,6 @@ from .chunk_scaled_dot_kkt import (
     chunk_scaled_dot_kkt_fwd_npu as chunk_scaled_dot_kkt_fwd,
 )
 from .chunk_utils import SUPPRESS_LEVEL, input_guard
-from .mega_chunk_gdn import run_mega_chunk_gdn
 from .recompute_w_u_fwd import recompute_w_u_fwd
 from .solve_tril import solve_tril
 

@@ -70,8 +70,9 @@ existing state/output kernels' gate-offset limitation. No new validation or
 kernel correction is introduced. Do not mutate cached sequence boundaries in place.
 
 `GDN_USE_MEGA_GDN=1` selects the byte-identical legacy mega helper (128-token
-chunks, head dimension 128, B=1 assumptions); it requires the existing native
-`torch.ops.npu.mega_chunk_gdn` operator. `GDN_RECOMPUTE_SUPPRESS_LEVEL` retains
+chunks, head dimension 128, B=1 assumptions); it requires the migrated native
+`mega_chunk_gdn` operator selected in the standalone ARCH22 build. Its unchanged
+helper lives under `implementation/ascendc/attention/gdn`; see [mega_chunk_gdn](mega_chunk_gdn.md). `GDN_RECOMPUTE_SUPPRESS_LEVEL` retains
 its import-time behavior for intermediate retention. Both switches preserve
 legacy behavior; the default path uses migrated Triton implementations.
 

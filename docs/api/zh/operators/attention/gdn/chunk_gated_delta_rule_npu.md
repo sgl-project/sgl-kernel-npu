@@ -65,8 +65,9 @@ def chunk_gated_delta_rule_npu(
 不要原地修改已缓存的序列边界。
 
 `GDN_USE_MEGA_GDN=1` 选择逐字节复制的旧 mega helper（128-token 分块，
-head dimension 128，按 B=1 组织输入），需要既有原生算子
-`torch.ops.npu.mega_chunk_gdn`。`GDN_RECOMPUTE_SUPPRESS_LEVEL` 保留导入时读取、
+head dimension 128，按 B=1 组织输入），需要在独立 ARCH22 构建中选择迁移后的原生算子
+`mega_chunk_gdn`。原样 helper 位于 `implementation/ascendc/attention/gdn`，
+参见 [mega_chunk_gdn](mega_chunk_gdn.md)。`GDN_RECOMPUTE_SUPPRESS_LEVEL` 保留导入时读取、
 控制中间结果保留的行为。两个开关均保持旧行为；默认路径调用迁移后的 Triton 实现。
 
 本次仅重定向 import，不新增生产用 `torch_native` 后端。测试采用独立逐 token
