@@ -29,14 +29,9 @@ def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "inplace_partial_rotary_mul", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.inplace_partial_rotary_mul in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    op(x, cos, sin, **kwargs)
+    ops.inplace_partial_rotary_mul(x, cos, sin, **kwargs)
     return x
 
 

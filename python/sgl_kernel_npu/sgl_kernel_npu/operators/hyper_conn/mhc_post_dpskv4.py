@@ -30,14 +30,9 @@ def _cann_mhc_post(x, residual, post, comb):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "mhc_post", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.mhc_post in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    return op(residual, comb, x, post)
+    return ops.mhc_post(residual, comb, x, post)
 
 
 @register_impl("hyper_conn.mhc_post_dpskv4", "cann_recipes_infer_cann910")

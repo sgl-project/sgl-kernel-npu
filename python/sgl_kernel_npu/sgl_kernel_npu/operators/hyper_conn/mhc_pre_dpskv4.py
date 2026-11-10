@@ -29,15 +29,10 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "mhc_pre_sinkhorn", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.mhc_pre_sinkhorn in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     shape = x.shape
-    h_in, h_post, h_res, *_ = op(
+    h_in, h_post, h_res = ops.mhc_pre_sinkhorn(
         x.reshape(-1, 1, hc_mult, shape[-1]),
         fn,
         scale,
@@ -46,7 +41,6 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
         sinkhorn_iters,
         hc_eps,
         rms_norm_eps,
-        False,
     )
     return (
         h_in.reshape(-1, shape[-1]).to(x.dtype),
