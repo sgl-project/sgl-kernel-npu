@@ -4,8 +4,8 @@
 
 | impl | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Yes | No |
-| `torch_native` | Yes | No |
+| `triton` / `auto` | 支持 | 未验证 |
+| `torch_native` | 支持 | 未验证 |
 
 ## 签名
 
@@ -22,7 +22,7 @@ def hc_combine(block, residual, normed, weight, hc, hs, *, impl="auto"):
 
 HC 残差合并：连续 BF16 block[R,2560]、residual/normed[R,10240]、weight[4,10240]，hc=4、hs=2560。门控为 2*sigmoid(normed@weight.T/4)，逐分支乘以 block 后加到 residual；输出连续 BF16[R,10240]。
 
-所有张量位于同一 NPU，输入不修改；零行返回空输出。`auto` 与 `triton` 指向同一入口，保留实现中的原生 PyTorch 子步骤，不捕获异常切换实现。`torch_native` 为独立 reference：短卷积使用原生 NPU 卷积，其余使用 CPU 计算（浮点 oracle 使用 FP64）后返回输入设备。reference 会同步，仅用于图外精度验证。
+所有张量位于同一 NPU，输入不修改；零行返回空输出。
 
 ## 参数与返回值
 
@@ -40,11 +40,11 @@ HC 残差合并：连续 BF16 block[R,2560]、residual/normed[R,10240]、weight[
 
 ## triton
 
-默认推理实现。启动前检查不支持的元数据；输入内容由调用方保证符合上述约束。支持 graph capture 和原地更新输入、权重后的 replay。实现中已有的原生子步骤保留在此分支。
+默认实现。启动前检查输入元数据，支持 graph capture，以及原地更新输入后的 replay。
 
 ## torch_native
 
-针对上述输入契约的独立精度 reference。允许同步主机传输，应在图外运行；不会在默认实现失败后自动切换到此分支。
+独立 CPU FP64 参考实现，结果返回输入设备。仅在图外使用，通过 `impl="torch_native"` 显式选择。
 
 ## 示例
 

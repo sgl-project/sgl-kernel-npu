@@ -153,20 +153,3 @@ def test_layer_norm_preallocated_output(dtype):
         rtol=0,
     )
     torch.testing.assert_close(x, x_before, atol=0, rtol=0)
-
-
-@pytest.mark.parametrize("size", [1280, 2560])
-@pytest.mark.parametrize("gate", [False, True])
-@pytest.mark.parametrize("rms", [False, True])
-def test_layer_norm_wide_groups(size, gate, rms):
-    """Wide groups must compile within local memory with and without gating."""
-    from sgl_kernel_npu.operators.norm import layer_norm_fwd
-
-    x = torch.randn(17, size * 4, dtype=torch.bfloat16)
-    weight = 1 + torch.randn(size * 4, dtype=torch.float32) * 0.1
-    z = torch.randn_like(x) if gate else None
-    check_accuracy(
-        layer_norm_fwd,
-        args=(x, weight, None, 1e-6),
-        kwargs={"z": z, "group_size": size, "is_rms_norm": rms},
-    )

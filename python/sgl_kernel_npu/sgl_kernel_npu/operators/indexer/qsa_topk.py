@@ -32,9 +32,17 @@ def _qsa_topk_torch(score, lengths, topk, row_starts=None):
 
 @register_operator("indexer.qsa_topk")
 def qsa_topk(score, lengths, topk, row_starts=None, *, impl="auto"):
-    """Select sequence-relative QSA blocks from FP32 score[R,M]. topk=512/2048; contiguous int32 bounds. Returns contiguous int32[R,topk], ordered short rows and -1 suffixes. Ties may select any valid equal-valued indices. auto selects the Triton/native hybrid.
+    """Select sequence-relative block indices from QSA scores.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    score is FP32 [R,M] on NPU with contiguous columns; row gaps are allowed.
+    lengths and optional row_starts are contiguous int32 [R] on the same NPU.
+    row_starts=None means zero starts. Integer topk is 512 or 2048.
+    Return contiguous int32 [R,topk]. Rows shorter than topk keep input order
+    and end in -1 padding; longer rows select the highest scores, allowing
+    any valid tie choice. Inputs are unchanged. impl defaults to auto,
+    selecting the Triton/native hybrid.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("indexer.qsa_topk", impl)(score, lengths, topk, row_starts)

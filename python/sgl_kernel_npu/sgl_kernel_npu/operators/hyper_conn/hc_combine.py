@@ -36,10 +36,17 @@ def _hc_combine_torch(block, residual, normed, weight, hc, hs):
 
 @register_operator("hyper_conn.hc_combine")
 def hc_combine(block, residual, normed, weight, hc, hs, *, impl="auto"):
-    """HC gated residual injection: contiguous BF16 block[R,2560], residual/normed[R,10240], weight[4,10240], hc=4, hs=2560. Returns BF16 residual + block*2*sigmoid(normed@weight.T/4), without modifying inputs. auto selects the Triton/native hybrid.
+    """Add a gated block output to four residual groups.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    block is BF16 [R,2560]; residual and normed are BF16 [R,10240]; weight
+    is BF16 [4,10240]. All tensors are contiguous on the same NPU.
+    hc and hs are integers fixed at 4 and 2560. Return a new BF16 tensor
+    shaped as residual: residual + block * 2 * sigmoid(normed @ weight.T / 4),
+    with the block broadcast across groups. Inputs are unchanged.
+    impl defaults to auto, selecting the Triton/native hybrid.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("hyper_conn.hc_combine", impl)(
         block, residual, normed, weight, hc, hs

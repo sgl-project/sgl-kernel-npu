@@ -36,10 +36,16 @@ def _qsa_mqa_packed_torch(q, k, starts, ends):
 
 @register_operator("indexer.qsa_mqa_packed")
 def qsa_mqa_packed(q, k, starts, ends, *, impl="auto"):
-    """Packed QSA scores: BF16 Q[R,4,128], K[M,1,128], int32 starts/ends[R]. Returns FP32[R,M], sum(ReLU(QK))/sqrt(128), with -inf outside each interval. auto selects Triton.
+    """Compute QSA scores for keys in a packed sequence interval.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    q is contiguous BF16 [R,4,128] and k is contiguous BF16 [M,1,128].
+    starts and ends are contiguous int32 [R], defining [start, end) in k.
+    All tensors are on the same NPU. Return FP32 [R,M], summing
+    ReLU(q @ k) / sqrt(128) over heads, with -inf outside each interval.
+    impl defaults to auto, selecting Triton. Inputs are unchanged.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("indexer.qsa_mqa_packed", impl)(q, k, starts, ends)
 
@@ -77,10 +83,17 @@ def _qsa_mqa_paged_torch(q, cache, table, lengths, width):
 
 @register_operator("indexer.qsa_mqa_paged")
 def qsa_mqa_paged(q, cache, table, lengths, width, *, impl="auto"):
-    """Paged QSA scores: BF16 Q[R,4,128], cache[P,16,1,128], int32 table[R,L] and lengths[R]; width=16*L. Returns FP32[R,width] with -inf padding. auto selects Triton.
+    """Compute QSA scores using a physical key-cache page table.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    q is BF16 [R,4,128], cache is BF16 [P,16,1,128], table is int32 [R,L],
+    and lengths is int32 [R]. All tensors are contiguous on the same NPU.
+    Integer width equals 16 * L; each length is between zero and width.
+    Return FP32 [R,width], summing ReLU(q @ key) / sqrt(128) over heads,
+    with -inf after each sequence. Only active page-table entries are read.
+    impl defaults to auto, selecting Triton. Inputs are unchanged.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("indexer.qsa_mqa_paged", impl)(
         q, cache, table, lengths, width

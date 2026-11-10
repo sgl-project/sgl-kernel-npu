@@ -4,8 +4,8 @@
 
 | impl | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Yes | No |
-| `torch_native` | Yes | No |
+| `triton` / `auto` | Supported | Unverified |
+| `torch_native` | Supported | Unverified |
 
 ## Signature
 
@@ -22,7 +22,7 @@ def qsa_sparse_attention(q, k, v, slots, softmax_scale=None, *, impl="auto"):
 
 Sparse GQA over physical slots[R,S]. BF16 Q[R,Hq,256], K/V[N,Hkv,256]; local heads 24:2,12:1,6:1,3:1. Returns contiguous BF16 shaped as Q; all-padding rows are zero. auto selects the Triton/native hybrid; zero scale retains the legacy default 1/16.
 
-Slot width S=(B+1)*c-1+t, B=512/2048, c>=2, with t=0 or 3<=t<=c. Nonnegative slots must be below N; duplicate slots retain duplicate contributions. Q and slots may have row gaps, while K/V must be contiguous pool views. All tensors are on the same NPU. Inputs are not modified; zero rows return empty output. `auto` aliases `triton`, including its native PyTorch substeps. No error-driven fallback is installed. `torch_native` is an independent reference: short convolution uses native NPU convolution; the other references use CPU arithmetic (FP64 for floating-point oracles) and return to the input device. These references synchronize and are intended for accuracy checks outside graph capture.
+Slot width S=(B+1)*c-1+t, B=512/2048, c>=2, with t=0 or 3<=t<=c. Nonnegative slots must be below N; duplicate slots retain duplicate contributions. Q and slots may have row gaps, while K/V must be contiguous pool views. All tensors are on the same NPU. Inputs are not modified; zero rows return empty output.
 
 For each query head, select its GQA key/value head and the keys named by slots, then compute `softmax(scale * QK.T) @ V`. The independent oracle computes selected-key attention in CPU FP64 and rounds directly to BF16.
 
@@ -42,11 +42,11 @@ For each query head, select its GQA key/value head and the keys named by slots, 
 
 ## triton
 
-Default inference implementation. Metadata checks reject unsupported inputs before launch; input contents must satisfy the caller constraints above. Supports graph capture and replay with in-place input and weight updates. Native substeps, where present, are part of this implementation.
+Default implementation. Checks input metadata before launch. Supports graph capture and replay after in-place input updates.
 
 ## torch_native
 
-Independent accuracy reference for the documented input contract. Synchronizing host transfers are permitted here; run this implementation outside graph capture. It is never selected automatically after a failure.
+Independent CPU FP64 reference; returns results to the input device. Use outside graph capture. Select explicitly with `impl="torch_native"`.
 
 ## Example
 

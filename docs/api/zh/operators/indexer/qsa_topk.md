@@ -4,8 +4,8 @@
 
 | impl | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Yes | No |
-| `torch_native` | Yes | No |
+| `triton` / `auto` | 支持 | 未验证 |
+| `torch_native` | 支持 | 未验证 |
 
 ## 签名
 
@@ -22,7 +22,9 @@ def qsa_topk(score, lengths, topk, row_starts=None, *, impl="auto"):
 
 选择序列内相对块索引。输入 FP32 score[R,M]，连续 int32 lengths[R]，可选 row_starts[R]。topk 只支持 512/2048。输出连续 int32[R,topk]。短行按 0..length-1 排列并以 -1 补齐；长行选择最大的 topk 个值，并列值允许不同合法索引。有效区间内分数必须有限。
 
-所有张量位于同一 NPU，输入不修改；零行返回空输出。`auto` 与 `triton` 指向同一入口，保留实现中的原生 PyTorch 子步骤，不捕获异常切换实现。`torch_native` 为独立 reference：短卷积使用原生 NPU 卷积，其余使用 CPU 计算（浮点 oracle 使用 FP64）后返回输入设备。reference 会同步，仅用于图外精度验证。
+所有张量位于同一 NPU，输入不修改；零行返回空输出。
+
+对第 r 行，只考虑 `score[r,start:start+length]`。length 不超过 topk 时，按输入顺序返回索引 `0..length-1`；否则返回该区间中分数最高的 topk 个索引。索引相对于 start，未使用的输出位置填 -1。同分时不要求固定的索引顺序。
 
 ## 参数与返回值
 
@@ -40,11 +42,11 @@ def qsa_topk(score, lengths, topk, row_starts=None, *, impl="auto"):
 
 ## triton
 
-默认推理实现。启动前检查不支持的元数据；输入内容由调用方保证符合上述约束。支持 graph capture 和原地更新输入、权重后的 replay。实现中已有的原生子步骤保留在此分支。
+默认实现。启动前检查输入元数据，支持 graph capture，以及原地更新输入后的 replay。
 
 ## torch_native
 
-针对上述输入契约的独立精度 reference。允许同步主机传输，应在图外运行；不会在默认实现失败后自动切换到此分支。
+独立 CPU 参考实现。分数相同时，可以选出不同但同样有效的索引。仅在图外使用，通过 `impl="torch_native"` 显式选择。
 
 ## 示例
 

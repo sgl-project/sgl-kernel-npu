@@ -105,13 +105,22 @@ def check_accuracy(args):
     )
 
 
-@pytest.mark.parametrize("topk", [512, 2048])
+@pytest.mark.parametrize("topk", [512, 2048], ids=["k512", "k2048"])
 @pytest.mark.parametrize(
     "rows,width",
     [(0, 4096), (8, 256), (8, 4096), (33, 8193), (256, 16384), (2, 262145)],
+    ids=[
+        "empty",
+        "short-row-padding",
+        "decode-context",
+        "row-and-column-tail",
+        "prefill-context",
+        "wide-selection-boundary",
+    ],
 )
 @pytest.mark.parametrize("pattern", ["random", "ties", "binary"])
 def test_qsa_topk_accuracy(rows, width, topk, pattern):
+    # A length-3 row keeps [0, 1, 2] and pads the remaining slots with -1.
     args = generate_data(rows, width, topk, pattern)
     saved = [x.clone() for x in [args[0], args[1], args[3]]]
     executor = check_accuracy(args)
@@ -122,8 +131,12 @@ def test_qsa_topk_accuracy(rows, width, topk, pattern):
     )
 
 
-@pytest.mark.parametrize("topk", [512, 2048])
-@pytest.mark.parametrize("width", [256, 4096, 262145])
+@pytest.mark.parametrize("topk", [512, 2048], ids=["k512", "k2048"])
+@pytest.mark.parametrize(
+    "width",
+    [256, 4096, 262145],
+    ids=["short-row-padding", "decode-context", "wide-selection-boundary"],
+)
 def test_qsa_topk_graph_updates(topk, width):
     args = generate_data(8, width, topk, "random")
     score, lengths, _, starts = args
@@ -139,6 +152,7 @@ def test_qsa_topk_graph_updates(topk, width):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("bad", ["dtype", "topk", "bounds_dtype", "bounds_stride"])
 def test_qsa_topk_rejects_metadata(bad):
     args = list(generate_data(8, 4096, 512, "random"))

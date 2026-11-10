@@ -4,8 +4,8 @@
 
 | impl | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | Yes | No |
-| `torch_native` | Yes | No |
+| `triton` / `auto` | Supported | Unverified |
+| `torch_native` | Supported | Unverified |
 
 ## Signature
 
@@ -22,7 +22,7 @@ def hc_mix(x, down, up, hc, hs, *, impl="auto"):
 
 HC sigmoid-gated mixing. Contiguous BF16 x[R,10240], down[320,10240], up[10240,320], hc=4, hs=2560. Returns BF16[R,2560], using FP32 projections and SiLU(x@down.T/4). auto selects the Triton/native hybrid.
 
-All tensors are on the same NPU. Inputs are not modified; zero rows return empty output. `auto` aliases `triton`, including its native PyTorch substeps. No error-driven fallback is installed. `torch_native` is an independent reference: short convolution uses native NPU convolution; the other references use CPU arithmetic (FP64 for floating-point oracles) and return to the input device. These references synchronize and are intended for accuracy checks outside graph capture.
+All tensors are on the same NPU. Inputs are not modified; zero rows return empty output.
 
 Let `h = SiLU(x @ down.T / 4)` and `g = sigmoid(h @ up.T)`. Reshape x and g to `[R,4,2560]`; output `sum(g*x, dim=1)/4`. Intermediates are FP32; only the output rounds to BF16.
 
@@ -42,11 +42,11 @@ Let `h = SiLU(x @ down.T / 4)` and `g = sigmoid(h @ up.T)`. Reshape x and g to `
 
 ## triton
 
-Default inference implementation. Metadata checks reject unsupported inputs before launch; input contents must satisfy the caller constraints above. Supports graph capture and replay with in-place input and weight updates. Native substeps, where present, are part of this implementation.
+Default implementation. Checks input metadata before launch. Supports graph capture and replay after in-place input updates.
 
 ## torch_native
 
-Independent accuracy reference for the documented input contract. Synchronizing host transfers are permitted here; run this implementation outside graph capture. It is never selected automatically after a failure.
+Independent CPU FP64 reference; returns results to the input device. Use outside graph capture. Select explicitly with `impl="torch_native"`.
 
 ## Example
 

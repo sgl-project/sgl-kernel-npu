@@ -48,10 +48,26 @@ def generate_data(rows=4, heads=3, kv_heads=1, width=2051, gaps=False):
     return q, k, v, slots
 
 
-@pytest.mark.parametrize("heads,kv_heads", [(24, 2), (12, 1), (6, 1), (3, 1)])
-@pytest.mark.parametrize("rows", [0, 1, 3, 8, 32, 33])
-@pytest.mark.parametrize("width", [2051, 2055])
+@pytest.mark.parametrize(
+    "heads,kv_heads",
+    [(24, 2), (12, 1), (6, 1), (3, 1)],
+    ids=["tp1-dimensions", "tp2-dimensions", "tp4-dimensions", "tp8-dimensions"],
+)
+@pytest.mark.parametrize(
+    "rows",
+    [0, 1, 3, 8, 32, 33],
+    ids=[
+        "empty",
+        "single-token",
+        "small-batch",
+        "decode-batch",
+        "mtp-batch",
+        "row-tail",
+    ],
+)
+@pytest.mark.parametrize("width", [2051, 2055], ids=["decode-slots", "mtp-slots"])
 def test_qsa_sparse_attention_accuracy(rows, heads, kv_heads, width):
+    # A row with only -1 slots must return zeros; -1 is padding.
     args = generate_data(rows, heads, kv_heads, width, gaps=True)
     saved = [x.clone() for x in args]
     executor = check_accuracy(qsa_sparse_attention, args=args, standard=STANDARD)
@@ -65,7 +81,11 @@ def test_qsa_sparse_attention_accuracy(rows, heads, kv_heads, width):
     )
 
 
-@pytest.mark.parametrize("heads,kv_heads", [(24, 2), (12, 1), (6, 1), (3, 1)])
+@pytest.mark.parametrize(
+    "heads,kv_heads",
+    [(24, 2), (12, 1), (6, 1), (3, 1)],
+    ids=["tp1-dimensions", "tp2-dimensions", "tp4-dimensions", "tp8-dimensions"],
+)
 def test_qsa_sparse_attention_graph_updates(heads, kv_heads):
     args = generate_data(4, heads, kv_heads, 2055, gaps=True)
 
@@ -89,6 +109,7 @@ def test_qsa_sparse_attention_graph_updates(heads, kv_heads):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("scale", [None, 0, 0.3, -0.1])
 def test_qsa_sparse_attention_scale(scale):
     check_accuracy(
@@ -99,6 +120,7 @@ def test_qsa_sparse_attention_scale(scale):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("bad", ["dtype", "heads", "slots_dtype", "kv_layout"])
 def test_qsa_sparse_attention_rejects_metadata(bad):
     args = list(generate_data())
@@ -114,8 +136,12 @@ def test_qsa_sparse_attention_rejects_metadata(bad):
         qsa_sparse_attention(*args)
 
 
-@pytest.mark.parametrize("rows", [32, 33])
-@pytest.mark.parametrize("width", [1025, 2051, 2054, 2055, 8195])
+@pytest.mark.parametrize("rows", [32, 33], ids=["row-boundary", "row-tail"])
+@pytest.mark.parametrize(
+    "width",
+    [1025, 2051, 2054, 2055, 8195],
+    ids=["short-scan", "decode-slots", "near-mtp-tail", "mtp-slots", "long-scan-tail"],
+)
 def test_qsa_sparse_attention_scan_boundaries(rows, width):
     args = generate_data(rows, width=width, gaps=True)
     q, k, v, slots = args
@@ -140,7 +166,8 @@ def test_qsa_sparse_attention_scan_boundaries(rows, width):
     )
 
 
-@pytest.mark.parametrize("rows", [4, 33])
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("rows", [4, 33], ids=["direct-path", "streaming-path"])
 @pytest.mark.parametrize("target", [0, 1, 2], ids=["q", "k", "v"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
 def test_qsa_sparse_attention_anomaly_isolation(rows, target, value):
@@ -191,6 +218,7 @@ def test_qsa_sparse_attention_empty_cache():
     assert out.is_contiguous() and torch.equal(out, torch.zeros_like(q))
 
 
+@pytest.mark.extra_checks
 def test_qsa_sparse_attention_wide_address_graph():
     # Two real 4-GiB pools cross signed int32 element offsets. Only the two
     # selected keys are initialized; equal logits give an exact mean oracle.

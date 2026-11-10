@@ -38,10 +38,18 @@ def _expand_qsa_blocks_torch(blocks, positions, lengths, ratio, topk):
 
 @register_operator("indexer.expand_qsa_blocks")
 def expand_qsa_blocks(blocks, positions, lengths, ratio, topk, *, impl="auto"):
-    """Expand int32/int64 blocks[R,K] and positions/lengths[R]. topk=K*ratio, K=512/2048. Returns contiguous int32[R,topk+ratio-1], valid blocks then tail then exact -1 padding. auto selects the Triton/native hybrid.
+    """Expand selected complete blocks and append the current partial block.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    blocks is int32/int64 [R,K]; positions and lengths are int32/int64 [R]
+    on the same NPU. Strided views are allowed. K is 512 or 2048; ratio is
+    an integer >= 2, and integer topk equals K * ratio. Valid block IDs
+    form a prefix followed by -1, and each block must end by both the query
+    position and sequence length. Return contiguous int32 [R,topk+ratio-1]
+    with valid block tokens, tail tokens, then -1 padding. Inputs are unchanged.
+    impl defaults to auto, selecting the Triton/native hybrid.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("indexer.expand_qsa_blocks", impl)(
         blocks, positions, lengths, ratio, topk

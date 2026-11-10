@@ -1,7 +1,6 @@
 """Independent CPU FP64 HC reference, returned on the input device.
 
-Explicit reference only: host transfers are outside capture. BF16 output
-rounding and the previously disclosed strict norm failures are retained.
+Explicit reference only: host transfers are outside capture.
 """
 
 import torch
@@ -17,13 +16,7 @@ def reference(op, args):
     for start in range(0, rows, 64):
         stop = min(rows, start + 64)
         x = tensors[0][start:stop].double()
-        if op == "grouped_norm":
-            grouped = x.reshape(-1, 4, 2560)
-            square_mean = (grouped * grouped).sum(-1, keepdim=True) / 2560
-            y = (grouped / torch.sqrt(square_mean + args[3])).flatten(1) * (
-                1 + weights[0]
-            )
-        elif op == "mix":
+        if op == "mix":
             low = x @ weights[0].T / 4
             hidden = low / (1 + torch.exp(-low))
             gates = 1 / (1 + torch.exp(-(hidden @ weights[1].T)))
@@ -37,10 +30,6 @@ def reference(op, args):
             ).flatten(1)
         result[start:stop] = y.to(torch.bfloat16)
     return result
-
-
-def grouped_norm(x, weight, group_size, eps):
-    return reference("grouped_norm", (x, weight, group_size, eps)).to(x.device)
 
 
 def mix(x, down, up, hc, hs):

@@ -32,9 +32,16 @@ def _hc_mix_torch(x, down, up, hc, hs):
 
 @register_operator("hyper_conn.hc_mix")
 def hc_mix(x, down, up, hc, hs, *, impl="auto"):
-    """HC sigmoid-gated mixing. Contiguous BF16 x[R,10240], down[320,10240], up[10240,320], hc=4, hs=2560. Returns BF16[R,2560], using FP32 projections and SiLU(x@down.T/4). auto selects the Triton/native hybrid.
+    """Mix four groups using learned sigmoid gates.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    x is BF16 [R,10240], down is BF16 [320,10240], and up is BF16
+    [10240,320]. All tensors are contiguous on the same NPU. hc and hs
+    are integers fixed at 4 and 2560. Compute h = SiLU(x @ down.T / 4),
+    then average x * sigmoid(h @ up.T) across the four groups in FP32.
+    Return a new contiguous BF16 [R,2560] tensor without modifying inputs.
+    impl defaults to auto, selecting the Triton/native hybrid.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("hyper_conn.hc_mix", impl)(x, down, up, hc, hs)

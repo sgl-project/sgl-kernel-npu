@@ -1,11 +1,9 @@
 """BF16 HC wrappers: validate model shapes and bound FP32 projection scratch.
 
-Norm reuses public grouped RMSNorm; mix reuses public sigmoid multiplication.
+Mix reuses the Triton sigmoid multiplication implementation.
 Mix/combine use direct execution through 8192 rows and 4096-row chunks above it.
 All conversions are per call, including during graph capture.
 """
-
-import math
 
 import torch
 
@@ -25,19 +23,6 @@ def _tensors(values):
 def _dimensions(hc, hs):
     if type(hc) is not int or type(hs) is not int or (hc, hs) != (4, 2560):
         raise ValueError("Current model requires HC=4 and H=2560")
-
-
-def grouped_norm(x, weight, group_size, eps):
-    _tensors((x, weight))
-    if x.ndim != 2 or x.shape[1] != 10240 or weight.shape != (10240,):
-        raise ValueError("Expected x[R,10240], weight[10240]")
-    if type(group_size) is not int or group_size != 2560:
-        raise ValueError("Expected group_size=2560")
-    if type(eps) not in (int, float) or not math.isfinite(eps) or eps <= 0:
-        raise ValueError("Expected finite positive epsilon")
-    if x.shape[0] == 0:
-        return torch.empty_like(x)
-    return core.grouped_norm(x, weight, group_size, eps)
 
 
 def mix(x, down, up, hc, hs):
@@ -81,8 +66,6 @@ def path_name(op, args):
     # Diagnostic only: tests/bench call this outside the timed/captured region.
     if args[0].shape[0] == 0:
         return "empty"
-    if op == "grouped_norm":
-        return "fp32_triton_norm"
     return (
         "fp32_native_hybrid"
         if args[0].shape[0] <= core.DIRECT_ROWS

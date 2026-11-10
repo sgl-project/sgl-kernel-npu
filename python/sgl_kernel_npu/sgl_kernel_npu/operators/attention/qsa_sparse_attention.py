@@ -44,10 +44,17 @@ def _qsa_sparse_attention_torch(q, k, v, slots, softmax_scale=None):
 
 @register_operator("attention.qsa_sparse_attention")
 def qsa_sparse_attention(q, k, v, slots, softmax_scale=None, *, impl="auto"):
-    """Sparse GQA over physical slots[R,S]. BF16 Q[R,Hq,256], K/V[N,Hkv,256]; local heads 24:2,12:1,6:1,3:1. Returns contiguous BF16 shaped as Q; all-padding rows are zero. auto selects the Triton/native hybrid; zero scale retains the legacy default 1/16.
+    """Compute sparse grouped-query attention over physical slot indices.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    q is BF16 [R,Hq,256]; k and v are BF16 [N,Hkv,256] on the same NPU.
+    Supported local head pairs are 24:2, 12:1, 6:1 and 3:1. slots is int32
+    [R,S]; negative entries are padding. q/slots may have row gaps; k/v
+    must be contiguous. softmax_scale is a float or None; None and zero
+    select 1/16. Return contiguous BF16 shaped as q, with zero empty rows.
+    impl defaults to auto, selecting the Triton/native hybrid.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("attention.qsa_sparse_attention", impl)(
         q, k, v, slots, softmax_scale

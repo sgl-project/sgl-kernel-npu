@@ -35,11 +35,25 @@ def generate_data(batch, width, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
-@pytest.mark.parametrize("batch", [0, 1, 3, 8, 32, 65])
 @pytest.mark.parametrize(
-    "width,single", [(1, True), (1, False), (2, False), (3, False), (4, False)]
+    "batch",
+    [0, 1, 3, 8, 32, 65],
+    ids=[
+        "empty",
+        "single-request",
+        "batch-tail",
+        "decode-batch",
+        "large-batch",
+        "multi-tile-tail",
+    ],
+)
+@pytest.mark.parametrize(
+    "width,single",
+    [(1, True), (1, False), (2, False), (3, False), (4, False)],
+    ids=["decode-flat-output", "decode-token-output", "verify2", "verify3", "verify4"],
 )
 def test_short_conv_accuracy(batch, width, single, dtype):
+    # For W=4, 13 input positions produce four output tokens.
     args = generate_data(batch, width, dtype)
     saved = [x.clone() for x in args[:2]]
     executor = check_accuracy(
@@ -53,7 +67,11 @@ def test_short_conv_accuracy(batch, width, single, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
-@pytest.mark.parametrize("batch,width", [(1, 1), (3, 2), (8, 3), (32, 4)])
+@pytest.mark.parametrize(
+    "batch,width",
+    [(1, 1), (3, 2), (8, 3), (32, 4)],
+    ids=["single-decode", "small-verify2", "batch-verify3", "large-verify4"],
+)
 def test_short_conv_graph_updates(batch, width, dtype):
     args = generate_data(batch, width, dtype)
     _check_graph_updates(
@@ -64,6 +82,7 @@ def test_short_conv_graph_updates(batch, width, dtype):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "bad", ["dtype", "channels", "dilation", "width", "layout", "single"]
 )
@@ -86,7 +105,10 @@ def test_short_conv_rejects_metadata(bad):
         short_conv(x, weight, dilation, **kwargs)
 
 
-@pytest.mark.parametrize("width", [1, 2, 3, 4])
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "width", [1, 2, 3, 4], ids=["decode", "verify2", "verify3", "verify4"]
+)
 def test_short_conv_storage_offsets_and_padding(width):
     x, weight, dilation = generate_data(3, width, torch.bfloat16)
     backing = torch.full((x.numel() + 3,), 7, dtype=x.dtype)

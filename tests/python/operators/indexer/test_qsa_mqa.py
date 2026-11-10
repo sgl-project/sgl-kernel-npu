@@ -50,8 +50,18 @@ def generate_data(kind, rows, width):
 @pytest.mark.parametrize(
     "rows,width",
     [(0, 16), (3, 0), (1, 1024), (8, 48), (32, 1040), (33, 256), (129, 128)],
+    ids=[
+        "empty-queries",
+        "empty-keys",
+        "single-query-context",
+        "small-paged-context",
+        "mtp-context",
+        "row-tail",
+        "multi-tile-tail",
+    ],
 )
 def test_qsa_mqa_accuracy(kind, rows, width):
+    # Each query head contributes max(q @ k, 0) / sqrt(128) to the score.
     operator, args = generate_data(kind, rows, width)
     saved = [x.clone() for x in args if isinstance(x, torch.Tensor)]
     executor = check_accuracy(operator, args=args, standard=STANDARD)
@@ -75,6 +85,7 @@ def test_qsa_mqa_graph_updates(kind):
     _check_graph_updates(operator, args, updates, standard=STANDARD)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("kind", ["packed", "paged"])
 @pytest.mark.parametrize("bad", ["dtype", "heads", "metadata_dtype", "layout"])
 def test_qsa_mqa_rejects_metadata(kind, bad):
@@ -92,6 +103,7 @@ def test_qsa_mqa_rejects_metadata(kind, bad):
         operator(*args)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("kind", ["packed", "paged"])
 def test_qsa_mqa_normalized_cancelling_heads(kind):
     operator, inputs = generate_data(kind, 33, 1040)
@@ -106,6 +118,7 @@ def test_qsa_mqa_normalized_cancelling_heads(kind):
     check_accuracy(operator, args=args, standard=STANDARD)
 
 
+@pytest.mark.extra_checks
 def test_qsa_mqa_invalid_unused_pages():
     q = torch.zeros(6, 4, 128, dtype=torch.bfloat16)
     cache = torch.ones(4, 16, 1, 128, dtype=q.dtype)

@@ -44,8 +44,20 @@ def generate_data(op, rows):
 
 
 @pytest.mark.parametrize("op", ["mix", "combine"])
-@pytest.mark.parametrize("rows", [0, 1, 32, 33, 4096, 8193])
+@pytest.mark.parametrize(
+    "rows",
+    [0, 1, 32, 33, 4096, 8193],
+    ids=[
+        "empty",
+        "single-token",
+        "decode-batch",
+        "row-tail",
+        "prefill",
+        "chunk-boundary-tail",
+    ],
+)
 def test_hc_accuracy(op, rows):
+    # Mix reduces four groups; combine adds a gated block to each residual group.
     args = generate_data(op, rows)
     saved = [x.clone() for x in args if isinstance(x, torch.Tensor)]
     executor = check_accuracy(OPERATORS[op], args=args, standard=STANDARD)
@@ -55,7 +67,9 @@ def test_hc_accuracy(op, rows):
 
 
 @pytest.mark.parametrize("op", ["mix", "combine"])
-@pytest.mark.parametrize("rows", [33, 8193])
+@pytest.mark.parametrize(
+    "rows", [33, 8193], ids=["direct-row-tail", "chunked-row-tail"]
+)
 def test_hc_graph_input_and_weight_updates(op, rows):
     args = generate_data(op, rows)
     updates = [
@@ -66,6 +80,7 @@ def test_hc_graph_input_and_weight_updates(op, rows):
     _check_graph_updates(OPERATORS[op], args, updates, standard=STANDARD)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("op", ["mix", "combine"])
 @pytest.mark.parametrize("bad", ["dtype", "shape", "layout", "hc"])
 def test_hc_rejects_metadata(op, bad):
@@ -82,6 +97,7 @@ def test_hc_rejects_metadata(op, bad):
         OPERATORS[op](*args)
 
 
+@pytest.mark.extra_checks
 def test_hc_combine_cancellation():
     args = list(generate_data("combine", 1))
     block, _, normed, weight = args[:4]

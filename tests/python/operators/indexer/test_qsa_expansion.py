@@ -35,10 +35,26 @@ def generate_data(rows, k, ratio, mode):
     return blocks, positions, lengths, ratio, k * ratio
 
 
-@pytest.mark.parametrize("rows", [0, 1, 8, 127, 128, 129])
-@pytest.mark.parametrize("k,ratio", [(512, 4), (2048, 4), (512, 3)])
+@pytest.mark.parametrize(
+    "rows",
+    [0, 1, 8, 127, 128, 129],
+    ids=[
+        "empty",
+        "single-token",
+        "decode-batch",
+        "before-row-boundary",
+        "row-boundary",
+        "row-tail",
+    ],
+)
+@pytest.mark.parametrize(
+    "k,ratio",
+    [(512, 4), (2048, 4), (512, 3)],
+    ids=["model-k512-ratio4", "large-k2048-ratio4", "ratio3-edge"],
+)
 @pytest.mark.parametrize("mode", ["full", "short", "empty"])
 def test_qsa_expansion_accuracy(rows, k, ratio, mode):
+    # At ratio 4, block 2 expands to token indices [8, 9, 10, 11].
     args = generate_data(rows, k, ratio, mode)
     saved = [x.clone() for x in args[:3]]
     executor = check_accuracy(expand_qsa_blocks, args=args)
@@ -49,7 +65,7 @@ def test_qsa_expansion_accuracy(rows, k, ratio, mode):
     )
 
 
-@pytest.mark.parametrize("rows", [8, 128])
+@pytest.mark.parametrize("rows", [8, 128], ids=["decode-batch", "row-boundary"])
 def test_qsa_expansion_graph_updates(rows):
     args = generate_data(rows, 512, 4, "short")
     replacement = generate_data(rows, 512, 4, "full")
@@ -75,6 +91,7 @@ def test_qsa_expansion_short_tail_and_strided_inputs():
     assert (out[:, 7:] == -1).all()
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("bad", ["ratio", "topk", "dtype", "shape"])
 def test_qsa_expansion_rejects_metadata(bad):
     args = list(generate_data(2, 512, 4, "short"))

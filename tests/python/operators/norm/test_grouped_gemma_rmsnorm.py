@@ -32,8 +32,19 @@ def generate_data(rows):
     return x.to("npu"), weight.to("npu"), 2560, 1e-6
 
 
-@pytest.mark.parametrize("rows", [0, 1, 32, 33, 4096, 8193])
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param(0, id="empty"),
+        pytest.param(1, id="single-token"),
+        pytest.param(32, id="decode-batch"),
+        pytest.param(33, id="decode-row-tail"),
+        pytest.param(4096, id="prefill"),
+        pytest.param(8193, id="large-prefill-row-tail"),
+    ],
+)
 def test_grouped_gemma_rmsnorm_accuracy(rows):
+    # Each row contains four groups; an odd row count also checks the last tile.
     args = generate_data(rows)
     saved = [x.clone() for x in args[:2]]
     executor = check_accuracy(grouped_gemma_rmsnorm, args=args, standard=STANDARD)
@@ -52,7 +63,12 @@ def test_grouped_gemma_rmsnorm_graph_updates():
     )
 
 
-@pytest.mark.parametrize("eps", [0, -1, float("nan"), float("inf"), True])
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "eps",
+    [0, -1, float("nan"), float("inf"), True],
+    ids=["zero", "negative", "nan", "infinite", "boolean"],
+)
 def test_grouped_gemma_rmsnorm_rejects_epsilon(eps):
     x, weight, group, _ = generate_data(0)
     with pytest.raises(ValueError):

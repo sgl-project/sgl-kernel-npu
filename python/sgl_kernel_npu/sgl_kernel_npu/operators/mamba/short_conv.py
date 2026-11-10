@@ -34,10 +34,17 @@ def _short_conv_torch(conv_input, weight, dilation, *, single_token=False):
 
 @register_operator("mamba.short_conv")
 def short_conv(conv_input, weight, dilation, *, single_token=False, impl="auto"):
-    """Depthwise dilation-3 PLE convolution. Input [B,10240,9+W], W=1..4; matching BF16/FP16 weight [10240,1,4]. Returns contiguous [B,W,10240], or [B,10240] for single_token=True. auto selects Triton.
+    """Apply depthwise convolution with dilation 3 to PLE inputs.
 
-    torch_native is an independent reference; it may synchronize and is not
-    a graph fallback. No implementation is selected by catching errors.
+    conv_input is contiguous [B,10240,9+W], W=1..4. weight is contiguous
+    [10240,1,4] on the same NPU, with the same BF16 or FP16 dtype.
+    Integer dilation must be 3. Boolean single_token defaults to False;
+    True requires W=1. Return [B,W,10240], or [B,10240] when single_token
+    is True, in the input dtype. Inputs are unchanged. impl defaults to auto,
+    selecting Triton.
+
+    torch_native is an independent accuracy reference for use outside graph
+    capture; it is never selected automatically after a failure.
     """
     return get_impl_by_name("mamba.short_conv", impl)(
         conv_input, weight, dilation, single_token=single_token

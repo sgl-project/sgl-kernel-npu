@@ -1,6 +1,5 @@
-"""Hyperconnection core: public norm/activation and native-GEMM hybrid mix/combine.
+"""Hyperconnection mix/combine with native GEMMs and Triton elementwise kernels.
 
-Norm follows the GPU FP32 statistics/scaling stages without compensation.
 Reduction order and backend math are not bitwise CUDA parity guarantees.
 Mix/combine use FP32 intermediates and row chunking.
 In particular, mix does not add the GPU small-row fused BF16 SiLU boundary.
@@ -12,8 +11,8 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
-from sgl_kernel_npu.operators.activation import fused_sigmoid_mul
-from sgl_kernel_npu.operators.norm import layer_norm_fwd
+
+from ..activation.fused_sigmoid_mul import fused_sigmoid_mul
 
 
 @lru_cache(None)
@@ -57,19 +56,6 @@ def _combine(B, R, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
         residual = tl.load(R + offset, col[None, :] < 2560, other=0).to(tl.float32)
         y = tl.fma(block[None, :], gate[:, None], residual)
         tl.store(Y + offset, y, col[None, :] < 2560)
-
-
-def grouped_norm(x, weight, group_size, eps):
-    # Conversion stays in the captured invocation, so replay sees weight updates.
-    out, _, _ = layer_norm_fwd(
-        x,
-        weight.float() + 1.0,
-        None,
-        eps,
-        group_size=group_size,
-        is_rms_norm=True,
-    )
-    return out
 
 
 # At 4096 rows the measured unchunked FP32 mix uses about 203 MiB extra.
