@@ -1,5 +1,6 @@
 from .chunk_delta_h import chunk_delta_h
 from .chunk_gated_delta_rule import chunk_gated_delta_rule
+from .chunk_gated_delta_rule_npu import chunk_gated_delta_rule_npu
 from .chunk_local_cumsum import chunk_local_cumsum
 from .chunk_o import chunk_fwd_o
 from .chunk_scaled_dot_kkt import chunk_scaled_dot_kkt
@@ -16,6 +17,7 @@ from .solve_tril import solve_tril
 __all__ = [
     "chunk_fwd_o",
     "chunk_gated_delta_rule",
+    "chunk_gated_delta_rule_npu",
     "chunk_local_cumsum",
     "chunk_scaled_dot_kkt",
     "chunk_delta_h",
