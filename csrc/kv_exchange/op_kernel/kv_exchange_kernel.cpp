@@ -21,32 +21,29 @@
 // copied through an 88KB UB slot, entries larger than that are split.
 constexpr int64_t KV_EXCHANGE_UB_BUFFER_SIZE = 88 * 1024;
 constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
-// meta layout (int64 values on device):
-//   [0] num_components (<= 4, k/v/index_k/index_k_scale order)
-//   [1] num_pages      [2] page_size
-//   [3] direction: 1 = H2D, 2 = D2H
-//   [4] device_indices_ptr (int64 token indices, device memory)
-//   [5] host_indices_ptr   (int64 token indices, device memory)
-//   [6] host_layout_mode: 0 = page_first (page-outer / layer-inner iteration),
+// Transfer description. The kv_exchange entry receives it as flat kernel
+// launch parameters (device-validated contract):
+//   num_components (<= 4, k/v/index_k/index_k_scale order)
+//   num_pages      page_size
+//   direction: 1 = H2D, 2 = D2H
+//   device_indices / host_indices (int64 token indices, device memory)
+//   host_layout_mode: 0 = page_first (page-outer / layer-inner iteration),
 //       1 = layer_first (layer-outer / page-inner iteration with peek-ahead
 //       merging of contiguous pages)
-//   [7] start_dim: first participating AIV core index. < 0 selects the
+//   start_dim: first participating AIV core index. < 0 selects the
 //       native acc_offload occupancy (blockDim - 2, i.e. only the last
 //       2 AIV cores copy, keeping the rest free for concurrent compute);
 //       0 means all launched cores participate (perf-sweep override).
-//   per component c (9 values starting at 8 + 9*c):
+//   per component c (9 launch parameters):
 //   [0] device_base  [1] host_base (device-visible address of the host page,
 //       i.e. DVA produced by aclrtHostRegister on the caller side)
 //   [2] device_layer_pitch  [3] device_page_pitch   (bytes)
 //   [4] host_page_pitch     [5] host_layer_pitch    (bytes)
 //   [6] width (bytes of one (page, layer) row)  [7] layer_lo  [8] layer_hi
 // A component with layer_lo >= layer_hi (or width <= 0) transfers nothing.
-constexpr int32_t KV_EXCHANGE_META_HEADER = 8;
 constexpr int32_t KV_EXCHANGE_META_STRIDE = 9;
-constexpr int32_t KV_EXCHANGE_META_SIZE =
-    KV_EXCHANGE_META_HEADER + KV_EXCHANGE_META_STRIDE * KV_EXCHANGE_MAX_COMPONENTS;
 
-// meta[7] < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
+// start_dim < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
 constexpr int32_t KV_EXCHANGE_START_DIM_DEFAULT = -1;
 
 /*
@@ -83,20 +80,25 @@ public:
 
     HYBM_AICORE_KERNEL OffloadKvExchangeKernel() {}
 
-    HYBM_AICORE_KERNEL void Init(AscendC::TPipe *pipe, GM_ADDR meta)
+    // Assembly from the flat transfer description. The kv_exchange entry
+    // passes every field as a launch parameter, so the description never
+    // round-trips through device memory.
+    HYBM_AICORE_KERNEL void Init(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx,
+                                 int64_t numComponents, int64_t numPages, int64_t pageSize, int64_t direction,
+                                 int64_t hostLayoutMode, int64_t startDim,
+                                 const int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE])
     {
         pipe_ = pipe;
         aivNum_ = AscendC::GetBlockNum();
         aivIndex_ = AscendC::GetBlockIdx();
 
-        metaGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(meta), KV_EXCHANGE_META_SIZE);
-
-        // Active-core window: cores [startDim, blockDim) participate. meta[7]
-        // < 0 selects the native acc_offload occupancy -- reserve the last
-        // 2 AIV cores for the copy so the rest stay free for concurrent
-        // compute (62 on the 64-core Ascend950, 46 on the 48-core parts);
-        // 0 lets every launched core participate (perf-sweep override).
-        startDim_ = metaGm_.GetValue(7);
+        // Active-core window: cores [startDim, blockDim) participate. A
+        // negative startDim selects the native acc_offload occupancy --
+        // reserve the last 2 AIV cores for the copy so the rest stay free
+        // for concurrent compute (62 on the 64-core Ascend950, 46 on the
+        // 48-core parts); 0 lets every launched core participate
+        // (perf-sweep override).
+        startDim_ = startDim;
         if (startDim_ < 0) {
             startDim_ = static_cast<int64_t>(aivNum_) - 2;
         }
@@ -109,29 +111,26 @@ public:
         aivIndex_ = aivIndex_ - startDim_;
         aivNum_ = aivNum_ - startDim_;
 
-        numComponents_ = static_cast<int32_t>(metaGm_.GetValue(0));
-        numPages_ = metaGm_.GetValue(1);
-        pageSize_ = metaGm_.GetValue(2);
-        direction_ = metaGm_.GetValue(3);
+        numComponents_ = static_cast<int32_t>(numComponents);
+        numPages_ = numPages;
+        pageSize_ = pageSize;
+        direction_ = direction;
         const int64_t indicesLen = numPages_ * pageSize_;
-        deviceIdxGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(metaGm_.GetValue(4)),
-                                     static_cast<uint32_t>(indicesLen));
-        hostIdxGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(metaGm_.GetValue(5)),
-                                   static_cast<uint32_t>(indicesLen));
+        deviceIdxGm_.SetGlobalBuffer(deviceIdx, static_cast<uint32_t>(indicesLen));
+        hostIdxGm_.SetGlobalBuffer(hostIdx, static_cast<uint32_t>(indicesLen));
 
-        hostLayoutMode_ = static_cast<int32_t>(metaGm_.GetValue(6));
+        hostLayoutMode_ = static_cast<int32_t>(hostLayoutMode);
 
         for (int32_t c = 0; c < numComponents_ && c < KV_EXCHANGE_MAX_COMPONENTS; ++c) {
-            const int32_t o = KV_EXCHANGE_META_HEADER + KV_EXCHANGE_META_STRIDE * c;
-            comps_[c].deviceBase = metaGm_.GetValue(o + 0);
-            comps_[c].hostBase = metaGm_.GetValue(o + 1);
-            comps_[c].deviceLayerPitch = metaGm_.GetValue(o + 2);
-            comps_[c].devicePagePitch = metaGm_.GetValue(o + 3);
-            comps_[c].hostPagePitch = metaGm_.GetValue(o + 4);
-            comps_[c].hostLayerPitch = metaGm_.GetValue(o + 5);
-            comps_[c].width = metaGm_.GetValue(o + 6);
-            comps_[c].layerLo = metaGm_.GetValue(o + 7);
-            comps_[c].layerHi = metaGm_.GetValue(o + 8);
+            comps_[c].deviceBase = comps[c][0];
+            comps_[c].hostBase = comps[c][1];
+            comps_[c].deviceLayerPitch = comps[c][2];
+            comps_[c].devicePagePitch = comps[c][3];
+            comps_[c].hostPagePitch = comps[c][4];
+            comps_[c].hostLayerPitch = comps[c][5];
+            comps_[c].width = comps[c][6];
+            comps_[c].layerLo = comps[c][7];
+            comps_[c].layerHi = comps[c][8];
         }
         if (numComponents_ > KV_EXCHANGE_MAX_COMPONENTS) {
             numComponents_ = KV_EXCHANGE_MAX_COMPONENTS;
@@ -474,7 +473,6 @@ private:
 private:
     AscendC::TPipe *pipe_;
     AscendC::TQueBind<AscendC::TPosition::VECIN, AscendC::TPosition::VECOUT, 2> bindQueue_;
-    AscendC::GlobalTensor<int64_t> metaGm_;
     AscendC::GlobalTensor<int64_t> deviceIdxGm_;
     AscendC::GlobalTensor<int64_t> hostIdxGm_;
 
@@ -490,11 +488,39 @@ private:
     bool skip_ = false;
 };
 
-extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR meta)
+// Per-component launch parameters (9 scalars each, same field order as the
+// legacy meta slots); c is the component index 0..3.
+#define KV_EXCHANGE_COMPONENT_PARAMS(c)                                                        \
+    int64_t deviceBase##c, int64_t hostBase##c, int64_t deviceLayerPitch##c, int64_t devicePagePitch##c, \
+        int64_t hostPagePitch##c, int64_t hostLayerPitch##c, int64_t width##c, int64_t layerLo##c,  \
+        int64_t layerHi##c
+
+#define KV_EXCHANGE_COMPONENT_ARGS(c)                                                          \
+    deviceBase##c, hostBase##c, deviceLayerPitch##c, devicePagePitch##c, hostPagePitch##c,       \
+        hostLayerPitch##c, width##c, layerLo##c, layerHi##c
+
+/*
+ * Production entry: the whole transfer description travels inside the kernel
+ * launch parameter block. No device-resident meta, no pinned host staging and
+ * no separate H2D meta upload remain on the submission path.
+ */
+extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADDR host_indices,
+                                                int64_t num_components, int64_t num_pages, int64_t page_size,
+                                                int64_t direction, int64_t host_layout, int64_t start_dim,
+                                                KV_EXCHANGE_COMPONENT_PARAMS(0), KV_EXCHANGE_COMPONENT_PARAMS(1),
+                                                KV_EXCHANGE_COMPONENT_PARAMS(2), KV_EXCHANGE_COMPONENT_PARAMS(3))
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     AscendC::TPipe pipe;
     OffloadKvExchangeKernel op;
-    op.Init(&pipe, meta);
+    const int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE] = {
+        {KV_EXCHANGE_COMPONENT_ARGS(0)},
+        {KV_EXCHANGE_COMPONENT_ARGS(1)},
+        {KV_EXCHANGE_COMPONENT_ARGS(2)},
+        {KV_EXCHANGE_COMPONENT_ARGS(3)},
+    };
+    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices),
+            reinterpret_cast<__gm__ int64_t *>(host_indices), num_components, num_pages, page_size, direction,
+            host_layout, start_dim, comps);
     op.Process();
 }

@@ -79,7 +79,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## aiv
 
-通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 构造驻留设备的 44 槽 metadata（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间）并在调用方流上启动 AIV kernel。承载 metadata 上传的 pinned staging 会返回给 wrapper，由完成事件保活。
+通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 将传输描述（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间）打包进 kernel launch 参数块，并在调用方流上启动 AIV kernel。描述不再经过 device 内存中转：提交路径上没有驻留设备的 meta、没有 pinned staging，也没有独立的 H2D meta 上传。
 
 AIV 路径需要已注册的 Host 内存。创建 `memfabric_hybrid.offload.Offload` 实例，以 `Scene.LOCAL` 且 `alloc_size == reserve_size` 初始化，通过 `host_memory.set_memfabric_pool` 发布实例，用 `pool.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。
 

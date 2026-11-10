@@ -19,10 +19,10 @@
 // csrc/pytorch_extensions.cpp.
 //
 // `kv_exchange` is the production entry: it receives the split-KV
-// component views plus their MF DVAs, builds the 44-slot device-resident
-// meta and launches the AIV kernel (replacing the memfabric_hybrid
-// offload.kv_exchange_copy call that used to build the meta in Python).
-// `kv_exchange_meta` is the low-level meta launch for tests and debugging.
+// component views plus their MF DVAs and packs the whole transfer
+// description into the kernel launch parameter block (replacing the
+// memfabric_hybrid offload.kv_exchange_copy call that used to build the
+// meta in Python, and the later pinned-staging H2D meta upload).
 
 #include "op_host/kv_exchange.h"
 
@@ -35,12 +35,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, "
         "Tensor[] device_components, Tensor[] host_components, "
         "int[] host_dvas, int page_size, int direction, int host_layout) "
-        "-> Tensor");
-    m.def("kv_exchange_meta(Tensor meta, int block_dim) -> ()");
+        "-> ()");
 }
 
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("kv_exchange", TORCH_FN(sglang::npu_kernel::kv_exchange_submit));
-    m.impl("kv_exchange_meta", TORCH_FN(sglang::npu_kernel::kv_exchange));
 }
