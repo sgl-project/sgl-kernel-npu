@@ -18,8 +18,8 @@ from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 
 pytestmark = pytest.mark.skipif(
-    get_hardware().generation != Generation.ARCH22,
-    reason="These model operator contracts are validated only on arch22",
+    get_hardware().generation not in {Generation.ARCH22, Generation.ARCH35},
+    reason="These model operators target arch22 and arch35",
 )
 
 perf_shape = [(1, 512, 4), (8, 512, 4), (32, 512, 4), (4096, 512, 4)]

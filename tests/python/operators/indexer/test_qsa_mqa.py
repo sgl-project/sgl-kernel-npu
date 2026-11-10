@@ -20,8 +20,8 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 pytestmark = pytest.mark.skipif(
-    get_hardware().generation != Generation.ARCH22,
-    reason="These model operator contracts are validated only on arch22",
+    get_hardware().generation not in {Generation.ARCH22, Generation.ARCH35},
+    reason="These model operators target arch22 and arch35",
 )
 
 STANDARD = {"torch.float32": AccuracyStandard(atol=2e-5, rtol=2e-5)}

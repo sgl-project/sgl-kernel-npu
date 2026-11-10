@@ -26,8 +26,8 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 pytestmark = pytest.mark.skipif(
-    get_hardware().generation != Generation.ARCH22,
-    reason="These model operator contracts are validated only on arch22",
+    get_hardware().generation not in {Generation.ARCH22, Generation.ARCH35},
+    reason="These model operators target arch22 and arch35",
 )
 
 perf_shape = [(8, 65536), (32, 65536), (512, 65536), (4096, 1024)]

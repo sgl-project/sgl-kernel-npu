@@ -8,12 +8,14 @@ _qsa_sparse_attention_torch_fn = None
 
 
 @register_impl(
-    "attention.qsa_sparse_attention", "auto", supported_generations={Generation.ARCH22}
+    "attention.qsa_sparse_attention",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
     "attention.qsa_sparse_attention",
     "triton",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_sparse_attention_triton(q, k, v, slots, softmax_scale=None):
     global _qsa_sparse_attention_triton_fn
@@ -29,7 +31,7 @@ def _qsa_sparse_attention_triton(q, k, v, slots, softmax_scale=None):
 @register_impl(
     "attention.qsa_sparse_attention",
     "torch_native",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_sparse_attention_torch(q, k, v, slots, softmax_scale=None):
     global _qsa_sparse_attention_torch_fn

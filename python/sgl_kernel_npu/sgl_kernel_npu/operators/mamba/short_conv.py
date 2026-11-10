@@ -7,8 +7,16 @@ _short_conv_triton_fn = None
 _short_conv_torch_fn = None
 
 
-@register_impl("mamba.short_conv", "auto", supported_generations={Generation.ARCH22})
-@register_impl("mamba.short_conv", "triton", supported_generations={Generation.ARCH22})
+@register_impl(
+    "mamba.short_conv",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+@register_impl(
+    "mamba.short_conv",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _short_conv_triton(conv_input, weight, dilation, *, single_token=False):
     global _short_conv_triton_fn
     if _short_conv_triton_fn is None:
@@ -21,7 +29,9 @@ def _short_conv_triton(conv_input, weight, dilation, *, single_token=False):
 
 
 @register_impl(
-    "mamba.short_conv", "torch_native", supported_generations={Generation.ARCH22}
+    "mamba.short_conv",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _short_conv_torch(conv_input, weight, dilation, *, single_token=False):
     global _short_conv_torch_fn

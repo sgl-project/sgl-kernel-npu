@@ -8,10 +8,14 @@ _hc_combine_torch_fn = None
 
 
 @register_impl(
-    "hyper_conn.hc_combine", "auto", supported_generations={Generation.ARCH22}
+    "hyper_conn.hc_combine",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "hyper_conn.hc_combine", "triton", supported_generations={Generation.ARCH22}
+    "hyper_conn.hc_combine",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _hc_combine_triton(block, residual, normed, weight, hc, hs):
     global _hc_combine_triton_fn
@@ -23,7 +27,9 @@ def _hc_combine_triton(block, residual, normed, weight, hc, hs):
 
 
 @register_impl(
-    "hyper_conn.hc_combine", "torch_native", supported_generations={Generation.ARCH22}
+    "hyper_conn.hc_combine",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _hc_combine_torch(block, residual, normed, weight, hc, hs):
     global _hc_combine_torch_fn

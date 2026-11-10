@@ -8,10 +8,14 @@ _grouped_gemma_rmsnorm_torch_fn = None
 
 
 @register_impl(
-    "norm.grouped_gemma_rmsnorm", "auto", supported_generations={Generation.ARCH22}
+    "norm.grouped_gemma_rmsnorm",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "norm.grouped_gemma_rmsnorm", "triton", supported_generations={Generation.ARCH22}
+    "norm.grouped_gemma_rmsnorm",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _grouped_gemma_rmsnorm_triton(x, weight, group_size, eps):
     global _grouped_gemma_rmsnorm_triton_fn
@@ -27,7 +31,7 @@ def _grouped_gemma_rmsnorm_triton(x, weight, group_size, eps):
 @register_impl(
     "norm.grouped_gemma_rmsnorm",
     "torch_native",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _grouped_gemma_rmsnorm_torch(x, weight, group_size, eps):
     global _grouped_gemma_rmsnorm_torch_fn

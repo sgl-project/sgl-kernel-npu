@@ -7,8 +7,16 @@ _hc_mix_triton_fn = None
 _hc_mix_torch_fn = None
 
 
-@register_impl("hyper_conn.hc_mix", "auto", supported_generations={Generation.ARCH22})
-@register_impl("hyper_conn.hc_mix", "triton", supported_generations={Generation.ARCH22})
+@register_impl(
+    "hyper_conn.hc_mix",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+@register_impl(
+    "hyper_conn.hc_mix",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _hc_mix_triton(x, down, up, hc, hs):
     global _hc_mix_triton_fn
     if _hc_mix_triton_fn is None:
@@ -19,7 +27,9 @@ def _hc_mix_triton(x, down, up, hc, hs):
 
 
 @register_impl(
-    "hyper_conn.hc_mix", "torch_native", supported_generations={Generation.ARCH22}
+    "hyper_conn.hc_mix",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _hc_mix_torch(x, down, up, hc, hs):
     global _hc_mix_torch_fn

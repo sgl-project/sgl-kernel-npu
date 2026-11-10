@@ -8,10 +8,14 @@ _qsa_mqa_packed_torch_fn = None
 
 
 @register_impl(
-    "indexer.qsa_mqa_packed", "auto", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_packed",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "indexer.qsa_mqa_packed", "triton", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_packed",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_mqa_packed_triton(q, k, starts, ends):
     global _qsa_mqa_packed_triton_fn
@@ -23,7 +27,9 @@ def _qsa_mqa_packed_triton(q, k, starts, ends):
 
 
 @register_impl(
-    "indexer.qsa_mqa_packed", "torch_native", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_packed",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_mqa_packed_torch(q, k, starts, ends):
     global _qsa_mqa_packed_torch_fn
@@ -55,10 +61,14 @@ _qsa_mqa_paged_torch_fn = None
 
 
 @register_impl(
-    "indexer.qsa_mqa_paged", "auto", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_paged",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "indexer.qsa_mqa_paged", "triton", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_paged",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_mqa_paged_triton(q, cache, table, lengths, width):
     global _qsa_mqa_paged_triton_fn
@@ -70,7 +80,9 @@ def _qsa_mqa_paged_triton(q, cache, table, lengths, width):
 
 
 @register_impl(
-    "indexer.qsa_mqa_paged", "torch_native", supported_generations={Generation.ARCH22}
+    "indexer.qsa_mqa_paged",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_mqa_paged_torch(q, cache, table, lengths, width):
     global _qsa_mqa_paged_torch_fn

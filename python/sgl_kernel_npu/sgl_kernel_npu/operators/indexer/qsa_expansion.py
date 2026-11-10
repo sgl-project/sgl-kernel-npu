@@ -8,10 +8,14 @@ _expand_qsa_blocks_torch_fn = None
 
 
 @register_impl(
-    "indexer.expand_qsa_blocks", "auto", supported_generations={Generation.ARCH22}
+    "indexer.expand_qsa_blocks",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
-    "indexer.expand_qsa_blocks", "triton", supported_generations={Generation.ARCH22}
+    "indexer.expand_qsa_blocks",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _expand_qsa_blocks_triton(blocks, positions, lengths, ratio, topk):
     global _expand_qsa_blocks_triton_fn
@@ -25,7 +29,7 @@ def _expand_qsa_blocks_triton(blocks, positions, lengths, ratio, topk):
 @register_impl(
     "indexer.expand_qsa_blocks",
     "torch_native",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _expand_qsa_blocks_torch(blocks, positions, lengths, ratio, topk):
     global _expand_qsa_blocks_torch_fn

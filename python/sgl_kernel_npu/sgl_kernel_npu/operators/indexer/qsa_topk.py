@@ -7,8 +7,16 @@ _qsa_topk_triton_fn = None
 _qsa_topk_torch_fn = None
 
 
-@register_impl("indexer.qsa_topk", "auto", supported_generations={Generation.ARCH22})
-@register_impl("indexer.qsa_topk", "triton", supported_generations={Generation.ARCH22})
+@register_impl(
+    "indexer.qsa_topk",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+@register_impl(
+    "indexer.qsa_topk",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _qsa_topk_triton(score, lengths, topk, row_starts=None):
     global _qsa_topk_triton_fn
     if _qsa_topk_triton_fn is None:
@@ -19,7 +27,9 @@ def _qsa_topk_triton(score, lengths, topk, row_starts=None):
 
 
 @register_impl(
-    "indexer.qsa_topk", "torch_native", supported_generations={Generation.ARCH22}
+    "indexer.qsa_topk",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _qsa_topk_torch(score, lengths, topk, row_starts=None):
     global _qsa_topk_torch_fn
