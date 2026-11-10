@@ -40,7 +40,7 @@ def mhc_post(x, h_res, h_out, h_post, *, impl="auto"):
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
+使用 wheel 内置的 `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_post`，构建时须包含匹配 CANN 9.1 或 9.2 的第三方 profile，无需单独安装 `cann_ops_transformer`。首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
 
 参数顺序与 vendor API 一致：残差流、残差矩阵、层输出、post 门值。
 
