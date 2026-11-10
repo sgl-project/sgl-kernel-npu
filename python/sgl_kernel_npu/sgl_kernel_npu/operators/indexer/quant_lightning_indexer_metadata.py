@@ -48,16 +48,11 @@ def _cann_quant_lightning_indexer_metadata(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(
-        torch.ops.cann_ops_transformer, "quant_lightning_indexer_metadata", None
+    return ops.quant_lightning_indexer_metadata(
+        num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
     )
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.quant_lightning_indexer_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    return op(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
 @register_impl("indexer.quant_lightning_indexer_metadata", "ops_transformers_cann910")

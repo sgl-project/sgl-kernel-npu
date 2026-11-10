@@ -56,19 +56,14 @@ def _cann_sparse_flash_mla_metadata(**kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla_metadata", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.sparse_flash_mla_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    return op(**args)
+    return ops.sparse_flash_mla_metadata(**args)
 
 
 def _uses_native_sparse_inputs(kwargs):

@@ -36,14 +36,9 @@ def _cann_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "indexer_quant_cache", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.indexer_quant_cache in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    op(cache, scale_cache, x, slot_mapping, **kwargs)
+    ops.indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs)
     return cache, scale_cache
 
 

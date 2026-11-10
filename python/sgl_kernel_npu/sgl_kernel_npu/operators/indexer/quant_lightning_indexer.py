@@ -34,14 +34,11 @@ def _cann_quant_lightning_indexer(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "quant_lightning_indexer", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.quant_lightning_indexer in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    return op(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
+    return ops.quant_lightning_indexer(
+        q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
+    )
 
 
 @register_impl("indexer.quant_lightning_indexer", "ops_transformers_cann910")

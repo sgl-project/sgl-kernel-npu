@@ -57,15 +57,8 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(
-        torch.ops.cann_ops_transformer, "mixed_quant_sparse_flash_mla_metadata", None
-    )
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.mixed_quant_sparse_flash_mla_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     args = {
         key: value
         for key, value in kwargs.items()
@@ -73,7 +66,7 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     }
     if args.get("ori_mask_mode", 4) == 0:
         args.update(ori_win_left=-1, ori_win_right=-1)
-    return op(**args)
+    return ops.mixed_quant_sparse_flash_mla_metadata(**args)
 
 
 def _uses_native_sparse_inputs(kwargs):

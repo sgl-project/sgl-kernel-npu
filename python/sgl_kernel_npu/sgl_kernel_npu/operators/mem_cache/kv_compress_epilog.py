@@ -40,14 +40,9 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "kv_compress_epilog", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.kv_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
-    op(cache.view(torch.uint8), x, slot_mapping, **kwargs)
+    ops.kv_compress_epilog(cache.view(torch.uint8), x, slot_mapping, **kwargs)
     return cache
 
 

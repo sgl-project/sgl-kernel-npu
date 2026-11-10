@@ -40,19 +40,14 @@ def _cann_sparse_flash_mla(q, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops  # noqa: F401
+    from ..._third_party.sgl_ops_transformer import ops
 
-    op = getattr(torch.ops.cann_ops_transformer, "sparse_flash_mla", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator cann_ops_transformer.sparse_flash_mla in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    out, lse = op(q, **args)
+    out, lse = ops.sparse_flash_mla(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse

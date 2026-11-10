@@ -8,7 +8,7 @@ pytest.importorskip("torch_npu")
 # Install bundled vendor paths before the shared fixture initializes the NPU.
 import sgl_kernel_npu  # noqa: F401
 
-from tests.python.operators.indexer.indexer_inputs import (
+from tests.python.operators.indexer.test_quant_lightning_indexer import (
     CASE_IDS,
     CASES,
     generate_data,
