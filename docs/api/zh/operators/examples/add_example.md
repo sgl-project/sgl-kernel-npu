@@ -19,7 +19,7 @@ def add_example(x1, x2, *, impl="auto"):
     ...
 ```
 
-不传 `impl` 或传入 `"auto"` 均选择 `aicpu`。原生算子不可用时不会自动回退；
+不传 `impl` 或传入 `"auto"` 均选择 `aicpu`。AICPU 实现不可用时不会自动回退；
 需要独立参考实现时，显式传入 `impl="torch_native"`。
 
 ## 功能说明
@@ -53,8 +53,8 @@ $$
 
 ## aicpu 后端
 
-调用包内的原生绑定 `torch.ops.npu.sgl_add_example`，支持符合上述约束且 dtype
-相同的 FP32 或 INT32 输入。wheel 必须包含该原生算子；缺少绑定时会报错。
+通过 `torch.ops.npu.sgl_add_example` 调用包内的 AICPU 实现，支持符合上述约束且 dtype
+相同的 FP32 或 INT32 输入。wheel 必须包含该 AICPU 实现；缺少绑定时会报错。
 
 ## torch_native 后端
 

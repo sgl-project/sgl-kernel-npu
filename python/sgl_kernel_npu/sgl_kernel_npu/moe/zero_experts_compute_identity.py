@@ -43,8 +43,8 @@ def experts_compute_identity_kernel(
 
         tl.store(res_ptr, hid, mask=mask_d)
 
-    tl.store(sca_ptr, zero_tensor, mask=mask)
-    tl.store(idx_ptr, identity_tensor, mask=mask)
+    tl.store(sca_ptr, tl.where(mask, zero_tensor, tl.load(sca_ptr)))
+    tl.store(idx_ptr, tl.where(mask, identity_tensor, idx))
 
 
 def zero_experts_compute_identity_triton(

@@ -229,6 +229,8 @@ def _artifact_hashes(result, root):
     """Check all delivered files, including missing/added files and symlink targets."""
     hashes = {}
     for key in ("vendor", "wheel", "license"):
+        if key == "wheel" and not result["config"].get("python_bindings", True):
+            continue
         path = result[key]
         if not path.exists():
             raise ValueError("Missing cached artifact: " + str(path))
@@ -255,7 +257,9 @@ def _load_cached(path, root, item, fingerprint):
         if record["fingerprint"] != fingerprint:
             return None
         result = dict(config=item)
-        for key in ("vendor", "wheel", "license"):
+        for key in ("vendor", "license") + (
+            ("wheel",) if item.get("python_bindings", True) else ()
+        ):
             relative = PurePosixPath(record["artifacts"][key])
             if relative.is_absolute() or ".." in relative.parts:
                 return None
@@ -299,6 +303,7 @@ def build_dependencies(plan, source_root=PROJECT_ROOT):
                     "artifacts": {
                         key: result[key].relative_to(root).as_posix()
                         for key in ("vendor", "wheel", "license")
+                        if key != "wheel" or item.get("python_bindings", True)
                     },
                     "hashes": _artifact_hashes(result, root),
                 }

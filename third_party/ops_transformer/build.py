@@ -3,10 +3,14 @@
 import hashlib
 import re
 import shutil
+import sys
+import zipfile
 from pathlib import Path
 
 from build_tools.cann import run
 from build_tools.third_party import detect_soc_version, extract_python, read_json
+
+from third_party.opapi import isolate_staged_opapis
 
 
 def configure(config, jobs):
@@ -25,6 +29,9 @@ def configure(config, jobs):
         )
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
+    config["python_bindings"] = config.get("python_bindings", True)
+    if not isinstance(config["python_bindings"], bool):
+        raise ValueError("python_bindings must be a boolean")
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -38,6 +45,11 @@ def stage_python(wheel, item, package):
     destination = package / "_third_party" / item["python_package"]
     # Upstream adds its own package prefix; only its temporary wheel uses it.
     upstream_package = "cann_ops_transformer_" + item["vendor_name"]
+    with zipfile.ZipFile(wheel) as archive:
+        roots = {name.split("/", 1)[0] for name in archive.namelist()}
+    # The pinned 9.1 setup.py predates vendor-suffixed packages and op folders.
+    if upstream_package not in roots:
+        upstream_package = "cann_ops_transformer"
     extract_python(wheel, upstream_package, destination)
     ops_root = destination / "ops"
     modules = sorted(
@@ -45,6 +57,10 @@ def stage_python(wheel, item, package):
         for path in ops_root.glob("*/*/__init__.py")
         if path.parent.name in item["ops"]
     )
+    if not modules:
+        modules = sorted(
+            path.stem for path in ops_root.glob("*.py") if path.stem in item["ops"]
+        )
     if not modules:
         raise RuntimeError("No selected Python bindings found in upstream wheel")
     qualified = "sgl_kernel_npu._third_party." + name
@@ -57,6 +73,11 @@ def stage_python(wheel, item, package):
     )
     for path in destination.rglob("*.py"):
         source = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
+        # The flat 9.1 builder references the package by its original root name.
+        source = source.replace(
+            "import " + qualified + "\n",
+            "import " + qualified + " as cann_ops_transformer\n",
+        )
         # CompressorV2 creates ops.ds41 using a Python module-cache lookup.
         source = source.replace(
             'sys.modules["cann_ops_transformer.ops"]',
@@ -113,9 +134,12 @@ def inspect_vendor(vendor, item):
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
     for op in item["ops"]:
         config = kernel / "config" / item["soc"] / (op + ".json")
+        # AscendC template kernels use an _apt suffix in installed paths.
+        if not config.exists():
+            config = config.with_name(op + "_apt.json")
         if config.exists():
             read_json(require(config))
-            binaries = sorted((kernel / item["soc"] / op).glob("*.o"))
+            binaries = sorted((kernel / item["soc"] / config.stem).glob("*.o"))
             if not binaries:
                 raise RuntimeError("No AICore binaries for " + op)
             for binary in binaries:
@@ -129,10 +153,19 @@ def inspect_vendor(vendor, item):
 def build(item, source, directory):
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
+    # The pinned 9.1 build.sh has no --torch_extension option.
+    if item["python_bindings"] and not any(
+        "--torch_extension" in command for command in item["commands"]
+    ):
+        run(
+            [sys.executable, "setup.py", "bdist_wheel"],
+            directory / "build-python.log",
+            cwd=source / "torch_extension",
+        )
     installers = list((source / "build_out").glob("*.run"))
     wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    if len(installers) != 1 or len(wheels) != 1:
-        raise RuntimeError("Expected exactly one upstream .run and Python wheel")
+    if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
+        raise RuntimeError("Expected one upstream .run and, if enabled, Python wheel")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -148,7 +181,7 @@ def build(item, source, directory):
     return dict(
         config=item,
         vendor=vendor,
-        wheel=wheels[0],
+        wheel=wheels[0] if item["python_bindings"] else None,
         license=source / item["license"],
     )
 
@@ -166,7 +199,9 @@ def stage(result, package):
     # Installer-generated scripts embed the temporary absolute installation path.
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
-    stage_python(result["wheel"], item, package)
+    opapi_sonames = isolate_staged_opapis(package)
+    if item["python_bindings"]:
+        stage_python(result["wheel"], item, package)
     licenses = package / "_third_party/licenses" / item["name"]
     licenses.mkdir(parents=True)
     shutil.copy2(result["license"], licenses / "LICENSE")
@@ -176,5 +211,9 @@ def stage(result, package):
         if p.is_file()
     }
     return dict(
-        item, vendor_directory=vendor.name, files=hashes, binding="upstream_jit"
+        item,
+        vendor_directory=vendor.name,
+        files=hashes,
+        binding="upstream_jit" if item["python_bindings"] else "vendor_only",
+        opapi_soname=opapi_sonames[vendor.name],
     )
