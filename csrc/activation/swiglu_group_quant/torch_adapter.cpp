@@ -129,7 +129,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> swiglu_group_quant(
         TORCH_CHECK(result == ACL_SUCCESS, "SwiGLU execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    if (c10_npu::currentStreamCaptureStatus() == c10_npu::CaptureStatus::Active) {
+    // The NPU context is already initialized. Use the exported query directly;
+    // the no-init wrapper references IsContextInitialized(), a private symbol.
+    if (c10_npu::currentStreamCaptureStatusMayInitCtx() == c10_npu::CaptureStatus::Active) {
         // Keep prior queued operations ahead of this launch, and release the
         // input/output/workspace captures on the thread that owns the capture.
         TORCH_CHECK(stream.stream() != nullptr, "swiglu_group_quant: failed to drain the host task queue");

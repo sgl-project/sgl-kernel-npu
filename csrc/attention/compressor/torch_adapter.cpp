@@ -133,7 +133,9 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const at::Tens
         TORCH_CHECK(result == ACL_SUCCESS, "compressor ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    if (c10_npu::currentStreamCaptureStatus() == c10_npu::CaptureStatus::Active) {
+    // The NPU context is already initialized. Use the exported query directly;
+    // the no-init wrapper references IsContextInitialized(), a private symbol.
+    if (c10_npu::currentStreamCaptureStatusMayInitCtx() == c10_npu::CaptureStatus::Active) {
         // Preserve host submission order, including workspace zeroing, without
         // synchronizing the device. Release captured Tensors on this capture
         // thread rather than the task queue's separate resource-release thread.
