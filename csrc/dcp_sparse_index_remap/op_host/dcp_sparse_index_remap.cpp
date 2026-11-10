@@ -1,5 +1,8 @@
 #include <algorithm>
 #include <cstdint>
+#include <limits>
+
+#include <c10/core/DeviceGuard.h>
 
 #include "aclrtlaunch_sgl_dcp_sparse_index_remap.h"
 #include "torch_helper.h"
@@ -16,6 +19,9 @@ at::Tensor dcp_sparse_index_remap(const at::Tensor &input, int64_t dcp_size, int
                 "DSA DCP remap requires a valid rank in a DCP2 or DCP4 group");
     TORCH_CHECK(page_size > 0 && page_size <= 65536 && !(page_size & (page_size - 1)),
                 "DSA DCP remap requires a power-of-two page size");
+    TORCH_CHECK(input.numel() <= std::numeric_limits<uint32_t>::max(),
+                "DSA DCP remap input exceeds the kernel index range");
+    const c10::DeviceGuard guard(input.device());
     auto output = at::empty_like(input);
     const uint32_t rows = input.size(0);
     if (rows == 0) {
