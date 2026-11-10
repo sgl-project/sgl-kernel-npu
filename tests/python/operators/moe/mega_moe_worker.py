@@ -1,11 +1,11 @@
-"""Worker for the pytest-managed four-rank MegaMoE tests.
+"""Worker for the pytest-managed four- and eight-rank MegaMoE tests.
 
 Run on one host with four visible A3 NPUs and CANN 9.2/provider installed:
     torchrun --standalone --nnodes=1 --nproc-per-node=4 \
         tests/python/operators/moe/mega_moe_worker.py
 
 This is a standalone distributed test, not a pytest test: each worker owns one
-NPU and all four workers must execute every collective in the same order.
+NPU and all workers must execute every collective in the same order.
 """
 
 import argparse
@@ -44,6 +44,13 @@ def generate_data(torch, args, rank, tokens):
     if args.routing == "skewed":
         # All ranks target the same experts; some experts receive no tokens.
         ids = torch.arange(args.topk)[None, :].expand(tokens, -1).clone()
+    elif args.routing == "all-ranks":
+        # Route every token to one expert on each rank. Rotate the local expert
+        # with the token index and source rank so both local experts do work.
+        local_experts = args.num_experts // args.world_size
+        ids = torch.arange(args.world_size) * local_experts + (
+            (rows + rank) % local_experts
+        )
     else:
         ids = (rows + torch.arange(args.topk)[None, :] + rank) % args.num_experts
     routing_weights = torch.softmax(
@@ -73,13 +80,14 @@ def run_case(torch, dist, torch_npu, group, args, tokens, capacity, impl):
     rank = dist.get_rank(group)
     device = torch.device("npu", int(os.environ["LOCAL_RANK"]))
     num_experts, topk = args.num_experts, args.topk
-    local_experts = num_experts // dist.get_world_size(group)
+    world_size = dist.get_world_size(group)
+    local_experts = num_experts // world_size
     x, ids, routing_weights = generate_data(torch, args, rank, tokens)
     expected = reference_moe(
         torch, x, ids, routing_weights, args.hidden, args.intermediate
     )
 
-    gathered_ids = [torch.empty_like(ids, device=device) for _ in range(4)]
+    gathered_ids = [torch.empty_like(ids, device=device) for _ in range(world_size)]
     dist.all_gather(gathered_ids, ids.to(device), group=group)
     global_counts = torch.bincount(
         torch.cat([value.cpu().reshape(-1) for value in gathered_ids]),
@@ -174,23 +182,29 @@ def main():
     parser.add_argument(
         "--quant-mode", choices=QUANT_MODES["arch22"] + QUANT_MODES["arch35"]
     )
-    parser.add_argument("--routing", choices=("balanced", "skewed"), default="balanced")
+    parser.add_argument(
+        "--routing", choices=("balanced", "skewed", "all-ranks"), default="balanced"
+    )
     parser.add_argument("--input-mode", choices=("normal", "zero"), default="normal")
     parser.add_argument("--perf-iters", type=int, default=0)
     args = parser.parse_args()
+    args.world_size = int(os.environ.get("WORLD_SIZE", "0"))
+    if args.world_size not in (4, 8):
+        parser.error("launch with torchrun using four or eight ranks on one host")
     if not 0 < args.tokens <= args.capacity:
         parser.error("require 0 < tokens <= capacity")
-    if args.quant_mode in QUANT_MODES["arch35"] and args.tokens + 3 > args.capacity:
+    if (
+        args.quant_mode in QUANT_MODES["arch35"]
+        and args.tokens + args.world_size - 1 > args.capacity
+    ):
         parser.error("MXFP cases require capacity for rank-varying token counts")
-    if args.num_experts <= 0 or args.num_experts % 4:
-        parser.error("num-experts must be positive and divisible by four")
+    if args.num_experts <= 0 or args.num_experts % args.world_size:
+        parser.error(f"num-experts must be positive and divisible by {args.world_size}")
     if not 0 < args.topk <= args.num_experts or args.perf_iters < 0:
         parser.error("invalid topk or perf-iters")
+    if args.routing == "all-ranks" and args.topk != args.world_size:
+        parser.error("all-ranks routing requires topk equal to the world size")
     os.environ["MOE_EXPERT_TOKEN_NUMS_TYPE"] = "1"
-    if int(os.environ.get("WORLD_SIZE", "0")) != 4:
-        parser.error(
-            "launch with torchrun --nproc-per-node=4; exactly four ranks required"
-        )
     if any(value <= 0 or value % 512 for value in (args.hidden, args.intermediate)):
         parser.error("hidden and intermediate must be positive multiples of 512")
 

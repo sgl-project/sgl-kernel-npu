@@ -72,7 +72,7 @@ def test_input_matrix_is_deterministic_and_routes_valid_experts(
     "options,message",
     [
         (["--tokens", "33", "--capacity", "32"], "0 < tokens <= capacity"),
-        (["--num-experts", "7"], "divisible by four"),
+        (["--num-experts", "7"], "divisible by 4"),
         (["--topk", "9"], "invalid topk"),
         (["--perf-iters", "-1"], "invalid topk or perf-iters"),
         (["--hidden", "513"], "positive multiples of 512"),
@@ -88,3 +88,21 @@ def test_worker_rejects_invalid_config_before_runtime_import(options, message):
     )
     assert result.returncode == 2
     assert message in result.stderr
+
+
+def test_eight_rank_routing_reaches_all_experts(worker):
+    torch = pytest.importorskip("torch")
+    args = SimpleNamespace(
+        hidden=8,
+        topk=8,
+        num_experts=16,
+        world_size=8,
+        routing="all-ranks",
+        input_mode="normal",
+    )
+    for rank in range(8):
+        _, ids, _ = worker.generate_data(torch, args, rank, 17)
+        # Two experts belong to each destination rank. Every row visits all
+        # eight destinations, and each source rank exercises all 16 experts.
+        torch.testing.assert_close(ids // 2, torch.arange(8).expand(17, 8))
+        torch.testing.assert_close(ids.unique(), torch.arange(16))

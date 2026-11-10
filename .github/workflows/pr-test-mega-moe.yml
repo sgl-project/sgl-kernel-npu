@@ -69,9 +69,17 @@ jobs:
         timeout-minutes: 90
         run: |
           python3 -m pytest -q tests/python/sgl_kernel_npu/test_mega_moe_registration.py tests/python/sgl_kernel_npu/test_mega_moe_reference.py
-          python3 -m pytest -v -s -x tests/python/operators/moe/test_mega_moe.py --enable-perf=false --junitxml=mega-moe-results.xml
+          python3 -m pytest -v -s -x tests/python/operators/moe/test_mega_moe.py -k 'not eight_rank_group' --enable-perf=false --junitxml=mega-moe-results.xml
+      - name: Run eight-rank A3 correctness test
+        if: matrix.platform == 'A3'
+        timeout-minutes: 30
+        env:
+          ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+        run: |
+          python3 -c 'import torch, torch_npu; assert torch.npu.device_count() >= 8, "Eight visible NPUs are required"'
+          python3 -m pytest -v -s -x tests/python/operators/moe/test_mega_moe.py::test_bf16_accuracy_eight_rank_group --junitxml=mega-moe-eight-rank-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mega-moe-${{ matrix.platform }}
-          path: mega-moe-results.xml
+          path: mega-moe*-results.xml

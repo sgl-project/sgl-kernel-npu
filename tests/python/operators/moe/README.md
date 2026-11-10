@@ -16,6 +16,10 @@ The buffer factory itself is a resource API, not a numerical operator.
   expert token counts. Cases cover one token/topk=1, masked tails, zero input,
   skewed routing with empty experts, and DeepSeek-V3 H=7168/I=2048 dimensions
   (8 experts/topk=4 to bound reference memory, not a full model configuration).
+- A3 eight-rank BF16: run one HCCL group across eight NPUs with 16 experts and
+  top-k 8. Every active token selects one expert on each rank. Validate the
+  output against the CPU FP32 reference and check each rank's exact expert
+  counts, including exclusion of the padded tokens.
 - A3 W4A8/W8A8: compare the registered interface with direct CANN calls for
   SwiGLU and SiTU, with padded inputs and an active-token mask.
 - A5: compare MXFP8 E4M3/E5M2, MXFP4 and MXFP8-W4 with direct CANN calls.
@@ -32,7 +36,8 @@ All workers call the MegaMoE compute and buffer APIs directly. Both
 
 Install the current checkout's `sgl_kernel_npu` wheel, CANN 9.2.0,
 matching torch/torch_npu, a compatible `cann_ops_transformer` MegaMoE provider,
-pytest and ninja. Expose exactly four NPUs; run pytest serially (no xdist).
+pytest and ninja. Expose four NPUs for the four-rank cases and eight NPUs for
+the eight-rank case. Run pytest serially (no xdist).
 The parent checks architecture/device count; each case launches isolated workers.
 All workers execute the same sequence of collectives. Worker timeouts kill the
 entire process group. Missing NPUs on an otherwise matching architecture fail.
@@ -41,6 +46,8 @@ entire process group. Missing NPUs on an otherwise matching architecture fail.
 python -m pytest tests/python/sgl_kernel_npu/test_mega_moe_registration.py -q
 ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest \
   tests/python/operators/moe/test_mega_moe.py -v -s -x --enable-perf=false
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m pytest -v -s -x \
+  tests/python/operators/moe/test_mega_moe.py::test_bf16_accuracy_eight_rank_group
 ```
 
 The generic `generate_data → check_accuracy → check_performance` executor assumes
@@ -70,7 +77,8 @@ and record device, CANN/provider/torch versions alongside measurements.
 ## CI and validation status
 
 Registration tests run in the CPU lint workflow. `pr-test-mega-moe.yml` builds
-the checkout and runs four-rank A3/A5 tests with CANN 9.2.0. Configure repository
+the checkout and runs four-rank A3/A5 tests and the eight-rank A3 BF16 test
+with CANN 9.2.0. Configure repository
 variables `MEGAMOE_PROVIDER_WHEEL_A3` and `MEGAMOE_PROVIDER_WHEEL_A5` with pinned,
 architecture-matching provider wheel URLs. Missing configuration fails before
 the build. No provider version or download URL is guessed by this contribution.
@@ -80,7 +88,7 @@ are **pending**, not passing. Include actual CI logs and performance measurement
 in the PR before claiming hardware validation.
 
 Local validation: Python 3.12, CPU PyTorch 2.15.0; registration and reference/CLI
-unit tests: **48 passed**. The distributed pytest file collects **22 cases**.
+unit tests: **49 passed**. The distributed pytest file collects **23 cases**.
 Workflow YAML, documentation links, Python example syntax, Black and isort
 checks pass. Full `pre-commit run --all-files --show-diff-on-failure` also passes
 in an isolated copy of the checkout. These checks do not execute the NPU kernel.
@@ -93,7 +101,7 @@ in an isolated copy of the checkout. These checks do not execute the NPU kernel.
 A3 INT 和 A5 MXFP 通过直接调用 CANN 验证注册接口等价性，并用路由直方图独立校验专家
 计数。独立的数值精度校验覆盖 A3 BF16。
 
-所有配置由 pytest 管理；为保证集合通信顺序，实际计算由独立四进程完成，
+所有配置由 pytest 管理；为保证集合通信顺序，实际计算由独立的四进程或八进程完成，
 不使用单 worker 通用精度/性能执行器。测试覆盖与限制、命令、依赖和性能口径
 见上文；`--enable-perf` 控制精度通过后的性能采集，日志保留在标准输出。
 默认仅 BF16 `perf_shape` 计时。启用性能采集后，量化用例在首个布局和格式下计时。

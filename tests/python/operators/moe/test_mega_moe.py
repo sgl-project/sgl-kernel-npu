@@ -1,6 +1,6 @@
 """Pytest owns the matrix; isolated workers own all HCCL collectives.
 
-Run serially on a host with four visible NPUs and CANN 9.2.0. See README.md
+Run serially on a host with four or eight visible NPUs and CANN 9.2.0. See README.md
 for the independent-reference exception and performance measurement method.
 """
 
@@ -19,7 +19,7 @@ WORKER = Path(__file__).with_name("mega_moe_worker.py")
 perf_shape = [(32, 32, 7168, 2048)]
 
 
-def require_hardware(request, generation):
+def require_hardware(request, generation, world_size=4):
     import torch
     from sgl_kernel_npu.operators.utils.generation import get_hardware
 
@@ -28,18 +28,21 @@ def require_hardware(request, generation):
         raise pytest.UsageError("MegaMoE tests require serial pytest; remove -n")
     if get_hardware().generation.value != generation:
         pytest.skip(f"requires {generation}")
-    if torch.npu.device_count() < 4:
+    device_count = torch.npu.device_count()
+    if device_count < 4:
         pytest.fail("MegaMoE integration tests require four visible NPUs")
+    if device_count < world_size:
+        pytest.skip(f"requires {world_size} visible NPUs in one HCCL group")
 
 
-def run_workers(arguments):
+def run_workers(arguments, world_size=4):
     command = [
         sys.executable,
         "-m",
         "torch.distributed.run",
         "--standalone",
         "--nnodes=1",
-        "--nproc-per-node=4",
+        f"--nproc-per-node={world_size}",
         str(WORKER),
         *arguments,
     ]
@@ -101,6 +104,25 @@ def test_bf16_accuracy(request, impl, shape, routing, input_mode, topk):
             "--perf-iters",
             "10" if enable_perf else "0",
         ]
+    )
+
+
+def test_bf16_accuracy_eight_rank_group(request):
+    require_hardware(request, "arch22", world_size=8)
+    run_workers(
+        [
+            "--tokens",
+            "17",
+            "--capacity",
+            "32",
+            "--num-experts",
+            "16",
+            "--topk",
+            "8",
+            "--routing",
+            "all-ranks",
+        ],
+        world_size=8,
     )
 
 
