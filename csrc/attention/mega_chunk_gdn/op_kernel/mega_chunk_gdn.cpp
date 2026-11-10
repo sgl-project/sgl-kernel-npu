@@ -5,7 +5,21 @@
 // CANN's generated MIX wrapper calls matmul::clearWorkspace.
 #include "lib/matmul_intf.h"
 #include "mega_chunk_gdn_tiling_data.h"
+
+// Load dependency headers globally before including the unchanged implementation
+// in a PTO scope. Preserve its MEMORY_BASE setting before the first PTO include.
+#ifndef MEMORY_BASE
+#define MEMORY_BASE
+#endif
+#include <pto/pto-inst.hpp>
+#include "acl/acl.h"
+#include <type_traits>
+
+// Matmul headers import AscendC names globally. Keep PTO lookup inside pto so
+// DYNAMIC, GlobalTensor and other common names resolve to the original PTO types.
+namespace pto::sgl_mega {
 #include "mega_kernel_impl.h"
+}  // namespace pto::sgl_mega
 
 extern "C" __global__ __aicore__ void sgl_mega_chunk_gdn(
     GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr, GM_ADDR msk_lower_ptr,
@@ -30,13 +44,13 @@ extern "C" __global__ __aicore__ void sgl_mega_chunk_gdn(
     const auto num_heads = data.num_heads;
     const auto num_key_heads = data.num_key_heads;
 
-#define DISPATCH_MEGA_H(H)                                                                                          \
-    case H:                                                                                                         \
-        mega_kernel_impl<H>(q_ptr, k_ptr, v_ptr, g_in_ptr, beta_ptr, msk_lower_ptr, msk_full_ptr, minus_id_ptr,     \
-                            cu_seqlens_ptr, o_ptr, g_sum_ptr, g_t_ptr, beta_t_ptr, A_ptr, A_inv_f32_ptr, A_inv_ptr, \
-                            w_ptr, u_ptr, s_ptr, v_new_ptr, fs_ptr, h0_ptr, has_initial_state, kkt_ws_ptr,          \
-                            wy_ws_a1_ptr, wy_ws_a2_ptr, h_ws_ptr, o_ws_qk_ptr, o_ws_qs_ptr, o_ws_gated_ptr,         \
-                            num_key_heads, batch_size, seq_len, total_tokens, num_matrices);                        \
+#define DISPATCH_MEGA_H(H)                                                                                             \
+    case H:                                                                                                            \
+        pto::sgl_mega::mega_kernel_impl<H>(                                                                            \
+            q_ptr, k_ptr, v_ptr, g_in_ptr, beta_ptr, msk_lower_ptr, msk_full_ptr, minus_id_ptr, cu_seqlens_ptr, o_ptr, \
+            g_sum_ptr, g_t_ptr, beta_t_ptr, A_ptr, A_inv_f32_ptr, A_inv_ptr, w_ptr, u_ptr, s_ptr, v_new_ptr, fs_ptr,   \
+            h0_ptr, has_initial_state, kkt_ws_ptr, wy_ws_a1_ptr, wy_ws_a2_ptr, h_ws_ptr, o_ws_qk_ptr, o_ws_qs_ptr,     \
+            o_ws_gated_ptr, num_key_heads, batch_size, seq_len, total_tokens, num_matrices);                           \
         return
 
     switch (num_heads) {
