@@ -46,7 +46,7 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | `--arch-version 2201/3510` | Required | Architecture coverage, independent of the current device. May be omitted only for help or standalone `--make-clean`. |
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
 | `--artifact run/wheel` | `wheel` | Package CANN and host C++ operators in a `.run` installer or a Python wheel. |
-| `-j N` / `--jobs N` | Build tool default | Limit the number of simultaneous build jobs; must be a positive integer. |
+| `-j N` / `--jobs N` | `16` | Limit the number of simultaneous build jobs; must be a positive integer. |
 | `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
 | `--plan` | Off | Print the resolved third-party configuration and build commands, then exit without compiling either third-party or repository-owned operators. |
@@ -70,11 +70,11 @@ CANN outputs. The wheel links this archive and the selected Torch adapters into
 `libsgl_kernel_npu.so`. Executing the `.run` installs its contents; use a wheel
 to call HOST operators through `torch.ops`.
 
-`-j N` and `--jobs N` are equivalent. They pass `--parallel N` to the CANN and
-Torch CMake builds. More simultaneous jobs can reduce build time but consume
-more CPU and memory. This setting does not change the operator's runtime
-parallelism or computation. Omit it to use the native build tool's default;
-the current third-party adapters default to 8 jobs.
+`-j N` and `--jobs N` are equivalent. The build passes `--parallel N` to the
+CANN and Torch CMake builds and passes the same job count to third-party build
+adapters. When omitted, the job count is 16. More simultaneous jobs can reduce
+build time but consume more CPU and memory. This setting controls build-time
+parallelism.
 
 `run` and `wheel` are the only artifact choices; there is no separate `torch`
 artifact or independent-package selector. Operator declarations are checked as
