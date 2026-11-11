@@ -61,6 +61,15 @@ qwen_cases = [
 ]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_920():
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if version != "9.2.0":
+        pytest.skip(f"Quant Flash Attention requires CANN 9.2.0; detected {version}")
+
+
 def generate_data(
     shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
 ):
