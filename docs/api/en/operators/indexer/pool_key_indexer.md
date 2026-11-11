@@ -4,7 +4,7 @@
 
 | Implementation | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `aclnn` | Supported | Supported |
+| `cann_ops_transformer` | Supported | Supported |
 
 ## Signature
 
@@ -33,7 +33,7 @@ def pool_key_indexer(
     ...
 ```
 
-`auto` selects `aclnn`, loading the `attentions` extension on first execution. There is no backend fallback.
+`auto` selects `cann_ops_transformer`, loading the packaged CANN binding on first execution. There is no backend fallback.
 
 ## Description
 
@@ -59,8 +59,8 @@ The output contains int32 indices rather than scores, with unused tail positions
 | `mask_mode` | `int` | — | — | `3` | Vendor mask-mode attribute; this integration uses mode 3. |
 | `quant_mode` | `int` | — | — | `-1` | Only -1 is supported; no descale tensors are exposed. |
 | `return_value` | `bool` | — | — | `False` | Must be False: the schema returns indices only. |
-| `key_stride0` | `int` | — | — | `-1` | Vendor key-stride override; -1 leaves it unspecified. No Python-side inference. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only: auto or aclnn. |
+| `key_stride0` | `int` | — | — | `-1` | Compatibility argument; CANN derives this from `pool_key`. Pass -1 or `pool_key.stride(0)`. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only: auto or cann_ops_transformer. |
 
 | Return value | Type | Shape | Dtype | Description |
 | --- | --- | --- | --- | --- |
@@ -72,17 +72,17 @@ tensors; do not mix the two. Device metadata can be updated during graph replay.
 For zero-pool or all-padding TND inputs, use `prepare_pool_key_indexer_inputs`
 before CANN and pack the cropped output with the original query boundaries.
 
-## aclnn backend
+## cann_ops_transformer backend
 
-The facade calls `torch.ops.attentions.pool_key_indexer`; the C++ binding forwards to `aclnnPoolKeyIndexer`. Build/install the separate `csrc/attentions` extension and provide a CANN/custom-op environment containing the vendor operator; the main kernel package alone is insufficient. Rank-2/3 queries are forwarded without conversion to BSND.
+The facade loads the `sgl_ops_transformer` third-party package and calls `torch.ops.cann_ops_transformer.pool_key_indexer`, returning its sparse-index output. The CANN 9.2 `ops_transformer` profile builds the vendor operator and its upstream Torch binding for arch22 and arch35; the separate `csrc/attentions` extension is not required. Host integer sequences are converted to CPU int64 tensors. Rank-2/3 queries are forwarded without conversion to BSND.
 
 Only BF16/FP16, `quant_mode=-1` and `return_value=False` are supported.
-There is no independent `torch_native` backend: `auto` and `aclnn` are aliases.
+There is no independent `torch_native` backend: `auto` and `cann_ops_transformer` are aliases.
 Tests use independently known ranking results and the empty-history replay regression.
 
 ## Example
 
-Requires the extension and vendor dependencies above. This is a minimal BSND invocation, not evidence of completed NPU acceptance.
+Requires the third-party package and vendor dependencies above. This is a minimal BSND invocation, not evidence of completed NPU acceptance.
 
 ```python
 import torch
@@ -97,7 +97,7 @@ keys[..., 0] = torch.arange(1, 17, device=query.device, dtype=query.dtype).view(
 weights = torch.ones(1, 1, 1, device=query.device, dtype=query.dtype)
 indices = pool_key_indexer(
     query, keys, weights, pool_tail_k=[3],
-    topk=16, pool_size=4, layout_q="BSND", layout_k="BSND", impl="aclnn",
+    topk=16, pool_size=4, layout_q="BSND", layout_k="BSND", impl="cann_ops_transformer",
 )
 assert indices.shape == (1, 1, 19) and indices.dtype == torch.int32
 ```

@@ -116,7 +116,7 @@ def test_empty_history_and_graph_padding_regression(graph_mode):
             layout_q="TND",
             layout_k="PA_BBND",
             mask_mode=3,
-            impl="aclnn",
+            impl="cann_ops_transformer",
         )
         return pack_pool_key_indexer_indices(
             selected[: query.shape[0]],
