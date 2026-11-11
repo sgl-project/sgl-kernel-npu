@@ -37,35 +37,138 @@ def generate_data(bounds, dtype, with_state=True, noncontiguous=False, fixed_len
     return data
 
 
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
-    "bounds,with_state,normalize,output_final_state,scale,noncontiguous",
+    "dtype,fixed_length,bounds,with_state,normalize,output_final_state,scale,noncontiguous",
     [
-        pytest.param(None, True, False, True, None, False, id="fixed-chunk-tail"),
-        pytest.param((0, 1), False, True, False, 0.25, False, id="one-token"),
-        pytest.param((0, 64), True, True, True, None, False, id="full-chunk"),
         pytest.param(
+            torch.float16,
+            65,
+            None,
+            True,
+            False,
+            True,
+            None,
+            False,
+            id="fixed-chunk-tail-fp16",
+        ),
+        pytest.param(
+            torch.float16,
+            65,
+            (0, 1),
+            False,
+            True,
+            False,
+            0.25,
+            False,
+            id="one-token-fp16",
+        ),
+        pytest.param(
+            torch.float16,
+            65,
+            (0, 64),
+            True,
+            True,
+            True,
+            None,
+            False,
+            id="full-chunk-fp16",
+        ),
+        pytest.param(
+            torch.float16,
+            65,
             (0, 1, 66, 131),
             True,
             True,
             False,
             0.0,
             True,
-            id="packed-grouped-strided-zero-scale",
+            id="packed-grouped-strided-zero-scale-fp16",
         ),
         pytest.param(
+            torch.float16,
+            65,
             (0, 31, 100),
             False,
             False,
             True,
             None,
             False,
-            id="packed-without-initial-state",
+            id="packed-without-initial-state-fp16",
+        ),
+        pytest.param(
+            torch.bfloat16,
+            65,
+            None,
+            True,
+            False,
+            True,
+            None,
+            False,
+            id="fixed-chunk-tail-bf16",
+        ),
+        pytest.param(
+            torch.bfloat16,
+            65,
+            (0, 1),
+            False,
+            True,
+            False,
+            0.25,
+            False,
+            id="one-token-bf16",
+        ),
+        pytest.param(
+            torch.bfloat16,
+            65,
+            (0, 64),
+            True,
+            True,
+            True,
+            None,
+            False,
+            id="full-chunk-bf16",
+        ),
+        pytest.param(
+            torch.bfloat16,
+            65,
+            (0, 1, 66, 131),
+            True,
+            True,
+            False,
+            0.0,
+            True,
+            id="packed-grouped-strided-zero-scale-bf16",
+        ),
+        pytest.param(
+            torch.bfloat16,
+            65,
+            (0, 31, 100),
+            False,
+            False,
+            True,
+            None,
+            False,
+            id="packed-without-initial-state-bf16",
+        ),
+        # Qwen3-Next-80B-A3B-Instruct: 16 key/32 value heads, K=V=128.
+        # https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json
+        # TP4 gives Hg=4/H=8; T=2048 represents a BF16 prefill workload.
+        pytest.param(
+            torch.bfloat16,
+            2048,
+            None,
+            False,
+            True,
+            True,
+            None,
+            False,
+            id="qwen3-next-80b-a3b-tp4-prefill-2048-bf16",
         ),
     ],
 )
 def test_chunk_gated_delta_rule_npu(
     dtype,
+    fixed_length,
     bounds,
     with_state,
     normalize,
@@ -78,7 +181,7 @@ def test_chunk_gated_delta_rule_npu(
 
     monkeypatch.setenv("GDN_USE_MEGA_GDN", "0")
     monkeypatch.setenv("TRITON_F32_DEFAULT", "ieee")
-    data = generate_data(bounds, dtype, with_state, noncontiguous)
+    data = generate_data(bounds, dtype, with_state, noncontiguous, fixed_length)
     saved = {k: v.clone() for k, v in data.items() if isinstance(v, torch.Tensor)}
     options = dict(use_qk_l2norm_in_kernel=normalize, scale=scale)
     # Omit the flag in True cases to check the legacy True default.
@@ -93,24 +196,7 @@ def test_chunk_gated_delta_rule_npu(
     )
     for name, original in saved.items():
         torch.testing.assert_close(data[name], original, atol=0, rtol=0)
-    check_performance(executor, enable_perf=False)
-
-
-def test_chunk_gated_delta_rule_npu_qwen3_next_tp4_prefill(monkeypatch):
-    from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
-
-    # Qwen3-Next-80B-A3B-Instruct: 16 key heads, 32 value heads, K=V=128.
-    # https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json
-    # TP4 gives Hg=4/H=8; 2048 tokens represent a prefill workload.
-    monkeypatch.setenv("GDN_USE_MEGA_GDN", "0")
-    monkeypatch.setenv("TRITON_F32_DEFAULT", "ieee")
-    data = generate_data(None, torch.bfloat16, with_state=False, fixed_length=2048)
-    executor = check_accuracy(
-        chunk_gated_delta_rule_npu,
-        kwargs={**data, "use_qk_l2norm_in_kernel": True},
-        standard={"torch.float32": DEFAULT_STANDARDS["torch.bfloat16"]},
-    )
-    check_performance(executor, enable_perf=True)
+    check_performance(executor, enable_perf=fixed_length == 2048)
 
 
 @pytest.mark.parametrize("output_final_state", [False, True])

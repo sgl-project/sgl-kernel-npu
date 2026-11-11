@@ -12,6 +12,7 @@ import torch
 from einops import rearrange
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
+from .mega_chunk_gdn import run_mega_chunk_gdn
 
 SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
 
@@ -61,27 +62,8 @@ def _use_mega_gdn():
     return os.getenv("GDN_USE_MEGA_GDN", "0") == "1"
 
 
-def chunk_gated_delta_rule_fwd(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    g: torch.Tensor,
-    beta: torch.Tensor,
-    scale: float,
-    initial_state: torch.Tensor,
-    output_final_state: bool,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-):
-    if _use_mega_gdn():
-        from .mega_chunk_gdn import run_mega_chunk_gdn
-
-        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
-            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
-        )
-        if SUPPRESS_LEVEL < 3:
-            return g, o, A, final_state, None, h, None
-        return g, o, A, final_state, w, h, v_new
-
+@functools.lru_cache(maxsize=1)
+def _load_triton_kernels():
     from ....implementation.triton.attention.gdn.chunk_delta_h import (
         chunk_gated_delta_rule_fwd_h_npu as chunk_gated_delta_rule_fwd_h,
     )
@@ -98,6 +80,51 @@ def chunk_gated_delta_rule_fwd(
         recompute_w_u_fwd,
     )
     from ....implementation.triton.attention.gdn.solve_tril import solve_tril
+
+    return (
+        chunk_local_cumsum,
+        chunk_scaled_dot_kkt_fwd,
+        solve_tril,
+        recompute_w_u_fwd,
+        chunk_gated_delta_rule_fwd_h,
+        chunk_fwd_o,
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _load_l2norm():
+    from ....implementation.triton.norm.l2norm_fwd import l2norm_fwd
+
+    return l2norm_fwd
+
+
+def chunk_gated_delta_rule_fwd(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    scale: float,
+    initial_state: torch.Tensor,
+    output_final_state: bool,
+    cu_seqlens: Optional[torch.LongTensor] = None,
+):
+    if _use_mega_gdn():
+        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
+            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+        )
+        if SUPPRESS_LEVEL < 3:
+            return g, o, A, final_state, None, h, None
+        return g, o, A, final_state, w, h, v_new
+
+    (
+        chunk_local_cumsum,
+        chunk_scaled_dot_kkt_fwd,
+        solve_tril,
+        recompute_w_u_fwd,
+        chunk_gated_delta_rule_fwd_h,
+        chunk_fwd_o,
+    ) = _load_triton_kernels()
 
     g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
     # obtain WY representation. u is actually the new v.
@@ -254,7 +281,7 @@ def _run_chunk_gated_delta_rule_npu(
         scale = k.shape[-1] ** -0.5
 
     if use_qk_l2norm_in_kernel:
-        from ....implementation.triton.norm.l2norm_fwd import l2norm_fwd
+        l2norm_fwd = _load_l2norm()
 
         q = l2norm_fwd(q)
         k = l2norm_fwd(k)
