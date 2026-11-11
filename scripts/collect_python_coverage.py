@@ -2,10 +2,9 @@
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TESTS = ("tests/python/operators", "tests/python/framework")
@@ -31,7 +30,9 @@ def main():
     for test in args.tests or DEFAULT_TESTS:
         path = (ROOT / test).resolve()
         if not path.is_relative_to(ROOT) or not path.exists():
-            parser.error(f"Expected an existing test path inside the repository: {test}")
+            parser.error(
+                f"Expected an existing test path inside the repository: {test}"
+            )
         test_files.update(path.rglob("test_*.py") if path.is_dir() else [path])
     if not test_files:
         parser.error("No test files found")
@@ -51,8 +52,17 @@ def main():
         print(f"Collecting coverage for {relative_path}", flush=True)
         test_env = {**env, "COVERAGE_FILE": str(data_file)}
         result = subprocess.run(
-            [*coverage, "run", "--branch", f"--include={SOURCE_PATTERNS}", "-m", "pytest",
-             "-q", "--tb=short", str(relative_path)],
+            [
+                *coverage,
+                "run",
+                "--branch",
+                f"--include={SOURCE_PATTERNS}",
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=short",
+                str(relative_path),
+            ],
             cwd=ROOT,
             env=test_env,
         )
@@ -62,7 +72,9 @@ def main():
             continue
 
         export = subprocess.run(
-            [*coverage, "json", "-o", str(lines_report)], cwd=ROOT, env=test_env,
+            [*coverage, "json", "-o", str(lines_report)],
+            cwd=ROOT,
+            env=test_env,
         )
         if export.returncode:
             failure_marker.write_text(f"Coverage JSON exit code: {export.returncode}\n")
@@ -74,13 +86,17 @@ def main():
         return 1
 
     combined = subprocess.run(
-        [*coverage, "combine", "--keep", *data_files], cwd=ROOT, env=env,
+        [*coverage, "combine", "--keep", *data_files],
+        cwd=ROOT,
+        env=env,
     )
     if combined.returncode:
         return combined.returncode
 
     report_result = subprocess.run(
-        [*coverage, "xml", "-o", str(report)], cwd=ROOT, env=env,
+        [*coverage, "xml", "-o", str(report)],
+        cwd=ROOT,
+        env=env,
     )
     return report_result.returncode or int(failed)
 

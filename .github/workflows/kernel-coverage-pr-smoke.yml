@@ -95,17 +95,17 @@ jobs:
             rmdir -- "$tmp"
           done < <(find baselines -type f \( -path '*/covdata/coverage' -o -name '.coverage' \) -print0)
       - name: Build A3 map
-        uses: lb-actions/precision-test@v1.0.9
+        uses: lb-actions/precision-test@v1.0.10
         with:
-          repo: sglang
+          repo: sglang-kernel
           build-map: true
           source-dir: ${{ github.workspace }}/baseline-src
           coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a3
           map-file: ${{ github.workspace }}/baselines/kernel-coverage-a3/test_case_map.json
       - name: Build A5 map
-        uses: lb-actions/precision-test@v1.0.9
+        uses: lb-actions/precision-test@v1.0.10
         with:
-          repo: sglang
+          repo: sglang-kernel
           build-map: true
           source-dir: ${{ github.workspace }}/baseline-src
           coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a5
