@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer`（`auto`） | 不支持 | 支持 |
 
-要求 CANN 9.2.0、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。
+需要 CANN 9.2.0 及以上版本、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。该算子已在 CANN 9.2.0 上验证。
 
 ## 函数原型
 

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer` (`auto`) | Not supported | Supported |
 
-Requires CANN 9.2.0, matching PyTorch/torch_npu, and the `cann_ops_transformer` Python extension exposing QFA and its metadata producer. These dependencies are separate from the `sgl_kernel_npu` wheel.
+Requires CANN 9.2.0 or later, matching PyTorch/torch_npu, and the `cann_ops_transformer` Python extension exposing QFA and its metadata producer. These dependencies are separate from the `sgl_kernel_npu` wheel. This operator has been tested with CANN 9.2.0.
 
 ## Signature
 

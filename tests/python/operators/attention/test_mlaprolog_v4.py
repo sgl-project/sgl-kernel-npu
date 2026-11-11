@@ -85,12 +85,13 @@ def accuracy_cases():
 
 
 @pytest.fixture(scope="module", autouse=True)
-def require_cann_920():
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
     from sgl_kernel_npu.operators.utils.cann import detect_cann_version
 
     version = detect_cann_version()
-    if version != "9.2.0":
-        pytest.skip(f"MLAProlog V4 requires CANN 9.2.0; detected {version}")
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(f"MLAProlog V4 requires CANN >= 9.2.0 (found {version})")
 
 
 @pytest.fixture
