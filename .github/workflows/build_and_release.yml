@@ -100,8 +100,24 @@ jobs:
           "
       - name: Verify SGL-Kernel-NPU wheel
         run: |
-          unzip -l output/sgl_kernel_npu-*.whl |
-            grep 'sgl_kernel_npu/_third_party/sgl_cann_recipes_infer/'
+          set -euo pipefail
+
+          WHEEL="$(
+            find output -maxdepth 1 \
+              -name 'sgl_kernel_npu-*.whl' \
+              -print -quit
+          )"
+
+          test -n "${WHEEL}"
+          unzip -l "${WHEEL}" > /tmp/wheel-files.txt
+
+          grep 'sgl_kernel_npu/_third_party/sgl_cann_recipes_infer/' \
+            /tmp/wheel-files.txt
+
+          grep 'sgl_kernel_npu/_cann/vendors/sgl_ops_transformer' \
+            /tmp/wheel-files.txt
+
+          cat /tmp/wheel-files.txt
             
       - name: Pack up packages
         run: |
