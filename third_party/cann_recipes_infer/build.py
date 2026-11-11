@@ -10,6 +10,8 @@ from pathlib import Path
 from build_tools.cann import run
 from build_tools.third_party import detect_soc_version, extract_python, read_json
 
+from third_party.opapi import isolate_staged_opapis
+
 
 def configure(config, jobs):
     config = dict(config)
@@ -17,9 +19,10 @@ def configure(config, jobs):
     if not isinstance(operators, dict) or not operators:
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
-        if any(
+        kernels = kernel if isinstance(kernel, list) else [kernel]
+        if not kernels or any(
             not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
-            for name in (interface, kernel)
+            for name in [interface] + [name for name in kernels if name is not None]
         ):
             raise ValueError("Invalid recipes interface or kernel name")
     config["soc"] = detect_soc_version()
@@ -31,7 +34,16 @@ def configure(config, jobs):
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(dict.fromkeys(operators.values()))
+    config["kernel_ops"] = ";".join(
+        dict.fromkeys(
+            name
+            for kernel in operators.values()
+            for name in (kernel if isinstance(kernel, list) else [kernel])
+            if name is not None
+        )
+    )
+    if not config["kernel_ops"]:
+        raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
     config["commands"] = [
         [argument.format(**values) for argument in command]
@@ -58,7 +70,8 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        content = (upstream / (op + ".cpp")).read_text()
+        source_name = "npu_" + op if op == "indexer_compress_epilog" else op
+        content = (upstream / (source_name + ".cpp")).read_text()
         content = content.replace(
             "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
         )
@@ -111,12 +124,11 @@ def inspect_vendor(vendor, item):
 
     require(vendor / "op_api/lib/libcust_opapi.so")
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
-    for op in item["ops"]:
-        name = item["ops"][op]
+    for name in item["kernel_ops"].split(";"):
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
-            raise RuntimeError("No recipes AICore binaries for " + op)
+            raise RuntimeError("No recipes AICore binaries for " + name)
         for binary in binaries:
             require(binary)
             read_json(require(binary.with_suffix(".json")))
@@ -157,6 +169,7 @@ def stage(result, package):
     shutil.copytree(vendor, target)
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     extract_python(
         result["wheel"],
         item["python_package"],
@@ -172,4 +185,10 @@ def stage(result, package):
         for path in target.rglob("*")
         if path.is_file()
     }
-    return dict(item, vendor_directory=vendor.name, files=files, binding="precompiled")
+    return dict(
+        item,
+        vendor_directory=vendor.name,
+        files=files,
+        binding="precompiled",
+        opapi_soname=opapi_sonames[vendor.name],
+    )

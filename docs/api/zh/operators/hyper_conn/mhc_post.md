@@ -7,8 +7,6 @@
 | cann_ops_transformer | 已验证 | 已验证 |
 | torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
 
-已在 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 环境验证：每台设备的 16 项独立 Torch 参考精度用例全部通过，覆盖 FP16/BF16 激活与 FP32 参数。
-
 ## 函数原型
 
 ```python

@@ -105,13 +105,19 @@ def resolve_plan(
             flush=True,
         )
         return []
-    plan = []
+    builds = []
     for config_path in configs:
         if root.resolve() not in config_path.resolve().parents:
             raise ValueError("Dependency configuration escapes third_party")
         config = read_json(config_path)
         # Profile documentation is not part of the build configuration or cache key.
         config.pop("_comment", None)
+        # One upstream profile can require separate regular/experimental vendors.
+        additional = config.pop("additional_builds", [])
+        builds.append((config_path, config))
+        builds.extend((config_path, dict(config, **build)) for build in additional)
+    plan = []
+    for config_path, config in builds:
         if not isinstance(config.get("has_aicpu", False), bool):
             raise ValueError("has_aicpu must be a boolean")
         if not re.fullmatch(r"[0-9a-f]{40}", config["commit"]):
@@ -223,6 +229,8 @@ def _artifact_hashes(result, root):
     """Check all delivered files, including missing/added files and symlink targets."""
     hashes = {}
     for key in ("vendor", "wheel", "license"):
+        if key == "wheel" and not result["config"].get("python_bindings", True):
+            continue
         path = result[key]
         if not path.exists():
             raise ValueError("Missing cached artifact: " + str(path))
@@ -249,7 +257,9 @@ def _load_cached(path, root, item, fingerprint):
         if record["fingerprint"] != fingerprint:
             return None
         result = dict(config=item)
-        for key in ("vendor", "wheel", "license"):
+        for key in ("vendor", "license") + (
+            ("wheel",) if item.get("python_bindings", True) else ()
+        ):
             relative = PurePosixPath(record["artifacts"][key])
             if relative.is_absolute() or ".." in relative.parts:
                 return None
@@ -293,6 +303,7 @@ def build_dependencies(plan, source_root=PROJECT_ROOT):
                     "artifacts": {
                         key: result[key].relative_to(root).as_posix()
                         for key in ("vendor", "wheel", "license")
+                        if key != "wheel" or item.get("python_bindings", True)
                     },
                     "hashes": _artifact_hashes(result, root),
                 }
