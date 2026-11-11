@@ -1,0 +1,120 @@
+name: Kernel Coverage PR Smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/kernel-coverage-pr-smoke.yml'
+      - 'scripts/collect_python_coverage.py'
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: a3
+            hardware: a3
+            runner: linux-aarch64-a3-800t-2
+          - chip: a5
+            hardware: '950'
+            runner: linux-amd64-a5-1
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    container:
+      image: quay.io/ascend/cann:9.1.0-${{ matrix.hardware }}-ubuntu22.04-py3.12
+    env:
+      CANN_VERSION: '9.1.0'
+      NPU_HARDWARE: ${{ matrix.hardware }}
+      GITHUB_PROXY_URL: https://gh-proxy.test.osinfra.cn/
+      HCCL_BUFFSIZE: 4096
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version "$CANN_VERSION"
+          bash scripts/prepare_kernel_tests.sh
+      - name: Collect kernel coverage
+        env:
+          PIP_INDEX_URL: https://mirrors.huaweicloud.com/repository/pypi/simple
+        run: |
+          python -m pip install coverage
+          python scripts/collect_python_coverage.py tests/python/operators/norm/test_layer_norm_fwd.py --output-dir coverage-out
+          git rev-parse HEAD > coverage-out/baseline-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-coverage-${{ matrix.chip }}
+          path: coverage-out/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  build-map:
+    needs: coverage
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_EXEC_TIMEOUT_SECONDS: '900'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: baseline-src
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: kernel-coverage-*
+          path: baselines
+      - name: Install coverage
+        env:
+          PIP_INDEX_URL: https://mirrors.huaweicloud.com/repository/pypi/simple
+        run: python -m pip install coverage
+      - name: Validate coverage inputs
+        shell: bash
+        run: |
+          for chip in a3 a5; do
+            dir="baselines/kernel-coverage-$chip"
+            test "$(cat "$dir/baseline-sha.txt")" = "$GITHUB_SHA"
+            test -s "$dir/coverage.xml"
+            test -n "$(find "$dir" -type f -path '*/covdata/coverage' -print -quit)"
+          done
+      - name: Map installed package paths to baseline source
+        shell: bash
+        run: |
+          config="$RUNNER_TEMP/kernel-merge.coveragerc"
+          printf '[paths]\nkernel =\n    %s\n    */site-packages/sgl_kernel_npu\n' \
+            "$GITHUB_WORKSPACE/baseline-src/python/sgl_kernel_npu/sgl_kernel_npu" > "$config"
+          while IFS= read -r -d '' data; do
+            # Apply [paths] to each database while retaining its test identity.
+            tmp="$(mktemp -d "$RUNNER_TEMP/kernel-coverage.XXXXXXXX")"
+            COVERAGE_FILE="$tmp/coverage" python -m coverage combine \
+              --rcfile="$config" --keep "$data"
+            mv -- "$tmp/coverage" "$data"
+            rmdir -- "$tmp"
+          done < <(find baselines -type f \( -path '*/covdata/coverage' -o -name '.coverage' \) -print0)
+      - name: Build A3 map
+        uses: lb-actions/precision-test@v1.0.9
+        with:
+          repo: sglang
+          build-map: true
+          source-dir: ${{ github.workspace }}/baseline-src
+          coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a3
+          map-file: ${{ github.workspace }}/baselines/kernel-coverage-a3/test_case_map.json
+      - name: Build A5 map
+        uses: lb-actions/precision-test@v1.0.9
+        with:
+          repo: sglang
+          build-map: true
+          source-dir: ${{ github.workspace }}/baseline-src
+          coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a5
+          map-file: ${{ github.workspace }}/baselines/kernel-coverage-a5/test_case_map.json
+      - name: Save coverage and maps for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-coverage-map-smoke
+          path: baselines/
+          include-hidden-files: true
+          if-no-files-found: error
