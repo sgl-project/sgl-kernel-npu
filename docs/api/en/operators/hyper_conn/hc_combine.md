@@ -20,7 +20,14 @@ def hc_combine(block, residual, normed, weight, hc, hs, *, impl="auto"):
 
 ## Description
 
-HC gated residual injection: contiguous BF16 block[R,2560], residual/normed[R,10240], weight[4,10240], hc=4, hs=2560. Returns BF16 residual + block*2*sigmoid(normed@weight.T/4), without modifying inputs. auto selects the Triton/native hybrid.
+Add the same block row to four residual groups, each with its own gate. With `hc=4` and `hs=2560`:
+
+```text
+gate = 2 * sigmoid(normed @ weight.T / 4)  # [R,4]
+output[r, h*2560+d] = residual[r, h*2560+d] + gate[r, h] * block[r, d]
+```
+
+Here `h=0..3` and `d=0..2559`. The output is contiguous BF16 `[R,10240]`. `auto` selects the Triton/native hybrid.
 
 All tensors are on the same NPU. Inputs are not modified; zero rows return empty output.
 

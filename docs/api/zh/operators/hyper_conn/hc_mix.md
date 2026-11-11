@@ -20,7 +20,7 @@ def hc_mix(x, down, up, hc, hs, *, impl="auto"):
 
 ## 说明
 
-HC 门控混合：连续 BF16 x[R,10240]、down[320,10240]、up[10240,320]，hc=4、hs=2560。使用 FP32 投影和 SiLU(x@down.T/4)，再对四个分支做 sigmoid 门控平均，输出 BF16[R,2560]。SiLU 复用公共 fused_sigmoid_mul。
+HC 门控混合：连续 BF16 x[R,10240]、down[320,10240]、up[10240,320]，hc=4、hs=2560。使用 FP32 投影和 SiLU(x@down.T/4)，再对四个分支做 sigmoid 门控平均，输出 BF16[R,2560]。SiLU 复用 `fused_sigmoid_mul` 的 Triton 实现。
 
 所有张量位于同一 NPU，输入不修改；零行返回空输出。
 

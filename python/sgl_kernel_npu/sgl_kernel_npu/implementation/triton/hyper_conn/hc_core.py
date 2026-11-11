@@ -1,9 +1,4 @@
-"""Hyperconnection mix/combine with native GEMMs and Triton elementwise kernels.
-
-Reduction order and backend math are not bitwise CUDA parity guarantees.
-Mix/combine use FP32 intermediates and row chunking.
-In particular, mix does not add the GPU small-row fused BF16 SiLU boundary.
-"""
+"""HC mix/combine with FP32 projections and Triton gates."""
 
 from functools import lru_cache
 
@@ -58,9 +53,7 @@ def _combine(B, R, G, Y, ROWS: tl.constexpr, BLOCK: tl.constexpr):
         tl.store(Y + offset, y, col[None, :] < 2560)
 
 
-# At 4096 rows the measured unchunked FP32 mix uses about 203 MiB extra.
-# This block bounds projection temporaries; full public outputs still grow with R.
-# It is a memory scheduling choice, not a model input limit or R32 fast path.
+# Chunk rows to bound FP32 projection temporaries; the output still grows with R.
 ROW_BLOCK = 4096
 # With a preallocated full output, chunking begins to save combine scratch
 # beyond two blocks. Use the same resource boundary for both operations.

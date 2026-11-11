@@ -39,86 +39,18 @@ def _validate(x, weight, dilation, single_token):
 
 
 def launch_info(x, weight, dilation, *, single_token=False):
-    """Check the model contract and choose settings for one convolution kernel.
+    """Validate depthwise convolution inputs and choose the channel tile.
 
-    What this computes
-    ------------------
-    Like the GPU model's F.conv1d call, each channel uses its own K weights;
-    channels are not mixed. The operation has stride=1, groups=C, no bias
-    and no additional padding. State preparation and SiLU stay in the caller.
+    x is [B,10240,9+W] and weight is [10240,1,4], contiguous on the same
+    NPU with matching BF16 or FP16 dtype. Dilation is 3 and W is 1..4.
+    The caller supplies nine history positions followed by W new tokens.
+    For example, input [B,10240,13] produces output [B,4,10240].
+    single_token=True requires W=1 and returns [B,10240].
 
-    Inputs and axes
-    ---------------
-        conv_input   [B, C, T]   cached history followed by new token values
-        weight       [C, 1, K]   one filter per channel; keep the middle axis
-
-        B   batch size, including any rows padded by the caller
-        C   channels: hidden_size(2560) * hc_count(4) = 10240
-        K   filter size: 4
-        T   history length + number of new tokens
-        W   output width: T - (K - 1) * dilation = T - 9
-
-    Qwen4ExpPLELayer fixes C and K as above and uses dilation=ngram_size=3,
-    giving 9 history positions. C is not divided by tensor-parallel size.
-    B is dynamic, including zero; benchmark batch sizes are not a limit.
-
-    What the caller must provide
-    ----------------------------
-    - Concatenate the 9 history positions and W new positions along T.
-      For example: cat([state, new_tokens_in_BCT_layout], dim=-1).
-    - Pass contiguous input and weight tensors on the same NPU, with the
-      same dtype: BF16 or FP16. Keep the model's weight.to(input.dtype)
-      before this call, and pass the full [C, 1, K] weight without squeezing.
-      The wrapper does not cast mismatched dtypes or repair tensor layouts.
-    - Use dilation=3 and W in {1, 2, 3, 4}. For current topk=1 verification,
-      W=steps+1: steps 1/2/3 produce W=2/3/4. The inspected model's QSA
-      compression ratio limits verification to 4. Ordinary prefill is
-      outside this wrapper's integration scope.
-    - Pass a bool for single_token; True is valid only when W=1.
-      Tensor spans must also pass the int32 safety check below.
-
-    The caller retains state/tracking writes, MTP caching, padding and valid
-    token handling, output-token selection and SiLU. This kernel computes
-    every supplied row; it does not decide which rows/tokens are valid.
-
-    Outputs and examples
-    --------------------
-        single_token=True    [B, C]      requires W=1
-        single_token=False   [B, W, C]   token axis before channel axis
-
-        Input shape       W   single_token   Output shape
-        [B, 10240, 10]    1   True           [B, 10240]
-        [B, 10240, 10]    1   False          [B, 1, 10240]
-        [B, 10240, 11]    2   False          [B, 2, 10240]
-        [B, 10240, 12]    3   False          [B, 3, 10240]
-        [B, 10240, 13]    4   False          [B, 4, 10240]
-
-    All examples use weight [10240, 1, 4] and dilation=3. Outputs are
-    contiguous and preserve input dtype/device. Inputs and weights are
-    not modified. Unlike F.conv1d's [B, C, W] result, the general output
-    is already arranged as [B, W, C] for the model.
-
-    One computation path
-    --------------------
-    Every supported nonempty input uses _packed_conv, for both dtypes and
-    every supported W. B=0 returns an empty output after validation without
-    launching a kernel. Unsupported metadata raises; there is no fallback.
-
-    Internal scheduling (the same algorithm in all cases)
-    ----------------------------------------------------
-    A tile is a group of channels processed together. Tile sizes are tuning
-    choices, not different convolution implementations:
-
-        Output width   Channel tile for B=1   Channel tile for B>1
-        W=1            512                    1024
-        W=2..4         256                     512
-
-    These tile sizes divide C evenly. Each tile loads input values once,
-    forms products and sums them in FP32, then stores in the input dtype.
-    Power-of-two loads mask their unused tail. The grid uses at most the
-    vector core count, with each program looping over its assigned tiles.
-    Programs may reuse weights between batches when their channel tile
-    stays the same; no weights are cached across wrapper calls.
+    All supported shapes use the same FP32-accumulating Triton kernel.
+    W=1 uses 512/1024-channel tiles for B=1/B>1; W=2..4 uses 256/512.
+    Smaller tiles limit temporary storage when computing several tokens.
+    Empty batches launch no kernel. State updates and SiLU stay in the caller.
     """
     width = _validate(x, weight, dilation, single_token)
     b, c, t = x.shape

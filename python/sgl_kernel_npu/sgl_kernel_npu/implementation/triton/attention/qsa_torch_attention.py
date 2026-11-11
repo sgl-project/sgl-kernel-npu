@@ -50,66 +50,21 @@ def _gather(
 
 
 def torch_attention(q, k, v, slots, scale):
-    """Compute the production hybrid attention after wrapper metadata checks.
+    """Compute selected attention with masked gathers and FP32 matrices.
 
-    Chunk shapes and computation
-    ----------------------------
-        Q       [R,Hq,256]       K/V pool [N,Hkv,256]
-        slots   [R,S]           output   [R,Hq,256], contiguous BF16
+    The caller validates BF16 Q[R,Hq,256], K/V[N,Hkv,256] and int32
+    slots[R,S], handles empty inputs, and supplies the softmax scale.
+    This path handles local head pairs 24:2, 12:1 and 6:1. KV heads are
+    folded into the matrix batch; the full KV pool is never copied.
 
-    The wrapper owns the full input, numerical and graph contract, handles
-    empty inputs and scale defaults, and dispatches TP1/2/4 here:
-    (Hq,Hkv)=(24,2),(12,1),(6,1). This helper is not an independent reference
-    fallback. K/V are contiguous pool views; the pool is never copied.
+    Gather selected K/V, compute softmax(scale * QK), multiply by V, and
+    cast the output to BF16. Negative slots are masked before gathering;
+    all-padding rows return zero. Duplicate slots remain separate columns.
 
-    Let C=Hkv (1 or 2), G=Hq/C (6 or 12), and b be rows in the current chunk.
-    For C=1, Triton gathers selected keys and values as FP32 [b,S,256]:
-        query [b,G,256] @ keys.transpose(1,2) [b,256,S]
-            -> scores [b,G,S]
-        probabilities = softmax(scale*scores, along S, padding masked)
-        probabilities [b,G,S] @ values [b,S,256] -> [b,G,256]
-
-    For C=2, fold row and KV-head into a batch of b*C:
-        query [b*C,G,256], gathered keys/values [b*C,S,256]
-        scores reshape to [b,C,G,S] to broadcast the [b,S] padding mask
-        probabilities reshape back to [b*C,G,S] for the final bmm
-        result [b*C,G,256] -> [b,C,G,256] -> output slice [b,Hq,256]
-    Both matrix products and softmax use FP32; only the result is cast to BF16.
-    G groups consecutive query heads sharing one KV head; duplicates in slots
-    remain separate matrix columns and retain their softmax contributions.
-
-    Row chunks and gather launches
-    ------------------------------
-        chunk_rows = max(1, min(32, (16*1024**2) // (S*256*8*C)))
-    The 8 bytes per element are two FP32 gather buffers (K and V). Always
-    process at least one row; the last chunk may be smaller. For S=2051:
-    C=1 permits 3 rows per chunk, C=2 permits 1. Thus Q=[32,24,256] uses
-    32 one-row chunks with two KV heads folded into each matrix batch.
-
-    16 MiB is only a gather target, not total temporary or graph memory.
-    A single large-S row can exceed it. Output, query conversion, scores,
-    probabilities, masks and other intermediates are additional allocations.
-    Chunking is resource management within the hybrid, not another algorithm.
-
-    Each Triton gather task copies 32 selected entries of width 256. The
-    flattened entry count is b*C*S; at most 65535 tasks are launched at once,
-    with further launches advancing the entry offset. Pool and entry offsets
-    use int64. Negative slots are masked before loads, and invalid entries
-    are written as zero in the gathered buffers; slot 0 is never a dummy row.
-
-    Padding, anomalies and replay
-    -----------------------------
-    Computed -Inf scores are changed to NaN before the padding mask supplies
-    its own -Inf sentinel. After softmax, invalid probabilities are set to
-    zero. This preserves exact all-padding zeros without clearing anomalies
-    in valid data. Nonfinite values otherwise follow arithmetic; no pool scan,
-    host synchronization, exception recovery, or service-stop guarantee is added.
-
-    Fixed-shape gathers and matrices read updated Q/K/V/slots on graph replay.
-    The public wrapper's warmup, fixed metadata and control requirements apply.
-    Measurements justify retaining this path for other TP head pairs, with
-    eager and memory costs; mathematics does not require a separate hybrid.
-    Full-wrapper baselines, regressions and limits are in DELIVERY.md.
+    Row chunks target 16 MiB for two FP32 gather buffers (8 bytes per
+    entry per dimension), with at least one row. A single wide row may
+    exceed that target. Gather tasks copy 32 entries and launches are
+    capped at 65535 programs. Warm up before capturing fixed-shape replay.
     """
     if k.shape[1] > 1:
         return _batched_attention(q, k, v, slots, scale)

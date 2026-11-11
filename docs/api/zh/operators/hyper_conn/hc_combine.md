@@ -20,7 +20,14 @@ def hc_combine(block, residual, normed, weight, hc, hs, *, impl="auto"):
 
 ## 说明
 
-HC 残差合并：连续 BF16 block[R,2560]、residual/normed[R,10240]、weight[4,10240]，hc=4、hs=2560。门控为 2*sigmoid(normed@weight.T/4)，逐分支乘以 block 后加到 residual；输出连续 BF16[R,10240]。
+将同一行 block 加到四组 residual 中，每组使用自己的门控。固定 `hc=4`、`hs=2560`：
+
+```text
+gate = 2 * sigmoid(normed @ weight.T / 4)  # [R,4]
+output[r, h*2560+d] = residual[r, h*2560+d] + gate[r, h] * block[r, d]
+```
+
+其中 `h=0..3`，`d=0..2559`。输出为连续 BF16 `[R,10240]`。`auto` 选择 Triton/native 混合实现。
 
 所有张量位于同一 NPU，输入不修改；零行返回空输出。
 

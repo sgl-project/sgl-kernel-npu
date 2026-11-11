@@ -46,9 +46,10 @@ def hc_combine(block, residual, normed, weight, hc, hs, *, impl="auto"):
 
     block is BF16 [R,2560]; residual and normed are BF16 [R,10240]; weight
     is BF16 [4,10240]. All tensors are contiguous on the same NPU.
-    hc and hs are integers fixed at 4 and 2560. Return a new BF16 tensor
-    shaped as residual: residual + block * 2 * sigmoid(normed @ weight.T / 4),
-    with the block broadcast across groups. Inputs are unchanged.
+    hc and hs are fixed at 4 and 2560. Let gate = 2*sigmoid(normed@weight.T/4).
+    Each residual group receives the same block with its own gate:
+        out[r, h*2560+d] = residual[r, h*2560+d] + gate[r, h]*block[r, d]
+    Return a new BF16 [R,10240] tensor. Inputs are unchanged.
     impl defaults to auto, selecting the Triton/native hybrid.
 
     torch_native is an independent accuracy reference for use outside graph

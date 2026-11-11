@@ -259,7 +259,7 @@ def test_qsa_sparse_attention_scan_boundaries(rows, width):
 
 
 @pytest.mark.extra_checks
-@pytest.mark.parametrize("rows", [4, 33], ids=["direct-path", "streaming-path"])
+@pytest.mark.parametrize("rows", [4, 33], ids=["split-r4", "direct-r33"])
 @pytest.mark.parametrize("target", [0, 1, 2], ids=["q", "k", "v"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
 def test_qsa_sparse_attention_anomaly_isolation(rows, target, value):

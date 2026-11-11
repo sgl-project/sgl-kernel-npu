@@ -60,14 +60,3 @@ def combine(block, residual, normed, weight, hc, hs):
         core.combine if residual.shape[0] <= core.DIRECT_ROWS else core.combine_chunked
     )
     return implementation(block, residual, normed, weight, hc, hs)
-
-
-def path_name(op, args):
-    # Diagnostic only: tests/bench call this outside the timed/captured region.
-    if args[0].shape[0] == 0:
-        return "empty"
-    return (
-        "fp32_native_hybrid"
-        if args[0].shape[0] <= core.DIRECT_ROWS
-        else "chunked_fp32_native_hybrid"
-    )

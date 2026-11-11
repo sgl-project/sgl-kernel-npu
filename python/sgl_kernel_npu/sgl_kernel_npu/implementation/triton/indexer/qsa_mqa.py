@@ -1,113 +1,24 @@
-"""Model-scoped QSA MQA v1.1: one tiled scoring strategy, two K layouts.
+"""QSA MQA scoring for packed keys and paged key caches.
 
-Inputs and output
------------------
-Packed:
-    Q       [R, 4, 128]   contiguous BF16 queries
-    K       [M, 1, 128]   contiguous BF16 packed compressed keys
-    starts  [R]          contiguous int32 inclusive packed offsets
-    ends    [R]          contiguous int32 exclusive packed offsets
-    output  [R, M]       contiguous FP32; invisible columns are -inf
-Paged:
-    Q       [R, 4, 128]       contiguous BF16 queries
-    cache   [P, 16, 1, 128]   contiguous BF16 physical compressed-key pages
-    table   [R, L]           contiguous int32 logical-to-physical page map
-    lengths [R]              contiguous int32 valid logical-key counts
-    width                    Python int, exactly 16 * L
-    output  [R, 16 * L]      contiguous FP32; invalid columns are -inf
-All tensors must reside on the same NPU. R includes caller-padded query rows.
-M may concatenate complete compressed blocks from multiple requests. P > 0
-is physical allocation, not context length; 16 * L is output capacity.
+Queries are contiguous BF16 Q[R,4,128]. Packed K[M,1,128] uses int32
+starts/ends[R]; paged cache[P,16,1,128] uses int32 table[R,L] and
+lengths[R], with output width 16*L. All inputs are contiguous on one NPU.
 
-Upstream input contract
-----------------------
-The supported configuration has four replicated indexer Q heads (not divided
-by TP), one K head, D=128, BF16 model execution, full page size 64 and compression
-ratio 4. The pool explicitly stores BF16 keys. NPU Q norm/RoPE preparation and
-packed gathers provide contiguous tensors; metadata builders produce int32
-arrays. These facts are configuration/call-chain requirements, not consequences
-of this module's validator. GPU wrapper casting/contiguity/head adaptation is
-not reproduced here. Other model configurations require separate review.
-_validate checks shape, dtype, layout, device and width metadata only. Callers
-must guarantee 0 <= starts[r] <= ends[r] <= M; 0 <= lengths[r] <= 16 * L;
-live page IDs in [0, P); and finite, model-valid Q/live K with representable
-FP32 scores. Device contents are neither scanned nor repaired. No runtime
-rejection of bad device values is promised. Unused paged IDs/cache values are
-irrelevant. Packed tiles may read keys outside a particular row's interval.
+score[r,j] = sum_h relu(dot(Q[r,h], K_for_row_r[j])) / sqrt(128).
+BF16 matrix products accumulate into FP32; invisible scores are -inf.
+Packed bounds must satisfy 0<=start<=end<=M. Paged lengths must fit
+16*L and live page IDs must be in [0,P). Live Q/K must be finite and
+produce representable scores. These device contents are caller guarantees.
+For example, paged length 17 writes 17 scores and pads the rest with -inf.
 
-Examples and computation paths
-------------------------------
-The caller chooses the entry by K storage; the kernel does not guess:
-  packed(...): flat K[M,1,128], with starts/ends giving each row's key range.
-  paged(...):  cache[P,16,1,128], with table/lengths locating each row's keys.
-Both use the same scoring algorithm. Q row count or a prefill/decode/verify
-label does not switch K storage. In particular, R=1 can still use packed.
+Packed tiles use 128 key columns below M=1024, otherwise 256, with at
+most 16 or 8 query rows respectively. Paged tiles use one query row
+and 256 keys; four heads are padded internally to a 16-row matrix tile.
+These tile sizes balance parallelism and compiler resources. Programs
+loop over tiles with the launch size capped at the compute-core count.
 
-Q and K/cache below are BF16; outputs are FP32.
-BQ x BN means query rows x key columns computed per tile.
-
-Q shape        | K / cache shape | Table  | Output      | Entry  | BQ x BN
----------------+-----------------+--------+-------------+--------+--------
-[1,4,128]      | [48,1,128]      | --     | [1,48]      | packed | 4 x 128
-[33,4,128]     | [257,1,128]     | --     | [33,257]    | packed | 16 x 128
-[4096,4,128]   | [1024,1,128]    | --     | [4096,1024] | packed | 8 x 256
-[1,4,128]      | [65536,1,128]   | --     | [1,65536]   | packed | 4 x 256
-[1,4,128]      | [P,16,1,128]    | [1,64] | [1,1024]    | paged  | 1 x 256
-[32,4,128]     | [P,16,1,128]    | [32,65]| [32,1040]   | paged  | 1 x 256
-
-Packed output width is M; crossing M=1024 changes tiles only, not the algorithm.
-Paged output width is 16*L, independent of physical page count P or live length.
-Extra tile rows/columns are masked: BQ=4 with R=1 still returns only one row.
-
-Condition                  | Output behavior                 | Launch kernel?
----------------------------+---------------------------------+---------------
-Paged width1040, length17   | 17 scores, then 1023 -inf values | Yes
-Nonempty, all-masked row    | Full-width row of -inf          | Yes
-R=0                        | Empty [0, width]                | No
-Packed M=0 / paged L=0      | Empty [R, 0]                    | No
-Empty inputs still undergo metadata checks; paged requires P>0 and width=16*L.
-
-Tiles and scheduling
---------------------
-Packed M<1024: BQ=min(16,max(4,next_power_of_2(R))), BN=128, HQ=4*BQ.
-Packed M>=1024: BQ=min(8,max(4,next_power_of_2(R))), BN=256, HQ=4*BQ.
-1024 is a coarse performance choice, not a support or semantic boundary.
-Paged: BQ=1, BN=256; four real heads are zero-padded to HQ=16 inside the
-matrix tile, without changing the external H=4 contract. Each key tile spans
-16 logical pages. Tail rows, keys and internal heads use masked loads/stores.
-There are ceil(R/BQ)*ceil(width/BN) tasks. Launch min(num_aicore,tasks) programs;
-program p handles p, p+programs, ... in row-major tile order. The core count is
-a cached runtime capability, not a device-name generation test. Bounded launch
-size addresses historical grid limits; tile sizes manage compiler resources
-and measured performance. They do not certify arbitrary device-memory sizes.
-Output is always full width and compiler workspace is additional memory.
-
-How scores are computed
------------------------
-score[r,j] = sum_h relu(sum_d Q[r,h,d] * K_for_row_r[j,d]) / sqrt(128).
-Matrix operands are BF16 with FP32 accumulation/output; FP fusion is disabled.
-Packed visibility is starts[r] <= j < ends[r]. Packed computes each matrix
-tile unconditionally, then selects visibility. Historical conditional packed
-trials were slower and a long-prefix graph trial failed; the exact cause was
-not established. This implementation retains the verified unconditional form.
-Paged addresses cache[table[r,j//16], j%16, 0, :]. It loads page IDs/keys only
-for valid logical keys and skips matrix work for wholly invisible key tiles,
-while still writing -inf to invalid output columns. Valid zero scores stay zero.
-There is no V, softmax, head weighting, TopK, custom scale or input mutation.
-
-Graph replay and limitations
-----------------------------
-Register the Torch NPU backend, select the device and run eager warmup for each
-shape before capture; this compiles kernels and caches the compute-core count.
-Capture with fixed shapes, dtypes, strides, width and device. Keep graph, input
-buffers, cache and captured output alive. Update Q/K/bounds/table/lengths in
-place at stable addresses, order updates before replay, and consume output
-before overwriting it on the next replay. New shapes require warmup/recapture.
-All device values remain on device; no host synchronization or content scan is
-added by these entries. Standalone replay tests do not prove whole-backend
-capture or model/TopK equivalence. No generic fallback, alternate dtype/layout,
-external padded H8, live-page clamp, NaN/inf repair or reserved-memory guarantee
-is provided. See HANDOFF.md for finite validation and integration acceptance.
+Inputs are unchanged. Warm up before capture and keep metadata fixed;
+Q, keys, bounds and page tables may be updated in place before replay.
 """
 
 import math
@@ -191,8 +102,6 @@ def _score(
                 & (cols[None, :] < ends[:, None])
             )
             # Compute packed tiles unconditionally, then apply row visibility.
-            # The conditional version stalled during long-prefix graph replay
-            # on the recorded toolchain; its exact failure cause is not established.
             q = tl.load(
                 Q + (row_base * 4 + heads[:, None]).to(tl.int64) * 128 + dims[None, :],
                 row_base * 4 + heads[:, None] < R * 4,

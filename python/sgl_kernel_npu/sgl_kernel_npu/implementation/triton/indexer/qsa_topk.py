@@ -1,8 +1,4 @@
-"""Exact NPU QSA Top-K for finite valid scores and contiguous row bounds.
-
-Production artifact: this file only; no legacy kernel/experiments imports.
-The finite-value premise is model-specific, not a restriction of GPU Top-K.
-"""
+"""Exact NPU QSA Top-K for finite valid scores and contiguous row bounds."""
 
 from functools import lru_cache
 
@@ -11,9 +7,10 @@ import triton
 import triton.language as tl
 from triton.language.extra.cann import extension as ext
 
-IMPLEMENTATION_VERSION = "qsa-model-v1"
 MAX_WIDTH = 2**24
+# Bound each packed FP32 allocation; native workspace and outputs are additional.
 WORKSPACE_BYTES = 128 * 1024 * 1024
+# Use native selection for wide or large matrices; keep smaller cases in Triton.
 TILED_MAX_WIDTH = 262144
 HYBRID_MIN_ROWS = 256
 HYBRID_MIN_COLUMNS = 2048
@@ -21,24 +18,12 @@ HYBRID_MIN_BYTES = 16 * 1024 * 1024
 
 
 def select_implementation(rows, columns, topk):
-    """Choose a schedule from score[R,M] and block_topk K, using host shapes.
+    """Choose shortcut, tiled or native hybrid selection from host shapes.
 
-    rows=R counts query rows; columns=M and topk=K count compressed blocks.
-    Reject M>2**24 before choosing even the empty case. Return "shortcut" for
-    R=0 or M<=K, but fast_topk handles these differently: R=0 only creates an
-    empty [0,K] output; nonempty M<=K launches ordered-index/padding writes.
-    Otherwise choose hybrid if ANY of these conditions holds:
-    - M>262144;
-    - R*M*4>=128 MiB;
-    - R>=256 AND M>=2048 AND R*M*4>=16 MiB.
-    All remaining shapes use tiled. R*M*4 is logical FP32 input size, excluding
-    gaps in score.stride(0). No lengths, starts or scores are read on the host.
-
-    The row/column guards avoid switching small-row or narrow matrices solely
-    on total size. These are coarse tuning choices, not semantic boundaries
-    or a proven optimal crossover. Individual L<=K rows still take
-    short-row handling inside tiled/hybrid; their values do not change this
-    host dispatch. See fast_topk for examples, chunking and exact computation.
+    Empty inputs and widths no larger than K use the shortcut. Large
+    matrices use the hybrid to bound tiled-sort work; smaller ones use
+    Triton. The row and column thresholds are performance choices, not
+    input limits. No scores or row bounds are read on the host.
     """
     if columns > MAX_WIDTH:
         raise ValueError(f"score width exceeds supported maximum {MAX_WIDTH}")
@@ -412,136 +397,25 @@ def hybrid_topk(score, lengths, topk, row_starts=None):
 
 
 def fast_topk(score, lengths, topk, row_starts=None):
-    """Select exact sequence-local compressed QSA block indices.
+    """Select sequence-local compressed block indices into int32 [R,K].
 
-    Inputs and output
-    -----------------
-        score       [R, M]   FP32 scores, with contiguous columns on an NPU
-        lengths     [R]      contiguous int32 valid lengths on the same NPU
-        row_starts  [R]      contiguous int32 starts, or None for all zeros
-        output      [R, K]   new contiguous int32 tensor on the same NPU
+    score is FP32 [R,M] with contiguous columns; lengths and optional
+    row_starts are contiguous int32 [R] on the same NPU. K is 512 or 2048,
+    and M<=2**24. Each row selects score[r,start:start+length]. Callers
+    must provide valid bounds and finite scores inside that interval.
 
-        R           query rows in this call, including caller-padded rows
-        M           physical columns in each score row, in compressed blocks
-        K           block_topk output slots: Python int 512 or 2048
-        S, L        a row's start and valid length; select score[r,S:S+L]
+    For length<=K, return [0,...,length-1] followed by -1 padding. Longer
+    rows return K indices selecting the largest scores; ties may choose
+    different indices and the output need not be score-sorted. For example,
+    start=10 and returned index 2 refer to score column 12.
 
-    M, K, S and L count compressed blocks, NOT original tokens. Current model:
-    token budget=2048, compression ratio=4, hence block_topk=512. K=2048 is also
-    supported by QSA configuration checks and the GPU interface. TP does not
-    mechanically divide these dimensions by the TP degree. Output index b
-    refers to score[r,S+b], not physical column b or an original token slot.
+    Small matrices use tiled sorting to find the exact selection threshold.
+    Larger ones pack valid intervals and call torch.topk per row chunk.
+    Tiled launches stay within 65535 programs; each hybrid pack allocation
+    is bounded by 128 MiB. Outputs and native workspace use additional memory.
 
-    Upstream construction and wrapper contract
-    ------------------------------------------
-    Prefill M is the total number of packed compressed keys across requests;
-    R is the current query chunk, after the caller's prefill row chunking.
-    Prefix sums and index_select provide each query's packed start; complete
-    visible block counts determine its end. The framework passes ends-starts
-    as lengths. Decode/verify M comes from compressed page-table capacity and
-    the caller's MQA output width; each query has its own valid length, often
-    with S=0. R is not fixed to the current number of requests, nor is M fixed
-    to one request's valid length. Graph buffers use contiguous prefix slices.
-
-    The wrapper checks host metadata and raises ValueError for violations:
-    - The shapes/dtypes/devices above and strided tensor layout; score must
-      have stride(1)=1 and nonnegative stride(0), which may exceed M. Bounds
-      must be is_contiguous(), including framework-contiguous prefix slices.
-    - K must be a Python int in {512,2048}; bool is not accepted. M<=2**24,
-      even for R=0. Score byte span and output size must fit signed int64.
-      Actual allocations still require enough device memory.
-    GPU JIT permits score row stride and requires contiguous bounds through
-    TensorMatcher. The width cap is this NPU wrapper's support boundary, not
-    a GPU/model theoretical limit or a fixed maximum number of requests.
-
-    The caller guarantees device contents; these are NOT scanned/validated:
-    - 0<=S, 0<=L and S+L<=M. In-row endpoints beyond int32 are unsupported;
-      normal cross-row row*stride addresses still use int64.
-    - Every valid score is finite FP32. Finite negative values and ties,
-      including many ReLU zeros, are supported. Valid NaN/+inf/-inf have no
-      correctness guarantee: there is no runtime rejection, repair or rescan.
-    QSA forms scores using sum(ReLU(QK))/positive_scale. ReLU is not sufficient
-    to guarantee finiteness: invalid inputs or overflow can break the premise.
-    The GPU general entrypoint does not explicitly enforce this model premise.
-    Invalid columns may contain arbitrary data, including -inf/NaN; they are
-    not read for selection. No full-score validation or host scalar sync is
-    added. Unsupported metadata does not silently enter a reference fallback.
-
-    Shape dispatch and examples
-    ---------------------------
-        score shape; K          schedule             output shape
-        -----------------------+--------------------+--------------
-        [0,4096]; 512           shortcut: empty      [0,512]
-        [8,256]; 512            shortcut: M<=K       [8,512]
-        [8,4096]; 512           tiled                [8,512]
-        [4096,1024]; 512        tiled (narrow)       [4096,512]
-        [2047,16384]; 512       hybrid (combined)    [2047,512]
-        [2048,16384]; 512       hybrid (128 MiB)     [2048,512]
-        [2,262145]; 2048        hybrid (width)       [2,2048]
-
-    After metadata checks, R=0 returns an empty tensor with no kernel launch.
-    For nonempty M<=K, the shape and caller bounds imply every L<=K: launch
-    ordered relative-index/padding writes using lengths, without reading
-    scores or starts. Otherwise hybrid is selected for M>262144, R*M*4>=128 MiB,
-    or the conjunction R>=256 AND M>=2048 AND R*M*4>=16 MiB. All other shapes
-    use tiled. See select_implementation for the centralized threshold policy.
-    These are coarse scheduling choices, not mathematical semantics or proven
-    optimal performance points. The combined condition improves measured large
-    packed-prefill cases, but hybrid needs more temporary memory and can lose
-    to tiled in graph replay with short valid intervals. It does not inspect
-    those intervals on the host or change the 128 MiB pack-allocation budget.
-    A row with L<=K inside a wider matrix is also short, but cannot trigger
-    the host shape shortcut: tiled/hybrid handle it internally on the device.
-
-    Tiles and row chunks
-    --------------------
-    Tiled: M<=4096 uses one padded sort tile per long row, with programs up to
-    the vector-core count looping over rows. Larger M uses 4096-element tiles,
-    retains K values per tile, and recursively reduces these candidates until
-    one tile gives the exact K-th-largest threshold. Discarding a tile's lower
-    values is exact: each has at least K no-smaller values in its own tile.
-    For T=ceil(M/4096), process at most max(1,65535//T) rows per chunk so the
-    product of grid axes stays <=65535, including subsequent reduction stages.
-    Tail masks exclude columns outside each row's valid interval.
-
-    Hybrid: pack each row's [S,S+L) into relative columns starting at zero and
-    pad to P=ceil(M/32)*32 columns. Use at most
-    max(1,min(65535,128 MiB//(P*4))) rows per pack chunk. At M=2**24, each packed
-    row uses 64 MiB, so three rows need chunks of two and one. Pack tasks loop
-    over 4096-element tiles with a grid capped by the vector-core count.
-    The 128 MiB budget limits one pack allocation, NOT total output/native
-    workspace/graph-pool memory. Row chunks, alignment, masks and launch
-    parameters are resource scheduling within these algorithms, not new paths.
-    There is no extra wide-column subdivision or candidate-merge algorithm.
-
-    How the paths compute the result
-    --------------------------------
-    Shortcut writes [0,...,L-1,-1,...,-1] for each row; it performs no score
-    selection. Tiled uses the exact threshold, counts values strictly above
-    it and values equal to it, then emits all greater values and enough ties.
-    Per-tile counts give disjoint output ranges; relative indices are unique
-    and legal. The single-tile variant applies the same threshold/tie rule.
-    Short rows bypass score sorting and write ordered indices plus padding.
-
-    Hybrid reads valid scores only for L>K; other pack entries are -inf.
-    It invokes torch.topk once per row chunk. Finite valid scores strictly
-    outrank padding, so selected native indices already have relative meaning.
-    The finish kernel casts long-row indices to int32; for L<=K it ignores
-    native indices and writes the ordered short-row result with -1 padding.
-    No infinity repair, prefix scan or score-value rescan is needed.
-
-    For L>K, exactly K indices select the largest-value multiset; ties may
-    choose different indices across valid implementations and output need not
-    be score-sorted. For L<=K, order is fixed. Valid block indices always form
-    a prefix followed only by -1, as required by the downstream expansion.
-    Top-K does not expand tokens, append MTP slots or map logical to physical
-    addresses; those remain caller responsibilities.
-
-    Inputs are unchanged. R/M may vary between calls. Warm up before graph
-    capture; replay may update scores, lengths and starts independently in
-    place while preserving the contract. Shapes, strides, storage, K and the
-    presence/absence of starts remain fixed within that graph. Graph/output
-    lifetimes and valid versus inert padded query rows remain with the caller.
+    Inputs are unchanged. Warm up before graph capture; keep metadata and
+    K fixed, and update scores and row bounds in place before replay.
     """
     if type(topk) is not int or topk not in (512, 2048):
         raise ValueError("QSA NPU top-k supports integer K=512 or 2048")
