@@ -3,64 +3,16 @@
 import pytest
 import torch
 
-from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import DEFAULT_STANDARDS
 
 
-def recurrent_reference(
-    q, k, v, g, beta, initial_state, cu_seqlens, scale, normalize, chunk_size=64
-):
-    """Independent tokenwise recurrence, including entering chunk states."""
-    dtype, device = q.dtype, q.device
-    q, k, v, g, beta = (x.detach().cpu() for x in (q, k, v, g, beta))
-    if normalize:
-        q, k = (
-            (
-                x.float() * torch.rsqrt(x.float().square().sum(-1, keepdim=True) + 1e-6)
-            ).to(dtype)
-            for x in (q, k)
-        )
-    q, k, v, g, beta = (x.double() for x in (q, k, v, g, beta))
-    batch, tokens, groups, key_dim = k.shape
-    heads, value_dim = v.shape[-2:]
-    q, k = (x.repeat_interleave(heads // groups, dim=2) for x in (q, k))
-    scale = key_dim**-0.5 if scale is None else scale
-    if cu_seqlens is None:
-        sequences = [(b, 0, tokens) for b in range(batch)]
-    else:
-        bounds = cu_seqlens.cpu().tolist()
-        sequences = [(0, start, end) for start, end in zip(bounds, bounds[1:])]
-    output = torch.empty_like(v)
-    final_states, chunks = [], []
-    for sequence, (b, start, end) in enumerate(sequences):
-        state = (
-            torch.zeros(heads, key_dim, value_dim, dtype=torch.float64, device="cpu")
-            if initial_state is None
-            else initial_state[sequence].detach().cpu().double().clone()
-        )
-        for t in range(start, end):
-            if (t - start) % chunk_size == 0:
-                chunks.append(state.to(dtype))
-            state = state * g[b, t].exp()[:, None, None]
-            residual = v[b, t] - torch.einsum("hk,hkv->hv", k[b, t], state)
-            state = state + torch.einsum(
-                "hk,hv->hkv", k[b, t], residual * beta[b, t, :, None]
-            )
-            output[b, t] = torch.einsum("hk,hkv->hv", q[b, t], state) * scale
-        final_states.append(state.float())
-    h = torch.stack(chunks).reshape(batch, -1, heads, key_dim, value_dim)
-    return (
-        output.to(device=device, dtype=dtype),
-        torch.stack(final_states).to(device),
-        h.to(device),
-    )
-
-
-def generate_data(bounds, dtype, with_state=True, noncontiguous=False):
+def generate_data(bounds, dtype, with_state=True, noncontiguous=False, fixed_length=65):
     # Synthetic token counts with Qwen3-Next TP4 head dimensions (Hg=4/H=8,
     # K=V=128), following the existing chunk_o public tests.
     torch.manual_seed(42)
-    tokens = 65 if bounds is None else bounds[-1]
+    tokens = fixed_length if bounds is None else bounds[-1]
     groups, heads, dim = 4, 8, 128
     q = torch.randn(1, tokens, groups, dim, dtype=dtype) * 0.05
     k = torch.randn_like(q) * 0.05
@@ -134,23 +86,34 @@ def test_chunk_gated_delta_rule_npu(
     # Omit the flag in True cases to check the legacy True default.
     if not output_final_state:
         options["output_final_state"] = False
-    actual = chunk_gated_delta_rule_npu(**data, **options, impl=impl)
-    # Use the independent recurrence for every case. The legacy fixed-length
-    # WY kernel references an undefined i_t and cannot serve as an oracle.
-    reference = list(
-        recurrent_reference(
-            **data,
-            scale=scale,
-            normalize=normalize,
-        )
-    )
-    if not output_final_state:
-        reference[1] = None
     # FP32 final states inherit the pipeline's input-dtype rounding error.
     standard = {"torch.float32": DEFAULT_STANDARDS[str(dtype)]}
-    assert_accuracy(actual, tuple(reference), standard=standard)
+    executor = check_accuracy(
+        chunk_gated_delta_rule_npu,
+        kwargs={**data, **options},
+        impl=impl,
+        standard=standard,
+    )
     for name, original in saved.items():
         torch.testing.assert_close(data[name], original, atol=0, rtol=0)
+    check_performance(executor, enable_perf=False)
+
+
+def test_chunk_gated_delta_rule_npu_qwen3_next_tp4_prefill(monkeypatch):
+    from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
+
+    # Qwen3-Next-80B-A3B-Instruct: 16 key heads, 32 value heads, K=V=128.
+    # https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json
+    # TP4 gives Hg=4/H=8; 2048 tokens represent a prefill workload.
+    monkeypatch.setenv("GDN_USE_MEGA_GDN", "0")
+    monkeypatch.setenv("TRITON_F32_DEFAULT", "ieee")
+    data = generate_data(None, torch.bfloat16, with_state=False, fixed_length=2048)
+    executor = check_accuracy(
+        chunk_gated_delta_rule_npu,
+        kwargs={**data, "use_qk_l2norm_in_kernel": True},
+        standard={"torch.float32": DEFAULT_STANDARDS["torch.bfloat16"]},
+    )
+    check_performance(executor, enable_perf=True)
 
 
 @pytest.mark.parametrize("output_final_state", [False, True])
@@ -162,11 +125,10 @@ def test_chunk_gated_delta_rule_npu_mega(output_final_state, monkeypatch):
     monkeypatch.setenv("GDN_USE_MEGA_GDN", "1")
     data = generate_data((0, 31, 100), torch.float16)
     options = dict(output_final_state=output_final_state)
-    actual = chunk_gated_delta_rule_npu(**data, **options)
-    reference = list(
-        recurrent_reference(**data, scale=None, normalize=False, chunk_size=128)
-    )
-    if not output_final_state:
-        reference[1] = None
     standard = {"torch.float32": DEFAULT_STANDARDS["torch.float16"]}
-    assert_accuracy(actual, tuple(reference), standard=standard)
+    executor = check_accuracy(
+        chunk_gated_delta_rule_npu,
+        kwargs={**data, **options},
+        standard=standard,
+    )
+    check_performance(executor, enable_perf=False)

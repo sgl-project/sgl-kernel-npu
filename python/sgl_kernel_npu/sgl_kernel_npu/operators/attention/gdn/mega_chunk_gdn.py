@@ -13,19 +13,17 @@ _torch_native_fn = None
 @register_impl(
     "attention.gdn.mega_chunk_gdn", "ascendc", supported_generations={Generation.ARCH22}
 )
-def _ascendc_impl(*args):
+def _ascendc_impl(*args, **kwargs):
     global _ascendc_fn
     if _ascendc_fn is None:
-        from ....implementation.ascendc.attention.gdn.mega_chunk_gdn import (
-            run_mega_chunk_gdn,
-        )
+        from ._mega_chunk_gdn import run_mega_chunk_gdn
 
         _ascendc_fn = run_mega_chunk_gdn
-    return _ascendc_fn(*args)
+    return _ascendc_fn(*args, **kwargs)
 
 
 @register_impl("attention.gdn.mega_chunk_gdn", "torch_native")
-def _torch_native_impl(*args):
+def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
         from ....implementation.torch_native.attention.gdn.mega_chunk_gdn import (
@@ -33,7 +31,7 @@ def _torch_native_impl(*args):
         )
 
         _torch_native_fn = run_mega_chunk_gdn
-    return _torch_native_fn(*args)
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gdn.mega_chunk_gdn")

@@ -7,6 +7,7 @@ import torch
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
+_torch_native_fn = None
 
 
 @register_impl("attention.gdn.chunk_gated_delta_rule_npu", "auto")
@@ -14,12 +15,22 @@ _triton_fn = None
 def _triton_impl(*args, **kwargs):
     global _triton_fn
     if _triton_fn is None:
-        from ....implementation.triton.attention.gdn.chunk import (
-            chunk_gated_delta_rule_npu,
-        )
+        from .chunk import chunk_gated_delta_rule_npu
 
         _triton_fn = chunk_gated_delta_rule_npu
     return _triton_fn(*args, **kwargs)
+
+
+@register_impl("attention.gdn.chunk_gated_delta_rule_npu", "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ....implementation.torch_native.attention.gdn.chunk_gated_delta_rule_npu import (
+            chunk_gated_delta_rule_npu,
+        )
+
+        _torch_native_fn = chunk_gated_delta_rule_npu
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("attention.gdn.chunk_gated_delta_rule_npu")

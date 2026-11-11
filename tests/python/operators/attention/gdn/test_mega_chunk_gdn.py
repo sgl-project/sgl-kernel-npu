@@ -9,6 +9,7 @@ from tests.python.utils.common import (
     require_distinct_impls,
     require_test_impl,
 )
+from tests.python.utils.performance import check_performance
 
 
 def generate_data(heads, groups, bounds, dtype, with_state, scale=None):
@@ -65,11 +66,24 @@ def check_mega_accuracy(operator, data):
     return executor
 
 
-# Keep the legacy head-configuration tests unchanged. These three cases target
-# the new CANN bridge, dtype restoration and state/packed-sequence forwarding.
+# Cover CANN bridge boundaries and one representative model prefill workload.
 @pytest.mark.parametrize(
     "heads,groups,bounds,dtype,with_state,packed,output_final_state,scale",
     [
+        # Qwen3-Next-80B-A3B-Instruct has 16 key/32 value heads and K=V=128.
+        # https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json
+        # TP4 gives Hg=4/H=8; 2048 tokens represent a prefill workload.
+        pytest.param(
+            8,
+            4,
+            (0, 2048),
+            torch.bfloat16,
+            False,
+            False,
+            True,
+            None,
+            id="qwen3-next-tp4-prefill",
+        ),
         pytest.param(
             8,
             4,
@@ -126,6 +140,10 @@ def test_mega_chunk_gdn(
         for name, value in data.items()
         if isinstance(value, torch.Tensor)
     }
-    check_mega_accuracy(mega_chunk_gdn, data)
+    executor = check_mega_accuracy(mega_chunk_gdn, data)
     for name, value in saved.items():
         torch.testing.assert_close(data[name], value, atol=0, rtol=0)
+    check_performance(
+        executor,
+        enable_perf=bounds == (0, 2048) and dtype == torch.bfloat16,
+    )

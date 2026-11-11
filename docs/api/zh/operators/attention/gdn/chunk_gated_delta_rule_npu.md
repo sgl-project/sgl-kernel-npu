@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
@@ -50,7 +51,7 @@ Packed 输入中的各序列独立维护状态。
 | `cu_seqlens` | `torch.Tensor` 或 `None` | `[N+1]` | `torch.int32`、`torch.int64` | `None` | 输入 NPU 上的 packed 序列边界：首项为 0、末项为 `T`，序列长度为正；`None` 表示固定长度输入。 |
 | `head_first` | `bool` | — | — | `False` | 仅支持 `False`；传入 `True` 时抛出 `DeprecationWarning`。 |
 | `use_qk_l2norm_in_kernel` | `bool` | — | — | `False` | 在注意力计算前沿最后一维归一化 Q/K。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"triton"`。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"triton"`、`"torch_native"`。 |
 
 | 返回值 | 类型 | 形状 | 数据类型 | 说明与约束 |
 | --- | --- | --- | --- | --- |
@@ -72,7 +73,13 @@ Packed 输入的初始状态数必须满足 `N=len(cu_seqlens)-1`。
 - 设置 `GDN_USE_MEGA_GDN=1` 时使用 128-token 分块的原生
   [mega_chunk_gdn](mega_chunk_gdn.md) 路径，并遵循它的形状和 dtype 约束。
   该路径仅支持 ARCH22，在 ARCH35 上不会自动回退。
-- 提供推理所需的前向计算，保留既有中间 dtype 和类型转换。本接口没有 `torch_native` 后端。
+- 提供推理所需的前向计算，保留既有中间 dtype 和类型转换。
+
+## torch_native 后端
+
+- 在 CPU 上以 FP64 独立计算逐 token 递推，再恢复输出 dtype 和设备，支持相同的归一化、缩放和状态选项。
+- 设置 `GDN_USE_MEGA_GDN=1` 时使用独立 mega 分块代数参考，包括其 FP16 转换和 128-token 分块状态。
+- 为精度检查提供参考实现。
 
 ## 调用示例
 

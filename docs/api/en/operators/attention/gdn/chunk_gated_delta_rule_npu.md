@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
@@ -51,7 +52,7 @@ It is registered separately from the fused CANN `chunk_gated_delta_rule` API.
 | `cu_seqlens` | `torch.Tensor` or `None` | `[N+1]` | `torch.int32`, `torch.int64` | `None` | Packed sequence boundaries on the input NPU: first value 0, last value `T`, positive sequence lengths. `None` means fixed-length input. |
 | `head_first` | `bool` | — | — | `False` | Only `False` is supported; `True` raises `DeprecationWarning`. |
 | `use_qk_l2norm_in_kernel` | `bool` | — | — | `False` | Normalize Q/K along the last dimension before attention. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"` or `"triton"`. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"triton"`, or `"torch_native"`. |
 
 | Return value | Type | Shape | Dtype | Description and constraints |
 | --- | --- | --- | --- | --- |
@@ -75,7 +76,15 @@ some are explicitly validated.
   [mega_chunk_gdn](mega_chunk_gdn.md) path and its shape/dtype constraints.
   This path is ARCH22-only; it does not fall back automatically on ARCH35.
 - Provides forward execution for inference, preserving the existing intermediate
-  dtypes and casts. This interface has no `torch_native` backend.
+  dtypes and casts.
+
+## torch_native backend
+
+- Computes an independent tokenwise recurrence on CPU in FP64 and restores the
+  output dtypes and device. Supports the same normalization, scale and state options.
+- With `GDN_USE_MEGA_GDN=1`, uses the independent mega chunk-algebra reference,
+  including its FP16 conversions and 128-token entering states.
+- Provides the reference implementation for accuracy checks.
 
 ## Example
 
