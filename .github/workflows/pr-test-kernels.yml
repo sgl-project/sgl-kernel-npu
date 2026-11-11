@@ -129,6 +129,10 @@ jobs:
               - python/sgl_kernel_npu/sgl_kernel_npu/operators/hyper_conn/**
               - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/hyper_conn/**
               - tests/python/operators/hyper_conn/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/operators/diffusion/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/triton/diffusion/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/implementation/torch_native/diffusion/**
+              - tests/python/operators/diffusion/**
               - csrc/batch_matmul_transpose/**
               - csrc/catlass/**
               - csrc/lora/**
