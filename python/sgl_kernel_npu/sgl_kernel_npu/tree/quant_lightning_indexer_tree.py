@@ -568,6 +568,9 @@ def quant_lightning_indexer_tree(
     residual: torch.Tensor,
     metadata: torch.Tensor,
     topk: int,
+    *,
+    max_length: int | None = None,
+    validate_values: bool = True,
 ) -> torch.Tensor:
     """Return the TopK compressed-KV indices for every tree node, ``[n, 1, topk]``.
 
@@ -575,6 +578,13 @@ def quant_lightning_indexer_tree(
     ``docs/tree_ops_semantics.md`` §4.  ``metadata`` is validated and ignored
     (D2) and ``residual`` is ABI-only.  ``sparse_values`` is not produced
     (``return_value == 0`` in the vendor binding).
+
+    ``max_length`` is the exact maximum of ``lengths`` in compressed slots.
+    By default it is computed on device and read back; a supplied value is
+    checked against that result. Trusted callers may validate immutable
+    per-step geometry once and pass ``validate_values=False`` together with
+    the cached maximum to avoid repeated value checks/readbacks. Shape,
+    dtype and device checks remain enabled. Never reuse across verify steps.
     """
     check_tensor("query", query, dtype=torch.int8, rank=3, contiguous=True)
     n = int(query.shape[0])
@@ -654,7 +664,7 @@ def quant_lightning_indexer_tree(
             )
 
     check_page_table("table", table)
-    check_cu_arange("cu", cu, n)
+    check_cu_arange("cu", cu, n, check_values=validate_values)
 
     for name, tensor in (("lengths", lengths), ("residual", residual)):
         check_tensor(name, tensor, dtype=torch.int32, rank=1, contiguous=True)
@@ -691,7 +701,16 @@ def quant_lightning_indexer_tree(
 
     # Tiling (host side, mirrors the vendor tiler's max_kv): the compressed
     # history fits in the output -> chronological indices, no kernel at all.
-    max_len = int(lengths.max().item())
+    if max_length is not None and (type(max_length) is not int or max_length < 0):
+        raise TreeContractError("max_length: expected a nonnegative Python int")
+    if max_length is None or validate_values:
+        max_len = int(lengths.max().item())
+        if max_length is not None and max_length != max_len:
+            raise TreeContractError(
+                f"max_length: expected lengths.max() == {max_len}, got {max_length}"
+            )
+    else:
+        max_len = max_length
     max_kv = max_len * _RATIO
     if max(1, max_kv // _RATIO) <= topk:
         return _select_all(lengths, topk)

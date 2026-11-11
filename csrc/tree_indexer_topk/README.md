@@ -100,3 +100,31 @@ export SGL_TREE_INDEXER_TL_TOPK=0
 After standalone correctness passes, reproduce the original long-output request
 past the first real C4 TopK selection, then repeat the same serving benchmark.
 This change makes no claim about end-to-end throughput until those runs finish.
+
+## Per-verify metadata reuse in SGLang
+
+The matching SGLang `dspark-topk` adapter can cache the exact maximum compressed
+length, validate `query_cu` once, and reuse the 1024-element placeholder metadata
+tensor across indexer layers in the same immutable `NodePlan`. A new verify step
+gets a new plan; explicit caller-owned lengths retain normal validation. No
+candidate bounds, score computation or TopK implementation are changed.
+
+Update **both** repositories and reinstall the kernel Python package for this
+adapter change. Its new keyword-only `max_length` / `validate_values` arguments
+are Python API additions; the AscendC binary interface has not changed.
+Direct kernel callers still validate device values by default, including checking
+a supplied maximum against the actual maximum.
+
+The adapter defaults to reuse. To compare the old per-layer preparation with
+the new per-step preparation, keep `SGL_TREE_INDEXER_TOPK_IMPL=ascendc` and the
+same workload, restarting the server with each setting:
+
+```bash
+export SGLANG_DSPARK_INDEXER_REUSE_METADATA=1  # reuse within a verify step
+# export SGLANG_DSPARK_INDEXER_REUSE_METADATA=0  # original preparation
+```
+
+For a trace with 21 real indexer calls per step, indexer `cu` equality checks and
+maximum-length readbacks should drop from 21 to 1 per step, as should placeholder
+metadata creation. Total `item`/`max` counts also include other model paths and
+will not drop to one. Measure serving throughput separately from profiling.
