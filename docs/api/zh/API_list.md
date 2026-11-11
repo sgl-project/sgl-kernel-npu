@@ -146,3 +146,17 @@
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
 | [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
 | [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |
+
+## QSA、PLE 与 hyperconnection
+
+| API | 实现 |
+| --- | --- |
+| [short_conv](operators/mamba/short_conv.md) | `triton`, `torch_native` |
+| [qsa_mqa_packed](operators/indexer/qsa_mqa_packed.md) | `triton`, `torch_native` |
+| [qsa_mqa_paged](operators/indexer/qsa_mqa_paged.md) | `triton`, `torch_native` |
+| [qsa_topk](operators/indexer/qsa_topk.md) | `triton`, `torch_native` |
+| [expand_qsa_blocks](operators/indexer/expand_qsa_blocks.md) | `triton`, `torch_native` |
+| [qsa_sparse_attention](operators/attention/qsa_sparse_attention.md) | `triton`, `torch_native` |
+| [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `triton`, `torch_native` |
+| [hc_mix](operators/hyper_conn/hc_mix.md) | `triton`, `torch_native` |
+| [hc_combine](operators/hyper_conn/hc_combine.md) | `triton`, `torch_native` |

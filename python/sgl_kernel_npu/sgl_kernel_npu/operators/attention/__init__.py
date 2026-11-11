@@ -27,6 +27,7 @@ from .mixed_quant_sparse_flash_mla_metadata_dsl import (
 from .mla_preprocess import mla_preprocess
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
+from .qsa_sparse_attention import qsa_sparse_attention
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
 from .sparse_attn_sharedkv import sparse_attn_sharedkv
@@ -67,4 +68,5 @@ __all__ = [
     "mixed_quant_sparse_flash_mla_metadata",
     "get_mixed_quant_sparse_flash_mla_metadata_size",
     "get_sparse_flash_mla_metadata_size",
+    "qsa_sparse_attention",
 ]
