@@ -10,10 +10,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
+    get_skip_acc_check,
     get_test_impls,
     make_executor,
     require_distinct_impls,
+    require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 
@@ -23,6 +26,69 @@ perf_shape = [(78, 21, 128, 512, 64, 128)]
 # make out-of-bounds layer writes visible and give indexer views a non-zero
 # offset inside the block.
 GUARD_SLOTS_PER_SIDE = 1
+
+
+def generate_data(pool, layout, shape, dtype, packed, *, with_reference=True):
+    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+        register_host_memory,
+    )
+
+    layers, index_layers, ps, k_width, v_width, index_width = shape
+    large = layers == 78
+    device_pages, host_pages = (33, 17) if large else (8, 10)
+    source = [32, 1, 29, 4, 23, 7, 19] if large else [6, 2]
+    saved = [1, 8, 15, 3, 12, 5, 16] if large else [1, 8]
+    target = [0, 3, 11, 15, 20, 26, 31] if large else [0, 5]
+    components = []
+    for name, count, width, component_dtype in (
+        ("k", layers, k_width, dtype),
+        ("v", layers, v_width, dtype),
+        ("index_k", index_layers, index_width, dtype),
+        ("index_k_scale", index_layers if packed else 0, 1, torch.float32),
+    ):
+        if not count:
+            continue
+        values = (
+            torch.arange(count * device_pages * ps * width, device="cpu").reshape(
+                count, device_pages, ps, 1, width
+            )
+            % 127
+        ).to(component_dtype)
+        slots = count + 2 * GUARD_SLOTS_PER_SIDE
+        full_shape = (host_pages, slots, ps, 1, max(width, 1))
+        if layout == "layer_first":
+            full_shape = (slots, host_pages, ps, 1, max(width, 1))
+
+        def allocate_buffers():
+            device = values.npu()
+            full_host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
+            register_host_memory(full_host)
+            host = full_host
+            if name.startswith("index_"):
+                # Indexer storage has its own slot space, independent of KV layers.
+                first = GUARD_SLOTS_PER_SIDE
+                layer_axis = 1 if layout == "page_first" else 0
+                host = full_host.narrow(layer_axis, first, count)
+            if name == "index_k_scale":
+                device = device.squeeze(-1)
+            return device, host, full_host
+
+        device, host, full_host = allocate_buffers()
+        ref_device, ref_host, full_ref_host = (
+            allocate_buffers() if with_reference else (None, None, None)
+        )
+        components.append(
+            (name, device, host, ref_device, ref_host, values, full_host, full_ref_host)
+        )
+    actual, reference = {}, {}
+    for name, dev, host, rd, rh, *_ in components:
+        actual["device_" + name], actual["host_" + name] = dev, host
+        reference["device_" + name], reference["host_" + name] = rd, rh
+    actual["page_size"] = reference["page_size"] = ps
+    index_layer_ids = tuple(
+        slot * (layers - 1) // max(index_layers - 1, 1) for slot in range(index_layers)
+    )
+    return components, actual, reference, source, saved, target, index_layer_ids
 
 
 @pytest.fixture
@@ -46,7 +112,10 @@ def operators(configure_npu):
 @pytest.fixture
 def offload_runtime():
     from memfabric_hybrid import offload
-    from sgl_kernel_npu.host_memory import set_memfabric_pool, uninitialize_host_memory
+    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+        set_memfabric_pool,
+        uninitialize_host_memory,
+    )
 
     pool = offload.Offload()
     config = offload.OffloadConfig()
@@ -71,74 +140,96 @@ def token_indices(pages, page_size, device="cpu"):
     ).flatten()
 
 
-def generate_data(pool, layout, shape, dtype, packed):
-    from sgl_kernel_npu.host_memory import register_host_memory
-
-    layers, index_layers, ps, k_width, v_width, index_width = shape
-    large = layers == 78
-    device_pages, host_pages = (33, 17) if large else (8, 10)
-    source = [32, 1, 29, 4, 23, 7, 19] if large else [6, 2]
-    saved = [1, 8, 15, 3, 12, 5, 16] if large else [1, 8]
-    target = [0, 3, 11, 15, 20, 26, 31] if large else [0, 5]
-    components = []
-    for name, count, width, component_dtype in (
-        ("k", layers, k_width, dtype),
-        ("v", layers, v_width, dtype),
-        ("index_k", index_layers, index_width, dtype),
-        ("index_k_scale", index_layers if packed else 0, 1, torch.float32),
-    ):
-        if not count:
-            continue
-        values = (
-            torch.arange(count * device_pages * ps * width, device="cpu").reshape(
-                count, device_pages, ps, 1, width
-            )
-            % 127
-        ).to(component_dtype)
-        device = values.npu()
-        slots = count + 2 * GUARD_SLOTS_PER_SIDE
-        full_shape = (host_pages, slots, ps, 1, max(width, 1))
-        if layout == "layer_first":
-            full_shape = (slots, host_pages, ps, 1, max(width, 1))
-        host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
-        ref_device = values.npu()
-        ref_host = pool.empty(list(full_shape), dtype=component_dtype).fill_(77)
-        register_host_memory(host)
-        register_host_memory(ref_host)
-        full_host, full_ref_host = host, ref_host
-        if name.startswith("index_"):
-            # Indexer storage has its own slot space, independent of KV layers.
-            first = GUARD_SLOTS_PER_SIDE
-            host = (
-                host[:, first : first + count]
-                if layout == "page_first"
-                else host[first : first + count]
-            )
-            ref_host = (
-                ref_host[:, first : first + count]
-                if layout == "page_first"
-                else ref_host[first : first + count]
-            )
-        if name == "index_k_scale":
-            device, ref_device = device.squeeze(-1), ref_device.squeeze(-1)
-        components.append(
-            (name, device, host, ref_device, ref_host, values, full_host, full_ref_host)
-        )
-    actual, reference = {}, {}
-    for name, dev, host, rd, rh, *_ in components:
-        actual["device_" + name], actual["host_" + name] = dev, host
-        reference["device_" + name], reference["host_" + name] = rd, rh
-    actual["page_size"] = reference["page_size"] = ps
-    index_layer_ids = tuple(
-        slot * (layers - 1) // max(index_layers - 1, 1) for slot in range(index_layers)
-    )
-    return components, actual, reference, source, saved, target, index_layer_ids
-
-
 def assert_bytes_equal(actual, expected):
     a = actual.cpu().contiguous().view(torch.uint8)
     b = expected.cpu().contiguous().view(torch.uint8)
-    assert torch.equal(a, b)
+    assert_accuracy(a, b)
+
+
+def check_transfer_accuracy(operators, data, shape, layout, *, skip_accuracy):
+    backup, load = operators
+    impl, impl_ref = get_test_impls()
+    for operator in operators:
+        if skip_accuracy:
+            require_test_impl(operator, impl)
+        else:
+            require_distinct_impls(operator, impl, impl_ref)
+
+    # Each in-place implementation receives independently registered buffers.
+    components, actual, reference, source, saved, target, index_layer_ids = data
+    ps, layers = shape[2], shape[0]
+    source_indices = token_indices(source, ps, "npu")
+    saved_indices = token_indices(saved, ps, "npu")
+    target_indices = token_indices(target, ps, "npu")
+    ready, written = torch.npu.Event(), torch.npu.Event()
+    write, read = torch.npu.Stream(), torch.npu.Stream()
+    ready.record()
+    with torch.npu.stream(write):
+        write.wait_event(ready)
+        backup(source_indices, saved_indices, **actual, host_layer_start=1, impl=impl)
+        written.record()
+    if not skip_accuracy:
+        backup(
+            source_indices,
+            saved_indices,
+            **reference,
+            host_layer_start=1,
+            impl=impl_ref,
+        )
+        write.synchronize()
+        # Compare all Host bytes, including guard layers and untouched pages.
+        for _, _, _, _, _, _, full, ref_full in components:
+            assert_bytes_equal(full, ref_full)
+
+    # The performance executor uses the last layer. Accuracy checks all layers.
+    for layer in (layers - 1,) if skip_accuracy else range(layers):
+        slot = index_layer_ids.index(layer) if layer in index_layer_ids else None
+        # Deliberately use different source/destination layer IDs.
+        selection = dict(
+            device_layer_id=(layer + 1) % layers,
+            host_layer_id=layer + 1,
+            device_index_layer_id=(slot + 1) % shape[1] if slot is not None else None,
+            host_index_layer_id=slot,
+        )
+        with torch.npu.stream(read):
+            read.wait_event(written)
+            load(target_indices, saved_indices, **actual, **selection, impl=impl)
+        if not skip_accuracy:
+            load(target_indices, saved_indices, **reference, **selection, impl=impl_ref)
+    read.synchronize()
+    if not skip_accuracy:
+        for name, dev, host, ref_dev, ref_host, original, full, ref_full in components:
+            assert_bytes_equal(dev, ref_dev)
+            assert_bytes_equal(full, ref_full)
+            if not dev.numel():
+                continue
+            # Check an independent CPU snapshot of D2H, beyond implementation agreement.
+            payload = host if layout == "page_first" else host.transpose(0, 1)
+            first_layer = 0 if name.startswith("index_") else GUARD_SLOTS_PER_SIDE
+            expected = original[:, source]
+            copied = payload[saved, first_layer : first_layer + dev.shape[0]].transpose(
+                0, 1
+            )
+            if dev.ndim == 4:
+                expected = expected.squeeze(-1)
+                copied = copied.squeeze(-1)
+            assert_bytes_equal(copied, expected)
+
+    # Repeated calls overwrite the same destinations with identical bytes.
+    return tuple(
+        make_executor(
+            operator,
+            args=args,
+            kwargs=kwargs,
+            impl=impl,
+            impl_ref=impl_ref,
+            accuracy_checked=not skip_accuracy,
+        )
+        for operator, args, kwargs in (
+            (backup, (source_indices, saved_indices), dict(actual, host_layer_start=1)),
+            (load, (target_indices, saved_indices), dict(actual, **selection)),
+        )
+    )
 
 
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
@@ -160,84 +251,23 @@ def assert_bytes_equal(actual, expected):
     ],
 )
 def test_roundtrip(offload_runtime, operators, layout, shape, dtype, packed):
-    backup, load = operators[layout]
-    impl, impl_ref = get_test_impls()
-    require_distinct_impls(backup, impl, impl_ref)
-    require_distinct_impls(load, impl, impl_ref)
-    components, actual, reference, source, saved, target, index_layer_ids = (
-        generate_data(offload_runtime, layout, shape, dtype, packed)
+    skip_accuracy = bool(get_skip_acc_check())
+    data = generate_data(
+        offload_runtime, layout, shape, dtype, packed, with_reference=not skip_accuracy
     )
-    ps, layers = shape[2], shape[0]
-    source_indices = token_indices(source, ps, "npu")
-    saved_indices = token_indices(saved, ps, "npu")
-    target_indices = token_indices(target, ps, "npu")
-    ready, written = torch.npu.Event(), torch.npu.Event()
-    write, read = torch.npu.Stream(), torch.npu.Stream()
-    ready.record()
-    with torch.npu.stream(write):
-        write.wait_event(ready)
-        backup(source_indices, saved_indices, **actual, host_layer_start=1, impl=impl)
-        written.record()
-    backup(
-        source_indices, saved_indices, **reference, host_layer_start=1, impl=impl_ref
+    executors = check_transfer_accuracy(
+        operators[layout], data, shape, layout, skip_accuracy=skip_accuracy
     )
-    write.synchronize()
-    # Compare all Host bytes, including guard layers and untouched pages.
-    for _, _, _, _, _, _, full, ref_full in components:
-        assert_bytes_equal(full, ref_full)
-
-    for layer in range(layers):
-        slot = index_layer_ids.index(layer) if layer in index_layer_ids else None
-        # Deliberately use different source/destination layer IDs.
-        selection = dict(
-            device_layer_id=(layer + 1) % layers,
-            host_layer_id=layer + 1,
-            device_index_layer_id=(slot + 1) % shape[1] if slot is not None else None,
-            host_index_layer_id=slot,
-        )
-        with torch.npu.stream(read):
-            read.wait_event(written)
-            load(target_indices, saved_indices, **actual, **selection, impl=impl)
-        load(target_indices, saved_indices, **reference, **selection, impl=impl_ref)
-    read.synchronize()
-    for name, dev, host, ref_dev, ref_host, original, full, ref_full in components:
-        assert_bytes_equal(dev, ref_dev)
-        assert_bytes_equal(full, ref_full)
-        if not dev.numel():
-            continue
-        # Check an independent CPU snapshot of D2H, beyond implementation agreement.
-        payload = host if layout == "page_first" else host.transpose(0, 1)
-        first_layer = 0 if name.startswith("index_") else GUARD_SLOTS_PER_SIDE
-        expected = original[:, source]
-        copied = payload[saved, first_layer : first_layer + dev.shape[0]].transpose(
-            0, 1
-        )
-        if dev.ndim == 4:
-            expected = expected.squeeze(-1)
-            copied = copied.squeeze(-1)
-        assert_bytes_equal(copied, expected)
-
-    # Repeated calls overwrite the same destinations with identical bytes.
-    # These in-place APIs require manual accuracy and isolated reference inputs.
-    for operator, args, kwargs in (
-        (backup, (source_indices, saved_indices), dict(actual, host_layer_start=1)),
-        (load, (target_indices, saved_indices), dict(actual, **selection)),
-    ):
-        executor = make_executor(
-            operator,
-            args=args,
-            kwargs=kwargs,
-            impl=impl,
-            impl_ref=impl_ref,
-            accuracy_checked=True,
-        )
+    for executor in executors:
         check_performance(executor, enable_perf=shape in perf_shape)
 
 
 def test_layer_first_does_not_merge_strided_host_pages(
     offload_runtime, operators, monkeypatch
 ):
-    from sgl_kernel_npu.host_memory import register_host_memory
+    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+        register_host_memory,
+    )
 
     # Give each AIV core two consecutive pages, even on different SoCs.
     monkeypatch.setenv("SGLANG_KV_EXCHANGE_BLOCK_DIM", "2")
@@ -276,7 +306,10 @@ def test_layer_first_does_not_merge_strided_host_pages(
 @pytest.mark.usefixtures("operators")
 @pytest.mark.parametrize(
     "device_dtype,host_dtype",
-    [(torch.int32, torch.int64), (torch.int64, torch.int32)],
+    [
+        pytest.param(torch.int32, torch.int64, id="device-int32"),
+        pytest.param(torch.int64, torch.int32, id="host-int32"),
+    ],
 )
 def test_native_submit_rejects_non_int64_indices(device_dtype, host_dtype):
     device_indices = torch.empty(0, dtype=device_dtype, device="npu")
@@ -295,9 +328,16 @@ def test_native_submit_rejects_non_int64_indices(device_dtype, host_dtype):
 @pytest.mark.parametrize(
     "selection",
     [
-        {"device_layer_id": -1, "host_layer_id": 0},
-        {"device_layer_id": 0, "host_layer_id": 999},
-        {"device_layer_id": 0, "host_layer_id": 0, "device_index_layer_id": 0},
+        pytest.param(
+            {"device_layer_id": -1, "host_layer_id": 0}, id="negative-device-layer"
+        ),
+        pytest.param(
+            {"device_layer_id": 0, "host_layer_id": 999}, id="host-layer-out-of-range"
+        ),
+        pytest.param(
+            {"device_layer_id": 0, "host_layer_id": 0, "device_index_layer_id": 0},
+            id="unpaired-indexer-layer",
+        ),
     ],
 )
 def test_reject_invalid_layer_selection(offload_runtime, operators, layout, selection):

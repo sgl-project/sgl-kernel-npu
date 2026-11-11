@@ -1,11 +1,8 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
-The caller owns initialized MemFabric resources and Host storage. Input
-lifetime rides on the caching allocator's stream-ordered reuse (the C++
-adapter record_stream's every NPU input). The AIV kv_exchange kernel
-receives the whole transfer description inside its launch parameter block,
-so no pinned staging, meta upload or per-submission event remains on the
-submission path. NPU graph capture is not supported by this AIV path.
+The caller owns the registered Host storage. The ACLNN adapter records
+NPU tensors on the caller's stream and provides the transfer description
+through CANN tiling. NPU graph capture is not supported by this AIV path.
 """
 
 from threading import Lock
@@ -113,7 +110,7 @@ def _resolve_host_dva(host):
     # registration table (host_register + host_get_device_pointer at
     # allocation time, interior views by byte offset) is the ONLY DVA source;
     # unregistered MF memory is an error with no HVA/get_dva fallback.
-    from sgl_kernel_npu.host_memory import resolve_host_dva
+    from .host_memory import resolve_host_dva
 
     return resolve_host_dva(host)
 
@@ -121,10 +118,7 @@ def _resolve_host_dva(host):
 def _submit_aiv(components, di, hi, page_size, direction, host_layout):
     # Host tensors have PF-shaped metadata views even when their storage is LF.
     # Actual page/layer strides preserve the original physical layout.
-    # The C++ kv_exchange adapter packs the component/pitch/width/layer
-    # description into the kernel launch parameter block and record_stream's
-    # every NPU input, so nothing else outlives the call on the host side.
-    host_dvas = [_resolve_host_dva(host) for _, host in components]
+    # The ACLNN adapter passes the component description to CANN tiling.
     torch.ops.npu.kv_exchange(
         di,
         hi,

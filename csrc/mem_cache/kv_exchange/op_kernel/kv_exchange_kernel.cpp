@@ -14,15 +14,16 @@
  */
 
 #include "kernel_operator.h"
+#include "kv_exchange_tiling.h"
 
 #define HYBM_AICORE_KERNEL __attribute__((always_inline)) __aicore__ __inline__
 
 // Same UB double-buffer budget as the KV sparse-copy kernel: one entry is
 // copied through an 88KB UB slot, entries larger than that are split.
 constexpr int64_t KV_EXCHANGE_UB_BUFFER_SIZE = 88 * 1024;
-constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
-// Transfer description. The kv_exchange entry receives it as flat kernel
-// launch parameters (device-validated contract):
+using optiling::KV_EXCHANGE_MAX_COMPONENTS;
+using optiling::KV_EXCHANGE_META_STRIDE;
+// Transfer description from CANN tiling data:
 //   num_components (<= 4, k/v/index_k/index_k_scale order)
 //   num_pages      page_size
 //   direction: 1 = H2D, 2 = D2H
@@ -34,14 +35,13 @@ constexpr int32_t KV_EXCHANGE_MAX_COMPONENTS = 4;
 //       native acc_offload occupancy (blockDim - 2, i.e. only the last
 //       2 AIV cores copy, keeping the rest free for concurrent compute);
 //       0 means all launched cores participate (perf-sweep override).
-//   per component c (9 launch parameters):
+//   per component c (9 metadata fields):
 //   [0] device_base  [1] host_base (device-visible address of the host page,
 //       i.e. DVA produced by aclrtHostRegister on the caller side)
 //   [2] device_layer_pitch  [3] device_page_pitch   (bytes)
 //   [4] host_page_pitch     [5] host_layer_pitch    (bytes)
 //   [6] width (bytes of one (page, layer) row)  [7] layer_lo  [8] layer_hi
 // A component with layer_lo >= layer_hi (or width <= 0) transfers nothing.
-constexpr int32_t KV_EXCHANGE_META_STRIDE = 9;
 
 // start_dim < 0: reserve the last 2 AIV cores (native acc_offload occupancy).
 constexpr int32_t KV_EXCHANGE_START_DIM_DEFAULT = -1;
@@ -80,9 +80,7 @@ public:
 
     HYBM_AICORE_KERNEL OffloadKvExchangeKernel() {}
 
-    // Assembly from the flat transfer description. The kv_exchange entry
-    // passes every field as a launch parameter, so the description never
-    // round-trips through device memory.
+    // Use the transfer description resolved by CANN tiling.
     HYBM_AICORE_KERNEL void Init(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx,
                                  int64_t numComponents, int64_t numPages, int64_t pageSize, int64_t direction,
                                  int64_t hostLayoutMode, int64_t startDim,
@@ -491,37 +489,16 @@ private:
     bool skip_ = false;
 };
 
-// Per-component launch parameters (9 scalars each, same field order as the
-// legacy meta slots); c is the component index 0..3.
-#define KV_EXCHANGE_COMPONENT_PARAMS(c)                                                                  \
-    int64_t deviceBase##c, int64_t hostBase##c, int64_t deviceLayerPitch##c, int64_t devicePagePitch##c, \
-        int64_t hostPagePitch##c, int64_t hostLayerPitch##c, int64_t width##c, int64_t layerLo##c, int64_t layerHi##c
-
-#define KV_EXCHANGE_COMPONENT_ARGS(c)                                                                         \
-    deviceBase##c, hostBase##c, deviceLayerPitch##c, devicePagePitch##c, hostPagePitch##c, hostLayerPitch##c, \
-        width##c, layerLo##c, layerHi##c
-
-/*
- * Production entry: the whole transfer description travels inside the kernel
- * launch parameter block. No device-resident meta, no pinned host staging and
- * no separate H2D meta upload remain on the submission path.
- */
-extern "C" __global__ __aicore__ void kv_exchange(GM_ADDR device_indices, GM_ADDR host_indices, int64_t num_components,
-                                                  int64_t num_pages, int64_t page_size, int64_t direction,
-                                                  int64_t host_layout, int64_t start_dim,
-                                                  KV_EXCHANGE_COMPONENT_PARAMS(0), KV_EXCHANGE_COMPONENT_PARAMS(1),
-                                                  KV_EXCHANGE_COMPONENT_PARAMS(2), KV_EXCHANGE_COMPONENT_PARAMS(3))
+extern "C" __global__ __aicore__ void sgl_kv_exchange(GM_ADDR deviceIndices, GM_ADDR hostIndices,
+                                                      GM_ADDR deviceIndicesRef, GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+    REGISTER_TILING_DEFAULT(optiling::SglKvExchangeTilingData);
+    GET_TILING_DATA(data, tiling);
     AscendC::TPipe pipe;
     OffloadKvExchangeKernel op;
-    const int64_t comps[KV_EXCHANGE_MAX_COMPONENTS][KV_EXCHANGE_META_STRIDE] = {
-        {KV_EXCHANGE_COMPONENT_ARGS(0)},
-        {KV_EXCHANGE_COMPONENT_ARGS(1)},
-        {KV_EXCHANGE_COMPONENT_ARGS(2)},
-        {KV_EXCHANGE_COMPONENT_ARGS(3)},
-    };
-    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(device_indices), reinterpret_cast<__gm__ int64_t *>(host_indices),
-            num_components, num_pages, page_size, direction, host_layout, start_dim, comps);
+    op.Init(&pipe, reinterpret_cast<__gm__ int64_t *>(deviceIndices), reinterpret_cast<__gm__ int64_t *>(hostIndices),
+            data.numComponents, data.numPages, data.pageSize, data.direction, data.hostLayout, data.startDim,
+            data.components);
     op.Process();
 }

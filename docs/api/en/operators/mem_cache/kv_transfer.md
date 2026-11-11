@@ -5,9 +5,9 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `memfabric_aiv` | Supported | Supported |
-| `torch_native` | Unverified | Unverified |
+| `torch_native` | Supported | Supported |
 
-The AIV implementation has been validated on Ascend A3 (arch22) and A5 (arch35). Availability depends on a compatible runtime and registered Host memory.
+The AIV implementation targets Ascend A3 (arch22) and A5 (arch35). Availability depends on a compatible runtime and registered Host memory.
 
 ## Signatures
 
@@ -79,7 +79,9 @@ Each `(page,layer)` payload must be contiguous; gaps between pages in Host layer
 
 ## memfabric_aiv
 
-Resolves registered Host device addresses through `host_memory.resolve_host_dva` and submits through the in-tree `kv_exchange` CANN operator (`torch.ops.npu.kv_exchange`): the C++ adapter packs the transfer description -- actual layer/page strides, full-page byte width, PF/LF traversal mode and per-component layer ranges -- into the kernel launch parameter block and launches the AIV kernel on the caller's stream. The description never round-trips through device memory: no device-resident meta, no pinned staging and no separate H2D meta upload remain on the submission path.
+Resolves registered Host device addresses through the operator-local host-memory helper and calls the CANN `kv_exchange` operator (`torch.ops.npu.kv_exchange`). The Torch adapter passes component addresses, page and layer strides, and traversal parameters as an ACLNN attribute. CANN tiling delivers the description to the AIV kernel, which runs on the caller's stream.
+
+Build the CANN operator with `python3 setup.py --arch-version 2201 --ops kv_exchange` for A3 or use `--arch-version 3510` for A5.
 
 For MemFabric, create a `memfabric_hybrid.offload.Offload` instance, initialize `Scene.LOCAL` with `alloc_size == reserve_size`, publish it with `host_memory.set_memfabric_pool`, allocate Host buffers with `pool.empty`, and call `host_memory.register_host_memory` once per full allocation before passing its views to the transfer APIs. For ACL, allocate CPU tensors and call `host_memory.register_acl_host_memory` once per full allocation.
 
@@ -101,7 +103,7 @@ The AIV transfer path does not support NPU graph capture.
 import torch
 import torch_npu
 from memfabric_hybrid import offload
-from sgl_kernel_npu.host_memory import (
+from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
     register_host_memory,
     set_memfabric_pool,
     uninitialize_host_memory,

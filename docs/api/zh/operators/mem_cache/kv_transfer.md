@@ -5,9 +5,9 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `memfabric_aiv` | 支持 | 支持 |
-| `torch_native` | 未验证 | 未验证 |
+| `torch_native` | 支持 | 支持 |
 
-AIV 实现已在 Ascend A3（arch22）和 A5（arch35）上验证。运行时需匹配对应硬件，并提供已注册的 Host 内存。
+AIV 实现面向 Ascend A3（arch22）和 A5（arch35）。运行时需匹配对应硬件，并提供已注册的 Host 内存。
 
 ## 签名
 
@@ -79,7 +79,9 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 ## memfabric_aiv
 
-通过 `host_memory.resolve_host_dva` 获取已注册 Host 的设备地址，然后经仓内 `kv_exchange` CANN 算子（`torch.ops.npu.kv_exchange`）提交：C++ adapter 将传输描述（实际层/页 stride、单页字节数、PF/LF 遍历模式和每组件层区间）打包进 kernel launch 参数块，并在调用方流上启动 AIV kernel。描述不再经过 device 内存中转：提交路径上没有驻留设备的 meta、没有 pinned staging，也没有独立的 H2D meta 上传。
+通过算子目录中的 Host 内存辅助函数解析已注册 Host 的设备地址，再调用 CANN `kv_exchange` 算子（`torch.ops.npu.kv_exchange`）。Torch adapter 通过 ACLNN 属性传入组件地址、页和层的 stride 以及遍历参数。CANN tiling 将描述交给调用方流上的 AIV kernel。
+
+A3 使用 `python3 setup.py --arch-version 2201 --ops kv_exchange` 构建，A5 使用 `--arch-version 3510`。
 
 使用 MemFabric 时，创建 `memfabric_hybrid.offload.Offload` 实例，以 `Scene.LOCAL` 且 `alloc_size == reserve_size` 初始化，通过 `host_memory.set_memfabric_pool` 发布实例，用 `pool.empty` 分配 Host 缓冲区，并在传入切片前为每个完整分配调用一次 `host_memory.register_host_memory`。使用 ACL 时，分配 CPU 张量，并为每个完整分配调用一次 `host_memory.register_acl_host_memory`。
 
@@ -101,7 +103,7 @@ AIV 在调用者的当前 NPU 流上提交搬运。C++ adapter 对 Device 组件
 import torch
 import torch_npu
 from memfabric_hybrid import offload
-from sgl_kernel_npu.host_memory import (
+from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
     register_host_memory,
     set_memfabric_pool,
     uninitialize_host_memory,

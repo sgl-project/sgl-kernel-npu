@@ -61,8 +61,6 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
-    ${PROJECT_OP_SRC_BASE}/kv_exchange/op_host/kv_exchange.cpp
-    ${PROJECT_OP_SRC_BASE}/kv_exchange/torch_adapter.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_mamba_state/op_host/transfer_mamba_state.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
@@ -151,7 +149,6 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
-    ${PROJECT_OP_SRC_BASE}/kv_exchange/op_kernel/kv_exchange_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
 )
 # A5-only no-workspace kernels
