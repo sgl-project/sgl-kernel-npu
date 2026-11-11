@@ -8,7 +8,7 @@
 #include <limits>
 
 namespace optiling {
-static ge::graphStatus Tiling(gert::TilingContext *context)
+static ge::graphStatus TilingMegaChunkGdn(gert::TilingContext *context)
 {
     if (!context) return ge::GRAPH_FAILED;
     const auto *attrs = context->GetAttrs();
@@ -54,5 +54,5 @@ static ge::graphStatus Prepare(gert::TilingParseContext *)
 {
     return ge::GRAPH_SUCCESS;
 }
-IMPL_OP_OPTILING(SglMegaChunkGdn).Tiling(Tiling).TilingParse<CompileInfo>(Prepare);
+IMPL_OP_OPTILING(SglMegaChunkGdn).Tiling(TilingMegaChunkGdn).TilingParse<CompileInfo>(Prepare);
 }  // namespace optiling

@@ -4,7 +4,7 @@
 #include "register/op_impl_registry.h"
 
 namespace ops {
-static ge::graphStatus InferShape(gert::InferShapeContext *context)
+static ge::graphStatus InferShapeMegaChunkGdn(gert::InferShapeContext *context)
 {
     constexpr size_t inputs[] = {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28};
     for (size_t i = 0; i < sizeof(inputs) / sizeof(inputs[0]); ++i) {
@@ -15,7 +15,7 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     }
     return ge::GRAPH_SUCCESS;
 }
-static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataTypeMegaChunkGdn(gert::InferDataTypeContext *context)
 {
     context->SetOutputDataType(0, context->GetInputDataType(9));
     context->SetOutputDataType(1, context->GetInputDataType(10));
@@ -38,5 +38,5 @@ static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
     context->SetOutputDataType(18, context->GetInputDataType(28));
     return ge::GRAPH_SUCCESS;
 }
-IMPL_OP_INFERSHAPE(SglMegaChunkGdn).InferShape(InferShape).InferDataType(InferDataType);
+IMPL_OP_INFERSHAPE(SglMegaChunkGdn).InferShape(InferShapeMegaChunkGdn).InferDataType(InferDataTypeMegaChunkGdn);
 }  // namespace ops
