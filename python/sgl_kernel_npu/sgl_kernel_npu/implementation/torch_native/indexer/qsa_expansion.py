@@ -1,9 +1,11 @@
-"""Independent scalar expansion oracle, including compact tail and padding."""
+"""Independent CPU block expansion, including compact tail and padding."""
 
 import torch
 
 
-def scalar_oracle(blocks, positions, lengths, ratio, topk):
+def expand_blocks(blocks, positions, lengths, ratio, topk):
+    device = blocks.device
+    blocks, positions, lengths = blocks.cpu(), positions.cpu(), lengths.cpu()
     result = []
     for row, position, length in zip(
         blocks.tolist(), positions.tolist(), lengths.tolist()
@@ -29,10 +31,5 @@ def scalar_oracle(blocks, positions, lengths, ratio, topk):
         torch.tensor(result, dtype=torch.int64, device="cpu")
         .to(torch.int32)
         .reshape(blocks.shape[0], topk + ratio - 1)
-    )
-
-
-def expand_blocks(blocks, positions, lengths, ratio, topk):
-    return scalar_oracle(blocks.cpu(), positions.cpu(), lengths.cpu(), ratio, topk).to(
-        blocks.device
+        .to(device)
     )

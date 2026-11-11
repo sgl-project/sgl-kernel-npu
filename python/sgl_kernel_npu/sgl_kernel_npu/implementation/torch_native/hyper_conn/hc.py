@@ -6,7 +6,7 @@ Explicit reference only: host transfers are outside capture.
 import torch
 
 
-def reference(op, args):
+def _ref_hc(op, args):
     """CPU FP64, with BF16 rounding only at the public output boundary."""
     tensors = [v.detach().cpu() for v in args if isinstance(v, torch.Tensor)]
     rows = tensors[0].shape[0]
@@ -33,10 +33,10 @@ def reference(op, args):
 
 
 def mix(x, down, up, hc, hs):
-    return reference("mix", (x, down, up, hc, hs)).to(x.device)
+    return _ref_hc("mix", (x, down, up, hc, hs)).to(x.device)
 
 
 def combine(block, residual, normed, weight, hc, hs):
-    return reference("combine", (block, residual, normed, weight, hc, hs)).to(
+    return _ref_hc("combine", (block, residual, normed, weight, hc, hs)).to(
         block.device
     )

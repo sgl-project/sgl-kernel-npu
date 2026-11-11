@@ -5,7 +5,7 @@ import math
 import torch
 
 
-def expected(kind, args):
+def _ref_mqa(kind, args):
     q, keys, first, second, *extra = [
         x.detach().cpu() if isinstance(x, torch.Tensor) else x for x in args
     ]
@@ -30,8 +30,8 @@ def expected(kind, args):
 
 
 def packed(q, k, starts, ends):
-    return expected("packed", (q, k, starts, ends)).to(q.device)
+    return _ref_mqa("packed", (q, k, starts, ends)).to(q.device)
 
 
 def paged(q, cache, table, lengths, width):
-    return expected("paged", (q, cache, table, lengths, width)).to(q.device)
+    return _ref_mqa("paged", (q, cache, table, lengths, width)).to(q.device)
