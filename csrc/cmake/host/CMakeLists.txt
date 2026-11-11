@@ -17,6 +17,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     target_compile_definitions(sgl_host_operators PRIVATE NDEBUG)
 endif()
 target_include_directories(sgl_host_operators PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../aclnn_torch_adapter"
     "${torch_npu_root}/include" "${ASCEND_CANN_PACKAGE_PATH}/include"
     ${Python3_INCLUDE_DIRS})
 target_link_libraries(sgl_host_operators PRIVATE ${TORCH_LIBRARIES})
