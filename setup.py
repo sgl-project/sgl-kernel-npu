@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Build sgl-kernel-npu from migrated AscendC operators and Python sources."""
+"""Build sgl-kernel-npu from selected AICORE, AICPU and HOST operators and Python sources."""
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -19,32 +20,61 @@ def arguments(argv=None):
     parser.add_argument(
         "--arch-version",
         choices=("2201", "3510"),
-        help="required architecture coverage, except for standalone --make_clean",
+        help="required architecture coverage, except for standalone --make-clean",
     )
     parser.add_argument(
         "--ops",
         default="all",
-        help="all supported migrated native operators, or comma-separated operator IDs",
+        help="all supported AICORE/AICPU/HOST operators, or comma-separated operator IDs",
     )
     parser.add_argument(
         "--artifact",
         choices=("run", "wheel"),
         default="wheel",
-        help="CANN installer or complete sgl-kernel-npu wheel",
+        help="AICORE/AICPU/HOST RUN installer or complete sgl-kernel-npu wheel",
     )
     parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
+    third_party = parser.add_mutually_exclusive_group()
+    third_party.add_argument(
+        "--third-party",
+        help="comma-separated third-party profile filenames without .json; default: all",
+    )
+    third_party.add_argument(
+        "--without-third-party",
+        action="store_true",
+        help="build only repository-owned operators",
+    )
     parser.add_argument(
-        "--make_clean",
+        "--plan",
+        action="store_true",
+        help="print third-party build commands without building",
+    )
+    parser.add_argument(
+        "--cann-version",
+        help="CANN profile version for --plan only; builds detect the SDK version",
+    )
+    parser.add_argument(
+        "--make-clean",
         action="store_true",
         help="remove this build's intermediates; used alone, clean and exit",
     )
     args = parser.parse_args(argv)
-    if not args.arch_version and argv != ["--make_clean"]:
+    if args.cann_version and not args.plan:
+        parser.error("--cann-version is only available with --plan")
+    if not args.arch_version and argv != ["--make-clean"]:
         parser.error("--arch-version is required")
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.third_party is not None:
+        if args.artifact != "wheel":
+            parser.error("--third-party requires --artifact wheel")
+        args.third_party = tuple(name.strip() for name in args.third_party.split(","))
+        if any(
+            not re.fullmatch(r"[a-z][a-z0-9_]*", name) for name in args.third_party
+        ) or len(set(args.third_party)) != len(args.third_party):
+            parser.error("--third-party requires distinct, nonempty profile names")
     try:
-        args.operators = parse_operators(args.ops)
+        args.native_operators = parse_operators(args.ops)
     except ValueError as error:
         parser.error(str(error))
     return args
@@ -61,25 +91,49 @@ def main(argv=None):
             print("sgl-kernel-npu intermediates removed")
             return
 
+    from build_tools.third_party import (
+        build_dependencies,
+        detect_cann_version,
+        resolve_plan,
+    )
+
+    plan = []
+    if not args.without_third_party and args.artifact == "wheel":
+        plan = resolve_plan(
+            args.cann_version or detect_cann_version(),
+            args.arch_version,
+            args.jobs,
+            third_party=args.third_party,
+        )
+    if args.plan:
+        import json
+
+        print(json.dumps(plan, indent=2))
+        return
+    dependencies = build_dependencies(plan) if plan else []
+
     output = PROJECT_ROOT / "output"
     output.mkdir(exist_ok=True)
     extension = "whl" if args.artifact == "wheel" else "run"
     for path in output.glob(f"sgl_kernel_npu-*.{extension}"):
         path.unlink()
-    result = build_cann(
+    native_build = build_cann(
         args.arch_version,
-        args.operators,
+        args.native_operators,
         jobs=args.jobs,
     )
     if args.artifact == "run":
         destination = (
-            output / f"sgl_kernel_npu-{args.arch_version}-{result.selection_kind}.run"
+            output
+            / f"sgl_kernel_npu-{args.arch_version}-{native_build.selection_kind}.run"
         )
-        shutil.copy2(result.package, destination)
+        shutil.copy2(native_build.package, destination)
     else:
         from build_tools.torch_wheel import build_torch, build_wheel
 
-        package = build_torch(result, args.arch_version, jobs=args.jobs)
+        package = build_torch(
+            native_build, args.arch_version, jobs=args.jobs, dependencies=dependencies
+        )
         wheel = build_wheel(package)
         destination = output / wheel.name
         shutil.copy2(wheel, destination)

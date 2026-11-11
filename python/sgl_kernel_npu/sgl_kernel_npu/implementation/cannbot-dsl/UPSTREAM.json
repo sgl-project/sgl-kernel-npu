@@ -1,0 +1,72 @@
+{
+  "repository": "https://gitcode.com/cann/cannbot-dsl.git",
+  "commit": "71ee7fdffa34c3e8a153fa55a0c970bb2d3a3231",
+  "license": "CANN Open Software License Agreement Version 2.0",
+  "dsl_version": "0.8.0",
+  "target_cann_version": "9.2.0",
+  "target_arch": "3510",
+  "device_validation": "NOT_RUN",
+  "files": [
+    {
+      "path": "samples/attention/indexer_prologue_k/indexer_prologue_k.py",
+      "file": "indexer/indexer_prologue_k.py",
+      "sha256": "97b6a18b2b4c58f7754549912445424e175b18a6b742142cbcf7a8e4c2736eed",
+      "upstream_sha256": "132b87236afd8efcea3b0263a2a68e391e100a53ff32d2eddd255b99374a38b5"
+    },
+    {
+      "path": "samples/attention/mixed_quant_sparse_flash_mla/mixed_quant_sparse_flash_mla.py",
+      "file": "attention/mixed_quant_sparse_flash_mla.py",
+      "sha256": "222f0c5538f54aae96173929c63a3a8df8bfabb49cedc0fa5934680c4ca59427",
+      "upstream_sha256": "75a84000763785e5db4211204357f33a46e2b19206a7dc72fdae9c6008cab43c"
+    },
+    {
+      "path": "samples/attention/mixed_quant_sparse_flash_mla/mixed_quant_sparse_flash_mla_metadata.py",
+      "file": "attention/mixed_quant_sparse_flash_mla_metadata.py",
+      "sha256": "60dbde47f145bc9dcaa33666314e702ccf7993f27929b39ff6cd4891c7c0f77d",
+      "upstream_sha256": "51e13bd02d35704f99298dd9fdff36ddd82c941a8106c07d8e668d29664ad40a"
+    },
+    {
+      "path": "samples/attention/quant_lightning_indexer/quant_lightning_indexer.py",
+      "file": "indexer/quant_lightning_indexer.py",
+      "sha256": "9f521cb2671de55306c9dba29676f40bf268c44c663617f9152697715ea098c7",
+      "upstream_sha256": "e2dd446eabc64b051f2568aaf114eb91dc93bb807a5a60efd2b0df9a7faaecae"
+    },
+    {
+      "path": "samples/attention/quant_lightning_indexer_metadata/quant_lightning_indexer_metadata.py",
+      "file": "indexer/quant_lightning_indexer_metadata.py",
+      "sha256": "7a0fae464b5d31d69c26ed462e31b4530d6eeba4d6572f6b1477e11cd67722b3",
+      "upstream_sha256": "d78f6062c2c8897161cf946706f46a7a519db19047d4c53a9e8b05b62a9b0ed0"
+    },
+    {
+      "path": "samples/attention/quant_sparse_lightning_indexer/quant_sparse_lightning_indexer.py",
+      "file": "indexer/quant_sparse_lightning_indexer.py",
+      "sha256": "7e81651f6290a91f4185b22af4a560c0e83bc15dcb87be963d7b5237614bece4",
+      "upstream_sha256": "b4795059c3c016180431928e3ae0a9ae2cacbd7346145dc6fc26abc62ac13568"
+    },
+    {
+      "path": "samples/attention/quant_sparse_lightning_indexer_metadata/quant_sparse_lightning_indexer_metadata.py",
+      "file": "indexer/quant_sparse_lightning_indexer_metadata.py",
+      "sha256": "e0b3cf8d93240afbacfae1915b2d234f6787bf75ad804b7bad7e1fda6a13a3aa",
+      "upstream_sha256": "c75be92de66a0307500bb5da12f622ad35df87f2dd9bee15a09bbc4d3a19a0a4"
+    }
+  ],
+  "patches": [
+    {
+      "file": "indexer/indexer_prologue_k.py",
+      "upstream_commit": "31bbd706a4e6a72b278da4b70718e60286ccb9e7",
+      "description": "Pad projection backing to BASE_M rows while preserving logical T."
+    },
+    {
+      "files": [
+        "indexer/indexer_prologue_k.py",
+        "attention/mixed_quant_sparse_flash_mla.py",
+        "attention/mixed_quant_sparse_flash_mla_metadata.py",
+        "indexer/quant_lightning_indexer.py",
+        "indexer/quant_lightning_indexer_metadata.py",
+        "indexer/quant_sparse_lightning_indexer.py",
+        "indexer/quant_sparse_lightning_indexer_metadata.py"
+      ],
+      "description": "Align attention/indexer domains and apply repository formatting and local spelling annotations; executable AST is unchanged apart from import ordering."
+    }
+  ]
+}

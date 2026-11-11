@@ -1,0 +1,35 @@
+{
+  "_comment": "CANN 9.1 experimental ACLNN vendor for recipes Torch bridges.",
+  "name": "sgl_ops_transformer_experimental",
+  "ops": {
+    "arch22": [
+      "sparse_attn_sharedkv",
+      "sparse_attn_sharedkv_metadata",
+      "quant_lightning_indexer",
+      "quant_lightning_indexer_metadata"
+    ],
+    "arch35": [
+      "kv_quant_sparse_attn_sharedkv",
+      "kv_quant_sparse_attn_sharedkv_metadata",
+      "quant_lightning_indexer",
+      "quant_lightning_indexer_metadata"
+    ]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "6f0d3ec620b338cab4f2d00322ff2e0d141419d2",
+  "commands": [
+    [
+      "bash",
+      "build.sh",
+      "--pkg",
+      "--experimental",
+      "--soc={soc}",
+      "--vendor_name={vendor_name}",
+      "--ops={ops}",
+      "-j{jobs}"
+    ]
+  ],
+  "python_bindings": false,
+  "has_aicpu": true,
+  "license": "LICENSE"
+}

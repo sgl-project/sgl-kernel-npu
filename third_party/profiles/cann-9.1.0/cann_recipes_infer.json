@@ -1,0 +1,38 @@
+{
+  "_comment": {
+    "ops": "Per-architecture mapping of Python interfaces to one kernel name or a list of kernel dependencies. Null means the bridge calls the separately bundled experimental ops-transformer vendor. An empty mapping or list skips this library for that architecture."
+  },
+  "name": "sgl_cann_recipes_infer",
+  "ops": {
+    "arch22": {
+      "npu_hc_post": "hc_post",
+      "npu_hc_pre": "hc_pre",
+      "inplace_partial_rotary_mul": "inplace_partial_rotary_mul",
+      "npu_moe_gating_top_k": "moe_gating_top_k_hash",
+      "npu_sparse_attn_sharedkv": null,
+      "npu_sparse_attn_sharedkv_metadata": null,
+      "npu_quant_lightning_indexer": null,
+      "npu_quant_lightning_indexer_metadata": null
+    },
+    "arch35": {
+      "npu_hc_post": "hc_post",
+      "npu_hc_pre": ["hc_pre", "hc_pre_inv_rms", "hc_pre_sinkhorn"],
+      "inplace_partial_rotary_mul": "inplace_partial_rotary_mul",
+      "indexer_compress_epilog": "indexer_compress_epilog",
+      "npu_moe_gating_top_k": "moe_gating_top_k_hash",
+      "npu_kv_quant_sparse_attn_sharedkv": null,
+      "npu_kv_quant_sparse_attn_sharedkv_metadata": null,
+      "npu_quant_lightning_indexer": null,
+      "npu_quant_lightning_indexer_metadata": null
+    }
+  },
+  "repository": "https://gitcode.com/cann/cann-recipes-infer.git",
+  "commit": "35a476c2b1ea61990380a7115ea991023aedc7d0",
+  "commands": [
+    ["cmake", "-S", "ops/ascendc", "-B", "ops/ascendc/build", "-DBUILD_OPEN_PROJECT=ON", "-DASCEND_COMPUTE_UNIT={soc}", "-DASCEND_OP_NAME={kernel_ops}", "-DVENDOR_NAME={vendor_name}", "-DCMAKE_BUILD_TYPE=Release", "-DPython3_EXECUTABLE={python}"],
+    ["cmake", "--build", "ops/ascendc/build", "--target", "package", "--parallel", "{jobs}"],
+    ["{python}", "ops/ascendc/torch_ops_extension/sgl_setup.py", "bdist_wheel", "--dist-dir", "dist"]
+  ],
+  "has_aicpu": false,
+  "license": "LICENSE"
+}
