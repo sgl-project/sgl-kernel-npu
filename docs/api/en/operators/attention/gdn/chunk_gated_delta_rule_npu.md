@@ -10,8 +10,7 @@
 ## Signature
 
 Omitting `impl` or passing `"auto"` selects `"triton"` without automatic fallback.
-The default path uses decomposed Triton kernels. Setting `GDN_USE_MEGA_GDN=1`
-selects the mega path, which requires ARCH22 and the native `mega_chunk_gdn` operator.
+The forward pass uses decomposed Triton kernels.
 
 ```python
 from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
@@ -31,7 +30,7 @@ final recurrent states, and the states entering each chunk. Each group of `H/Hg`
 value heads shares one query/key head. `g` contains per-token log decay;
 `beta` controls the state update.
 
-The default path processes chunks of 64 tokens. Optional Q/K L2 normalization
+The forward pass processes chunks of 64 tokens. Optional Q/K L2 normalization
 computes `x / sqrt(sum(x*x) + 1e-6)` before attention. `scale=None` uses `K**-0.5`;
 an explicit zero scale is preserved. Packed sequences have independent states.
 
@@ -72,9 +71,6 @@ some are explicitly validated.
 - Makes tensor inputs contiguous and selects their NPU device context.
 - Composes chunk-local cumulative sum, scaled KKT, triangular inverse, WY
   recomputation, state update and output reconstruction with 64-token chunks.
-- With `GDN_USE_MEGA_GDN=1`, uses the 128-token native
-  [mega_chunk_gdn](mega_chunk_gdn.md) path and its shape/dtype constraints.
-  This path is ARCH22-only; it does not fall back automatically on ARCH35.
 - Provides forward execution for inference, preserving the existing intermediate
   dtypes and casts.
 
@@ -82,8 +78,6 @@ some are explicitly validated.
 
 - Computes an independent tokenwise recurrence on CPU in FP64 and restores the
   output dtypes and device. Supports the same normalization, scale and state options.
-- With `GDN_USE_MEGA_GDN=1`, uses the independent mega chunk-algebra reference,
-  including its FP16 conversions and 128-token entering states.
 - Provides the reference implementation for accuracy checks.
 
 ## Example

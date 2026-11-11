@@ -10,8 +10,7 @@
 ## 函数原型
 
 省略 `impl` 或传入 `"auto"` 时选择 `"triton"`，不会自动回退到其他后端。
-默认使用分解式 Triton 路径。设置 `GDN_USE_MEGA_GDN=1` 时选择 mega 路径，
-要求 ARCH22 且已安装原生 `mega_chunk_gdn` 算子。
+前向计算使用分解式 Triton 路径。
 
 ```python
 from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
@@ -30,7 +29,7 @@ def chunk_gated_delta_rule_npu(
 以及进入每个分块前的状态。每 `H/Hg` 个 value head 共享一个 query/key head。
 `g` 是逐 token 的对数衰减，`beta` 控制状态更新的权重。
 
-默认路径按 64 个 token 分块。可选 Q/K L2 归一化在注意力计算前执行
+前向计算按 64 个 token 分块。可选 Q/K L2 归一化在注意力计算前执行
 `x / sqrt(sum(x*x) + 1e-6)`。`scale=None` 使用 `K**-0.5`，显式传入 0 时保留零缩放。
 Packed 输入中的各序列独立维护状态。
 
@@ -70,15 +69,11 @@ Packed 输入的初始状态数必须满足 `N=len(cu_seqlens)-1`。
 
 - 将 Tensor 输入转为连续张量，并切换到输入所在的 NPU 设备上下文。
 - 以 64 个 token 分块，组合分块累加、scaled KKT、三角求逆、WY 重算、状态更新和输出计算。
-- 设置 `GDN_USE_MEGA_GDN=1` 时使用 128-token 分块的原生
-  [mega_chunk_gdn](mega_chunk_gdn.md) 路径，并遵循它的形状和 dtype 约束。
-  该路径仅支持 ARCH22，在 ARCH35 上不会自动回退。
 - 提供推理所需的前向计算，保留既有中间 dtype 和类型转换。
 
 ## torch_native 后端
 
 - 在 CPU 上以 FP64 独立计算逐 token 递推，再恢复输出 dtype 和设备，支持相同的归一化、缩放和状态选项。
-- 设置 `GDN_USE_MEGA_GDN=1` 时使用独立 mega 分块代数参考，包括其 FP16 转换和 128-token 分块状态。
 - 为精度检查提供参考实现。
 
 ## 调用示例

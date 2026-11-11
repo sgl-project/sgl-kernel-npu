@@ -5,7 +5,6 @@
 
 import contextlib
 import functools
-import os
 from typing import Callable, Optional
 
 import torch
@@ -27,9 +26,6 @@ from ....implementation.triton.attention.gdn.recompute_w_u_fwd import recompute_
 from ....implementation.triton.attention.gdn.solve_tril import solve_tril
 from ....implementation.triton.norm.l2norm_fwd import l2norm_fwd
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
-from .mega_chunk_gdn import run_mega_chunk_gdn
-
-SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
 
 
 def custom_device_ctx(index: int):
@@ -73,10 +69,6 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
     return wrapper
 
 
-def _use_mega_gdn():
-    return os.getenv("GDN_USE_MEGA_GDN", "0") == "1"
-
-
 def chunk_gated_delta_rule_fwd(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -88,14 +80,6 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if _use_mega_gdn():
-        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
-            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
-        )
-        if SUPPRESS_LEVEL < 3:
-            return g, o, A, final_state, None, h, None
-        return g, o, A, final_state, w, h, v_new
-
     g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
     # obtain WY representation. u is actually the new v.
     A = chunk_scaled_dot_kkt_fwd(
@@ -128,10 +112,7 @@ def chunk_gated_delta_rule_fwd(
         scale=scale,
         cu_seqlens=cu_seqlens,
     )
-    if SUPPRESS_LEVEL < 3:
-        return g, o, A, final_state, None, h, None
-    elif SUPPRESS_LEVEL >= 3:
-        return g, o, A, final_state, w, h, v_new
+    return g, o, A, final_state, None, h, None
 
 
 @input_guard
@@ -307,7 +288,6 @@ def chunk_gated_delta_rule_npu(
     initial_state/final_state: [N,H,K,V]; final_state is optional FP32.
     h contains entering chunk states in the input dtype. Packed inputs use
     B=1 and cu_seqlens=[N+1]. head_first=True raises DeprecationWarning.
-    All legacy defaults, input preparation and environment switches apply.
     This entry is separate from the fused CANN chunk_gated_delta_rule API.
     """
     return get_impl_by_name("attention.gdn.chunk_gated_delta_rule_npu", impl)(

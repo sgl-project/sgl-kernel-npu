@@ -1,7 +1,5 @@
 """Independent CPU FP64 recurrence for the composed GDN interface."""
 
-import os
-
 import torch
 
 
@@ -32,24 +30,6 @@ def chunk_gated_delta_rule_npu(
                 x.float() * torch.rsqrt(x.float().square().sum(-1, keepdim=True) + 1e-6)
             ).to(dtype)
             for x in (q, k)
-        )
-    if os.getenv("GDN_USE_MEGA_GDN", "0") == "1":
-        from .mega_chunk_gdn import run_mega_chunk_gdn
-
-        result = run_mega_chunk_gdn(
-            q,
-            k,
-            v,
-            g,
-            beta,
-            scale,
-            None if initial_state is None else initial_state.detach().cpu(),
-            output_final_state,
-            None if cu_seqlens is None else cu_seqlens.detach().cpu(),
-        )
-        return tuple(
-            None if value is None else value.to(device)
-            for value in (result[1], result[3], result[5])
         )
     chunk_size = 64
     q, k, v, g, beta = (x.double() for x in (q, k, v, g, beta))
