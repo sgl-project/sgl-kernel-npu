@@ -119,6 +119,7 @@ def _submit_aiv(components, di, hi, page_size, direction, host_layout):
     # Host tensors have PF-shaped metadata views even when their storage is LF.
     # Actual page/layer strides preserve the original physical layout.
     # The ACLNN adapter passes the component description to CANN tiling.
+    host_dvas = [_resolve_host_dva(host) for _, host in components]
     torch.ops.npu.kv_exchange(
         di,
         hi,

@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `memfabric_aiv` | 支持 | 支持 |
+| `ascendc_aiv` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 AIV 实现面向 Ascend A3（arch22）和 A5（arch35）。运行时需匹配对应硬件，并提供已注册的 Host 内存。
@@ -49,7 +49,7 @@ def transfer_kv_all_layer_kv_split(
 
 ```
 
-四个入口的 `auto` 均选择 `memfabric_aiv`，支持逐层 H2D 和全层 D2H。显式 `impl` 可选 `memfabric_aiv`、`torch_native`。
+四个入口的 `auto` 均选择 `ascendc_aiv`，支持逐层 H2D 和全层 D2H。显式 `impl` 可选 `ascendc_aiv`、`torch_native`。
 
 ## 行为
 
@@ -77,7 +77,7 @@ Device 布局始终为 `[layer,page,token,head,dim]`。带 `pf_lf` 的逐层入�
 
 每个 `(page,layer)` 内的载荷必须连续，允许 Host 层切片形成的跨页间隙。调用者通过 MemFabric 或 ACL 注册完整的 Host 缓冲区后，再传入其视图。
 
-## memfabric_aiv
+## ascendc_aiv
 
 通过算子目录中的 Host 内存辅助函数解析已注册 Host 的设备地址，再调用 CANN `kv_exchange` 算子（`torch.ops.npu.kv_exchange`）。Torch adapter 通过 ACLNN 属性传入组件地址、页和层的 stride 以及遍历参数。CANN tiling 将描述交给调用方流上的 AIV kernel。
 
@@ -103,7 +103,7 @@ AIV 在调用者的当前 NPU 流上提交搬运。C++ adapter 对 Device 组件
 import torch
 import torch_npu
 from memfabric_hybrid import offload
-from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
     register_host_memory,
     set_memfabric_pool,
     uninitialize_host_memory,
@@ -132,9 +132,9 @@ source = torch.arange(ps, 2 * ps, dtype=torch.int64, device="npu")
 saved = torch.arange(2 * ps, 3 * ps, dtype=torch.int64, device="npu")
 target = torch.arange(3 * ps, 4 * ps, dtype=torch.int64, device="npu")
 backup(source, saved, dev, host, empty_dev, empty_host, page_size=ps,
-       host_layer_start=1, impl="memfabric_aiv")
+       host_layer_start=1, impl="ascendc_aiv")
 load(target, saved, dev, host, empty_dev, empty_host, page_size=ps,
-     device_layer_id=2, host_layer_id=1, impl="memfabric_aiv")
+     device_layer_id=2, host_layer_id=1, impl="ascendc_aiv")
 torch.npu.synchronize()
 assert torch.equal(dev[2, 3].cpu(), original[0, 1])
 del host
@@ -147,7 +147,7 @@ LF Host 可改为 `[5,6,ps,1,8]`，即 `[host_layers,host_pages,ps,1,8]` 分配�
 ## 验证
 
 ```bash
-python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl memfabric_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
+python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl ascendc_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
 ```
 
-测试为 `auto` 和 `memfabric_aiv` 均初始化 LOCAL Host-memory entry，并注册完整 Host 分配。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。需要可用 NPU、匹配的 CANN/Torch/MemFabric，以及包含仓内 `kv_exchange` 算子的构建。
+测试为 `auto` 和 `ascendc_aiv` 均初始化 LOCAL Host-memory entry，并注册完整 Host 分配。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。需要可用 NPU、匹配的 CANN/Torch/MemFabric，以及包含仓内 `kv_exchange` 算子的构建。

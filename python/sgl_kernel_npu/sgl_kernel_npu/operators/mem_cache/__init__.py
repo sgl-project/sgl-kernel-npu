@@ -12,7 +12,7 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
-from .kv_transfer import (
+from .memfabric.kv_transfer import (
     transfer_kv_all_layer_kv_split,
     transfer_kv_all_layer_kv_split_lf_pf,
     transfer_kv_per_layer_kv_split,

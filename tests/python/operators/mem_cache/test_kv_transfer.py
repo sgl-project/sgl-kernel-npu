@@ -1,7 +1,7 @@
 """Split-KV public API: exact D2H/all-layer and H2D/per-layer copies.
 
 Run on NPU with a matching MemFabric host-registration installation.
-Both --impl=auto and --impl=memfabric_aiv use the in-tree AIV kv_exchange operator.
+Both --impl=auto and --impl=ascendc_aiv use the in-tree AIV kv_exchange operator.
 Production dimensions below are borrowed from GLM-5.2, rather than asserted to
 be a captured service call.
 """
@@ -59,7 +59,7 @@ def test_roundtrip(offload_runtime, operators, layout, shape, dtype, packed):
 
 
 def generate_data(pool, layout, shape, dtype, packed, *, with_reference=True):
-    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
         register_host_memory,
     )
 
@@ -142,7 +142,7 @@ def operators(configure_npu):
 @pytest.fixture
 def offload_runtime():
     from memfabric_hybrid import offload
-    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
         set_memfabric_pool,
         uninitialize_host_memory,
     )
@@ -266,7 +266,7 @@ def check_transfer_accuracy(operators, data, shape, layout, *, skip_accuracy):
 def test_layer_first_does_not_merge_strided_host_pages(
     offload_runtime, operators, monkeypatch
 ):
-    from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
         register_host_memory,
     )
 
