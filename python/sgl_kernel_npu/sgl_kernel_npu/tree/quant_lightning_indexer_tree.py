@@ -1,4 +1,4 @@
-"""DSV4 DSpark tree lightning indexer (Triton port).
+"""DSV4 DSpark tree lightning indexer (Triton, optional AscendC selection).
 
 Reproduces the AscendC ``quant_lightning_indexer_tree`` operator
 (``vllm-ascend@8947f1f9f``), whose semantics are pinned in
@@ -33,7 +33,7 @@ non-contractual, so this port returns the same **set** the vendor returns but
 emits it in ascending index order (the vendor emits it score-descending);
 consumers treat the row as a set.  The reference oracle sorts every valid slot.
 
-Three kernels (T5b, vendor-shaped):
+Three stages (T5b, vendor-shaped):
 
 * :func:`_gather_kernel` -- one program per ``(row, 128-slot block)``; resolves
   paged-history vs. tree-ancestor indirection once and materialises a
@@ -57,6 +57,11 @@ Three kernels (T5b, vendor-shaped):
   TopK and the vendor's ``Sort32``/``MrgSort`` + 2-way merge: the result set is
   identical, the O(topk * slots) insertion cost and the unavailable hardware
   sort are both avoided.
+
+Set ``SGL_TREE_INDEXER_TOPK_IMPL=ascendc`` to replace only the selection stage
+with the native A2/A3 ``torch.ops.npu.tree_indexer_topk`` operator. Gather and
+score remain unchanged; see ``csrc/tree_indexer_topk/README.md``. The default
+``triton`` backend still honors ``SGL_TREE_INDEXER_TL_TOPK``.
 
 
 ``metadata`` is validated (int32, 1024 entries, contiguous) and then ignored
@@ -137,6 +142,9 @@ _NUM_STAGES = 1
 # integer-bisection selector remains available as a correctness fallback for
 # builds whose ``tl.topk`` cannot lower the packed int64 key.
 _USE_TL_TOPK = os.environ.get("SGL_TREE_INDEXER_TL_TOPK", "1") == "1"
+_TOPK_IMPL = os.environ.get("SGL_TREE_INDEXER_TOPK_IMPL", "triton").strip().lower()
+if _TOPK_IMPL not in ("triton", "ascendc"):
+    raise ValueError("SGL_TREE_INDEXER_TOPK_IMPL must be triton or ascendc")
 
 
 @triton.jit(
@@ -764,6 +772,15 @@ def quant_lightning_indexer_tree(
         num_warps=_NUM_WARPS,
         num_stages=_NUM_STAGES,
     )
+
+    if _TOPK_IMPL == "ascendc":
+        op = getattr(torch.ops.npu, "tree_indexer_topk", None)
+        if op is None:
+            raise RuntimeError(
+                "AscendC tree TopK is unavailable; rebuild and install the "
+                "A2/A3 sgl-kernel-npu wheel with tree_indexer_topk."
+            )
+        return op(scores, topk)
 
     out = torch.empty((n, 1, topk), dtype=torch.int32, device=query.device)
     # Keep the bisection fallback for irregular top-k widths and very wide

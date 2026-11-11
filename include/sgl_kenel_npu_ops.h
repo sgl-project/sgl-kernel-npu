@@ -122,6 +122,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     int64_t attention_mode, bool return_softmax_lse);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+at::Tensor tree_indexer_topk(const at::Tensor &scores, int64_t k);
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,

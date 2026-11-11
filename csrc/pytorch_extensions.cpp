@@ -161,6 +161,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.def("tree_indexer_topk(Tensor scores, int k) -> Tensor");
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
         "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
@@ -349,6 +350,9 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+    m.impl("tree_indexer_topk", TORCH_FN(sglang::npu_kernel::tree_indexer_topk));
+#endif
     m.impl("sparse_attn_sharedkv_tree", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv_tree));
 
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
