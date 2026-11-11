@@ -179,7 +179,6 @@ def test_chunk_gated_delta_rule_npu(
 ):
     from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
 
-    monkeypatch.setenv("GDN_USE_MEGA_GDN", "0")
     monkeypatch.setenv("TRITON_F32_DEFAULT", "ieee")
     data = generate_data(bounds, dtype, with_state, noncontiguous, fixed_length)
     saved = {k: v.clone() for k, v in data.items() if isinstance(v, torch.Tensor)}
@@ -197,21 +196,3 @@ def test_chunk_gated_delta_rule_npu(
     for name, original in saved.items():
         torch.testing.assert_close(data[name], original, atol=0, rtol=0)
     check_performance(executor, enable_perf=fixed_length == 2048)
-
-
-@pytest.mark.parametrize("output_final_state", [False, True])
-def test_chunk_gated_delta_rule_npu_mega(output_final_state, monkeypatch):
-    from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule_npu
-
-    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        pytest.skip("The mega_chunk_gdn native operator is required")
-    monkeypatch.setenv("GDN_USE_MEGA_GDN", "1")
-    data = generate_data((0, 31, 100), torch.float16)
-    options = dict(output_final_state=output_final_state)
-    standard = {"torch.float32": DEFAULT_STANDARDS["torch.float16"]}
-    executor = check_accuracy(
-        chunk_gated_delta_rule_npu,
-        kwargs={**data, **options},
-        standard=standard,
-    )
-    check_performance(executor, enable_perf=False)

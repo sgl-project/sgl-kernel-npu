@@ -145,21 +145,6 @@ are cached under `build/third_party/` and reused when the build fingerprint and
 artifact checksums match. Changes to the profile, build scripts or relevant build
 environment invalidate the cache. `--make-clean` preserves this third-party cache.
 
-### PTO mega GDN
-
-The repository-owned `mega_chunk_gdn` operator uses the standalone CANN build on
-ARCH22. Initialize the existing pinned PTO-ISA submodule before selecting it
-(including `--ops all` on ARCH22):
-
-```bash
-git submodule update --init third_party/pto-isa
-python3 setup.py --arch-version 2201 --ops mega_chunk_gdn --without-third-party
-```
-
-The original PTO computation and Python helper are retained; only the CANN
-launch bridge and framework registration are new. ARCH35 is not supported by
-this native implementation.
-
 ### CANN and host C++ operator declarations
 
 Declare an operator in `csrc/<domain>/<operator>/CMakeLists.txt` with
