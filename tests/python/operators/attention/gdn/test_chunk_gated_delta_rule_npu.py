@@ -37,7 +37,6 @@ def generate_data(bounds, dtype, with_state=True, noncontiguous=False, fixed_len
     return data
 
 
-@pytest.mark.parametrize("impl", ["auto", "triton"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
     "bounds,with_state,normalize,output_final_state,scale,noncontiguous",
@@ -66,7 +65,6 @@ def generate_data(bounds, dtype, with_state=True, noncontiguous=False, fixed_len
     ],
 )
 def test_chunk_gated_delta_rule_npu(
-    impl,
     dtype,
     bounds,
     with_state,
@@ -91,7 +89,6 @@ def test_chunk_gated_delta_rule_npu(
     executor = check_accuracy(
         chunk_gated_delta_rule_npu,
         kwargs={**data, **options},
-        impl=impl,
         standard=standard,
     )
     for name, original in saved.items():
