@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer`（`auto`） | 不支持 | 支持 |
 
-要求 CANN 9.2.0、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。
+需要 CANN 9.2.0 及以上版本、匹配的 PyTorch/torch_npu，以及导出 QFA 和 metadata 接口的 `cann_ops_transformer` Python 扩展。这些依赖与 `sgl_kernel_npu` wheel 分别安装。该算子已在 CANN 9.2.0 上验证。
 
 ## 函数原型
 
@@ -50,13 +50,13 @@ def quant_flash_attn_metadata(
 
 ## 参数与返回值
 
-`B` 表示请求数。Tensor 参数为与主算子同设备、连续的 int32 NPU Tensor。TND Q 使用累积 Q 边界；PA_BNBD KV 使用有效 KV 长度。
+`B` 表示请求数。Tensor 参数为与主算子同设备、连续的 int32 NPU Tensor。TND Q 使用累积 Q 边界；PA_BBND KV 使用有效 KV 长度。
 
 | 参数 | 类型／默认值 | 描述及约束 |
 | --- | --- | --- |
 | `num_heads_q` | int；必选 | 本卡 Q head 数。 |
 | `num_heads_kv` | int；必选 | 本卡 KV head 数，必须可整除 Q head 数。 |
-| `head_dim` | int；必选 | Q/K head dim；本次集成覆盖 64/128/256。 |
+| `head_dim` | int；必选 | Q/K head dim；Qwen3.6-27B 用例使用 256。 |
 | `quant_mode` | int；必选 | 本次覆盖的 MXFP8 推理路径为 `1`；其他值原样透传。 |
 | `cu_seqlens_q`、`cu_seqlens_kv` | Tensor 或 None；`None` | `[B+1]` 累积长度，首元素为零。 |
 | `seqused_q`、`seqused_kv` | Tensor 或 None；`None` | `[B]` 有效长度；分页 KV 使用 `seqused_kv`。 |
@@ -67,7 +67,7 @@ def quant_flash_attn_metadata(
 | `win_left`、`win_right` | int；`-1`、`-1` | 上游窗口属性；本路径保留默认值。 |
 | `layout_q`、`layout_out` | str；`"BSND"` | 本次 MXFP8 路径需显式设置为 `"TND"`。 |
 | `layout_q_descale` | str；`"BSND"` | MXFP8 为 `"TND"` 或 `"N2TGD"`，必须与 QFA 的实际 scale 布局一致。 |
-| `layout_kv` | str；`"BSND"` | 本次分页路径需设置为 `"PA_BNBD"`。 |
+| `layout_kv` | str；`"BSND"` | 本次分页路径需设置为 `"PA_BBND"`。 |
 | `is_grad_enabled` | bool；`False` | CANN 的反向调度选项；推理使用 False。 |
 | `impl` | str；`"auto"` | 仅限关键字参数，可选 `"auto"` 或 `"cann_ops_transformer"`。 |
 
@@ -94,9 +94,9 @@ from sgl_kernel_npu.operators.attention import quant_flash_attn_metadata
 cu_q = torch.tensor([0, 1, 2], dtype=torch.int32, device="npu")
 used_kv = torch.tensor([128, 257], dtype=torch.int32, device="npu")
 metadata = quant_flash_attn_metadata(
-    num_heads_q=4,
+    num_heads_q=12,
     num_heads_kv=2,
-    head_dim=128,
+    head_dim=256,
     quant_mode=1,
     cu_seqlens_q=cu_q,
     seqused_kv=used_kv,
@@ -104,7 +104,7 @@ metadata = quant_flash_attn_metadata(
     mask_mode=0,
     layout_q="TND",
     layout_q_descale="N2TGD",
-    layout_kv="PA_BNBD",
+    layout_kv="PA_BBND",
     layout_out="TND",
     impl="cann_ops_transformer",
 )
