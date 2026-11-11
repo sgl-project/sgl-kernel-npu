@@ -28,6 +28,36 @@ perf_shape = [(78, 21, 128, 512, 64, 128)]
 GUARD_SLOTS_PER_SIDE = 1
 
 
+@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
+@pytest.mark.parametrize(
+    "shape,dtype,packed",
+    [
+        pytest.param(
+            (3, 2, 4, 7, 3, 5), torch.bfloat16, False, id="edge-small-separate-kv"
+        ),
+        pytest.param(
+            (3, 2, 4, 7, 0, 5), torch.uint8, True, id="packed-k-empty-v-fp32-scale"
+        ),
+        pytest.param(
+            (78, 21, 128, 512, 64, 128),
+            torch.bfloat16,
+            False,
+            id="glm52-borrowed-kv-and-sparse-indexer-dimensions",
+        ),
+    ],
+)
+def test_roundtrip(offload_runtime, operators, layout, shape, dtype, packed):
+    skip_accuracy = bool(get_skip_acc_check())
+    data = generate_data(
+        offload_runtime, layout, shape, dtype, packed, with_reference=not skip_accuracy
+    )
+    executors = check_transfer_accuracy(
+        operators[layout], data, shape, layout, skip_accuracy=skip_accuracy
+    )
+    for executor in executors:
+        check_performance(executor, enable_perf=shape in perf_shape)
+
+
 def generate_data(pool, layout, shape, dtype, packed, *, with_reference=True):
     from sgl_kernel_npu.implementation.memfabric.mem_cache.host_memory import (
         register_host_memory,
@@ -232,36 +262,7 @@ def check_transfer_accuracy(operators, data, shape, layout, *, skip_accuracy):
     )
 
 
-@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
-@pytest.mark.parametrize(
-    "shape,dtype,packed",
-    [
-        pytest.param(
-            (3, 2, 4, 7, 3, 5), torch.bfloat16, False, id="edge-small-separate-kv"
-        ),
-        pytest.param(
-            (3, 2, 4, 7, 0, 5), torch.uint8, True, id="packed-k-empty-v-fp32-scale"
-        ),
-        pytest.param(
-            (78, 21, 128, 512, 64, 128),
-            torch.bfloat16,
-            False,
-            id="glm52-borrowed-kv-and-sparse-indexer-dimensions",
-        ),
-    ],
-)
-def test_roundtrip(offload_runtime, operators, layout, shape, dtype, packed):
-    skip_accuracy = bool(get_skip_acc_check())
-    data = generate_data(
-        offload_runtime, layout, shape, dtype, packed, with_reference=not skip_accuracy
-    )
-    executors = check_transfer_accuracy(
-        operators[layout], data, shape, layout, skip_accuracy=skip_accuracy
-    )
-    for executor in executors:
-        check_performance(executor, enable_perf=shape in perf_shape)
-
-
+@pytest.mark.extra_checks
 def test_layer_first_does_not_merge_strided_host_pages(
     offload_runtime, operators, monkeypatch
 ):
