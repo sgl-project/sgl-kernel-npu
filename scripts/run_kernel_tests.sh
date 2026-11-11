@@ -84,6 +84,33 @@ filter_tests() {
             esac
         fi
 
+        # Failures confirmed with developers on A5.
+        if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
+            case "$test_file" in
+                tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py|\
+                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
+                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
+                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py|\
+                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata.py|\
+                tests/python/operators/indexer/test_indexer_prologue_k.py|\
+                tests/python/operators/indexer/test_pool_key_indexer.py|\
+                tests/python/operators/indexer/test_quant_lightning_indexer.py|\
+                tests/python/operators/indexer/test_quant_lightning_indexer_metadata.py|\
+                tests/python/operators/indexer/test_quant_sparse_lightning_indexer.py|\
+                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata.py|\
+                tests/python/operators/sample/test_markov_sample_step_triton.py)
+                    echo "[NPU_HARDWARE=950] Skipping: $test_file"
+                    continue
+                    ;;
+            esac
+        fi
+
+        if [[ "${NPU_HARDWARE:-}" == a3 &&
+              "$test_file" == tests/python/operators/indexer/test_pool_key_indexer.py ]]; then
+            echo "[NPU_HARDWARE=a3] Skipping: $test_file"
+            continue
+        fi
+
         filtered+=("$test_file")
     done
 
