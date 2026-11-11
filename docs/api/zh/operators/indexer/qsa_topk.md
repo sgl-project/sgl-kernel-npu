@@ -4,8 +4,8 @@
 
 | impl | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` / `auto` | 支持 | 未验证 |
-| `torch_native` | 支持 | 未验证 |
+| `triton` / `auto` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 签名
 
