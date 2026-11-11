@@ -294,7 +294,7 @@ def chunk_gated_delta_rule_npu(
     initial_state/final_state: [N,H,K,V]; final_state is optional FP32.
     h contains entering chunk states in the input dtype. Packed inputs use
     B=1 and cu_seqlens=[N+1]. head_first=True raises DeprecationWarning.
-    All legacy defaults, input preparation and environment switches apply.
+    Preserves the decomposed pipeline defaults and input preparation.
     This entry is separate from the fused CANN chunk_gated_delta_rule API.
     """
     return get_impl_by_name("attention.gdn.chunk_gated_delta_rule_npu", impl)(
