@@ -8,6 +8,15 @@
 
 #include <cstdint>
 
+constexpr uint32_t kSfaPackedKvBit = 1U << 17;
+constexpr uint32_t kSfaPackedKvLatentDim = 512;
+constexpr uint32_t kSfaPackedKvRopeDim = 64;
+constexpr uint32_t kSfaPackedKvQuantBlockSize = 128;
+constexpr uint32_t kSfaPackedKvDequantizedDim = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim;
+constexpr uint32_t kSfaPackedKvScaleOffset = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim * sizeof(uint16_t);
+constexpr uint32_t kSfaPackedKvBytes =
+    kSfaPackedKvScaleOffset + kSfaPackedKvLatentDim / kSfaPackedKvQuantBlockSize * sizeof(float);
+
 // These device-side POD types mirror the serialized layout produced by the
 // host-side BEGIN_TILING_DATA_DEF declarations. Keep their field order in sync.
 struct alignas(8) SparseFlashAttentionBaseParamsMla {
