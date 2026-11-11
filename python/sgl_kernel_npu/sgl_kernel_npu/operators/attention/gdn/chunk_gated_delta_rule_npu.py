@@ -3,17 +3,58 @@
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 """Public entry for the legacy decomposed GDN forward pipeline."""
 
+import contextlib
+import functools
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 from einops import rearrange
 
-from ....implementation.triton.attention.gdn.chunk_utils import (
-    SUPPRESS_LEVEL,
-    input_guard,
-)
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
+
+SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
+
+
+def custom_device_ctx(index: int):
+    return torch.npu.device(index)
+
+
+def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
+    """
+    A decorator to make sure all input tensors are contiguous and set the device based on input tensors.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        contiguous_args = (
+            i if not isinstance(i, torch.Tensor) else i.contiguous() for i in args
+        )
+        contiguous_kwargs = {
+            k: (v if not isinstance(v, torch.Tensor) else v.contiguous())
+            for k, v in kwargs.items()
+        }
+
+        tensor = None
+        for arg in args:
+            if isinstance(arg, torch.Tensor):
+                tensor = arg
+                break
+        if tensor is None:
+            for value in kwargs.values():
+                if isinstance(value, torch.Tensor):
+                    tensor = value
+                    break
+
+        if tensor is not None:
+            ctx = custom_device_ctx(tensor.device.index)
+        else:
+            ctx = contextlib.nullcontext()
+
+        with ctx:
+            return fn(*contiguous_args, **contiguous_kwargs)
+
+    return wrapper
 
 
 def _use_mega_gdn():
