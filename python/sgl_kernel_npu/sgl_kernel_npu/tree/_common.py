@@ -185,15 +185,18 @@ def check_tree_metadata(
     return tensor
 
 
-def check_cu_arange(name: str, cu: torch.Tensor, n: int) -> torch.Tensor:
+def check_cu_arange(
+    name: str, cu: torch.Tensor, n: int, *, check_values: bool = True
+) -> torch.Tensor:
     """Validate the project/indexer ``cu == arange(n + 1)`` one-query-per-node rule."""
     check_tensor(name, cu, dtype=torch.int32, rank=1, contiguous=True)
     n = int(n)
     if cu.numel() != n + 1:
         raise TreeContractError(f"{name}: expected {n + 1} entries, got {cu.numel()}")
-    expected = torch.arange(n + 1, dtype=torch.int32, device=cu.device)
-    if not torch.equal(cu, expected):
-        raise TreeContractError(f"{name}: must equal arange({n + 1}) (one query per node)")
+    if check_values:
+        expected = torch.arange(n + 1, dtype=torch.int32, device=cu.device)
+        if not torch.equal(cu, expected):
+            raise TreeContractError(f"{name}: must equal arange({n + 1}) (one query per node)")
     return cu
 
 

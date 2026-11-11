@@ -210,7 +210,17 @@ def _compressor_tree_project_kernel(
 
 
 def compressor_tree_project(
-    x, wkv, wgate, nodes, ape, positions, cu, ratio=None, head_dim=None
+    x,
+    wkv,
+    wgate,
+    nodes,
+    ape,
+    positions,
+    cu,
+    ratio=None,
+    head_dim=None,
+    *,
+    validate_values: bool = True,
 ) -> None:
     """Write ``nodes[1:] = [x @ wkv.T | x @ wgate.T + ape[positions]]`` in place.
 
@@ -229,6 +239,11 @@ def compressor_tree_project(
             the native seven-argument caller.
         head_dim: optional projected half width, ``128`` or ``512``.  When
             omitted it is derived from ``ape.shape[1] // c``.
+        validate_values: check device values in ``cu`` and ``positions``.
+            Defaults to True. Callers that construct ``cu = arange(T + 1)``
+            and ``positions = remainder(position, ratio)`` may set False to
+            avoid two device-to-host synchronizations per layer. Shape,
+            dtype, layout and device checks are always performed.
 
     Returns:
         ``None``; the result is written into ``nodes``.
@@ -305,12 +320,16 @@ def compressor_tree_project(
             f"positions: expected {t} entries, got {positions.numel()}"
         )
 
-    _common.check_cu_arange("cu", cu, t)
+    _common.check_cu_arange("cu", cu, t, check_values=validate_values)
     _common.check_same_device(
         "compressor_tree_project", [x, wkv, wgate, nodes, ape, positions, cu]
     )
 
-    if t > 0 and not bool(((positions >= 0) & (positions < ratio)).all()):
+    if (
+        validate_values
+        and t > 0
+        and not bool(((positions >= 0) & (positions < ratio)).all())
+    ):
         raise _common.TreeContractError(
             f"positions: expected APE residues in [0, {ratio})"
         )
