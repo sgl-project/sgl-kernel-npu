@@ -7,7 +7,7 @@
 | cann_ops_transformer | 已验证 | 已验证 |
 | torch_native | 已在 NPU 验证 | 已在 NPU 验证 |
 
-已在 A3（Ascend910_9362）和 950DT（Ascend950DT_9582）的 CANN 9.1 环境验证：每台设备的 24 项独立 Torch 参考精度用例全部通过，覆盖 FP16/BF16 激活与 FP32 参数。
+CANN 9.1.0 在 A3 和 Ascend950 上支持 hidden_size=128、256 等小尺寸；CANN 9.2.0 在 Ascend950 上仅支持 hidden_size=4096 或 7168。GLM-5.3-Flash 的 hidden_size=4096 可用于两个版本。
 
 ## 函数原型
 
