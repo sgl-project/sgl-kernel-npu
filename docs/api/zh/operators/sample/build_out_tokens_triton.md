@@ -24,7 +24,7 @@ def build_out_tokens_triton(
 
 ## 功能说明
 
-将每行 draft token 复制到 `[B, gamma + 1]` 输出，在末尾补 0，并在每行 `correct_len` 指定的位置写入 bonus token。bonus 之后的 draft 元素会保留；调用方需根据接受长度确定已提交的有效前缀。`correct_len` 须在 `[0, gamma]` 范围内。
+在 `[B, gamma + 1]` 输出中保留每行已接受的 draft token，在 `correct_len` 指定的位置写入 bonus token，并将 bonus 之后的所有元素清零。`correct_len` 须在 `[0, gamma]` 范围内。
 
 ## 参数与返回值
 
@@ -47,7 +47,7 @@ def build_out_tokens_triton(
 
 ## torch_native 后端
 
-使用 Torch 拼接和 scatter 构造相同输出。
+使用 Torch 掩码和 scatter 构造相同输出。
 
 ## 调用示例
 
@@ -61,6 +61,6 @@ lengths = torch.tensor([1, 3], device="npu")
 bonus = torch.tensor([99, 98], device="npu")
 out = build_out_tokens_triton(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
                        verify_num_draft_tokens=4, gamma=3)
-# out 为 [[10, 99, 12, 0], [20, 21, 22, 98]]
+# out 为 [[10, 99, 0, 0], [20, 21, 22, 98]]
 # 每行有效前缀的长度为 lengths + 1。
 ```
