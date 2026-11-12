@@ -11,10 +11,6 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
-from tests.python.utils.cann import (  # noqa: F401
-    require_cann_9_2_0_or_newer,
-    require_selected_cann_backend,
-)
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
@@ -32,6 +28,18 @@ PAGE_SIZE = 128
 
 # Production decode batch: 16 requests x 8 tokens (Kimi K3-like shape).
 DECODE_BATCH = 16
+
+
+@pytest.fixture(scope="module")
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(
+            f"Released Sparse Flash MLA cases require CANN >= 9.2.0 (found {version})"
+        )
 
 
 def generate_data(batch, query_len):

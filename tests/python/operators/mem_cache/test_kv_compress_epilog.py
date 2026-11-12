@@ -8,10 +8,6 @@ torch = pytest.importorskip("torch")
 import sgl_kernel_npu  # noqa: F401
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.cann import (  # noqa: F401
-    require_cann_9_2_0_or_newer,
-    require_selected_cann_backend,
-)
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,

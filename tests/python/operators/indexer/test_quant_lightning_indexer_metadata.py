@@ -17,10 +17,6 @@ from tests.python.operators.indexer.test_quant_lightning_indexer import (
     reference_inputs,
 )
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.cann import (  # noqa: F401
-    require_cann_9_2_0_or_newer,
-    require_selected_cann_backend,
-)
 from tests.python.utils.common import get_skip_acc_check, make_executor
 from tests.python.utils.performance import check_performance
 

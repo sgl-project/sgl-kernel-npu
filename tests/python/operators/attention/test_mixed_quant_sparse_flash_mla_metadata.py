@@ -15,10 +15,6 @@ from tests.python.operators.attention.test_mixed_quant_sparse_flash_mla import (
     check_mixed_quant_sparse_flash_mla_accuracy,
     generate_data,
 )
-from tests.python.utils.cann import (  # noqa: F401
-    require_cann_9_2_0_or_newer,
-    require_selected_cann_backend,
-)
 from tests.python.utils.performance import check_performance
 
 perf_shape = [1]
