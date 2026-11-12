@@ -85,6 +85,7 @@ filter_tests() {
 
         if [[ "${NPU_HARDWARE:-}" == a3 ]]; then
             case "$test_file" in
+                tests/python/operators/attention/gdn/test_recompute_w_u_fwd.py|\
                 tests/python/operators/hyper_conn/test_mhc_post.py|\
                 tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
                 tests/python/operators/attention/test_compressor_v2.py|\
