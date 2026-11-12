@@ -84,6 +84,16 @@ def accuracy_cases():
                 )
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(f"MLAProlog V4 requires CANN >= 9.2.0 (found {version})")
+
+
 @pytest.fixture
 def enable_arch22_internal_format():
     import torch_npu
@@ -93,13 +103,13 @@ def enable_arch22_internal_format():
         yield
         return
 
-    original = torch_npu.npu.config.allow_internal_format
+    original = torch_npu._C._npu_getOption("ALLOW_INTERNAL_FORMAT")
     try:
         # Keep NZ weights enabled through accuracy checks and profiling.
         torch_npu.npu.config.allow_internal_format = True
         yield
     finally:
-        torch_npu.npu.config.allow_internal_format = original
+        torch_npu.npu.set_option({"ALLOW_INTERNAL_FORMAT": original.decode()})
 
 
 def generate_data(

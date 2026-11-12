@@ -33,7 +33,9 @@ def arguments(argv=None):
         default="wheel",
         help="AICORE/AICPU/HOST RUN installer or complete sgl-kernel-npu wheel",
     )
-    parser.add_argument("-j", "--jobs", type=int, help="parallel compilation jobs")
+    parser.add_argument(
+        "-j", "--jobs", type=int, default=16, help="parallel compilation jobs"
+    )
     third_party = parser.add_mutually_exclusive_group()
     third_party.add_argument(
         "--third-party",
@@ -63,7 +65,7 @@ def arguments(argv=None):
         parser.error("--cann-version is only available with --plan")
     if not args.arch_version and argv != ["--make-clean"]:
         parser.error("--arch-version is required")
-    if args.jobs is not None and args.jobs < 1:
+    if args.jobs < 1:
         parser.error("--jobs must be positive")
     if args.third_party is not None:
         if args.artifact != "wheel":

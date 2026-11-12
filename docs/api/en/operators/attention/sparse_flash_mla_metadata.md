@@ -1,19 +1,40 @@
 # sparse_flash_mla_metadata
 
-This is a non-official operator introduced in CANN 9.2.0.
+The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
+The preserved mainline CANN 9.2 binding returns 2048 int32 entries; CANN 9.1 retains 1024 entries. Query `get_sparse_flash_mla_metadata_size()` before allocating graph buffers.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+
+
+## CANN 9.1 compatibility
+
+`cann_ops_transformers_cann920` selects the bundled CANN 9.2 implementation.
+On CANN 9.1, window-only inputs select `ops_transformers_cann910`; explicit
+original-KV sparse inputs select `ascendc` compute and CPU metadata internally
+through metadata `impl="auto"`. No separate `host` implementation name is
+registered by the metadata adapter. Those explicit inputs cannot also include
+compressed KV. CPU metadata requires the
+existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
+All production bindings are bundled in the wheel; no standalone operator wheel
+is required. A5 uses the separate mixed-quant sparse APIs.
+
+The migrated `torch_native` metadata API returns a reference descriptor, not
+native tiling bytes. Paired migrated tests build that descriptor independently.
+The upstream compute reference also accepts opaque native metadata and covers
+SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
-| `torch_native` | Unsupported | Unsupported |
+| `cann_ops_transformers_cann920` | Supported | Unsupported |
+| `auto` (SDK/input selection) | Supported | Unsupported |
+| `ops_transformers_cann910` (CANN 9.1 window inputs) | Supported | Unsupported |
+| `torch_native` (reference descriptor) | Supported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers_cann920` on CANN 9.2.0 and arch22.
+On arch22, `auto` selects the matching CANN 9.1 or 9.2 implementation. The expanded arguments below describe the CANN 9.2 binding; omitted arguments retain the selected binding's defaults.
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
@@ -91,7 +112,7 @@ must not be interpreted by callers.
 | `layout_q` | `str` | `None` | `BSND` or `TND`. |
 | `layout_kv` | `str` | `None` | `BSND`, `TND`, or `PA_BBND`. |
 | `has_ori_kv`, `has_cmp_kv` | `bool` | `None` | Must match whether the main operator receives `ori_kv` and `cmp_kv`. |
-| `impl` | `str`, keyword only | `"auto"` | `auto` or `cann_ops_transformers_cann920`. |
+| `impl` | `str`, keyword only | `"auto"` | `auto`, `ops_transformers_cann910`, `cann_ops_transformers_cann920`, or `torch_native`. CANN 9.1 explicit sparse inputs require `auto`. |
 
 Returns `metadata`: Tensor, `int32`, shape `[2048]`, on the input device.
 

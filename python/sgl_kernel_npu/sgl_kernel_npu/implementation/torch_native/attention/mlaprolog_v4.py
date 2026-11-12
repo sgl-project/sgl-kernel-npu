@@ -17,8 +17,14 @@ import torch
 
 
 def _cpu(tensor: torch.Tensor) -> torch.Tensor:
-    # A device-to-CPU copy exposes the logical ND shape of an NPU NZ weight.
-    return tensor.detach().cpu()
+    tensor = tensor.detach()
+    if tensor.device.type == "npu":
+        import torch_npu
+
+        # Internal-format weights must be unpacked before a device-to-CPU copy.
+        if torch_npu.get_npu_format(tensor) != 2:
+            tensor = torch_npu.npu_format_cast(tensor, 2)
+    return tensor.cpu()
 
 
 def _decode_e8m0(scale: torch.Tensor) -> torch.Tensor:

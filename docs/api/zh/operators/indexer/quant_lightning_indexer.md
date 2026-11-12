@@ -1,156 +1,101 @@
-# quant_lightning_indexer
+# 量化 Lightning 索引器
 
-## 芯片支持
+## 硬件支持
 
-| impl | arch22 | arch35 |
+| 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| cannbot_dsl | 不支持 | 支持 |
-| torch_native | 不支持 | 支持 |
+| `cann_ops_transformers_cann920` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
+| `ops_transformers_cann910` | 支持 | 支持 |
 
-## 函数原型
-
-`from sgl_kernel_npu.operators.indexer import quant_lightning_indexer`
+## 接口
 
 ```python
-import torch
-from typing import Optional
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-def quant_lightning_indexer(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    w: torch.Tensor,
-    descale_q: torch.Tensor,
-    descale_k: torch.Tensor,
-    cu_seqlens_q: Optional[torch.Tensor] = None,
-    cu_seqlens_k: Optional[torch.Tensor] = None,
-    seqused_q: Optional[torch.Tensor] = None,
-    seqused_k: Optional[torch.Tensor] = None,
-    cmp_residual_k: Optional[torch.Tensor] = None,
-    block_table: Optional[torch.Tensor] = None,
-    output_idx_offset: Optional[torch.Tensor] = None,
-    metadata: Optional[torch.Tensor] = None,
-    *,
-    topk: int,
-    quant_mode: int,
-    max_seqlen_q: int = -1,
-    mask_mode: int = 0,
-    cmp_ratio: int = 1,
-    layout_q: str = "TND",
-    layout_k: str = "TND",
-    return_value: bool = False,
-    candidate_topk_blocks: int = -1,
-    candidate_block_size: int = -1,
-    impl="auto"
-): ...
+def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *, impl='auto', **kwargs):
+    ...
 ```
 
-## 功能说明
+`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。
 
-MXFP4 Lightning Indexer：遍历可见 Key，按 Query head 加权得分选取 TopK token；可同时输出 QSLI 的候选块。
+## 说明
 
-`q` 为 UINT8 `[T1,32,64]`，`k` 为打包 MXFP4 Key（PA_BBND 或 TND），`descale_q` 与 `descale_k` 为 E8M0 scale。`metadata` 必须由同配置的 `quant_lightning_indexer_metadata` 生成。`quant_mode=1`；`layout_q="TND"`，`layout_k` 支持 `TND`/`PA_BBND`；候选输出启用时 `candidate_block_size=8`。
+因果 TND 查询和 PA_BBND key；A3 用例使用 INT8、FP16 scale/weight，A5 用例使用 FP8、FP32 scale/weight。
 
-计算语义（量化边界使用 BF16）：
-
-```text
-s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
-```
-
-`dequant(code, e) = signed_E2M1(code) * 2**(e - 127)`，每 32 个逻辑值共用一个 E8M0 指数字节，无 zero point。E2M1 幅值为 `{0, 0.5, 1, 1.5, 2, 3, 4, 6}`，每字节低半字节存第一个值。QK 结果、头权重及每次加权头累加的结果均舍入到 BF16。
+`score[j] = Σ_h weights[h] × ReLU(dot(dequant(Q[h]), dequant(K[j])))`，在因果前缀中选择压缩 key 的逻辑 Top-K；并列分数可能产生不同合法顺序。
 
 ## 参数
 
-T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
+| 参数 | 类型 | 默认值 | 约束 |
+| --- | --- | --- | --- |
+| q | Tensor | 必填 | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
+| k | Tensor / int | 必填 | Indexer: paged [pages,page_size,1,D]; MoE: requested expert count |
+| weights | Tensor | 必填 | [T,H], indexer head weights |
+| q_scale | Tensor | 必填 | [T,H], query dequantization scales |
+| k_scale | Tensor | 必填 | [pages,page_size,1,1], key scales |
+| topk | int | 必填 | Requested number of logical compressed keys |
+| quant_mode | int / str | 必填 | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
-| 参数 | 默认值 | 类型、形状与含义 |
+### 关键字参数
+
+| 名称 | 类型 | 约束 |
 | --- | --- | --- |
-| `q` | 必填 | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
-| `k` | 必填 | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
-| `w` | 必填 | FP32 [T,32]，查询头的分数权重。 |
-| `descale_q` | 必填 | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
-| `descale_k` | 必填 | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
-| `cu_seqlens_q` | `None` | 可选 INT32 [B+1]，各请求查询行的累计边界。 |
-| `cu_seqlens_k` | `None` | 可选 INT32 [B+1]，TND K 的累计边界。 |
-| `seqused_q` | `None` | 可选 INT32 [B]，每个请求的有效查询行数。 |
-| `seqused_k` | `None` | 可选 INT32 [B]，每个请求的有效 K token 数。 |
-| `cmp_residual_k` | `None` | 可选 INT32 [B]，因果压缩未成组的残余 token 数。 |
-| `block_table` | `None` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
-| `output_idx_offset` | `None` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
-| `metadata` | `None` | cannbot_dsl 必需的 INT32 [1024] 设备调度数据；torch_native 不使用该参数。 |
-| `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
-| `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
-| `max_seqlen_q` | `-1` | int 或 None，每个请求的查询容量；未指定时推导。 |
-| `mask_mode` | `0` | int：0 使用可见 K，3 使用因果掩码。 |
-| `cmp_ratio` | `1` | int，范围 [1,128]，用于计算因果可见长度的压缩率。 |
-| `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
-| `layout_k` | `'TND'` | str，TND 或 PA_BBND 的 K 存储布局。 |
-| `return_value` | `False` | bool，True 时同时返回 BF16 选中分数。 |
-| `candidate_topk_blocks` | `-1` | int，候选块输出容量；-1 禁用该输出。 |
-| `candidate_block_size` | `-1` | int，启用候选块时每块使用 8 个 token。 |
-| `impl` | `'auto'` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
+| cu_seqlens_q | int32 Tensor | [B+1] cumulative query offsets, required by the reference. |
+| seqused_k / cmp_residual_k | int32 Tensor | [B] compressed key lengths / uncompressed residual lengths. |
+| block_table | int32 Tensor | [B,max_pages] paged key mapping. |
+| metadata | Tensor / ReferenceMetadata / None | Matching metadata implementation only. |
+| layout_q / layout_k | str | Reference defaults TND / PA_BBND. |
+| mask_mode / cmp_ratio | int | Reference defaults causal 3 / compression ratio 4. |
+| return_value | int | Default 0 produces empty values; nonzero score output is 不支持 on CANN 9.1. |
+| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | CANN 9.1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
 
 ## 返回值
 
-| 值 | 含义 |
-| --- | --- |
-| indices | INT32 [T,1,topk]; -1 表示无效项。 |
-| values | BF16 [T,1,topk]; 禁用时为空，无效项为 -inf。 |
-| candidates, candidate_length | INT32 [T,1,candidate_topk_blocks], INT32 [T,1]; 禁用时为空。 |
+| 名称 | 类型 | 约束 |
+| --- | --- | --- |
+| indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
+| values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
-## cannbot_dsl
+## cann_ops_transformers_cann920
 
-`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
+
+## ops_transformers_cann910
+
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 
-独立的 CPU Torch 精度参考，结果复制回输入设备，保留原地输出语义。无需 DSL；不适合性能执行或 NPU graph capture。Top-K 同分项允许不同排序。
+独立 eager PyTorch 参考；仅用于正确性检查，不自动替代生产实现，也不保证图捕获。元数据描述对象不等价于原生 tiling 字节。上述参考支持域外的模式会明确拒绝。
 
 ## 示例
 
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.indexer import (
-    quant_lightning_indexer,
-    quant_lightning_indexer_metadata,
-)
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
-qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
-w = torch.ones(1, 32, device="npu")
-cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
-lengths = torch.tensor([64], device="npu", dtype=torch.int32)
-table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
-attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
-k = torch.zeros(1, 64, 1, 64, device="npu", dtype=torch.uint8)
-ks = torch.full((1, 64, 1, 2, 2), 127, device="npu", dtype=torch.uint8)
-metadata = quant_lightning_indexer_metadata(
-    cu_seqlens_q=cu,
-    seqused_k=lengths,
-    num_heads_q=32,
-    num_heads_k=1,
-    head_dim=128,
-    max_seqlen_q=1,
-    max_seqlen_k=64,
-    **attrs
-)
-result = quant_lightning_indexer(
-    q,
-    k,
-    w,
-    qs,
-    ks,
-    cu_seqlens_q=cu,
-    seqused_k=lengths,
-    block_table=table,
-    metadata=metadata,
-    quant_mode=1,
-    **attrs
-)
+q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
+k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
+w = torch.ones(1, 2, device="npu", dtype=torch.float16)
+qs = torch.ones(1, 2, device="npu", dtype=torch.float16)
+ks = torch.ones(1, 128, 1, 1, device="npu", dtype=torch.float16)
+i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
+kw = dict(cu_seqlens_q=i32([0, 1]), seqused_k=i32([1]),
+          cmp_residual_k=i32([0]), block_table=i32([[0]]),
+          layout_q="TND", layout_k="PA_BBND", mask_mode=3, cmp_ratio=4)
+indices, values = quant_lightning_indexer(q, k, w, qs, ks, 1, 2, impl="torch_native", **kw)
 ```
 
-## 设备测试
+先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
+
+精度测试在 CPU 上执行独立 eager 参考，并在 CPU 上排序、精确比较索引集合，隔离参考 Top-K 与比较 Sort 对 NPU 执行路径的影响。性能计时仍使用原始 NPU executor。
 
 ```bash
-python -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
+python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py \
+  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
+
+[上游算子仓库](https://github.com/Ascend/ops-transformer)

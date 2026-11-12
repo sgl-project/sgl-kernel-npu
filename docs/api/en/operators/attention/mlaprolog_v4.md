@@ -7,7 +7,7 @@
 | `cann` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
-**CANN backend requirement: CANN 9.2.0.**
+The CANN backend requires CANN 9.2.0 or later with the MLAProlog V4 binding. It has been tested with CANN 9.2.0.
 
 Both implementations are registered for `Generation.ARCH22` and `Generation.ARCH35`, and `auto` is an alias of `cann`.
 

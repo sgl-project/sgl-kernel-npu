@@ -1,68 +1,73 @@
-"""Check changing-length graph replay; paired compute tests check schedule semantics."""
+"""Validate opaque tiling via paired compute; profile the metadata op alone."""
 
 import pytest
-import torch
 
-from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import (
-    get_skip_acc_check,
-    make_executor,
-    require_test_impl,
+torch = pytest.importorskip("torch")
+pytest.importorskip("torch_npu")
+
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
+
+from tests.python.operators.indexer.test_quant_lightning_indexer import (
+    CASE_IDS,
+    CASES,
+    generate_data,
+    hardware_mode,
+    paired_inputs,
+    reference_inputs,
 )
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import get_skip_acc_check, make_executor
 from tests.python.utils.performance import check_performance
 
-perf_shape = [1, 6]
+perf_shape = [CASES[1]]
 
 
-def generate_data(rows):
-    cu = torch.tensor([0, rows], dtype=torch.int32)
-    lengths = torch.full((1,), 4096, dtype=torch.int32)
-    kwargs = dict(
-        cu_seqlens_q=cu,
-        seqused_k=lengths,
-        batch_size=1,
-        num_heads_q=32,
-        num_heads_k=1,
-        head_dim=128,
-        topk=512,
-        mask_mode=3,
-        cmp_ratio=1,
-        layout_q="TND",
-        layout_k="PA_BBND",
-        max_seqlen_q=rows,
-        max_seqlen_k=4096,
+@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
+def test_quant_lightning_indexer_metadata(case):
+    from sgl_kernel_npu.operators.indexer import (
+        quant_lightning_indexer,
+        quant_lightning_indexer_metadata,
     )
-    return kwargs, lengths
 
+    args, kwargs, kwargs_ref, metadata_args, common = paired_inputs(
+        generate_data(case, hardware_mode())
+    )
+    metadata = kwargs["metadata"]
+    assert isinstance(metadata, torch.Tensor)
+    assert metadata.dtype == torch.int32
+    from sgl_kernel_npu.operators.indexer import (
+        get_quant_lightning_indexer_metadata_size,
+    )
 
-@pytest.mark.parametrize(
-    "rows",
-    [pytest.param(1, id="dsv41-decode"), pytest.param(6, id="dsv41-static-verify6")],
-)
-def test_quant_lightning_indexer_metadata(rows):
-    from sgl_kernel_npu.operators.indexer import quant_lightning_indexer_metadata
-
-    kwargs, lengths = generate_data(rows)
-    executor = make_executor(quant_lightning_indexer_metadata, kwargs=kwargs)
-    require_test_impl(quant_lightning_indexer_metadata, executor.impl)
-    if not get_skip_acc_check():
-        initial = executor().clone()
-        torch.npu.synchronize()
-        graph = torch.npu.NPUGraph()
-        with torch.npu.graph(graph):
-            captured = executor()
-        pointer = captured.data_ptr()
-        changed = False
-        for value in (64, 4096, 192):
-            lengths.fill_(value)
-            expected = executor()
-            graph.replay()
-            torch.npu.synchronize()
-            assert captured.dtype == torch.int32 and captured.data_ptr() == pointer
-            assert_accuracy(captured, expected)
-            changed |= not torch.equal(initial, expected)
-        assert changed, "Lengths must cross a scheduling boundary"
-        # This records replay parity. Independent semantic checks live in the compute test.
-        executor.accuracy_checked = True
-    lengths.fill_(4096)
-    check_performance(executor, enable_perf=rows in perf_shape)
+    assert metadata.shape == (get_quant_lightning_indexer_metadata_size(),)
+    assert metadata.is_contiguous()
+    # Binary tiling is not comparable to the eager reference descriptor.
+    compute = make_executor(quant_lightning_indexer, args=args, kwargs=kwargs)
+    if get_skip_acc_check() is not True:
+        reference_args, reference_kwargs = reference_inputs(
+            args, kwargs, kwargs_ref, compute.impl_ref
+        )
+        expected = quant_lightning_indexer(
+            *reference_args, **reference_kwargs, impl=compute.impl_ref
+        )
+        actual_indices, actual_values = compute()
+        expected_indices, expected_values = expected
+        assert_accuracy(
+            (
+                actual_indices.cpu().sort(dim=-1).values,
+                actual_values.cpu(),
+            ),
+            (
+                expected_indices.cpu().sort(dim=-1).values,
+                expected_values.cpu(),
+            ),
+        )
+        compute.accuracy_checked = True
+    executor = make_executor(
+        quant_lightning_indexer_metadata,
+        args=metadata_args,
+        kwargs=common,
+        accuracy_checked=compute.accuracy_checked,
+    )
+    check_performance(executor, enable_perf=case in perf_shape)
