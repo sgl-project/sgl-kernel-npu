@@ -925,17 +925,17 @@ jobs:
           - platform: a3
             cann: "9.2.0"
             runs_on: linux-aarch64-a3-800t-16
-            # Official multi-arch image built 2026-11-11 (manifest list, arm64
-            # included). Preferred over the 20261022 lmsysorg tag because the
-            # refactored MegaMoe reference flow (#998, merged 2026-11-10) shows
-            # a 0.868 w4a8 diff against the older image's cann_ops_transformer.
-            image: quay.io/ascend/sglang:cann9.2.0-a3-20261111
+            # quay.io/ascend/sglang:cann9.2.0-a3-20261111 is the official tag but
+            # is NOT pullable from this runner (ImagePullBackOff, run 43169067311),
+            # so stay on the SWR-proxied lmsysorg tag, which pulls and ships
+            # torch/torch_npu/cann_ops_transformer.
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep"
           - platform: a5
             cann: "9.2.0"
             runs_on: linux-amd64-a5-4
-            # Same source, amd64 single-arch tag; upgrade candidate:
-            # quay.io/ascend/sglang:cann9.2.0-950-20261111
+            # Same source, amd64 single-arch tag. The official quay tag
+            # (cann9.2.0-950-20261111) is not reachable from CI either.
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950-amd64
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950"
     steps:
