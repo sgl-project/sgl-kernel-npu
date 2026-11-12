@@ -125,13 +125,7 @@ def _cann_9_1(
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_moe_gating_top_k", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_moe_gating_top_k in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import npu_moe_gating_top_k as op
     if isinstance(op, torch._ops.OpOverloadPacket):
         names = {arg.name for arg in op.default._schema.arguments}
         missing = (
