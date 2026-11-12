@@ -928,17 +928,15 @@ jobs:
           - platform: a3
             cann: "9.2.0"
             runs_on: linux-aarch64-a3-800t-16
-            # quay.io/ascend/sglang:cann9.2.0-a3-20261111 is the official tag but
-            # is NOT pullable from this runner (ImagePullBackOff, run 43169067311),
-            # so stay on the SWR-proxied lmsysorg tag, which pulls and ships
-            # torch/torch_npu/cann_ops_transformer.
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+            # 2026-11-10 build (quay-style tag under the SWR dockerhub proxy).
+            # Replaces the 20261022 lmsysorg tag that fails the #998 A3 w4a8 check.
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-a3-20261110
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep"
           - platform: a5
             cann: "9.2.0"
             runs_on: linux-amd64-a5-4
-            # Same source, multi-arch tag (matches the official image list).
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950
+            # Same 2026-11-10 build, amd64 target.
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-950-20261110
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950"
     steps:
       - name: Clean git config
