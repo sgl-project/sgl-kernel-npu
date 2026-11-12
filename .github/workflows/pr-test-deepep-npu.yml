@@ -453,8 +453,11 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
+      # #950 retargeted this step from cann=='9.0.0' to '9.1.0' only because
+      # 9.0.0 left the matrix; it was a single-version rotation, not a 9.2.0
+      # capability limit. Run it on both versions so A3 alltoall has 9.2.0
+      # coverage as well.
       - name: Run test alltoall mode for both normal and low_latency
-        if: matrix.cann_version == '9.1.0'
         timeout-minutes: 10
         env:
           DEEP_MOE_MODE: alltoall
@@ -934,9 +937,8 @@ jobs:
           - platform: a5
             cann: "9.2.0"
             runs_on: linux-amd64-a5-4
-            # Same source, amd64 single-arch tag. The official quay tag
-            # (cann9.2.0-950-20261111) is not reachable from CI either.
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950-amd64
+            # Same source, multi-arch tag (matches the official image list).
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950"
     steps:
       - name: Clean git config
