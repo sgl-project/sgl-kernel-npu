@@ -1,6 +1,7 @@
 """Collect Python operator coverage from the repository's pytest suites."""
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -15,6 +16,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tests", nargs="*", help="Test paths relative to the repo root")
     parser.add_argument("--output-dir", type=Path, default=Path("coverage-out"))
+    parser.add_argument("--no-merge", action="store_true", help="Collect only; runner merges after all files")
+    parser.add_argument("--merge-only", action="store_true", help="Merge existing successful per-file data")
     args = parser.parse_args()
 
     output_dir = args.output_dir.resolve()
@@ -27,14 +30,14 @@ def main():
     coverage = [sys.executable, "-m", "coverage"]
 
     test_files = set()
-    for test in args.tests or DEFAULT_TESTS:
+    for test in ([] if args.merge_only else args.tests or DEFAULT_TESTS):
         path = (ROOT / test).resolve()
         if not path.is_relative_to(ROOT) or not path.exists():
             parser.error(
                 f"Expected an existing test path inside the repository: {test}"
             )
         test_files.update(path.rglob("test_*.py") if path.is_dir() else [path])
-    if not test_files:
+    if not test_files and not args.merge_only:
         parser.error("No test files found")
 
     data_files = []
@@ -61,6 +64,7 @@ def main():
                 "pytest",
                 "-q",
                 "--tb=short",
+                "--enable-perf=false",
                 str(relative_path),
             ],
             cwd=ROOT,
@@ -69,7 +73,8 @@ def main():
         if result.returncode or not data_file.is_file():
             failure_marker.write_text(f"pytest exit code: {result.returncode}\n")
             failed = True
-            continue
+            if not data_file.is_file():
+                continue
 
         export = subprocess.run(
             [*coverage, "json", "-o", str(lines_report)],
@@ -81,6 +86,23 @@ def main():
             failed = True
             continue
         data_files.append(str(data_file))
+
+    if args.no_merge:
+        return int(failed)
+    if args.merge_only:
+        data_files = [str(p) for p in sorted(output_dir.glob("tests/**/covdata/coverage"))
+                      if (p.parent / "coverage.json").is_file()]
+        failed_files = [p.parent.parent.relative_to(output_dir).as_posix()
+                        for p in sorted(output_dir.glob("tests/**/covdata/FAILED"))]
+        manifest = {
+            "hardware": os.environ.get("NPU_HARDWARE", ""),
+            "test_files_with_coverage": len(data_files),
+            "failed_test_files": failed_files,
+            "incomplete": bool(failed_files),
+        }
+        (output_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
 
     if not data_files:
         return 1
