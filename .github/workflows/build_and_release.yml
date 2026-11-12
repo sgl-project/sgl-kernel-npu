@@ -53,7 +53,7 @@ jobs:
         if: matrix.npu_hardware != '950'
         run: |
           env -i PATH="${PATH}" bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib:${LD_LIBRARY_PATH} &&
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib &&
             python3 setup.py --arch-version 2201 --ops all --artifact wheel
           "
 
@@ -61,7 +61,7 @@ jobs:
         if: matrix.npu_hardware == '950'
         run: |
           env -i PATH="${PATH}" bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib:${LD_LIBRARY_PATH} &&
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib &&
             python3 setup.py --arch-version 3510 --ops all --artifact wheel
           "
       - name: Build Attentions
