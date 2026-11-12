@@ -44,15 +44,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Mark repository safe
-        run: |
-          git config --system --add safe.directory "${GITHUB_WORKSPACE}"
-      - name: Check network
-        run: |
-          cat /etc/resolv.conf
-          getent hosts archive.ubuntu.com || true
-          getent hosts github.com || true
-          
       - name: Install dependency
         run: |
           bash scripts/npu_ci_install_dependency.sh \
