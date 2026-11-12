@@ -94,7 +94,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
         Optional[torch.Tensor],
-        List[int],
+        Union[List[int], torch.Tensor],
         Tuple,
         EventOverlap,
     ]:
@@ -156,7 +156,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
         Optional[torch.Tensor],
-        List[int],
+        torch.Tensor,
         Tuple,
         EventOverlap,
     ]:

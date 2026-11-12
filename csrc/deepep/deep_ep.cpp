@@ -311,12 +311,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
     auto new_num_tokens_per_expert = num_tokens_per_expert.value();
-    std::vector<int> num_recv_tokens_per_expert_list;
-    // indicates the value type of the output num_recv_tokens_per_expert_list, with a range of [0, 1]
-    // 0 means the prefix sum of the number of tokens received by each expert;
-    // 1 means the number of tokens received by each expert (default)
-    int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
-    EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
@@ -326,8 +320,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    // Read back the whole recv_header with a single D2H; max_bs / total_recv_token / recv_tokens_per_expert
-    // are all taken from the host cache, avoiding host sync stalls from multiple independent reads around dispatch.
+    // Read back max_bs / total_recv_token with a single D2H (still needed to size
+    // the output buffers); the per-expert token counts are returned as a device
+    // tensor so the Python side never touches this host copy.
     auto recv_header_cpu = recv_header.to(at::kCPU);
     const int32_t *header_ptr = recv_header_cpu.data_ptr<int32_t>();
     real_max_bs = static_cast<int64_t>(std::max(static_cast<int>(header_ptr[0]), static_cast<int>(num_worst_tokens)));
@@ -389,34 +384,18 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
                  per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
-    const int32_t *recv_token_per_exp_ptr = header_ptr + 2;
-
-    int token_cnt = 0;
-    // 多轮处理为一维
-    std::vector<int> round_recv_tokens_per_expert;
-    round_recv_tokens_per_expert.resize(num_local_experts);
-    for (int r = 0; r < round; r++) {
-        for (int local_e = 0; local_e < num_local_experts; ++local_e) {
-            int current_tokens = static_cast<int>(recv_token_per_exp_ptr[r * num_local_experts + local_e]);
-            token_cnt = round_recv_tokens_per_expert[local_e] + current_tokens;
-            round_recv_tokens_per_expert[local_e] = token_cnt;
-        }
-    }
-
-    token_cnt = 0;
-    for (int local_e = 0; local_e < num_local_experts; ++local_e) {
-        int current_tokens = static_cast<int>(round_recv_tokens_per_expert[local_e]);
-        token_cnt = (expert_token_nums_type == 0) ? token_cnt + current_tokens : current_tokens;
-        num_recv_tokens_per_expert_list.emplace_back(token_cnt);
-    }
-
     auto recv_count_one_dim = recv_count.sum(0, false).to(at::kInt);
+    // Return the per-round received-token counts as a device tensor
+    // ([round, num_local_experts], round-major) instead of parsing them on the
+    // host from header_ptr, so the Python side can build the expert group_list
+    // entirely on device without an extra D2H/H2D round-trip.
+    auto recv_tokens_per_expert_2d = recv_tokens_per_expert.view({round, num_local_experts});
     // Return values
     return {expandx_out,
             dynamic_scales_out,
             recv_topk_idx,
             recv_topk_weights,
-            num_recv_tokens_per_expert_list,
+            recv_tokens_per_expert_2d,
             rank_prefix_matrix,
             channel_prefix_matrix,
             recv_channel_prefix_matrix,
