@@ -975,9 +975,8 @@ jobs:
         timeout-minutes: 90
         # The A3 fused path does not pass hccl_buffer_size into init_dist (only
         # A5 hardcodes 200), so the MC2 window comes from HCCL_BUFFSIZE, which
-        # --hccl-buffsize exports before spawning. 2000 MiB works; the earlier
-        # 4096 MiB env made w4a8 return garbage (calc_diff=0.868) instead of
-        # failing loudly.
+        # --hccl-buffsize exports before spawning. 16 ranks needed ~374 MiB;
+        # now trying the 8-rank layout with 512 MiB (developer-reported config).
         run: |
           RESULT_FILE=${GITHUB_WORKSPACE}/a3_megamoe_results.txt
           : > ${RESULT_FILE}
@@ -985,7 +984,7 @@ jobs:
           run_mode() {
             local mode="$1"
             echo "===== CASE: a3_${mode} ====="
-            if timeout 1800 python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode ${mode} --hccl-buffsize 2000; then
+            if timeout 1800 python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 8 --quant-mode ${mode} --hccl-buffsize 512; then
               echo "PASS  ${mode}" >> ${RESULT_FILE}
             else
               rc=$?
