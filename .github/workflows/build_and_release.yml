@@ -54,7 +54,7 @@ jobs:
         run: |
           env -i PATH="${PATH}" bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
-            python3 setup.py --arch-version 2201 --soc-version ascend910_93 --ops all --artifact wheel
+            python3 setup.py --arch-version 2201 --ops all --artifact wheel
           "
 
       - name: Build SGL-Kernel-NPU for 950
@@ -62,7 +62,7 @@ jobs:
         run: |
           env -i PATH="${PATH}" bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
-            python3 setup.py --arch-version 3510 --soc-version ascend950 --ops all --artifact wheel
+            python3 setup.py --arch-version 3510 --ops all --artifact wheel
           "
 
       - name: Build Attentions
