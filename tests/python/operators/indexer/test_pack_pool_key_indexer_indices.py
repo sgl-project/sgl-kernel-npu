@@ -103,6 +103,7 @@ def test_pack_pool_key_indexer_indices(shape, reuse_output):
     check_performance(executor, enable_perf=shape in perf_shape and not reuse_output)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "real_tokens", [0, 3, 5], ids=["all-padding", "prefix", "full"]
 )

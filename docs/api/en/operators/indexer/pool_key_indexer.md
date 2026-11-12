@@ -26,7 +26,6 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
-    key_stride0=-1,
     *,
     impl="auto",
 ):
@@ -59,7 +58,6 @@ The output contains int32 indices rather than scores, with unused tail positions
 | `mask_mode` | `int` | — | — | `3` | Vendor mask-mode attribute; this integration uses mode 3. |
 | `quant_mode` | `int` | — | — | `-1` | Only -1 is supported; no descale tensors are exposed. |
 | `return_value` | `bool` | — | — | `False` | Must be False: the schema returns indices only. |
-| `key_stride0` | `int` | — | — | `-1` | Compatibility argument; CANN derives this from `pool_key`. Pass -1 or `pool_key.stride(0)`. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only: auto or cann_ops_transformer. |
 
 | Return value | Type | Shape | Dtype | Description |
@@ -67,8 +65,8 @@ The output contains int32 indices rather than scores, with unused tail positions
 | `indices` | `torch.Tensor` | `[B,S,topk+K-1]` (rank-4 query) or `[T,topk+K-1]` (rank-2/3 query) | `torch.int32` | New output on the query NPU. |
 
 All tensors share an NPU and use contiguous ND storage matching the layout.
-Pass all three metadata arguments as host sequences or as contiguous int64 device
-tensors; do not mix the two. Device metadata can be updated during graph replay.
+Host metadata sequences are converted to CPU int64 tensors. Device metadata can
+be updated during graph replay.
 For zero-pool or all-padding TND inputs, use `prepare_pool_key_indexer_inputs`
 before CANN and pack the cropped output with the original query boundaries.
 

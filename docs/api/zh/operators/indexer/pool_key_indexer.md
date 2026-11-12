@@ -26,7 +26,6 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
-    key_stride0=-1,
     *,
     impl="auto",
 ):
@@ -59,7 +58,6 @@ def pool_key_indexer(
 | `mask_mode` | `int` | — | — | `3` | 透传 vendor mask mode；当前接入使用模式 3。 |
 | `quant_mode` | `int` | — | — | `-1` | 仅支持 -1；不对外暴露 descale tensor。 |
 | `return_value` | `bool` | — | — | `False` | 必须为 False：schema 仅返回索引。 |
-| `key_stride0` | `int` | — | — | `-1` | 兼容参数；CANN 从 `pool_key` 推导 stride，仅接受 -1 或 `pool_key.stride(0)`。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字：auto 或 cann_ops_transformer。 |
 
 | 返回值 | 类型 | Shape | Dtype | 描述 |
@@ -67,7 +65,7 @@ def pool_key_indexer(
 | `indices` | `torch.Tensor` | `[B,S,topk+K-1]`（四维 query）或 `[T,topk+K-1]`（二维/三维 query） | `torch.int32` | query 所在 NPU 上的新输出。 |
 
 所有 tensor 位于同一 NPU，采用与布局匹配的连续 ND 存储。
-三个 metadata 参数统一使用 host 序列或连续 int64 设备张量，不混用；设备张量可在图回放时更新。
+host metadata 序列会转换为 CPU int64 tensor；设备张量可在图回放时更新。
 TND 空历史或全 padding 场景先调用 `prepare_pool_key_indexer_inputs`，
 CANN 输出裁掉新增行后，再按原始 query 边界执行 packing。
 
