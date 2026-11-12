@@ -973,33 +973,11 @@ jobs:
       - name: Run MegaMoe positive (A3)
         if: matrix.platform == 'a3'
         timeout-minutes: 90
-        # The A3 fused path does not pass hccl_buffer_size into init_dist (only
-        # A5 hardcodes 200), so the MC2 window comes from HCCL_BUFFSIZE, which
-        # --hccl-buffsize exports before spawning. 16 ranks needed ~374 MiB;
-        # now trying the 8-rank layout with 512 MiB (developer-reported config).
+        # A3 inherits HCCL_BUFFSIZE from --hccl-buffsize (the fused path does not
+        # set hccl_buffer_size itself); 512 MiB covers the 16-rank config.
         run: |
-          RESULT_FILE=${GITHUB_WORKSPACE}/a3_megamoe_results.txt
-          : > ${RESULT_FILE}
-          # Fail-isolated: a failing mode must not hide the result of the next one.
-          run_mode() {
-            local mode="$1"
-            echo "===== CASE: a3_${mode} ====="
-            if timeout 1800 python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 8 --quant-mode ${mode} --hccl-buffsize 512; then
-              echo "PASS  ${mode}" >> ${RESULT_FILE}
-            else
-              rc=$?
-              if [ "$rc" -eq 124 ]; then echo "FAIL  ${mode} (timeout/hang)" >> ${RESULT_FILE}; else echo "FAIL  ${mode} (exit=$rc)" >> ${RESULT_FILE}; fi
-            fi
-          }
-          run_mode w4a8
-          run_mode w8a8
-          echo "================ A3 MegaMoe CASE SUMMARY ================"
-          cat ${RESULT_FILE}
-          if grep -q "^FAIL" ${RESULT_FILE}; then
-            echo "Some A3 MegaMoe cases FAILED"
-            exit 1
-          fi
-          echo "All A3 MegaMoe cases passed"
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w4a8 --hccl-buffsize 512
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w8a8 --hccl-buffsize 512
       - name: Run MegaMoe positive (A5, 4-card)
         if: matrix.platform == 'a5'
         timeout-minutes: 90
