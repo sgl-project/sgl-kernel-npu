@@ -178,7 +178,9 @@ def main():
     parser.add_argument("--capacity", type=int, default=32)
     parser.add_argument("--num-experts", type=int, default=8)
     parser.add_argument("--topk", type=int, default=4)
-    parser.add_argument("--impl", choices=("auto", "cann"), default="auto")
+    parser.add_argument(
+        "--impl", choices=("auto", "cann_ops_transformer"), default="auto"
+    )
     parser.add_argument(
         "--quant-mode", choices=QUANT_MODES["arch22"] + QUANT_MODES["arch35"]
     )

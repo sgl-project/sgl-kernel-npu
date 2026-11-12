@@ -1,4 +1,4 @@
-"""Registered MegaMoE interface backed by CANN MC2."""
+"""Registered MegaMoE interface backed by cann_ops_transformer MC2."""
 
 from typing import Any
 
@@ -19,19 +19,24 @@ def _load_backend():
     return _mega_moe_fn, _get_symm_buffer_fn
 
 
+# Only ARCH22 and ARCH35 are supported; do not opt future architectures in.
 _SUPPORTED_GENERATIONS = frozenset({Generation.ARCH22, Generation.ARCH35})
 
 
 @register_impl("moe.mega_moe", "auto", supported_generations=_SUPPORTED_GENERATIONS)
-@register_impl("moe.mega_moe", "cann", supported_generations=_SUPPORTED_GENERATIONS)
-def _cann_impl(*args: Any, **kwargs: Any):
+@register_impl(
+    "moe.mega_moe", "cann_ops_transformer", supported_generations=_SUPPORTED_GENERATIONS
+)
+def _cann_ops_transformer_impl(*args: Any, **kwargs: Any):
     mega_moe_fn, _ = _load_backend()
     return mega_moe_fn(*args, **kwargs)
 
 
 @register_operator("moe.mega_moe")
 def mega_moe(*args: Any, impl: str = "auto", **kwargs: Any):
-    """Dispatch tokens, run expert FFNs, and combine; auto selects CANN 9.2.
+    """Dispatch tokens, run expert FFNs, and combine.
+
+    auto selects cann_ops_transformer (CANN 9.2).
 
     Forward provider arguments unchanged: x [T,H], topk_ids/topk_weights [T,K],
     per-expert l1_weights/l2_weights and a live sym_buffer. Optional scales,
@@ -51,17 +56,19 @@ def mega_moe(*args: Any, impl: str = "auto", **kwargs: Any):
 )
 @register_impl(
     "moe.get_symm_buffer_for_mega_moe",
-    "cann",
+    "cann_ops_transformer",
     supported_generations=_SUPPORTED_GENERATIONS,
 )
-def _cann_buffer_impl(*args: Any, **kwargs: Any):
+def _cann_ops_transformer_buffer_impl(*args: Any, **kwargs: Any):
     _, get_buffer = _load_backend()
     return get_buffer(*args, **kwargs)
 
 
 @register_operator("moe.get_symm_buffer_for_mega_moe")
 def get_symm_buffer_for_mega_moe(*args: Any, impl: str = "auto", **kwargs: Any):
-    """Create an EP communication buffer; auto selects the CANN 9.2 provider.
+    """Create an EP communication buffer.
+
+    auto selects cann_ops_transformer (CANN 9.2).
 
     Forward the process group and num_experts, num_max_tokens_per_rank,
     num_topk, hidden, intermediate_hidden and quantization options unchanged.

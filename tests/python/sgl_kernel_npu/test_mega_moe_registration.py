@@ -31,6 +31,11 @@ def moe_modules(request, monkeypatch):
         request.param, generation.generation_from_arch(request.param)
     )
     monkeypatch.setattr(generation, "get_hardware", lambda: hardware)
+    # The upstream MoE package also exports a torch-backed gating operator.
+    # Isolate that sibling so registration contracts still run without torch.
+    gating = ModuleType(f"{namespace}.operators.moe.moe_gating_top_k")
+    gating.moe_gating_top_k = Mock()
+    monkeypatch.setitem(sys.modules, gating.__name__, gating)
     try:
         module = importlib.import_module(f"{namespace}.operators.moe.mega_moe")
         registry = importlib.import_module(f"{namespace}.operators.utils.registry")
@@ -46,12 +51,14 @@ def test_registration_and_aliases(moe_modules, operator_name):
     module, registry = moe_modules
     operator = getattr(module, operator_name)
     assert registry.get_op_name(operator) == f"moe.{operator_name}"
-    assert registry.list_impls(operator) == ["auto", "cann"]
-    assert registry.get_impl(operator, "auto") is registry.get_impl(operator, "cann")
+    assert registry.list_impls(operator) == ["auto", "cann_ops_transformer"]
+    assert registry.get_impl(operator, "auto") is registry.get_impl(
+        operator, "cann_ops_transformer"
+    )
 
 
 @pytest.mark.parametrize("operator_name", ["mega_moe", "get_symm_buffer_for_mega_moe"])
-@pytest.mark.parametrize("impl", [None, "auto", "cann"])
+@pytest.mark.parametrize("impl", [None, "auto", "cann_ops_transformer"])
 def test_lazy_loading_and_argument_forwarding(
     moe_modules, monkeypatch, operator_name, impl
 ):
@@ -82,14 +89,15 @@ def test_lazy_loading_and_argument_forwarding(
 
 
 @pytest.mark.parametrize("operator_name", ["mega_moe", "get_symm_buffer_for_mega_moe"])
+@pytest.mark.parametrize("impl", ["missing", "cann"])
 def test_unknown_impl_fails_before_backend_load(
-    moe_modules, monkeypatch, operator_name
+    moe_modules, monkeypatch, operator_name, impl
 ):
     module, registry = moe_modules
     loader = Mock(side_effect=AssertionError("backend must stay unloaded"))
     monkeypatch.setattr(module, "_load_backend", loader)
     with pytest.raises(registry.ImplementationNotFoundError):
-        getattr(module, operator_name)(impl="missing")
+        getattr(module, operator_name)(impl=impl)
     loader.assert_not_called()
 
 
@@ -127,7 +135,7 @@ def test_public_exports_and_keyword_only_impl(moe_modules, operator_name):
 
 
 @pytest.mark.parametrize("operator_name", ["mega_moe", "get_symm_buffer_for_mega_moe"])
-@pytest.mark.parametrize("impl", ["auto", "cann"])
+@pytest.mark.parametrize("impl", ["auto", "cann_ops_transformer"])
 def test_provider_failure_propagates_without_fallback(
     moe_modules, monkeypatch, operator_name, impl
 ):

@@ -64,7 +64,7 @@ def run_workers(arguments, world_size=4):
         process.wait()
 
 
-@pytest.mark.parametrize("impl", ["auto", "cann"])
+@pytest.mark.parametrize("impl", ["auto", "cann_ops_transformer"])
 @pytest.mark.parametrize(
     "shape,routing,input_mode,topk",
     [
@@ -143,7 +143,7 @@ def test_bf16_accuracy_eight_rank_group(request):
     )
 
 
-@pytest.mark.parametrize("impl", ["auto", "cann"])
+@pytest.mark.parametrize("impl", ["auto", "cann_ops_transformer"])
 @pytest.mark.parametrize(
     "generation,quant_mode",
     [(generation, mode) for generation, modes in QUANT_MODES.items() for mode in modes],

@@ -2,7 +2,7 @@
 
 ## Scope and independent-reference exception
 
-`auto` and `cann` select one external implementation, not two independent
+`auto` and `cann_ops_transformer` select one external implementation, not two independent
 implementations. MegaMoE owns collective communication through a provider-specific
 symmetric buffer. A replacement `torch_native` implementation cannot consume that
 opaque buffer without defining another resource protocol. This contribution uses
@@ -42,7 +42,7 @@ and activation approximation differences. They still require A5 hardware
 validation against the installed provider version.
 
 All workers call the MegaMoE compute and buffer APIs directly. Both
-`auto` and `cann` are parameterized.
+`auto` and `cann_ops_transformer` are parameterized.
 
 ## Running
 
@@ -69,7 +69,7 @@ one worker and interchangeable arguments. Here pytest manages configurations,
 `generate_data` constructs BF16 inputs, and the worker performs reference checks
 before timing. This custom distributed workflow is intentional; `--impl-ref` and
 `--skip-acc-check` do not change this test (accuracy always runs). `--impl` does
-not narrow the explicit auto/cann matrix; use pytest `-k` if needed.
+not narrow the explicit auto/cann_ops_transformer matrix; use pytest `-k` if needed.
 
 ## Performance
 
@@ -102,7 +102,7 @@ are **pending**, not passing. Include actual CI logs and performance measurement
 in the PR before claiming hardware validation.
 
 Local validation: Python 3.12, CPU PyTorch 2.15.0; registration and reference/CLI
-unit tests pass **52 cases**, including three independent A5 reference checks
+unit tests pass **56 cases**, including three independent A5 reference checks
 for FP4 decoding, E4M3 rounding, and expert/routing sensitivity.
 The distributed pytest file collects **24 cases**.
 Workflow YAML, documentation links, Python example syntax, Black and isort
@@ -111,7 +111,7 @@ in an isolated copy of the checkout. These checks do not execute the NPU kernel.
 
 ## 中文说明
 
-`auto/cann` 是同一实现的别名。由于 provider 的通信 buffer 是不透明资源，
+`auto/cann_ops_transformer` 是同一实现的别名。由于 provider 的通信 buffer 是不透明资源，
 这里按贡献指南的例外条款，使用测试内独立参考，而不注册无法复用相同 buffer
 的 `torch_native` 后端；PR 应保留此例外说明。A3 BF16 使用独立 CPU FP32 FFN，
 A3 INT 和 A5 MXFP 通过直接调用 CANN 验证注册接口等价性，并用路由直方图独立校验专家
