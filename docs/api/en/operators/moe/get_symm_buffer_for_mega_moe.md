@@ -4,10 +4,10 @@
 
 | impl | arch22 (A3 test target) | arch35 (A5) |
 | --- | --- | --- |
-| `auto` | Registered; hardware tests pending | Registered; hardware tests pending |
-| `cann_ops_transformer` | Registered; hardware tests pending | Registered; hardware tests pending |
+| `auto` | Unverified | Supported |
+| `cann_ops_transformer` | Unverified | Supported |
 
-Only ARCH22 and ARCH35 are declared supported; this is not an all-generation registration. Hardware validation remains pending.
+Registration is restricted to ARCH22 and ARCH35. A5 accuracy and interface tests passed; A3 hardware validation remains pending.
 
 Requires CANN 9.2.0, matching PyTorch/torch_npu and a `cann_ops_transformer` provider exporting MegaMoE, including its `ninja` JIT dependency. Registration does not certify every provider version or input mode.
 

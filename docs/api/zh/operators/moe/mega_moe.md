@@ -4,10 +4,10 @@
 
 | impl | arch22（测试目标 A3） | arch35 (A5) |
 | --- | --- | --- |
-| `auto` | 已注册，硬件测试待运行 | 已注册，硬件测试待运行 |
-| `cann_ops_transformer` | 已注册，硬件测试待运行 | 已注册，硬件测试待运行 |
+| `auto` | 未验证 | 支持 |
+| `cann_ops_transformer` | 未验证 | 支持 |
 
-仅声明支持 ARCH22 和 ARCH35，并非支持所有代际；硬件验证仍待完成。
+注册范围仅限 ARCH22 和 ARCH35。A5 精度与接口测试已通过；A3 硬件验证仍待完成。
 
 依赖 CANN 9.2.0、匹配的 PyTorch/torch_npu 和提供 MegaMoE 的 `cann_ops_transformer`（含 JIT 编译依赖 `ninja`）。注册声明不代表所有 provider 版本与输入模式均经过验证。
 

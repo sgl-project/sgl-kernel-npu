@@ -78,6 +78,7 @@ def run_workers(arguments, world_size=4):
         ),
     ],
 )
+@pytest.mark.extra_checks
 def test_bf16_accuracy(request, impl, shape, routing, input_mode, topk):
     require_hardware(request, "arch22")
     tokens, capacity, hidden, intermediate = shape
@@ -107,6 +108,7 @@ def test_bf16_accuracy(request, impl, shape, routing, input_mode, topk):
     )
 
 
+@pytest.mark.extra_checks
 def test_mxfp4_accuracy_four_rank(request):
     require_hardware(request, "arch35")
     run_workers(
@@ -124,6 +126,7 @@ def test_mxfp4_accuracy_four_rank(request):
     )
 
 
+@pytest.mark.extra_checks
 def test_bf16_accuracy_eight_rank_group(request):
     require_hardware(request, "arch22", world_size=8)
     run_workers(
@@ -148,6 +151,7 @@ def test_bf16_accuracy_eight_rank_group(request):
     "generation,quant_mode",
     [(generation, mode) for generation, modes in QUANT_MODES.items() for mode in modes],
 )
+@pytest.mark.extra_checks
 def test_quantized_public_interface(request, impl, generation, quant_mode):
     require_hardware(request, generation)
     run_workers(

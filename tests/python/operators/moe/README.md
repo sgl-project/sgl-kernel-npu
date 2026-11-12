@@ -38,8 +38,8 @@ The buffer factory itself is a resource API, not a numerical operator.
 The independent A5 check requires finite BF16 output, exact expert counts,
 relative RMS error below 3.5%, and pointwise closeness with rtol 0.1 and
 atol 5% of reference RMS. These initial thresholds allow FP8 rounding boundary
-and activation approximation differences. They still require A5 hardware
-validation against the installed provider version.
+and activation approximation differences. A5 validation passed with the provider
+used in PR #928; revalidate when changing the provider version.
 
 All workers call the MegaMoE compute and buffer APIs directly. Both
 `auto` and `cann_ops_transformer` are parameterized.
@@ -50,17 +50,18 @@ Install the current checkout's `sgl_kernel_npu` wheel, CANN 9.2.0,
 matching torch/torch_npu, a compatible `cann_ops_transformer` MegaMoE provider,
 pytest and ninja. Expose four NPUs for the four-rank cases and eight NPUs for
 the eight-rank case. Run pytest serially (no xdist).
+All cases are marked `extra_checks` and excluded by default, including when
+selecting a node ID. Pass `-m extra_checks` explicitly to run them.
 The parent checks architecture/device count; each case launches isolated workers.
 All workers execute the same sequence of collectives. Worker timeouts kill the
 entire process group. Missing NPUs on an otherwise matching architecture fail.
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/test_mega_moe_registration.py -q
-ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest \
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest -m extra_checks \
   tests/python/operators/moe/test_mega_moe.py -v -s -x --enable-perf=false
-ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m pytest -v -s -x \
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m pytest -m extra_checks -v -s -x \
   tests/python/operators/moe/test_mega_moe.py::test_bf16_accuracy_eight_rank_group
-ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest -v -s -x -rs \
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest -m extra_checks -v -s -x -rs \
   tests/python/operators/moe/test_mega_moe.py::test_mxfp4_accuracy_four_rank
 ```
 
@@ -74,7 +75,7 @@ not narrow the explicit auto/cann_ops_transformer matrix; use pytest `-k` if nee
 ## Performance
 
 ```bash
-ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest \
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest -m extra_checks \
   tests/python/operators/moe/test_mega_moe.py -k bf16 -v -s --enable-perf=true
 ```
 
@@ -88,26 +89,12 @@ first layout/format after the output and count checks pass. Generic
 `--csv-path`/`--prof-dir` do not capture child-process results; preserve stdout
 and record device, CANN/provider/torch versions alongside measurements.
 
-## CI and validation status
+## Validation status
 
-Registration tests run in the CPU lint workflow. `pr-test-mega-moe.yml` builds
-the checkout and runs four-rank A3/A5 tests and the eight-rank A3 BF16 test
-with CANN 9.2.0. Configure repository
-variables `MEGAMOE_PROVIDER_WHEEL_A3` and `MEGAMOE_PROVIDER_WHEEL_A5` with pinned,
-architecture-matching provider wheel URLs. Missing configuration fails before
-the build. No provider version or download URL is guessed by this contribution.
-
-The authoring host has no Ascend NPU. Hardware correctness/performance results
-are **pending**, not passing. Include actual CI logs and performance measurements
-in the PR before claiming hardware validation.
-
-Local validation: Python 3.12, CPU PyTorch 2.15.0; registration and reference/CLI
-unit tests pass **56 cases**, including three independent A5 reference checks
-for FP4 decoding, E4M3 rounding, and expert/routing sensitivity.
-The distributed pytest file collects **24 cases**.
-Workflow YAML, documentation links, Python example syntax, Black and isort
-checks pass. Full `pre-commit run --all-files --show-diff-on-failure` also passes
-in an isolated copy of the checkout. These checks do not execute the NPU kernel.
+A5 accuracy and interface tests passed, as reported in [PR #928](https://github.com/sgl-project/sgl-kernel-npu/pull/928).
+A3 correctness and hardware performance measurements remain pending. The
+multi-NPU tests are opt-in through `-m extra_checks`; this contribution does
+not add or modify GitHub workflows.
 
 ## 中文说明
 
@@ -117,12 +104,12 @@ in an isolated copy of the checkout. These checks do not execute the NPU kernel.
 A3 INT 和 A5 MXFP 通过直接调用 CANN 验证注册接口等价性，并用路由直方图独立校验专家
 计数。独立的数值精度校验覆盖 A3 BF16，以及新增的 A5 四卡 A8W4-FP 场景。
 A5 参考路径在 CPU 上解码 MXFP4 权重和 E8M0 scale，模拟中间 MXFP8 量化，
-计算 SiTU、两层 FFN 和路由加权合并。初始误差阈值仍需真机验证。
+计算 SiTU、两层 FFN 和路由加权合并。A5 精度和接口用例已通过，升级 provider 后应重新验证。
 
 所有配置由 pytest 管理；为保证集合通信顺序，实际计算由独立的四进程或八进程完成，
 不使用单 worker 通用精度/性能执行器。测试覆盖与限制、命令、依赖和性能口径
 见上文；`--enable-perf` 控制精度通过后的性能采集，日志保留在标准输出。
 默认仅 BF16 `perf_shape` 计时。启用性能采集后，量化用例在首个布局和格式下计时。
 
-CPU 注册测试已接入 lint；硬件 CI 需要配置上述两个 provider wheel 仓库变量。
-本机没有 NPU，硬件精度与性能结果仍待 CI/目标机器运行，不应填写为通过。
+全部多卡用例标记为 `extra_checks`，需显式传入 `-m extra_checks` 执行；本次贡献
+不增加或修改 GitHub workflows。A5 精度与接口测试已通过；A3 精度和硬件性能数据仍待验证。
