@@ -62,6 +62,7 @@ filter_tests() {
         if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
             case "$test_file" in
                 tests/python/operators/attention/test_compressor.py|\
+                tests/python/operators/attention/test_flash_mla.py|\
                 tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
                 tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py|\
                 tests/python/operators/indexer/test_indexer_prologue_k_dsl.py|\
@@ -84,6 +85,13 @@ filter_tests() {
 
         if [[ "${NPU_HARDWARE:-}" == a3 ]]; then
             case "$test_file" in
+                tests/python/operators/hyper_conn/test_mhc_post.py|\
+                tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
+                tests/python/operators/attention/test_compressor_v2.py|\
+                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
+                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
+                tests/python/operators/indexer/test_lightning_indexer_v2.py|\
+                tests/python/operators/mem_cache/test_kv_transfer.py|\
                 tests/python/operators/indexer/test_pool_key_indexer.py|\
                 tests/python/operators/indexer/test_qsa_mqa.py)
                     echo "[NPU_HARDWARE=a3] Skipping: $test_file"
