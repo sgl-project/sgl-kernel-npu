@@ -106,3 +106,72 @@ def test_eight_rank_routing_reaches_all_experts(worker):
         # eight destinations, and each source rank exercises all 16 experts.
         torch.testing.assert_close(ids // 2, torch.arange(8).expand(17, 8))
         torch.testing.assert_close(ids.unique(), torch.arange(16))
+
+
+@pytest.fixture
+def mxfp4_reference():
+    path = WORKER.with_name("mega_moe_mxfp4_accuracy.py")
+    spec = importlib.util.spec_from_file_location("_mxfp4_reference", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_fp4_decode_values_and_block_scales(mxfp4_reference):
+    torch = pytest.importorskip("torch")
+    # Low nibble precedes high nibble. Cover all signed E2M1 encodings.
+    packed = torch.tensor(
+        [[0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE]], dtype=torch.uint8
+    ).repeat(1, 4)
+    exponents = torch.tensor([[[127, 128]]], dtype=torch.uint8)
+    values = torch.tensor(
+        [
+            0.0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            3.0,
+            4.0,
+            6.0,
+            0.0,
+            -0.5,
+            -1.0,
+            -1.5,
+            -2.0,
+            -3.0,
+            -4.0,
+            -6.0,
+        ]
+    ).repeat(2)
+    expected = torch.cat((values, values * 2)).reshape(1, 64)
+    torch.testing.assert_close(
+        mxfp4_reference.decode_weight(torch, packed, exponents), expected
+    )
+
+
+def test_mxfp8_rounding_and_saturation(mxfp4_reference):
+    torch = pytest.importorskip("torch")
+    values = torch.zeros(1, 64)
+    values[0, :4] = torch.tensor([1.0625, 1.1875, 1.875, -1.875])
+    values[0, 32:36] = values[0, :4] * 2
+    expected = torch.zeros_like(values)
+    expected[0, :4] = torch.tensor([1.0, 1.25, 1.75, -1.75])
+    expected[0, 32:36] = expected[0, :4] * 2
+    torch.testing.assert_close(
+        mxfp4_reference.round_mxfp8(torch, values), expected, rtol=0, atol=0
+    )
+
+
+def test_mxfp4_reference_depends_on_expert_and_routing(mxfp4_reference):
+    torch = pytest.importorskip("torch")
+    torch.manual_seed(37)
+    x = torch.randn(2, 64).to(torch.bfloat16)
+    ids = torch.tensor([[0], [1]])
+    routing = torch.ones(2, 1)
+    result = mxfp4_reference.reference_moe(torch, x, ids, routing, 64, 64)
+    doubled = mxfp4_reference.reference_moe(torch, x, ids, routing * 2, 64, 64)
+    swapped = mxfp4_reference.reference_moe(torch, x, ids.flip(0), routing, 64, 64)
+    assert torch.isfinite(result).all() and result.norm() > 0
+    torch.testing.assert_close(doubled, result * 2)
+    assert not torch.allclose(result, swapped)

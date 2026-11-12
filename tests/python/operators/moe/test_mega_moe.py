@@ -107,6 +107,23 @@ def test_bf16_accuracy(request, impl, shape, routing, input_mode, topk):
     )
 
 
+def test_mxfp4_accuracy_four_rank(request):
+    require_hardware(request, "arch35")
+    run_workers(
+        [
+            "--quant-mode",
+            "mx_fp8_e4m3_w4",
+            "--independent-mxfp4-reference",
+            "--num-experts",
+            "8",
+            "--topk",
+            "4",
+            "--routing",
+            "all-ranks",
+        ]
+    )
+
+
 def test_bf16_accuracy_eight_rank_group(request):
     require_hardware(request, "arch22", world_size=8)
     run_workers(

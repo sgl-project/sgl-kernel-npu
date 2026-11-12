@@ -27,7 +27,19 @@ The buffer factory itself is a resource API, not a numerical operator.
   supported storage formats, and BF16/FP32 routing weights.
 - Both quantized paths check local expert token counts against an independent
   routing histogram. Output comparisons establish interface equivalence with
-  CANN. Independent numerical accuracy is covered by the A3 BF16 reference.
+  CANN.
+- A5 four-rank A8W4-FP accuracy uses a separate CPU reference. It decodes packed
+  E2M1 weights and per-block E8M0 scales, simulates dispatch and post-activation
+  E4M3 quantization, computes both expert projections and SiTU, and combines
+  expert outputs with the routing weights. It calls the registered operator
+  once using an eight-expert, top-k 4, all-rank routing case with rank-varying
+  token counts. No direct MegaMoE call supplies the expected output.
+
+The independent A5 check requires finite BF16 output, exact expert counts,
+relative RMS error below 3.5%, and pointwise closeness with rtol 0.1 and
+atol 5% of reference RMS. These initial thresholds allow FP8 rounding boundary
+and activation approximation differences. They still require A5 hardware
+validation against the installed provider version.
 
 All workers call the MegaMoE compute and buffer APIs directly. Both
 `auto` and `cann` are parameterized.
@@ -48,6 +60,8 @@ ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest \
   tests/python/operators/moe/test_mega_moe.py -v -s -x --enable-perf=false
 ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m pytest -v -s -x \
   tests/python/operators/moe/test_mega_moe.py::test_bf16_accuracy_eight_rank_group
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 python -m pytest -v -s -x -rs \
+  tests/python/operators/moe/test_mega_moe.py::test_mxfp4_accuracy_four_rank
 ```
 
 The generic `generate_data → check_accuracy → check_performance` executor assumes
@@ -88,7 +102,9 @@ are **pending**, not passing. Include actual CI logs and performance measurement
 in the PR before claiming hardware validation.
 
 Local validation: Python 3.12, CPU PyTorch 2.15.0; registration and reference/CLI
-unit tests: **49 passed**. The distributed pytest file collects **23 cases**.
+unit tests pass **52 cases**, including three independent A5 reference checks
+for FP4 decoding, E4M3 rounding, and expert/routing sensitivity.
+The distributed pytest file collects **24 cases**.
 Workflow YAML, documentation links, Python example syntax, Black and isort
 checks pass. Full `pre-commit run --all-files --show-diff-on-failure` also passes
 in an isolated copy of the checkout. These checks do not execute the NPU kernel.
@@ -99,7 +115,9 @@ in an isolated copy of the checkout. These checks do not execute the NPU kernel.
 这里按贡献指南的例外条款，使用测试内独立参考，而不注册无法复用相同 buffer
 的 `torch_native` 后端；PR 应保留此例外说明。A3 BF16 使用独立 CPU FP32 FFN，
 A3 INT 和 A5 MXFP 通过直接调用 CANN 验证注册接口等价性，并用路由直方图独立校验专家
-计数。独立的数值精度校验覆盖 A3 BF16。
+计数。独立的数值精度校验覆盖 A3 BF16，以及新增的 A5 四卡 A8W4-FP 场景。
+A5 参考路径在 CPU 上解码 MXFP4 权重和 E8M0 scale，模拟中间 MXFP8 量化，
+计算 SiTU、两层 FFN 和路由加权合并。初始误差阈值仍需真机验证。
 
 所有配置由 pytest 管理；为保证集合通信顺序，实际计算由独立的四进程或八进程完成，
 不使用单 worker 通用精度/性能执行器。测试覆盖与限制、命令、依赖和性能口径

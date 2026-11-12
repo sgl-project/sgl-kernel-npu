@@ -187,10 +187,17 @@ def main():
     )
     parser.add_argument("--input-mode", choices=("normal", "zero"), default="normal")
     parser.add_argument("--perf-iters", type=int, default=0)
+    parser.add_argument("--independent-mxfp4-reference", action="store_true")
     args = parser.parse_args()
     args.world_size = int(os.environ.get("WORLD_SIZE", "0"))
     if args.world_size not in (4, 8):
         parser.error("launch with torchrun using four or eight ranks on one host")
+    if args.independent_mxfp4_reference and (
+        args.world_size != 4 or args.quant_mode != "mx_fp8_e4m3_w4"
+    ):
+        parser.error(
+            "independent MXFP4 reference requires four ranks and mx_fp8_e4m3_w4"
+        )
     if not 0 < args.tokens <= args.capacity:
         parser.error("require 0 < tokens <= capacity")
     if (
@@ -224,7 +231,19 @@ def main():
         if get_hardware().generation.value != generation:
             raise RuntimeError(f"This MegaMoE case requires {generation}")
         group = dist.group.WORLD
-        if args.quant_mode:
+        if args.independent_mxfp4_reference:
+            from mega_moe_mxfp4_accuracy import run_accuracy
+
+            run_accuracy(
+                torch,
+                dist,
+                torch_npu,
+                group,
+                args,
+                torch.device("npu", local_rank),
+                generate_data,
+            )
+        elif args.quant_mode:
             run_quantized_case(
                 torch,
                 dist,
