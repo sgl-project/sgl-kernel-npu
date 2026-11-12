@@ -8,6 +8,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import get_test_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 
 # DeepSeek-V4-Flash uses D=512, one KV head and 64-head padding on
@@ -15,14 +16,6 @@ from tests.python.utils.performance import check_performance
 # These are synthetic decode/prefill fixtures, not captured production batches.
 # Page size 128 matches the end-to-end launch configuration; 16 is an edge case.
 perf_shape = [(1, 1, 64, 256, 128)]
-
-
-@pytest.fixture(scope="module", autouse=True)
-def require_a5():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("Quantized shared-KV attention requires A5/ARCH35")
 
 
 def generate_test_data(batch, query_len, heads, kv_len, block_size, seed=42):
@@ -72,6 +65,7 @@ def test_paged_swa(batch, query_len, heads, kv_len, window, block_size):
         kv_quant_sparse_attn_sharedkv_metadata_host,
     )
 
+    require_test_impl(kv_quant_sparse_attn_sharedkv, get_test_impls()[0])
     q, packed, table, lengths_cpu = generate_test_data(
         batch, query_len, heads, kv_len, block_size
     )

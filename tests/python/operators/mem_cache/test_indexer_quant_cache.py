@@ -22,14 +22,6 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(8, 128)]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def require_a5():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("FP8 indexer cache writes requires A5/ARCH35")
-
-
 def generate_data(tokens, input_kind, round_scale):
     torch.manual_seed(16)
     x = torch.randn(tokens, 128, dtype=torch.bfloat16)
@@ -113,7 +105,7 @@ def test_indexer_cache(tokens, input_kind, round_scale):
     from sgl_kernel_npu.operators.mem_cache import indexer_quant_cache
 
     impl, impl_ref = get_test_impls()
-    # Validate the selected implementations before allocating FP8 buffers.
+    # Validate hardware before allocating FP8 buffers on unsupported A3 devices.
     if get_skip_acc_check() is True:
         require_test_impl(indexer_quant_cache, impl)
     else:

@@ -10,20 +10,13 @@ from sgl_kernel_npu.operators.attention import (
 )
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import require_test_impl
 from tests.python.utils.performance import check_performance
 
 # Single-request decode is the independent reference's supported domain.
 # Head counts and D=512 follow the DSV4 shared-KV interface; short KV lengths
 # keep these synthetic fixtures small. They are not captured model batches.
 perf_shape = [("BSND", 64, False, 1, 128)]
-
-
-@pytest.fixture(scope="module", autouse=True)
-def require_a5():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("Quantized shared-KV host metadata requires A5/ARCH35")
 
 
 def generate_data(heads=64, query_lengths=(1,), kv_lengths=(128,), **overrides):
@@ -111,6 +104,7 @@ def test_host_metadata_accuracy(layout, heads, has_cmp, cmp_ratio, kv_len):
     ],
 )
 def test_schedule_properties(query_lengths, kv_lengths, cmp_ratio, has_cmp, cmp_topk):
+    require_test_impl(kv_quant_sparse_attn_sharedkv_metadata_host, "auto")
     # General schedules have no independent Python load-balancer reference.
     # Check their structure and determinism instead of comparing host aliases.
     kwargs = generate_data(
@@ -130,6 +124,7 @@ def test_schedule_properties(query_lengths, kv_lengths, cmp_ratio, has_cmp, cmp_
 
 
 def test_infers_batch_size():
+    require_test_impl(kv_quant_sparse_attn_sharedkv_metadata_host, "auto")
     kwargs = generate_data()
     explicit = kv_quant_sparse_attn_sharedkv_metadata_host(**kwargs)
     inferred = kv_quant_sparse_attn_sharedkv_metadata_host(
@@ -155,6 +150,7 @@ def test_infers_batch_size():
     ],
 )
 def test_rejects_unsupported_configuration(name, value, message):
+    require_test_impl(kv_quant_sparse_attn_sharedkv_metadata_host, "auto")
     kwargs = generate_data(has_cmp_kv=True, cmp_ratio=4, cmp_topk=512)
     with pytest.raises(RuntimeError, match=message):
         kv_quant_sparse_attn_sharedkv_metadata_host(**(kwargs | {name: value}))
@@ -162,6 +158,7 @@ def test_rejects_unsupported_configuration(name, value, message):
 
 @pytest.mark.parametrize("location", ["cpu-int64", "npu-int32"])
 def test_requires_cpu_int32_lengths(location):
+    require_test_impl(kv_quant_sparse_attn_sharedkv_metadata_host, "auto")
     kwargs = generate_data()
     cu_q = kwargs["cu_seqlens_q"]
     kwargs["cu_seqlens_q"] = (

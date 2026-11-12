@@ -33,11 +33,11 @@ from .quant_flash_attn_metadata import quant_flash_attn_metadata
 from .sparse_attn_sharedkv import sparse_attn_sharedkv
 from .sparse_block_estimate import sparse_block_estimate
 from .sparse_flash_attention import sparse_flash_attention
+from .sparse_flash_mla import sparse_flash_mla
 from .sparse_flash_mla_metadata import (
     get_sparse_flash_mla_metadata_size,
     sparse_flash_mla_metadata,
 )
-from .sparse_flash_mla import sparse_flash_mla
 
 __all__ = [
     "ada_block_sparse_attention",

@@ -22,14 +22,6 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [(4096, 320), (4096, 512)]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def require_a5():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("KV compression epilog requires A5/ARCH35")
-
-
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
 KV_CASES = [
     pytest.param(
@@ -363,14 +355,15 @@ def test_fp8_layout2_rejected():
 def test_kv_enum_inputs_rejected(name, index, value):
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
+    impl, impl_ref = get_test_impls()
+    for backend in dict.fromkeys((impl, impl_ref)):
+        require_test_impl(kv_compress_epilog, backend)
     args = list(
         generate_data(1, 1, 192, 128, 1, False, 1, True, False, False, 0, "normal")
     )
     args[index] = value
     saved = args[0].clone()
-    impl, impl_ref = get_test_impls()
     for backend in dict.fromkeys((impl, impl_ref)):
-        require_test_impl(kv_compress_epilog, backend)
         with pytest.raises(RuntimeError, match=f"{name} must be"):
             kv_compress_epilog(*args, impl=backend)
     if impl in ("ascendc", "auto"):
@@ -502,6 +495,7 @@ def generate_packed_data(tokens):
 def test_packed_kv_compress_epilog(tokens):
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
+    require_test_impl(kv_compress_epilog, get_test_impls()[0])
     cache, x, slots, kwargs, path = generate_packed_data(tokens)
     executor = make_executor(kv_compress_epilog, args=(cache, x, slots), kwargs=kwargs)
     if get_skip_acc_check() is True:

@@ -29,14 +29,6 @@ perf_shape = [
 ]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def require_a3():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH22:
-        pytest.skip("BF16/FP16 shared-KV attention requires A3/ARCH22")
-
-
 def _single_core_metadata(device, bn2):
     """Assign the full BN2 range to AIC core 0 (enable, starts, ends)."""
     metadata = torch.zeros(1024, dtype=torch.int32, device=device)

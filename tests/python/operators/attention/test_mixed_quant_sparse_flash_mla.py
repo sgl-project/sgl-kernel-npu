@@ -25,14 +25,6 @@ from tests.python.utils.standards import AccuracyStandard
 perf_shape = [1]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def require_a5():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("Mixed-quant Sparse Flash MLA requires A5/ARCH35")
-
-
 def _pack_kv(x, width):
     """Build reader inputs locally; no cache-writer operator participates."""
     values = x.float().cpu()
@@ -67,8 +59,10 @@ def _pack_kv(x, width):
 
 def generate_data(query_len):
     """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
+    from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
     from sgl_kernel_npu.operators.utils.cann import detect_cann_version
 
+    require_test_impl(mixed_quant_sparse_flash_mla, get_test_impls()[0])
     torch.manual_seed(13)
     x = torch.randn(128, 512, dtype=torch.bfloat16)
     q = torch.randn(query_len, 64, 512, dtype=torch.bfloat16) * 0.1
