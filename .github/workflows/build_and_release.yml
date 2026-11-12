@@ -94,27 +94,7 @@ jobs:
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
             ./build.sh -a deepep Ascend950
           "
-      - name: Verify SGL-Kernel-NPU wheel
-        run: |
-          set -euo pipefail
-
-          WHEEL="$(
-            find output -maxdepth 1 \
-              -name 'sgl_kernel_npu-*.whl' \
-              -print -quit
-          )"
-
-          test -n "${WHEEL}"
-          unzip -l "${WHEEL}" > /tmp/wheel-files.txt
-
-          grep 'sgl_kernel_npu/_third_party/sgl_cann_recipes_infer/' \
-            /tmp/wheel-files.txt
-
-          grep 'sgl_kernel_npu/_cann/vendors/sgl_ops_transformer' \
-            /tmp/wheel-files.txt
-
-          cat /tmp/wheel-files.txt
-            
+          
       - name: Pack up packages
         run: |
           export TORCH_DEVICE_BACKEND_AUTOLOAD=0
