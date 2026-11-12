@@ -361,15 +361,9 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 endif()
 
 # Sparse Flash Attention has arch22 (A2/A3) and arch35 (A5) implementations.
-set(SPARSE_FLASH_ATTENTION_KERNEL_SRCS
+ascendc_library(sparse_flash_attention_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sparse_flash_attention.cpp
 )
-if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
-    list(APPEND SPARSE_FLASH_ATTENTION_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/sgl_kv_quant_sparse_flash_attention.cpp
-    )
-endif()
-ascendc_library(sparse_flash_attention_kernel STATIC ${SPARSE_FLASH_ATTENTION_KERNEL_SRCS})
 ascendc_include_directories(sparse_flash_attention_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common

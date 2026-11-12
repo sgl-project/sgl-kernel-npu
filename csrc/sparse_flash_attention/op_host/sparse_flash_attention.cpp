@@ -21,9 +21,6 @@
 #include <tuple>
 
 #include "aclrtlaunch_sgl_sparse_flash_attention.h"
-#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-#include "aclrtlaunch_sgl_kv_quant_sparse_flash_attention.h"
-#endif
 #include "../op_kernel/sparse_flash_attention_tiling_data.h"
 #include "ge_helper.h"
 #include "sparse_flash_attention_def.h"
@@ -278,24 +275,15 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     constexpr size_t kTilingDataSize = 144;
     std::array<uint8_t, kTilingDataSize> serializedTilingData{};
     auto &tilingData = tiling.GetTilingData();
+    if (packed_kv) {
+        tilingData.baseParams.set_dispatchKey(tilingData.baseParams.get_dispatchKey() | kSfaPackedKvBit);
+    }
     TORCH_CHECK(tilingData.GetDataSize() == serializedTilingData.size(),
                 "sparse_flash_attention: unexpected tiling data size");
     tilingData.SaveToBuffer(serializedTilingData.data(), serializedTilingData.size());
     auto tilingTensor = context->GetTilingTensor(serializedTilingData);
     auto workspace =
         at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, query_input.options().dtype(at::kByte));
-
-#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-    if (packed_kv) {
-        auto queryWithRope = at::cat({query_input, query_rope_input.value()}, -1);
-        EXEC_KERNEL_CMD(sgl_kv_quant_sparse_flash_attention, tiling.GetBlockDim(), queryWithRope, key_input,
-                        sparse_indices_input, block_table_input.value(), actual_seq_lengths_query_input.value(),
-                        actual_seq_lengths_kv_input.value(), attention_out, softmax_max, softmax_sum, workspace,
-                        tilingTensor);
-        return {attention_out, softmax_max, softmax_sum};
-    }
-#endif
-
     auto intPlaceholder = Placeholder(query_input, at::kInt);
     auto queryPlaceholder = Placeholder(query_input, query_input.scalar_type());
     auto blockTableLaunch = block_table_input.value_or(intPlaceholder);
