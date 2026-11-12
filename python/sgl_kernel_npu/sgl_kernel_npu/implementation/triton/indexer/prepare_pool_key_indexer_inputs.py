@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-#
-# Adapted from vllm-ascend:
-# vllm_ascend/ops/triton/prepare_nonempty_keypool_inputs.py.
-# Changes: use native Triton imports and adapt the Python wrapper for
-# sgl-kernel-npu. The Triton kernel is unchanged.
-# License text: LICENSES/Apache-2.0.txt at the repository root.
 """Prepare nonempty inputs for the CANN pooled key indexer."""
 
 import triton
