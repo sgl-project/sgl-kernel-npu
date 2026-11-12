@@ -19,6 +19,9 @@ from build_tools.cann import PROJECT_ROOT, run
 # Explicit allowlist: configuration cannot import arbitrary Python code.
 _ADAPTERS = {"ops_transformer", "cann_recipes_infer"}
 
+# Third-party builds use a single SoC target for each architecture.
+_SOC_BY_ARCH = {"2201": "ascend910_93", "3510": "ascend950"}
+
 
 @lru_cache(maxsize=None)
 def get_adapter(name):
@@ -50,47 +53,15 @@ def detect_cann_version():
     raise RuntimeError("Cannot read an exact CANN release from SDK version metadata")
 
 
-@lru_cache(maxsize=1)
-def detect_soc_version():
-    """Detect the local build target without importing Torch or initializing NPU."""
+def resolve_soc_version(arch_version):
+    """Return the third-party SoC target for the requested architecture."""
     try:
-        mapping = subprocess.check_output(
-            ["npu-smi", "info", "-m"], text=True, stderr=subprocess.STDOUT, timeout=10
-        )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(
-            "Cannot query NPU device mapping with npu-smi info -m"
-        ) from exc
-
-    # The first columns are NPU ID, Chip ID and Chip Logic ID.
-    devices = re.findall(r"(?m)^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+\S", mapping)
-    if not devices:
-        raise RuntimeError("No visible NPU devices found in npu-smi info -m output")
-
-    queries = {}
-    for card_id, chip_id in devices:
-        queries[(card_id,)] = None
-        queries[(card_id, "-c", chip_id)] = None
-
-    for query in queries:
-        arguments = ["npu-smi", "info", "-t", "board", "-i", *query]
-        try:
-            output = subprocess.check_output(
-                arguments, text=True, stderr=subprocess.STDOUT, timeout=10
-            )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            continue
-        match = re.search(r"(?im)^\s*Chip Name\s*:\s*(\S+)", output)
-        if not match:
-            continue
-        chip = match[1].lower()
-        if chip.startswith(("ascend910b", "910b")):
-            return "ascend910b"
-        if chip.startswith(("ascend910_93", "910_93")) or chip == "ascend910":
-            return "ascend910_93"
-        if chip.startswith(("ascend950", "950")):
-            return "ascend950"
-    raise RuntimeError("Cannot detect build SoC from npu-smi board information")
+        return _SOC_BY_ARCH[str(arch_version)]
+    except KeyError:
+        raise ValueError(
+            f"Unsupported third-party architecture {arch_version!r}. "
+            "Expected 2201 or 3510."
+        ) from None
 
 
 def resolve_plan(
@@ -246,6 +217,8 @@ def _artifact_hashes(result, root):
     """Check all delivered files, including missing/added files and symlink targets."""
     hashes = {}
     for key in ("vendor", "wheel", "license"):
+        if key == "wheel" and not result["config"].get("python_bindings", True):
+            continue
         path = result[key]
         if not path.exists():
             raise ValueError("Missing cached artifact: " + str(path))
@@ -272,7 +245,9 @@ def _load_cached(path, root, item, fingerprint):
         if record["fingerprint"] != fingerprint:
             return None
         result = dict(config=item)
-        for key in ("vendor", "wheel", "license"):
+        for key in ("vendor", "license") + (
+            ("wheel",) if item.get("python_bindings", True) else ()
+        ):
             relative = PurePosixPath(record["artifacts"][key])
             if relative.is_absolute() or ".." in relative.parts:
                 return None
@@ -316,6 +291,7 @@ def build_dependencies(plan, source_root=PROJECT_ROOT):
                     "artifacts": {
                         key: result[key].relative_to(root).as_posix()
                         for key in ("vendor", "wheel", "license")
+                        if key != "wheel" or item.get("python_bindings", True)
                     },
                     "hashes": _artifact_hashes(result, root),
                 }

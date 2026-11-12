@@ -7,7 +7,7 @@
 | `cann_ops_transformer` (`auto`) | Not supported | Supported |
 | `torch_native` | Not registered | Supported |
 
-The CANN backend targets Ascend 950 with CANN 9.2.0 and a matching PyTorch/torch_npu installation. The `cann_ops_transformer` Python extension exposing both QFA interfaces must also be installed; installing `sgl_kernel_npu` alone does not provide that extension or the underlying CANN operators.
+The arch35 backend requires CANN 9.2.0 or later and matching PyTorch/torch_npu. Install the `cann_ops_transformer` Python extension exposing both QFA interfaces and the underlying CANN operators separately from `sgl_kernel_npu`. This backend has been tested with CANN 9.2.0.
 
 ## Signature
 
@@ -48,7 +48,7 @@ def quant_flash_attn(
     ...
 ```
 
-`auto` selects `cann_ops_transformer`. The two names refer to the same implementation, with no automatic fallback. Use explicit TND/PA_BNBD layouts for the MXFP8 path described below; the defaults preserve the upstream API.
+`auto` selects `cann_ops_transformer`. The two names refer to the same implementation, with no automatic fallback. Use explicit TND/PA_BBND layouts for the MXFP8 path described below; the defaults preserve the upstream API.
 
 ## Description
 
@@ -69,17 +69,17 @@ For causal mode, query position `i` can attend to key positions `j <= kv_length 
 
 These tables describe the MXFP8 subset covered by the independent reference. Other CANN modes and layouts are forwarded to the installed CANN implementation; they are not validated by this contribution's reference.
 
-Notation: `T` is total packed Q positions, `B` is request count, `Nq/Nkv` are local Q/KV head counts, `G=Nq/Nkv`, `D` is head dimension, `P` is physical page count, `S` is page size and `L` is page-table capacity per request. The covered head dimensions are 64/128/256; `Nq` must be divisible by `Nkv`. All tensors are on the same NPU. Use contiguous lengths, Q, Q descales and page tables. Paged cache tensors must obey CANN's supported strides, including no zero strides.
+Notation: `T` is total packed Q positions, `B` is request count, `Nq/Nkv` are local Q/KV head counts, `G=Nq/Nkv`, `D` is head dimension, `P` is physical page count, `S` is page size and `L` is page-table capacity per request. The reference supports head dimensions 64/128/256; `Nq` must be divisible by `Nkv`. The Qwen3.6-27B tests use `D=256`, `S=512`, and 24/4 (TP1) or 12/2 (TP2) local Q/KV heads. All tensors are on the same NPU. Use contiguous lengths, Q, Q descales and page tables. Paged cache tensors must obey CANN's supported strides, including no zero strides.
 
 | Parameter | Type / default | Description and constraints |
 | --- | --- | --- |
 | `q` | Tensor; required | FP8 E4M3 `[T, Nq, D]`. |
-| `k`, `v` | Tensor; required | FP8 E4M3 PA_BNBD `[P, Nkv, S, D]`. |
+| `k`, `v` | Tensor; required | FP8 E4M3 PA_BBND `[P, S, Nkv, D]`. |
 | `q_descale` | Tensor; required | E8M0 `[T, Nq, D/64, 2]` for TND, or `[Nkv, T, G, D/64, 2]` for N2TGD. |
-| `k_descale` | Tensor; required | E8M0 `[P, Nkv, S, D/64, 2]`. |
-| `v_descale` | Tensor; required | E8M0 `[P, Nkv, S/64, D, 2]`; the pair indexes adjacent 32-token groups. |
+| `k_descale` | Tensor; required | E8M0 `[P, S, Nkv, D/64, 2]`. |
+| `v_descale` | Tensor; required | E8M0 `[P, S/64, Nkv, D, 2]`; the pair indexes adjacent 32-token groups. |
 | `quant_mode` | int; required | `1` for the MXFP8 reference. CANN receives the original mode unchanged. |
-| `block_table` | Tensor or None; `None` | Int32 `[B, L]` physical page indices; required for PA_BNBD. |
+| `block_table` | Tensor or None; `None` | Int32 `[B, L]` physical page indices, required for paged KV. |
 | `p_scale` | Tensor or None; `None` | FP32 `[1]` P quantization scale; use a finite positive value. The SGLang integration uses 1. |
 | `cu_seqlens_q`, `cu_seqlens_kv` | Tensor or None; `None` | Int32 `[B+1]` cumulative lengths, beginning with zero. TND Q requires Q boundaries. The reference can derive missing `seqused_kv` from KV boundary differences. |
 | `seqused_q`, `seqused_kv` | Tensor or None; `None` | Int32 `[B]` valid lengths. `seqused_q=None` uses Q boundary differences; paged KV should provide effective KV lengths. |
@@ -92,7 +92,7 @@ Notation: `T` is total packed Q positions, `B` is request count, `Nq/Nkv` are lo
 | `max_seqlen_q`, `max_seqlen_kv` | int; `-1`, `-1` | CANN length bounds; `-1` means unspecified. These must agree with metadata preparation. |
 | `layout_q`, `layout_out` | str; `"BSND"` | Set both to `"TND"` for this reference. |
 | `layout_q_descale` | str; `"BSND"` | Set to `"TND"` or `"N2TGD"`. |
-| `layout_kv` | str; `"BSND"` | Set to `"PA_BNBD"` for this reference. |
+| `layout_kv` | str; `"BSND"` | SGLang uses `"PA_BBND"`. For `"PA_BNBD"`, swap axes 1 and 2 of K, V and both KV descales. |
 | `return_softmax_lse` | bool; `False` | Return LSE when True; otherwise return an empty second tensor. |
 | `impl` | str; `"auto"` | Keyword-only `"auto"`, `"cann_ops_transformer"` or `"torch_native"`. |
 
@@ -111,13 +111,13 @@ Build the metadata with the same quantization, mask, layout, head and length set
 
 ## torch_native backend
 
-Provides an independent eager numerical reference for mode 1, TND Q/output, PA_BNBD cache, TND/N2TGD Q descales and mask modes 0/3. It reconstructs logical KV sequences through the page table and expands scales before blockwise attention. Causal mode derives the standard pattern from sequence-length alignment, rather than supporting arbitrary custom masks. Unsupported reference modes are rejected explicitly; CANN's larger interface is not restricted by the reference's scope.
+Provides an independent eager numerical reference for mode 1, TND Q/output, PA_BBND or PA_BNBD cache, TND/N2TGD Q descales and mask modes 0/3. It reconstructs logical KV sequences through the page table and expands scales before blockwise attention. Causal mode derives the standard pattern from sequence-length alignment, rather than supporting arbitrary custom masks. Unsupported reference modes are rejected explicitly; CANN's larger interface is not restricted by the reference's scope.
 
 This backend is intended for correctness comparisons, not serving. It copies inputs to CPU for PyTorch reference calculations and returns outputs on Q's device, avoiding a dependency on NPU FP8 indexing kernels. These copies do not occur in the default CANN path. Metadata and maximum-length hints do not affect the reference's mathematical result. Dynamic graph replay is outside this contribution's test coverage.
 
 ## Example
 
-Run on an arch35 NPU with the dependencies listed above. This is one decode query over a 128-token cache; E8M0 scales are built from exact byte 127 (scale 1).
+Run on an arch35 NPU with the dependencies listed above. This is one decode query over a 512-token cache using Qwen3.6-27B TP2 head dimensions. E8M0 byte 127 represents scale 1.
 
 ```python
 import torch
@@ -129,32 +129,32 @@ from sgl_kernel_npu.operators.attention import (
 )
 
 device = "npu"
-q = torch.ones((1, 4, 128), device=device, dtype=torch.bfloat16).to(torch.float8_e4m3fn)
-k = torch.ones((1, 2, 128, 128), device=device, dtype=torch.bfloat16).to(torch.float8_e4m3fn)
+q = torch.ones((1, 12, 256), device=device, dtype=torch.bfloat16).to(torch.float8_e4m3fn)
+k = torch.ones((1, 512, 2, 256), device=device, dtype=torch.bfloat16).to(torch.float8_e4m3fn)
 v = k.clone()
 
 def scale(shape):
     return torch.full(shape, 127, dtype=torch.uint8, device=device).view(torch.float8_e8m0fnu)
 
-q_descale = scale((2, 1, 2, 2, 2))  # Nkv, T, G, D/64, 2
-k_descale = scale((1, 2, 128, 2, 2))
-v_descale = scale((1, 2, 2, 128, 2))
+q_descale = scale((2, 1, 6, 4, 2))  # Nkv, T, G, D/64, 2
+k_descale = scale((1, 512, 2, 4, 2))
+v_descale = scale((1, 8, 2, 256, 2))
 cu_q = torch.tensor([0, 1], dtype=torch.int32, device=device)
-used_kv = torch.tensor([128], dtype=torch.int32, device=device)
+used_kv = torch.tensor([512], dtype=torch.int32, device=device)
 pages = torch.tensor([[0]], dtype=torch.int32, device=device)
-layout = dict(layout_q="TND", layout_q_descale="N2TGD", layout_kv="PA_BNBD", layout_out="TND")
+layout = dict(layout_q="TND", layout_q_descale="N2TGD", layout_kv="PA_BBND", layout_out="TND")
 plan = quant_flash_attn_metadata(
-    4, 2, 128, 1, cu_seqlens_q=cu_q, seqused_kv=used_kv,
+    12, 2, 256, 1, cu_seqlens_q=cu_q, seqused_kv=used_kv,
     max_seqlen_q=1, mask_mode=0, **layout,
 )
 kwargs = dict(
     block_table=pages, p_scale=torch.ones(1, dtype=torch.float32, device=device),
     cu_seqlens_q=cu_q, seqused_kv=used_kv, metadata=plan,
-    softmax_scale=128**-0.5, max_seqlen_q=1, mask_mode=0, **layout,
+    softmax_scale=256**-0.5, max_seqlen_q=1, mask_mode=0, **layout,
 )
 out, lse = quant_flash_attn(q, k, v, q_descale, k_descale, v_descale, 1, **kwargs)
 reference, _ = quant_flash_attn(
     q, k, v, q_descale, k_descale, v_descale, 1, impl="torch_native", **kwargs,
 )
-print(out.shape, lse.shape)  # torch.Size([1, 4, 128]), torch.Size([0])
+print(out.shape, lse.shape)  # torch.Size([1, 12, 256]), torch.Size([0])
 ```

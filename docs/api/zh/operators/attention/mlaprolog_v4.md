@@ -7,7 +7,7 @@
 | `cann` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-**CANN 后端版本要求：CANN 9.2.0。**
+CANN 后端需要 CANN 9.2.0 及以上版本和对应的 MLAProlog V4 绑定，已在 CANN 9.2.0 上验证。
 
 两个实现均注册到 `Generation.ARCH22` 和 `Generation.ARCH35`；`auto` 是 `cann` 的别名。
 

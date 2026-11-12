@@ -103,7 +103,7 @@ def quant_flash_attn(
 ):
     """Evaluate mode-1 paged attention on CPU and return outputs on q.device.
 
-    Supports TND Q/output, PA_BNBD KV, TND/N2TGD Q scales and mask modes 0/3.
+    Supports TND Q/output, PA_BBND or PA_BNBD KV, TND/N2TGD Q scales and mask modes 0/3.
     Mode 3 expects the canonical compressed causal mask; its pattern is derived
     from effective Q/KV lengths. metadata and maximum-length hints are scheduling
     information and do not affect the reference. No inputs are modified.
@@ -112,7 +112,7 @@ def quant_flash_attn(
         quant_mode != 1
         or layout_q != "TND"
         or layout_out != "TND"
-        or layout_kv != "PA_BNBD"
+        or layout_kv not in ("PA_BBND", "PA_BNBD")
         or layout_q_descale not in ("TND", "N2TGD")
         or mask_mode not in (0, 3)
         or sinks is not None
@@ -120,7 +120,7 @@ def quant_flash_attn(
         or win_right != -1
     ):
         raise NotImplementedError(
-            "The reference covers MXFP8 TND/PA_BNBD attention with "
+            "The reference covers MXFP8 TND attention with PA_BBND or PA_BNBD KV, "
             "TND/N2TGD Q scales, mask 0/3 and no sinks or sliding window."
         )
     if any(tensor.dtype != torch.float8_e4m3fn for tensor in (q, k, v)):
@@ -139,10 +139,18 @@ def quant_flash_attn(
         q_scale = q_scale.permute(1, 0, 2, 3, 4)
     q_scale = q_scale.reshape(*query.shape[:-1], -1).repeat_interleave(32, dim=-1)
     query = query * q_scale[..., : query.shape[-1]]
-    k_scale = _decode_scale(k_descale).flatten(-2).repeat_interleave(32, dim=-1)
+    k_scale = _decode_scale(k_descale)
+    v_scale = _decode_scale(v_descale)
+    if layout_kv == "PA_BBND":
+        # Unpack pages in [page, head, token, ...] order below.
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+        k_scale = k_scale.transpose(1, 2)
+        v_scale = v_scale.transpose(1, 2)
+    k_scale = k_scale.flatten(-2).repeat_interleave(32, dim=-1)
     key = key * k_scale[..., : key.shape[-1]]
     # Each V scale pair covers consecutive groups of 32 tokens, not channels.
-    v_scale = _decode_scale(v_descale).permute(0, 1, 2, 4, 3)
+    v_scale = v_scale.permute(0, 1, 2, 4, 3)
     v_scale = v_scale.reshape(value.shape[0], value.shape[1], -1, value.shape[-1])
     value = value * v_scale.repeat_interleave(32, dim=2)[:, :, : value.shape[2]]
 
