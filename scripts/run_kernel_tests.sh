@@ -54,65 +54,28 @@ discover_tests() {
 }
 
 filter_tests() {
-    local test_file name
+    local test_file
     local -a filtered=()
 
     for test_file in "${TESTS[@]}"; do
-        name="${test_file##*/}"
-
-        # Tests disabled for both CI hardware targets.
-        case "$test_file" in
-            tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
-            tests/python/operators/hyper_conn/test_mhc_post.py|\
-            tests/python/operators/attention/test_compressor_v2.py|\
-            tests/python/operators/indexer/test_lightning_indexer_v2.py|\
-            tests/python/operators/attention/test_flash_mla.py|\
-            tests/python/operators/attention/test_sparse_flash_mla.py|\
-            tests/python/operators/attention/test_compressor.py|\
-            tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
-            tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py|\
-            tests/python/operators/indexer/test_indexer_prologue_k_dsl.py|\
-            tests/python/operators/indexer/test_quant_lightning_indexer_dsl.py|\
-            tests/python/operators/indexer/test_quant_lightning_indexer_metadata_dsl.py|\
-            tests/python/operators/indexer/test_quant_sparse_lightning_indexer_dsl.py|\
-            tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata_dsl.py|\
-            tests/python/operators/mem_cache/test_kv_transfer.py)
-                echo "Skipping temporarily disabled test: $test_file"
-                continue
-                ;;
-            tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
-            tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py)
-                if [[ "${NPU_HARDWARE:-}" != 950 ]]; then
-                    echo "Skipping A5-only test: $test_file"
-                    continue
-                fi
-                ;;
-        esac
-
-        if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
-            case "$name" in
-                test_triangular_inverse.py|test_chunk_gdn_triton.py)
-                    echo "[CANN_VERSION=$CANN_VERSION] Skipping: $test_file"
-                    continue
-                    ;;
-            esac
-        fi
-
         # Failures confirmed with developers on A5.
         if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
             case "$test_file" in
+                tests/python/operators/attention/test_compressor.py|\
+                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
+                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py|\
+                tests/python/operators/indexer/test_indexer_prologue_k_dsl.py|\
+                tests/python/operators/indexer/test_quant_lightning_indexer_dsl.py|\
+                tests/python/operators/indexer/test_quant_lightning_indexer_metadata_dsl.py|\
+                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_dsl.py|\
+                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata_dsl.py|\
+                tests/python/operators/mem_cache/test_kv_transfer.py|\
+                tests/python/operators/norm/test_add_rmsnorm_bias.py|\
+                tests/python/operators/sample/test_markov_sample_step_triton.py|\
                 tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py|\
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
-                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py|\
-                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata.py|\
-                tests/python/operators/indexer/test_indexer_prologue_k.py|\
-                tests/python/operators/indexer/test_pool_key_indexer.py|\
-                tests/python/operators/indexer/test_quant_lightning_indexer.py|\
-                tests/python/operators/indexer/test_quant_lightning_indexer_metadata.py|\
-                tests/python/operators/indexer/test_quant_sparse_lightning_indexer.py|\
-                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata.py|\
-                tests/python/operators/sample/test_markov_sample_step_triton.py)
+                tests/python/operators/indexer/test_pool_key_indexer.py)
                     echo "[NPU_HARDWARE=950] Skipping: $test_file"
                     continue
                     ;;
