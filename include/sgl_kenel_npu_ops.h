@@ -121,14 +121,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
     int64_t attention_mode, bool return_softmax_lse);
 
-#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-std::tuple<at::Tensor, at::Tensor, at::Tensor> kv_quant_sparse_flash_attention(
-    const at::Tensor &query, const at::Tensor &query_rope,
-    const at::Tensor &packed_kv, const at::Tensor &sparse_indices,
-    const at::Tensor &block_table, const at::Tensor &actual_seq_lengths_query,
-    const at::Tensor &actual_seq_lengths_kv, double scale_value);
-#endif
-
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,

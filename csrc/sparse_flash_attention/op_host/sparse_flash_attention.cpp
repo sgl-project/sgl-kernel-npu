@@ -21,7 +21,6 @@
 #include <tuple>
 
 #include "aclrtlaunch_sgl_sparse_flash_attention.h"
-#include "../op_kernel/sparse_flash_attention_tiling_data.h"
 #include "ge_helper.h"
 #include "sparse_flash_attention_def.h"
 #include "tiling/sparse_flash_attention_tiling.h"
@@ -175,17 +174,17 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> make_meta_outputs(const at::Tenso
 
 }  // namespace
 
-static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_impl(
+std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, const at::Tensor &sparse_indices,
     double scale_value, const c10::optional<at::Tensor> &block_table,
     const c10::optional<at::Tensor> &actual_seq_lengths_query, const c10::optional<at::Tensor> &actual_seq_lengths_kv,
     const c10::optional<at::Tensor> &query_rope, const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
     c10::string_view layout_query, c10::string_view layout_kv, int64_t sparse_mode, int64_t pre_tokens,
-    int64_t next_tokens, int64_t attention_mode, bool return_softmax_lse, bool packed_kv)
+    int64_t next_tokens, int64_t attention_mode, bool return_softmax_lse)
 {
     const auto query_input = query.contiguous();
     const auto key_input = key.contiguous();
-    const auto value_input = packed_kv ? key_input : value.contiguous();
+    const auto value_input = value.contiguous();
     const auto sparse_indices_input = sparse_indices.contiguous();
     const auto block_table_input = ContiguousOptional(block_table);
     const auto actual_seq_lengths_query_input = ContiguousOptional(actual_seq_lengths_query);
@@ -198,9 +197,9 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     TORCH_CHECK(value_input.numel() > 0, "value must not be empty");
     TORCH_CHECK(sparse_indices_input.numel() > 0, "sparse_indices must not be empty");
     TORCH_CHECK(sparse_indices_input.scalar_type() == at::kInt, "sparse_indices must be int32");
-    TORCH_CHECK(packed_kv || (key_input.scalar_type() == query_input.scalar_type() &&
-                              value_input.scalar_type() == query_input.scalar_type()),
-                "key and value dtypes must match query");
+    TORCH_CHECK(
+        key_input.scalar_type() == query_input.scalar_type() && value_input.scalar_type() == query_input.scalar_type(),
+        "key and value dtypes must match query");
     auto checkInt32 = [](const c10::optional<at::Tensor> &tensor, const char *name) {
         TORCH_CHECK(!tensor.has_value() || tensor->scalar_type() == at::kInt, name, " must be int32");
     };
@@ -241,25 +240,14 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     auto scalarType = query_input.scalar_type();
     op.SetToContext(context, scalarType);
     context->RegisterTensor(query_input, true);
-    auto key_tiling = key_input;
-    auto value_tiling = value_input;
-    auto key_rope_tiling = key_rope_input;
-    if (packed_kv) {
-        // Tiling only consumes shapes. The Cube operates on the logical BF16
-        // latent/RoPE tile produced by the Vector core from the packed cache.
-        auto options = query_input.options().device(at::kMeta);
-        key_tiling = at::empty({key_input.size(0), key_input.size(1), 1, kSfaPackedKvLatentDim}, options);
-        value_tiling = key_tiling;
-        key_rope_tiling = at::empty({key_input.size(0), key_input.size(1), 1, kSfaPackedKvRopeDim}, options);
-    }
-    context->RegisterTensor(key_tiling, true);
-    context->RegisterTensor(value_tiling, true);
+    context->RegisterTensor(key_input, true);
+    context->RegisterTensor(value_input, true);
     context->RegisterTensor(sparse_indices_input, true);
     context->RegisterTensor(block_table_input, true);
     context->RegisterTensor(actual_seq_lengths_query_input, true);
     context->RegisterTensor(actual_seq_lengths_kv_input, true);
     context->RegisterTensor(query_rope_input, true);
-    context->RegisterTensor(key_rope_tiling, true);
+    context->RegisterTensor(key_rope_input, true);
     context->RegisterTensor(attention_out, false);
     context->RegisterTensor(softmax_max, false);
     context->RegisterTensor(softmax_sum, false);
@@ -275,9 +263,6 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     constexpr size_t kTilingDataSize = 144;
     std::array<uint8_t, kTilingDataSize> serializedTilingData{};
     auto &tilingData = tiling.GetTilingData();
-    if (packed_kv) {
-        tilingData.baseParams.set_dispatchKey(tilingData.baseParams.get_dispatchKey() | kSfaPackedKvBit);
-    }
     TORCH_CHECK(tilingData.GetDataSize() == serializedTilingData.size(),
                 "sparse_flash_attention: unexpected tiling data size");
     tilingData.SaveToBuffer(serializedTilingData.data(), serializedTilingData.size());
@@ -298,40 +283,6 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
                                  tilingTensor);
     return {attention_out, softmax_max, softmax_sum};
 }
-
-std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, const at::Tensor &sparse_indices,
-    double scale_value, const c10::optional<at::Tensor> &block_table,
-    const c10::optional<at::Tensor> &actual_seq_lengths_query, const c10::optional<at::Tensor> &actual_seq_lengths_kv,
-    const c10::optional<at::Tensor> &query_rope, const c10::optional<at::Tensor> &key_rope, int64_t sparse_block_size,
-    c10::string_view layout_query, c10::string_view layout_kv, int64_t sparse_mode, int64_t pre_tokens,
-    int64_t next_tokens, int64_t attention_mode, bool return_softmax_lse)
-{
-    return sparse_flash_attention_impl(query, key, value, sparse_indices, scale_value, block_table,
-                                       actual_seq_lengths_query, actual_seq_lengths_kv, query_rope, key_rope,
-                                       sparse_block_size, layout_query, layout_kv, sparse_mode, pre_tokens, next_tokens,
-                                       attention_mode, return_softmax_lse, false);
-}
-
-#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-std::tuple<at::Tensor, at::Tensor, at::Tensor> kv_quant_sparse_flash_attention(
-    const at::Tensor &query, const at::Tensor &query_rope, const at::Tensor &packed_kv,
-    const at::Tensor &sparse_indices, const at::Tensor &block_table, const at::Tensor &actual_seq_lengths_query,
-    const at::Tensor &actual_seq_lengths_kv, double scale_value)
-{
-    TORCH_CHECK(query.scalar_type() == at::kBFloat16 && query.dim() == 3 && query.size(2) == kSfaPackedKvLatentDim,
-                "packed sparse attention requires BF16 query [tokens, heads, ", kSfaPackedKvLatentDim, "]");
-    TORCH_CHECK(query_rope.dim() == 3 && query_rope.size(0) == query.size(0) && query_rope.size(1) == query.size(1) &&
-                    query_rope.size(2) == kSfaPackedKvRopeDim,
-                "query_rope must match query with a last dimension of ", kSfaPackedKvRopeDim);
-    TORCH_CHECK(packed_kv.scalar_type() == at::kByte && packed_kv.dim() == 4 && packed_kv.size(2) == 1 &&
-                    packed_kv.size(3) == kSfaPackedKvBytes,
-                "packed KV must be uint8 [pages, page_size, 1, ", kSfaPackedKvBytes, "]");
-    return sparse_flash_attention_impl(query, packed_kv, packed_kv, sparse_indices, scale_value, block_table,
-                                       actual_seq_lengths_query, actual_seq_lengths_kv, query_rope, c10::nullopt, 1,
-                                       "TND", "PA_BSND", 0, INT64_MAX, INT64_MAX, 2, true, true);
-}
-#endif
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_meta(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, const at::Tensor &sparse_indices,

@@ -12,6 +12,12 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
+from .memfabric.kv_transfer import (
+    transfer_kv_all_layer_kv_split,
+    transfer_kv_all_layer_kv_split_lf_pf,
+    transfer_kv_per_layer_kv_split,
+    transfer_kv_per_layer_kv_split_pf_lf,
+)
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 
 __all__ = [
@@ -28,4 +34,8 @@ __all__ = [
     "NPU_KV_QUANT_PATH",
     "get_npu_kv_quant_path",
     "indexer_quant_cache",
+    "transfer_kv_per_layer_kv_split_pf_lf",
+    "transfer_kv_all_layer_kv_split_lf_pf",
+    "transfer_kv_per_layer_kv_split",
+    "transfer_kv_all_layer_kv_split",
 ]

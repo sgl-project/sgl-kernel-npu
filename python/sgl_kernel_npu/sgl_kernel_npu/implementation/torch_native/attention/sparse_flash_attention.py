@@ -21,6 +21,8 @@ def _paged_sequence(
 ) -> torch.Tensor:
     """Gather logical [S, N2, D] rows from [blocks, block_size, N2, D] pages."""
     block_size = cache.shape[1]
+    if sequence_length == 0:
+        return cache.new_empty((0, *cache.shape[2:]))
     blocks = (sequence_length + block_size - 1) // block_size
     pages = [
         cache[int(block_table[i])].reshape(block_size, cache.shape[2], cache.shape[3])

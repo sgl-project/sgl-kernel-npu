@@ -150,13 +150,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
-#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-    m.def(
-        "sgl_kv_quant_sparse_flash_attention(Tensor query, Tensor query_rope, Tensor packed_kv, "
-        "Tensor sparse_indices, Tensor block_table, Tensor actual_seq_lengths_query, "
-        "Tensor actual_seq_lengths_kv, float scale_value) -> (Tensor, Tensor, Tensor)");
-#endif
-
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -421,7 +414,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
-    m.impl("sgl_kv_quant_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::kv_quant_sparse_flash_attention));
     m.impl("kv_quant_sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::kv_quant_sparse_attn_sharedkv));
     m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
     m.impl("situ_mxfp8_quant", TORCH_FN(sglang::npu_kernel::situ_mxfp8_quant));

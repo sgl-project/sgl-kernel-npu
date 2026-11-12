@@ -3,7 +3,7 @@ import math
 import pytest
 import sgl_kernel_npu  # noqa: F401  Registers torch.ops.npu.sgl_sparse_flash_attention.
 import torch
-import torch_npu  # noqa: F401  Registers torch.npu.
+import torch_npu
 from utils import require_npu_op
 
 pytestmark = [
@@ -193,73 +193,6 @@ def test_dsa_dcp_padded_indices_lse_on_a5(selected_count):
     expected = logits.softmax(-1) @ key[selected].float()
     torch.testing.assert_close(output, expected, atol=0.03, rtol=0.01)
     torch.testing.assert_close(lse, logits.logsumexp(-1), atol=0.005, rtol=0.001)
-
-
-@pytest.mark.skipif(not _is_a5(), reason="Packed MLA KV is supported by the A5 kernel")
-@require_npu_op("sgl_kv_quant_sparse_flash_attention")
-def test_dsa_dcp_packed_kv_shared_page_table():
-    torch.manual_seed(929)
-    device = torch.device("npu:0")
-    page_count, page_size, heads = 3, 128, 32
-    query = (torch.randn(3, heads, 512) * 0.5).bfloat16()
-    query_rope = (torch.randn(3, heads, 64) * 0.5).bfloat16()
-    latent = torch.randn(page_count, page_size, 1, 4, 128).to(torch.float8_e4m3fn)
-    scales = torch.rand(page_count, page_size, 1, 4) * 0.4 + 0.1
-    rope = (torch.randn(page_count, page_size, 1, 64) * 0.4).bfloat16()
-    packed = torch.cat(
-        (
-            latent.flatten(-2).view(torch.uint8),
-            rope.view(torch.uint8),
-            scales.view(torch.uint8),
-        ),
-        dim=-1,
-    )
-
-    # Three query rows with different valid prefixes share one request's page table.
-    page_ids = [2, 0, 1]
-    kv_length = 2 * page_size + 4
-    selected = ([3, 96, 127], list(range(128, 257)), [])
-    indices = torch.full((3, 1, 2048), -1, dtype=torch.int32)
-    for row, ids in enumerate(selected):
-        indices[row, 0, : len(ids)] = torch.tensor(ids, dtype=torch.int32)
-
-    scale_value = 1.0 / 24
-    output, maximum, total = torch.ops.npu.sgl_kv_quant_sparse_flash_attention(
-        query=query.to(device),
-        query_rope=query_rope.to(device),
-        packed_kv=packed.to(device),
-        sparse_indices=indices.to(device),
-        block_table=torch.tensor([page_ids], dtype=torch.int32, device=device),
-        actual_seq_lengths_query=torch.tensor([3], dtype=torch.int32, device=device),
-        actual_seq_lengths_kv=torch.tensor(
-            [kv_length], dtype=torch.int32, device=device
-        ),
-        scale_value=scale_value,
-    )
-    output = output.cpu().float()
-    maximum = maximum.cpu().squeeze(0)
-    total = total.cpu().squeeze(0)
-
-    key = (latent.float() * scales.unsqueeze(-1)).bfloat16().float()
-    key = key[page_ids].reshape(-1, 512)
-    key_rope = rope[page_ids].reshape(-1, 64).float()
-    for row, ids in enumerate(selected[:2]):
-        scores = (
-            query[row].float() @ key[ids].T + query_rope[row].float() @ key_rope[ids].T
-        ) * scale_value
-        expected = scores.softmax(dim=-1) @ key[ids]
-        torch.testing.assert_close(output[row], expected, atol=0.02, rtol=0.03)
-        torch.testing.assert_close(
-            maximum[row], scores.amax(dim=-1), atol=0.005, rtol=0.01
-        )
-        torch.testing.assert_close(
-            maximum[row] + total[row].log(),
-            scores.logsumexp(dim=-1),
-            atol=0.005,
-            rtol=0.001,
-        )
-    assert torch.count_nonzero(output[2]) == 0
-    assert torch.isneginf(maximum[2] + total[2].log()).all()
 
 
 def test_dsa_dcp_lse_npu_graph_replay_matches_reference():

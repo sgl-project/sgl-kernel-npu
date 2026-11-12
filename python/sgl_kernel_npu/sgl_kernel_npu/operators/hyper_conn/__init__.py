@@ -1,4 +1,6 @@
 from .attn_residual_mix import attn_res_mix_fused
+from .hc_combine import hc_combine
+from .hc_mix import hc_mix
 from .hc_post import hc_post
 from .mhc_post import mhc_post
 from .mhc_post_dpskv4 import mhc_post_dpskv4
@@ -12,4 +14,6 @@ __all__ = [
     "hc_post",
     "mhc_post",
     "mhc_pre_sinkhorn",
+    "hc_mix",
+    "hc_combine",
 ]
