@@ -743,6 +743,7 @@ jobs:
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
+      fail-fast: false
       matrix:
         cann_version: [9.1.0, 9.2.0]
     steps:
