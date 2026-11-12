@@ -85,6 +85,7 @@ ${UV_PIP_INSTALL} \
     wheel \
     packaging \
     ninja \
+    build \
     pybind11 \
     pyyaml \
     decorator \
