@@ -90,17 +90,27 @@ class HcclShmem
 {
 public:
 #ifdef HCCL_COMM  // HCCL needs to initialize the HCCL context
+#ifdef DEEPEP_FUSEEP_A2
+    __gm__ AscendC::HcclCombineOpParam *WinContext_{nullptr};
+#else
     __gm__ HcclOpResParamCustom *WinContext_{nullptr};
+#endif
     Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
     AscendC::LocalTensor<int32_t> ub;
     FORCE_INLINE_AICORE
     HcclShmem()
     {
         auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+#ifdef DEEPEP_FUSEEP_A2
+        WinContext_ = (__gm__ AscendC::HcclCombineOpParam *)contextGM0;
+        m_rank = WinContext_->rankId;
+        m_rankSize = WinContext_->rankNum;
+#else
         WinContext_ = (__gm__ HcclOpResParamCustom *)contextGM0;
 
         m_rank = WinContext_->localUsrRankId;
         m_rankSize = WinContext_->rankSize;
+#endif
         m_segmentSize = WinContext_->winSize;
     }
 #else
@@ -122,7 +132,7 @@ public:
     GM_ADDR operator()() const
     {  // No parameters: return pointer to local peermem
 #ifdef HCCL_COMM
-        return (GM_ADDR)(WinContext_->localWindowsIn);
+        return (*this)(m_rank);
 #else
         return reinterpret_cast<GM_ADDR>(shmem_ptr(symmetricPtr, m_rank));
 #endif
@@ -132,10 +142,25 @@ public:
     GM_ADDR operator()(int32_t index) const
     {  // With index parameter: return pointer to the base address of remote peermem
 #ifdef HCCL_COMM
+#ifdef DEEPEP_FUSEEP_A2
+        // A2 uses an array-based context, not A3's remoteRes linked resources.
+        if (index < 0 || index >= m_rankSize) {
+            return nullptr;
+        }
+        if (WinContext_->multiFlag == 0) {
+            return (GM_ADDR)WinContext_->windowsIn[index];
+        }
+        if (WinContext_->data == nullptr) {
+            return nullptr;
+        }
+        return (GM_ADDR)((index == m_rank) ? WinContext_->data[index].localInput.addr
+                                          : WinContext_->data[index].remoteInput.addr);
+#else
         return (
             GM_ADDR)((index == m_rank)
                          ? WinContext_->localWindowsIn
                          : ((HcclRankRelationResV2Custom *)(WinContext_->remoteRes[index].nextDevicePtr))->windowsIn);
+#endif
 #else
         return reinterpret_cast<GM_ADDR>(shmem_ptr(symmetricPtr, index));
 #endif
@@ -151,11 +176,8 @@ public:
         if (rankId < 0 || rankId >= m_rankSize) {
             return nullptr;
         }
-        return (GM_ADDR)((rankId == m_rank)
-                             ? WinContext_->localWindowsIn
-                             : ((HcclRankRelationResV2Custom *)(WinContext_->remoteRes[rankId].nextDevicePtr))
-                                   ->windowsIn) +
-               offset;
+        auto base = (*this)(rankId);
+        return base == nullptr ? nullptr : base + offset;
 #else
         return reinterpret_cast<GM_ADDR>(shmem_ptr((symmetricPtr + offset), rankId));
 #endif
