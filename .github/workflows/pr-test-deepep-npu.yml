@@ -925,11 +925,11 @@ jobs:
           - platform: a3
             cann: "9.2.0"
             runs_on: linux-aarch64-a3-800t-16
-            # lmsysorg cann9.2.0 image ships torch/torch_npu + cann_ops_transformer
-            # (MegaMoe backend needs CANN 9.2); already green on this runner in SR CI.
-            # Upgrade candidate: quay.io/ascend/sglang:cann9.2.0-a3-20261111 (official,
-            # multi-arch) once its pull path and ops-transformer version are verified.
-            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+            # Official multi-arch image built 2026-11-11 (manifest list, arm64
+            # included). Preferred over the 20261022 lmsysorg tag because the
+            # refactored MegaMoe reference flow (#998, merged 2026-11-10) shows
+            # a 0.868 w4a8 diff against the older image's cann_ops_transformer.
+            image: quay.io/ascend/sglang:cann9.2.0-a3-20261111
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep"
           - platform: a5
             cann: "9.2.0"
