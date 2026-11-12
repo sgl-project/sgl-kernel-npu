@@ -21,6 +21,15 @@ from tests.python.utils.standards import AccuracyStandard
 # DeepSeek-V4: D=448+64, MXFP8 group=64, layout=1; synthetic batches/slots.
 perf_shape = [(4096, 320), (4096, 512)]
 
+
+@pytest.fixture(scope="module", autouse=True)
+def require_a5():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("KV compression epilog requires A5/ARCH35")
+
+
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
 KV_CASES = [
     pytest.param(
@@ -462,10 +471,7 @@ packed_perf_shape = [128]
 
 def generate_packed_data(tokens):
     from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("mixed-quant reader/writer requires A5")
     torch.manual_seed(17)
     path = get_npu_kv_quant_path()
     x = torch.randn(tokens, 512, dtype=torch.bfloat16)

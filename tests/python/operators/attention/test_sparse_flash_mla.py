@@ -30,6 +30,14 @@ PAGE_SIZE = 128
 DECODE_BATCH = 16
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_a3():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH22:
+        pytest.skip("BF16 Sparse Flash MLA requires A3/ARCH22")
+
+
 @pytest.fixture(scope="module")
 def require_cann_9_2_0_or_newer():
     from packaging.version import Version
@@ -176,13 +184,6 @@ def generate_dspark_data(batch, query_len, kv_lengths=None):
     return q, metadata_kwargs, kwargs
 
 
-def _require_arch22():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH22:
-        pytest.skip("CANN 9.2 sparse Flash MLA requires arch22")
-
-
 def _paged(length):
     """Return the block count for one batch of ``length`` tokens."""
     return (length + PAGE_SIZE - 1) // PAGE_SIZE
@@ -302,7 +303,6 @@ def test_sparse_flash_mla_paged(
         sparse_flash_mla_metadata,
     )
 
-    _require_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     q, inputs, _ = _build_paged_case(
         cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
@@ -330,7 +330,6 @@ def test_sparse_flash_mla_paged(
 def test_sparse_flash_mla_metadata_rejects_unsupported_csa_ratio(cmp_ratio):
     from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
 
-    _require_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     query_lengths = (16, 8)
     ori_length, cmp_topk = 128, 8
@@ -350,7 +349,6 @@ def test_sparse_flash_mla_bsnd_swa():
         sparse_flash_mla_metadata,
     )
 
-    _require_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     torch.npu.manual_seed(42)
     length = 16

@@ -18,6 +18,14 @@ from tests.python.utils.performance import check_performance
 perf_shape = [("BSND", 64, False, 1, 128)]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_a5():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("Quantized shared-KV host metadata requires A5/ARCH35")
+
+
 def generate_data(heads=64, query_lengths=(1,), kv_lengths=(128,), **overrides):
     cu_q = torch.tensor([0, *query_lengths], dtype=torch.int32, device="cpu").cumsum(
         0, dtype=torch.int32

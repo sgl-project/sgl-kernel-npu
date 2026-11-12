@@ -20,6 +20,14 @@ from tests.python.utils.performance import check_performance
 perf_shape = [1]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_a5():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("Mixed-quant Sparse Flash MLA metadata requires A5/ARCH35")
+
+
 @pytest.mark.parametrize(
     "query_len",
     [1, 128],

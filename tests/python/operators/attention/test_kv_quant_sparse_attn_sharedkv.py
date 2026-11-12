@@ -17,6 +17,14 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(1, 1, 64, 256, 128)]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_a5():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("Quantized shared-KV attention requires A5/ARCH35")
+
+
 def generate_test_data(batch, query_len, heads, kv_len, block_size, seed=42):
     """Create packed FP8 KV with RoPE BF16, NoPE FP8 and seven E8M0 scales."""
     torch.manual_seed(seed)
