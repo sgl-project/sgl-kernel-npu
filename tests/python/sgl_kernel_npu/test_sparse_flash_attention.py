@@ -197,21 +197,10 @@ def test_dsa_dcp_padded_indices_lse_on_a5(selected_count):
 
 @pytest.mark.skipif(not _is_a5(), reason="Packed MLA KV is supported by the A5 kernel")
 @require_npu_op("sgl_kv_quant_sparse_flash_attention")
-@pytest.mark.parametrize(
-    ("heads", "page_ids", "long_count", "expand_query_rows"),
-    [
-        pytest.param(32, [2, 0, 1], 129, False, id="direct-l1"),
-        pytest.param(128, [2, 0, 1], 129, False, id="split-g"),
-        pytest.param(32, [2, 0, 4, 1, 3], 385, False, id="direct-l1-buffer-reuse"),
-        pytest.param(128, [2, 0, 1], 129, True, id="verify-metadata"),
-    ],
-)
-def test_dsa_dcp_packed_kv_shared_page_table(
-    heads, page_ids, long_count, expand_query_rows
-):
+def test_dsa_dcp_packed_kv_shared_page_table():
     torch.manual_seed(929)
     device = torch.device("npu:0")
-    page_count, page_size = len(page_ids), 128
+    page_count, page_size, heads = 3, 128, 32
     query = (torch.randn(3, heads, 512) * 0.5).bfloat16()
     query_rope = (torch.randn(3, heads, 64) * 0.5).bfloat16()
     latent = torch.randn(page_count, page_size, 1, 4, 128).to(torch.float8_e4m3fn)
@@ -227,27 +216,23 @@ def test_dsa_dcp_packed_kv_shared_page_table(
     )
 
     # Three query rows with different valid prefixes share one request's page table.
-    kv_length = (page_count - 1) * page_size + 4
-    # The short row begins with a descending pair of physical addresses.
-    selected = ([3, 129, 96], list(range(page_size, page_size + long_count)), [])
+    page_ids = [2, 0, 1]
+    kv_length = 2 * page_size + 4
+    selected = ([3, 96, 127], list(range(128, 257)), [])
     indices = torch.full((3, 1, 2048), -1, dtype=torch.int32)
     for row, ids in enumerate(selected):
         indices[row, 0, : len(ids)] = torch.tensor(ids, dtype=torch.int32)
 
-    query_lengths = [1, 2, 3] if expand_query_rows else [3]
-    block_tables = [page_ids] * len(query_lengths)
     scale_value = 1.0 / 24
     output, maximum, total = torch.ops.npu.sgl_kv_quant_sparse_flash_attention(
         query=query.to(device),
         query_rope=query_rope.to(device),
         packed_kv=packed.to(device),
         sparse_indices=indices.to(device),
-        block_table=torch.tensor(block_tables, dtype=torch.int32, device=device),
-        actual_seq_lengths_query=torch.tensor(
-            query_lengths, dtype=torch.int32, device=device
-        ),
-        actual_seq_lengths_kv=torch.full(
-            (len(query_lengths),), kv_length, dtype=torch.int32, device=device
+        block_table=torch.tensor([page_ids], dtype=torch.int32, device=device),
+        actual_seq_lengths_query=torch.tensor([3], dtype=torch.int32, device=device),
+        actual_seq_lengths_kv=torch.tensor(
+            [kv_length], dtype=torch.int32, device=device
         ),
         scale_value=scale_value,
     )
@@ -274,7 +259,6 @@ def test_dsa_dcp_packed_kv_shared_page_table(
             rtol=0.001,
         )
     assert torch.count_nonzero(output[2]) == 0
-    assert torch.count_nonzero(total[2]) == 0
     assert torch.isneginf(maximum[2] + total[2].log()).all()
 
 

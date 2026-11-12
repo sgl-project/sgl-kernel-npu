@@ -391,9 +391,6 @@ void SFAMlaTiling::GetWorkspaceSize()
     uint32_t actCoreNum = coreNum_;
     if (sfaInfo_->isA5) {
         workspaceSize_ = libapiSize_;
-        if (sfaInfo_->packedKv && sfaInfo_->gSize <= 64) {
-            return;
-        }
         constexpr uint32_t TRIPLE_BUFFER_NUM = 3;
         constexpr uint32_t S2_BASE_SIZE = 128;  // S2轴基本块大小
         constexpr uint32_t D_SIZE = 576;
