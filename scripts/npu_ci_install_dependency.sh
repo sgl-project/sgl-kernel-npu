@@ -81,6 +81,11 @@ export UV_SYSTEM_PYTHON=true
 export UV_INDEX_STRATEGY=unsafe-best-match
 
 ${UV_PIP_INSTALL} \
+    setuptools \
+    wheel \
+    packaging \
+    ninja \
+    build \
     pybind11 \
     pyyaml \
     decorator \
