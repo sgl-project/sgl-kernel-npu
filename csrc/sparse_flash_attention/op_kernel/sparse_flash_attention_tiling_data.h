@@ -8,11 +8,9 @@
 
 #include <cstdint>
 
-constexpr uint32_t kSfaPackedKvBit = 1U << 17;
 constexpr uint32_t kSfaPackedKvLatentDim = 512;
 constexpr uint32_t kSfaPackedKvRopeDim = 64;
 constexpr uint32_t kSfaPackedKvQuantBlockSize = 128;
-constexpr uint32_t kSfaPackedKvDequantizedDim = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim;
 constexpr uint32_t kSfaPackedKvScaleOffset = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim * sizeof(uint16_t);
 constexpr uint32_t kSfaPackedKvBytes =
     kSfaPackedKvScaleOffset + kSfaPackedKvLatentDim / kSfaPackedKvQuantBlockSize * sizeof(float);
