@@ -64,15 +64,9 @@ def _cann_9_1_quant_lightning_indexer_metadata(
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(
-        torch.ops.sgl_cann_recipes_infer, "npu_quant_lightning_indexer_metadata", None
+    from ..._third_party.sgl_cann_recipes_infer import (
+        npu_quant_lightning_indexer_metadata as op,
     )
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_quant_lightning_indexer_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     if quant_mode not in (1, 2):
         raise RuntimeError(
             "cann_9_1 indexer metadata supports the migrated FP8/INT8 modes only"

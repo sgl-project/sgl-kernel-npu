@@ -58,13 +58,7 @@ def _cann_9_1_mhc_pre(
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_pre", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_hc_pre in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre as op
     y, post, comb = op(
         x,
         fn,

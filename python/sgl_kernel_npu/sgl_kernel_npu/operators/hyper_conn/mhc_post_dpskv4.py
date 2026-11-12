@@ -42,13 +42,7 @@ def _cann_9_1_mhc_post(x, residual, post, comb):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_post", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_hc_post in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import npu_hc_post as op
     if get_hardware().generation == Generation.ARCH35:
         return op(
             x.unsqueeze(0), residual.unsqueeze(0), post.unsqueeze(0), comb.unsqueeze(0)
