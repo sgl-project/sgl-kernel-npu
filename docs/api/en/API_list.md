@@ -29,6 +29,7 @@
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
 | [split_qkv_tp_rmsnorm_rope](operators/norm/split_qkv_tp_rmsnorm_rope.md) | `triton`, `torch_native` |
 | [add_example](operators/examples/add_example.md) | `aicpu`, `torch_native` |
+| [elu](operators/examples/elu.md) | `ascendc` (ARCH22), `torch_native` |
 | [compressor_v2](operators/attention/compressor_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [lightning_indexer_v2](operators/indexer/lightning_indexer_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [lightning_indexer_v2_metadata](operators/indexer/lightning_indexer_v2_metadata.md) | `cann_ops_transformers_cann920` |

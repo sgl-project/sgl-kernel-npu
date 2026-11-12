@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from build_tools.cann import run
-from build_tools.third_party import detect_soc_version, extract_python, read_json
+from build_tools.third_party import extract_python, read_json, resolve_soc_version
 
 from third_party.opapi import isolate_staged_opapis
 
@@ -25,10 +25,7 @@ def configure(config, jobs):
             for name in [interface] + [name for name in kernels if name is not None]
         ):
             raise ValueError("Invalid recipes interface or kernel name")
-    config["soc"] = detect_soc_version()
-    supported = {"2201": ("ascend910b", "ascend910_93"), "3510": ("ascend950",)}
-    if config["soc"] not in supported[config["arch_version"]]:
-        raise RuntimeError("Detected recipes SoC does not match selected architecture")
+    config["soc"] = resolve_soc_version(config["arch_version"])
     if config.get("has_aicpu", False):
         raise ValueError("Selected recipes operators do not contain AICPU kernels")
     config["vendor_name"] = "vendor_" + config["name"]
