@@ -741,7 +741,7 @@ jobs:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
       matrix:
-        cann_version: [9.1.0]
+        cann_version: [9.1.0, 9.2.0]
     steps:
       - name: Clean git config
         run: |
@@ -898,6 +898,93 @@ jobs:
           --num-tests 10 \
           --weight-format NZ
 
+  test-deepep-megamoe:
+    name: DeepEP MegaMoe (${{ matrix.platform }}, CANN ${{ matrix.cann }})
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: ${{ matrix.runs_on }}
+    container:
+      image: ${{ matrix.image }}
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    strategy:
+      fail-fast: false
+      matrix:
+        # Explicit include (NOT cann: [9.2.0] + include): GitHub's include merge
+        # semantics would generate unintended combinations.
+        include:
+          - platform: a3
+            cann: "9.2.0"
+            runs_on: linux-aarch64-a3-800t-16
+            # lmsysorg cann9.2.0 image ships torch/torch_npu + cann_ops_transformer
+            # (MegaMoe backend needs CANN 9.2); already green on this runner in SR CI.
+            # Upgrade candidate: quay.io/ascend/sglang:cann9.2.0-a3-20261111 (official,
+            # multi-arch) once its pull path and ops-transformer version are verified.
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-a3
+            build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep"
+          - platform: a5
+            cann: "9.2.0"
+            runs_on: linux-amd64-a5-4
+            # Same source, amd64 single-arch tag; upgrade candidate:
+            # quay.io/ascend/sglang:cann9.2.0-950-20261111
+            image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:20261022-cann9.2.0-950-amd64
+            build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950"
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Install dependencies
+        # These images ship torch/torch_npu/cann_ops_transformer, so only build
+        # tools and python test deps are installed here.
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          apt update -y && apt install -y build-essential cmake ccache ninja-build
+          python3 -m pip install --no-cache-dir ninja pybind11 pyyaml decorator scipy attrs psutil
+      - name: Prepare Deepep
+        run: |
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          ${{ matrix.build_cmd }}
+      # NOTE: do NOT set DEEP_USE_MODE here - test_mega_moe.py manages the fused
+      # strategy itself; forcing the env breaks Buffer creation with
+      # "ValueError: Unsupported mode combination: DEEP_USE_MODE=mega_moe"
+      # (ep_strategy.py:85, run 42013145469).
+      - name: Run MegaMoe positive (A3)
+        if: matrix.platform == 'a3'
+        timeout-minutes: 90
+        run: |
+          set -e
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w4a8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w8a8
+      - name: Run MegaMoe positive (A5, 4-card)
+        if: matrix.platform == 'a5'
+        timeout-minutes: 90
+        run: |
+          set -e
+          for q in mx_fp8_e4m3 mx_fp8_e5m2 mx_fp4_e2m1 mx_fp8_e4m3_w4; do
+            python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 4 --quant-mode $q
+          done
+
   finish:
     if: always()
     needs:
@@ -905,6 +992,7 @@ jobs:
       - test-all-build-moe
       - test-build-deepep-a2
       - test-deepep-a5
+      - test-deepep-megamoe
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
