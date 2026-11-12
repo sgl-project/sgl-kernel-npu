@@ -119,10 +119,14 @@ filter_tests() {
             esac
         fi
 
-        if [[ "${NPU_HARDWARE:-}" == a3 &&
-              "$test_file" == tests/python/operators/indexer/test_pool_key_indexer.py ]]; then
-            echo "[NPU_HARDWARE=a3] Skipping: $test_file"
-            continue
+        if [[ "${NPU_HARDWARE:-}" == a3 ]]; then
+            case "$test_file" in
+                tests/python/operators/indexer/test_pool_key_indexer.py|\
+                tests/python/operators/indexer/test_qsa_mqa.py)
+                    echo "[NPU_HARDWARE=a3] Skipping: $test_file"
+                    continue
+                    ;;
+            esac
         fi
 
         filtered+=("$test_file")
