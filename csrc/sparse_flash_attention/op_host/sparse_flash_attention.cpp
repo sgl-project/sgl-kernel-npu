@@ -267,6 +267,7 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     optiling::SFATilingInfo info;
     optiling::SFAInfoParser parser(context.get());
     TORCH_CHECK(parser.Parse(info) == ge::GRAPH_SUCCESS, "sparse_flash_attention: parsing tiling inputs failed");
+    info.packedKv = packed_kv;
     optiling::SFATilingCheck checker(info);
     TORCH_CHECK(checker.Process() == ge::GRAPH_SUCCESS, "sparse_flash_attention: tiling validation failed");
     optiling::SFAMlaTiling tiling(context.get());
@@ -289,10 +290,11 @@ static std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention_imp
     auto blockTableLaunch = block_table_input.value_or(intPlaceholder);
     auto actualSeqLengthsQueryLaunch = actual_seq_lengths_query_input.value_or(intPlaceholder);
     auto actualSeqLengthsKvLaunch = actual_seq_lengths_kv_input.value_or(intPlaceholder);
-    auto queryRopeLaunch = query_rope_input.value_or(queryPlaceholder);
+    auto queryLaunch = packed_kv ? at::cat({query_input, query_rope_input.value()}, -1) : query_input;
+    auto queryRopeLaunch = packed_kv ? queryPlaceholder : query_rope_input.value_or(queryPlaceholder);
     auto keyRopeLaunch = key_rope_input.value_or(queryPlaceholder);
 
-    DispatchSparseFlashAttention(tiling.GetBlockDim(), query_input, key_input, value_input, sparse_indices_input,
+    DispatchSparseFlashAttention(tiling.GetBlockDim(), queryLaunch, key_input, value_input, sparse_indices_input,
                                  blockTableLaunch, actualSeqLengthsQueryLaunch, actualSeqLengthsKvLaunch,
                                  queryRopeLaunch, keyRopeLaunch, attention_out, softmax_max, softmax_sum, workspace,
                                  tilingTensor);

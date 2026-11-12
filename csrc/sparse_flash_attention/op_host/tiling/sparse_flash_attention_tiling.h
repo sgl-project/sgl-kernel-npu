@@ -230,6 +230,7 @@ struct SFATilingInfo {
     // Base Param
     NpuArch npuArch = NpuArch::DAV_2201;
     bool isA5 = false;
+    bool packedKv = false;
     uint32_t bSize = 0;
     uint32_t n1Size = 0;
     uint32_t n2Size = 0;
