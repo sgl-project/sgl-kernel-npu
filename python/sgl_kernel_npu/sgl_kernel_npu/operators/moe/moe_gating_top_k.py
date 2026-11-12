@@ -64,11 +64,12 @@ def _torch_npu(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    op = getattr(torch.ops.npu, "npu_moe_gating_top_k", None)
-    if op is None:
+    try:
+        op = torch.ops.npu.npu_moe_gating_top_k
+    except AttributeError as exc:
         raise RuntimeError(
             f"Missing operator npu.npu_moe_gating_top_k in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+        ) from exc
     if isinstance(op, torch._ops.OpOverloadPacket):
         names = {arg.name for arg in op.default._schema.arguments}
         missing = (
