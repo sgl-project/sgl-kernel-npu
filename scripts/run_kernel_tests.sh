@@ -8,6 +8,11 @@ TEST_ROOT="$WORKSPACE/tests/python"
 TEST_GROUP="${1:-all}"
 
 case "$TEST_GROUP" in
+    speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
+    matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul") ;;
+    embedding) TEST_DIRS=("$TEST_ROOT/operators/embedding") ;;
+    data_move) TEST_DIRS=("$TEST_ROOT/operators/data_move") ;;
+    activation) TEST_DIRS=("$TEST_ROOT/operators/activation") ;;
     attention)          TEST_DIRS=("$TEST_ROOT/operators/attention") ;;
     batch_invariant)    TEST_DIRS=("$TEST_ROOT/operators/batch_invariant") ;;
     elementwise)        TEST_DIRS=("$TEST_ROOT/operators/elementwise") ;;
@@ -62,7 +67,16 @@ filter_tests() {
             tests/python/operators/attention/test_compressor_v2.py|\
             tests/python/operators/indexer/test_lightning_indexer_v2.py|\
             tests/python/operators/attention/test_flash_mla.py|\
-            tests/python/operators/attention/test_sparse_flash_mla.py)
+            tests/python/operators/attention/test_sparse_flash_mla.py|\
+            tests/python/operators/attention/test_compressor.py|\
+            tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
+            tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py|\
+            tests/python/operators/indexer/test_indexer_prologue_k_dsl.py|\
+            tests/python/operators/indexer/test_quant_lightning_indexer_dsl.py|\
+            tests/python/operators/indexer/test_quant_lightning_indexer_metadata_dsl.py|\
+            tests/python/operators/indexer/test_quant_sparse_lightning_indexer_dsl.py|\
+            tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata_dsl.py|\
+            tests/python/operators/mem_cache/test_kv_transfer.py)
                 echo "Skipping temporarily disabled test: $test_file"
                 continue
                 ;;
