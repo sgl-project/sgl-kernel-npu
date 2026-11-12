@@ -119,7 +119,6 @@ FUSED_TESTS=(
     test_gmm_wfp8a16.py
     test_mm_wfp8a16.py
     "${GITHUB_WORKSPACE}/tests/python/operators/diffusion/activation/test_silu_mul.py"
-    "${GITHUB_WORKSPACE}/tests/python/operators/diffusion/modulate/test_residual_gate_add.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/diffusion/norm/test_rmsnorm_cast_before_weight.py"
 )
 

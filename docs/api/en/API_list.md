@@ -77,7 +77,6 @@
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`, `torch_native` |
 | [fused_sigmoid_mul](operators/activation/fused_sigmoid_mul.md) | `triton`, `torch_native` |
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`, `torch_native` |
-| [residual_gate_add](operators/diffusion/modulate/residual_gate_add.md) | `triton`, `torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`, `torch_native` |
 | [silu_mul](operators/diffusion/activation/silu_mul.md) | `triton`, `torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`, `torch_native` |
