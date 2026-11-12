@@ -1,4 +1,8 @@
+#include <array>
+#include <cstring>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <string>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
@@ -28,8 +32,7 @@ std::unordered_map<c10::ScalarType, TensorDType> atType2tensorDType = {
     {at::ScalarType::BFloat16, TensorDType::TENSOR_DTYPE_BF16},
     {at::ScalarType::Half, TensorDType::TENSOR_DTYPE_FLOAT16}};
 
-// batch size -> memory index
-constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+constexpr uint32_t MAX_M = 1024;
 
 template <typename MapType>
 inline int GetModeVal(const MapType &mode_map, c10::optional<c10::string_view> mode_opt, c10::string_view default_mode,
@@ -101,20 +104,36 @@ HOST_API void batch_matmul_transpose(const at::Tensor &tensor_a, const at::Tenso
     GetPpMatmulTiling(mmInfo, hwInfo, block_dim, matmulTilingData);
     host_utils::PpMatmulTilingCheck(matmulTilingData);
 
-    // tiling
-    int32_t batchIdx = opShape.m - 1;
-    uint32_t tilingSize = sizeof(PpMatmulTilingData);
-    static auto global_tiling_data = at::empty(
-        {tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
-    if (batchIdx >= 0 && batchIdx < MAX_CAPTURE_NUM) {
-        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize, &matmulTilingData,
-                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    } else {
-        // Handle the case where batchIdx is out of range
-        TORCH_CHECK(false, "batchIdx is out of range: ", batchIdx);
+    TORCH_CHECK(opShape.m > 0 && opShape.m <= MAX_M, "m must be in [1, ", MAX_M, "], got ", opShape.m);
+
+    // Captured graphs keep this address. Never overwrite a live configuration.
+    // PpMatmulTilingData is packed and value-initialized, so its complete bytes
+    // distinguish every kernel setting without hash collisions.
+    constexpr size_t tilingSize = sizeof(PpMatmulTilingData);
+    std::array<uint8_t, tilingSize> tilingBytes;
+    std::memcpy(tilingBytes.data(), &matmulTilingData, tilingSize);
+    auto key = std::make_pair(tensor_a.get_device(), tilingBytes);
+    // Retain graph-pool tensors for the process lifetime. Destroying them from
+    // a C++ static destructor can call the NPU allocator after Python shuts down.
+    static auto &tilingCache = *new std::map<decltype(key), std::pair<at::Tensor, at::Tensor>>;
+    static std::mutex tilingMutex;
+    at::Tensor tiling_tensor;
+    at::Tensor host_tiling;
+    {
+        std::lock_guard<std::mutex> lock(tilingMutex);
+        auto entry = tilingCache.find(key);
+        if (entry == tilingCache.end()) {
+            auto hostTiling = at::empty({static_cast<int64_t>(tilingSize)}, at::kByte).pin_memory();
+            std::memcpy(hostTiling.data_ptr(), &matmulTilingData, tilingSize);
+            auto deviceTiling = at::empty({static_cast<int64_t>(tilingSize)}, tensor_a.options().dtype(at::kByte));
+            entry = tilingCache.emplace(key, std::make_pair(hostTiling, deviceTiling)).first;
+        }
+        host_tiling = entry->second.first;
+        tiling_tensor = entry->second.second;
     }
-    at::Tensor tiling_tensor =
-        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize, at::kByte);
+    // Dispatch the immutable data on this call's stream, including first-use
+    // capture and calls made before another graph has replayed its initial copy.
+    tiling_tensor.copy_(host_tiling, true);
 
     EXEC_KERNEL_CMD(batch_matmul_transpose, block_dim, tensor_a, tensor_b, tensor_c, tiling_tensor);
 }
