@@ -62,6 +62,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: baseline-src
+          submodules: recursive
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -110,6 +111,25 @@ jobs:
           source-dir: ${{ github.workspace }}/baseline-src
           coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a5
           map-file: ${{ github.workspace }}/baselines/kernel-coverage-a5/test_case_map.json
+      - name: Package baseline source and maps
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_DIR="$RUNNER_TEMP/kernel-map-baseline"
+          mkdir -p "$PACKAGE_DIR"
+          BASELINE_SHA="$(git -C baseline-src rev-parse HEAD)"
+          for chip in a3 a5; do
+            test "$(cat "baselines/kernel-coverage-$chip/baseline-sha.txt")" = "$BASELINE_SHA"
+            cp "baselines/kernel-coverage-$chip/test_case_map.json" "$PACKAGE_DIR/test_case_map_$chip.json"
+          done
+          printf '%s\n' "$BASELINE_SHA" > "$PACKAGE_DIR/baseline-sha.txt"
+          tar --exclude='.git' -czf "$PACKAGE_DIR/baseline-source.tar.gz" -C baseline-src .
+      - name: Save baseline source and maps
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-map-baseline-smoke
+          path: ${{ runner.temp }}/kernel-map-baseline/
+          if-no-files-found: error
       - name: Save coverage and maps for inspection
         if: always()
         uses: actions/upload-artifact@v4
