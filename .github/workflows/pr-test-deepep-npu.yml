@@ -453,10 +453,6 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
-      # #950 retargeted this step from cann=='9.0.0' to '9.1.0' only because
-      # 9.0.0 left the matrix; it was a single-version rotation, not a 9.2.0
-      # capability limit. Run it on both versions so A3 alltoall has 9.2.0
-      # coverage as well.
       - name: Run test alltoall mode for both normal and low_latency
         timeout-minutes: 10
         env:
@@ -923,20 +919,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Explicit include (NOT cann: [9.2.0] + include): GitHub's include merge
-        # semantics would generate unintended combinations.
         include:
           - platform: a3
             cann: "9.2.0"
             runs_on: linux-aarch64-a3-800t-16
-            # 2026-11-10 build (quay-style tag under the SWR dockerhub proxy).
-            # Replaces the 20261022 lmsysorg tag that fails the #998 A3 w4a8 check.
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-a3-20261110
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep"
           - platform: a5
             cann: "9.2.0"
             runs_on: linux-amd64-a5-4
-            # Same 2026-11-10 build, amd64 target.
             image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-950-20261110
             build_cmd: "bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950"
     steps:
@@ -953,8 +944,6 @@ jobs:
           clean: true
           submodules: recursive
       - name: Install dependencies
-        # These images ship torch/torch_npu/cann_ops_transformer, so only build
-        # tools and python test deps are installed here.
         run: |
           CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
@@ -966,15 +955,10 @@ jobs:
         run: |
           rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
           ${{ matrix.build_cmd }}
-      # NOTE: do NOT set DEEP_USE_MODE here - test_mega_moe.py manages the fused
-      # strategy itself; forcing the env breaks Buffer creation with
-      # "ValueError: Unsupported mode combination: DEEP_USE_MODE=mega_moe"
-      # (ep_strategy.py:85, run 42013145469).
+      # Do not set DEEP_USE_MODE here; test_mega_moe.py manages the fused strategy.
       - name: Run MegaMoe positive (A3)
         if: matrix.platform == 'a3'
         timeout-minutes: 90
-        # A3 inherits HCCL_BUFFSIZE from --hccl-buffsize (the fused path does not
-        # set hccl_buffer_size itself); 512 MiB covers the 16-rank config.
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w4a8 --hccl-buffsize 512
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_mega_moe.py --num-processes 16 --quant-mode w8a8 --hccl-buffsize 512
