@@ -14,6 +14,7 @@ from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
     kv_quant_sparse_attn_sharedkv_metadata_host,
 )
+from .kv_quant_sparse_flash_attention import kv_quant_sparse_flash_attention
 from .laser_attention import la
 from .mixed_quant_sparse_flash_mla import mixed_quant_sparse_flash_mla
 from .mixed_quant_sparse_flash_mla_dsl import mixed_quant_sparse_flash_mla_dsl
@@ -49,6 +50,7 @@ __all__ = [
     "flash_mla_metadata",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
+    "kv_quant_sparse_flash_attention",
     "la",
     "mlaprolog_v4",
     "mixed_quant_sparse_flash_mla_dsl",

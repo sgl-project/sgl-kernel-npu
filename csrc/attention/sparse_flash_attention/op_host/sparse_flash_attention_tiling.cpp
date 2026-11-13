@@ -20,6 +20,7 @@
 #include <graph/utils/type_utils.h>
 #include "ops_err.h"
 #include "../op_kernel/sparse_flash_attention_template_tiling_key.h"
+#include "../op_kernel/sparse_flash_attention_tiling_data.h"
 #include "sparse_flash_attention_tiling.h"
 
 using std::map;
@@ -452,7 +453,8 @@ ge::graphStatus SFAMlaTiling::DoOpTiling(SFATilingInfo *sfaInfo)
     GetWorkspaceSize();
     GenTilingKey();
     const uint32_t dtypeBit = (sfaInfo_->inputQType == ge::DT_BF16) ? (1U << 16) : 0U;
-    tilingData_.baseParams.set_dispatchKey(static_cast<uint32_t>(tilingKey_) | dtypeBit);
+    const uint32_t packedKvBit = sfaInfo_->inputKvType == ge::DT_UINT8 ? kSfaPackedKvBit : 0U;
+    tilingData_.baseParams.set_dispatchKey(static_cast<uint32_t>(tilingKey_) | dtypeBit | packedKvBit);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -627,7 +629,7 @@ ge::graphStatus SFATilingCheck::CheckSingleParaQuery() const
 ge::graphStatus SFATilingCheck::CheckSingleParaKey() const
 {
     const std::vector<size_t> keyDimNumList = {DIM_NUM_FOUR, DIM_NUM_THREE};
-    if (ge::GRAPH_SUCCESS != CheckDtypeSupport(opParamInfo_.key.desc, KEY_NAME) ||
+    if ((inputKvType_ != ge::DT_UINT8 && ge::GRAPH_SUCCESS != CheckDtypeSupport(opParamInfo_.key.desc, KEY_NAME)) ||
         ge::GRAPH_SUCCESS != CheckLayoutSupport(kvLayout_, KEY_NAME) ||
         ge::GRAPH_SUCCESS != CheckDimNumSupport(opParamInfo_.key.shape, keyDimNumList, KEY_NAME) ||
         ge::GRAPH_SUCCESS != CheckDimNumInLayoutSupport(kvLayout_, opParamInfo_.key.shape, KEY_NAME)) {
@@ -715,6 +717,9 @@ ge::graphStatus SFATilingCheck::CheckRopeExistence()
                 return ge::GRAPH_FAILED);
     OP_CHECK_IF(*opParamInfo_.attentionMode != 2, OP_LOGE(opName_, "attentionMode only support 2."),
                 return ge::GRAPH_FAILED);
+    if (inputKvType_ == ge::DT_UINT8) {
+        return CheckNotExists(opParamInfo_.keyRope.tensor, KEY_ROPE_NAME);
+    }
     OP_CHECK_IF((opParamInfo_.queryRope.tensor != nullptr && opParamInfo_.keyRope.tensor == nullptr),
                 OP_LOGE(opName_, "KeyRope is null, but queryRope exists, they should be both null or exist."),
                 return ge::GRAPH_FAILED);
@@ -850,7 +855,9 @@ void SFATilingCheck::SetSFAShapeCompare()
     valueShapeCmp_ = opParamInfo_.value.shape->GetStorageShape();
     attenOutShapeCmp_ = opParamInfo_.attenOut.shape->GetStorageShape();
     queryRopeShapeCmp_ = opParamInfo_.queryRope.tensor->GetStorageShape();
-    keyRopeShapeCmp_ = opParamInfo_.keyRope.tensor->GetStorageShape();
+    if (inputKvType_ != ge::DT_UINT8) {
+        keyRopeShapeCmp_ = opParamInfo_.keyRope.tensor->GetStorageShape();
+    }
     softmaxMaxShapeCmp_ = opParamInfo_.softmaxMax.shape->GetStorageShape();
     softmaxSumShapeCmp_ = opParamInfo_.softmaxSum.shape->GetStorageShape();
 }
@@ -1068,11 +1075,15 @@ ge::graphStatus SFATilingCheck::CheckVAndKRopeShapeForPageAttention()
     OP_CHECK_IF(blockNum <= 0, OP_LOGE(opName_, "The first dim(%ld) of key should be greater than 0", blockNum),
                 return ge::GRAPH_FAILED);
     SFATilingShapeCompareParam shapeParams;
+    const bool packedKv = inputKvType_ == ge::DT_UINT8;
     shapeParams.Bn = blockNum;
     shapeParams.N = n2Size_;
     shapeParams.Bs = blockSize_;
-    shapeParams.D = vHeadDim_;
+    shapeParams.D = packedKv ? kSfaPackedKvBytes : vHeadDim_;
     shapeParams.T = kvTSize_;
+    if (packedKv) {
+        return CompareShape(shapeParams, keyShapeCmp_, kvLayout_, KEY_NAME);
+    }
     if (CompareShape(shapeParams, valueShapeCmp_, kvLayout_, VALUE_NAME) != ge::GRAPH_SUCCESS) {
         return ge::GRAPH_FAILED;
     }
@@ -1102,8 +1113,9 @@ ge::graphStatus SFATilingCheck::CheckVAndKRopeShape()
 ge::graphStatus SFATilingCheck::CheckVAndKRope()
 {
     if (ge::GRAPH_SUCCESS != CheckDTypeConsistency(opParamInfo_.value.desc->GetDataType(), inputKvType_, VALUE_NAME) ||
-        ge::GRAPH_SUCCESS !=
-            CheckDTypeConsistency(opParamInfo_.keyRope.desc->GetDataType(), inputKvType_, KEY_ROPE_NAME) ||
+        (inputKvType_ != ge::DT_UINT8 &&
+         ge::GRAPH_SUCCESS !=
+             CheckDTypeConsistency(opParamInfo_.keyRope.desc->GetDataType(), inputKvType_, KEY_ROPE_NAME)) ||
         ge::GRAPH_SUCCESS != CheckVAndKRopeShape()) {
         return ge::GRAPH_FAILED;
     }
@@ -1309,6 +1321,13 @@ ge::graphStatus SFATilingCheck::CheckFeatureMlaNoquant() const
 
 ge::graphStatus SFATilingCheck::CheckFeatureMla() const
 {
+    OP_CHECK_IF(inputKvType_ == ge::DT_UINT8 && (!isA5_ || inputQType_ != ge::DT_BF16 || qLayout_ != SFALayout::TND ||
+                                                 kvLayout_ != SFALayout::PA_BSND || sparseBlockSize_ != 1 ||
+                                                 *opParamInfo_.sparseMode != 0 || !*opParamInfo_.returnSoftmaxLse),
+                OP_LOGE(opName_,
+                        "packed KV requires arch35, BF16 query, TND/PA_BSND, sparse_block_size=1, "
+                        "sparse_mode=0 and return_softmax_lse=true"),
+                return ge::GRAPH_FAILED);
     return CheckFeatureMlaNoquant();
 }
 
@@ -1751,7 +1770,8 @@ ge::graphStatus SFAInfoParser::GetValueHeadDim()
 {
     // 获取vHeadDim基准值
     // 以value的D维度为基准
-    vHeadDim_ = GetAxisNum(valueShape_, SFAAxis::D, kvLayout_);
+    // The packed cache stores bytes; Cube consumes the dequantized MLA latent.
+    vHeadDim_ = inputKvType_ == ge::DT_UINT8 ? kSfaPackedKvLatentDim : GetAxisNum(valueShape_, SFAAxis::D, kvLayout_);
     return ge::GRAPH_SUCCESS;
 }
 
