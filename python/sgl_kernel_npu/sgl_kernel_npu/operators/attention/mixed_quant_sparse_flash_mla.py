@@ -114,6 +114,7 @@ def _ascendc(q, **kwargs):
 
 
 def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
+    """Adapt the public KV arguments to the legacy A5 attention bindings."""
     indices = kwargs.get("ori_sparse_indices")
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
@@ -121,10 +122,10 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
     if indices is not None:
-        op = torch.ops.npu.kv_quant_sparse_attn_sharedkv
+        attention_op = torch.ops.npu.kv_quant_sparse_attn_sharedkv
     else:
         from ..._third_party.sgl_cann_recipes_infer import (
-            npu_kv_quant_sparse_attn_sharedkv as op,
+            npu_kv_quant_sparse_attn_sharedkv as attention_op,
         )
     if kwargs.get("quant_mode", 1) != 1:
         raise RuntimeError(
@@ -135,13 +136,19 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         cache = kwargs.get(name)
         if cache is not None and cache.shape[-1] != width:
             raise ValueError(f"{name} must use the selected {width}B KV encoding")
-    args = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
-    }
-    args.pop("seqused_cmp_kv", None)
-    args.pop("cmp_residual_kv", None)
+    # CPU mirrors and public scheduling hints are not inputs of the 9.1 kernels.
+    args = kwargs.copy()
+    for name in (
+        "cu_seqlens_q_cpu",
+        "seqused_ori_kv_cpu",
+        "seqused_cmp_kv",
+        "cmp_residual_kv",
+        "ori_topk_length",
+        "ori_topk",
+        "has_ori_kv",
+        "has_cmp_kv",
+    ):
+        args.pop(name, None)
     args["seqused_kv"] = args.pop("seqused_ori_kv", None)
     layout = args.get("layout_kv", "BSND")
     if layout == "PA_BBND":
@@ -154,16 +161,13 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         )
     if args.pop("cmp_topk_length", None) is not None:
         raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
-    args.pop("ori_topk_length", None)
-    args.pop("ori_topk", None)
     if args.get("ori_mask_mode", 4) == 0:
         # Native DSpark selects explicit indices by tensor presence, with the
         # cann_9_1 SWA/window metadata ABI.
         args["ori_mask_mode"] = 4
-    if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
+    if not kwargs.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
         args["cmp_mask_mode"] = 3
-    if args.pop("quant_mode", 1) != 1:
-        raise RuntimeError("cann_9_1 packed KV supports quant_mode=1 only")
+    args.pop("quant_mode", None)
     args.update(kv_quant_mode=1, tile_size=64)
     if args.get("rope_head_dim", 64) != 64:
         raise RuntimeError("cann_9_1 packed KV requires rope_head_dim=64")
@@ -185,9 +189,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
             kwargs.get("cu_seqlens_q"),
             kwargs.get("layout_q", "BSND"),
         )
-    args.pop("has_ori_kv", None)
-    args.pop("has_cmp_kv", None)
-    out, lse = op(q, **args)
+    out, lse = attention_op(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
