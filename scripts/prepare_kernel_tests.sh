@@ -7,6 +7,7 @@ fi
 
 cd "${GITHUB_WORKSPACE}"
 export UV_SYSTEM_PYTHON=true
+export UV_NO_CACHE=1
 
 # --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
 
