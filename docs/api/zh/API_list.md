@@ -64,6 +64,7 @@
 | [split_qkv_rmsnorm_rope](operators/norm/split_qkv_rmsnorm_rope.md) | `triton`、`torch_native` |
 | [split_qkvgate_gemma_rmsnorm_rope](operators/norm/split_qkvgate_gemma_rmsnorm_rope.md) | `triton`、`torch_native` |
 | [split_qkv_rmsnorm_rope_pos_cache_half_npu](operators/norm/split_qkv_rmsnorm_rope_pos_cache_half_npu.md) | `triton`、`torch_native` |
+| [rmsnorm_cast_before_weight](operators/diffusion/norm/rmsnorm_cast_before_weight.md) | `triton`、`torch_native` |
 | [recompute_w_u_fwd](operators/attention/gdn/recompute_w_u_fwd.md) | `triton`, `torch_native` |
 | [fused_gdn_gating](operators/attention/gdn/fused_gdn_gating.md) | `triton`, `torch_native` |
 | [solve_tril](operators/attention/gdn/solve_tril.md) | `triton`, `torch_native` |
@@ -79,6 +80,7 @@
 | [fused_sigmoid_mul](operators/activation/fused_sigmoid_mul.md) | `triton`、`torch_native` |
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`、`torch_native` |
+| [silu_mul](operators/diffusion/activation/silu_mul.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
 | [build_tree](operators/speculative/build_tree.md) | `ascendc`、`torch_native` |
 | [causal_conv1d](operators/mamba/causal_conv1d.md) | `ascendc`、`torch_native` |
