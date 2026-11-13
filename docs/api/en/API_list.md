@@ -45,6 +45,7 @@
 | [chunk_gated_delta_rule_npu](operators/attention/gdn/chunk_gated_delta_rule_npu.md) | `triton`, `torch_native` |
 | [recurrent_gated_delta_rule](operators/attention/gdn/recurrent_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [la](operators/attention/laser_attention.md) | `ascendc` (ARCH22), `torch_native` |
+| [rain_fusion_attention](operators/attention/rain_fusion_attention.md) | `cann_ops_transformer` (ARCH22), `torch_native` |
 | [ada_block_sparse_attention](operators/attention/ada_block_sparse_attention.md) | `ascendc` (ARCH22), `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
@@ -73,6 +74,7 @@
 | [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`, `torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`, `torch_native` |
+| [layer_norm](operators/norm/layer_norm.md) | `cann_ops_transformer` (ARCH22), `torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`, `torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`, `torch_native` |
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`, `torch_native` |

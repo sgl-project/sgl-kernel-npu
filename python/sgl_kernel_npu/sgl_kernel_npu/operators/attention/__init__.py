@@ -30,6 +30,7 @@ from .paged_mtp_attention import paged_mtp_attention_decode
 from .qsa_sparse_attention import qsa_sparse_attention
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
+from .rain_fusion_attention import rain_fusion_attention, rainfusionattention
 from .sparse_attn_sharedkv import sparse_attn_sharedkv
 from .sparse_block_estimate import sparse_block_estimate
 from .sparse_flash_attention import sparse_flash_attention
@@ -57,6 +58,8 @@ __all__ = [
     "paged_mtp_attention_decode",
     "quant_flash_attn",
     "quant_flash_attn_metadata",
+    "rain_fusion_attention",
+    "rainfusionattention",
     "compressor_v2",
     "flash_decode_bnsd_with_gqa_share_sparse",
     "sparse_attn_sharedkv",
