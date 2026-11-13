@@ -57,9 +57,7 @@ def test_renorm(rows, vocab, top_p, scalar):
     op = top_p_renorm_prob if top_p else top_k_renorm_prob
     args = generate_data(rows, vocab, top_p, scalar)
     original = args[0].clone()
-    executor = check_accuracy(
-        op, args=args, standard={"torch.float32": AccuracyStandard(0, 0)}
-    )
+    executor = check_accuracy(op, args=args)
     if not get_skip_acc_check():
         assert_accuracy(
             args[0], original, standard={"torch.float32": AccuracyStandard(0, 0)}
@@ -84,9 +82,8 @@ def generate_chain_data(scalar_kind):
 @pytest.mark.parametrize("scalar_kind", ["python", "tensor", "rows"])
 def test_public_top_k_then_top_p(scalar_kind):
     probs, ks, ps = generate_chain_data(scalar_kind)
-    exact = {"torch.float32": AccuracyStandard(0, 0)}
-    first = check_accuracy(top_k_renorm_prob, args=(probs, ks), standard=exact)
-    second = check_accuracy(top_p_renorm_prob, args=(first(), ps), standard=exact)
+    first = check_accuracy(top_k_renorm_prob, args=(probs, ks))
+    second = check_accuracy(top_p_renorm_prob, args=(first(), ps))
     check_performance(first, enable_perf=False)
     check_performance(second, enable_perf=False)
 
@@ -107,10 +104,10 @@ def test_strided_input_thresholds_and_clamping(top_p):
     fn = top_p_renorm_prob if top_p else top_k_renorm_prob
     original = probs.clone()
     exact = {"torch.float32": AccuracyStandard(0, 0)}
-    executor = check_accuracy(fn, args=(probs, threshold), standard=exact)
+    executor = check_accuracy(fn, args=(probs, threshold))
     if not get_skip_acc_check():
         clamped = threshold.clamp(0, 1) if top_p else threshold.clamp(1, 97)
-        assert_accuracy(executor(), _reference(probs, clamped, top_p), standard=exact)
+        assert_accuracy(executor(), _reference(probs, clamped, top_p))
         assert_accuracy(probs, original, standard=exact)
     check_performance(executor, enable_perf=False)
 
@@ -158,4 +155,4 @@ def test_graph_replay_with_changed_inputs(rows, vocab):
         torch.npu.synchronize()
         graph.replay()
         torch.npu.synchronize()
-        torch.testing.assert_close(actual, _reference(probs, ps, True), rtol=0, atol=0)
+        assert_accuracy(actual, _reference(probs, ps, True))

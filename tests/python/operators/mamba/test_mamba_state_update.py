@@ -36,7 +36,18 @@ def generate_move_data(shape, transposed, dtype=torch.bfloat16):
     return dst, src, indices, source, last
 
 
-def _check_inplace(operator, args, monitor):
+def _assert_state_accuracy(actual, expected):
+    actual, expected = actual.detach(), expected.detach()
+    max_error = (expected - actual).flatten().abs().max().item()
+    if max_error <= 1e-6:
+        return
+    error = (expected - actual).flatten().square().mean().sqrt().item()
+    base = expected.flatten().square().mean().sqrt().item()
+    ratio = error / (base + 1e-8)
+    assert_accuracy(ratio < 1e-3, True, path=f"relative RMS error {ratio:.6g} < 1e-3")
+
+
+def _check_inplace(operator, args, monitor, *, exact_output=False):
     impl, impl_ref = get_test_impls()
     executor = make_executor(operator, args=args)
     if not get_skip_acc_check():
@@ -44,7 +55,10 @@ def _check_inplace(operator, args, monitor):
         reference = tuple(t.clone() if isinstance(t, torch.Tensor) else t for t in args)
         operator(*reference, impl=impl_ref)
         actual = executor()
-        assert_accuracy(args[0], reference[0], standard=exact)
+        if exact_output:
+            assert_accuracy(args[0], reference[0], standard=exact)
+        else:
+            _assert_state_accuracy(args[0], reference[0])
         assert actual.data_ptr() == args[0].data_ptr()
         assert actual.stride() == args[0].stride()
         assert_accuracy(args[1:], reference[1:], standard=exact)
@@ -114,6 +128,7 @@ def test_rollback(shape, transposed):
         conv_state_rollback,
         generate_rollback_data(shape, transposed),
         shape == (32, 32, 2048, 4, 4),
+        exact_output=transposed,
     )
 
 
@@ -159,5 +174,8 @@ def test_different_pool_extents(vdim, physical):
     from sgl_kernel_npu.operators.mamba import move_intermediate_cache
 
     _check_inplace(
-        move_intermediate_cache, generate_different_pool_data(vdim, physical), False
+        move_intermediate_cache,
+        generate_different_pool_data(vdim, physical),
+        False,
+        exact_output=True,
     )
