@@ -31,6 +31,7 @@
 #error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
 #endif
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
+#include "../op_kernel/moe_distribute_a2_layered_winsize.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -1366,6 +1367,32 @@ static ge::graphStatus MoeDistributeCombineA2TilingFuncImpl(gert::TilingContext 
         MoeDistributeCombineA2CheckAttrAndSetTiling(context, info, commQuantMode, isLayered) != ge::GRAPH_SUCCESS,
         VECTOR_INNER_ERR_REPORT_TILIING(context->GetNodeName(), "MoeDistributeCombineV2 CheckAttrAndSetTiling Failed"),
         return ge::GRAPH_FAILED);
+
+    // The multi-server layered (hierarchy) kernels hard-code their window layout (RDMA 800MB +
+    // IPC offset 4MB + NOTIFY 400MB). The device-side assert is compiled out in release builds,
+    // and on an undersized window the unsigned subtraction wraps around into out-of-window
+    // writes. Reject the misconfiguration here at tiling time, mirroring the kernel winSizeMin
+    // formula (single-sourced via the shared header). The multi-server fullmesh minimum-window
+    // formula still needs to be derived from its kernel layout (follow-up).
+    if (isLayered) {
+        uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+        uint64_t moeExpertNum = static_cast<uint64_t>(info.moeExpertNum);
+        uint64_t bs = static_cast<uint64_t>(info.bs);
+        uint64_t h = static_cast<uint64_t>(info.h);
+        uint64_t k = static_cast<uint64_t>(info.k);
+        uint64_t winSizeMin = MoeDistributeA2Layered::CalcCombineWinSizeMin(moeExpertNum, bs, h, k);
+        OP_TILING_CHECK(maxWindowSize < winSizeMin,
+                        OP_LOGE(nodeName,
+                                "HCCL_BUFFSIZE is too SMALL for multi-server layered (hierarchy) combine,"
+                                " moeExpertNum = %lu, bs = %lu, h = %lu, k = %lu, fixed overhead"
+                                " (RDMA 800MB + IPC offset 4MB + NOTIFY 400MB) = %luMB,"
+                                " NEEDED_HCCL_BUFFSIZE(moeExpertNum * bs * (h * 2 + 4 * k * 4) + fixed overhead)"
+                                " = %luMB, HCCL_BUFFSIZE = %luMB.",
+                                moeExpertNum, bs, h, k, MoeDistributeA2Layered::FIXED_WIN_OVERHEAD / MB_SIZE,
+                                winSizeMin / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+                        return ge::GRAPH_FAILED);
+    }
+
     OP_TILING_CHECK(MoeDistributeCombineA2GetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
                     VECTOR_INNER_ERR_REPORT_TILIING(context->GetNodeName(),
                                                     "MoeDistributeCombineV2 GetPlatformInfoAndSetTiling Failed"),
