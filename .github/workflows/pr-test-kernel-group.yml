@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ inputs.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-2' }}
     timeout-minutes: 180
     container:
-      image: quay.io/ascend/cann:${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-ubuntu22.04-py3.12
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-ubuntu22.04-py3.12
     env:
       CANN_VERSION: ${{ inputs.cann_version }}
       NPU_HARDWARE: ${{ inputs.npu_hardware }}
