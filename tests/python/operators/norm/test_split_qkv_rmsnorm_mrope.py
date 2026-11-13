@@ -2,12 +2,18 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+)
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-perf_shape = [(65, 2, 1, 256), (17, 16, 4, 256)]
-standard = {"torch.bfloat16": AccuracyStandard(5e-2, 5e-3)}
+perf_shape = [(65, 2, 1, 256), (17, 16, 2, 256)]
+standard = {"torch.float32": AccuracyStandard(5e-2, 5e-3)}
 
 
 def generate_data(tokens, q_heads, kv_heads, head_size, rope_dim, gate, bias):
@@ -53,7 +59,16 @@ def generate_data(tokens, q_heads, kv_heads, head_size, rope_dim, gate, bias):
             id="partial-contiguous-bias",
         ),
         pytest.param(
-            17, 16, 4, 256, 64, [11, 11, 10], True, True, False, id="qwen3-5-prefill"
+            17,
+            16,
+            2,
+            256,
+            64,
+            [11, 11, 10],
+            True,
+            True,
+            False,
+            id="qwen3-5-35b-a3b-tp1-prefill",
         ),
     ],
 )
@@ -81,7 +96,22 @@ def test_mrope(
         bk,
         gate,
     )
-    executor = check_accuracy(split_qkv_rmsnorm_mrope, args=args, standard=standard)
+    impl, impl_ref = get_test_impls()
+    executor = make_executor(split_qkv_rmsnorm_mrope, args=args)
+    if not get_skip_acc_check():
+        require_distinct_impls(split_qkv_rmsnorm_mrope, impl, impl_ref)
+        # Compare against the FP32 golden before the public output cast.
+        reference_args = (
+            (qkv.float(),) + args[1:] if impl_ref == "torch_native" else args
+        )
+        expected = split_qkv_rmsnorm_mrope(*reference_args, impl=impl_ref)
+        actual = executor()
+        assert_accuracy(
+            tuple(x.float() for x in actual),
+            tuple(x.float() for x in expected),
+            standard=standard,
+        )
+        executor.accuracy_checked = True
     check_performance(
         executor, enable_perf=(tokens, q_heads, kv_heads, head_size) in perf_shape
     )

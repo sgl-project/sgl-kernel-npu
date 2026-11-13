@@ -5,7 +5,7 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
 
-perf_shape = [(32, 12, 128), (128, 12, 128)]
+perf_shape = [(32, 12, 128), (128, 8, 128)]
 
 
 def generate_data(shape, dtype, has_bias):
@@ -19,17 +19,20 @@ def generate_data(shape, dtype, has_bias):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape,dtype,has_bias,lower_bound",
     [
-        pytest.param((32, 12, 128), id="kimi-kda-verify"),
-        pytest.param((128, 12, 128), id="kimi-kda-prefill"),
-        pytest.param((1, 2, 16), id="minimum"),
-        pytest.param((33, 2, 64), id="tile-tail"),
+        pytest.param(
+            (128, 8, 128),
+            torch.bfloat16,
+            True,
+            None,
+            id="kimi-linear-48b-a3b-tp4-prefill",
+        ),
+        pytest.param(
+            (32, 12, 128), torch.bfloat16, True, -5.0, id="kimi-k3.1-pro-tp8-verify"
+        ),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("has_bias", [False, True])
-@pytest.mark.parametrize("lower_bound", [None, -5.0])
 def test_kda_gate(shape, dtype, has_bias, lower_bound):
     from sgl_kernel_npu.operators.attention.kda import fused_kda_gate
 

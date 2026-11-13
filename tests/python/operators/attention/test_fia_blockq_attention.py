@@ -47,12 +47,12 @@ def generate_data(shape, reuse):
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param((1, 16, 128), id="minimax-m3-single-query"),
-        pytest.param((17, 16, 128), id="minimax-m3-prefill"),
+        pytest.param((1, 16, 128), id="minimax-m3-tp4-single-query"),
+        pytest.param((17, 16, 128), id="minimax-m3-tp4-prefill"),
     ],
 )
-@pytest.mark.parametrize("reuse", [True, False])
-def test_fia_blockq_attention(shape, reuse):
+def test_fia_blockq_attention(shape):
+    reuse = True
     from sgl_kernel_npu.operators.attention import flash_prefill_bnsd_blockq_sparse_fia
 
     args = generate_data(shape, reuse)

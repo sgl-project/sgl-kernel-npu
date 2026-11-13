@@ -166,6 +166,10 @@ def _reference(kwargs):
         key: value.clone() if isinstance(value, torch.Tensor) else value
         for key, value in kwargs.items()
     }
+    if impl_ref == "torch_native":
+        # Keep the FP32 golden before output and snapshot storage rounding.
+        for key in ("v", "initial_state_source", "intermediate_states_buffer"):
+            copied[key] = copied[key].float()
     output = kda_target_verify(**copied, impl=impl_ref)
     indices = kwargs["intermediate_state_indices"].clamp_min(0).long()
     return output, copied["intermediate_states_buffer"][indices]
@@ -222,7 +226,7 @@ def _check_result(output, kwargs, inputs, expected):
             "preactivated",
             "omitted",
             torch.float32,
-            id="B8-S4-framework",
+            id="kimi-k3.1-pro-tp8-verify",
         ),
         pytest.param(
             4,

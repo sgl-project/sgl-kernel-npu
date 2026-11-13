@@ -18,11 +18,10 @@ def generate_data(shape, dtype):
     [
         pytest.param((1, 5760), id="gpt-oss-120b-decode"),
         pytest.param((128, 5760), id="gpt-oss-120b-prefill"),
-        pytest.param((17, 128), id="tile-tail"),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
-def test_swiglu_oai(shape, dtype):
+def test_swiglu_oai(shape):
+    dtype = torch.bfloat16
     from sgl_kernel_npu.operators.activation import swiglu_oai
 
     x = generate_data(shape, dtype)

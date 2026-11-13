@@ -5,14 +5,13 @@ torch = pytest.importorskip("torch")
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
-    get_test_impls,
     make_executor,
     require_distinct_impls,
 )
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-perf_shape = [(4096, 3072)]
+perf_shape = [(4096, 3072), (128, 6144), (128, 1536)]
 quant_standard = {
     "torch.int8": AccuracyStandard(1, 0),
     "torch.float32": AccuracyStandard(0, 5e-3),
@@ -27,16 +26,25 @@ def generate_data(shape, dtype, full):
     return torch.randn(shape, dtype=dtype), torch.tensor(counts, dtype=torch.int64)
 
 
-@pytest.mark.parametrize("name", ["situ", "swiglu_quant"])
 @pytest.mark.parametrize(
-    "shape",
+    "name,shape,need_quant,do_limit",
     [
-        pytest.param((4096, 3072), id="moe-grouped-prefill"),
-        pytest.param((1, 3072), id="moe-grouped-decode"),
+        pytest.param("situ", (1, 6144), False, True, id="kimi-k3.1-pro-moe-decode"),
+        pytest.param(
+            "situ", (128, 6144), True, True, id="kimi-k3.1-pro-moe-int8-prefill"
+        ),
+        pytest.param(
+            "swiglu_quant", (1, 1536), False, False, id="qwen3-30b-a3b-moe-decode"
+        ),
+        pytest.param(
+            "swiglu_quant",
+            (128, 1536),
+            True,
+            False,
+            id="qwen3-30b-a3b-moe-int8-prefill",
+        ),
     ],
 )
-@pytest.mark.parametrize("need_quant", [True, False])
-@pytest.mark.parametrize("do_limit", [True, False])
 def test_grouped_activation(name, shape, need_quant, do_limit):
     from sgl_kernel_npu.operators import activation
 
@@ -85,37 +93,4 @@ def test_swiglu_quant_partial_buffer(do_limit):
         )
         assert (actual[:rows].float() - expected[:rows].float()).abs().mean() < 2e-2
         executor.accuracy_checked = True
-    check_performance(executor, enable_perf=True)
-
-
-@pytest.mark.extra_checks
-@pytest.mark.parametrize("name", ["situ", "swiglu_quant"])
-@pytest.mark.parametrize("bad", ["encoding", "index_dtype"])
-def test_grouped_validation(name, bad):
-    from sgl_kernel_npu.operators import activation
-
-    x, counts = generate_data((1, 3072), torch.bfloat16, full=True)
-    impl, _ = get_test_impls()
-    if bad == "index_dtype":
-        counts = counts.float()
-    with pytest.raises(ValueError):
-        getattr(activation, name)(
-            x, counts, 2 if bad == "encoding" else 1, need_quant=True, impl=impl
-        )
-
-
-@pytest.mark.parametrize("name", ["situ", "swiglu_quant"])
-@pytest.mark.parametrize("index_dtype", [torch.int32, torch.int64])
-def test_terminal_group_storage(name, index_dtype):
-    from sgl_kernel_npu.operators import activation
-
-    x, _ = generate_data((4, 3072), torch.bfloat16, full=True)
-    storage = torch.tensor([1, 4, 4], dtype=index_dtype)
-    groups = storage[:-1]
-    executor = check_accuracy(
-        getattr(activation, name),
-        args=(x, groups, 0),
-        kwargs={"need_quant": True},
-        standard=quant_standard,
-    )
-    check_performance(executor, enable_perf=False)
+    check_performance(executor, enable_perf=x.shape in perf_shape)

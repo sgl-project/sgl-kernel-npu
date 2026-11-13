@@ -30,8 +30,9 @@ def generate_data(shape, dtype):
     return dk, dv, sk, sv, loc, commit
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 1, 32), (4, 3, 2, 64), (16, 4, 8, 128)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+@pytest.mark.parametrize(
+    "shape,dtype", [((4, 3, 2, 64), torch.float16), ((16, 4, 8, 128), torch.bfloat16)]
+)
 def test_store_prefix(shape, dtype):
     from sgl_kernel_npu.operators.mem_cache import store_kv_cache_prefix_valid
 

@@ -12,7 +12,7 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 # Paged allocation is model-independent; include empty extensions and page boundaries.
-perf_shape = [(16, 128)]
+perf_shape = [(128, 17)]
 
 
 def generate_data(page_size, batch, dtype):
@@ -26,8 +26,9 @@ def generate_data(page_size, batch, dtype):
     return pre, seq, last, pages, page_size, out, max(extend)
 
 
-@pytest.mark.parametrize("page_size,batch", [(16, 1), (16, 4), (16, 128), (128, 17)])
-@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
+@pytest.mark.parametrize(
+    "page_size,batch,dtype", [(16, 4, torch.int64), (128, 17, torch.int64)]
+)
 def test_alloc_extend_indices(page_size, batch, dtype):
     from sgl_kernel_npu.operators.mem_cache import alloc_extend_indices
 

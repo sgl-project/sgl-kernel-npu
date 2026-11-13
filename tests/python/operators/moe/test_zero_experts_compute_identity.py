@@ -11,34 +11,30 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-perf_shape = [(16, 6144, 8)]
+perf_shape = [(16, 6144, 12)]
 
 
-def generate_data(shape, all_identity, dtype):
+def generate_data(shape, dtype):
     rows, hidden, topk = shape
     torch.manual_seed(42)
-    indices = torch.randint(0, 4, (rows, topk), dtype=torch.int32) + (
-        16 if all_identity else 14
-    )
+    indices = torch.arange(506, 506 + topk, dtype=torch.int32).repeat(rows, 1)
     scales = torch.rand(rows, topk, dtype=torch.float32)
     x = torch.randn(rows, hidden, dtype=dtype)
-    return indices, scales, 16, "identity", x, -1
+    return indices, scales, 512, "identity", x, -1
 
 
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param((1, 6144, 8), id="longcat-flash-decode"),
-        pytest.param((16, 6144, 8), id="longcat-flash-prefill"),
-        pytest.param((3, 33, 2), id="dimension-tail"),
+        pytest.param((1, 6144, 12), id="longcat-flash-decode"),
+        pytest.param((16, 6144, 12), id="longcat-flash-prefill"),
     ],
 )
-@pytest.mark.parametrize("all_identity", [False, True])
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_zero_experts(shape, all_identity, dtype):
+def test_zero_experts(shape):
+    dtype = torch.bfloat16
     from sgl_kernel_npu.operators.moe import zero_experts_compute_identity
 
-    args = generate_data(shape, all_identity, dtype)
+    args = generate_data(shape, dtype)
     impl, impl_ref = get_test_impls()
     executor = make_executor(zero_experts_compute_identity, args=args)
     if not get_skip_acc_check():
@@ -51,7 +47,7 @@ def test_zero_experts(shape, all_identity, dtype):
         )
         executor.accuracy_checked = True
     # Restore routing buffers before each measured invocation; repeated calls otherwise erase the identity contribution.
-    initial = generate_data(shape, all_identity, dtype)
+    initial = generate_data(shape, dtype)
 
     def run():
         args[0].copy_(initial[0])

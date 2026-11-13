@@ -67,11 +67,8 @@ def test_renorm(rows, vocab, top_p, scalar):
     check_performance(executor, enable_perf=(rows, vocab) in perf_shape)
 
 
-@pytest.mark.parametrize("scalar_kind", ["python", "tensor", "rows"])
-@pytest.mark.extra_checks
-def test_public_top_k_then_top_p(scalar_kind):
-    impl, _ = get_test_impls()
-    probs = torch.arange(1, 195, dtype=torch.float32, device="npu").reshape(2, 97)
+def generate_chain_data(scalar_kind):
+    probs = torch.arange(1, 195, dtype=torch.float32).reshape(2, 97)
     probs /= probs.sum(-1, keepdim=True)
     if scalar_kind == "python":
         ks, ps = 31, 0.95
@@ -81,32 +78,41 @@ def test_public_top_k_then_top_p(scalar_kind):
         ks, ps = torch.tensor([1, 97], device="cpu"), torch.tensor(
             [0, 1.0], device="cpu"
         )
-    k_rows = torch.as_tensor(ks, device="npu").expand(2)
-    p_rows = torch.as_tensor(ps, device="npu").expand(2)
-    expected = _reference(_reference(probs, k_rows, False), p_rows, True)
-    actual = top_p_renorm_prob(top_k_renorm_prob(probs, ks, impl=impl), ps, impl=impl)
-    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    return probs, ks, ps
+
+
+@pytest.mark.parametrize("scalar_kind", ["python", "tensor", "rows"])
+def test_public_top_k_then_top_p(scalar_kind):
+    probs, ks, ps = generate_chain_data(scalar_kind)
+    exact = {"torch.float32": AccuracyStandard(0, 0)}
+    first = check_accuracy(top_k_renorm_prob, args=(probs, ks), standard=exact)
+    second = check_accuracy(top_p_renorm_prob, args=(first(), ps), standard=exact)
+    check_performance(first, enable_perf=False)
+    check_performance(second, enable_perf=False)
+
+
+def generate_strided_data(top_p):
+    probs = torch.arange(1, 195, dtype=torch.float32).reshape(97, 2).t()
+    probs = probs / probs.sum(-1, keepdim=True)
+    probs = probs.t().contiguous().t()
+    raw = torch.tensor([-1, 999, 2 if top_p else 200, 999])
+    return probs, raw[::2]
 
 
 @pytest.mark.parametrize("top_p", [False, True])
-@pytest.mark.extra_checks
 def test_strided_input_thresholds_and_clamping(top_p):
-    impl, _ = get_test_impls()
-    probs = torch.arange(1, 195, device="npu", dtype=torch.float32).reshape(97, 2).t()
-    probs = probs / probs.sum(-1, keepdim=True)
-    probs = probs.t().contiguous().t()
+    probs, threshold = generate_strided_data(top_p)
     assert not probs.is_contiguous()
-    raw = torch.tensor([-1, 999, 2 if top_p else 200, 999], device="npu")
-    threshold = raw[::2]
     assert threshold.stride(0) == 2
     fn = top_p_renorm_prob if top_p else top_k_renorm_prob
-    clamped = threshold.clamp(0, 1) if top_p else threshold.clamp(1, 97)
     original = probs.clone()
-    actual = fn(probs, threshold, impl=impl)
-    torch.testing.assert_close(
-        actual, _reference(probs, clamped, top_p), rtol=0, atol=0
-    )
-    torch.testing.assert_close(probs, original, rtol=0, atol=0)
+    exact = {"torch.float32": AccuracyStandard(0, 0)}
+    executor = check_accuracy(fn, args=(probs, threshold), standard=exact)
+    if not get_skip_acc_check():
+        clamped = threshold.clamp(0, 1) if top_p else threshold.clamp(1, 97)
+        assert_accuracy(executor(), _reference(probs, clamped, top_p), standard=exact)
+        assert_accuracy(probs, original, standard=exact)
+    check_performance(executor, enable_perf=False)
 
 
 @pytest.mark.extra_checks

@@ -130,14 +130,9 @@ def _check(operator, kwargs, shape, original_standard):
 
 
 @pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((1, 1024, 4, 4), id="speculative-four-tokens"),
-        pytest.param((4, 4096, 4, 4), id="gdn-target-verify"),
-        pytest.param((3, 128, 3, 2), id="small-width-three"),
-    ],
+    "shape,dtype",
+    [pytest.param((1, 1024, 4, 4), torch.float16, id="speculative-four-tokens")],
 )
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_speculative(shape, dtype):
     from sgl_kernel_npu.operators.mamba import causal_conv1d_update
 

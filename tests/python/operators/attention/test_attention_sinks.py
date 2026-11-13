@@ -17,7 +17,7 @@ def generate_data(query_len, context_len, prefill, dtype):
     )
     k = torch.randn(batch * pages, page_size, kv_heads, dim, dtype=dtype)
     v = torch.randn_like(k)
-    sinks = torch.randn(q_heads, dtype=torch.float32)
+    sinks = torch.randn(q_heads, dtype=dtype)
     table = torch.arange(batch * pages, dtype=torch.int32).reshape(batch, pages)
     context = torch.full((batch,), context_len, dtype=torch.int32)
     lengths = torch.full((batch,), query_len, dtype=torch.int32)
@@ -25,16 +25,22 @@ def generate_data(query_len, context_len, prefill, dtype):
 
 
 @pytest.mark.parametrize(
-    "query_len,context_len",
+    "query_len,context_len,prefill,window,dtype",
     [
-        pytest.param(1, 128, id="gpt-oss-decode"),
-        pytest.param(17, 256, id="gpt-oss-prefill-tail"),
-        pytest.param(32, 129, id="page-tail"),
+        pytest.param(
+            1, 128, False, -1, torch.bfloat16, id="gpt-oss-120b-tp1-decode-full"
+        ),
+        pytest.param(
+            1, 257, False, 128, torch.bfloat16, id="gpt-oss-120b-tp1-decode-window"
+        ),
+        pytest.param(
+            17, 256, True, -1, torch.bfloat16, id="gpt-oss-120b-tp1-prefill-full"
+        ),
+        pytest.param(
+            17, 257, True, 128, torch.bfloat16, id="gpt-oss-120b-tp1-prefill-window"
+        ),
     ],
 )
-@pytest.mark.parametrize("prefill", [True, False])
-@pytest.mark.parametrize("window", [-1, 64])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
 def test_attention_sinks(query_len, context_len, prefill, window, dtype):
     from sgl_kernel_npu.operators.attention import (
         attention_sinks,

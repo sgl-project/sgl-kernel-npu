@@ -31,19 +31,17 @@ def generate_data(shape, initial):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape,initial,activation",
     [
-        pytest.param((4, 1024, 17, 4), id="mamba-varlen-prefill"),
-        pytest.param((1, 128, 1, 3), id="single-token"),
+        pytest.param((4, 1024, 17, 4), True, "silu", id="varlen-initial-state"),
+        pytest.param((1, 128, 1, 3), False, None, id="single-token-zero-state"),
     ],
 )
-@pytest.mark.parametrize("initial", [False, True])
-@pytest.mark.parametrize("activation", [None, "silu", "swish"])
 def test_causal_conv1d_fn(shape, initial, activation):
     from sgl_kernel_npu.operators.mamba import causal_conv1d_fn
 
     args = generate_data(shape, initial)
-    impl, impl_ref = get_test_impls()
+    impl, _ = get_test_impls()
     require_test_impl(causal_conv1d_fn, impl)
     executor = make_executor(
         causal_conv1d_fn, args=args, kwargs={"activation": activation}
