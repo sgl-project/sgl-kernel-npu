@@ -40,7 +40,7 @@ def sparse_flash_attention(
 `auto` selects `ascendc`; `torch_native` uses PyTorch operations.
 An unavailable native implementation raises an error without switching backends.
 
-The operator is registered as `torch.ops.npu.sparse_flash_attention`.
+The operator is registered as `torch.ops.npu.sgl_sparse_flash_attention`.
 
 ## Description
 

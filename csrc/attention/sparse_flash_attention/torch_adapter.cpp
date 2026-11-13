@@ -251,7 +251,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sgl_sparse_flash_attention(
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sparse_flash_attention(Tensor query, Tensor key, Tensor value, Tensor sparse_indices, "
+        "sgl_sparse_flash_attention(Tensor query, Tensor key, Tensor value, Tensor sparse_indices, "
         "float scale_value, *, Tensor? block_table=None, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_kv=None, Tensor? query_rope=None, Tensor? key_rope=None, "
         "int sparse_block_size=1, str layout_query='BSND', str layout_kv='BSND', int sparse_mode=3, "
@@ -261,5 +261,5 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sparse_flash_attention", &sgl_sparse_flash_attention);
+    m.impl("sgl_sparse_flash_attention", &sgl_sparse_flash_attention);
 }
