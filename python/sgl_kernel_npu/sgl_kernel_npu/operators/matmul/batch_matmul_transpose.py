@@ -1,5 +1,8 @@
 """Public batch matmul with transposed batch/token axes."""
 
+import torch
+import torch_npu
+
 from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -9,8 +12,6 @@ _torch_native_fn = None
 
 @register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH22})
 def _ascendc_impl(tensor_a, tensor_b, *, is_prefill=None):
-    import torch
-
     if not tensor_b.is_contiguous():
         raise ValueError("tensor_b must be contiguous")
 
@@ -23,8 +24,6 @@ def _ascendc_impl(tensor_a, tensor_b, *, is_prefill=None):
 
 @register_impl(_OP_NAME, "torch_npu")
 def _torch_npu_impl(tensor_a, tensor_b, *, is_prefill=None):
-    import torch_npu
-
     return torch_npu.npu_transpose_batchmatmul(
         tensor_a,
         tensor_b,
