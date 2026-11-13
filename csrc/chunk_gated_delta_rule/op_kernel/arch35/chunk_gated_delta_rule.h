@@ -39,6 +39,9 @@ struct CGDRInitParams {
     GM_ADDR attnOut;
     GM_ADDR finalState;
     GM_ADDR chunkState;
+    GM_ADDR initialStateIndices;
+    GM_ADDR finalStateIndices;
+    GM_ADDR hasInitialState;
 };
 
 template <typename lowType, typename highType, typename stateType = lowType, bool gOptional = false>
@@ -133,6 +136,19 @@ public:
         }
 
         actualSeqLens_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.seqlens), tiling_->b);
+        if (tiling_->indexedState != 0) {
+            initStateIndices_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.initialStateIndices),
+                                              tiling_->b);
+            finalStateIndices_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(initParams.finalStateIndices),
+                                               tiling_->b);
+            hasInitialStateMask_ = initParams.hasInitialState != nullptr;
+            if (hasInitialStateMask_) {
+                hasInitialState_.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(initParams.hasInitialState),
+                                                 tiling_->b);
+            }
+        } else {
+            hasInitialStateMask_ = false;
+        }
 
         uint64_t offset = 0;
         gCum_.SetGlobalBuffer(reinterpret_cast<__gm__ highType *>(user + offset));
@@ -191,7 +207,23 @@ public:
             int32_t length = actualSeqLens_.GetValue(bid);
             seqStart = seqEnd;
             seqEnd = seqStart + (int64_t)length;
-
+            int64_t dstSlot = (tiling_->indexedState != 0) ? finalStateIndices_.GetValue(bid) : bid;
+            if (length <= 0 || dstSlot < 0) {
+                if (length > 0) {
+                    globalChunkOffset += (length + tiling_->chunkSize - 1) / tiling_->chunkSize;
+                }
+                continue;
+            }
+            int64_t srcSlot = (tiling_->indexedState != 0) ? initStateIndices_.GetValue(bid) : bid;
+            bool hasInitialState = srcSlot >= 0;
+            if (hasInitialStateMask_) {
+                hasInitialState = hasInitialState && hasInitialState_.GetValue(bid) != 0;
+            }
+            auto finalState = finalState_[dstSlot * tiling_->finalStateStride0];
+            if (!hasInitialState) {
+                ZeroState(finalState);
+                SyncAll<false>();
+            }
             for (int64_t pos = seqStart; pos < seqEnd; pos += tiling_->maxGroupLength) {
                 cg.startPos = pos;
                 if (pos + tiling_->maxGroupLength > seqEnd) {
@@ -199,15 +231,14 @@ public:
                 } else {
                     cg.length = tiling_->maxGroupLength;
                 }
-                bool useInitialState = (pos == seqStart);
-                auto curState = (useInitialState) ? initState_[bid * tiling_->stateStride0]
-                                                  : finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
-                // compute this chunk group
+                bool isFirstGroup = (pos == seqStart);
+                bool useInitialState = isFirstGroup && hasInitialState;
+                auto curState = useInitialState ? initState_[srcSlot * tiling_->stateStride0] : finalState;
+                int64_t stateInStride1 = useInitialState ? tiling_->stateStride1 : tiling_->finalStateStride1;
                 RunStage1(cg);
                 SyncAll<false>();
 
-                RunStage2(cg, curState, finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk], useInitialState,
-                          globalChunkOffset);
+                RunStage2(cg, curState, finalState, stateInStride1, isFirstGroup, globalChunkOffset);
                 SyncAll<false>();
 
                 int64_t chunksInGroup = (cg.length + tiling_->chunkSize - 1) / tiling_->chunkSize;
@@ -220,6 +251,27 @@ public:
     }
 
 private:
+    __aicore__ inline void ZeroState(GlobalTensor<stateType> stateOut)
+    {
+        if ASCEND_IS_AIV {
+            TQue<QuePosition::VECOUT, BUFFER_NUM_ONE> zeroQueue;
+            uint32_t stateSize = tiling_->dv * tiling_->dk;
+            pipe_->InitBuffer(zeroQueue, BUFFER_NUM_ONE, stateSize * sizeof(stateType));
+            auto zeroLocal = zeroQueue.AllocTensor<stateType>();
+            Duplicate<stateType>(zeroLocal, static_cast<stateType>(0), stateSize);
+            zeroQueue.EnQue(zeroLocal);
+            auto outLocal = zeroQueue.DeQue<stateType>();
+            DataCopyExtParams copyParams{static_cast<uint16_t>(tiling_->dv),
+                                         static_cast<uint32_t>(tiling_->dk * sizeof(stateType)), 0, 0, 0};
+            for (int64_t nvId = 0; nvId < tiling_->nv; ++nvId) {
+                DataCopyPad(stateOut[nvId * tiling_->finalStateStride1], outLocal, copyParams);
+            }
+            PipeBarrier<PIPE_MTE3>();
+            zeroQueue.FreeTensor(outLocal);
+            pipe_->Reset();
+        }
+    }
+
     __aicore__ inline void RunStage1(const ChunkGroup &cg)
     {
         GDRStageOneInitParams<vInnerType> initStageOneParams{query_, key_,         value_,        beta_,   g_,
@@ -232,7 +284,7 @@ private:
 
     template <typename sType>
     __aicore__ inline void RunStage2(ChunkGroup &cg, GlobalTensor<sType> stateIn, GlobalTensor<sType> stateOut,
-                                     bool isFirstGroup, int64_t globalChunkOffset)
+                                     int64_t stateInStride1, bool isFirstGroup, int64_t globalChunkOffset)
     {
         Stage2<sType, gOptional> stageTwoOp;
         StageTwoParams<sType> initStageTwoParams;
@@ -254,7 +306,8 @@ private:
         initStageTwoParams.Nk = tiling_->nk;
         initStageTwoParams.Dv = tiling_->dv;
         initStageTwoParams.Dk = tiling_->dk;
-        initStageTwoParams.stateStride1 = tiling_->stateStride1;
+        initStageTwoParams.stateStride1 = stateInStride1;
+        initStageTwoParams.finalStateStride1 = tiling_->finalStateStride1;
         initStageTwoParams.useInitialState = isFirstGroup;
         initStageTwoParams.isFirstGroup = isFirstGroup;
         initStageTwoParams.stateIn = stateIn;
@@ -311,6 +364,10 @@ private:
     GlobalTensor<stateType> initState_;
     GlobalTensor<stateType> chunkState_;
     GlobalTensor<int32_t> actualSeqLens_;
+    GlobalTensor<int32_t> initStateIndices_;
+    GlobalTensor<int32_t> finalStateIndices_;
+    GlobalTensor<uint8_t> hasInitialState_;
+    bool hasInitialStateMask_ = false;
 
     GlobalTensor<lowType> curStateBf16_;
     GlobalTensor<lowType> vInnerBf16_;  // (Nv, maxGroupLength, Dv) BF16 vInner for stage3 (FP32 path only)

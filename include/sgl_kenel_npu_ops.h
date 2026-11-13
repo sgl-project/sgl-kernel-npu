@@ -313,6 +313,15 @@ std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     const c10::optional<at::Tensor> &actual_seq_lengths,
     const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
     const c10::optional<at::Tensor> &chunk_state);
+at::Tensor chunk_gated_delta_rule_pool(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    at::Tensor &state_pool, const at::Tensor &src_slots, const at::Tensor &dst_slots,
+    const c10::optional<at::Tensor> &src_pool,
+    const c10::optional<at::Tensor> &beta,
+    const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state,
+    const c10::optional<at::Tensor> &has_initial_state);
 at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
     const std::string &layout_q, const std::string &layout_kv,

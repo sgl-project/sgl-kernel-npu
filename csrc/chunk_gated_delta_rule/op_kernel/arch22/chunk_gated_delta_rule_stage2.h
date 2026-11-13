@@ -45,6 +45,8 @@ struct StageTwoParams {
     int64_t Nk;
     int64_t Dv;
     int64_t Dk;
+    int64_t stateStride1;
+    int64_t finalStateStride1;
     bool gOptional;
     GlobalTensor<bfloat16_t> chunkState;
     int64_t globalChunkOffset;
@@ -107,8 +109,9 @@ public:
         for (int64_t nvId = nvStart; nvId < nvEnd; nvId++) {
             curChunkSize_ = chunkSize_;
             for (int64_t cId = 0; cId < chunkNum_; cId++) {
-                auto curState = (cId == 0) ? sTP_->curState[nvId * Dv_ * Dk_] : sTP_->finalState[nvId * Dv_ * Dk_];
-                auto finalState = sTP_->finalState[nvId * Dv_ * Dk_];
+                auto curState = (cId == 0) ? sTP_->curState[nvId * sTP_->stateStride1]
+                                           : sTP_->finalState[nvId * sTP_->finalStateStride1];
+                auto finalState = sTP_->finalState[nvId * sTP_->finalStateStride1];
                 int64_t length = cId * chunkSize_;
                 if (cId == chunkNum_ - 1) {
                     curChunkSize_ = lastChunkSize;

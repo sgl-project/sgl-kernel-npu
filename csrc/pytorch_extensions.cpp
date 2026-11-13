@@ -130,6 +130,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? g=None, Tensor(c!)? chunk_state=None) -> (Tensor, Tensor)");
 
     m.def(
+        "chunk_gated_delta_rule_pool(Tensor query, Tensor key, Tensor value, Tensor(a!) state_pool, "
+        "Tensor src_slots, Tensor dst_slots, *, Tensor? src_pool=None, Tensor? beta=None, "
+        "Tensor? actual_seq_lengths=None, float? scale=None, Tensor? g=None, "
+        "Tensor(b!)? chunk_state=None, Tensor? has_initial_state=None) -> Tensor");
+
+    m.def(
         "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
         "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
         "Tensor? cu_seqlens=None, Tensor? chunk_indices=None, "
@@ -337,6 +343,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
+    m.impl("chunk_gated_delta_rule_pool", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule_pool));
 
     m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 
