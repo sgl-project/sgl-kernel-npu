@@ -1,6 +1,11 @@
 name: Kernel Coverage
 on:
   workflow_dispatch:
+    inputs:
+      upload_obs:
+        description: Upload baseline to OBS (overwrites existing files)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -50,12 +55,6 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
-  build-map:
-    needs: coverage
-    runs-on: ubuntu-latest
-    env:
-      PYTHON_EXEC_TIMEOUT_SECONDS: '900'
-    steps:
       - uses: actions/checkout@v4
         with:
           path: baseline-src
@@ -63,8 +62,8 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          pattern: kernel-coverage-*
-          path: baselines
+          name: kernel-coverage-${{ matrix.chip }}
+          path: baselines/kernel-coverage-${{ matrix.chip }}
       - name: Install coverage
         env:
           PIP_INDEX_URL: https://mirrors.huaweicloud.com/repository/pypi/simple
@@ -72,7 +71,7 @@ jobs:
       - name: Validate coverage inputs
         shell: bash
         run: |
-          for chip in a3 a5; do
+          for chip in "${{ matrix.chip }}"; do
             dir="baselines/kernel-coverage-$chip"
             test "$(cat "$dir/baseline-sha.txt")" = "$GITHUB_SHA"
             test -s "$dir/coverage.xml"
@@ -92,22 +91,14 @@ jobs:
             mv -- "$tmp/coverage" "$data"
             rmdir -- "$tmp"
           done < <(find baselines -type f \( -path '*/covdata/coverage' -o -name '.coverage' \) -print0)
-      - name: Build A3 map
+      - name: Build hardware map
         uses: lb-actions/precision-test@v1.0.10
         with:
           repo: sglang-kernel
           build-map: true
           source-dir: ${{ github.workspace }}/baseline-src
-          coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a3
-          map-file: ${{ github.workspace }}/baselines/kernel-coverage-a3/test_case_map.json
-      - name: Build A5 map
-        uses: lb-actions/precision-test@v1.0.10
-        with:
-          repo: sglang-kernel
-          build-map: true
-          source-dir: ${{ github.workspace }}/baseline-src
-          coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a5
-          map-file: ${{ github.workspace }}/baselines/kernel-coverage-a5/test_case_map.json
+          coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-${{ matrix.chip }}
+          map-file: ${{ github.workspace }}/baselines/kernel-coverage-${{ matrix.chip }}/test_case_map.json
       - name: Package source, maps and coverage separately
         shell: bash
         run: |
@@ -115,7 +106,7 @@ jobs:
           PACKAGE_DIR="$RUNNER_TEMP/kernel-deliverables"
           mkdir -p "$PACKAGE_DIR/source" "$PACKAGE_DIR/maps" "$PACKAGE_DIR/coverage"
           BASELINE_SHA="$(git -C baseline-src rev-parse HEAD)"
-          for chip in a3 a5; do
+          for chip in "${{ matrix.chip }}"; do
             test "$(cat "baselines/kernel-coverage-$chip/baseline-sha.txt")" = "$BASELINE_SHA"
             test -s "baselines/kernel-coverage-$chip/test_case_map.json"
             cp "baselines/kernel-coverage-$chip/test_case_map.json" "$PACKAGE_DIR/maps/test_case_map_$chip.json"
@@ -126,24 +117,61 @@ jobs:
           tar --exclude='test_case_map.json' -czf "$PACKAGE_DIR/coverage/coverage-data.tar.gz" -C "$GITHUB_WORKSPACE" baselines
           tar -tzf "$PACKAGE_DIR/source/baseline-source.tar.gz" > "$RUNNER_TEMP/kernel-source-files.txt"
           tar -tzf "$PACKAGE_DIR/coverage/coverage-data.tar.gz" > "$RUNNER_TEMP/kernel-coverage-files.txt"
-          for chip in a3 a5; do
+          for chip in "${{ matrix.chip }}"; do
             grep -q "baselines/kernel-coverage-$chip/coverage.xml" "$RUNNER_TEMP/kernel-coverage-files.txt"
           done
       - name: Upload baseline source
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-source-full
+          name: kernel-source-${{ matrix.chip }}-full
           path: ${{ runner.temp }}/kernel-deliverables/source/
           if-no-files-found: error
       - name: Upload test case maps
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-maps-full
+          name: kernel-maps-${{ matrix.chip }}-full
           path: ${{ runner.temp }}/kernel-deliverables/maps/
           if-no-files-found: error
       - name: Upload coverage data
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-coverage-data-full
+          name: kernel-coverage-data-${{ matrix.chip }}-full
           path: ${{ runner.temp }}/kernel-deliverables/coverage/
           if-no-files-found: error
+      - name: Publish baseline to OBS
+        if: ${{ inputs.upload_obs }}
+        shell: bash
+        env:
+          OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_PRECISION }}
+          OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY_PRECISION }}
+        run: |
+          set -euo pipefail
+          : "${OBS_ACCESS_KEY_ID:?Set OBS_ACCESS_KEY_PRECISION}"
+          : "${OBS_SECRET_ACCESS_KEY:?Set OBS_SECRET_ACCESS_KEY_PRECISION}"
+          OBS_ENDPOINT="obs.cn-southwest-2.myhuaweicloud.com"
+          OBS_DEST="obs://sglang-npu/kernel/coverage/${{ matrix.chip }}"
+          PACKAGE_DIR="$RUNNER_TEMP/kernel-deliverables"
+          FILES=(source/baseline-source.tar.gz maps/test_case_map_${{ matrix.chip }}.json coverage/coverage-data.tar.gz)
+          for file in "${FILES[@]}"; do
+            test -s "$PACKAGE_DIR/$file"
+          done
+          if ! command -v obsutil >/dev/null 2>&1; then
+            case "$(uname -m)" in
+              aarch64|arm64) OBS_ARCH=arm64 ;;
+              x86_64|amd64) OBS_ARCH=amd64 ;;
+              *) echo "Unsupported obsutil architecture" >&2; exit 1 ;;
+            esac
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors \
+              "https://obs-community.obs.cn-north-1.myhuaweicloud.com/obsutil/current/obsutil_linux_${OBS_ARCH}.tar.gz" \
+              -o "$RUNNER_TEMP/obsutil.tar.gz"
+            mkdir -p "$RUNNER_TEMP/obsutil-extract" "$RUNNER_TEMP/obsutil-bin"
+            tar -xzf "$RUNNER_TEMP/obsutil.tar.gz" -C "$RUNNER_TEMP/obsutil-extract"
+            OBSUTIL="$(find "$RUNNER_TEMP/obsutil-extract" -type f -name obsutil -print -quit)"
+            test -n "$OBSUTIL"
+            install -m 0755 "$OBSUTIL" "$RUNNER_TEMP/obsutil-bin/obsutil"
+            export PATH="$RUNNER_TEMP/obsutil-bin:$PATH"
+          fi
+          obsutil config -i="$OBS_ACCESS_KEY_ID" -k="$OBS_SECRET_ACCESS_KEY" -e="$OBS_ENDPOINT"
+          for file in "${FILES[@]}"; do
+            obsutil cp "$PACKAGE_DIR/$file" "$OBS_DEST/${file##*/}" -f -acl=public-read
+          done

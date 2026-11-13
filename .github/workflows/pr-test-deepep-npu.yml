@@ -1,16 +1,7 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "build.sh"
-      - "cmake/**"
-      - "python/deep_ep/deep_ep**"
-      - "csrc/deepep**"
-      - "tests/python/deepep**"
-      - "scripts/**"
-      - ".github/workflows/pr-test-deepep-npu.yml"
+  # Temporarily disable PR auto-runs during coverage validation.
   workflow_dispatch:
   workflow_call:
 
@@ -810,7 +801,7 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --use-mxfp4
 
-      - name: Run low‑latency mode mx_fp8_e4m3 quantization
+      - name: Run lowâ€‘latency mode mx_fp8_e4m3 quantization
         env:
           HCCL_BUFFSIZE: 10000
         timeout-minutes: 10
@@ -820,7 +811,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4 --num-topk=6 --num-tokens=512 --num-experts=256 --hidden=7168
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --use-mxfp8 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=520 --hidden=8192
 
-      - name: Run low‑latency mode mx_fp4_e2m1 quantization
+      - name: Run lowâ€‘latency mode mx_fp4_e2m1 quantization
         env:
           HCCL_BUFFSIZE: 2500
         timeout-minutes: 10
@@ -828,7 +819,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=8 --num-experts=256 --hidden=7168 --num-tokens=256 --use-mxfp4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=12 --num-experts=512 --hidden=8192 --num-tokens=128 --use-mxfp4 --enable-dynamic-tokens
 
-      - name: Run low‑latency mode pertoken_fp8_e4m3 quantization
+      - name: Run lowâ€‘latency mode pertoken_fp8_e4m3 quantization
         env:
           HCCL_BUFFSIZE: 2500
         timeout-minutes: 10

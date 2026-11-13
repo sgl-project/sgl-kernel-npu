@@ -16,8 +16,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tests", nargs="*", help="Test paths relative to the repo root")
     parser.add_argument("--output-dir", type=Path, default=Path("coverage-out"))
-    parser.add_argument("--no-merge", action="store_true", help="Collect only; runner merges after all files")
-    parser.add_argument("--merge-only", action="store_true", help="Merge existing successful per-file data")
+    parser.add_argument(
+        "--no-merge",
+        action="store_true",
+        help="Collect only; runner merges after all files",
+    )
+    parser.add_argument(
+        "--merge-only",
+        action="store_true",
+        help="Merge existing successful per-file data",
+    )
     args = parser.parse_args()
 
     output_dir = args.output_dir.resolve()
@@ -30,7 +38,7 @@ def main():
     coverage = [sys.executable, "-m", "coverage"]
 
     test_files = set()
-    for test in ([] if args.merge_only else args.tests or DEFAULT_TESTS):
+    for test in [] if args.merge_only else args.tests or DEFAULT_TESTS:
         path = (ROOT / test).resolve()
         if not path.is_relative_to(ROOT) or not path.exists():
             parser.error(
@@ -90,10 +98,15 @@ def main():
     if args.no_merge:
         return int(failed)
     if args.merge_only:
-        data_files = [str(p) for p in sorted(output_dir.glob("tests/**/covdata/coverage"))
-                      if (p.parent / "coverage.json").is_file()]
-        failed_files = [p.parent.parent.relative_to(output_dir).as_posix()
-                        for p in sorted(output_dir.glob("tests/**/covdata/FAILED"))]
+        data_files = [
+            str(p)
+            for p in sorted(output_dir.glob("tests/**/covdata/coverage"))
+            if (p.parent / "coverage.json").is_file()
+        ]
+        failed_files = [
+            p.parent.parent.relative_to(output_dir).as_posix()
+            for p in sorted(output_dir.glob("tests/**/covdata/FAILED"))
+        ]
         manifest = {
             "hardware": os.environ.get("NPU_HARDWARE", ""),
             "test_files_with_coverage": len(data_files),
