@@ -36,6 +36,7 @@ def test_build_out_tokens(rows, gamma):
     check_performance(executor, enable_perf=(rows, gamma) in perf_shape)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("backend", ["triton", "torch_native"])
 @pytest.mark.parametrize(
     "rows,gamma",
