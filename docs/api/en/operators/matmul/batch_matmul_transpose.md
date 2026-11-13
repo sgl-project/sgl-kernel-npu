@@ -15,16 +15,16 @@ The AscendC kernel supports Ascend A2/A3 (arch22, 2201).
 ```python
 from sgl_kernel_npu.operators.matmul import batch_matmul_transpose
 
-def batch_matmul_transpose(tensor_a, tensor_b, *, is_dsa=False, impl="auto"):
+def batch_matmul_transpose(tensor_a, tensor_b, *, impl="auto"):
     ...
 ```
 
 The function takes ND tensors and returns a new tensor of shape `[M, B, N]`.
 
-`auto` uses `torch_npu` on arch35. On arch22, MLA uses the default `is_dsa=False`
-and selects `ascendc` when any of `M`, `B * K`, or `N` reaches 65536. It selects
-`torch_npu` for other shapes. DSA passes `is_dsa=True` to use `torch_npu` in
-every forward mode.
+MLA uses `auto`, which selects `ascendc` on arch22 when any of `M`, `B * K`, or
+`N` is at least 65536. It selects `torch_npu` for other shapes on arch22 and for
+all shapes on arch35. DSA explicitly selects `impl="torch_npu"` for its query
+and value projections in every forward mode.
 
 ## Description
 
@@ -44,7 +44,6 @@ reduction dimension, and $N$ the output feature dimension. `ascendc` and
 | --- | --- | --- | --- | --- | --- |
 | `tensor_a` | Tensor | `[M, B, K]` | FP16 / BF16 | Required | `ascendc` and `torch_native` require `1 <= M <= 1024`. |
 | `tensor_b` | Tensor | `[B, K, N]` | Same as A | Required | `ascendc` and `torch_native` require contiguous weights. |
-| `is_dsa` | bool | — | — | `False` | Keyword-only. Set to `True` for DSA output projection. |
 | `impl` | str | — | — | `"auto"` | Keyword-only. Supports `auto`, `ascendc`, `torch_npu`, and `torch_native`. |
 
 | Return value | Type | Shape | Dtype | Side effects |
@@ -76,9 +75,10 @@ When the first input is already in `[B, M, K]` layout, CANN instead checks
 `K <= 65535` for that input stride.
 [CANN 9.1 TransposeBatchMatMul reference](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/aolapi/context/ops-nn/aclnnTransposeBatchMatMul.md)
 
-With `is_dsa=True` on arch22 and `B * K >= 65536`, this backend transposes the
-first input to contiguous `[B, M, K]` and calls TorchNPU with `perm_x1=(0, 1, 2)`.
-The output still has shape `[M, B, N]` because `perm_y=(1, 0, 2)`.
+On arch22, when `B * K >= 65536`, this backend transposes the first input to
+contiguous `[B, M, K]` and calls TorchNPU with `perm_x1=(0, 1, 2)`. The output
+has shape `[M, B, N]` because `perm_y=(1, 0, 2)`. The limits on `B`, `K`,
+and `N` for the `[B, M, K]` layout still apply.
 
 ## torch_native backend
 

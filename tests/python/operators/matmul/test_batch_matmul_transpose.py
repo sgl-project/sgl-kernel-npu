@@ -20,8 +20,8 @@ from tests.python.utils.performance import check_performance
 
 # SGLang MLA/DSA post-attention: shape=(tokens, local_heads, kv_lora_rank,
 # v_head_dim), local_heads=num_attention_heads/effective_attention_tp.
-# On A2/A3, MLA uses AscendC when M, B*K or N reaches 65536. DSA uses
-# TorchNPU and pre-transposes activations when B*K reaches 65536.
+# On A2/A3, auto uses AscendC when M, B*K or N reaches 65536. The TorchNPU
+# backend pre-transposes activations when B*K reaches 65536.
 # Keep the latest model in each family with identical shapes.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [
@@ -138,16 +138,18 @@ def test_batch_matmul_transpose_nd(
 
 @pytest.mark.parametrize("generation, arch_id", [("ARCH22", 2201), ("ARCH35", 3510)])
 @pytest.mark.parametrize(
-    "shape, is_dsa, impl, arch22_route",
+    "shape, contiguous_weight, impl, arch22_route",
     [
-        pytest.param((2, 16, 512, 128), False, "auto", "vendor", id="mla-small"),
-        pytest.param((2, 128, 512, 128), False, "auto", "ascendc", id="mla-bk-limit"),
-        pytest.param((65536, 1, 1, 1), False, "auto", "ascendc", id="mla-m-limit"),
-        pytest.param((1, 1, 1, 65536), False, "auto", "ascendc", id="mla-n-limit"),
-        pytest.param((2, 16, 512, 128), True, "auto", "vendor", id="dsa-small"),
-        pytest.param((2, 128, 512, 128), True, "auto", "transpose", id="dsa-bk-limit"),
+        pytest.param((2, 16, 512, 128), True, "auto", "vendor", id="mla-small"),
+        pytest.param((2, 128, 512, 128), True, "auto", "ascendc", id="mla-bk-limit"),
+        pytest.param((65536, 1, 1, 1), True, "auto", "ascendc", id="mla-m-limit"),
+        pytest.param((1, 1, 1, 65536), True, "auto", "ascendc", id="mla-n-limit"),
+        pytest.param((2, 16, 512, 128), False, "torch_npu", "vendor", id="dsa-v-small"),
         pytest.param(
-            (2, 128, 512, 128), False, "torch_npu", "vendor", id="dsa-query-projection"
+            (2, 128, 512, 128), False, "torch_npu", "transpose", id="dsa-v-bk-limit"
+        ),
+        pytest.param(
+            (2, 128, 128, 512), True, "torch_npu", "vendor", id="dsa-q-projection"
         ),
     ],
 )
@@ -156,7 +158,7 @@ def test_batch_matmul_transpose_dispatch(
     generation,
     arch_id,
     shape,
-    is_dsa,
+    contiguous_weight,
     impl,
     arch22_route,
 ):
@@ -171,10 +173,10 @@ def test_batch_matmul_transpose_dispatch(
 
     m, batch, k, n = shape
     a = torch.randn((m, batch, k * 2), dtype=torch.bfloat16, device="cpu")[..., ::2]
-    if is_dsa:
-        b = torch.zeros((batch, n, k), dtype=a.dtype, device="cpu").transpose(1, 2)
-    else:
+    if contiguous_weight:
         b = torch.zeros((batch, k, n), dtype=a.dtype, device="cpu")
+    else:
+        b = torch.zeros((batch, n, k), dtype=a.dtype, device="cpu").transpose(1, 2)
     vendor_output = a.new_ones((m, batch, n))
     vendor = Mock(return_value=vendor_output)
     ascendc = Mock(side_effect=lambda a, b, out: out.fill_(2))
@@ -183,7 +185,7 @@ def test_batch_matmul_transpose_dispatch(
         torch.ops, "npu", SimpleNamespace(batch_matmul_transpose=ascendc)
     )
 
-    output = batch_matmul_transpose(a, b, is_dsa=is_dsa, impl=impl)
+    output = batch_matmul_transpose(a, b, impl=impl)
     route = arch22_route if generation == "ARCH22" else "vendor"
     if route == "ascendc":
         vendor.assert_not_called()

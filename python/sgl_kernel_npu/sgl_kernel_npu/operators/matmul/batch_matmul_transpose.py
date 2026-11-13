@@ -12,7 +12,7 @@ _torch_native_fn = None
 
 
 @register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH22})
-def _ascendc_impl(tensor_a, tensor_b, *, is_dsa=False):
+def _ascendc_impl(tensor_a, tensor_b):
     if not tensor_b.is_contiguous():
         raise ValueError("tensor_b must be contiguous")
 
@@ -24,14 +24,13 @@ def _ascendc_impl(tensor_a, tensor_b, *, is_dsa=False):
 
 
 @register_impl(_OP_NAME, "torch_npu")
-def _torch_npu_impl(tensor_a, tensor_b, *, is_dsa=False):
+def _torch_npu_impl(tensor_a, tensor_b):
     perm_x1 = (1, 0, 2)
     if (
-        is_dsa
-        and get_hardware().generation is Generation.ARCH22
+        get_hardware().generation is Generation.ARCH22
         and tensor_a.shape[1] * tensor_a.shape[2] >= _FUSED_TRANSPOSE_LIMIT
     ):
-        # Bypass the A2/A3 fused input-transpose stride limit for DSA.
+        # Bypass the A2/A3 fused input-transpose stride limit.
         tensor_a = tensor_a.transpose(0, 1).contiguous()
         perm_x1 = (0, 1, 2)
 
@@ -45,9 +44,7 @@ def _torch_npu_impl(tensor_a, tensor_b, *, is_dsa=False):
 
 
 @register_impl(_OP_NAME, "auto")
-def _auto_impl(tensor_a, tensor_b, *, is_dsa=False):
-    if is_dsa:
-        return _torch_npu_impl(tensor_a, tensor_b, is_dsa=True)
+def _auto_impl(tensor_a, tensor_b):
     if get_hardware().generation is not Generation.ARCH22:
         return _torch_npu_impl(tensor_a, tensor_b)
 
@@ -60,7 +57,7 @@ def _auto_impl(tensor_a, tensor_b, *, is_dsa=False):
 
 
 @register_impl(_OP_NAME, "torch_native")
-def _torch_native_impl(tensor_a, tensor_b, *, is_dsa=False):
+def _torch_native_impl(tensor_a, tensor_b):
     global _torch_native_fn
     if _torch_native_fn is None:
         from ...implementation.torch_native.matmul.batch_matmul_transpose import (
@@ -72,16 +69,16 @@ def _torch_native_impl(tensor_a, tensor_b, *, is_dsa=False):
 
 
 @register_operator(_OP_NAME)
-def batch_matmul_transpose(tensor_a, tensor_b, *, is_dsa=False, impl="auto"):
+def batch_matmul_transpose(tensor_a, tensor_b, *, impl="auto"):
     """Return einsum('mbk,bkn->mbn') for ND inputs [M, B, K] and [B, K, N].
 
-    With is_dsa=True, auto selects torch_npu. On arch22, the torch_npu backend
-    pre-transposes DSA inputs to [B, M, K] when B * K >= 65536. For MLA,
-    auto selects ascendc on arch22 when M, B * K or N reaches 65536, and
-    torch_npu otherwise. Explicit impl selection bypasses auto dispatch.
+    Auto selects ascendc on arch22 when M, B * K or N reaches 65536, and
+    torch_npu otherwise. DSA calls explicitly select torch_npu. On arch22,
+    the torch_npu backend pre-transposes the first input to [B, M, K] when
+    B * K >= 65536.
 
     ascendc and torch_native require matching FP16/BF16 dtype and device,
     contiguous weights, and 1 <= M <= 1024. torch_npu follows the shape and
     dtype limits of the installed TorchNPU and CANN versions.
     """
-    return get_impl_by_name(_OP_NAME, impl)(tensor_a, tensor_b, is_dsa=is_dsa)
+    return get_impl_by_name(_OP_NAME, impl)(tensor_a, tensor_b)
