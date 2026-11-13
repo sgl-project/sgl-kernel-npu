@@ -20,8 +20,8 @@ from tests.python.utils.performance import check_performance
 
 # SGLang MLA/DSA post-attention: shape=(tokens, local_heads, kv_lora_rank,
 # v_head_dim), local_heads=num_attention_heads/effective_attention_tp.
-# On A2/A3, MLA uses AscendC when M, B*K or N reaches 65536. DSA
-# decode/verify also uses AscendC at smaller shapes and higher attention TP.
+# On A2/A3, auto uses AscendC when M, B*K or N reaches 65536. The TorchNPU
+# backend pre-transposes activations when B*K reaches 65536.
 # Keep the latest model in each family with identical shapes.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [
@@ -90,18 +90,18 @@ def run_case(shape, dtype, mode):
     a, b = generate_test_data(shape, dtype, mode)
     a_before, b_before = a.clone(), b.clone()
     impl, impl_ref = get_test_impls()
+    # Cover AscendC tiling boundaries, including shapes auto sends to TorchNPU.
     if impl == "auto":
-        # This shape suite includes the AscendC tiling boundaries.
-        require_test_impl(batch_matmul_transpose, "ascendc")
+        impl = "ascendc"
+    if impl_ref == "auto":
+        impl_ref = "ascendc"
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(batch_matmul_transpose, impl)
     else:
         require_distinct_impls(batch_matmul_transpose, impl, impl_ref)
-        reference = batch_matmul_transpose(
-            a.clone(), b.clone(), is_prefill=False, impl=impl_ref
-        )
-        output = batch_matmul_transpose(a, b, is_prefill=False, impl=impl)
+        reference = batch_matmul_transpose(a.clone(), b.clone(), impl=impl_ref)
+        output = batch_matmul_transpose(a, b, impl=impl)
         m, batch, _, n = shape
         assert output.shape == (m, batch, n)
         assert output.dtype == a.dtype
@@ -114,7 +114,6 @@ def run_case(shape, dtype, mode):
     executor = make_executor(
         batch_matmul_transpose,
         args=(a, b),
-        kwargs={"is_prefill": False},
         impl=impl,
         impl_ref=impl_ref,
         accuracy_checked=not skip_accuracy,
@@ -139,26 +138,31 @@ def test_batch_matmul_transpose_nd(
 
 @pytest.mark.parametrize("generation, arch_id", [("ARCH22", 2201), ("ARCH35", 3510)])
 @pytest.mark.parametrize(
-    "shape, is_prefill, arch22_uses_ascendc",
+    "shape, contiguous_weight, impl, arch22_route",
     [
-        ((2, 16, 512, 128), None, False),
-        ((2, 128, 512, 128), None, True),
-        ((65536, 1, 1, 1), None, True),
-        ((1, 1, 1, 65536), None, True),
-        ((2, 16, 512, 128), True, False),
-        ((2, 128, 512, 128), True, False),
-        ((2, 16, 512, 128), False, True),
+        pytest.param((2, 16, 512, 128), True, "auto", "vendor", id="mla-small"),
+        pytest.param((2, 128, 512, 128), True, "auto", "ascendc", id="mla-bk-limit"),
+        pytest.param((65536, 1, 1, 1), True, "auto", "ascendc", id="mla-m-limit"),
+        pytest.param((1, 1, 1, 65536), True, "auto", "ascendc", id="mla-n-limit"),
+        pytest.param((2, 16, 512, 128), False, "torch_npu", "vendor", id="dsa-v-small"),
+        pytest.param(
+            (2, 128, 512, 128), False, "torch_npu", "transpose", id="dsa-v-bk-limit"
+        ),
+        pytest.param(
+            (2, 128, 128, 512), True, "torch_npu", "vendor", id="dsa-q-projection"
+        ),
     ],
 )
-def test_batch_matmul_transpose_auto_dispatch(
+def test_batch_matmul_transpose_dispatch(
     monkeypatch,
     generation,
     arch_id,
     shape,
-    is_prefill,
-    arch22_uses_ascendc,
+    contiguous_weight,
+    impl,
+    arch22_route,
 ):
-    """Check auto dispatch without launching either NPU kernel."""
+    """Check backend dispatch and input layout without launching NPU kernels."""
     import torch_npu
     from sgl_kernel_npu.operators.matmul import batch_matmul_transpose
     from sgl_kernel_npu.operators.utils.generation import Generation, Hardware
@@ -168,8 +172,11 @@ def test_batch_matmul_transpose_auto_dispatch(
     monkeypatch.setattr(module, "get_hardware", lambda: hardware)
 
     m, batch, k, n = shape
-    a = torch.zeros((m, batch, k * 2), dtype=torch.bfloat16, device="cpu")[..., ::2]
-    b = torch.zeros((batch, k, n), dtype=a.dtype, device="cpu")
+    a = torch.randn((m, batch, k * 2), dtype=torch.bfloat16, device="cpu")[..., ::2]
+    if contiguous_weight:
+        b = torch.zeros((batch, k, n), dtype=a.dtype, device="cpu")
+    else:
+        b = torch.zeros((batch, n, k), dtype=a.dtype, device="cpu").transpose(1, 2)
     vendor_output = a.new_ones((m, batch, n))
     vendor = Mock(return_value=vendor_output)
     ascendc = Mock(side_effect=lambda a, b, out: out.fill_(2))
@@ -178,8 +185,9 @@ def test_batch_matmul_transpose_auto_dispatch(
         torch.ops, "npu", SimpleNamespace(batch_matmul_transpose=ascendc)
     )
 
-    output = batch_matmul_transpose(a, b, is_prefill=is_prefill)
-    if generation == "ARCH22" and arch22_uses_ascendc:
+    output = batch_matmul_transpose(a, b, impl=impl)
+    route = arch22_route if generation == "ARCH22" else "vendor"
+    if route == "ascendc":
         vendor.assert_not_called()
         ascendc.assert_called_once()
         assert ascendc.call_args.args[0].is_contiguous()
@@ -187,9 +195,21 @@ def test_batch_matmul_transpose_auto_dispatch(
         torch.testing.assert_close(output, torch.full_like(vendor_output, 2))
     else:
         ascendc.assert_not_called()
-        vendor.assert_called_once_with(
-            a, b, perm_x1=(1, 0, 2), perm_x2=(0, 1, 2), perm_y=(1, 0, 2)
-        )
+        vendor.assert_called_once()
+        activation, weight = vendor.call_args.args
+        assert weight is b
+        perm_x1 = (1, 0, 2)
+        if route == "transpose":
+            assert activation.is_contiguous()
+            torch.testing.assert_close(activation, a.transpose(0, 1))
+            perm_x1 = (0, 1, 2)
+        else:
+            assert activation is a
+        assert vendor.call_args.kwargs == {
+            "perm_x1": perm_x1,
+            "perm_x2": (0, 1, 2),
+            "perm_y": (1, 0, 2),
+        }
         assert output is vendor_output
 
 
@@ -213,7 +233,7 @@ def test_batch_matmul_transpose_rejects_invalid_input(
 
     impl, _ = get_test_impls()
     if impl == "auto":
-        require_test_impl(batch_matmul_transpose, "ascendc")
+        impl = "ascendc"
     elif impl == "torch_npu":
         pytest.skip("These cases exercise AscendC and torch_native input limits")
     require_test_impl(batch_matmul_transpose, impl)
@@ -233,4 +253,4 @@ def test_batch_matmul_transpose_rejects_invalid_input(
     elif invalid == "m-limit":
         a = torch.empty((1025, 2, 32), dtype=a.dtype)
     with pytest.raises((ValueError, RuntimeError)):
-        batch_matmul_transpose(a, b, is_prefill=False, impl=impl)
+        batch_matmul_transpose(a, b, impl=impl)

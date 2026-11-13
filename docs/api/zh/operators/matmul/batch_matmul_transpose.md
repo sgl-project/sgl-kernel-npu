@@ -15,16 +15,16 @@ AscendC 内核支持 Ascend A2/A3（arch22，2201）。
 ```python
 from sgl_kernel_npu.operators.matmul import batch_matmul_transpose
 
-def batch_matmul_transpose(tensor_a, tensor_b, *, is_prefill=None, impl="auto"):
+def batch_matmul_transpose(tensor_a, tensor_b, *, impl="auto"):
     ...
 ```
 
 输入采用 ND 布局，函数返回形状为 `[M, B, N]` 的新张量。
 
-`auto` 在 arch35 上选择 `torch_npu`。在 arch22 上，MLA 省略
-`is_prefill`，当 `M`、`B*K` 或 `N` 中任一值达到 65536 时选择 `ascendc`，其余形状选择
-`torch_npu`。DSA 对普通 prefill 传 `True` 以选择 `torch_npu`，其他模式传 `False` 以选择
-`ascendc`。
+MLA 使用 `auto`。在 arch22 上，当 `M`、`B * K` 或 `N` 中任一值大于等于
+65536 时选择 `ascendc`，其余形状选择 `torch_npu`。在 arch35 上，`auto` 选择
+`torch_npu`。在所有前向模式中，DSA 的 Q 和 V 投影均显式传入
+`impl="torch_npu"`。
 
 ## 功能说明
 
@@ -43,7 +43,6 @@ $$
 | --- | --- | --- | --- | --- | --- |
 | `tensor_a` | Tensor | `[M, B, K]` | FP16 / BF16 | 必填 | `ascendc` 和 `torch_native` 要求 `1 <= M <= 1024`。 |
 | `tensor_b` | Tensor | `[B, K, N]` | 与 A 相同 | 必填 | `ascendc` 和 `torch_native` 要求权重连续。 |
-| `is_prefill` | bool / None | — | — | `None` | 仅限关键字。DSA 向 `auto` 传递是否为普通 prefill。 |
 | `impl` | str | — | — | `"auto"` | 仅限关键字。支持 `auto`、`ascendc`、`torch_npu`、`torch_native`。 |
 
 | 返回值 | 类型 | Shape | Dtype | 副作用 |
@@ -63,16 +62,18 @@ CANN 管理 tiling 数据，Kernel 根据这些数据执行批量矩阵乘。
 ## torch_npu 后端
 
 该实现调用 `torch_npu.npu_transpose_batchmatmul` 并返回其输出。两个输入均采用 ND 布局，
-形状分别为 `[M, B, K]` 和 `[B, K, N]`。转置参数为 `perm_x1=(1, 0, 2)`、
+形状分别为 `[M, B, K]` 和 `[B, K, N]`。默认转置参数为 `perm_x1=(1, 0, 2)`、
 `perm_x2=(0, 1, 2)` 和 `perm_y=(1, 0, 2)`。
 
-在 arch22（A2/A3）上，CANN 9.1 对该输入布局规定了 `1 <= B <= 65535`、
-`1 <= N <= 65535` 和 `B * K <= 65535`。例如 `B=128`、`K=512` 时，
-`B * K=65536`，超出文档规定的范围。
+在 arch22（A2/A3）上，CANN 9.1 规定了 `1 <= B <= 65535` 和 `1 <= N <= 65535`。
+对 `[M, B, K]` 输入执行融合转置时还要求 `B * K <= 65535`。第一个输入采用
+`[B, M, K]` 布局时，对应的输入步长约束为 `K <= 65535`。
 [CANN 9.1 TransposeBatchMatMul 参考文档](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/aolapi/context/ops-nn/aclnnTransposeBatchMatMul.md)
 
-在 arch22 的 MLA 路径中，只要 `M >= 65536`、`B * K >= 65536` 或 `N >= 65536`，
-`auto` 就会选择 AscendC。分流条件还单独检查 `M`。
+在 arch22 上，当 `B * K >= 65536` 时，该后端会先将第一个输入转置为连续的
+`[B, M, K]`，再以 `perm_x1=(0, 1, 2)` 调用 TorchNPU。`perm_y=(1, 0, 2)`
+使输出形状保持为 `[M, B, N]`。上述 `[B, M, K]` 布局对 `B`、`K` 和 `N`
+的限制仍然适用。
 
 ## torch_native 后端
 
