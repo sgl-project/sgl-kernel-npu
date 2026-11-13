@@ -219,9 +219,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto recv_topk_weights = std::optional<at::Tensor>();
     // Wait streams
     std::optional<EventHandle> event;
-    auto rank_prefix_matrix = at::empty({num_ranks, num_ranks}, at::dtype(at::kInt).device(x.device()));
-    auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
-    auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     at::Tensor new_x = x;
     EP_HOST_ASSERT(num_tokens_per_rank.has_value());
     EP_HOST_ASSERT(num_tokens_per_expert.has_value());
@@ -279,11 +276,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
 
-    auto send_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     int64_t send_count = send_per_group * num_local_experts * num_ranks * round;
-
-    auto send_data_offset = torch::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     // get ep name
     char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
@@ -291,22 +284,63 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
-    // Merge max_bs / total_recv_token / recv_tokens_per_expert into one contiguous buffer,
-    // layout [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)],
-    // so a single D2H read after notify_dispatch fetches all values back, eliminating multiple host sync stalls.
+    // All the int32 scratch tensors below are views into a single allocation: 12 independent
+    // torch::empty calls cost ~44us of host time, one allocation plus as_strided views ~22us.
+    // recv_header additionally merges max_bs / total_recv_token / recv_tokens_per_expert so a
+    // single D2H read after notify_dispatch fetches all values back.
     const int64_t nel = static_cast<int64_t>(num_local_experts);
-    at::Tensor recv_header =
-        torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
+    const int64_t rankPrefixElems = num_ranks * num_ranks;
+    const int64_t chanPrefixElems = num_ranks * static_cast<int64_t>(num_channels);
+    const int64_t sendDataElems = static_cast<int64_t>(round) * num_experts * send_per_group;
+    const int64_t sendOffsetElems = static_cast<int64_t>(round) * num_experts;
+    const int64_t headerElems = 2 + static_cast<int64_t>(round) * nel;
+    const int64_t expertOffsetElems = nel;
+    const int64_t srcRankElems = nel * num_ranks;
+    const int64_t rInSrcRankElems = nel * num_ranks * round;
+
+    // Each view starts on a 32B boundary (8 int32 elements): the kernels address these buffers with
+    // DataCopyPad, which requires the GM base of every slice to be 32B aligned.
+    constexpr int64_t kScratchAlignElems = 32 / sizeof(int32_t);
+    int64_t scratchOffset = 0;
+    auto carve = [&](int64_t elems) {
+        int64_t off = scratchOffset;
+        scratchOffset += (elems + kScratchAlignElems - 1) / kScratchAlignElems * kScratchAlignElems;
+        return off;
+    };
+    const int64_t offRankPrefix = carve(rankPrefixElems);
+    const int64_t offChanPrefix = carve(chanPrefixElems);
+    const int64_t offRecvChanPrefix = carve(chanPrefixElems);
+    const int64_t offSendData = carve(sendDataElems);
+    const int64_t offSendDataOffset = carve(sendOffsetElems);
+    const int64_t offRecvData = carve(sendDataElems);
+    const int64_t offHeader = carve(headerElems);
+    const int64_t offRecvOffset = carve(sendOffsetElems);
+    const int64_t offRecvCount = carve(sendOffsetElems);
+    const int64_t offExpertGlobalOffset = carve(expertOffsetElems);
+    const int64_t offSrcRankInExpert = carve(srcRankElems);
+    const int64_t offRInSrcRank = carve(rInSrcRankElems);
+
+    at::Tensor scratch = at::empty({scratchOffset}, at::dtype(at::kInt).device(x.device()));
+    auto view1d = [&](int64_t off, int64_t elems) { return scratch.as_strided({elems}, {1}, off); };
+    auto view2d = [&](int64_t off, int64_t rows, int64_t cols) {
+        return scratch.as_strided({rows, cols}, {cols, 1}, off);
+    };
+
+    at::Tensor rank_prefix_matrix = view2d(offRankPrefix, num_ranks, num_ranks);
+    at::Tensor channel_prefix_matrix = view2d(offChanPrefix, num_ranks, num_channels);
+    at::Tensor recv_channel_prefix_matrix = view2d(offRecvChanPrefix, num_ranks, num_channels);
+    at::Tensor send_data = view2d(offSendData, round, num_experts * send_per_group);
+    at::Tensor send_data_offset = view2d(offSendDataOffset, round, num_experts);
+    at::Tensor recv_data = view2d(offRecvData, round, num_experts * send_per_group);
+    at::Tensor recv_header = view1d(offHeader, headerElems);
     at::Tensor max_bs = recv_header.narrow(0, 0, 1);
     at::Tensor total_recv_token = recv_header.narrow(0, 1, 1);
     at::Tensor recv_tokens_per_expert = recv_header.narrow(0, 2, static_cast<int64_t>(round) * nel);
-    at::Tensor recv_offset = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_count = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor expert_global_offset = at::empty({num_local_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor srcrank_in_expert_offset =
-        at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor r_in_srcrank_offset =
-        at::empty({num_local_experts * num_ranks * round}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_offset = view2d(offRecvOffset, round, num_experts);
+    at::Tensor recv_count = view2d(offRecvCount, round, num_experts);
+    at::Tensor expert_global_offset = view1d(offExpertGlobalOffset, expertOffsetElems);
+    at::Tensor srcrank_in_expert_offset = view1d(offSrcRankInExpert, srcRankElems);
+    at::Tensor r_in_srcrank_offset = view1d(offRInSrcRank, rInSrcRankElems);
 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
@@ -354,31 +388,77 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 #endif
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
+    at::Tensor expand_idx_out;
 #ifdef __DAV_C310__
-    if (quant_mode == MXFP8_SCALES) {
-        if (quant_type == "mx_fp8_e5m2") {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
-        } else {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
-        }
-        dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
-    } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
-        expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
-        dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
-    } else if (quant_mode == MXFP4_SCALES) {
-        expandx_out =
-            torch::empty({num_recv_tokens, hidden / MXFP4_HALF}, at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
-        dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
-    } else
-#endif
     {
-        expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
-                                : torch::empty({num_recv_tokens, hidden}, x.options());
-        dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        // A5: one combined GM buffer, three strided views. Each row is [data][scale][expandIdx] padded to
+        // hOutGMAlignSize. Layout must mirror CamMoeDispatchNormalA5::Init().
+        constexpr int64_t UB_ALIGN = 32;
+        constexpr int64_t WIN_ADDR_ALIGN = 512;
+        const bool is_mxfp8 = (quant_mode == MXFP8_SCALES);
+        const bool is_mxfp4 = (quant_mode == MXFP4_SCALES);
+        const bool is_mx = is_mxfp8 || is_mxfp4;
+        const bool is_pertoken_fp8 = (quant_mode == PER_TOKEN_FP8_SCALES);
+        const bool is_no_scales = (quant_mode == NO_SCALES);
+
+        int64_t data_bytes;
+        at::ScalarType out_dtype;
+        if (is_mxfp4) {
+            data_bytes = (hidden + MXFP4_HALF - 1) / MXFP4_HALF;  // fp4x2 packs 2 elems per byte
+            out_dtype = at::kFloat4_e2m1fn_x2;
+        } else if (is_no_scales) {
+            data_bytes = hidden * 2;  // bf16/fp16
+            out_dtype = x.scalar_type();
+        } else if (quant_mode == DYNAMIC_SCALES) {
+            data_bytes = hidden;  // int8: 1 byte per element
+            out_dtype = at::kChar;
+        } else {
+            data_bytes = hidden;  // fp8: 1 byte per element
+            out_dtype = (is_mxfp8 && quant_type == "mx_fp8_e5m2") ? at::kFloat8_e5m2 : at::kFloat8_e4m3fn;
+        }
+        int64_t hUBAlignSize = ((data_bytes + UB_ALIGN - 1) / UB_ALIGN) * UB_ALIGN;
+        int64_t quantScalePerToken = is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : 1;
+        int64_t scaleElemSize = is_mx ? 1 : 4;
+        int64_t quantScalePerTokenAlign = ((quantScalePerToken * scaleElemSize + UB_ALIGN - 1) / UB_ALIGN) * UB_ALIGN;
+        int64_t scaleBytes = is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : (int64_t)sizeof(float);
+        int64_t hScaleSizeAlign = hUBAlignSize + quantScalePerTokenAlign;
+        int64_t hScaleIdxSize =
+            hScaleSizeAlign + 3 * (int64_t)sizeof(int32_t) + (is_mx ? (hidden + MX_BLOCK_SIZE - 1) / MX_BLOCK_SIZE : 0);
+        int64_t hOutGMAlignSize = ((hScaleIdxSize + WIN_ADDR_ALIGN - 1) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+
+        at::Tensor combined = torch::empty({num_recv_tokens, hOutGMAlignSize}, at::dtype(at::kByte).device(x.device()));
+        expandx_out = combined.narrow(1, 0, data_bytes).view(out_dtype);
+        // per-token scales (4B) / mx scales (hidden/32, e8m0)
+        auto scale_view = combined.narrow(1, hUBAlignSize, scaleBytes).view(is_mx ? at::kFloat8_e8m0fnu : at::kFloat);
+        dynamic_scales_out = is_mx ? scale_view : scale_view.squeeze(1);
+        expand_idx_out = combined.narrow(1, hScaleSizeAlign, 3 * (int64_t)sizeof(int32_t)).view(at::kInt);
     }
-    auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+#else
+    {
+        if (quant_mode == MXFP8_SCALES) {
+            if (quant_type == "mx_fp8_e5m2") {
+                expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
+            } else {
+                expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+            }
+            dynamic_scales_out = torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE},
+                                              at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+        } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
+            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+            dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        } else if (quant_mode == MXFP4_SCALES) {
+            expandx_out = torch::empty({num_recv_tokens, hidden / MXFP4_HALF},
+                                       at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
+            dynamic_scales_out = torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE},
+                                              at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+        } else {
+            expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                    : torch::empty({num_recv_tokens, hidden}, x.options());
+            dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+        }
+        expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+    }
+#endif
     if (topk_idx.has_value()) {
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
@@ -411,6 +491,13 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     }
 
     auto recv_count_one_dim = recv_count.sum(0, false).to(at::kInt);
+#ifdef __DAV_C310__
+    // numel <= 1 时 PyTorch 忽略 size-1 维度，该 strided view 被判为连续，.contiguous() 成为 no-op，
+    // 行 stride 得以保留，导致下游 view(torch.uint8) 失败。kernel 执行后物化稠密拷贝。
+    if (!is_mxfp8_quant && !is_mxfp4_quant && dynamic_scales_out.numel() <= 1) {
+        dynamic_scales_out = dynamic_scales_out.clone(at::MemoryFormat::Contiguous);
+    }
+#endif
     // Return values
     return {expandx_out,
             dynamic_scales_out,
@@ -564,10 +651,18 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
                           const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
                           const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats)
 {
-    EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
+    EP_HOST_ASSERT(x.dim() == 2);
     at::Tensor recv_x = x;
     auto topk_idx_int32 = topk_idx.to(at::kInt);
     at::Tensor token_src_info = src_idx;
+    // recv_x / token_src_info 是 combined dispatch buffer 的 strided view。aclnn 层会拷贝非连续输入，
+    // 但其对 12B/行 视图的通用 gather 较慢（~60us vs 此处 ~8us）。
+    if (!token_src_info.is_contiguous()) {
+        token_src_info = token_src_info.contiguous();
+    }
+    if (!recv_x.is_contiguous()) {
+        recv_x = recv_x.contiguous();
+    }
     at::Tensor ep_send_counts = send_head;
     auto device = x.device();
 
@@ -610,9 +705,13 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
+    // 已转为稠密拷贝，kernel 按稠密行 stride 索引。
+    int64_t combinedStride = hidden * recv_x.element_size();
+    int64_t srcInfoStride = 3 * sizeof(int32_t);
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
                  tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
-                 moe_expert_number, real_max_bs, round, per_round_tokens, combined_x, combine_send_cost_stats_out);
+                 moe_expert_number, real_max_bs, round, per_round_tokens, combinedStride, srcInfoStride, combined_x,
+                 combine_send_cost_stats_out);
 
     return {combined_x, recv_topk_weights, event};
 }
