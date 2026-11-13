@@ -8,7 +8,7 @@ from sgl_kernel_npu.sparsity_driven_kv_offload import fused_lightning_indexer_ma
 ```
 
 The registered torch operation is `torch.ops.npu.fused_lightning_indexer_manage`.
-It retains the 19-tensor ABI and seven in-place output/state aliases. The
+It retains the 17-tensor ABI and seven in-place output/state aliases. The
 operation computes index TopK, resident-cache state and miss plans. Main KV
 copies and sparse attention remain separate operations.
 
@@ -32,7 +32,7 @@ built with the other A2/A3-only operators and is absent from an A5 build.
 
 The native ABI supports FP16/BF16 index query/key/weights, index head counts
 32/64, head dimension 128, page size 128 and TopK 2048. Metadata and outputs
-are int32; scale placeholders are float32. Inputs and outputs are contiguous
+are int32. Inputs and outputs are contiguous
 and on the same NPU. Per request, native queries occupy one contiguous range
 of 1..14 rows. `torch.ops.npu.lim_full_visible_max_query_width()` returns the
 compiled limit so the framework can size its buffers from the actual MTP config.

@@ -191,8 +191,7 @@ void mega_chunk_gdn(
     int64_t total_tokens, int64_t num_matrices);
 
 void fused_lightning_indexer_manage(
-    const at::Tensor &index_weights, const at::Tensor &query_dequant_scale,
-    const at::Tensor &query, const at::Tensor &index_key_dequant_scale,
+    const at::Tensor &index_weights, const at::Tensor &query,
     const at::Tensor &index_key_cache, const at::Tensor &index_block_table,
     const at::Tensor &actual_seq_lengths_query,
     const at::Tensor &actual_seq_lengths_key,

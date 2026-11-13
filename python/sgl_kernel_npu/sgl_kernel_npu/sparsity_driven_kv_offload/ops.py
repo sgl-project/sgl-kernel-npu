@@ -160,9 +160,7 @@ def slot_map_lookup(
 
 def fused_lightning_indexer_manage(
     index_weights,
-    query_dequant_scale,
     query,
-    index_key_dequant_scale,
     index_key_cache,
     index_block_table,
     actual_seq_lengths_query,
@@ -182,14 +180,12 @@ def fused_lightning_indexer_manage(
 ):
     """Produce TopK/cache plans in place using the wheel's native A2/A3 LIM.
 
-    All 19 tensors are preallocated NPU tensors. Main KV payload copies and
+    All 17 tensors are preallocated NPU tensors. Main KV payload copies and
     attention remain separate operations. No custom vendor installation is used.
     """
     torch.ops.npu.fused_lightning_indexer_manage(
         index_weights,
-        query_dequant_scale,
         query,
-        index_key_dequant_scale,
         index_key_cache,
         index_block_table,
         actual_seq_lengths_query,

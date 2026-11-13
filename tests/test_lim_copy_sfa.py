@@ -46,9 +46,7 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(
         def enqueue():
             torch.ops.npu.fused_lightning_indexer_manage(
                 torch.full((batch, heads), 1 / heads, dtype=case.dtype, device=device),
-                torch.ones(batch, heads, dtype=torch.float32, device=device),
                 query,
-                torch.ones(key.shape[:3], dtype=torch.float32, device=device),
                 key,
                 table,
                 case.actual_q,

@@ -19,19 +19,19 @@ def test_q4_random_vendor_causal_selection_and_attention(length):
     args = _lim_case(length)
     gen = torch.Generator().manual_seed(20261028 + length)
     q = torch.randn((ROUTES, 32, 128), generator=gen).to(torch.bfloat16)
-    keys = torch.randn((args[4].shape[0] * 128, 128), generator=gen).to(torch.bfloat16)
+    keys = torch.randn((args[2].shape[0] * 128, 128), generator=gen).to(torch.bfloat16)
     weights = torch.rand((ROUTES, 32), generator=gen).to(torch.bfloat16)
-    args[2].copy_(q)
+    args[1].copy_(q)
     args[0].copy_(weights)
-    args[4].copy_(keys.view(-1, 128, 1, 128))
+    args[2].copy_(keys.view(-1, 128, 1, 128))
     torch.ops.npu.fused_lightning_indexer_manage(*args, full_visible=True)
     vendor = torch_npu.npu_lightning_indexer(
-        query=args[2],
-        key=args[4],
+        query=args[1],
+        key=args[2],
         weights=args[0],
-        actual_seq_lengths_query=args[6],
-        actual_seq_lengths_key=args[7],
-        block_table=args[5],
+        actual_seq_lengths_query=args[4],
+        actual_seq_lengths_key=args[5],
+        block_table=args[3],
         layout_query="TND",
         layout_key="PA_BSND",
         sparse_count=TOPK,
@@ -39,13 +39,13 @@ def test_q4_random_vendor_causal_selection_and_attention(length):
     )
     vendor = vendor[0] if isinstance(vendor, (tuple, list)) else vendor
     torch.npu.synchronize()
-    actual = args[13].cpu()[:, 0].long()
+    actual = args[11].cpu()[:, 0].long()
     reference = vendor.cpu().view(ROUTES, TOPK).long()
-    slots = args[14].cpu()[:, 0].long()
-    count = int(args[18].item())
+    slots = args[12].cpu()[:, 0].long()
+    count = int(args[16].item())
     assert 0 < count <= CAPACITY
-    miss_sources = args[16].cpu()[0, :count].long()
-    miss_slots = args[17].cpu()[0, :count].long()
+    miss_sources = args[14].cpu()[0, :count].long()
+    miss_slots = args[15].cpu()[0, :count].long()
     assert miss_slots.unique().numel() == count
     resident = torch.full((CAPACITY,), -1, dtype=torch.long)
     resident[miss_slots] = miss_sources

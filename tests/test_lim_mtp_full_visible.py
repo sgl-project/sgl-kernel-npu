@@ -44,9 +44,7 @@ def _lim_case(length=LENGTH):
     misses = torch.empty((1, 32768), dtype=torch.int32, device=device)
     return [
         weights,
-        torch.ones_like(weights, dtype=torch.float32),
         query,
-        torch.ones(key.shape[:3], dtype=torch.float32, device=device),
         key,
         torch.arange(source_capacity // 128, dtype=torch.int32, device=device)[None],
         vector(ROUTES),
@@ -67,11 +65,11 @@ def _lim_case(length=LENGTH):
 
 def _check_lim(args, resident, length=LENGTH):
     torch.npu.synchronize()
-    sources, slots = args[13].cpu()[:, 0], args[14].cpu()[:, 0]
+    sources, slots = args[11].cpu()[:, 0], args[12].cpu()[:, 0]
     miss_sources, miss_slots, count = (
-        args[16].cpu()[0],
-        args[17].cpu()[0],
-        int(args[18].item()),
+        args[14].cpu()[0],
+        args[15].cpu()[0],
+        int(args[16].item()),
     )
     assert 0 < count <= CAPACITY
     assert torch.all((miss_slots[:count] >= 0) & (miss_slots[:count] < CAPACITY))
@@ -121,8 +119,8 @@ def test_baseline_q4_c12288_existing_abi_rejects_full_visible():
     args = _lim_case()
     torch.ops.npu.fused_lightning_indexer_manage(*args)
     torch.npu.synchronize()
-    assert torch.all(args[13].cpu() == -1)
-    assert int(args[18].item()) == 0
+    assert torch.all(args[11].cpu() == -1)
+    assert int(args[16].item()) == 0
 
 
 @pytest.mark.parametrize("length", [16384, 16385, 16389])
@@ -137,13 +135,13 @@ def test_lim_q4_c12288_full_visible_union_and_causal(graph, length):
         capture = torch.npu.NPUGraph()
         with torch.npu.graph(capture):
             op(*args, full_visible=True)
-        args[10].fill_(-2)
+        args[8].fill_(-2)
         capture.replay()
     else:
         op(*args, full_visible=True)
     _check_lim(args, resident, length)
     # Reusing the request after rejection must force a cold refill.
-    args[10].fill_(-2)
+    args[8].fill_(-2)
     resident.fill_(-1)
     if graph:
         capture.replay()
@@ -159,26 +157,26 @@ def test_lim_q4_c12288_full_visible_steady_residency(graph):
     op = torch.ops.npu.fused_lightning_indexer_manage
     op(*args, full_visible=True)
     _check_lim(args, resident)
-    cold_pool = args[12].clone()
-    keys = args[4].view(-1, 128)
+    cold_pool = args[10].clone()
+    keys = args[2].view(-1, 128)
     keys[:, 0] = -8
     keys[14000 : 14000 + TOPK, 0] = 4
     keys[LENGTH - ROUTES : LENGTH, 0] = 16
-    args[10].fill_(-1)
+    args[8].fill_(-1)
     if graph:
         capture = torch.npu.NPUGraph()
         with torch.npu.graph(capture):
             op(*args, full_visible=True)
-        args[12].copy_(cold_pool)
+        args[10].copy_(cold_pool)
         capture.replay()
     else:
         op(*args, full_visible=True)
     torch.npu.synchronize()
-    sources = args[13].cpu()[:, 0]
-    slots = args[14].cpu()[:, 0]
-    count = int(args[18].item())
+    sources = args[11].cpu()[:, 0]
+    slots = args[12].cpu()[:, 0]
+    count = int(args[16].item())
     assert 0 < count <= CAPACITY
-    miss_sources, miss_slots = args[16].cpu()[0, :count], args[17].cpu()[0, :count]
+    miss_sources, miss_slots = args[14].cpu()[0, :count], args[15].cpu()[0, :count]
     assert torch.all((miss_slots >= 0) & (miss_slots < CAPACITY))
     resident[miss_slots.long()] = miss_sources
     for route in range(ROUTES):
@@ -201,20 +199,20 @@ def test_lim_q4_partial_chunk_preserves_live_batch_slot_ownership(graph):
     length = 66817
     source_capacity = (length + 127) // 128 * 128
     cases = [_lim_case(length) for _ in range(batch)]
-    args = [None] * 19
-    for index in (0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18):
+    args = [None] * 17
+    for index in (0, 1, 2, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16):
         args[index] = torch.cat([case[index] for case in cases], dim=0)
     device = args[0].device
     pages = source_capacity // 128
-    args[5] = torch.arange(batch * pages, dtype=torch.int32, device=device).view(
+    args[3] = torch.arange(batch * pages, dtype=torch.int32, device=device).view(
         batch, pages
     )
-    args[6] = torch.arange(4, 4 * batch + 1, 4, dtype=torch.int32, device=device)
-    args[11].copy_(torch.arange(1, batch + 1, dtype=torch.int32, device=device))
-    args[12] = torch.full(
+    args[4] = torch.arange(4, 4 * batch + 1, 4, dtype=torch.int32, device=device)
+    args[9].copy_(torch.arange(1, batch + 1, dtype=torch.int32, device=device))
+    args[10] = torch.full(
         (batch + 1, source_capacity), -1, dtype=torch.int32, device=device
     )
-    keys = args[4].view(batch, source_capacity, 128)
+    keys = args[2].view(batch, source_capacity, 128)
     op = torch.ops.npu.fused_lightning_indexer_manage
 
     def configure(actual, state, tail_high):
@@ -227,23 +225,23 @@ def test_lim_q4_partial_chunk_preserves_live_batch_slot_ownership(graph):
             keys[:, :, 0] = 1
             keys[:, 14000 : 14000 + TOPK, 0] = 4
             keys[:, actual - ROUTES : actual, 0] = -8
-        args[7].fill_(actual)
-        args[8].fill_(actual)
-        args[10].fill_(-2 if state == "cold" else -1)
+        args[5].fill_(actual)
+        args[6].fill_(actual)
+        args[8].fill_(-2 if state == "cold" else -1)
         if state == "mixed":
-            args[10][::2] = -2
+            args[8][::2] = -2
 
     if graph:
         configure(65536, "cold", True)
-        saved = args[12].clone()
+        saved = args[10].clone()
         op(*args, full_visible=True)
         torch.npu.synchronize()
-        args[12].copy_(saved)
+        args[10].copy_(saved)
         capture = torch.npu.NPUGraph()
         with torch.npu.graph(capture):
             op(*args, full_visible=True)
         torch.npu.synchronize()
-        args[12].copy_(saved)
+        args[10].copy_(saved)
 
     steps = (
         (65536, "cold", True),
@@ -255,7 +253,7 @@ def test_lim_q4_partial_chunk_preserves_live_batch_slot_ownership(graph):
     )
     for step, (actual, state, tail_high) in enumerate(steps):
         configure(actual, state, tail_high)
-        before = args[12].cpu()
+        before = args[10].cpu()
         if step:
             for row in range(1, batch + 1):
                 resident = before[row][before[row] >= 0]
@@ -266,11 +264,11 @@ def test_lim_q4_partial_chunk_preserves_live_batch_slot_ownership(graph):
         else:
             op(*args, full_visible=True)
         torch.npu.synchronize()
-        mapping = args[12].cpu()
-        sources = args[13].cpu().reshape(batch, ROUTES, TOPK)
-        slots = args[14].cpu().reshape(batch, ROUTES, TOPK)
-        miss_sources, miss_slots = args[16].cpu(), args[17].cpu()
-        counts = args[18].cpu().tolist()
+        mapping = args[10].cpu()
+        sources = args[11].cpu().reshape(batch, ROUTES, TOPK)
+        slots = args[12].cpu().reshape(batch, ROUTES, TOPK)
+        miss_sources, miss_slots = args[14].cpu(), args[15].cpu()
+        counts = args[16].cpu().tolist()
         assert torch.equal(mapping[0], before[0])
         evicted_tail = retained_refresh = 0
         for row in range(batch):
@@ -334,13 +332,13 @@ def test_lim_q4_steady_hits_include_rewritten_residents():
     op = torch.ops.npu.fused_lightning_indexer_manage
     op(*args, full_visible=True)
     _check_lim(args, resident)
-    args[10].fill_(-1)
+    args[8].fill_(-1)
     op(*args, full_visible=True)
     torch.npu.synchronize()
-    count = int(args[18].item())
+    count = int(args[16].item())
     assert count == ROUTES
-    sources = args[16].cpu()[0, :count]
-    slots = args[17].cpu()[0, :count]
+    sources = args[14].cpu()[0, :count]
+    slots = args[15].cpu()[0, :count]
     assert sorted(sources.tolist()) == list(range(LENGTH - ROUTES, LENGTH))
     assert slots.unique().numel() == ROUTES
     torch.testing.assert_close(resident[slots.long()], sources, rtol=0, atol=0)

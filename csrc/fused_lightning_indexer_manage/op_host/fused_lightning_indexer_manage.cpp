@@ -13,13 +13,12 @@
 
 namespace sglang::npu_kernel {
 HOST_API void fused_lightning_indexer_manage(
-    const at::Tensor &index_weights, const at::Tensor &query_dequant_scale, const at::Tensor &query,
-    const at::Tensor &index_key_dequant_scale, const at::Tensor &index_key_cache, const at::Tensor &index_block_table,
-    const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_key,
-    const at::Tensor &offload_seq_lengths_key, const at::Tensor &num_cache_tokens, const at::Tensor &request_state,
-    const at::Tensor &req_pool_entries, at::Tensor cache_slots_pool, at::Tensor topk_src_ids, at::Tensor topk_dst_slots,
-    at::Tensor topk_miss_counts, at::Tensor miss_src_ids, at::Tensor miss_dst_slots, at::Tensor miss_counts,
-    bool full_visible)
+    const at::Tensor &index_weights, const at::Tensor &query, const at::Tensor &index_key_cache,
+    const at::Tensor &index_block_table, const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_key, const at::Tensor &offload_seq_lengths_key,
+    const at::Tensor &num_cache_tokens, const at::Tensor &request_state, const at::Tensor &req_pool_entries,
+    at::Tensor cache_slots_pool, at::Tensor topk_src_ids, at::Tensor topk_dst_slots, at::Tensor topk_miss_counts,
+    at::Tensor miss_src_ids, at::Tensor miss_dst_slots, at::Tensor miss_counts, bool full_visible)
 {
     constexpr int64_t kTopK = LIMConfig::TOPK;
     constexpr int64_t kMissCapacity = LIMConfig::MISS_CAPACITY;
@@ -33,14 +32,9 @@ HOST_API void fused_lightning_indexer_manage(
     TORCH_CHECK(
         index_weights.dim() == 2 && index_weights.size(0) == total_queries && index_weights.size(1) == query.size(1),
         "index_weights must be [T, H].");
-    TORCH_CHECK(query_dequant_scale.sizes() == index_weights.sizes(), "query_dequant_scale must be [T, H].");
     TORCH_CHECK(index_key_cache.dim() == 4 && index_key_cache.size(0) > 0 && index_key_cache.size(1) == kBlockSize &&
                     index_key_cache.size(2) == LIMConfig::KEY_HEADS && index_key_cache.size(3) == LIMConfig::HEAD_DIM,
                 "index_key_cache must be [blocks, 128, 1, 128].");
-    TORCH_CHECK(index_key_dequant_scale.dim() == 3 && index_key_dequant_scale.size(0) == index_key_cache.size(0) &&
-                    index_key_dequant_scale.size(1) == kBlockSize &&
-                    index_key_dequant_scale.size(2) == LIMConfig::KEY_HEADS,
-                "index_key_dequant_scale must be [blocks, 128, 1].");
     TORCH_CHECK(index_block_table.dim() == 2 && index_block_table.size(0) > 0 && index_block_table.size(1) > 0 &&
                     index_block_table.size(1) <= LIMConfig::MAX_BLOCKS_PER_REQUEST,
                 "index_block_table must be non-empty [B, max_blocks], max_blocks<=16384.");
@@ -73,8 +67,6 @@ HOST_API void fused_lightning_indexer_manage(
                     query.scalar_type() == index_weights.scalar_type() &&
                     (query.scalar_type() == at::kHalf || query.scalar_type() == at::kBFloat16),
                 "query/index_key_cache/index_weights must share fp16 or bf16 dtype.");
-    TORCH_CHECK(query_dequant_scale.scalar_type() == at::kFloat && index_key_dequant_scale.scalar_type() == at::kFloat,
-                "dequant scales must be fp32.");
     const at::Tensor int_tensors[] = {index_block_table,      actual_seq_lengths_query,
                                       actual_seq_lengths_key, offload_seq_lengths_key,
                                       num_cache_tokens,       request_state,
@@ -86,9 +78,7 @@ HOST_API void fused_lightning_indexer_manage(
         TORCH_CHECK(tensor.scalar_type() == at::kInt, "metadata and outputs must be int32.");
     }
     const at::Tensor all_tensors[] = {index_weights,
-                                      query_dequant_scale,
                                       query,
-                                      index_key_dequant_scale,
                                       index_key_cache,
                                       index_block_table,
                                       actual_seq_lengths_query,
@@ -141,10 +131,9 @@ HOST_API void fused_lightning_indexer_manage(
         tiling, "fused_lightning_indexer_manage");
     const uint64_t bytes = LimWorkspaceBytes(tiling, platform->GetLibApiWorkSpaceSize());
     auto workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
-    EXEC_KERNEL_CMD(fused_lightning_indexer_manage, blockDim, index_weights, query_dequant_scale, query,
-                    index_key_dequant_scale, index_key_cache, index_block_table, actual_seq_lengths_query,
-                    actual_seq_lengths_key, offload_seq_lengths_key, num_cache_tokens, request_state, req_pool_entries,
-                    cache_slots_pool, topk_src_ids, topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots,
-                    miss_counts, cache_slots_pool, workspace, tilingTensor);
+    EXEC_KERNEL_CMD(fused_lightning_indexer_manage, blockDim, index_weights, query, index_key_cache, index_block_table,
+                    actual_seq_lengths_query, actual_seq_lengths_key, offload_seq_lengths_key, num_cache_tokens,
+                    request_state, req_pool_entries, cache_slots_pool, topk_src_ids, topk_dst_slots, topk_miss_counts,
+                    miss_src_ids, miss_dst_slots, miss_counts, cache_slots_pool, workspace, tilingTensor);
 }
 }  // namespace sglang::npu_kernel

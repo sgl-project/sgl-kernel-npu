@@ -265,17 +265,15 @@ __aicore__ inline bool FinalizeStandardCounts(__gm__ uint8_t *requestStateAddr, 
     } while (0)
 
 extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
-    GM_ADDR weights, GM_ADDR queryDequantScale, GM_ADDR query, GM_ADDR keyDequantScale, GM_ADDR key, GM_ADDR blockTable,
-    GM_ADDR actualSeqLengthsQuery, GM_ADDR actualSeqLengthsKey, GM_ADDR offloadSeqLengthsKey, GM_ADDR cacheTokens,
-    GM_ADDR requestState, GM_ADDR reqPoolEntries, GM_ADDR cacheSlots, GM_ADDR topkSourceIds, GM_ADDR topkSlots,
-    GM_ADDR topkMissCounts, GM_ADDR missSrcIds, GM_ADDR missDstSlots, GM_ADDR missCount, GM_ADDR cacheSlotsOut,
-    GM_ADDR workspace, GM_ADDR tiling)
+    GM_ADDR weights, GM_ADDR query, GM_ADDR key, GM_ADDR blockTable, GM_ADDR actualSeqLengthsQuery,
+    GM_ADDR actualSeqLengthsKey, GM_ADDR offloadSeqLengthsKey, GM_ADDR cacheTokens, GM_ADDR requestState,
+    GM_ADDR reqPoolEntries, GM_ADDR cacheSlots, GM_ADDR topkSourceIds, GM_ADDR topkSlots, GM_ADDR topkMissCounts,
+    GM_ADDR missSrcIds, GM_ADDR missDstSlots, GM_ADDR missCount, GM_ADDR cacheSlotsOut, GM_ADDR workspace,
+    GM_ADDR tiling)
 {
 #if (__CCE_AICORE__ == 310) || (defined __DAV_310R6__) || (__CCE_AICORE__ == 200)
 #else
     TPipe tPipe;
-    (void)queryDequantScale;
-    (void)keyDequantScale;
     (void)actualSeqLengthsKey;
     (void)requestState;
     (void)cacheSlotsOut;
