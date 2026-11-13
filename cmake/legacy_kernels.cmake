@@ -90,8 +90,8 @@ set(OP_SRCS
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
-        ${PROJECT_OP_SRC_BASE}/dcp_sparse_index_remap/op_host/dcp_sparse_index_remap.cpp
-        ${PROJECT_OP_SRC_BASE}/dcp_verify_page_tables/op_host/dcp_verify_page_tables.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/dcp_sparse_index_remap/torch_adapter.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/dcp_verify_page_tables/torch_adapter.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
@@ -163,8 +163,8 @@ endif()
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
-        ${PROJECT_OP_SRC_BASE}/dcp_sparse_index_remap/op_kernel/dcp_sparse_index_remap.cpp
-        ${PROJECT_OP_SRC_BASE}/dcp_verify_page_tables/op_kernel/dcp_verify_page_tables.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/dcp_sparse_index_remap/op_kernel/dcp_sparse_index_remap.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/dcp_verify_page_tables/op_kernel/dcp_verify_page_tables.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp

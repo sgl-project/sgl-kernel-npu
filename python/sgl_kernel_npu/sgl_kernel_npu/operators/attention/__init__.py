@@ -3,6 +3,8 @@
 from .ada_block_sparse_attention import ada_block_sparse_attention
 from .compressor import compressor
 from .compressor_v2 import compressor_v2
+from .dcp_sparse_index_remap import dcp_sparse_index_remap
+from .dcp_verify_page_tables import dcp_verify_page_tables
 from .fia_prep import fia_prep
 from .flash_decode_bnsd_with_gqa_share_sparse import (
     flash_decode_bnsd_with_gqa_share_sparse,
@@ -30,6 +32,8 @@ from .sparse_flash_mla import sparse_flash_mla, sparse_flash_mla_metadata
 __all__ = [
     "ada_block_sparse_attention",
     "compressor",
+    "dcp_sparse_index_remap",
+    "dcp_verify_page_tables",
     "fia_prep",
     "gqa_share_sparse_decode",
     "chunk_kda_fwd",

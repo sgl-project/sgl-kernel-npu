@@ -1,7 +1,10 @@
 #include "kernel_operator.h"
 
-namespace
-{
+#ifdef SGL_DCP_CANN_PACKAGE
+#include "dcp_verify_page_tables_tiling.h"
+#endif
+
+namespace {
 constexpr uint32_t kTile = 128;
 
 template <typename Index>
@@ -82,12 +85,33 @@ __aicore__ inline void Run(GM_ADDR slots, GM_ADDR requests, GM_ADDR ordinary, GM
         local_queue.FreeTensor(local_tile_out);
     }
 }
-} // namespace
+}  // namespace
 
-extern "C" __global__ __aicore__ void
-sgl_dcp_verify_page_tables(GM_ADDR slots, GM_ADDR requests, GM_ADDR ordinary, GM_ADDR local, uint32_t rows,
-                           uint32_t slot_rows, uint32_t slot_cols, uint32_t ordinary_cols, uint32_t local_cols,
-                           uint32_t active_cols, uint32_t width, uint32_t page, uint32_t dcp, uint32_t index_bytes)
+#ifdef SGL_DCP_CANN_PACKAGE
+extern "C" __global__ __aicore__ void sgl_dcp_verify_page_tables(GM_ADDR slots, GM_ADDR requests, GM_ADDR ordinary,
+                                                                 GM_ADDR local, GM_ADDR ordinary_ref, GM_ADDR local_ref,
+                                                                 GM_ADDR workspace, GM_ADDR tiling)
+{
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+    REGISTER_TILING_DEFAULT(optiling::SglDcpVerifyPageTablesTilingData);
+    GET_TILING_DATA(data, tiling);
+    if (data.index_bytes == sizeof(int64_t)) {
+        Run<int64_t>(slots, requests, ordinary_ref, local_ref, data.rows, data.slot_rows, data.slot_cols,
+                     data.ordinary_cols, data.local_cols, data.active_cols, data.query_len, data.page_size,
+                     data.dcp_size);
+    } else {
+        Run<int32_t>(slots, requests, ordinary_ref, local_ref, data.rows, data.slot_rows, data.slot_cols,
+                     data.ordinary_cols, data.local_cols, data.active_cols, data.query_len, data.page_size,
+                     data.dcp_size);
+    }
+}
+#else
+extern "C" __global__ __aicore__ void sgl_dcp_verify_page_tables(GM_ADDR slots, GM_ADDR requests, GM_ADDR ordinary,
+                                                                 GM_ADDR local, uint32_t rows, uint32_t slot_rows,
+                                                                 uint32_t slot_cols, uint32_t ordinary_cols,
+                                                                 uint32_t local_cols, uint32_t active_cols,
+                                                                 uint32_t width, uint32_t page, uint32_t dcp,
+                                                                 uint32_t index_bytes)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     if (index_bytes == 8) {
@@ -98,3 +122,4 @@ sgl_dcp_verify_page_tables(GM_ADDR slots, GM_ADDR requests, GM_ADDR ordinary, GM
                      active_cols, width, page, dcp);
     }
 }
+#endif

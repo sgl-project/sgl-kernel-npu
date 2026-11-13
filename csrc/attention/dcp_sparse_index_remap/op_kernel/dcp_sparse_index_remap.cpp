@@ -1,7 +1,10 @@
 #include "kernel_operator.h"
 
-namespace
-{
+#ifdef SGL_DCP_CANN_PACKAGE
+#include "dcp_sparse_index_remap_tiling.h"
+#endif
+
+namespace {
 constexpr uint32_t kTopK = 2048;
 constexpr uint32_t kRowBytes = kTopK * sizeof(int32_t);
 constexpr uint32_t kMaskBytes = kTopK / 8;
@@ -9,7 +12,7 @@ constexpr uint32_t kInt32PerBlock = 8;
 
 class Remap
 {
-  public:
+public:
     __aicore__ inline void Init(GM_ADDR input, GM_ADDR output, uint32_t rows)
     {
         input_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(input), rows * kTopK);
@@ -83,15 +86,27 @@ class Remap
         }
     }
 
-  private:
+private:
     AscendC::TPipe pipe_;
     AscendC::TQue<AscendC::TPosition::VECIN, 1> in_queue_;
     AscendC::TQue<AscendC::TPosition::VECOUT, 1> out_queue_;
     AscendC::TBuf<AscendC::TPosition::VECCALC> page_, local_, temp_, compare_, owner_mask_, valid_mask_;
     AscendC::GlobalTensor<int32_t> input_, output_;
 };
-} // namespace
+}  // namespace
 
+#ifdef SGL_DCP_CANN_PACKAGE
+extern "C" __global__ __aicore__ void sgl_dcp_sparse_index_remap(GM_ADDR input, GM_ADDR output, GM_ADDR workspace,
+                                                                 GM_ADDR tiling)
+{
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+    REGISTER_TILING_DEFAULT(optiling::SglDcpSparseIndexRemapTilingData);
+    GET_TILING_DATA(data, tiling);
+    Remap op;
+    op.Init(input, output, data.rows);
+    op.Run(data.rows, data.page_shift, data.dcp_shift, static_cast<float>(data.dcp_rank));
+}
+#else
 extern "C" __global__ __aicore__ void sgl_dcp_sparse_index_remap(GM_ADDR input, GM_ADDR output, uint32_t rows,
                                                                  int32_t page_shift, int32_t dcp_shift,
                                                                  int32_t dcp_rank)
@@ -101,3 +116,4 @@ extern "C" __global__ __aicore__ void sgl_dcp_sparse_index_remap(GM_ADDR input, 
     op.Init(input, output, rows);
     op.Run(rows, page_shift, dcp_shift, static_cast<float>(dcp_rank));
 }
+#endif
