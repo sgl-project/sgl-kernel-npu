@@ -1,0 +1,167 @@
+{
+  "source_repository": "https://github.com/vllm-project/vllm-ascend.git",
+  "source_commit": "85910cd528e2e260848e58e6337adf35cfd5d982",
+  "source_root": "csrc/attention/fused_scatter_copy_sparse_flash_attention",
+  "source_license": "CANN Open Software License Agreement Version 2.0, as stated in upstream file headers; preserve notices with source files",
+  "destination": "sgl-kernel-npu/csrc/fused_scatter_copy_sparse_flash_attention",
+  "note": "Unmodified source snapshot copied before SGLang integration edits; hashes below identify original copied files.",
+  "files": [
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/CMakeLists.txt",
+      "sha256": "faffe61ec4c0aff091cd25eb100680a42121d59835cb3e27da361f5231cbb221",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/fused_scatter_copy_sparse_flash_attention_torch_adpt.h",
+      "sha256": "89e295b8d8b4e8f170f4d9bed7ab7a97c7b4c7e53317d35cc0b167f7b5b496a0",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream Torch adapter; SGLang dispatch uses the integrated PyTorch extension registration. Removed from the source tree and retained only in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/README.md",
+      "sha256": "98d3478f0dd185a94ca2a256b59a10fab060367d27f1ecd3b071951aa0d31fea",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/README.md",
+      "reason": "Rewritten to document the SGLang Q1 integration contract."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/CMakeLists.txt",
+      "sha256": "7e0f9663724e958433356c8cd11f908b0fd5be2d4f35de2aa64f724bc8c4004e",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_def.cpp",
+      "sha256": "a3eed03c8fee7f9569978c149f76e9c5e8948cda01bc6fe7a0b62a648b95b806",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_infershape.cpp",
+      "sha256": "7b61f70747d5a4a07f9ab269e5283ab843b4bf30f916f67b2cecfa2d065670e3",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_tiling_impl.cpp",
+      "sha256": "b4f3fd0bc9d3423c4c3f3631d74c5c6f5ba2405c92ccf8ceb2bb5124559872b3",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_tiling_impl.h",
+      "sha256": "9be1a706934785f8f9def448689674f5544f9011c198e4d018464ad0a3f4a0ce",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_tiling.cpp",
+      "sha256": "79862e33ddc6d6146ec19feea6510c72a5919b0868a84bbddd782a5d91b92a82",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/fused_scatter_copy_sparse_flash_attention_tiling.h",
+      "sha256": "a43a71de7ce51dcea1d51a94e9d65876c494887ad8a66969fd1b501a3912c0d5",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/op_api/aclnn_fused_scatter_copy_sparse_flash_attention.cpp",
+      "sha256": "76b8364f3e4d9954e9ae4d1b489e3d1f962d568b86ad443add4dcb1ec48eabc3",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_host/op_api/aclnn_fused_scatter_copy_sparse_flash_attention.h",
+      "sha256": "055ba500a99af6bc37c6bffe4cbe82e6d5d7fa7c80dcffd1826845ff91441444",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
+      "sha256": "1035dc2a226d792482969d86734d7732994dd3efe611ead96efaf1e2d8a99ae5",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
+      "reason": "Active inherited AscendC implementation header included by the combined kernel."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/fused_scatter_copy_sparse_flash_attention.cpp",
+      "sha256": "ada13a0b17a29b2e0e606dc1e6eedc400014fea449a53cc70836245dac082f41",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
+      "sha256": "88bffb36e726d604acb502c7e033f4ebb75b463c8ba7425b0256282aa6bd8a38",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
+      "reason": "Active inherited AscendC implementation header included by the combined kernel."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
+      "sha256": "1cc563581250e877e73393411b6721fd3024f17a4a4a5e2f406043c2e1b9525d",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
+      "reason": "Active inherited AscendC implementation header included by the combined kernel."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+      "sha256": "2d467621e07a3785fd742c3fc8845078aba74a3acccd6f43f9240ade0daf19c1",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+      "reason": "Active inherited AscendC implementation header included by the combined kernel."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h",
+      "sha256": "7beb21871f691b460b991bc10916b5e0a95c8a8b91c6f8f0713c143f1b83685b",
+      "retained_in_port": true,
+      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h",
+      "reason": "Active inherited AscendC implementation header included by the combined kernel."
+    },
+    {
+      "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_template_tiling_key.h",
+      "sha256": "3023525068fecb500a4c77774c45ee98fd3e1f2f7625c9a93b5b96c717d4344a",
+      "retained_in_port": false,
+      "actual_path": null,
+      "reason": "Unused upstream OPP/ACLNN host or kernel source; removed from the SGLang implementation and retained in the task artifact archive."
+    }
+  ],
+  "pristine_archive_sha256": "ebd771541c27c4f9a5962ee4826446a378e045fba0f164b994d185ab49dcbe4b",
+  "pristine_archive_file_count": 19,
+  "pristine_archive_location": "Task artifact archive; not bundled in the source tree",
+  "retained_upstream_implementation_files": [
+    "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
+    "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
+    "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
+    "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+    "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h"
+  ],
+  "integrated_source_file_count": 11,
+  "integrated_source_files": [
+    "README.md",
+    "UPSTREAM_PROVENANCE.json",
+    "fused_copy_sfa_tiling_data.h",
+    "op_host/fused_copy_sfa.cpp",
+    "op_kernel/fused_scatter_copy_sparse_flash_attention_combined.cpp",
+    "op_kernel/sparse_flash_attention_impl/copy_sfa_address_math.h",
+    "op_kernel/first_fill_scatter_copy_kernel.h",
+    "op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
+    "op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
+    "op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+    "op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h"
+  ]
+}

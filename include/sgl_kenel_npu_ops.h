@@ -13,6 +13,16 @@
 
 namespace sglang {
 namespace npu_kernel {
+void plan_sparse_kv_cache(const at::Tensor &source_to_slot,
+                          const at::Tensor &slot_to_source,
+                          const at::Tensor &req_ids,
+                          const at::Tensor &topk_input,
+                          at::Tensor &topk_src_ids, at::Tensor &topk_dst_slots,
+                          at::Tensor &topk_miss_counts,
+                          at::Tensor &miss_src_ids, at::Tensor &miss_dst_slots,
+                          at::Tensor &miss_counts, int64_t max_context_len,
+                          int64_t cache_capacity);
+
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
 at::Tensor cache_loc_assign(const at::Tensor &req_indices,
@@ -121,6 +131,45 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     int64_t sparse_mode, int64_t pre_tokens, int64_t next_tokens,
     int64_t attention_mode, bool return_softmax_lse);
 
+void fused_scatter_copy_sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &query_rope,
+    at::Tensor &combined_hbm_cache, const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_kv, const at::Tensor &num_cache_tokens,
+    const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids,
+    const at::Tensor &miss_dst_slots, const at::Tensor &miss_counts,
+    const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value,
+    bool full_visible, bool resident_refresh_tail,
+    const c10::optional<at::Tensor> &current,
+    const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid,
+    const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token,
+    const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity,
+    int64_t dram_rope_dev_ptr);
+
+void fused_scatter_copy_sparse_flash_attention_split(
+    const at::Tensor &query, const at::Tensor &query_rope,
+    at::Tensor &combined_hbm_cache, at::Tensor &split_hbm_rope,
+    const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_kv, const at::Tensor &num_cache_tokens,
+    const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids,
+    const at::Tensor &miss_dst_slots, const at::Tensor &miss_counts,
+    const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value,
+    bool full_visible, bool resident_refresh_tail,
+    const c10::optional<at::Tensor> &current,
+    const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid,
+    const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token,
+    const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity,
+    int64_t dram_rope_dev_ptr);
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
@@ -160,6 +209,18 @@ void mega_chunk_gdn(
     at::Tensor &o_workspace_qs, at::Tensor &o_workspace_gated,
     int64_t block_dim, int64_t batch_size, int64_t seq_len,
     int64_t total_tokens, int64_t num_matrices);
+
+void fused_lightning_indexer_manage(
+    const at::Tensor &index_weights, const at::Tensor &query,
+    const at::Tensor &index_key_cache, const at::Tensor &index_block_table,
+    const at::Tensor &actual_seq_lengths_query,
+    const at::Tensor &actual_seq_lengths_key,
+    const at::Tensor &offload_seq_lengths_key,
+    const at::Tensor &num_cache_tokens, const at::Tensor &request_state,
+    const at::Tensor &req_pool_entries, at::Tensor cache_slots_pool,
+    at::Tensor topk_src_ids, at::Tensor topk_dst_slots,
+    at::Tensor topk_miss_counts, at::Tensor miss_src_ids,
+    at::Tensor miss_dst_slots, at::Tensor miss_counts, bool full_visible);
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
@@ -387,6 +448,12 @@ shm_allocator_create_and_register(int64_t size, int64_t device_id,
  * @brief Unregister and free all shared-memory entries for one device.
  */
 void shm_allocator_free_all(int64_t device_id);
+
+// Private host storage for fused LIM/CopySFA; legacy allocation stays separate.
+std::tuple<int64_t, int64_t>
+fused_shm_allocator_create_and_register(int64_t size, int64_t device_id,
+                                        c10::string_view name);
+void fused_shm_allocator_free_all(int64_t device_id);
 #endif
 
 } // namespace npu_kernel
