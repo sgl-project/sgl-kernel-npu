@@ -4,8 +4,7 @@ import torch
 import torch.nn.functional as F
 import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native
-from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
-from utils import require_npu_op
+from sgl_kernel_npu.fla.mega_chunk_gdn import is_available, run_mega_chunk_gdn
 
 
 def _has_npu() -> bool:
@@ -14,7 +13,7 @@ def _has_npu() -> bool:
 
 pytestmark = [
     pytest.mark.skipif(not _has_npu(), reason="NPU is required"),
-    require_npu_op("mega_chunk_gdn"),
+    pytest.mark.skipif(not is_available(), reason="pto-kernels wheel is not installed"),
 ]
 
 SUPPORTED_HEAD_CONFIGS = [
@@ -92,9 +91,6 @@ def _native_reference(
 
 
 def test_mega_chunk_gdn_no_initial_state():
-    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        pytest.skip("mega_chunk_gdn op is not registered")
-
     torch.manual_seed(0)
     device = torch.device("npu")
     total_tokens = 129
@@ -153,9 +149,6 @@ def test_mega_chunk_gdn_no_initial_state():
 
 @pytest.mark.parametrize(("num_value_heads", "num_key_heads"), SUPPORTED_HEAD_CONFIGS)
 def test_mega_chunk_gdn_all_supported_head_configs(num_value_heads, num_key_heads):
-    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        pytest.skip("mega_chunk_gdn op is not registered")
-
     torch.manual_seed(2)
     device = torch.device("npu")
     cu_list = [0, 22, 1333]

@@ -13,7 +13,7 @@ from sgl_kernel_npu.fla.chunk import (
 )
 from utils import require_npu_op
 
-pytestmark = require_npu_op("mega_chunk_gdn")
+pytestmark = require_npu_op("triangular_inverse")
 
 LAUNCH_MIN = 2
 LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling

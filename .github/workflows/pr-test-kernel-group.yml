@@ -48,6 +48,9 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh --cann-version "${{ inputs.cann_version }}"
       - name: Set up Triton-Ascend and kernel test dependencies
         run: bash scripts/prepare_kernel_tests.sh
+      - name: Install PTO kernels
+        if: inputs.group == 'fla'
+        run: python3 -m pip install 'pto-kernels>=0.2.0'
       - name: Run kernel operator group tests
         timeout-minutes: ${{ inputs.timeout_minutes }}
         env:

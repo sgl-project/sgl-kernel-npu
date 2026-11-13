@@ -300,6 +300,7 @@ def setup_refactor():
             "torch==" + torch.__version__.split("+")[0],
             "torch_npu==" + torch_npu.__version__.split("+")[0],
         ],
+        extras_require={"pto": ["pto-kernels==0.2.0"]},
         url="https://github.com/sgl-project/sgl-kernel-npu/",
         license="BSD 3 License",
     )
