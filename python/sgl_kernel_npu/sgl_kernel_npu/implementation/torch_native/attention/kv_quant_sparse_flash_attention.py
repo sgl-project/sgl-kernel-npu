@@ -15,7 +15,7 @@ def kv_quant_sparse_flash_attention(
     actual_seq_lengths_kv,
     scale_value,
 ):
-    """Decode the packed MLA record and use the independent FP32 attention reference."""
+    """Decode the packed MLA record and round the weights before multiplying by V."""
     packed = packed_kv.detach().cpu()
     latent_bytes = 512
     rope_end = latent_bytes + 64 * 2
@@ -40,5 +40,6 @@ def kv_quant_sparse_flash_attention(
         layout_kv="PA_BSND",
         sparse_mode=0,
         return_softmax_lse=True,
+        round_weights_to_bf16=True,
     )
     return out, maximum.masked_fill(total == 0, 0), total

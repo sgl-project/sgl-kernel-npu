@@ -3,8 +3,9 @@
 This is an accuracy reference, not a graph-compatible execution fallback. It
 covers ``sparse_mode=0`` (explicit top-k selection), ``attention_mode=2``
 (MLA/DeepSeek sparse attention) and ``sparse_block_size`` blocks, which is the
-path used by the legacy operator tests. FP32 is used for all intermediates; the
-attention output is cast back to the query dtype.
+path used by the legacy operator tests. Intermediates use FP32, with optional
+BF16 rounding of the weights before multiplying by V. The attention output
+is cast back to the query dtype.
 """
 
 import math
@@ -66,6 +67,7 @@ def sparse_flash_attention(
     next_tokens: int = 9223372036854775807,
     attention_mode: int = 2,
     return_softmax_lse: bool = False,
+    round_weights_to_bf16: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return (attention_out, softmax_max, softmax_sum) for sparse attention."""
     if layout_query not in ("BSND", "TND"):
@@ -181,6 +183,8 @@ def sparse_flash_attention(
                 row_max = scores.max(dim=-1).values
                 probs = torch.exp(scores - row_max.unsqueeze(-1))
                 row_sum = probs.sum(dim=-1)
+                if round_weights_to_bf16:
+                    probs = probs.to(torch.bfloat16).float()
                 value_out = (probs @ values) / row_sum.unsqueeze(-1)
                 if tnd:
                     out[token, head_slice] = value_out

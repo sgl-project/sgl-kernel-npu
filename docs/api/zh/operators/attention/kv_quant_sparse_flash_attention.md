@@ -78,7 +78,8 @@ arch35 kernel 直接读取分页打包 KV，返回两项 softmax 统计量供框
 
 ## torch_native 后端
 
-精度参考在 CPU 解码缓存，用 PyTorch 以 FP32 计算 Attention，再把结果放回查询所在设备。
+精度参考在 CPU 解码缓存并用 PyTorch 计算 Attention。softmax 统计量保持 FP32，
+指数权重在乘 V 前舍入为 BF16。结果放回查询所在设备。
 
 ## 调用示例
 

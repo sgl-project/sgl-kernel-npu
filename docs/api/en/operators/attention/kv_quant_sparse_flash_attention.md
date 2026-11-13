@@ -80,8 +80,9 @@ returns both softmax statistics for the framework's cross-rank LSE merge.
 
 ## torch_native backend
 
-The accuracy reference decodes the cache on CPU, computes attention with
-PyTorch in FP32, and returns tensors on the query device.
+The accuracy reference decodes the cache on CPU and computes attention with
+PyTorch. It keeps the softmax statistics in FP32 and rounds the exponential
+weights to BF16 before multiplying by V. It returns tensors on the query device.
 
 ## Example
 
