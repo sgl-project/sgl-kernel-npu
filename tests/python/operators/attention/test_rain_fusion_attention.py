@@ -2,8 +2,7 @@
 
 Only attention_out is compared: the device Kernel may leave softmax_lse
 untouched, so its content stays undefined. The FP32 torch_native reference
-casts the result back to the query dtype; FP16 uses a wider tolerance because
-the Kernel defaults to FP16 softmax (innerPrecise=1).
+casts the result back to the query dtype; FP16 uses a wider tolerance.
 """
 
 import pytest
@@ -22,31 +21,32 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 # One representative TND call; only this tuple is profiled.
-perf_shape = [((2048,), 2, 128, 128)]
+perf_shape = [((2048,), 2, 2, 128, 128)]
 
 RAIN_FUSION_ATTENTION_STANDARD = {
     "torch.float16": AccuracyStandard(atol=1e-2, rtol=1e-2),
 }
 
 
-def generate_test_data(seqs, heads, dim, block, dtype, selection="dense"):
+def generate_test_data(seqs, heads, kv_heads, dim, block, dtype, selection="dense"):
     """Build packed TND inputs; selections are ascending KV block ids."""
     seqs = list(seqs)
     total = sum(seqs)
     generator = torch.Generator(device="cpu").manual_seed(0)
-    shape = (total, heads, dim)
+    q_shape = (total, heads, dim)
+    kv_shape = (total, kv_heads, dim)
     query = (
-        torch.randn(shape, generator=generator, dtype=torch.float32, device="cpu")
+        torch.randn(q_shape, generator=generator, dtype=torch.float32, device="cpu")
         .to(dtype)
         .npu()
     )
     key = (
-        torch.randn(shape, generator=generator, dtype=torch.float32, device="cpu")
+        torch.randn(kv_shape, generator=generator, dtype=torch.float32, device="cpu")
         .to(dtype)
         .npu()
     )
     value = (
-        torch.randn(shape, generator=generator, dtype=torch.float32, device="cpu")
+        torch.randn(kv_shape, generator=generator, dtype=torch.float32, device="cpu")
         .to(dtype)
         .npu()
     )
@@ -86,7 +86,7 @@ def generate_test_data(seqs, heads, dim, block, dtype, selection="dense"):
         blockshape=[block, block],
         actual_seq_qlen=seqs,
         actual_seq_kvlen=seqs,
-        head_num=heads,
+        head_num=kv_heads,
         scale=dim**-0.5,
         # Match the sglang call site: float softmax, required for BF16.
         inner_precise=0,
@@ -95,22 +95,72 @@ def generate_test_data(seqs, heads, dim, block, dtype, selection="dense"):
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
-    "seqs,heads,dim,block,selection",
+    "seqs,heads,kv_heads,dim,block,selection",
     [
-        pytest.param((256,), 1, 128, 128, "dense", id="single-head"),
-        pytest.param((256,), 2, 128, 128, "sparse", id="sparse-selection"),
+        # sglang diffusion RainFusionAttention backend call contract: packed TND,
+        # MHA, blockshape [128, 128], innerPrecise=0. The token count is a
+        # representative prefill length; only the model dimensions are borrowed.
+        pytest.param((2048,), 2, 2, 128, 128, "dense", id="sglang-diffusion-tnd"),
+        pytest.param(
+            (256,),
+            1,
+            1,
+            128,
+            128,
+            "dense",
+            id="single-head",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (256,),
+            2,
+            2,
+            128,
+            128,
+            "sparse",
+            id="sparse-selection",
+            marks=pytest.mark.extra_checks,
+        ),
         # 200 is not a multiple of the block tile: both tails are partial.
-        pytest.param((200,), 2, 128, 128, "dense", id="tail-seq"),
+        pytest.param(
+            (200,),
+            2,
+            2,
+            128,
+            128,
+            "dense",
+            id="tail-seq",
+            marks=pytest.mark.extra_checks,
+        ),
         # Packed batches: select rows follow the flattened [block, head] order.
-        pytest.param((128, 72), 2, 128, 128, "dense", id="two-batches"),
-        pytest.param((2048,), 2, 128, 128, "dense", id="perf-tnd-2k"),
+        pytest.param(
+            (128, 72),
+            2,
+            2,
+            128,
+            128,
+            "dense",
+            id="two-batches",
+            marks=pytest.mark.extra_checks,
+        ),
+        # GQA: query heads map to KV heads in contiguous groups.
+        pytest.param(
+            (512,),
+            4,
+            2,
+            128,
+            128,
+            "dense",
+            id="gqa",
+            marks=pytest.mark.extra_checks,
+        ),
     ],
 )
-def test_rain_fusion_attention(seqs, heads, dim, block, selection, dtype):
+def test_rain_fusion_attention(seqs, heads, kv_heads, dim, block, selection, dtype):
     from sgl_kernel_npu.operators.attention import rain_fusion_attention
 
     impl, impl_ref = get_test_impls()
-    data = generate_test_data(seqs, heads, dim, block, dtype, selection)
+    data = generate_test_data(seqs, heads, kv_heads, dim, block, dtype, selection)
     query, key, value = data["query"], data["key"], data["value"]
     query_before, key_before, value_before = query.clone(), key.clone(), value.clone()
 
@@ -157,7 +207,7 @@ def test_rain_fusion_attention(seqs, heads, dim, block, selection, dtype):
     )
     check_performance(
         executor,
-        enable_perf=(tuple(seqs), heads, dim, block) in perf_shape
+        enable_perf=(tuple(seqs), heads, kv_heads, dim, block) in perf_shape
         and selection == "dense"
         and dtype == torch.float16,
     )

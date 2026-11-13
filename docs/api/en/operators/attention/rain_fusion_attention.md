@@ -75,7 +75,7 @@ the head width.
 | `scale` | — | float, 1.0 | Score multiplier, typically `D ** -0.5`. |
 | `inner_precise` | — | int, 1 | Softmax precision mode. |
 | `block_size` | — | int, 0 | Paged-attention block size; 0 leaves it unused. |
-| `impl` | — | `"auto"` | Keyword-only: `auto`, `cann_ops_transformer`. |
+| `impl` | — | `"auto"` | Keyword-only: `auto`, `cann_ops_transformer`, `torch_native`. |
 
 | Return | Shape | Dtype |
 | --- | --- | --- |

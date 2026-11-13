@@ -1,5 +1,7 @@
 """Public RainFusionAttention dispatch for the CANN built-in ACLNN operator."""
 
+import torch
+
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -33,8 +35,6 @@ def _cann_ops_transformer_impl(
     inner_precise,
     block_size,
 ):
-    import torch
-
     return torch.ops.npu.rainfusionattention(
         query,
         key,
@@ -127,6 +127,7 @@ def rain_fusion_attention(
     scale=1.0,
     inner_precise=1,
     block_size=0,
+    *,
     impl="auto",
 ):
     """Return (attention_out, softmax_lse) from block-sparse fused attention.

@@ -71,7 +71,7 @@ attention_out = softmax(scale * (query @ key^T)) @ value
 | `scale` | — | float，1.0 | 分数缩放系数，通常取 `D ** -0.5`。 |
 | `inner_precise` | — | int，1 | Softmax 精度模式。 |
 | `block_size` | — | int，0 | PagedAttention 的 block 大小；0 表示不使用。 |
-| `impl` | — | `"auto"` | 仅关键字参数：`auto`、`cann_ops_transformer`。 |
+| `impl` | — | `"auto"` | 仅关键字参数：`auto`、`cann_ops_transformer`、`torch_native`。 |
 
 | 返回值 | 形状 | 数据类型 |
 | --- | --- | --- |
