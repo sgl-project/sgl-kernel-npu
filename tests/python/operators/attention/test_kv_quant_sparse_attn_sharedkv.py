@@ -8,6 +8,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import get_test_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 
 # DeepSeek-V4-Flash uses D=512, one KV head and 64-head padding on
@@ -64,6 +65,7 @@ def test_paged_swa(batch, query_len, heads, kv_len, window, block_size):
         kv_quant_sparse_attn_sharedkv_metadata_host,
     )
 
+    require_test_impl(kv_quant_sparse_attn_sharedkv, get_test_impls()[0])
     q, packed, table, lengths_cpu = generate_test_data(
         batch, query_len, heads, kv_len, block_size
     )

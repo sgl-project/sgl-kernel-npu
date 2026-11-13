@@ -42,13 +42,9 @@ def _cann_9_1_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "inplace_partial_rotary_mul", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.inplace_partial_rotary_mul in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import (
+        inplace_partial_rotary_mul as op,
+    )
     op(x, cos, sin, **kwargs)
     return x
 

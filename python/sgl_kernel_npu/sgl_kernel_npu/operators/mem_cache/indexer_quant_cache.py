@@ -53,13 +53,7 @@ def _cann_9_1_indexer_quant_cache(cache, scale_cache, x, slot_mapping, **kwargs)
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "indexer_compress_epilog", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.indexer_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import indexer_compress_epilog as op
     if kwargs.get("quant_mode", "fp8") != "fp8":
         raise RuntimeError(
             "cann_9_1 indexer epilog supports its original fp8 dynamic-quantization contract only"
