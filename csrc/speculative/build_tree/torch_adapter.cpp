@@ -76,8 +76,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(a!) tree_mask, Tensor(b!) positions, Tensor(c!) retrive_index, "
         "Tensor(d!) retrive_next_token, Tensor(e!) retrive_next_sibling, "
         "int topk, int depth, int draft_token_num, int tree_mask_mode) -> ()");
+    m.def(
+        "build_tree_kernel_efficient(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
+        "Tensor tree_mask, Tensor positions, Tensor retrive_index, Tensor retrive_next_token, "
+        "Tensor retrive_next_sibling, int topk, int depth, int draft_token_num, int tree_mask_mode)->()");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("build_tree", &build_tree);
+    m.impl("build_tree_kernel_efficient", &build_tree);
 }

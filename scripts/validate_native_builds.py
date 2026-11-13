@@ -46,7 +46,7 @@ OPERATORS = {
     ),
     "chunk_gated_delta_rule": (
         "attention/test_chunk_gated_delta_rule.py",
-        "sgl_chunk_gated_delta_rule",
+        "chunk_gated_delta_rule",
     ),
     "cache_loc_assign": ("mem_cache/test_cache_locations.py", "cache_loc_assign"),
     "cache_loc_update": ("mem_cache/test_cache_locations.py", "cache_loc_update"),
