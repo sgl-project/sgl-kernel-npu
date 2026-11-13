@@ -21,7 +21,7 @@ on:
 jobs:
   run-kernel-group:
     name: ${{ inputs.group }} (CANN ${{ inputs.cann_version }}, ${{ inputs.npu_hardware }})
-    runs-on: ${{ inputs.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-2' }}
+    runs-on: ${{ inputs.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-sgl-kernel-fed-2' }}
     timeout-minutes: 180
     container:
       image: quay.io/ascend/cann:${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-ubuntu22.04-py3.12
