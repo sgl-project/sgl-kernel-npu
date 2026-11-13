@@ -71,7 +71,7 @@ CANN 输出裁掉新增行后，再按原始 query 边界执行 packing。
 
 ## cann_ops_transformer 后端
 
-公共适配层加载 `sgl_ops_transformer` 第三方包，调用 `torch.ops.cann_ops_transformer.pool_key_indexer`，并返回其中的 sparse indices。CANN 9.2 的 `ops_transformer` profile 会为 arch22 和 arch35 构建 vendor 算子及上游 Torch 绑定，不再需要单独安装 `csrc/attentions` 扩展。host 整数序列会转换为 CPU int64 tensor。二维/三维 query 直接转发，不转换成 BSND。
+仅支持 CANN 9.2.0。公共适配层加载 `sgl_ops_transformer` 第三方包，调用 `torch.ops.cann_ops_transformer.pool_key_indexer`，并返回其中的 sparse indices。CANN 9.2 的 `ops_transformer` profile 会为 arch22 和 arch35 构建 vendor 算子及上游 Torch 绑定；不支持 CANN 9.1，也不再需要单独安装 `csrc/attentions` 扩展。host 整数序列会转换为 CPU int64 tensor。二维/三维 query 直接转发，不转换成 BSND。
 
 仅支持 BF16/FP16、`quant_mode=-1`、`return_value=False`。
 无独立 `torch_native` 后端；`auto`/`cann_ops_transformer` 为同一实现。

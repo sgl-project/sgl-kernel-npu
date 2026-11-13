@@ -72,7 +72,7 @@ before CANN and pack the cropped output with the original query boundaries.
 
 ## cann_ops_transformer backend
 
-The facade loads the `sgl_ops_transformer` third-party package and calls `torch.ops.cann_ops_transformer.pool_key_indexer`, returning its sparse-index output. The CANN 9.2 `ops_transformer` profile builds the vendor operator and its upstream Torch binding for arch22 and arch35; the separate `csrc/attentions` extension is not required. Host integer sequences are converted to CPU int64 tensors. Rank-2/3 queries are forwarded without conversion to BSND.
+Requires CANN 9.2.0. The facade loads the `sgl_ops_transformer` third-party package and calls `torch.ops.cann_ops_transformer.pool_key_indexer`, returning its sparse-index output. The CANN 9.2 `ops_transformer` profile builds the vendor operator and its upstream Torch binding for arch22 and arch35; CANN 9.1 is unsupported and the separate `csrc/attentions` extension is not required. Host integer sequences are converted to CPU int64 tensors. Rank-2/3 queries are forwarded without conversion to BSND.
 
 Only BF16/FP16, `quant_mode=-1` and `return_value=False` are supported.
 There is no independent `torch_native` backend: `auto` and `cann_ops_transformer` are aliases.
