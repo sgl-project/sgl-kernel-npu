@@ -10,6 +10,8 @@ TEST_GROUP="${1:-all}"
 case "$TEST_GROUP" in
     speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
     matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul") ;;
+    mamba) TEST_DIRS=("$TEST_ROOT/operators/mamba") ;;
+    moe) TEST_DIRS=("$TEST_ROOT/operators/moe") ;;
     embedding) TEST_DIRS=("$TEST_ROOT/operators/embedding") ;;
     data_move) TEST_DIRS=("$TEST_ROOT/operators/data_move") ;;
     activation) TEST_DIRS=("$TEST_ROOT/operators/activation") ;;
@@ -93,6 +95,7 @@ filter_tests() {
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
                 tests/python/operators/indexer/test_lightning_indexer_v2.py|\
+                tests/python/operators/moe/test_mega_moe.py|\
                 tests/python/operators/mem_cache/test_kv_transfer.py|\
                 tests/python/operators/indexer/test_pool_key_indexer.py|\
                 tests/python/operators/indexer/test_qsa_mqa.py)

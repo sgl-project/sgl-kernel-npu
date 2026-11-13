@@ -36,6 +36,8 @@ jobs:
     outputs:
       speculative: ${{ steps.select.outputs.speculative }}
       matmul: ${{ steps.select.outputs.matmul }}
+      mamba: ${{ steps.select.outputs.mamba }}
+      moe: ${{ steps.select.outputs.moe }}
       embedding: ${{ steps.select.outputs.embedding }}
       data_move: ${{ steps.select.outputs.data_move }}
       activation: ${{ steps.select.outputs.activation }}
@@ -73,6 +75,8 @@ jobs:
           directories = {
               "speculative": "tests/python/operators/speculative/",
               "matmul": "tests/python/operators/matmul/",
+              "mamba": "tests/python/operators/mamba/",
+              "moe": "tests/python/operators/moe/",
               "embedding": "tests/python/operators/embedding/",
               "data_move": "tests/python/operators/data_move/",
               "activation": "tests/python/operators/activation/",
@@ -407,11 +411,41 @@ jobs:
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
 
+  test-mamba-ops:
+    needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.mamba == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: mamba
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
+  test-moe-ops:
+    needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.moe == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: moe
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
   finish:
     if: ${{ always() }}
     needs:
       - get-changed-files
       - test-speculative-ops
+      - test-mamba-ops
+      - test-moe-ops
       - test-matmul-ops
       - test-embedding-ops
       - test-data_move-ops
