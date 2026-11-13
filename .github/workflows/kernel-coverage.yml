@@ -108,30 +108,42 @@ jobs:
           source-dir: ${{ github.workspace }}/baseline-src
           coverage-dir: ${{ github.workspace }}/baselines/kernel-coverage-a5
           map-file: ${{ github.workspace }}/baselines/kernel-coverage-a5/test_case_map.json
-      - name: Package baseline source and maps
+      - name: Package source, maps and coverage separately
         shell: bash
         run: |
           set -euo pipefail
-          PACKAGE_DIR="$RUNNER_TEMP/kernel-map-baseline"
-          mkdir -p "$PACKAGE_DIR"
+          PACKAGE_DIR="$RUNNER_TEMP/kernel-deliverables"
+          mkdir -p "$PACKAGE_DIR/source" "$PACKAGE_DIR/maps" "$PACKAGE_DIR/coverage"
           BASELINE_SHA="$(git -C baseline-src rev-parse HEAD)"
           for chip in a3 a5; do
             test "$(cat "baselines/kernel-coverage-$chip/baseline-sha.txt")" = "$BASELINE_SHA"
-            cp "baselines/kernel-coverage-$chip/test_case_map.json" "$PACKAGE_DIR/test_case_map_$chip.json"
+            test -s "baselines/kernel-coverage-$chip/test_case_map.json"
+            cp "baselines/kernel-coverage-$chip/test_case_map.json" "$PACKAGE_DIR/maps/test_case_map_$chip.json"
           done
-          printf '%s\n' "$BASELINE_SHA" > "$PACKAGE_DIR/baseline-sha.txt"
-          tar --exclude='.git' -czf "$PACKAGE_DIR/baseline-source.tar.gz" -C baseline-src .
-      - name: Save baseline source and maps
+          printf '%s\n' "$BASELINE_SHA" > "$PACKAGE_DIR/source/baseline-sha.txt"
+          cp "$PACKAGE_DIR/source/baseline-sha.txt" "$PACKAGE_DIR/maps/"
+          tar --exclude='.git' -czf "$PACKAGE_DIR/source/baseline-source.tar.gz" -C baseline-src .
+          tar --exclude='test_case_map.json' -czf "$PACKAGE_DIR/coverage/coverage-data.tar.gz" -C "$GITHUB_WORKSPACE" baselines
+          tar -tzf "$PACKAGE_DIR/source/baseline-source.tar.gz" > "$RUNNER_TEMP/kernel-source-files.txt"
+          tar -tzf "$PACKAGE_DIR/coverage/coverage-data.tar.gz" > "$RUNNER_TEMP/kernel-coverage-files.txt"
+          for chip in a3 a5; do
+            grep -q "baselines/kernel-coverage-$chip/coverage.xml" "$RUNNER_TEMP/kernel-coverage-files.txt"
+          done
+      - name: Upload baseline source
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-map-baseline-full
-          path: ${{ runner.temp }}/kernel-map-baseline/
+          name: kernel-source-full
+          path: ${{ runner.temp }}/kernel-deliverables/source/
           if-no-files-found: error
-      - name: Save coverage and maps for inspection
-        if: always()
+      - name: Upload test case maps
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-coverage-map-full
-          path: baselines/
-          include-hidden-files: true
+          name: kernel-maps-full
+          path: ${{ runner.temp }}/kernel-deliverables/maps/
+          if-no-files-found: error
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-coverage-data-full
+          path: ${{ runner.temp }}/kernel-deliverables/coverage/
           if-no-files-found: error
