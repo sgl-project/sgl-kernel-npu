@@ -12,13 +12,13 @@ using namespace AscendC;
 constexpr int64_t FEATURES = 576;
 constexpr uint32_t BYTES = FEATURES * sizeof(uint16_t);
 
-template <typename T>
+template <typename T, bool SplitHbm = false>
 class Copy
 {
 public:
     __aicore__ inline void Init(TPipe *pipe, GM_ADDR current, GM_ADDR host, GM_ADDR hostRope, GM_ADDR cache,
-                                GM_ADDR table, GM_ADDR slots, GM_ADDR positions, GM_ADDR valid, GM_ADDR qEnds,
-                                GM_ADDR hbmTable, GM_ADDR lengths, GM_ADDR cacheTokens, GM_ADDR oldBegin,
+                                GM_ADDR cacheRope, GM_ADDR table, GM_ADDR slots, GM_ADDR positions, GM_ADDR valid,
+                                GM_ADDR qEnds, GM_ADDR hbmTable, GM_ADDR lengths, GM_ADDR cacheTokens, GM_ADDR oldBegin,
                                 GM_ADDR oldEnd, uint32_t batch, uint32_t rows, uint32_t context, uint32_t capacity,
                                 uint32_t sourceRows, uint32_t currentRows, uint32_t hbmPages, uint32_t cores,
                                 bool allocateQueue, bool splitHost)
@@ -28,6 +28,7 @@ public:
         hostRope_.SetGlobalBuffer((__gm__ T *)hostRope);
         splitHost_ = splitHost;
         cache_.SetGlobalBuffer((__gm__ T *)cache);
+        cacheRope_.SetGlobalBuffer((__gm__ T *)cacheRope);
         table_.SetGlobalBuffer((__gm__ int32_t *)table);
         slots_.SetGlobalBuffer((__gm__ int32_t *)slots);
         positions_.SetGlobalBuffer((__gm__ int64_t *)positions);
@@ -173,7 +174,7 @@ private:
         DataCopyPad(local, src[srcOffset], params, pad);
         queue_.EnQue(local);
         local = queue_.DeQue<T>();
-        DataCopyPad(cache_[dstOffset], local, params);
+        WriteCache(local, dstOffset);
         queue_.FreeTensor(local);
     }
     __aicore__ inline void TransferSplitHost(int64_t row, int64_t dstOffset)
@@ -186,11 +187,23 @@ private:
         DataCopyPad(local[512], hostRope_[row * 64], rope, pad);
         queue_.EnQue(local);
         local = queue_.DeQue<T>();
-        DataCopyExtParams all{1, BYTES, 0, 0, 0};
-        DataCopyPad(cache_[dstOffset], local, all);
+        WriteCache(local, dstOffset);
         queue_.FreeTensor(local);
     }
-    GlobalTensor<T> current_, host_, hostRope_, cache_;
+    __aicore__ inline void WriteCache(LocalTensor<T> &local, int64_t dstOffset)
+    {
+        if constexpr (SplitHbm) {
+            const int64_t row = dstOffset / FEATURES;
+            DataCopyExtParams kv{1, 512 * sizeof(T), 0, 0, 0};
+            DataCopyExtParams rope{1, 64 * sizeof(T), 0, 0, 0};
+            DataCopyPad(cache_[row * 512], local, kv);
+            DataCopyPad(cacheRope_[row * 64], local[512], rope);
+        } else {
+            DataCopyExtParams all{1, BYTES, 0, 0, 0};
+            DataCopyPad(cache_[dstOffset], local, all);
+        }
+    }
+    GlobalTensor<T> current_, host_, hostRope_, cache_, cacheRope_;
     bool splitHost_;
     GlobalTensor<int32_t> table_, slots_, qEnds_, hbmTable_, lengths_, cacheTokens_, oldBegin_, oldEnd_;
     GlobalTensor<int64_t> positions_;

@@ -7,6 +7,7 @@
 #include <iterator>
 
 #include "aclrtlaunch_fused_scatter_copy_sparse_flash_attention_combined.h"
+#include "aclrtlaunch_fused_scatter_copy_sparse_flash_attention_split.h"
 #include "fused_copy_sfa_tiling_data.h"
 #include "ge_helper.h"
 #include "sparse_flash_attention_def.h"
@@ -35,27 +36,35 @@ void CheckNpuTensor(const at::Tensor &tensor, const at::Tensor &query, const cha
     TORCH_CHECK(tensor.is_contiguous(), name, " must be contiguous");
 }
 
-void LaunchCombined(uint32_t blockDim, const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                    const at::Tensor &sparseIndices, const at::Tensor &cacheTokens, const at::Tensor &hbmBlockTable,
-                    const at::Tensor &actualSeqLengthsQuery, const at::Tensor &actualSeqLengthsKv,
-                    const at::Tensor &queryRope, void *hbmKeyRope, void *dramKeyRope, void *dramKvCache,
-                    const at::Tensor &dramBlockTable, const at::Tensor &topkSourceIds, const at::Tensor &topkMissCounts,
-                    const at::Tensor &missSourceIds, const at::Tensor &missDstSlots, const at::Tensor &missCounts,
-                    const at::Tensor &attentionOut, const at::Tensor &workspace, const at::Tensor &tiling,
-                    void *current, void *positions, void *valid, void *requestSlots, void *reqToToken,
-                    void *residentBegin, void *residentEnd)
+void LaunchCopySfa(bool split, uint32_t blockDim, const at::Tensor &query, const at::Tensor &key,
+                   const at::Tensor &value, const at::Tensor &sparseIndices, const at::Tensor &cacheTokens,
+                   const at::Tensor &hbmBlockTable, const at::Tensor &actualSeqLengthsQuery,
+                   const at::Tensor &actualSeqLengthsKv, const at::Tensor &queryRope, void *hbmKeyRope,
+                   void *dramKeyRope, void *dramKvCache, const at::Tensor &dramBlockTable,
+                   const at::Tensor &topkSourceIds, const at::Tensor &topkMissCounts, const at::Tensor &missSourceIds,
+                   const at::Tensor &missDstSlots, const at::Tensor &missCounts, const at::Tensor &attentionOut,
+                   const at::Tensor &workspace, const at::Tensor &tiling, void *current, void *positions, void *valid,
+                   void *requestSlots, void *reqToToken, void *residentBegin, void *residentEnd)
 {
-    EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_combined, blockDim, query, key, value, sparseIndices,
-                    cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
-                    dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
-                    missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
-                    residentBegin, residentEnd, workspace, tiling);
+    if (split) {
+        EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_split, blockDim, query, key, value, sparseIndices,
+                        cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
+                        dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
+                        missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
+                        residentBegin, residentEnd, workspace, tiling);
+    } else {
+        EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_combined, blockDim, query, key, value, sparseIndices,
+                        cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
+                        dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
+                        missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
+                        residentBegin, residentEnd, workspace, tiling);
+    }
 }
 
 }  // namespace
 
-void fused_scatter_copy_sparse_flash_attention(
-    const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &combined_hbm_cache,
+static void FusedCopySfaImpl(
+    const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv, at::Tensor *hbm_rope,
     const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_kv,
     const at::Tensor &num_cache_tokens, const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
     const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
@@ -113,11 +122,20 @@ void fused_scatter_copy_sparse_flash_attention(
     TORCH_CHECK(query_rope.dim() == 3 && query_rope.size(0) == totalQueryTokens &&
                     query_rope.size(1) == query.size(1) && query_rope.size(2) == kRopeDim,
                 "query_rope must be [T, H, 64]");
-    TORCH_CHECK(combined_hbm_cache.scalar_type() == query.scalar_type() && combined_hbm_cache.dim() == 4 &&
-                    combined_hbm_cache.size(1) == kPageSize && combined_hbm_cache.size(2) == 1 &&
-                    combined_hbm_cache.size(3) == kTokenStride && combined_hbm_cache.is_contiguous(),
-                "combined_hbm_cache must be [pages, 128, 1, 576] and match query dtype");
-    TORCH_CHECK(combined_hbm_cache.size(0) > 0, "combined_hbm_cache must contain at least one page");
+    TORCH_CHECK(hbm_ckv.scalar_type() == query.scalar_type() && hbm_ckv.dim() == 4 && hbm_ckv.size(1) == kPageSize &&
+                    hbm_ckv.size(2) == 1 && hbm_ckv.size(3) == (hbm_rope ? kKvDim : kTokenStride) &&
+                    hbm_ckv.is_contiguous(),
+                hbm_rope ? "hbm_ckv must be [pages, 128, 1, 512] and match query dtype"
+                         : "hbm_ckv must be [pages, 128, 1, 576] and match query dtype");
+    if (hbm_rope) {
+        TORCH_CHECK(dram_rope_dev_ptr > 0, "split requires split registered host pointers");
+        TORCH_CHECK(hbm_rope->scalar_type() == query.scalar_type() && hbm_rope->dim() == 4 &&
+                        hbm_rope->size(0) == hbm_ckv.size(0) && hbm_rope->size(1) == kPageSize &&
+                        hbm_rope->size(2) == 1 && hbm_rope->size(3) == kRopeDim,
+                    "hbm_rope must be [pages, 128, 1, 64] and match query dtype");
+        CheckNpuTensor(*hbm_rope, query, "hbm_rope");
+    }
+    TORCH_CHECK(hbm_ckv.size(0) > 0, "hbm_ckv must contain at least one page");
     TORCH_CHECK(attention_out.sizes() == query.sizes() && attention_out.scalar_type() == query.scalar_type(),
                 "attention_out must match query shape and dtype");
     TORCH_CHECK(dram_rope_dev_ptr >= 0, "dram_rope_dev_ptr must be zero or a registered host pointer");
@@ -154,16 +172,18 @@ void fused_scatter_copy_sparse_flash_attention(
     }
     CheckNpuTensor(query_rope, query, "query_rope");
     CheckNpuTensor(query, query, "query");
-    CheckNpuTensor(combined_hbm_cache, query, "combined_hbm_cache");
+    CheckNpuTensor(hbm_ckv, query, "hbm_ckv");
     CheckNpuTensor(attention_out, query, "attention_out");
     TORCH_CHECK(query_rope.scalar_type() == query.scalar_type(), "query_rope dtype must match query");
 
-    const int64_t hbmBlockCount = combined_hbm_cache.size(0);
+    const int64_t hbmBlockCount = hbm_ckv.size(0);
     const int64_t rowStride = kTokenStride;
-    auto cacheKey = at::as_strided(combined_hbm_cache, {hbmBlockCount, kPageSize, 1, kKvDim},
-                                   {kPageSize * rowStride, rowStride, rowStride, 1}, 0);
-    auto cacheRope = at::as_strided(combined_hbm_cache, {hbmBlockCount, kPageSize, 1, kRopeDim},
-                                    {kPageSize * rowStride, rowStride, rowStride, 1}, kKvDim);
+    auto cacheKey = hbm_rope ? hbm_ckv
+                             : at::as_strided(hbm_ckv, {hbmBlockCount, kPageSize, 1, kKvDim},
+                                              {kPageSize * rowStride, rowStride, rowStride, 1}, 0);
+    auto cacheRope = hbm_rope ? *hbm_rope
+                              : at::as_strided(hbm_ckv, {hbmBlockCount, kPageSize, 1, kRopeDim},
+                                               {kPageSize * rowStride, rowStride, rowStride, 1}, kKvDim);
 
     const auto &attentionOut = attention_out;
     auto softmaxMax = at::empty({0}, query.options().dtype(at::kFloat));
@@ -217,7 +237,7 @@ void fused_scatter_copy_sparse_flash_attention(
         fusedTilingData.residentContext = static_cast<uint32_t>(req_to_token->stride(0));
         fusedTilingData.residentHostRows = static_cast<uint32_t>(host_token_capacity);
         fusedTilingData.residentCurrentRows = static_cast<uint32_t>(totalQueryTokens);
-        fusedTilingData.residentHbmPages = static_cast<uint32_t>(combined_hbm_cache.size(0));
+        fusedTilingData.residentHbmPages = static_cast<uint32_t>(hbm_ckv.size(0));
     }
     fusedTilingData.copyCap = static_cast<uint32_t>(topk_src_ids.size(1));
     fusedTilingData.missCap = static_cast<uint32_t>(miss_src_ids.size(1));
@@ -230,15 +250,54 @@ void fused_scatter_copy_sparse_flash_attention(
     auto *dramKv = reinterpret_cast<void *>(static_cast<uintptr_t>(dram_kv_dev_ptr));
     auto *dramRope = reinterpret_cast<void *>(
         static_cast<uintptr_t>(dram_rope_dev_ptr ? dram_rope_dev_ptr : dram_kv_dev_ptr + kKvDim * 2));
-    auto *hbmRope = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(combined_hbm_cache.data_ptr()) + kKvDim * 2);
+    auto *hbmRope = cacheRope.data_ptr();
 
-    LaunchCombined(tiling.GetBlockDim(), query, cacheKey, cacheKey, topk_dst_slots, num_cache_tokens, hbm_block_table,
-                   actual_seq_lengths_query, actual_seq_lengths_kv, query_rope, hbmRope, dramRope, dramKv,
-                   dram_block_table, topk_src_ids, topk_miss_counts, miss_src_ids, miss_dst_slots, miss_counts,
-                   attention_out, workspace, tilingTensor, resident ? current->data_ptr() : nullptr,
-                   resident ? positions->data_ptr() : nullptr, resident ? valid->data_ptr() : nullptr,
-                   resident ? request_slots->data_ptr() : nullptr, resident ? req_to_token->data_ptr() : nullptr,
-                   resident ? resident_begin->data_ptr() : nullptr, resident ? resident_end->data_ptr() : nullptr);
+    LaunchCopySfa(hbm_rope != nullptr, tiling.GetBlockDim(), query, cacheKey, cacheKey, topk_dst_slots,
+                  num_cache_tokens, hbm_block_table, actual_seq_lengths_query, actual_seq_lengths_kv, query_rope,
+                  hbmRope, dramRope, dramKv, dram_block_table, topk_src_ids, topk_miss_counts, miss_src_ids,
+                  miss_dst_slots, miss_counts, attention_out, workspace, tilingTensor,
+                  resident ? current->data_ptr() : nullptr, resident ? positions->data_ptr() : nullptr,
+                  resident ? valid->data_ptr() : nullptr, resident ? request_slots->data_ptr() : nullptr,
+                  resident ? req_to_token->data_ptr() : nullptr, resident ? resident_begin->data_ptr() : nullptr,
+                  resident ? resident_end->data_ptr() : nullptr);
+}
+
+void fused_scatter_copy_sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv,
+    const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_kv,
+    const at::Tensor &num_cache_tokens, const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
+    const at::Tensor &miss_counts, const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
+    bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
+{
+    FusedCopySfaImpl(query, query_rope, hbm_ckv, nullptr, actual_seq_lengths_query, actual_seq_lengths_kv,
+                     num_cache_tokens, topk_src_ids, topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots,
+                     miss_counts, hbm_block_table, dram_block_table, dram_kv_dev_ptr, attention_out, scale_value,
+                     full_visible, resident_refresh_tail, current, positions, valid, request_slots, req_to_token,
+                     resident_begin, resident_end, host_token_capacity, dram_rope_dev_ptr);
+}
+
+void fused_scatter_copy_sparse_flash_attention_split(
+    const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv, at::Tensor &hbm_rope,
+    const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_kv,
+    const at::Tensor &num_cache_tokens, const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
+    const at::Tensor &miss_counts, const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
+    bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
+    const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
+    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
+{
+    FusedCopySfaImpl(query, query_rope, hbm_ckv, &hbm_rope, actual_seq_lengths_query, actual_seq_lengths_kv,
+                     num_cache_tokens, topk_src_ids, topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots,
+                     miss_counts, hbm_block_table, dram_block_table, dram_kv_dev_ptr, attention_out, scale_value,
+                     full_visible, resident_refresh_tail, current, positions, valid, request_slots, req_to_token,
+                     resident_begin, resident_end, host_token_capacity, dram_rope_dev_ptr);
 }
 
 }  // namespace sglang::npu_kernel

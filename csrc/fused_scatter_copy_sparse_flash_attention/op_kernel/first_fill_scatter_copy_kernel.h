@@ -228,9 +228,11 @@ private:
             address.dstKv = dstRow * COMBINED_TOKEN_STRIDE;
             address.dstRope = dstRow * COMBINED_TOKEN_STRIDE;
         } else {
-            address.srcKv = srcRow * KV_CACHE_DIM;
+            if (!address.fromCurrent) {
+                address.srcKv = srcRow * KV_CACHE_DIM;
+                address.srcRope = srcRow * K_ROPE_DIM;
+            }
             address.dstKv = dstRow * KV_CACHE_DIM;
-            address.srcRope = srcRow * K_ROPE_DIM;
             address.dstRope = dstRow * K_ROPE_DIM;
         }
         return true;

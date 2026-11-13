@@ -168,6 +168,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0, "
         "int dram_rope_dev_ptr=0) -> ()");
 
+    m.def(
+        "fused_scatter_copy_sparse_flash_attention_split(Tensor query, Tensor query_rope, "
+        "Tensor(a!) hbm_ckv, Tensor(e!) hbm_rope, Tensor actual_seq_lengths_query, Tensor actual_seq_lengths_kv, "
+        "Tensor num_cache_tokens, Tensor topk_src_ids, Tensor topk_dst_slots, Tensor topk_miss_counts, "
+        "Tensor miss_src_ids, Tensor miss_dst_slots, Tensor miss_counts, Tensor hbm_block_table, "
+        "Tensor dram_block_table, int dram_kv_dev_ptr, Tensor(b!) attention_out, float scale_value, bool "
+        "full_visible=False, bool resident_refresh_tail=False, Tensor? current=None, Tensor? positions=None, "
+        "Tensor? valid=None, Tensor? request_slots=None, Tensor? req_to_token=None, "
+        "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0, "
+        "int dram_rope_dev_ptr=0) -> ()");
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -430,6 +441,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("plan_sparse_kv_cache", TORCH_FN(sglang::npu_kernel::plan_sparse_kv_cache));
     m.impl("fused_scatter_copy_sparse_flash_attention",
            TORCH_FN(sglang::npu_kernel::fused_scatter_copy_sparse_flash_attention));
+    m.impl("fused_scatter_copy_sparse_flash_attention_split",
+           TORCH_FN(sglang::npu_kernel::fused_scatter_copy_sparse_flash_attention_split));
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS

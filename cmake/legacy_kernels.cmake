@@ -374,6 +374,23 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -DHAVE_TILING
     )
     list(APPEND A3_ONLY_KERNEL_TARGETS fused_scatter_copy_sparse_flash_attention_combined_kernel)
+    ascendc_library(fused_scatter_copy_sparse_flash_attention_split_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel/fused_scatter_copy_sparse_flash_attention_split.cpp
+    )
+    ascendc_include_directories(fused_scatter_copy_sparse_flash_attention_split_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+        ${ASCEND_INCLUDE_DIR}
+    )
+    ascendc_compile_definitions(fused_scatter_copy_sparse_flash_attention_split_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS fused_scatter_copy_sparse_flash_attention_split_kernel)
 
 endif()
 

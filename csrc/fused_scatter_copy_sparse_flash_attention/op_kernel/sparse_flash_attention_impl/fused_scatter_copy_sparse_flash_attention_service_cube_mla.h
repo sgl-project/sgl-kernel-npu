@@ -687,6 +687,9 @@ __aicore__ inline void SFAMatmulService<SFAT>::ComputeMm1(const RunInfo &info, c
                         shape.copyRowNumAlign = nL1SizeAlign;
                         PAShape ropeShape = shape;
                         ropeShape.headDim = constInfo.headDimRope;
+                        if constexpr (!SFAT::combinedKvStorage) {
+                            ropeShape.storageTokenStride = constInfo.headDimRope;
+                        }
                         ropeShape.actHeadDim = 32;
                         if (kL1 == 0) {
                             kTensor = bL1Tensor[copyFinishRowCnt * 16];
