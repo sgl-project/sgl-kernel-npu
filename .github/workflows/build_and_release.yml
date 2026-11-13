@@ -12,10 +12,6 @@ on:
       - .github/workflows/build_and_release.yml
       - config.ini
       - build.sh
-      - setup.py
-      - python/sgl_kernel_npu/**
-      - third_party/**
-
 jobs:
   build-and-release:
     defaults:
