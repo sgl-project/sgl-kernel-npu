@@ -5,7 +5,7 @@
 | 实现 | arch22（A2/A3，2201） | arch35（A5，3510） |
 | --- | --- | --- |
 | `ascendc` | 支持 | 不支持 |
-| `torch_npu` | 支持，受 TorchNPU 形状限制 | 支持 |
+| `torch_npu` | 受限支持 | 支持 |
 | `torch_native` | 支持 | 待验证 |
 
 AscendC 内核支持 Ascend A2/A3（arch22，2201）。
@@ -62,8 +62,17 @@ CANN 管理 tiling 数据，Kernel 根据这些数据执行批量矩阵乘。
 
 ## torch_npu 后端
 
-调用 `torch_npu.npu_transpose_batchmatmul` 并返回其输出。输入采用 ND 布局，形状范围由
-已安装的 TorchNPU 和 CANN 版本决定。
+该实现调用 `torch_npu.npu_transpose_batchmatmul` 并返回其输出。两个输入均采用 ND 布局，
+形状分别为 `[M, B, K]` 和 `[B, K, N]`。转置参数为 `perm_x1=(1, 0, 2)`、
+`perm_x2=(0, 1, 2)` 和 `perm_y=(1, 0, 2)`。
+
+在 arch22（A2/A3）上，CANN 9.1 对该输入布局规定了 `1 <= B <= 65535`、
+`1 <= N <= 65535` 和 `B * K <= 65535`。例如 `B=128`、`K=512` 时，
+`B * K=65536`，超出文档规定的范围。
+[CANN 9.1 TransposeBatchMatMul 参考文档](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/aolapi/context/ops-nn/aclnnTransposeBatchMatMul.md)
+
+在 arch22 的 MLA 路径中，只要 `M >= 65536`、`B * K >= 65536` 或 `N >= 65536`，
+`auto` 就会选择 AscendC。分流条件还单独检查 `M`。
 
 ## torch_native 后端
 
