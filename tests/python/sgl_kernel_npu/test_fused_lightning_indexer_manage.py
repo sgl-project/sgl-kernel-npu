@@ -33,7 +33,7 @@ def make_case(batch=1, heads=32, dtype=torch.bfloat16, source_capacity=8320):
     vector = lambda value: torch.full((batch,), value, dtype=torch.int32, device=device)
 
     pool = torch.full((batch, source_capacity), -1, dtype=torch.int32, device=device)
-    ids = torch.empty(batch, 1, 2048, dtype=torch.int32, device=device)
+    ids = torch.empty(batch, 2048, dtype=torch.int32, device=device)
     misses = torch.empty(batch, 32768, dtype=torch.int32, device=device)
     args = [
         weights,
@@ -67,7 +67,7 @@ def set_hotset(args, offset):
 
 def consume_plan(args, resident, offset):
     torch.npu.synchronize()
-    ids, slots = args[11].cpu()[:, 0], args[12].cpu()[:, 0]
+    ids, slots = args[11].cpu(), args[12].cpu()
     src, dst, counts = args[14].cpu(), args[15].cpu(), args[16].cpu()
     expected = torch.arange(offset, offset + 2048, dtype=torch.int32)
     for row in range(ids.shape[0]):
@@ -119,7 +119,7 @@ def test_full_visible_mtp_causal_and_rewritten_residents(query_width):
     args[5].fill_(length)
     args[6].fill_(length)
     args[7].fill_(capacity)
-    args[11] = torch.empty(query_width, 1, 2048, dtype=torch.int32, device=device)
+    args[11] = torch.empty(query_width, 2048, dtype=torch.int32, device=device)
     args[12] = torch.empty_like(args[11])
     args[13] = torch.zeros(query_width, dtype=torch.int32, device=device)
     keys = args[2].view(-1, 128)
@@ -132,8 +132,8 @@ def test_full_visible_mtp_causal_and_rewritten_residents(query_width):
         keys[length - query_width : length, 1] = step + 1
         fused_lightning_indexer_manage(*args, full_visible=True)
         torch.npu.synchronize()
-        ids = args[11].cpu()[:, 0]
-        slots = args[12].cpu()[:, 0]
+        ids = args[11].cpu()
+        slots = args[12].cpu()
         count = args[16].item()
         sources = args[14].cpu()[0, :count]
         destinations = args[15].cpu()[0, :count]
@@ -177,7 +177,7 @@ def test_full_visible_mtp_large_steady_union_and_refresh():
     args[5].fill_(length)
     args[6].fill_(length)
     args[7].fill_(capacity)
-    args[11] = torch.empty(query_width, 1, 2048, dtype=torch.int32, device=device)
+    args[11] = torch.empty(query_width, 2048, dtype=torch.int32, device=device)
     args[12] = torch.empty_like(args[11])
     args[13] = torch.zeros(query_width, dtype=torch.int32, device=device)
     keys = args[2].view(-1, 128)
@@ -200,7 +200,7 @@ def test_full_visible_mtp_large_steady_union_and_refresh():
         assert destinations.unique().numel() == count
         assert torch.all((destinations >= 0) & (destinations < capacity))
         resident[destinations.long()] = sources
-        ids, slots = args[11].cpu()[:, 0], args[12].cpu()[:, 0]
+        ids, slots = args[11].cpu(), args[12].cpu()
         for route in range(query_width):
             assert torch.all(ids[route] < length - query_width + route + 1)
             torch.testing.assert_close(

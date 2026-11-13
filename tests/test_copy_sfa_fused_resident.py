@@ -75,9 +75,9 @@ def test_short_resident_current_and_history(width, old_end, graph, split_host=Fa
         qends = npu(torch.tensor([width], dtype=torch.int32))
         lengths = npu(torch.tensor([length], dtype=torch.int32))
         zero = npu(torch.zeros(1, dtype=torch.int32))
-        sources = npu(torch.full((width, 1, 2048), -1, dtype=torch.int32))
-        indices_cpu = torch.full((width, 1, 2048), -1, dtype=torch.int32)
-        indices_cpu[:, 0, :length] = torch.arange(length, dtype=torch.int32)
+        sources = npu(torch.full((width, 2048), -1, dtype=torch.int32))
+        indices_cpu = torch.full((width, 2048), -1, dtype=torch.int32)
+        indices_cpu[:, :length] = torch.arange(length, dtype=torch.int32)
         indices = npu(indices_cpu)
         topk_misses = npu(torch.zeros(width, dtype=torch.int32))
         misses = npu(torch.full((1, 32768), -1, dtype=torch.int32))
@@ -312,7 +312,8 @@ def test_first_fill_current_does_not_require_dram_page():
 
 
 @pytest.mark.parametrize("graph", [False, True])
-def test_long_source_aware_current_ignores_poisoned_host(graph):
+@pytest.mark.parametrize("strong_signal", [False, True])
+def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
     width = 4
     case = _DynamicTndCase(
         query_counts=[width, 1],
@@ -324,8 +325,18 @@ def test_long_source_aware_current_ignores_poisoned_host(graph):
     try:
         first = 4096 - width
         current_cpu = torch.randn(width + 1, 1, 576, dtype=torch.bfloat16)
+        if strong_signal:
+            case.hbm.zero_()
+            case.query.zero_()
+            case.query[..., 0] = 16
+            case.query_rope.zero_()
+            current_cpu.zero_()
+            current_cpu[:width, 0, :512] = -1
+            current_cpu[:width, 0, 0] = -16
+            current_cpu[0, 0, :512] = 1
+            current_cpu[0, 0, 0] = 16
         case.dram.view(-1, 576)[first].fill_(49)
-        case.topk_src[:width, 0, 0] = first
+        case.topk_src[:width, 0] = first
         case.miss_src[0, 0] = first
         case.cache_tokens[-1] = 0
         case.actual_kv[-1] = 0
@@ -407,30 +418,54 @@ def test_long_source_aware_current_ignores_poisoned_host(graph):
         assert end.cpu().tolist() == [-1, -1, -1]
         fused = case.output.clone()
         old_output = torch.empty_like(case.output)
-        zero_route = torch.zeros_like(case.topk_miss_counts)
-        zero_request = torch.zeros_like(case.miss_counts)
+        reference_cache = initial.clone()
+        # Match the source-aware tile order while reading the true payload
+        # through Host instead of the optional current tensor.
+        case.dram.view(-1, 576)[first].copy_(current_cpu[0, 0])
         torch.ops.npu.fused_scatter_copy_sparse_flash_attention(
             case.query,
             case.query_rope,
-            case.hbm,
+            reference_cache,
             case.actual_q,
             case.actual_kv,
             case.cache_tokens,
             case.topk_src,
             case.sparse_slots,
-            zero_route,
+            case.topk_miss_counts,
             case.miss_src,
             case.miss_dst,
-            zero_request,
+            case.miss_counts,
             case.hbm_block_table,
             case.dram_block_table,
             case.dram_dev_ptr,
             old_output,
             case.scale,
             full_visible=True,
+            resident_refresh_tail=True,
         )
         torch.npu.synchronize()
         torch.testing.assert_close(fused[:width], old_output[:width], atol=0, rtol=0)
+        torch.testing.assert_close(reference_cache.cpu(), expected_hbm, atol=0, rtol=0)
+        query_cpu = case.query.cpu().float()
+        rope_cpu = case.query_rope.cpu().float()
+        indices = case.sparse_slots.cpu().long()
+        expected_rows = []
+        for route in range(width):
+            # full_visible encodes the complete visible set in the TopK table.
+            logical = indices[route]
+            blocks = case.hbm_block_table_cpu[0, logical // 128].long()
+            selected = expected_hbm[blocks, logical % 128, 0].float()
+            scores = (
+                query_cpu[route] @ selected[:, :512].T
+                + rope_cpu[route] @ selected[:, 512:].T
+            ) * case.scale
+            expected_rows.append(scores.softmax(-1) @ selected[:, :512])
+        torch.testing.assert_close(
+            fused[:width].cpu().float(),
+            torch.stack(expected_rows),
+            atol=0.003,
+            rtol=0.02,
+        )
     finally:
         case.close()
 
@@ -461,7 +496,7 @@ def test_mixed_short_first_fill_and_padding(graph):
             torch.tensor([first + width, capacity + width - 1, 0], device=case.device)
         )
         case.cache_tokens.copy_(torch.tensor([0, capacity, 0], device=case.device))
-        case.sparse_slots[:width, :, first + width :] = -1
+        case.sparse_slots[:width, first + width :] = -1
         case.topk_src[:width].fill_(-1)
         case.topk_miss_counts[:width] = 0
         case.miss_counts[0] = 0
@@ -603,7 +638,7 @@ def test_split_host_long_misses_match_combined_across_pages(graph):
         # pages, exposing row-stride and page-table mistakes independently.
         pages = torch.arange(case.dram_blocks - 1, -1, -1, dtype=torch.int32)
         case.dram_block_table.copy_(pages.view_as(case.dram_block_table))
-        case.topk_src[0, 0, :2] = torch.tensor([127, 128], device=case.device)
+        case.topk_src[0, :2] = torch.tensor([127, 128], device=case.device)
         case.topk_miss_counts[0] = 2
         case.miss_src[0, :2] = torch.tensor([127, 128], device=case.device)
         case.miss_dst[0, :2] = torch.tensor([0, 1], device=case.device)

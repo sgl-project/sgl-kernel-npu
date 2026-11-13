@@ -40,7 +40,7 @@ def _lim_case(length=LENGTH):
     def vector(value):
         return torch.tensor([value], dtype=torch.int32, device=device)
 
-    ids = torch.empty((ROUTES, 1, TOPK), dtype=torch.int32, device=device)
+    ids = torch.empty((ROUTES, TOPK), dtype=torch.int32, device=device)
     misses = torch.empty((1, 32768), dtype=torch.int32, device=device)
     return [
         weights,
@@ -65,7 +65,7 @@ def _lim_case(length=LENGTH):
 
 def _check_lim(args, resident, length=LENGTH):
     torch.npu.synchronize()
-    sources, slots = args[11].cpu()[:, 0], args[12].cpu()[:, 0]
+    sources, slots = args[11].cpu(), args[12].cpu()
     miss_sources, miss_slots, count = (
         args[14].cpu()[0],
         args[15].cpu()[0],
@@ -172,8 +172,8 @@ def test_lim_q4_c12288_full_visible_steady_residency(graph):
     else:
         op(*args, full_visible=True)
     torch.npu.synchronize()
-    sources = args[11].cpu()[:, 0]
-    slots = args[12].cpu()[:, 0]
+    sources = args[11].cpu()
+    slots = args[12].cpu()
     count = int(args[16].item())
     assert 0 < count <= CAPACITY
     miss_sources, miss_slots = args[14].cpu()[0, :count], args[15].cpu()[0, :count]

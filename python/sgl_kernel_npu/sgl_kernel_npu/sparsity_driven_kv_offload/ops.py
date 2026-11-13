@@ -180,7 +180,8 @@ def fused_lightning_indexer_manage(
 ):
     """Produce TopK/cache plans in place using the wheel's native A2/A3 LIM.
 
-    All 17 tensors are preallocated NPU tensors. Main KV payload copies and
+    ``topk_src_ids`` and ``topk_dst_slots`` are [T, K] tables. All 17 tensors
+    are preallocated NPU tensors. Main KV payload copies and
     attention remain separate operations. No custom vendor installation is used.
     """
     torch.ops.npu.fused_lightning_indexer_manage(

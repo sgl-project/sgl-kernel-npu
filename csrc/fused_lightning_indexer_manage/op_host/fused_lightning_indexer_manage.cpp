@@ -53,9 +53,9 @@ HOST_API void fused_lightning_indexer_manage(
     TORCH_CHECK(cache_slots_pool.dim() == 2 && cache_slots_pool.size(0) > 0 &&
                     cache_slots_pool.size(1) == index_block_table.size(1) * kBlockSize,
                 "cache_slots_pool width must equal max_blocks*128.");
-    TORCH_CHECK(topk_src_ids.dim() == 3 && topk_src_ids.size(0) == total_queries && topk_src_ids.size(1) == 1 &&
-                    topk_src_ids.size(2) == kTopK && topk_dst_slots.sizes() == topk_src_ids.sizes(),
-                "topk outputs must be [T, 1, 2048].");
+    TORCH_CHECK(topk_src_ids.dim() == 2 && topk_src_ids.size(0) == total_queries && topk_src_ids.size(1) == kTopK &&
+                    topk_dst_slots.sizes() == topk_src_ids.sizes(),
+                "topk outputs must be [T, 2048].");
     TORCH_CHECK(topk_miss_counts.dim() == 1 && topk_miss_counts.size(0) == total_queries,
                 "topk_miss_counts must be [T].");
     TORCH_CHECK(miss_src_ids.dim() == 2 && miss_src_ids.size(0) == batch_size &&

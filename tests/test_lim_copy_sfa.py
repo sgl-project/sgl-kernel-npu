@@ -71,10 +71,10 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(
                 case.miss_src, case.miss_dst = miss_src, miss_dst
                 topk_counts.masked_fill_(~valid, 0)
                 miss_counts.masked_fill_(~valid, 0)
-                ids.masked_fill_(~valid[:, None, None], -1)
+                ids.masked_fill_(~valid[:, None], -1)
             else:
-                case.topk_src.copy_(torch.where(valid[:, None, None], ids, -1))
-                case.topk_dst.copy_(torch.where(valid[:, None, None], slots, -1))
+                case.topk_src.copy_(torch.where(valid[:, None], ids, -1))
+                case.topk_dst.copy_(torch.where(valid[:, None], slots, -1))
                 case.topk_miss_counts.copy_(torch.where(valid, topk_counts, 0))
                 case.miss_src.copy_(
                     torch.where(valid[:, None], miss_src[:, :capacity], -1)
@@ -120,7 +120,7 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(
             torch.npu.synchronize()
             expected = {0: list(range(a - 2048, a)), 1: list(range(b - 2048, b))}
             for row, req in ((0, 1), (2, 0)):
-                assert set(case.topk_src[row, 0].cpu().tolist()) == set(expected[req])
+                assert set(case.topk_src[row].cpu().tolist()) == set(expected[req])
                 physical = case.hbm.cpu().view(-1, 128, 576)
                 # A cold C>K plan must publish all C payloads, not just K.
                 count = case.miss_counts[row].item()
@@ -136,8 +136,8 @@ def test_lim_copy_sfa_partial_page_padding_and_request_reuse(
                     rtol=0,
                 )
                 for src, slot in zip(
-                    case.topk_src[row, 0].cpu().tolist(),
-                    case.topk_dst[row, 0].cpu().tolist(),
+                    case.topk_src[row].cpu().tolist(),
+                    case.topk_dst[row].cpu().tolist(),
                 ):
                     n = capacity // 128
                     page = req * n + ((slot // 128) * 7) % n

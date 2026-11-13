@@ -135,8 +135,8 @@ class _DynamicTndCase:
 
         self.sparse_slots_cpu = (
             torch.arange(TOPK, dtype=torch.int32)
-            .view(1, 1, TOPK)
-            .expand(total_query_tokens, 1, TOPK)
+            .view(1, TOPK)
+            .expand(total_query_tokens, TOPK)
             .contiguous()
         )
         self.topk_src_cpu = self.sparse_slots_cpu.clone()
@@ -228,7 +228,7 @@ class _DynamicTndCase:
                     raise ValueError("steady miss source must lie beyond TopK")
                 start = query_starts[request]
                 stop = start + query_counts[request]
-                self.topk_src_cpu[start:stop, 0, 0] = source_id
+                self.topk_src_cpu[start:stop, 0] = source_id
                 self.topk_miss_counts_cpu[start:stop] = 1
                 self.miss_src_cpu[request, 0] = source_id
                 self.miss_dst_cpu[request, 0] = 0
@@ -409,6 +409,48 @@ def _run_and_check(**kwargs) -> None:
         case.close()
 
 
+@pytest.mark.parametrize("signal_slot", [0, 512, 1024, 1536])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_late_softmax_max_preserves_zero_accumulator(signal_slot, dtype):
+    case = _DynamicTndCase(
+        query_counts=[1], heads=8, cache_budgets=[4096], dtype=dtype, tail_tokens=0
+    )
+    try:
+        case.query.zero_()
+        case.query[..., 0] = 16
+        case.query_rope.zero_()
+        case.hbm.zero_()
+        case.actual_kv.fill_(4096)
+        block = int(case.hbm_block_table_cpu[0, signal_slot // BLOCK_SIZE])
+        signal = torch.ones(TOKEN_STRIDE, dtype=dtype)
+        signal[0] = 16
+        signal[CKV_DIM:] = 0
+        case.hbm[block, signal_slot % BLOCK_SIZE, 0].copy_(signal.to(case.device))
+        initial = case.hbm.clone()
+
+        selected = torch.zeros(TOPK, TOKEN_STRIDE, dtype=torch.float32)
+        selected[signal_slot] = signal.float()
+        query = case.query.cpu().float()
+        scores = (query[0] @ selected[:, :CKV_DIM].T) * case.scale
+        case.expected = (scores.softmax(-1) @ selected[:, :CKV_DIM]).unsqueeze(0)
+
+        case.call()
+        torch.npu.synchronize(case.device_id)
+        case.assert_result(case.output, "late maximum eager")
+        torch.testing.assert_close(case.hbm, initial, rtol=0, atol=0)
+        eager = case.output.clone()
+        graph = torch.npu.NPUGraph()
+        with torch.npu.graph(graph):
+            case.call()
+        graph.replay()
+        torch.npu.synchronize(case.device_id)
+        case.assert_result(case.output, "late maximum graph")
+        torch.testing.assert_close(case.output, eager, rtol=0, atol=0)
+        torch.testing.assert_close(case.hbm, initial, rtol=0, atol=0)
+    finally:
+        case.close()
+
+
 class _C0DenseMixedGraphCase:
     """Bounded C==0 dense case with a sparse neighbor and a padded request."""
 
@@ -436,8 +478,8 @@ class _C0DenseMixedGraphCase:
             TOKEN_STRIDE,
             dtype=torch.bfloat16,
         )
-        self.topk_src_cpu = torch.arange(TOPK, dtype=torch.int32).view(1, 1, TOPK)
-        self.topk_src_cpu = self.topk_src_cpu.expand(3, 1, TOPK).clone()
+        self.topk_src_cpu = torch.arange(TOPK, dtype=torch.int32).view(1, TOPK)
+        self.topk_src_cpu = self.topk_src_cpu.expand(3, TOPK).clone()
         self.topk_src_cpu[[0, 2]].fill_(-777)
         self.topk_dst_cpu = self.topk_src_cpu.clone()
         self.topk_miss_counts_cpu = torch.tensor(
@@ -519,7 +561,7 @@ class _C0DenseMixedGraphCase:
             else:
                 slots = torch.cat(
                     (
-                        topk_src_cpu[query_row, 0].to(torch.int64),
+                        topk_src_cpu[query_row].to(torch.int64),
                         torch.arange(cache_tokens, visible, dtype=torch.int64),
                     )
                 )

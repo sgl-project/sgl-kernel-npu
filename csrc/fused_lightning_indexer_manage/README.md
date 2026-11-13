@@ -32,7 +32,8 @@ built with the other A2/A3-only operators and is absent from an A5 build.
 
 The native ABI supports FP16/BF16 index query/key/weights, index head counts
 32/64, head dimension 128, page size 128 and TopK 2048. Metadata and outputs
-are int32. Inputs and outputs are contiguous
+are int32. TopK source and destination tables are `[T,2048]`; the query retains
+its `[T,H,128]` head dimension. Inputs and outputs are contiguous
 and on the same NPU. Per request, native queries occupy one contiguous range
 of 1..14 rows. `torch.ops.npu.lim_full_visible_max_query_width()` returns the
 compiled limit so the framework can size its buffers from the actual MTP config.

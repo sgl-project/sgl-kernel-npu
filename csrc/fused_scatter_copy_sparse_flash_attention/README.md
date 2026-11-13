@@ -11,7 +11,7 @@ and KPE host mappings.
   Cumulative query lengths describe each request's query window.
 - HBM KV is contiguous `[pages,128,1,576]`, with one KV head and CKV/KPE widths
   512/64. Floating tensors use FP16 or BF16 and share one NPU.
-- TopK source/slot tensors are `[T,1,2048]`. Request-union miss buffers are
+- TopK source/slot tensors are `[T,2048]`. Request-union miss buffers are
   contiguous `[B,M]`, with `[B]` valid counts; native LIM uses `M=32768`.
 - The caller owns page tables, resident maps, registered host storage and the
   preallocated attention output. Active IDs and mapped addresses must be valid.

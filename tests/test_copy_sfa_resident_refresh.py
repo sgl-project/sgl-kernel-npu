@@ -37,7 +37,7 @@ def _check_refresh_plan(graph, resident_count, genuine_misses, *, suffix_contrac
             missing = torch.arange(capacity - genuine_misses, capacity).int()
             request_src[request, :genuine_misses] = missing
             request_dst[request, :genuine_misses] = torch.arange(genuine_misses)
-            sources[begin : begin + width, 0, :genuine_misses] = missing
+            sources[begin : begin + width, :genuine_misses] = missing
             if refresh:
                 resident = torch.arange(topk - refresh, topk).int()
                 request_src[request, genuine_misses : genuine_misses + refresh] = (

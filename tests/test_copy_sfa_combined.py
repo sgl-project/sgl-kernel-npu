@@ -104,7 +104,7 @@ class _CopySfaCase:
             (self.batch, self.top_k), dtype=torch.int32, device=self.device
         )
         self.topk_src = torch.empty(
-            (self.batch, 1, self.top_k), dtype=torch.int32, device=self.device
+            (self.batch, self.top_k), dtype=torch.int32, device=self.device
         )
         self.topk_dst = torch.empty_like(self.topk_src)
         self.topk_miss_counts = torch.empty(
@@ -262,8 +262,8 @@ class _CopySfaCase:
         self, req_id: int, selected: list[int], misses: set[int]
     ):
         row = self.row_for_request[req_id]
-        active_sources = self.topk_src[row, 0].cpu().tolist()
-        active_slots = self.topk_dst[row, 0].cpu().tolist()
+        active_sources = self.topk_src[row].cpu().tolist()
+        active_slots = self.topk_dst[row].cpu().tolist()
         miss_count = self.miss_counts[row].item()
         miss_sources = self.miss_src[row, :miss_count].cpu().tolist()
         miss_slots = self.miss_dst[row, :miss_count].cpu().tolist()

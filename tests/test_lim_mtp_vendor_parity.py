@@ -39,9 +39,9 @@ def test_q4_random_vendor_causal_selection_and_attention(length):
     )
     vendor = vendor[0] if isinstance(vendor, (tuple, list)) else vendor
     torch.npu.synchronize()
-    actual = args[11].cpu()[:, 0].long()
+    actual = args[11].cpu().long()
     reference = vendor.cpu().view(ROUTES, TOPK).long()
-    slots = args[12].cpu()[:, 0].long()
+    slots = args[12].cpu().long()
     count = int(args[16].item())
     assert 0 < count <= CAPACITY
     miss_sources = args[14].cpu()[0, :count].long()

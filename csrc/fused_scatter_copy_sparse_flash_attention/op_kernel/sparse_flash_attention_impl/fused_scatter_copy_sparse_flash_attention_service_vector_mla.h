@@ -760,27 +760,18 @@ __aicore__ inline void SFAVectorService<SFAT>::AmlaVecCompute(const RunInfo &inf
     AscendC::PipeBarrier<PIPE_V>();
 
     Adds(cofValueUb[softmaxOutOffset], tmpCofUb, ConstInfo::FLOAT_ZERO, calCount);  // store cof(i)
-    Adds(epsUb, epsUb, (T)(-1.0), calCount);                                        // cof(i - 1) / cof(i) - 1
     AscendC::PipeBarrier<PIPE_V>();
-    Muls(epsUb, epsUb, (T)1.5, calCount);  // (cof(i - 1) - cof(i)) / cof(i) * 1.5
-
-    Maxs(nUpdateTmp, nUpdateTmp, (T)(-30.0), calCount);  // N = max(n(i) - n(i-1), -30)
+    // Rescale the previous numerator using the exponent and coefficient ratio.
+    Muls(nUpdateTmp, nUpdateTmp, LN2, calCount);
     AscendC::PipeBarrier<PIPE_V>();
-    Adds(epsUb, epsUb, (T)(0.000001), calCount);
+    Exp(nUpdateTmp, nUpdateTmp, calCount);
     AscendC::PipeBarrier<PIPE_V>();
-    Add(nUpdateTmp, nUpdateTmp, epsUb, calCount);
+    Mul(nUpdateTmp, nUpdateTmp, epsUb, calCount);
     AscendC::PipeBarrier<PIPE_V>();
-    Muls(nUpdateTmp, nUpdateTmp, FLOAT_E_SCALAR, calCount);  // N = N * pow(2, 23)
-    AscendC::PipeBarrier<PIPE_V>();
-
-    // nUpdate int32 out
-    LocalTensor<int32_t> tmQue = outputBuff2.Get<int32_t>();
+    LocalTensor<T> factorOut = outputBuff2.Get<T>();
     WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
-    LocalTensor<int32_t> nInt32Out = tmQue[startRow];
-
-    Cast(nInt32Out, nUpdateTmp, RoundMode::CAST_ROUND, dealRowCount);
+    Adds(factorOut[startRow], nUpdateTmp, ConstInfo::FLOAT_ZERO, dealRowCount);
     AscendC::PipeBarrier<PIPE_V>();
-
     SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
 }
 
@@ -841,51 +832,48 @@ __aicore__ inline void SFAVectorService<SFAT>::ProcessAmlaNupdate(const RunInfo 
         return;
     }
 
-    LocalTensor<int32_t> nUpdateTensor = outputBuff2.Get<int32_t>();  // shape:1/2*s1*g
+    LocalTensor<T> factors = outputBuff2.Get<T>();
     WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
-    SetFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF2_FLAG);
-    WaitFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF2_FLAG);
-
     constexpr uint32_t dGroupSize = 128U;
-    constexpr uint32_t mSplitSize = 64U;
-    constexpr uint32_t ONE_BLOCK_SIZE = 32U;  // 32B
-
+    constexpr uint32_t mSplitSize = 16U;
+    constexpr uint32_t elementPerBlock = 8U;
+    constexpr uint32_t rescaleEvent = 6U;
     uint32_t subMSize = SFAAlign(mSplitInfo.vecDealM, 16U);
-    uint16_t elementPerBlock = ONE_BLOCK_SIZE / sizeof(int32_t);
     uint32_t loopCount = (subMSize + mSplitSize - 1) / mSplitSize;
-    uint32_t tailSplitSize = subMSize - (loopCount - 1) * mSplitSize;
-
-    for (uint32_t loop = 0, processMSize = mSplitSize; loop < loopCount; loop++) {
-        if (loop == (loopCount - 1)) {
-            processMSize = tailSplitSize;
-        }
-        LocalTensor<int32_t> tmpQue = outputBuff1.Get<int32_t>();
-
-        WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
-        for (uint32_t i = 0; i < dGroupSize / elementPerBlock; i++) {
-            Brcb(tmpQue[i * elementPerBlock], nUpdateTensor[loop * mSplitSize],
-                 static_cast<uint8_t>((processMSize + elementPerBlock - 1) / elementPerBlock),
-                 {static_cast<uint16_t>(dGroupSize / elementPerBlock), static_cast<uint16_t>(dGroupSize)});
-        }
-
-        SetFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
-        WaitFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
-
-        uint64_t baseoffset = (info.bn2IdxInCurCore % constInfo.preLoadNum) * constInfo.bmm2ResUbSize +
+    for (uint32_t loop = 0; loop < loopCount; loop++) {
+        uint32_t processMSize = (loop + 1 == loopCount) ? subMSize - loop * mSplitSize : mSplitSize;
+        uint64_t baseOffset = (info.bn2IdxInCurCore % constInfo.preLoadNum) * constInfo.bmm2ResUbSize +
                               (mSplitInfo.nBufferStartM + mSplitInfo.vecStartM + loop * mSplitSize) * constInfo.headDim;
-
-        SetAtomicAdd<int32_t>();
-        DataCopyParams dataCopyParams;
-        dataCopyParams.blockCount = static_cast<uint16_t>(processMSize);
-        dataCopyParams.blockLen = dGroupSize * sizeof(int32_t) / ONE_BLOCK_SIZE;
-        dataCopyParams.srcStride = 0;
-        dataCopyParams.dstStride =
-            static_cast<uint16_t>((constInfo.headDim - dGroupSize) * sizeof(int32_t) / ONE_BLOCK_SIZE);
-        for (uint32_t i = 0; i < constInfo.headDim / dGroupSize; i++) {
-            DataCopy(mm2ResInt32Gm[baseoffset + i * dGroupSize], tmpQue, dataCopyParams);
+        for (uint32_t group = 0; group < constInfo.headDim / dGroupSize; group++) {
+            LocalTensor<T> prev = tmpBuff1.Get<T>();
+            LocalTensor<T> scaled = outputBuff1.Get<T>();
+            // The vector scratch is also used by softmax and output conversion.
+            SetFlag<AscendC::HardEvent::V_MTE2>(rescaleEvent);
+            WaitFlag<AscendC::HardEvent::V_MTE2>(rescaleEvent);
+            WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
+            DataCopyParams readParams;
+            readParams.blockCount = static_cast<uint16_t>(processMSize);
+            readParams.blockLen = dGroupSize / elementPerBlock;
+            readParams.srcStride = static_cast<uint16_t>((constInfo.headDim - dGroupSize) / elementPerBlock);
+            readParams.dstStride = 0;
+            DataCopy(prev, mm2ResGm[baseOffset + group * dGroupSize], readParams);
+            SetFlag<AscendC::HardEvent::MTE2_V>(rescaleEvent);
+            WaitFlag<AscendC::HardEvent::MTE2_V>(rescaleEvent);
+            LocalTensor<T> rowFactors = scaled[mSplitSize * dGroupSize];
+            Brcb(rowFactors, factors[loop * mSplitSize], (processMSize + elementPerBlock - 1) / elementPerBlock,
+                 {1, 8});
+            AscendC::PipeBarrier<PIPE_V>();
+            RowMuls(scaled, prev, rowFactors, processMSize, dGroupSize, dGroupSize);
+            SetFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
+            WaitFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
+            DataCopyParams writeParams;
+            writeParams.blockCount = static_cast<uint16_t>(processMSize);
+            writeParams.blockLen = dGroupSize / elementPerBlock;
+            writeParams.srcStride = 0;
+            writeParams.dstStride = static_cast<uint16_t>((constInfo.headDim - dGroupSize) / elementPerBlock);
+            DataCopy(mm2ResGm[baseOffset + group * dGroupSize], scaled, writeParams);
+            SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
         }
-        SetAtomicNone();
-        SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
     }
     SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
 }

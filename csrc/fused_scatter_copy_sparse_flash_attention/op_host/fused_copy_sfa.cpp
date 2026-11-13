@@ -126,10 +126,9 @@ void fused_scatter_copy_sparse_flash_attention(
                 "hbm_block_table must be [B, hbm_pages_per_request]");
     TORCH_CHECK(dram_block_table.dim() == 2 && dram_block_table.size(0) == batchSize && dram_block_table.size(1) > 0,
                 "dram_block_table must be [B, dram_pages_per_request]");
-    TORCH_CHECK(topk_src_ids.sizes() == topk_dst_slots.sizes() && topk_src_ids.dim() == 3 &&
-                    topk_src_ids.size(0) == totalQueryTokens && topk_src_ids.size(1) == 1 &&
-                    topk_src_ids.size(2) == kTopK,
-                "top-k source and destination arrays must be [T, 1, 2048]");
+    TORCH_CHECK(topk_src_ids.sizes() == topk_dst_slots.sizes() && topk_src_ids.dim() == 2 &&
+                    topk_src_ids.size(0) == totalQueryTokens && topk_src_ids.size(1) == kTopK,
+                "top-k source and destination arrays must be [T, 2048]");
     TORCH_CHECK(actual_seq_lengths_query.dim() == 1 && actual_seq_lengths_query.numel() == batchSize,
                 "actual_seq_lengths_query must be cumulative query lengths [B]");
     TORCH_CHECK(actual_seq_lengths_kv.dim() == 1 && actual_seq_lengths_kv.numel() == batchSize,
@@ -185,7 +184,8 @@ void fused_scatter_copy_sparse_flash_attention(
     context->RegisterTensor(query, true);
     context->RegisterTensor(cacheKey, true);
     context->RegisterTensor(cacheKey, true);
-    context->RegisterTensor(topk_dst_slots, true);
+    auto sfa_indices = topk_dst_slots.unsqueeze(1);
+    context->RegisterTensor(sfa_indices, true);
     context->RegisterTensor(hbm_block_table, true);
     context->RegisterTensor(actual_seq_lengths_query, true);
     context->RegisterTensor(actual_seq_lengths_kv, true);
@@ -219,7 +219,7 @@ void fused_scatter_copy_sparse_flash_attention(
         fusedTilingData.residentCurrentRows = static_cast<uint32_t>(totalQueryTokens);
         fusedTilingData.residentHbmPages = static_cast<uint32_t>(combined_hbm_cache.size(0));
     }
-    fusedTilingData.copyCap = static_cast<uint32_t>(topk_src_ids.size(2));
+    fusedTilingData.copyCap = static_cast<uint32_t>(topk_src_ids.size(1));
     fusedTilingData.missCap = static_cast<uint32_t>(miss_src_ids.size(1));
     fusedTilingData.hbmMaxBlockNum = static_cast<uint32_t>(hbm_block_table.size(1));
     fusedTilingData.dramMaxBlockNum = static_cast<uint32_t>(dram_block_table.size(1));
