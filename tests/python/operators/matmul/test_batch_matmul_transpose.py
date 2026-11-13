@@ -22,21 +22,19 @@ from tests.python.utils.performance import check_performance
 # v_head_dim), local_heads=num_attention_heads/effective_attention_tp.
 # On A2/A3, MLA uses AscendC when M, B*K or N reaches 65536. DSA
 # decode/verify also uses AscendC at smaller shapes and higher attention TP.
-# Keep only DeepSeek/GLM, using one or two recent models for identical shapes.
+# Keep the latest model in each family with identical shapes.
 # (Model ID, total attention heads, K, N, representative attention TP sizes.)
 MODEL_PROFILES = [
-    ("deepseek-v3.1", 128, 512, 128, (1,)),
     ("deepseek-v3.2", 128, 512, 128, (1, 2, 4, 8)),
-    ("glm-5.2", 64, 512, 256, (1, 2, 4, 8)),
     ("glm-5.3-flash", 64, 512, 256, (1, 2, 4, 8)),
 ]
 # Representative loads, not captured traces or fixed per-model batch sizes.
 # M counts operator input tokens, including flattened verification tokens.
 MODEL_TOKEN_COUNTS = (1, 8, 36, 128, 1024)
 MODEL_SHAPES = [
-    pytest.param(
+    (
         (tokens, heads // tp, k, n),
-        id=f"{model}-attn-tp{tp}-tokens{tokens}",
+        f"{model}-attn-tp{tp}-tokens{tokens}",
     )
     for model, heads, k, n, attention_tp_sizes in MODEL_PROFILES
     for tp in attention_tp_sizes
@@ -44,21 +42,33 @@ MODEL_SHAPES = [
 ]
 # Exercise both real output widths around the M=16 tile boundary.
 MODEL_SHAPES += [
-    pytest.param(
-        (tokens, heads // 8, 512, n),
-        id=f"{model}-attn-tp8-tokens{tokens}",
+    (
+        (tokens, heads // 8, k, n),
+        f"{model}-attn-tp8-tokens{tokens}",
     )
-    for model, heads, n in [("deepseek-v3.2", 128, 128), ("glm-5.2", 64, 256)]
+    for model, heads, k, n, _ in MODEL_PROFILES
     for tokens in (15, 16, 17)
 ]
-ND_SHAPES = [
-    *MODEL_SHAPES,
-    pytest.param((1, 1, 1, 1), id="minimum"),
-    pytest.param((2, 3, 4, 5), id="small"),
-    pytest.param((7, 3, 31, 33), id="unaligned-k-n-tail"),
-    pytest.param((15, 2, 16, 16), id="below-m-tile"),
-    pytest.param((17, 3, 33, 17), id="above-m-k-n-tiles"),
-    pytest.param((1024, 1, 16, 16), id="maximum-m"),
+GENERIC_SHAPES = [
+    ((1, 1, 1, 1), "minimum"),
+    ((2, 3, 4, 5), "small"),
+    ((7, 3, 31, 33), "unaligned-k-n-tail"),
+    ((15, 2, 16, 16), "below-m-tile"),
+    ((17, 3, 33, 17), "above-m-k-n-tiles"),
+    ((1024, 1, 16, 16), "maximum-m"),
+]
+ND_CASES = [
+    pytest.param(shape, mode, id=f"{shape_id}-{mode}")
+    for mode, shapes in (
+        ("random", MODEL_SHAPES + GENERIC_SHAPES),
+        ("zero", GENERIC_SHAPES),
+    )
+    for shape, shape_id in shapes
+]
+# Generic shapes exercise zero products in the default suite.
+ND_CASES += [
+    pytest.param(shape, "zero", id=f"{shape_id}-zero", marks=pytest.mark.extra_checks)
+    for shape, shape_id in MODEL_SHAPES
 ]
 PERF_SHAPES = [(1, 128, 512, 128), (8, 16, 512, 128), (36, 128, 512, 128)]
 
@@ -117,9 +127,8 @@ def run_case(shape, dtype, mode):
     )
 
 
-@pytest.mark.parametrize("shape", ND_SHAPES)
+@pytest.mark.parametrize("shape, mode", ND_CASES)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("mode", ["random", "zero"])
 def test_batch_matmul_transpose_nd(
     shape,
     dtype,
