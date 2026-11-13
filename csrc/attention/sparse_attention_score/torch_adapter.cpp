@@ -109,9 +109,6 @@ at::Tensor sparse_attention_score(const at::Tensor &query, const at::Tensor &key
     inputs.insert(inputs.end(), {out, lse, workspace});
     descriptors.insert(descriptors.end(), {outDesc, lseDesc});
     const auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : inputs) {
-        if (tensor.device().type() == c10::DeviceType::PrivateUse1) tensor.record_stream(stream);
-    }
     const auto aclStream = stream.stream(false);
     auto launch = [inputs, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);

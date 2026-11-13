@@ -56,10 +56,7 @@ void build_tree(const at::Tensor &parentList, const at::Tensor &selectedIndex, c
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, parentList.options().dtype(at::kByte));
     tensors.push_back(workspace);
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
-    // Captures cover the host queue; stream recording covers asynchronous access.
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "build_tree ACLNN execution failed: ", aclGetRecentErrMsg());

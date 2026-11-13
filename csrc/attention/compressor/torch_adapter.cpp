@@ -96,10 +96,6 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const at::Tens
     // workspace layout: zero the allocation without assuming its user offset.
     auto workspace = at::zeros({static_cast<int64_t>(workspaceSize)}, x.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &t : {x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos, output, workspace})
-        t.record_stream(stream);
-    for (const auto &t : {state_block_table, cu_seqlens, seqused, start_pos})
-        if (t.has_value()) t->record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [=]() -> int {
         // Tensor and descriptor captures retain their storage while the host task queues.
