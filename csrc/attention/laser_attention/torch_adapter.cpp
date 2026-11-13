@@ -104,8 +104,6 @@ std::tuple<at::Tensor, at::Tensor> la(const at::Tensor &query, const at::Tensor 
     std::vector<std::shared_ptr<aclTensor>> descriptors{qDesc,         kDesc,        vDesc,       attenMaskDesc,
                                                         alibiMaskDesc, dropMaskDesc, softmaxDesc, outDesc};
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, input_layout, workspace, workspaceSize, executor, aclStream]() -> int {
         const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);

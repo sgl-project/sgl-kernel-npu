@@ -77,17 +77,8 @@ void sgemmv_shrink(at::Tensor x, at::Tensor weight, at::Tensor lora_indices, at:
 
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, y.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    x.record_stream(stream);
-    weight.record_stream(stream);
-    lora_indices.record_stream(stream);
-    seq_len.record_stream(stream);
-    lora_ranks.record_stream(stream);
-    lora_scales.record_stream(stream);
-    y.record_stream(stream);
-    workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
 
-    // Tensor captures cover the host queue; record_stream covers asynchronous device use.
     auto launch = [x, weight, lora_indices, seq_len, lora_ranks, lora_scales, y, workspace, xDesc, weightDesc,
                    loraIndicesDesc, seqLenDesc, loraRanksDesc, loraScalesDesc, yDesc, workspaceSize, executor,
                    aclStream]() -> int {
