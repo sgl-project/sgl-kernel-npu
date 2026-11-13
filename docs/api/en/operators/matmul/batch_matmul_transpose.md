@@ -5,7 +5,7 @@
 | Implementation | arch22 (A2/A3, 2201) | arch35 (A5, 3510) |
 | --- | --- | --- |
 | `ascendc` | Supported | Unsupported |
-| `torch_npu` | Supported within TorchNPU shape limits | Supported |
+| `torch_npu` | Limited support | Supported |
 | `torch_native` | Supported | Unverified |
 
 The AscendC kernel supports Ascend A2/A3 (arch22, 2201).
@@ -68,8 +68,16 @@ uses to compute the batched matrix product.
 ## torch_npu backend
 
 This implementation calls `torch_npu.npu_transpose_batchmatmul` with ND inputs
-and returns its output. It uses the shape limits of the installed TorchNPU and
-CANN versions.
+`[M, B, K]` and `[B, K, N]` and returns its output. It uses `perm_x1=(1, 0, 2)`,
+`perm_x2=(0, 1, 2)`, and `perm_y=(1, 0, 2)`.
+
+On arch22 (A2/A3), CANN 9.1 specifies `1 <= B <= 65535`, `1 <= N <= 65535`,
+and `B * K <= 65535` for this input layout. For example, `B=128` and `K=512`
+give `B * K=65536`, which exceeds the documented limit.
+[CANN 9.1 TransposeBatchMatMul reference](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/aolapi/context/ops-nn/aclnnTransposeBatchMatMul.md)
+
+For MLA on arch22, `auto` selects AscendC when `M >= 65536`, `B * K >= 65536`,
+or `N >= 65536`. This dispatch guard includes a separate check on `M`.
 
 ## torch_native backend
 
