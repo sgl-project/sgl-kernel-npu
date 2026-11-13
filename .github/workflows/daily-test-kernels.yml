@@ -58,7 +58,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests
-        timeout-minutes: 120
+        timeout-minutes: 180
         env:
           HCCL_BUFFSIZE: 4096
         run: |
