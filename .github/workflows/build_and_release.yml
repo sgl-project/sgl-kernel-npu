@@ -37,6 +37,7 @@ jobs:
       - self-hosted
       - Linux
       - ${{ matrix.runner_arch }}
+      - cpu
       - ${{ matrix.runner_pool }}
     container:
       image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
