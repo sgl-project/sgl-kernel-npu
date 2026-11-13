@@ -1,10 +1,6 @@
 name: Kernel Coverage PR Smoke
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/kernel-coverage-pr-smoke.yml'
-      - 'scripts/collect_python_coverage.py'
 
 permissions:
   contents: read

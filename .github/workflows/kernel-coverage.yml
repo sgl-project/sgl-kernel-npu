@@ -1,5 +1,9 @@
 name: Kernel Coverage
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kernel-coverage.yml'
   workflow_dispatch:
     inputs:
       upload_obs:
@@ -48,22 +52,17 @@ jobs:
           rm -rf -- coverage-out
           KERNEL_COVERAGE_DIR=coverage-out bash scripts/run_kernel_tests.sh norm
           git rev-parse HEAD > coverage-out/baseline-sha.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kernel-coverage-${{ matrix.chip }}
-          path: coverage-out/
-          if-no-files-found: error
-          include-hidden-files: true
+      - name: Prepare local coverage inputs
+        shell: bash
+        run: |
+          mkdir -p baselines
+          mv coverage-out "baselines/kernel-coverage-${{ matrix.chip }}"
 
       - uses: actions/checkout@v4
         with:
           path: baseline-src
           submodules: recursive
           persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: kernel-coverage-${{ matrix.chip }}
-          path: baselines/kernel-coverage-${{ matrix.chip }}
       - name: Install coverage
         env:
           PIP_INDEX_URL: https://mirrors.huaweicloud.com/repository/pypi/simple
