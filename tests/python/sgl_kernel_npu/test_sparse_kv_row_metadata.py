@@ -115,43 +115,97 @@ def test_split_descriptors_replay(size):
     exact(outputs, reference())
 
 
-def test_ragged_plan_and_duplicate_mapping_replay():
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
+@pytest.mark.parametrize("padded", [False, True])
+def test_prefill_plan_current_replay(dtype, padded):
     torch.npu.set_device(0)
-    table = torch.arange(80, device="npu", dtype=torch.int32).reshape(5, 16)
-    requests = torch.tensor([1, -1, 2], device="npu", dtype=torch.int32)
-    lengths = torch.tensor([9, 0, 6], device="npu", dtype=torch.int32)
-    source, destination, valid = ops.prefill_plan(
-        requests, lengths, table, 15, 9, 5, 16
+    table = torch.arange(80, device="npu", dtype=dtype).reshape(5, 16)
+    requests = torch.tensor([1, 0, -1, 2], device="npu", dtype=dtype)
+    lengths = torch.tensor([4, 2, 0, 3], device="npu", dtype=dtype)
+    widths = [3, 3, 3, 3] if padded else [2, 1, 0, 3]
+    starts = [0, widths[0], sum(widths[:2]), sum(widths[:3])]
+    metadata = torch.tensor(
+        starts + [2, 1, 0, 0] + [2, 1, 0, 3] + widths, device="npu", dtype=torch.int64
     )
-    exact(
-        (source, destination, valid),
-        (
-            torch.cat((table[1, :9], table[2, :6])).long(),
-            torch.arange(15, device="npu"),
-            torch.ones(15, device="npu", dtype=torch.bool),
-        ),
-    )
-    metadata = torch.tensor([2, 4, 6, 0, 9, 9, 7, 0, 4, 2, 2, 6], device="npu")
-    locations = torch.tensor([23, 24, -1, -1, 36, 37], device="npu")
-    current_valid = torch.ones(6, device="npu", dtype=torch.bool)
+    current_valid = torch.ones(sum(widths), device="npu", dtype=torch.bool)
+    current_valid[starts[3] + 1] = False
 
     def candidate():
-        return ops.prefill_current_mapping(
-            source, locations, current_valid, metadata, 80, 15, 3
+        return ops.prefill_plan(
+            requests,
+            lengths,
+            table,
+            9,
+            4,
+            5,
+            16,
+            current_metadata=metadata,
+            current_valid=current_valid,
+            max_current_width=max(widths),
         )
 
-    def reference(duplicate=False):
-        dst = torch.tensor([7, 8, 0, 0, 13, 14], device="npu")
-        live = torch.tensor(
-            [not duplicate, True, False, False, True, not duplicate], device="npu"
-        )
-        host = torch.ones(15, device="npu", dtype=torch.bool)
-        host[dst[live]] = False
-        return torch.arange(6, device="npu"), dst, live, host
+    def check(result):
+        source, destination, valid, mapping = result
+        src, dst, live, host = mapping
+        expected_source = torch.cat((table[1, :4], table[0, :2], table[2, :3])).long()
+        torch.testing.assert_close(source, expected_source, rtol=0, atol=0)
+        current = torch.arange(sum(widths), device="npu") + 1000
+        host_data = torch.arange(80, device="npu") + 100
+        actual = torch.empty(9, device="npu", dtype=torch.int64)
+        actual[destination[valid & host]] = host_data[source[valid & host]]
+        actual[dst[live]] = current[src[live]]
+        reqs, lens = requests.cpu().tolist(), lengths.cpu().tolist()
+        meta, cv = metadata.cpu().tolist(), current_valid.cpu().tolist()
+        expected = []
+        for r, (req, length) in enumerate(zip(reqs, lens)):
+            if req < 0:
+                continue
+            start, prefix, extend = meta[r], meta[4 + r], meta[8 + r]
+            for pos in range(length):
+                idx = start + pos - prefix
+                if req > 0 and prefix <= pos < prefix + extend and cv[idx]:
+                    expected.append(1000 + idx)
+                else:
+                    expected.append(100 + req * 16 + pos)
+        torch.testing.assert_close(actual.cpu(), torch.tensor(expected), rtol=0, atol=0)
 
-    exact(candidate(), reference())
+    check(candidate())
     graph, outputs = capture(candidate)
-    locations[5] = locations[0]
+    current_valid.logical_not_()
+    metadata[4] = 3
+    metadata[8] = 1
     graph.replay()
     torch.npu.synchronize()
-    exact(outputs, reference(duplicate=True))
+    check(outputs)
+
+
+def test_prefill_zero_total_initializes_padding():
+    torch.npu.set_device(0)
+    requests = torch.tensor([0, -1], device="npu")
+    lengths = torch.zeros(2, device="npu", dtype=torch.int64)
+    table = torch.zeros((2, 4), device="npu", dtype=torch.int32)
+    metadata = torch.tensor([0, 2, 0, 0, 0, 0, 2, 2], device="npu")
+    current_valid = torch.ones(4, device="npu", dtype=torch.bool)
+    source, destination, valid, mapping = ops.prefill_plan(
+        requests,
+        lengths,
+        table,
+        0,
+        0,
+        2,
+        4,
+        current_metadata=metadata,
+        current_valid=current_valid,
+        max_current_width=2,
+    )
+    assert source.numel() == destination.numel() == valid.numel() == 0
+    src, dst, current_live, host = mapping
+    exact(
+        (src, dst, current_live),
+        (
+            torch.arange(4),
+            torch.zeros(4, dtype=torch.long),
+            torch.zeros(4, dtype=torch.bool),
+        ),
+    )
+    assert host.numel() == 0

@@ -65,6 +65,14 @@ def _prefill_plan_kernel(
     source,
     destination,
     valid,
+    metadata,
+    current_valid,
+    current_src,
+    current_dst,
+    current_out_valid,
+    host_mask,
+    HAS_CURRENT: tl.constexpr,
+    CURRENT_VALID_STRIDE: tl.constexpr,
     B: tl.constexpr,
     ROWS: tl.constexpr,
     CONTEXT: tl.constexpr,
@@ -87,82 +95,50 @@ def _prefill_plan_kernel(
     live = (req >= 0) & (length > 0) & (pos < length)
     safe_req = tl.minimum(tl.maximum(req, 0), ROWS - 1)
     safe_pos = tl.minimum(pos, CONTEXT - 1)
+    if HAS_CURRENT:
+        current_start = tl.load(metadata + r)
+        prefix = tl.load(metadata + B + r)
+        extend = tl.load(metadata + 2 * B + r)
+        width = tl.load(metadata + 3 * B + r)
+        block_start = tl.program_id(1) * BLOCK
+        use_device = tl.full((BLOCK,), False, tl.int1)
+        if (block_start < prefix + extend) & (block_start + BLOCK > prefix):
+            in_current = (pos >= prefix) & (pos < prefix + extend)
+            idx = current_start + pos - prefix
+            current_live = (
+                tl.load(
+                    current_valid + idx * CURRENT_VALID_STRIDE,
+                    live & in_current,
+                    other=0,
+                )
+                != 0
+            )
+            use_device = live & in_current & (req > 0) & current_live
+        tl.store(host_mask + start + pos, ~use_device, live)
+        if block_start < width:
+            local_valid = (
+                tl.load(
+                    current_valid + (current_start + pos) * CURRENT_VALID_STRIDE,
+                    pos < width,
+                    other=0,
+                )
+                != 0
+            )
+            local_live = (pos < extend) & (req > 0) & local_valid
+            tl.store(
+                current_src + current_start + pos, current_start + pos, pos < width
+            )
+            tl.store(
+                current_dst + current_start + pos,
+                tl.where(local_live, start + prefix + pos, 0),
+                pos < width,
+            )
+            tl.store(current_out_valid + current_start + pos, local_live, pos < width)
     physical = tl.load(table + safe_req * S0 + safe_pos * S1, live, other=0)
     out = start + pos
     tl.store(source + out, physical.to(tl.int64), live)
     tl.store(destination + out, out, live)
     tl.store(valid + out, True, live)
-
-
-@triton.jit
-def _mapping_init_kernel(
-    counts, host_mask, CAPACITY: tl.constexpr, TOTAL: tl.constexpr, BLOCK: tl.constexpr
-):
-    i = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    tl.store(counts + i, 0, i < CAPACITY)
-    tl.store(host_mask + i, True, i < TOTAL)
-
-
-@triton.jit
-def _mapping_count_kernel(
-    metadata,
-    locations,
-    current_valid,
-    counts,
-    src_out,
-    dst_out,
-    valid_out,
-    N: tl.constexpr,
-    B: tl.constexpr,
-    CAPACITY: tl.constexpr,
-    BATCH_BLOCK: tl.constexpr,
-    BLOCK: tl.constexpr,
-):
-    i = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    # Metadata is O(B): current-row end, full-KV start, prefix, live-row end.
-    rows = tl.arange(0, BATCH_BLOCK)
-    ends = tl.load(metadata + rows, rows < B, other=0)
-    owner = tl.sum(
-        ((i[:, None] >= ends[None, :]) & (rows[None, :] < B)).to(tl.int32), 1
-    )
-    previous = tl.load(metadata + owner - 1, (i < N) & (owner > 0), other=0)
-    start = tl.load(metadata + B + owner, i < N, other=0)
-    prefix = tl.load(metadata + 2 * B + owner, i < N, other=0)
-    live_end = tl.load(metadata + 3 * B + owner, i < N, other=0)
-    eligible = i < live_end
-    dst = tl.where(eligible, start + prefix + i - previous, 0).to(tl.int64)
-    loc = tl.load(locations + i, i < N, other=-1).to(tl.int64)
-    live = tl.load(current_valid + i, i < N, other=0) != 0
-    live = live & eligible & (loc >= 0) & (loc < CAPACITY) & (i < N)
-    tl.atomic_add(counts + tl.minimum(tl.maximum(loc, 0), CAPACITY - 1), 1, live)
-    tl.store(src_out + i, i, i < N)
-    tl.store(dst_out + i, dst, i < N)
-    tl.store(valid_out + i, live, i < N)
-
-
-@triton.jit
-def _mapping_finish_kernel(
-    source,
-    locations,
-    counts,
-    destination,
-    valid,
-    host_mask,
-    N: tl.constexpr,
-    CAPACITY: tl.constexpr,
-    BLOCK: tl.constexpr,
-):
-    i = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    live = tl.load(valid + i, i < N, other=0) != 0
-    loc = tl.load(locations + i, i < N, other=0).to(tl.int64)
-    safe = tl.minimum(tl.maximum(loc, 0), CAPACITY - 1)
-    count = tl.load(counts + safe, i < N, other=0)
-    dst = tl.load(destination + i, i < N, other=0)
-    physical = tl.load(source + dst, i < N, other=-1)
-    live = live & (count == 1) & (physical == loc)
-    tl.store(valid + i, live, i < N)
-    # CPU layout validation guarantees unique destinations for eligible rows.
-    tl.store(host_mask + dst, False, (i < N) & live)
 
 
 @triton.jit
@@ -294,21 +270,53 @@ def mtp_rows(
 
 
 def prefill_plan(
-    requests, lengths, table, total, max_length, request_rows, context_len
+    requests,
+    lengths,
+    table,
+    total,
+    max_length,
+    request_rows,
+    context_len,
+    *,
+    current_metadata=None,
+    current_valid=None,
+    max_current_width=0,
 ):
-    """Expand ragged request rows directly through the physical token map."""
+    """Build host and optional current-device row mappings in one launch."""
     source = torch.empty(total, dtype=torch.long, device=table.device)
     destination = torch.empty_like(source)
     valid = torch.empty(total, dtype=torch.bool, device=table.device)
-    if total:
+    has_current = current_metadata is not None
+    if has_current != (current_valid is not None):
+        raise ValueError("current metadata and validity must be supplied together")
+    mapping = None
+    if has_current:
+        n = current_valid.numel()
+        current_src = torch.empty(n, dtype=torch.long, device=table.device)
+        current_dst = torch.empty_like(current_src)
+        current_out_valid = torch.empty(n, dtype=torch.bool, device=table.device)
+        host_mask = torch.empty(total, dtype=torch.bool, device=table.device)
+        mapping = (current_src, current_dst, current_out_valid, host_mask)
+    else:
+        current_src = current_dst = current_out_valid = host_mask = None
+    width = max(max_length, max_current_width)
+    if width and requests.numel():
         b = requests.numel()
-        _prefill_plan_kernel[(b, triton.cdiv(max_length, 256))](
+        _prefill_plan_kernel[(b, triton.cdiv(width, 256))](
             requests,
             lengths,
             table,
             source,
             destination,
             valid,
+            current_metadata,
+            current_valid,
+            current_src,
+            current_dst,
+            current_out_valid,
+            host_mask,
+            has_current,
+            current_valid.stride(0) if has_current else 0,
             b,
             request_rows,
             context_len,
@@ -319,53 +327,7 @@ def prefill_plan(
             triton.next_power_of_2(b),
             256,
         )
-    return source, destination, valid
-
-
-def prefill_current_mapping(
-    source, locations, current_valid, metadata, capacity, total, batch_size
-):
-    """Resolve unique current rows after CPU layout metadata has been uploaded."""
-    n, b = current_valid.numel(), batch_size
-    device = source.device
-    src = torch.empty(n, device=device, dtype=torch.long)
-    dst = torch.empty_like(src)
-    valid = torch.empty(n, device=device, dtype=torch.bool)
-    host_mask = torch.empty(total, device=device, dtype=torch.bool)
-    counts = torch.empty(capacity, device=device, dtype=torch.int32)
-    _mapping_init_kernel[(triton.cdiv(max(capacity, total), 512),)](
-        counts,
-        host_mask,
-        capacity,
-        total,
-        512,
-    )
-    _mapping_count_kernel[(triton.cdiv(n, 32),)](
-        metadata,
-        locations,
-        current_valid,
-        counts,
-        src,
-        dst,
-        valid,
-        n,
-        b,
-        capacity,
-        triton.next_power_of_2(b),
-        32,
-    )
-    _mapping_finish_kernel[(triton.cdiv(n, 32),)](
-        source,
-        locations,
-        counts,
-        dst,
-        valid,
-        host_mask,
-        n,
-        capacity,
-        32,
-    )
-    return src, dst, valid, host_mask
+    return source, destination, valid, mapping
 
 
 def copy_rows_metadata(sources, destinations, source_rows, destination_rows, valid):
