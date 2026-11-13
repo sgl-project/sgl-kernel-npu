@@ -74,6 +74,7 @@
 | [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`、`torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`、`torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`、`torch_native` |
+| [layer_norm](operators/norm/layer_norm.md) | `cann_ops_transformer`（ARCH22）、`torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`、`torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`、`torch_native` |
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`、`torch_native` |
