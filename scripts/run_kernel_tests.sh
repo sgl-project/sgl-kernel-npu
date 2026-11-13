@@ -57,6 +57,8 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_dcp_sparse_index_remap.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_dcp_verify_page_tables.py"
     "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
