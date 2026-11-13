@@ -50,16 +50,25 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int64_t);
     }
 
-    tillingData->tokenCountAlignInt32 = host_utils::alinInt32Count(MAX_STEP);
+    // The caller packs a fixed verify window per row. Size the local copy from
+    // the tensor it actually passed instead of the historical 16-token limit.
+    uint64_t maxStep = 1;
+    if (batchSize > 0) {
+        maxStep = (cacheLocCount + batchSize - 1) / batchSize;
+        if (maxStep == 0) {
+            maxStep = 1;
+        }
+    }
+    tillingData->tokenCountAlignInt32 = host_utils::alinInt32Count(maxStep);
     tillingData->tokenColAlignInt32 = tillingData->tokenCountAlignInt32 * sizeof(int32_t);
 
     tillingData->offsetCountAlignInt64 = host_utils::alinInt64Count(batchSize);
     tillingData->offsetColAlignInt64 = tillingData->offsetCountAlignInt64 * sizeof(int64_t);
 
     // The kernel loads cacheLocSize int32 from out_cache_loc and stores them all back, so it has
-    // to be the tensor's own length; batchSize * MAX_STEP overruns every caller that packs fewer
-    // than MAX_STEP entries per row. The store puts back what the load read, so the overrun stays
-    // silent until the tensor ends an allocator block whose neighbour is unmapped.
+    // to be the tensor's own length; the old batchSize * 16 overran every caller that packs fewer
+    // than 16 entries per row. The store puts back what the load read, so the overrun stayed
+    // silent until the tensor ended an allocator block whose neighbour was unmapped.
     tillingData->cacheLocSize = cacheLocCount;
     tillingData->cacheLocCountAlignInt32 = host_utils::alinInt32Count(tillingData->cacheLocSize);
     tillingData->cacheLocAlignInt32 = tillingData->cacheLocCountAlignInt32 * sizeof(int32_t);
