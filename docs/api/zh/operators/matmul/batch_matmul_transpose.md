@@ -5,6 +5,7 @@
 | 实现 | arch22（A2/A3，2201） | arch35（A5，3510） |
 | --- | --- | --- |
 | `ascendc` | 支持 | 不支持 |
+| `torch_npu` | 支持，受 TorchNPU 形状限制 | 支持 |
 | `torch_native` | 支持 | 待验证 |
 
 AscendC 内核支持 Ascend A2/A3（arch22，2201）。
@@ -14,13 +15,16 @@ AscendC 内核支持 Ascend A2/A3（arch22，2201）。
 ```python
 from sgl_kernel_npu.operators.matmul import batch_matmul_transpose
 
-def batch_matmul_transpose(
-    tensor_a, tensor_b, tensor_c, format_mode=None, quant_mode=None, *, impl="auto"
-):
+def batch_matmul_transpose(tensor_a, tensor_b, *, is_prefill=None, impl="auto"):
     ...
 ```
 
-`auto` 选择 `ascendc`，不自动回退。函数将结果写入调用方分配的 `tensor_c`，并返回 `None`。
+输入采用 ND 布局，函数返回形状为 `[M, B, N]` 的新张量。
+
+`auto` 在 arch35 上选择 `torch_npu`。在 arch22 上，MLA 省略
+`is_prefill`，当 `M`、`B*K` 或 `N` 中任一值达到 65536 时选择 `ascendc`，其余形状选择
+`torch_npu`。DSA 对普通 prefill 传 `True` 以选择 `torch_npu`，其他模式传 `False` 以选择
+`ascendc`。
 
 ## 功能说明
 
@@ -31,30 +35,24 @@ C_{m,b,n} = \sum_{k=0}^{K-1} A_{m,b,k} W_{b,k,n}.
 $$
 
 其中 M 为 token 数，B 为独立矩阵或头数，K 为归约维度，N 为输出特征维度。
-两个实现均以 FP32 累加，将结果转换为输入 dtype。
-
-NZ 权重使用显式四维打包：$W^{NZ}_{b,j,k,r}=W_{b,k,16j+r}$。
-传入的是具有该物理排列的 ND 张量，不是要求转换 `torch_npu` 的不透明存储格式。
-可通过 `w.reshape(B, K, N // 16, 16).permute(0, 2, 1, 3).contiguous()` 打包。
+`ascendc` 和 `torch_native` 以 FP32 累加，将结果转换为输入 dtype。
 
 ## 参数与返回值
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `tensor_a` | Tensor | `[M, B, K]` | FP16 / BF16 | 必填 | 连续；`1 <= M <= 1024`。 |
-| `tensor_b` | Tensor | ND：`[B, K, N]`；NZ：`[B, N/16, K, 16]` | 与 A 相同 | 必填 | 连续；NZ 要求 K、N 为 16 的倍数。 |
-| `tensor_c` | Tensor | `[M, B, N]` | 与 A 相同 | 必填 | 调用方分配的连续输出，原地覆盖；不能与 A、B 重叠。 |
-| `format_mode` | str / None | — | — | `None` | None 等价于 `"ND"`；支持 `"ND"`、`"NZ"`。 |
-| `quant_mode` | str / None | — | — | `None` | 支持 `per_channel_symm`、`per_channel_asymm`、`per_token_symm`。`None` 等价于 `per_channel_symm`。所有取值均执行浮点计算，不启用量化。 |
-| `impl` | str | — | — | `"auto"` | 仅限关键字；支持 `auto`、`ascendc`、`torch_native`。 |
+| `tensor_a` | Tensor | `[M, B, K]` | FP16 / BF16 | 必填 | `ascendc` 和 `torch_native` 要求 `1 <= M <= 1024`。 |
+| `tensor_b` | Tensor | `[B, K, N]` | 与 A 相同 | 必填 | `ascendc` 和 `torch_native` 要求权重连续。 |
+| `is_prefill` | bool / None | — | — | `None` | 仅限关键字。DSA 向 `auto` 传递是否为普通 prefill。 |
+| `impl` | str | — | — | `"auto"` | 仅限关键字。支持 `auto`、`ascendc`、`torch_npu`、`torch_native`。 |
 
 | 返回值 | 类型 | Shape | Dtype | 副作用 |
 | --- | --- | --- | --- | --- |
-| None | NoneType | — | — | 写入 C，不修改 A、B。 |
+| 结果 | Tensor | `[M, B, N]` | 与 A 相同 | 新分配的结果张量。 |
 
-所有维度必须为正，每个张量元素数不超过 `UINT32_MAX`，各张量 dtype、设备必须相同。
-`ascendc` 要求 NPU；直接加载 torch-native 实现也可用于 CPU 数学验证，
-公开包仍需要正常的 NPU 和原生运行时环境。不支持的布局、dtype、shape 或参数名会报错。
+`ascendc` 和 `torch_native` 要求各维度为正，每个张量的元素数不超过 `UINT32_MAX`。
+`ascendc` 会按需将 A 转为连续张量。两个输入的 dtype 和设备必须相同。`ascendc` 要求
+NPU，公开包需要正常的 NPU 和原生运行时环境。
 
 ## ascendc 后端
 
@@ -62,9 +60,14 @@ Torch adapter 在当前 NPU stream 上启动包内的 ACLNN 算子。
 CANN Tiling 回调根据输入维度和设备属性选择分块大小与核调度方式。
 CANN 管理 tiling 数据，Kernel 根据这些数据执行批量矩阵乘。
 
+## torch_npu 后端
+
+调用 `torch_npu.npu_transpose_batchmatmul` 并返回其输出。输入采用 ND 布局，形状范围由
+已安装的 TorchNPU 和 CANN 版本决定。
+
 ## torch_native 后端
 
-该实现会解包 NZ 权重，使用 PyTorch `bmm` 对 FP32 输入进行计算，再将结果转换为输出 dtype 并复制到 `tensor_c`。
+该实现使用 PyTorch `bmm` 对 FP32 输入进行计算，再将结果转换为输入 dtype。
 累加顺序不同可能造成数值差异。
 
 ## 调用示例
@@ -76,11 +79,9 @@ from sgl_kernel_npu.operators.matmul import batch_matmul_transpose
 
 a = torch.randn(3, 2, 32, device="npu", dtype=torch.float16)
 b = torch.randn(2, 32, 48, device="npu", dtype=a.dtype)
-c = torch.empty(3, 2, 48, device="npu", dtype=a.dtype)
-assert batch_matmul_transpose(a, b, c, impl="ascendc") is None
-reference = torch.empty_like(c)
-batch_matmul_transpose(a, b, reference, impl="torch_native")
-torch.testing.assert_close(c, reference, atol=1e-3, rtol=1e-3)
+output = batch_matmul_transpose(a, b, impl="ascendc")
+reference = batch_matmul_transpose(a, b, impl="torch_native")
+torch.testing.assert_close(output, reference, atol=1e-3, rtol=1e-3)
 ```
 
 ## 构建与测试
