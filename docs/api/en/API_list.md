@@ -166,3 +166,24 @@ installation steps; see
 | [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `triton`, `torch_native` |
 | [hc_mix](operators/hyper_conn/hc_mix.md) | `triton`, `torch_native` |
 | [hc_combine](operators/hyper_conn/hc_combine.md) | `triton`, `torch_native` |
+| [situ](operators/activation/situ.md) | `triton`, `torch_native` |
+| [swiglu_quant](operators/activation/swiglu_quant.md) | `triton`, `torch_native` |
+| [swiglu_oai](operators/activation/swiglu_oai.md) | `triton`, `torch_native` |
+| [attention_sinks](operators/attention/attention_sinks.md) | `triton`, `torch_native` |
+| [attention_sinks_prefill](operators/attention/attention_sinks_prefill.md) | `triton`, `torch_native` |
+| [fused_gdn_gating_without_sigmoid](operators/attention/gdn/fused_gdn_gating_without_sigmoid.md) | `triton`, `torch_native` |
+| [fused_kda_gate](operators/attention/kda/fused_kda_gate.md) | `triton`, `torch_native` |
+| [kda_target_verify](operators/attention/kda/kda_target_verify.md) | `triton`, `torch_native` |
+| [causal_conv1d_fn](operators/mamba/causal_conv1d_fn.md) | `torch_native` |
+| [causal_conv1d_update](operators/mamba/causal_conv1d_update.md) | `triton`, `torch_native` |
+| [move_intermediate_cache](operators/mamba/move_intermediate_cache.md) | `triton`, `torch_native` |
+| [move_intermediate_cache_kda](operators/mamba/move_intermediate_cache_kda.md) | `triton`, `torch_native` |
+| [conv_state_rollback](operators/mamba/conv_state_rollback.md) | `triton`, `torch_native` |
+| [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
+| [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
+| [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
+| [top_k_renorm_prob](operators/sample/top_k_renorm_prob.md) | `triton`, `torch_native` |
+| [top_p_renorm_prob](operators/sample/top_p_renorm_prob.md) | `triton`, `torch_native` |
+| [zero_experts_compute_identity](operators/moe/zero_experts_compute_identity.md) | `triton`, `torch_native` |
+| [flash_prefill_bnsd_blockq_sparse_fia](operators/attention/flash_prefill_bnsd_blockq_sparse_fia.md) | `triton`, `torch_native` |
+| [gemma_rmsnorm](operators/norm/gemma_rmsnorm.md) | `torch_npu`, `torch_native` |
