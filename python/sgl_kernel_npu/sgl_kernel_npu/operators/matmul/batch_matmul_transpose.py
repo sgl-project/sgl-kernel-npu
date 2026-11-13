@@ -11,6 +11,9 @@ _torch_native_fn = None
 def _ascendc_impl(tensor_a, tensor_b, *, is_prefill=None):
     import torch
 
+    if not tensor_b.is_contiguous():
+        raise ValueError("tensor_b must be contiguous")
+
     m, batch, _ = tensor_a.shape
     _, _, n = tensor_b.shape
     output = tensor_a.new_empty((m, batch, n))
