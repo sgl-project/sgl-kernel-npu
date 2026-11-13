@@ -62,6 +62,8 @@ def conv_state_rollback(conv_states, state_indices, step_indices, draft_token_nu
     for idx, step in zip(
         state_indices.to(torch.int32).tolist(), step_indices.to(torch.int32).tolist()
     ):
+        if step < 0:
+            continue
         shift = draft_token_num - 1 - step
         if shift > 0:
             state = conv_states[:, idx]
