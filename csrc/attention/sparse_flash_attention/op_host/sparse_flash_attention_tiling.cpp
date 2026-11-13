@@ -1081,11 +1081,11 @@ ge::graphStatus SFATilingCheck::CheckVAndKRopeShapeForPageAttention()
     shapeParams.Bs = blockSize_;
     shapeParams.D = packedKv ? kSfaPackedKvBytes : vHeadDim_;
     shapeParams.T = kvTSize_;
-    if (CompareShape(shapeParams, valueShapeCmp_, kvLayout_, VALUE_NAME) != ge::GRAPH_SUCCESS) {
-        return ge::GRAPH_FAILED;
-    }
     if (packedKv) {
         return CompareShape(shapeParams, keyShapeCmp_, kvLayout_, KEY_NAME);
+    }
+    if (CompareShape(shapeParams, valueShapeCmp_, kvLayout_, VALUE_NAME) != ge::GRAPH_SUCCESS) {
+        return ge::GRAPH_FAILED;
     }
 
     shapeParams.D = ropeHeadDim_;
