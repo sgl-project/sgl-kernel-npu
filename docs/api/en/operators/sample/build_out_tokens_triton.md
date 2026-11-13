@@ -26,10 +26,9 @@ def build_out_tokens_triton(
 
 ## Description
 
-Creates a `[B, gamma + 1]` output buffer by copying each row of draft tokens,
-appending a zero, and writing the bonus token at `correct_len` for that row.
-The draft entries after the bonus are retained: use the acceptance length to
-identify the committed prefix. `correct_len` must be in `[0, gamma]`.
+Creates a `[B, gamma + 1]` output buffer containing each row's accepted draft
+tokens followed by the bonus token at `correct_len`. All columns after the
+bonus are zero. `correct_len` must be in `[0, gamma]`.
 
 ## Parameters and return value
 
@@ -53,7 +52,7 @@ caller is responsible for ensuring each acceptance length is in range.
 
 ## torch_native backend
 
-Uses Torch concatenation and scatter to construct the same output.
+Uses Torch masking and scatter to construct the same output.
 
 ## Example
 
@@ -67,6 +66,6 @@ lengths = torch.tensor([1, 3], device="npu")
 bonus = torch.tensor([99, 98], device="npu")
 out = build_out_tokens_triton(draft_tokens=drafts, correct_len=lengths, bonus=bonus,
                        verify_num_draft_tokens=4, gamma=3)
-# out: [[10, 99, 12, 0], [20, 21, 22, 98]]
+# out: [[10, 99, 0, 0], [20, 21, 22, 98]]
 # Valid prefixes have lengths lengths + 1.
 ```

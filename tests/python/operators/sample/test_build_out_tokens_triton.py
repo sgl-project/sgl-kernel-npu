@@ -34,3 +34,56 @@ def test_build_out_tokens(rows, gamma):
     kwargs = generate_test_data(rows, gamma)
     executor = check_accuracy(build_out_tokens_triton, kwargs=kwargs)
     check_performance(executor, enable_perf=(rows, gamma) in perf_shape)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("backend", ["triton", "torch_native"])
+@pytest.mark.parametrize(
+    "rows,gamma",
+    [
+        pytest.param(0, 7, id="empty-batch"),
+        pytest.param(1, 0, id="zero-draft"),
+        pytest.param(33, 7, id="ci-case"),
+        pytest.param(18, 17, id="odd-width"),
+    ],
+)
+@pytest.mark.parametrize(
+    "token_dtype", [torch.int32, torch.int64], ids=["token-int32", "token-int64"]
+)
+@pytest.mark.parametrize(
+    "length_dtype", [torch.int32, torch.int64], ids=["length-int32", "length-int64"]
+)
+@pytest.mark.parametrize("step", [1, 2], ids=["contiguous", "strided"])
+def test_build_out_tokens_zeroes_rejected_suffix(
+    backend, rows, gamma, token_dtype, length_dtype, step
+):
+    from sgl_kernel_npu.operators.sample import build_out_tokens_triton
+
+    # Match SGLang's buffer contract independently of either backend. In
+    # particular, nonzero rejected drafts must not survive past the bonus.
+    offset = 2**40 if token_dtype == torch.int64 else 1000
+    draft = (
+        torch.arange(rows * gamma * step, dtype=token_dtype, device="cpu") + offset
+    ).reshape(rows, gamma * step)
+    lengths = (torch.arange(rows * step, device="cpu") // step % (gamma + 1)).to(
+        length_dtype
+    )
+    bonus = torch.arange(rows * step, dtype=token_dtype, device="cpu") - offset
+    device = torch.get_default_device()
+    inputs = dict(
+        draft_tokens=draft.to(device)[:, ::step],
+        correct_len=lengths.to(device)[::step],
+        bonus=bonus.to(device)[::step],
+        verify_num_draft_tokens=gamma + 1,
+        gamma=gamma,
+    )
+    expected = torch.zeros((rows, gamma + 1), dtype=torch.int64, device="cpu")
+    for row in range(rows):
+        length = int(lengths[row * step])
+        expected[row, :length] = draft[row, : length * step : step]
+        expected[row, length] = bonus[row * step]
+
+    actual = build_out_tokens_triton(**inputs, impl=backend)
+    assert actual.dtype == torch.int64
+    assert actual.device == inputs["draft_tokens"].device
+    assert torch.equal(actual.cpu(), expected)
