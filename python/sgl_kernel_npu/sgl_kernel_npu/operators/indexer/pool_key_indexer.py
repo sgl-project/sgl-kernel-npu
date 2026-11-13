@@ -5,6 +5,7 @@ import torch
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_fn = None
+_torch_native_fn = None
 
 
 def _metadata_tensor(value):
@@ -40,9 +41,9 @@ def _cann_impl(
         )
 
     if _cann_fn is None:
-        from ..._third_party import sgl_ops_transformer  # noqa: F401
+        from cann_ops_transformer.ops import pool_key_indexer as cann_pool_key_indexer
 
-        _cann_fn = torch.ops.cann_ops_transformer.pool_key_indexer.default
+        _cann_fn = cann_pool_key_indexer
 
     return _cann_fn(
         query,
@@ -60,6 +61,18 @@ def _cann_impl(
         quant_mode=quant_mode,
         return_value=return_value,
     )[0]
+
+
+@register_impl("indexer.pool_key_indexer", "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.pool_key_indexer import (
+            pool_key_indexer,
+        )
+
+        _torch_native_fn = pool_key_indexer
+    return _torch_native_fn(*args, **kwargs)
 
 
 @register_operator("indexer.pool_key_indexer")
@@ -84,7 +97,8 @@ def pool_key_indexer(
     """Select pooled top-k token indices and append the incomplete tail.
 
     ``auto`` and ``cann_ops_transformer`` select the public CANN binding, loaded
-    on first execution.
+    on first execution. ``torch_native`` is an independent reference for
+    supported BSND and paged TND layouts.
     ``pool_tail_k`` and ``actual_seq_*`` accept host integer sequences or
     int64 Tensors; host sequences are converted to CPU tensors.
     Device metadata uses the Tensor workspace API without D2H and can change

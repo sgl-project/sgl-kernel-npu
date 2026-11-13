@@ -32,7 +32,7 @@ def pool_key_indexer(
     ...
 ```
 
-`auto` 固定选择 `cann_ops_transformer`，首次执行时延迟加载随包提供的 CANN 绑定；不进行后端回退。
+`auto` 固定选择 `cann_ops_transformer`，首次执行时延迟加载 CANN 公共绑定；不进行后端回退。
 
 ## 功能说明
 
@@ -58,7 +58,7 @@ def pool_key_indexer(
 | `mask_mode` | `int` | — | — | `3` | 透传 vendor mask mode；当前接入使用模式 3。 |
 | `quant_mode` | `int` | — | — | `-1` | 仅支持 -1；不对外暴露 descale tensor。 |
 | `return_value` | `bool` | — | — | `False` | 必须为 False：schema 仅返回索引。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字：auto 或 cann_ops_transformer。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字：auto、cann_ops_transformer 或 torch_native。 |
 
 | 返回值 | 类型 | Shape | Dtype | 描述 |
 | --- | --- | --- | --- | --- |
@@ -71,15 +71,14 @@ CANN 输出裁掉新增行后，再按原始 query 边界执行 packing。
 
 ## cann_ops_transformer 后端
 
-仅支持 CANN 9.2.0。公共适配层加载 `sgl_ops_transformer` 第三方包，调用 `torch.ops.cann_ops_transformer.pool_key_indexer`，并返回其中的 sparse indices。CANN 9.2 的 `ops_transformer` profile 会为 arch22 和 arch35 构建 vendor 算子及上游 Torch 绑定；不支持 CANN 9.1，也不再需要单独安装 `csrc/attentions` 扩展。host 整数序列会转换为 CPU int64 tensor。二维/三维 query 直接转发，不转换成 BSND。
+仅支持 CANN 9.2.0。公共适配层直接导入并调用 CANN 公共 `cann_ops_transformer.ops.pool_key_indexer` wrapper，并返回其中的 sparse indices。CANN 9.2 为 arch22 和 arch35 原生提供该算子及其上游 Torch binding，不再将它编译进 `sgl_ops_transformer`；不支持 CANN 9.1，也不再需要单独安装 `csrc/attentions` 扩展。host 整数序列会转换为 CPU int64 tensor。二维/三维 query 直接转发，不转换成 BSND。
 
 仅支持 BF16/FP16、`quant_mode=-1`、`return_value=False`。
-无独立 `torch_native` 后端；`auto`/`cann_ops_transformer` 为同一实现。
-测试使用可独立确定排名的数据，并覆盖空历史图回放回归。
+`torch_native` 是面向 BSND/BSND 与 TND/PA_BBND 输入的独立 FP32 reference，不作为 serving 后端；`auto`/`cann_ops_transformer` 为同一实现。测试将 CANN 不保证顺序的选中 token 集合及顺序固定的不完整 tail 与该 reference 对比。
 
 ## 调用示例
 
-需先满足上述第三方包及 vendor 算子依赖；下例是最小 BSND 调用，不代表已完成 NPU 验收。
+需先安装 CANN 9.2 的 `cann_ops_transformer` 包；下例是最小 BSND 调用，不代表已完成 NPU 验收。
 
 ```python
 import torch

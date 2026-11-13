@@ -1,5 +1,3 @@
-from functools import partial
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -8,6 +6,8 @@ from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
+    make_executor,
+    require_distinct_impls,
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
@@ -15,6 +15,16 @@ from tests.python.utils.performance import check_performance
 # W: synthetic one-token-per-request PA workload, using GLM-5.3-Flash's
 # 32 index heads, 128 channels and pool=4; not a captured production tensor.
 perf_shape = [(16, 512, 32)]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(f"pool_key_indexer requires CANN >= 9.2.0 (found {version})")
 
 
 def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
@@ -50,14 +60,12 @@ def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
         )
     elif layout != "BSND":
         raise ValueError(layout)
-    # Independent literal ranking: scores increase strictly with pool id.
-    selected = torch.arange(n_pools - topk // pool_size, n_pools, dtype=torch.int32)
-    tokens = (selected[:, None] * pool_size + torch.arange(pool_size)).flatten()
-    tail = torch.arange(n_pools * pool_size, n_pools * pool_size + 3, dtype=torch.int32)
-    expected = torch.cat((tokens, tail)).to(torch.int32).expand(rows, -1)
-    if layout == "BSND":
-        expected = expected.unsqueeze(1)
-    return inputs, expected
+    return inputs
+
+
+def canonicalize_selected_pools(indices, topk):
+    """CANN does not guarantee a stable selected-pool order; tail order is fixed."""
+    return torch.cat((indices[..., :topk].sort().values, indices[..., topk:]), dim=-1)
 
 
 # Six representative tuples replace layout x dtype x shape expansion.
@@ -89,28 +97,28 @@ def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
 def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk):
     from sgl_kernel_npu.operators.indexer import pool_key_indexer
 
-    impl, _ = get_test_impls()
-    require_test_impl(pool_key_indexer, impl)
-    inputs, expected = generate_test_data(layout, rows, n_pools, heads, dtype, topk)
+    impl, impl_ref = get_test_impls()
+    inputs = generate_test_data(layout, rows, n_pools, heads, dtype, topk)
 
-    # Special accuracy case: the independent ranked fixture allows unordered
-    # pool results, so compare the selected token set and ordered tail directly.
-    # There is no separate registered reference backend for check_accuracy.
     accuracy_checked = get_skip_acc_check() is not True
     if accuracy_checked:
+        require_distinct_impls(pool_key_indexer, impl, impl_ref)
         actual = pool_key_indexer(**inputs, impl=impl)
-        # Pool order is not assumed. Check the selected token set and the
-        # separate ordered tail, rather than accepting arbitrary in-range ids.
-        assert actual.shape == expected.shape
-        assert actual.dtype == torch.int32
-        topk = inputs["topk"]
-        assert_accuracy(actual[..., :topk].sort().values, expected[..., :topk])
-        assert_accuracy(actual[..., topk:], expected[..., topk:])
+        expected = pool_key_indexer(**inputs, impl=impl_ref)
+        assert_accuracy(
+            canonicalize_selected_pools(actual, topk),
+            canonicalize_selected_pools(expected, topk),
+        )
+    else:
+        require_test_impl(pool_key_indexer, impl)
 
-    executor = partial(pool_key_indexer, **inputs, impl=impl)
-    executor.impl = impl
-    executor.impl_ref = "independent_ranked_fixture"
-    executor.accuracy_checked = accuracy_checked
+    executor = make_executor(
+        pool_key_indexer,
+        kwargs=inputs,
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=accuracy_checked,
+    )
 
     # Performance: profile the public entry without sorting/comparison.
     check_performance(

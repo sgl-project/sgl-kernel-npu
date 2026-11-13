@@ -32,7 +32,7 @@ def pool_key_indexer(
     ...
 ```
 
-`auto` selects `cann_ops_transformer`, loading the packaged CANN binding on first execution. There is no backend fallback.
+`auto` selects `cann_ops_transformer`, loading CANN's public binding on first execution. There is no backend fallback.
 
 ## Description
 
@@ -58,7 +58,7 @@ The output contains int32 indices rather than scores, with unused tail positions
 | `mask_mode` | `int` | — | — | `3` | Vendor mask-mode attribute; this integration uses mode 3. |
 | `quant_mode` | `int` | — | — | `-1` | Only -1 is supported; no descale tensors are exposed. |
 | `return_value` | `bool` | — | — | `False` | Must be False: the schema returns indices only. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only: auto or cann_ops_transformer. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only: auto, cann_ops_transformer, or torch_native. |
 
 | Return value | Type | Shape | Dtype | Description |
 | --- | --- | --- | --- | --- |
@@ -72,15 +72,14 @@ before CANN and pack the cropped output with the original query boundaries.
 
 ## cann_ops_transformer backend
 
-Requires CANN 9.2.0. The facade loads the `sgl_ops_transformer` third-party package and calls `torch.ops.cann_ops_transformer.pool_key_indexer`, returning its sparse-index output. The CANN 9.2 `ops_transformer` profile builds the vendor operator and its upstream Torch binding for arch22 and arch35; CANN 9.1 is unsupported and the separate `csrc/attentions` extension is not required. Host integer sequences are converted to CPU int64 tensors. Rank-2/3 queries are forwarded without conversion to BSND.
+Requires CANN 9.2.0. The facade imports and calls the public `cann_ops_transformer.ops.pool_key_indexer` wrapper, returning its sparse-index output. The operator and its upstream Torch binding are provided by CANN 9.2 for arch22 and arch35; they are not rebuilt into `sgl_ops_transformer`. CANN 9.1 is unsupported and the separate `csrc/attentions` extension is not required. Host integer sequences are converted to CPU int64 tensors. Rank-2/3 queries are forwarded without conversion to BSND.
 
 Only BF16/FP16, `quant_mode=-1` and `return_value=False` are supported.
-There is no independent `torch_native` backend: `auto` and `cann_ops_transformer` are aliases.
-Tests use independently known ranking results and the empty-history replay regression.
+`torch_native` is an independent FP32 reference for BSND/BSND and TND/PA_BBND inputs; it is not a serving backend. `auto` and `cann_ops_transformer` are aliases. Tests compare the selected token set (CANN does not guarantee selected-pool order) and the ordered incomplete tail against this reference.
 
 ## Example
 
-Requires the third-party package and vendor dependencies above. This is a minimal BSND invocation, not evidence of completed NPU acceptance.
+Requires the CANN 9.2 `cann_ops_transformer` package. This is a minimal BSND invocation, not evidence of completed NPU acceptance.
 
 ```python
 import torch
