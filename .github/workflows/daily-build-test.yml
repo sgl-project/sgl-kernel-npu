@@ -19,14 +19,14 @@ jobs:
     name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-16' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.12
     timeout-minutes: ${{ matrix.test_type == 'intranode' && 350 || 330 }}
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
     strategy:
       matrix:
         test_type: [intranode, low_latency]
-        cann_version: [9.0.0, 9.1.0]
+        cann_version: [9.1.0, 9.2.0]
         hardware: [a3, a2]
     steps:
       - name: Clean git config
