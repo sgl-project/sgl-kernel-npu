@@ -649,3 +649,4 @@ function main()
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi
+# test-only: gy005 dispatch probe (do not merge)
