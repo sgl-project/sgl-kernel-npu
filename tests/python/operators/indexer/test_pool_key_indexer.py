@@ -1,5 +1,3 @@
-from functools import partial
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -8,6 +6,8 @@ from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
+    make_executor,
+    require_distinct_impls,
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
@@ -17,7 +17,19 @@ from tests.python.utils.performance import check_performance
 perf_shape = [(16, 512, 32)]
 
 
-def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(f"pool_key_indexer requires CANN >= 9.2.0 (found {version})")
+
+
+def generate_test_data(
+    layout, rows, n_pools, heads, dtype, topk=16, return_value=False
+):
     """Positive, separated scores make pool ranking independent of roundoff."""
     pool_size = 4
     q = torch.zeros(rows, 1, heads, 128, dtype=dtype)
@@ -29,14 +41,14 @@ def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
         query=q,
         pool_key=keys,
         weights=weights,
-        pool_tail_k=[3] * rows,
+        pool_tail_k=torch.full((rows,), 3, dtype=torch.int64),
         topk=topk,
         pool_size=pool_size,
         layout_q="BSND",
         layout_k="BSND",
         mask_mode=3,
         quant_mode=-1,
-        return_value=False,
+        return_value=return_value,
     )
     if layout == "TND":
         inputs.update(
@@ -44,73 +56,124 @@ def generate_test_data(layout, rows, n_pools, heads, dtype, topk=16):
             weights=weights.squeeze(1),
             layout_q="TND",
             layout_k="PA_BBND",
-            actual_seq_q=list(range(1, rows + 1)),
-            actual_seq_k=[n_pools] * rows,
+            actual_seq_q=torch.arange(1, rows + 1, dtype=torch.int64),
+            actual_seq_k=torch.full((rows,), n_pools, dtype=torch.int64),
             block_table=torch.arange(rows, dtype=torch.int32).view(rows, 1),
         )
     elif layout != "BSND":
         raise ValueError(layout)
-    # Independent literal ranking: scores increase strictly with pool id.
-    selected = torch.arange(n_pools - topk // pool_size, n_pools, dtype=torch.int32)
-    tokens = (selected[:, None] * pool_size + torch.arange(pool_size)).flatten()
-    tail = torch.arange(n_pools * pool_size, n_pools * pool_size + 3, dtype=torch.int32)
-    expected = torch.cat((tokens, tail)).to(torch.int32).expand(rows, -1)
-    if layout == "BSND":
-        expected = expected.unsqueeze(1)
-    return inputs, expected
+    return inputs
+
+
+def canonicalize_selected_pools(result, topk, pool_size):
+    """CANN does not guarantee a stable selected-pool order; tail order is fixed."""
+    indices, values = result
+    if values.numel():
+        order = indices[..., :topk:pool_size].argsort(dim=-1)
+        values = values.gather(-1, order)
+    indices = torch.cat(
+        (indices[..., :topk].sort().values, indices[..., topk:]), dim=-1
+    )
+    return indices, values
 
 
 # Six representative tuples replace layout x dtype x shape expansion.
 @pytest.mark.parametrize(
-    "layout,dtype,rows,n_pools,heads,topk",
+    "layout,dtype,rows,n_pools,heads,topk,return_value",
     [
         # Case 01: Typical TND BF16: 16 requests, 512 pools, 32 heads, topk2048; profile.
         pytest.param(
-            "TND", torch.bfloat16, 16, 512, 32, 2048, id="W-glm53-flash-tnd-topk2048"
+            "TND",
+            torch.bfloat16,
+            16,
+            512,
+            32,
+            2048,
+            False,
+            id="W-glm53-flash-tnd-topk2048",
         ),
         # Case 02: Typical BSND BF16 with the same full-pool selection.
         pytest.param(
-            "BSND", torch.bfloat16, 16, 512, 32, 2048, id="W-glm53-flash-bsnd-topk2048"
+            "BSND",
+            torch.bfloat16,
+            16,
+            512,
+            32,
+            2048,
+            False,
+            id="W-glm53-flash-bsnd-topk2048",
         ),
         # Case 03: Minimum TND FP16: one request/head and a ranked subset.
-        pytest.param("TND", torch.float16, 1, 16, 1, 16, id="edge-tnd-fp16-minimum"),
+        pytest.param(
+            "TND",
+            torch.float16,
+            1,
+            16,
+            1,
+            16,
+            True,
+            id="edge-tnd-fp16-minimum-values",
+        ),
         # Case 04: Minimum BSND FP16 with a ranked subset.
-        pytest.param("BSND", torch.float16, 1, 16, 1, 16, id="edge-bsnd-fp16-minimum"),
+        pytest.param(
+            "BSND",
+            torch.float16,
+            1,
+            16,
+            1,
+            16,
+            True,
+            id="edge-bsnd-fp16-minimum-values",
+        ),
         # Case 05: TND BF16: odd request count and a ranked subset.
         pytest.param(
-            "TND", torch.bfloat16, 3, 32, 4, 16, id="edge-odd-requests-ranked-subset"
+            "TND",
+            torch.bfloat16,
+            3,
+            32,
+            4,
+            16,
+            False,
+            id="edge-odd-requests-ranked-subset",
         ),
         # Case 06: BSND BF16: multiple requests/heads and a ranked subset.
         pytest.param(
-            "BSND", torch.bfloat16, 16, 64, 32, 16, id="edge-multi-head-ranked-subset"
+            "BSND",
+            torch.bfloat16,
+            16,
+            64,
+            32,
+            16,
+            True,
+            id="edge-multi-head-ranked-subset-values",
         ),
     ],
 )
-def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk):
+def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk, return_value):
     from sgl_kernel_npu.operators.indexer import pool_key_indexer
 
-    impl, _ = get_test_impls()
-    require_test_impl(pool_key_indexer, impl)
-    inputs, expected = generate_test_data(layout, rows, n_pools, heads, dtype, topk)
+    impl, impl_ref = get_test_impls()
+    inputs = generate_test_data(layout, rows, n_pools, heads, dtype, topk, return_value)
 
-    # Special accuracy case: the independent ranked fixture allows unordered
-    # pool results, so compare the selected token set and ordered tail directly.
-    # There is no separate registered reference backend for check_accuracy.
     accuracy_checked = get_skip_acc_check() is not True
     if accuracy_checked:
+        require_distinct_impls(pool_key_indexer, impl, impl_ref)
         actual = pool_key_indexer(**inputs, impl=impl)
-        # Pool order is not assumed. Check the selected token set and the
-        # separate ordered tail, rather than accepting arbitrary in-range ids.
-        assert actual.shape == expected.shape
-        assert actual.dtype == torch.int32
-        topk = inputs["topk"]
-        assert_accuracy(actual[..., :topk].sort().values, expected[..., :topk])
-        assert_accuracy(actual[..., topk:], expected[..., topk:])
+        expected = pool_key_indexer(**inputs, impl=impl_ref)
+        assert_accuracy(
+            canonicalize_selected_pools(actual, topk, inputs["pool_size"]),
+            canonicalize_selected_pools(expected, topk, inputs["pool_size"]),
+        )
+    else:
+        require_test_impl(pool_key_indexer, impl)
 
-    executor = partial(pool_key_indexer, **inputs, impl=impl)
-    executor.impl = impl
-    executor.impl_ref = "independent_ranked_fixture"
-    executor.accuracy_checked = accuracy_checked
+    executor = make_executor(
+        pool_key_indexer,
+        kwargs=inputs,
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=accuracy_checked,
+    )
 
     # Performance: profile the public entry without sorting/comparison.
     check_performance(

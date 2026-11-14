@@ -2,10 +2,10 @@
 
 ## 芯片支持
 
-| 实现 | arch22 | arch35 |
+| 实现 | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
-| `triton` | 支持 | 已验证 |
-| `torch_native` | 支持 | 已验证 |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
@@ -41,6 +41,9 @@ def kpool_decode_update_and_maybe_write_cache(
 将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表将 BF16 结果写入 pooled cache。
 
 汇聚使用 FP32 计算，并加入位置分数。无效请求行不修改任何状态。`out_cache_loc` 用于判断该行是否有效，pooled cache 的实际写入位置另外通过页表确定。
+
+`block_tables` 保存物理 KV 页号。一个逻辑分配页包含 pool_size 个连续 KV 页，
+对应一个压缩 index 页，写入时使用后者。GLM-5.3-Flash 的逻辑页为 512 tokens，index 页为 128 行。
 
 ## 参数与返回值
 
