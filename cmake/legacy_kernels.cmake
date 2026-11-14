@@ -63,10 +63,6 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_mamba_state/op_host/transfer_mamba_state.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_expand.cpp
@@ -142,10 +138,6 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_shrink_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_expand_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
