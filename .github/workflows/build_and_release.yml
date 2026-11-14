@@ -27,10 +27,18 @@ jobs:
         cann_version: ['9.1.0', '9.2.0']
         include:
           - arch: x86_64
-            runner: ubuntu-24.04
+            runner_arch: X64
+            runner_pool: release-x86
           - arch: aarch64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+            runner_arch: ARM64
+            runner_pool: release-arm
+
+    runs-on:
+      - self-hosted
+      - Linux
+      - ${{ matrix.runner_arch }}
+      - cpu
+      - ${{ matrix.runner_pool }}
     container:
       image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
@@ -58,7 +66,7 @@ jobs:
         run: |
           env -i PATH="${PATH}" bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib &&
-            python3 setup.py --arch-version 3510 --ops all --artifact wheel -j 2
+            python3 setup.py --arch-version 3510 --ops all --artifact wheel -j 8
           "
       - name: Build Attentions
         run: |
