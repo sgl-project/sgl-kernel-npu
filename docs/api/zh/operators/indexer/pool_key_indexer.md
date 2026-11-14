@@ -5,6 +5,7 @@
 | 实现 | A3 (arch22) | A5 (arch35) |
 | --- | --- | --- |
 | `cann_ops_transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
@@ -38,47 +39,55 @@ def pool_key_indexer(
 
 对 pooled key 打分并选择排名靠前的 pool，将其展开为 token 位置，再追加末尾尚未组成完整 pool 的 token。
 
-输出为 int32 索引，不返回分数；未使用的 tail 位置填为 `-1`。打分、掩码和选中 pool 的排列由 vendor 算子决定，不保证 pool 顺序稳定。输入不被修改。
+原样返回 CANN 的 `(indices, values)` 元组。indices 为 int32，无效位置填 `-1`；`return_value=True` 时 values 为选中 pool 的 float32 分数，否则为空 Tensor。打分、掩码和选中 pool 的排列由 CANN 决定，不保证 pool 顺序稳定。输入不被修改。
 
 ## 参数与返回值
 
 | 参数 | 类型 | Shape | Dtype / 位置 | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `query` | `torch.Tensor` | `[B,S,H,D]` / `[T,H,D]` / `[T,H*D]` | `float16` / `bfloat16` | 必填 | BSND / TND query；二维输入直接转发，不在 binding 中 reshape。 |
+| `query` | `torch.Tensor` | `[B,S,H,D]` / `[T,H,D]` | CANN 支持的 query dtype | 必填 | BSND / TND query，原样转发。 |
 | `pool_key` | `torch.Tensor` | `[B,P,1,D]` (BSND); layout-dependent for PA | 与 query 相同 | 必填 | pool key；PA 分页布局须配套页表。 |
-| `weights` | `torch.Tensor` | `[B,S,H]` (BSND) / `[T,H]` (TND) | 与 query 相同 | 必填 | 逐 query、逐 head 的 indexer 权重。 |
-| `pool_tail_k` | `Sequence[int]` 或 Tensor | `[B]` | host 整数或 NPU int64 | 必填 | 每请求尚未压缩的 tail token 数。 |
-| `actual_seq_q` | `Sequence[int]`、Tensor 或 None | `[B]` 或 — | host 整数或 NPU int64 | `None` | 打包 query 的累积结束位置。 |
-| `actual_seq_k` | `Sequence[int]`、Tensor 或 None | `[B]` 或 — | host 整数或 NPU int64 | `None` | 每请求的完整压缩池数量。 |
+| `weights` | `torch.Tensor` | `[B,S,H]` (BSND) / `[T,H]` (TND) | CANN 支持的 weight dtype | 必填 | 逐 query、逐 head 的 indexer 权重。 |
+| `pool_tail_k` | `torch.Tensor` | `[B]` | CPU/NPU int64 | 必填 | 每请求尚未压缩的 tail token 数。 |
+| `actual_seq_q` | `torch.Tensor` 或 None | `[B]` 或 — | CPU/NPU int64 | `None` | 打包 query 的累积结束位置。 |
+| `actual_seq_k` | `torch.Tensor` 或 None | `[B]` 或 — | CPU/NPU int64 | `None` | 每请求的完整压缩池数量。 |
 | `block_table` | `torch.Tensor` or `None` | `[B,M]` or — | `int32` | `None` | 分页 key 的 NPU 页 ID；None 转为空 optional tensor。 |
-| `topk` | `int` | — | — | `2048` | token 级选取宽度，至少为 pool_size；按 pool_size 的倍数使用，并提供足够有效 pool。 |
+| `topk` | `int` | — | — | `2048` | token 级选取宽度，取值范围及 pool_size 整除约束由 CANN 校验。 |
 | `pool_size` | `int` | — | — | `16` | 每个完整 pool 对应的 token 数，须为正数。 |
-| `layout_q` | `str` | — | — | `"BSND"` | query 布局；示例涉及 BSND，测试另含 TND。 |
-| `layout_k` | `str` | — | — | `"BSND"` | key 布局；测试配置使用 BSND 或 PA_BBND。 |
-| `mask_mode` | `int` | — | — | `3` | 透传 vendor mask mode；当前接入使用模式 3。 |
-| `quant_mode` | `int` | — | — | `-1` | 仅支持 -1；不对外暴露 descale tensor。 |
-| `return_value` | `bool` | — | — | `False` | 必须为 False：schema 仅返回索引。 |
+| `layout_q` | `str` | — | — | `"BSND"` | query 布局：BSND 或 TND。 |
+| `layout_k` | `str` | — | — | `"BSND"` | key 布局为 BSND、TND 或 PA_BBND，支持范围由 CANN 校验。 |
+| `mask_mode` | `int` | — | — | `3` | 原样透传 CANN。 |
+| `quant_mode` | `int` | — | — | `-1` | 原样透传，支持的参数组合由 CANN 校验。 |
+| `return_value` | `bool` | — | — | `False` | 透传 CANN，控制 values 是否包含选中 pool 的分数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字：auto、cann_ops_transformer 或 torch_native。 |
 
 | 返回值 | 类型 | Shape | Dtype | 描述 |
 | --- | --- | --- | --- | --- |
-| `indices` | `torch.Tensor` | `[B,S,topk+K-1]`（四维 query）或 `[T,topk+K-1]`（二维/三维 query） | `torch.int32` | query 所在 NPU 上的新输出。 |
+| `indices` | `torch.Tensor` | `[B,S,topk+K-1]`（BSND）或 `[T,topk+K-1]`（TND） | `torch.int32` | 元组第一项，位于 query 设备；K 为 pool_size。 |
+| `values` | `torch.Tensor` | `[B,S,topk//K]`（BSND）、`[T,topk//K]`（TND）或 `[0]` | `torch.float32` | 元组第二项，return_value=False 时为空，无效分数填 -inf。 |
 
-所有 tensor 位于同一 NPU，采用与布局匹配的连续 ND 存储。
-host metadata 序列会转换为 CPU int64 tensor；设备张量可在图回放时更新。
+计算 tensor 位于 query 所在 NPU；长度元数据须为 CPU 或 NPU 上的 int64 tensor。
+图回放时元数据须为 query NPU 上的连续 tensor，通过原地更新 buffer 修改；
+全 CPU 元数据作为捕获时常量，修改后需重新捕获。
 TND 空历史或全 padding 场景先调用 `prepare_pool_key_indexer_inputs`，
-CANN 输出裁掉新增行后，再按原始 query 边界执行 packing。
+再按原始 query 边界对裁剪后的输出执行 packing。
 
 ## cann_ops_transformer 后端
 
-仅支持 CANN 9.2.0。公共适配层直接导入并调用 CANN 公共 `cann_ops_transformer.ops.pool_key_indexer` wrapper，并返回其中的 sparse indices。CANN 9.2 为 arch22 和 arch35 原生提供该算子及其上游 Torch binding，不再将它编译进 `sgl_ops_transformer`；不支持 CANN 9.1，也不再需要单独安装 `csrc/attentions` 扩展。host 整数序列会转换为 CPU int64 tensor。二维/三维 query 直接转发，不转换成 BSND。
+要求 CANN 9.2.0。适配层直接导入 `cann_ops_transformer.ops.pool_key_indexer`，原样透传入参和完整返回元组，不转换输入、校验入参或截取输出。dtype、布局、量化模式和参数组合的支持范围由 CANN 决定。
 
-仅支持 BF16/FP16、`quant_mode=-1`、`return_value=False`。
-`torch_native` 是面向 BSND/BSND 与 TND/PA_BBND 输入的独立 FP32 reference，不作为 serving 后端；`auto`/`cann_ops_transformer` 为同一实现。测试将 CANN 不保证顺序的选中 token 集合及顺序固定的不完整 tail 与该 reference 对比。
+`auto`/`cann_ops_transformer` 为同一实现。
+
+## torch_native 后端
+
+独立 FP32 reference，支持 BSND/BSND 和 TND/{TND, PA_BBND}，可在 CPU 或 NPU 执行。
+返回相同的元组结构，并按 return_value 返回分数或空 Tensor。
+quant_mode 用于调用兼容，参考实现对传入的 tensor 数值做 FP32 打分，
+不复现 vendor 量化 kernel 的中间舍入。该实现用于精度对照，不作为 serving 后端。
 
 ## 调用示例
 
-需先安装 CANN 9.2 的 `cann_ops_transformer` 包；下例是最小 BSND 调用，不代表已完成 NPU 验收。
+需先安装 CANN 9.2 的 `cann_ops_transformer` 包。
 
 ```python
 import torch
@@ -91,9 +100,17 @@ query[..., 0] = 1
 keys = torch.zeros(1, 16, 1, 128, device=query.device, dtype=query.dtype)
 keys[..., 0] = torch.arange(1, 17, device=query.device, dtype=query.dtype).view(1, 16, 1)
 weights = torch.ones(1, 1, 1, device=query.device, dtype=query.dtype)
-indices = pool_key_indexer(
-    query, keys, weights, pool_tail_k=[3],
-    topk=16, pool_size=4, layout_q="BSND", layout_k="BSND", impl="cann_ops_transformer",
+indices, values = pool_key_indexer(
+    query,
+    keys,
+    weights,
+    pool_tail_k=torch.tensor([3], dtype=torch.int64, device=query.device),
+    topk=16,
+    pool_size=4,
+    layout_q="BSND",
+    layout_k="BSND",
+    impl="cann_ops_transformer",
 )
 assert indices.shape == (1, 1, 19) and indices.dtype == torch.int32
+assert values.shape == (0,)
 ```

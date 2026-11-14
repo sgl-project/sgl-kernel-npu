@@ -9,12 +9,10 @@ backend.
 import torch
 
 
-def _host_ints(value, name):
+def _host_ints(value):
     if value is None:
         return None
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"{name} must be a Tensor after facade conversion")
-    return [int(item) for item in value.detach().cpu().tolist()]
+    return value.detach().cpu().tolist()
 
 
 def _sequence_ends(ends, total, name):
@@ -47,7 +45,7 @@ def _scores(query, pool_key, weights, *, mask_mode):
     return score.masked_fill(~visible, -torch.inf)
 
 
-def _indices(score, *, topk, pool_size, pool_tail_k):
+def _select(score, *, topk, pool_size, pool_tail_k, return_value):
     query_length, pool_count = score.shape
     selected_pools = topk // pool_size
     result = torch.full(
@@ -55,6 +53,11 @@ def _indices(score, *, topk, pool_size, pool_tail_k):
         -1,
         dtype=torch.int32,
         device=score.device,
+    )
+    sparse_values = (
+        score.new_full((query_length, selected_pools), -torch.inf)
+        if return_value
+        else score.new_empty((0,))
     )
     width = min(selected_pools, pool_count)
     if width:
@@ -65,20 +68,20 @@ def _indices(score, *, topk, pool_size, pool_tail_k):
         result[:, : width * pool_size] = expanded.reshape(query_length, -1).to(
             torch.int32
         )
+        if return_value:
+            sparse_values[:, :width] = values
     if not 0 <= pool_tail_k < pool_size:
         raise ValueError("pool_tail_k must be in [0, pool_size)")
     if pool_tail_k:
         tail = pool_count * pool_size + torch.arange(pool_tail_k, device=score.device)
         result[:, topk : topk + pool_tail_k] = tail.to(torch.int32)
-    return result
+    return result, sparse_values
 
 
 def _paged_pool_keys(pool_key, block_table, request, pool_count):
     if block_table is None:
         raise ValueError("PA_BBND requires block_table")
     blocks = block_table[request].to(torch.long)
-    if (blocks < 0).any():
-        raise ValueError("block_table contains an invalid page ID")
     pages = pool_key.index_select(0, blocks).flatten(0, 1)
     if pool_count > pages.shape[0]:
         raise ValueError("actual_seq_k exceeds paged pool_key capacity")
@@ -100,14 +103,15 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
-    **kwargs,
 ):
-    """Return sparse token indices for the reference-supported input layouts."""
-    if quant_mode != -1 or return_value:
-        raise ValueError("torch_native supports quant_mode=-1 and return_value=False")
+    """Return (indices, values) using FP32 scoring.
+
+    quant_mode is accepted for call compatibility. The reference scores the
+    supplied tensor values without reproducing vendor quantized rounding.
+    """
     if topk <= 0 or pool_size <= 0 or topk % pool_size:
         raise ValueError("topk must be a positive multiple of pool_size")
-    tails = _host_ints(pool_tail_k, "pool_tail_k")
+    tails = _host_ints(pool_tail_k)
 
     if layout_q == "BSND" and layout_k == "BSND":
         if query.ndim != 4 or pool_key.ndim != 4 or weights.ndim != 3:
@@ -118,32 +122,30 @@ def pool_key_indexer(
             )
         if len(tails) != query.shape[0]:
             raise ValueError("pool_tail_k must provide one value per batch item")
-        return torch.cat(
-            [
-                _indices(
-                    _scores(
-                        query[batch],
-                        pool_key[batch],
-                        weights[batch],
-                        mask_mode=mask_mode,
-                    ),
-                    topk=topk,
-                    pool_size=pool_size,
-                    pool_tail_k=tails[batch],
-                ).unsqueeze(0)
-                for batch in range(query.shape[0])
-            ],
-            dim=0,
-        )
+        output = [
+            _select(
+                _scores(
+                    query[batch],
+                    pool_key[batch],
+                    weights[batch],
+                    mask_mode=mask_mode,
+                ),
+                topk=topk,
+                pool_size=pool_size,
+                pool_tail_k=tails[batch],
+                return_value=return_value,
+            )
+            for batch in range(query.shape[0])
+        ]
 
-    if layout_q == "TND" and layout_k in {"TND", "PA_BBND"}:
+    elif layout_q == "TND" and layout_k in {"TND", "PA_BBND"}:
         if query.ndim != 3 or weights.ndim != 2 or query.shape[:-1] != weights.shape:
             raise ValueError(
                 "TND requires query/weights ranks 3/2 with matching prefixes"
             )
-        query_ends = _host_ints(actual_seq_q, "actual_seq_q")
+        query_ends = _host_ints(actual_seq_q)
         query_ends = _sequence_ends(query_ends, query.shape[0], "actual_seq_q")
-        key_ends = _host_ints(actual_seq_k, "actual_seq_k")
+        key_ends = _host_ints(actual_seq_k)
         if key_ends is None or len(key_ends) != len(query_ends) - 1:
             raise ValueError("actual_seq_k must provide one value per request")
         if len(tails) != len(key_ends):
@@ -164,7 +166,7 @@ def pool_key_indexer(
                 keys = pool_key[previous_key_end:pool_count]
                 previous_key_end = pool_count
             output.append(
-                _indices(
+                _select(
                     _scores(
                         query[query_start:query_end],
                         keys,
@@ -174,10 +176,19 @@ def pool_key_indexer(
                     topk=topk,
                     pool_size=pool_size,
                     pool_tail_k=tails[request],
+                    return_value=return_value,
                 )
             )
-        return torch.cat(output, dim=0)
-
-    raise NotImplementedError(
-        "torch_native supports BSND/BSND and TND/{TND, PA_BBND} only"
+    else:
+        raise NotImplementedError(
+            "torch_native supports BSND/BSND and TND/{TND, PA_BBND} only"
+        )
+    join = torch.stack if layout_q == "BSND" else torch.cat
+    return (
+        join([indices for indices, _ in output]),
+        (
+            join([values for _, values in output])
+            if return_value
+            else query.new_empty((0,), dtype=torch.float32)
+        ),
     )
