@@ -34,9 +34,6 @@ void alloc_extend(at::Tensor pre_lens, at::Tensor seq_lens, at::Tensor last_loc,
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, pre_lens.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
-    workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);

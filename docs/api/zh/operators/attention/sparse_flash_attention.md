@@ -40,7 +40,7 @@ def sparse_flash_attention(
 `auto` 选择 `ascendc`；`torch_native` 使用 PyTorch 计算。
 原实现不可用时直接报错，不会回退到其他实现。
 
-算子注册名为 `torch.ops.npu.sparse_flash_attention`。
+算子注册名为 `torch.ops.npu.sgl_sparse_flash_attention`。
 
 ## 功能说明
 

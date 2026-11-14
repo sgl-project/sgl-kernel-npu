@@ -107,15 +107,12 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, query.options().dtype(at::kByte));
 
-    // Captures cover the host queue; stream recording covers asynchronous use.
     std::vector<at::Tensor> tensors{q, k, v, betaTensor, state, lengths, out, finalState, workspace};
     if (hasGamma) tensors.push_back(gamma);
     if (outputChunkState) tensors.push_back(chunk);
     std::vector<std::shared_ptr<aclTensor>> descriptors{qDesc,       kDesc,     vDesc,     betaDesc, stateDesc,
                                                         lengthsDesc, gammaDesc, chunkDesc, outDesc,  finalDesc};
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
@@ -130,11 +127,11 @@ chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at:
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "sgl_chunk_gated_delta_rule(Tensor query, Tensor key, Tensor value, Tensor? beta=None, "
+        "chunk_gated_delta_rule(Tensor query, Tensor key, Tensor value, Tensor? beta=None, "
         "Tensor? initial_state=None, Tensor? actual_seq_lengths=None, float? scale=None, Tensor? g=None, "
         "Tensor(a!)? chunk_state=None) -> (Tensor, Tensor)");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("sgl_chunk_gated_delta_rule", &chunk_gated_delta_rule);
+    m.impl("chunk_gated_delta_rule", &chunk_gated_delta_rule);
 }

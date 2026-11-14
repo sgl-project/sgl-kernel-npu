@@ -56,10 +56,7 @@ void build_tree(const at::Tensor &parentList, const at::Tensor &selectedIndex, c
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, parentList.options().dtype(at::kByte));
     tensors.push_back(workspace);
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
-    // Captures cover the host queue; stream recording covers asynchronous access.
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "build_tree ACLNN execution failed: ", aclGetRecentErrMsg());
@@ -72,12 +69,12 @@ void build_tree(const at::Tensor &parentList, const at::Tensor &selectedIndex, c
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "build_tree(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
+        "build_tree_kernel_efficient(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
         "Tensor(a!) tree_mask, Tensor(b!) positions, Tensor(c!) retrive_index, "
         "Tensor(d!) retrive_next_token, Tensor(e!) retrive_next_sibling, "
         "int topk, int depth, int draft_token_num, int tree_mask_mode) -> ()");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("build_tree", &build_tree);
+    m.impl("build_tree_kernel_efficient", &build_tree);
 }

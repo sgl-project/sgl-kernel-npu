@@ -126,7 +126,6 @@ at::Tensor causal_conv1d(const at::Tensor &x, const at::Tensor &weight, const at
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, x.options().dtype(at::kByte));
 
-    // Tensor captures retain host-queued work; record_stream protects device lifetime.
     std::vector<at::Tensor> tensors{x, weight, conv_states, y, workspace};
     for (const auto &tensor : {biasTensor, queryTensor, cacheTensor, initialTensor, acceptedTensor}) {
         if (tensor.defined()) tensors.push_back(tensor);
@@ -134,8 +133,6 @@ at::Tensor causal_conv1d(const at::Tensor &x, const at::Tensor &weight, const at
     std::vector<std::shared_ptr<aclTensor>> descriptors{xDesc,     weightDesc,  stateDesc,    biasDesc, queryDesc,
                                                         cacheDesc, initialDesc, acceptedDesc, yDesc};
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
         const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
