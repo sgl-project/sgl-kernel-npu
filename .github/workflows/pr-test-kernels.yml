@@ -1,22 +1,7 @@
 name: PR Test - Kernel Operators (Ascend NPU)
 # Build and install the kernel wheel before running operator tests.
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "csrc/**"
-      - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
-      - "python/sgl_kernel_npu/**"
-      - "tests/python/sgl_kernel_npu/**"
-      - "tests/python/operators/**"
-      - "tests/python/conftest.py"
-      - "tests/python/utils/**"
-      - "build.sh"
-      - "cmake/**"
-      - "scripts/prepare_kernel_tests.sh"
-      - "scripts/run_kernel_tests.sh"
-      - ".github/workflows/pr-test-kernels.yml"
-      - ".github/workflows/pr-test-kernel-group.yml"
+  # Temporarily manual-only during coverage pipeline validation.
   workflow_dispatch:
 
 concurrency:
