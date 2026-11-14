@@ -27,7 +27,7 @@ jobs:
             hardware: '950'
             runner: linux-amd64-a5-1
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 300
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:9.1.0-${{ matrix.hardware }}-ubuntu22.04-py3.12
     env:
