@@ -375,7 +375,10 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
 
     uint32_t tokenUbSize = tokenStructLen_;
     if constexpr (DynamicQuant || StaticQuant) {
-        tokenUbSize = axisH_ * sizeof(XType);
+        // This region holds the BF16 input, then the INT8 token and metadata.
+        // For small hidden sizes the packed token is larger than the input.
+        const uint32_t inputBytes = axisH_ * sizeof(XType);
+        tokenUbSize = inputBytes > tokenStructLen_ ? inputBytes : tokenStructLen_;
     }
 
     tpipe_->InitBuffer(tokenServerIdxBuf_, sendTokenNum * serverNum * sizeof(int32_t));
@@ -421,9 +424,12 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         if constexpr (DynamicQuant || StaticQuant) {
             DataCopyPad(tokenTempTensorU8_, xGMTensorU8_[(startTokenId + i) * axisH_ * sizeof(XType)],
                         tokenCopyParamsQuant, tokenPadParams);
-            LocalTensor<float> tokenCastLt = tBuf.GetWithOffset<float>(
-                ((axisH_ * sizeof(float)) / sizeof(float)), RoundUp(TBUF_TEMP_OFFSET + tokenUbSize, B32_PER_BLOCK));
+            LocalTensor<float> tokenCastLt =
+                tBuf.GetWithOffset<float>(axisH_, RoundUp(TBUF_TEMP_OFFSET + tokenUbSize, UB_32B_ALIGN));
             QuantProcess(1, tokenLt, tokenCastLt);
+            // Quantization reads the BF16 region that metadata is about to
+            // overwrite. Complete both the vector output and scalar scale.
+            PipeBarrier<PIPE_ALL>();
         } else {
             DataCopyPad(tokenTempTensorU8_, xGMTensorU8_[(startTokenId + i) * tokenLenInStruct_],
                         tokenCopyParamsNoQuant, tokenPadParams);
@@ -437,6 +443,11 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
                     weightCopyParams, weightPadParams);
 
         SyncFunc<AscendC::HardEvent::MTE2_S>();
+        if constexpr (DynamicQuant || StaticQuant) {
+            // The packed send also consumes the metadata just loaded by MTE2.
+            SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
+            SyncFunc<AscendC::HardEvent::S_MTE3>();
+        }
         for (int j = 0; j < serverNum; j++) {
             if (tokenServerIdxTensor_(i * serverNum + j) == -1) {
                 continue;
@@ -457,39 +468,43 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     uint32_t sendTokenNum, LocalTensor<XType> xTokenLt, LocalTensor<float> tokenCastLt)
 {
     constexpr uint32_t maxArrUbOffset = 6 * 1024;
-    constexpr uint32_t maxArrLen = 3;
-    constexpr uint32_t maxValOffset = 0;
-    constexpr uint32_t minValOffset = 1;
-    constexpr uint32_t resValOffset = 2;
     constexpr float quantMax = 127.0f;
+    // Keep the reciprocal finite for zero and subnormal BF16 tokens.
+    constexpr float minAbsMax = 1.0e-30f;
     const half deqScale = static_cast<half>(1.000000e+00f);
     float dynamicScale = 0.0;
     PipeBarrier<PIPE_ALL>();
     LocalTensor<float> workLt = tBuf.GetWithOffset<float>(maxArrUbOffset / sizeof(float), 0);
-    LocalTensor<float> maxLt = tBuf.GetWithOffset<float>(maxArrLen, maxArrUbOffset);
+    LocalTensor<float> maxLt = tBuf.GetWithOffset<float>(UB_32B_ALIGN / sizeof(float), maxArrUbOffset);
+    const uint32_t inputBytes = axisH_ * sizeof(XType);
+    const uint32_t tokenUbSize = inputBytes > tokenStructLen_ ? inputBytes : tokenStructLen_;
+    const uint32_t castOffset = RoundUp(TBUF_TEMP_OFFSET + tokenUbSize, UB_32B_ALIGN);
+    const uint32_t rawCastBytes = sendTokenNum * axisH_ * sizeof(float);
+    const uint32_t castBytes = RoundUp(rawCastBytes, UB_32B_ALIGN);
+    // Separate cast buffers avoid overlapping conversions with different
+    // element sizes. The INT32 buffer first serves as the absolute-value scratch.
+    LocalTensor<int32_t> int32Scratch = tBuf.GetWithOffset<int32_t>(sendTokenNum * axisH_, castOffset + castBytes);
+    LocalTensor<half> halfScratch = tBuf.GetWithOffset<half>(sendTokenNum * axisH_, castOffset + 2 * castBytes);
     Cast(tokenCastLt, xTokenLt, RoundMode::CAST_NONE, sendTokenNum * axisH_);
     for (int32_t i = 0; i < sendTokenNum; ++i) {
         PipeBarrier<PIPE_V>();
         if constexpr (DynamicQuant) {
-            ReduceMax(maxLt[maxValOffset], tokenCastLt[i * axisH_], workLt, axisH_, false);
-            SyncFunc<AscendC::HardEvent::V_S>();
+            LocalTensor<float> absLt = int32Scratch[i * axisH_].template ReinterpretCast<float>();
+            Abs(absLt, tokenCastLt[i * axisH_], axisH_);
             PipeBarrier<PIPE_V>();
-            ReduceMin(maxLt[minValOffset], tokenCastLt[i * axisH_], workLt, axisH_, false);
-            PipeBarrier<PIPE_V>();
-            Abs(maxLt, maxLt, maxArrLen - 1);
-            PipeBarrier<PIPE_V>();
-            ReduceMax(maxLt[resValOffset], maxLt, workLt, maxArrLen - 1, false);
+            ReduceMax(maxLt, absLt, workLt, axisH_, false);
 
             SyncFunc<AscendC::HardEvent::V_S>();
-            float maxVal = maxLt(resValOffset);
+            float maxVal = maxLt(0);
+            maxVal = maxVal > minAbsMax ? maxVal : minAbsMax;
             dynamicScale = float(quantMax) / float(maxVal);
             SyncFunc<AscendC::HardEvent::S_V>();
             Muls(tokenCastLt[i * axisH_], tokenCastLt[i * axisH_], dynamicScale, axisH_);
             PipeBarrier<PIPE_V>();
         }
 
-        LocalTensor<half> halfLocalTemp = tokenCastLt[i * axisH_].template ReinterpretCast<half>();
-        LocalTensor<int32_t> int32LocalTemp = tokenCastLt[i * axisH_].template ReinterpretCast<int32_t>();
+        LocalTensor<half> halfLocalTemp = halfScratch[i * axisH_];
+        LocalTensor<int32_t> int32LocalTemp = int32Scratch[i * axisH_];
         Cast(int32LocalTemp, tokenCastLt[i * axisH_], RoundMode::CAST_RINT, axisH_);
         PipeBarrier<PIPE_V>();
         SetDeqScale(deqScale);

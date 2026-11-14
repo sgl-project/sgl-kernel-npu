@@ -77,6 +77,20 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,
                 epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
         op.Process();
+    } else if (TILING_KEY_IS(2100001002)) {
+        // Dynamic per-token INT8, with FP32 dequantization scales in the
+        // packed token sent through both RDMA and the local HCCS window.
+        CamMoeDistributeDispatchA2Layered<bfloat16_t, int8_t, false, true, false> op;
+        op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
+                srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,
+                epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
+        op.Process();
+    } else if (TILING_KEY_IS(2000001002)) {
+        CamMoeDistributeDispatchA2Layered<bfloat16_t, int8_t, false, true, false> op;
+        op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
+                srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,
+                epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
+        op.Process();
     } else if (TILING_KEY_IS(2000000000)) {
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
         // opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
