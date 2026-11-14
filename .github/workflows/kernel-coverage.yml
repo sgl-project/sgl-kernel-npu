@@ -29,7 +29,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     container:
-      image: quay.io/ascend/cann:9.1.0-${{ matrix.hardware }}-ubuntu22.04-py3.12
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:9.1.0-${{ matrix.hardware }}-ubuntu22.04-py3.12
     env:
       CANN_VERSION: '9.1.0'
       NPU_HARDWARE: ${{ matrix.hardware }}
@@ -50,7 +50,7 @@ jobs:
         run: |
           python -m pip install coverage
           rm -rf -- coverage-out
-          KERNEL_COVERAGE_DIR=coverage-out bash scripts/run_kernel_tests.sh norm
+          KERNEL_COVERAGE_DIR=coverage-out bash scripts/run_kernel_tests.sh all
           git rev-parse HEAD > coverage-out/baseline-sha.txt
       - name: Prepare local coverage inputs
         shell: bash
