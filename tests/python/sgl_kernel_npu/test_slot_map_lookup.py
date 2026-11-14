@@ -73,6 +73,84 @@ class TestSlotMapLookup(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "slot_map must be int32"):
             slot_map_lookup(self.slot_map.to(torch.int64), req_indices, topk_indices)
 
+    def test_position_mask_supports_variable_size_and_duplicate_hits(self):
+        slot_map = torch.full((3, 64), -1, dtype=torch.int32, device="npu")
+        slot_map[0, 0] = 4094
+        slot_map[0, 63] = 4095
+        slot_map[1, 7] = 20
+
+        req_indices = torch.tensor([0, 1, -1], dtype=torch.int32, device="npu")
+        topk_indices = torch.zeros((3, 2048), dtype=torch.int32, device="npu")
+        topk_indices[0, 1] = 63
+        # Repeating token 7 verifies that concurrent writes of one to the same
+        # position still produce a binary mask.
+        topk_indices[1].fill_(7)
+
+        token_on_device, device_token_pos, position_mask = slot_map_lookup(
+            slot_map,
+            req_indices,
+            topk_indices,
+            pos_mask_size=4096,
+        )
+        torch.npu.synchronize()
+
+        self.assertEqual(tuple(position_mask.shape), (3, 4096))
+        self.assertEqual(position_mask.dtype, torch.int32)
+        self.assertTrue(torch.all(token_on_device[0] == 1).item())
+        self.assertEqual(device_token_pos[0, 0].item(), 4094)
+        self.assertEqual(device_token_pos[0, 1].item(), 4095)
+        # 4094 and 4095 share one 32-byte mask line and may be updated by
+        # different workers; both values must survive the atomic merge.
+        self.assertEqual(position_mask[0, 4094].item(), 1)
+        self.assertEqual(position_mask[0, 4095].item(), 1)
+        self.assertEqual(position_mask[0].sum().item(), 2)
+        self.assertEqual(position_mask[1, 20].item(), 1)
+        self.assertEqual(position_mask[1].sum().item(), 1)
+        self.assertEqual(position_mask[2].sum().item(), 0)
+
+    def test_position_mask_ignores_hit_positions_outside_mask(self):
+        slot_map = torch.full((1, 64), -1, dtype=torch.int32, device="npu")
+        slot_map[0, 0] = 2047
+        slot_map[0, 1] = 4095
+        req_indices = torch.tensor([0], dtype=torch.int32, device="npu")
+        topk_indices = torch.zeros((1, 2048), dtype=torch.int32, device="npu")
+        topk_indices[0, 1] = 1
+
+        token_on_device, device_token_pos, position_mask = slot_map_lookup(
+            slot_map,
+            req_indices,
+            topk_indices,
+            pos_mask_size=2048,
+        )
+        torch.npu.synchronize()
+
+        self.assertEqual(token_on_device[0, 1].item(), 1)
+        self.assertEqual(device_token_pos[0, 1].item(), 4095)
+        self.assertEqual(position_mask[0, 2047].item(), 1)
+        self.assertEqual(position_mask.sum().item(), 1)
+
+    def test_rejects_non_positive_position_mask_size(self):
+        req_indices = torch.tensor([0], dtype=torch.int32, device="npu")
+        topk_indices = torch.zeros((1, 2048), dtype=torch.int32, device="npu")
+        with self.assertRaisesRegex(ValueError, "pos_mask_size must be positive"):
+            slot_map_lookup(
+                self.slot_map,
+                req_indices,
+                topk_indices,
+                pos_mask_size=0,
+            )
+
+    def test_rejects_unaligned_position_mask_size(self):
+        req_indices = torch.tensor([0], dtype=torch.int32, device="npu")
+        topk_indices = torch.zeros((1, 2048), dtype=torch.int32, device="npu")
+        with self.assertRaisesRegex(ValueError, "multiple of 8"):
+            slot_map_lookup(
+                self.slot_map,
+                req_indices,
+                topk_indices,
+                pos_mask_size=2049,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
