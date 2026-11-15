@@ -11,7 +11,9 @@ from .lightning_indexer_prefill import lightning_indexer_prefill
 from .lightning_indexer_v2 import lightning_indexer_v2
 from .lightning_indexer_v2_metadata import lightning_indexer_v2_metadata
 from .mlp_lightning_indexer import mlp_lightning_indexer
+from .pack_pool_key_indexer_indices import pack_pool_key_indexer_indices
 from .pool_key_indexer import pool_key_indexer
+from .prepare_pool_key_indexer_inputs import prepare_pool_key_indexer_inputs
 from .qsa_expansion import expand_qsa_blocks
 from .qsa_mqa import qsa_mqa_packed, qsa_mqa_paged
 from .qsa_topk import qsa_topk
@@ -42,8 +44,10 @@ __all__ = [
     "flash_prefill_bnsd_indexer",
     "flash_prefill_bnsd_with_topk_idx",
     "kpool_indexer_prepare_decode_input",
-    "mlp_lightning_indexer",
+    "pack_pool_key_indexer_indices",
     "pool_key_indexer",
+    "prepare_pool_key_indexer_inputs",
+    "mlp_lightning_indexer",
     "quant_lightning_indexer_dsl",
     "quant_lightning_indexer_metadata_dsl",
     "quant_sparse_lightning_indexer_dsl",
