@@ -1,0 +1,15 @@
+{
+  "donor_repository": "https://github.com/McZyWu/sgl-kernel-npu",
+  "donor_revision": "e53e8d8df1d4f25be7c0d40b6fa8234c8750f1fc",
+  "lim_upstream_revision": "7d5a4cd9d7e8c4e2e4f0f6415a71f0e80edcff8e",
+  "copysfa_validated_revision": "907a2863117f0a17ab609cf4e49965e638b0876b",
+  "baseline_objects_before_v2_adaptation": {
+    "csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel": "2115e9df40b7d1cf5db8e7f4f3da6d8b6eba9ed6",
+    "csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/legacy_registration.cpp": "93ea117d07acbe6597feeaa65ab847c7ca0cac19",
+    "csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/a5_copy_sfa_ops.h": "aadb1a2d2858cb111686fbea1e3fc9e0a9d19d20",
+    "csrc/utils/batch_kernel_launch.h": "19698474a9688e2454e28a5a09b6a1f7ce396374",
+    "csrc/utils/owned_kernel_launch.h": "c85e0afcbeb1074645a4473d6a49966fa2c89fab"
+  },
+  "integration": "Original LIM OPP/ACLNN only; separate registration beside native CopySFA",
+  "a5_joint_runtime_validation": "Pending A5 device acceptance"
+}

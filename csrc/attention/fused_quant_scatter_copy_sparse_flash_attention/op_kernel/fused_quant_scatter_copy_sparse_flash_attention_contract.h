@@ -47,6 +47,7 @@ constexpr uint32_t MIN_QUERY_HEAD_COUNT = 8;
 constexpr uint32_t MAX_QUERY_HEAD_COUNT = 128;
 constexpr uint32_t SPLIT_HEAD_PARTITION_SIZE = MAX_QUERY_HEAD_COUNT / 2;
 constexpr uint32_t MAX_BLOCKS_PER_REQUEST = 2048;
+constexpr uint32_t RING_TAIL_TOKENS = 256;
 
 static_assert(QUERY_DIM == ATTENTION_OUTPUT_DIM + ROPE_DIM,
     "query dimension must contain the latent and RoPE dimensions");
@@ -82,6 +83,12 @@ FQSCSFA_CONTRACT_INLINE uint64_t UserWorkspaceBytes(uint32_t usedCoreCount, uint
         static_cast<uint64_t>(queryCount) * MissPrefetchRowBytes();
 }
 
+FQSCSFA_CONTRACT_INLINE uint64_t RingMetadataWorkspaceBytes(uint32_t batchSize)
+{
+    return (static_cast<uint64_t>(batchSize) * sizeof(int32_t) + DATA_BLOCK_BYTES - 1U) /
+        DATA_BLOCK_BYTES * DATA_BLOCK_BYTES;
+}
+
 FQSCSFA_CONTRACT_INLINE bool IsSupportedHeadCount(uint32_t heads)
 {
     return heads >= MIN_QUERY_HEAD_COUNT && heads <= MAX_QUERY_HEAD_COUNT &&
@@ -102,6 +109,22 @@ FQSCSFA_CONTRACT_INLINE int32_t AttentionKvLength(
     int32_t actualSeqLengthKv, int32_t numCacheTokens)
 {
     return numCacheTokens == 0 ? actualSeqLengthKv : numCacheTokens;
+}
+
+FQSCSFA_CONTRACT_INLINE int64_t RingPrefix(int64_t firstPosition)
+{
+    return firstPosition / static_cast<int64_t>(CACHE_BLOCK_SIZE) * CACHE_BLOCK_SIZE;
+}
+
+FQSCSFA_CONTRACT_INLINE int64_t RingTailLength(int64_t firstPosition, int64_t endPosition)
+{
+    return endPosition - RingPrefix(firstPosition);
+}
+
+FQSCSFA_CONTRACT_INLINE int64_t RingCacheTokens(
+    int64_t cacheCapacity, int64_t firstPosition, int64_t endPosition)
+{
+    return cacheCapacity + RingTailLength(firstPosition, endPosition);
 }
 } // namespace fused_quant_scatter_copy_sfa
 

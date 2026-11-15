@@ -85,5 +85,12 @@ setuptools.setup(
     url="https://github.com/sgl-project/sgl-kernel-npu/",
     license="BSD 3 License",
     python_requires=">=3.7",
-    package_data={"sgl_kernel_npu": ["lib/**", "VERSION"]},
+    package_data={
+        "sgl_kernel_npu": [
+            path.relative_to(WORKING_DIR / "sgl_kernel_npu").as_posix()
+            for path in sorted((WORKING_DIR / "sgl_kernel_npu" / "lib").rglob("*"))
+            if path.is_file()
+        ]
+        + ["VERSION"]
+    },
 )

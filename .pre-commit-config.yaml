@@ -1,7 +1,7 @@
 default_stages: [pre-commit, pre-push, manual]
 
 # Preserve pinned vendor kernel payloads byte-for-byte.
-exclude: ^(?:csrc/fused_lightning_indexer_manage/op_kernel/upstream/|csrc/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/)
+exclude: ^(?:csrc/fused_lightning_indexer_manage/op_kernel/upstream/|csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/)
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -16,6 +16,8 @@ repos:
       - id: check-toml
       - id: check-ast
       - id: check-added-large-files
+        # Pinned offline A5 LIM build dependencies, verified by prepare_original.py.
+        exclude: ^benchmark/lim_a5_mtp_ab/vendor/.*\.(tar\.(gz|xz)|zip)$
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable
       - id: detect-private-key

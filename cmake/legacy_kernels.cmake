@@ -110,8 +110,31 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     )
 endif()
 # A5-only host sources
+set(SGL_KERNEL_A5_C8_ORIGINAL_SOURCE "" CACHE PATH
+    "Prepared source root for the pinned original A5 LIM OPP")
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    if(NOT SGL_KERNEL_A5_C8_ORIGINAL_SOURCE)
+        message(FATAL_ERROR
+            "A5 kernels require SGL_KERNEL_A5_C8_ORIGINAL_SOURCE; use build.sh to prepare the pinned LIM OPP")
+    endif()
+    set(_a5_original_csrc "${SGL_KERNEL_A5_C8_ORIGINAL_SOURCE}/csrc")
+    foreach(_source
+        attention/fused_quant_lightning_indexer_manage/fused_quant_lightning_indexer_manage_torch_adpt.h
+        attention/fused_quant_lightning_indexer_manage/fused_quant_lightning_indexer_manage_ordered.h
+        aclnn_torch_adapter/op_api_common.h
+        aclnn_torch_adapter/NPUBridge.cpp
+        aclnn_torch_adapter/NPUStorageImpl.cpp)
+        if(NOT EXISTS "${_a5_original_csrc}/${_source}")
+            message(FATAL_ERROR "Missing pinned original A5 LIM source: ${_a5_original_csrc}/${_source}")
+        endif()
+    endforeach()
     list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_lightning_indexer_manage/legacy_registration.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_lightning_indexer_manage/original_aclnn.cpp
+        ${_a5_original_csrc}/aclnn_torch_adapter/NPUBridge.cpp
+        ${_a5_original_csrc}/aclnn_torch_adapter/NPUStorageImpl.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/legacy_registration.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_host/fused_quant_copy_sfa.cpp
         ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv.cpp
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host/kv_quant_sparse_attn_sharedkv_check.cpp
@@ -124,6 +147,13 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_host/situ_mxfp8_quant.cpp
         ${PROJECT_OP_SRC_BASE}/swiglu_group_quant/op_host/swiglu_group_quant.cpp
     )
+    set_source_files_properties(
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_lightning_indexer_manage/original_aclnn.cpp
+        ${_a5_original_csrc}/aclnn_torch_adapter/NPUBridge.cpp
+        ${_a5_original_csrc}/aclnn_torch_adapter/NPUStorageImpl.cpp
+        PROPERTIES
+            COMPILE_OPTIONS "-fvisibility=hidden"
+            COMPILE_DEFINITIONS "vllm_ascend=sgl_a5_original")
 endif()
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -398,6 +428,26 @@ endif()
 # metadata ABI from the A3 sparse_attn_sharedkv operator.
 set(A5_ONLY_KERNEL_TARGETS)
 if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    ascendc_library(fused_quant_scatter_copy_sparse_flash_attention_a5_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/fused_quant_scatter_copy_sparse_flash_attention.cpp
+    )
+    ascendc_include_directories(fused_quant_scatter_copy_sparse_flash_attention_a5_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/arch35
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(fused_quant_scatter_copy_sparse_flash_attention_a5_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(fused_quant_scatter_copy_sparse_flash_attention_a5_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        "SHELL:-mllvm -cce-vf-remove-membar=false"
+        "SHELL:-mllvm -cce-aicore-hoist-movemask=false"
+    )
+    list(APPEND A5_ONLY_KERNEL_TARGETS fused_quant_scatter_copy_sparse_flash_attention_a5_kernel)
+
     ascendc_library(kv_quant_sparse_attn_sharedkv_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp
     )
@@ -446,6 +496,10 @@ ascendc_compile_options(sparse_flash_attention_kernel PRIVATE
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    target_compile_definitions(${OP_PLUGIN_NAME} PRIVATE SGL_KERNEL_A5_C8_ORIGINAL)
+endif()
+
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         ${A5_ONLY_KERNEL_TARGETS}
@@ -473,6 +527,7 @@ target_compile_options(${OP_PLUGIN_NAME} PRIVATE -fopenmp)
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE gomp)
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
+        ${_a5_original_csrc}
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
@@ -487,6 +542,10 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_host
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel
+        ${PROJECT_OP_SRC_BASE}/attention/fused_quant_lightning_indexer_manage
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling

@@ -151,12 +151,30 @@
     "A5-only normal-wheel direct launch",
     "explicit tiling serialization",
     "registered DRAM pointer with owning CPU tensor for Copy-SFA",
-    "four concrete BF16/FP16 kernel entries with split-head dispatch"
+    "four concrete BF16/FP16 kernel entries with split-head dispatch",
+    "additive split-query v2 entry points with workspace-backed ring-tail metadata",
+    "persistent two-page ring restoration and current-row publication"
   ],
   "adapted_files": [
     {
       "path": "fused_quant_scatter_copy_sparse_flash_attention.cpp",
-      "ported_sha256": "172fc36bdf06f2d8af3e8c9248d1fc4dc77ff8df730360a32967c9d470a28f7b"
+      "ported_sha256": "6c02cafd4376e92113fce0253a9443584f8640a3f4c951fffae7826b0a50d768"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_contract.h",
+      "ported_sha256": "9267f07f4b190521ed74cd64fb63dd7fbc1ecabb4dce1f33f669666db6052784"
+    },
+    {
+      "path": "fused_quant_scatter_copy_sparse_flash_attention_copy.h",
+      "ported_sha256": "d40dd2e43736ad8f539723f4c740fc8228e2661029295076090857b361ab7e43"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_kernel_mla.h",
+      "ported_sha256": "3d38fa64f29e13199ab17913461410e3d1ae576cd217b9fe03b0ea0f484f4e18"
+    },
+    {
+      "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+      "ported_sha256": "12723c785cc38ed3346a712974835706d7f6081cbb3fb4ba8e580faa5dc163ad"
     }
   ]
 }

@@ -47,7 +47,7 @@ public:
                                 __gm__ uint8_t *numCacheTokens,
                                 __gm__ uint8_t *attentionOut, __gm__ uint8_t *workspace,
                                 const FusedQuantScatterCopySparseFlashAttentionTilingDataMla *__restrict tiling,
-				                TPipe *tPipe);
+				                TPipe *tPipe, __gm__ uint8_t *queryRope = nullptr);
     __aicore__ inline void Process();
     __aicore__ inline void InitSourceAwareGather(GM_ADDR dram, GM_ADDR table,
         GM_ADDR slots, GM_ADDR sources, GM_ADDR misses,
@@ -143,7 +143,7 @@ __aicore__ inline void FusedQuantScatterCopySparseFlashAttentionMla<CubeBlockTyp
     __gm__ uint8_t *actualSeqLengthsKv, __gm__ uint8_t *numCacheTokens,
     __gm__ uint8_t *attentionOut, __gm__ uint8_t *workspace,
     const FusedQuantScatterCopySparseFlashAttentionTilingDataMla *__restrict tiling,
-    TPipe *tPipe)
+    TPipe *tPipe, __gm__ uint8_t *queryRope)
 {
     fa_base_matmul::idCounterNum = 0;
     this->tilingData = tiling;
@@ -174,7 +174,11 @@ __aicore__ inline void FusedQuantScatterCopySparseFlashAttentionMla<CubeBlockTyp
     /* cube侧不依赖sharedParams的scalar前置 */
     InitMMResBuf(workspace);
     if ASCEND_IS_AIC {
-        cubeBlock.InitCubeBlock(pipe, &l1BufferManager, query);
+        if (queryRope == nullptr) {
+            cubeBlock.InitCubeBlock(pipe, &l1BufferManager, query);
+        } else {
+            cubeBlock.InitCubeBlockSplit(pipe, &l1BufferManager, query, queryRope);
+        }
         /* wait kfc message */
         CrossCoreWaitFlag<SYNC_MODE, PIPE_S>(15);
         auto tempTilingSSbuf = reinterpret_cast<__ssbuf__ uint32_t*>(0); // 从ssbuf的0地址开始拷贝

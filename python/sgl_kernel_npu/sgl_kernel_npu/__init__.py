@@ -35,6 +35,13 @@ if (pathlib.Path(__file__).parent / "_cann").is_dir():
         list(dict.fromkeys(_vendors + [path for path in _opp_paths if path]))
     )
 
+# Activate the pinned A5 LIM OPP after the repository-owned CANN vendors are
+# staged, but before torch_npu captures custom-OPP discovery. Activation is a
+# no-op for A2/A3 wheels, which do not contain this bundle.
+from ._original_opp import activate, verify_library  # isort: skip
+
+_original_opp_manifest = activate(pathlib.Path(__file__).resolve().parent)
+
 import torch
 import torch_npu
 
@@ -46,3 +53,19 @@ def _load_sgl_kernel_npu():
 
 
 _load_sgl_kernel_npu()
+
+if hasattr(torch.ops.npu, "a5_c8_backend"):
+    _a5_c8_backend = torch.ops.npu.a5_c8_backend()
+    if _a5_c8_backend == "original":
+        if _original_opp_manifest is None:
+            raise ImportError(
+                "the original A5 C8 backend requires its wheel-bundled OPP"
+            )
+        for _symbol, _library in dict(
+            torch.ops.npu.resolve_a5_c8_original_libraries()
+        ).items():
+            verify_library(
+                pathlib.Path(__file__).resolve().parent,
+                _original_opp_manifest,
+                _library,
+            )

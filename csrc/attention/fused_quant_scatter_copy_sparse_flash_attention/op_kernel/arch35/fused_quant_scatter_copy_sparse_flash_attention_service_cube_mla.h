@@ -63,6 +63,8 @@ public:
     __aicore__ inline QSFAMatmulService() {};
     __aicore__ inline void InitCubeBlock(TPipe *pipe, BufferManager<BufferType::L1> *qsfaL1BufferManagerPtr,
         __gm__ uint8_t *query);
+    __aicore__ inline void InitCubeBlockSplit(TPipe *pipe, BufferManager<BufferType::L1> *qsfaL1BufferManagerPtr,
+        __gm__ uint8_t *queryNope, __gm__ uint8_t *queryRope);
     __aicore__ inline void InitCubeInput(__gm__ uint8_t *cuSeqlensQ, const ConstInfo& constInfo);
     __aicore__ inline void IterateBmm1(Buffer<BufferType::UB, SyncType::CROSS_CORE_SYNC_BOTH> &output,
         Buffer<BufferType::L1, SyncType::CROSS_CORE_SYNC_FORWARD> &inputRightBuf,
@@ -95,6 +97,9 @@ private:
     /* =====================GM变量==================== */
     static constexpr GmFormat Q_FORMAT = GetQueryGmFormat<LAYOUT_T>();
     FaGmTensor<Q_T, Q_FORMAT, int32_t> queryGm;
+    FaGmTensor<Q_T, Q_FORMAT, int32_t> queryNopeGm;
+    FaGmTensor<Q_T, Q_FORMAT, int32_t> queryRopeGm;
+    bool splitQuery = false;
 
     /* =====================运行时变量==================== */
     CubeCoordInfo coordInfo[3];
@@ -124,6 +129,20 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void QSFAMatmulService<TEMPLATE_ARGS>
         tPipe = pipe;
         qsfaL1BufferManagerPtr = qsfaL1BuffMgr;
         this->queryGm.gmTensor.SetGlobalBuffer((__gm__ Q_T *)query);
+        InitLocalBuffer();
+    }
+}
+
+TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void QSFAMatmulService<TEMPLATE_ARGS>::InitCubeBlockSplit(
+    TPipe *pipe, BufferManager<BufferType::L1> *qsfaL1BuffMgr,
+    __gm__ uint8_t *queryNope, __gm__ uint8_t *queryRope)
+{
+    if ASCEND_IS_AIC {
+        tPipe = pipe;
+        qsfaL1BufferManagerPtr = qsfaL1BuffMgr;
+        this->queryNopeGm.gmTensor.SetGlobalBuffer((__gm__ Q_T *)queryNope);
+        this->queryRopeGm.gmTensor.SetGlobalBuffer((__gm__ Q_T *)queryRope);
+        splitQuery = true;
         InitLocalBuffer();
     }
 }
@@ -169,11 +188,23 @@ QSFAMatmulService<TEMPLATE_ARGS>::InitGmTensor(__gm__ uint8_t *qsfaActualSeqLeng
     if constexpr (LAYOUT_T == QSFA_LAYOUT::BSND) {
         this->queryGm.offsetCalculator.Init(constInfo.bSize, constInfo.n2Size, constInfo.gSize,
             constInfo.s1Size, constInfo.dSize);
+        if (splitQuery) {
+            this->queryNopeGm.offsetCalculator.Init(constInfo.bSize, constInfo.n2Size, constInfo.gSize,
+                constInfo.s1Size, fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM);
+            this->queryRopeGm.offsetCalculator.Init(constInfo.bSize, constInfo.n2Size, constInfo.gSize,
+                constInfo.s1Size, fused_quant_scatter_copy_sfa::ROPE_DIM);
+        }
     } else {  // QSFA_LAYOUT::TND
         GlobalTensor<int32_t> actualSeqQLen;
         actualSeqQLen.SetGlobalBuffer((__gm__ int32_t *)qsfaActualSeqLengthsQ);
         this->queryGm.offsetCalculator.Init(constInfo.n2Size, constInfo.gSize, constInfo.dSize,
             actualSeqQLen, constInfo.actualSeqLenSize);
+        if (splitQuery) {
+            this->queryNopeGm.offsetCalculator.Init(constInfo.n2Size, constInfo.gSize,
+                fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM, actualSeqQLen, constInfo.actualSeqLenSize);
+            this->queryRopeGm.offsetCalculator.Init(constInfo.n2Size, constInfo.gSize,
+                fused_quant_scatter_copy_sfa::ROPE_DIM, actualSeqQLen, constInfo.actualSeqLenSize);
+        }
     }
 }
 
@@ -274,10 +305,26 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void QSFAMatmulService<TEMPLATE_ARGS>
         inputLeftBuf = l1QBuffers.Get();
         inputLeftBuf.Wait<HardEvent::MTE1_MTE2>(); // 占用L1A
         LocalTensor<Q_T> inputLeftTensor = inputLeftBuf.GetTensor<Q_T>();
-        uint64_t gmOffset = this->queryGm.offsetCalculator.GetOffset(runInfo.boIdx, runInfo.n2oIdx, runInfo.goIdx,
-            coordInfo[runInfo.taskIdMod3].s1Coord, 0);
-        CopyToL1Nd2Nz<Q_T>(inputLeftTensor, this->queryGm.gmTensor[gmOffset], runInfo.mRealSize, constInfo.dSize,
-            constInfo.mm1Ka);
+        if (splitQuery) {
+            const uint64_t nopeOffset = this->queryNopeGm.offsetCalculator.GetOffset(
+                runInfo.boIdx, runInfo.n2oIdx, runInfo.goIdx, coordInfo[runInfo.taskIdMod3].s1Coord, 0);
+            const uint64_t ropeOffset = this->queryRopeGm.offsetCalculator.GetOffset(
+                runInfo.boIdx, runInfo.n2oIdx, runInfo.goIdx, coordInfo[runInfo.taskIdMod3].s1Coord, 0);
+            CopyToL1Nd2Nz<Q_T>(inputLeftTensor, this->queryNopeGm.gmTensor[nopeOffset], runInfo.mRealSize,
+                fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM,
+                fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM);
+            const uint32_t alignedRows = (runInfo.mRealSize + 15U) / 16U * 16U;
+            CopyToL1Nd2Nz<Q_T>(
+                inputLeftTensor[static_cast<uint64_t>(fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM) *
+                    alignedRows],
+                this->queryRopeGm.gmTensor[ropeOffset], runInfo.mRealSize,
+                fused_quant_scatter_copy_sfa::ROPE_DIM, fused_quant_scatter_copy_sfa::ROPE_DIM);
+        } else {
+            const uint64_t gmOffset = this->queryGm.offsetCalculator.GetOffset(
+                runInfo.boIdx, runInfo.n2oIdx, runInfo.goIdx, coordInfo[runInfo.taskIdMod3].s1Coord, 0);
+            CopyToL1Nd2Nz<Q_T>(inputLeftTensor, this->queryGm.gmTensor[gmOffset], runInfo.mRealSize,
+                constInfo.dSize, constInfo.mm1Ka);
+        }
 
         inputLeftBuf.Set<HardEvent::MTE2_MTE1>(); // 通知
     } else { // 非S2的第一次循环直接复用Q
@@ -336,6 +383,8 @@ public:
     __aicore__ inline QSFAMatmulServiceDummy() {};
     __aicore__ inline void InitCubeBlock(TPipe *pipe, BufferManager<BufferType::L1> *qsfaL1BufferManagerPtr,
         __gm__ uint8_t *query) {}
+    __aicore__ inline void InitCubeBlockSplit(TPipe *pipe, BufferManager<BufferType::L1> *qsfaL1BufferManagerPtr,
+        __gm__ uint8_t *queryNope, __gm__ uint8_t *queryRope) {}
     __aicore__ inline void InitCubeInput(__gm__ uint8_t *cuSeqlensQ, const ConstInfo& constInfo) {}
     __aicore__ inline void IterateBmm1(Buffer<BufferType::UB, SyncType::CROSS_CORE_SYNC_BOTH> &outputBuf,
         Buffer<BufferType::L1, SyncType::CROSS_CORE_SYNC_FORWARD> &inputRightBuf, RunInfo &runInfo,

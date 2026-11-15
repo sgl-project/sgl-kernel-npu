@@ -1,4 +1,4 @@
-#include "../csrc/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/fused_quant_copy_sfa_tiling_data.h"
+#include "../csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/fused_quant_copy_sfa_tiling_data.h"
 #include "attention/fused_quant_scatter_copy_sparse_flash_attention/op_host/fused_quant_scatter_copy_sparse_flash_attention_tiling.h"
 // SPDX-License-Identifier: Apache-2.0
 // Compare the direct-launch ABI with the original CANN serializer on CPU.

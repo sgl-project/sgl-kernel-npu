@@ -492,6 +492,27 @@ function build_cmake_modules()
         "-DBUILD_CATLASS_MODULE=${BUILD_CATLASS_MODULE:-OFF}"
     )
 
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" && "$SGL_KERNEL_NPU_BUILD_TARGET" == "Ascend950" ]]; then
+        local backend="${SGL_KERNEL_A5_C8_BACKEND:-original}"
+        [[ "$backend" == "original" ]] || die \
+            "A5 kernels require SGL_KERNEL_A5_C8_BACKEND=original in this migration checkpoint."
+        local original_build="${SGL_KERNEL_A5_C8_PREBUILT:-}"
+        if [[ -z "$original_build" ]]; then
+            local original_parent
+            original_parent=$(mktemp -d /tmp/sgl-a5-lim-XXXXXXXX)
+            original_build="$original_parent/build"
+            bash "$PROJECT_ROOT/tools/a5_c8/build_original.sh" "$original_build"
+        fi
+        original_build=$(cd -- "$original_build" && pwd -P)
+        python3 "$PROJECT_ROOT/tools/a5_c8/stage_runtime.py" \
+            --build-root "$original_build" \
+            --package-root "$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
+        cmake_args+=("-DSGL_KERNEL_A5_C8_ORIGINAL_SOURCE=$original_build/prepared/source")
+    elif [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        python3 "$PROJECT_ROOT/tools/a5_c8/stage_runtime.py" --clear \
+            --package-root "$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
+    fi
+
     if [[ -n "$ASC_CMAKE_DIR" ]]; then
         cmake_args+=(
             "-DCMAKE_PREFIX_PATH=$ASC_CMAKE_DIR"
@@ -610,7 +631,11 @@ function main()
     configure_soc_version
     export DEBUG_MODE
 
+    local task_python="${PYTHON_BIN:-python3}"
+    task_python=$("$task_python" -c 'import sys; print(sys.executable)')
     setup_ascend_environment
+    export PYTHON_BIN="$task_python"
+    export PATH="$(dirname -- "$task_python"):$PATH"
     mkdir -p "$OUTPUT_DIR"
     echo "Output directory: $OUTPUT_DIR"
     echo "CANN path: $ASCEND_HOME_PATH"
