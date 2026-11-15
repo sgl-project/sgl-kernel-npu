@@ -1,0 +1,59 @@
+# top_k_renorm_prob
+
+## 硬件支持
+
+| 实现 | arch22 | arch35 |
+| --- | --- | --- |
+| `triton` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
+
+## 函数签名
+
+`auto` 选择 `triton`。
+
+```python
+from sgl_kernel_npu.operators.sample import top_k_renorm_prob
+
+
+def top_k_renorm_prob(probs, top_ks, *, impl="auto"): ...
+```
+
+## 功能描述
+
+对 NPU FP32 概率行执行 top-k 筛选，并除以 max(sum,1e-20) 重新归一化。top-k 阈值限制到 [1,vocab]，top-p 限制到 [0,1]。核采样比较包含当前项的累积概率减去当前项与阈值的大小。输入保持不变。
+
+## 参数与返回值
+
+所有张量须位于同一 NPU 设备。
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `probs` | Tensor | `Required` | FP32 NPU 概率 [batch,vocab]，1<=vocab<=2**23。 |
+| `top_ks` | int or Tensor | `Required` | 保留数量，整数标量或 [batch] 张量。 |
+| `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
+
+| 返回值 | 类型 | 说明 |
+| --- | --- | --- |
+| result | Tensor | FP32 归一化概率 [batch,vocab]，与 probs 同设备。 |
+
+## triton 后端
+
+- 先用 PyTorch 对 FP32 概率排序，再由 Triton 过滤每行前 k 个元素。
+- 以 token 索引编码恢复原词表顺序，并执行归一化；分母下限为 1e-20，输入概率不修改。
+
+## torch_native 后端
+
+- 使用 PyTorch sort、mask、sum 和 scatter 完成筛选、归一化及词表顺序恢复。
+- 将每行 k 限定到 [1,vocab_size]，屏蔽排名不在前 k 的元素，再用至少 1e-20 的行和归一化。
+
+## 示例
+
+```python
+import torch
+import torch_npu
+
+from sgl_kernel_npu.operators.sample import top_k_renorm_prob
+
+p = torch.softmax(torch.randn(2, 97, device="npu"), -1)
+y = top_k_renorm_prob(p, 16, impl="triton")
+```
