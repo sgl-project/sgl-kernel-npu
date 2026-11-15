@@ -179,6 +179,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(c!)? resident_begin=None, Tensor(d!)? resident_end=None, int host_token_capacity=0, "
         "int dram_rope_dev_ptr=0) -> ()");
 
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) || defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    m.def(
+        "unidex_copy(Tensor src, Tensor(a!) dst, Tensor src_index, "
+        "Tensor dst_index, Tensor valid_mask, int src_rows, int dst_rows, "
+        "int block_bytes, int max_copy, int block_dim=8, "
+        "int? src_ptr=None, int? dst_ptr=None) -> ()");
+
+    m.def("fused_shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
+    m.def("fused_shm_allocator_free_all(int device_id) -> ()");
+#endif
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -249,21 +260,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
-        "unidex_copy(Tensor src, Tensor(a!) dst, Tensor src_index, "
-        "Tensor dst_index, Tensor valid_mask, int src_rows, int dst_rows, "
-        "int block_bytes, int max_copy, int block_dim=8, "
-        "int? src_ptr=None, int? dst_ptr=None) -> ()");
-
-    m.def(
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
         "Tensor(a!) token_on_device, Tensor(b!) device_token_pos, "
         "int block_dim=0) -> ()");
 
     m.def("shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
-    m.def("fused_shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
-
     m.def("shm_allocator_free_all(int device_id) -> ()");
-    m.def("fused_shm_allocator_free_all(int device_id) -> ()");
 
     m.def(
         "sparse_attn_sharedkv_metadata_host("
@@ -330,16 +332,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 }  // namespace
 
 namespace {
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) || defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 TORCH_LIBRARY_IMPL(npu, CatchAll, m)
 {
     // These control-plane operators have no Tensor arguments, so backend
     // dispatch cannot infer PrivateUse1 from their inputs.
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("shm_allocator_create_and_register", TORCH_FN(sglang::npu_kernel::shm_allocator_create_and_register));
+    m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
+#endif
     m.impl("fused_shm_allocator_create_and_register",
            TORCH_FN(sglang::npu_kernel::fused_shm_allocator_create_and_register));
-
-    m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
     m.impl("fused_shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::fused_shm_allocator_free_all));
 }
 #endif
@@ -445,9 +448,11 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
            TORCH_FN(sglang::npu_kernel::fused_scatter_copy_sparse_flash_attention_split));
 #endif
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) || defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
+#endif
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
 #endif
 

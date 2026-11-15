@@ -7,6 +7,7 @@ the 512/513 fused-to-union-copy boundary cases.
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -148,13 +149,138 @@ def test_v2_is_additive_and_keeps_the_legacy_schema() -> None:
     assert "if (current == nullptr || positions == nullptr" in copy_kernel
 
 
-def test_a5_legacy_build_includes_required_storage_operators() -> None:
+def _evaluate_cmake_condition(condition: str, variables: dict[str, object]) -> bool:
+    condition = condition.strip()
+    if " OR " in condition:
+        return any(
+            _evaluate_cmake_condition(part, variables)
+            for part in condition.split(" OR ")
+        )
+    if " AND " in condition:
+        return all(
+            _evaluate_cmake_condition(part, variables)
+            for part in condition.split(" AND ")
+        )
+    if condition.startswith("NOT DEFINED "):
+        return condition.removeprefix("NOT DEFINED ") not in variables
+    if condition.startswith("NOT EXISTS "):
+        return False
+    if condition.startswith("NOT "):
+        return not _evaluate_cmake_condition(condition.removeprefix("NOT "), variables)
+    match = re.fullmatch(r'(\w+) MATCHES "([^"]+)"', condition)
+    if match:
+        return re.search(match.group(2), str(variables[match.group(1)])) is not None
+    match = re.fullmatch(r'(\w+) STREQUAL "([^"]+)"', condition)
+    if match:
+        return str(variables[match.group(1)]) == match.group(2)
+    return bool(variables.get(condition, False))
+
+
+def _preprocess_cmake(source: str, variables: dict[str, object]) -> str:
+    active = True
+    stack: list[tuple[bool, bool]] = []
+    selected: list[str] = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        match = re.fullmatch(r"if\((.+)\)", stripped)
+        if match:
+            condition = _evaluate_cmake_condition(match.group(1), variables)
+            stack.append((active, condition))
+            active = active and condition
+            continue
+        if stripped == "else()":
+            parent_active, condition = stack[-1]
+            active = parent_active and not condition
+            continue
+        if stripped == "endif()":
+            active, _ = stack.pop()
+            continue
+        if active:
+            selected.append(line)
+    assert not stack
+    return "\n".join(selected)
+
+
+def _preprocess_cpp(source: str, defined: set[str]) -> str:
+    active = True
+    stack: list[tuple[bool, bool]] = []
+    selected: list[str] = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        match = re.fullmatch(r"#ifdef (\w+)", stripped)
+        if match:
+            condition = match.group(1) in defined
+            stack.append((active, condition))
+            active = active and condition
+            continue
+        match = re.fullmatch(r"#if defined\((\w+)\) \|\| defined\((\w+)\)", stripped)
+        if match:
+            condition = any(name in defined for name in match.groups())
+            stack.append((active, condition))
+            active = active and condition
+            continue
+        if stripped == "#else":
+            parent_active, condition = stack[-1]
+            active = parent_active and not condition
+            continue
+        if stripped == "#endif":
+            active, _ = stack.pop()
+            continue
+        if active:
+            selected.append(line)
+    assert not stack
+    return "\n".join(selected)
+
+
+def test_a5_legacy_build_selects_required_storage_operators() -> None:
     root = Path(__file__).parents[1]
     cmake = (root / "cmake" / "legacy_kernels.cmake").read_text()
+    extensions = (root / "csrc" / "pytorch_extensions.cpp").read_text()
+    a5_variables = {
+        "_sgl_soc_lower": "ascend950",
+        "SGL_KERNEL_ARCH": "arch35",
+        "SGL_KERNEL_ENABLE_A3_ONLY_OPS": False,
+        "SGL_KERNEL_ENABLE_A5_ONLY_OPS": True,
+        "SGL_KERNEL_A5_C8_ORIGINAL_SOURCE": "/prepared/original",
+        "ASCEND_DRIVER_PATH": "/driver",
+        "BUILD_CATLASS_MODULE": False,
+    }
+    selected_cmake = _preprocess_cmake(cmake, a5_variables)
     for source in (
         "sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp",
         "sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp",
         "fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator.cpp",
         "fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator_op.cpp",
     ):
-        assert source in cmake
+        assert source in selected_cmake
+    assert "slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp" not in selected_cmake
+
+    selected_extensions = _preprocess_cpp(extensions, {"SGL_KERNEL_ENABLE_A5_ONLY_OPS"})
+    for registration in (
+        '"unidex_copy(Tensor src',
+        '"fused_shm_allocator_create_and_register(int size',
+        '"fused_shm_allocator_free_all(int device_id)',
+        'm.impl("unidex_copy"',
+        'm.impl("fused_shm_allocator_create_and_register"',
+        'm.impl("fused_shm_allocator_free_all"',
+    ):
+        assert registration in selected_extensions
+    assert 'm.impl("slot_map_lookup"' not in selected_extensions
+    assert 'm.impl("shm_allocator_create_and_register"' not in selected_extensions
+
+    a3_variables = {
+        **a5_variables,
+        "_sgl_soc_lower": "ascend910_9382",
+        "SGL_KERNEL_ARCH": "arch22",
+        "SGL_KERNEL_ENABLE_A3_ONLY_OPS": True,
+        "SGL_KERNEL_ENABLE_A5_ONLY_OPS": False,
+    }
+    selected_a3_cmake = _preprocess_cmake(cmake, a3_variables)
+    assert "unidex_copy/op_kernel/unidex_copy_kernel.cpp" in selected_a3_cmake
+    assert "slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp" in selected_a3_cmake
+    selected_a3_extensions = _preprocess_cpp(
+        extensions, {"SGL_KERNEL_ENABLE_A3_ONLY_OPS"}
+    )
+    assert 'm.impl("unidex_copy"' in selected_a3_extensions
+    assert 'm.impl("slot_map_lookup"' in selected_a3_extensions
+    assert 'm.impl("shm_allocator_create_and_register"' in selected_a3_extensions

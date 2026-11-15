@@ -86,6 +86,15 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/chunk_gated_delta_rule/op_host/chunk_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/chunk_kda_fwd/op_host/chunk_kda_fwd.cpp
     )
+# Sparse KV transfer and private fused host storage are required by both the
+# A3 sparse-KV path and the A5 C8 manager.
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS OR SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator.cpp
+        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator_op.cpp
+    )
+endif()
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
@@ -99,14 +108,11 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
-        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/cache_planner/op_host/cache_planner.cpp
         ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_copy_sfa.cpp
-        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator.cpp
-        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator_op.cpp
     )
 endif()
 # A5-only host sources
@@ -192,12 +198,17 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/situ_mxfp8_quant/op_kernel/situ_mxfp8_quant.cpp
     )
 endif()
+# Sparse KV transfer kernel shared by the A3 and A5 managers.
+if(SGL_KERNEL_ENABLE_A3_ONLY_OPS OR SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+    )
+endif()
 # A3-only no-workspace kernels
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
-        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/cache_planner/op_kernel/cache_planner_kernel.cpp
     )
