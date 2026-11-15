@@ -90,6 +90,7 @@
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`, `torch_native` |
 | [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
+| [lightning_indexer_prefill](operators/indexer/lightning_indexer_prefill.md) | `aclnn`, `torch_native` |
 | [indexer_prologue_k_dsl](operators/indexer/indexer_prologue_k_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_dsl](operators/indexer/quant_lightning_indexer_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_metadata_dsl](operators/indexer/quant_lightning_indexer_metadata_dsl.md) | `cannbot_dsl` |
