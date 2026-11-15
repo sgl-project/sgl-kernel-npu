@@ -39,7 +39,7 @@ else
 fi
 
 # Install other test dependencies
-uv pip install expecttest einops pytest packaging
+uv pip install expecttest einops pytest packaging ninja
 
 # --- Step 2: Build and install kernel module ---
 

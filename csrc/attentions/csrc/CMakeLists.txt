@@ -49,7 +49,8 @@ add_library(PTAExtensionOPS SHARED
     ./plugin/rainfusionattention.cpp
     ./plugin/ada_block_sparse_attention.cpp
     ./plugin/sparse_block_estimate.cpp
-    ./plugin/layernorm.cpp)
+    ./plugin/layernorm.cpp
+    ./plugin/pool_key_indexer.cpp)
 
 target_compile_features(PTAExtensionOPS PRIVATE cxx_std_17)
 if(DEFINED ENV{USER_ABI_VERSION})

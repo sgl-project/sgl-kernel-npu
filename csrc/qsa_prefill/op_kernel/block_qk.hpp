@@ -162,6 +162,13 @@ public:
             for (uint32_t token = 0; token < nActual;) {
                 uint32_t slot = gSelectIdx.GetValue(nL1Idx * L1TileShape::N + token);
                 uint32_t run = gBlockTable.GetValue(nL1Idx * L1TileShape::N + token);
+                // Defensive: prepare never emits 0 or a run crossing the tile,
+                // but a malformed descriptor would otherwise spin this loop
+                // forever (reported as an AI core timeout) or copy out of
+                // bounds through nValue.
+                if (run == 0 || run > nActual - token) {
+                    break;
+                }
                 uint32_t dstOffset = layoutBInL1.GetOffset(MakeCoord(0u, token));
                 AscendC::Nd2NzParams cp;
                 cp.ndNum = 1;

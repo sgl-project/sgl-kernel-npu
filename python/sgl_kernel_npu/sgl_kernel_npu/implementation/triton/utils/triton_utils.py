@@ -17,3 +17,9 @@ def get_device_properties() -> Tuple[int, int]:
 
     assert num_aicore > 0 and num_vectorcore > 0, "Failed to detect device properties."
     return num_aicore, num_vectorcore
+
+
+def _floor_power_of_2(x: int) -> int:
+    if x <= 1:
+        return 1
+    return 1 << (int(x).bit_length() - 1)

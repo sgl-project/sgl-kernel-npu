@@ -186,9 +186,16 @@ public:
                 int64_t gmOffsetO = gmOffsetQ;
                 uint32_t validCount = gSelectNumIdx.GetValue(descriptorRow * 16);
                 if (validCount == 0) continue;
+                constexpr uint32_t MAX_KV_S_LOOP = 64;
                 uint32_t kvSLoopNum = (validCount + 255) / 256;
-                int32_t validPhysicalIds[64];
-                uint32_t validTileSize[64];
+                // validCount comes from global memory; a malformed descriptor
+                // must not index past these stack arrays. The contract bounds
+                // it at topK = 2064, i.e. 9 tiles.
+                if (kvSLoopNum > MAX_KV_S_LOOP) {
+                    kvSLoopNum = MAX_KV_S_LOOP;
+                }
+                int32_t validPhysicalIds[MAX_KV_S_LOOP];
+                uint32_t validTileSize[MAX_KV_S_LOOP];
                 for (uint32_t j = 0; j < kvSLoopNum; ++j) {
                     validPhysicalIds[j] = 0;
                     validTileSize[j] = min(static_cast<uint32_t>(256), validCount - j * 256);

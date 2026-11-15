@@ -1,0 +1,147 @@
+name: Slash Command Gate
+
+### Gate workflow for slash commands posted as issue/pr comments.
+#
+# !!! This workflow is and ONLY can be triggered by the `issue_comment` event. !!!
+#
+# Architecture:
+#   cmd-gate:
+#     - filter slash commands & bots
+#     - check authorization of commenter (OWNER / MEMBER / COLLABORATOR)
+#     - parse command
+#     - detect issue or pull request
+#     - respond acknowledgment comment (if authorized)
+#
+#   <slash command>:
+#     - dispatch corresponding workflow (if authorized)
+#
+# Adding a future command:
+#   1. Copy the command template at the bottom, set the command name and the target workflow file.
+#   2. No changes to the parse job are needed.
+#
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  cmd-gate:
+    name: Slash Command Gate
+    runs-on: ubuntu-latest
+    if: |
+      startsWith(github.event.comment.body, '/') &&
+      github.actor != 'github-actions[bot]'
+
+    outputs:
+      is_pull_request: ${{ github.event.issue.pull_request != null }}
+      is_authorized: ${{ steps.auth.outputs.is_authorized }}
+      command: ${{ steps.parse.outputs.command}}
+
+    steps:
+      - name: Check Authorization
+        id: auth
+        env:
+          ASSOCIATION: ${{ github.event.comment.author_association }}
+        run: |
+          # Only allow OWNER / MEMBER / COLLABORATOR
+          case "${ASSOCIATION}" in
+            "OWNER"|"MEMBER"|"COLLABORATOR")
+              is_authorized=true
+              ;;
+            *)
+              is_authorized=false
+              ;;
+          esac
+          echo "is_authorized=${is_authorized}" >> "${GITHUB_OUTPUT}"
+
+      - name: Parse Command
+        id: parse
+        if: |
+          steps.auth.outputs.is_authorized == 'true'
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          first_line="$(printf '%s' ${COMMENT_BODY} | head -n 1)"
+          command="$(printf '%s\n' ${first_line} | sed -nE 's#^/([A-Za-z0-9_-]+).*#\1#p' | tr '[:upper:]' '[:lower:]')"
+          echo "command=${command}" >> "${GITHUB_OUTPUT}"
+
+      - name: Acknowledge Comment
+        if: |
+          steps.auth.outputs.is_authorized == 'true' &&
+          steps.parse.outputs.command != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --raw-field content="eyes"
+
+
+  ###
+  # pr-review command -> agentic-workflow_pr-review.yml
+  ###
+  pr-review:
+    name: Handle PR-Review Command
+    needs: cmd-gate
+    runs-on: ubuntu-latest
+    if: |
+      needs.cmd-gate.outputs.is_pull_request == 'true' &&
+      needs.cmd-gate.outputs.is_authorized == 'true' &&
+      needs.cmd-gate.outputs.command == 'pr-review'
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      actions: write
+
+    steps:
+      - name: Check PR Status
+        id: pr_status
+        run: |
+          status="$(gh pr view '${{ github.event.issue.number }}' --repo '${{ github.repository }}' --json state --jq '.state')"
+          if [ "${status}" == "OPEN" ]; then
+            echo "pr_status=open" >> "${GITHUB_OUTPUT}"
+          else
+            echo "pr_status=not_ready" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Dispatch PR-Review Workflow
+        id: workflow_run
+        if: |
+          steps.pr_status.outputs.pr_status == 'open'
+        run: |
+          gh workflow run agentic-workflow_pr-review.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.event.repository.default_branch }}" \
+            --field "pr_number=${{ github.event.issue.number }}" \
+            --field "comment_id=${{ github.event.comment.id }}"
+
+
+  ###
+  # Command Template
+  #
+  # <cmd>:
+  #   name: Handle <cmd> Command
+  #   needs: cmd-gate
+  #   runs-on: ubuntu-latest
+  #   if: |
+  #     needs.cmd-gate.outputs.is_authorized == 'true' &&
+  #     needs.cmd-gate.outputs.is_pull_request == 'true' &&
+  #     needs.cmd-gate.outputs.command == '<cmd>'
+  #
+  #   env:
+  #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #   permissions:
+  #     actions: write
+  #
+  #   steps:
+  #     - name: Dispatch <cmd> Workflow
+  #       id: workflow_run
+  #       run: |
+  #         <gh workflow run>
+  ###

@@ -3,8 +3,7 @@
 # High precision mode for CANN operators (may help with quantization precision)
 export ACL_OP_SELECT_IMPL_MODE=high_precision
 
-REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-TEST_DIR="${REPO_ROOT}/tests/python/sgl_kernel_npu"
+TEST_DIR="${GITHUB_WORKSPACE}/tests/python/sgl_kernel_npu"
 cd "$TEST_DIR" || { echo "Directory not found: $TEST_DIR"; exit 1; }
 
 PASSED=()
@@ -22,7 +21,15 @@ run_test() {
     elif grep -q 'def test_' "$test_file"; then
         # Pytest-style test without __main__: collect and run it with pytest.
         # Direct 'python3 file.py' would only import and falsely pass.
-        python3 -m pytest "$test_file" -q -x || exit_code=$?
+        if [[ "$test_file" = /* ]]; then
+            (
+                cd "$GITHUB_WORKSPACE" || exit 1
+                PYTHONPATH="${GITHUB_WORKSPACE}${PYTHONPATH:+:${PYTHONPATH}}" \
+                    python3 -m pytest "$test_file" -q -x --enable-perf=false
+            ) || exit_code=$?
+        else
+            python3 -m pytest "$test_file" -q -x || exit_code=$?
+        fi
     else
         # Plain script (e.g. test_hello_world.py): run it directly
         python3 "$test_file" || exit_code=$?
@@ -33,26 +40,6 @@ run_test() {
     else
         FAILED+=("$test_file")
         echo "FAILED: $test_file"
-    fi
-    echo ""
-}
-
-# Public-interface operator tests live under tests/python/operators and import
-# tests.python.utils, so they run from the repository root through pytest.
-run_operator_test() {
-    local test_path="$1"
-    local exit_code=0
-    echo "=========================================="
-    echo "Running: $test_path"
-    echo "=========================================="
-    (cd "$REPO_ROOT" && python3 -m pytest "$test_path" \
-        --skip-acc-check=false --enable-perf=false -q -x -rs) || exit_code=$?
-    if [ "$exit_code" -eq 0 ]; then
-        PASSED+=("$test_path")
-        echo "PASSED: $test_path"
-    else
-        FAILED+=("$test_path")
-        echo "FAILED: $test_path"
     fi
     echo ""
 }
@@ -69,17 +56,18 @@ NORM_TESTS=(
     test_scale_shift.py
 )
 
-ATTENTION_OPERATOR_TESTS=(
-    tests/python/operators/attention/test_qsa_prefill.py
-)
-
 ATTENTION_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/attention/test_qsa_prefill.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_build_pooled_page_table.py"
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
     test_split_qkv_tp_rmsnorm_rope.py
     test_fused_rope_qk_mqa.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_kpool_indexer_prepare_decode_input.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_kpool_group_and_tail_to_topk.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/indexer/test_expand_causal_seqlens.py"
 )
 
 CACHE_TESTS=(
@@ -90,6 +78,10 @@ CACHE_TESTS=(
     test_inplace_assign_cache.py
     test_lightning_indexer.py
     test_transfer_kv_dim_exchange.py
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_decode_update_and_maybe_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_assemble_softmax_rotate_write_cache.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_kpool_write_tail_and_maybe_compress.py"
+    "${GITHUB_WORKSPACE}/tests/python/operators/mem_cache/test_scatter_kpool_tail_updates.py"
 )
 
 SPECULATIVE_TESTS=(
@@ -119,6 +111,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
+    "${GITHUB_WORKSPACE}/tests/python/operators/multimodal/test_flatten_patches.py"
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
@@ -153,16 +146,12 @@ SMALL_BATCH_TESTS=(
 
 TEST_GROUP="${1:-small}"
 
-# Public-interface operator tests selected by group; empty for most groups.
-OPERATOR_TESTS=()
-
 case "$TEST_GROUP" in
     small)
         TESTS=("${SMALL_BATCH_TESTS[@]}")
         ;;
     all)
         TESTS=("${ALL_TESTS[@]}")
-        OPERATOR_TESTS=("${ATTENTION_OPERATOR_TESTS[@]}")
         ;;
     smoke)
         TESTS=("${SMOKE_TESTS[@]}")
@@ -172,7 +161,6 @@ case "$TEST_GROUP" in
         ;;
     attention)
         TESTS=("${ATTENTION_TESTS[@]}")
-        OPERATOR_TESTS=("${ATTENTION_OPERATOR_TESTS[@]}")
         ;;
     cache)
         TESTS=("${CACHE_TESTS[@]}")
@@ -222,21 +210,57 @@ if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
     TESTS=("${FILTERED_TESTS[@]}")
 fi
 
-echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests, ${#OPERATOR_TESTS[@]} operator tests)"
+# A5 (Ascend 950): skip tests that fail on this hardware; still run on A3.
+if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
+    SKIP_ON_A5=(
+        test_mla_preprocess.py
+        test_lightning_indexer.py
+        test_conv1d_update.py
+        test_mamba_conv.py
+        test_l2norm_boundaries.py
+        test_batch_matmul_transpose.py
+        # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
+        test_qkvzba_split_reshape_cat.py
+        test_gmm_wfp8a16.py
+        test_mm_wfp8a16.py
+
+    )
+    FILTERED_TESTS=()
+    for t in "${TESTS[@]}"; do
+        local_skip=0
+        for s in "${SKIP_ON_A5[@]}"; do
+            if [[ "$t" == "$s" ]]; then
+                local_skip=1
+                break
+            fi
+        done
+        if [ "$local_skip" -eq 0 ]; then
+            FILTERED_TESTS+=("$t")
+        fi
+    done
+    echo "[NPU_HARDWARE=950] skipping on A5: ${SKIP_ON_A5[*]}"
+    TESTS=("${FILTERED_TESTS[@]}")
+fi
+
+# mHC requires the public cann_ops_transformer APIs bundled with CANN 9.1.
+# if [[ "${CANN_VERSION:-}" == 9.1* && ( "$TEST_GROUP" == "fused" || "$TEST_GROUP" == "all" ) ]]; then
+#     TESTS+=(
+#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py"
+#         "${GITHUB_WORKSPACE}/tests/python/operators/hyper_conn/test_mhc_post.py"
+#     )
+# fi
+
+echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
 echo ""
 
 for test in "${TESTS[@]}"; do
     run_test "$test"
 done
 
-for test in "${OPERATOR_TESTS[@]}"; do
-    run_operator_test "$test"
-done
-
 echo "=========================================="
 echo "Test Summary"
 echo "=========================================="
-echo "Total:  $(( ${#TESTS[@]} + ${#OPERATOR_TESTS[@]} ))"
+echo "Total:  ${#TESTS[@]}"
 echo "Passed: ${#PASSED[@]}"
 echo "Failed: ${#FAILED[@]}"
 

@@ -81,7 +81,7 @@ enum class ROTARY_MODE : std::uint8_t {
 
 enum class CACHE_MODE : std::uint8_t {
     CONTINUOUS = static_cast<std::uint8_t>(1),
-    CYCLE = static_cast<std::uint8_t>(2)
+    EXPLICIT = static_cast<std::uint8_t>(2)
 };
 
 enum class TEMPLATE_ID : uint8_t { NORMAL = 0, EMPTY_X = 1, FULL_LOAD = 2 };
