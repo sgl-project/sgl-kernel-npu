@@ -36,13 +36,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | FP32 [batch,vocab] normalized probabilities, same device as probs. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Sorts FP32 probabilities with PyTorch, then uses Triton to filter the elements selected by nucleus sampling.
+- Encodes token indices to restore vocabulary order and renormalizes with a denominator floor of 1e-20, without modifying input probabilities.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Uses PyTorch sort, masking, sum, and scatter to filter, normalize, and restore vocabulary order.
+- Masks elements where cumulative_sum-current_value > top_p, retaining the boundary token, then normalizes with a row-sum floor of 1e-20.
 
 ## Example
 

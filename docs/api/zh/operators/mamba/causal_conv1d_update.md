@@ -61,13 +61,15 @@ def causal_conv1d_update(
 | --- | --- | --- |
 | result | Tensor | 与 x 同形状、同类型的输出，更新 conv_state 和可选中间窗口；投机路径也写入 x。 |
 
-## triton
+## triton 后端
 
-普通解码使用 PyTorch，投机执行使用 Triton。
+- cache_seqlens 和 num_accepted_tokens 都为 None 时，使用 PyTorch 处理普通 decode；带相关元数据时进入 Triton 更新分支。
+- Triton 分支从选定历史位置读取窗口，逐 token 卷积并原地写入 x；同时更新状态，并可保存每步中间窗口。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 普通 decode 将历史窗口与新输入拼接，通过 FP32 分组 conv1d 计算，转回输入 dtype 后应用可选 SiLU。
+- 多 token 分支用 PyTorch 按接受位置选取历史并逐步更新输出、状态及可选中间窗口。
 
 ## 示例
 

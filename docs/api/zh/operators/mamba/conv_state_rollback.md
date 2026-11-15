@@ -30,7 +30,7 @@ def conv_state_rollback(
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `conv_states` | Tensor | `Required` | Prefill 为 [pool,channels,width-1]，回滚为 [layers,pool,window,channels]。 |
+| `conv_states` | Tensor | `Required` | 形状为 [layers, pool, window, channels] 的卷积状态，原地更新。 |
 | `state_indices` | Tensor | `Required` | 整数回滚槽 [requests]，转换为 INT32。 |
 | `step_indices` | Tensor | `Required` | 整数接受步索引 [requests]，转换为 INT32。 |
 | `draft_token_num` | int | `Required` | 草稿 token 数。 |
@@ -40,13 +40,15 @@ def conv_state_rollback(
 | --- | --- | --- |
 | result | Tensor or None | 原 conv_states 的别名；空选择返回 None。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 根据 draft_token_num-1-step_indices 计算各请求的回滚位移，在原卷积状态视图上移动历史窗口。
+- 使用状态 stride 处理非连续布局；不需要位移的请求保持不变，非空调用返回原状态张量。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 逐请求计算回滚位移，通过切片和复制移动历史状态。
+- 复制前克隆源切片以避免重叠写入覆盖尚未读取的数据，保留目标对象和布局。
 
 ## 示例
 

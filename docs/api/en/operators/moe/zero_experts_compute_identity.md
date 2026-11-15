@@ -49,13 +49,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | [tokens,hidden] weighted identity output with hidden_states dtype; modifies routing IDs and scales. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Sums identity-expert routing weights per token and writes weighted hidden_states to a new output.
+- Also zeros the corresponding weights and replaces expert indices in place, keeping the first index at 0 when the entire row selects identity experts.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Uses PyTorch masks, row reductions, and multiplication to compute the identity contribution in the hidden_states dtype.
+- Updates expert_indices and expert_scales in place using the identity mask, including the first-index handling for all-identity rows.
 
 ## Example
 

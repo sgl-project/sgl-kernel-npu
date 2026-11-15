@@ -38,13 +38,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | [rows,dim/2] output, input dtype/device. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Takes contiguous input with even `dim` and interleaved gate/up channels. Fuses clamping, the alpha-scaled sigmoid, and multiplication by `up + 1`.
+- Processes fixed-size blocks of gate/up pairs so the amount of data processed per block is independent of the input width. Returns `dim / 2` elements per row in the input dtype.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Slices even positions into gate and odd positions into up, then applies clamping, sigmoid, and multiplication.
+- Uses PyTorch operations on the input device and returns a new tensor in the input dtype.
 
 ## Example
 

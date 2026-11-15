@@ -65,13 +65,15 @@ def kda_target_verify(
 | --- | --- | --- |
 | result | Tensor | [1,tokens,Hv,V]，与 v 同类型、同设备；更新快照缓冲区。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 融合 Q/K 归一化、门控处理和 KDA 递推，按请求执行 cache_steps 步并写入指定快照槽。
+- 支持原始或预激活 gate、分组头和有 stride 的状态；初始状态只读，输出使用 v dtype。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用 FP32 的归一化、指数和 einsum 逐请求、逐步计算状态衰减、delta 更新及输出投影。
+- 递推中间状态保留 FP32；输出和快照在写入时转换为对应目标 dtype，负索引分别表示零初态或跳过快照。
 
 ## 示例
 

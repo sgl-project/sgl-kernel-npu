@@ -49,13 +49,15 @@ def move_intermediate_cache(
 | --- | --- | --- |
 | result | Tensor | 原 ssm_states 张量，已原地更新。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按层和请求复制选定 step 的中间状态到目标缓存，跳过 last_steps 为负的请求。
+- 按 head 内的物理连续顺序复制 V/K 数据，保留目标缓存对象并返回；此布局处理与 KDA 版本不同。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用有效 step 掩码筛选请求，通过 PyTorch 索引读取指定层、槽位和 step。
+- 通过 as_strided 表达目标的 head 内物理布局后原地写入，不将转置视图当作逻辑 V/K 排列。
 
 ## 示例
 

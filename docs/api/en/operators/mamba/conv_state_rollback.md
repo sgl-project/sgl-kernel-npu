@@ -30,7 +30,7 @@ All tensors must be on the same NPU device.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `conv_states` | Tensor | `Required` | Prefill: [pool,channels,width-1]; rollback: [layers,pool,window,channels]. |
+| `conv_states` | Tensor | `Required` | Convolution states of shape [layers, pool, window, channels], updated in place. |
 | `state_indices` | Tensor | `Required` | Integer [requests] rollback slots, converted to INT32. |
 | `step_indices` | Tensor | `Required` | Integer [requests] accepted-step indices, converted to INT32. |
 | `draft_token_num` | int | `Required` | Number of draft tokens. |
@@ -40,13 +40,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor or None | Original conv_states alias; None for an empty selection. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Computes each request’s rollback shift as draft_token_num-1-step_indices and moves the history window in the original state view.
+- Uses state strides for noncontiguous layouts. Requests requiring no shift remain unchanged; nonempty calls return the original state tensor.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Computes the rollback shift per request and moves state history with slicing and copying.
+- Clones the source slice before copying to avoid overwriting unread data in overlapping regions, preserving the destination object and layout.
 
 ## Example
 

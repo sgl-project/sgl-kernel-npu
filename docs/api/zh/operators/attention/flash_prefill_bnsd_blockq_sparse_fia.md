@@ -44,11 +44,11 @@ def flash_prefill_bnsd_blockq_sparse_fia(
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `q` | Tensor | `Required` | KDA 为 [1,tokens,Hq,K]；FIA 为 FP16/BF16 [tokens,QH,D]。 |
+| `q` | Tensor | `Required` | 形状为 [tokens, QH, D] 的 FP16/BF16 查询张量。 |
 | `k_cache_bnsd` | Tensor | `Required` | FP16/BF16 缓存 [num_pages,block_size,1,D]。 |
 | `v_cache_bnsd` | Tensor | `Required` | 与 key 同形状、同类型的 value 缓存。 |
 | `topk_idx` | Tensor | `Required` | INT32 选中逻辑块 [1,tokens,topk+1]，-1 补齐，包含当前块。 |
-| `seq_lens` | Tensor | `Required` | 整数请求查询长度；FIA 接口中表示逐查询的因果 KV 长度。 |
+| `seq_lens` | Tensor | `Required` | INT32 [tokens]，每个查询的因果 KV 长度，包含当前 token。 |
 | `per_query_req` | Tensor | `Required` | INT32 请求索引 [tokens]。 |
 | `req_to_token` | Tensor | `Required` | INT32 物理 token 槽 [requests,max_context]。 |
 | `block_size` | int | `Required` | 每个物理 KV 页的 token 数。 |
@@ -63,13 +63,15 @@ def flash_prefill_bnsd_blockq_sparse_fia(
 | --- | --- | --- |
 | result | Tensor | [tokens,QH,D] 输出，与 q 同类型、同设备。 |
 
-## triton
+## triton 后端
 
-使用 Triton 页表准备及原生 NPU 融合注意力接口。
+- 由 Triton 整理选中块的页表及每个查询的有效 KV 长度，attention 阶段依赖 `torch.ops.npu.npu_fused_infer_attention_score` 绑定。
+- 查询须为 FP16 或 BF16，KV head 数为 1。K/V 缓存须能直接取 `[num_pages, block_size, D]` 形状的视图。页表和长度缓冲区可复用。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 复用 PyTorch 页表准备逻辑，按查询收集有效 K/V，并以 FP32 矩阵乘法和 softmax 计算 attention。
+- 输出转换为 q dtype；提供页表和长度缓冲区时原地填充，不调用原生融合 attention。
 
 ## 示例
 

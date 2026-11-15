@@ -65,13 +65,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | [1,tokens,Hv,V], same dtype/device as v; writes snapshot buffer. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Fuses Q/K normalization, gate processing, and KDA recurrence, executing cache_steps per request and writing selected snapshot slots.
+- Supports raw or preactivated gates, grouped heads, and strided states. Initial states remain read-only and output uses the v dtype.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Uses FP32 normalization, exponentials, and einsum to evaluate state decay, delta updates, and output projection per request and step.
+- Keeps recurrent intermediates in FP32 and converts outputs and snapshots to their destination dtypes when writing. Negative indices select zero initial state or skip snapshots.
 
 ## Example
 

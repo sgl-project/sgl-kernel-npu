@@ -51,13 +51,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | FP32 [...,heads,head_dim] gate activation. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Fuses gate bias, A_log scaling, and activation by token block and head, producing FP32 [...,heads,head_dim] output.
+- Uses softplus without lower_bound, or lower_bound*sigmoid(exp(A_log)*gate) when the bound is provided.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Converts the input and bias to FP32, reshapes the head dimensions, and evaluates gating with PyTorch softplus or sigmoid.
+- Preserves leading dimensions and splits the last dimension into heads and head_dim without modifying the input.
 
 ## Example
 

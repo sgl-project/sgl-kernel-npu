@@ -49,13 +49,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | [rows,D] values and [rows] FP32 scales; scales are unspecified without quantization. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Reads contiguous rows with gate in the first half and up in the second. Fuses SwiGLU, optional clamping, and row-wise quantization using FP32 intermediates.
+- Writes only the rows selected by the group metadata. Their count must not exceed the input row count. Quantized output contains INT8 values and FP32 row scales. Unquantized values retain the input dtype.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Converts gate/up to FP32 and applies sigmoid or SiLU, clamping, and multiplication before optional quantization.
+- Computes scales from row-wise maximum absolute values and rounds with floor(value/scale+0.5). The unquantized path leaves the scale tensor unwritten; callers should ignore it.
 
 ## Example
 

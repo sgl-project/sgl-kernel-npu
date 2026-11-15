@@ -47,7 +47,7 @@ def attention_sinks(
 | `sinks` | Tensor | `Required` | 浮点 sink logits [QH]。 |
 | `block_tables` | Tensor | `Required` | INT32/INT64 物理页 ID [batch,max_pages]。 |
 | `context_lens` | Tensor | `Required` | INT32/INT64 总 KV 长度 [batch]，包含新查询。 |
-| `scale` | float or None | `Required` | QK 缩放；KDA 默认 key_dim**-0.5，要求为正。 |
+| `scale` | float | `Required` | 查询与键的注意力分数缩放系数。 |
 | `sliding_window_size` | int | `Required` | 可见 token 窗口，-1 关闭窗口限制。 |
 | `q_head_num` | int | `Required` | 查询头数，须能被 k_head_num 整除。 |
 | `k_head_num` | int | `Required` | KV 头数。 |
@@ -57,13 +57,15 @@ def attention_sinks(
 | --- | --- | --- |
 | result | Tensor | 注意力输出 [tokens,QH*D]，与 query 同类型、同设备。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按请求和查询头分组读取分页 KV，计算当前查询的 attention。
+- 以 FP32 累加 attention，并把 sink logit 纳入 softmax 分母；支持滑动窗口，输出使用 query dtype。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 按 block table 收集各请求的 K/V，展开共享 KV 头，并通过 PyTorch 矩阵运算计算 attention。
+- 将 sink 作为只参与归一化的额外 logit，按有效窗口取值；FP32 计算结果转回 query dtype。
 
 ## 示例
 

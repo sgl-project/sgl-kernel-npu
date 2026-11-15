@@ -65,13 +65,15 @@ def split_qkv_rmsnorm_mrope(
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor,Tensor,Tensor] | Q [T,QH*H]，K/V [T,KVH*H]，gate [T,QH*H] 或 [T,0]，类型均与 qkv 相同。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 融合 Q/K/V 拆分、Q/K 的 RMSNorm 和多轴 RoPE，支持部分旋转维度、两种位置交织方式及可选 gate。
+- 归一化和旋转使用 FP32 中间值，输出使用 qkv dtype；V 和 gate 保留拆分得到的值。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 通过 PyTorch split/view 拆分 QKV，使用 FP32 归一化并按 mrope_section 选择各轴的 cos/sin。
+- 旋转结果转回 qkv dtype，返回独立的 Q、K、V 和 gate 张量；没有 gate 时返回对应的空张量。
 
 ## 示例
 

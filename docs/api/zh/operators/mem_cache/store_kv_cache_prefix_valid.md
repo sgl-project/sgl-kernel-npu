@@ -42,13 +42,15 @@ def store_kv_cache_prefix_valid(
 | --- | --- | --- |
 | result | None | 原地更新选定 dst_k/dst_v 行。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按 commit_lens 限定每个请求可写入的前缀，直接把对应 K/V 行写到 loc_2d 指定的槽位。
+- 通过掩码跳过前缀之外的条目，保留未写缓存；K、V 可使用不同特征宽度。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用 PyTorch 逐请求、逐 token 复制有效前缀内的 K/V 行。
+- 原地修改目标缓存并返回 None；不读取前缀之外的源行来写入目标。
 
 ## 示例
 

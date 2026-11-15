@@ -49,7 +49,7 @@ All tensors must be on the same NPU device.
 | `seq_lens` | Tensor | `Required` | Integer per-request query lengths; FIA instead uses per-query causal KV lengths. |
 | `block_tables` | Tensor | `Required` | INT32/INT64 [batch,max_pages] physical page IDs. |
 | `context_lens` | Tensor | `Required` | INT32/INT64 [batch] total KV lengths including appended queries. |
-| `scale` | float or None | `Required` | QK scaling; KDA defaults to key_dim**-0.5 and requires positive values. |
+| `scale` | float | `Required` | Scale applied to the query-key attention scores. |
 | `sliding_window_size` | int | `Required` | Visible token window; -1 disables the window. |
 | `q_head_num` | int | `Required` | Query heads; divisible by k_head_num. |
 | `k_head_num` | int | `Required` | KV head count. |
@@ -59,13 +59,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | [tokens,QH*D] attention output, query dtype/device. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Processes variable-length prefill by request and query head, using cumulative query lengths to determine each token’s causal KV range.
+- Accumulates attention in FP32 and includes the sink logit in the softmax denominator. Supports a sliding window and returns the query dtype.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Gathers K/V through the block table, expands shared KV heads, and evaluates attention with PyTorch tensor operations.
+- Adds the sink as an extra normalization-only logit and restricts values to the visible window. FP32 results are converted back to the query dtype.
 
 ## Example
 

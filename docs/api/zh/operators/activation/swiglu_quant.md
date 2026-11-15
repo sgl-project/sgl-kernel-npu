@@ -49,13 +49,15 @@ def swiglu_quant(
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | [rows,D] 数值及 [rows] FP32 scale；关闭量化时 scale 未定义。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按连续行读取输入，前半列为 gate，后半列为 up。融合 SwiGLU、可选限幅及逐行量化，中间计算使用 FP32。
+- 只写分组信息指定的有效行，有效行数不得超过输入行数。量化时输出 INT8 数值和逐行 FP32 scale，非量化数值保留输入 dtype。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 将 gate/up 转为 FP32，通过 sigmoid 或 SiLU、限幅和乘法计算结果，再按需要量化。
+- 按逐行最大绝对值计算 scale，使用 floor(value/scale+0.5) 舍入；非量化分支不填充 scale，调用方应忽略该返回项。
 
 ## 示例
 

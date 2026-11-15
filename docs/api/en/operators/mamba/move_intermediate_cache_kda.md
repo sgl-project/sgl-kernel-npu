@@ -49,13 +49,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | The original ssm_states tensor, updated in place. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Copies the selected intermediate step to destination state slots by layer and request, skipping negative last_steps.
+- Writes using destination V/K strides, preserving the logical layout of transposed views, and returns the original destination tensor.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Filters requests with a valid-step mask and gathers the selected layers, slots, and steps using PyTorch indexing.
+- Writes through logical destination indices in place, preserving V/K strides and the returned object.
 
 ## Example
 

@@ -44,11 +44,11 @@ All tensors must be on the same NPU device.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `q` | Tensor | `Required` | KDA: [1,tokens,Hq,K]; FIA: FP16/BF16 [tokens,QH,D]. |
+| `q` | Tensor | `Required` | FP16/BF16 queries of shape [tokens, QH, D]. |
 | `k_cache_bnsd` | Tensor | `Required` | FP16/BF16 [num_pages,block_size,1,D] cache. |
 | `v_cache_bnsd` | Tensor | `Required` | Value cache, same shape/dtype as keys. |
 | `topk_idx` | Tensor | `Required` | INT32 [1,tokens,topk+1] selected logical blocks, -1 padding, including the current block. |
-| `seq_lens` | Tensor | `Required` | Integer per-request query lengths; FIA instead uses per-query causal KV lengths. |
+| `seq_lens` | Tensor | `Required` | INT32 [tokens] causal KV length for each query, including the query's current token. |
 | `per_query_req` | Tensor | `Required` | INT32 [tokens] request indices. |
 | `req_to_token` | Tensor | `Required` | INT32 [requests,max_context] physical token slots. |
 | `block_size` | int | `Required` | Tokens per physical KV page. |
@@ -63,13 +63,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | [tokens,QH,D] output with q dtype/device. |
 
-## triton
+## triton backend
 
-Uses Triton page preparation and the native NPU fused attention API.
+- Uses Triton to prepare selected-block page tables and per-query valid KV lengths. The attention step requires the `torch.ops.npu.npu_fused_infer_attention_score` binding.
+- Expects FP16 or BF16 queries and one KV head. The K/V caches must support a view of shape `[num_pages, block_size, D]`. The page-table and length buffers can be reused.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Reuses PyTorch page-table preparation, gathers valid K/V per query, and evaluates attention with FP32 matrix multiplication and softmax.
+- Converts output to the q dtype and fills supplied page-table and length buffers in place, without calling fused native attention.
 
 ## Example
 

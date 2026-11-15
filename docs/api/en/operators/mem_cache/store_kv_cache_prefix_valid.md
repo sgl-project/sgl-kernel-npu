@@ -42,13 +42,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | None | Writes selected dst_k/dst_v rows in place. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Limits each request to the prefix selected by commit_lens and writes the corresponding K/V rows to loc_2d slots.
+- Masks entries outside the committed prefix and preserves unwritten cache locations. K and V may have different feature widths.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Copies K/V rows within each valid prefix using PyTorch operations per request and token.
+- Updates destination caches in place and returns None, without copying source rows outside the committed prefixes.
 
 ## Example
 

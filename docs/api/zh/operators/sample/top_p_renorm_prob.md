@@ -36,13 +36,15 @@ def top_p_renorm_prob(probs, top_ps, *, impl="auto"): ...
 | --- | --- | --- |
 | result | Tensor | FP32 归一化概率 [batch,vocab]，与 probs 同设备。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 先用 PyTorch 对 FP32 概率排序，再由 Triton 过滤满足核采样条件的元素。
+- 以 token 索引编码恢复原词表顺序，并执行归一化；分母下限为 1e-20，输入概率不修改。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用 PyTorch sort、mask、sum 和 scatter 完成筛选、归一化及词表顺序恢复。
+- 按 cumulative_sum-current_value > top_p 屏蔽元素，保留边界 token，再用至少 1e-20 的行和归一化。
 
 ## 示例
 

@@ -42,13 +42,15 @@ def fused_gdn_gating_without_sigmoid(
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | FP32 的 g [1,tokens,heads] 及未修改的 b。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 融合 bias、带 beta/threshold 的 softplus 和 -exp(A_log) 缩放，返回 FP32 的 g。
+- b 不执行 sigmoid，也不复制，直接返回传入的同一个张量。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 通过 FP32 的 exp、log1p 和条件选择实现带阈值的 softplus，并增加 g 的首维。
+- 保留 b 的数据、dtype 和对象身份，不调用 Triton kernel。
 
 ## 示例
 

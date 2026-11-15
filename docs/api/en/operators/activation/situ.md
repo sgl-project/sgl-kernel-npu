@@ -41,7 +41,7 @@ All tensors must be on the same NPU device.
 | `group_list` | Tensor | `Required` | Contiguous INT32/INT64 expert counts. Type 0 requires an extra terminal total at storage offset numel(), outside the logical view. |
 | `group_list_type` | int | `Required` | 1 for counts; 0 for cumulative metadata with terminal storage. |
 | `need_quant` | bool | `Required` | Return INT8 values and FP32 row scales when true. |
-| `beta` | float | `4.0` | Softplus multiplier or SiTU saturation parameter, according to the operation. |
+| `beta` | float | `4.0` | Nonzero saturation parameter for the SiTU gate. |
 | `linear_beta` | float or None | `25.0` | SiTU up-channel bound; None disables the tanh bound. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
 
@@ -49,13 +49,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tuple[Tensor, Tensor or None] | [rows,D] activation or INT8 output and [rows] FP32 scales (None without quantization). |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Fuses the SiTU gate, optional soft capping of the up branch, and row-wise INT8 quantization using FP32 intermediates. The kernel launch uses reciprocals of the cap coefficients, so `beta` and a supplied `linear_beta` must be nonzero.
+- Uses group metadata to determine the rows to write. Unquantized output retains the input dtype; quantized output includes FP32 row scales.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Uses PyTorch tanh, sigmoid, and row-wise maximum absolute values for activation and optional quantization.
+- Fills only valid rows. Quantization floors scales at 1e-30 and rounds with floor(value/scale+0.5); the unquantized path returns None for scale.
 
 ## Example
 

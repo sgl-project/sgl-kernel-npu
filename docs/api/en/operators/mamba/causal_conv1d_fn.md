@@ -56,9 +56,10 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | Output with the same shape/dtype as x; updates conv_states. |
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Organizes packed variable-length sequences into batched input and applies grouped conv1d for channel-wise causal convolution, followed by optional SiLU.
+- Selects history using has_initial_state, writes each request’s final convolution window, and restores the sequence layout. This is also the auto implementation.
 
 ## Example
 

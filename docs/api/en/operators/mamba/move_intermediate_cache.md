@@ -49,13 +49,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | The original ssm_states tensor, updated in place. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Copies the selected intermediate step to destination state slots by layer and request, skipping negative last_steps.
+- Copies V/K data in physical contiguous order within each head and returns the original destination tensor. This layout handling differs from the KDA variant.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Filters requests with a valid-step mask and gathers the selected layers, slots, and steps using PyTorch indexing.
+- Uses as_strided to express the destination’s physical layout within each head before writing, rather than treating a transposed view as logical V/K order.
 
 ## Example
 

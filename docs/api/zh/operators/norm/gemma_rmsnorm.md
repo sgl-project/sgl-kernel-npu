@@ -29,7 +29,7 @@ def gemma_rmsnorm(input, weight, eps=1e-06, *, impl="auto"): ...
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `input` | Tensor | `Required` | 浮点 NPU 输入 [...,H]。 |
-| `weight` | Tensor | `Required` | 卷积为 [channels,width]；Gemma 为 [H]，与输入同类型。 |
+| `weight` | Tensor | `Required` | 形状为 [H] 的 RMSNorm 权重，H 等于输入最后一维，数据类型与输入相同。 |
 | `eps` | float | `1e-06` | RMSNorm 稳定常数。 |
 | `impl` | str | `'auto'` | auto 选择 torch_npu；可显式选择后端。 |
 
@@ -37,13 +37,15 @@ def gemma_rmsnorm(input, weight, eps=1e-06, *, impl="auto"): ...
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | 输出与 input 同形状、同类型；FP32 RMS 倒数形状为 [...,1]。 |
 
-## torch_npu
+## torch_npu 后端
 
-使用对应芯片架构的原生 NPU RMSNorm 接口。
+- ARCH22 直接调用 torch_npu.npu_gemma_rms_norm；ARCH35 先在 weight dtype 中计算 1+weight，再调用 torch_npu.npu_rms_norm。
+- 返回归一化输出和 RMS 倒数，沿用对应 torch_npu 接口的执行与类型要求。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用 FP32 平方均值和 rsqrt 计算 RMS 倒数，再乘以输入及 Gemma 缩放，输出转换回 input dtype。
+- ARCH22 在 FP32 中计算 1+weight；ARCH35 保留 weight dtype 加1的舍入。RMS 倒数保留 FP32，不调用融合 RMSNorm 接口。
 
 ## 示例
 

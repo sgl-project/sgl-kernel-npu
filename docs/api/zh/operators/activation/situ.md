@@ -41,7 +41,7 @@ def situ(
 | `group_list` | Tensor | `Required` | 连续 INT32/INT64 专家计数。type 0 需要在逻辑视图之外、存储偏移 numel() 处额外保留总行数。 |
 | `group_list_type` | int | `Required` | 1 表示计数，0 表示带末尾总数存储的累积元数据。 |
 | `need_quant` | bool | `Required` | 为 true 时返回 INT8 数值及 FP32 逐行 scale。 |
-| `beta` | float | `4.0` | 对应算子的 softplus 乘数或 SiTU 饱和参数。 |
+| `beta` | float | `4.0` | SiTU gate 分支的非零饱和系数。 |
 | `linear_beta` | float or None | `25.0` | SiTU 的 up 通道边界，None 关闭 tanh 限幅。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
 
@@ -49,13 +49,15 @@ def situ(
 | --- | --- | --- |
 | result | Tuple[Tensor, Tensor or None] | [rows,D] 激活或 INT8 输出及 [rows] FP32 scale，关闭量化时为 None。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 融合 gate 的 SiTU 激活、up 分支的可选软限幅及逐行 INT8 量化，以 FP32 计算中间值。启动 kernel 时会计算限幅系数的倒数，因此 `beta` 和传入的 `linear_beta` 均须非零。
+- 根据分组信息确定有效行，只写入这些行；非量化输出保留输入 dtype，量化分支同时返回 FP32 scale。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 使用 PyTorch 的 tanh、sigmoid 和逐行最大绝对值归约完成激活及可选量化。
+- 只填充有效行，量化时将 scale 下限设为 1e-30，并按 floor(value/scale+0.5) 舍入；不量化时 scale 返回 None。
 
 ## 示例
 

@@ -51,13 +51,15 @@ def fused_kda_gate(
 | --- | --- | --- |
 | result | Tensor | FP32 门控激活 [...,heads,head_dim]。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按 token 块和 head 融合 gate bias、A_log 缩放及激活，输出 FP32 的 [...,heads,head_dim] 张量。
+- 未设置 lower_bound 时使用 softplus 分支；设置后使用 lower_bound*sigmoid(exp(A_log)*gate) 分支。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 将输入和 bias 转成 FP32，整理为 head 维度后使用 PyTorch softplus 或 sigmoid 完成门控。
+- 保留输入前导维度，末维拆为 heads 和 head_dim；不修改输入。
 
 ## 示例
 

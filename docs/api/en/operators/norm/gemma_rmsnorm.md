@@ -29,7 +29,7 @@ All tensors must be on the same NPU device.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `input` | Tensor | `Required` | Floating NPU [...,H] input. |
-| `weight` | Tensor | `Required` | Convolution: [channels,width]. Gemma: [H], same dtype as input. |
+| `weight` | Tensor | `Required` | RMSNorm weight of shape [H], where H is the input's last dimension. Same dtype as input. |
 | `eps` | float | `1e-06` | RMSNorm stabilization constant. |
 | `impl` | str | `'auto'` | auto selects torch_npu; explicit backend selection. |
 
@@ -37,13 +37,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | Output has input shape/dtype; FP32 reciprocal RMS has shape [...,1]. |
 
-## torch_npu
+## torch_npu backend
 
-Uses the architecture-appropriate native NPU RMSNorm binding.
+- ARCH22 calls torch_npu.npu_gemma_rms_norm directly. ARCH35 computes 1+weight in the weight dtype and calls torch_npu.npu_rms_norm.
+- Returns normalized output and reciprocal RMS, following the execution and dtype requirements of the corresponding torch_npu interface.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Computes reciprocal RMS from the FP32 mean square and rsqrt, multiplies by the input and Gemma scale, and converts output to the input dtype.
+- Computes 1+weight in FP32 on ARCH22 and preserves weight-dtype addition rounding on ARCH35. Reciprocal RMS remains FP32; no fused RMSNorm interface is called.
 
 ## Example
 

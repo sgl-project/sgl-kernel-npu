@@ -65,13 +65,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor,Tensor,Tensor] | Q [T,QH*H], K/V [T,KVH*H], gate [T,QH*H] or [T,0]; all match qkv dtype. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Fuses Q/K/V splitting, Q/K RMSNorm, and multi-axis RoPE, including partial rotary dimensions, both position layouts, and optional gate extraction.
+- Uses FP32 normalization and rotation intermediates and writes the qkv dtype; V and gate retain their split values.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Splits QKV with PyTorch split/view, normalizes in FP32, and selects per-axis cos/sin using mrope_section.
+- Converts rotated results to the qkv dtype and returns separate Q, K, V, and gate tensors, using an empty tensor when no gate is present.
 
 ## Example
 

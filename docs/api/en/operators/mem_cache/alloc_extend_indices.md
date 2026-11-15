@@ -51,13 +51,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | None | Writes out_indices in place. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Launches one program per request to fill the remaining positions in an existing page, new full pages, and the final partial page.
+- The wrapper derives grid and bs_upper from batch size, writes out_indices in its supplied integer dtype, and returns None.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Computes the remaining capacity and new-page requirements per request, using PyTorch arange and page indexing to form token locations.
+- Writes the caller-provided out_indices without producing an extra page-count output or modifying page and length inputs.
 
 ## Example
 

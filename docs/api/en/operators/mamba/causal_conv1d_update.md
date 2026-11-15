@@ -61,13 +61,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tensor | Output with x shape/dtype; updates conv_state and optional intermediate windows, and writes x on the speculative path. |
 
-## triton
+## triton backend
 
-Uses PyTorch for ordinary decode and Triton for speculative execution.
+- Uses PyTorch for ordinary decode when both cache_seqlens and num_accepted_tokens are None; otherwise dispatches to the Triton update path.
+- The Triton path reads the selected history window, convolves each token, and writes x in place. It also updates the state and can save an intermediate window after each step.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- For ordinary decode, concatenates history and new input, applies grouped conv1d in FP32, and converts to the input dtype before optional SiLU.
+- The multi-token path selects history from the accepted position and updates output, state, and optional intermediate windows step by step with PyTorch.
 
 ## Example
 

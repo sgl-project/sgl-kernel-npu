@@ -42,13 +42,15 @@ All tensors must be on the same NPU device.
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | FP32 [1,tokens,heads] g and the unmodified b tensor. |
 
-## triton
+## triton backend
 
-Uses Triton-Ascend kernels.
+- Fuses bias, softplus with beta/threshold, and scaling by -exp(A_log), returning FP32 g.
+- Does not apply sigmoid to b or copy it; the original b tensor is returned.
 
-## torch_native
+## torch_native backend
 
-Uses PyTorch tensor operations on the input device.
+- Uses FP32 exp, log1p, and conditional selection for thresholded softplus, then adds the leading dimension of g.
+- Preserves the data, dtype, and object identity of b without calling a Triton kernel.
 
 ## Example
 

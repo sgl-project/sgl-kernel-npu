@@ -56,9 +56,10 @@ def causal_conv1d_fn(
 | --- | --- | --- |
 | result | Tensor | 与 x 同形状、同类型的输出；更新 conv_states。 |
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 将打包的变长序列整理为批量输入，通过分组 conv1d 执行各通道独立的因果卷积，再应用可选 SiLU。
+- 根据 has_initial_state 选择历史状态，计算后写回各请求的最终卷积窗口，并恢复输入对应的序列布局。auto 使用此实现。
 
 ## 示例
 

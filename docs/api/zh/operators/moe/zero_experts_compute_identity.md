@@ -49,13 +49,15 @@ def zero_experts_compute_identity(
 | --- | --- | --- |
 | result | Tensor | [tokens,hidden] 加权恒等输出，类型与 hidden_states 相同；修改路由 ID 和 scale。 |
 
-## triton
+## triton 后端
 
-使用 Triton-Ascend kernel。
+- 按 token 汇总 identity expert 的路由权重，并将加权 hidden_states 写入新输出。
+- 同时原地清零对应权重、替换 expert 索引；整行均为 identity 时保留首个索引为 0。
 
-## torch_native
+## torch_native 后端
 
-使用输入设备上的 PyTorch 张量运算。
+- 通过 PyTorch 掩码、行归约和乘法计算 identity 分支贡献，输出使用 hidden_states dtype。
+- 使用相同 identity 掩码原地更新 expert_indices 和 expert_scales，包括全 identity 行的首索引处理。
 
 ## 示例
 
