@@ -117,17 +117,23 @@ def test_pack_empty_history_and_padding(real_tokens):
     for row in range(real_tokens):
         expected[row, : row + 1] = torch.arange(row + 1, dtype=torch.int32)
     impl, impl_ref = get_test_impls()
-    require_distinct_impls(pack_pool_key_indexer_indices, impl, impl_ref)
-    outputs = []
-    for backend in (impl, impl_ref):
-        # Each artificial pool reports [0,1,2,3]; short requests keep only their tail.
-        source = (
-            torch.arange(TOPK + POOL_SIZE - 1, dtype=torch.int32).expand(5, -1).clone()
-        )
-        outputs.append(
-            pack_pool_key_indexer_indices(
-                source, positions, ends, TOPK, POOL_SIZE, impl=backend
+    accuracy_checked = get_skip_acc_check() is not True
+    if accuracy_checked:
+        require_distinct_impls(pack_pool_key_indexer_indices, impl, impl_ref)
+        outputs = []
+        for backend in (impl, impl_ref):
+            # Each artificial pool reports [0,1,2,3]; short requests keep only their tail.
+            source = (
+                torch.arange(TOPK + POOL_SIZE - 1, dtype=torch.int32)
+                .expand(5, -1)
+                .clone()
             )
-        )
-    assert_accuracy(outputs[0], outputs[1])
-    assert_accuracy(outputs[0], expected)
+            outputs.append(
+                pack_pool_key_indexer_indices(
+                    source, positions, ends, TOPK, POOL_SIZE, impl=backend
+                )
+            )
+        assert_accuracy(outputs[0], outputs[1])
+        assert_accuracy(outputs[0], expected)
+    else:
+        require_test_impl(pack_pool_key_indexer_indices, impl)
