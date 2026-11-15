@@ -1,7 +1,12 @@
 import torch
 import triton
 import triton.language as tl
-from sgl_kernel_npu.utils.triton_utils import get_device_properties
+from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
+    get_device_properties,
+)
+
+# Bound each gate/up vector to 4 KiB even for FP32, independently of row width.
+_TILE_SIZE = 1024
 
 
 @triton.jit
@@ -10,28 +15,18 @@ def swiglu_oai_kernel(
     gated_output,
     gemm1_alpha,
     gemm1_clamp_limit,
-    output_dim: tl.constexpr,
+    num_elements,
     BLOCK_SIZE: tl.constexpr,
-    MINIBLOCK_SIZE: tl.constexpr,
-    BS: tl.constexpr,
 ):
-    i_block = tl.program_id(0)
+    start = tl.program_id(0).to(tl.int64) * BLOCK_SIZE
+    stride = tl.num_programs(0) * BLOCK_SIZE
+    lanes = tl.arange(0, BLOCK_SIZE)
 
-    for i_miniblock in range(0, BLOCK_SIZE, MINIBLOCK_SIZE):
-        offset_bs = i_block * BLOCK_SIZE + i_miniblock + tl.arange(0, MINIBLOCK_SIZE)
-        mask_bs = offset_bs < BS
-
-        offset_gate = tl.arange(0, output_dim) * 2
-        offset_up = tl.arange(0, output_dim) * 2 + 1
-
-        gate = tl.load(
-            hidden_states + offset_bs[:, None] * output_dim * 2 + offset_gate[None, :],
-            mask=mask_bs[:, None],
-        )
-        up = tl.load(
-            hidden_states + offset_bs[:, None] * output_dim * 2 + offset_up[None, :],
-            mask=mask_bs[:, None],
-        )
+    for base in tl.range(start, num_elements, stride):
+        offsets = base + lanes
+        valid = offsets < num_elements
+        gate = tl.load(hidden_states + 2 * offsets, mask=valid, other=0)
+        up = tl.load(hidden_states + 2 * offsets + 1, mask=valid, other=0)
 
         gate = tl.where(gate > gemm1_clamp_limit, gemm1_clamp_limit, gate)
         up = tl.where(up > gemm1_clamp_limit, gemm1_clamp_limit, up)
@@ -40,13 +35,7 @@ def swiglu_oai_kernel(
         glu = gate * sig
         out = (up + 1) * glu
 
-        tl.store(
-            gated_output
-            + offset_bs[:, None] * output_dim
-            + tl.arange(0, output_dim)[None, :],
-            out,
-            mask=mask_bs[:, None],
-        )
+        tl.store(gated_output + offsets, out, mask=valid)
 
 
 def swiglu_oai(
@@ -56,27 +45,27 @@ def swiglu_oai(
     gemm1_clamp_limit,
 ):
     hidden_states = hidden_states.view(-1, dim)
-    BS = hidden_states.shape[0]
+    rows = hidden_states.shape[0]
     output_dim = dim // 2
     gated_output = torch.empty(
-        (BS, output_dim),
+        (rows, output_dim),
         dtype=hidden_states.dtype,
         device=hidden_states.device,
     )
 
-    kernel_num = get_device_properties()[0]
-    MINIBLOCK_SIZE = 16
-    BLOCK_SIZE = triton.cdiv(BS, MINIBLOCK_SIZE * kernel_num) * MINIBLOCK_SIZE
-    BLOCK_NUM = triton.cdiv(BS, BLOCK_SIZE)
+    num_elements = gated_output.numel()
+    if num_elements == 0:
+        return gated_output
+    _, num_vector_cores = get_device_properties()
+    grid = (min(triton.cdiv(num_elements, _TILE_SIZE), num_vector_cores),)
 
-    swiglu_oai_kernel[(BLOCK_NUM,)](
+    swiglu_oai_kernel[grid](
         hidden_states,
         gated_output,
         gemm1_alpha,
         gemm1_clamp_limit,
-        output_dim,
-        BLOCK_SIZE,
-        MINIBLOCK_SIZE,
-        BS,
+        num_elements,
+        _TILE_SIZE,
+        multibuffer=False,
     )
     return gated_output
