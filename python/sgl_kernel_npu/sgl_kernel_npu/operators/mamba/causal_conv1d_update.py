@@ -3,6 +3,7 @@
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
+_decode_fn = None
 _torch_native_fn = None
 
 
@@ -22,14 +23,65 @@ def _triton_impl(
     metadata=None,
     validate_data=False,
 ):
-    global _triton_fn
+    global _decode_fn, _triton_fn
+    if validate_data:
+        assert cache_seqlens is None
+        assert pad_slot_id is not None
+        assert x.stride(1) == 1
+    if isinstance(activation, bool):
+        activation = "silu" if activation else None
+    elif activation is not None:
+        assert activation in ("silu", "swish")
+    unsqueeze = x.dim() == 2
+    if unsqueeze:
+        x = x.unsqueeze(-1)
+    batch, dim, _ = x.shape
+    _, width = weight.shape
+    num_cache_lines, _, state_len = conv_state.size()
+    if validate_data:
+        assert dim == weight.size(0)
+        assert (
+            conv_state.stride(-2) == 1
+        ), f"ERROR: expect contiguous along feat-dim of conv_state (currently stride={conv_state.stride()})"
+        assert state_len >= width - 1
+        assert dim == conv_state.size(1)
+        if conv_state_indices is None:
+            assert conv_state.size(0) >= batch
+        else:
+            assert (batch,) == conv_state_indices.shape
+        assert num_cache_lines >= batch
+        assert weight.stride(1) == 1
+
+    stride_state_indices = (
+        conv_state_indices.stride(0) if conv_state_indices is not None else 0
+    )
+    intermediate_strides = (
+        (
+            intermediate_conv_window.stride(0),
+            intermediate_conv_window.stride(1),
+            intermediate_conv_window.stride(2),
+            intermediate_conv_window.stride(3),
+        )
+        if intermediate_conv_window is not None
+        else (0, 0, 0, 0)
+    )
+    if cache_seqlens is None and num_accepted_tokens is None:
+        if _decode_fn is None:
+            from ...implementation.torch_native.mamba.causal_conv1d_update import (
+                causal_conv1d_update_decode,
+            )
+
+            _decode_fn = causal_conv1d_update_decode
+        out = _decode_fn(x, conv_state, weight, bias, activation, conv_state_indices)
+        return out.squeeze(-1) if unsqueeze else out
+
     if _triton_fn is None:
         from ...implementation.triton.mamba.causal_conv1d_update import (
             causal_conv1d_update,
         )
 
         _triton_fn = causal_conv1d_update
-    return _triton_fn(
+    out = _triton_fn(
         x,
         conv_state,
         weight,
@@ -40,9 +92,10 @@ def _triton_impl(
         num_accepted_tokens,
         intermediate_conv_window,
         pad_slot_id,
-        metadata,
-        validate_data,
+        stride_state_indices=stride_state_indices,
+        intermediate_strides=intermediate_strides,
     )
+    return out.squeeze(-1) if unsqueeze else out
 
 
 @register_impl("mamba.causal_conv1d_update", "torch_native")
@@ -98,7 +151,7 @@ def causal_conv1d_update(
     metadata=None,
     validate_data=False,
     *,
-    impl="auto"
+    impl="auto",
 ):
     """Updates depthwise convolution history for decode or speculative multi-token execution. Decode without acceptance metadata returns a new output. The speculative path writes the output into x and can also save a history window after each token. The state layout is [pool,channels,history].
 

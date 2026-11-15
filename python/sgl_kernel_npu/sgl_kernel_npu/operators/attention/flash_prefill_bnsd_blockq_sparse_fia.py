@@ -108,11 +108,11 @@ def flash_prefill_bnsd_blockq_sparse_fia(
     """Computes sparse causal prefill attention from selected logical KV blocks. It gathers physical pages, orders the current block after past blocks, limits that block to the query's causal length, and evaluates grouped-query attention. Only one KV head is supported; optional metadata buffers are updated in place.
 
     Args:
-        q (Tensor): KDA: [1,tokens,Hq,K]; FIA: FP16/BF16 [tokens,QH,D]. Default: Required.
+        q (Tensor): FP16/BF16 queries of shape [tokens, QH, D]. Default: Required.
         k_cache_bnsd (Tensor): FP16/BF16 [num_pages,block_size,1,D] cache. Default: Required.
         v_cache_bnsd (Tensor): Value cache, same shape/dtype as keys. Default: Required.
         topk_idx (Tensor): INT32 [1,tokens,topk+1] selected logical blocks, -1 padding, including the current block. Default: Required.
-        seq_lens (Tensor): Integer per-request query lengths; FIA instead uses per-query causal KV lengths. Default: Required.
+        seq_lens (Tensor): INT32 [tokens] causal KV lengths, one per query, including the current token. Default: Required.
         per_query_req (Tensor): INT32 [tokens] request indices. Default: Required.
         req_to_token (Tensor): INT32 [requests,max_context] physical token slots. Default: Required.
         block_size (int): Tokens per physical KV page. Default: Required.

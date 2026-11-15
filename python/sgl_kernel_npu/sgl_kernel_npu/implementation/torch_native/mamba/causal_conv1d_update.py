@@ -1,9 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2024, Tri Dao.
+# Adapted from https://github.com/Dao-AILab/causal-conv1d/blob/main/causal_conv1d/causal_conv1d_interface.py
+# and https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
+
 from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
 
 PAD_SLOT_ID = -1
+
+
+def causal_conv1d_update_decode(
+    x, conv_state, weight, bias, activation, conv_state_indices
+):
+    conv_state_update = conv_state[conv_state_indices]
+    out, conv_state[conv_state_indices] = torch_causal_conv1d_update_npu(
+        x,
+        conv_state_update,
+        weight,
+        bias=bias,
+        activation=activation,
+    )
+    return out
 
 
 def causal_conv1d_update(
@@ -131,3 +150,37 @@ def causal_conv1d_update(
             if intermediate_conv_window is not None:
                 intermediate_conv_window[slot, token].copy_(history)
     return x.squeeze(-1) if unsqueeze else x
+
+
+def torch_causal_conv1d_update_npu(
+    hidden_state: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    conv_state_update: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    activation: Union[bool, str, None] = None,
+):
+    bsz, hidden_size, seq_len = hidden_state.shape
+    state_len = conv_state.shape[-1]
+    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
+    if conv_state_update is not None:
+        for i in range(seq_len):
+            end = i - seq_len + 1
+            start = end - state_len
+            slice_range = slice(start, end if end != 0 else None)
+            conv_state_update[:, i] = hidden_states_new[:, :, slice_range]
+    else:
+        conv_state_update = hidden_states_new[:, :, -state_len:]
+
+    out = torch.sum(
+        hidden_states_new.to(torch.float32) * weight.to(torch.float32),
+        dim=-1,
+        keepdim=True,
+    )
+    if bias is not None:
+        out = out + bias.to(torch.float32)[None, :, None]
+    out = out.to(hidden_state.dtype)
+    if activation in ["silu", "swish"]:
+        out = F.silu(out)
+    out = out.to(hidden_state.dtype)
+    return out, conv_state_update

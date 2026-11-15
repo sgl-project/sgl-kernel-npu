@@ -2,7 +2,7 @@
 
 import torch_npu
 
-from ..utils.generation import Generation
+from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
@@ -31,7 +31,12 @@ def _torch_native_impl(input, weight, eps):
         from ...implementation.torch_native.norm.gemma_rmsnorm import gemma_rmsnorm
 
         _torch_native_fn = gemma_rmsnorm
-    return _torch_native_fn(input, weight, eps)
+    return _torch_native_fn(
+        input,
+        weight,
+        eps,
+        round_gamma_in_weight_dtype=get_hardware().generation is Generation.ARCH35,
+    )
 
 
 @register_operator("norm.gemma_rmsnorm")
@@ -40,7 +45,7 @@ def gemma_rmsnorm(input, weight, eps=1e-6, *, impl="auto"):
 
     Args:
         input (Tensor): Floating NPU [...,H] input. Default: Required.
-        weight (Tensor): Convolution: [channels,width]. Gemma: [H], same dtype as input. Default: Required.
+        weight (Tensor): RMSNorm weight of shape [H], where H is the input's last dimension. Same dtype as input. Default: Required.
         eps (float): RMSNorm stabilization constant. Default: 1e-06.
         impl (str): auto selects torch_npu; explicit backend selection. Default: 'auto'.
 

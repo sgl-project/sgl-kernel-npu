@@ -5,7 +5,7 @@
 # Adapted from https://github.com/Dao-AILab/causal-conv1d/blob/main/causal_conv1d/causal_conv1d_interface.py
 # and https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
 
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -175,37 +175,3 @@ def causal_conv1d_fn(
         out_final = F.pad(out_final, (0, pad_seq_len))
 
     return out_final  # [dim, cu_seq_len]
-
-
-def torch_causal_conv1d_update_npu(
-    hidden_state: torch.Tensor,
-    conv_state: torch.Tensor,
-    weight: torch.Tensor,
-    conv_state_update: Optional[torch.Tensor] = None,
-    bias: Optional[torch.Tensor] = None,
-    activation: Union[bool, str, None] = None,
-):
-    bsz, hidden_size, seq_len = hidden_state.shape
-    state_len = conv_state.shape[-1]
-    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
-    if conv_state_update is not None:
-        for i in range(seq_len):
-            end = i - seq_len + 1
-            start = end - state_len
-            slice_range = slice(start, end if end != 0 else None)
-            conv_state_update[:, i] = hidden_states_new[:, :, slice_range]
-    else:
-        conv_state_update = hidden_states_new[:, :, -state_len:]
-
-    out = torch.sum(
-        hidden_states_new.to(torch.float32) * weight.to(torch.float32),
-        dim=-1,
-        keepdim=True,
-    )
-    if bias is not None:
-        out = out + bias.to(torch.float32)[None, :, None]
-    out = out.to(hidden_state.dtype)
-    if activation in ["silu", "swish"]:
-        out = F.silu(out)
-    out = out.to(hidden_state.dtype)
-    return out, conv_state_update
