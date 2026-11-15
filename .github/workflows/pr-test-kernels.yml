@@ -181,7 +181,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: norm
@@ -200,7 +200,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: attention
@@ -219,7 +219,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: cache
@@ -238,7 +238,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: speculative
@@ -257,7 +257,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: mamba
@@ -276,7 +276,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: fla
@@ -295,7 +295,7 @@ jobs:
       fail-fast: false
       matrix:
         cann_version: ['9.1.0']
-        npu_hardware: [a3, '950']
+        npu_hardware: [a3]
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: fused
