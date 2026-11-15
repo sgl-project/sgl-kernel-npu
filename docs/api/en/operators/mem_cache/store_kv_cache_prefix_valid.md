@@ -44,13 +44,11 @@ All tensors must be on the same NPU device.
 
 ## triton backend
 
-- Limits each request to the prefix selected by commit_lens and writes the corresponding K/V rows to loc_2d slots.
-- Masks entries outside the committed prefix and preserves unwritten cache locations. K and V may have different feature widths.
+- Masks positions outside each request’s committed prefix and writes K/V rows directly to the corresponding `loc_2d` slots.
 
 ## torch_native backend
 
 - Copies K/V rows within each valid prefix using PyTorch operations per request and token.
-- Updates destination caches in place and returns None, without copying source rows outside the committed prefixes.
 
 ## Example
 

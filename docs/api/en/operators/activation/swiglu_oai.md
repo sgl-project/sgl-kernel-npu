@@ -29,7 +29,7 @@ All tensors must be on the same NPU device.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `hidden_states` | Tensor | `Required` | Contiguous floating [rows,2*D] input. |
-| `dim` | int | `Required` | Packed gate/up width, equal to the last input dimension. |
+| `dim` | int | `Required` | Even packed gate/up width, equal to the last input dimension. |
 | `gemm1_alpha` | float | `Required` | Sigmoid input multiplier. |
 | `gemm1_clamp_limit` | float | `Required` | Gate upper bound and symmetric up bound. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
@@ -40,13 +40,11 @@ All tensors must be on the same NPU device.
 
 ## triton backend
 
-- Takes contiguous input with even `dim` and interleaved gate/up channels. Fuses clamping, the alpha-scaled sigmoid, and multiplication by `up + 1`.
-- Processes fixed-size blocks of gate/up pairs so the amount of data processed per block is independent of the input width. Returns `dim / 2` elements per row in the input dtype.
+- Fuses clamping, the alpha-scaled sigmoid, and multiplication by `up + 1` over fixed-size blocks of interleaved gate/up pairs. The block size is independent of the input width.
 
 ## torch_native backend
 
 - Slices even positions into gate and odd positions into up, then applies clamping, sigmoid, and multiplication.
-- Uses PyTorch operations on the input device and returns a new tensor in the input dtype.
 
 ## Example
 

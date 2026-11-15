@@ -29,7 +29,7 @@ def swiglu_oai(hidden_states, dim, gemm1_alpha, gemm1_clamp_limit, *, impl="auto
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `hidden_states` | Tensor | `Required` | 连续浮点输入 [rows,2*D]。 |
-| `dim` | int | `Required` | 打包 gate/up 宽度，与输入最后一维相等。 |
+| `dim` | int | `Required` | 打包的 gate/up 宽度，须为偶数且等于输入最后一维。 |
 | `gemm1_alpha` | float | `Required` | sigmoid 输入乘数。 |
 | `gemm1_clamp_limit` | float | `Required` | gate 上界和 up 双边界。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
@@ -40,13 +40,11 @@ def swiglu_oai(hidden_states, dim, gemm1_alpha, gemm1_clamp_limit, *, impl="auto
 
 ## triton 后端
 
-- 输入须连续，`dim` 为偶数，gate/up 通道交错排列。融合限幅、带 alpha 的 sigmoid 和 `up + 1` 乘法。
-- 将 gate/up 对划成固定大小的块，单块处理的数据量与输入宽度无关。每行返回 `dim / 2` 个元素，保留输入 dtype。
+- 将交错的 gate/up 对划成固定大小的块，融合限幅、带 alpha 的 sigmoid 和 `up + 1` 乘法。单块大小与输入宽度无关。
 
 ## torch_native 后端
 
 - 通过切片拆出偶数位置的 gate 和奇数位置的 up，再执行限幅、sigmoid 和乘法。
-- 在输入设备上执行 PyTorch 运算，返回与输入同 dtype 的新张量。
 
 ## 示例
 

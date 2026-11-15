@@ -43,11 +43,11 @@ def causal_conv1d_update(
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `x` | Tensor | `Required` | update 为浮点 [B,C] 或 [B,C,T]；prefill 为 [C,total_tokens] 或 [B,C,T]。 |
+| `x` | Tensor | `Required` | 浮点输入，单 token 为 [B,C]，多 token 为 [B,C,T]。 |
 | `conv_state` | Tensor | `Required` | 可写浮点状态 [pool,channels,history]，容量至少为 width+steps-2。 |
-| `weight` | Tensor | `Required` | 卷积为 [channels,width]；Gemma 为 [H]，与输入同类型。 |
+| `weight` | Tensor | `Required` | 形状为 [channels,width] 的卷积权重。 |
 | `bias` | Tensor or None | `None` | 可选卷积偏置 [channels]。 |
-| `activation` | str, bool or None | `None` | None 关闭激活，silu/swish 启用 SiLU；update 也接受 bool。 |
+| `activation` | str, bool or None | `None` | `'silu'`、`'swish'` 和 `True` 启用 SiLU，`None` 或 `False` 关闭激活。 |
 | `cache_seqlens` | Tensor or None | `None` | 保留的 [batch] 元数据；当前路径不实现环形缓存索引。 |
 | `conv_state_indices` | Tensor or None | `None` | 整数 [batch] 状态槽映射。 |
 | `num_accepted_tokens` | Tensor or None | `None` | 整数 [batch]；投机历史起点为 accepted_count-1。 |

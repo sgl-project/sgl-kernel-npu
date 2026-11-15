@@ -51,13 +51,12 @@ All tensors must be on the same NPU device.
 
 ## triton backend
 
-- Copies the selected intermediate step to destination state slots by layer and request, skipping negative last_steps.
-- Writes using destination V/K strides, preserving the logical layout of transposed views, and returns the original destination tensor.
+- Copies the selected snapshot by layer and request using the destination V/K strides. Transposed views retain their logical layout.
 
 ## torch_native backend
 
 - Filters requests with a valid-step mask and gathers the selected layers, slots, and steps using PyTorch indexing.
-- Writes through logical destination indices in place, preserving V/K strides and the returned object.
+- Writes through the destination’s logical V/K indices.
 
 ## Example
 

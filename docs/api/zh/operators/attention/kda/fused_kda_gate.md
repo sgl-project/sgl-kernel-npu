@@ -42,7 +42,7 @@ def fused_kda_gate(
 | `A_log` | Tensor | `Required` | 浮点衰减权重 [heads] 或等价单维扩展形状。 |
 | `head_dim` | int | `Required` | 每个门控头的通道数。 |
 | `gate_bias` | Tensor or None | `None` | 可选浮点门控偏置 [heads*head_dim]。 |
-| `beta` | float | `1.0` | 对应算子的 softplus 乘数或 SiTU 饱和参数。 |
+| `beta` | float | `1.0` | softplus 分支使用的系数。 |
 | `threshold` | float | `20.0` | softplus 切换线性分支的阈值。 |
 | `lower_bound` | float or None | `None` | 提供时选择有界 sigmoid 门控，None 选择 softplus。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
@@ -54,12 +54,10 @@ def fused_kda_gate(
 ## triton 后端
 
 - 按 token 块和 head 融合 gate bias、A_log 缩放及激活，输出 FP32 的 [...,heads,head_dim] 张量。
-- 未设置 lower_bound 时使用 softplus 分支；设置后使用 lower_bound*sigmoid(exp(A_log)*gate) 分支。
 
 ## torch_native 后端
 
 - 将输入和 bias 转成 FP32，整理为 head 维度后使用 PyTorch softplus 或 sigmoid 完成门控。
-- 保留输入前导维度，末维拆为 heads 和 head_dim；不修改输入。
 
 ## 示例
 

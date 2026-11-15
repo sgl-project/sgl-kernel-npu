@@ -46,12 +46,12 @@ def kda_target_verify(
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `A_log` | Tensor | `Required` | 浮点衰减权重 [heads] 或等价单维扩展形状。 |
-| `dt_bias` | Tensor | `Required` | GDN 为 [heads]，KDA 为 [Hk,K] 门控偏置。 |
-| `q` | Tensor | `Required` | KDA 为 [1,tokens,Hq,K]；FIA 为 FP16/BF16 [tokens,QH,D]。 |
+| `dt_bias` | Tensor | `Required` | 原始门控使用的浮点偏置，形状为 [Hk,K]。 |
+| `q` | Tensor | `Required` | 形状为 [1,tokens,Hq,K] 的浮点查询张量。 |
 | `k` | Tensor | `Required` | 浮点 key [1,tokens,Hk,K]。 |
 | `v` | Tensor | `Required` | 浮点 value [1,tokens,Hv,V]，Hv 须能被 Hq、Hk 整除。 |
-| `a` | Tensor | `Required` | GDN 为 [tokens,heads]，KDA 为 [tokens,Hk,K]，可带前导单维。 |
-| `b` | Tensor | `Required` | 浮点 [tokens,Hv]；KDA 可为 [1,tokens,Hv]。 |
+| `a` | Tensor | `Required` | 形状为 [tokens,Hk,K] 的浮点门控输入，可与 `b` 同时带前导单维。 |
+| `b` | Tensor | `Required` | 形状为 [tokens,Hv] 的浮点门控输入，可与 `a` 同时带前导单维。 |
 | `initial_state_source` | Tensor | `Required` | 只读浮点初态 [pool,Hv,V,K]，支持带步幅的 V/K。 |
 | `initial_state_indices` | Tensor | `Required` | INT32/INT64 源槽 [batch]，负值表示零初态。 |
 | `intermediate_states_buffer` | Tensor | `Required` | 可写 FP32/BF16 快照 [scratch,cache_steps,Hv,V,K]，不得与初态重叠。 |
@@ -68,12 +68,12 @@ def kda_target_verify(
 ## triton 后端
 
 - 融合 Q/K 归一化、门控处理和 KDA 递推，按请求执行 cache_steps 步并写入指定快照槽。
-- 支持原始或预激活 gate、分组头和有 stride 的状态；初始状态只读，输出使用 v dtype。
+- 使用张量各自的步幅读取初态、写入快照。
 
 ## torch_native 后端
 
 - 使用 FP32 的归一化、指数和 einsum 逐请求、逐步计算状态衰减、delta 更新及输出投影。
-- 递推中间状态保留 FP32；输出和快照在写入时转换为对应目标 dtype，负索引分别表示零初态或跳过快照。
+- 递推中间状态保留 FP32，输出和快照在写入时转换为目标 dtype。
 
 ## 示例
 

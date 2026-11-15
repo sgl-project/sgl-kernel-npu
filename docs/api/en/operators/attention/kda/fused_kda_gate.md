@@ -42,7 +42,7 @@ All tensors must be on the same NPU device.
 | `A_log` | Tensor | `Required` | Floating [heads] (or equivalent singleton-expanded shape) decay weights. |
 | `head_dim` | int | `Required` | Channels per gate head. |
 | `gate_bias` | Tensor or None | `None` | Optional floating [heads*head_dim] additive gate bias. |
-| `beta` | float | `1.0` | Softplus multiplier or SiTU saturation parameter, according to the operation. |
+| `beta` | float | `1.0` | Coefficient used by the softplus branch. |
 | `threshold` | float | `20.0` | Softplus linear-branch threshold. |
 | `lower_bound` | float or None | `None` | Select bounded sigmoid gates when supplied; None selects softplus. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
@@ -54,12 +54,10 @@ All tensors must be on the same NPU device.
 ## triton backend
 
 - Fuses gate bias, A_log scaling, and activation by token block and head, producing FP32 [...,heads,head_dim] output.
-- Uses softplus without lower_bound, or lower_bound*sigmoid(exp(A_log)*gate) when the bound is provided.
 
 ## torch_native backend
 
 - Converts the input and bias to FP32, reshapes the head dimensions, and evaluates gating with PyTorch softplus or sigmoid.
-- Preserves leading dimensions and splits the last dimension into heads and head_dim without modifying the input.
 
 ## Example
 

@@ -22,7 +22,7 @@ def fused_gdn_gating_without_sigmoid(
 
 ## 功能描述
 
-计算 FP32 的 g=-exp(A_log)*softplus(a+dt_bias,beta,threshold)，为 g 添加前导单维，并原样返回 b。第二个返回值就是输入 b，不执行 sigmoid。
+以 FP32 计算 `g = -exp(A_log) * softplus(a + dt_bias, beta, threshold)`。
 
 ## 参数与返回值
 
@@ -31,26 +31,24 @@ def fused_gdn_gating_without_sigmoid(
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `A_log` | Tensor | `Required` | 浮点衰减权重 [heads] 或等价单维扩展形状。 |
-| `a` | Tensor | `Required` | GDN 为 [tokens,heads]，KDA 为 [tokens,Hk,K]，可带前导单维。 |
-| `b` | Tensor | `Required` | 浮点 [tokens,Hv]；KDA 可为 [1,tokens,Hv]。 |
-| `dt_bias` | Tensor | `Required` | GDN 为 [heads]，KDA 为 [Hk,K] 门控偏置。 |
-| `beta` | float | `1.0` | 对应算子的 softplus 乘数或 SiTU 饱和参数。 |
+| `a` | Tensor | `Required` | 形状为 [tokens,heads] 的浮点门控输入。 |
+| `b` | Tensor | `Required` | 与 `a` 搭配传入的门控张量。 |
+| `dt_bias` | Tensor | `Required` | 形状为 [heads] 的浮点门控偏置。 |
+| `beta` | float | `1.0` | 非零的 softplus 系数。 |
 | `threshold` | float | `20.0` | softplus 切换线性分支的阈值。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
-| result | Tuple[Tensor,Tensor] | FP32 的 g [1,tokens,heads] 及未修改的 b。 |
+| result | Tuple[Tensor,Tensor] | FP32 的 `g`，形状为 [1,tokens,heads]，以及传入的 `b` 原张量。 |
 
 ## triton 后端
 
-- 融合 bias、带 beta/threshold 的 softplus 和 -exp(A_log) 缩放，返回 FP32 的 g。
-- b 不执行 sigmoid，也不复制，直接返回传入的同一个张量。
+- 对连续的门控输入 `a` 融合偏置加法、带阈值的 softplus 和按头衰减缩放。
 
 ## torch_native 后端
 
-- 通过 FP32 的 exp、log1p 和条件选择实现带阈值的 softplus，并增加 g 的首维。
-- 保留 b 的数据、dtype 和对象身份，不调用 Triton kernel。
+- 用 `exp`、`log1p` 和 `where` 计算带阈值的 softplus，再应用衰减缩放。
 
 ## 示例
 

@@ -66,12 +66,11 @@ All tensors must be on the same NPU device.
 ## triton backend
 
 - Uses Triton to prepare selected-block page tables and per-query valid KV lengths. The attention step requires the `torch.ops.npu.npu_fused_infer_attention_score` binding.
-- Expects FP16 or BF16 queries and one KV head. The K/V caches must support a view of shape `[num_pages, block_size, D]`. The page-table and length buffers can be reused.
+- The K/V caches must support a view of shape `[num_pages, block_size, D]`.
 
 ## torch_native backend
 
-- Reuses PyTorch page-table preparation, gathers valid K/V per query, and evaluates attention with FP32 matrix multiplication and softmax.
-- Converts output to the q dtype and fills supplied page-table and length buffers in place, without calling fused native attention.
+- Builds the page table, gathers valid K/V per query, and evaluates attention with FP32 matrix multiplication and softmax.
 
 ## Example
 

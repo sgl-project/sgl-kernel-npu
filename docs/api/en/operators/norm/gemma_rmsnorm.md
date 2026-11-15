@@ -20,7 +20,7 @@ def gemma_rmsnorm(input, weight, eps=1e-06, *, impl="auto"): ...
 
 ## Description
 
-Computes RMS normalization followed by the Gemma scale (1+weight), returning both normalized output and reciprocal RMS. ARCH22 uses the native Gemma operation; ARCH35 forms 1+weight in the stored weight dtype before RMSNorm, retaining that rounding boundary.
+Computes RMS normalization followed by the Gemma scale `1 + weight`, returning the normalized output and reciprocal RMS.
 
 ## Parameters and return value
 
@@ -40,12 +40,11 @@ All tensors must be on the same NPU device.
 ## torch_npu backend
 
 - ARCH22 calls torch_npu.npu_gemma_rms_norm directly. ARCH35 computes 1+weight in the weight dtype and calls torch_npu.npu_rms_norm.
-- Returns normalized output and reciprocal RMS, following the execution and dtype requirements of the corresponding torch_npu interface.
 
 ## torch_native backend
 
 - Computes reciprocal RMS from the FP32 mean square and rsqrt, multiplies by the input and Gemma scale, and converts output to the input dtype.
-- Computes 1+weight in FP32 on ARCH22 and preserves weight-dtype addition rounding on ARCH35. Reciprocal RMS remains FP32; no fused RMSNorm interface is called.
+- Computes `1 + weight` in FP32 on ARCH22 and in the weight dtype on ARCH35 before converting it to FP32.
 
 ## Example
 

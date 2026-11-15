@@ -22,7 +22,7 @@ def fused_gdn_gating_without_sigmoid(
 
 ## Description
 
-Computes FP32 g=-exp(A_log)*softplus(a+dt_bias,beta,threshold), returning g with a leading singleton and forwarding b unchanged. The second result is the original b tensor, with no sigmoid applied.
+Computes `g = -exp(A_log) * softplus(a + dt_bias, beta, threshold)` in FP32.
 
 ## Parameters and return value
 
@@ -31,26 +31,24 @@ All tensors must be on the same NPU device.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `A_log` | Tensor | `Required` | Floating [heads] (or equivalent singleton-expanded shape) decay weights. |
-| `a` | Tensor | `Required` | GDN: [tokens,heads]. KDA: [tokens,Hk,K] with optional leading singleton. |
-| `b` | Tensor | `Required` | Floating [tokens,Hv], optionally [1,tokens,Hv] for KDA. |
-| `dt_bias` | Tensor | `Required` | GDN: [heads]; KDA: [Hk,K] gate bias. |
-| `beta` | float | `1.0` | Softplus multiplier or SiTU saturation parameter, according to the operation. |
+| `a` | Tensor | `Required` | Floating-point gate input of shape [tokens,heads]. |
+| `b` | Tensor | `Required` | Gate tensor paired with `a`. |
+| `dt_bias` | Tensor | `Required` | Floating-point gate bias of shape [heads]. |
+| `beta` | float | `1.0` | Nonzero softplus coefficient. |
 | `threshold` | float | `20.0` | Softplus linear-branch threshold. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
 
 | Return | Type | Description |
 | --- | --- | --- |
-| result | Tuple[Tensor,Tensor] | FP32 [1,tokens,heads] g and the unmodified b tensor. |
+| result | Tuple[Tensor,Tensor] | FP32 `g` of shape [1,tokens,heads] and the original `b` tensor. |
 
 ## triton backend
 
-- Fuses bias, softplus with beta/threshold, and scaling by -exp(A_log), returning FP32 g.
-- Does not apply sigmoid to b or copy it; the original b tensor is returned.
+- Fuses bias addition, thresholded softplus, and per-head decay scaling for contiguous gate input `a`.
 
 ## torch_native backend
 
-- Uses FP32 exp, log1p, and conditional selection for thresholded softplus, then adds the leading dimension of g.
-- Preserves the data, dtype, and object identity of b without calling a Triton kernel.
+- Uses `exp`, `log1p`, and `where` for thresholded softplus, then applies the decay scale.
 
 ## Example
 

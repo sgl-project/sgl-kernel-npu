@@ -44,13 +44,11 @@ def store_kv_cache_prefix_valid(
 
 ## triton 后端
 
-- 按 commit_lens 限定每个请求可写入的前缀，直接把对应 K/V 行写到 loc_2d 指定的槽位。
-- 通过掩码跳过前缀之外的条目，保留未写缓存；K、V 可使用不同特征宽度。
+- 用掩码跳过已提交前缀之外的位置，将 K/V 行直接写到 `loc_2d` 指定的槽位。
 
 ## torch_native 后端
 
 - 使用 PyTorch 逐请求、逐 token 复制有效前缀内的 K/V 行。
-- 原地修改目标缓存并返回 None；不读取前缀之外的源行来写入目标。
 
 ## 示例
 

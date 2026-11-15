@@ -43,11 +43,11 @@ All tensors must be on the same NPU device.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `x` | Tensor | `Required` | Floating [B,C] or [B,C,T] for update; [C,total_tokens] or [B,C,T] for prefill. |
+| `x` | Tensor | `Required` | Floating-point input of shape [B,C] for one token or [B,C,T] for multiple tokens. |
 | `conv_state` | Tensor | `Required` | Floating [pool,channels,history] writable state, enough capacity for width+steps-2. |
-| `weight` | Tensor | `Required` | Convolution: [channels,width]. Gemma: [H], same dtype as input. |
+| `weight` | Tensor | `Required` | Convolution weights of shape [channels,width]. |
 | `bias` | Tensor or None | `None` | Optional [channels] convolution bias. |
-| `activation` | str, bool or None | `None` | None disables activation; silu/swish enables SiLU. Update also accepts bool. |
+| `activation` | str, bool or None | `None` | Use `'silu'`, `'swish'`, or `True` for SiLU, or `None` or `False` to disable it. |
 | `cache_seqlens` | Tensor or None | `None` | Reserved [batch] metadata; this path does not implement circular-cache indexing. |
 | `conv_state_indices` | Tensor or None | `None` | Integer [batch] state slot mapping. |
 | `num_accepted_tokens` | Tensor or None | `None` | Integer [batch]; speculative history starts at accepted_count-1. |

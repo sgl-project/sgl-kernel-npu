@@ -51,13 +51,12 @@ def move_intermediate_cache_kda(
 
 ## triton 后端
 
-- 按层和请求复制选定 step 的中间状态到目标缓存，跳过 last_steps 为负的请求。
-- 按照目标状态的 V/K stride 写入，支持转置视图的逻辑布局；返回原目标张量。
+- 按层和请求复制选定的快照，按目标 V/K 步幅写入，保留转置视图的逻辑布局。
 
 ## torch_native 后端
 
 - 使用有效 step 掩码筛选请求，通过 PyTorch 索引读取指定层、槽位和 step。
-- 按目标张量的逻辑索引原地写入，保留 V/K stride 和返回对象。
+- 按目标张量的逻辑 V/K 索引写入。
 
 ## 示例
 

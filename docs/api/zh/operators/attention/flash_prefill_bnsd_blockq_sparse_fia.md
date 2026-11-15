@@ -66,12 +66,11 @@ def flash_prefill_bnsd_blockq_sparse_fia(
 ## triton 后端
 
 - 由 Triton 整理选中块的页表及每个查询的有效 KV 长度，attention 阶段依赖 `torch.ops.npu.npu_fused_infer_attention_score` 绑定。
-- 查询须为 FP16 或 BF16，KV head 数为 1。K/V 缓存须能直接取 `[num_pages, block_size, D]` 形状的视图。页表和长度缓冲区可复用。
+- K/V 缓存须能直接取 `[num_pages, block_size, D]` 形状的视图。
 
 ## torch_native 后端
 
-- 复用 PyTorch 页表准备逻辑，按查询收集有效 K/V，并以 FP32 矩阵乘法和 softmax 计算 attention。
-- 输出转换为 q dtype；提供页表和长度缓冲区时原地填充，不调用原生融合 attention。
+- 构建页表，按查询收集有效 K/V，再以 FP32 矩阵乘法和 softmax 计算 attention。
 
 ## 示例
 

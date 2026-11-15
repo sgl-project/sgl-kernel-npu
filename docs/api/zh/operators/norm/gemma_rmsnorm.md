@@ -20,7 +20,7 @@ def gemma_rmsnorm(input, weight, eps=1e-06, *, impl="auto"): ...
 
 ## 功能描述
 
-执行 RMS 归一化后乘以 Gemma 缩放 (1+weight)，返回输出与 RMS 倒数。ARCH22 使用原生 Gemma 算子；ARCH35 在 weight 的存储类型中计算 1+weight，再执行 RMSNorm，保留这一舍入边界。
+计算 RMS 归一化并应用 Gemma 缩放 `1 + weight`，返回归一化输出及 RMS 倒数。
 
 ## 参数与返回值
 
@@ -40,12 +40,11 @@ def gemma_rmsnorm(input, weight, eps=1e-06, *, impl="auto"): ...
 ## torch_npu 后端
 
 - ARCH22 直接调用 torch_npu.npu_gemma_rms_norm；ARCH35 先在 weight dtype 中计算 1+weight，再调用 torch_npu.npu_rms_norm。
-- 返回归一化输出和 RMS 倒数，沿用对应 torch_npu 接口的执行与类型要求。
 
 ## torch_native 后端
 
 - 使用 FP32 平方均值和 rsqrt 计算 RMS 倒数，再乘以输入及 Gemma 缩放，输出转换回 input dtype。
-- ARCH22 在 FP32 中计算 1+weight；ARCH35 保留 weight dtype 加1的舍入。RMS 倒数保留 FP32，不调用融合 RMSNorm 接口。
+- ARCH22 在 FP32 中计算 `1 + weight`，ARCH35 先用 weight dtype 相加，再转成 FP32。
 
 ## 示例
 

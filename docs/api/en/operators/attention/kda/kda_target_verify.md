@@ -46,12 +46,12 @@ All tensors must be on the same NPU device.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `A_log` | Tensor | `Required` | Floating [heads] (or equivalent singleton-expanded shape) decay weights. |
-| `dt_bias` | Tensor | `Required` | GDN: [heads]; KDA: [Hk,K] gate bias. |
-| `q` | Tensor | `Required` | KDA: [1,tokens,Hq,K]; FIA: FP16/BF16 [tokens,QH,D]. |
+| `dt_bias` | Tensor | `Required` | Floating-point gate bias of shape [Hk,K] for raw gates. |
+| `q` | Tensor | `Required` | Floating-point queries of shape [1,tokens,Hq,K]. |
 | `k` | Tensor | `Required` | Floating [1,tokens,Hk,K] keys. |
 | `v` | Tensor | `Required` | Floating [1,tokens,Hv,V] values; Hv divisible by Hq and Hk. |
-| `a` | Tensor | `Required` | GDN: [tokens,heads]. KDA: [tokens,Hk,K] with optional leading singleton. |
-| `b` | Tensor | `Required` | Floating [tokens,Hv], optionally [1,tokens,Hv] for KDA. |
+| `a` | Tensor | `Required` | Floating-point gate input of shape [tokens,Hk,K], with an optional leading singleton shared with `b`. |
+| `b` | Tensor | `Required` | Floating-point gate input of shape [tokens,Hv], with an optional leading singleton shared with `a`. |
 | `initial_state_source` | Tensor | `Required` | Floating [pool,Hv,V,K] read-only initial states; strided V/K supported. |
 | `initial_state_indices` | Tensor | `Required` | INT32/INT64 [batch] source slots; negative means zero state. |
 | `intermediate_states_buffer` | Tensor | `Required` | Writable FP32/BF16 [scratch,cache_steps,Hv,V,K] snapshots, not aliasing initial state. |
@@ -68,12 +68,12 @@ All tensors must be on the same NPU device.
 ## triton backend
 
 - Fuses Q/K normalization, gate processing, and KDA recurrence, executing cache_steps per request and writing selected snapshot slots.
-- Supports raw or preactivated gates, grouped heads, and strided states. Initial states remain read-only and output uses the v dtype.
+- Reads the initial state and writes snapshots using their supplied strides.
 
 ## torch_native backend
 
 - Uses FP32 normalization, exponentials, and einsum to evaluate state decay, delta updates, and output projection per request and step.
-- Keeps recurrent intermediates in FP32 and converts outputs and snapshots to their destination dtypes when writing. Negative indices select zero initial state or skip snapshots.
+- Keeps recurrent intermediates in FP32 and casts outputs and snapshots to their destination dtypes on write.
 
 ## Example
 

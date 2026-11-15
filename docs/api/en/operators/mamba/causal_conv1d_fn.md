@@ -40,15 +40,15 @@ All tensors must be on the same NPU device.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `x` | Tensor | `Required` | Floating [B,C] or [B,C,T] for update; [C,total_tokens] or [B,C,T] for prefill. |
-| `weight` | Tensor | `Required` | Convolution: [channels,width]. Gemma: [H], same dtype as input. |
+| `x` | Tensor | `Required` | Floating-point input of shape [C,total_tokens] or [B,C,T]. |
+| `weight` | Tensor | `Required` | Convolution weights of shape [channels,width]. |
 | `bias` | Tensor or None | `None` | Optional [channels] convolution bias. |
 | `query_start_loc` | Tensor | `None` | INT32/INT64 [batch+1] cumulative packed lengths beginning at zero. |
 | `cache_indices` | Tensor | `None` | Integer [batch] cache slot for each sequence. |
 | `has_initial_state` | Tensor | `None` | Boolean [batch] indicating which requests use existing history. |
-| `conv_states` | Tensor | `None` | Prefill: [pool,channels,width-1]; rollback: [layers,pool,window,channels]. |
-| `activation` | str, bool or None | `'silu'` | None disables activation; silu/swish enables SiLU. Update also accepts bool. |
-| `pad_slot_id` | int or None | `-1` | Padding slot sentinel; update Triton path skips matching requests. |
+| `conv_states` | Tensor | `None` | Writable convolution state of shape [pool,channels,width-1]. |
+| `activation` | str or None | `'silu'` | Use `'silu'` or `'swish'` for SiLU, or `None` to disable it. |
+| `pad_slot_id` | int or None | `-1` | Reserved compatibility parameter. |
 | `impl` | str | `'auto'` | auto selects torch_native; explicit backend selection. |
 | `kwargs` | dict | `Required` | Additional compatibility arguments, currently unused. |
 
@@ -59,7 +59,7 @@ All tensors must be on the same NPU device.
 ## torch_native backend
 
 - Organizes packed variable-length sequences into batched input and applies grouped conv1d for channel-wise causal convolution, followed by optional SiLU.
-- Selects history using has_initial_state, writes each request’s final convolution window, and restores the sequence layout. This is also the auto implementation.
+- Selects history using `has_initial_state`, writes each request’s final convolution window, and restores the sequence layout.
 
 ## Example
 

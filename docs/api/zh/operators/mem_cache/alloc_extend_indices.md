@@ -54,12 +54,10 @@ def alloc_extend_indices(
 ## triton 后端
 
 - 每个请求启动一个 program，依次填充已有页的剩余位置、新的完整页及末尾部分页。
-- wrapper 根据批大小设置 grid 和 bs_upper；按传入整数 dtype 写入 out_indices，返回 None。
 
 ## torch_native 后端
 
 - 逐请求计算已有页剩余容量及新增页需求，用 PyTorch arange 和页表索引生成 token 位置。
-- 直接写入调用方提供的 out_indices，不生成额外的页数输出，也不修改页表和长度输入。
 
 ## 示例
 
