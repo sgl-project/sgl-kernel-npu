@@ -88,6 +88,12 @@ SPECULATIVE_TESTS=(
     test_verify_tree.py
     test_apply_token_bitmask.py
     test_argmax_softmax_prob.py
+    test_tree_reference.py
+    test_tree_compressor_tree_project.py
+    test_tree_compressor_tree.py
+    test_tree_quant_lightning_indexer_tree.py
+    test_tree_sparse_attn_sharedkv_tree.py
+    test_tree_integration.py
 )
 
 MAMBA_TESTS=(
