@@ -187,3 +187,7 @@
 | [zero_experts_compute_identity](operators/moe/zero_experts_compute_identity.md) | `triton`, `torch_native` |
 | [flash_prefill_bnsd_blockq_sparse_fia](operators/attention/flash_prefill_bnsd_blockq_sparse_fia.md) | `triton`, `torch_native` |
 | [gemma_rmsnorm](operators/norm/gemma_rmsnorm.md) | `torch_npu`, `torch_native` |
+| [lp_prep](operators/moe/lp_prep.md) | `triton`, `torch_native` |
+| [lp_post](operators/moe/lp_post.md) | `triton`, `torch_native` |
+| [solve_ipm](operators/moe/solve_ipm.md) | `triton`, `torch_native` |
+| [dispatch_probability](operators/moe/dispatch_probability.md) | `triton`, `torch_native` |
