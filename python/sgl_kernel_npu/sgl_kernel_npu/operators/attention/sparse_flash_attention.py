@@ -30,7 +30,7 @@ def _ascendc_impl(
     attention_mode=2,
     return_softmax_lse=False,
 ):
-    return torch.ops.npu.sparse_flash_attention(
+    return torch.ops.npu.sgl_sparse_flash_attention(
         query,
         key,
         value,

@@ -1,32 +1,29 @@
-"""Public mixed_quant_sparse_flash_mla operator backed by CANNBot-DSL on arch35."""
-
-from __future__ import annotations
-
-from importlib import import_module
+"""Public mixed_quant_sparse_flash_mla operator with registered implementations."""
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-
-_torch_native_fn = None
-_cannbot_dsl_fn = None
+from .attention_utils import cann_9_1_dspark_kv_indices_to_physical_slots
 
 
-@register_impl(
-    "attention.mixed_quant_sparse_flash_mla",
-    "torch_native",
-    supported_generations={Generation.ARCH35},
-)
-def _torch_native_impl(*args, **kwargs):
-    global _torch_native_fn
-    if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.mixed_quant_sparse_flash_mla import (
-            mixed_quant_sparse_flash_mla,
-        )
+def _packed_kv_width(scale_itemsize, row_alignment):
+    # DeepSeek-V4's 512-dimensional KV has 448 FP8 NoPE values, 64 BF16
+    # RoPE values, and one scale for each group of 64 NoPE values (7 scales).
+    # CANN 9.2 BF16 scales: 448 + 64*2 + 7*2 = 590 bytes;
+    # align the row to 32 bytes -> 608 bytes.
+    # CANN 9.1 E8M0 scales: 448 + 64*2 + 7*1 = 583 bytes;
+    # align the row to 128 bytes -> 640 bytes.
+    # Scale dtype and row alignment are part of each reader/writer's KV ABI.
+    nope_dim, rope_dim, group_size = 448, 64, 64
+    scale_count = (nope_dim + group_size - 1) // group_size
+    size = nope_dim + 2 * rope_dim + scale_count * scale_itemsize
+    return (size + row_alignment - 1) // row_alignment * row_alignment
 
-        _torch_native_fn = mixed_quant_sparse_flash_mla
-    return _torch_native_fn(*args, **kwargs)
+
+_CANN_920_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=2, row_alignment=32)
+_CANN_910_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=1, row_alignment=128)
 
 
 @register_impl(
@@ -34,98 +31,210 @@ def _torch_native_impl(*args, **kwargs):
     "auto",
     supported_generations={Generation.ARCH35},
 )
+def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
+        backend = (
+            "ascendc"
+            if _uses_native_sparse_inputs(kwargs)
+            else "ops_transformers_cann910"
+        )
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformers_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
+    return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", backend)(
+        q, **kwargs
+    )
+
+
 @register_impl(
     "attention.mixed_quant_sparse_flash_mla",
-    "cannbot_dsl",
+    "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH35},
 )
-def _cannbot_dsl_impl(q, *args, **kwargs):
-    global _cannbot_dsl_fn
-    with torch.npu.device(q.device):
-        if _cannbot_dsl_fn is None:
-            _cannbot_dsl_fn = import_module(
-                "sgl_kernel_npu.implementation.cannbot-dsl.attention.mixed_quant_sparse_flash_mla"
-            ).mixed_quant_sparse_flash_mla
-        return _cannbot_dsl_fn(q, *args, **kwargs)
+def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+
+    if kwargs.get("quant_mode", 1) != 1:
+        raise RuntimeError(
+            "The migrated paired KV reader/writer contract supports quant_mode=1"
+        )
+    width = _CANN_920_KV_ROW_BYTES
+    for name in ("ori_kv", "cmp_kv"):
+        cache = kwargs.get(name)
+        if cache is not None and cache.shape[-1] != width:
+            raise ValueError(f"{name} must use the selected {width}B KV encoding")
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
+    if args.get("ori_mask_mode", 4) == 0:
+        args.update(ori_win_left=-1, ori_win_right=-1)
+    out, lse = ops.mixed_quant_sparse_flash_mla(q, **args)
+    if not kwargs.get("return_softmax_lse", False):
+        lse = torch.empty(0, dtype=torch.float32, device=q.device)
+    return out, lse
+
+
+def _uses_native_sparse_inputs(kwargs):
+    return kwargs.get("ori_sparse_indices") is not None
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "ops_transformers_cann910",
+    supported_generations={Generation.ARCH35},
+)
+def _ops_transformers_cann910(q, **kwargs):
+    if _uses_native_sparse_inputs(kwargs):
+        raise RuntimeError("Explicit sparse inputs require impl='ascendc' on CANN 9.1")
+    return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "ascendc",
+    supported_generations={Generation.ARCH35},
+)
+def _ascendc(q, **kwargs):
+    if not _uses_native_sparse_inputs(kwargs):
+        raise RuntimeError(
+            "Window-only inputs require impl='ops_transformers_cann910' on CANN 9.1"
+        )
+    return _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs)
+
+
+def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
+    indices = kwargs.get("ori_sparse_indices")
+    namespace, binding = (
+        ("npu", "kv_quant_sparse_attn_sharedkv")
+        if indices is not None
+        else ("custom", "npu_kv_quant_sparse_attn_sharedkv")
+    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    if namespace == "custom":
+        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+        namespace = "sgl_cann_recipes_infer"
+    op = getattr(getattr(torch.ops, namespace), binding, None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
+    if kwargs.get("quant_mode", 1) != 1:
+        raise RuntimeError(
+            "The migrated paired KV reader/writer contract supports quant_mode=1"
+        )
+    width = _CANN_910_KV_ROW_BYTES
+    for name in ("ori_kv", "cmp_kv"):
+        cache = kwargs.get(name)
+        if cache is not None and cache.shape[-1] != width:
+            raise ValueError(f"{name} must use the selected {width}B KV encoding")
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
+    args.pop("seqused_cmp_kv", None)
+    args.pop("cmp_residual_kv", None)
+    args["seqused_kv"] = args.pop("seqused_ori_kv", None)
+    layout = args.get("layout_kv", "BSND")
+    if layout == "PA_BBND":
+        args["layout_kv"] = "PA_ND"
+    elif layout not in ("BSND", "TND"):
+        raise ValueError(f"Unsupported shared-KV layout: {layout}")
+    if args.pop("topk_value_mode", 1) != 1:
+        raise RuntimeError(
+            "cann_9_1 attention only supports logical compressed top-k indices"
+        )
+    if args.pop("cmp_topk_length", None) is not None:
+        raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
+    args.pop("ori_topk_length", None)
+    args.pop("ori_topk", None)
+    if args.get("ori_mask_mode", 4) == 0:
+        # Native DSpark selects explicit indices by tensor presence, with the
+        # cann_9_1 SWA/window metadata ABI.
+        args["ori_mask_mode"] = 4
+    if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
+        args["cmp_mask_mode"] = 3
+    if args.pop("quant_mode", 1) != 1:
+        raise RuntimeError("cann_9_1 packed KV supports quant_mode=1 only")
+    args.update(kv_quant_mode=1, tile_size=64)
+    if args.get("rope_head_dim", 64) != 64:
+        raise RuntimeError("cann_9_1 packed KV requires rope_head_dim=64")
+    if kwargs.get("ori_mask_mode", 4) == 0 and indices is None:
+        raise ValueError(
+            "cann_9_1 explicit sparse attention requires ori_sparse_indices"
+        )
+    if indices is not None:
+        if kwargs.get("cmp_kv") is not None:
+            raise RuntimeError(
+                "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
+            )
+        args["ori_sparse_indices"] = cann_9_1_dspark_kv_indices_to_physical_slots(
+            indices,
+            kwargs.get("ori_topk_length"),
+            q,
+            kwargs.get("ori_block_table"),
+            kwargs["ori_kv"],
+            kwargs.get("cu_seqlens_q"),
+            kwargs.get("layout_q", "BSND"),
+        )
+    args.pop("has_ori_kv", None)
+    args.pop("has_cmp_kv", None)
+    out, lse = op(q, **args)
+    if not kwargs.get("return_softmax_lse", False):
+        lse = torch.empty(0, dtype=torch.float32, device=q.device)
+    return out, lse
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "torch_native",
+    supported_generations={Generation.ARCH35},
+)
+def _torch_mixed_quant_sparse_flash_mla(q, **kwargs):
+    from ...implementation.torch_native.attention.attention import (
+        mixed_quant_sparse_flash_mla,
+    )
+
+    return mixed_quant_sparse_flash_mla(q, **kwargs)
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla")
 def mixed_quant_sparse_flash_mla(
     q,
     *,
-    ori_kv=None,
-    cmp_kv=None,
-    ori_sparse_indices=None,
-    cmp_sparse_indices=None,
-    ori_block_table=None,
-    cmp_block_table=None,
-    cu_seqlens_q=None,
-    seqused_q=None,
-    seqused_ori_kv=None,
-    seqused_cmp_kv=None,
-    ori_topk_length=None,
-    cmp_topk_length=None,
-    sinks=None,
-    metadata=None,
-    quant_mode,
-    softmax_scale=None,
-    layout_q="TND",
-    layout_kv="PA_BBND",
-    return_softmax_lse=False,
-    out,
-    lse,
+    quant_mode=1,
+    rope_head_dim=64,
+    cmp_ratio=1,
+    softmax_scale=1.0,
     impl="auto",
+    **kwargs,
 ):
-    """Compute sparse attention with caller-owned ``out`` and ``lse`` buffers.
+    """Compute A5 mixed-quant sparse attention; return output and LSE.
 
-    ``auto`` selects the lazy A5 CANNBot-DSL backend.
-
-    Args:
-        q: BF16 [T,64,512], attention queries.
-        ori_kv: UINT8 [P,S,1,544], FP8 KV bytes plus BF16 scales; required by cannbot_dsl.
-        cmp_kv: Optional UINT8 [P,S,1,320], packed FP4 KV bytes plus BF16 group scales.
-        ori_sparse_indices: INT32 [T,1,Kori], required original logical token IDs; -1 is padding.
-        cmp_sparse_indices: Optional INT32 [T,1,Kcmp], compressed logical token IDs; -1 is padding.
-        ori_block_table: Required INT32 [B,max_ori_blocks], original KV page map.
-        cmp_block_table: Optional INT32 [B,max_cmp_blocks], compressed KV page map.
-        cu_seqlens_q: INT32 [B+1], required by cannbot_dsl; cumulative boundaries ending at T.
-        seqused_q: Optional INT32 [B]; when supplied, must equal cu_seqlens_q spans (no padded rows).
-        seqused_ori_kv: Optional INT32 [B], original KV lengths; retained for API compatibility.
-        seqused_cmp_kv: Optional INT32 [B], compressed KV lengths; retained for API compatibility.
-        ori_topk_length: Optional INT32 [T,1], valid sparse prefix; None uses all original index columns.
-        cmp_topk_length: Optional INT32 [T,1], valid sparse prefix; None uses all compressed index columns. Omit when cmp_kv is absent.
-        sinks: FP32 [64], attention-sink logits (zero value contribution).
-        metadata: INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it.
-        quant_mode: int, use 1 for the supported quantized profile.
-        softmax_scale: Optional float, defaults to 1/sqrt(512).
-        layout_q: str, use TND (flattened query tokens).
-        layout_kv: str, use PA_BBND packed paged KV.
-        return_softmax_lse: bool, write lse when True.
-        out: Writable BF16 [T,64,512] output tensor.
-        lse: Writable FP32 [1,T,64] when return_softmax_lse=True; otherwise pass an empty FP32 [0] tensor.
-        impl: str, auto selects cannbot_dsl; torch_native is an independent compute reference.
+    impl: auto (SDK-selected), ops_transformers_cann910, ascendc, cann_ops_transformers_cann920, or torch_native.
+    torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(
         q,
-        ori_kv=ori_kv,
-        cmp_kv=cmp_kv,
-        ori_sparse_indices=ori_sparse_indices,
-        cmp_sparse_indices=cmp_sparse_indices,
-        ori_block_table=ori_block_table,
-        cmp_block_table=cmp_block_table,
-        cu_seqlens_q=cu_seqlens_q,
-        seqused_q=seqused_q,
-        seqused_ori_kv=seqused_ori_kv,
-        seqused_cmp_kv=seqused_cmp_kv,
-        ori_topk_length=ori_topk_length,
-        cmp_topk_length=cmp_topk_length,
-        sinks=sinks,
-        metadata=metadata,
         quant_mode=quant_mode,
+        rope_head_dim=rope_head_dim,
+        cmp_ratio=cmp_ratio,
         softmax_scale=softmax_scale,
-        layout_q=layout_q,
-        layout_kv=layout_kv,
-        return_softmax_lse=return_softmax_lse,
-        out=out,
-        lse=lse,
+        **kwargs,
     )

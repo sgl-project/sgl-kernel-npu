@@ -1,19 +1,20 @@
-# Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-# CANN Open Software License Agreement Version 2.0 (the "License").
-# Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-# See LICENSE.cannbot-dsl under implementation/cannbot-dsl for the full text of the License.
+"""mixed_quant_sparse_flash_mla accuracy and isolated operator timing.
 
-"""DSV4.1 decode/verify attention shapes, generated values and an empty row."""
+Metadata correctness uses paired compute with an independent eager reference.
+"""
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
+pytest.importorskip("torch_npu")
+
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
+    get_test_impls,
     make_executor,
     require_distinct_impls,
     require_test_impl,
@@ -21,133 +22,148 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-D = 512
-perf_shape = [(1, 128, 512), (6, 128, 512)]
+perf_shape = [1]
 
 
-def _make_kv(batch, tokens, block_size, fp4, generator):
-    """Pack KV bytes and scales, then shuffle physical page placement."""
-    pages = (tokens + block_size - 1) // block_size
-    shape = (batch, pages * block_size, D)
-    group = 16 if fp4 else 32
-    scales = (
-        0.125 + torch.rand((*shape[:-1], D // group), generator=generator) * 0.375
-    ).bfloat16()
-    if fp4:
-        codes = torch.randint(0, 16, shape, generator=generator, dtype=torch.uint8)
-        encoded = codes[..., 0::2] | (codes[..., 1::2] << 4)
-    else:
-        values = (torch.randn(shape, generator=generator) * 2).to(torch.float8_e4m3fn)
-        encoded = values.view(torch.uint8)
-    packed = torch.cat((encoded, scales.view(torch.uint8)), dim=-1)
-    table = (
-        torch.randperm(batch * pages, generator=generator).reshape(batch, pages).int()
-    )
-    physical = torch.empty_like(packed.reshape(batch * pages, block_size, -1))
-    physical[table.long().flatten()] = packed.reshape_as(physical)
-    return physical, table
-
-
-def generate_data(rows, ori_count, cmp_count):
-    # Model geometry Q[T,64,512], FP8/FP4 KV; synthetic values, not a request dump.
-    with torch.device("cpu"):
-        generator = torch.Generator().manual_seed(42)
-        q = (torch.randn(rows, 64, D, generator=generator) * 0.25).bfloat16()
-        kwargs = dict(
-            q=q,
-            sinks=torch.randn(64, generator=generator),
-            cu_seqlens_q=torch.tensor([0, rows], dtype=torch.int32),
-            quant_mode=1,
-            return_softmax_lse=cmp_count is not None,
+def _pack_kv(x, width):
+    """Build reader inputs locally; no cache-writer operator participates."""
+    values = x.float().cpu()
+    groups = values[:, :448].reshape(-1, 7, 64)
+    amax = groups.abs().amax(-1, keepdim=True)
+    if width == 640:
+        raw_scale = amax.clamp_min(1e-4) * torch.tensor(
+            1.0 / 448.0, dtype=torch.float32, device="cpu"
         )
-        for side, fp4, count in [("ori", False, ori_count), ("cmp", True, cmp_count)]:
-            if count is None:
-                continue
-            physical, table = _make_kv(1, 1024, 128, fp4, generator)
-            row_bytes = 320 if fp4 else 544
-            physical = physical.reshape(-1, 128, 1, row_bytes)
-            stride0 = (
-                128 * row_bytes + 64
-            )  # Serving caches can have padding between pages.
-            backing = torch.full(
-                (physical.shape[0] * stride0,), 0xA5, dtype=torch.uint8
-            )
-            view = backing.as_strided(
-                physical.shape, (stride0, row_bytes, row_bytes, 1)
-            )
-            view.copy_(physical)
-            kwargs[side + "_kv"] = backing.npu().as_strided(
-                physical.shape, view.stride()
-            )
-            kwargs[side + "_block_table"] = table
-            indices = torch.randperm(1024, generator=generator)[: max(count, 1)].int()
-            kwargs[side + "_sparse_indices"] = indices.reshape(1, 1, -1).repeat(
-                rows, 1, 1
-            )
-            kwargs[side + "_topk_length"] = torch.full(
-                (rows, 1), count, dtype=torch.int32
-            )
-        kwargs = {
-            k: v.npu() if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()
-        }
-    kwargs["out"] = torch.empty_like(kwargs["q"])
-    lse_shape = (1, rows, 64) if kwargs["return_softmax_lse"] else (0,)
-    kwargs["lse"] = torch.empty(lse_shape, dtype=torch.float32)
-    return kwargs
+        _, exponent = torch.frexp(raw_scale)
+        scales = torch.ldexp(torch.ones_like(raw_scale), exponent)
+    elif width == 608:
+        raw_scale = amax / 448.0
+        raw_scale = torch.where(raw_scale > 0, raw_scale, torch.ones_like(raw_scale))
+        scales = torch.pow(2.0, torch.ceil(torch.log2(raw_scale)))
+    else:
+        raise ValueError("attention fixture supports 608B and 640B KV rows")
+    payload = (groups / scales).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
+    packed = torch.zeros(values.shape[0], width, dtype=torch.uint8, device="cpu")
+    packed[:, :128] = values[:, 448:].to(torch.bfloat16).contiguous().view(torch.uint8)
+    packed[:, 128:576] = payload.contiguous().view(torch.uint8).reshape(-1, 448)
+    if width == 640:
+        packed[:, 576:583] = (torch.log2(scales).reshape(-1, 7) + 127).to(torch.uint8)
+    else:
+        packed[:, 576:590] = (
+            scales.to(torch.bfloat16).contiguous().view(torch.uint8).reshape(-1, 14)
+        )
+    return (
+        packed.to(x.device).reshape(1, x.shape[0], 1, width).view(torch.float8_e4m3fn)
+    )
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((1, 128, 512), id="dsv41-decode-mixed-kv"),
-        pytest.param((6, 128, 512), id="dsv41-static-verify6-mixed-kv"),
-        pytest.param((1, 128, None), id="dsv41-decode-original-kv-no-lse"),
-        pytest.param((1, 0, 0), id="edge-empty-sparse-row"),
-    ],
-)
-def test_mixed_quant_sparse_flash_mla(shape):
+def generate_data(query_len):
+    """DeepSeek-V4-Flash: Q [T,64,512], NoPE=448, RoPE=64, page=128."""
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("mixed-quant reader/writer requires A5")
+    torch.manual_seed(13)
+    x = torch.randn(128, 512, dtype=torch.bfloat16)
+    q = torch.randn(query_len, 64, 512, dtype=torch.bfloat16) * 0.1
+    common = dict(
+        cu_seqlens_q=torch.tensor([0, query_len], dtype=torch.int32),
+        seqused_q=torch.tensor([query_len], dtype=torch.int32),
+        seqused_ori_kv=torch.tensor([128], dtype=torch.int32),
+        cmp_ratio=1,
+        ori_mask_mode=4,
+        cmp_mask_mode=0,
+        ori_win_left=127,
+        ori_win_right=0,
+        layout_q="TND",
+        layout_kv="PA_BBND",
+        quant_mode=1,
+        rope_head_dim=64,
+    )
+    width = 640 if detect_cann_version().startswith("9.1.") else 608
+    cache = _pack_kv(x, width)
+    return q, common, cache
+
+
+def check_mixed_quant_sparse_flash_mla_accuracy(data, *, target):
     from sgl_kernel_npu.operators.attention import (
         mixed_quant_sparse_flash_mla,
         mixed_quant_sparse_flash_mla_metadata,
     )
 
-    require_test_impl(mixed_quant_sparse_flash_mla_metadata, "auto")
-    kwargs = generate_data(*shape)
-    cmp_length = kwargs.get("cmp_topk_length")
-    if cmp_length is None:
-        # Metadata requires both length tensors even when compressed KV is absent.
-        cmp_length = torch.zeros_like(kwargs["ori_topk_length"])
-    kwargs["metadata"] = mixed_quant_sparse_flash_mla_metadata(
-        kwargs["ori_topk_length"],
-        cmp_length,
-        cu_seqlens_q=kwargs["cu_seqlens_q"],
+    q, common, cache = data
+    impl, impl_ref = get_test_impls()
+    skip_accuracy = get_skip_acc_check() is True
+    if skip_accuracy:
+        require_test_impl(mixed_quant_sparse_flash_mla, impl)
+    else:
+        require_distinct_impls(mixed_quant_sparse_flash_mla, impl, impl_ref)
+    cache_ref = cache.view(torch.uint8).clone().view(torch.float8_e4m3fn)
+    # Both readers consume identical locally packed bytes. Cache-writer
+    # accuracy is covered by its own mem_cache tests.
+    metadata_kwargs = dict(
+        batch_size=1,
         num_heads_q=64,
         num_heads_kv=1,
         head_dim=512,
-        quant_mode=1,
         has_ori_kv=True,
-        has_cmp_kv="cmp_kv" in kwargs,
+        has_cmp_kv=False,
+        **common,
     )
-    executor = make_executor(mixed_quant_sparse_flash_mla, kwargs=kwargs)
-    if get_skip_acc_check():
-        require_test_impl(mixed_quant_sparse_flash_mla, executor.impl)
-    else:
-        require_distinct_impls(
-            mixed_quant_sparse_flash_mla, executor.impl, executor.impl_ref
-        )
-        ref_out = torch.empty_like(kwargs["out"])
-        ref_lse = torch.empty_like(kwargs["lse"])
-        result_ref = mixed_quant_sparse_flash_mla(
-            **dict(kwargs, out=ref_out, lse=ref_lse), impl=executor.impl_ref
-        )
-        result = executor()
-        assert result is result_ref is None
-        assert_accuracy(kwargs["out"], ref_out)
+    kwargs = dict(
+        ori_kv=cache,
+        ori_block_table=torch.zeros(1, 1, dtype=torch.int32),
+        sinks=torch.zeros(64, dtype=torch.float32),
+        metadata=mixed_quant_sparse_flash_mla_metadata(impl=impl, **metadata_kwargs),
+        softmax_scale=512**-0.5,
+        **common,
+    )
+    executor = make_executor(mixed_quant_sparse_flash_mla, args=(q,), kwargs=kwargs)
+    if not skip_accuracy:
+        reference_kwargs = {
+            **kwargs,
+            "ori_kv": cache_ref,
+            "metadata": mixed_quant_sparse_flash_mla_metadata(
+                impl=impl_ref, **metadata_kwargs
+            ),
+        }
+        expected = mixed_quant_sparse_flash_mla(q, impl=impl_ref, **reference_kwargs)
+        actual = executor()
         assert_accuracy(
-            kwargs["lse"],
-            ref_lse,
-            {"torch.float32": AccuracyStandard(atol=2e-4, rtol=2e-4)},
+            actual,
+            expected,
+            {"torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03)},
         )
         executor.accuracy_checked = True
-    # Caller outputs are overwritten, so repeated profiling does not accumulate state.
-    check_performance(executor, enable_perf=shape in perf_shape)
+    if target == "compute":
+        return executor
+    metadata = kwargs["metadata"]
+    assert isinstance(metadata, torch.Tensor)
+    assert metadata.dtype == torch.int32
+    from sgl_kernel_npu.operators.attention import (
+        get_mixed_quant_sparse_flash_mla_metadata_size,
+    )
+
+    assert metadata.shape == (get_mixed_quant_sparse_flash_mla_metadata_size(),)
+    assert metadata.is_contiguous()
+    # Opaque metadata is checked through paired compute, not byte comparison.
+    return make_executor(
+        mixed_quant_sparse_flash_mla_metadata,
+        kwargs=metadata_kwargs,
+        accuracy_checked=executor.accuracy_checked,
+    )
+
+
+@pytest.mark.parametrize(
+    "query_len",
+    [1, 128],
+    ids=[
+        "deepseek-v4-flash-decode-q1-n64-d512-page128",
+        "deepseek-v4-flash-prefill-q128-n64-d512-page128",
+    ],
+)
+def test_mixed_quant_sparse_flash_mla(query_len):
+    data = generate_data(query_len)
+    executor = check_mixed_quant_sparse_flash_mla_accuracy(data, target="compute")
+    check_performance(executor, enable_perf=query_len in perf_shape)

@@ -1,5 +1,6 @@
 from .add_rmsnorm_bias import add_rmsnorm_bias
 from .fused_split_qk_norm import fused_split_qk_norm
+from .grouped_gemma_rmsnorm import grouped_gemma_rmsnorm
 from .l1_norm import l1_norm
 from .l2norm_fwd import l2norm_fwd
 from .layer_norm_fwd import layer_norm_fwd
@@ -29,4 +30,5 @@ __all__ = [
     "split_qkv_rmsnorm_rope_pos_cache_half_npu",
     "split_qkv_tp_rmsnorm_rope",
     "split_qkvgate_gemma_rmsnorm_rope",
+    "grouped_gemma_rmsnorm",
 ]

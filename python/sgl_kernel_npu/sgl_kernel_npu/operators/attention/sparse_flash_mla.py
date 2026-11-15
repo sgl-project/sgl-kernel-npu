@@ -1,45 +1,32 @@
-"""Sparse Flash MLA operators backed by the CANN ops-transformer repository."""
+"""Public sparse_flash_mla operator with registered implementations."""
+
+import torch
 
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-
-_CANN_FNS = None
-_NATIVE_FN = None
-
-
-def _load_cann_fns():
-    """Import the wheel-bundled ops-transformer bindings once."""
-    global _CANN_FNS
-    if _CANN_FNS is None:
-        try:
-            from ..._third_party.sgl_ops_transformer.ops import sparse_flash_mla as op
-            from ..._third_party.sgl_ops_transformer.ops import (
-                sparse_flash_mla_metadata as metadata_op,
-            )
-        except ModuleNotFoundError as error:
-            raise RuntimeError(
-                "sparse_flash_mla requires the sgl_ops_transformer dependency "
-                "bundled in the wheel; build it with the third-party profile"
-            ) from error
-        _CANN_FNS = (op, metadata_op)
-    return _CANN_FNS
+from .attention_utils import cann_9_1_dspark_kv_indices_to_physical_slots
+from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
 
 
 @register_impl(
     "attention.sparse_flash_mla", "auto", supported_generations={Generation.ARCH22}
 )
-def _auto_impl(*args, **kwargs):
-    version = detect_cann_version()
-    if version != "9.2.0":
-        raise RuntimeError(
-            "sparse_flash_mla auto supports CANN 9.2.0 only; detected CANN {}".format(
-                version
-            )
+def _auto_sparse_flash_mla(q, **kwargs):
+    cann_version = detect_cann_version()
+    if cann_version.startswith("9.1."):
+        backend = (
+            "ascendc"
+            if _uses_native_sparse_inputs(kwargs)
+            else "ops_transformers_cann910"
         )
-    return get_impl_by_name(
-        "attention.sparse_flash_mla", "cann_ops_transformers_cann920"
-    )(*args, **kwargs)
+    elif cann_version.startswith("9.2."):
+        backend = "cann_ops_transformers_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {cann_version}; expected CANN 9.1.x or 9.2.x"
+        )
+    return get_impl_by_name("attention.sparse_flash_mla", backend)(q, **kwargs)
 
 
 @register_impl(
@@ -47,224 +34,154 @@ def _auto_impl(*args, **kwargs):
     "cann_ops_transformers_cann920",
     supported_generations={Generation.ARCH22},
 )
-def _cann_impl(*args, **kwargs):
-    return _load_cann_fns()[0](*args, **kwargs)
+def _cann_sparse_flash_mla(q, **kwargs):
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party.sgl_ops_transformer import ops
+
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
+    out, lse = ops.sparse_flash_mla(q, **args)
+    if not kwargs.get("return_softmax_lse", False):
+        lse = torch.empty(0, dtype=torch.float32, device=q.device)
+    return out, lse
+
+
+def _uses_native_sparse_inputs(kwargs):
+    return kwargs.get("ori_sparse_indices") is not None
+
+
+@register_impl("attention.sparse_flash_mla", "ops_transformers_cann910")
+def _ops_transformers_cann910(q, **kwargs):
+    if _uses_native_sparse_inputs(kwargs):
+        raise RuntimeError("Explicit sparse inputs require impl='ascendc' on CANN 9.1")
+    return _cann_9_1_sparse_flash_mla(q, **kwargs)
+
+
+@register_impl("attention.sparse_flash_mla", "ascendc")
+def _ascendc(q, **kwargs):
+    if not _uses_native_sparse_inputs(kwargs):
+        raise RuntimeError(
+            "Window-only inputs require impl='ops_transformers_cann910' on CANN 9.1"
+        )
+    return _cann_9_1_sparse_flash_mla(q, **kwargs)
+
+
+def _cann_9_1_sparse_flash_mla(q, **kwargs):
+    indices = kwargs.get("ori_sparse_indices")
+    namespace, binding = (
+        ("npu", "sparse_attn_sharedkv")
+        if indices is not None
+        else ("custom", "npu_sparse_attn_sharedkv")
+    )
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.1."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.1.x, got {cann_version}"
+        )
+    if namespace == "custom":
+        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+        namespace = "sgl_cann_recipes_infer"
+    op = getattr(getattr(torch.ops, namespace), binding, None)
+    if op is None:
+        raise RuntimeError(
+            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+        )
+    args = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+    }
+    if args.get("layout_q", "BSND") == "TND":
+        # cann_9_1 TND uses cu_seqlens_q and rejects a non-null seqused_q.
+        # Its tiling diagnostic misleadingly reports that seqused_q is null.
+        args.pop("seqused_q", None)
+    args.pop("seqused_cmp_kv", None)
+    args.pop("cmp_residual_kv", None)
+    args["seqused_kv"] = args.pop("seqused_ori_kv", None)
+    layout = args.get("layout_kv", "BSND")
+    if layout == "PA_BBND":
+        args["layout_kv"] = "PA_ND"
+    elif layout not in ("BSND", "TND"):
+        raise ValueError(f"Unsupported shared-KV layout: {layout}")
+    if args.pop("topk_value_mode", 1) != 1:
+        raise RuntimeError(
+            "cann_9_1 attention only supports logical compressed top-k indices"
+        )
+    if args.pop("cmp_topk_length", None) is not None:
+        raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
+    args.pop("ori_topk_length", None)
+    args.pop("ori_topk", None)
+    if args.get("ori_mask_mode", 4) == 0:
+        # Native DSpark selects explicit indices by tensor presence, with the
+        # cann_9_1 SWA/window metadata ABI.
+        args["ori_mask_mode"] = 4
+    if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
+        args["cmp_mask_mode"] = 3
+    if kwargs.get("ori_mask_mode", 4) == 0 and indices is None:
+        raise ValueError(
+            "cann_9_1 explicit sparse attention requires ori_sparse_indices"
+        )
+    if indices is not None:
+        if kwargs.get("cmp_kv") is not None:
+            raise RuntimeError(
+                "cann_9_1 DSpark explicit original KV cannot be combined with compressed KV"
+            )
+        args["ori_sparse_indices"] = cann_9_1_dspark_kv_indices_to_physical_slots(
+            indices,
+            kwargs.get("ori_topk_length"),
+            q,
+            kwargs.get("ori_block_table"),
+            kwargs["ori_kv"],
+            kwargs.get("cu_seqlens_q"),
+            kwargs.get("layout_q", "BSND"),
+        )
+    args.pop("has_ori_kv", None)
+    args.pop("has_cmp_kv", None)
+    out, lse = op(q, **args)
+    if not kwargs.get("return_softmax_lse", False):
+        lse = torch.empty(0, dtype=torch.float32, device=q.device)
+    return out, lse
 
 
 @register_impl("attention.sparse_flash_mla", "torch_native")
-def _native_impl(*args, **kwargs):
-    global _NATIVE_FN
-    if _NATIVE_FN is None:
-        from ...implementation.torch_native.attention.sparse_flash_mla import (
-            sparse_flash_mla as reference,
-        )
+def _torch_sparse_flash_mla(q, **kwargs):
+    from ...implementation.torch_native.attention.metadata import ReferenceMetadata
 
-        _NATIVE_FN = reference
-    return _NATIVE_FN(*args, **kwargs)
+    # DSpark and migrated tests carry independently built reference descriptors.
+    # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
+    # opaque production metadata and the CANN 9.2 LSE layout.
+    if (
+        isinstance(kwargs.get("metadata"), ReferenceMetadata)
+        or kwargs.get("ori_sparse_indices") is not None
+    ):
+        from ...implementation.torch_native.attention.attention import sparse_flash_mla
+    else:
+        from ...implementation.torch_native.attention.sparse_flash_mla import (
+            sparse_flash_mla,
+        )
+    return sparse_flash_mla(
+        q,
+        **{
+            key: value
+            for key, value in kwargs.items()
+            if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
+        },
+    )
 
 
 @register_operator("attention.sparse_flash_mla")
-def sparse_flash_mla(
-    q,
-    *,
-    ori_kv=None,
-    cmp_kv=None,
-    ori_sparse_indices=None,
-    cmp_sparse_indices=None,
-    ori_block_table=None,
-    cmp_block_table=None,
-    cu_seqlens_q=None,
-    cu_seqlens_ori_kv=None,
-    cu_seqlens_cmp_kv=None,
-    seqused_q=None,
-    seqused_ori_kv=None,
-    seqused_cmp_kv=None,
-    cmp_residual_kv=None,
-    ori_topk_length=None,
-    cmp_topk_length=None,
-    sinks=None,
-    metadata=None,
-    softmax_scale=1.0,
-    cmp_ratio=1,
-    ori_mask_mode=0,
-    cmp_mask_mode=0,
-    ori_win_left=-1,
-    ori_win_right=-1,
-    layout_q="BSND",
-    layout_kv="BSND",
-    topk_value_mode=1,
-    return_softmax_lse=False,
-    impl="auto",
-):
-    """Compute sparse MLA attention over shared original and compressed KV.
+def sparse_flash_mla(q, *, impl="auto", **kwargs):
+    """Compute BF16 shared-KV sparse attention; return output and LSE.
 
-    ``auto`` selects ``cann_ops_transformers_cann920`` on arch22 with
-    CANN 9.2.0. This is a non-official operator introduced in CANN 9.2.0.
-    ``auto`` raises on other CANN releases; ``torch_native`` is not
-    version-gated.
-
-    The operator serves three scenarios: SWA uses only ``ori_kv``; HCA adds a
-    contiguous ``cmp_kv`` window; CSA adds the compressed tokens picked by
-    ``cmp_sparse_indices``. ``cmp_ratio`` is 1 for SWA, 1/2/4 for CSA and 128
-    for HCA on Atlas A2/A3. ``metadata`` must come from
-    :func:`sparse_flash_mla_metadata` with identical scheduling arguments.
-
-    q (Tensor): [T, N, 512] (TND) or [B, S, N, 512] (BSND), fp16/bf16.
-    ori_kv (Tensor): uncompressed shared K/V in the ``layout_kv`` layout.
-    cmp_kv (Tensor | None): compressed shared K/V; None for SWA.
-    ori_sparse_indices (Tensor | None): unsupported on Atlas A2/A3.
-    cmp_sparse_indices (Tensor | None): int32 CSA token ids, -1 terminates.
-    ori_block_table/cmp_block_table (Tensor | None): int32 page tables.
-    cu_seqlens_q/cu_seqlens_ori_kv/cu_seqlens_cmp_kv (Tensor | None):
-        int32 [B+1] packed boundaries for the TND layout.
-    seqused_q/seqused_ori_kv/seqused_cmp_kv (Tensor | None): int32 [B] lengths.
-    cmp_residual_kv (Tensor | None): int32 [B] compression remainders;
-        required when cmp_mask_mode=3 and cmp_ratio!=1, rejected otherwise.
-    ori_topk_length/cmp_topk_length (Tensor | None): int32 valid index counts.
-    sinks (Tensor | None): float32 [N] per-head softmax sinks; the Atlas
-        A2/A3 kernel requires a nonempty tensor and rejects None.
-    metadata (Tensor): int32 [2048] scheduling data from the metadata operator.
-    softmax_scale (float): multiplier applied to QK scores.
-    cmp_ratio (int): compression ratio; 1/2/4 for CSA on Atlas A2/A3.
-    ori_mask_mode (int): 0 unmasked, 3 causal, 4 sliding window.
-    cmp_mask_mode (int): 0 unmasked, 3 causal.
-    ori_win_left/ori_win_right (int): window bounds; Atlas A3 requires 127/0.
-    layout_q/layout_kv (str): input layouts; PA_BBND needs a block table.
-    topk_value_mode (int): index convention; 1 only on Atlas A2/A3.
-    return_softmax_lse (bool): return FP32 log-sum-exp alongside the output.
-    impl (str): auto, cann_ops_transformers_cann920, or torch_native.
-
-    Returns (attention_out, softmax_lse); a disabled lse is an empty FP32
-    tensor. torch_native computes the same math in FP32, requires full prompt
-    batches, and ignores ``metadata`` as an opaque scheduling artifact.
+    impl: auto (SDK-selected), ops_transformers_cann910, ascendc, cann_ops_transformers_cann920, or torch_native.
+    torch_native is an eager correctness reference, not a graph fallback.
     """
-    return get_impl_by_name("attention.sparse_flash_mla", impl)(
-        q,
-        ori_kv=ori_kv,
-        cmp_kv=cmp_kv,
-        ori_sparse_indices=ori_sparse_indices,
-        cmp_sparse_indices=cmp_sparse_indices,
-        ori_block_table=ori_block_table,
-        cmp_block_table=cmp_block_table,
-        cu_seqlens_q=cu_seqlens_q,
-        cu_seqlens_ori_kv=cu_seqlens_ori_kv,
-        cu_seqlens_cmp_kv=cu_seqlens_cmp_kv,
-        seqused_q=seqused_q,
-        seqused_ori_kv=seqused_ori_kv,
-        seqused_cmp_kv=seqused_cmp_kv,
-        cmp_residual_kv=cmp_residual_kv,
-        ori_topk_length=ori_topk_length,
-        cmp_topk_length=cmp_topk_length,
-        sinks=sinks,
-        metadata=metadata,
-        softmax_scale=softmax_scale,
-        cmp_ratio=cmp_ratio,
-        ori_mask_mode=ori_mask_mode,
-        cmp_mask_mode=cmp_mask_mode,
-        ori_win_left=ori_win_left,
-        ori_win_right=ori_win_right,
-        layout_q=layout_q,
-        layout_kv=layout_kv,
-        topk_value_mode=topk_value_mode,
-        return_softmax_lse=return_softmax_lse,
-    )
-
-
-@register_impl(
-    "attention.sparse_flash_mla_metadata",
-    "auto",
-    supported_generations={Generation.ARCH22},
-)
-def _auto_metadata(*args, **kwargs):
-    version = detect_cann_version()
-    if version != "9.2.0":
-        raise RuntimeError(
-            "sparse_flash_mla_metadata auto supports CANN 9.2.0 only; "
-            "detected CANN {}".format(version)
-        )
-    return get_impl_by_name(
-        "attention.sparse_flash_mla_metadata", "cann_ops_transformers_cann920"
-    )(*args, **kwargs)
-
-
-@register_impl(
-    "attention.sparse_flash_mla_metadata",
-    "cann_ops_transformers_cann920",
-    supported_generations={Generation.ARCH22},
-)
-def _cann_metadata(*args, **kwargs):
-    return _load_cann_fns()[1](*args, **kwargs)
-
-
-@register_operator("attention.sparse_flash_mla_metadata")
-def sparse_flash_mla_metadata(
-    num_heads_q,
-    num_heads_kv,
-    head_dim,
-    *,
-    cu_seqlens_q=None,
-    cu_seqlens_ori_kv=None,
-    cu_seqlens_cmp_kv=None,
-    seqused_q=None,
-    seqused_ori_kv=None,
-    seqused_cmp_kv=None,
-    cmp_residual_kv=None,
-    ori_topk_length=None,
-    cmp_topk_length=None,
-    batch_size=None,
-    max_seqlen_q=None,
-    max_seqlen_ori_kv=None,
-    max_seqlen_cmp_kv=None,
-    ori_topk=None,
-    cmp_topk=None,
-    cmp_ratio=None,
-    ori_mask_mode=None,
-    cmp_mask_mode=None,
-    ori_win_left=None,
-    ori_win_right=None,
-    layout_q=None,
-    layout_kv=None,
-    has_ori_kv=None,
-    has_cmp_kv=None,
-    impl="auto",
-):
-    """Build the scheduling metadata consumed by :func:`sparse_flash_mla`.
-
-    ``auto`` selects ``cann_ops_transformers_cann920`` on arch22 with
-    CANN 9.2.0 and raises on other releases.
-
-    Every scheduling argument must match the later ``sparse_flash_mla`` call;
-    ``cmp_ratio``, ``ori_mask_mode``/``cmp_mask_mode`` and the window bounds
-    are explicit here because this operator defaults them to None.
-
-    Returns an opaque one-dimensional int32 tensor with 2048 elements.
-    """
-    return get_impl_by_name("attention.sparse_flash_mla_metadata", impl)(
-        num_heads_q,
-        num_heads_kv,
-        head_dim,
-        cu_seqlens_q=cu_seqlens_q,
-        cu_seqlens_ori_kv=cu_seqlens_ori_kv,
-        cu_seqlens_cmp_kv=cu_seqlens_cmp_kv,
-        seqused_q=seqused_q,
-        seqused_ori_kv=seqused_ori_kv,
-        seqused_cmp_kv=seqused_cmp_kv,
-        cmp_residual_kv=cmp_residual_kv,
-        ori_topk_length=ori_topk_length,
-        cmp_topk_length=cmp_topk_length,
-        batch_size=batch_size,
-        max_seqlen_q=max_seqlen_q,
-        max_seqlen_ori_kv=max_seqlen_ori_kv,
-        max_seqlen_cmp_kv=max_seqlen_cmp_kv,
-        ori_topk=ori_topk,
-        cmp_topk=cmp_topk,
-        cmp_ratio=cmp_ratio,
-        ori_mask_mode=ori_mask_mode,
-        cmp_mask_mode=cmp_mask_mode,
-        ori_win_left=ori_win_left,
-        ori_win_right=ori_win_right,
-        layout_q=layout_q,
-        layout_kv=layout_kv,
-        has_ori_kv=has_ori_kv,
-        has_cmp_kv=has_cmp_kv,
-    )
+    return get_impl_by_name("attention.sparse_flash_mla", impl)(q, **kwargs)
