@@ -7,10 +7,10 @@ separately. A3 means the Ascend910_93 series, A2 the Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `aclnn` | Supported | Supported | Not implemented |
+| `torch_npu` | Supported | Supported | Not implemented |
 | `torch_native` | Supported | Supported | Unverified |
 
-`aclnn` and `auto` are declared for arch22 only, because the grouped launch
+`torch_npu` and `auto` are declared for arch22 only, because the grouped launch
 geometry was measured there. Correctness was validated on Ascend910_9362 (A3,
 CANN 9.0) and on Ascend910B3 (A2, CANN 9.1.0, torch 2.10.0, torch_npu
 2.10.0.post4). arch35 is not implemented: `impl="auto"` raises
@@ -33,7 +33,7 @@ def lightning_indexer_prefill(
     ...
 ```
 
-`auto` selects `aclnn`; omitting impl has the same effect. There is no runtime
+`auto` selects `torch_npu`; omitting impl has the same effect. There is no runtime
 backend fallback.
 
 ## Description
@@ -70,7 +70,7 @@ request; the returned indices are local to `k`.
 | `k` | `torch.Tensor` | `[sequence_length // 4, 1, 128]` | `torch.bfloat16` | Required | Compressed keys, contiguous, on q's device. |
 | `sequence_length` | `int` | — | — | Required | Keyword-only. Request length in tokens, a host integer in `[0, 2**31)`. Must satisfy `rows <= sequence_length` and `k.shape[0] == sequence_length // 4`. No device value is read back for eligibility or phase selection. |
 | `group4` | `bool` | — | — | `True` | Keyword-only. Selects the grouped or the independent launch geometry. Both select the same keys, so this is a comparison switch rather than a tuning knob. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `aclnn`, `torch_native` |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `torch_npu`, `torch_native` |
 
 | Return value | Type | Shape | Dtype | Description |
 | --- | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ identical, including ties and padding; that is the invariant four-query
 batching has to preserve, and the test suite checks it on all-zero inputs
 where every score is tied.
 
-## aclnn backend
+## torch_npu backend
 
 Adapts the request onto `torch_npu.npu_lightning_indexer` with
 `layout_query="BSND"` and `layout_key="PA_BSND"`. Keys are padded to whole

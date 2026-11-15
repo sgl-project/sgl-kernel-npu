@@ -7,10 +7,10 @@ arch22 分列，因为该系列的两个成员是分别实测的。A3 指 Ascend
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `aclnn` | 支持 | 支持 | 未实现 |
+| `torch_npu` | 支持 | 支持 | 未实现 |
 | `torch_native` | 支持 | 支持 | 未验证 |
 
-`aclnn` 与 `auto` 仅在 arch22 上注册，因为分组下发几何只在该系列上实测过。
+`torch_npu` 与 `auto` 仅在 arch22 上注册，因为分组下发几何只在该系列上实测过。
 正确性在 Ascend910_9362（A3，CANN 9.0）与 Ascend910B3（A2，CANN 9.1.0，
 torch 2.10.0，torch_npu 2.10.0.post4）上验证。arch35 未实现：在该代上
 `impl="auto"` 抛 `UnsupportedGenerationError`，调用方保留自己的回退路径。
@@ -32,7 +32,7 @@ def lightning_indexer_prefill(
     ...
 ```
 
-`auto` 选择 `aclnn`，省略 impl 等效。无运行时后端回退。
+`auto` 选择 `torch_npu`，省略 impl 等效。无运行时后端回退。
 
 ## 功能说明
 
@@ -65,7 +65,7 @@ key 数为 `floor((sequence_length - rows + i + 1) / 4)`。超出该视野的 ke
 | `k` | `torch.Tensor` | `[sequence_length // 4, 1, 128]` | `torch.bfloat16` | 必填 | 压缩 key，连续，与 q 同设备。 |
 | `sequence_length` | `int` | — | — | 必填 | 仅关键字。请求 token 长度，取值在 `[0, 2**31)` 的宿主整数。需满足 `rows <= sequence_length` 且 `k.shape[0] == sequence_length // 4`。不回读任何设备值用于判定或相位计算。 |
 | `group4` | `bool` | — | — | `True` | 仅关键字。选择分组或独立的下发几何。两者选中相同的 key，因此这是对照开关而非调优旋钮。 |
-| `impl` | `str` | — | — | `"auto"` | 仅关键字；`auto`、`aclnn`、`torch_native` |
+| `impl` | `str` | — | — | `"auto"` | 仅关键字；`auto`、`torch_npu`、`torch_native` |
 
 | 返回值 | 类型 | 形状 | 数据类型 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -89,7 +89,7 @@ kernel 下发之前抛 `ValueError`。
 与填充 —— 这正是四 query 批处理必须保持的不变量，测试套件在全零输入（所有
 分数并列）下检查它。
 
-## aclnn 后端
+## torch_npu 后端
 
 将请求适配到 `torch_npu.npu_lightning_indexer`，`layout_query="BSND"`、
 `layout_key="PA_BSND"`。key 补齐到整页 64 项，并通过恒等 block table 寻址。

@@ -79,10 +79,10 @@ def visible_key_counts(rows, sequence_length, device):
 )
 @register_impl(
     "indexer.lightning_indexer_prefill",
-    "aclnn",
+    "torch_npu",
     supported_generations={Generation.ARCH22},
 )
-def _aclnn_impl(q, k, sequence_length, group4):
+def _torch_npu_impl(q, k, sequence_length, group4):
     """Adapt one causal request onto CANN's batched LightningIndexer.
 
     For ratio-4 causal prefill up to four adjacent queries see the same
@@ -163,7 +163,7 @@ def _native_impl(q, k, sequence_length, group4):
         )
 
         _native_fn = lightning_indexer_prefill
-    # group4 selects between two equivalent aclnn launch geometries and has no
+    # group4 selects between two equivalent torch_npu launch geometries and has no
     # meaning for the reference, which always scores every query independently.
     return _native_fn(q, k, sequence_length)
 
@@ -192,7 +192,7 @@ def lightning_indexer_prefill(
             so this is a comparison switch rather than a tuning knob. Grouping
             additionally requires ``rows >= 1024`` and ``keys >= 512``.
             Defaults to True. Keyword-only.
-        impl (str): Implementation name: "auto", "aclnn" or "torch_native".
+        impl (str): Implementation name: "auto", "torch_npu" or "torch_native".
             Defaults to "auto". Keyword-only.
 
     Returns:
