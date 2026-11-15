@@ -60,7 +60,9 @@ class _Q4CopySfaCase:
     blocks_per_request = TOPK // BLOCK_SIZE
 
     def __init__(self, heads: int = 8):
-        from sgl_kernel_npu.sparsity_driven_kv_offload import create_shm_tensor
+        from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+            create_fused_shm_tensor as create_shm_tensor,
+        )
 
         self.device = torch.device("npu:0")
         torch.npu.set_device(self.device)
@@ -231,7 +233,9 @@ class _Q4CopySfaCase:
         assert torch.all(self.hbm.cpu().view(-1, PACKED_DIM)[padding_rows] == POISON)
 
     def close(self) -> None:
-        from sgl_kernel_npu.sparsity_driven_kv_offload import free_shm
+        from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+            free_fused_shm as free_shm,
+        )
 
         try:
             torch.npu.synchronize()

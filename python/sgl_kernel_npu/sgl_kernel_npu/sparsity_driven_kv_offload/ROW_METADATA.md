@@ -1,5 +1,21 @@
 # Sparse KV row metadata
 
+## A5 C8 ring metadata
+
+`c8_metadata` owns the tensor-only A5 pre-LIM, post-LIM and tail metadata kernels,
+their launch wrappers and the existing two tail payload copies. SGLang owns batch
+admission, physical Host allocation, workspace lifetime and MemFabric publication.
+This module does not import SGLang or change the public A3 metadata operators.
+
+The operator tests are `tests/python/sgl_kernel_npu/test_a5_c8_metadata_cpu.py`,
+`test_a5_c8_metadata.py`, `test_a5_c8_tail_transport.py` and
+`test_a5_lim_copysfa_joint.py` in the same directory. CPU arithmetic requires
+`TORCH_DEVICE_BACKEND_AUTOLOAD=0 TRITON_INTERPRET=1`. The device metadata and tail
+tests support A3/A5; the FP8 LIM/CopySFA joint test requires A5. Device tests use
+the private fused SHM allocator also used by the production C8 path.
+
+## Common row metadata
+
 `row_metadata` provides tensor-only Triton operators. Framework-specific batch,
 forward-mode, CPU layout validation and workspace ownership remain in SGLang.
 The operators do not copy KV payloads or publish MemFabric fences.
