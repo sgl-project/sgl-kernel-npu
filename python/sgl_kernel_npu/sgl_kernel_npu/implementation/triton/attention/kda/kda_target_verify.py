@@ -91,28 +91,32 @@ def _kda_target_verify_kernel(
         initial_idx = tl.load(initial_indices_ptr + pid_batch).to(tl.int64)
         snapshot_idx = tl.load(snapshot_indices_ptr + pid_batch).to(tl.int64)
 
-        initial_offsets0 = (
-            initial_idx * initial_stride_0
-            + pid_hv * initial_stride_1
-            + offset_v[:, None] * initial_stride_2
-            + offset_k0[None, :] * initial_stride_3
-        )
-        initial_offsets1 = (
-            initial_idx * initial_stride_0
-            + pid_hv * initial_stride_1
-            + offset_v[:, None] * initial_stride_2
-            + offset_k1[None, :] * initial_stride_3
-        )
-        state0 = tl.load(
-            initial_state_ptr + initial_offsets0,
-            mask=(initial_idx >= 0) & mask_state0,
-            other=0.0,
-        ).to(tl.float32)
-        state1 = tl.load(
-            initial_state_ptr + initial_offsets1,
-            mask=(initial_idx >= 0) & mask_state1,
-            other=0.0,
-        ).to(tl.float32)
+        if initial_idx >= 0:
+            initial_offsets0 = (
+                initial_idx * initial_stride_0
+                + pid_hv * initial_stride_1
+                + offset_v[:, None] * initial_stride_2
+                + offset_k0[None, :] * initial_stride_3
+            )
+            initial_offsets1 = (
+                initial_idx * initial_stride_0
+                + pid_hv * initial_stride_1
+                + offset_v[:, None] * initial_stride_2
+                + offset_k1[None, :] * initial_stride_3
+            )
+            state0 = tl.load(
+                initial_state_ptr + initial_offsets0,
+                mask=mask_state0,
+                other=0.0,
+            ).to(tl.float32)
+            state1 = tl.load(
+                initial_state_ptr + initial_offsets1,
+                mask=mask_state1,
+                other=0.0,
+            ).to(tl.float32)
+        else:
+            state0 = tl.zeros((BV, 64), dtype=tl.float32)
+            state1 = tl.zeros((BV, 64), dtype=tl.float32)
 
         A_log = tl.zeros((), dtype=tl.float32)
         dt_bias0 = tl.zeros((64,), dtype=tl.float32)
@@ -284,17 +288,20 @@ def _kda_target_verify_kernel(
         initial_idx = tl.load(initial_indices_ptr + pid_batch).to(tl.int64)
         snapshot_idx = tl.load(snapshot_indices_ptr + pid_batch).to(tl.int64)
 
-        initial_offsets = (
-            initial_idx * initial_stride_0
-            + pid_hv * initial_stride_1
-            + offset_v[:, None] * initial_stride_2
-            + offset_k[None, :] * initial_stride_3
-        )
-        state = tl.load(
-            initial_state_ptr + initial_offsets,
-            mask=(initial_idx >= 0) & mask_state,
-            other=0.0,
-        ).to(tl.float32)
+        if initial_idx >= 0:
+            initial_offsets = (
+                initial_idx * initial_stride_0
+                + pid_hv * initial_stride_1
+                + offset_v[:, None] * initial_stride_2
+                + offset_k[None, :] * initial_stride_3
+            )
+            state = tl.load(
+                initial_state_ptr + initial_offsets,
+                mask=mask_state,
+                other=0.0,
+            ).to(tl.float32)
+        else:
+            state = tl.zeros((BV, BK), dtype=tl.float32)
 
         A_log = tl.zeros((), dtype=tl.float32)
         dt_bias = tl.zeros((BK,), dtype=tl.float32)
