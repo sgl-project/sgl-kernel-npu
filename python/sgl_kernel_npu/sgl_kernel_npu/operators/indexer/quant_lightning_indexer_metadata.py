@@ -67,6 +67,7 @@ def _cann_9_1_quant_lightning_indexer_metadata(
     from ..._third_party.sgl_cann_recipes_infer import (
         npu_quant_lightning_indexer_metadata as op,
     )
+
     if quant_mode not in (1, 2):
         raise RuntimeError(
             "cann_9_1 indexer metadata supports the migrated FP8/INT8 modes only"

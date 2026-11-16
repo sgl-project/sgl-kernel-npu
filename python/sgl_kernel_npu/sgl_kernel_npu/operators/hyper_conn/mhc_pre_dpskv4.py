@@ -59,6 +59,7 @@ def _cann_9_1_mhc_pre(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
     from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre as op
+
     y, post, comb = op(
         x,
         fn,
