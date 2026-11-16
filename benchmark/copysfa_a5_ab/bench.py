@@ -282,7 +282,9 @@ def _build_native(torch: Any, torch_npu: Any, fixture: dict[str, Any], device: A
 
     def indexer():
         holder["ids"] = _first_tensor(
-            torch_npu.npu_quant_lightning_indexer(
+            # Match SGLang's FP8 dispatcher; recipes may replace the Python
+            # torch_npu entry point with an incompatible multi-output wrapper.
+            torch.ops.npu.npu_quant_lightning_indexer(
                 query=values["index_query"],
                 key=values["index_key"],
                 weights=values["index_weights"],
@@ -301,6 +303,8 @@ def _build_native(torch: Any, torch_npu: Any, fixture: dict[str, Any], device: A
         )
 
     def attention(ids: Any):
+        if ids.dim() == 2:
+            ids = ids.unsqueeze(-2)
         result = torch_npu.npu_kv_quant_sparse_flash_attention(
             query=values["merged_query"],
             key=values["packed"].view(torch.float8_e4m3fn),

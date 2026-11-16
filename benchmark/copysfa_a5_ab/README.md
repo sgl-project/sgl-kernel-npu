@@ -3,7 +3,7 @@
 This harness compares three isolated A5 arms on one deterministic fixture:
 
 1. `native`: the SGLang no-offload A5 path, using
-   `torch_npu.npu_quant_lightning_indexer` followed by
+   `torch.ops.npu.npu_quant_lightning_indexer` (the stock FP8 dispatcher) followed by
    `torch_npu.npu_kv_quant_sparse_flash_attention` with the exact packed-C8
    arguments used by the current SGLang backend.
 2. `pre_migration`: the pre-migration A5
