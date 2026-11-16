@@ -14,6 +14,65 @@ def require_npu():
 
 @pytest.mark.parametrize("width", [1, 4])
 @pytest.mark.parametrize("graph_replay", [False, True])
+def test_hit_statistics_follow_changed_device_plan(width, graph_replay):
+    from sgl_kernel_npu.sparsity_driven_kv_offload.c8_metadata import (
+        C8_HIT_STAT_FIELDS,
+        record_c8_hit_statistics,
+    )
+
+    batch, k = 3, 2048
+    source = torch.arange(k, dtype=torch.int32, device="npu").repeat(batch * width, 1)
+    slots = source.clone()
+    misses = torch.full((batch * width,), 512, dtype=torch.int32, device="npu")
+    union = torch.tensor([512, 512, 2000], dtype=torch.int32, device="npu")
+    prefix = torch.full((batch,), 4096, dtype=torch.int32, device="npu")
+    length = torch.full((batch,), 4096 + width, dtype=torch.int32, device="npu")
+    valid = torch.tensor([True, True, False], device="npu")
+    sparse = torch.ones(batch, dtype=torch.bool, device="npu")
+    counters = torch.zeros(
+        (2, len(C8_HIT_STAT_FIELDS)), dtype=torch.int32, device="npu"
+    )
+
+    def launch():
+        record_c8_hit_statistics(
+            source_ids=source,
+            device_slots=slots,
+            topk_misses=misses,
+            miss_counts=union,
+            prefix_lens=prefix,
+            seq_lens=length,
+            valid_rows=valid,
+            sparse_rows=sparse,
+            counters=counters,
+            layer_index=1,
+        )
+
+    launch()
+    torch.npu.synchronize()
+    graph = None
+    if graph_replay:
+        graph = torch.npu.NPUGraph()
+        with torch.npu.graph(graph):
+            launch()
+    for count in (512, 513, 0):
+        counters.zero_()
+        union[1].fill_(count)
+        misses[width : 2 * width].fill_(count)
+        graph.replay() if graph is not None else launch()
+        torch.npu.synchronize()
+        result = dict(zip(C8_HIT_STAT_FIELDS, counters[1].cpu().tolist()))
+        assert result["calls"] == 1 and result["requests"] == 2
+        assert result["queries"] == 2 * width
+        assert result["prefix_selected"] == 2 * width * k
+        assert result["prefix_misses"] == width * (512 + count)
+        assert result["union_misses"] == 512 + count
+        assert result["max_union_misses"] == max(512, count)
+        assert result["fallback_calls"] == int(count > 512)
+        assert not counters[0].cpu().count_nonzero()
+
+
+@pytest.mark.parametrize("width", [1, 4])
+@pytest.mark.parametrize("graph_replay", [False, True])
 def test_a5_pre_post_metadata(width, graph_replay):
     from sgl_kernel_npu.sparsity_driven_kv_offload.c8_metadata import (
         fused_lim_copy_sfa_metadata,

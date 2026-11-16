@@ -6,6 +6,175 @@ import torch
 import triton
 import triton.language as tl
 
+C8_HIT_STAT_FIELDS = (
+    "calls",
+    "requests",
+    "queries",
+    "prefix_selected",
+    "prefix_misses",
+    "tail_selected",
+    "union_misses",
+    "requests_gt512",
+    "fallback_calls",
+    "max_union_misses",
+    "union_0",
+    "union_1_128",
+    "union_129_256",
+    "union_257_512",
+    "union_513_1024",
+    "union_gt1024",
+    "selected",
+    "route_misses",
+)
+
+
+@triton.jit
+def _record_c8_hit_statistics_kernel(
+    sources,
+    slots,
+    topk_misses,
+    union_misses,
+    prefixes,
+    lengths,
+    valid,
+    sparse,
+    counters,
+    LAYER: tl.constexpr,
+    BATCH: tl.constexpr,
+    QUERY_WIDTH: tl.constexpr,
+    K: tl.constexpr,
+    SRC_S0: tl.constexpr,
+    SRC_S1: tl.constexpr,
+    SLOT_S0: tl.constexpr,
+    SLOT_S1: tl.constexpr,
+    BLOCK: tl.constexpr,
+    BATCH_BLOCK: tl.constexpr,
+):
+    request = tl.program_id(0)
+    active = (tl.load(valid + request) != 0) & (tl.load(sparse + request) != 0)
+    prefix = tl.load(prefixes + request)
+    length = tl.load(lengths + request)
+    union = tl.where(active, tl.load(union_misses + request), 0)
+    batches = tl.arange(0, BATCH_BLOCK)
+    all_active = (tl.load(valid + batches, batches < BATCH, other=0) != 0) & (
+        tl.load(sparse + batches, batches < BATCH, other=0) != 0
+    )
+    all_misses = tl.load(union_misses + batches, batches < BATCH, other=0)
+    fallback = tl.max(tl.where(all_active, all_misses, 0), 0) > 512
+    columns = tl.arange(0, BLOCK)
+    prefix_selected = tl.full((), 0, tl.int32)
+    prefix_missed = tl.full((), 0, tl.int32)
+    tail_selected = tl.full((), 0, tl.int32)
+    selected = tl.full((), 0, tl.int32)
+    missed = tl.full((), 0, tl.int32)
+    for q in tl.static_range(QUERY_WIDTH):
+        row = request * QUERY_WIDTH + q
+        source = tl.load(
+            sources + row * SRC_S0 + columns * SRC_S1, columns < K, other=-1
+        )
+        slot = tl.load(slots + row * SLOT_S0 + columns * SLOT_S1, columns < K, other=-1)
+        count = tl.load(topk_misses + row)
+        live = active & (columns < K) & (source >= 0) & (slot >= 0)
+        live = live & (source <= length - QUERY_WIDTH + q)
+        historical = live & (source < prefix)
+        # LIM puts each query's misses first; ring-tail rows are already resident.
+        prefix_selected += tl.sum(historical.to(tl.int32), 0)
+        prefix_missed += tl.sum((historical & (columns < count)).to(tl.int32), 0)
+        tail_selected += tl.sum((live & (source >= prefix)).to(tl.int32), 0)
+        selected += tl.sum(live.to(tl.int32), 0)
+        missed += tl.sum((live & (columns < count)).to(tl.int32), 0)
+    fields = tl.arange(0, 32)
+    values = tl.full((32,), 0, tl.int32)
+    values = tl.where(fields == 0, (request == 0).to(tl.int32), values)
+    values = tl.where(fields == 1, active.to(tl.int32), values)
+    values = tl.where(fields == 2, active.to(tl.int32) * QUERY_WIDTH, values)
+    values = tl.where(fields == 3, prefix_selected, values)
+    values = tl.where(fields == 4, prefix_missed, values)
+    values = tl.where(fields == 5, tail_selected, values)
+    values = tl.where(fields == 6, union, values)
+    values = tl.where(fields == 7, (active & (union > 512)).to(tl.int32), values)
+    values = tl.where(fields == 8, ((request == 0) & fallback).to(tl.int32), values)
+    values = tl.where(fields == 10, (active & (union == 0)).to(tl.int32), values)
+    values = tl.where(
+        fields == 11, (active & (union > 0) & (union <= 128)).to(tl.int32), values
+    )
+    values = tl.where(
+        fields == 12, (active & (union > 128) & (union <= 256)).to(tl.int32), values
+    )
+    values = tl.where(
+        fields == 13, (active & (union > 256) & (union <= 512)).to(tl.int32), values
+    )
+    values = tl.where(
+        fields == 14, (active & (union > 512) & (union <= 1024)).to(tl.int32), values
+    )
+    values = tl.where(fields == 15, (active & (union > 1024)).to(tl.int32), values)
+    values = tl.where(fields == 16, selected, values)
+    values = tl.where(fields == 17, missed, values)
+    tl.atomic_add(
+        counters + LAYER * 18 + fields,
+        values,
+        (fields < 18) & (fields != 9),
+        sem="relaxed",
+    )
+    tl.atomic_max(counters + LAYER * 18 + 9, union, sem="relaxed")
+
+
+def record_c8_hit_statistics(
+    *,
+    source_ids,
+    device_slots,
+    topk_misses,
+    miss_counts,
+    prefix_lens,
+    seq_lens,
+    valid_rows,
+    sparse_rows,
+    counters,
+    layer_index,
+):
+    """Accumulate graph-replayed C-pool statistics without a host readback.
+
+    Counters are windowed INT32; the framework bounds the reporting interval
+    and resets them outside capture. Prefix selections exclude the ring tail.
+    """
+    batch = valid_rows.numel()
+    if not batch:
+        return
+    if source_ids.ndim != 2 or source_ids.shape != device_slots.shape:
+        raise ValueError("C8 statistics require matching [B*Q,K] source/slot rows")
+    if source_ids.shape[0] % batch or source_ids.shape[0] // batch not in (1, 4):
+        raise ValueError("C8 statistics require Q1 or Q4")
+    if (
+        counters.ndim != 2
+        or counters.shape[1] != len(C8_HIT_STAT_FIELDS)
+        or counters.dtype != torch.int32
+    ):
+        raise ValueError("C8 statistics require an INT32 [layers,18] counter buffer")
+    if not 0 <= layer_index < counters.shape[0]:
+        raise ValueError("C8 statistics layer is out of range")
+    width = source_ids.shape[0] // batch
+    _record_c8_hit_statistics_kernel[(batch,)](
+        source_ids,
+        device_slots,
+        topk_misses,
+        miss_counts,
+        prefix_lens,
+        seq_lens,
+        valid_rows,
+        sparse_rows,
+        counters,
+        layer_index,
+        batch,
+        width,
+        source_ids.shape[1],
+        source_ids.stride(0),
+        source_ids.stride(1),
+        device_slots.stride(0),
+        device_slots.stride(1),
+        triton.next_power_of_2(source_ids.shape[1]),
+        triton.next_power_of_2(batch),
+    )
+
 
 @triton.jit
 def _prepare_kernel(

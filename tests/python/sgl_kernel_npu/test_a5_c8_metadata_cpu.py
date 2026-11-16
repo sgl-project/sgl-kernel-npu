@@ -65,6 +65,53 @@ def load(name):
 
 
 @pytest.mark.parametrize("width", [1, 4])
+def test_hit_counters_exclude_tail_padding_and_track_batch_fallback(width):
+    """Prefix hits exclude causal tail rows; one request can switch the whole call."""
+    kernels = load("c8_metadata")
+    batch, k = 4, 8
+    sources = torch.tensor([10, 11, 12, 13, 100, 101, 102, -1], dtype=torch.int32)
+    sources = sources.repeat(batch * width, 1)
+    slots = torch.arange(k, dtype=torch.int32).repeat(batch * width, 1)
+    route_misses = torch.full((batch * width,), 2, dtype=torch.int32)
+    unions = torch.tensor([512, 513, 9999, 9999], dtype=torch.int32)
+    prefixes = torch.full((batch,), 100, dtype=torch.int32)
+    lengths = torch.full((batch,), 100 + width, dtype=torch.int32)
+    valid = torch.tensor([True, True, False, True])
+    sparse = torch.tensor([True, True, True, False])
+    counters = torch.zeros((2, len(kernels.C8_HIT_STAT_FIELDS)), dtype=torch.int32)
+    arguments = dict(
+        source_ids=sources,
+        device_slots=slots,
+        topk_misses=route_misses,
+        miss_counts=unions,
+        prefix_lens=prefixes,
+        seq_lens=lengths,
+        valid_rows=valid,
+        sparse_rows=sparse,
+        counters=counters,
+        layer_index=1,
+    )
+    kernels.record_c8_hit_statistics(**arguments)
+    result = dict(zip(kernels.C8_HIT_STAT_FIELDS, counters[1].tolist()))
+    assert result["calls"] == 1 and result["requests"] == 2
+    assert result["queries"] == 2 * width
+    assert result["prefix_selected"] == 8 * width
+    assert result["prefix_misses"] == 4 * width
+    assert result["tail_selected"] == (2 if width == 1 else 18)
+    assert result["selected"] == result["prefix_selected"] + result["tail_selected"]
+    assert result["union_misses"] == 1025 and result["max_union_misses"] == 513
+    assert result["requests_gt512"] == result["fallback_calls"] == 1
+    assert result["union_257_512"] == result["union_513_1024"] == 1
+    assert not counters[0].count_nonzero()
+    unions[1] = 512
+    kernels.record_c8_hit_statistics(**arguments)
+    result = dict(zip(kernels.C8_HIT_STAT_FIELDS, counters[1].tolist()))
+    assert result["calls"] == 2 and result["fallback_calls"] == 1
+    assert result["max_union_misses"] == 513
+    assert result["union_misses"] == 2049
+
+
+@pytest.mark.parametrize("width", [1, 4])
 @pytest.mark.parametrize("full_visible", [False, True])
 @pytest.mark.parametrize("first", [8191, 8192, 8319, 8320])
 def test_pre_metadata_page_crossing(width, full_visible, first):

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "arms": [
+    {
+      "name": "native",
+      "kind": "native",
+      "python": "/path/to/native/bin/python3",
+      "framework_prefix": "/path/to/post/framework",
+      "kernel_prefix": "/path/to/native/site-packages",
+      "libraries": []
+    },
+    {
+      "name": "pre_migration",
+      "kind": "lim_copysfa",
+      "python": "/path/to/pre/bin/python3",
+      "framework_prefix": "/path/to/pre/framework",
+      "kernel_prefix": "/path/to/pre/site-packages",
+      "libraries": [
+        "/path/to/pre/libfused_quant_lightning_indexer_manage.so"
+      ]
+    },
+    {
+      "name": "post_migration",
+      "kind": "lim_copysfa",
+      "python": "/path/to/post/bin/python3",
+      "framework_prefix": "/path/to/post/framework",
+      "kernel_prefix": "/path/to/post/site-packages",
+      "libraries": [
+        "/path/to/post/libfused_quant_lightning_indexer_manage.so"
+      ]
+    }
+  ]
+}
