@@ -11,6 +11,37 @@ def _maybe_contiguous(x):
     return x if x.is_contiguous() else x.contiguous()
 
 
+@triton.jit
+def _prepare_decode_gates(
+    A,
+    a,
+    bias,
+    b,
+    out,
+    beta: tl.constexpr,
+    threshold: tl.constexpr,
+    HV: tl.constexpr,
+    COUNT: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    idx = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    head = idx % HV
+    mask = idx < COUNT
+    x = tl.load(a + idx, mask=mask, other=0).to(tl.float32)
+    x += tl.load(bias + head).to(tl.float32)
+    z = beta * x
+    u = tl.exp(-tl.abs(z))
+    rounded = 1.0 + u
+    log1p = tl.log(rounded) + (u - (rounded - 1.0)) / rounded
+    sp = tl.where(z > threshold, x, (tl.maximum(z, 0.0) + log1p) / beta)
+    alog = tl.load(A + head).to(tl.float32)
+    decay = tl.exp(-tl.exp(alog) * sp)
+    bv = tl.load(b + idx, mask=mask, other=0).to(tl.float32)
+    sigmoid = 1.0 / (1.0 + tl.exp(-bv))
+    tl.store(out + idx, decay, mask=mask)
+    tl.store(out + COUNT + idx, sigmoid, mask=mask)
+
+
 @triton.heuristics(
     {
         "USE_INITIAL_STATE": lambda args: args["h0_source"] is not None,
@@ -20,6 +51,7 @@ def _maybe_contiguous(x):
 @triton.jit(do_not_specialize=["T", "N", "NHV"])
 def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
     A_log,
+    gates,
     a,
     dt_bias,
     softplus_beta,
@@ -45,6 +77,7 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
     BV: tl.constexpr,
     BHV: tl.constexpr,
     OVERSUB: tl.constexpr,
+    PRECOMPUTE_GATES: tl.constexpr,
     USE_INITIAL_STATE: tl.constexpr,
     IS_VARLEN: tl.constexpr,
     USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
@@ -78,22 +111,27 @@ def _fused_sigmoid_gating_delta_rule_update_decode_kernel(
             i_hv = i_nhv * BHV + i_bhv
             i_h = i_hv // (HV // H)
 
-            # Gating: compute once per (sequence, value-head).
-            b_A_log = tl.load(A_log + i_hv).to(tl.float32)
-            b_a = tl.load(a + bos * HV + i_hv).to(tl.float32)
-            b_dt_bias = tl.load(dt_bias + i_hv).to(tl.float32)
-            b_b = tl.load(b + bos * HV + i_hv).to(tl.float32)
+            if PRECOMPUTE_GATES:
+                b_decay = tl.load(gates + bos * HV + i_hv)
+                b_beta = tl.load(gates + B * T * HV + bos * HV + i_hv)
+            else:
+                # Gating: compute once per (sequence, value-head).
+                b_A_log = tl.load(A_log + i_hv).to(tl.float32)
+                b_a = tl.load(a + bos * HV + i_hv).to(tl.float32)
+                b_dt_bias = tl.load(dt_bias + i_hv).to(tl.float32)
+                b_b = tl.load(b + bos * HV + i_hv).to(tl.float32)
 
-            x = b_a + b_dt_bias
-            beta_x = softplus_beta * x
-            softplus_x = tl.where(
-                beta_x <= softplus_threshold,
-                (1.0 / softplus_beta) * tl.log(1.0 + tl.exp(beta_x)),
-                x,
-            )
-            b_g = -tl.exp(b_A_log) * softplus_x
-            b_decay = tl.exp(b_g)
-            b_beta = 1.0 / (1.0 + tl.exp(-b_b))
+                x = b_a + b_dt_bias
+                beta_x = softplus_beta * x
+                exp_value = tl.exp(-tl.abs(beta_x))
+                rounded = 1.0 + exp_value
+                # Recover the part lost when 1 + exp_value rounds to 1 in FP32.
+                log1p_value = tl.log(rounded) + (exp_value - (rounded - 1.0)) / rounded
+                softplus_value = (tl.maximum(beta_x, 0.0) + log1p_value) / softplus_beta
+                softplus_x = tl.where(beta_x > softplus_threshold, x, softplus_value)
+                b_g = -tl.exp(b_A_log) * softplus_x
+                b_decay = tl.exp(b_g)
+                b_beta = 1.0 / (1.0 + tl.exp(-b_b))
 
             # q/k are shared across the value dimension; set pointers once.
             p_q = q + (bos * H + i_h) * K + o_k
@@ -234,8 +272,26 @@ def fused_sigmoid_gating_delta_rule_update_decode_npu(
         num_warps = 4
         num_stages = 1
 
+        # Amortize the extra launch once each vector core processes several heads.
+        precompute_gates = N * HV >= 256
+        gates = None
+        if precompute_gates:
+            gates = torch.empty((2, B * T * HV), dtype=torch.float32, device=q.device)
+            _prepare_decode_gates[(triton.cdiv(B * T * HV, 128),)](
+                A_log,
+                a,
+                dt_bias,
+                b,
+                gates,
+                softplus_beta,
+                softplus_threshold,
+                HV,
+                B * T * HV,
+                128,
+            )
         _fused_sigmoid_gating_delta_rule_update_decode_kernel[grid](
             A_log=A_log,
+            gates=gates,
             a=a,
             dt_bias=dt_bias,
             softplus_beta=softplus_beta,
@@ -261,6 +317,7 @@ def fused_sigmoid_gating_delta_rule_update_decode_npu(
             BV=BV,
             BHV=BHV,
             OVERSUB=OVERSUB,
+            PRECOMPUTE_GATES=precompute_gates,
             USE_QK_L2NORM_IN_KERNEL=use_qk_l2norm_in_kernel,
             num_warps=num_warps,
             num_stages=num_stages,
