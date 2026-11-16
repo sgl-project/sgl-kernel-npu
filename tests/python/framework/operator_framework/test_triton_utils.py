@@ -1,22 +1,21 @@
 import pytest
 
 
+# Verify that Dynamo can capture the real NPU core-count query.
 @pytest.mark.extra_checks
-@pytest.mark.usefixtures("configure_npu")
-def test_get_device_properties_fullgraph():
-    import torch
+def test_get_device_properties_fullgraph(npu_runtime, package_factory):
     import torch_npu
-    from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
-        get_device_properties,
-    )
 
     from tests.python.utils.accuracy import assert_accuracy
 
+    torch = npu_runtime.torch
+    triton_utils = package_factory().import_module(
+        "implementation.triton.utils.triton_utils"
+    )
     properties = torch_npu.npu.get_device_properties(torch_npu.npu.current_device())
-    get_device_properties.cache_clear()
 
     def add_core_counts(x):
-        cube_cores, vector_cores = get_device_properties()
+        cube_cores, vector_cores = triton_utils.get_device_properties()
         return x + cube_cores, x + vector_cores
 
     x = torch.zeros(1, dtype=torch.int32, device="npu")
