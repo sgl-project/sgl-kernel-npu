@@ -71,7 +71,7 @@ std::vector<std::string> GetCustomLibPath()
 {
     const char *ascendCustomOppPath = std::getenv("ASCEND_CUSTOM_OPP_PATH");
     if (ascendCustomOppPath == nullptr) {
-        ASCEND_LOGW("ASCEND_CUSTOM_OPP_PATH is not exists");
+        ASCEND_LOGW("ASCEND_CUSTOM_OPP_PATH does not exist");
         return std::vector<std::string>();
     }
     return ProcessCustomLibPath(ascendCustomOppPath);
@@ -93,7 +93,7 @@ bool IsFileExist(const std::string &path)
 bool ValidateVendorsConfigFile(const std::string &configFile)
 {
     if (configFile.empty() || !IsFileExist(configFile)) {
-        ASCEND_LOGW("config.ini is not exists or the path length is more than %d", PATH_MAX);
+        ASCEND_LOGW("config.ini does not exist or the path length is more than %d", PATH_MAX);
         return false;
     }
     return true;
@@ -152,7 +152,7 @@ std::vector<std::string> GetDefaultCustomLibPath()
     const char *ascendOppPath = std::getenv("ASCEND_OPP_PATH");
     std::vector<std::string> defaultVendorsList;
     if (ascendOppPath == nullptr) {
-        ASCEND_LOGW("ASCEND_OPP_PATH is not exists");
+        ASCEND_LOGW("ASCEND_OPP_PATH does not exist");
         return std::vector<std::string>();
     }
     std::string vendorsPath(ascendOppPath);
