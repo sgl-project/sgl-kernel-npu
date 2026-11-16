@@ -120,12 +120,7 @@ run_test() {
     echo "Running: $test_file"
     echo "=========================================="
 
-    if [[ -n "${KERNEL_COVERAGE_DIR:-}" ]]; then
-        python3 scripts/collect_python_coverage.py "$test_file" \
-            --output-dir "$KERNEL_COVERAGE_DIR" --no-merge || exit_code=$?
-    else
-        python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
-    fi
+    python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
 
     if [[ "$exit_code" -eq 0 ]]; then
         PASSED+=("$test_file")
@@ -163,16 +158,8 @@ echo "Total:  ${#TESTS[@]}"
 echo "Passed: ${#PASSED[@]}"
 echo "Failed: ${#FAILED[@]}"
 
-if [[ -n "${KERNEL_COVERAGE_DIR:-}" ]]; then
-    python3 scripts/collect_python_coverage.py --output-dir "$KERNEL_COVERAGE_DIR" --merge-only
-fi
-
 if [[ "${#FAILED[@]}" -gt 0 ]]; then
     echo "Failed test files:"
     printf '  - %s\n' "${FAILED[@]}"
-    if [[ -n "${KERNEL_COVERAGE_DIR:-}" ]]; then
-        echo "::warning::Partial coverage baseline: failed tests are recorded in manifest.json and FAILED markers."
-    else
-        exit 1
-    fi
+    exit 1
 fi

@@ -194,9 +194,6 @@ std::tuple<at::Tensor, at::Tensor> sgl_sparse_attn_sharedkv(
             tensors.push_back(**tensor);
         }
     }
-    for (const auto &tensor : tensors) {
-        tensor.record_stream(stream);
-    }
     auto aclStream = stream.stream(false);
 
     std::vector<std::shared_ptr<aclTensor>> descriptors{

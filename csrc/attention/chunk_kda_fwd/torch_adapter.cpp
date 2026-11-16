@@ -416,10 +416,6 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
                                        attnOut,     finalStateOut, gkOut,           aqkOut,          akkOut,
                                        wOut,        uOut,          qgOut,           kgOut,           vNewOut,
                                        hOutInternal};
-    for (const auto &tensor : tensors) {
-        if (tensor.defined()) tensor.record_stream(stream);
-    }
-    workspace.record_stream(stream);
     std::array<std::shared_ptr<aclTensor>, 21> descriptors{desc0,  desc1,  desc2,  desc3,  desc4,  desc5,  desc6,
                                                            desc7,  desc8,  desc9,  desc10, desc11, desc12, desc13,
                                                            desc14, desc15, desc16, desc17, desc18, desc19, desc20};

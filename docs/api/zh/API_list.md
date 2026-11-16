@@ -29,6 +29,7 @@
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
 | [split_qkv_tp_rmsnorm_rope](operators/norm/split_qkv_tp_rmsnorm_rope.md) | `triton`、`torch_native` |
 | [add_example](operators/examples/add_example.md) | `aicpu`、`torch_native` |
+| [elu](operators/examples/elu.md) | `ascendc`（ARCH22）、`torch_native` |
 | [compressor_v2](operators/attention/compressor_v2.md) | `cann_ops_transformers_cann920`、`torch_native` |
 | [lightning_indexer_v2](operators/indexer/lightning_indexer_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [lightning_indexer_v2_metadata](operators/indexer/lightning_indexer_v2_metadata.md) | `cann_ops_transformers_cann920` |
@@ -41,6 +42,7 @@
 | [mixed_quant_sparse_flash_mla_metadata_dsl](operators/attention/mixed_quant_sparse_flash_mla_metadata_dsl.md) | `cannbot_dsl` |
 | [batch_matmul_transpose](operators/matmul/batch_matmul_transpose.md) | `ascendc`、`torch_native` |
 | [chunk_gated_delta_rule](operators/attention/gdn/chunk_gated_delta_rule.md) | `ascendc`、`torch_native` |
+| [chunk_gated_delta_rule_npu](operators/attention/gdn/chunk_gated_delta_rule_npu.md) | `triton`、`torch_native` |
 | [recurrent_gated_delta_rule](operators/attention/gdn/recurrent_gated_delta_rule.md) | `ascendc`、`torch_native` |
 | [la](operators/attention/laser_attention.md) | `ascendc`（ARCH22）、`torch_native` |
 | [ada_block_sparse_attention](operators/attention/ada_block_sparse_attention.md) | `ascendc`（ARCH22）、`torch_native` |
@@ -87,7 +89,9 @@
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`、`torch_native` |
-| [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
+| [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `cann_ops_transformer`, `torch_native` |
+| [prepare_pool_key_indexer_inputs](operators/indexer/prepare_pool_key_indexer_inputs.md) | `triton`, `torch_native` |
+| [pack_pool_key_indexer_indices](operators/indexer/pack_pool_key_indexer_indices.md) | `triton`, `torch_native` |
 | [indexer_prologue_k_dsl](operators/indexer/indexer_prologue_k_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_dsl](operators/indexer/quant_lightning_indexer_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_metadata_dsl](operators/indexer/quant_lightning_indexer_metadata_dsl.md) | `cannbot_dsl` |
@@ -102,6 +106,10 @@
 | [kpool_decode_update_and_maybe_write_cache](operators/mem_cache/kpool_decode_update_and_maybe_write_cache.md) | `triton`, `torch_native` |
 | [kpool_write_tail_and_maybe_compress](operators/mem_cache/kpool_write_tail_and_maybe_compress.md) | `triton`, `torch_native` |
 | [scatter_kpool_tail_updates](operators/mem_cache/scatter_kpool_tail_updates.md) | `triton`, `torch_native` |
+| [transfer_kv_per_layer_kv_split_pf_lf](operators/mem_cache/kv_transfer.md) | `ascendc_aiv`, `torch_native` |
+| [transfer_kv_all_layer_kv_split_lf_pf](operators/mem_cache/kv_transfer.md) | `ascendc_aiv`, `torch_native` |
+| [transfer_kv_per_layer_kv_split](operators/mem_cache/kv_transfer.md) | `ascendc_aiv`, `torch_native` |
+| [transfer_kv_all_layer_kv_split](operators/mem_cache/kv_transfer.md) | `ascendc_aiv`, `torch_native` |
 | [situ_and_mul](operators/activation/situ_and_mul.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`、`torch_native` |
 | [chunk_local_cumsum](operators/attention/gdn/chunk_local_cumsum.md) | `triton`, `torch_native` |
@@ -119,6 +127,8 @@
 | [sgemmc_shrink](operators/lora/sgemmc_shrink.md) | `ascendc`、`torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
+| [mega_moe](operators/moe/mega_moe.md) | `cann_ops_transformer` |
+| [get_symm_buffer_for_mega_moe](operators/moe/get_symm_buffer_for_mega_moe.md) | `cann_ops_transformer` |
 | [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`、`torch_native` |
 | [flash_prefill_bnsd_indexer](operators/indexer/flash_prefill_bnsd_indexer.md) | `triton`、`torch_native` |
 | [flash_prefill_bnsd_with_topk_idx](operators/indexer/flash_prefill_bnsd_with_topk_idx.md) | `triton`、`torch_native` |
@@ -142,3 +152,38 @@
 | [fused_infer_attention_score_v2](operators/batch_invariant/fused_infer_attention_score_v2.md) | `batch_invariant_ops` |
 | [cache_loc_assign](operators/mem_cache/cache_locations.md#cache_loc_assign) | `ascendc`, `torch_native` |
 | [cache_loc_update](operators/mem_cache/cache_locations.md#cache_loc_update) | `ascendc`, `torch_native` |
+
+## QSA、PLE 与 hyperconnection
+
+| API | 实现 |
+| --- | --- |
+| [short_conv](operators/mamba/short_conv.md) | `triton`, `torch_native` |
+| [qsa_mqa_packed](operators/indexer/qsa_mqa_packed.md) | `triton`, `torch_native` |
+| [qsa_mqa_paged](operators/indexer/qsa_mqa_paged.md) | `triton`, `torch_native` |
+| [qsa_topk](operators/indexer/qsa_topk.md) | `triton`, `torch_native` |
+| [expand_qsa_blocks](operators/indexer/expand_qsa_blocks.md) | `triton`, `torch_native` |
+| [qsa_sparse_attention](operators/attention/qsa_sparse_attention.md) | `triton`, `torch_native` |
+| [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `triton`, `torch_native` |
+| [hc_mix](operators/hyper_conn/hc_mix.md) | `triton`, `torch_native` |
+| [hc_combine](operators/hyper_conn/hc_combine.md) | `triton`, `torch_native` |
+| [situ](operators/activation/situ.md) | `triton`, `torch_native` |
+| [swiglu_quant](operators/activation/swiglu_quant.md) | `triton`, `torch_native` |
+| [swiglu_oai](operators/activation/swiglu_oai.md) | `triton`, `torch_native` |
+| [attention_sinks](operators/attention/attention_sinks.md) | `triton`, `torch_native` |
+| [attention_sinks_prefill](operators/attention/attention_sinks_prefill.md) | `triton`, `torch_native` |
+| [fused_gdn_gating_without_sigmoid](operators/attention/gdn/fused_gdn_gating_without_sigmoid.md) | `triton`, `torch_native` |
+| [fused_kda_gate](operators/attention/kda/fused_kda_gate.md) | `triton`, `torch_native` |
+| [kda_target_verify](operators/attention/kda/kda_target_verify.md) | `triton`, `torch_native` |
+| [causal_conv1d_fn](operators/mamba/causal_conv1d_fn.md) | `torch_native` |
+| [causal_conv1d_update](operators/mamba/causal_conv1d_update.md) | `triton`, `torch_native` |
+| [move_intermediate_cache](operators/mamba/move_intermediate_cache.md) | `triton`, `torch_native` |
+| [move_intermediate_cache_kda](operators/mamba/move_intermediate_cache_kda.md) | `triton`, `torch_native` |
+| [conv_state_rollback](operators/mamba/conv_state_rollback.md) | `triton`, `torch_native` |
+| [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
+| [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
+| [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
+| [top_k_renorm_prob](operators/sample/top_k_renorm_prob.md) | `triton`, `torch_native` |
+| [top_p_renorm_prob](operators/sample/top_p_renorm_prob.md) | `triton`, `torch_native` |
+| [zero_experts_compute_identity](operators/moe/zero_experts_compute_identity.md) | `triton`, `torch_native` |
+| [flash_prefill_bnsd_blockq_sparse_fia](operators/attention/flash_prefill_bnsd_blockq_sparse_fia.md) | `triton`, `torch_native` |
+| [gemma_rmsnorm](operators/norm/gemma_rmsnorm.md) | `torch_npu`, `torch_native` |
