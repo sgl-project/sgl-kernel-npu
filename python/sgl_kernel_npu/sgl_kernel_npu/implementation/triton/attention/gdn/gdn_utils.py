@@ -5,14 +5,10 @@ import torch
 import triton
 import triton.language as tl
 import triton.language.extra.libdevice as tldevice
-
-from ....torch_native.attention.gdn.prepare_chunk_indices import (
+from sgl_kernel_npu.utils.gdn_utils import (
     prepare_chunk_indices as prepare_chunk_indices,
 )
-from ....torch_native.attention.gdn.prepare_chunk_indices import (
-    prepare_lens,
-    tensor_cache,
-)
+from sgl_kernel_npu.utils.gdn_utils import prepare_lens, tensor_cache
 
 
 @tensor_cache

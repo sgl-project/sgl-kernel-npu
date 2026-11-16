@@ -113,7 +113,6 @@
 | [situ_and_mul](operators/activation/situ_and_mul.md) | `triton`, `torch_native` |
 | [attn_res_mix_fused](operators/hyper_conn/attn_res_mix_fused.md) | `triton`, `torch_native` |
 | [chunk_local_cumsum](operators/attention/gdn/chunk_local_cumsum.md) | `triton`, `torch_native` |
-| [prepare_chunk_indices](operators/attention/gdn/prepare_chunk_indices.md) | `torch_native` |
 | [chunk_scaled_dot_kkt](operators/attention/gdn/chunk_scaled_dot_kkt.md) | `triton`, `torch_native` |
 | [chunk_delta_h](operators/attention/gdn/chunk_delta_h.md) | `triton`, `torch_native` |
 | [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
