@@ -318,7 +318,7 @@ class Buffer:
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
         Optional[torch.Tensor],
-        List[int],
+        Union[List[int], torch.Tensor],
         Tuple,
         EventOverlap,
     ]:
@@ -372,9 +372,10 @@ class Buffer:
                   `[received_token_count, hidden // 32]` with `torch.float8_e8m0fnu`.
             recv_topk_idx: received expert indices.
             recv_topk_weights: received expert weights.
-            num_recv_tokens_per_expert_list: Python list shaped `[num_local_experts]`, the received token count by
-                each local expert, aligned to the input `expert_alignment`. If `num_worst_tokens` is specified, the list
-                will be empty.
+            num_recv_tokens_per_expert_list: intranode returns a device tensor shaped `[round, num_local_experts]`
+                with `torch.int32` (raw per-round received token counts, round-major); internode returns a Python
+                list shaped `[num_local_experts]` with the aligned received token count of each local expert. If
+                `num_worst_tokens` is specified, the list will be empty.
             handle: the returned communication handle.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
