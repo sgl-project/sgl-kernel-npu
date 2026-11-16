@@ -85,6 +85,9 @@ def fused_gdn_gating_npu(
     beta: float = 1.0,
     threshold: float = 20.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    # The kernels use contiguous offsets; normalize input views at the boundary.
+    A_log, dt_bias = A_log.contiguous(), dt_bias.contiguous()
+    a, b = a.contiguous(), b.contiguous()
     batch, num_heads = a.shape
     seq_len = 1
 
@@ -178,6 +181,8 @@ def fused_gdn_gating_kernel_without_sigmoid(
     beta: float = 1.0,
     threshold: float = 20.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    A_log, dt_bias = A_log.contiguous(), dt_bias.contiguous()
+    a = a.contiguous()
     batch, num_heads = a.shape
     seq_len = 1
     g = torch.empty_like(a, dtype=torch.float32)
