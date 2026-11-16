@@ -149,6 +149,23 @@ def test_v2_is_additive_and_keeps_the_legacy_schema() -> None:
     assert "if (current == nullptr || positions == nullptr" in copy_kernel
 
 
+def test_legacy_a5_stub_preserves_batch_scheduling():
+    """Legacy codegen must not silently drop CopySFA's cross-core launch policy."""
+    root = Path(__file__).parents[1]
+    cmake = (root / "cmake/legacy_kernels.cmake").read_text()
+    target = "fused_quant_scatter_copy_sparse_flash_attention_a5_kernel"
+    creation = cmake.index(f"ascendc_library({target} STATIC")
+    include = cmake.index(f"ascendc_include_directories({target}", creation)
+    wiring = cmake[creation:include]
+    assert f"set(_a5_copy_sfa_stub {target}_host_stub_obj)" in wiring
+    assert "if(NOT TARGET ${_a5_copy_sfa_stub})" in wiring
+    assert "LaunchAscendKernel=LaunchCopySfaBatchKernel" in wiring
+    assert "target_compile_definitions(${_a5_copy_sfa_stub} PRIVATE" in wiring
+    helper = (root / "csrc/utils/batch_kernel_launch.h").read_text()
+    assert "attribute.value.schemMode = 1" in helper
+    assert "aclrtLaunchKernelWithHostArgs" in helper
+
+
 def _evaluate_cmake_condition(condition: str, variables: dict[str, object]) -> bool:
     condition = condition.strip()
     if " OR " in condition:
