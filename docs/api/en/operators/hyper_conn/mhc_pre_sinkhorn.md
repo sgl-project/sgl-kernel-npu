@@ -4,7 +4,8 @@
 
 | Implementation | arch22 (A3) | arch35 (950DT) |
 | --- | --- | --- |
-| cann_ops_transformer | Verified | Verified |
+| auto (bundled ops-transformer) | Requires device validation | Requires device validation |
+| cann_ops_transformer (system-installed) | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
 CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. On Ascend950, CANN 9.2.0 only supports hidden sizes 4096 and 7168. The GLM-5.3-Flash hidden size of 4096 is supported by both versions.
@@ -18,7 +19,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
     ...
 ```
 
-`auto` selects `cann_ops_transformer`; no fallback.
+`auto` selects the wheel-bundled `ops_transformer_cann910` on CANN 9.1.x and `cann_ops_transformers_cann920` on CANN 9.2.x. It does not retry a failed backend. The explicit `cann_ops_transformer` implementation retains the system-installed package for existing callers.
 
 ## Description
 
@@ -38,7 +39,7 @@ For u = flatten(x), z = (u / sqrt(mean(u**2) + norm_eps)) @ phi.T. Split z into 
 | num_iters | int | Sinkhorn iterations; backend-defined support | 20 |
 | hc_eps | float | Forwarded to backend | 1e-6 |
 | norm_eps | float | Forwarded to backend | 1e-6 |
-| impl | str | auto / cann_ops_transformer / torch_native | auto |
+| impl | str | auto / ops_transformer_cann910 / cann_ops_transformers_cann920 / cann_ops_transformer / torch_native | auto |
 
 The facade forwards inputs without imposing additional dtype, stride, device, shape or scalar restrictions. The selected backend determines supported inputs and reports errors. The examples use GLM stream count N=4 and FP16/BF16 activations with FP32 parameters. Empty/IDLE short-circuits remain the SGLang caller's responsibility, as in glmx PR #21; the facade adds none.
 
@@ -46,9 +47,9 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 | --- | --- | --- |
 | output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N*N] FP32) |
 
-## cann_ops_transformer
+## CANN implementations
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_pre_sinkhorn` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
+The wheel bundles a pinned released `mhc_pre_sinkhorn` for CANN 9.1 and uses its existing CANN 9.2 DSV4 bundle for 9.2. The CANN 9.1 source registers an Ascend 950 kernel, although its README marks 950 unsupported. Build and on-device accuracy for that combination must be checked before relying on it. The explicit `cann_ops_transformer` implementation imports a separately installed upstream package on first execution. Missing bindings and execution errors propagate.
 
 The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes the singleton sequence dimension of each output. Output dtypes are preserved; any activation conversion belongs to the SGLang caller, matching GitCode glmx PR #21.
 
