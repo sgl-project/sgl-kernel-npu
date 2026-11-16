@@ -1,8 +1,4 @@
-import pytest
-
-
 # Verify that Dynamo can capture the real NPU core-count query.
-@pytest.mark.extra_checks
 def test_get_device_properties_fullgraph(npu_runtime, package_factory):
     import torch_npu
 
