@@ -8,7 +8,6 @@
 
 #include <cstdint>
 
-constexpr uint32_t kSfaPackedKvBit = 1U << 17;
 constexpr uint32_t kSfaPackedKvLatentDim = 512;
 constexpr uint32_t kSfaPackedKvRopeDim = 64;
 constexpr uint32_t kSfaPackedKvQuantBlockSize = 128;

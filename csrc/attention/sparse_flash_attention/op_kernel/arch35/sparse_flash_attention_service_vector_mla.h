@@ -15,6 +15,8 @@
 #ifndef SPARSE_FLASH_ATTENTION_SERVICE_VECTOR_MLA_H
 #define SPARSE_FLASH_ATTENTION_SERVICE_VECTOR_MLA_H
 
+#include <type_traits>
+
 #include "util_regbase.h"
 #include "sparse_flash_attention_common_arch35.h"
 #include "kernel_operator_list_tensor_intf.h"
@@ -48,6 +50,8 @@ public:
     static constexpr uint32_t dVTemplateType = 512;
     static constexpr uint32_t dTemplateAlign64 = Align64Func(dVTemplateType);
     static constexpr uint32_t dVTemplateTypeInput = 576;
+    // CANN compiles a separate binary for each key dtype in the OpDef.
+    static constexpr bool kPackedKv = std::is_same_v<DTYPE_KEY, uint8_t>;
     static constexpr uint32_t packedKvStride = (kSfaPackedKvBytes + 31U) / 32U * 32U;
     static constexpr float R0 = 1.0f;
     static constexpr uint64_t SYNC_SINKS_BUF_FLAG = 6;
@@ -61,7 +65,6 @@ public:
         if ASCEND_IS_AIV {
             tPipe = pipe;
             tilingData = tiling;
-            packedKv = (tiling->baseParams.dispatchKey & kSfaPackedKvBit) != 0;
             if (actualSeqLengthsQ != nullptr) {
                 cuSeqlensQGm.SetGlobalBuffer((__gm__ int32_t *)actualSeqLengthsQ);
             }
@@ -147,7 +150,6 @@ private:
     TBuf<> stage0OutBuf[2];
     TBuf<> packedKvBuf[2];
     TEventID packedVToMte3;
-    bool packedKv = false;
     TBuf<> stage2OutBuf;
     TEventID mte3ToVAttnOutId;  // 存放MTE3_V的eventId, 用于V2 attentionOut拷出阶段的同步
     TEventID vToMte3AttnOutId;  // 存放V_MTE3的eventId, 用于V2 attentionOut拷出阶段的同步
@@ -481,7 +483,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
         // 1、copy kv in, gm ->ub
         LocalTensor<Q_T> stage0OutUb = this->stage0OutBuf[pingPong].template Get<Q_T>();
         LocalTensor<uint8_t> packedUb;
-        if (packedKv) {
+        if constexpr (kPackedKv) {
             packedUb = packedKvBuf[pingPong].template Get<uint8_t>();
         }
         WaitFlag<HardEvent::MTE3_MTE2>(mte3ToMte2[pingPong]);
@@ -492,7 +494,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
                 meetEnd = true;
                 break;
             }
-            if (packedKv) {
+            if constexpr (kPackedKv) {
                 dealRow += CopyInPackedKv(packedUb, dealRow, token0Idx, token1Idx, runInfo, constInfo);
             } else {
                 dealRow += CopyInKvSparse(stage0OutUb, dealRow, token0Idx, token1Idx, runInfo, constInfo);
@@ -507,7 +509,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
             pingPong ^= 1;
             return;
         }
-        if (packedKv) {
+        if constexpr (kPackedKv) {
             SetFlag<HardEvent::MTE2_V>(mte2ToV);
             WaitFlag<HardEvent::MTE2_V>(mte2ToV);
             DequantizePackedKv(stage0OutUb, packedUb, dealRow);
@@ -735,7 +737,7 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
     __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *keyRope, __gm__ uint8_t *sparseIndices,
     __gm__ uint8_t *blockTable, __gm__ uint8_t *softmaxMax, __gm__ uint8_t *softmaxSum)
 {
-    if (packedKv) {
+    if constexpr (kPackedKv) {
         packedKvGm.SetGlobalBuffer(key);
     } else {
         keyGm.SetGlobalBuffer((__gm__ KV_T *)key);
@@ -818,7 +820,7 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
 
     tPipe->InitBuffer(stage0OutBuf[0], 576 * 16 * sizeof(KV_T));
     tPipe->InitBuffer(stage0OutBuf[1], 576 * 16 * sizeof(KV_T));
-    if (packedKv) {
+    if constexpr (kPackedKv) {
         tPipe->InitBuffer(packedKvBuf[0], packedKvStride * 16);
         tPipe->InitBuffer(packedKvBuf[1], packedKvStride * 16);
         packedVToMte3 = GetTPipePtr()->AllocEventID<HardEvent::V_MTE3>();

@@ -453,8 +453,7 @@ ge::graphStatus SFAMlaTiling::DoOpTiling(SFATilingInfo *sfaInfo)
     GetWorkspaceSize();
     GenTilingKey();
     const uint32_t dtypeBit = (sfaInfo_->inputQType == ge::DT_BF16) ? (1U << 16) : 0U;
-    const uint32_t packedKvBit = sfaInfo_->inputKvType == ge::DT_UINT8 ? kSfaPackedKvBit : 0U;
-    tilingData_.baseParams.set_dispatchKey(static_cast<uint32_t>(tilingKey_) | dtypeBit | packedKvBit);
+    tilingData_.baseParams.set_dispatchKey(static_cast<uint32_t>(tilingKey_) | dtypeBit);
 
     return ge::GRAPH_SUCCESS;
 }
