@@ -10,7 +10,7 @@ _torch_native_fn = None
 @register_impl("speculative.build_tree", "auto")
 @register_impl("speculative.build_tree", "ascendc")
 def _ascendc_impl(*args):
-    return torch.ops.npu.build_tree(*args)
+    return torch.ops.npu.build_tree_kernel_efficient(*args)
 
 
 @register_impl("speculative.build_tree", "torch_native")

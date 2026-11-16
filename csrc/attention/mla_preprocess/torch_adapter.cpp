@@ -201,9 +201,6 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> sgl_mla_prepr
         bias1,         q_out0,      kv_cache_out0, q_out1,        kv_cache_out1, workspace};
     if (hasCtkvScale) tensors.push_back(*ctkv_scale);
     if (hasQnopeScale) tensors.push_back(*q_nope_scale);
-    for (const auto &tensor : tensors) {
-        tensor.record_stream(stream);
-    }
     auto aclStream = stream.stream(false);
 
     std::vector<std::shared_ptr<aclTensor>> descriptors{

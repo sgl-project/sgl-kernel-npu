@@ -109,7 +109,6 @@ at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optio
     auto stream = c10_npu::getCurrentNPUStream();
     workingLogits.record_stream(stream);
     workingBitmask.record_stream(stream);
-    workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     // Tensor captures cover the host queue; record_stream covers asynchronous device use.
     auto launch = [workingLogits, workingBitmask, workspace, logitsDesc, maskDesc, workspaceSize, executor,
