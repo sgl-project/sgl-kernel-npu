@@ -7,19 +7,41 @@ import json
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from bench import _require_kernel_prefix  # noqa: E402
+from bench import _import_shm, _require_kernel_prefix  # noqa: E402
 from fixture import FixtureSpec, parse_miss_counts  # noqa: E402
 from prepare_wheels import unpack  # noqa: E402
 from report import _parity  # noqa: E402
 from result_contract import timing_stats, validate_result  # noqa: E402
 from run_matrix import load_config  # noqa: E402
+
+
+class ShmCompatibilityTest(unittest.TestCase):
+    def test_selects_matching_wheel_allocator(self):
+        package = "sgl_kernel_npu.sparsity_driven_kv_offload"
+        for modern in (False, True):
+            with self.subTest(modern=modern):
+                module_name = package + (".fused_shm" if modern else ".ops")
+                module = types.ModuleType(module_name)
+                create, free = object(), object()
+                if modern:
+                    module.create_fused_shm_tensor, module.free_fused_shm = create, free
+                else:
+                    module.create_shm_tensor, module.free_shm = create, free
+                spec = object() if modern else None
+                with (
+                    patch("importlib.util.find_spec", return_value=spec),
+                    patch.dict(sys.modules, {module_name: module}),
+                ):
+                    self.assertEqual(_import_shm(), (create, free))
 
 
 class WheelPreparationTest(unittest.TestCase):

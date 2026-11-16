@@ -7,6 +7,7 @@ import argparse
 import array
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import math
 import subprocess
@@ -265,12 +266,22 @@ def _dynamic_golden(torch: Any, fixture: dict[str, Any], ids: Any) -> Any:
 
 
 def _import_shm():
-    from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
-        create_fused_shm_tensor,
-        free_fused_shm,
+    module = "sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm"
+    if importlib.util.find_spec(module) is not None:
+        from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+            create_fused_shm_tensor,
+            free_fused_shm,
+        )
+
+        return create_fused_shm_tensor, free_fused_shm
+
+    # Pre-migration A5 exposes the same registered allocation via ops.py.
+    from sgl_kernel_npu.sparsity_driven_kv_offload.ops import (
+        create_shm_tensor,
+        free_shm,
     )
 
-    return create_fused_shm_tensor, free_fused_shm
+    return create_shm_tensor, free_shm
 
 
 def _build_native(torch: Any, torch_npu: Any, fixture: dict[str, Any], device: Any):
