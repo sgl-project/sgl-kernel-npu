@@ -187,6 +187,10 @@ def replay_compiler(directory, command, source_arg, environment):
                     args[i] = f"--enable-auto-multi-buffer={multibuffer}"
             dump_args = args + dump_flags
             dump_args[output_arg] = str(dest / "dump-kernel")
+            if "--save-temps=" in help_result.stdout:
+                intermediate_dir = dest / "intermediates"
+                intermediate_dir.mkdir()
+                dump_args.append(f"--save-temps={intermediate_dir}")
             commands = {"standard": args, "dump": dump_args}
             (dest / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
             for mode, invocation in commands.items():
