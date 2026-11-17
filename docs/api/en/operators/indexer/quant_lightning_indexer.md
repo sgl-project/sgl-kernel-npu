@@ -1,156 +1,101 @@
-# quant_lightning_indexer
+# Quantized lightning indexer
 
 ## Hardware support
 
-| impl | arch22 | arch35 |
+| Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| cannbot_dsl | Unsupported | Supported |
-| torch_native | Unsupported | Supported |
+| `cann_ops_transformers_cann920` | supported | supported |
+| `torch_native` | supported | supported |
+| `ops_transformers_cann910` | supported | supported |
 
 ## Signature
 
-`from sgl_kernel_npu.operators.indexer import quant_lightning_indexer`
-
 ```python
-import torch
-from typing import Optional
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-def quant_lightning_indexer(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    w: torch.Tensor,
-    descale_q: torch.Tensor,
-    descale_k: torch.Tensor,
-    cu_seqlens_q: Optional[torch.Tensor] = None,
-    cu_seqlens_k: Optional[torch.Tensor] = None,
-    seqused_q: Optional[torch.Tensor] = None,
-    seqused_k: Optional[torch.Tensor] = None,
-    cmp_residual_k: Optional[torch.Tensor] = None,
-    block_table: Optional[torch.Tensor] = None,
-    output_idx_offset: Optional[torch.Tensor] = None,
-    metadata: Optional[torch.Tensor] = None,
-    *,
-    topk: int,
-    quant_mode: int,
-    max_seqlen_q: int = -1,
-    mask_mode: int = 0,
-    cmp_ratio: int = 1,
-    layout_q: str = "TND",
-    layout_k: str = "TND",
-    return_value: bool = False,
-    candidate_topk_blocks: int = -1,
-    candidate_block_size: int = -1,
-    impl="auto"
-): ...
+def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *, impl='auto', **kwargs):
+    ...
 ```
 
-## Behavior
+`auto` selects the initialized SDK production path: original bindings on CANN 9.1, released bindings on CANN 9.2. Execution failures never trigger another backend.
 
-Scores visible MXFP4 keys and selects TopK tokens, optionally producing candidate blocks for QSLI.
+## Description
 
-UINT8 `q[T1,32,64]`, packed MXFP4 K, E8M0 query/key descales, and metadata from `quant_lightning_indexer_metadata` are required. Use `quant_mode=1`; K layout may be TND or PA_BBND. Candidate mode requires `candidate_block_size=8`.
+Causal TND queries and PA_BBND keys; A3 tests use INT8 with FP16 scales/weights, A5 tests use FP8 with FP32 scales/weights.
 
-Semantics (BF16 rounding at quantized compute boundaries):
-
-```text
-s_i = sum_h w_h * max(dot(dequant(q_h), dequant(k_i)), 0); indices = TopK(s)
-```
-
-`dequant(code, e) = signed_E2M1(code) * 2**(e - 127)`, with one E8M0 exponent byte per 32 logical values and no zero point. E2M1 uses magnitudes `{0, 0.5, 1, 1.5, 2, 3, 4, 6}`; the first value is in the low nibble. QK results, head weights, and each weighted head accumulation are rounded to BF16.
+`score[j] = Σ_h weights[h] × ReLU(dot(dequant(Q[h]), dequant(K[j])))`. Select logical compressed-key Top-K within the causal prefix. Ties can have different valid orders.
 
 ## Parameters
 
-T is query rows, B requests, P physical pages and S slots per page.
+| Name | Type | Default | Contract |
+| --- | --- | --- | --- |
+| q | Tensor | required | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
+| k | Tensor / int | required | Indexer: paged [pages,page_size,1,D]; MoE: requested expert count |
+| weights | Tensor | required | [T,H], indexer head weights |
+| q_scale | Tensor | required | [T,H], query dequantization scales |
+| k_scale | Tensor | required | [pages,page_size,1,1], key scales |
+| topk | int | required | Requested number of logical compressed keys |
+| quant_mode | int / str | required | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
-| Parameter | Default | Type, shape and meaning |
+### Keyword arguments
+
+| Name | Type | Contract |
 | --- | --- | --- |
-| `q` | Required | UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128. |
-| `k` | Required | UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes. |
-| `w` | Required | FP32 [T,32], query-head score weights. |
-| `descale_q` | Required | UINT8/E8M0 [T,32,2,2], one scale per 32 logical features. |
-| `descale_k` | Required | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
-| `cu_seqlens_q` | `None` | Optional INT32 [B+1], cumulative query row boundaries. |
-| `cu_seqlens_k` | `None` | Optional INT32 [B+1], cumulative TND key boundaries. |
-| `seqused_q` | `None` | Optional INT32 [B], valid query rows per request. |
-| `seqused_k` | `None` | Optional INT32 [B], valid key tokens per request. |
-| `cmp_residual_k` | `None` | Optional INT32 [B], uncompressed residual tokens for causal compression. |
-| `block_table` | `None` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
-| `output_idx_offset` | `None` | Optional INT32 [T,1], added to each valid selected token index. |
-| `metadata` | `None` | INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it. |
-| `topk` | Required | int, maximum selected tokens per query, in [1,8192]. |
-| `quant_mode` | Required | int, use 1 for the supported quantized profile. |
-| `max_seqlen_q` | `-1` | int or None, query capacity per request; infer when unspecified. |
-| `mask_mode` | `0` | int: 0 for visible keys, 3 for causal masking. |
-| `cmp_ratio` | `1` | int in [1,128], compression ratio used to calculate causal visibility. |
-| `layout_q` | `'TND'` | str, use TND (flattened query tokens). |
-| `layout_k` | `'TND'` | str, TND or PA_BBND key storage. |
-| `return_value` | `False` | bool, also return BF16 selected scores when True. |
-| `candidate_topk_blocks` | `-1` | int, candidate-block output capacity; -1 disables the output. |
-| `candidate_block_size` | `-1` | int, use 8 tokens per candidate block when enabled. |
-| `impl` | `'auto'` | str, auto selects cannbot_dsl; torch_native is an independent compute reference. |
+| cu_seqlens_q | int32 Tensor | [B+1] cumulative query offsets, required by the reference. |
+| seqused_k / cmp_residual_k | int32 Tensor | [B] compressed key lengths / uncompressed residual lengths. |
+| block_table | int32 Tensor | [B,max_pages] paged key mapping. |
+| metadata | Tensor / ReferenceMetadata / None | Matching metadata implementation only. |
+| layout_q / layout_k | str | Reference defaults TND / PA_BBND. |
+| mask_mode / cmp_ratio | int | Reference defaults causal 3 / compression ratio 4. |
+| return_value | int | Default 0 produces empty values; nonzero score output is unsupported on CANN 9.1. |
+| seqused_q / cu_seqlens_k / output_idx_offset / max_seqlen_q | optional vendor arguments | CANN 9.1 accepts query lengths as an alternative to cumulative offsets; non-null key offsets/output offsets are rejected. |
 
-## Returns
+## Return value
 
-| Value | Meaning |
-| --- | --- |
-| indices | INT32 [T,1,topk]; -1 marks invalid entries. |
-| values | BF16 [T,1,topk]; empty when disabled; invalid entries are -inf. |
-| candidates, candidate_length | INT32 [T,1,candidate_topk_blocks], INT32 [T,1]; empty when disabled. |
+| Name | Type | Contract |
+| --- | --- | --- |
+| indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
+| values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
-## cannbot_dsl
+## cann_ops_transformers_cann920
 
-`auto` selects this backend. Requires A5 and a compatible CANNBot-DSL runtime installed in the environment. This operator does not enforce a runtime version. Inputs share a device. First use triggers JIT compilation; warm actual shapes before graph capture.
+Calls only the released CANN 9.2 binding. The old ABI is registered separately as `CANN 9.1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
+
+## ops_transformers_cann910
+
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/quant_lightning_indexer). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 
-Independent CPU Torch accuracy reference; results are copied back to the input device, preserving in-place semantics. Does not require DSL. Not intended for performance or NPU graph capture. Equal-score TopK order may differ.
+Independent eager PyTorch reference for correctness; never an automatic production or graph-capture fallback. Metadata descriptors are not native tiling bytes. Modes outside the documented reference domain are rejected.
 
 ## Example
 
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.indexer import (
-    quant_lightning_indexer,
-    quant_lightning_indexer_metadata,
-)
+from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
-q = torch.zeros(1, 32, 64, device="npu", dtype=torch.uint8)
-qs = torch.full((1, 32, 2, 2), 127, device="npu", dtype=torch.uint8)
-w = torch.ones(1, 32, device="npu")
-cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
-lengths = torch.tensor([64], device="npu", dtype=torch.int32)
-table = torch.zeros(1, 1, device="npu", dtype=torch.int32)
-attrs = dict(topk=512, layout_q="TND", layout_k="PA_BBND")
-k = torch.zeros(1, 64, 1, 64, device="npu", dtype=torch.uint8)
-ks = torch.full((1, 64, 1, 2, 2), 127, device="npu", dtype=torch.uint8)
-metadata = quant_lightning_indexer_metadata(
-    cu_seqlens_q=cu,
-    seqused_k=lengths,
-    num_heads_q=32,
-    num_heads_k=1,
-    head_dim=128,
-    max_seqlen_q=1,
-    max_seqlen_k=64,
-    **attrs
-)
-result = quant_lightning_indexer(
-    q,
-    k,
-    w,
-    qs,
-    ks,
-    cu_seqlens_q=cu,
-    seqused_k=lengths,
-    block_table=table,
-    metadata=metadata,
-    quant_mode=1,
-    **attrs
-)
+q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
+k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
+w = torch.ones(1, 2, device="npu", dtype=torch.float16)
+qs = torch.ones(1, 2, device="npu", dtype=torch.float16)
+ks = torch.ones(1, 128, 1, 1, device="npu", dtype=torch.float16)
+i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
+kw = dict(cu_seqlens_q=i32([0, 1]), seqused_k=i32([1]),
+          cmp_residual_k=i32([0]), block_table=i32([[0]]),
+          layout_q="TND", layout_k="PA_BBND", mask_mode=3, cmp_ratio=4)
+indices, values = quant_lightning_indexer(q, k, w, qs, ks, 1, 2, impl="torch_native", **kw)
 ```
 
-## Device test
+Build/install the current wheel and initialize the SDK first. The example demonstrates the API; it does not establish NPU accuracy, performance or model inference.
+
+Accuracy tests run the independent eager reference on CPU and compare sorted index sets on CPU. This isolates the reference Top-K and comparison Sort from the NPU execution path; index comparison remains exact. Performance timing uses the original NPU executor.
 
 ```bash
-python -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py --npu-device=0 --enable-perf=false -v -s
+python3 -m pytest tests/python/operators/indexer/test_quant_lightning_indexer.py \
+  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
+
+[Upstream operators](https://github.com/Ascend/ops-transformer)

@@ -1,143 +1,199 @@
-# Copyright (c) 2026 Huawei Technologies Co., Ltd.
-# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-# CANN Open Software License Agreement Version 2.0 (the "License").
-# Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-# See LICENSE.cannbot-dsl under implementation/cannbot-dsl for the full text of the License.
-
-"""DSV4.1 decode/verify and empty-key regression, with selected device timing."""
+"""Top-K set comparison against independent dequantized PyTorch math."""
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
+pytest.importorskip("torch_npu")
+
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
 
 from tests.python.utils.accuracy import assert_accuracy
-from tests.python.utils.common import (
-    get_skip_acc_check,
-    make_executor,
-    require_distinct_impls,
-    require_test_impl,
-)
+from tests.python.utils.common import get_skip_acc_check, make_executor
 from tests.python.utils.performance import check_performance
 
-SCORE_RTOL = 1 / 128
-SCORE_ATOL = 2.5e-5
+CASES = [
+    ((513,), (1,), (3,)),
+    ((513,), (128,), (0,)),
+    pytest.param(((513, 257), (2, 3), (0, 1)), marks=pytest.mark.extra_checks),
+    pytest.param(((33,), (4,), (0,)), marks=pytest.mark.extra_checks),
+    pytest.param(((1,), (4,), (0,)), marks=pytest.mark.extra_checks),
+]
+CASE_IDS = [
+    "deepseek-v4-flash-c4-decode-q1-n64-d128-topk512-page32",
+    "deepseek-v4-flash-c4-prefill-q128-n64-d128-topk512-page32",
+    "synthetic-ragged-prefill",
+    "synthetic-page-boundary",
+    "synthetic-empty-causal-prefix",
+]
 
 
-def _check_topk(indices, values, scores, allowed):
-    """Check values, completeness and the TopK boundary without ordering ties."""
-    valid = indices != -1
-    if values is not None:
-        assert torch.isneginf(values[~valid]).all(), "Invalid TopK values must be -inf"
-    selected = indices[valid].long()
-    assert selected.numel() == min(indices.numel(), int(allowed.sum()))
-    assert selected.unique().numel() == selected.numel()
-    assert ((selected >= 0) & (selected < scores.numel())).all()
-    assert allowed[selected].all()
-    if selected.numel() == 0:
-        return
-    selected_scores = scores[selected]
-    if values is not None:
-        torch.testing.assert_close(
-            values[valid].float(), selected_scores, rtol=SCORE_RTOL, atol=SCORE_ATOL
-        )
-    boundary = scores[allowed].topk(selected.numel()).values[-1]
-    if torch.isposinf(boundary):
-        assert torch.isposinf(selected_scores).all()
-    else:
-        assert (
-            selected_scores.min() >= boundary - SCORE_ATOL - SCORE_RTOL * boundary.abs()
-        )
-
-
-def generate_data(rows, length):
-    # DSV4.1 index Q: 32 heads x 128 MXFP4 values. Reconstructed model shapes,
-    # not a captured production tensor dump; T=6 models static DSPARK verify.
-    torch.manual_seed(42)
-    pages = (max(length, 1) + 63) // 64
-    q = torch.randint(0, 256, (rows, 32, 64), dtype=torch.uint8)
-    k = torch.randint(0, 256, (pages, 64, 1, 64), dtype=torch.uint8)
-    qs = torch.full((rows, 32, 2, 2), 127, dtype=torch.uint8)
-    ks = torch.full((pages, 64, 1, 2, 2), 127, dtype=torch.uint8)
-    w = torch.rand(rows, 32)
-    table = torch.arange(pages, dtype=torch.int32).reshape(1, -1)
-    sequence = dict(
-        cu_seqlens_q=torch.tensor([0, rows], dtype=torch.int32),
-        seqused_k=torch.tensor([length], dtype=torch.int32),
+def generate_data(case, mode):
+    lengths, queries, residuals = case
+    dtype = torch.float8_e4m3fn if mode == 1 else torch.int8
+    scale_dtype = torch.float32 if mode == 1 else torch.float16
+    # A5 QuantLightningIndexer requires FP32 weights; A3 uses FP16.
+    weight_dtype = torch.float32 if mode == 1 else torch.float16
+    pages_per_batch = (max(lengths) + 31) // 32
+    pages = len(lengths) * pages_per_batch
+    table = torch.arange(pages - 1, -1, -1, dtype=torch.int32).reshape(
+        len(lengths), pages_per_batch
     )
-    attrs = dict(topk=512, mask_mode=3, cmp_ratio=1, layout_q="TND", layout_k="PA_BBND")
-    meta = dict(
-        sequence,
-        **attrs,
-        num_heads_q=32,
-        num_heads_k=1,
-        head_dim=128,
-        max_seqlen_q=rows,
-        max_seqlen_k=max(length, 1)
+    q = torch.zeros(sum(queries), 64, 128, device="cpu")
+    q[:, :32, :4] = 1
+    q[:, 32:, :4] = -1
+    k = torch.zeros(pages, 32, 1, 128, device="cpu")
+    k[..., :4] = 1
+    scales = torch.ones(pages, 32, 1, dtype=scale_dtype)
+    for b, length in enumerate(lengths):
+        for j in range(length):
+            scales[int(table[b, j // 32]), j % 32, 0] = 2 ** (j / 64)
+    args = (
+        q.to(dtype).view(torch.uint8).to(table.device).view(dtype),
+        k.to(dtype).view(torch.uint8).to(table.device).view(dtype),
+        torch.ones(sum(queries), 64, dtype=weight_dtype),
+        torch.full((sum(queries), 64), 0.5, dtype=scale_dtype),
+        scales,
+        512,
+        mode,
     )
-    kwargs = dict(sequence, **attrs, block_table=table, quant_mode=1, return_value=True)
-    args = (q, k, w, qs, ks)
-    kwargs.update(candidate_topk_blocks=2048, candidate_block_size=8)
-    meta.update(candidate_topk_blocks=2048, candidate_block_size=8)
-    return args, kwargs, meta
+    cu = torch.tensor([0, *queries], dtype=torch.int32).cumsum(0).to(torch.int32)
+    common = dict(
+        cu_seqlens_q=cu,
+        seqused_k=torch.tensor(lengths, dtype=torch.int32),
+        cmp_residual_k=torch.tensor(residuals, dtype=torch.int32),
+        layout_q="TND",
+        layout_k="PA_BBND",
+        mask_mode=3,
+        cmp_ratio=4,
+    )
+    return args, common, table
 
 
-def check_indexer(operator, args, kwargs, length):
-    executor = make_executor(operator, args=args, kwargs=kwargs)
-    if get_skip_acc_check():
-        require_test_impl(operator, executor.impl)
-        return executor
-    require_distinct_impls(operator, executor.impl, executor.impl_ref)
-    # Native full ranking provides scores for alternate valid choices at BF16 ties.
-    ref = operator(*args, **dict(kwargs, topk=max(length, 1)), impl=executor.impl_ref)
-    actual = executor()
-    for row in range(args[0].shape[0]):
-        scores = torch.full((length,), -float("inf"), device="cpu")
-        ref_ids = ref[0][row, 0].cpu()
-        ref_vals = ref[1][row, 0].cpu()
-        valid = ref_ids >= 0
-        scores[ref_ids[valid].long()] = ref_vals[valid].float()
-        allowed = torch.isfinite(scores)
-        _check_topk(actual[0][row, 0].cpu(), actual[1][row, 0].cpu(), scores, allowed)
-        assert_accuracy(actual[3][row], ref[3][row])
-        block_scores = torch.full(
-            (((length + 7) // 8) * 8,), -float("inf"), device="cpu"
-        )
-        block_scores[:length] = scores
-        block_scores = block_scores.reshape(-1, 8).amax(-1)
-        visible = int(allowed.sum())
-        if visible % 8:
-            block_scores[visible // 8] = float("inf")
-        n = int(actual[3][row, 0])
-        _check_topk(
-            actual[2][row, 0, :n].cpu(),
-            None,
-            block_scores,
-            block_scores > -float("inf"),
-        )
-    executor.accuracy_checked = True
-    return executor
+def hardware_mode():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    return 1 if get_hardware().generation == Generation.ARCH35 else 2
 
 
-perf_shape = [(1, 4096), (6, 4096)]
+def _cpu_tensor(value):
+    if not isinstance(value, torch.Tensor):
+        return value
+    if str(value.dtype).startswith("torch.float8_"):
+        return value.view(torch.uint8).cpu().view(value.dtype)
+    return value.cpu()
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((1, 4096), id="dsv41-decode"),
-        pytest.param((6, 4096), id="dsv41-static-verify6"),
-        pytest.param((1, 0), id="edge-empty-keys"),
-    ],
-)
-def test_quant_lightning_indexer(shape):
+def reference_inputs(args, kwargs, kwargs_ref, impl_ref):
+    """Keep eager Top-K off NPU and copy bytes without an FP8 device cast."""
+    kwargs = {**kwargs, **kwargs_ref}
+    if impl_ref != "torch_native":
+        return args, kwargs
+    return (
+        tuple(_cpu_tensor(value) for value in args),
+        {key: _cpu_tensor(value) for key, value in kwargs.items()},
+    )
+
+
+def paired_inputs(data):
     from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
     )
 
-    require_test_impl(quant_lightning_indexer_metadata, "auto")
-    args, kwargs, meta = generate_data(*shape)
-    kwargs["metadata"] = quant_lightning_indexer_metadata(**meta)
-    executor = check_indexer(quant_lightning_indexer, args, kwargs, shape[1])
-    check_performance(executor, enable_perf=shape in perf_shape)
+    from tests.python.utils.common import (
+        get_skip_acc_check,
+        get_test_impls,
+        require_distinct_impls,
+        require_test_impl,
+    )
+
+    args, common, table = data
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() is True:
+        require_test_impl(quant_lightning_indexer, impl)
+    else:
+        require_distinct_impls(quant_lightning_indexer, impl, impl_ref)
+    metadata_args = (64, 1, 128, 512, args[-1])
+    metadata = quant_lightning_indexer_metadata(*metadata_args, impl=impl, **common)
+    kwargs = dict(common, block_table=table, metadata=metadata, return_value=0)
+    kwargs_ref = None
+    if get_skip_acc_check() is not True:
+        ref_args, ref_common = reference_inputs(metadata_args, common, {}, impl_ref)
+        kwargs_ref = dict(
+            metadata=quant_lightning_indexer_metadata(
+                *ref_args,
+                impl=impl_ref,
+                **ref_common,
+            )
+        )
+    return args, kwargs, kwargs_ref, metadata_args, common
+
+
+perf_shape = [CASES[1]]
+
+
+def assert_indexer_accuracy(actual, expected):
+    # Compare the selected set; accelerator kernels can return a different order.
+    actual_indices, actual_values = actual
+    expected_indices, expected_values = expected
+    assert_accuracy(
+        (actual_indices.cpu().sort(dim=-1).values, actual_values.cpu()),
+        (expected_indices.cpu().sort(dim=-1).values, expected_values.cpu()),
+    )
+
+
+@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
+def test_quant_lightning_indexer(case):
+    from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
+
+    args, kwargs, kwargs_ref, _, _ = paired_inputs(generate_data(case, hardware_mode()))
+    executor = make_executor(quant_lightning_indexer, args=args, kwargs=kwargs)
+    if get_skip_acc_check() is not True:
+        reference_args, reference_kwargs = reference_inputs(
+            args, kwargs, kwargs_ref, executor.impl_ref
+        )
+        expected = quant_lightning_indexer(
+            *reference_args, **reference_kwargs, impl=executor.impl_ref
+        )
+        assert_indexer_accuracy(executor(), expected)
+        executor.accuracy_checked = True
+    check_performance(executor, enable_perf=case in perf_shape)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("case", CASES[:2], ids=CASE_IDS[:2])
+def test_quant_lightning_indexer_queued_lifetimes(case):
+    from sgl_kernel_npu.operators.indexer import (
+        quant_lightning_indexer,
+        quant_lightning_indexer_metadata,
+    )
+
+    if get_skip_acc_check() is True:
+        pytest.skip("Queued lifetime regression requires accuracy comparison")
+    args, kwargs, kwargs_ref, metadata_args, common = paired_inputs(
+        generate_data(case, hardware_mode())
+    )
+    executor = make_executor(quant_lightning_indexer, args=args, kwargs=kwargs)
+    reference_args, reference_kwargs = reference_inputs(
+        args, kwargs, kwargs_ref, executor.impl_ref
+    )
+    expected = quant_lightning_indexer(
+        *reference_args, **reference_kwargs, impl=executor.impl_ref
+    )
+    results = []
+    for _ in range(4):
+        # Each iteration replaces the previous metadata Tensor. The queued
+        # bridge must own its inputs and workspace until the ACL call runs.
+        metadata = quant_lightning_indexer_metadata(
+            *metadata_args, impl=executor.impl, **common
+        )
+        results.append(
+            quant_lightning_indexer(
+                *args, **{**kwargs, "metadata": metadata}, impl=executor.impl
+            )
+        )
+        # Encourage allocator reuse without a host read or synchronization.
+        torch.empty(1 << 20, dtype=torch.uint8, device=args[0].device).fill_(0xA5)
+    for result in results:
+        assert_indexer_accuracy(result, expected)

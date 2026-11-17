@@ -61,14 +61,8 @@ std::tuple<at::Tensor, at::Tensor> situ_mxfp8_quant(const at::Tensor &x, const a
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, x.options().dtype(at::kByte));
 
     auto stream = c10_npu::getCurrentNPUStream();
-    x.record_stream(stream);
-    group_list.record_stream(stream);
-    payload.record_stream(stream);
-    scales.record_stream(stream);
-    workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
 
-    // Captures retain queued host resources; record_stream retains asynchronous device storage.
     auto launch = [x, group_list, payload, scales, workspace, xDesc, groupDesc, payloadDesc, scalesDesc, workspaceSize,
                    executor, aclStream]() -> int {
         auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);

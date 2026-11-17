@@ -987,15 +987,15 @@ ge::graphStatus CompressorTiling::CheckDimNumConsistency() const
 {
     auto xDimNum = context_->x.shape->GetStorageShape().GetDimNum();
     OP_CHECK_IF(xDimNum != context_->ropeSin.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "ropeSin dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "ropeSin dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->ropeSin.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     OP_CHECK_IF(xDimNum != context_->ropeCos.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "ropeCos dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "ropeCos dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->ropeCos.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     OP_CHECK_IF(xDimNum != context_->cmpKv.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "cmpKv dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "cmpKv dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->cmpKv.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;

@@ -7,6 +7,12 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
 )
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({"multibuffer": multibuffer}) for multibuffer in (False, True)
+    ],
+    key=["hidden_size", "SCALE"],
+)
 @triton.jit
 def add_rmsnorm_bias_kernel(
     input_ptr,

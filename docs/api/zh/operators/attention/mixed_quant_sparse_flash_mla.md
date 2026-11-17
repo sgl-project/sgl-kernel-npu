@@ -1,152 +1,109 @@
-# mixed_quant_sparse_flash_mla
+# 混合量化共享 KV 注意力
 
-## 芯片支持
+## 硬件支持
 
-| impl | arch22 | arch35 |
+| 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| cannbot_dsl | 不支持 | 支持 |
-| torch_native | 不支持 | 支持 |
+| `cann_ops_transformers_cann920` | 不支持 | 支持 |
+| `ops_transformers_cann910` | 不支持 | 支持 |
+| `ascendc` | 不支持 | 支持 |
+| `torch_native` | 不支持 | 支持 |
 
-## 函数原型
-
-`from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla`
+## 接口
 
 ```python
-def mixed_quant_sparse_flash_mla(
-    q,
-    *,
-    ori_kv=None,
-    cmp_kv=None,
-    ori_sparse_indices=None,
-    cmp_sparse_indices=None,
-    ori_block_table=None,
-    cmp_block_table=None,
-    cu_seqlens_q=None,
-    seqused_q=None,
-    seqused_ori_kv=None,
-    seqused_cmp_kv=None,
-    ori_topk_length=None,
-    cmp_topk_length=None,
-    sinks=None,
-    metadata=None,
-    quant_mode,
-    softmax_scale=None,
-    layout_q="TND",
-    layout_kv="PA_BBND",
-    return_softmax_lse=False,
-    out,
-    lse,
-    impl="auto"
-): ...
+from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
+
+def mixed_quant_sparse_flash_mla(q, *, quant_mode=1, rope_head_dim=64, cmp_ratio=1, softmax_scale=1.0, impl='auto', **kwargs):
+    ...
 ```
 
-## 功能说明
+`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。
 
-混合量化稀疏 MLA：对 BF16 Query、FP8 原始 KV 和可选 FP4 压缩 KV 执行稀疏注意力。
+## 说明
 
-`q` 为 BF16 TND `[T1,64,512]`；`ori_kv` 为 UINT8 PA_BBND `[pages,page_size,1,544]`，`cmp_kv` 可选，格式为 `[pages,page_size,1,320]`。两侧需分别提供稀疏索引、页表与可选有效 TopK 长度。`metadata` 来自 `mixed_quant_sparse_flash_mla_metadata`；`quant_mode=1`。`out` 和 `lse` 由调用方预分配。
+仅 A5；迁移布局为 448 个 NoPE 和 64 个 RoPE 特征，reader 与 writer 必须使用同一 SDK 选择的打包格式。
 
-计算语义（量化边界使用 BF16）：
-
-```text
-z_i = softmax_scale * dot(q, dequant(k_i)); out = sum_i exp(z_i) * dequant(v_i) / (exp(sink) + sum_i exp(z_i)); lse = log(exp(sink) + sum_i exp(z_i))
-```
-
-原始 KV 使用 E4M3FN，每 32 个特征共用一个 BF16 scale；压缩 KV 使用带符号 E2M1，每 16 个特征共用一个 BF16 scale，低半字节在前。两者均按 `dequant(value, scale) = value * scale` 解量化，无 zero point，结果舍入到 BF16。PV 权重在与 value 相乘前舍入到 BF16。sink 参与 softmax 分母和 LSE，value 贡献为零。
+每 64 个 NoPE 值按 `K = payload × scale` 反量化，拼接未量化的 RoPE 尾部，再计算稀疏注意力。旧格式每行 640 字节、E8M0 scale；正式格式每行 608 字节、BF16 scale。
 
 ## 参数
 
-T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
+| 参数 | 类型 | 默认值 | 约束 |
+| --- | --- | --- | --- |
+| q | Tensor | 必填 | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
+| quant_mode | int / str | 1 | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| rope_head_dim | int | 64 | 64 RoPE features in the migrated mixed-quant layout |
+| cmp_ratio | int | 1 | Compression ratio for compressed-KV visibility |
+| softmax_scale | float | 1.0 | Multiplier on QK logits before softmax |
+| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
-| 参数 | 默认值 | 类型、形状与含义 |
+### 关键字参数
+
+| 名称 | 类型 | 约束 |
 | --- | --- | --- |
-| `q` | 必填 | BF16 [T,64,512]，attention 查询。 |
-| `ori_kv` | `None` | UINT8 [P,S,1,544]，FP8 KV 字节与 BF16 分组 scale；cannbot_dsl 必需。 |
-| `cmp_kv` | `None` | 可选 UINT8 [P,S,1,320]，打包 FP4 KV 字节与 BF16 分组 scale。 |
-| `ori_sparse_indices` | `None` | 必需的 INT32 [T,1,Kori] 原始 KV 逻辑 token ID；-1 为填充。 |
-| `cmp_sparse_indices` | `None` | 可选 INT32 [T,1,Kcmp]，压缩 KV 逻辑 token ID；-1 为填充。 |
-| `ori_block_table` | `None` | 必需的 INT32 [B,max_ori_blocks] 原始 KV 页映射。 |
-| `cmp_block_table` | `None` | 可选 INT32 [B,max_cmp_blocks]，压缩 KV 页映射。 |
-| `cu_seqlens_q` | `None` | cannbot_dsl 必需的 INT32 [B+1] 查询累计边界，末项为 T。 |
-| `seqused_q` | `None` | 可选 INT32 [B]；提供时必须等于 cu_seqlens_q 的相邻差值，不支持填充查询行。 |
-| `seqused_ori_kv` | `None` | 可选 INT32 [B]，原始 KV 长度；保留该兼容参数。 |
-| `seqused_cmp_kv` | `None` | 可选 INT32 [B]，压缩 KV 长度；保留该兼容参数。 |
-| `ori_topk_length` | `None` | 可选 INT32 [T,1] 有效稀疏前缀长度；None 使用原始索引的全部列。 |
-| `cmp_topk_length` | `None` | 可选 INT32 [T,1] 有效稀疏前缀长度；None 使用压缩索引的全部列。无 cmp_kv 时省略。 |
-| `sinks` | `None` | FP32 [64]，attention sink 的 logit（不贡献 value）。 |
-| `metadata` | `None` | cannbot_dsl 必需的 INT32 [1024] 设备调度数据；torch_native 不使用该参数。 |
-| `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |
-| `softmax_scale` | `None` | 可选 float，默认 1/sqrt(512)。 |
-| `layout_q` | `'TND'` | str，使用 TND（展平查询 token）。 |
-| `layout_kv` | `'PA_BBND'` | str，使用 PA_BBND 打包分页 KV。 |
-| `return_softmax_lse` | `False` | bool，True 时写入 lse。 |
-| `out` | 必填 | 可写 BF16 [T,64,512] 输出张量。 |
-| `lse` | 必填 | return_softmax_lse=True 时为可写 FP32 [1,T,64]；否则传入空的 FP32 [0] 张量。 |
-| `impl` | `'auto'` | str，auto 选择 cannbot_dsl；torch_native 是独立计算参考。 |
+| ori_kv / cmp_kv | Tensor / None | Original/optional compressed paged KV [pages,page_size,1,D]; BF16 or SDK-selected packed bytes. |
+| ori_block_table / cmp_block_table | int32 Tensor / None | [B,max_pages] logical-to-physical page tables. |
+| cu_seqlens_q / seqused_q | int32 Tensor / None | [B+1] cumulative query offsets / [B] query lengths. |
+| seqused_ori_kv / seqused_cmp_kv / cmp_residual_kv | int32 Tensor / None | [B] original/compressed/residual KV lengths; configure consistently with cmp_ratio. |
+| ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
+| ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
+| sinks | Tensor / None | Optional per-head softmax sink logits. |
+| metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
+| softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
+| ori_mask_mode / cmp_mask_mode | int | Reference supports original explicit 0 or SWA 4; compressed 0 or causal 3. |
+| ori_win_left / ori_win_right | int | Original visibility window; reference defaults 127 / 0. |
+| layout_q / layout_kv | str | Reference defaults TND / PA_BBND; BSND queries also supported. |
+| return_softmax_lse | bool | Default False; unused LSE is an empty FP32 tensor. |
+| quant_mode / rope_head_dim | int / int | Mixed-quant mode 1 and 64 RoPE features in the migrated layout. |
 
 ## 返回值
 
-| 值 | 含义 |
-| --- | --- |
-| None | 结果写入 out；return_softmax_lse=True 时写入 lse。 |
+| 名称 | 类型 | 约束 |
+| --- | --- | --- |
+| out | Tensor | Query token/head geometry with KV value width, query activation dtype. |
+| lse | FP32 Tensor | Per-query/head LSE if requested, otherwise empty. |
 
-## cannbot_dsl
+## cann_ops_transformers_cann920
 
-`auto` 默认选择此后端。需要 A5 和环境中安装的兼容 CANNBot-DSL 运行时，算子入口不强制检查版本。输入在同一设备，首次调用 JIT 编译；图捕获前预热实际形状。
+使用 CANN 9.2 绑定，并拒绝不匹配的 SDK。auto 按缓存的 SDK 版本选择实现；A5 KV 格式也由同一版本确定。每个算子仅查找自身绑定。
+
+## ops_transformers_cann910
+
+Source: [ops-transformer experimental](https://gitcode.com/cann/ops-transformer/tree/6f0d3ec620b338cab4f2d00322ff2e0d141419d2/experimental/attention/kv_quant_sparse_attn_sharedkv). The kernel source is experimental ops-transformer. Its custom_ops Python/C++ bridge may be distributed from cann-recipes-infer; the implementation name records kernel provenance, not the bridge package name. Requires window-only original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
+
+## ascendc
+
+Source: [sgl-kernel-npu DSpark device kernel](https://github.com/sgl-project/sgl-kernel-npu/blob/26ec66efe01f8acef43db55da679107702876b23/csrc/kv_quant_sparse_attn_sharedkv/op_kernel/kv_quant_sparse_attn_sharedkv.cpp). The C++ wrapper directly launches the checked-in Ascend C kernel; this is not inferred from the Torch namespace. Requires explicit sparse original-KV inputs. The CANN 9.1 ABI conversion stays in this operator module; an initialized CANN 9.2 SDK is rejected.
 
 ## torch_native
 
-独立的 CPU Torch 精度参考，结果复制回输入设备，保留原地输出语义。无需 DSL；不适合性能执行或 NPU graph capture。
+独立 eager PyTorch 参考；仅用于正确性检查，不自动替代生产实现，也不保证图捕获。元数据描述对象不等价于原生 tiling 字节。上述参考支持域外的模式会明确拒绝。
 
 ## 示例
 
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.attention import (
-    mixed_quant_sparse_flash_mla,
-    mixed_quant_sparse_flash_mla_metadata,
-)
+from sgl_kernel_npu.operators.attention import mixed_quant_sparse_flash_mla
 
-q = torch.randn(1, 64, 512, device="npu", dtype=torch.bfloat16)
-kv = torch.zeros(1, 128, 1, 544, device="npu", dtype=torch.uint8)
-kv[..., 512:] = torch.ones(1, 128, 1, 16, device="npu", dtype=torch.bfloat16).view(
-    torch.uint8
-)
-cu = torch.tensor([0, 1], device="npu", dtype=torch.int32)
-length = torch.tensor([[128]], device="npu", dtype=torch.int32)
-metadata = mixed_quant_sparse_flash_mla_metadata(
-    length,
-    torch.zeros_like(length),
-    cu_seqlens_q=cu,
-    num_heads_q=64,
-    num_heads_kv=1,
-    head_dim=512,
-    quant_mode=1,
-    has_cmp_kv=False,
-)
-out = torch.empty_like(q)
-lse = torch.empty(1, 1, 64, device="npu")
-mixed_quant_sparse_flash_mla(
-    q,
-    ori_kv=kv,
-    ori_sparse_indices=torch.arange(128, device="npu", dtype=torch.int32).reshape(
-        1, 1, -1
-    ),
-    ori_block_table=torch.zeros(1, 1, device="npu", dtype=torch.int32),
-    cu_seqlens_q=cu,
-    ori_topk_length=length,
-    sinks=torch.zeros(64, device="npu"),
-    metadata=metadata,
-    quant_mode=1,
-    out=out,
-    lse=lse,
-    return_softmax_lse=True,
-)
+q = torch.randn(1, 1, 512, device="npu", dtype=torch.bfloat16)
+i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
+kw = dict(cu_seqlens_q=i32([0, 1]), seqused_ori_kv=i32([1]),
+          ori_block_table=i32([[0]]), layout_q="TND", layout_kv="PA_BBND",
+          ori_mask_mode=4, cmp_mask_mode=3, cmp_ratio=1)
+from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path, kv_compress_epilog
+path = get_npu_kv_quant_path()  # A5 only.
+cache = torch.empty(1, 128, 1, path.packed_dim(448, 64), device="npu", dtype=torch.uint8)
+kv_compress_epilog(cache, q[:, 0], i32([0]), impl="auto")
+kw.update(quant_mode=1, rope_head_dim=64)
+out, lse = mixed_quant_sparse_flash_mla(q, ori_kv=cache, impl="torch_native", **kw)
 ```
 
-## 设备测试
+先构建安装当前 wheel 并初始化 SDK。上例只演示接口，不能替代 NPU 精度、性能或端到端验证。
 
 ```bash
-python -m pytest tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py --npu-device=0 --enable-perf=false -v -s
+python3 -m pytest tests/python/operators/attention/test_mixed_quant_sparse_flash_mla.py \
+  --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
+
+[上游算子仓库](https://github.com/Ascend/ops-transformer)

@@ -79,16 +79,16 @@ def quant_flash_attn(
     """Compute quantized attention; auto selects cann_ops_transformer on arch35.
 
     CANN arguments and return values are forwarded unchanged. The independent
-    torch_native reference covers quant_mode=1, TND Q/output, PA_BNBD KV,
+    torch_native reference covers quant_mode=1, TND Q/output, PA_BBND or PA_BNBD KV,
     TND/N2TGD Q descales and mask modes 0/3. It is an eager accuracy reference.
 
     Args:
         q: Quantized queries; MXFP8 uses FP8 E4M3 [T, Nq, D].
-        k, v: Quantized keys/values; PA_BNBD uses [P, Nkv, S, D].
+        k, v: Quantized keys/values; SGLang uses PA_BBND [P, S, Nkv, D].
         q_descale: E8M0 [T, Nq, ceil(D/64), 2] for TND, or
             [Nkv, T, Nq/Nkv, ceil(D/64), 2] for N2TGD.
-        k_descale: E8M0 [P, Nkv, S, ceil(D/64), 2] for PA_BNBD.
-        v_descale: E8M0 [P, Nkv, S/64, D, 2] for PA_BNBD.
+        k_descale: E8M0 [P, S, Nkv, ceil(D/64), 2] for PA_BBND.
+        v_descale: E8M0 [P, S/64, Nkv, D, 2] for PA_BBND.
         quant_mode: CANN quantization mode; 1 selects MXFP8 with FP8 P.
         block_table: Int32 [B, max_pages] physical page indices.
         p_scale: Optional FP32 [1] scale for FP8 attention probabilities.
