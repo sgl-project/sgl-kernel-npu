@@ -79,7 +79,7 @@ def test_mhc_pre_dpskv4_dsv41_premix(shape):
     from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
     args = generate_data(shape)
-    # pre_mix replaces the computed pre weights and is returned unchanged.
+    # pre_mix only weights y; the returned pre is still computed internally.
     pre_mix = torch.sigmoid(torch.randn((shape[0], shape[1]), dtype=torch.float32))
     executor = check_accuracy(
         mhc_pre_dpskv4,

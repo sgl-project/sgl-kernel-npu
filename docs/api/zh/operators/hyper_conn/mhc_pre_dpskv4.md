@@ -29,7 +29,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 
 对展平流进行 RMS 归一化投影，生成 sigmoid pre/post gate 和 Sinkhorn 归一化残差矩阵；`y = Σ_i pre_i × x_i`。y 保留输入 dtype，参考 post/comb 为 FP32。
 
-`pre_mix` 传入时直接作为 pre 权重参与 y 累加，不再由投影结果计算；`return_pre=True` 时把 pre 作为第四个返回值追加在 comb 之后。这两个参数仅 `cann_recipes_infer_cann920` 与 `torch_native` 支持。
+`pre_mix` 传入时直接作为权重参与 y 累加，不再由投影结果计算；`return_pre=True` 时在 comb 之后追加本轮内部计算的 pre（即使传入了 `pre_mix`）。这两个参数仅 `cann_recipes_infer_cann920` 与 `torch_native` 支持。
 
 ## 参数
 
@@ -43,7 +43,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 | sinkhorn_iters | int | 必填 | Positive Sinkhorn iteration count |
 | hc_eps | float | 必填 | Gate and Sinkhorn stability epsilon |
 | rms_norm_eps | float | 必填 | Internal projection RMS epsilon, not the model layernorm |
-| pre_mix | Tensor | None | 仅限关键字；[T,n] FP32 pre 权重，要求 `cann_recipes_infer_cann920` 或 `torch_native` |
+| pre_mix | Tensor | None | 仅限关键字；参与 y 累加的 [T,n] FP32 权重，要求 `cann_recipes_infer_cann920` 或 `torch_native` |
 | return_pre | bool | False | 仅限关键字；为 True 时多返回一个 pre 输出 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 

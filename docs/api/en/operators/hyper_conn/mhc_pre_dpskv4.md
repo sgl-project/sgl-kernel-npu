@@ -29,7 +29,7 @@ Input [T,n,C]; does not fuse the model input layernorm.
 
 RMS-normalize the flattened streams for projection, form sigmoid pre/post gates and a Sinkhorn-normalized residual matrix. `y = Σ_i pre_i × x_i`. The activation preserves x.dtype; post and comb are FP32 in the reference.
 
-A supplied `pre_mix` is used directly as the pre weights for the y accumulation instead of being derived from the projection; `return_pre=True` appends the pre weights as a fourth return value. Both options require `cann_recipes_infer_cann920` or `torch_native`.
+A supplied `pre_mix` is used directly to weight the y accumulation instead of the projection-derived weights; `return_pre=True` appends the internally computed pre weights as a fourth return value, even when `pre_mix` is supplied. Both options require `cann_recipes_infer_cann920` or `torch_native`.
 
 ## Parameters
 
@@ -43,7 +43,7 @@ A supplied `pre_mix` is used directly as the pre weights for the y accumulation 
 | sinkhorn_iters | int | required | Positive Sinkhorn iteration count |
 | hc_eps | float | required | Gate and Sinkhorn stability epsilon |
 | rms_norm_eps | float | required | Internal projection RMS epsilon, not the model layernorm |
-| pre_mix | Tensor | None | Keyword-only; [T,n] FP32 pre weights, requires `cann_recipes_infer_cann920` or `torch_native` |
+| pre_mix | Tensor | None | Keyword-only; [T,n] FP32 weights for the y accumulation, requires `cann_recipes_infer_cann920` or `torch_native` |
 | return_pre | bool | False | Keyword-only; append the pre output when True |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 

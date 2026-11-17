@@ -95,7 +95,8 @@ def _quantize_mxfp4(xf, group):
         scale_bits,
     )
     inverse_field = _BF16_INV_BIAS_FIELD - scale_field
-    inverse = ((inverse_field + _BF16_EXP_BIAS) << 23).view(torch.float32)
+    # Already a float32 exponent field: 2^(127 - scale_field), no bias added.
+    inverse = (inverse_field << 23).view(torch.float32)
     scaled = (grouped * inverse).abs().view(rows, -1)
     codes = torch.zeros_like(scaled, dtype=torch.int64)
     for boundary, ties_up in _MXFP4_BOUNDARIES:
