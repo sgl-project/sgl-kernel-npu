@@ -97,10 +97,14 @@ def _quantize_mxfp4(xf, group):
     inverse_field = _BF16_INV_BIAS_FIELD - scale_field
     # Already a float32 exponent field: 2^(127 - scale_field), no bias added.
     inverse = (inverse_field << 23).view(torch.float32)
-    scaled = (grouped * inverse).abs().view(rows, -1)
+    scaled = (grouped * inverse).view(rows, -1)
+    magnitudes = scaled.abs()
     codes = torch.zeros_like(scaled, dtype=torch.int64)
     for boundary, ties_up in _MXFP4_BOUNDARIES:
-        codes += (scaled >= boundary) if ties_up else (scaled > boundary)
+        codes += (magnitudes >= boundary) if ties_up else (magnitudes > boundary)
+    # e2m1 sign bit (nibble bit 3); signbit covers -0.0 and negatives that
+    # round to zero magnitude, matching the kernel.
+    codes |= torch.signbit(scaled).to(torch.int64) << 3
     even = codes[:, 0::2]
     odd = codes[:, 1::2]
     data = (even | (odd << 4)).to(torch.uint8)
