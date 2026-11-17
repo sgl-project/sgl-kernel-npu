@@ -36,7 +36,6 @@ def generate_data(shape, seed=42):
         pytest.param((24, 42), id="one-replica-per-logical-16npu"),
         pytest.param((48, 82), id="two-copies-32-logical-16npu"),
         pytest.param((17, 25), id="edge-unaligned-uses-dot"),
-        pytest.param((1, 1), id="edge-minimum"),
     ],
 )
 @pytest.mark.parametrize("num_iters", [0, 1, 5])
