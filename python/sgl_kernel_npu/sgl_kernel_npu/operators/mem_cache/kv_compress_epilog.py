@@ -59,11 +59,12 @@ def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    op = getattr(torch.ops.npu, "kv_compress_epilog", None)
-    if op is None:
+    try:
+        op = torch.ops.npu.kv_compress_epilog
+    except AttributeError as exc:
         raise RuntimeError(
             f"Missing operator npu.kv_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+        ) from exc
     if (
         kwargs["quant_mode"] != "fp8_e8m0"
         or not kwargs["round_scale"]

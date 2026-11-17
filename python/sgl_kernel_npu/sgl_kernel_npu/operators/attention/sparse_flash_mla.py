@@ -6,7 +6,6 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from .attention_utils import cann_9_1_dspark_kv_indices_to_physical_slots
-from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
 
 
 @register_impl(
@@ -75,24 +74,16 @@ def _ascendc(q, **kwargs):
 
 def _cann_9_1_sparse_flash_mla(q, **kwargs):
     indices = kwargs.get("ori_sparse_indices")
-    namespace, binding = (
-        ("npu", "sparse_attn_sharedkv")
-        if indices is not None
-        else ("custom", "npu_sparse_attn_sharedkv")
-    )
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if namespace == "custom":
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-        namespace = "sgl_cann_recipes_infer"
-    op = getattr(getattr(torch.ops, namespace), binding, None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+    if indices is not None:
+        op = torch.ops.npu.sparse_attn_sharedkv
+    else:
+        from ..._third_party.sgl_cann_recipes_infer import (
+            npu_sparse_attn_sharedkv as op,
         )
     args = {
         key: value
