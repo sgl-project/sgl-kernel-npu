@@ -19,8 +19,10 @@ def _build_ngram_attention_mask_kernel(
     keys = tl.program_id(2) * BLOCK + tl.arange(0, BLOCK)
     prefix = tl.load(prefix_lens + batch)
     draft_key = keys - prefix
+    # Keep masked-off load addresses within the tree storage.
+    safe_draft_key = tl.minimum(tl.maximum(draft_key, 0), D - 1)
     ancestor = tl.load(
-        tree_mask + batch * D * D + query * D + draft_key,
+        tree_mask + batch * D * D + query * D + safe_draft_key,
         mask=(draft_key >= 0) & (draft_key < D) & (keys < KV_LEN),
         other=0,
     )
