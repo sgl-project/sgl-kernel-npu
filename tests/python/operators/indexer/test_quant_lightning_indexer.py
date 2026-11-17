@@ -293,3 +293,87 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
         assert torch.equal(captured.cpu().sort(-1).values, eager.cpu().sort(-1).values)
     ordinary = quant_lightning_indexer(*args, **kwargs, candidate_mode=3)
     assert ordinary[0].shape == (query_length, 1, 512)
+
+
+@pytest.mark.parametrize("length", [4096, 32769])
+@pytest.mark.parametrize("ragged", [False, True])
+def test_a3_consumer_dirty_candidates_and_replay(length, ragged):
+    from sgl_kernel_npu.operators.indexer import (
+        quant_lightning_indexer,
+        quant_lightning_indexer_metadata,
+    )
+    from sgl_kernel_npu.operators.indexer.quant_lightning_indexer import (
+        torch_npu_soc_family,
+    )
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    if torch_npu_soc_family() != 250 or not detect_cann_version().startswith("9.2."):
+        pytest.skip("V4.1 INT8 candidate modes require A3 + CANN 9.2")
+    with torch.device("cpu"):
+        case = (
+            ((length, length - 64), (2, 3), (0, 0))
+            if ragged
+            else ((length,), (5,), (0,))
+        )
+        args, common, table = generate_data(case, 2, scale_divisor=4096)
+        args[4].fill_(1)  # Candidate eligibility, rather than scores, decides the set.
+        candidates = torch.full((5, 1, 2048), -1, dtype=torch.int32)
+        domains = [
+            torch.arange(320, 384),
+            torch.arange(384, 448),
+            torch.arange(320, 448, 2),
+            torch.arange(321, 449, 2),
+            torch.arange(352, 416),
+        ]
+        for row, blocks in enumerate(domains):
+            # Exactly 64 distinct blocks = 512 visible keys, all below the
+            # earliest query's causal boundary. Duplicates change no eligibility.
+            scrambled = blocks.flip(0).to(torch.int32)
+            candidates[row, 0, :64] = scrambled
+            candidates[row, 0, 64:128] = scrambled
+            candidates[row, 0, 128:131] = torch.tensor(
+                [-7, length // 8 + 4096, 2**31 - 1], dtype=torch.int32
+            )
+        expected = torch.stack(
+            [(blocks[:, None] * 8 + torch.arange(8)).flatten() for blocks in domains]
+        ).int()
+    args = tuple(
+        value[:, :32].contiguous() if i in (0, 2, 3) else value
+        for i, value in enumerate(args)
+    )
+    args = tuple(
+        value.to("npu") if isinstance(value, torch.Tensor) else value for value in args
+    )
+    common["cmp_ratio"] = 1
+    common["cmp_residual_k"] = None
+    common = {
+        key: value.to("npu") if isinstance(value, torch.Tensor) else value
+        for key, value in common.items()
+    }
+    candidates = candidates.to("npu")
+    metadata = quant_lightning_indexer_metadata(32, 1, 128, 512, 2, **common)
+    kwargs = dict(common, block_table=table.to("npu"), metadata=metadata)
+
+    def select():
+        metadata.copy_(quant_lightning_indexer_metadata(32, 1, 128, 512, 2, **common))
+        return quant_lightning_indexer(
+            *args, **kwargs, candidate_mode=2, candidate_topk_index=candidates
+        )[0]
+
+    eager = select()
+    assert torch.equal(
+        eager.cpu().view(5, 512).sort(-1).values, expected.sort(-1).values
+    )
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        captured = select()
+    # The long case crosses from the legacy mask into the membership table
+    # during replay, without a different captured shape or a new operator.
+    for shift in range(1, 4):
+        candidates.copy_(candidates.roll(1, 0))
+        common["seqused_k"].sub_(128)
+        graph.replay()
+        assert torch.equal(
+            captured.cpu().view(5, 512).sort(-1).values,
+            expected.roll(shift, 0).sort(-1).values,
+        )

@@ -259,6 +259,24 @@ def test_profiles_reuse_experimental_a3_ops_without_source_overlay(
         assert "mm1ResSize = S1_BASE_SIZE * S2_BASE_SIZE" in text
         assert "16ULL * M_BASE_SIZE * DOUBLE_BUFFER * sizeof(uint16_t)" in text
 
+    kernel = source / (
+        "experimental/attention/quant_sparse_lightning_indexer/op_kernel/arch22/"
+        "quant_sparse_lightning_indexer_service_vector_arch22.h"
+    )
+    kernel.parent.mkdir(parents=True)
+    kernel.write_text("    int32_t tileBlockBase = cuBaseS2Idx / blockSize;\n")
+    adapter.optimize_a3_consumer_mask(source)
+    adjusted = kernel.read_text()
+    adapter.optimize_a3_consumer_mask(source)
+    assert kernel.read_text() == adjusted
+    assert "blockCount <= tableCapacity" in adjusted
+    assert "b >= 0 && b < blockCount" in adjusted
+    assert "innerS1Idx * tableCapacity" in adjusted
+    assert "HardEvent::MTE2_S" in adjusted
+    kernel.write_text("unexpected upstream source")
+    with pytest.raises(RuntimeError, match="Unexpected A3 consumer mask"):
+        adapter.optimize_a3_consumer_mask(source)
+
     import zipfile
 
     wheel = tmp_path / "upstream.whl"
