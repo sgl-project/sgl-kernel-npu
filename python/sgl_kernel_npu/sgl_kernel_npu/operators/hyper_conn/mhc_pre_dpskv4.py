@@ -5,10 +5,6 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_cann_920_fn = None
-_cann_910_fn = None
-_torch_native_fn = None
-
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "auto")
 def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
@@ -28,19 +24,15 @@ def _auto_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformers_cann920")
 def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    if _cann_920_fn is None:
-        from ..._third_party.sgl_ops_transformer_dsv4 import ops
-
-        _cann_920_fn = ops.mhc_pre_sinkhorn
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
     shape = x.shape
-    h_in, h_post, h_res = _cann_920_fn(
+    h_in, h_post, h_res = ops.mhc_pre_sinkhorn(
         x.reshape(-1, 1, hc_mult, shape[-1]),
         fn,
         scale,
@@ -61,18 +53,14 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
 def _cann_9_1_mhc_pre(
     x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
 ):
-    global _cann_910_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if _cann_910_fn is None:
-        from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre
+    from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre as op
 
-        _cann_910_fn = npu_hc_pre
-
-    y, post, comb = _cann_910_fn(
+    y, post, comb = op(
         x,
         fn,
         scale,
@@ -87,14 +75,9 @@ def _cann_9_1_mhc_pre(
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "torch_native")
 def _torch_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
-    global _torch_native_fn
-    if _torch_native_fn is None:
-        from ...implementation.torch_native.hyper_conn.mhc_pre_dpskv4 import (
-            mhc_pre_dpskv4,
-        )
+    from ...implementation.torch_native.hyper_conn.mhc_pre_dpskv4 import mhc_pre_dpskv4
 
-        _torch_native_fn = mhc_pre_dpskv4
-    return _torch_native_fn(
+    return mhc_pre_dpskv4(
         x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
     )
 
