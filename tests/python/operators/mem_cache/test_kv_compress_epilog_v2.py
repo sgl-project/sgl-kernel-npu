@@ -265,7 +265,7 @@ def _scale_words(words):
 def _compare_cache(actual, reference, x, slots, mode, group):
     a = actual.view(torch.uint8).cpu()
     r = reference.view(torch.uint8).cpu()
-    keep = torch.ones(a.shape, dtype=torch.bool)
+    keep = torch.ones(a.shape, dtype=torch.bool, device=a.device)
     a, r, keep = [v.reshape(v.shape[0], -1) for v in (a, r, keep)]
     data_width, _, _ = _widths(x.shape[1], mode, group, 4 if actual.ndim == 4 else 2)
     scale_count = x.shape[1] // group
@@ -278,8 +278,8 @@ def _compare_cache(actual, reference, x, slots, mode, group):
     else:
         row_index = selected[:, None]
         base = torch.zeros_like(selected)[:, None]
-    data_cols = base + torch.arange(data_width)
-    scale_cols = base + data_width + torch.arange(scale_count * 2)
+    data_cols = base + torch.arange(data_width, device=base.device)
+    scale_cols = base + data_width + torch.arange(scale_count * 2, device=base.device)
     keep[row_index, data_cols] = False
     keep[row_index, scale_cols] = False
 

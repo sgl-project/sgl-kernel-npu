@@ -172,9 +172,10 @@ def mhc_pre_dpskv4(
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    pre_mix optionally supplies the [T,n] FP32 pre weights, and return_pre
-    appends them as a fourth output. Both need impl "cann_recipes_infer_cann920"
-    (DSV4.1 fused kernel) or "torch_native"; auto stays on the DSV4 backend.
+    pre_mix optionally supplies the [T,n] FP32 weights used to accumulate y, and
+    return_pre appends the computed pre weights as a fourth output. Both need impl
+    "cann_recipes_infer_cann920" (DSV4.1 fused kernel) or "torch_native"; auto stays
+    on the DSV4 backend.
     torch_native is an eager correctness reference, not a graph fallback.
 
     impl: auto (SDK-selected), cann_ops_transformers_cann920,
