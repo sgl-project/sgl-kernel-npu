@@ -1,5 +1,61 @@
 # A5 native vs pre/post-migration LIM/CopySFA microbenchmark
 
+## Locate the first tensor difference in the current framework
+
+`trace_alignment.py` runs one synthetic A5 packed-C8 layer in eager mode,
+first cold and then with the same inputs and warm residency. It calls the
+installed native quantized LI/SFA operators for the no-offload reference, and
+the selected framework checkout's real `C8SparseKVCacheManager`, LIM bridge,
+publication, ring staging and attention functions for HiSparse. Pool shells
+provide inputs and allocation geometry; they do not implement the algorithms.
+KV is packed with the framework's production FP8 packer. Requests have separate
+physical pages, and cache comparisons resolve logical tokens through page tables.
+
+After initializing the Ascend environment and installing the paired A5 DT wheel:
+
+```bash
+cd /mnt/share/y00970600/personal/sgl-kernel-npu
+python3 benchmark/copysfa_a5_ab/trace_alignment.py \
+  --framework-prefix /mnt/share/y00970600/personal/sglang \
+  --device 0 --heads 128 \
+  --output /mnt/share/y00970600/a5-alignment-long-q4
+```
+
+The default is local batch 2, Q4, C8192 and context 9344. Use `--query-width 1`
+for Q1. A short-path case is a separate single command with `--context 1024`
+and a different output directory. Short Q4 follows the framework's native-LI
+bypass, Host gather and vendor QSFA path; it does not claim LIM/CopySFA coverage.
+Short Q1 still calls LIM but does not use CopySFA.
+
+Only a compact parsed result appears in the terminal and `summary.txt`:
+cold/warm pass counts, actual path, miss counts, first differing stage and error
+metrics. Detailed checks are in `report.json`; `inputs.pt`, `cold.pt`, and
+`warm.pt` contain CPU tensor snapshots, and `run.log` captures verbose Python
+and native output. Existing output directories are never overwritten.
+
+The diagnostic checks pre-LIM metadata, per-query TopK sets, current KV packing
+and Host publication, ring-tail contents/state, CopySFA page tables/lengths,
+query packing, and selected logical KV after copying. It compares attention
+both with independently selected native TopK and with the exact LIM-selected
+IDs to separate retrieval from attention arithmetic. Metadata and packed KV
+require exact agreement; attention uses the recorded `--atol`, `--rtol`, and
+`--max-relative-l2` gates. No reference output is substituted on a failure.
+
+This baseline deliberately sets split-query, fused-ring-tail, MF and hit
+recording off, and both metadata fusions on, inside this process only. Previous
+flag values, source SHAs and the installed native library hash are recorded.
+Synchronizations and snapshots make this unsuitable for performance measurement.
+It does not load model weights, exercise the scheduler/four-stream overlap,
+or validate graph capture, whole-model accuracy, or optional v2 fusion.
+Exit codes: 0 = all checks complete and pass; 1 = numerical/metadata mismatch;
+2 = setup/runtime failure. A partial run cannot pass.
+
+CPU-only checks for these diagnostic oracles (not A5 device validation):
+
+```bash
+python3 -m pytest -q benchmark/copysfa_a5_ab/test_tensor_trace_cpu.py
+```
+
 This harness compares three isolated A5 arms on one deterministic fixture:
 
 1. `native`: the SGLang no-offload A5 path, using
