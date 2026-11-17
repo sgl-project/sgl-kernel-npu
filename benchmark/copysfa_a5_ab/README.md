@@ -182,6 +182,21 @@ all requests.
 
 ## Evidence boundary
 
+The console prints one timing line per case; raw samples remain in each
+`result.json`. Compare already collected results without rerunning operators:
+
+```bash
+python3 benchmark/copysfa_a5_ab/compare.py /path/to/retry-results
+```
+
+This prints mean NPU Event times in microseconds and migration deltas for LIM,
+CopySFA and their chain. Positive percentages mean slower. Use
+`--stat median_us` to compare medians. Missing or failed cases are shown;
+timings without successful fixture and numerical validation are explicitly
+marked as diagnostic only. When both `unfixed-m512`/`fixed-m512` (or m513)
+matrices exist, scheduling deltas for the post-migration arm are also printed.
+The command reads existing files and does not initialize an NPU.
+
 The scripts and fixture/result contracts can be checked on CPU, but numerical,
 graph and event-timing acceptance require an actual Ascend950 run. Historical
 aggregate observations (old CopySFA 196.220 us / LIM 319.968 us; new CopySFA

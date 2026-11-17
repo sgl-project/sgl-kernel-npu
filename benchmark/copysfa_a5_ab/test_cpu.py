@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import array
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -18,6 +20,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from bench import _import_shm, _require_kernel_prefix  # noqa: E402
+from compare import delta, show_matrix  # noqa: E402
 from fixture import FixtureSpec, parse_miss_counts  # noqa: E402
 from prepare_wheels import unpack  # noqa: E402
 from report import _parity  # noqa: E402
@@ -63,6 +66,41 @@ class RuntimeCheckTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Missing modules: torch", result.stderr)
             self.assertFalse(output.exists())
+
+
+class TimingComparisonTest(unittest.TestCase):
+    def test_failed_cases_show_deltas_without_claiming_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for arm, duration in (("pre_migration", 200), ("post_migration", 250)):
+                path = root / "q4-graph" / arm / "result.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "case": {"query_width": 4, "mode": "graph"},
+                            "arm": {"name": arm},
+                            "status": "failed",
+                            "timings": {
+                                name: {"mean_us": duration}
+                                for name in (
+                                    "indexer_or_lim",
+                                    "attention_or_copysfa",
+                                    "chain",
+                                )
+                            },
+                            "accuracy": {"chain": {"passed": False}},
+                        }
+                    )
+                )
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                show_matrix(root, "mean_us")
+            self.assertIn("CopySFA +25.00%", stream.getvalue())
+            self.assertIn("NOT ACCEPTED", stream.getvalue())
+            self.assertIn("accuracy failed: chain", stream.getvalue())
+            self.assertIn("MISSING", stream.getvalue())
+            self.assertEqual(delta(0, 1), "n/a")
 
 
 class ShmCompatibilityTest(unittest.TestCase):

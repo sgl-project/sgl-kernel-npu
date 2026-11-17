@@ -831,7 +831,15 @@ def main() -> int:
             ),
         }
         write_result(result_path, result)
-        print(json.dumps(result, indent=2, sort_keys=True))
+        print(
+            f"Q{args.query_width} {args.mode} {args.arm}: {result['status']} | "
+            + " | ".join(
+                f"{name}={timings[name]['mean_us']:.3f}us"
+                for name in ("indexer_or_lim", "attention_or_copysfa", "chain")
+            )
+            + f" | details: {result_path}",
+            flush=True,
+        )
         return 0 if result["status"] == "passed" else 1
     except Exception:
         partial["status"] = "failed"
