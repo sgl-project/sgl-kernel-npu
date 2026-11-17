@@ -69,10 +69,11 @@ jobs:
           ccache --set-config=max_size="${CCACHE_MAXSIZE}"
 
           if [[ -n "${CCACHE_REMOTE_STORAGE}" ]]; then
+            cache_url="${CCACHE_REMOTE_STORAGE%% *}"
             if ccache -p | grep -q 'remote_storage'; then
-              ccache --set-config=remote_storage="${CCACHE_REMOTE_STORAGE}"
+              ccache --set-config=remote_storage="${cache_url} @connect-timeout=5000 @operation-timeout=60000"
             else
-              ccache --set-config=secondary_storage="${CCACHE_REMOTE_STORAGE}"
+              ccache --set-config=secondary_storage="${cache_url}|connect-timeout=5000|operation-timeout=60000"
             fi
           fi
 
@@ -174,7 +175,7 @@ jobs:
       - name: Show ccache statistics
         if: always()
         run: |
-          ccache --show-stats || true
+          ccache --show-stats --verbose || true
 
       - name: Pack up packages
         run: |
