@@ -17,11 +17,12 @@
 extern "C" {
 #endif
 __attribute__((visibility("default"))) aclnnStatus aclnnBuildKvSparseMetadataGetWorkspaceSize(
-    const aclTensor *deviceIndices, const aclTensor *hostIndices, const aclIntArray *componentInfo,
-    int64_t pageSize, int64_t direction, const aclTensor *src, const aclTensor *dst,
-    const aclTensor *lengths, const aclTensor *count, uint64_t *workspaceSize, aclOpExecutor **executor);
-__attribute__((visibility("default"))) aclnnStatus aclnnBuildKvSparseMetadata(
-    void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream);
+    const aclTensor *deviceIndices, const aclTensor *hostIndices, const aclIntArray *componentInfo, int64_t pageSize,
+    int64_t direction, const aclTensor *src, const aclTensor *dst, const aclTensor *lengths, const aclTensor *count,
+    uint64_t *workspaceSize, aclOpExecutor **executor);
+__attribute__((visibility("default"))) aclnnStatus aclnnBuildKvSparseMetadata(void *workspace, uint64_t workspaceSize,
+                                                                              aclOpExecutor *executor,
+                                                                              aclrtStream stream);
 #ifdef __cplusplus
 }
 #endif

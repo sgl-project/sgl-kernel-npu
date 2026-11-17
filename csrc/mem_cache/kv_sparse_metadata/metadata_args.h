@@ -35,4 +35,4 @@ struct Args {
 };
 static_assert(sizeof(Component) == kComponentFields * sizeof(int64_t));
 static_assert(std::is_trivially_copyable_v<Component>);
-}
+}  // namespace sglang::kv_metadata

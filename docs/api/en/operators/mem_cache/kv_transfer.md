@@ -130,7 +130,7 @@ An independent synchronous reference directly copies original Tensor layer/page 
 
 ## Streams and lifetimes
 
-AIV enqueues on the caller's current NPU stream. The C++ adapter uses `record_stream` on the Device components and both index tensors passed to it, so the NPU caching allocator keeps their storage alive until the transfer completes. Contiguous index copies are created and used on the submission stream. The caller provides cross-stream dependencies, keeps Host buffers and their registrations alive through completion, and waits before modifying or reusing transfer storage. Synchronize outstanding transfers before releasing the MemFabric pool.
+AIV enqueues on the caller's current NPU stream. The C++ adapter retains the NPU tensors through the queued launch. Contiguous index copies are created and used on the submission stream. The caller provides cross-stream dependencies, keeps its NPU inputs and registered Host buffers alive through completion, and waits before modifying or reusing transfer storage. Synchronize outstanding transfers before releasing the MemFabric pool.
 
 AICPU enqueues metadata generation and MemFabric copy on the caller's current NPU stream. Its C++ adapter records the Device components and original indices on that stream. The address tables are allocated and consumed on the same stream. The Host C++ submission entry records the internal event after MF copy submission and orders MemFabric submissions across streams on the same device. Python no longer creates, records, or waits on internal events. The caller owns the Host buffers and provides dependencies between producers, transfers, and consumers.
 

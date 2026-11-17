@@ -14,9 +14,9 @@ void CacheRange(const void *ptr, size_t bytes, bool invalidate, uintptr_t line_s
     const auto start = reinterpret_cast<uintptr_t>(ptr);
     for (uintptr_t p = start & ~(line_size - 1); p < start + bytes; p += line_size) {
         if (invalidate) {
-            asm volatile("dc civac, %0" :: "r"(p) : "memory");
+            asm volatile("dc civac, %0" ::"r"(p) : "memory");
         } else {
-            asm volatile("dc cvac, %0" :: "r"(p) : "memory");
+            asm volatile("dc cvac, %0" ::"r"(p) : "memory");
         }
     }
 }
@@ -24,23 +24,22 @@ void CacheBarrier()
 {
     asm volatile("dsb sy" ::: "memory");
 }
-}
+}  // namespace
 namespace aicpu {
-static uint32_t BuildRecords(
-    const sglang::kv_metadata::Args *args)
+static uint32_t BuildRecords(const sglang::kv_metadata::Args *args)
 {
     using namespace sglang::kv_metadata;
-    if (!args || !args->components || args->components > kMaxComponents ||
-        !args->page_size || (args->direction != 1 && args->direction != 2) ||
-        (args->pages && (!args->device_indices || !args->host_indices)) || !args->count) return 1;
+    if (!args || !args->components || args->components > kMaxComponents || !args->page_size ||
+        (args->direction != 1 && args->direction != 2) ||
+        (args->pages && (!args->device_indices || !args->host_indices)) || !args->count)
+        return 1;
     uint64_t offsets[kMaxComponents]{};
     uint64_t chunks[kMaxComponents]{};
     uint64_t records = 0;
     uint64_t split_record = kMaxRecords;
     for (uint64_t c = 0; c < args->components; ++c) {
         const auto &m = args->component[c];
-        if (!m.layers ||
-            !m.device_base || !m.host_base || !m.page_bytes || m.page_bytes > INT32_MAX) return 1;
+        if (!m.layers || !m.device_base || !m.host_base || !m.page_bytes || m.page_bytes > INT32_MAX) return 1;
         chunks[c] = ChunksPerPage(m.page_bytes);
         if (args->pages > (kMaxRecords - records) / m.layers / chunks[c]) return 1;
         offsets[c] = records;
@@ -76,20 +75,18 @@ static uint32_t BuildRecords(
         const uint64_t hp = ht >= 0 ? static_cast<uint64_t>(ht) / args->page_size : 0;
         for (uint64_t c = 0; c < args->components; ++c) {
             const auto &m = args->component[c];
-            const bool valid = dt >= 0 && ht >= 0 &&
-                static_cast<uint64_t>(dt) % args->page_size == 0 &&
-                static_cast<uint64_t>(ht) % args->page_size == 0 &&
-                dp < m.device_pages && hp < m.host_pages;
+            const bool valid = dt >= 0 && ht >= 0 && static_cast<uint64_t>(dt) % args->page_size == 0 &&
+                               static_cast<uint64_t>(ht) % args->page_size == 0 && dp < m.device_pages &&
+                               hp < m.host_pages;
             if (!valid) {
                 // MF may already be queued. Publish an empty batch before
                 // reporting the error so it cannot consume partial tables.
                 *count = 0;
                 CacheRange(count, sizeof(*count), false, line_size);
                 CacheBarrier();
-                KERNEL_LOG_ERROR(
-                    "Invalid KV page start at page %llu, component %llu: device=%lld, host=%lld",
-                    static_cast<unsigned long long>(p), static_cast<unsigned long long>(c),
-                    static_cast<long long>(dt), static_cast<long long>(ht));
+                KERNEL_LOG_ERROR("Invalid KV page start at page %llu, component %llu: device=%lld, host=%lld",
+                                 static_cast<unsigned long long>(p), static_cast<unsigned long long>(c),
+                                 static_cast<long long>(dt), static_cast<long long>(ht));
                 return 1;
             }
             for (uint64_t layer = 0; layer < m.layers; ++layer) {
@@ -101,8 +98,8 @@ static uint32_t BuildRecords(
                     const uint64_t remaining = m.page_bytes - offset;
                     src[first + chunk] = (args->direction == 1 ? ha : da) + offset;
                     dst[first + chunk] = (args->direction == 1 ? da : ha) + offset;
-                    lengths[first + chunk] = static_cast<int32_t>(
-                        remaining < kMaxCopyBytes ? remaining : kMaxCopyBytes);
+                    lengths[first + chunk] =
+                        static_cast<int32_t>(remaining < kMaxCopyBytes ? remaining : kMaxCopyBytes);
                 }
             }
         }
@@ -126,7 +123,8 @@ static uint32_t BuildRecords(
     return 0;
 }
 
-class KvSparseMetadataKernel : public CpuKernel {
+class KvSparseMetadataKernel : public CpuKernel
+{
 public:
     uint32_t Compute(CpuKernelContext &ctx) override
     {
@@ -141,16 +139,17 @@ public:
         const auto pageAttr = ctx.GetAttr("page_size");
         const auto directionAttr = ctx.GetAttr("direction");
         if (!di || !hi || !src || !dst || !lengths || !count || !infoAttr || !pageAttr || !directionAttr) return 1;
-        if (di->GetDataType() != DT_INT64 || hi->GetDataType() != DT_INT64 ||
-            src->GetDataType() != DT_INT64 || dst->GetDataType() != DT_INT64 ||
-            lengths->GetDataType() != DT_INT32 || count->GetDataType() != DT_INT32) return 1;
+        if (di->GetDataType() != DT_INT64 || hi->GetDataType() != DT_INT64 || src->GetDataType() != DT_INT64 ||
+            dst->GetDataType() != DT_INT64 || lengths->GetDataType() != DT_INT32 || count->GetDataType() != DT_INT32)
+            return 1;
         const auto info = infoAttr->GetListInt();
         const auto pageSize = pageAttr->GetInt();
         const auto direction = directionAttr->GetInt();
-        if (pageSize <= 0 || (direction != 1 && direction != 2) ||
-            info.empty() || info.size() > kMaxComponents * kComponentFields || info.size() % kComponentFields ||
-            di->NumElements() != hi->NumElements() || di->NumElements() < 0 ||
-            di->NumElements() % pageSize || count->NumElements() != 1) return 1;
+        if (pageSize <= 0 || (direction != 1 && direction != 2) || info.empty() ||
+            info.size() > kMaxComponents * kComponentFields || info.size() % kComponentFields ||
+            di->NumElements() != hi->NumElements() || di->NumElements() < 0 || di->NumElements() % pageSize ||
+            count->NumElements() != 1)
+            return 1;
         Args args{};
         args.device_indices = reinterpret_cast<uintptr_t>(di->GetData());
         args.host_indices = reinterpret_cast<uintptr_t>(hi->GetData());
@@ -169,8 +168,7 @@ public:
         bool aligned_pages = true;
         for (uint64_t c = 0; c < args.components; ++c) {
             const auto &m = args.component[c];
-            if (!m.layers || !m.device_pages || !m.host_pages || !m.page_bytes ||
-                m.page_bytes > INT32_MAX) return 1;
+            if (!m.layers || !m.device_pages || !m.host_pages || !m.page_bytes || m.page_bytes > INT32_MAX) return 1;
             const uint64_t chunks = ChunksPerPage(m.page_bytes);
             if (args.pages > (kMaxRecords - total) / m.layers / chunks) return 1;
             for (bool host : {false, true}) {
@@ -178,9 +176,8 @@ public:
                 const auto pages = host ? m.host_pages : m.device_pages;
                 const auto ls = host ? m.host_layer_stride : m.device_layer_stride;
                 const auto ps = host ? m.host_page_stride : m.device_page_stride;
-                const __uint128_t last = static_cast<__uint128_t>(base) +
-                    static_cast<__uint128_t>(m.layers - 1) * ls +
-                    static_cast<__uint128_t>(pages - 1) * ps + m.page_bytes;
+                const __uint128_t last = static_cast<__uint128_t>(base) + static_cast<__uint128_t>(m.layers - 1) * ls +
+                                         static_cast<__uint128_t>(pages - 1) * ps + m.page_bytes;
                 if (!base || last > UINT64_MAX) return 1;
             }
             total += args.pages * m.layers * chunks;
@@ -194,4 +191,4 @@ public:
     }
 };
 REGISTER_CPU_KERNEL(kBuildKvSparseMetadata, KvSparseMetadataKernel);
-}
+}  // namespace aicpu

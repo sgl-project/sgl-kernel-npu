@@ -64,12 +64,14 @@ def test_addresses_and_updated_indices(layout, direction, component_count):
             item = dev.element_size()
             for dt, ht in zip(dstarts, hstarts):
                 for layer in range(dev.shape[0]):
-                    da = dev.data_ptr() + (
-                        layer * dev.stride(0) + dt // ps * dev.stride(1)
-                    ) * item
-                    ha = host.data_ptr() + (
-                        layer * host.stride(1) + ht // ps * host.stride(0)
-                    ) * item
+                    da = (
+                        dev.data_ptr()
+                        + (layer * dev.stride(0) + dt // ps * dev.stride(1)) * item
+                    )
+                    ha = (
+                        host.data_ptr()
+                        + (layer * host.stride(1) + ht // ps * host.stride(0)) * item
+                    )
                     expected_src.append(ha if direction == 1 else da)
                     expected_dst.append(da if direction == 1 else ha)
                     expected_lengths.append(ps * dev.shape[3] * dev.shape[4] * item)
@@ -217,7 +219,9 @@ def _assert_copy_coverage(src, dst, lengths, originals, split_first):
     ordered = owners[:-1] if split_first else owners
     assert ordered == sorted(ordered), "component/page/layer order changed"
     if split_first:
-        split_owner = next(i for i, (_, _, size) in enumerate(originals) if size > _SPLIT_BYTES)
+        split_owner = next(
+            i for i, (_, _, size) in enumerate(originals) if size > _SPLIT_BYTES
+        )
         split_row = owners.index(split_owner)
         assert owners[-1] == split_owner
         assert lengths[split_row] == lengths[-1] == _SPLIT_BYTES // 2
@@ -238,38 +242,87 @@ def _assert_copy_coverage(src, dst, lengths, originals, split_first):
     "page_bytes,layers,pages,page_size,dtype,expected_count,split_first",
     [
         pytest.param(
-            (128 * 1024, 16 * 1024, 32 * 1024), (4, 4, 2), 3, 128,
-            torch.bfloat16, 66, False, id="glm-k-v-index",
+            (128 * 1024, 16 * 1024, 32 * 1024),
+            (4, 4, 2),
+            3,
+            128,
+            torch.bfloat16,
+            66,
+            False,
+            id="glm-k-v-index",
         ),
         pytest.param(
-            (_SPLIT_BYTES + 64,), (2,), 2, 1, torch.uint8, 8, False,
+            (_SPLIT_BYTES + 64,),
+            (2,),
+            2,
+            1,
+            torch.uint8,
+            8,
+            False,
             id="partial-last-chunk",
         ),
         pytest.param(
-            (3 * _SPLIT_BYTES,), (17,), 1, 1, torch.uint8, 52, True,
+            (3 * _SPLIT_BYTES,),
+            (17,),
+            1,
+            1,
+            torch.uint8,
+            52,
+            True,
             id="odd-paired-batch",
         ),
         pytest.param(
-            (16 * 1024, 3 * _SPLIT_BYTES), (1, 16), 1, 1,
-            torch.uint8, 50, True, id="odd-first-large-component-is-second",
+            (16 * 1024, 3 * _SPLIT_BYTES),
+            (1, 16),
+            1,
+            1,
+            torch.uint8,
+            50,
+            True,
+            id="odd-first-large-component-is-second",
         ),
         pytest.param(
-            (2 * _SPLIT_BYTES, 16 * 1024), (23, 1), 1, 1,
-            torch.uint8, 47, False, id="47-no-pairing",
+            (2 * _SPLIT_BYTES, 16 * 1024),
+            (23, 1),
+            1,
+            1,
+            torch.uint8,
+            47,
+            False,
+            id="47-no-pairing",
         ),
         pytest.param(
-            (3 * _SPLIT_BYTES,), (16,), 1, 1, torch.uint8, 48, False,
+            (3 * _SPLIT_BYTES,),
+            (16,),
+            1,
+            1,
+            torch.uint8,
+            48,
+            False,
             id="48-pairing-boundary",
         ),
         pytest.param(
-            (_SPLIT_BYTES + 1,), (23,), 1, 1, torch.uint8, 46, False,
+            (_SPLIT_BYTES + 1,),
+            (23,),
+            1,
+            1,
+            torch.uint8,
+            46,
+            False,
             id="unaligned-below-pairing-boundary",
         ),
     ],
 )
 def test_large_page_copy_coverage(
-    layout, direction, page_bytes, layers, pages, page_size, dtype,
-    expected_count, split_first,
+    layout,
+    direction,
+    page_bytes,
+    layers,
+    pages,
+    page_size,
+    dtype,
+    expected_count,
+    split_first,
 ):
     devices, hosts = [], []
     for size, layer_count in zip(page_bytes, layers):
@@ -304,8 +357,11 @@ def test_large_page_copy_coverage(
     assert count.cpu().item() == expected_count
     assert src.numel() == dst.numel() == lengths.numel() == expected_count
     _assert_copy_coverage(
-        src.cpu().tolist(), dst.cpu().tolist(), lengths.cpu().tolist(),
-        originals, split_first,
+        src.cpu().tolist(),
+        dst.cpu().tolist(),
+        lengths.cpu().tolist(),
+        originals,
+        split_first,
     )
 
 

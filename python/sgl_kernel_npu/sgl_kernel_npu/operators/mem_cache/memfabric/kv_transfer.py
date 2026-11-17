@@ -2,7 +2,6 @@
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
-
 # Direction values expected by the native operators.
 H2D = 1
 D2H = 2

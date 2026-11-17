@@ -1,7 +1,7 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
-The caller owns the registered Host storage. The ACLNN adapters record NPU
-inputs on the caller's stream. NPU graph capture is not supported.
+The caller owns the registered Host storage and orders cross-stream access.
+NPU graph capture is not supported.
 """
 
 import importlib.util
@@ -140,7 +140,9 @@ def _get_aicpu_submit():
     return module.submit
 
 
-def _submit_aicpu(components, device_indices, host_indices, page_size, direction, device):
+def _submit_aicpu(
+    components, device_indices, host_indices, page_size, direction, device
+):
     submit = _get_aicpu_submit()
     pool = get_memfabric_pool()
     if pool is None:
@@ -203,7 +205,11 @@ def transfer_kv(
         or device_indices.numel() % page_size
     ):
         raise ValueError("indices must describe equal numbers of complete pages")
-    if direction not in (H2D, D2H) or backend not in ("auto", "ascendc_aiv", "memfabric_aicpu"):
+    if direction not in (H2D, D2H) or backend not in (
+        "auto",
+        "ascendc_aiv",
+        "memfabric_aicpu",
+    ):
         raise ValueError(
             f"expected H2D ({H2D}) or D2H ({D2H}) and backend auto, ascendc_aiv or memfabric_aicpu"
         )

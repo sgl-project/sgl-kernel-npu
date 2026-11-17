@@ -122,7 +122,7 @@ Python 将 `host_memory.set_memfabric_pool` 发布的已初始化池的 `sparse_
 
 ## 流与生命周期
 
-AIV 在调用者的当前 NPU 流上提交搬运。C++ adapter 对 Device 组件和传给它的两个索引张量调用 `record_stream`，由 NPU 缓存分配器保护其存储直至搬运完成。连续索引副本在提交流上创建并使用。调用者负责建立跨流依赖，保留 Host 缓冲区及其注册直至搬运完成，并等待搬运结束后再改写或复用相关存储。释放 MemFabric 池前，须同步所有尚未完成的搬运。
+AIV 在调用者的当前 NPU 流上提交搬运。C++ adapter 将 NPU 张量保留到排队的算子下发完成。连续索引副本在提交流上创建并使用。调用者负责建立跨流依赖，在搬运完成前保留自己的 NPU 输入和已注册的 Host 缓冲区，并等待搬运结束后再改写或复用相关存储。释放 MemFabric 池前，须同步所有尚未完成的搬运。
 
 AICPU 在调用者的当前 NPU 流上提交构表和 MemFabric copy。C++ adapter 在该流上记录 Device 组件和原始索引，地址表也在同一流上分配和消费。Host C++ 提交入口在 MF copy 提交后记录内部事件，并为同一设备上的跨流 MemFabric copy 建立顺序；Python 不再创建、记录或等待内部事件。调用者负责持有 Host 缓冲区，并建立生产、搬运和消费之间的依赖。
 
