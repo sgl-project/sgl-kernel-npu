@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from report import build_report
@@ -53,6 +54,11 @@ def show_matrix(root, statistic):
         print(f"Full validation unavailable: {error}")
     for width in (1, 4):
         for mode in ("eager", "graph"):
+            if not any(
+                (width, mode, arm) in results
+                for arm in ("native", "pre_migration", "post_migration")
+            ):
+                continue
             print(f"\nQ{width} {mode}")
             values = {}
             for arm in ("native", "pre_migration", "post_migration"):
@@ -138,7 +144,14 @@ def main():
         "Positive delta = slower; negative delta = faster. UNVALIDATED timings are diagnostic only."
     )
     matrices = {root.name: show_matrix(root, args.stat) for root in roots}
-    for misses in (512, 513):
+    misses_available = sorted(
+        {
+            int(match.group(1))
+            for name in matrices
+            if (match := re.fullmatch(r"(?:unfixed|fixed)-m(\d+)", name))
+        }
+    )
+    for misses in misses_available:
         before, after = (
             matrices.get(f"unfixed-m{misses}"),
             matrices.get(f"fixed-m{misses}"),

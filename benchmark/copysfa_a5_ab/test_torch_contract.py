@@ -14,6 +14,48 @@ from fixture import FixtureSpec, _index_key_scales, build_torch_fixture  # noqa:
 
 
 class LimCopyContractTest(unittest.TestCase):
+    def test_disjoint_high_miss_payloads_and_actual_scores(self):
+        for count in (1024, 2048, 4096, 8192):
+            with self.subTest(misses=count):
+                spec = FixtureSpec(
+                    4,
+                    1,
+                    2,
+                    32,
+                    16000,
+                    139904,
+                    140032,
+                    miss_counts=(count,),
+                    selection="disjoint",
+                )
+                fixture = build_torch_fixture(torch, spec)
+                values = fixture["tensors"]
+                self.assertEqual(values["miss_counts"].tolist(), [count])
+                self.assertEqual(values["route_misses"].tolist(), [count // 4] * 4)
+                query = values["index_query"][:, 0].float()
+                key = values["index_key"].view(-1, 128).float()
+                scores = (query @ key.T) * values["key_scale"].flatten()
+                for route in range(4):
+                    visible = spec.context - (3 - route)
+                    actual = (
+                        torch.topk(scores[route, :visible].bfloat16().float(), 2048)
+                        .indices.sort()
+                        .values
+                    )
+                    expected = values["canonical_ids"][route, 0].long().sort().values
+                    self.assertTrue(torch.equal(actual, expected))
+                    ids = values["source_ids"][route, 0].long()
+                    slots = values["destination_slots"][route, 0].long()
+                    physical = (
+                        values["hbm_table"][0, slots // 128].long() * 128 + slots % 128
+                    )
+                    expected_kv = values["packed"].view(-1, 656)[ids]
+                    self.assertTrue(
+                        torch.equal(
+                            values["expected_hbm"].view(-1, 656)[physical], expected_kv
+                        )
+                    )
+
     def test_long_context_topk_boundary_survives_bf16_sorting(self):
         for width in (1, 4):
             spec = FixtureSpec(width, 1, 8, 64, 16000, 139904, 140032)

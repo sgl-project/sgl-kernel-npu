@@ -176,6 +176,37 @@ class WheelPreparationTest(unittest.TestCase):
 
 
 class FixtureSpecTest(unittest.TestCase):
+    def test_disjoint_q4_supports_real_request_union_misses_up_to_8192(self):
+        for count in (512, 513, 1024, 2048, 4096, 8192):
+            spec = FixtureSpec(
+                4,
+                12,
+                8,
+                64,
+                16000,
+                139904,
+                140032,
+                miss_counts=(count,),
+                selection="disjoint",
+            )
+            spec.validate()
+            sets = spec.route_prefix_id_sets()
+            self.assertEqual(len(set.union(*sets)), 8192)
+            self.assertTrue(all(len(s) == 2048 for s in sets))
+            self.assertEqual(sum(len(s) for s in sets), len(set.union(*sets)))
+        with self.assertRaisesRegex(ValueError, "selected prefix union"):
+            FixtureSpec(
+                4,
+                12,
+                8,
+                64,
+                16000,
+                139904,
+                140032,
+                miss_counts=(8193,),
+                selection="disjoint",
+            ).validate()
+
     def test_an_installed_kernel_cannot_silently_replace_the_selected_arm(self):
         with tempfile.TemporaryDirectory() as temporary:
             prefix = Path(temporary) / "selected"
@@ -282,6 +313,57 @@ class ContractTest(unittest.TestCase):
 
 
 class RunnerTest(unittest.TestCase):
+    def test_high_miss_sweep_dry_run_keeps_q4_graph_and_accepts_8192(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt = root / "unfixed-m512/run-receipt.json"
+            receipt.parent.mkdir()
+            command = ["python3", "bench.py"]
+            for name, value in {
+                "batch": 12,
+                "heads": 8,
+                "index-heads": 64,
+                "capacity": 16000,
+                "prefix": 139904,
+                "context": 140032,
+                "warmup": 20,
+                "rounds": 3,
+                "iterations": 50,
+            }.items():
+                command.extend(["--" + name, str(value)])
+            receipt.write_text(json.dumps({"runs": [{"command": command}]}))
+            for version in ("unfixed", "fixed"):
+                config = root / f"packages-{version}/arms.json"
+                config.parent.mkdir()
+                config.write_text((ROOT / "arm-config.example.json").read_text())
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "run_miss_sweep.py"),
+                    "--run-root",
+                    str(root),
+                    "--dry-run",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            planned = json.loads(completed.stdout)["commands"]
+            self.assertEqual(len(planned), 12)
+            for command in (planned[0], planned[-1]):
+                child = subprocess.run(
+                    [*command, "--dry-run"], check=True, capture_output=True, text=True
+                )
+                arms = json.loads(child.stdout)["commands"]
+                self.assertEqual(len(arms), 3)
+                self.assertTrue(
+                    all(a[a.index("--selection") + 1] == "disjoint" for a in arms)
+                )
+                self.assertTrue(
+                    all(a[a.index("--query-width") + 1] == "4" for a in arms)
+                )
+            self.assertFalse(list(root.glob("more-misses-*")))
+
     def test_three_arms_are_required_and_dry_run_is_explicit_device(self):
         arms = [
             {

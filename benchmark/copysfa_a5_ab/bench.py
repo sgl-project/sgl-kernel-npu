@@ -530,6 +530,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--prefix", type=int, required=True)
     parser.add_argument("--context", type=int, required=True)
     parser.add_argument("--miss-counts", default="512,513")
+    parser.add_argument("--selection", choices=("shared", "disjoint"), default="shared")
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--iterations", type=int, default=50)
@@ -564,6 +565,7 @@ def main() -> int:
         prefix=args.prefix,
         context=args.context,
         miss_counts=parse_miss_counts(args.miss_counts),
+        selection=args.selection,
     )
     spec.validate()
     _add_prefix(args.framework_prefix)

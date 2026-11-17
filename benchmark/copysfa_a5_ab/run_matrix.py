@@ -72,6 +72,8 @@ def build_command(
         str(args.context),
         "--miss-counts",
         args.miss_counts,
+        "--selection",
+        args.selection,
         "--warmup",
         str(args.warmup),
         "--rounds",
@@ -108,6 +110,13 @@ def main() -> int:
     parser.add_argument("--prefix", type=int, default=9216)
     parser.add_argument("--context", type=int, default=9345)
     parser.add_argument("--miss-counts", default="512,513")
+    parser.add_argument("--selection", choices=("shared", "disjoint"), default="shared")
+    parser.add_argument(
+        "--query-widths", type=int, choices=(1, 4), nargs="+", default=[1, 4]
+    )
+    parser.add_argument(
+        "--modes", choices=("eager", "graph"), nargs="+", default=["eager", "graph"]
+    )
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--iterations", type=int, default=50)
@@ -121,7 +130,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     arms = load_config(args.arm_config)
-    for width in (1, 4):
+    for width in args.query_widths:
         FixtureSpec(
             width,
             args.batch,
@@ -131,12 +140,13 @@ def main() -> int:
             args.prefix,
             args.context,
             miss_counts=parse_miss_counts(args.miss_counts),
+            selection=args.selection,
         ).validate()
     if args.output_root.exists() and not args.dry_run:
         raise SystemExit(f"refusing to overwrite output root: {args.output_root}")
     commands = []
-    for width in (1, 4):
-        for mode in ("eager", "graph"):
+    for width in args.query_widths:
+        for mode in args.modes:
             for arm in arms:
                 output = args.output_root / f"q{width}-{mode}" / arm["name"]
                 commands.append(build_command(args, arm, width, mode, output))

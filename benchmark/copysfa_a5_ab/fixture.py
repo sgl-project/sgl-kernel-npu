@@ -42,10 +42,13 @@ class FixtureSpec:
     page_size: int = PAGE
     miss_counts: tuple[int, ...] = (512, 513)
     seed: int = 20261116
+    selection: str = "shared"
 
     def validate(self) -> None:
         if self.query_width not in (1, 4):
             raise ValueError("query_width must be 1 or 4")
+        if self.selection not in ("shared", "disjoint"):
+            raise ValueError("selection must be shared or disjoint")
         if self.batch < 1 or self.heads < 1 or self.index_heads < 1:
             raise ValueError("batch, heads and index_heads must be positive")
         if self.topk != TOPK or self.page_size != PAGE:
@@ -74,6 +77,14 @@ class FixtureSpec:
     def route_ids(self, route: int) -> tuple[int, ...]:
         if not 0 <= route < self.query_width:
             raise ValueError("route is outside query_width")
+        if self.selection == "disjoint":
+            stride = 17
+            while math.gcd(stride, self.prefix) != 1:
+                stride += 2
+            return tuple(
+                (self.prefix // 3 + (route * self.topk + rank) * stride) % self.prefix
+                for rank in range(self.topk)
+            )
         visible = self.context - (self.query_width - 1 - route)
         return tuple(range(visible - self.topk, visible))
 
@@ -113,7 +124,11 @@ class FixtureSpec:
             ],
             "tail_tokens": self.context - self.prefix,
             "packed_c8_row_bytes": ROW_BYTES,
-            "index_score_pattern": "bf16_boundary_gaps_v1",
+            "index_score_pattern": (
+                "route_partitioned_positive_v1"
+                if self.selection == "disjoint"
+                else "bf16_boundary_gaps_v1"
+            ),
         }
 
     def fingerprint(self) -> str:
@@ -167,6 +182,8 @@ def _index_key_scales(torch: Any, spec: FixtureSpec, source_capacity: int) -> An
     # Keep every route's TopK boundary distinct even after BF16 score sorting.
     # A linear FP32 ramp alone collapses adjacent scores at long contexts.
     scales = torch.arange(1, source_capacity + 1, dtype=torch.float32)
+    if spec.selection == "disjoint":
+        return (1 + scales / source_capacity).view(source_capacity // PAGE, PAGE, 1)
     scales.div_(source_capacity * 8)
     first = spec.context - (spec.query_width - 1) - TOPK
     last = spec.context - TOPK
@@ -219,12 +236,19 @@ def build_torch_fixture(torch: Any, spec: FixtureSpec) -> dict[str, Any]:
     q = merged_query[..., :512].contiguous()
     q_rope = merged_query[..., 512:].contiguous()
 
-    index_query = torch.ones(query_rows, spec.index_heads, 128, dtype=torch.float32).to(
-        torch.float8_e4m3fn
-    )
-    index_key = torch.ones(source_pages, PAGE, 1, 128, dtype=torch.float32).to(
-        torch.float8_e4m3fn
-    )
+    index_query = torch.ones(query_rows, spec.index_heads, 128, dtype=torch.float32)
+    index_key = torch.ones(source_pages, PAGE, 1, 128, dtype=torch.float32)
+    if spec.selection == "disjoint":
+        index_query.zero_()
+        index_key.zero_()
+        group = 128 // spec.query_width
+        flat_key = index_key.view(-1, 128)
+        for route in range(spec.query_width):
+            start, end = route * group, (route + 1) * group
+            index_query[route :: spec.query_width, :, start:end] = 1
+            flat_key[torch.tensor(routes[route]), start:end] = 1
+    index_query = index_query.to(torch.float8_e4m3fn)
+    index_key = index_key.to(torch.float8_e4m3fn)
     index_weights = torch.full(
         (query_rows, spec.index_heads), 1 / spec.index_heads, dtype=torch.bfloat16
     )
@@ -261,12 +285,16 @@ def build_torch_fixture(torch: Any, spec: FixtureSpec) -> dict[str, Any]:
     golden = torch.empty(query_rows, spec.heads, 512, dtype=torch.float32)
 
     prefix_union_set = set(prefix_union)
+    miss_order = prefix_union
+    if spec.selection == "disjoint":
+        # Spread request-union misses evenly across routes, including full 8192.
+        miss_order = [source for group in zip(*routes) for source in group]
     filler_candidates = [
         source for source in range(spec.prefix) if source not in prefix_union_set
     ]
     for request in range(spec.batch):
         miss_count = spec.request_miss_count(request)
-        misses = prefix_union[:miss_count]
+        misses = miss_order[:miss_count]
         miss_set = set(misses)
         selected_hits = [source for source in prefix_union if source not in miss_set]
         filler = filler_candidates[: spec.capacity - len(selected_hits)]

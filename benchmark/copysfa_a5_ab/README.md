@@ -183,6 +183,43 @@ all requests.
 
 ## Evidence boundary
 
+### Higher request-union misses at long context
+
+The original shared-tail fixture selects highly overlapping routes; its selected
+historical union is less than 2048 for the 140032-token configuration. Do not
+request 4096 or 8192 misses from that fixture. `--selection disjoint` instead
+assigns each route its own 2048 historical IDs spread across the prefix. Query
+feature groups select these sets with a positive-versus-zero score gap that
+survives BF16 sorting. Q4 has an actual union of 8192 IDs; request-union misses
+are distributed round-robin across the four routes. Q1 supports at most 2048.
+No selected tail tokens are included in this stress fixture. The initial C-pool
+remains a full warm pool, rather than using the first-fill request state.
+
+Use the existing run root containing `packages-unfixed/arms.json`,
+`packages-fixed/arms.json` and a previous `unfixed-m512/run-receipt.json`:
+
+```bash
+python3 benchmark/copysfa_a5_ab/run_miss_sweep.py \
+  --run-root /path/to/previous/a5-op-run \
+  --device 0
+```
+
+The command reuses those wheel prefixes and the prior shape/timing parameters;
+it neither installs wheels nor edits PATH/PYTHONPATH. It runs native/pre/post
+for both unfixed and fixed post wheels, at 512, 513, 1024, 2048, 4096 and 8192
+misses per request. Defaults are Q4 graph and no profiling (36 arm processes).
+Use `--misses 1024 2048 4096 8192` to select only high-miss cases,
+`--modes eager graph` for both execution modes, or `--profile` for extra traces.
+`--dry-run` prints commands without creating results or executing an NPU.
+All selected cases are geometry-validated before device execution.
+
+Results and per-matrix logs go into a fresh `more-misses-*` directory. The final
+comparison includes scheduling deltas for each miss count. A failed matrix
+stops the sweep and preserves its log and receipt. This is a controlled stress
+fixture, not a replay of the real serving request's ID distribution. Compare
+pre/post within the same selection layout and never mix it with shared-tail
+results as if the inputs were identical.
+
 The console prints one timing line per case; raw samples remain in each
 `result.json`. Compare already collected results without rerunning operators:
 
