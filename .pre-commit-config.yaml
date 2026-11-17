@@ -1,6 +1,6 @@
 default_stages: [pre-commit, pre-push, manual]
 
-# Preserve the pinned upstream device headers byte-for-byte.
+# Preserve imported device snapshots; local adaptations are tracked in upstream.json.
 exclude: ^csrc/fused_lightning_indexer_manage/op_kernel/upstream/
 
 repos:

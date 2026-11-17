@@ -82,10 +82,13 @@ short sequences, rewritten residents and graph replay on an available Ascend NPU
 ## Provenance
 
 The device implementation comes from vllm-project/vllm-ascend commit
-`3326f350c0de30a5170b86ecfce851322e3216e6` (PR #16640). Seven headers under
-`op_kernel/upstream/` remain byte-identical. The union header has local
-full-visible Q1 and eviction adaptations; its original and adapted hashes,
-and the entry adaptations, are recorded in `upstream.json`.
+`3326f350c0de30a5170b86ecfce851322e3216e6` (PR #16640). Four headers under
+`op_kernel/upstream/` remain byte-identical. Four adapted headers add
+full-visible causal score masking, rewritten-resident refresh, and bounded
+eviction with explicit vector-tail padding. Their upstream paths, original
+Git blob IDs and SHA256 hashes, and current LF-normalized hashes are recorded
+in `upstream.json`. The original entry hash is also verified against that
+fixed upstream commit; its launch adaptations are listed in the same file.
 The new host path replaces the aclnn adapter,
 generated operator package, and generated tiling registration. Upstream
 copyright notices are retained; Apache-2.0 and CANN-2.0 texts are in `licenses/`.
