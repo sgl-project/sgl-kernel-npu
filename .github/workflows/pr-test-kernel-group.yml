@@ -53,3 +53,10 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4096
         run: bash scripts/run_kernel_tests.sh "${{ inputs.group }}"
+      - name: Upload KDA compiler artifacts
+        if: ${{ !cancelled() && inputs.group == 'kda-a3-diagnostic' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kda-a3-ir-diagnostic
+          path: kda-a3-ir-diagnostic/
+          if-no-files-found: error
