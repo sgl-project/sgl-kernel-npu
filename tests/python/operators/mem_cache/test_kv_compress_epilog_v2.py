@@ -312,7 +312,14 @@ def _compare_cache(actual, reference, x, slots, mode, group):
 
     expanded = actual_scales.repeat_interleave(group, dim=1)[:, : x.shape[1]]
     restored = actual_values * expanded
-    assert_accuracy(restored, x.cpu()[ids >= 0].float(), {"torch.float32": standard})
+    original = x.cpu()[ids >= 0].float()
+    if mode == "mxfp8_bf16":
+        assert_accuracy(restored, original, {"torch.float32": standard})
+    else:
+        # e2m1 tops out at 6 and the last bin spans [5, 8), so rounding can be
+        # off by a full step; two group scales bound every restore error.
+        excess = ((restored - original).abs() - 2 * expanded).max().item()
+        assert excess <= 0, f"mxfp4 restore error exceeds two group scales by {excess}"
     assert_accuracy(reference_values, actual_values, {"torch.float32": standard})
     assert_accuracy(
         actual_scales,
