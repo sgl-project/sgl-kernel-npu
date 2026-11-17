@@ -43,5 +43,6 @@
   ],
   "has_aicpu": true,
   "license": "LICENSE",
-  "builder": "ops_transformer"
+  "builder": "ops_transformer",
+  "a3_indexer_overlay": true
 }

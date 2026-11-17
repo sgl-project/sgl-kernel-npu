@@ -197,3 +197,77 @@ def test_quant_lightning_indexer_queued_lifetimes(case):
         torch.empty(1 << 20, dtype=torch.uint8, device=args[0].device).fill_(0xA5)
     for result in results:
         assert_indexer_accuracy(result, expected)
+
+
+@pytest.mark.parametrize("ratio", [1, 2])
+@pytest.mark.parametrize("query_length", [1, 5])
+def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
+    from sgl_kernel_npu.operators.indexer import (
+        quant_lightning_indexer,
+        quant_lightning_indexer_metadata,
+    )
+    from sgl_kernel_npu.operators.indexer.quant_lightning_indexer import (
+        torch_npu_soc_family,
+    )
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    if torch_npu_soc_family() != 250 or not detect_cann_version().startswith("9.2."):
+        pytest.skip("V4.1 INT8 candidate modes require A3 + CANN 9.2")
+    args, common, table = generate_data(((769,), (query_length,), (0,)), 2)
+    common["cmp_ratio"] = ratio
+    args = tuple(
+        value.to("npu") if isinstance(value, torch.Tensor) else value for value in args
+    )
+    device_common = {
+        name: value.to("npu") if isinstance(value, torch.Tensor) else value
+        for name, value in common.items()
+    }
+    metadata = quant_lightning_indexer_metadata(64, 1, 128, 512, 2, **device_common)
+    kwargs = dict(
+        device_common,
+        block_table=table.to("npu"),
+        metadata=metadata,
+        candidate_topk_blocks=64,
+        candidate_block_size=8,
+    )
+    source = quant_lightning_indexer(*args, **kwargs, candidate_mode=1)
+    cpu_args = tuple(_cpu_tensor(value) for value in args)
+    cpu_common = dict(
+        common, block_table=table, candidate_topk_blocks=64, candidate_block_size=8
+    )
+    expected = quant_lightning_indexer(
+        *cpu_args, **cpu_common, candidate_mode=1, impl="torch_native"
+    )
+    assert torch.equal(source[0].cpu().sort(-1).values, expected[0].sort(-1).values)
+    assert torch.equal(source[2].cpu().sort(-1).values, expected[2].sort(-1).values)
+
+    # Capture source -> consumer plus fresh device metadata. Both the candidate
+    # output and metadata must use replay inputs, including changing KV lengths.
+    def select():
+        refreshed = quant_lightning_indexer_metadata(
+            64, 1, 128, 512, 2, **device_common
+        )
+        metadata.copy_(refreshed)
+        source = quant_lightning_indexer(*args, **kwargs, candidate_mode=1)
+        consumer = quant_lightning_indexer(
+            *args, **kwargs, candidate_mode=2, candidate_topk_index=source[2]
+        )
+        return source, consumer
+
+    select()  # Load the lazy extension before capture.
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        captured_source, captured_consumer = select()
+    args[4].reciprocal_()
+    device_common["seqused_k"].sub_(128)
+    graph.replay()
+    eager_source, eager_consumer = select()
+    torch.npu.synchronize()
+    for captured, eager in (
+        (captured_source[0], eager_source[0]),
+        (captured_source[2], eager_source[2]),
+        (captured_consumer[0], eager_consumer[0]),
+    ):
+        assert torch.equal(captured.cpu().sort(-1).values, eager.cpu().sort(-1).values)
+    ordinary = quant_lightning_indexer(*args, **kwargs, candidate_mode=3)
+    assert ordinary[0].shape == (query_length, 1, 512)
