@@ -10,8 +10,8 @@ import torch
 import triton
 import triton.language as tl
 
-from ...utils.triton_utils import get_device_properties
-from ..diffusion_utils import cast_rne_bf16_to_fp32
+from ..utils.triton_utils import get_device_properties
+from .diffusion_utils import cast_rne_bf16_to_fp32
 
 # BF16 elements per program iteration. Two inputs and one output are live in
 # UB together with the FP32 intermediates, which keeps one tile well inside the

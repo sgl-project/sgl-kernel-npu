@@ -52,6 +52,7 @@ Triton 后端用 `tl.sum` 做行归约；在已验证的 NPU 架构上它与 ate
 
 - 每个 program 处理 `[ROWS, D]` 块，`ROWS` 由 UB 预算和行数整除关系截断，归约在块内完成。
 - 要求 `D` 为 2 的幂、每块至少 16 行且行数能被块行数整除；不满足时在启动前抛出 `ValueError`。
+- 要求 `0 < numel < 2**31`；kernel 使用 32 位偏移索引，更大的 tensor 会在启动前被拒绝。
 - 归约使用 `tl.sum`，归一化值经显式 cast 后再乘权重，最终由 store 舍入。
 
 ## torch_native 后端

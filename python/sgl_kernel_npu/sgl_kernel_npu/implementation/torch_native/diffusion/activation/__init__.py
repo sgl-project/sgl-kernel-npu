@@ -1,1 +1,0 @@
-"""Diffusion activation implementations."""

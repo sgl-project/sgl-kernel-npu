@@ -1,6 +1,6 @@
 """Public RMSNorm operator with the cast-before-weight rounding."""
 
-from ...utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
@@ -11,7 +11,7 @@ _torch_native_fn = None
 def _triton_impl(x, weight, eps):
     global _triton_fn
     if _triton_fn is None:
-        from ....implementation.triton.diffusion.norm.rmsnorm_cast_before_weight import (
+        from ...implementation.triton.diffusion.rmsnorm_cast_before_weight import (
             rmsnorm_cast_before_weight,
         )
 
@@ -23,7 +23,7 @@ def _triton_impl(x, weight, eps):
 def _torch_native_impl(x, weight, eps):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ....implementation.torch_native.diffusion.norm.rmsnorm_cast_before_weight import (
+        from ...implementation.torch_native.diffusion.rmsnorm_cast_before_weight import (
             rmsnorm_cast_before_weight,
         )
 

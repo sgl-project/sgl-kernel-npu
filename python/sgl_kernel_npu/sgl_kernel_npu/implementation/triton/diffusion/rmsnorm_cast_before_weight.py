@@ -17,7 +17,7 @@ import torch
 import triton
 import triton.language as tl
 
-from ...utils.triton_utils import get_device_properties
+from ..utils.triton_utils import get_device_properties
 
 # Rows per tile for a 128-wide row; wider rows clamp this down so one tile
 # stays near 32 KB of FP32 intermediates inside the 192 KB UB budget.

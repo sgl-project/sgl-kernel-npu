@@ -7,7 +7,7 @@
 | `triton` | Supported | Unverified |
 | `torch_native` | Supported | Supported |
 
-## Function prototype
+## Signature
 
 The default is `auto`, which is registered to the same entry as `triton`. Omitting `impl` or passing `"auto"` uses Triton.
 
@@ -18,7 +18,7 @@ def silu_mul(a, b, *, impl="auto"):
     ...
 ```
 
-## Behavior
+## Description
 
 Computes `silu(a) * b` elementwise and reproduces the two BF16 roundings of the eager chain:
 

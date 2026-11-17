@@ -1,6 +1,6 @@
 """Public bit-exact silu-multiply operator."""
 
-from ...utils.registry import get_impl_by_name, register_impl, register_operator
+from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
@@ -11,7 +11,7 @@ _torch_native_fn = None
 def _triton_impl(a, b):
     global _triton_fn
     if _triton_fn is None:
-        from ....implementation.triton.diffusion.activation.silu_mul import silu_mul
+        from ...implementation.triton.diffusion.silu_mul import silu_mul
 
         _triton_fn = silu_mul
     return _triton_fn(a, b)
@@ -21,9 +21,7 @@ def _triton_impl(a, b):
 def _torch_native_impl(a, b):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ....implementation.torch_native.diffusion.activation.silu_mul import (
-            silu_mul,
-        )
+        from ...implementation.torch_native.diffusion.silu_mul import silu_mul
 
         _torch_native_fn = silu_mul
     return _torch_native_fn(a, b)

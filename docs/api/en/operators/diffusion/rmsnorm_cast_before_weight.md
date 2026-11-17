@@ -7,7 +7,7 @@
 | `triton` | Supported | Unverified |
 | `torch_native` | Supported | Supported |
 
-## Function prototype
+## Signature
 
 The default is `auto`, which is registered to the same entry as `triton`. Omitting `impl` or passing `"auto"` uses Triton.
 
@@ -18,7 +18,7 @@ def rmsnorm_cast_before_weight(x, weight, eps, *, impl="auto"):
     ...
 ```
 
-## Behavior
+## Description
 
 Applies RMSNorm over the last dimension and reproduces the rounding order of `RMSNorm(cast_x_before_out_mul=True)`:
 
@@ -52,6 +52,7 @@ The Triton backend reduces rows with `tl.sum`, which matches aten `mean`'s reduc
 
 - Each program handles `[ROWS, D]` tiles; `ROWS` is clamped by the UB budget and row divisibility, and the reduction stays inside the tile.
 - Requires a power-of-two `D` and at least 16 rows per tile with an exact row split; otherwise raises `ValueError` before launch.
+- Requires `0 < numel < 2**31`; the kernel indexes with 32-bit offsets, so larger tensors are rejected before launch.
 - Reduces with `tl.sum`, casts the normalized value explicitly before multiplying the weight, and rounds once on store.
 
 ## torch_native backend
