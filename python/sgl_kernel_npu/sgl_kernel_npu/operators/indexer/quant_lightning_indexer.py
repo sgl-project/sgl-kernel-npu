@@ -6,6 +6,10 @@ from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from .indexer_utils import _cann_9_1_indexer_kwargs
 
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
+
 
 @register_impl("indexer.quant_lightning_indexer", "auto")
 def _auto_quant_lightning_indexer(
@@ -29,14 +33,18 @@ def _auto_quant_lightning_indexer(
 def _cann_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    return ops.quant_lightning_indexer(
+        _cann_920_fn = ops.quant_lightning_indexer
+
+    return _cann_920_fn(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
 
@@ -45,16 +53,20 @@ def _cann_quant_lightning_indexer(
 def _cann_9_1_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
+    global _cann_910_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party.sgl_cann_recipes_infer import npu_quant_lightning_indexer as op
+    if _cann_910_fn is None:
+        from ..._third_party.sgl_cann_recipes_infer import npu_quant_lightning_indexer
+
+        _cann_910_fn = npu_quant_lightning_indexer
 
     if quant_mode not in (1, 2):
         raise RuntimeError("cann_9_1 indexer supports the migrated FP8/INT8 modes only")
-    return op(
+    return _cann_910_fn(
         query=q,
         key=k,
         weights=weights,
@@ -69,11 +81,14 @@ def _cann_9_1_quant_lightning_indexer(
 def _torch_quant_lightning_indexer(
     q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
 ):
-    from ...implementation.torch_native.indexer.quant_lightning_indexer import (
-        quant_lightning_indexer,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.quant_lightning_indexer import (
+            quant_lightning_indexer,
+        )
 
-    return quant_lightning_indexer(
+        _torch_native_fn = quant_lightning_indexer
+    return _torch_native_fn(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
 

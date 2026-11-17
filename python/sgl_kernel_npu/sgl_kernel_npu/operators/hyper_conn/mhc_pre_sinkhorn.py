@@ -4,6 +4,8 @@ from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_fn = None
+_cann_910_fn = None
+_cann_920_fn = None
 _torch_native_fn = None
 
 
@@ -31,22 +33,28 @@ def _run_vendor(fn, x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
 
 @register_impl("hyper_conn.mhc_pre_sinkhorn", "ops_transformer_cann910")
 def _cann910_impl(*args):
+    global _cann_910_fn
     version = detect_cann_version()
     if not version.startswith("9.1."):
         raise RuntimeError(f"This implementation requires CANN 9.1.x, got {version}")
-    from ..._third_party.sgl_ops_transformer_cann910 import ops
+    if _cann_910_fn is None:
+        from ..._third_party.sgl_ops_transformer_cann910 import ops
 
-    return _run_vendor(ops.mhc_pre_sinkhorn, *args)
+        _cann_910_fn = ops.mhc_pre_sinkhorn
+    return _run_vendor(_cann_910_fn, *args)
 
 
 @register_impl("hyper_conn.mhc_pre_sinkhorn", "cann_ops_transformers_cann920")
 def _cann920_impl(*args):
+    global _cann_920_fn
     version = detect_cann_version()
     if not version.startswith("9.2."):
         raise RuntimeError(f"This implementation requires CANN 9.2.x, got {version}")
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    return _run_vendor(ops.mhc_pre_sinkhorn, *args)
+        _cann_920_fn = ops.mhc_pre_sinkhorn
+    return _run_vendor(_cann_920_fn, *args)
 
 
 @register_impl("hyper_conn.mhc_pre_sinkhorn", "cann_ops_transformer")

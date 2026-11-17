@@ -5,6 +5,9 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cann_910_fn = None
+_torch_native_fn = None
+
 
 def _filter_moe_gating_kwargs(op, kwargs, *, defaults):
     """Omit only unused defaults absent from the original MoE schema."""
@@ -121,12 +124,17 @@ def _cann_9_1(
     routed_scaling_factor=1.0,
     eps=1e-20,
 ):
+    global _cann_910_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party.sgl_cann_recipes_infer import npu_moe_gating_top_k as op
+    if _cann_910_fn is None:
+        from ..._third_party.sgl_cann_recipes_infer import npu_moe_gating_top_k
+
+        _cann_910_fn = npu_moe_gating_top_k
+    op = _cann_910_fn
 
     if isinstance(op, torch._ops.OpOverloadPacket):
         names = {arg.name for arg in op.default._schema.arguments}
@@ -198,9 +206,12 @@ def _torch_native(
     routed_scaling_factor=1.0,
     eps=1e-20,
 ):
-    from ...implementation.torch_native.moe.moe_gating_top_k import moe_gating_top_k
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.moe.moe_gating_top_k import moe_gating_top_k
 
-    return moe_gating_top_k(
+        _torch_native_fn = moe_gating_top_k
+    return _torch_native_fn(
         x,
         k,
         bias=bias,
