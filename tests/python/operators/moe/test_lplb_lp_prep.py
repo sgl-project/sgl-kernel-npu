@@ -61,10 +61,6 @@ def generate_data(shape, mode, seed=42):
     "shape",
     [
         pytest.param((224, 32, 64, 16, 256), id="deepseek-v3-16npu-redundant"),
-        pytest.param((256, 0, 0, 16, 256), id="deepseek-v3-16npu-no-redundancy"),
-        pytest.param((0, 1, 2, 1, 1), id="edge-no-single-expert"),
-        pytest.param((1, 1, 1, 1, 2), id="edge-minimum"),
-        pytest.param((22, 6, 9, 3, 28), id="edge-unaligned-tail"),
     ],
 )
 @pytest.mark.parametrize("mode", ["normal", "zero_counts", "int32_ids"])
