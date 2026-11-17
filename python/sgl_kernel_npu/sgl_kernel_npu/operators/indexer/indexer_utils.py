@@ -162,14 +162,8 @@ def validate_quant_indexer_candidates(
     if not 1 <= topk <= 2048:
         raise ValueError("INT8 indexer topk must be in [1, 2048]")
     if candidate_mode != 3:
-        if (
-            not 64 <= candidate_topk_blocks <= 2048
-            or candidate_topk_blocks % 64
-            or candidate_block_size != 8
-        ):
-            raise ValueError(
-                "Candidates require 64..2048 blocks aligned to 64 and block size 8"
-            )
+        if candidate_topk_blocks != 2048 or candidate_block_size != 8:
+            raise ValueError("Candidates require 2048 blocks and block size 8")
     if candidate_mode == 2:
         if (
             candidate_topk_index is None

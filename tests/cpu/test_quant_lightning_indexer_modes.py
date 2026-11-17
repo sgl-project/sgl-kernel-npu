@@ -53,15 +53,19 @@ def modules():
 
 
 def inputs(ratio=1):
-    # 65 blocks, with strictly increasing scores. Reverse physical pages so
-    # candidate IDs and final indices cannot accidentally be physical slots.
-    length = 520
-    table = torch.arange(8, -1, -1, dtype=torch.int32).view(1, -1)
+    length = 16448  # More than 2048 blocks, so candidate pruning is exercised.
+    pages = (length + 63) // 64
+    table = torch.arange(pages - 1, -1, -1, dtype=torch.int32).view(1, -1)
     q = torch.ones(1, 32, 128, dtype=torch.int8)
-    k = torch.ones(9, 64, 1, 128, dtype=torch.int8)
-    ks = torch.zeros(9, 64, 1, dtype=torch.float16)
+    k = torch.ones(pages, 64, 1, 128, dtype=torch.int8)
+    ks = torch.zeros(pages, 64, 1, dtype=torch.float16)
     for position in range(length):
-        ks[table[0, position // 64], position % 64, 0] = (position + 1) / 1024
+        scale = (
+            (position + 1) / 1024
+            if position < length - 8
+            else 1001 + position - (length - 8)
+        )
+        ks[table[0, position // 64], position % 64, 0] = scale
     args = (
         q,
         k,
@@ -86,33 +90,17 @@ def test_source_consumer_and_ordinary_use_logical_compressed_rows(modules, ratio
     op, _ = modules
     args, common = inputs(ratio)
     ordinary = op(*args, **common)
-    assert len(ordinary) == 2  # Existing callers keep the original contract.
-    selected, _, candidates = op(
-        *args, **common, candidate_mode=1, candidate_topk_blocks=64
-    )
-    assert candidates.shape == (1, 1, 64)
-    assert set(candidates.flatten().tolist()) == set(range(1, 65))
-    assert selected.flatten().tolist() == [519, 518, 517, 516]
-    result = op(
-        *args,
-        **common,
-        candidate_mode=2,
-        candidate_topk_blocks=64,
-        candidate_topk_index=candidates,
-    )
+    assert len(ordinary) == 2
+    selected, _, candidates = op(*args, **common, candidate_mode=1)
+    assert candidates.shape == (1, 1, 2048)
+    assert set(candidates.flatten().tolist()) == set(range(8, 2056))
+    assert selected.flatten().tolist() == [16447, 16446, 16445, 16444]
+    result = op(*args, **common, candidate_mode=2, candidate_topk_index=candidates)
     assert torch.equal(result[0], selected)
     assert torch.equal(op(*args, **common, candidate_mode=3)[0], ordinary[0])
-    # A consumer is a strict mask: negative/duplicate/out-of-range blocks
-    # cannot contribute extra positions, even if those positions score higher.
-    restricted = torch.full((1, 1, 64), -1, dtype=torch.int32)
-    restricted[0, 0, :4] = torch.tensor([0, 0, -1, 999])
-    result = op(
-        *args,
-        **common,
-        candidate_mode=2,
-        candidate_topk_blocks=64,
-        candidate_topk_index=restricted,
-    )
+    restricted = torch.full((1, 1, 2048), -1, dtype=torch.int32)
+    restricted[0, 0, :4] = torch.tensor([0, 0, -1, 99999])
+    result = op(*args, **common, candidate_mode=2, candidate_topk_index=restricted)
     assert result[0].flatten().tolist() == [7, 6, 5, 4]
 
 
@@ -120,11 +108,13 @@ def test_source_pins_last_visible_block_and_causal_padding(modules):
     op, _ = modules
     args, common = inputs()
     args[4].fill_(1)
-    args[4][common["block_table"][0, 8], 0:8] = 0
-    _, _, blocks = op(*args, **common, candidate_mode=1, candidate_topk_blocks=64)
-    assert 64 in blocks.flatten().tolist()
+    length = int(common["seqused_k"][0])
+    for position in range(length - 8, length):
+        args[4][common["block_table"][0, position // 64], position % 64] = 0
+    _, _, blocks = op(*args, **common, candidate_mode=1)
+    assert (length - 1) // 8 in blocks.flatten().tolist()
     common["seqused_k"].zero_()
-    indices, _, blocks = op(*args, **common, candidate_mode=1, candidate_topk_blocks=64)
+    indices, _, blocks = op(*args, **common, candidate_mode=1)
     assert torch.all(indices == -1) and torch.all(blocks == -1)
     common["seqused_k"].fill_(1)
     common["cu_seqlens_q"] = torch.tensor([0, 2], dtype=torch.int32)
@@ -140,7 +130,7 @@ def test_source_pins_last_visible_block_and_causal_padding(modules):
         **common,
         candidate_mode=3,
     )
-    assert result[0][0].eq(-1).all()  # First query cannot see the sole future K.
+    assert result[0][0].eq(-1).all()
     assert result[0][1, 0, 0] == 0
 
 
@@ -148,7 +138,7 @@ def test_source_pins_last_visible_block_and_causal_padding(modules):
     "kwargs",
     [
         dict(candidate_mode=0),
-        dict(candidate_mode=1, candidate_topk_blocks=63),
+        dict(candidate_mode=1, candidate_topk_blocks=64),
         dict(candidate_mode=1, candidate_block_size=4),
         dict(candidate_mode=2),
     ],
@@ -160,117 +150,140 @@ def test_invalid_candidate_contract_rejected(modules, kwargs):
         op(*args, **common, **kwargs)
 
 
-def test_existing_compute_name_has_three_output_meta_contract():
-    source = (
-        ROOT
-        / "third_party/ops_transformer/dsv41_indexer/quant_lightning_indexer_v2/torch_extension/quant_lightning_indexer.py"
+def test_public_route_reuses_existing_upstream_operators(modules):
+    import ast
+    from types import SimpleNamespace
+
+    source = PACKAGE / "operators/indexer/quant_lightning_indexer.py"
+    node = next(
+        n
+        for n in ast.parse(source.read_text(encoding="utf-8")).body
+        if isinstance(n, ast.FunctionDef) and n.name == "_a3_quant_lightning_indexer"
     )
-    namespace = "qli_schema_cpu_test"
-    library = torch.library.Library(namespace, "DEF")
+    ns = {"torch": torch, "__package__": "_qli_cpu_test.operators.indexer"}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), ns)
+    calls = []
+    indices = torch.zeros(1, 1, 4, dtype=torch.int32)
+    values = torch.empty(0, dtype=torch.bfloat16)
+    candidates = torch.zeros(1, 1, 2048, dtype=torch.int32)
 
-    class Builder:
-        def __init__(self, *args, **kwargs):
-            pass
+    def make_op(name, result):
+        def invoke(*args, **kwargs):
+            calls.append((name, kwargs))
+            return result
 
-        def _ensure_initialized(self):
-            for schema in self.schema():
-                library.define(schema)
-            self.register_meta()
+        return invoke
 
-    stub = ModuleType("cann_ops_transformer.op_builder")
-    stub.OpBuilder = Builder
-    stub.get_as_library = lambda: library
-    code = source.read_text(encoding="utf-8").replace(
-        "cann_ops_transformer::", namespace + "::"
+    ops = SimpleNamespace(
+        quant_lightning_indexer=make_op("ordinary", (indices, values)),
+        quant_lightning_indexer_candidate=make_op(
+            "source", (indices, values, candidates)
+        ),
+        quant_sparse_lightning_indexer=make_op("consumer", (indices, values)),
     )
-    with patch.dict(sys.modules, {stub.__name__: stub}):
-        bindings = {}
-        exec(compile(code, str(source), "exec"), bindings)
-    q = torch.empty(3, 32, 128, dtype=torch.int8, device="meta")
-    k = torch.empty(4, 64, 1, 128, dtype=torch.int8, device="meta")
-    w = torch.empty(3, 32, dtype=torch.float16, device="meta")
-    ks = torch.empty(4, 64, 1, dtype=torch.float16, device="meta")
-    op = getattr(torch.ops, namespace).quant_lightning_indexer
-    for mode in (1, 2, 3):
-        outputs = op(
-            q, k, w, w, ks, 512, 2, candidate_mode=mode, candidate_topk_blocks=64
+    args, common = inputs()
+    route = ns["_a3_quant_lightning_indexer"]
+    assert len(route(ops, *args, **common)) == 2
+    for mode, name in ((1, "source"), (2, "consumer"), (3, "ordinary")):
+        result = route(
+            ops,
+            *args,
+            **common,
+            candidate_mode=mode,
+            candidate_topk_index=candidates if mode == 2 else None,
         )
-        assert outputs[0].shape == (3, 1, 512)
-        assert outputs[2].shape == ((3, 1, 64) if mode == 1 else (0,))
-        assert outputs[2].dtype == torch.int32
-        assert outputs[1].dtype == torch.bfloat16
-    scores = op(q, k, w, w, ks, 512, 2, return_value=1)
-    assert scores[1].shape == (3, 1, 512) and scores[1].dtype == torch.float32
-    schema = str(op.default._schema)
-    assert 'layout_q="BSND"' in schema and 'layout_k="BSND"' in schema
-    assert "mask_mode=0" in schema
-    # The exported metadata function must enter the dispatcher for fake/compile.
-    metadata = bindings["quant_lightning_indexer_metadata"](
-        32, 1, 128, 512, 2, seqused_k=torch.empty(1, device="meta", dtype=torch.int32)
-    )
-    assert metadata.shape == (1024,) and metadata.device.type == "meta"
+        assert len(result) == 3 and calls[-1][0] == name
+        assert "candidate_mode" not in calls[-1][1]
+        if mode == 1:
+            assert result[2] is candidates
+        else:
+            assert result[2].numel() == 0
+    assert calls[1][1]["candidate_topk_blocks"] == 2048
+    assert calls[2][1]["candidate_topk_index"] is candidates
 
 
-def test_overlay_is_a3_only_hashed_and_preserves_pinned_build_rules(
-    tmp_path, monkeypatch
+def test_profiles_reuse_experimental_a3_ops_without_source_overlay(
+    monkeypatch, tmp_path
 ):
     import importlib.util
     import json
 
     path = ROOT / "third_party/ops_transformer/build.py"
-    # Load only the build adapter; no NPU runtime or native extension import.
-    with patch.dict(sys.modules):
-        sys.path.insert(0, str(ROOT / "python/sgl_kernel_npu"))
-        try:
-            spec = importlib.util.spec_from_file_location("_qli_build_test", path)
-            adapter = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(adapter)
-        finally:
-            sys.path.pop(0)
-    config = json.loads(
-        (ROOT / "third_party/profiles/cann-9.2.0/ops_transformer_dsv4.json").read_text()
-    )
-    config["ops"] = config["ops"]["arch22"]
-    config["arch_version"] = "2201"
+    sys.path.insert(0, str(ROOT / "python/sgl_kernel_npu"))
+    try:
+        spec = importlib.util.spec_from_file_location("_qli_build_test", path)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+    finally:
+        sys.path.pop(0)
+    root = ROOT / "third_party/profiles/cann-9.2.0"
+    main = json.loads((root / "ops_transformer.json").read_text())
+    release = json.loads((root / "ops_transformer_dsv4.json").read_text())
+    experiment = dict(main, **main["additional_builds"][0])
+    experiment["ops"] = experiment["ops"]["arch22"]
+    release["ops"] = release["ops"]["arch22"]
+    for cfg in (experiment, release):
+        cfg["arch_version"] = "2201"
     monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910_93")
-    item = adapter.configure(config, 1)
-    assert item["a3_indexer_overlay"]
-    assert all("__pycache__" not in name for name in item["a3_indexer_overlay"])
-    source = tmp_path / "source"
-    for op in ("quant_lightning_indexer_v2", "quant_lightning_indexer_v2_metadata"):
-        cmake = source / "attention" / op / "op_host/CMakeLists.txt"
-        cmake.parent.mkdir(parents=True)
-        cmake.write_text("# original pinned build rules\n# checkers/qliv2_checker.cpp")
-
-    class StopBeforeCompiler(Exception):
-        pass
-
-    monkeypatch.setattr(
-        adapter, "run", lambda *args, **kw: (_ for _ in ()).throw(StopBeforeCompiler())
-    )
-    with pytest.raises(StopBeforeCompiler):
-        adapter.build(item, source, tmp_path)
-    for op in ("quant_lightning_indexer_v2", "quant_lightning_indexer_v2_metadata"):
-        contents = (source / "attention" / op / "op_host/CMakeLists.txt").read_text()
-        if op == "quant_lightning_indexer_v2":
-            assert "checkers/" not in contents
-            assert "OP_NAME QuantLightningIndexerV2" in contents
-            assert "quant_lightning_indexer_v2_def.cpp" in contents
-        else:
-            assert (
-                contents
-                == "# original pinned build rules\n# checkers/qliv2_checker.cpp"
-            )
-    assert (
-        source
-        / "attention/quant_lightning_indexer_v2_metadata/op_kernel_aicpu/quant_lightning_indexer_v2_metadata_aicpu.cpp"
-    ).exists()
-    # A2/A5 continue building the untouched release bindings.
+    selected = adapter.configure(experiment, 1)
+    assert selected["a3_indexer_bindings"] and selected["has_aicpu"]
+    assert selected["commit"] == "e7da18105f08b06e01ef0fff78f439098d483746"
+    assert {
+        "quant_lightning_indexer_v2",
+        "quant_lightning_indexer_v2_metadata",
+        "quant_sparse_lightning_indexer",
+    } <= set(selected["ops"])
+    assert "--experimental" in selected["commands"][0]
+    resolved_release = adapter.configure(release, 1)
+    assert "quant_lightning_indexer_v2" not in resolved_release["ops"]
+    assert not resolved_release["has_aicpu"]
     monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910b")
-    assert "a3_indexer_overlay" not in adapter.configure(config, 1)
-    config["arch_version"] = "3510"
-    monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend950")
-    assert "a3_indexer_overlay" not in adapter.configure(config, 1)
+    assert adapter.configure(experiment, 1)["ops"] == ["compressor_v2"]
+    assert "quant_lightning_indexer_v2" in adapter.configure(release, 1)["ops"]
+    assert not list((ROOT / "third_party/ops_transformer/dsv41_indexer").rglob("*.cpp"))
+
+    import zipfile
+
+    wheel = tmp_path / "upstream.whl"
+    prefix = "cann_ops_transformer_" + selected["vendor_name"]
+    binding = """class Builder:
+    def register_meta(self):
+        def metadata(cu_seqlens_q=None, cu_seqlens_k=None, seqused_q=None,
+                     seqused_k=None, cmp_residual_k=None):
+            return torch.empty((QLI_METADATA_SIZE), dtype=torch.int32, device="npu")
+        def compute(query, return_value=0):
+            sparse_indices_out = torch.empty(3, dtype=torch.int32, device=query.device)
+            if return_value:
+                sparse_values_out = torch.empty(3, dtype=torch.bfloat16, device=query.device)
+            else:
+                sparse_values_out = torch.empty(0, dtype=torch.bfloat16, device=query.device)
+            return (sparse_indices_out, sparse_values_out)
+        return metadata, compute
+"""
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            prefix + "/ops/attention/quant_lightning_indexer_v2/__init__.py", ""
+        )
+        archive.writestr(
+            prefix
+            + "/ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py",
+            binding,
+        )
+    package = tmp_path / "package"
+    adapter.stage_python(wheel, selected, package)
+    staged = (
+        package
+        / "_third_party"
+        / selected["name"]
+        / "ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py"
+    )
+    ns = {"torch": torch, "QLI_METADATA_SIZE": 1024}
+    exec(compile(staged.read_text(), str(staged), "exec"), ns)
+    metadata, compute = ns["Builder"]().register_meta()
+    query = torch.empty(1, device="meta")
+    assert metadata(seqused_k=query).device.type == "meta"
+    assert compute(query, 1)[1].dtype == torch.float32
+    assert compute(query, 0)[1].dtype == torch.bfloat16
 
 
 def test_public_wrapper_keeps_legacy_pair_and_explicit_mode_triple():
@@ -292,57 +305,7 @@ def test_public_wrapper_keeps_legacy_pair_and_explicit_mode_triple():
     }
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(source), "exec"), ns)
     args, _ = inputs()
-    pair = ns["quant_lightning_indexer"](*args)
-    assert len(pair) == 2 and torch.equal(pair[0], indices)
+    assert len(ns["quant_lightning_indexer"](*args)) == 2
     for mode in (1, 2, 3):
         triple = ns["quant_lightning_indexer"](*args, candidate_mode=mode)
         assert len(triple) == 3 and triple[2] is blocks
-
-
-def test_packaged_entrypoint_imports_only_existing_bindings(tmp_path, monkeypatch):
-    import ast
-
-    extension = (
-        ROOT
-        / "third_party/ops_transformer/dsv41_indexer/quant_lightning_indexer_v2/torch_extension"
-    )
-    definitions = {
-        node.name
-        for node in ast.parse(
-            (extension / "quant_lightning_indexer.py").read_text(encoding="utf-8")
-        ).body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-    }
-    entrypoint = ast.parse((extension / "__init__.py").read_text(encoding="utf-8"))
-    imports = {
-        alias.name
-        for node in entrypoint.body
-        if isinstance(node, ast.ImportFrom) and node.module == "quant_lightning_indexer"
-        for alias in node.names
-    }
-    assert imports == {"quant_lightning_indexer", "quant_lightning_indexer_metadata"}
-    assert imports <= definitions
-
-    # Simulate the converter's import-time requirement that bindings/schema
-    # have already been registered, including hosts where TorchAir is installed.
-    package = tmp_path / "_qli_entrypoint_test"
-    package.mkdir()
-    (package / "__init__.py").write_text((extension / "__init__.py").read_text())
-    (package / "quant_lightning_indexer.py").write_text(
-        "def quant_lightning_indexer(): pass\n"
-        "def quant_lightning_indexer_metadata(): pass\n"
-    )
-    (package / "graph_convert_quant_lightning_indexer.py").write_text(
-        "import sys\n"
-        "assert callable(getattr(sys.modules[__package__], "
-        "'quant_lightning_indexer_metadata', None))\n"
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    before = set(sys.modules)
-    try:
-        imported = importlib.import_module(package.name)
-        assert set(imported.__all__) == imports
-    finally:
-        for name in set(sys.modules) - before:
-            if name.startswith(package.name):
-                sys.modules.pop(name, None)

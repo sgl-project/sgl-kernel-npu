@@ -28,7 +28,7 @@ CASE_IDS = [
 ]
 
 
-def generate_data(case, mode):
+def generate_data(case, mode, scale_divisor=64):
     lengths, queries, residuals = case
     dtype = torch.float8_e4m3fn if mode == 1 else torch.int8
     scale_dtype = torch.float32 if mode == 1 else torch.float16
@@ -47,7 +47,7 @@ def generate_data(case, mode):
     scales = torch.ones(pages, 32, 1, dtype=scale_dtype)
     for b, length in enumerate(lengths):
         for j in range(length):
-            scales[int(table[b, j // 32]), j % 32, 0] = 2 ** (j / 64)
+            scales[int(table[b, j // 32]), j % 32, 0] = 2 ** (j / scale_divisor)
     args = (
         q.to(dtype).view(torch.uint8).to(table.device).view(dtype),
         k.to(dtype).view(torch.uint8).to(table.device).view(dtype),
@@ -214,7 +214,16 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
 
     if torch_npu_soc_family() != 250 or not detect_cann_version().startswith("9.2."):
         pytest.skip("V4.1 INT8 candidate modes require A3 + CANN 9.2")
-    args, common, table = generate_data(((769,), (query_length,), (0,)), 2)
+    length = 16449  # More than 2048 blocks; exercise actual candidate pruning.
+    with torch.device("cpu"):
+        args, common, table = generate_data(
+            ((length,), (query_length,), (0,)), 2, scale_divisor=2048
+        )
+        # Keep token-level TopK scores distinct despite FP16 scale rounding.
+        for position in range(length - 1024, length):
+            args[4][table[0, position // 32], position % 32] = (
+                position - (length - 1024) + 1
+            )
     args = tuple(
         value[:, :heads].contiguous() if i in (0, 2, 3) else value
         for i, value in enumerate(args)
@@ -234,7 +243,7 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
         device_common,
         block_table=table.to("npu"),
         metadata=metadata,
-        candidate_topk_blocks=64,
+        candidate_topk_blocks=2048,
         candidate_block_size=8,
     )
     source = quant_lightning_indexer(*args, **kwargs, candidate_mode=1)
@@ -242,7 +251,10 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
     cpu_common = {
         name: _cpu_tensor(value)
         for name, value in dict(
-            common, block_table=table, candidate_topk_blocks=64, candidate_block_size=8
+            common,
+            block_table=table,
+            candidate_topk_blocks=2048,
+            candidate_block_size=8,
         ).items()
     }
     expected = quant_lightning_indexer(

@@ -32,15 +32,15 @@ def configure(config, jobs):
     config["python_bindings"] = config.get("python_bindings", True)
     if not isinstance(config["python_bindings"], bool):
         raise ValueError("python_bindings must be a boolean")
-    if config.pop("a3_indexer_overlay", False) and config["soc"] == "ascend910_93":
-        overlay = Path(__file__).with_name("dsv41_indexer")
-        config["a3_indexer_overlay"] = {
-            p.relative_to(overlay)
-            .as_posix(): hashlib.sha256(p.read_bytes())
-            .hexdigest()
-            for p in sorted(overlay.rglob("*"))
-            if p.is_file() and "__pycache__" not in p.parts
-        }
+    a3_ops = config.pop("a3_add_ops", [])
+    a3_exclude = config.pop("a3_exclude_ops", [])
+    if config["soc"] == "ascend910_93":
+        config["ops"] = [op for op in config["ops"] if op not in a3_exclude] + a3_ops
+        if a3_exclude:
+            config["has_aicpu"] = False
+        if a3_ops:
+            config["a3_indexer_bindings"] = True
+            config["has_aicpu"] = True
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -93,6 +93,31 @@ def stage_python(wheel, item, package):
             'sys.modules["{}.ops"]'.format(qualified),
         )
         path.write_text(source)
+    if item.get("a3_indexer_bindings"):
+        binding = (
+            destination
+            / "ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py"
+        )
+        source = binding.read_text()
+        start = source.index("            if return_value:")
+        end = source.index(
+            "            return (sparse_indices_out, sparse_values_out)", start
+        )
+        source = (
+            source[:start]
+            + source[start:end].replace(
+                "dtype=torch.bfloat16",
+                "dtype=torch.float32 if return_value else torch.bfloat16",
+            )
+            + source[end:]
+        )
+        source = source.replace(
+            'return torch.empty((QLI_METADATA_SIZE), dtype=torch.int32, device="npu")',
+            "device = next((t.device for t in (cu_seqlens_q, cu_seqlens_k, seqused_q, "
+            'seqused_k, cmp_residual_k) if t is not None), "npu")\n'
+            "            return torch.empty(QLI_METADATA_SIZE, dtype=torch.int32, device=device)",
+        )
+        binding.write_text(source)
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(
@@ -160,33 +185,6 @@ def inspect_vendor(vendor, item):
 
 
 def build(item, source, directory):
-    if item.get("a3_indexer_overlay"):
-        overlay = Path(__file__).with_name("dsv41_indexer")
-        for name, expected in item["a3_indexer_overlay"].items():
-            if hashlib.sha256((overlay / name).read_bytes()).hexdigest() != expected:
-                raise RuntimeError("A3 indexer overlay changed after configuration")
-        for op in ("quant_lightning_indexer_v2", "quant_lightning_indexer_v2_metadata"):
-            target = source / "attention" / op
-            if source.resolve() not in target.resolve().parents:
-                raise ValueError("Indexer overlay target escapes source checkout")
-            cmake = {
-                p.relative_to(target): p.read_bytes()
-                for p in target.rglob("CMakeLists.txt")
-            }
-            if target.exists():
-                shutil.rmtree(target)
-            shutil.copytree(
-                overlay / op,
-                target,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-            )
-            # Keep pinned build rules unless the overlay supplies a matching replacement.
-            # In particular, the release QLI host rule references replaced checkers.
-            for relative, contents in cmake.items():
-                path = target / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not (overlay / op / relative).exists():
-                    path.write_bytes(contents)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     # The pinned 9.1 build.sh has no --torch_extension option.
