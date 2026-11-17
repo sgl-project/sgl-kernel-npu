@@ -7,7 +7,7 @@ all Python interfaces and implementation sources, including Triton and Torch
 native, plus selected CANN (AI Core/AICPU) and host C++ operators.
 
 The existing `build.sh` and nested Python `setup.py` keep their original build
-behavior. DeepEP, memory saver and attentions remain independent packages built
+behavior. DeepEP and memory saver remain independent packages built
 through that existing entry. The new entry does not schedule or change them.
 
 ### Build CANN and host C++ operators
