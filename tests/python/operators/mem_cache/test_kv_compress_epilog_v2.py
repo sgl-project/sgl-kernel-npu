@@ -8,7 +8,7 @@ torch = pytest.importorskip("torch")
 import sgl_kernel_npu  # noqa: F401
 from sgl_kernel_npu.operators.utils.cann import detect_cann_version
 
-from tests.python.utils.accuracy import AccuracyStandard, assert_accuracy
+from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
     get_test_impls,
@@ -17,6 +17,7 @@ from tests.python.utils.common import (
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 
 def _unavailable():
@@ -213,6 +214,9 @@ def generate_data(
     seed,
     pattern,
 ):
+    # Host-side construction keeps the seeded generator on CPU (see
+    # test_quant_flash_attn.py); the operator inputs then move to the NPU.
+    device = torch.get_default_device()
     generator = torch.Generator(device="cpu").manual_seed(seed)
     x = torch.randn((n, d), dtype=torch.bfloat16, device="cpu", generator=generator)
     if pattern == "zero":
@@ -221,12 +225,14 @@ def generate_data(
     if pattern == "shuffle":
         mapping = torch.randperm(n, device="cpu", generator=generator) * 2 % slots
     mapping = mapping.to(torch.int64 if slot_dtype == "int64" else torch.int32)
-    data_width, _, cache_col = _widths(d, mode, group, layout)
+    _, _, cache_col = _widths(d, mode, group, layout)
     if layout == 4:
         pages = (slots + block - 1) // block
-        byte = torch.full((pages, block, 1, cache_col), 91, dtype=torch.uint8)
+        byte = torch.full(
+            (pages, block, 1, cache_col), 91, dtype=torch.uint8, device=device
+        )
     else:
-        byte = torch.full((slots, cache_col + 32), 91, dtype=torch.uint8)
+        byte = torch.full((slots, cache_col + 32), 91, dtype=torch.uint8, device=device)
     if cache != "uint8":
         byte = byte.view(_CACHE_DTYPES[cache])
     kwargs = dict(
@@ -235,7 +241,7 @@ def generate_data(
         round_scale=round_scale,
         x_scale=1.0,
     )
-    return byte, x, mapping, kwargs
+    return byte, x.to(device), mapping.to(device), kwargs
 
 
 def _decode_mxfp4(packed, rows, d):
