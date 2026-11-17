@@ -1,6 +1,7 @@
 """Build and package the custom ops-transformer vendor and Python bindings."""
 
 import hashlib
+import os
 import re
 import shutil
 import sys
@@ -57,17 +58,34 @@ def stage_python(wheel, item, package):
     # Upstream's builder still contains absolute imports of the unsuffixed package.
     # Rewrite Python module paths; Torch operator namespaces must remain intact.
     pattern = (
-        r"(?m)^(\s*(?:from|import)\s+)(?:"
+        r"(?m)^(\s*from\s+)(?:"
         + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
+    imports = (
+        r"(?m)^(\s*import\s+)("
+        + re.escape(upstream_package)
+        + r"|cann_ops_transformer)(\.[\w.]+)?(?:\s+as\s+(\w+))?[ \t]*$"
+    )
     for path in destination.rglob("*.py"):
         source = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
-        # The flat 9.1 builder references the package by its original root name.
-        source = source.replace(
-            "import " + qualified + "\n",
-            "import " + qualified + " as cann_ops_transformer\n",
-        )
+
+        def rewrite_import(match):
+            prefix, original, suffix, alias = match.groups()
+            if suffix and not alias:
+                return (
+                    prefix
+                    + qualified
+                    + suffix
+                    + "\n"
+                    + prefix
+                    + qualified
+                    + " as "
+                    + original
+                )
+            return prefix + qualified + (suffix or "") + " as " + (alias or original)
+
+        source = re.sub(imports, rewrite_import, source)
         # CompressorV2 creates ops.ds41 using a Python module-cache lookup.
         source = source.replace(
             'sys.modules["cann_ops_transformer.ops"]',
@@ -140,22 +158,38 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def build_python_wheel(item, source, directory):
+    """Use the profile command, or package CANN 9.1's selected bindings."""
+    if any("--torch_extension" in command for command in item["commands"]):
+        wheels = list((source / "torch_extension/dist").glob("*.whl"))
+    else:
+        wheel_dir = directory / "python-wheel"
+        run(
+            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", wheel_dir],
+            directory / "build-python.log",
+            cwd=source / "torch_extension",
+            env=dict(
+                os.environ,
+                TORCH_EXTENSION_OPS=",".join(item["ops"]),
+                TORCH_EXTENSION_VENDOR=item["vendor_name"],
+                TORCH_EXTENSION_EXPERIMENTAL="FALSE",
+            ),
+        )
+        wheels = list(wheel_dir.glob("*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError("Expected exactly one selected upstream Python wheel")
+    return wheels[0]
+
+
 def build(item, source, directory):
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
-    # The pinned 9.1 build.sh has no --torch_extension option.
-    if item["python_bindings"] and not any(
-        "--torch_extension" in command for command in item["commands"]
-    ):
-        run(
-            [sys.executable, "setup.py", "bdist_wheel"],
-            directory / "build-python.log",
-            cwd=source / "torch_extension",
-        )
     installers = list((source / "build_out").glob("*.run"))
-    wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
-        raise RuntimeError("Expected one upstream .run and, if enabled, Python wheel")
+    wheel = (
+        build_python_wheel(item, source, directory) if item["python_bindings"] else None
+    )
+    if len(installers) != 1:
+        raise RuntimeError("Expected exactly one upstream .run")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -171,7 +205,7 @@ def build(item, source, directory):
     return dict(
         config=item,
         vendor=vendor,
-        wheel=wheels[0] if item["python_bindings"] else None,
+        wheel=wheel,
         license=source / item["license"],
     )
 
