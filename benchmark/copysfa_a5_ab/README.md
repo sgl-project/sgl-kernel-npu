@@ -54,9 +54,10 @@ component gets its own trace directory and defaults to three iterations, with
 state restoration from the measured operator/replay.
 
 The native and LIM implementations can order equal TopK entries differently.
-Strictly increasing FP32 key scales are intended to avoid ties; the exact
-canonical-ID gate must still confirm that the device does not introduce ties
-through intermediate rounding.
+The fixture places explicit score gaps at each route's TopK boundary so the
+selected set remains unique after BF16 score sorting. A linear FP32 ramp alone
+does not preserve this property at long contexts. The canonical-ID device gate
+remains required; the CPU checks do not establish A5 execution acceptance.
 
 ## CPU-only validation
 
@@ -136,9 +137,9 @@ contains the chosen resident prefix rows in real request slots `1..B` (slot 0
 stays reserved), and every sample restores that map and HBM state outside the
 event interval. It intentionally does not use the cold `-2` state, which would
 turn the requested 512/513 diagnostic into a full cache fill. Native indexer
-scores use monotonic FP32 scales to avoid ties, but
-internal A5 rounding could still create ties; canonical-ID acceptance is
-therefore pending the real A5 run and is not claimed by CPU validation.
+scores use FP32 scales with BF16-safe gaps at the selected-set boundary;
+canonical-ID acceptance still requires the real A5 run and is not claimed by
+CPU validation.
 
 Success requires all 12 child processes to exit zero and `summary.json` to have
 `status: passed`. Each case preserves raw event samples, medians/p95, fixture
@@ -196,6 +197,11 @@ timings without successful fixture and numerical validation are explicitly
 marked as diagnostic only. When both `unfixed-m512`/`fixed-m512` (or m513)
 matrices exist, scheduling deltas for the post-migration arm are also printed.
 The command reads existing files and does not initialize an NPU.
+
+Frozen-plan attention acceptance is shown independently: it requires matching
+fixture hashes, its CPU golden check and output parity to native attention.
+It does not consume live indexer IDs, so a failed canonical-ID gate does not
+automatically invalidate that component. The full-case gate stays unchanged.
 
 The scripts and fixture/result contracts can be checked on CPU, but numerical,
 graph and event-timing acceptance require an actual Ascend950 run. Historical

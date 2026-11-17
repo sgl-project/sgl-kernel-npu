@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from bench import _import_shm, _require_kernel_prefix  # noqa: E402
-from compare import delta, show_matrix  # noqa: E402
+from compare import delta, show_matrix, standalone_accepted  # noqa: E402
 from fixture import FixtureSpec, parse_miss_counts  # noqa: E402
 from prepare_wheels import unpack  # noqa: E402
 from report import _parity  # noqa: E402
@@ -69,6 +69,26 @@ class RuntimeCheckTest(unittest.TestCase):
 
 
 class TimingComparisonTest(unittest.TestCase):
+    def test_standalone_acceptance_requires_its_own_accuracy_and_parity(self):
+        result = {
+            "arm": {"name": "post_migration"},
+            "status": "failed",
+            "accuracy": {
+                "standalone": {"passed": True},
+                "canonical_ids": {"passed": False},
+            },
+        }
+        row = {
+            "fixture_equal": True,
+            "parity_to_native": {"standalone": {"passed": True}},
+        }
+        self.assertTrue(standalone_accepted(result, row))
+        row["parity_to_native"]["standalone"]["passed"] = False
+        self.assertFalse(standalone_accepted(result, row))
+        row["parity_to_native"]["standalone"]["passed"] = True
+        row["fixture_equal"] = False
+        self.assertFalse(standalone_accepted(result, row))
+
     def test_failed_cases_show_deltas_without_claiming_acceptance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -10,10 +10,29 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bench  # noqa: E402
-from fixture import FixtureSpec, build_torch_fixture  # noqa: E402
+from fixture import FixtureSpec, _index_key_scales, build_torch_fixture  # noqa: E402
 
 
 class LimCopyContractTest(unittest.TestCase):
+    def test_long_context_topk_boundary_survives_bf16_sorting(self):
+        for width in (1, 4):
+            spec = FixtureSpec(width, 1, 8, 64, 16000, 139904, 140032)
+            scores = _index_key_scales(torch, spec, spec.context).flatten() * 128
+            for dtype in (torch.float32, torch.bfloat16):
+                rounded = scores.to(dtype).float()
+                for route in range(width):
+                    with self.subTest(width=width, dtype=dtype, route=route):
+                        visible = spec.context - (width - 1 - route)
+                        chosen = (
+                            torch.topk(rounded[:visible], 2048).indices.sort().values
+                        )
+                        expected = torch.tensor(spec.route_ids(route))
+                        self.assertTrue(torch.equal(chosen, expected))
+                        self.assertGreater(
+                            float(rounded[visible - 2048]),
+                            float(rounded[visible - 2049]),
+                        )
+
     def test_lim_output_views_reach_copy_without_conversion_or_copy(self):
         for width in (1, 4):
             with self.subTest(width=width):

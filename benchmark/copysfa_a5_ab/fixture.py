@@ -113,6 +113,7 @@ class FixtureSpec:
             ],
             "tail_tokens": self.context - self.prefix,
             "packed_c8_row_bytes": ROW_BYTES,
+            "index_score_pattern": "bf16_boundary_gaps_v1",
         }
 
     def fingerprint(self) -> str:
@@ -160,6 +161,21 @@ def _tensor_fingerprint(torch: Any, tensors: dict[str, Any]) -> str:
         digest.update(str((tuple(cpu.shape), str(cpu.dtype))).encode("utf-8"))
         digest.update(cpu.view(torch.uint8).numpy().tobytes())
     return digest.hexdigest()
+
+
+def _index_key_scales(torch: Any, spec: FixtureSpec, source_capacity: int) -> Any:
+    # Keep every route's TopK boundary distinct even after BF16 score sorting.
+    # A linear FP32 ramp alone collapses adjacent scores at long contexts.
+    scales = torch.arange(1, source_capacity + 1, dtype=torch.float32)
+    scales.div_(source_capacity * 8)
+    first = spec.context - (spec.query_width - 1) - TOPK
+    last = spec.context - TOPK
+    for route, token in enumerate(range(first, last + 1)):
+        scales[token] = 0.25 * (2**route)
+    scales[last + 1 :] = torch.linspace(
+        4, 8, source_capacity - last - 1, dtype=torch.float32
+    )
+    return scales.view(source_capacity // PAGE, PAGE, 1)
 
 
 def build_torch_fixture(torch: Any, spec: FixtureSpec) -> dict[str, Any]:
@@ -213,11 +229,7 @@ def build_torch_fixture(torch: Any, spec: FixtureSpec) -> dict[str, Any]:
         (query_rows, spec.index_heads), 1 / spec.index_heads, dtype=torch.bfloat16
     )
     query_scale = torch.ones(query_rows, spec.index_heads, dtype=torch.float32)
-    key_scale = (
-        torch.arange(1, source_capacity + 1, dtype=torch.float32)
-        .div(source_capacity)
-        .view(source_pages, PAGE, 1)
-    )
+    key_scale = _index_key_scales(torch, spec, source_capacity)
     source_table = torch.arange(source_pages, dtype=torch.int32).repeat(spec.batch, 1)
 
     source_ids = torch.full((query_rows, 1, TOPK), -1, dtype=torch.int32)

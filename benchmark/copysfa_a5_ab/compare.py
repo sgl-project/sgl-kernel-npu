@@ -9,6 +9,17 @@ from report import build_report
 COMPONENTS = ("indexer_or_lim", "attention_or_copysfa", "chain")
 
 
+def standalone_accepted(result, row):
+    # Frozen-plan attention does not consume the indexer's live TopK IDs.
+    if not row.get("fixture_equal") or not result.get("accuracy", {}).get(
+        "standalone", {}
+    ).get("passed"):
+        return False
+    if result.get("arm", {}).get("name") == "native":
+        return True
+    return row.get("parity_to_native", {}).get("standalone", {}).get("passed", False)
+
+
 def delta(before, after):
     return "n/a" if before <= 0 else f"{(after / before - 1) * 100:+.2f}%"
 
@@ -24,12 +35,19 @@ def show_matrix(root, statistic):
             raise ValueError(f"duplicate result: {key}")
         results[key] = result
     validated = {}
+    attention_validated = {}
     try:
         report = build_report(
             root, parity_atol=0.002, parity_rtol=0.005, max_relative_l2=0.08
         )
         validated = {
             (r["query_width"], r["mode"], r["arm"]): r["passed"] for r in report["rows"]
+        }
+        attention_validated = {
+            (r["query_width"], r["mode"], r["arm"]): standalone_accepted(
+                results[(r["query_width"], r["mode"], r["arm"])], r
+            )
+            for r in report["rows"]
         }
     except (ValueError, KeyError, OSError) as error:
         print(f"Full validation unavailable: {error}")
@@ -54,6 +72,9 @@ def show_matrix(root, statistic):
                 print(
                     f"  {arm:15} index/LIM={values[arm][0]:9.3f}  attention/CopySFA={values[arm][1]:9.3f}  chain={values[arm][2]:9.3f}  {status}"
                 )
+                print(
+                    f"    frozen-plan attention: {'PASS' if attention_validated.get(key) else 'NOT ACCEPTED'}"
+                )
                 for name, check in result.get("accuracy", {}).items():
                     if not check.get("passed"):
                         print(f"    accuracy failed: {name}")
@@ -67,6 +88,17 @@ def show_matrix(root, statistic):
                 if validated.get(key) is False and result.get("status") == "passed":
                     print("    cross-arm fixture/output parity failed")
             if "pre_migration" in values and "post_migration" in values:
+                hashes = [
+                    results.get((width, mode, arm), {})
+                    .get("accuracy", {})
+                    .get("canonical_ids", {})
+                    .get("sha256")
+                    for arm in ("native", "pre_migration", "post_migration")
+                ]
+                if all(hashes):
+                    print(
+                        f"  live TopK set hashes native/pre/post: {'MATCH' if len(set(hashes)) == 1 else 'DIFFER'} (fixture-ID check remains separate)"
+                    )
                 changes = [
                     delta(a, b)
                     for a, b in zip(values["pre_migration"], values["post_migration"])
@@ -78,6 +110,13 @@ def show_matrix(root, statistic):
                 print(
                     f"  post vs pre: LIM {changes[0]}, CopySFA {changes[1]}, chain {changes[2]}  [{'VALIDATED' if passed else 'NOT ACCEPTED: check failures above'}]"
                 )
+                if all(
+                    attention_validated.get((width, mode, a))
+                    for a in ("native", "pre_migration", "post_migration")
+                ):
+                    print(
+                        f"  CopySFA standalone: {changes[1]} VALIDATED (fixed plan, golden and native parity passed; independent of canonical_ids)"
+                    )
     return results
 
 
