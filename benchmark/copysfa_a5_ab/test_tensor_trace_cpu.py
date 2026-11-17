@@ -7,15 +7,69 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixture import _packed_rows  # noqa: E402
 from tensor_trace import TensorTrace, compare, gather_logical, summarize  # noqa: E402
-from trace_alignment import build_inputs, validate_ids  # noqa: E402
+from trace_alignment import (  # noqa: E402
+    build_inputs,
+    parse_args,
+    short_golden,
+    validate_ids,
+)
 
 
 class TensorTraceTest(unittest.TestCase):
+    def test_short_defaults_and_causal_padding(self):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "trace_short_alignment.py",
+                "--framework-prefix",
+                "/unused",
+                "--output",
+                "/unused",
+            ],
+        ):
+            args = parse_args(
+                {"context": 16, "batch": 1, "heads": 128}, short_only=True
+            )
+        self.assertEqual(
+            (args.context, args.batch, args.heads, args.device), (16, 1, 128, 0)
+        )
+        for width in (1, 4):
+            args.query_width = width
+            inputs = build_inputs(torch, args)
+            ids = torch.full((width, 2048), -1, dtype=torch.int32)
+            for row, position in enumerate(inputs["positions"].tolist()):
+                ids[row, : position + 1] = torch.arange(position + 1)
+            with tempfile.TemporaryDirectory() as directory:
+                trace = TensorTrace(torch, Path(directory), {})
+                trace.begin("short")
+                validate_ids(torch, trace, ids, args)
+            self.assertEqual(
+                inputs["locations"].tolist(), list(range(128 + 16 - width, 128 + 16))
+            )
+
+    def test_short_golden_excludes_future_kv(self):
+        args = SimpleNamespace(
+            batch=1, query_width=4, heads=8, context=16, capacity=8192
+        )
+        inputs = build_inputs(torch, args)
+        inputs["packed"] = torch.cat(
+            (torch.zeros(128, 656, dtype=torch.int8), _packed_rows(torch, 128))
+        ).view(-1, 128, 1, 656)
+        before = short_golden(torch, inputs, args)
+        flat = inputs["packed"].view(-1, 656)
+        flat[128 + 15].copy_(flat[128 + 30])
+        after = short_golden(torch, inputs, args)
+        self.assertTrue(torch.equal(before[:3], after[:3]))
+        self.assertFalse(torch.allclose(before[3], after[3]))
+
     def test_resolves_request_specific_pages_and_ignores_padding(self):
         packed = (
             torch.arange(6 * 128)

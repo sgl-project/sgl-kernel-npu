@@ -2,6 +2,26 @@
 
 ## Locate the first tensor difference in the current framework
 
+For the reported short-request issue, use this dedicated 16-token case:
+
+```bash
+cd /mnt/share/y00970600/personal/sgl-kernel-npu
+python3 benchmark/copysfa_a5_ab/trace_short_alignment.py \
+  --framework-prefix /mnt/share/y00970600/personal/sglang \
+  --device 0 \
+  --output /mnt/share/y00970600/a5-alignment-short-q4
+```
+
+It defaults to batch 1, 128 heads, Q4, C8192 and context 16. For ordinary Q1
+decode, add `--query-width 1` and use another output directory. The wrapper
+rejects long contexts, and both cases verify the actual short vendor-SFA path.
+Metadata, Host publication, ring staging and gathered KV are checked alongside
+attention outputs. For contexts <=2048, native and offload outputs are also
+compared separately against an independent CPU causal attention oracle using
+dequantized packed C8 KV. This helps distinguish an offload-only mismatch from
+a shared operator discrepancy. This synthetic single-layer case does not
+reproduce model scheduling or prove that a real-model curl has been fixed.
+
 `trace_alignment.py` runs one synthetic A5 packed-C8 layer in eager mode,
 first cold and then with the same inputs and warm residency. It calls the
 installed native quantized LI/SFA operators for the no-offload reference, and

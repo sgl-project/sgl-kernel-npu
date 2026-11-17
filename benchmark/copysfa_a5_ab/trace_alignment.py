@@ -22,7 +22,7 @@ from fixture import FixtureSpec, _index_key_scales, _packed_rows, unpack_rows
 from tensor_trace import TensorTrace, gather_logical, summarize
 
 
-def parse_args():
+def parse_args(defaults=None, *, short_only=False):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework-prefix", type=Path, required=True)
     parser.add_argument("--device", type=int, default=0)
@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--max-relative-l2", type=float, default=0.08)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.set_defaults(**(defaults or {}))
     args = parser.parse_args()
     if args.device < 0 or args.batch < 1:
         parser.error("device must be nonnegative and batch must be positive")
@@ -52,6 +53,8 @@ def parse_args():
     prefix = (args.context - args.query_width) // 128 * 128
     if args.context >= args.capacity and prefix < args.capacity:
         parser.error("choose context < C or context >= C + query-width")
+    if short_only and args.context >= args.capacity:
+        parser.error("the short-path diagnostic requires context < capacity")
     return args
 
 
@@ -507,6 +510,16 @@ def execute(torch, torch_npu, args, trace):
                 trace.check("fallback.gathered_kv", gathered, expected)
                 trace.check("fallback.query", kw["query"], cpu["merged_query"])
                 trace.check(
+                    "fallback.seq_lens", kw["actual_seq_lengths_kv"], cpu["seq_lens"]
+                )
+                trace.check(
+                    "fallback.query_ends",
+                    kw["actual_seq_lengths_query"],
+                    cpu["query_ends"],
+                )
+                trace.save("fallback.block_table", kw["block_table"])
+                trace.save("fallback.topk_ordered", kw["sparse_indices"])
+                trace.check(
                     "fallback.topk",
                     kw["sparse_indices"]
                     .reshape(b * q, 2048)
@@ -596,6 +609,22 @@ def execute(torch, torch_npu, args, trace):
                 native["holder"]["standalone_output"].reshape_as(output),
                 **tolerance,
             )
+            if args.context <= 2048:
+                # A 16-token query attends every causal token, independently of
+                # TopK ordering. Use the packed C8 values, not unquantized KV.
+                golden = short_golden(torch, cpu, args)
+                trace.check(
+                    "native_vs_cpu_causal_golden",
+                    native_output.reshape_as(output).cpu().float(),
+                    golden,
+                    **tolerance,
+                )
+                trace.check(
+                    "offload_vs_cpu_causal_golden",
+                    output.cpu().float(),
+                    golden,
+                    **tolerance,
+                )
             trace.flush()
         trace.report["complete"] = True
     finally:
@@ -691,8 +720,29 @@ def capture_log(path):
         os.close(saved[1])
 
 
-def main():
-    args = parse_args()
+def short_golden(torch, inputs, args):
+    """Independent dense causal oracle, valid only while every token fits TopK."""
+    if args.context > 2048:
+        raise ValueError("dense short golden requires context <= TopK=2048")
+    result = torch.empty(args.batch * args.query_width, args.heads, 512)
+    for row, position in enumerate(inputs["positions"].tolist()):
+        request = row // args.query_width
+        ids = torch.arange(position + 1).view(1, -1)
+        packed = gather_logical(
+            torch,
+            inputs["packed"],
+            inputs["source_table"][request : request + 1],
+            ids,
+            1,
+        )
+        key, value = unpack_rows(torch, packed.reshape(-1, 656))
+        scores = inputs["merged_query"][row].float() @ key.T / math.sqrt(576)
+        result[row] = torch.softmax(scores, -1) @ value
+    return result
+
+
+def main(defaults=None, *, short_only=False):
+    args = parse_args(defaults, short_only=short_only)
     if args.dry_run:
         print(
             f"A5 C8 alignment: Q{args.query_width}, batch={args.batch}, context={args.context}, C={args.capacity}, device={args.device}; dry run only"
