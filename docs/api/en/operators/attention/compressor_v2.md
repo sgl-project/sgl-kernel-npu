@@ -1,6 +1,6 @@
 # compressor_v2
 
-Experimental CompressorV2 for **CANN 9.2.0 / A3 (arch22)**. `auto` and
+Experimental CompressorV2 for **CANN 9.2.0 / A3 (arch22) and A5 (arch35)**. `auto` and
 `cann_ops_transformers_cann920` select the same bundled backend, without fallback.
 
 Upstream documentation: [CompressorV2 Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/experimental/attention/compressor_v2/docs/torchapi_compressor.md).
@@ -9,7 +9,7 @@ Upstream documentation: [CompressorV2 Torch API](https://gitcode.com/cann/ops-tr
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
+| `cann_ops_transformers_cann920` / `auto` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -63,6 +63,8 @@ the upstream Python default of None. Launch validation checks metadata only;
 the caller guarantees valid tensor contents and available history.
 
 ## cann_ops_transformers_cann920 backend
+
+Requires an initialized CANN 9.2.x SDK; the test file is skipped entirely on other releases.
 
 Build with the `ops_transformer` profile. Its `additional_builds` entry schedules
 CompressorV2 with `--experimental` on both upstream commands. The experimental

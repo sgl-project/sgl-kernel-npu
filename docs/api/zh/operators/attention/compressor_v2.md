@@ -60,6 +60,8 @@ B/S/T 可为 0，权重与 cache 仍须非空。上游 Python 签名的 state_bl
 
 ## cann_ops_transformers_cann920 后端
 
+要求已初始化的 CANN 9.2.x SDK；非 9.2 环境下测试文件整文件跳过。
+
 使用 `ops_transformer` profile 构建，其中 `additional_builds` 声明 CompressorV2 的独立构建，
 两条上游命令均带 `--experimental`。
 该依赖使用独立 vendor 和 Python 包，可与普通 profile 一起随 wheel 分发，保留完整
