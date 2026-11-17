@@ -5,7 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc_aiv` | 支持 | 支持 |
-| `memfabric_aicpu` | 需要兼容的 MemFabric sparse copy | 需要兼容的 MemFabric sparse copy |
+| `memfabric_aicpu` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 AIV 实现面向 Ascend A3（arch22）和 A5（arch35）。运行时需匹配对应硬件，并提供已注册的 Host 内存。

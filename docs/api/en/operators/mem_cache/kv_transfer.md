@@ -5,7 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc_aiv` | Supported | Supported |
-| `memfabric_aicpu` | Requires compatible MemFabric sparse copy | Requires compatible MemFabric sparse copy |
+| `memfabric_aicpu` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 The AIV implementation targets Ascend A3 (arch22) and A5 (arch35). Availability depends on a compatible runtime and registered Host memory.
