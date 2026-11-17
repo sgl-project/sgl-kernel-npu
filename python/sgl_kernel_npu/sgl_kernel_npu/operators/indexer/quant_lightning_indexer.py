@@ -44,9 +44,7 @@ def _cann_quant_lightning_indexer(
 
         _cann_920_fn = ops.quant_lightning_indexer
 
-    return _cann_920_fn(
-        q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
-    )
+    return _cann_920_fn(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
 @register_impl("indexer.quant_lightning_indexer", "ops_transformers_cann910")
@@ -88,9 +86,7 @@ def _torch_quant_lightning_indexer(
         )
 
         _torch_native_fn = quant_lightning_indexer
-    return _torch_native_fn(
-        q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
-    )
+    return _torch_native_fn(q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs)
 
 
 @register_operator("indexer.quant_lightning_indexer")

@@ -58,9 +58,7 @@ def _cann_quant_lightning_indexer_metadata(
 
         _cann_920_fn = ops.quant_lightning_indexer_metadata
 
-    return _cann_920_fn(
-        num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
-    )
+    return _cann_920_fn(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
 @register_impl("indexer.quant_lightning_indexer_metadata", "ops_transformers_cann910")
