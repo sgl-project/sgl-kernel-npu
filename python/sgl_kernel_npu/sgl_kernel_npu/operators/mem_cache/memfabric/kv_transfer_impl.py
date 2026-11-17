@@ -1,7 +1,7 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
 The caller owns the registered Host storage and orders cross-stream access.
-NPU graph capture is not supported.
+The AIV path requires eager execution.
 """
 
 import importlib.util
@@ -251,9 +251,9 @@ def transfer_kv(
             "impl='memfabric_aicpu' requires MF host-pool memory, not ACL host registration"
         )
     with _submit_lock, torch.npu.device(device):
-        if torch.npu.is_current_stream_capturing():
-            raise RuntimeError("KV transfer currently supports eager execution only")
         if backend == "ascendc_aiv":
+            if torch.npu.is_current_stream_capturing():
+                raise RuntimeError("AIV KV transfer does not support NPU graph capture")
             di = device_indices.contiguous()
             hi = host_indices.contiguous()
             _submit_aiv(components, di, hi, page_size, direction, host_layout)

@@ -304,6 +304,71 @@ def test_layer_first_does_not_merge_strided_host_pages(
     assert_bytes_equal(host_storage, expected)
 
 
+def test_memfabric_aicpu_h2d_graph_replay(offload_runtime, operators):
+    impl, _ = get_test_impls()
+    if impl not in ("auto", "memfabric_aicpu"):
+        pytest.skip("requires the MemFabric AICPU transfer path")
+
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
+        register_host_memory,
+    )
+
+    _, load = operators["page_first"]
+    page_size = 128
+    host_k = offload_runtime.empty([2, 1, page_size, 1, 64], dtype=torch.bfloat16)
+    host_k[0].fill_(3)
+    host_k[1].fill_(7)
+    register_host_memory(host_k)
+    device_k = torch.empty((1, 2, page_size, 1, 64), device="npu", dtype=host_k.dtype)
+    device_v, host_v = device_k.new_empty((0,)), host_k.new_empty((0,))
+    device_indices = token_indices([0], page_size, "npu")
+    host_indices = token_indices([0], page_size, "npu")
+
+    def submit():
+        load(
+            device_indices,
+            host_indices,
+            device_k,
+            host_k,
+            device_v,
+            host_v,
+            device_layer_id=0,
+            host_layer_id=0,
+            page_size=page_size,
+            impl=impl,
+        )
+
+    stream = torch.npu.Stream()
+    stream.wait_stream(torch.npu.current_stream())
+    with torch.npu.stream(stream):
+        submit()
+    stream.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
+        submit()
+
+    try:
+        with torch.npu.stream(stream):
+            device_k.zero_()
+            graph.replay()
+        stream.synchronize()
+        snapshot = device_k.cpu()[0]
+        assert_bytes_equal(snapshot[0], host_k[0, 0])
+        assert torch.count_nonzero(snapshot[1]).item() == 0
+
+        with torch.npu.stream(stream):
+            device_indices.add_(page_size)
+            host_indices.add_(page_size)
+            graph.replay()
+        stream.synchronize()
+        snapshot = device_k.cpu()[0]
+        assert_bytes_equal(snapshot[0], host_k[0, 0])
+        assert_bytes_equal(snapshot[1], host_k[1, 0])
+    finally:
+        stream.synchronize()
+        graph.reset()
+
+
 @pytest.mark.extra_checks
 @pytest.mark.usefixtures("operators")
 @pytest.mark.parametrize(

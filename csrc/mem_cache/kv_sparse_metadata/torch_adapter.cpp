@@ -8,6 +8,7 @@
 #include <torch/library.h>
 #include <torch_npu/csrc/core/npu/NPUFormat.h>
 #include <torch_npu/csrc/core/npu/NPUEvent.h>
+#include <torch_npu/csrc/core/npu/NPUGraphsUtils.h>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -57,10 +58,11 @@ void CheckAddressRange(const Component &m, bool host)
 }
 }  // namespace
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> BuildMetadata(const at::Tensor &device_indices,
-                                                                         const at::Tensor &host_indices,
-                                                                         at::TensorList devices, at::TensorList hosts,
-                                                                         int64_t page_size, int64_t direction)
+using SparseMetadata = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>;
+
+static SparseMetadata BuildMetadataImpl(const at::Tensor &device_indices, const at::Tensor &host_indices,
+                                        at::TensorList devices, at::TensorList hosts, int64_t page_size,
+                                        int64_t direction, bool &capturing)
 {
     TORCH_CHECK(page_size > 0 && (direction == 1 || direction == 2), "Invalid KV page size or direction");
     TORCH_CHECK(!devices.empty() && devices.size() <= kMaxComponents && devices.size() == hosts.size(),
@@ -71,6 +73,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> BuildMetadata(const a
     TORCH_CHECK(device_indices.numel() == host_indices.numel() && device_indices.numel() % page_size == 0,
                 "Indices must describe equal numbers of complete pages");
     const auto stream = c10_npu::getCurrentNPUStream();
+    capturing = c10_npu::currentStreamCaptureStatusMayInitCtx() == c10_npu::CaptureStatus::Active;
     const auto di = PrepareIndices(device_indices, device, stream);
     const auto hi = PrepareIndices(host_indices, device, stream);
     Args args{};
@@ -162,8 +165,21 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> BuildMetadata(const a
         TORCH_CHECK(result == ACL_SUCCESS, "KV metadata ACLNN execution failed: ", aclGetRecentErrMsg());
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnBuildKvSparseMetadata", launch);
+    if (capturing) {
+        // Keep graph allocations on the capture thread and order the launch after queued index copies.
+        TORCH_CHECK(stream.stream() != nullptr, "KV metadata: failed to drain the host task queue");
+        launch();
+    } else {
+        at_npu::native::OpCommand::RunOpApi("aclnnBuildKvSparseMetadata", launch);
+    }
     return {src, dst, lengths, count};
+}
+
+SparseMetadata BuildMetadata(const at::Tensor &device_indices, const at::Tensor &host_indices, at::TensorList devices,
+                             at::TensorList hosts, int64_t page_size, int64_t direction)
+{
+    bool capturing;
+    return BuildMetadataImpl(device_indices, host_indices, devices, hosts, page_size, direction, capturing);
 }
 
 namespace {
@@ -208,18 +224,31 @@ void Submit(SparseSubmitState &state, const pybind11::function &sparse_copy, con
     TORCH_CHECK(device.type() == c10::DeviceType::PrivateUse1, "KV indices must be on NPU");
     c10::OptionalDeviceGuard guard(device);
     const auto stream = c10_npu::getCurrentNPUStream();
-    std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> metadata;
+    bool capturing;
+    SparseMetadata metadata;
     {
         pybind11::gil_scoped_release release;
         {
             // Retain the builder-only profiling range when bypassing Python's
             // Torch dispatcher. MF copy and event submission stay outside it.
             RECORD_FUNCTION("npu::kv_sparse_metadata_aicpu", c10::ArrayRef<c10::IValue>{});
-            metadata = BuildMetadata(device_indices, host_indices, devices, hosts, page_size, direction);
+            metadata = BuildMetadataImpl(device_indices, host_indices, devices, hosts, page_size, direction, capturing);
         }
-        state.Wait(stream);
+        if (!capturing) {
+            state.Wait(stream);
+        }
     }
 
+    auto finish_submission = [&] {
+        pybind11::gil_scoped_release release;
+        if (capturing) {
+            // Submit the queued MF launch before releasing the graph's address tables. Replay ordering belongs to the
+            // caller.
+            TORCH_CHECK(stream.stream() != nullptr, "MF sparse_copy: failed to drain the host task queue");
+        } else {
+            state.Record(stream);
+        }
+    };
     int status;
     try {
         // MF exposes this pool through Python, while its public C API uses a
@@ -229,14 +258,10 @@ void Submit(SparseSubmitState &state, const pybind11::function &sparse_copy, con
                              mf_device)
                      .cast<int>();
     } catch (...) {
-        pybind11::gil_scoped_release release;
-        state.Record(stream);
+        finish_submission();
         throw;
     }
-    {
-        pybind11::gil_scoped_release release;
-        state.Record(stream);
-    }
+    finish_submission();
     TORCH_CHECK(status == 0, "MF sparse_copy failed: code=", status);
 }
 }  // namespace
