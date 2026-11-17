@@ -387,6 +387,9 @@ def _build_lim_copysfa(
     route_misses = torch.zeros(rows, dtype=torch.int32, device=device)
     miss_sources = torch.full((batch, 1, 32768), -1, dtype=torch.int32, device=device)
     miss_slots = torch.full_like(miss_sources, -1)
+    # LIM writes [B,32768]; CopySFA consumes [B,1,32768] over the same storage.
+    lim_miss_sources = miss_sources.view(batch, 32768)
+    lim_miss_slots = miss_slots.view(batch, 32768)
     miss_counts = torch.zeros(batch, dtype=torch.int32, device=device)
     slot_pool = values["slot_pool_initial"].clone()
     request_state = torch.full((batch,), -1, dtype=torch.int32, device=device)
@@ -429,8 +432,8 @@ def _build_lim_copysfa(
             sources,
             destinations,
             route_misses,
-            miss_sources,
-            miss_slots,
+            lim_miss_sources,
+            lim_miss_slots,
             miss_counts,
         )
         holder["ids"] = sources
