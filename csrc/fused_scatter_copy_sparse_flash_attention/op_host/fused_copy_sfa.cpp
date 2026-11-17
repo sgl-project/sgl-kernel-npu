@@ -13,6 +13,7 @@
 #include "sparse_flash_attention_def.h"
 #include "sparse_flash_attention_tiling.h"
 #include "torch_helper.h"
+#include "torch_npu/csrc/core/npu/NPUGuard.h"
 
 namespace sglang::npu_kernel {
 namespace {
@@ -88,6 +89,7 @@ static void FusedCopySfaImpl(
     TORCH_CHECK(
         query.dim() == 3 && query.size(0) > 0 && query.size(1) > 0 && query.size(2) == kKvDim && query.is_contiguous(),
         "query must be contiguous TND [T, H, 512]");
+    c10_npu::OptionalNPUGuard guard(query.device());
     TORCH_CHECK(num_cache_tokens.dim() == 1 && num_cache_tokens.numel() > 0, "num_cache_tokens must be [B] with B > 0");
     const int64_t batchSize = num_cache_tokens.numel();
     const int64_t totalQueryTokens = query.size(0);

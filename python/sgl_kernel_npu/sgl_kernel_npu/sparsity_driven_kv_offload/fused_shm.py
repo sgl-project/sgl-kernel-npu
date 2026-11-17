@@ -31,10 +31,13 @@ def create_fused_shm_tensor(
     if size <= 0:
         raise ValueError(f"shm tensor size must be positive, got shape={shape_tuple}")
 
+    # Validate dtype support before allocating/registering native host memory.
+    buffer_type = _ctype_for_dtype(dtype)
+
     host_ptr, dev_ptr = torch.ops.npu.fused_shm_allocator_create_and_register(
         size, device_id, name
     )
-    buffer_type = _ctype_for_dtype(dtype) * numel
+    buffer_type = buffer_type * numel
     buffer = buffer_type.from_address(host_ptr)
     tensor = torch.frombuffer(buffer, dtype=dtype).view(shape_tuple)
     if tensor.element_size() != elem_size:

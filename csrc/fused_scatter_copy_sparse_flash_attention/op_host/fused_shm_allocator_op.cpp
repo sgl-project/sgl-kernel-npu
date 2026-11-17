@@ -45,6 +45,9 @@ std::tuple<int64_t, int64_t> fused_shm_allocator_create_and_register(int64_t siz
     uint64_t dev_ptr = 0;
     int ret = fused_shm_create_and_register(fused_shm_name.c_str(), static_cast<int>(device_id),
                                             static_cast<uint64_t>(size), 1, &dev_ptr);
+    TORCH_CHECK(
+        ret != -8,
+        "fused_shm_allocator_create_and_register: name is already registered on a different device: ", fused_shm_name);
     TORCH_CHECK(ret == 0, "fused_shm_allocator_create_and_register failed, ret=", ret);
 
     void *host_ptr = fused_shm_get_host_ptr(fused_shm_name.c_str());

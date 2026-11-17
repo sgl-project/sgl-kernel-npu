@@ -139,6 +139,15 @@ int RegisterHostPtrLocked(const char *name, int user_device_id, void *host_ptr, 
     auto it = g_entries.find(name);
     if (it != g_entries.end()) {
         if (it->second.is_registered) {
+            if (it->second.size != size) {
+                return -6;
+            }
+            if (it->second.host_ptr != host_ptr) {
+                return -5;
+            }
+            if (it->second.user_device_id != user_device_id) {
+                return -8;
+            }
             *out_dev_ptr = reinterpret_cast<uint64_t>(it->second.dev_ptr);
             return 0;
         }
@@ -250,6 +259,9 @@ int fused_shm_create_and_register(const char *name, int device_id, uint64_t size
             return -6;
         }
         if (existing->second.is_registered) {
+            if (existing->second.user_device_id != device_id) {
+                return -8;
+            }
             *out_dev_ptr = reinterpret_cast<uint64_t>(existing->second.dev_ptr);
             return 0;
         }
