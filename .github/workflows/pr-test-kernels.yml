@@ -30,8 +30,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-kda-a3-diagnostic:
+    if: >-
+      ${{
+        (github.head_ref == 'codex/kda-a3-ci-diagnostic' &&
+         github.event.pull_request.head.repo.full_name == 'cl-vv-h/sgl-kernel-npu') ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.ref_name == 'codex/kda-a3-ci-diagnostic' &&
+         github.repository == 'cl-vv-h/sgl-kernel-npu')
+      }}
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: kda-a3-diagnostic
+      cann_version: '9.1.0'
+      npu_hardware: a3
+      timeout_minutes: 30
+
   get-changed-files:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
+    if: >-
+      ${{
+        github.head_ref != 'codex/kda-a3-ci-diagnostic' &&
+        github.ref_name != 'codex/kda-a3-ci-diagnostic' &&
+        (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
+      }}
     runs-on: ubuntu-latest
     outputs:
       speculative: ${{ steps.select.outputs.speculative }}
@@ -440,7 +461,12 @@ jobs:
       timeout_minutes: 60
 
   finish:
-    if: ${{ always() }}
+    if: >-
+      ${{
+        always() &&
+        github.head_ref != 'codex/kda-a3-ci-diagnostic' &&
+        github.ref_name != 'codex/kda-a3-ci-diagnostic'
+      }}
     needs:
       - get-changed-files
       - test-speculative-ops

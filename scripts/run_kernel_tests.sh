@@ -7,7 +7,14 @@ WORKSPACE="$(cd "${GITHUB_WORKSPACE:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd 
 TEST_ROOT="$WORKSPACE/tests/python"
 TEST_GROUP="${1:-all}"
 
+cd "$WORKSPACE"
+export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
+
 case "$TEST_GROUP" in
+    kda-a3-diagnostic)
+        export TRITON_PRINT_UBTUNING=1
+        exec python3 -u scripts/run_kda_a3_diagnostic.py
+        ;;
     speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
     matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul") ;;
     mamba) TEST_DIRS=("$TEST_ROOT/operators/mamba") ;;
@@ -36,9 +43,6 @@ case "$TEST_GROUP" in
         exit 1
         ;;
 esac
-
-cd "$WORKSPACE"
-export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 
 TESTS=()
 PASSED=()
