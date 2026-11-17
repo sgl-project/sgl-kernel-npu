@@ -242,6 +242,23 @@ def test_profiles_reuse_experimental_a3_ops_without_source_overlay(
     assert "quant_lightning_indexer_v2" in adapter.configure(release, 1)["ops"]
     assert not list((ROOT / "third_party/ops_transformer/dsv41_indexer").rglob("*.cpp"))
 
+    # Exercise the pinned source adjustment and repeated builds. The reduced
+    # MM buffer must retain the separately addressed FP16 weight workspace.
+    source = tmp_path / "upstream"
+    paths = []
+    for op in ("quant_lightning_indexer_v2", "quant_sparse_lightning_indexer"):
+        path = source / "experimental/attention" / op / "op_host" / (op + "_tiling.cpp")
+        path.parent.mkdir(parents=True)
+        path.write_text("uint32_t mm1ResSize = M_BASE_SIZE * S2_BASE_SIZE;\n")
+        paths.append(path)
+    adapter.fix_a3_indexer_workspace(source)
+    first = [path.read_text() for path in paths]
+    adapter.fix_a3_indexer_workspace(source)
+    assert [path.read_text() for path in paths] == first
+    for text in first:
+        assert "mm1ResSize = S1_BASE_SIZE * S2_BASE_SIZE" in text
+        assert "16ULL * M_BASE_SIZE * DOUBLE_BUFFER * sizeof(uint16_t)" in text
+
     import zipfile
 
     wheel = tmp_path / "upstream.whl"

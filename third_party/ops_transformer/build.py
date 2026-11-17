@@ -184,7 +184,27 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def fix_a3_indexer_workspace(source):
+    # The arch22 kernels reduce heads before writing mm1ResGm, so its rows
+    # are s1BaseSize (4), not mBaseSize (256). Keep the separate FP16 weight
+    # workspace, sized for the largest supported head group (64).
+    old = "uint32_t mm1ResSize = M_BASE_SIZE * S2_BASE_SIZE;"
+    new = (
+        "uint32_t mm1ResSize = S1_BASE_SIZE * S2_BASE_SIZE;\n"
+        "    workspaceSize += 16ULL * M_BASE_SIZE * DOUBLE_BUFFER * "
+        "sizeof(uint16_t) * aicNum;"
+    )
+    for op in ("quant_lightning_indexer_v2", "quant_sparse_lightning_indexer"):
+        path = source / "experimental/attention" / op / "op_host" / (op + "_tiling.cpp")
+        text = path.read_text()
+        if text.count(old) != 1 and new not in text:
+            raise RuntimeError("Unexpected A3 indexer workspace formula: " + str(path))
+        path.write_text(text.replace(old, new))
+
+
 def build(item, source, directory):
+    if item.get("a3_indexer_bindings"):
+        fix_a3_indexer_workspace(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     # The pinned 9.1 build.sh has no --torch_extension option.
