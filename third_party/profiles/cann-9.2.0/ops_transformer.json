@@ -18,7 +18,7 @@
       "name": "sgl_ops_transformer_experimental",
       "ops": {
         "arch22": ["compressor_v2"],
-        "arch35": []
+        "arch35": ["compressor_v2"]
       },
       "commands": [
         ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],

@@ -13,6 +13,7 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
+from .kv_compress_epilog_v2 import kv_compress_epilog_v2
 from .memfabric.kv_transfer import (
     transfer_kv_all_layer_kv_split,
     transfer_kv_all_layer_kv_split_lf_pf,
@@ -36,6 +37,7 @@ __all__ = [
     "kpool_decode_update_and_maybe_write_cache",
     "kpool_write_tail_and_maybe_compress",
     "kv_compress_epilog",
+    "kv_compress_epilog_v2",
     "scatter_kpool_tail_updates",
     "store_kv_cache_prefix_valid",
     "transfer_kv_all_layer_kv_split",
