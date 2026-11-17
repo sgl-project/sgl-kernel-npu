@@ -43,7 +43,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 | ori_sparse_indices / cmp_sparse_indices | int32 Tensor / None | Logical Top-K positions; -1 padding. |
 | ori_topk_length / cmp_topk_length | int32 Tensor / None | Per-row valid Top-K lengths; CANN 9.1 support is restricted. |
 | sinks | Tensor / None | Optional per-head softmax sink logits. |
-| metadata | Tensor / ReferenceMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
+| metadata | Tensor / DSV4SparseMLAMetadata / None | Build with matching metadata implementation; native bytes are not reference descriptors. |
 | softmax_scale / cmp_ratio | float / int | Attention scale / compression ratio; reference defaults 1.0 / 1. |
 | ori_mask_mode / cmp_mask_mode | int | Reference supports original explicit 0 or SWA 4; compressed 0 or causal 3. |
 | ori_win_left / ori_win_right | int | Original visibility window; reference defaults 127 / 0. |
@@ -58,7 +58,7 @@ def mixed_quant_sparse_flash_mla_metadata(*, impl='auto', **kwargs):
 
 | 名称 | 类型 | 约束 |
 | --- | --- | --- |
-| metadata | Native Tensor or ReferenceMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
+| metadata | Native Tensor or DSV4SparseMLAMetadata | Opaque native scheduling storage, or reference-only descriptor. Never compare bytes across implementations. |
 
 ## cann_ops_transformers_cann920
 

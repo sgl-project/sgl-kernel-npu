@@ -215,11 +215,11 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
 def _torch_mixed_quant_sparse_flash_mla(q, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.attention import (
-            mixed_quant_sparse_flash_mla,
+        from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+            dsv4_sparse_mla,
         )
 
-        _torch_native_fn = mixed_quant_sparse_flash_mla
+        _torch_native_fn = dsv4_sparse_mla
     return _torch_native_fn(q, **kwargs)
 
 

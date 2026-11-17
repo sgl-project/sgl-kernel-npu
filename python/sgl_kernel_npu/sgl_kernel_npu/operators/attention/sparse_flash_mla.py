@@ -159,9 +159,11 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
 def _torch_sparse_flash_mla(q, **kwargs):
     global _reference_metadata_type, _torch_native_dspark_fn, _torch_native_standard_fn
     if _reference_metadata_type is None:
-        from ...implementation.torch_native.attention.metadata import ReferenceMetadata
+        from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+            DSV4SparseMLAMetadata,
+        )
 
-        _reference_metadata_type = ReferenceMetadata
+        _reference_metadata_type = DSV4SparseMLAMetadata
 
     # DSpark and migrated tests carry independently built reference descriptors.
     # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
@@ -171,11 +173,11 @@ def _torch_sparse_flash_mla(q, **kwargs):
         or kwargs.get("ori_sparse_indices") is not None
     ):
         if _torch_native_dspark_fn is None:
-            from ...implementation.torch_native.attention.attention import (
-                sparse_flash_mla,
+            from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+                dsv4_sparse_mla,
             )
 
-            _torch_native_dspark_fn = sparse_flash_mla
+            _torch_native_dspark_fn = dsv4_sparse_mla
         op = _torch_native_dspark_fn
     else:
         if _torch_native_standard_fn is None:

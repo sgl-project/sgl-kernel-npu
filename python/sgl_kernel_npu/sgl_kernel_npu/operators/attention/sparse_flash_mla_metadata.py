@@ -164,11 +164,11 @@ def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
 def _torch_sparse_flash_mla_metadata(**kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.attention.metadata import (
-            sparse_flash_mla_metadata,
+        from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+            dsv4_sparse_mla_metadata,
         )
 
-        _torch_native_fn = sparse_flash_mla_metadata
+        _torch_native_fn = dsv4_sparse_mla_metadata
     return _torch_native_fn(
         **{
             key: value
