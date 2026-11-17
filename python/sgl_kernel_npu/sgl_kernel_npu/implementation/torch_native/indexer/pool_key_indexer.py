@@ -108,9 +108,10 @@ def pool_key_indexer(
 ):
     """Return (indices, values) using FP32 scoring.
 
-    quant_mode and the optional q_descale/k_descale tensors are accepted for
-    call compatibility. The reference scores the supplied tensor values without
-    reproducing vendor quantized rounding or dequantization.
+    quant_mode and the optional q_descale/k_descale tensors (INT8 quant_mode=2,
+    mxFP8 quant_mode=1 with E8M0 descales) are accepted for call compatibility.
+    The reference scores the supplied tensor values without reproducing vendor
+    quantized rounding or dequantization.
     """
     if topk <= 0 or pool_size <= 0 or topk % pool_size:
         raise ValueError("topk must be a positive multiple of pool_size")

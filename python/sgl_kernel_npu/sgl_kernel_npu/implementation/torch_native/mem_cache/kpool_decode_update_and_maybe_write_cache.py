@@ -4,6 +4,8 @@ from typing import Optional
 
 import torch
 
+from ._kpool_mx_quant import mx_quantize_row
+
 
 @torch.no_grad()
 def kpool_decode_update_and_maybe_write_cache(
@@ -24,8 +26,8 @@ def kpool_decode_update_and_maybe_write_cache(
     head_dim: int = 128,
     scale_cache: Optional[torch.Tensor] = None,
 ):
-    """Pure PyTorch reference with the BF16/INT8 kernel semantics."""
-    assert (scale_cache is not None) == (buf.dtype == torch.int8)
+    """Pure PyTorch reference with the BF16/INT8/mxFP8 kernel semantics."""
+    assert (scale_cache is not None) == (buf.dtype in (torch.int8, torch.float8_e4m3fn))
     batch = key.shape[0]
     if batch == 0:
         return
@@ -77,7 +79,7 @@ def kpool_decode_update_and_maybe_write_cache(
                 buf.view(-1)[out_offset : out_offset + head_dim] = compressed.to(
                     torch.bfloat16
                 )
-            else:
+            elif buf.dtype == torch.int8:
                 amax = compressed.abs().amax()
                 scale = amax / 127.0 if amax > 0 else torch.ones_like(amax)
                 scaled = compressed / scale
@@ -85,6 +87,12 @@ def kpool_decode_update_and_maybe_write_cache(
                 quantized = rounded.trunc().clamp(-127, 127).to(torch.int8)
                 buf.view(-1)[out_offset : out_offset + head_dim] = quantized
                 scale_cache.view(-1)[out_offset // head_dim] = scale.to(torch.float16)
+            else:
+                payload, scale_bytes = mx_quantize_row(compressed)
+                buf.view(-1)[out_offset : out_offset + head_dim] = payload
+                scale_cache.view(-1, head_dim // 64 * 2)[out_offset // head_dim] = (
+                    scale_bytes.reshape(-1)
+                )
         if pos_valid:
             tail_k[req, phys_slot] = key[row]
             tail_score[req, phys_slot] = slot_score[row]

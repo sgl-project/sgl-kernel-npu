@@ -127,7 +127,7 @@ def kpool_write_tail_and_maybe_compress(
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
 
     Args:
-        index_k_cache: torch.Tensor, shape Contiguous storage flattenable to [cache_rows, 128], dtype torch.bfloat16 or torch.int8. Cache updated in place for completed pools. INT8 requires ``scale_cache``.
+        index_k_cache: torch.Tensor, shape Contiguous storage flattenable to [cache_rows, 128], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Cache updated in place for completed pools. INT8 and mxFP8 require ``scale_cache``.
         key: torch.Tensor, shape [B * N, 128], dtype torch.bfloat16. Draft keys.
         score: torch.Tensor, shape Same as key, dtype torch.float16, torch.bfloat16, or torch.float32. Scores paired with key.
         tail_k: torch.Tensor, shape [R, pool_size + N, 128], dtype torch.bfloat16. Tail rings updated in place.
@@ -140,12 +140,12 @@ def kpool_write_tail_and_maybe_compress(
         out_cache_loc: torch.Tensor, shape [>= B * N], dtype torch.int32 or torch.int64. Token cache locations; a zero first entry for a batch skips that whole batch. Read only.
         num_draft_tokens: int, shape —, dtype —. Static N; must be positive and divide key.shape[0].
         effective_n_per_batch: torch.Tensor or None, shape [>= B] or —, dtype torch.int32 or torch.int64. Optional effective draft count used only for pool-completion decisions.
-        scale_cache: torch.Tensor or None, shape [cache_rows] or flattenable to it, dtype torch.float16. Per-row dequantization scales written with INT8 keys.
+        scale_cache: torch.Tensor or None, shape [cache_rows] for INT8 or [cache_rows, 128/64, 2] for mxFP8, dtype torch.float16 for INT8 or torch.uint8 (E8M0 bytes) for mxFP8. Per-row dequantization scales written with the quantized keys.
         num_programs: int or None, shape —, dtype —. Keyword-only Triton grid size; positive when supplied and capped at B. Defaults to the available Vector Core count capped at B.
         impl: Backend name: auto, triton or torch_native.
 
     Returns:
-        None. Updates index_k_cache, tail_k, tail_score and, for INT8, scale_cache in place.
+        None. Updates index_k_cache, tail_k, tail_score and, for INT8/mxFP8, scale_cache in place.
     """
     impl_fn = get_impl_by_name("mem_cache.kpool_write_tail_and_maybe_compress", impl)
     return impl_fn(

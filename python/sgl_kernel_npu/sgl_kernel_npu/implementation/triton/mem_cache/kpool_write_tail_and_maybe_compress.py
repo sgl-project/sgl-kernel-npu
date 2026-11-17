@@ -26,7 +26,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
     out_cache_loc_ptr,  # Token cache locations; zero marks a padded batch.
     effective_n_ptr,  # Optional valid draft-token count per batch item.
     cache_ptr,  # Flattened index cache: [CACHE_ROWS, HEAD_DIM].
-    scale_ptr,  # Optional FP16 per-cache-row scales for INT8 keys.
+    scale_ptr,  # Per-cache-row scales: FP16 for INT8, uint8 E8M0 for mxFP8.
     batch_size,
     key_stride_0,
     score_stride_0,
@@ -44,6 +44,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
     MAX_CLOSED_POOLS: tl.constexpr,
     HAS_EFFECTIVE_N: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    HAS_MXSCALE: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     pid = tl.program_id(0)
@@ -163,6 +164,33 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                         quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
                         tl.store(cache_ptr + cache_offsets, quantized, mask=dim_mask)
                         tl.store(scale_ptr + write_loc, scale.to(tl.float16))
+                    elif HAS_MXSCALE:
+                        blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
+                        group_max = tl.max(tl.abs(blocks), axis=1)
+                        finite = (group_max == group_max) & (group_max != float("inf"))
+                        nonzero = group_max > 0.0
+                        magnitude = tl.where(nonzero & finite, group_max, 1.0)
+                        exponent = tl.floor(tl.log2(magnitude))
+                        exponent = tl.where(
+                            tl.exp2(exponent) > magnitude, exponent - 1.0, exponent
+                        )
+                        exponent = tl.where(
+                            tl.exp2(exponent + 1.0) <= magnitude,
+                            exponent + 1.0,
+                            exponent,
+                        )
+                        scale_bytes = tl.maximum(exponent - 8.0 + 127.0, 0.0)
+                        scale_bytes = tl.where(nonzero, scale_bytes, 0.0)
+                        scale_bytes = tl.where(finite, scale_bytes, 255.0)
+                        scale = tl.exp2(scale_bytes - 127.0)
+                        scaled = tl.clamp(blocks / scale[:, None], -448.0, 448.0)
+                        scaled = tl.where(finite[:, None], scaled, float("nan"))
+                        payload = tl.reshape(scaled, (BLOCK_D,)).to(tl.float8e4nv)
+                        tl.store(cache_ptr + cache_offsets, payload, mask=dim_mask)
+                        scale_offsets = write_loc * (HEAD_DIM // 64 * 2) + tl.arange(
+                            0, HEAD_DIM // 64 * 2
+                        )
+                        tl.store(scale_ptr + scale_offsets, scale_bytes.to(tl.uint8))
                     else:
                         tl.store(
                             cache_ptr + cache_offsets,
@@ -200,7 +228,9 @@ def kpool_write_tail_and_maybe_compress(
     Args:
         index_k_cache: Contiguous cache flattenable to ``[cache_rows, 128]``.
             BF16 stores the pooled key; INT8 requires ``scale_cache`` and
-            stores the symmetric INT8 key. Updated in place.
+            stores the symmetric INT8 key; mxFP8 (``float8_e4m3fn``) requires
+            ``scale_cache`` and stores E4M3FN keys with per-32-channel E8M0
+            scales. Updated in place.
         key: BF16 draft keys with shape ``[batch * N, 128]``.
         score: Draft scores with the same shape as ``key`` and dtype FP16,
             BF16, or FP32.
@@ -220,8 +250,9 @@ def kpool_write_tail_and_maybe_compress(
         num_draft_tokens: Static number ``N`` of draft rows per batch item.
         effective_n_per_batch: Optional effective draft count used only to
             decide whether a pool was completed. Tail writes still cover ``N``.
-        scale_cache: Optional FP16 dequantization scale per cache row. Required
-            when ``index_k_cache`` is INT8; one element per flattened cache row.
+        scale_cache: Optional dequantization scales per cache row. Required for
+            INT8 (FP16, one element per row) and mxFP8 (uint8 E8M0 bytes shaped
+            ``[cache_rows, 128/64, 2]``).
         num_programs: Optional Triton grid size. Defaults to the NPU Vector Core
             count and uses a grid-stride loop for larger batches.
 
@@ -241,12 +272,21 @@ def kpool_write_tail_and_maybe_compress(
     assert tail_score.dtype in KPOOL_SCORE_DTYPES
     assert ape.ndim == 2 and ape.shape[1] == INDEX_HEAD_DIM
     assert ape.dtype == torch.float32
-    assert index_k_cache.dtype in (torch.bfloat16, torch.int8)
-    assert (scale_cache is not None) == (index_k_cache.dtype == torch.int8)
+    assert index_k_cache.dtype in (torch.bfloat16, torch.int8, torch.float8_e4m3fn)
+    assert (scale_cache is not None) == (
+        index_k_cache.dtype in (torch.int8, torch.float8_e4m3fn)
+    )
     if scale_cache is not None:
-        assert scale_cache.dtype == torch.float16
+        if index_k_cache.dtype == torch.int8:
+            assert scale_cache.dtype == torch.float16
+        else:
+            assert scale_cache.dtype == torch.uint8
         assert scale_cache.is_contiguous()
-        assert scale_cache.numel() == index_k_cache.numel() // INDEX_HEAD_DIM
+        cache_rows = index_k_cache.numel() // INDEX_HEAD_DIM
+        if index_k_cache.dtype == torch.int8:
+            assert scale_cache.numel() == cache_rows
+        else:
+            assert scale_cache.numel() == cache_rows * (INDEX_HEAD_DIM // 64) * 2
     assert index_k_cache.numel() % INDEX_HEAD_DIM == 0
 
     total_rows = key.shape[0]
@@ -358,6 +398,7 @@ def kpool_write_tail_and_maybe_compress(
         HEAD_DIM=INDEX_HEAD_DIM,
         MAX_CLOSED_POOLS=max_closed_pools,
         HAS_EFFECTIVE_N=has_effective_n,
-        HAS_SCALE=scale_cache is not None,
+        HAS_SCALE=index_k_cache.dtype == torch.int8,
+        HAS_MXSCALE=index_k_cache.dtype == torch.float8_e4m3fn,
         BLOCK_D=triton.next_power_of_2(INDEX_HEAD_DIM),
     )

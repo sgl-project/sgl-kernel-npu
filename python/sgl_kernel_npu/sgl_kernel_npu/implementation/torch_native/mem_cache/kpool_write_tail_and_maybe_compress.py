@@ -4,6 +4,8 @@ from typing import Optional
 
 import torch
 
+from ._kpool_mx_quant import mx_quantize_row
+
 
 @torch.no_grad()
 def kpool_write_tail_and_maybe_compress(
@@ -25,7 +27,9 @@ def kpool_write_tail_and_maybe_compress(
     num_programs: Optional[int] = None,
 ) -> None:
     """Torch reference matching the original target-verify semantics."""
-    assert (scale_cache is not None) == (index_k_cache.dtype == torch.int8)
+    assert (scale_cache is not None) == (
+        index_k_cache.dtype in (torch.int8, torch.float8_e4m3fn)
+    )
     total_rows = key.shape[0]
     if total_rows == 0:
         return
@@ -65,10 +69,16 @@ def kpool_write_tail_and_maybe_compress(
             write_row = int(write_loc[batch, pool_offset].item())
             if scale_cache is None:
                 cache_2d[write_row] = pooled.to(torch.bfloat16)
-            else:
+            elif index_k_cache.dtype == torch.int8:
                 amax = pooled.abs().amax()
                 scale = amax / 127.0 if amax > 0 else torch.ones_like(amax)
                 scaled = pooled / scale
                 rounded = scaled + torch.where(scaled >= 0, 0.5, -0.5)
                 cache_2d[write_row] = rounded.trunc().clamp(-127, 127).to(torch.int8)
                 scale_cache.view(-1)[write_row] = scale.to(torch.float16)
+            else:
+                payload, scale_bytes = mx_quantize_row(pooled)
+                cache_2d[write_row] = payload
+                scale_cache.view(cache_2d.shape[0], -1)[write_row] = (
+                    scale_bytes.reshape(-1)
+                )

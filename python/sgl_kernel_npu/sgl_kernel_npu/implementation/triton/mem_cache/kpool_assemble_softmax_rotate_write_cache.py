@@ -26,7 +26,7 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
     ape_ptr,  # Additive pooling position scores: [POOL_SIZE, HEAD_DIM].
     loc_ptr,  # Flattened cache row written by each output pool.
     write_mask_ptr,  # Optional per-pool write mask.
-    scale_ptr,  # Optional per-cache-row FP16 scales for INT8 keys.
+    scale_ptr,  # Per-cache-row scales: FP16 for INT8, uint8 E8M0 for mxFP8.
     n_pools,  # Number of entries in every plan tensor above.
     # Only leading strides are passed; HEAD_DIM is contiguous by contract.
     cache_stride_0,
@@ -42,6 +42,7 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
     HEAD_DIM: tl.constexpr,
     HAS_WRITE_MASK: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    HAS_MXSCALE: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     # Cap the launch grid at the Vector Core count. Programs consume any
@@ -116,7 +117,8 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                 running_max = new_max
 
             # BF16 keeps the raw pooled key; INT8 stores a symmetric per-pool
-            # quantization plus the FP16 dequantization scale for that row.
+            # quantization plus an FP16 scale; mxFP8 stores E4M3FN blocks plus
+            # one E8M0 scale byte per 32 channels.
             pooled = acc / denom
 
             write_loc = tl.load(loc_ptr + row)
@@ -129,6 +131,31 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                 quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
                 tl.store(cache_ptr + out_offsets, quantized, mask=head_mask)
                 tl.store(scale_ptr + write_loc, scale.to(tl.float16))
+            elif HAS_MXSCALE:
+                blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
+                group_max = tl.max(tl.abs(blocks), axis=1)
+                finite = (group_max == group_max) & (group_max != float("inf"))
+                nonzero = group_max > 0.0
+                magnitude = tl.where(nonzero & finite, group_max, 1.0)
+                exponent = tl.floor(tl.log2(magnitude))
+                exponent = tl.where(
+                    tl.exp2(exponent) > magnitude, exponent - 1.0, exponent
+                )
+                exponent = tl.where(
+                    tl.exp2(exponent + 1.0) <= magnitude, exponent + 1.0, exponent
+                )
+                scale_bytes = tl.maximum(exponent - 8.0 + 127.0, 0.0)
+                scale_bytes = tl.where(nonzero, scale_bytes, 0.0)
+                scale_bytes = tl.where(finite, scale_bytes, 255.0)
+                scale = tl.exp2(scale_bytes - 127.0)
+                scaled = tl.clamp(blocks / scale[:, None], -448.0, 448.0)
+                scaled = tl.where(finite[:, None], scaled, float("nan"))
+                payload = tl.reshape(scaled, (BLOCK_D,)).to(tl.float8e4nv)
+                tl.store(cache_ptr + out_offsets, payload, mask=head_mask)
+                scale_offsets = write_loc * (HEAD_DIM // 64 * 2) + tl.arange(
+                    0, HEAD_DIM // 64 * 2
+                )
+                tl.store(scale_ptr + scale_offsets, scale_bytes.to(tl.uint8))
             else:
                 tl.store(
                     cache_ptr + out_offsets, pooled.to(tl.bfloat16), mask=head_mask
@@ -164,7 +191,9 @@ def kpool_assemble_softmax_rotate_write_cache(
     Args:
         index_k_cache: Contiguous index cache. Its storage must be
             flattenable to ``[cache_rows, 128]``. BF16 stores the pooled key;
-            INT8 requires ``scale_cache`` and stores the symmetric INT8 key.
+            INT8 requires ``scale_cache`` and stores the symmetric INT8 key;
+            mxFP8 (``float8_e4m3fn``) requires ``scale_cache`` and stores
+            E4M3FN keys with per-32-channel E8M0 scales.
         chunk_k: BF16 current-chunk keys with shape ``[N, 128]``.
         chunk_score: Scores for ``chunk_k`` with shape ``[N, 128]`` and dtype
             FP16, BF16, or FP32.
@@ -185,8 +214,9 @@ def kpool_assemble_softmax_rotate_write_cache(
             rows to update.
         write_mask: Optional bool tensor of shape ``[n_pools]``. False entries
             leave their corresponding cache rows unchanged.
-        scale_cache: Optional FP16 dequantization scale per cache row. Required
-            when ``index_k_cache`` is INT8; one element per flattened cache row.
+        scale_cache: Optional dequantization scales per cache row. Required for
+            INT8 (FP16, one element per row) and mxFP8 (uint8 E8M0 bytes shaped
+            ``[cache_rows, 128/64, 2]``).
         num_programs: Optional Triton grid size. By default it is capped at the
             NPU Vector Core count; each program handles additional pools with
             a grid-stride loop.
@@ -198,10 +228,15 @@ def kpool_assemble_softmax_rotate_write_cache(
 
     # These assertions protect the dtype and layout assumptions used by the
     # kernel's pointer arithmetic. Plan value ranges are guaranteed upstream.
-    assert index_k_cache.dtype in (torch.bfloat16, torch.int8)
-    assert (scale_cache is not None) == (index_k_cache.dtype == torch.int8)
+    assert index_k_cache.dtype in (torch.bfloat16, torch.int8, torch.float8_e4m3fn)
+    assert (scale_cache is not None) == (
+        index_k_cache.dtype in (torch.int8, torch.float8_e4m3fn)
+    )
     if scale_cache is not None:
-        assert scale_cache.dtype == torch.float16
+        if index_k_cache.dtype == torch.int8:
+            assert scale_cache.dtype == torch.float16
+        else:
+            assert scale_cache.dtype == torch.uint8
     assert chunk_k.dtype == torch.bfloat16 and tail_k.dtype == torch.bfloat16
     assert chunk_score.dtype in KPOOL_SCORE_DTYPES
     assert tail_score.dtype in KPOOL_SCORE_DTYPES
@@ -213,7 +248,11 @@ def kpool_assemble_softmax_rotate_write_cache(
     assert ape.ndim == 2 and ape.shape[1] == INDEX_HEAD_DIM
     assert index_k_cache.numel() % INDEX_HEAD_DIM == 0
     if scale_cache is not None:
-        assert scale_cache.numel() == index_k_cache.numel() // INDEX_HEAD_DIM
+        cache_rows = index_k_cache.numel() // INDEX_HEAD_DIM
+        if index_k_cache.dtype == torch.int8:
+            assert scale_cache.numel() == cache_rows
+        else:
+            assert scale_cache.numel() == cache_rows * (INDEX_HEAD_DIM // 64) * 2
         assert scale_cache.is_contiguous()
 
     n_pools = req_pool_idx.numel()
@@ -313,6 +352,7 @@ def kpool_assemble_softmax_rotate_write_cache(
         TAIL_SIZE=tail_size,
         HEAD_DIM=INDEX_HEAD_DIM,
         HAS_WRITE_MASK=has_write_mask,
-        HAS_SCALE=scale_cache is not None,
+        HAS_SCALE=index_k_cache.dtype == torch.int8,
+        HAS_MXSCALE=index_k_cache.dtype == torch.float8_e4m3fn,
         BLOCK_D=triton.next_power_of_2(INDEX_HEAD_DIM),
     )

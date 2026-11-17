@@ -18,8 +18,14 @@ INT8_STANDARD = {
 
 
 def dequantize(cache, scale):
-    """Expand an INT8 cache with its per-row FP16 scales for comparison."""
-    return (cache.float() * scale.float().unsqueeze(-1)).to(torch.bfloat16)
+    """Expand an INT8 cache with its per-row FP16 scales for comparison.
+
+    The decode cache is paged ``[num_pages, slots_per_page * HEAD_DIM]`` while
+    scales are per flattened HEAD_DIM row, so reshape both to per-row layout
+    before broadcasting (assemble/mtp caches are already ``[rows, HEAD_DIM]``).
+    """
+    rows = cache.float().reshape(-1, HEAD_DIM)
+    return (rows * scale.float().reshape(-1, 1)).reshape(cache.shape).to(torch.bfloat16)
 
 
 def test_assemble_int8_cache_tracks_bf16():
@@ -117,7 +123,7 @@ def test_decode_int8_cache_tracks_bf16():
     kpool_decode_update_and_maybe_write_cache(buf=bf16_cache, impl=impl_ref, **common)
 
     int8_cache = torch.zeros(page_rows, slots_per_page * HEAD_DIM, dtype=torch.int8)
-    scale = torch.zeros(page_rows, dtype=torch.float16)
+    scale = torch.zeros(page_rows * slots_per_page, dtype=torch.float16)
     kpool_decode_update_and_maybe_write_cache(
         buf=int8_cache, scale_cache=scale, impl=impl, **common
     )

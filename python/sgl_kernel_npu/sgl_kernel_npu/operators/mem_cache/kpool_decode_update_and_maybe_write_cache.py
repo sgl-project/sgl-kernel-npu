@@ -127,7 +127,7 @@ def kpool_decode_update_and_maybe_write_cache(
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
 
     Args:
-        buf: torch.Tensor, shape [num_pages, slots_per_page * head_dim], dtype torch.bfloat16 or torch.int8. Flattened index cache; updated in place when a pool completes. INT8 requires ``scale_cache``.
+        buf: torch.Tensor, shape [num_pages, slots_per_page * head_dim], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Flattened index cache; updated in place when a pool completes. INT8 and mxFP8 require ``scale_cache``.
         tail_k: torch.Tensor, shape [R, T, head_dim], dtype torch.bfloat16. Request-local key rings; updated in place for valid rows.
         tail_score: torch.Tensor, shape Same as tail_k, dtype torch.float32 per the backend contract. Scores paired with tail_k; updated in place for valid rows.
         key: torch.Tensor, shape [B, head_dim], dtype torch.bfloat16. Current decode keys.
@@ -141,11 +141,11 @@ def kpool_decode_update_and_maybe_write_cache(
         pool_size: int, shape —, dtype —. Keyword-only number of tokens in one pool.
         slots_per_page: int, shape —, dtype —. Keyword-only number of pooled slots per flattened cache page.
         head_dim: int, shape —, dtype —. Keyword-only channel width; must match the tail's last dimension.
-        scale_cache: torch.Tensor or None, shape [num_pages * slots_per_page] or flattenable to it, dtype torch.float16. Per-row dequantization scales written with INT8 keys.
+        scale_cache: torch.Tensor or None, shape [num_pages * slots_per_page] for INT8 or [num_pages * slots_per_page, head_dim/64, 2] for mxFP8, dtype torch.float16 for INT8 or torch.uint8 (E8M0 bytes) for mxFP8. Per-row dequantization scales written with the quantized keys.
         impl: Backend name: auto, triton or torch_native.
 
     Returns:
-        None. Updates buf, tail_k, tail_score and, for INT8, scale_cache in place.
+        None. Updates buf, tail_k, tail_score and, for INT8/mxFP8, scale_cache in place.
     """
     impl_fn = get_impl_by_name(
         "mem_cache.kpool_decode_update_and_maybe_write_cache", impl

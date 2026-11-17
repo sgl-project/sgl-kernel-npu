@@ -4,6 +4,8 @@ from typing import Optional
 
 import torch
 
+from ._kpool_mx_quant import mx_quantize_row
+
 
 @torch.no_grad()
 def kpool_assemble_softmax_rotate_write_cache(
@@ -24,7 +26,9 @@ def kpool_assemble_softmax_rotate_write_cache(
     num_programs: Optional[int] = None,
 ) -> None:
     """Torch numerical reference for KPool assembly and cache write."""
-    assert (scale_cache is not None) == (index_k_cache.dtype == torch.int8)
+    assert (scale_cache is not None) == (
+        index_k_cache.dtype in (torch.int8, torch.float8_e4m3fn)
+    )
     n_pools = req_pool_idx.numel()
     if n_pools == 0:
         return
@@ -67,7 +71,7 @@ def kpool_assemble_softmax_rotate_write_cache(
     active_locs = loc.index_select(0, active_rows)
     if scale_cache is None:
         cache_2d.index_copy_(0, active_locs, pooled.to(torch.bfloat16))
-    else:
+    elif index_k_cache.dtype == torch.int8:
         amax = pooled.abs().amax(dim=-1, keepdim=True)
         scale = torch.where(amax > 0, amax / 127.0, torch.ones_like(amax))
         scaled = pooled / scale
@@ -77,3 +81,10 @@ def kpool_assemble_softmax_rotate_write_cache(
         scale_cache.view(-1).index_copy_(
             0, active_locs, scale.view(-1).to(torch.float16)
         )
+    else:
+        scale_rows = scale_cache.view(cache_2d.shape[0], -1)
+        for i in range(active_locs.numel()):
+            write_row = int(active_locs[i].item())
+            payload, scale_bytes = mx_quantize_row(pooled[i])
+            cache_2d[write_row] = payload
+            scale_rows[write_row] = scale_bytes.reshape(-1)
