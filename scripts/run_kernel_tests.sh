@@ -15,6 +15,7 @@ case "$TEST_GROUP" in
     embedding) TEST_DIRS=("$TEST_ROOT/operators/embedding") ;;
     data_move) TEST_DIRS=("$TEST_ROOT/operators/data_move") ;;
     activation) TEST_DIRS=("$TEST_ROOT/operators/activation") ;;
+    diffusion)          TEST_DIRS=("$TEST_ROOT/operators/diffusion") ;;
     attention)          TEST_DIRS=("$TEST_ROOT/operators/attention") ;;
     batch_invariant)    TEST_DIRS=("$TEST_ROOT/operators/batch_invariant") ;;
     elementwise)        TEST_DIRS=("$TEST_ROOT/operators/elementwise") ;;
