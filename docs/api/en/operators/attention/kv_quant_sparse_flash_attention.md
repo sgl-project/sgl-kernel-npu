@@ -28,7 +28,7 @@ def kv_quant_sparse_flash_attention(
 ```
 
 `auto` selects `ascendc` on arch35. The native binding used by SGLang is
-`torch.ops.npu.sgl_kv_quant_sparse_flash_attention` with the same eight arguments.
+`torch.ops.npu.kv_quant_sparse_flash_attention` with the same eight arguments.
 
 ## Description
 

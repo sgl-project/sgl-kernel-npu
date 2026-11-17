@@ -28,7 +28,7 @@ def kv_quant_sparse_flash_attention(
 ```
 
 在 arch35 上，`auto` 选择 `ascendc`。SGLang 使用
-`torch.ops.npu.sgl_kv_quant_sparse_flash_attention` 原生绑定，入参为相同的八项。
+`torch.ops.npu.kv_quant_sparse_flash_attention` 原生绑定，入参为相同的八项。
 
 ## 功能说明
 

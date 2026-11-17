@@ -294,12 +294,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
     m.def(
-        "sgl_kv_quant_sparse_flash_attention(Tensor query, Tensor query_rope, Tensor packed_kv, "
+        "kv_quant_sparse_flash_attention(Tensor query, Tensor query_rope, Tensor packed_kv, "
         "Tensor sparse_indices, Tensor block_table, Tensor actual_seq_lengths_query, "
         "Tensor actual_seq_lengths_kv, float scale_value) -> (Tensor, Tensor, Tensor)");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("sgl_sparse_flash_attention", &sgl_sparse_flash_attention);
-    m.impl("sgl_kv_quant_sparse_flash_attention", &sgl_kv_quant_sparse_flash_attention);
+    m.impl("kv_quant_sparse_flash_attention", &sgl_kv_quant_sparse_flash_attention);
 }
