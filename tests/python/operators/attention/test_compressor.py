@@ -316,6 +316,14 @@ class ResetExecutor:
 def test_compressor(
     shape, layout, ratio, coff, cache_mode, start, ring, rounds, defaults, dtype
 ):
+    _check_compressor_case(
+        shape, layout, ratio, coff, cache_mode, start, ring, rounds, defaults, dtype
+    )
+
+
+def _check_compressor_case(
+    shape, layout, ratio, coff, cache_mode, start, ring, rounds, defaults, dtype
+):
     from sgl_kernel_npu.operators.attention import compressor
 
     data = generate_data(
@@ -378,6 +386,33 @@ def test_compressor(
     check_performance(
         reset_executor, enable_perf=shape in perf_shape and dtype == torch.bfloat16
     )
+
+
+# These cases fill the gaps in the A5 General and short-BSH FullLoad keys.
+@pytest.mark.parametrize(
+    "shape,layout,coff,cache_mode,start",
+    [
+        pytest.param(
+            (2, 9, 1024, 512), "BSH", 1, 2, 13, id="general-bsh-coff1-explicit"
+        ),
+        pytest.param((2, 9, 1024, 512), "BSH", 2, 1, 13, id="general-bsh-coff2-paged"),
+        pytest.param(
+            (2, 9, 1024, 512), "BSH", 2, 2, 13, id="general-bsh-coff2-explicit"
+        ),
+        pytest.param((2, 8, 4096, 512), "TH", 2, 1, 8, id="general-th-coff2-paged"),
+        pytest.param((2, 4, 1024, 128), "BSH", 1, 1, 1, id="full-load-bsh-coff1-paged"),
+        pytest.param(
+            (2, 4, 1024, 128), "BSH", 2, 2, 1, id="full-load-bsh-coff2-explicit"
+        ),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_compressor_arch35_dispatch_keys(shape, layout, coff, cache_mode, start, dtype):
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("These cases cover the A5 compressor dispatch keys")
+    _check_compressor_case(shape, layout, 4, coff, cache_mode, start, 16, 1, False, dtype)
 
 
 @pytest.mark.parametrize("ring", [8, 16])
