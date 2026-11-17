@@ -4,8 +4,8 @@
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` | Unsupported | Verified |
-| `torch_native` | Unsupported | Verified |
+| `ascendc` | Unsupported | Supported |
+| `torch_native` | Unsupported | Supported |
 
 ## Signature
 
