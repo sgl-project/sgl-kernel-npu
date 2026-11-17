@@ -166,7 +166,7 @@
     },
     {
       "path": "fused_quant_scatter_copy_sparse_flash_attention_copy.h",
-      "ported_sha256": "d40dd2e43736ad8f539723f4c740fc8228e2661029295076090857b361ab7e43"
+      "ported_sha256": "c249c57b438f551b44477e94a1a742499139c6d3cb85ef2f335d10c041027829"
     },
     {
       "path": "arch35/fused_quant_scatter_copy_sparse_flash_attention_kernel_mla.h",

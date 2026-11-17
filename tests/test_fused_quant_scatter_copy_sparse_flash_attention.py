@@ -43,7 +43,9 @@ def load_a5_custom_operator():
 
 
 def swapped_from_cpu(cpu_tensor, device):
-    from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import create_fused_shm_tensor
+    from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import (
+        create_fused_shm_tensor,
+    )
 
     owner, _, pointer = create_fused_shm_tensor(
         cpu_tensor.shape, torch.int8, device_id=device.index or 0
@@ -204,8 +206,13 @@ def test_v2_split_query_matches_legacy(query_dtype):
 
 @pytest.mark.parametrize("first,width", [(8325, 1), (8325, 4), (8446, 4)])
 @pytest.mark.parametrize("active", [True, False])
-def test_v2_ring_restoration_matches_prestaged_legacy(first, width, active):
+@pytest.mark.parametrize("mode", ["eager", "graph"])
+def test_v2_ring_restoration_matches_prestaged_legacy(first, width, active, mode):
     """Check rotated pages, missing history, current overwrites and pad writes."""
+    if mode == "graph" and (
+        not hasattr(torch.npu, "NPUGraph") or not hasattr(torch.npu, "graph")
+    ):
+        pytest.skip("torch_npu does not expose NPUGraph capture")
     capacity = 8192
     prefix = first // BLOCK_SIZE * BLOCK_SIZE
     end = first + width
@@ -280,7 +287,7 @@ def test_v2_ring_restoration_matches_prestaged_legacy(first, width, active):
     metadata_device = [tensor.to(device) for tensor in metadata]
     starts_device, ends_device = starts.to(device), ends.to(device)
     output = torch.empty((width, 8, 512), dtype=query.dtype, device=device)
-    torch.ops.npu.fused_quant_scatter_copy_sparse_flash_attention_v2(
+    inputs = (
         query_device[..., :512].contiguous(),
         query_device[..., 512:].contiguous(),
         hbm_device,
@@ -297,6 +304,22 @@ def test_v2_ring_restoration_matches_prestaged_legacy(first, width, active):
         starts_device,
         ends_device,
     )
+
+    def enqueue():
+        torch.ops.npu.fused_quant_scatter_copy_sparse_flash_attention_v2(*inputs)
+
+    if mode == "graph":
+        graph = torch.npu.NPUGraph()
+        with torch.npu.graph(graph):
+            enqueue()
+        torch.npu.synchronize()
+        # Capture can execute the kernel. Replay must publish state again.
+        hbm_device.copy_(hbm)
+        starts_device.copy_(starts)
+        ends_device.copy_(ends)
+        graph.replay()
+    else:
+        enqueue()
     torch.npu.synchronize()
     assert torch.equal(hbm_device.cpu(), expected)
     assert torch.equal(metadata_device[7].cpu(), counts), "input cache lengths changed"
@@ -316,3 +339,14 @@ def test_v2_ring_restoration_matches_prestaged_legacy(first, width, active):
         check_attention(output, legacy_output.cpu())
     assert torch.equal(starts_device.cpu(), starts)
     assert torch.equal(ends_device.cpu(), ends)
+    if mode == "graph" and active:
+        # Poison Host rows that the published resident interval must now skip.
+        history = torch.arange(old_end, first)
+        dram.view(-1, PACKED_DIM)[physical_rows(host_table, history)] = 0
+        output.fill_(float("nan"))
+        graph.replay()
+        torch.npu.synchronize()
+        assert torch.equal(hbm_device.cpu(), expected)
+        assert torch.equal(starts_device.cpu(), starts)
+        assert torch.equal(ends_device.cpu(), ends)
+        check_attention(output, torch.stack(golden))

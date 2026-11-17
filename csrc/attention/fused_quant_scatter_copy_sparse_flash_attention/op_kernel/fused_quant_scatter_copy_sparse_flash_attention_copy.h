@@ -213,6 +213,11 @@ __aicore__ inline void PrepareRingTail(
                 ASSERT(cacheCapacity % CACHE_BLOCK_SIZE == 0 &&
                     cacheCapacity + RING_TAIL_TOKENS <=
                         static_cast<uint32_t>(td.baseParams.maxBlockNumPerBatch) * CACHE_BLOCK_SIZE);
+                // State may have been published by a different core or replay.
+                DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+                    startsGm[request]);
+                DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+                    endsGm[request]);
                 const int32_t oldStart = startsGm.GetValue(request);
                 const int32_t oldEnd = endsGm.GetValue(request);
                 const uint32_t historyRows = static_cast<uint32_t>(first - prefix);
@@ -288,14 +293,28 @@ __aicore__ inline void PrepareRingTail(
                     cacheGm.SetValue(b, static_cast<int32_t>(cacheTokens));
                     startsGm.SetValue(request, static_cast<int32_t>(prefix));
                     endsGm.SetValue(request, static_cast<int32_t>(end));
+                    // SetValue writes DCache; SyncAll alone does not publish it.
+                    DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+                        startsGm[request]);
+                    DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+                        endsGm[request]);
                 } else {
                     cacheGm.SetValue(b, 0);
                 }
+                DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+                    cacheGm[b]);
                 queryStart = queryEnd;
             }
         }
     }
     SyncAll<false>();
+    // All attention cores must consume the newly published cache lengths.
+    GlobalTensor<int32_t> publishedCacheGm;
+    publishedCacheGm.SetGlobalBuffer((__gm__ int32_t *)derivedCacheTokens);
+    for (uint32_t b = 0; b < td.baseParams.batchSize; ++b) {
+        DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+            publishedCacheGm[b]);
+    }
 }
 
 } // namespace fused_quant_scatter_copy_sfa
