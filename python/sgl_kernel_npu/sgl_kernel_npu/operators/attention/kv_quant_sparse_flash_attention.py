@@ -12,6 +12,7 @@ _OP_NAME = "attention.kv_quant_sparse_flash_attention"
 @register_impl(_OP_NAME, "auto", supported_generations={Generation.ARCH35})
 @register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH35})
 def _ascendc_impl(*args):
+    # Calls the PyTorch binding in csrc/attention/sparse_flash_attention/torch_adapter.cpp.
     return torch.ops.npu.kv_quant_sparse_flash_attention(*args)
 
 
