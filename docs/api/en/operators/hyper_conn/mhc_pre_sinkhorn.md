@@ -48,7 +48,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Uses `sgl_kernel_npu._third_party.sgl_ops_transformer_mhc.ops.mhc_pre_sinkhorn` bundled in a wheel built with the matching CANN 9.1 or 9.2 third-party profile. A separately installed `cann_ops_transformer` package is not required. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
+Uses wheel-bundled ops-transformer bindings: `sgl_kernel_npu._third_party.sgl_ops_transformer_mhc.ops.mhc_pre_sinkhorn` on CANN 9.1, and `sgl_kernel_npu._third_party.sgl_ops_transformer_dsv4.ops.mhc_pre_sinkhorn` on CANN 9.2. Build the wheel with the matching third-party profiles. A separately installed `cann_ops_transformer` package is not required. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes the singleton sequence dimension of each output. Output dtypes are preserved; any activation conversion belongs to the SGLang caller, matching GitCode glmx PR #21.
 

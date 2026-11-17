@@ -29,7 +29,7 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_mhc import ops
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
     shape = x.shape
     h_in, h_post, h_res = ops.mhc_pre_sinkhorn(

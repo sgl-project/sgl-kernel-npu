@@ -30,7 +30,7 @@ def _cann_mhc_post(x, residual, post, comb):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_mhc import ops
+    from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
     return ops.mhc_post(residual, comb, x, post)
 

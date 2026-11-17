@@ -5,6 +5,8 @@
     "arch22": [
       "quant_lightning_indexer_v2",
       "quant_lightning_indexer_v2_metadata",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
       "inplace_partial_rotary_mul"
     ],
     "arch35": [
@@ -13,6 +15,8 @@
       "quant_lightning_indexer_v2",
       "quant_lightning_indexer_v2_metadata",
       "kv_compress_epilog",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
       "inplace_partial_rotary_mul",
       "indexer_quant_cache"
     ]

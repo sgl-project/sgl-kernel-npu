@@ -1,5 +1,6 @@
 """Inference mHC projection and Sinkhorn normalization."""
 
+from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_fn = None
@@ -11,7 +12,15 @@ _torch_native_fn = None
 def _cann_impl(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
     global _cann_fn
     if _cann_fn is None:
-        from ..._third_party.sgl_ops_transformer_mhc.ops import mhc_pre_sinkhorn
+        version = detect_cann_version()
+        if version.startswith("9.1."):
+            from ..._third_party.sgl_ops_transformer_mhc.ops import mhc_pre_sinkhorn
+        elif version.startswith("9.2."):
+            from ..._third_party.sgl_ops_transformer_dsv4.ops import mhc_pre_sinkhorn
+        else:
+            raise RuntimeError(
+                f"Unsupported CANN release {version}; expected 9.1.x or 9.2.x"
+            )
 
         _cann_fn = mhc_pre_sinkhorn
     # CANN 9.1's wrapper requires BSND, even for packed tokens.
