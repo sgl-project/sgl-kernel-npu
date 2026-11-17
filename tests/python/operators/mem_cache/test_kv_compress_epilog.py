@@ -4,6 +4,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+# Install bundled vendor paths before the shared fixture initializes the NPU.
+import sgl_kernel_npu  # noqa: F401
+
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
     get_skip_acc_check,
@@ -17,6 +20,7 @@ from tests.python.utils.standards import AccuracyStandard
 
 # DeepSeek-V4: D=448+64, MXFP8 group=64, layout=1; synthetic batches/slots.
 perf_shape = [(4096, 320), (4096, 512)]
+
 
 # n, slots, d, group, mode, round, layout, e4m3, int64 slots, drop, seed, pattern
 KV_CASES = [
@@ -351,14 +355,15 @@ def test_fp8_layout2_rejected():
 def test_kv_enum_inputs_rejected(name, index, value):
     from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
 
+    impl, impl_ref = get_test_impls()
+    for backend in dict.fromkeys((impl, impl_ref)):
+        require_test_impl(kv_compress_epilog, backend)
     args = list(
         generate_data(1, 1, 192, 128, 1, False, 1, True, False, False, 0, "normal")
     )
     args[index] = value
     saved = args[0].clone()
-    impl, impl_ref = get_test_impls()
     for backend in dict.fromkeys((impl, impl_ref)):
-        require_test_impl(kv_compress_epilog, backend)
         with pytest.raises(RuntimeError, match=f"{name} must be"):
             kv_compress_epilog(*args, impl=backend)
     if impl in ("ascendc", "auto"):
@@ -452,3 +457,64 @@ def test_kv_inputs_rejected(case, message):
     if impl in ("ascendc", "auto"):
         with pytest.raises(RuntimeError, match=message):
             torch.ops.npu.kv_compress_epilog(*args)
+
+
+packed_perf_shape = [128]
+
+
+def generate_packed_data(tokens):
+    from sgl_kernel_npu.operators.mem_cache import get_npu_kv_quant_path
+
+    torch.manual_seed(17)
+    path = get_npu_kv_quant_path()
+    x = torch.randn(tokens, 512, dtype=torch.bfloat16)
+    slots = torch.arange(tokens, dtype=torch.int32)
+    if tokens > 1:
+        slots[-1] = -1
+    # CANN 9.1 cannot zero FP8 directly; view zeroed bytes as the packed cache.
+    cache = torch.zeros(1, 128, 1, path.packed_dim(448, 64), dtype=torch.uint8).view(
+        torch.float8_e4m3fn
+    )
+    kwargs = dict(
+        quant_group_size=64,
+        quant_mode=path.writer_quant_mode,
+        round_scale=True,
+        x_scale=1.0,
+    )
+    return cache, x, slots, kwargs, path
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [1, 128],
+    ids=[
+        "deepseek-v4-flash-kv-decode-t1-d512",
+        "deepseek-v4-flash-kv-prefill-t128-d512-page128",
+    ],
+)
+def test_packed_kv_compress_epilog(tokens):
+    from sgl_kernel_npu.operators.mem_cache import kv_compress_epilog
+
+    require_test_impl(kv_compress_epilog, get_test_impls()[0])
+    cache, x, slots, kwargs, path = generate_packed_data(tokens)
+    executor = make_executor(kv_compress_epilog, args=(cache, x, slots), kwargs=kwargs)
+    if get_skip_acc_check() is True:
+        require_test_impl(kv_compress_epilog, executor.impl)
+    else:
+        require_distinct_impls(kv_compress_epilog, executor.impl, executor.impl_ref)
+        expected = kv_compress_epilog(
+            cache.view(torch.uint8).clone().view(torch.float8_e4m3fn),
+            x,
+            slots,
+            impl=executor.impl_ref,
+            **kwargs,
+        )
+        actual = executor()
+        # RoPE BF16 + NoPE FP8 + seven scales; alignment padding is unspecified.
+        semantic_bytes = 576 + 7 * path.scale_itemsize
+        assert_accuracy(
+            actual.view(torch.uint8)[..., :semantic_bytes],
+            expected.view(torch.uint8)[..., :semantic_bytes],
+        )
+        executor.accuracy_checked = True
+    check_performance(executor, enable_perf=tokens in packed_perf_shape)

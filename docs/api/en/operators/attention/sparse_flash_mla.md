@@ -1,19 +1,38 @@
 # sparse_flash_mla
 
-This is a non-official operator introduced in CANN 9.2.0.
+The CANN 9.2 native contract below is also exposed through the cross-SDK public API.
 
-Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/7df757adc542c75733f9702af97ee7a14fca9f51/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+Upstream documentation: [Sparse Flash MLA Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/attention/sparse_flash_mla/docs/torchapi_sparse_flash_mla.md).
+
+
+## CANN 9.1 compatibility
+
+`cann_ops_transformers_cann920` selects the bundled CANN 9.2 implementation.
+On CANN 9.1, window-only inputs select `ops_transformers_cann910`; explicit
+original-KV sparse inputs select `ascendc` compute and CPU metadata internally
+through metadata `impl="auto"`. No separate `host` implementation name is
+registered by the metadata adapter. Those explicit inputs cannot also include
+compressed KV. CPU metadata requires the
+existing CPU int32 `cu_seqlens_q_cpu` and `seqused_ori_kv_cpu` mirrors.
+All production bindings are bundled in the wheel; no standalone operator wheel
+is required. A5 uses the separate mixed-quant sparse APIs.
+
+The migrated `torch_native` metadata API returns a reference descriptor, not
+native tiling bytes. Paired migrated tests build that descriptor independently.
+The upstream compute reference also accepts opaque native metadata and covers
+SWA/CSA/HCA and BSND inputs; native metadata byte layouts are SDK-specific.
 
 ## Hardware support
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | Supported | Unsupported |
+| `cann_ops_transformers_cann920` | Supported | Unsupported |
+| CANN 9.1 `ops_transformers_cann910`, `ascendc` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-The default `auto` selects `cann_ops_transformers_cann920` on CANN 9.2.0 and arch22.
+On arch22, `auto` selects the matching CANN 9.1 or 9.2 implementation. The expanded arguments below describe the CANN 9.2 binding; omitted arguments retain the selected binding's defaults.
 
 ```python
 from sgl_kernel_npu.operators.attention import sparse_flash_mla

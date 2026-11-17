@@ -2,6 +2,7 @@
 
 import torch
 
+from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
@@ -9,6 +10,29 @@ _torch_native_fn = None
 
 
 @register_impl("attention.compressor", "auto")
+def _auto_impl(*args):
+    version = detect_cann_version()
+    if version.startswith("9.1."):
+        # The fused repository kernel preserves old ring history until reads
+        # finish. The 9.1 experimental provider writes overlapping slots first.
+        backend = "ascendc"
+    elif version.startswith("9.2."):
+        backend = "cann_ops_transformers_cann920"
+    else:
+        raise RuntimeError(
+            f"Unsupported CANN release {version}; expected CANN 9.1.x or 9.2.x"
+        )
+    return get_impl_by_name("attention.compressor", backend)(*args)
+
+
+@register_impl("attention.compressor", "cann_ops_transformers_cann920")
+def _cann920_impl(*args):
+    version = detect_cann_version()
+    if not version.startswith("9.2."):
+        raise RuntimeError(f"This implementation requires CANN 9.2.x, got {version}")
+    return _ascendc_impl(*args)
+
+
 @register_impl("attention.compressor", "ascendc")
 def _ascendc_impl(*args):
     return torch.ops.npu.compressor(*args)
@@ -21,7 +45,9 @@ def _torch_native_impl(*args):
         from ...implementation.torch_native.attention.compressor import compressor
 
         _torch_native_fn = compressor
-    return _torch_native_fn(*args)
+    return _torch_native_fn(
+        *args, arch35=get_hardware().generation == Generation.ARCH35
+    )
 
 
 @register_operator("attention.compressor")
@@ -50,7 +76,9 @@ def compressor(
 ):
     """Compress KV groups, apply RMSNorm/RoPE, and update state_cache in place.
 
-    ``auto`` selects Ascend C. All tensors are contiguous on the same NPU.
+    ``auto`` uses the repository's fused Ascend C operator on A3 and A5:
+    ``ascendc`` on CANN 9.1, its ``cann_ops_transformers_cann920`` alias on 9.2.
+    All tensors are contiguous on the same NPU.
     Args:
         x: FP16/BF16 input [B, S, H] or packed [T, H].
         wkv: Same dtype as x, projection [coff*D, H].
@@ -61,9 +89,8 @@ def compressor(
         rope_sin: FP32 sine [B, ceil(S/r), 64] or [min(T,T//r+B), 64].
         rope_cos: FP32 cosine, same shape as rope_sin.
         state_block_table: Required INT32 cache locations; paged [B, M],
-            explicit [B, coff*r+capacity] on arch22, or banks [B] on arch35.
-            Legacy arch22 single-page [B] and arch35 bank [B, M]
-            forms are also accepted; bank IDs are the first B flat entries.
+            or explicit physical state rows [B, coff*r+capacity] on both
+            architectures. Legacy arch22 mode-1 single-page [B] is also accepted.
         cu_seqlens: INT32 cumulative token offsets [B+1], required only for TH.
         seqused: Optional INT32 used lengths [B]; None uses input capacities.
         start_pos: Optional INT32 absolute starting positions [B]; None means 0.
@@ -73,26 +100,28 @@ def compressor(
         norm_eps: Float RMSNorm epsilon (default 1e-6).
         rotary_mode: Integer RoPE mode, default 2 (interleaved). Only 2 has
             a compiled kernel; other values are rejected before launch.
-        cache_mode: Integer 1 for paged cache or 2 for explicit/ring cache.
+        cache_mode: Integer 1 for paged cache or 2 for explicit state rows.
         state_cache_stride_dim0: Integer cache stride; 0 derives L*2*coff*D.
-        impl: Backend name, default "auto"; also "ascendc" or "torch_native".
+        impl: Backend name, default "auto"; also "ascendc",
+            "cann_ops_transformers_cann920" (CANN 9.2), or "torch_native".
     Returns:
         Same dtype as x, [B, ceil(S/r), D] or [min(T,T//r+B), D]. Only
         completed groups are written; remaining output rows are unspecified.
     """
-    # Preserve legacy table layouts without changing their physical locations.
+    # Mode 2 indexes physical rows. Keep the arch22 mode-1 single-page shorthand.
     if state_block_table is not None:
-        generation = get_hardware().generation
-        if (
-            cache_mode == 2
-            and generation == Generation.ARCH35
-            and state_block_table.ndim == 2
+        if cache_mode == 2 and (
+            state_block_table.ndim != 2
+            or state_block_table.shape[1] <= coff * cmp_ratio
         ):
-            state_block_table = state_block_table.view(-1)[: state_block_table.shape[0]]
+            raise ValueError(
+                "compressor: mode 2 requires a 2D state_block_table with "
+                "at least coff*cmp_ratio+1 columns"
+            )
         elif (
             cache_mode == 1
-            and generation == Generation.ARCH22
             and state_block_table.ndim == 1
+            and get_hardware().generation == Generation.ARCH22
         ):
             state_block_table = state_block_table.view(-1, 1)
     return get_impl_by_name("attention.compressor", impl)(

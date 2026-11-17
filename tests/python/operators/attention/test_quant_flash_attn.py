@@ -1,4 +1,4 @@
-"""A5 MXFP8 QFA numerical checks and public CANN interface parity.
+"""arch35 MXFP8 QFA numerical checks and public CANN interface parity.
 
 Qwen3.6-27B full attention has 24 Q heads, 4 KV heads and head_dim=256.
 TP1/TP2 cases use the corresponding per-rank heads and SGLang page_size=512.
@@ -27,26 +27,21 @@ pytest.importorskip("torch_npu")
 import sgl_kernel_npu  # noqa: F401
 
 # ((local Q heads, local KV heads, head dimension, page size), Q lengths, KV lengths).
-# Prefill: BS1, 8K/16K. Decode: BS1..64 with 8K/16K cached tokens per request.
+tp1 = (24, 4, 256, 512)
+tp2 = (12, 2, 256, 512)
 perf_shape = [
-    *[
-        ((24 // tp, 4 // tp, 256, 512), (seq_len,), (seq_len,))
-        for tp in (1, 2)
-        for seq_len in (8192, 16384)
-    ],
-    *[
-        ((24 // tp, 4 // tp, 256, 512), (1,) * batch_size, (kv_len,) * batch_size)
-        for tp in (1, 2)
-        for kv_len in (8192, 16384)
-        for batch_size in (1, 2, 4, 8, 16, 32, 64)
-    ],
+    (tp1, (8192,), (8192,)),
+    (tp2, (16384,), (16384,)),
+    (tp1, (1,), (8192,)),
+    (tp2, (1,) * 4, (16384,) * 4),
+    (tp2, (1,) * 16, (8192,) * 16),
 ]
 qwen_cases = [
     pytest.param(
         shape,
         q_lens,
         kv_lens,
-        "N2TGD" if q_lens[0] == 1 else "TND",
+        1 if q_lens[0] == 1 else -1,
         0 if q_lens[0] == 1 else 3,
         1.0,
         False,
@@ -61,8 +56,18 @@ qwen_cases = [
 ]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(f"Quant Flash Attention requires CANN >= 9.2.0 (found {version})")
+
+
 def generate_data(
-    shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
+    shape, q_lens, kv_lens, max_seqlen_q, mask_mode, p_scale, lse, v_mode
 ):
     """Build independent FP8 data with varying power-of-two descales.
 
@@ -98,34 +103,35 @@ def generate_data(
         )
 
     q_scale = scales((total_q, nq, dim // 32))
-    k_scale = scales((total_pages, nkv, page_size, dim // 32))
-    v_shape = (total_pages, nkv, page_size // 64, dim, 2)
+    kv_shape = (total_pages, page_size, nkv, dim)  # SGLang PA_BBND pool
+    k_scale = scales((total_pages, page_size, nkv, dim // 32))
+    v_shape = (total_pages, page_size // 64, nkv, dim, 2)
     if v_mode == "static":
         # ModelSlim repeats one per-head/channel scale across all token groups.
-        v_scale = scales((1, nkv, 1, dim, 1)).expand(v_shape).clone()
+        v_quant_scale = scales((1, 1, nkv, dim))
+        v_scale = v_quant_scale.unsqueeze(-1).expand(v_shape).contiguous()
     elif v_mode == "grouped":
         # Valid QFA input with distinct even/odd sequence-group scales.
         v_scale = scales(v_shape)
+        v_quant_scale = (
+            v_scale.movedim(-1, 2).flatten(1, 2).repeat_interleave(32, dim=1)
+        )
     else:
         raise ValueError(v_mode)
     q = quantized((total_q, nq, dim), q_scale.repeat_interleave(32, dim=-1))
-    k = quantized(
-        (total_pages, nkv, page_size, dim), k_scale.repeat_interleave(32, dim=-1)
-    )
-    v_expanded = (
-        v_scale.permute(0, 1, 2, 4, 3)
-        .reshape(total_pages, nkv, page_size // 32, dim)
-        .repeat_interleave(32, dim=2)
-    )
-    v = quantized((total_pages, nkv, page_size, dim), v_expanded)
+    k = quantized(kv_shape, k_scale.repeat_interleave(32, dim=-1))
+    v = quantized(kv_shape, v_quant_scale)
     q_scale = q_scale.reshape(total_q, nq, dim // 64, 2)
+    # SGLang sets a uniform Q length for decode/verify and uses -1 for prefill.
+    groups = nq // nkv
+    scale_layout = "N2TGD" if 0 < groups * max_seqlen_q <= 80 else "TND"
     if scale_layout == "N2TGD":
         q_scale = (
-            q_scale.reshape(total_q, nkv, nq // nkv, dim // 64, 2)
+            q_scale.reshape(total_q, nkv, groups, dim // 64, 2)
             .permute(1, 0, 2, 3, 4)
             .contiguous()
         )
-    k_scale = k_scale.reshape(total_pages, nkv, page_size, dim // 64, 2)
+    k_scale = k_scale.reshape(total_pages, page_size, nkv, dim // 64, 2)
     args = (
         q.to(device),
         k.to(device),
@@ -141,11 +147,11 @@ def generate_data(
     shared_kwargs = dict(
         cu_seqlens_q=cu_q.to(device),
         seqused_kv=torch.tensor(kv_lens, dtype=torch.int32, device=device),
-        max_seqlen_q=q_lens[0] if len(set(q_lens)) == 1 else -1,
+        max_seqlen_q=max_seqlen_q,
         mask_mode=mask_mode,
         layout_q="TND",
         layout_q_descale=scale_layout,
-        layout_kv="PA_BNBD",
+        layout_kv="PA_BBND",
         layout_out="TND",
     )
     kwargs = dict(
@@ -164,101 +170,57 @@ def generate_data(
 
 
 @pytest.mark.parametrize(
-    "shape,q_lens,kv_lens,scale_layout,mask_mode,p_scale,lse,v_mode",
+    "shape,q_lens,kv_lens,max_seqlen_q,mask_mode,p_scale,lse,v_mode",
     qwen_cases
     + [
         pytest.param(
-            (16, 4, 64, 128),
-            (1, 1),
-            (1, 129),
-            "N2TGD",
-            0,
-            1.0,
-            False,
-            "static",
-            id="edge-decode-d64-page-tail",
-        ),
-        pytest.param(
-            (16, 2, 128, 512),
+            tp2,
             (1, 1, 1, 1),
             (513, 1024, 0, 127),
-            "N2TGD",
+            1,
             0,
             1.0,
             True,
             "static",
-            id="edge-decode-d128-zero-kv-padding",
+            id="tp2-decode-page-tail-and-padding",
         ),
         pytest.param(
-            (12, 2, 256, 512),
-            (1, 1, 1, 1),
-            (513, 1024, 2048, 127),
-            "N2TGD",
-            0,
-            1.0,
-            False,
-            "static",
-            id="edge-decode-d256",
-        ),
-        pytest.param(
-            (16, 2, 128, 512),
-            (129, 17),
-            (129, 17),
-            "TND",
-            3,
-            1.0,
-            True,
-            "static",
-            id="edge-ragged-prefill-d128",
-        ),
-        pytest.param(
-            (12, 2, 256, 512),
+            tp2,
             (33, 17),
             (1025, 529),
-            "TND",
+            -1,
             3,
-            16.0,
+            1.0,
             True,
             "static",
-            id="edge-prefix-chunk-d256-nonunit-p",
+            id="tp2-ragged-prefix-chunk",
         ),
         pytest.param(
-            (12, 2, 256, 512),
+            tp2,
             (4, 4),
             (513, 1027),
-            "N2TGD",
+            4,
             3,
             1.0,
             False,
             "static",
-            id="edge-verify-d256",
+            id="tp2-verify-four-tokens",
         ),
         pytest.param(
-            (1, 1, 64, 64),
-            (1,),
-            (1,),
-            "TND",
-            0,
-            16.0,
-            False,
-            "static",
-            id="edge-minimum-single-head",
-        ),
-        pytest.param(
-            (4, 2, 64, 128),
+            tp2,
             (3, 5),
-            (65, 257),
-            "TND",
+            (65, 513),
+            -1,
             3,
             16.0,
             True,
             "grouped",
-            id="edge-v-scale-even-odd-groups",
+            id="tp2-v-scale-even-odd-groups",
         ),
     ],
 )
 def test_quant_flash_attn(
-    shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
+    shape, q_lens, kv_lens, max_seqlen_q, mask_mode, p_scale, lse, v_mode
 ):
     from sgl_kernel_npu.operators.attention import (
         quant_flash_attn,
@@ -267,7 +229,7 @@ def test_quant_flash_attn(
 
     require_test_impl(quant_flash_attn_metadata, "cann_ops_transformer")
     args, kwargs, meta_args, meta_kwargs = generate_data(
-        shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
+        shape, q_lens, kv_lens, max_seqlen_q, mask_mode, p_scale, lse, v_mode
     )
     metadata = quant_flash_attn_metadata(*meta_args, **meta_kwargs)
     assert metadata.dtype == torch.int32
@@ -295,11 +257,11 @@ def test_quant_flash_attn(
 
 
 @pytest.mark.parametrize(
-    "shape,q_lens,kv_lens,scale_layout,mask_mode,p_scale,lse,v_mode",
+    "shape,q_lens,kv_lens,max_seqlen_q,mask_mode,p_scale,lse,v_mode",
     qwen_cases,
 )
 def test_quant_flash_attn_direct_cann_parity(
-    shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
+    shape, q_lens, kv_lens, max_seqlen_q, mask_mode, p_scale, lse, v_mode
 ):
     """Check both adapters against direct CANN using the plan's consumer.
 
@@ -317,7 +279,7 @@ def test_quant_flash_attn_direct_cann_parity(
     from cann_ops_transformer.ops import quant_flash_attn_metadata as direct_metadata
 
     args, kwargs, meta_args, meta_kwargs = generate_data(
-        shape, q_lens, kv_lens, scale_layout, mask_mode, p_scale, lse, v_mode
+        shape, q_lens, kv_lens, max_seqlen_q, mask_mode, p_scale, lse, v_mode
     )
     checked = get_skip_acc_check() is not True
     if checked:

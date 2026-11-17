@@ -7,6 +7,7 @@ fi
 
 cd "${GITHUB_WORKSPACE}"
 export UV_SYSTEM_PYTHON=true
+export UV_NO_CACHE=1
 
 # --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
 
@@ -43,9 +44,27 @@ uv pip install expecttest einops pytest packaging ninja
 
 # --- Step 2: Build and install kernel module ---
 
-export BUILD_CATLASS_MODULE=ON
-bash build.sh -a kernels
-pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir --force-reinstall --no-deps
+case "${NPU_HARDWARE:-}" in
+    a3) ARCH_VERSION=2201 ;;
+    950) ARCH_VERSION=3510 ;;
+    *)
+        echo "Unsupported NPU_HARDWARE: ${NPU_HARDWARE:-unset} (expected a3 or 950)" >&2
+        exit 1
+        ;;
+esac
+
+echo '=== npu-smi info -t board -i 0 ==='
+probe_status=0
+npu-smi info -t board -i 0 2>&1 || probe_status=$?
+echo "npu-smi exit code: $probe_status"
+
+echo '=== npu-smi info -t board -i 0 -c 0 ==='
+probe_status=0
+npu-smi info -t board -i 0 -c 0 2>&1 || probe_status=$?
+echo "npu-smi exit code: $probe_status"
+
+python3 setup.py --arch-version "$ARCH_VERSION" --artifact wheel
+python3 -m pip install output/sgl_kernel_npu-*.whl --no-cache-dir --force-reinstall --no-deps
 
 # --- Step 3: CI workarounds for test-side issues ---
 

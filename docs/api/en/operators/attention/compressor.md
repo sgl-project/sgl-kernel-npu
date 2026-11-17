@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | Supported | Supported |
+| `cann_ops_transformers_cann920` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -20,7 +21,9 @@ compressor(
 )
 ```
 
-`auto` selects `ascendc` without fallback. `rotary_mode` defaults to `2`
+`auto` selects `ascendc` on CANN 9.1 and its
+`cann_ops_transformers_cann920` alias on CANN 9.2, without fallback. Both call
+the repository's fused compressor on A3 and A5. `rotary_mode` defaults to `2`
 (interleaved), the only compiled mode. The legacy default was `1`; omitting
 this argument now selects mode 2. Explicit mode 1 is rejected before launch.
 
@@ -48,6 +51,8 @@ of `r`), overlap lane `j=0,...,c-1` uses positions
 For each feature, softmax over these `c*r` scores weights the corresponding
 keys. Positions before zero contribute zero keys and negative-infinite scores;
 positions before this call's start come from the state cache.
+History reads observe the cache from before the call; ring writes must not
+replace history still needed by a completed group.
 
 \[
  u_d=\sum_{j,t}\operatorname{softmax}_{j,t}(G_{t,jD+d})K_{t,jD+d},\quad
@@ -68,7 +73,8 @@ retain verification tail rows: when `L>c*r`, set `pad=L-c*r+2` and lower
 `keep` to `min(keep,max(E-pad,0))`. The arch35 short-BSH FULL_LOAD path
 (`S<=4` and `B*S<=256`) uses the original `keep` without this pad.
 New rows with absolute position at least `keep` are written, including a
-partial compression chunk; other cache rows retain their values.
+partial compression chunk. In arch35 NORMAL mode with overlap, earlier page
+tails are also written so a later call can resume from a cached SWA page.
 
 ## Parameters and return value
 
@@ -86,7 +92,7 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 | `norm_weight` | Tensor | FP32 `[D]`, RMSNorm scale. |
 | `rope_sin` | Tensor | FP32 `[B,Sr,64]` for BSH or `[Sr,64]` for TH, using the output row layout. |
 | `rope_cos` | Tensor | FP32, same shape as `rope_sin`. |
-| `state_block_table` | Tensor | INT32, required despite default `None`. Mode 1: `[B,M]` page IDs. Mode 2 on arch22: `[B,c*r+capacity]` flattened token locations, column `c*r+t-p` for absolute position `t`. Mode 2 on arch35: `[B]` request bank IDs, location `bank*L+t%L`, with `P>=B`. Legacy arch22 mode-1 `[B]` single-page tables are also accepted. For arch35 mode 2, contiguous `[B,M]` tables use the first B flattened entries as bank IDs (including `[B,1]`). All accessed locations must be within the cache; supply enough columns for history/current tokens. |
+| `state_block_table` | Tensor | Required INT32 tensor. Mode 1 takes `[B,M]` page IDs and also accepts the arch22 single-page `[B]` form. Mode 2 takes `[B,c*r+capacity]` physical state row IDs on both architectures, with column `c*r+t-p` for absolute position `t`. Supply at least one current-token column, enough columns for all accessed positions, and row IDs within the state cache. |
 | `cu_seqlens` | Tensor or None | INT32 `[B+1]`, default `None`. Required for TH, forbidden for BSH; nondecreasing, first 0, last T. Differences give input capacities. `[0]` represents zero requests when `T=0`. |
 | `seqused` | Tensor or None | INT32 `[B]`, default `None` uses full capacities. Values in `[0,capacity]`. |
 | `start_pos` | Tensor or None | INT32 `[B]`, nonnegative absolute starts; default `None` means zero. |
@@ -95,9 +101,9 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 | `coff` | int | 1 or 2; default 1. The latter includes one previous group. |
 | `norm_eps` | float | RMSNorm epsilon; default `1e-6`. |
 | `rotary_mode` | int | Default 2 (interleaved), the only supported mode. |
-| `cache_mode` | int | 1 (paged) or 2 (explicit/ring); default 1. |
+| `cache_mode` | int | 1 (paged) or 2 (explicit state rows). Default 1. |
 | `state_cache_stride_dim0` | int | Default 0 derives `L*2*W`; an explicit value must equal it and fit signed INT32. |
-| `impl` | str | `auto` (default), `ascendc`, or `torch_native`. |
+| `impl` | str | `auto` (default), `ascendc`, `cann_ops_transformers_cann920` (CANN 9.2 only), or `torch_native`. |
 
 | Return | Type | Meaning |
 | --- | --- | --- |
@@ -106,8 +112,8 @@ in `[1024,10240]`, and `D` is 128 or 512. Define `W=c*D`,
 ## ascendc backend
 
 Uses the existing architecture-specific Ascend C computation through CANN/ACLNN.
-Supports FP16/BF16, TH/BSH, overlap and paged/explicit/ring caches. Mode 2's
-cache table formats differ by architecture and are not interchangeable.
+Supports FP16/BF16, TH/BSH, overlap and paged or explicitly addressed caches.
+Both architectures use the same mode-2 state table format.
 Input values and table entries must describe valid, nonconflicting requests;
 metadata validation does not inspect device index values.
 
@@ -117,6 +123,12 @@ The original Host tiling checks supported parameter values and tensor-shape
 relations through CANN. Empty inputs follow the ACLNN query/execution path too.
 Absent optional tensors use CANN's missing-input representation, avoiding the
 legacy helper's non-null empty shape for `None`.
+
+## cann_ops_transformers_cann920 backend
+
+CANN 9.2-only alias of the fused `ascendc` implementation described above.
+It uses the repository's `torch.ops.npu.compressor` binding rather than the
+upstream core-only compressor.
 
 ## torch_native backend
 
@@ -152,3 +164,18 @@ out = compressor(
 )
 print(out.shape)  # [1, 1, 128]; state is updated in place.
 ```
+
+
+## CANN release compatibility
+
+This PR keeps the community Ascend C implementation and its complete API.
+`auto` chooses `ascendc` on CANN 9.1 A3/A5 and
+`cann_ops_transformers_cann920` on CANN 9.2 A3/A5. The last name is a
+compatibility key for the same fused framework operator, preserving RMSNorm,
+RoPE and in-place state updates. It does not substitute the released core-only
+compressor. Explicit `ascendc` is available on both registered generations.
+
+The pinned CANN 9.1 experimental compressor is not exposed: its ring writes
+can overwrite history before a group reads it. All supported releases use the
+repository's fused implementation, preserving the pre-call history and state
+retention contract. `torch_native` remains an independent reference.

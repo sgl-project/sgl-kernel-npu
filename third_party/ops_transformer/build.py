@@ -1,7 +1,6 @@
 """Build and package the custom ops-transformer vendor and Python bindings."""
 
 import hashlib
-import os
 import re
 import shutil
 import sys
@@ -9,25 +8,20 @@ import zipfile
 from pathlib import Path
 
 from build_tools.cann import run
-from build_tools.third_party import detect_soc_version, extract_python, read_json
+from build_tools.third_party import extract_python, read_json, resolve_soc_version
+
+from third_party.opapi import isolate_staged_opapis
 
 
 def configure(config, jobs):
     """Resolve ops-transformer's names and command placeholders."""
     config = dict(config)
-    config["soc"] = detect_soc_version()
-    supported_socs = {
-        "2201": ("ascend910b", "ascend910_93"),
-        "3510": ("ascend950",),
-    }
-    if config["soc"] not in supported_socs[config["arch_version"]]:
-        raise RuntimeError(
-            "Detected SoC {} does not match architecture {}".format(
-                config["soc"], config["arch_version"]
-            )
-        )
+    config["soc"] = resolve_soc_version(config["arch_version"])
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
+    config["python_bindings"] = config.get("python_bindings", True)
+    if not isinstance(config["python_bindings"], bool):
+        raise ValueError("python_bindings must be a boolean")
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -43,7 +37,7 @@ def stage_python(wheel, item, package):
     upstream_package = "cann_ops_transformer_" + item["vendor_name"]
     with zipfile.ZipFile(wheel) as archive:
         roots = {name.split("/", 1)[0] for name in archive.namelist()}
-    # CANN 9.1 predates vendor-suffixed Python packages.
+    # The pinned 9.1 setup.py predates vendor-suffixed packages and op folders.
     if upstream_package not in roots:
         upstream_package = "cann_ops_transformer"
     extract_python(wheel, upstream_package, destination)
@@ -63,34 +57,17 @@ def stage_python(wheel, item, package):
     # Upstream's builder still contains absolute imports of the unsuffixed package.
     # Rewrite Python module paths; Torch operator namespaces must remain intact.
     pattern = (
-        r"(?m)^(\s*from\s+)(?:"
+        r"(?m)^(\s*(?:from|import)\s+)(?:"
         + re.escape(upstream_package)
         + r"|cann_ops_transformer)(?=[.\s])"
     )
-    imports = (
-        r"(?m)^(\s*import\s+)("
-        + re.escape(upstream_package)
-        + r"|cann_ops_transformer)(\.[\w.]+)?(?:\s+as\s+(\w+))?[ \t]*$"
-    )
     for path in destination.rglob("*.py"):
         source = re.sub(pattern, lambda m: m[1] + qualified, path.read_text())
-
-        def rewrite_import(match):
-            prefix, original, suffix, alias = match.groups()
-            if suffix and not alias:
-                return (
-                    prefix
-                    + qualified
-                    + suffix
-                    + "\n"
-                    + prefix
-                    + qualified
-                    + " as "
-                    + original
-                )
-            return prefix + qualified + (suffix or "") + " as " + (alias or original)
-
-        source = re.sub(imports, rewrite_import, source)
+        # The flat 9.1 builder references the package by its original root name.
+        source = source.replace(
+            "import " + qualified + "\n",
+            "import " + qualified + " as cann_ops_transformer\n",
+        )
         # CompressorV2 creates ops.ds41 using a Python module-cache lookup.
         source = source.replace(
             'sys.modules["cann_ops_transformer.ops"]',
@@ -146,15 +123,15 @@ def inspect_vendor(vendor, item):
 
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
     for op in item["ops"]:
-        # Template kernels retain the public name but install under *_apt.
-        for installed_name in (op, op + "_apt"):
-            config = kernel / "config" / item["soc"] / (installed_name + ".json")
-            if not config.exists():
-                continue
+        config = kernel / "config" / item["soc"] / (op + ".json")
+        # AscendC template kernels use an _apt suffix in installed paths.
+        if not config.exists():
+            config = config.with_name(op + "_apt.json")
+        if config.exists():
             read_json(require(config))
-            binaries = sorted((kernel / item["soc"] / installed_name).glob("*.o"))
+            binaries = sorted((kernel / item["soc"] / config.stem).glob("*.o"))
             if not binaries:
-                raise RuntimeError("No AICore binaries for " + installed_name)
+                raise RuntimeError("No AICore binaries for " + op)
             for binary in binaries:
                 require(binary)
                 read_json(require(binary.with_suffix(".json")))
@@ -163,36 +140,22 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
-def build_python_wheel(item, source, directory):
-    """Use the profile command, or package CANN 9.1's selected bindings."""
-    if any("--torch_extension" in command for command in item["commands"]):
-        wheels = list((source / "torch_extension/dist").glob("*.whl"))
-    else:
-        wheel_dir = directory / "python-wheel"
-        run(
-            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", wheel_dir],
-            directory / "build-python.log",
-            cwd=source / "torch_extension",
-            env=dict(
-                os.environ,
-                TORCH_EXTENSION_OPS=",".join(item["ops"]),
-                TORCH_EXTENSION_VENDOR=item["vendor_name"],
-                TORCH_EXTENSION_EXPERIMENTAL="FALSE",
-            ),
-        )
-        wheels = list(wheel_dir.glob("*.whl"))
-    if len(wheels) != 1:
-        raise RuntimeError("Expected exactly one selected upstream Python wheel")
-    return wheels[0]
-
-
 def build(item, source, directory):
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
+    # The pinned 9.1 build.sh has no --torch_extension option.
+    if item["python_bindings"] and not any(
+        "--torch_extension" in command for command in item["commands"]
+    ):
+        run(
+            [sys.executable, "setup.py", "bdist_wheel"],
+            directory / "build-python.log",
+            cwd=source / "torch_extension",
+        )
     installers = list((source / "build_out").glob("*.run"))
-    wheel = build_python_wheel(item, source, directory)
-    if len(installers) != 1:
-        raise RuntimeError("Expected exactly one upstream .run")
+    wheels = list((source / "torch_extension/dist").glob("*.whl"))
+    if len(installers) != 1 or (item["python_bindings"] and len(wheels) != 1):
+        raise RuntimeError("Expected one upstream .run and, if enabled, Python wheel")
     installed = directory / "installed"
     installed.mkdir()
     run(
@@ -208,7 +171,7 @@ def build(item, source, directory):
     return dict(
         config=item,
         vendor=vendor,
-        wheel=wheel,
+        wheel=wheels[0] if item["python_bindings"] else None,
         license=source / item["license"],
     )
 
@@ -226,7 +189,9 @@ def stage(result, package):
     # Installer-generated scripts embed the temporary absolute installation path.
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
-    stage_python(result["wheel"], item, package)
+    opapi_sonames = isolate_staged_opapis(package)
+    if item["python_bindings"]:
+        stage_python(result["wheel"], item, package)
     licenses = package / "_third_party/licenses" / item["name"]
     licenses.mkdir(parents=True)
     shutil.copy2(result["license"], licenses / "LICENSE")
@@ -236,5 +201,9 @@ def stage(result, package):
         if p.is_file()
     }
     return dict(
-        item, vendor_directory=vendor.name, files=hashes, binding="upstream_jit"
+        item,
+        vendor_directory=vendor.name,
+        files=hashes,
+        binding="upstream_jit" if item["python_bindings"] else "vendor_only",
+        opapi_soname=opapi_sonames[vendor.name],
     )
