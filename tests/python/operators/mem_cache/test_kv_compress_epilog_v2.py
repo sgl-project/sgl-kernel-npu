@@ -325,7 +325,7 @@ def _compare_cache(actual, reference, x, slots, mode, group):
 
 @pytest.mark.parametrize(
     "n,slots,d,mode,group,cache,round_scale,layout,block,slot_dtype,seed,pattern",
-    [param.values for param in KV_CASES],
+    KV_CASES,
 )
 def test_kv_compress_epilog_v2(
     n,

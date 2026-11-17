@@ -6,10 +6,10 @@
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
-| `cann_recipes_infer_cann920` | 不支持 | 支持（DSV4.1） |
+| `cann_recipes_infer_cann920` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-`cann_recipes_infer_cann920` 还要求已初始化的 CANN SDK 为 9.2.x；该实现只在 arch35 注册，arch22 上显式选择会抛出 `UnsupportedGenerationError`。
+`cann_recipes_infer_cann920` 还要求已初始化的 CANN SDK 为 9.2.x，用于 DSV4.1 的 `pre_mix` 输入与 pre 输出；该实现只在 arch35 注册，arch22 上显式选择会抛出 `UnsupportedGenerationError`。
 
 ## 接口
 

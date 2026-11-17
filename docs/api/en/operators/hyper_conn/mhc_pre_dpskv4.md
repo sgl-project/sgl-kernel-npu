@@ -4,12 +4,12 @@
 
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` | supported | supported |
-| `cann_recipes_infer_cann910` | supported | supported |
-| `cann_recipes_infer_cann920` | not supported | supported (DSV4.1) |
-| `torch_native` | supported | supported |
+| `cann_ops_transformers_cann920` | Supported | Supported |
+| `cann_recipes_infer_cann910` | Supported | Supported |
+| `cann_recipes_infer_cann920` | Unsupported | Supported |
+| `torch_native` | Supported | Supported |
 
-`cann_recipes_infer_cann920` additionally requires an initialized CANN 9.2.x SDK and is registered on arch35 only; selecting it on ARCH22 raises `UnsupportedGenerationError`.
+`cann_recipes_infer_cann920` additionally requires an initialized CANN 9.2.x SDK and serves the DSV4.1 `pre_mix` input and pre output; it is registered on arch35 only, and selecting it on ARCH22 raises `UnsupportedGenerationError`.
 
 ## Signature
 

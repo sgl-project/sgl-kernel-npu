@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_recipes_infer` | Not supported | Supported (CANN 9.2.x) |
+| `cann_recipes_infer` | Unsupported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Prototype
@@ -19,7 +19,7 @@ def kv_compress_epilog_v2(
 ): ...
 ```
 
-The default `auto` selects `cann_recipes_infer` (the bundled CANN 9.2.0 recipes kernel, arch35 only).
+The default `auto` selects `cann_recipes_infer` (the bundled CANN 9.2.0 recipes kernel, which requires an initialized CANN 9.2.x SDK and arch35).
 
 ## Description
 

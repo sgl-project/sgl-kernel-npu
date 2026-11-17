@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_recipes_infer` | 不支持 | 支持（CANN 9.2.x） |
+| `cann_recipes_infer` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -19,7 +19,7 @@ def kv_compress_epilog_v2(
 ): ...
 ```
 
-默认的 `auto` 选择 `cann_recipes_infer`（bundled CANN 9.2.0 recipes kernel，仅 arch35）。
+默认的 `auto` 选择 `cann_recipes_infer`（bundled CANN 9.2.0 recipes kernel，需已初始化的 CANN 9.2.x SDK，仅 arch35）。
 
 ## 功能说明
 
