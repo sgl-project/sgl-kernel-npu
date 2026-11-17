@@ -42,7 +42,10 @@ def modules():
             validator = importlib.import_module(
                 namespace + ".operators.indexer.indexer_utils"
             )
-            yield reference.quant_lightning_indexer, validator.validate_quant_indexer_candidates
+            yield (
+                reference.quant_lightning_indexer,
+                validator.validate_quant_indexer_candidates,
+            )
         finally:
             for name in set(sys.modules) - before:
                 if name.startswith(namespace):
@@ -95,7 +98,7 @@ def test_source_consumer_and_ordinary_use_logical_compressed_rows(modules, ratio
         **common,
         candidate_mode=2,
         candidate_topk_blocks=64,
-        candidate_topk_index=candidates
+        candidate_topk_index=candidates,
     )
     assert torch.equal(result[0], selected)
     assert torch.equal(op(*args, **common, candidate_mode=3)[0], ordinary[0])
@@ -108,7 +111,7 @@ def test_source_consumer_and_ordinary_use_logical_compressed_rows(modules, ratio
         **common,
         candidate_mode=2,
         candidate_topk_blocks=64,
-        candidate_topk_index=restricted
+        candidate_topk_index=restricted,
     )
     assert result[0].flatten().tolist() == [7, 6, 5, 4]
 
@@ -135,7 +138,7 @@ def test_source_pins_last_visible_block_and_causal_padding(modules):
         topk,
         mode,
         **common,
-        candidate_mode=3
+        candidate_mode=3,
     )
     assert result[0][0].eq(-1).all()  # First query cannot see the sole future K.
     assert result[0][1, 0, 0] == 0
@@ -254,7 +257,10 @@ def test_overlay_is_a3_only_hashed_and_preserves_pinned_build_rules(
             assert "OP_NAME QuantLightningIndexerV2" in contents
             assert "quant_lightning_indexer_v2_def.cpp" in contents
         else:
-            assert contents == "# original pinned build rules\n# checkers/qliv2_checker.cpp"
+            assert (
+                contents
+                == "# original pinned build rules\n# checkers/qliv2_checker.cpp"
+            )
     assert (
         source
         / "attention/quant_lightning_indexer_v2_metadata/op_kernel_aicpu/quant_lightning_indexer_v2_metadata_aicpu.cpp"
@@ -293,15 +299,18 @@ def test_public_wrapper_keeps_legacy_pair_and_explicit_mode_triple():
         assert len(triple) == 3 and triple[2] is blocks
 
 
-def test_packaged_entrypoint_imports_only_existing_bindings():
+def test_packaged_entrypoint_imports_only_existing_bindings(tmp_path, monkeypatch):
     import ast
 
     extension = (
-        ROOT / "third_party/ops_transformer/dsv41_indexer/quant_lightning_indexer_v2/torch_extension"
+        ROOT
+        / "third_party/ops_transformer/dsv41_indexer/quant_lightning_indexer_v2/torch_extension"
     )
     definitions = {
         node.name
-        for node in ast.parse((extension / "quant_lightning_indexer.py").read_text(encoding="utf-8")).body
+        for node in ast.parse(
+            (extension / "quant_lightning_indexer.py").read_text(encoding="utf-8")
+        ).body
         if isinstance(node, (ast.FunctionDef, ast.ClassDef))
     }
     entrypoint = ast.parse((extension / "__init__.py").read_text(encoding="utf-8"))
@@ -313,3 +322,27 @@ def test_packaged_entrypoint_imports_only_existing_bindings():
     }
     assert imports == {"quant_lightning_indexer", "quant_lightning_indexer_metadata"}
     assert imports <= definitions
+
+    # Simulate the converter's import-time requirement that bindings/schema
+    # have already been registered, including hosts where TorchAir is installed.
+    package = tmp_path / "_qli_entrypoint_test"
+    package.mkdir()
+    (package / "__init__.py").write_text((extension / "__init__.py").read_text())
+    (package / "quant_lightning_indexer.py").write_text(
+        "def quant_lightning_indexer(): pass\n"
+        "def quant_lightning_indexer_metadata(): pass\n"
+    )
+    (package / "graph_convert_quant_lightning_indexer.py").write_text(
+        "import sys\n"
+        "assert callable(getattr(sys.modules[__package__], "
+        "'quant_lightning_indexer_metadata', None))\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    before = set(sys.modules)
+    try:
+        imported = importlib.import_module(package.name)
+        assert set(imported.__all__) == imports
+    finally:
+        for name in set(sys.modules) - before:
+            if name.startswith(package.name):
+                sys.modules.pop(name, None)

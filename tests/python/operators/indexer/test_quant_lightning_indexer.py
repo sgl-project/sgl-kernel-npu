@@ -201,7 +201,8 @@ def test_quant_lightning_indexer_queued_lifetimes(case):
 
 @pytest.mark.parametrize("ratio", [1, 2])
 @pytest.mark.parametrize("query_length", [1, 5])
-def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
+@pytest.mark.parametrize("heads", [32, 64])
+def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
     from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
@@ -214,7 +215,13 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
     if torch_npu_soc_family() != 250 or not detect_cann_version().startswith("9.2."):
         pytest.skip("V4.1 INT8 candidate modes require A3 + CANN 9.2")
     args, common, table = generate_data(((769,), (query_length,), (0,)), 2)
+    args = tuple(
+        value[:, :heads].contiguous() if i in (0, 2, 3) else value
+        for i, value in enumerate(args)
+    )
     common["cmp_ratio"] = ratio
+    if ratio == 1:
+        common["cmp_residual_k"] = None
     args = tuple(
         value.to("npu") if isinstance(value, torch.Tensor) else value for value in args
     )
@@ -222,7 +229,7 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
         name: value.to("npu") if isinstance(value, torch.Tensor) else value
         for name, value in common.items()
     }
-    metadata = quant_lightning_indexer_metadata(64, 1, 128, 512, 2, **device_common)
+    metadata = quant_lightning_indexer_metadata(heads, 1, 128, 512, 2, **device_common)
     kwargs = dict(
         device_common,
         block_table=table.to("npu"),
@@ -232,9 +239,12 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
     )
     source = quant_lightning_indexer(*args, **kwargs, candidate_mode=1)
     cpu_args = tuple(_cpu_tensor(value) for value in args)
-    cpu_common = dict(
-        common, block_table=table, candidate_topk_blocks=64, candidate_block_size=8
-    )
+    cpu_common = {
+        name: _cpu_tensor(value)
+        for name, value in dict(
+            common, block_table=table, candidate_topk_blocks=64, candidate_block_size=8
+        ).items()
+    }
     expected = quant_lightning_indexer(
         *cpu_args, **cpu_common, candidate_mode=1, impl="torch_native"
     )
@@ -245,7 +255,7 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length):
     # output and metadata must use replay inputs, including changing KV lengths.
     def select():
         refreshed = quant_lightning_indexer_metadata(
-            64, 1, 128, 512, 2, **device_common
+            heads, 1, 128, 512, 2, **device_common
         )
         metadata.copy_(refreshed)
         source = quant_lightning_indexer(*args, **kwargs, candidate_mode=1)
