@@ -211,12 +211,6 @@ void kv_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host
     auto stream = c10_npu::getCurrentNPUStream();
     if (workspaceSize > 0) {
         workspace = at::empty({static_cast<int64_t>(workspaceSize)}, device_indices.options().dtype(at::kByte));
-        workspace.record_stream(stream);
-    }
-    device_indices.record_stream(stream);
-    host_indices.record_stream(stream);
-    for (const auto &tensor : device_components) {
-        tensor.record_stream(stream);
     }
     auto aclStream = stream.stream(false);
     // Keep the Tensor and ACLNN descriptor owners alive through queued launch.

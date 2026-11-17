@@ -29,7 +29,7 @@ def _build_out_tokens_kernel(
         token = tl.load(bonus + row * BONUS_STRIDE, mask=valid, other=0).to(tl.int64)
         value = tl.load(
             draft + row * DRAFT_ROW + col * DRAFT_COL,
-            mask=valid & (col < GAMMA),
+            mask=valid & (col < GAMMA) & (col < length),
             other=0,
         ).to(tl.int64)
         # Bitwise selection preserves all int64 bits without the int64 select
@@ -47,12 +47,12 @@ def build_out_tokens_triton(
     verify_num_draft_tokens: int,
     gamma: int,
 ) -> torch.Tensor:
-    """Build DSpark's full output buffer, including the uncommitted suffix.
+    """Build DSpark's accepted drafts, bonus token and zero-filled suffix.
 
     Inputs are int32/int64 NPU tensors of shapes [batch, gamma], [batch],
     and [batch]. Each correct_len must be in [0, gamma]. The int64 output
-    copies the draft, zeroes the last column, then inserts bonus at correct_len.
-    Consumers must use the acceptance lengths to identify valid output tokens.
+    copies draft tokens before correct_len, inserts bonus at correct_len,
+    and zeroes all remaining columns.
     """
     if gamma < 0 or verify_num_draft_tokens != gamma + 1:
         raise ValueError("verify_num_draft_tokens must equal gamma + 1")

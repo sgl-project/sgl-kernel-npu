@@ -19,6 +19,9 @@ from build_tools.cann import PROJECT_ROOT, run
 # Explicit allowlist: configuration cannot import arbitrary Python code.
 _ADAPTERS = {"ops_transformer", "cann_recipes_infer"}
 
+# Third-party builds use a single SoC target for each architecture.
+_SOC_BY_ARCH = {"2201": "ascend910_93", "3510": "ascend950"}
+
 
 @lru_cache(maxsize=None)
 def get_adapter(name):
@@ -50,30 +53,15 @@ def detect_cann_version():
     raise RuntimeError("Cannot read an exact CANN release from SDK version metadata")
 
 
-@lru_cache(maxsize=1)
-def detect_soc_version():
-    """Detect the local build target without importing Torch or initializing NPU."""
-    for arguments in (
-        ["npu-smi", "info", "-t", "board", "-i", "0"],
-        ["npu-smi", "info", "-t", "board", "-i", "0", "-c", "0"],
-    ):
-        try:
-            output = subprocess.check_output(
-                arguments, text=True, stderr=subprocess.STDOUT, timeout=10
-            )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            continue
-        match = re.search(r"(?im)^\s*Chip Name\s*:\s*(\S+)", output)
-        if not match:
-            continue
-        chip = match[1].lower()
-        if chip.startswith(("ascend910b", "910b")):
-            return "ascend910b"
-        if chip.startswith(("ascend910_93", "910_93")) or chip == "ascend910":
-            return "ascend910_93"
-        if chip.startswith(("ascend950", "950")):
-            return "ascend950"
-    raise RuntimeError("Cannot detect build SoC from npu-smi board information")
+def resolve_soc_version(arch_version):
+    """Return the third-party SoC target for the requested architecture."""
+    try:
+        return _SOC_BY_ARCH[str(arch_version)]
+    except KeyError:
+        raise ValueError(
+            f"Unsupported third-party architecture {arch_version!r}. "
+            "Expected 2201 or 3510."
+        ) from None
 
 
 def resolve_plan(
