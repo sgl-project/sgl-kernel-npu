@@ -144,21 +144,25 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
 
 @register_impl("attention.sparse_flash_mla", "torch_native")
 def _torch_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.metadata import ReferenceMetadata
+    from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+        DSV4SparseMLAMetadata,
+    )
 
     # DSpark and migrated tests carry independently built reference descriptors.
     # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
     # opaque production metadata and the CANN 9.2 LSE layout.
     if (
-        isinstance(kwargs.get("metadata"), ReferenceMetadata)
+        isinstance(kwargs.get("metadata"), DSV4SparseMLAMetadata)
         or kwargs.get("ori_sparse_indices") is not None
     ):
-        from ...implementation.torch_native.attention.attention import sparse_flash_mla
+        from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+            dsv4_sparse_mla as reference_op,
+        )
     else:
         from ...implementation.torch_native.attention.sparse_flash_mla import (
-            sparse_flash_mla,
+            sparse_flash_mla as reference_op,
         )
-    return sparse_flash_mla(
+    return reference_op(
         q,
         **{
             key: value

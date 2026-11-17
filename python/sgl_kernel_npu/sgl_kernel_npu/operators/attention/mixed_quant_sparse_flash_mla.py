@@ -201,11 +201,11 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.attention import (
-        mixed_quant_sparse_flash_mla,
+    from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+        dsv4_sparse_mla,
     )
 
-    return mixed_quant_sparse_flash_mla(q, **kwargs)
+    return dsv4_sparse_mla(q, **kwargs)
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla")

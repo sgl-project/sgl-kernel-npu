@@ -150,11 +150,11 @@ def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
 
 @register_impl("attention.sparse_flash_mla_metadata", "torch_native")
 def _torch_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.metadata import (
-        sparse_flash_mla_metadata,
+    from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+        dsv4_sparse_mla_metadata,
     )
 
-    return sparse_flash_mla_metadata(
+    return dsv4_sparse_mla_metadata(
         **{
             key: value
             for key, value in kwargs.items()

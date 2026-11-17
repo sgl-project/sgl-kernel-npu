@@ -164,11 +164,11 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.metadata import (
-        mixed_quant_sparse_flash_mla_metadata,
+    from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+        dsv4_sparse_mla_metadata,
     )
 
-    return mixed_quant_sparse_flash_mla_metadata(
+    return dsv4_sparse_mla_metadata(
         **{
             key: value
             for key, value in kwargs.items()
