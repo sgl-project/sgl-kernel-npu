@@ -29,6 +29,7 @@ def kpool_decode_update_and_maybe_write_cache(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
     impl="auto",
 ) -> None:
     ...
@@ -38,7 +39,7 @@ def kpool_decode_update_and_maybe_write_cache(
 
 ## 功能说明
 
-将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表将 BF16 结果写入 pooled cache。
+将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表把结果写入 pooled cache。BF16 写入 pooled key；INT8 写入逐行对称量化后的 key，并把 FP16 反量化系数写入 `scale_cache`。
 
 汇聚使用 FP32 计算，并加入位置分数。无效请求行不修改任何状态。`out_cache_loc` 用于判断该行是否有效，pooled cache 的实际写入位置另外通过页表确定。
 
@@ -49,7 +50,7 @@ def kpool_decode_update_and_maybe_write_cache(
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16` | 必填 | 原地 cache；S=slots_per_page、D=head_dim，页 stride 必须等于 S*D。 |
+| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16` 或 `torch.int8` | 必填 | 原地 cache；S=slots_per_page、D=head_dim，页 stride 必须等于 S*D；INT8 需同时传入 `scale_cache`。 |
 | `tail_k` | `torch.Tensor` | `[R, T, head_dim]` | `torch.bfloat16` | 必填 | 请求本地 key 环形缓冲；有效行原地更新。 |
 | `tail_score` | `torch.Tensor` | 与 `tail_k` 相同 | `torch.bfloat16` / `torch.float32` | 必填 | 配对 score；当前测试覆盖 BF16 与 FP32，归约用 FP32。 |
 | `key` | `torch.Tensor` | `[B, head_dim]` | `torch.bfloat16` | 必填 | 当前 decode key。 |
@@ -63,6 +64,7 @@ def kpool_decode_update_and_maybe_write_cache(
 | `pool_size` | `int` | — | — | 必填 | 仅限关键字参数；一个 pool 的 token 数。 |
 | `slots_per_page` | `int` | — | — | 必填 | 仅限关键字参数；每个扁平 cache 页的 pool slot 数。 |
 | `head_dim` | `int` | — | — | `128` | 仅限关键字参数；通道宽度，必须等于 tail 的最后一维。 |
+| `scale_cache` | `torch.Tensor` 或 `None` | `[num_pages * S]` 或可展平为该形状 | `torch.float16` | `None` | 与 INT8 key 一同写入的逐行反量化系数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |

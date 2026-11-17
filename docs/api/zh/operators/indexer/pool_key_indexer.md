@@ -27,6 +27,8 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
+    q_descale=None,
+    k_descale=None,
     *,
     impl="auto",
 ):
@@ -57,7 +59,9 @@ def pool_key_indexer(
 | `layout_q` | `str` | — | — | `"BSND"` | query 布局：BSND 或 TND。 |
 | `layout_k` | `str` | — | — | `"BSND"` | key 布局为 BSND、TND 或 PA_BBND，支持范围由 CANN 校验。 |
 | `mask_mode` | `int` | — | — | `3` | 原样透传 CANN。 |
-| `quant_mode` | `int` | — | — | `-1` | 原样透传，支持的参数组合由 CANN 校验。 |
+| `quant_mode` | `int` | — | — | `-1` | 原样透传，支持的参数组合由 CANN 校验（不量化、950 上的 FP8/mxFP8，以及所用 CANN 版本实现的 INT8）。 |
+| `q_descale` | `torch.Tensor` 或 None | 依布局而定 | CANN 校验的反量化 dtype | `None` | `quant_mode >= 0` 时使用的 query 反量化系数，原样透传。 |
+| `k_descale` | `torch.Tensor` 或 None | `[B,S2,N2]` / `[T2,N2]` / `[block_num,block_size,N2]` | CANN 校验的反量化 dtype | `None` | `quant_mode >= 0` 时使用的 pool key 反量化系数（每个 pool 行、每个 head 一个），原样透传。 |
 | `return_value` | `bool` | — | — | `False` | 透传 CANN，控制 values 是否包含选中 pool 的分数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字：auto、cann_ops_transformer 或 torch_native。 |
 

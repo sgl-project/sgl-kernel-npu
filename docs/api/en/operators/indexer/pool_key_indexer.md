@@ -27,6 +27,8 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
+    q_descale=None,
+    k_descale=None,
     *,
     impl="auto",
 ):
@@ -57,7 +59,9 @@ Returns the CANN `(indices, values)` tuple unchanged. Indices use int32, with un
 | `layout_q` | `str` | — | — | `"BSND"` | Query layout: BSND or TND. |
 | `layout_k` | `str` | — | — | `"BSND"` | Key layout: BSND, TND or PA_BBND; CANN validates support. |
 | `mask_mode` | `int` | — | — | `3` | Forwarded to CANN. |
-| `quant_mode` | `int` | — | — | `-1` | Forwarded unchanged; CANN validates supported parameter combinations. |
+| `quant_mode` | `int` | — | — | `-1` | Forwarded unchanged; CANN defines the supported modes (no quantization, FP8/mxFP8 on 950, and INT8 where the installed CANN release implements it). |
+| `q_descale` | `torch.Tensor` or `None` | layout-dependent | CANN-validated dequantization dtype | `None` | Query dequantization scales consumed when `quant_mode >= 0`; forwarded unchanged. |
+| `k_descale` | `torch.Tensor` or `None` | `[B, S2, N2]` / `[T2, N2]` / `[block_num, block_size, N2]` | CANN-validated dequantization dtype | `None` | Pooled-key dequantization scales (one per pooled key row and head) consumed when `quant_mode >= 0`; forwarded unchanged. |
 | `return_value` | `bool` | — | — | `False` | Forwarded to CANN; controls whether values contain selected pool scores. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only: auto, cann_ops_transformer, or torch_native. |
 

@@ -46,6 +46,8 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
+    q_descale=None,
+    k_descale=None,
     *,
     impl="auto",
 ):
@@ -56,6 +58,8 @@ def pool_key_indexer(
     supported BSND and paged TND layouts.
     ``pool_tail_k`` requires an int64 Tensor on CPU or NPU; ``actual_seq_*``
     accept the same Tensor inputs or None when optional for the layout.
+    ``q_descale``/``k_descale`` are the FP8/INT8 dequantization scales consumed
+    when ``quant_mode >= 0``; their dtypes and shapes are validated by CANN.
     Arguments and the (indices, values) result are forwarded unchanged; CANN
     validates its supported modes, dtypes and layouts. For graph replay, use metadata
     on the query NPU and update its buffers in place. All-CPU metadata is captured
@@ -80,4 +84,6 @@ def pool_key_indexer(
         mask_mode=mask_mode,
         quant_mode=quant_mode,
         return_value=return_value,
+        q_descale=q_descale,
+        k_descale=k_descale,
     )

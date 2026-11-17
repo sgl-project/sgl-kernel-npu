@@ -27,6 +27,7 @@ def kpool_assemble_softmax_rotate_write_cache(
     ape: torch.Tensor,
     loc: torch.Tensor,
     write_mask: Optional[torch.Tensor] = None,
+    scale_cache: Optional[torch.Tensor] = None,
     *,
     num_programs: Optional[int] = None,
     impl="auto",
@@ -38,15 +39,15 @@ def kpool_assemble_softmax_rotate_write_cache(
 
 ## 功能说明
 
-按照计划，从请求的 tail 环形缓冲区取出前段数据，再从当前 chunk 补齐一个 pool。将 score 与位置分数相加后，逐通道进行 softmax 加权汇聚，并把 BF16 结果写入指定 cache 行。
+按照计划，从请求的 tail 环形缓冲区取出前段数据，再从当前 chunk 补齐一个 pool。将 score 与位置分数相加后，逐通道进行 softmax 加权汇聚，并把结果写入指定 cache 行。BF16 写入未旋转的 pooled key；INT8 写入逐行对称量化后的 key，并把 FP16 反量化系数写入 `scale_cache`。
 
-汇聚使用 FP32 计算。写入掩码可跳过指定 cache 行，tail 和 chunk 输入只读。写入的是未做旋转或量化的 pooled key。
+汇聚使用 FP32 计算。写入掩码可跳过指定 cache 行，tail 和 chunk 输入只读。
 
 ## 参数与返回值
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `index_k_cache` | `torch.Tensor` | 连续存储，可展平为 `[cache_rows, 128]` | `torch.bfloat16` | 必填 | 原地更新的 index cache。 |
+| `index_k_cache` | `torch.Tensor` | 连续存储，可展平为 `[cache_rows, 128]` | `torch.bfloat16` 或 `torch.int8` | 必填 | 原地更新的 index cache；INT8 需同时传入 `scale_cache`。 |
 | `chunk_k` | `torch.Tensor` | `[N, 128]` | `torch.bfloat16` | 必填 | 当前 chunk 的 key。 |
 | `chunk_score` | `torch.Tensor` | 与 `chunk_k` 相同 | `torch.float16`、`torch.bfloat16` 或 `torch.float32` | 必填 | 与 `chunk_k` 配对的 score。 |
 | `tail_k` | `torch.Tensor` | `[R, T, 128]` | `torch.bfloat16` | 必填 | 请求本地 key 环形缓冲；只读。 |
@@ -58,6 +59,7 @@ def kpool_assemble_softmax_rotate_write_cache(
 | `ape` | `torch.Tensor` | `[pool_size, 128]` | `torch.float32` | 必填 | pool 位置的加性 score；`pool_size > 0`。 |
 | `loc` | `torch.Tensor` | `[P]` | `torch.int64` | 必填 | 待写入的扁平 cache 行号。 |
 | `write_mask` | `torch.Tensor` 或 `None` | `[P]` 或 — | `torch.bool` | `None` | 可选的逐 pool 写使能。 |
+| `scale_cache` | `torch.Tensor` 或 `None` | `[cache_rows]` 或可展平为该形状 | `torch.float16` | `None` | 与 INT8 key 一同写入的逐行反量化系数。 |
 | `num_programs` | `int` 或 `None` | — | — | `None` | 可选执行并行度参数，显式提供时必须为正数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 

@@ -20,9 +20,11 @@ def kpool_assemble_softmax_rotate_write_cache(
     loc: torch.Tensor,
     write_mask: Optional[torch.Tensor] = None,
     *,
-    num_programs: Optional[int] = None
+    scale_cache: Optional[torch.Tensor] = None,
+    num_programs: Optional[int] = None,
 ) -> None:
-    """Torch numerical reference for BF16 KPool assembly and cache write."""
+    """Torch numerical reference for KPool assembly and cache write."""
+    assert (scale_cache is not None) == (index_k_cache.dtype == torch.int8)
     n_pools = req_pool_idx.numel()
     if n_pools == 0:
         return
@@ -60,7 +62,18 @@ def kpool_assemble_softmax_rotate_write_cache(
     assembled_score[use_chunk] = chunk_score[chunk_indices[use_chunk]].float()
     logits = assembled_score.float() + ape.float().unsqueeze(0)
     probs = torch.softmax(logits, dim=1)
-    pooled = torch.sum(assembled_k.float() * probs, dim=1).to(torch.bfloat16)
+    pooled = torch.sum(assembled_k.float() * probs, dim=1)
     cache_2d = index_k_cache.view(-1, 128)
     active_locs = loc.index_select(0, active_rows)
-    cache_2d.index_copy_(0, active_locs, pooled)
+    if scale_cache is None:
+        cache_2d.index_copy_(0, active_locs, pooled.to(torch.bfloat16))
+    else:
+        amax = pooled.abs().amax(dim=-1, keepdim=True)
+        scale = torch.where(amax > 0, amax / 127.0, torch.ones_like(amax))
+        scaled = pooled / scale
+        rounded = scaled + torch.where(scaled >= 0, 0.5, -0.5)
+        quantized = rounded.trunc().clamp(-127, 127).to(torch.int8)
+        cache_2d.index_copy_(0, active_locs, quantized)
+        scale_cache.view(-1).index_copy_(
+            0, active_locs, scale.view(-1).to(torch.float16)
+        )

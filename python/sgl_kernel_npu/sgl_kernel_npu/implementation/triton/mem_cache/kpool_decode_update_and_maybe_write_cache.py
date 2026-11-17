@@ -1,5 +1,7 @@
 """Triton implementation of kpool_decode_update_and_maybe_write_cache."""
 
+from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
@@ -18,6 +20,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     positions_ptr,  # [>=batch] int
     seq_lens_ptr,  # [>=batch] int
     out_cache_loc_ptr,  # [>=batch] int
+    scale_ptr,  # [num_pages * SLOTS_PER_PAGE] float16 when HAS_SCALE
     tail_k_stride_0,
     tail_k_stride_1,
     tail_score_stride_0,
@@ -34,6 +37,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     HEAD_DIM: tl.constexpr,
     BLOCK_TABLE_COLS: tl.constexpr,
     SLOTS_PER_PAGE: tl.constexpr,
+    HAS_SCALE: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     row = tl.program_id(0)
@@ -121,8 +125,9 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             k = tl.where(is_current, key, k_buf)
             acc += k * prob
 
-        # BF16: no Hadamard, no FP8 quantize — just write directly
-        compressed = (acc / denom).to(tl.bfloat16)
+        # BF16 keeps the raw pooled key; INT8 stores a symmetric per-pool
+        # quantization plus the FP16 dequantization scale for that row.
+        pooled = acc / denom
 
         # Compute write location in buf
         pool_id = safe_pos // POOL_SIZE
@@ -142,7 +147,21 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             + offs
         )
 
-        tl.store(buf_bf16_ptr + out_k_offsets, compressed, mask=dim_mask)
+        if HAS_SCALE:
+            amax = tl.max(tl.abs(pooled), axis=0)
+            scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
+            scaled = pooled / scale
+            rounded = scaled + tl.where(scaled >= 0.0, 0.5, -0.5)
+            quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
+            tl.store(buf_bf16_ptr + out_k_offsets, quantized, mask=dim_mask)
+            tl.store(
+                scale_ptr + loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page,
+                scale.to(tl.float16),
+            )
+        else:
+            tl.store(
+                buf_bf16_ptr + out_k_offsets, pooled.to(tl.bfloat16), mask=dim_mask
+            )
 
     # (A) Tail buffer update (ALWAYS)
     tail_k_offset = req * tail_k_stride_0 + phys_slot * tail_k_stride_1 + offs
@@ -155,7 +174,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
 
 
 def kpool_decode_update_and_maybe_write_cache(
-    buf: torch.Tensor,  # contiguous [num_pages, ..., HEAD_DIM] bfloat16 cache
+    buf: torch.Tensor,  # contiguous [num_pages, ..., HEAD_DIM] bfloat16/int8 cache
     tail_k: torch.Tensor,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] bfloat16
     tail_score: torch.Tensor,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] float32/bfloat16
     key: torch.Tensor,  # [batch, HEAD_DIM] bfloat16
@@ -170,19 +189,21 @@ def kpool_decode_update_and_maybe_write_cache(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
 ) -> None:
-    """BF16 variant of kpool_decode_update_and_maybe_write_cache.
+    """BF16/INT8 variant of kpool_decode_update_and_maybe_write_cache.
 
     Differences from FP8 original:
-    - buf is bfloat16 (no FP8 quantization, no per-slot scale)
     - No Hadamard128 rotation
-    - Softmax-weighted average written directly as BF16
+    - BF16 stores the softmax-weighted average directly; INT8 stores a
+      symmetric per-pool quantization plus an FP16 scale per cache row
     """
     batch = key.shape[0]
     if batch == 0:
         return
 
-    assert buf.dtype == torch.bfloat16
+    assert buf.dtype in (torch.bfloat16, torch.int8)
+    assert (scale_cache is not None) == (buf.dtype == torch.int8)
     assert tail_k.dtype == torch.bfloat16
     assert key.dtype == torch.bfloat16
     assert tail_k.ndim == 3
@@ -200,6 +221,10 @@ def kpool_decode_update_and_maybe_write_cache(
     assert tail_score.is_contiguous(), "tail_score must be contiguous"
     buf_numel_per_page = buf.stride(0)
     assert buf_numel_per_page == slots_per_page * head_dim
+    if scale_cache is not None:
+        assert scale_cache.dtype == torch.float16
+        assert scale_cache.is_contiguous()
+        assert scale_cache.numel() == buf.numel() // head_dim
     key = key.contiguous()
     slot_score = slot_score.contiguous()
     ape = ape.contiguous()
@@ -208,6 +233,12 @@ def kpool_decode_update_and_maybe_write_cache(
     positions = positions.contiguous()
     seq_lens = seq_lens.contiguous()
     out_cache_loc = out_cache_loc.contiguous()
+
+    scale_1d = (
+        scale_cache.view(-1)
+        if scale_cache is not None
+        else torch.empty((1,), dtype=torch.float16, device=buf.device)
+    )
 
     _kpool_decode_update_and_maybe_write_cache_kernel[(batch,)](
         buf,
@@ -221,6 +252,7 @@ def kpool_decode_update_and_maybe_write_cache(
         positions,
         seq_lens,
         out_cache_loc,
+        scale_1d,
         tail_k.stride(0),
         tail_k.stride(1),
         tail_score.stride(0),
@@ -237,5 +269,6 @@ def kpool_decode_update_and_maybe_write_cache(
         HEAD_DIM=head_dim,
         BLOCK_TABLE_COLS=block_table_cols,
         SLOTS_PER_PAGE=slots_per_page,
+        HAS_SCALE=scale_cache is not None,
         BLOCK_D=triton.next_power_of_2(head_dim),
     )

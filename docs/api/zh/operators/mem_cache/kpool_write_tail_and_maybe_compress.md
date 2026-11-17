@@ -29,6 +29,7 @@ def kpool_write_tail_and_maybe_compress(
     num_draft_tokens: int,
     effective_n_per_batch: Optional[torch.Tensor] = None,
     *,
+    scale_cache: Optional[torch.Tensor] = None,
     num_programs: Optional[int] = None,
     impl="auto",
 ) -> None:
@@ -39,7 +40,7 @@ def kpool_write_tail_and_maybe_compress(
 
 ## 功能说明
 
-将一批 draft token 的 key 和 score 写入各请求的 tail 环形缓冲区，对新补齐的 pool 逐通道进行 softmax 加权汇聚，并把 BF16 结果写入 `write_loc` 指定的 cache 位置。
+将一批 draft token 的 key 和 score 写入各请求的 tail 环形缓冲区，对新补齐的 pool 逐通道进行 softmax 加权汇聚，并把结果写入 `write_loc` 指定的 cache 位置。BF16 写入 pooled key；INT8 写入逐行对称量化后的 key，并把 FP16 反量化系数写入 `scale_cache`。
 
 汇聚使用 FP32 计算，并加入位置分数。有效 draft 数量只决定哪些 pool 可以压缩；对于有效 batch，传入的全部 draft 行仍会写入 tail。无效 batch 被跳过，cache、tail key 和 tail score 原地更新。
 
@@ -47,7 +48,7 @@ def kpool_write_tail_and_maybe_compress(
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `index_k_cache` | `torch.Tensor` | 连续存储，可展平为 `[cache_rows, 128]` | `torch.bfloat16` | 必填 | pool 填满时原地更新的 cache。 |
+| `index_k_cache` | `torch.Tensor` | 连续存储，可展平为 `[cache_rows, 128]` | `torch.bfloat16` 或 `torch.int8` | 必填 | pool 填满时原地更新的 cache；INT8 需同时传入 `scale_cache`。 |
 | `key` | `torch.Tensor` | `[B * N, 128]` | `torch.bfloat16` | 必填 | draft key。 |
 | `score` | `torch.Tensor` | 与 `key` 相同 | `torch.float16`、`torch.bfloat16` 或 `torch.float32` | 必填 | 与 `key` 配对的 score。 |
 | `tail_k` | `torch.Tensor` | `[R, pool_size + N, 128]` | `torch.bfloat16` | 必填 | 原地更新的 tail key 环形缓冲。 |
@@ -60,6 +61,7 @@ def kpool_write_tail_and_maybe_compress(
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` 或 `torch.int64` | 必填 | token cache 位置；某 batch 的首项为 0 时跳过整个 batch。只读。 |
 | `num_draft_tokens` | `int` | — | — | 必填 | 静态 `N`；必须为正，且整除 `key.shape[0]`。 |
 | `effective_n_per_batch` | `torch.Tensor` 或 `None` | `[>= B]` 或 — | `torch.int32` 或 `torch.int64` | `None` | 可选有效 draft 数，只用于判断 pool 是否填满。 |
+| `scale_cache` | `torch.Tensor` 或 `None` | `[cache_rows]` 或可展平为该形状 | `torch.float16` | `None` | 与 INT8 key 一同写入的逐行反量化系数。 |
 | `num_programs` | `int` 或 `None` | — | — | `None` | 可选执行并行度参数，显式提供时必须为正数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
