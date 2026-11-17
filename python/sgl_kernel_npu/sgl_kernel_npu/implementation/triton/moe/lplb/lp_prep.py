@@ -44,6 +44,7 @@ def lp_prep_kernel(
     BT: tl.constexpr,
     GCHUNK: tl.constexpr,
     NCHUNK: tl.constexpr,
+    SCHUNK: tl.constexpr,
 ):
     # ---------------- Stage 1: gather counts, total, inv_total ----------------
     o_s = tl.arange(0, BS)
@@ -84,9 +85,14 @@ def lp_prep_kernel(
     tl.store(A_full_ptr + o_r * NV + (NV - 1), b1_s - base_r, mask=m_r)
 
     # ---------------- Stage 3 + 4b: b2 = -(B1 @ t1), GPU row chunks ----------------
-    # NCHUNK is a compile-time constant, so the chunk loop is unrolled in the
-    # frontend and no dynamic ``scf.for`` survives into TTIR.
+    # Both the GPU rows and the ``NUM_SINGLE`` columns are chunked. Some CANN
+    # versions pad/blockify a UB tile by up to 8x per element, and the tile,
+    # its product and the reduction temp buffer can be live at the same time;
+    # a full 16x256 FP32 tile then needs ~265 KiB UB and fails to compile.
+    # Keeping both tile dimensions small bounds the padded footprint.
     o_g = tl.arange(0, GCHUNK)
+    o_c = tl.arange(0, SCHUNK)
+    n_col_chunks: tl.constexpr = (NUM_SINGLE + SCHUNK - 1) // SCHUNK
     for g0 in tl.static_range(0, NCHUNK):
         rows = g0 * GCHUNK + o_g
         m_g = rows < NUM_GPUS
@@ -95,13 +101,24 @@ def lp_prep_kernel(
         # loop variable and hides latency behind the tile load.
         base_g = tl.load(A_base_row_sum_ptr + NUM_RED_LOG + rows, mask=m_g, other=0.0)
 
-        b1_tile = tl.load(
-            B1_ptr + rows[:, None] * NUM_SINGLE + o_s[None, :],
-            mask=m_g[:, None] & m_s[None, :],
-            other=0.0,
-        )
-        # Padded columns of t1_s are 0, so they add nothing to the row dot.
-        part = tl.sum(b1_tile * t1_s[None, :], axis=1)
+        part = tl.zeros([GCHUNK], tl.float32)
+        for s0 in tl.static_range(0, n_col_chunks):
+            cols = s0 * SCHUNK + o_c
+            m_c = cols < NUM_SINGLE
+
+            # Re-select this column chunk from the in-UB count table. Padded
+            # columns contribute exactly 0 to the row dot.
+            idx_c = tl.load(log_single_ptr + cols, mask=m_c, other=0).to(tl.int32)
+            c_c = tl.gather(counts_tab, idx_c, 0)
+            t_c = tl.where(m_c, c_c, 0.0) * inv_total
+
+            b1_tile = tl.load(
+                B1_ptr + rows[:, None] * NUM_SINGLE + cols[None, :],
+                mask=m_g[:, None] & m_c[None, :],
+                other=0.0,
+            )
+            part += tl.sum(b1_tile * t_c[None, :], axis=1)
+
         b2 = -part
 
         tl.store(b_ptr + NUM_RED_LOG + rows, b2, mask=m_g)
@@ -202,11 +219,15 @@ def lp_prep(
     BR = _next_pow2(max(16, num_red_log))
     BT = _next_pow2(max(16, num_logical))
 
-    # Size the row chunk to the GPU count so the matvec is a single unrolled
-    # tile; keep the tile inside the UB budget (float32, <= 96 KiB).
+    # Size the B1 tile so that the tile, its product and the reduction temp
+    # buffer stay inside the UB even on toolchains that pad/blockify a UB tile
+    # by 8x per element (observed with some CANN versions on Ascend 910). A
+    # full (GCHUNK, BS) tile needs ~265 KiB there and fails to compile. Keep
+    # the nominal FP32 tile at <= 2048 elements and the column chunk <= 64.
+    SCHUNK = min(BS, 64)
     GCHUNK = _next_pow2(max(16, num_gpus))
-    if GCHUNK * BS > (96 * 1024) // 4:
-        GCHUNK = 16
+    if GCHUNK * SCHUNK > 2048:
+        GCHUNK = max(16, 2048 // SCHUNK)
     NCHUNK = triton.cdiv(num_gpus, GCHUNK)
 
     lp_prep_kernel[(1,)](
@@ -228,5 +249,6 @@ def lp_prep(
         BT=BT,
         GCHUNK=GCHUNK,
         NCHUNK=NCHUNK,
+        SCHUNK=SCHUNK,
     )
     return A_full, b, t1
