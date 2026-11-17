@@ -526,6 +526,11 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
 {
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "Enter CamMoeCombineNormal Tiling func");
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    const bool isA5 = (socVersion == "Ascend950");
     CamMoeCombineNormalTilingData *tilingData = context->GetTilingData<CamMoeCombineNormalTilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     std::string groupEp = "";
@@ -564,9 +569,13 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t realBs = std::min(perRoundTokens, realMaxBs);
     uint32_t maxRound = tilingData->camMoeCombineNormalInfo.maxRound;
     if (tilingData->camMoeCombineNormalInfo.isHybridDeployment) {
-        uint64_t normalStateSize = realBs * k * Moe::A3WindowLayout::kNormalCombineStateEntrySize;
-        uint64_t normalStateCapacity = maxRound > 1 ? Moe::A3WindowLayout::kNormalCombineStateHalfSize
-                                                    : Moe::A3WindowLayout::kNormalCombineStateSize;
+        uint64_t normalStateSize = realBs * k *
+                                   (isA5 ? Moe::A5WindowLayout::kNormalCombineStateEntrySize
+                                         : Moe::A3WindowLayout::kNormalCombineStateEntrySize);
+        uint64_t normalStateCapacity = maxRound > 1 ? (isA5 ? Moe::A5WindowLayout::kNormalCombineStateHalfSize
+                                                            : Moe::A3WindowLayout::kNormalCombineStateHalfSize)
+                                                    : (isA5 ? Moe::A5WindowLayout::kNormalCombineStateSize
+                                                            : Moe::A3WindowLayout::kNormalCombineStateSize);
         OP_TILING_CHECK(normalStateSize > normalStateCapacity,
                         OP_LOGE(nodeName,
                                 "normal combine token state exceeds the hybrid slot, needed=%lu, slot=%lu, "
@@ -578,9 +587,10 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     tokenNeedSizeCombine = maxRound > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;
     uint64_t perHalfDataSize = realBs * k * tokenNeedSizeCombine;
-    uint64_t reservedSize = tilingData->camMoeCombineNormalInfo.isHybridDeployment
-                                ? Moe::A3WindowLayout::kPerHalfReservedSize
-                                : Moe::A3WindowLayout::kLegacyNormalDataOffset;
+    uint64_t reservedSize =
+        tilingData->camMoeCombineNormalInfo.isHybridDeployment
+            ? (isA5 ? Moe::A5WindowLayout::kPerHalfReservedSize : Moe::A3WindowLayout::kPerHalfReservedSize)
+            : Moe::A3WindowLayout::kLegacyNormalDataOffset;
     uint64_t actualSize = (perHalfDataSize + reservedSize) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
@@ -620,11 +630,6 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     if (maxRound > 1) {
         tilingKey += 1;
     }
-
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
 
     if (socVersion == "Ascend950") {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;

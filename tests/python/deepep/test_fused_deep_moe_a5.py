@@ -10,7 +10,13 @@ import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-from utils import calc_diff, get_diff_threshold, init_dist, profile_npu_event_sequences
+from utils import (
+    bench,
+    calc_diff,
+    get_diff_threshold,
+    init_dist,
+    profile_npu_event_sequences,
+)
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -1502,6 +1508,35 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 )
 
         dist.barrier()
+        if args.event_timing:
+            # Use the same NPU Event helper as MegaMoe --enable-performance.
+            # bench discards its first timed sample, so request one extra.
+            event_stats = bench(
+                lambda: run_buffer_fused(buffer, inputs, padded_num_tokens, args),
+                num_warmups=args.num_warmups,
+                num_tests=args.num_tests + 1,
+                sync_fn=dist.barrier,
+            )
+            event_stats_tensor = torch.tensor(
+                event_stats, dtype=torch.float32, device="npu"
+            )
+            gathered_event_stats = [
+                torch.empty_like(event_stats_tensor) for _ in range(world_size)
+            ]
+            dist.all_gather(gathered_event_stats, event_stats_tensor)
+            if rank == 0:
+                mean_event_stats = torch.stack(gathered_event_stats).mean(dim=0)
+                print_stats_table(
+                    "fused buffer path (NPU events, mean over ranks):",
+                    [("fused", tuple(mean_event_stats.cpu().tolist()), 100.0)],
+                )
+                if args.print_per_rank_profile:
+                    for rank_idx, rank_stats in enumerate(gathered_event_stats):
+                        print_stats_table(
+                            f"fused buffer path (NPU events, rank {rank_idx}):",
+                            [("fused", tuple(rank_stats.cpu().tolist()), 100.0)],
+                        )
+            return
         if args.activation == "situ":
             return
 
@@ -1896,13 +1931,21 @@ def main():
         "--num-warmups",
         type=int,
         default=5,
-        help="Number of profiler-only warmup iterations to exclude from performance statistics.",
+        help="Number of profiler or NPU Event warmup iterations.",
     )
     parser.add_argument(
         "--num-tests",
         type=int,
         default=30,
-        help="Number of counted performance iterations when --profile-num-tests is not set.",
+        help="Number of counted performance iterations.",
+    )
+    parser.add_argument(
+        "--event-timing",
+        action="store_true",
+        help=(
+            "Time the fused buffer call with NPU events instead of exporting a "
+            "profiler trace; matches MegaMoe --enable-performance."
+        ),
     )
     parser.add_argument(
         "--random-profile-cases",
@@ -1961,7 +2004,7 @@ def main():
     parser.add_argument(
         "--print-per-rank-profile",
         action="store_true",
-        help="Print per-rank small-op/fused profiler tables in addition to the mean-over-ranks summary.",
+        help="Print per-rank performance tables in addition to the mean-over-ranks summary.",
     )
     parser.add_argument(
         "--activation",
@@ -2030,7 +2073,6 @@ def main():
         )
     if args.quant == "fp4_e2m1" and args.hidden % 2 != 0:
         parser.error("--hidden must be even when --quant is fp4_e2m1")
-
     torch.multiprocessing.spawn(
         run_rank, args=(args.num_processes, args), nprocs=args.num_processes
     )

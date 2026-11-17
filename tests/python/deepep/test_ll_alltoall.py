@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.utils import _resolve_quant_mode
 from utils import (
     bench,
     bench_kineto,
@@ -21,10 +22,20 @@ from utils import (
 
 
 def get_alltoall_quant_config(quant_type: str):
+    """Returns (use_fp8, use_ue8m0, use_mxfp4, use_mxfp8)."""
     if quant_type == "int8":
-        return True, False, False
-    if quant_type == "bf16":
-        return False, False, False
+        return True, False, False, False
+    if quant_type == "bf16" or quant_type == "no":
+        return False, False, False, False
+    if quant_type == "mx_fp8_e4m3":
+        return False, True, False, True
+    if quant_type == "mx_fp4_e2m1":
+        return False, False, True, False
+    if quant_type == "pertoken_fp8_e4m3":
+        raise ValueError(
+            "AlltoAll strategy does not support pertoken_fp8_e4m3 on A5. "
+            "Use --use-mxfp8 or --use-mxfp4 instead."
+        )
     raise ValueError(f"Unsupported quant_type for low-latency alltoall: {quant_type}")
 
 
@@ -39,7 +50,7 @@ def test(
     group: dist.ProcessGroup,
     buffer: Buffer,
     seed: int = 0,
-    quant_type: str = "no",
+    quant_type: str = "bf16",
     local_rank: int = 0,
 ):
     torch.manual_seed(seed + rank)
@@ -79,7 +90,12 @@ def test(
 
     quant_configs = [get_alltoall_quant_config(quant_type)]
 
-    for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
+    for (
+        dispatch_use_fp8,
+        dispatch_use_ue8m0,
+        dispatch_use_mxfp4,
+        dispatch_use_mxfp8,
+    ) in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             if local_rank == 0:
                 print(
@@ -97,6 +113,7 @@ def test(
                     round_scale=False,
                     use_ue8m0=dispatch_use_ue8m0,
                     use_mxfp4=dispatch_use_mxfp4,
+                    use_mxfp8=dispatch_use_mxfp8,
                     cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
@@ -105,74 +122,72 @@ def test(
             )
             simulated_gemm_x = (
                 per_token_cast_back(*packed_recv_x)
-                if dispatch_use_fp8
+                if isinstance(packed_recv_x, tuple)
                 else packed_recv_x
             )
 
-            padding_size = aligned_num_tokens - num_tokens
-            if padding_size > 0:
-                padding_tensor = torch.full(
-                    (padding_size, num_topk),
-                    fill_value=-1,
-                    dtype=topk_idx.dtype,
-                    device="npu",
-                )
-                topk_idx_padded = torch.cat([topk_idx, padding_tensor], dim=0)
-            else:
-                topk_idx_padded = topk_idx
-
-            all_topk_idx = torch.empty(
-                (num_ranks, aligned_num_tokens, num_topk),
+        padding_size = aligned_num_tokens - num_tokens
+        if padding_size > 0:
+            padding_tensor = torch.full(
+                (padding_size, num_topk),
+                fill_value=-1,
                 dtype=topk_idx.dtype,
                 device="npu",
             )
-            dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
+            topk_idx_padded = torch.cat([topk_idx, padding_tensor], dim=0)
+        else:
+            topk_idx_padded = topk_idx
 
-        # Check combine correctness
-        src_info = handle[0]
-        layout_range = handle[1]
-        num_max_dispatch_tokens_per_rank = handle[2]
-        hidden = handle[3]
-        packed_recv_count = handle[5]
-        expand_scales = handle[6]
-
-        out = torch.empty(
-            (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+        all_topk_idx = torch.empty(
+            (num_ranks, aligned_num_tokens, num_topk),
+            dtype=topk_idx.dtype,
+            device="npu",
         )
-        combined_x, event, hook = buffer.low_latency_combine(
-            simulated_gemm_x,
-            topk_idx,
-            topk_weights,
-            handle,
-            async_finish=not return_recv_hook,
-            zero_copy=False,
-            return_recv_hook=return_recv_hook,
-            out=out,
-        )
+        dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
-        if do_check:
-            ref_x = x_pure_rand if current_x is x_pure_rand else x
-            diff = calc_diff(
-                ref_x
-                * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                combined_x,
-            )
-            assert torch.isnan(combined_x).sum().item() == 0
-            golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(
-                dim=1
-            ).view(-1, 1)
-            eps = 1e-8
-            golden_nozero = torch.where(golden == 0, eps, golden)
-            max_diff = torch.max(torch.abs(combined_x - golden) / golden_nozero).item()
-            avg_diff = torch.mean(torch.abs(combined_x - golden) / golden_nozero).item()
-            print(
-                f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
-            )
-            diff_threshold = get_diff_threshold(quant_type)
-            assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
-            hash_value ^= hash_tensor(combined_x)
-            if local_rank == 0:
-                print(" passed", flush=True)
+    # Check combine correctness
+    src_info = handle[0]
+    layout_range = handle[1]
+    num_max_dispatch_tokens_per_rank = handle[2]
+    hidden = handle[3]
+    packed_recv_count = handle[5]
+    expand_scales = handle[6]
+
+    out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    combined_x, event, hook = buffer.low_latency_combine(
+        simulated_gemm_x,
+        topk_idx,
+        topk_weights,
+        handle,
+        async_finish=not return_recv_hook,
+        zero_copy=False,
+        return_recv_hook=return_recv_hook,
+        out=out,
+    )
+
+    if do_check:
+        ref_x = x_pure_rand if current_x is x_pure_rand else x
+        diff = calc_diff(
+            ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            combined_x,
+        )
+        assert torch.isnan(combined_x).sum().item() == 0
+        golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(
+            -1, 1
+        )
+        eps = 1e-8
+        golden_nozero = torch.where(golden == 0, eps, golden)
+        max_diff = torch.max(torch.abs(combined_x - golden) / golden_nozero).item()
+        avg_diff = torch.mean(torch.abs(combined_x - golden) / golden_nozero).item()
+        print(
+            f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
+        )
+        diff_threshold = get_diff_threshold(quant_type)
+
+        assert diff < diff_threshold, f"Error: {diff=}"
+        hash_value ^= hash_tensor(combined_x)
+        if local_rank == 0:
+            print(" passed", flush=True)
     if local_rank == 0:
         print("", flush=True)
 
@@ -183,16 +198,17 @@ def test(
             topk_idx,
             aligned_num_tokens,
             num_experts,
-            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             use_fp8=dispatch_use_fp8,
             use_ue8m0=dispatch_use_ue8m0,
             use_mxfp4=dispatch_use_mxfp4,
+            use_mxfp8=dispatch_use_mxfp8,
+            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
         )
         simulated_gemm_x_local = (
-            per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
+            per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x_local,
@@ -207,12 +223,36 @@ def test(
     def calculate_dispatch_bytes(num_tokens, hidden, quant_type):
         BLOCK_SIZE = 32
         num_values = num_tokens * hidden
-        if quant_type == "int8":
-            data_bytes = num_values * 1
-            scale_bytes = num_tokens * 4
-            return data_bytes + scale_bytes
+        if quant_type == "bf16":
+            # BF16: each value occupies 2 bytes
+            recv_bytes = num_values * 2
+        elif quant_type == "int8":
+            # INT8 per-token quantization:
+            # - Data: num_values * 1 byte
+            # - Scale: num_tokens * 2 bytes (BF16 scale)
+            data_bytes = num_values
+            scale_bytes = num_tokens * 2
+            recv_bytes = data_bytes + scale_bytes
+        elif quant_type in ("mx_fp8_e4m3", "mx_fp8_e5m2"):
+            # MX-FP8:
+            # - Data: each FP8 value occupies 1 byte
+            # - Scale: one MX scale per BLOCK_SIZE values
+            #          E8M0 scale occupies 1 byte
+            data_bytes = num_values
+            num_blocks = (num_values + BLOCK_SIZE - 1) // BLOCK_SIZE
+            scale_bytes = num_blocks
+            recv_bytes = data_bytes + scale_bytes
+        elif quant_type == "mx_fp4_e2m1":
+            # MX-FP4:
+            # - Data: two FP4 values packed into 1 byte
+            # - Scale: one E8M0 scale per BLOCK_SIZE values
+            data_bytes = (num_values + 1) // 2
+            num_blocks = (num_values + BLOCK_SIZE - 1) // BLOCK_SIZE
+            scale_bytes = num_blocks
+            recv_bytes = data_bytes + scale_bytes
         else:
-            return num_values * 2
+            raise ValueError(f"Unsupported quant_type: {quant_type}")
+        return recv_bytes
 
     num_bf16_bytes = hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
@@ -236,13 +276,13 @@ def test(
         "topk_idx": topk_idx,
         "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
         "num_experts": num_experts,
-        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
         "use_fp8": dispatch_use_fp8,
         "use_ue8m0": dispatch_use_ue8m0,
         "use_mxfp4": dispatch_use_mxfp4,
+        "use_mxfp8": dispatch_use_mxfp8,
+        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
         "topk_weights": topk_weights,
     }
-    # dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
     dispatch_alltoall_t = bench_kineto(
         lambda: buffer.low_latency_dispatch(**dispatch_args),
         kernel_names=("MoeInitRoutingV3", "hcom_alltoallv_"),
@@ -256,7 +296,7 @@ def test(
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
     simulated_gemm_x_local = (
-        per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
+        per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
     )
     combine_args = {
         "x": simulated_gemm_x_local,
@@ -354,7 +394,11 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group,
         buffer,
         seed=1,
-        quant_type=args.quant_type,
+        quant_type=(
+            _resolve_quant_mode(args.use_fp8, args.use_mxfp4, args.use_mxfp8)
+            if args.use_fp8 or args.use_mxfp4 or args.use_mxfp8
+            else "bf16"
+        ),
         local_rank=local_rank,
     )
     dist.barrier()
@@ -386,13 +430,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
     )
-    parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default="bf16",
-        choices=["bf16", "int8"],
-        help="Quantization type for dispatch: bf16, int8 (per-token)",
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use use_fp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> not supported (use --use-mxfp8 or --use-mxfp4), A2/A3 -> int8 (with warning).",
+    )
+    quant_group.add_argument(
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use use_mxfp8=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp8_e4m3, A2/A3 -> not supported.",
+    )
+    quant_group.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use use_mxfp4=True bool flag for low-latency alltoall dispatch. "
+        "A5 -> mx_fp4_e2m1, A2/A3 -> not supported.",
     )
     args = parser.parse_args()
 

@@ -22,19 +22,20 @@ English | [中文](#中文)
 In Mixture of Experts (MoE) models, the `fused_deep_moe` operator implements the hyper-fusion of Dispatch + Experts FFN (2×GMM) + Combine functionalities.
 This operator completes token distribution, expert computation (matrix multiplication, activation, quantization/dequantization), and result aggregation in a single call. Compared with traditional multi-operator implementations, it significantly reduces communication overhead and end-to-end latency.
 
-Two fuse modes are available via the `FuseMode` enum:
+Three fuse modes are available via the `FuseMode` enum:
 
 | FuseMode | Value | CANN Operator | Description |
 |----------|-------|---------------|-------------|
 | `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: Dispatch + GMM1 + activation/quantization + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. The A5 path supports SwiGLU and SiTU. |
 | `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Integrated routing (`MoeInitRoutingQuantV2`) + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel. |
+| `FuseMode.MEGA_MOE` | `3` | `cann_ops_transformer.ops.mega_moe` | A3 and A5 MegaMoe path with platform-specific weight layouts. |
 
 > [!NOTE]
 > `FuseMode` is **not** exported from the package's top-level `__init__.py`. Import it explicitly:
 > ```python
 > from deep_ep.buffer import FuseMode
 > ```
-> Or use integer values directly: `fuse_mode=1` (FUSED_DEEP_MOE) or `fuse_mode=2` (DISPATCH_FFN_COMBINE).
+> Or use integer values directly: `fuse_mode=1` (FUSED_DEEP_MOE), `fuse_mode=2` (DISPATCH_FFN_COMBINE), or `fuse_mode=3` (MEGA_MOE).
 
 #### Key Differences Between Fuse Modes
 
@@ -45,6 +46,8 @@ Two fuse modes are available via the `FuseMode` enum:
 | **Shared expert** | A3 path supports shared-expert attributes; A5 public fused path currently does not wire shared-expert tensors through the Python entry | Not supported |
 | **Second return value** | A3: `ep_recv_count`, shape `[num_local_experts × num_ranks]`; A5: `expert_token_nums`, shape `[num_local_experts]` | `expert_token_nums`, shape `[num_local_experts]` |
 
+`MEGA_MOE` runs on A3 and A5 and returns local `expert_token_nums`. Its layout, quantization and capacity requirements are described below.
+
 ### Python API
 
 ```python
@@ -52,40 +55,46 @@ def fused_deep_moe(
     x: torch.Tensor,
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
-    gmm1_permuted_weight: torch.Tensor,
-    gmm1_permuted_weight_scale: torch.Tensor,
-    gmm2_weight: torch.Tensor,
-    gmm2_weight_scale: torch.Tensor,
+    gmm1_permuted_weight: TensorOrTensors,
+    gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+    gmm2_weight: TensorOrTensors,
+    gmm2_weight_scale: Optional[TensorOrTensors],
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
-    quant_mode: int = 1,
+    quant_mode: Union[int, str] = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: str = "swiglu",
+    activation: Optional[str] = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
+    l1_bias: Optional[TensorOrTensors] = None,
+    l2_bias: Optional[TensorOrTensors] = None,
     profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
 ### Parameter Description
 
+The x ranges below describe `FUSED_DEEP_MOE`; see the MegaMoe section for its separate A5 constraints.
+
 | Parameter | Type | Shape | Description |
 |-----------|------|-------|-------------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token. On A3 this is typically `bfloat16`; on A5 the fused host op supports both `bfloat16` and `float16`. **bs** range **[1, 256]**. **hidden** range **[512, 7168]**. |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token. Python converts it to `int32` before launch. A value of `-1` indicates the token is not dispatched. |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`). |
-| **gmm1_permuted_weight** | `torch.Tensor` | e.g., `[G, 7168, 4096]` | First-stage (up-projection) expert weights. A3 keeps the existing fused-path weight contract. On A5, the current fused host op additionally supports quantized weights in `ND` and `FRACTAL_NZ` format. |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights. A3 runtime converts scales to `float32` before launch. On A5 fused path, the host-op contract is different and follows the current A5 quantized-weight definition. |
-| **gmm2_weight** | `torch.Tensor` | e.g., `[G, 7168, 2048]` | Second-stage (down-projection) expert weights. Same A3/A5 difference as `gmm1_permuted_weight`. |
-| **gmm2_weight_scale** | `torch.Tensor` | e.g., `[G, 7168]` | Quantization scale for second-stage weights. Same A3/A5 difference as `gmm1_permuted_weight_scale`. |
-| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | For A3, used in the existing fused-path buffer sizing logic. For A5, this value is also used as per-rank **capacity**, and must be **greater than or equal to local bs**. |
-| **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
-| **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
-| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
-| **activation** | `str` | Scalar, default `"swiglu"` | Activation after GMM1. Supported values are `"swiglu"` and `"situ"`. SiTU is currently supported only by the A5 `FUSED_DEEP_MOE` path. |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token. Python converts it to `int32` before launch. Only the DeepEP modes support `-1`; MegaMoe requires valid, non-duplicate expert IDs per token. |
+| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`; A5 MegaMoe also accepts BF16). |
+| **gmm1_permuted_weight** | `TensorOrTensors` | FuseMode-dependent | First-stage expert weights. The DeepEP modes keep their existing tensor contract. `MEGA_MOE` requires one tensor per local expert on A3; A5 also supports a single stacked Tensor. |
+| **gmm1_permuted_weight_scale** | `Optional[TensorOrTensors]` | FuseMode-dependent | The DeepEP modes keep their existing scale contract. A3 MegaMoe scales are optional for A16W16 and required for INT execution. A5 requires matching ND E8M0 scale lists for all MXFP modes. |
+| **gmm2_weight** | `TensorOrTensors` | FuseMode-dependent | Second-stage expert weights. The DeepEP modes keep their existing tensor contract. `MEGA_MOE` requires one tensor per local expert on A3; A5 also supports a single stacked Tensor. |
+| **gmm2_weight_scale** | `Optional[TensorOrTensors]` | FuseMode-dependent | Follows the same mode rules as `gmm1_permuted_weight_scale`. |
+| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | Keeps the existing meaning for the DeepEP modes. For MegaMoe it is a common capacity upper bound across ranks: A3 pad to it, A5 passes actual lengths. Atlas A3 is limited to 4096. |
+| **num_experts** | `int` | Scalar | Total number of global experts. The existing A5 fused path and `MEGA_MOE` require it to be divisible by the process-group size. |
+| **quant_mode** | `Union[int, str]` | Scalar, default `1` | DeepEP modes retain integer 0/1. A3 MegaMoe accepts 0/`"bf16"`, 1/`"int8"`; A5 requires `"mx_fp8_e4m3"`, `"mx_fp8_e5m2"`, `"mx_fp4_e2m1"` or `"mx_fp8_e4m3_w4"`. Strings are exclusive to MegaMoe. |
+| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Selects `FUSED_DEEP_MOE`, `DISPATCH_FFN_COMBINE`, or `MEGA_MOE`. |
+| **activation** | `Optional[str]` | Scalar, default `"swiglu"` | On A5, `FUSED_DEEP_MOE` supports `"situ"` and `"swiglu"`; `DISPATCH_FFN_COMBINE` supports only `"swiglu"`; on A3 and A5, `MEGA_MOE` supports `"situ"` and `"swiglu"`. |
 | **beta** | `Optional[float]` | Scalar, default `4.0` | Soft-saturation bound for the SiTU gate branch. `None` uses the internal default `4.0`. It must be greater than zero when SiTU is selected. |
 | **linear_beta** | `Optional[float]` | Scalar, default `25.0` | Optional soft-saturation bound for the SiTU up branch. A positive value enables the transformation; `None` leaves the up branch unchanged. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
+| **l1_bias** | `Optional[TensorOrTensors]` | FuseMode-dependent | Optional first-stage A8W4 compensation biases for `MEGA_MOE`. |
+| **l2_bias** | `Optional[TensorOrTensors]` | FuseMode-dependent | Optional second-stage A8W4 compensation biases for `MEGA_MOE`. |
 
 ### Activation Selection
 
@@ -105,7 +114,7 @@ activated_up = up                                    # linear_beta is None
 situ(gate, up) = activated_gate * activated_up
 ```
 
-Example:
+Example: this SiTU call uses `FUSED_DEEP_MOE` on A5. On Atlas A3, select `fuse_mode=FuseMode.MEGA_MOE` for SiTU.
 
 ```python
 output, expert_token_nums = buffer.fused_deep_moe(
@@ -138,7 +147,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - On **A5**, `num_max_dispatch_tokens_per_rank >= bs`.
 - On **A5 MXFP4** paths, `hidden` and `gmm1_hidden` must be even.
 - On **A5 MXFP4** paths, quantized weights in `FRACTAL_NZ` format are not supported currently.
-- SiTU is supported only on **A5**. Selecting `activation="situ"` on the A3 path is rejected.
+- SiTU is supported by `FUSED_DEEP_MOE` on **A5** and by `MEGA_MOE` on **A3 and A5**.
 - For SiTU, `beta` must be greater than zero. When `linear_beta` is provided, it must also be greater than zero.
 
 #### For `fuse_mode=DISPATCH_FFN_COMBINE` (mode=2)
@@ -146,6 +155,39 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - Constraints follow the `aclnnDispatchFFNCombine` path and differ from `FUSED_DEEP_MOE`.
 - Shared expert is not supported.
 - Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
+
+#### For `fuse_mode=MEGA_MOE` (mode=3)
+
+- Requires `cann_ops_transformer` (CANN 9.2.0 on all platforms), imported lazily only when this mode is called.
+- The Python strategy does not query the device or cache its architecture. Quantization modes map directly to CANN parameters; hardware support and platform-specific constraints are checked by CANN.
+- Supports `"swiglu"` and `"situ"`, returning local `expert_token_nums`.
+- A3 keep per-expert TensorLists and capacity padding with an active mask.
+- A3 A16W16 uses `0` / `"bf16"` without scales or biases; A8W8-INT uses `1` / `"int8"` with scales; A8W4-INT additionally supplies compensation biases.
+- A5 requires `"mx_fp8_e4m3"`, `"mx_fp8_e5m2"`, `"mx_fp4_e2m1"` (A4W4-FP) or `"mx_fp8_e4m3_w4"` (A8W4-FP). Integer 0/1 and Per-token FP8 are not exposed on A5 MegaMoe.
+- A5 uses BF16 `x[N,H]` at its actual length with `1 <= N <= capacity` and `x_active_mask=None`. Ranks may have different `N` but must configure the same capacity. No input padding or output slicing occurs.
+- A5 requires `l1_bias/l2_bias=None`. These MegaMoe rules do not change `FUSED_DEEP_MOE`.
+
+Let `E = num_experts / ep_world_size` and `I` be the logical intermediate dimension. Stacked lists contain one Tensor with the following shape; per-expert lists contain `E` Tensors without the leading `E`:
+
+| Input | FP8 | Packed FP4 |
+|---|---|---|
+| GMM1 weight | `[E,2I,H]` | `[E,2I,H/2]` |
+| GMM2 weight | `[E,H,I]` | `[E,H,I/2]` |
+| GMM1 scale | `[E,2I,ceil(H/64),2]` | Same |
+| GMM2 scale | `[E,H,ceil(I/64),2]` | Same |
+
+All four lists must use the same layout, including when `E=1`. FP8 weights must match the requested E4M3FN/E5M2 dtype; packed FP4 uses `uint8`. All scales are required ND `torch.float8_e8m0fnu`, including FP4; weights/scales must be contiguous and on `x.device`.
+
+| quant_mode | GMM1 format | GMM2 format |
+|---|---|---|
+| `"mx_fp8_e5m2"` | ND | ND |
+| `"mx_fp8_e4m3"` | ND / FRACTAL_NZ | ND / FRACTAL_NZ |
+| `"mx_fp4_e2m1"` | FRACTAL_NZ | FRACTAL_NZ_C0_32 |
+| `"mx_fp8_e4m3_w4"` | FRACTAL_NZ_C0_32 | FRACTAL_NZ_C0_32 |
+
+Prepare CANN weight layouts/formats before calling; the wrapper does not quantize, transpose or format-cast weights. FP4 types use `torch_npu.float4_e2m1fn_x2` (integer 296), not a torch dtype.
+
+Inputs must satisfy CANN's platform-specific requirements. Callers must provide valid, non-duplicate expert IDs per token; the wrapper does not scan expert ID values.
 
 ### Return Values
 
@@ -165,6 +207,13 @@ output, expert_token_nums = buffer.fused_deep_moe(
 | **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. |
 | **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | Number of tokens received by each local expert on this rank. |
 
+#### For `fuse_mode=MEGA_MOE`
+
+| Parameter | Type | Shape | Description |
+|-----------|------|-------|-------------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | MegaMoe output at local `bs`: A3 slice after padding; A5 does not pad or slice. |
+| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | Number of tokens received by each local expert on this rank. |
+
 ---
 
 <a id="中文"></a>
@@ -176,21 +225,22 @@ output, expert_token_nums = buffer.fused_deep_moe(
 在 MoE（Mixture of Experts，混合专家模型）中，`fused_deep_moe` 算子实现了 Dispatch + Experts FFN（2×GMM）+ Combine 的融合功能。
 该算子在一次调用中完成 token 分发、专家计算（矩阵乘、激活、量化/反量化）以及结果聚合，相比传统多算子实现可以显著减少通信开销和端到端时延。
 
-通过 `FuseMode` 枚举提供两种融合模式：
+通过 `FuseMode` 枚举提供三种融合模式：
 
 | FuseMode | 值 | CANN 算子 | 说明 |
 |----------|----|-----------|------|
 | `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Dispatch + GMM1 + 激活/量化 + GMM2 + 反量化 + Unpermute/Combine 的完整融合路径；A5 路径支持 SwiGLU 和 SiTU。 |
 | `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 另一条 dispatch + FFN + combine 融合路径。 |
+| `FuseMode.MEGA_MOE` | `3` | `cann_ops_transformer.ops.mega_moe` | A3、A5 MegaMoe 路径，权重布局按平台区分。 |
 
 > [!NOTE]
 > `FuseMode` **没有**从包顶层 `__init__.py` 导出，需要显式导入：
 > ```python
 > from deep_ep.buffer import FuseMode
 > ```
-> 或者直接使用整数：`fuse_mode=1`（FUSED_DEEP_MOE）或 `fuse_mode=2`（DISPATCH_FFN_COMBINE）。
+> 或者直接使用整数：`fuse_mode=1`（FUSED_DEEP_MOE）、`fuse_mode=2`（DISPATCH_FFN_COMBINE）或 `fuse_mode=3`（MEGA_MOE）。
 
-#### 两种融合模式的关键差异
+#### 融合模式的关键差异
 
 | 维度 | `FUSED_DEEP_MOE`（mode=1） | `DISPATCH_FFN_COMBINE`（mode=2） |
 |------|---------------------------|---------------------------------|
@@ -199,6 +249,8 @@ output, expert_token_nums = buffer.fused_deep_moe(
 | **Shared expert** | A3 路径支持 shared-expert 属性；A5 公共 fused Python 路径当前未真正透传 shared-expert tensor | 不支持 |
 | **第二返回值** | A3：`ep_recv_count`，shape `[num_local_experts × num_ranks]`；A5：`expert_token_nums`，shape `[num_local_experts]` | `expert_token_nums`，shape `[num_local_experts]` |
 
+`MEGA_MOE` 支持 A3、A5，返回本地 `expert_token_nums`；布局、量化和容量要求见下文。
+
 ### Python API
 
 ```python
@@ -206,40 +258,46 @@ def fused_deep_moe(
     x: torch.Tensor,
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
-    gmm1_permuted_weight: torch.Tensor,
-    gmm1_permuted_weight_scale: torch.Tensor,
-    gmm2_weight: torch.Tensor,
-    gmm2_weight_scale: torch.Tensor,
+    gmm1_permuted_weight: TensorOrTensors,
+    gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+    gmm2_weight: TensorOrTensors,
+    gmm2_weight_scale: Optional[TensorOrTensors],
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
-    quant_mode: int = 1,
+    quant_mode: Union[int, str] = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: str = "swiglu",
+    activation: Optional[str] = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
+    l1_bias: Optional[TensorOrTensors] = None,
+    l2_bias: Optional[TensorOrTensors] = None,
     profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
 ### 参数说明
 
+下表 x 的范围描述 `FUSED_DEEP_MOE`；A5 MegaMoe 的独立约束见下文对应章节。
+
 | 参数 | 类型 | 形状 | 说明 |
 |------|------|------|------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | 输入 token 表示。A3 上通常使用 `bfloat16`；A5 fused host op 支持 `bfloat16` 和 `float16`。**bs** 范围 **[1, 256]**，**hidden** 范围 **[512, 7168]**。 |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的 expert 索引。Python 层会在下发前转成 `int32`。`-1` 表示该 token 不分发。 |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | expert 输出聚合权重（`float32`）。 |
-| **gmm1_permuted_weight** | `torch.Tensor` | 例如 `[G, 7168, 4096]` | 第一层（up-projection）expert 权重。A3 保持原有 fused 权重契约；A5 当前 fused host op 额外支持量化权重的 `ND` / `FRACTAL_NZ` 格式。 |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]` | 第一层权重 scale。A3 runtime 会先转成 `float32`；A5 fused 路径遵循当前 A5 quantized-weight host-op 契约。 |
-| **gmm2_weight** | `torch.Tensor` | 例如 `[G, 7168, 2048]` | 第二层（down-projection）expert 权重。A3/A5 差异同 `gmm1_permuted_weight`。 |
-| **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]` | 第二层权重 scale。A3/A5 差异同 `gmm1_permuted_weight_scale`。 |
-| **num_max_dispatch_tokens_per_rank** | `int` | 标量 | A3 中沿用现有 fused buffer 逻辑；A5 中这个值还直接作为每个 rank 的 **capacity**，必须满足 **大于等于本地 bs**。 |
-| **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局 expert 总数。A5 fused 当前 tiling 要求 `num_experts` 能被 EP rank size 整除。 |
-| **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
-| **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
-| **activation** | `str` | 标量，默认 `"swiglu"` | GMM1 后使用的激活。支持 `"swiglu"` 和 `"situ"` 两个值。SiTU 当前只支持 A5 的 `FUSED_DEEP_MOE` 路径。 |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的 expert 索引。Python 层转成 `int32`。仅 DeepEP 模式支持 `-1`；MegaMoe 要求有效专家编号，同一 token 不重复选择专家。 |
+| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | expert 输出聚合权重（`float32`；A5 MegaMoe 也接受 BF16）。 |
+| **gmm1_permuted_weight** | `TensorOrTensors` | 取决于 FuseMode | 第一层 expert 权重。两个 DeepEP 模式保持原有 Tensor 契约；A3 MegaMoe 使用逐专家列表，A5 也支持单 Tensor 堆叠列表。 |
+| **gmm1_permuted_weight_scale** | `Optional[TensorOrTensors]` | 取决于 FuseMode | 两个 DeepEP 模式保持原有 scale 契约；A3 MegaMoe 的 A16W16 可不传 scale，INT 模式必须提供；A5 所有 MXFP 模式必须传匹配布局的 ND E8M0 scale 列表。 |
+| **gmm2_weight** | `TensorOrTensors` | 取决于 FuseMode | 第二层 expert 权重。两个 DeepEP 模式保持原有 Tensor 契约；A3 MegaMoe 使用逐专家列表，A5 也支持单 Tensor 堆叠列表。 |
+| **gmm2_weight_scale** | `Optional[TensorOrTensors]` | 取决于 FuseMode | 模式规则与 `gmm1_permuted_weight_scale` 相同。 |
+| **num_max_dispatch_tokens_per_rank** | `int` | 标量 | 两个 DeepEP 模式保持原有含义；在 MegaMoe 中表示各 rank 一致的容量上界：A3 padding 到该值，A5 传实际长度。Atlas A3 上不能超过 4096。 |
+| **num_experts** | `int` | 标量 | 全局 expert 总数。现有 A5 fused 路径和 `MEGA_MOE` 都要求它能被进程组大小整除。 |
+| **quant_mode** | `Union[int, str]` | 标量，默认 `1` | DeepEP 模式保留整数 0/1。A3 MegaMoe 接受 0/`"bf16"`、1/`"int8"`；A5 必须选择 `"mx_fp8_e4m3"`、`"mx_fp8_e5m2"`、`"mx_fp4_e2m1"` 或 `"mx_fp8_e4m3_w4"`。字符串仅用于 MegaMoe。 |
+| **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 选择 `FUSED_DEEP_MOE`、`DISPATCH_FFN_COMBINE` 或 `MEGA_MOE`。 |
+| **activation** | `Optional[str]` | 标量，默认 `"swiglu"` | 在 A5 上，`FUSED_DEEP_MOE` 支持 `"situ"` 和 `"swiglu"`；`DISPATCH_FFN_COMBINE` 仅支持 `"swiglu"`；在 A3、A5 上，`MEGA_MOE` 支持 `"situ"` 和 `"swiglu"`。 |
 | **beta** | `Optional[float]` | 标量，默认 `4.0` | SiTU gate 分支的软饱和边界。`None` 使用内部默认值 `4.0`。选择 SiTU 时该值必须大于零。 |
 | **linear_beta** | `Optional[float]` | 标量，默认 `25.0` | SiTU up 分支可选的软饱和边界。正数表示启用该变换；`None` 表示 up 分支保持不变。 |
 | **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
+| **l1_bias** | `Optional[TensorOrTensors]` | 取决于 FuseMode | `MEGA_MOE` 第一层可选的 A8W4 补偿 bias。 |
+| **l2_bias** | `Optional[TensorOrTensors]` | 取决于 FuseMode | `MEGA_MOE` 第二层可选的 A8W4 补偿 bias。 |
 
 ### 激活选择
 
@@ -259,7 +317,7 @@ activated_up = up                                    # linear_beta 为 None
 situ(gate, up) = activated_gate * activated_up
 ```
 
-调用示例：
+调用示例：该 SiTU 调用在 A5 上使用 `FUSED_DEEP_MOE`；在 Atlas A3 上使用 SiTU 时，应选择 `fuse_mode=FuseMode.MEGA_MOE`。
 
 ```python
 output, expert_token_nums = buffer.fused_deep_moe(
@@ -303,7 +361,7 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - 在 **A5** 上，`num_max_dispatch_tokens_per_rank >= bs`。
 - 在 **A5 MXFP4** 路径上，`hidden` 和 `gmm1_hidden` 还必须为偶数。
 - 在 **A5 MXFP4** 路径上，量化权重当前暂不支持 `FRACTAL_NZ` 格式。
-- SiTU 只支持 **A5**。在 A3 路径选择 `activation="situ"` 会被拒绝。
+- 在 **A5** 上，`FUSED_DEEP_MOE` 支持 SiTU；在 **A3、A5** 上，`MEGA_MOE` 支持 SiTU。
 - 使用 SiTU 时，`beta` 必须大于零；提供 `linear_beta` 时，该值也必须大于零。
 
 #### 对于 `fuse_mode=DISPATCH_FFN_COMBINE`（mode=2）
@@ -311,6 +369,39 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
 - 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
+
+#### 对于 `fuse_mode=MEGA_MOE`（mode=3）
+
+- 依赖 `cann_ops_transformer`（各机型均要求 CANN 9.2.0），仅在调用该模式时惰性导入。
+- Python 策略不查询设备或缓存架构，只将显式量化模式映射为 CANN 参数；平台支持范围和芯片相关约束由 CANN 检查。
+- 支持 `"swiglu"` 和 `"situ"`，返回本地 `expert_token_nums`。
+- A3 保留逐专家 TensorList、capacity padding 和 active mask。
+- A3 的 A16W16 使用 `0` / `"bf16"`，不传 scale 和 bias；A8W8-INT 使用 `1` / `"int8"` 并提供 scale；A8W4-INT 还需补偿 bias。
+- A5 必须选择 `"mx_fp8_e4m3"`、`"mx_fp8_e5m2"`、`"mx_fp4_e2m1"`（A4W4-FP）或 `"mx_fp8_e4m3_w4"`（A8W4-FP），不接受整数 0/1 和 Per-token FP8。
+- A5 BF16 `x[N,H]` 按实际长度调用，满足 `1 <= N <= capacity`，`x_active_mask=None`。各 rank 的 `N` 可以不同，但容量上界必须一致，不 padding、不裁切输出。
+- A5 要求 `l1_bias/l2_bias=None`。这些 MegaMoe 规则不改变 `FUSED_DEEP_MOE`。
+
+设 `E = num_experts / ep_world_size`，`I` 为逻辑中间维度。堆叠列表长度为 1，形状如下；逐专家列表长度为 `E`，每个 Tensor 去掉首维 `E`：
+
+| 输入 | FP8 | packed FP4 |
+|---|---|---|
+| GMM1 权重 | `[E,2I,H]` | `[E,2I,H/2]` |
+| GMM2 权重 | `[E,H,I]` | `[E,H,I/2]` |
+| GMM1 scale | `[E,2I,ceil(H/64),2]` | 相同 |
+| GMM2 scale | `[E,H,ceil(I/64),2]` | 相同 |
+
+四列表必须统一布局，`E=1` 时也按 Tensor 维数区分。FP8 权重 dtype 与模式一致，FP4 用 `uint8` 打包；所有模式的 scale 均为必填 ND `torch.float8_e8m0fnu`。权重和 scale 必须连续，并与 `x` 在同一设备上。
+
+| quant_mode | GMM1 格式 | GMM2 格式 |
+|---|---|---|
+| `"mx_fp8_e5m2"` | ND | ND |
+| `"mx_fp8_e4m3"` | ND / FRACTAL_NZ | ND / FRACTAL_NZ |
+| `"mx_fp4_e2m1"` | FRACTAL_NZ | FRACTAL_NZ_C0_32 |
+| `"mx_fp8_e4m3_w4"` | FRACTAL_NZ_C0_32 | FRACTAL_NZ_C0_32 |
+
+调用方准备 CANN 所需布局和格式，封装不代做量化、转置或 format cast。FP4 类型通过 `torch_npu.float4_e2m1fn_x2`（整数 296）传入，不使用 torch dtype。
+
+输入必须满足 CANN 对应平台的接口约束。调用方必须保证每个 token 的专家编号有效且不重复；封装不扫描专家编号的具体数值。
 
 ### 返回值
 
@@ -328,4 +419,11 @@ output, expert_token_nums = buffer.fused_deep_moe(
 | 参数 | 类型 | 形状 | 说明 |
 |------|------|------|------|
 | **output** | `torch.Tensor` | `[bs, hidden]` | 融合后的 expert 输出。 |
+| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | 当前 rank 上每个本地 expert 接收到的 token 数。 |
+
+#### 对于 `fuse_mode=MEGA_MOE`
+
+| 参数 | 类型 | 形状 | 说明 |
+|------|------|------|------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | MegaMoe 输出：A3 padding 后裁回本地 `bs`；A5 不 padding、不裁切。 |
 | **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | 当前 rank 上每个本地 expert 接收到的 token 数。 |

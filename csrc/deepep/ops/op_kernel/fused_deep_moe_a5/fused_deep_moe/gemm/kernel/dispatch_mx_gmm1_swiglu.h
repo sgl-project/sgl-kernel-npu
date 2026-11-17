@@ -1092,8 +1092,8 @@ public:
         float sumOfFlag = static_cast<float>(-1.0);
         float minTarget = (sumTarget * recStatusNumPerCore) - (float)0.5;
         float maxTarget = (sumTarget * recStatusNumPerCore) + (float)0.5;
-        AscendC::DataCopyParams intriParams{static_cast<uint16_t>(recStatusNumPerCore), 1, static_cast<uint16_t>(15),
-                                            0};
+        AscendC::DataCopyParams intriParams{static_cast<uint16_t>(recStatusNumPerCore), 1,
+                                            static_cast<uint16_t>((expertCntUp > 512) ? 7 : 15), 0};
         AscendC::GlobalTensor<float> windowInstatusFp32Tensor_;
         windowInstatusFp32Tensor_.SetGlobalBuffer((__gm__ float *)GetWindStateAddrByRankId(epRankId));
         AscendC::SetFlag<AscendC::HardEvent::S_V>(0);
@@ -1494,7 +1494,7 @@ public:
         axisK = params.topK;
         uint32_t maxAxisBs = params.globalBs / epRankSize;
 
-        stateOffset = STATE_OFFSET;
+        stateOffset = (expertCntUp > 512) ? (STATE_OFFSET / 2) : STATE_OFFSET;
         expertPerSizeOnWin = maxAxisBs * tokenLength * sizeof(XType);
     }
 

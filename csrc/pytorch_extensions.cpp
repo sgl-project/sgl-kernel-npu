@@ -110,6 +110,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int run_mode=0) -> Tensor");
 
     m.def(
+        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
+        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
+        "int nk, int nv, "
+        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
+        "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
+
+    m.def(
         "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
         "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
         "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
@@ -159,13 +166,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
         "str? format_mode=None, str? quant_mode=None) -> ()");
-
-    m.def(
-        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
-        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
-        "int nk, int nv, "
-        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
-        "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
     m.def(
         "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
@@ -233,6 +233,29 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.def(
+        "kv_quant_sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
+        "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
+        "Tensor? ori_block_table=None, Tensor? cmp_block_table=None, "
+        "Tensor? cu_seqlens_q=None, Tensor? cu_seqlens_ori_kv=None, "
+        "Tensor? cu_seqlens_cmp_kv=None, Tensor? seqused_q=None, Tensor? seqused_kv=None, "
+        "Tensor? sinks=None, Tensor? metadata=None, int kv_quant_mode=1, int tile_size=64, "
+        "int rope_head_dim=64, float softmax_scale=1.0, int cmp_ratio=1, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_win_left=127, int ori_win_right=0, "
+        "str layout_q='BSND', str layout_kv='PA_ND', "
+        "bool return_softmax_lse=False) -> (Tensor, Tensor)");
+
+    m.def(
+        "kv_quant_sparse_attn_sharedkv_metadata_host("
+        "int num_heads_q, int num_heads_kv, int head_dim, "
+        "str layout_q, str layout_kv, "
+        "Tensor? cu_seqlens_q=None, Tensor? seqused_kv=None, "
+        "int batch_size=0, int max_seqlen_q=0, int max_seqlen_kv=0, "
+        "int cmp_topk=0, int cmp_ratio=1, int ori_mask_mode=4, int cmp_mask_mode=3, "
+        "int ori_win_left=127, int ori_win_right=0, "
+        "bool has_ori_kv=True, bool has_cmp_kv=True, "
+        "int kv_quant_mode=1, int tile_size=64, int rope_head_dim=64) -> Tensor");
+
     m.def(
         "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
         "int quant_group_size, int quant_mode, bool round_scale_flag, int layout) -> ()");
@@ -363,6 +386,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
 
+    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
+
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
@@ -375,8 +400,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
-
-    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
@@ -391,6 +414,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.impl("kv_quant_sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::kv_quant_sparse_attn_sharedkv));
     m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
     m.impl("situ_mxfp8_quant", TORCH_FN(sglang::npu_kernel::situ_mxfp8_quant));
 
@@ -417,4 +441,14 @@ TORCH_LIBRARY_IMPL(npu, CPU, m)
 {
     m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv_metadata_host));
 }
+
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+// Metadata takes no required Tensor argument, so a CPU dispatch key may be
+// absent when callers provide only shape attributes.
+TORCH_LIBRARY_IMPL(npu, CatchAll, m)
+{
+    m.impl("kv_quant_sparse_attn_sharedkv_metadata_host",
+           TORCH_FN(sglang::npu_kernel::kv_quant_sparse_attn_sharedkv_metadata_host));
+}
+#endif
 }  // namespace

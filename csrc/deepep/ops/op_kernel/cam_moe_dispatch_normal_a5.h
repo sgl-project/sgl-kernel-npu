@@ -86,8 +86,9 @@ private:
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
         uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankId : tpRankId);
-        return GetBaseWindAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + winDataSizeOffset +
-               COMBINE_STATE_WIN_OFFSET + Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
+        uint64_t dataOffset = isHybridDeployment ? Moe::A5WindowLayout::kDataOffset
+                                                 : COMBINE_STATE_WIN_OFFSET + Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
+        return GetBaseWindAddrByRankId(winContext_[ctxIdx], rankId, curRankId) + winDataSizeOffset + dataOffset;
     }
 
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
@@ -187,6 +188,7 @@ private:
     uint32_t srcRankOffset{0};
     uint64_t winDataSizeOffset{0};
     uint64_t baseWindSize{0};
+    bool isHybridDeployment{false};
 
     uint32_t startStatusId;
     uint32_t endStatusId;
@@ -219,6 +221,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     winContext_[COMM_TP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<1>();
     baseWindSize = tilingData->camMoeDispatchNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
+    isHybridDeployment = tilingData->camMoeDispatchNormalInfo.isHybridDeployment;
     GlobalTensor<int32_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm = GetStatusDataSpaceGm(winContext_[COMM_EP_IDX]);
     selfDataStatusTensor.SetGlobalBuffer(

@@ -123,8 +123,11 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
         LAUNCH_COMPRESSOR_KEY(0, 1, 1, 2, 2)  // BSH fp16 coff1 rot2 cache2
         LAUNCH_COMPRESSOR_KEY(0, 1, 2, 2, 2)  // BSH fp16 coff2 rot2 cache2
         default:
-            // Host GenTilingKey restricts to compiled keys; reaching here means
-            // host/kernel key sets drifted.
+            // Host GenTilingKey restricts to compiled keys; reaching here means either the
+            // host/kernel key sets drifted, or the tiling struct was overwritten on device.
+            AscendC::printf("[compressor] UNHANDLED tilingKey=%llu batch=%u seq=%u core=%u\n", (unsigned long long)key,
+                            tilingData->baseParams.batchSize, tilingData->baseParams.seqSize,
+                            tilingData->baseParams.usedCoreNum);
             AscendC::Trap();
     }
 }

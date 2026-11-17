@@ -18,12 +18,14 @@ if [ ! -f "${test_case}" ];then
   exit 1
 fi
 
-# speed up by using infra cache services
-CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-pip config set global.index-url http://${CACHING_URL}/pypi/simple
+# This deepep Pod cannot use the cluster squid: the K8s job template injects no
+# proxy env, and http(s)_proxy is unset below. Point apt and pip at the public
+# Huawei Cloud mirror instead (CI_MIRROR_HOST overrides the host per cluster).
+MIRROR_HOST="${CI_MIRROR_HOST:-repo.huaweicloud.com}"
+sed -Ei "s@https?://(ports|archive)\.ubuntu\.com@https://${MIRROR_HOST}@g" /etc/apt/sources.list
+pip config set global.index-url "https://${MIRROR_HOST}/repository/pypi/simple"
 pip config set global.extra-index-url "https://pypi.tuna.tsinghua.edu.cn/simple"
-pip config set global.trusted-host "${CACHING_URL} pypi.tuna.tsinghua.edu.cn"
+pip config set global.trusted-host "${MIRROR_HOST} pypi.tuna.tsinghua.edu.cn"
 
 pip3 install kubernetes
 pip3 install --no-deps xgrammar==0.1.25

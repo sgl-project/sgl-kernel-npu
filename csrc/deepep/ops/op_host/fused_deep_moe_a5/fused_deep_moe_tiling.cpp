@@ -63,7 +63,7 @@ constexpr uint32_t ATTR_PROFILE_LAUNCH_ID_INDEX = 11;
 
 constexpr uint32_t MIN_BATCH_SIZE = 0;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
-constexpr uint32_t MAX_MOE_EXERT_NUM = 512;
+constexpr uint32_t MAX_MOE_EXERT_NUM = 1024;
 constexpr uint32_t SUPPORT_TOP_K = 16;
 constexpr uint32_t ONE_DIMS = 1;
 constexpr uint32_t TWO_DIMS = 2;

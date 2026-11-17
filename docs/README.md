@@ -2,6 +2,12 @@
 
 We recommend new contributors start from writing documentation, which helps you quickly understand codebase.
 
+## API Documentation
+
+[API index](api/en/API_list.md)
+
+Operator documentation is organized by `api/<language>/operators/<category>/<operator>.md`.
+
 ## Docs Workflow
 
 ### Update Documentation

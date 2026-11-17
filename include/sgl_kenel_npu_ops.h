@@ -101,6 +101,14 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
+at::Tensor recurrent_gated_delta_rule(
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+    c10::optional<at::Tensor> cache_indices_opt,
+    c10::optional<at::Tensor> num_accepted_tokens_opt,
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor> sparse_flash_attention(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
     const at::Tensor &sparse_indices, double scale_value,
@@ -137,14 +145,6 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
                             const at::Tensor &tensor_b, at::Tensor &tensor_c,
                             c10::optional<c10::string_view> format_mode,
                             c10::optional<c10::string_view> quant_mode);
-
-at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
-    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
-    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
-    c10::optional<at::Tensor> cache_indices_opt,
-    c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
 void mega_chunk_gdn(
     const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
@@ -213,6 +213,36 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
+    const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
+    const c10::optional<at::Tensor> &cmp_kv,
+    const c10::optional<at::Tensor> &ori_sparse_indices,
+    const c10::optional<at::Tensor> &cmp_sparse_indices,
+    const c10::optional<at::Tensor> &ori_block_table,
+    const c10::optional<at::Tensor> &cmp_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+    const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv,
+    const c10::optional<at::Tensor> &sinks,
+    const c10::optional<at::Tensor> &metadata, int64_t kv_quant_mode,
+    int64_t tile_size, int64_t rope_head_dim, double softmax_scale,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
+
+at::Tensor kv_quant_sparse_attn_sharedkv_metadata_host(
+    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+    const std::string &layout_q, const std::string &layout_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+    int64_t max_seqlen_q, int64_t max_seqlen_kv, int64_t cmp_topk,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, bool has_ori_kv,
+    bool has_cmp_kv, int64_t kv_quant_mode, int64_t tile_size,
+    int64_t rope_head_dim);
+
 void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,

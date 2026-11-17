@@ -128,7 +128,7 @@ The quantization mode for `dispatch` is resolved in `Buffer._resolve_normal_quan
 > **Per-path differences:**
 > - **intranode** (default strategy): full priority order above. FP8/FP4 modes supported on A5.
 > - **internode** (default strategy): only `"bf16"` and `"int8"` are supported. Other quant_mode values raise `NotImplementedError`.
-> - **alltoall** strategy (`DEEP_USE_MODE=alltoall`): only `"bf16"` and `"int8"` are supported. FP8/FP4 modes require the default strategy.
+> - **alltoall** strategy (`DEEP_USE_MODE=alltoall`): only `"mx_fp4_e2m1"` `"bf16"` and `"mx_fp8_e4m3"` are supported.
 >
 > **Platform support:** INT8 is supported on **all** platforms (A2/A3/A5). FP8/FP4 modes (`pertoken_fp8_e4m3`, `mx_fp8_e4m3`, `mx_fp4_e2m1`) are **A5-only**.
 >
@@ -318,7 +318,7 @@ dispatch(
 > **各路径差异：**
 > - **intranode**（default 策略）：完整优先级顺序。FP8/FP4 模式仅 A5 支持。
 > - **internode**（default 策略）：仅支持 `"bf16"` 和 `"int8"`。其他 quant_mode 值抛 `NotImplementedError`。
-> - **alltoall** 策略（`DEEP_USE_MODE=alltoall`）：仅支持 `"bf16"` 和 `"int8"`。FP8/FP4 模式需使用 default 策略。
+> - **alltoall** 策略（`DEEP_USE_MODE=alltoall`）： 仅支持 '"bf16"' , '"mx_fp8_e4m3(A5)"', '"mx_fp4_e2m1(A5)"' and '"int8(A3)"'。
 >
 > **平台支持：** INT8 **全平台**（A2/A3/A5）支持。FP8/FP4 模式（`pertoken_fp8_e4m3`、`mx_fp8_e4m3`、`mx_fp4_e2m1`）**仅 A5**。
 >
