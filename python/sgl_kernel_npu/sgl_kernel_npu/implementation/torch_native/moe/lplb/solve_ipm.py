@@ -36,14 +36,13 @@ def solve_ipm(A, b, c, num_iters=5, result=None):
 
     residual = (A @ x - b).abs().max()
     converged = (
-        bool(d_max < 0.1) and bool(x[-1] >= 0) and bool(x[-1] < 1e-4) and bool(
-            residual < 0.05
-        )
+        bool(d_max < 0.1)
+        and bool(x[-1] >= 0)
+        and bool(x[-1] < 1e-4)
+        and bool(residual < 0.05)
     )
     solution = (
-        x
-        if converged
-        else torch.full((nv,), 0.5, dtype=torch.float32, device=A.device)
+        x if converged else torch.full((nv,), 0.5, dtype=torch.float32, device=A.device)
     )
     if result is not None:
         result.copy_(solution)

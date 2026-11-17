@@ -27,9 +27,9 @@ def generate_data(shape, mode, seed=42):
     num_logical, max_copies, num_tokens, topk = shape
     torch.npu.manual_seed(seed)
     prob = torch.rand(num_logical, max_copies, dtype=torch.float32)
-    log2phy_map = torch.arange(
-        num_logical * max_copies, dtype=torch.int32
-    ).view(num_logical, max_copies)
+    log2phy_map = torch.arange(num_logical * max_copies, dtype=torch.int32).view(
+        num_logical, max_copies
+    )
     log2phy_map[prob < 0.25] = -1
     ids = torch.randint(0, num_logical, (num_tokens, topk), dtype=torch.int32)
     if mode == "zero_rows":

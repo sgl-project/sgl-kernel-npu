@@ -31,9 +31,7 @@ def generate_data(shape, mode, seed=42):
     phy_prob_size = num_single + num_red_phy + 1
     index_dtype = torch.int32 if mode == "int32_ids" else torch.int64
 
-    log2phy_prob = torch.empty(
-        num_logical, max_copies, dtype=torch.float32
-    )
+    log2phy_prob = torch.empty(num_logical, max_copies, dtype=torch.float32)
     x = torch.randn(num_red_phy, dtype=torch.float32) * 0.3
     t1 = torch.rand(num_single, dtype=torch.float32)
     phy_single = torch.arange(num_single, dtype=index_dtype)

@@ -103,9 +103,7 @@ def dispatch_probability_kernel(
         # whose CDF value is <= threshold along axis 0.
         ig = tl.reshape(c[:, None] * NLD + lid[None, :], (MCD * BLOCK,))
         row = tl.reshape(tl.gather(cum_f, ig, 0), (MCD, BLOCK))
-        chosen = tl.sum(
-            ((row <= thr[None, :]) & cmask[:, None]).to(tl.int32), axis=0
-        )
+        chosen = tl.sum(((row <= thr[None, :]) & cmask[:, None]).to(tl.int32), axis=0)
         chosen = tl.minimum(chosen, MC - 1)
         res = tl.gather(map_f, chosen * NLD + lid, 0).to(out_ptr.dtype.element_ty)
         tl.store(out_ptr + offs, res, mask=msk)
