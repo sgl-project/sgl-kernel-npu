@@ -13,7 +13,18 @@ export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 case "$TEST_GROUP" in
     kda-a3-diagnostic)
         export TRITON_PRINT_UBTUNING=1
-        exec python3 -u scripts/run_kda_a3_diagnostic.py
+        diagnostic_status=0
+        for round in 1 2 3 4; do
+            modes=(false true)
+            if (( round % 2 == 0 )); then
+                modes=(true false)
+            fi
+            for multibuffer in "${modes[@]}"; do
+                printf '\n=== Round %s/4, multibuffer=%s ===\n' "$round" "$multibuffer"
+                python3 -u scripts/run_kda_a3_diagnostic.py "$multibuffer" || diagnostic_status=1
+            done
+        done
+        exit "$diagnostic_status"
         ;;
     speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
     matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul") ;;

@@ -1,5 +1,6 @@
 """Repeat the KDA B8-S8-framework accuracy check with fixed A3 configurations."""
 
+import argparse
 import hashlib
 import importlib
 import importlib.metadata
@@ -7,7 +8,6 @@ import os
 import re
 import subprocess
 import tempfile
-import traceback
 from pathlib import Path
 
 
@@ -114,7 +114,7 @@ def run_config(torch, test, tuner, config):
     return failed
 
 
-def run_diagnostic():
+def run_diagnostic(multibuffer):
     import torch
     import torch_npu  # noqa: F401 -- registers torch.npu
 
@@ -128,26 +128,20 @@ def run_diagnostic():
     )
     print(f"KDA source: {impl.__file__}")
     tuner = impl._kda_target_verify_kernel
-    configs = {
-        c.kwargs["multibuffer"]: c for c in tuner.configs if c.kwargs["BV"] == 64
-    }
-
-    failed = 0
+    (config,) = [
+        c
+        for c in tuner.configs
+        if c.kwargs["BV"] == 64 and c.kwargs["multibuffer"] == multibuffer
+    ]
     with use_impls("auto", "torch_native", skip_acc_check=False):
-        for multibuffer in (False, True):
-            try:
-                failed += run_config(
-                    torch, test_kda_target_verify, tuner, configs[multibuffer]
-                )
-            except Exception:
-                failed += 1
-                print(f"B8-S8-framework BV=64 multibuffer={multibuffer} aborted")
-                traceback.print_exc()
-    return int(failed != 0)
+        return int(run_config(torch, test_kda_target_verify, tuner, config) != 0)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("multibuffer", choices=("false", "true"))
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="kda-a3-triton-") as cache:
         os.environ["TRITON_CACHE_DIR"] = cache
-        status = run_diagnostic()
+        status = run_diagnostic(args.multibuffer == "true")
     raise SystemExit(status)
