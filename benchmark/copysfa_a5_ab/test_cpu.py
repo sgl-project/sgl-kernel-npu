@@ -9,6 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
+import venv
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -22,6 +23,46 @@ from prepare_wheels import unpack  # noqa: E402
 from report import _parity  # noqa: E402
 from result_contract import timing_stats, validate_result  # noqa: E402
 from run_matrix import load_config  # noqa: E402
+from runtime_check import check_interpreter  # noqa: E402
+
+
+class RuntimeCheckTest(unittest.TestCase):
+    def test_isolated_runtime_without_torch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            venv.EnvBuilder(with_pip=False).create(root / "venv")
+            executable = root / "venv/bin/python"
+            if sys.platform == "win32":
+                executable = root / "venv/Scripts/python.exe"
+            with self.assertRaisesRegex(RuntimeError, "Missing modules: torch"):
+                check_interpreter(str(executable))
+            config = json.loads((ROOT / "arm-config.example.json").read_text())
+            for arm in config["arms"]:
+                arm["python"] = str(executable)
+            config_path = root / "arms.json"
+            config_path.write_text(json.dumps(config))
+            output = root / "results"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "run_matrix.py"),
+                    "--arm-config",
+                    str(config_path),
+                    "--output-root",
+                    str(output),
+                    "--batch",
+                    "1",
+                    "--heads",
+                    "8",
+                    "--index-heads",
+                    "32",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Missing modules: torch", result.stderr)
+            self.assertFalse(output.exists())
 
 
 class ShmCompatibilityTest(unittest.TestCase):

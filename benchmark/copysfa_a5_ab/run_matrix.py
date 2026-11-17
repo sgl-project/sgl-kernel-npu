@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fixture import FixtureSpec, parse_miss_counts
+from runtime_check import check_interpreter
 
 
 def load_config(path: Path) -> list[dict[str, Any]]:
@@ -142,11 +143,13 @@ def main() -> int:
     if args.dry_run:
         print(json.dumps({"commands": commands}, indent=2))
         return 0
-    args.output_root.mkdir(parents=True)
     environment = os.environ.copy()
     # Device ownership is selected only by the explicit --device argument.
     for name in ("ASCEND_RT_VISIBLE_DEVICES", "NPU_VISIBLE_DEVICES"):
         environment.pop(name, None)
+    for executable in dict.fromkeys(arm["python"] for arm in arms):
+        check_interpreter(executable, environment)
+    args.output_root.mkdir(parents=True)
     receipts = []
     exit_code = 0
     for command in commands:

@@ -10,6 +10,8 @@ import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from runtime_check import check_interpreter
+
 
 def unpack(wheel: Path, destination: Path) -> dict:
     wheel = wheel.resolve(strict=True)
@@ -57,6 +59,7 @@ def main() -> int:
         parser.error(f"refusing to overwrite output root: {root}")
     framework = args.framework_prefix.resolve(strict=True)
     pre_framework = (args.pre_framework_prefix or framework).resolve(strict=True)
+    check_interpreter(sys.executable)
     args.pre_wheel.resolve(strict=True)
     args.post_wheel.resolve(strict=True)
     pre = unpack(args.pre_wheel, root / "pre")
