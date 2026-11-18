@@ -412,7 +412,9 @@ def test_compressor_arch35_dispatch_keys(shape, layout, coff, cache_mode, start,
 
     if get_hardware().generation != Generation.ARCH35:
         pytest.skip("These cases cover the arch 3510 compressor dispatch keys")
-    _check_compressor_case(shape, layout, 4, coff, cache_mode, start, 16, 1, False, dtype)
+    _check_compressor_case(
+        shape, layout, 4, coff, cache_mode, start, 16, 1, False, dtype
+    )
 
 
 @pytest.mark.parametrize("ring", [8, 16])

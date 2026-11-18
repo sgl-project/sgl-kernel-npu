@@ -62,7 +62,7 @@ using namespace Compressor;
     } while (0)
 
 #define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
-    case SGL_COMPRESSOR_PAYLOAD_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                   \
+    case SGL_COMPRESSOR_PAYLOAD_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                      \
         INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, static_cast<X_LAYOUT>(LAYOUT_BIT),                \
                                           static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
                                           static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
