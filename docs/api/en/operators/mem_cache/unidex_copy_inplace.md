@@ -50,7 +50,7 @@ All tensors must be contiguous. Index and mask tensors are on the same NPU. Endp
 ## ascendc backend
 
 - Copies bytes directly between NPU buffers or between NPU and registered host memory.
-- Keep overridden addresses valid until work on the current stream completes. Use `create_shm_tensor` and `free_shm` from `sgl_kernel_npu.operators.mem_cache` to manage registered shared memory.
+- Keep overridden addresses valid until work on the current stream completes. Use [`create_shm_tensor`](shm_allocator.md) and `free_shm` from `sgl_kernel_npu.operators.mem_cache` to manage registered shared memory.
 
 ## torch_native backend
 

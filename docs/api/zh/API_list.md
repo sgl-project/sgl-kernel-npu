@@ -186,6 +186,7 @@
 | [speculative_state_scatter](operators/mamba/speculative_state_scatter.md) | `triton`, `torch_native` |
 | [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
 | [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
+| [`create_shm_tensor` / `free_shm`](operators/mem_cache/shm_allocator.md) | HOST C++ (Ascend HAL, ARCH22) |
 | [slot_map_lookup](operators/mem_cache/slot_map_lookup.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
 | [unidex_copy_inplace](operators/mem_cache/unidex_copy_inplace.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
 | [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
