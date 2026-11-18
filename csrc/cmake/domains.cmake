@@ -3,11 +3,9 @@ include_guard(GLOBAL)
 set(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 # Discover domains with HOST operators before partitioning the unified request.
 function(sgl_add_host_operator_domains)
-    foreach(domain IN ITEMS data_move norm)
-        add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
+    foreach(domain IN ITEMS data_move norm mem_cache/sparsity_driven_kv_offload)
+        add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/host/${domain}")
     endforeach()
-    add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/mem_cache/sparsity_driven_kv_offload"
-        "declarations/host/sparsity_driven_kv_offload")
 endfunction()
 
 function(sgl_add_cann_operator_domains)
