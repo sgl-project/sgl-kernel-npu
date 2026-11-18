@@ -7,6 +7,7 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/daily-test-kernels.yml"
+      - "scripts/npu_ci_install_dependency.sh"
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
   workflow_dispatch:
@@ -25,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cann_version: ['9.1.0']
+        cann_version: ['9.1.0', '9.2.0']
         npu_hardware: [a3, '950']
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
@@ -52,9 +53,9 @@ jobs:
         run: |
           pip install uv
 
-          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }} --with-triton
 
-      - name: Set up Triton-Ascend and kernel test dependencies
+      - name: Set up kernel test dependencies
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests

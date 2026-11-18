@@ -16,6 +16,7 @@ on:
       - "pytest.ini"
       - "build.sh"
       - "cmake/**"
+      - "scripts/npu_ci_install_dependency.sh"
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
       - "third_party/pto-isa/**"

@@ -11,32 +11,12 @@ export UV_NO_CACHE=1
 
 # --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
 
-# Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann)
-# Official version mapping (strict 1:1):
-#   CANN 8.5.0 -> triton-ascend 3.2.0
-#   CANN 9.0.0 -> triton-ascend 3.2.1
-#   CANN 9.1.0 -> triton-ascend 3.2.2
-if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
-    pip install ${TRITON_ASCEND_WHL}
-else
-    CANN_VER="${CANN_VERSION:-8.5.0}"
-    case "$CANN_VER" in
-        8.5.*)
-            TRITON_ASCEND_VER="3.2.0"
-            ;;
-        9.0.*)
-            TRITON_ASCEND_VER="3.2.1"
-            ;;
-        9.1.*)
-            TRITON_ASCEND_VER="3.2.2"
-            ;;
-        *)
-            echo "WARNING: Unknown CANN version $CANN_VER, defaulting to triton-ascend 3.2.0"
-            TRITON_ASCEND_VER="3.2.0"
-            ;;
-    esac
-    echo "Installing triton-ascend==${TRITON_ASCEND_VER} for CANN ${CANN_VER}"
-    pip install triton-ascend==${TRITON_ASCEND_VER} --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
+# Triton-Ascend (CANN-customized triton with triton.language.extra.cann) is
+# installed by npu_ci_install_dependency.sh --with-triton so that the wheel
+# matches the SGLang NPU image for the same CANN version.
+if ! python3 -c 'from importlib.metadata import version; version("triton-ascend")' >/dev/null 2>&1; then
+    echo "ERROR: Triton-Ascend is not installed. Run scripts/npu_ci_install_dependency.sh --cann-version <9.1.0|9.2.0> --with-triton first." >&2
+    exit 1
 fi
 
 # Install other test dependencies
@@ -86,14 +66,15 @@ else
 fi
 
 # 2. triton.language.parallel compatibility: decode_attention.py uses
-#    tl.parallel(0, 2, bind_sub_block=True) which was removed in triton 3.5.0.
-#    Patch triton/language/__init__.py to add a shim aliasing to range.
+#    tl.parallel(0, 2, bind_sub_block=True). The triton frontend pulled in by
+#    Triton-Ascend (3.5.0 for 3.2.2 on aarch64, 3.6.0 for 9.2.0) does not
+#    export it, so patch triton/language/__init__.py with a range shim.
 PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
 TRITON_LANG_INIT="$PYTHON_SITE/triton/language/__init__.py"
 if [ -f "$TRITON_LANG_INIT" ] && ! grep -q "def parallel" "$TRITON_LANG_INIT" 2>/dev/null; then
     cat >> "$TRITON_LANG_INIT" << 'PYEOF'
 
-# CI compatibility shim: tl.parallel removed in triton 3.5.0
+# CI compatibility shim: tl.parallel is absent from the triton frontend used by Triton-Ascend
 # decode_attention.py uses tl.parallel(0, 2, bind_sub_block=True) for sub-block iteration
 def parallel(*args, **kwargs):
     import builtins
