@@ -3,6 +3,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import get_test_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 
 # Gumbel-max draft sampling over the DeepSeek-V4 vocabulary; element count
@@ -85,6 +86,10 @@ def test_row_strided_input():
 @pytest.mark.extra_checks
 def test_validation():
     from sgl_kernel_npu.operators.sample import div_argmax
+
+    # Registered for arch35 (A5) only.
+    impl, _ = get_test_impls()
+    require_test_impl(div_argmax, impl)
 
     x = torch.ones(2, 4, device="npu")
     with pytest.raises(ValueError, match="shape"):

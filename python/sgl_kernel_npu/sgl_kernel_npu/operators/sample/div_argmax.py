@@ -2,14 +2,15 @@
 
 from typing import Optional
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("sample.div_argmax", "auto")
-@register_impl("sample.div_argmax", "triton")
+@register_impl("sample.div_argmax", "auto", supported_generations={Generation.ARCH35})
+@register_impl("sample.div_argmax", "triton", supported_generations={Generation.ARCH35})
 def _triton_impl(x, divisor, *, divisor_min=None, ignore_nan=False):
     global _triton_fn
     if _triton_fn is None:
@@ -19,7 +20,9 @@ def _triton_impl(x, divisor, *, divisor_min=None, ignore_nan=False):
     return _triton_fn(x, divisor, divisor_min=divisor_min, ignore_nan=ignore_nan)
 
 
-@register_impl("sample.div_argmax", "torch_native")
+@register_impl(
+    "sample.div_argmax", "torch_native", supported_generations={Generation.ARCH35}
+)
 def _torch_native_impl(x, divisor, *, divisor_min=None, ignore_nan=False):
     global _torch_native_fn
     if _torch_native_fn is None:

@@ -4,14 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `triton` | Supported | Supported |
-| `torch_native` | Supported | Supported |
-| `tilelang` | Not implemented | Not implemented |
-| `ascendc` | Not implemented | Not implemented |
+| `triton` | Not supported | Supported |
+| `torch_native` | Not supported | Supported |
 
-The default `impl="auto"` selects the same implementation as `"triton"`.
-Registration does not establish hardware validation; the table records the
-currently verified status.
+This operator supports A5 (arch35) only: on arch22 every implementation,
+including the PyTorch reference, reports as unavailable and the test cases
+skip automatically.
 
 ## Signature
 
