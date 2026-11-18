@@ -60,6 +60,5 @@ finally:
 
 ## References
 
-- [Upstream sparsity-driven KV offloading primitives](https://github.com/sgl-project/sgl-kernel-npu/blob/4a401a603f87d09a9c59ec195b47f3fad81d8b56/csrc/sparsity_driven_kv_offload/README.md)
-- [CANN 9.1 host memory management and device address mapping](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/others/acldevg/runtime_doc_dev_0006.html)
-- [PyTorch `torch.frombuffer`](https://docs.pytorch.org/docs/2.10/generated/torch.frombuffer.html)
+- [Ascend HAL driver documentation for `halHostRegister` and `halHostUnregister`](https://gitcode.com/cann/driver/blob/master/src/ascend_hal/svm/README_en.md#memory-sharing)
+- Original `shm_allocator.cpp` from PR #636. [Allocation and registration](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L226-L273) · [Release](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L354-L365)

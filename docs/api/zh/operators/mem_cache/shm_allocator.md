@@ -60,6 +60,5 @@ finally:
 
 ## 参考资料
 
-- [上游稀疏 KV 卸载接口说明](https://github.com/sgl-project/sgl-kernel-npu/blob/4a401a603f87d09a9c59ec195b47f3fad81d8b56/csrc/sparsity_driven_kv_offload/README.md)
-- [CANN 9.1 Host 内存管理和设备地址映射](https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/others/acldevg/runtime_doc_dev_0006.html)
-- [PyTorch `torch.frombuffer`](https://docs.pytorch.org/docs/2.10/generated/torch.frombuffer.html)
+- [昇腾 HAL 驱动的 `halHostRegister` 和 `halHostUnregister` 接口说明](https://gitcode.com/cann/driver/blob/master/src/ascend_hal/svm/README.md#%E5%86%85%E5%AD%98%E5%85%B1%E4%BA%AB)
+- PR #636 引入的 `shm_allocator.cpp`。[申请与注册](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L226-L273) · [释放](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L354-L365)
