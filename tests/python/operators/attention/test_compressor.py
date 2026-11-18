@@ -388,7 +388,7 @@ def _check_compressor_case(
     )
 
 
-# These cases fill the gaps in the A5 General and short-BSH FullLoad keys.
+# These cases fill the gaps in the arch 3510 General and short-BSH FullLoad keys.
 @pytest.mark.parametrize(
     "shape,layout,coff,cache_mode,start",
     [
@@ -411,7 +411,7 @@ def test_compressor_arch35_dispatch_keys(shape, layout, coff, cache_mode, start,
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     if get_hardware().generation != Generation.ARCH35:
-        pytest.skip("These cases cover the A5 compressor dispatch keys")
+        pytest.skip("These cases cover the arch 3510 compressor dispatch keys")
     _check_compressor_case(shape, layout, 4, coff, cache_mode, start, 16, 1, False, dtype)
 
 
