@@ -50,7 +50,7 @@ def unidex_copy_inplace(
 ## ascendc 后端
 
 - 直接在 NPU 缓冲区之间或 NPU 与已注册的主机内存之间按字节复制。
-- 调用者须保证覆盖地址在当前流执行完成前有效。可通过 `sgl_kernel_npu.sparsity_driven_kv_offload` 中的 `create_shm_tensor` 和 `free_shm` 管理注册的共享内存。
+- 调用者须保证覆盖地址在当前流执行完成前有效。可通过 `sgl_kernel_npu.operators.mem_cache` 中的 `create_shm_tensor` 和 `free_shm` 管理注册的共享内存。
 
 ## torch_native 后端
 

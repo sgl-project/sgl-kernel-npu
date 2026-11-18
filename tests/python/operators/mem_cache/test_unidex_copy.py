@@ -73,8 +73,11 @@ def test_unidex_copy(shape, raw_mode):
 
 @pytest.mark.parametrize("direction", ["h2d", "d2h"])
 def test_unidex_copy_registered_shm(direction):
-    from sgl_kernel_npu.operators.mem_cache import unidex_copy_inplace
-    from sgl_kernel_npu.sparsity_driven_kv_offload import create_shm_tensor, free_shm
+    from sgl_kernel_npu.operators.mem_cache import (
+        create_shm_tensor,
+        free_shm,
+        unidex_copy_inplace,
+    )
 
     impl, _ = get_test_impls()
     require_test_impl(unidex_copy_inplace, impl)
