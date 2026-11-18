@@ -67,19 +67,6 @@ void transfer_state_all_layer_direct_lf_pf(at::TensorList device_states,
                                            const at::Tensor &host_indices,
                                            int64_t flags);
 
-at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
-
-void bgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
-                 at::Tensor &y, double scale);
-
-at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
-                       at::Tensor &lora_indices, at::Tensor &seq_len,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
-
-void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
-                 at::Tensor &seq_len, at::Tensor &y, double scale);
-
 at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
                          at::Tensor &lora_indices, at::Tensor &seq_len,
                          at::Tensor &lora_ranks, at::Tensor &slice_offsets,

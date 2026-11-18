@@ -65,22 +65,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int flags) -> ()");
 
     m.def(
-        "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
-        "            int slice_offset, int slice_size) -> Tensor");
-
-    m.def(
-        "bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
-        "            float scale) -> ()");
-
-    m.def(
-        "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
-        "            int slice_offset, int slice_size) -> Tensor");
-
-    m.def(
-        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
-        " float scale) -> ()");
-
-    m.def(
         "sgemmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
         "              Tensor! sliceOffsets, Tensor! y) -> Tensor");
 
@@ -319,14 +303,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("transfer_state_all_layer_direct_lf_pf",
            TORCH_FN(sglang::npu_kernel::transfer_state_all_layer_direct_lf_pf));
-
-    m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
-
-    m.impl("bgmv_shrink", TORCH_FN(sglang::npu_kernel::bgmv_shrink));
-
-    m.impl("sgmv_expand", TORCH_FN(sglang::npu_kernel::sgmv_expand));
-
-    m.impl("sgmv_shrink", TORCH_FN(sglang::npu_kernel::sgmv_shrink));
 
     m.impl("sgemmv_expand", TORCH_FN(sglang::npu_kernel::sgemmv_expand));
 
