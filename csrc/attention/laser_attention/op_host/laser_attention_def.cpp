@@ -11,17 +11,16 @@
  */
 
 #include "register/op_def_registry.h"
-#include "sgl_operator_config.h"
 
 namespace {
 constexpr size_t MAX_TOKEN = 2147483647;
 }
 
 namespace ops {
-class SglLaserAttention : public OpDef
+class LaserAttention : public OpDef
 {
 public:
-    explicit SglLaserAttention(const char *name) : OpDef(name)
+    explicit LaserAttention(const char *name) : OpDef(name)
     {
         this->Input("query")
             .ParamType(REQUIRED)
@@ -64,11 +63,11 @@ public:
         this->Attr("next_tokens").AttrType(OPTIONAL).Int(1);
         this->Attr("is_highPrecision").AttrType(OPTIONAL).Bool(true);
 
-        for (const auto *config : SGL_CANN_CONFIGS) {
-            this->AICore().AddConfig(config);
-        }
+        this->AICore().AddConfig("ascend910");
+        this->AICore().AddConfig("ascend910b");
+        this->AICore().AddConfig("ascend910_93");
     }
 };
 
-OP_ADD(SglLaserAttention);
+OP_ADD(LaserAttention);
 }  // namespace ops

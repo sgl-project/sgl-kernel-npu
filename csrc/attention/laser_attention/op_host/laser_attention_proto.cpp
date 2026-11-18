@@ -61,6 +61,6 @@ static ge::graphStatus LaserAttentionInferDtype(gert::InferDataTypeContext *cont
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_INFERSHAPE(SglLaserAttention).InferShape(LaserAttentionInferShape).InferDataType(LaserAttentionInferDtype);
+IMPL_OP_INFERSHAPE(LaserAttention).InferShape(LaserAttentionInferShape).InferDataType(LaserAttentionInferDtype);
 
 }  // namespace ops

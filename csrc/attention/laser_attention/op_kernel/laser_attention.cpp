@@ -13,22 +13,19 @@
 #include "lib/matmul_intf.h"
 #include "CubeForward.h"
 #include "VectorForward.h"
-#include "laser_attention_tiling_data.h"
 
 using namespace AscendC;
-using namespace optiling;
 
 extern "C" __global__ __aicore__ void
-sgl_laser_attention(__gm__ uint8_t *__restrict__ q_gm, __gm__ uint8_t *__restrict__ k_gm,
-                    __gm__ uint8_t *__restrict__ v_gm, __gm__ uint8_t *__restrict__ atten_mask_gm,
-                    __gm__ uint8_t *__restrict__ alibi_mask_gm,  // ???
-                    __gm__ uint8_t *__restrict__ drop_mask_gm,   // ？？？
-                    __gm__ uint8_t *__restrict__ softmax_log_max_sum_gm, __gm__ uint8_t *__restrict__ attention_out_gm,
-                    __gm__ uint8_t *__restrict__ workspace, __gm__ uint8_t *__restrict__ tiling_para_gm)
+laser_attention(__gm__ uint8_t *__restrict__ q_gm, __gm__ uint8_t *__restrict__ k_gm, __gm__ uint8_t *__restrict__ v_gm,
+                __gm__ uint8_t *__restrict__ atten_mask_gm,
+                __gm__ uint8_t *__restrict__ alibi_mask_gm,  // ???
+                __gm__ uint8_t *__restrict__ drop_mask_gm,   // ？？？
+                __gm__ uint8_t *__restrict__ softmax_log_max_sum_gm, __gm__ uint8_t *__restrict__ attention_out_gm,
+                __gm__ uint8_t *__restrict__ workspace, __gm__ uint8_t *__restrict__ tiling_para_gm)
 {
-    REGISTER_TILING_DEFAULT(optiling::SglLaserAttentionTilingData);
     GET_TILING_DATA(tiling_data_in, tiling_para_gm);
-    const SglLaserAttentionTilingData *__restrict tiling_data = &tiling_data_in;
+    const LaserAttentionTilingData *__restrict tiling_data = &tiling_data_in;
     SetSysWorkspace(workspace);
     __gm__ uint8_t *user = GetUserWorkspace(workspace);
 
