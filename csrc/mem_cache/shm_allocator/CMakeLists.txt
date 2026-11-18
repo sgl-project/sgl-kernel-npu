@@ -1,3 +1,6 @@
+# The allocator is also reached by the mem_cache discovery pass.
+include_guard(GLOBAL)
+
 sgl_register_operator(
     ID shm_allocator
     EXECUTION_UNIT HOST
