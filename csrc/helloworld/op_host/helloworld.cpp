@@ -22,7 +22,7 @@ HOST_API at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y)
     at::Tensor z = at::empty_like(x);
 
     /* define the block dim */
-    uint32_t blockDim = 8;
+    uint32_t blockDim = HELLOWORLD_BLOCK_DIM;
 
     /* memory size */
     uint32_t totalLength = 1;

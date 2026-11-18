@@ -1,0 +1,380 @@
+name: Prebuild Release to OBS
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing git tag to build
+        required: true
+        type: string
+      arch:
+        description: CPU architecture
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - aarch64
+          - x86_64
+      target:
+        description: NPU target
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - "950"
+          - a3
+      jobs:
+        description: Parallel compilation jobs
+        required: true
+        default: "8"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prebuild-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Select build variants
+        id: matrix
+        env:
+          REQUESTED_ARCH: ${{ inputs.arch }}
+          REQUESTED_TARGET: ${{ inputs.target }}
+        run: |
+          python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          import os
+
+          variants = [
+              {"arch": "x86_64", "runner_arch": "X64", "runner_pool": "release-x86",
+               "target": "a3", "cann_version": "9.1.0", "arch_version": "2201"},
+              {"arch": "x86_64", "runner_arch": "X64", "runner_pool": "release-x86",
+               "target": "950", "cann_version": "9.1.0", "arch_version": "3510"},
+              {"arch": "x86_64", "runner_arch": "X64", "runner_pool": "release-x86",
+               "target": "a3", "cann_version": "9.2.0", "arch_version": "2201"},
+              {"arch": "x86_64", "runner_arch": "X64", "runner_pool": "release-x86",
+               "target": "950", "cann_version": "9.2.0", "arch_version": "3510"},
+              {"arch": "aarch64", "runner_arch": "ARM64", "runner_pool": "release-arm",
+               "target": "a3", "cann_version": "9.1.0", "arch_version": "2201"},
+              {"arch": "aarch64", "runner_arch": "ARM64", "runner_pool": "release-arm",
+               "target": "950", "cann_version": "9.1.0", "arch_version": "3510"},
+              {"arch": "aarch64", "runner_arch": "ARM64", "runner_pool": "release-arm",
+               "target": "a3", "cann_version": "9.2.0", "arch_version": "2201"},
+              {"arch": "aarch64", "runner_arch": "ARM64", "runner_pool": "release-arm",
+               "target": "950", "cann_version": "9.2.0", "arch_version": "3510"},
+          ]
+          arch = os.environ["REQUESTED_ARCH"]
+          target = os.environ["REQUESTED_TARGET"]
+          selected = [
+              item for item in variants
+              if arch in ("all", item["arch"])
+              and target in ("all", item["target"])
+          ]
+          print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
+          PY
+
+  prebuild:
+    name: ${{ matrix.arch }} / ${{ matrix.target }} / CANN ${{ matrix.cann_version }}
+    needs: plan
+    runs-on:
+      - self-hosted
+      - Linux
+      - ${{ matrix.runner_arch }}
+      - cpu
+      - ${{ matrix.runner_pool }}
+    container:
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.target }}-ubuntu22.04-py3.12
+    env:
+      OBS_ACCESS_KEY_ID: ${{ secrets.OBS_ACCESS_KEY_ID }}
+      OBS_SECRET_ACCESS_KEY: ${{ secrets.OBS_SECRET_ACCESS_KEY }}
+      OBS_ENDPOINT: ${{ vars.OBS_ENDPOINT || 'https://obs.cn-north-4.myhuaweicloud.com' }}
+      OBS_BUCKET: ${{ vars.OBS_BUCKET || 'ascend-triton-open' }}
+      OBS_PREFIX: ${{ vars.OBS_PREFIX || 'sglang/sgl-kernel-npu' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag }}
+          submodules: recursive
+
+      - name: Resolve artifact paths
+        id: artifact
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ matrix.target }}
+          CANN_VERSION: ${{ matrix.cann_version }}
+          CPU_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          COMMIT="$(git rev-parse HEAD)"
+          SAFE_TAG="$(printf '%s' "${RELEASE_TAG}" | tr '/ ' '--')"
+          case "${CANN_VERSION}" in
+            9.1.0) TORCH_VERSION="2.10.0" ;;
+            9.2.0) TORCH_VERSION="2.13.0" ;;
+            *) echo "Unsupported CANN version: ${CANN_VERSION}" >&2; exit 1 ;;
+          esac
+          PACKAGE_NAME="sgl-kernel-npu-${SAFE_TAG}-torch${TORCH_VERSION}-py312-cann${CANN_VERSION}-${TARGET}-${CPU_ARCH}.zip"
+          OBJECT_DIR="${OBS_PREFIX}/pipeline-cache/v1/${COMMIT}/${CPU_ARCH}/${TARGET}/cann-${CANN_VERSION}/torch-${TORCH_VERSION}/${SAFE_TAG}"
+          {
+            echo "commit=${COMMIT}"
+            echo "torch_version=${TORCH_VERSION}"
+            echo "package_name=${PACKAGE_NAME}"
+            echo "object_dir=${OBJECT_DIR}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install OBS client
+        run: python3 -m pip install --no-cache-dir esdk-obs-python
+
+      - name: Check OBS cache
+        id: remote
+        env:
+          OBJECT_DIR: ${{ steps.artifact.outputs.object_dir }}
+          PACKAGE_NAME: ${{ steps.artifact.outputs.package_name }}
+          COMMIT: ${{ steps.artifact.outputs.commit }}
+          TORCH_VERSION: ${{ steps.artifact.outputs.torch_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ matrix.target }}
+          CPU_ARCH: ${{ matrix.arch }}
+          CANN_VERSION: ${{ matrix.cann_version }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from obs import ObsClient
+
+          client = ObsClient(
+              access_key_id=os.environ["OBS_ACCESS_KEY_ID"],
+              secret_access_key=os.environ["OBS_SECRET_ACCESS_KEY"],
+              server=os.environ["OBS_ENDPOINT"],
+          )
+          bucket = os.environ["OBS_BUCKET"]
+          root = os.environ["OBJECT_DIR"]
+          package = os.environ["PACKAGE_NAME"]
+          keys = [
+              f"{root}/{package}",
+              f"{root}/{package}.sha256",
+              f"{root}/manifest.json",
+          ]
+          found = []
+          for key in keys:
+              response = client.headObject(bucket, key)
+              if response.status == 200:
+                  found.append(True)
+              elif int(response.status) == 404:
+                  found.append(False)
+              else:
+                  raise RuntimeError(
+                      f"OBS HEAD failed for {key}: "
+                      f"{response.status} {response.reason}"
+                  )
+
+          if any(found) and not all(found):
+              missing = [key for key, exists in zip(keys, found) if not exists]
+              raise RuntimeError(f"OBS artifact is incomplete: {missing}")
+          cache_hit = all(found)
+          if cache_hit:
+              manifest_response = client.getObject(
+                  bucket, f"{root}/manifest.json"
+              )
+              if manifest_response.status != 200:
+                  raise RuntimeError("Unable to read cached OBS manifest")
+              manifest = json.loads(
+                  manifest_response.body.buffer.read().decode("utf-8")
+              )
+              expected = {
+                  "commit": os.environ["COMMIT"],
+                  "release_tag": os.environ["RELEASE_TAG"],
+                  "arch": os.environ["CPU_ARCH"],
+                  "target": os.environ["TARGET"],
+                  "cann_version": os.environ["CANN_VERSION"],
+                  "torch_version": os.environ["TORCH_VERSION"],
+                  "package": package,
+              }
+              mismatches = {
+                  name: (value, manifest.get(name))
+                  for name, value in expected.items()
+                  if manifest.get(name) != value
+              }
+              if mismatches:
+                  raise RuntimeError(
+                      f"Cached OBS manifest does not match: {mismatches}"
+                  )
+              checksum_response = client.getObject(
+                  bucket, f"{root}/{package}.sha256"
+              )
+              if checksum_response.status != 200:
+                  raise RuntimeError("Unable to read cached OBS checksum")
+              expected_digest = checksum_response.body.buffer.read().decode(
+                  "utf-8"
+              ).split()[0]
+              if manifest.get("sha256") != expected_digest:
+                  raise RuntimeError("Cached OBS manifest/checksum mismatch")
+          client.close()
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"cache_hit={str(cache_hit).lower()}\n")
+          print("REMOTE_COMPONENT_HIT" if cache_hit else "REMOTE_COMPONENT_MISS")
+          PY
+
+      - name: Install dependency
+        if: steps.remote.outputs.cache_hit != 'true'
+        run: |
+          bash scripts/npu_ci_install_dependency.sh \
+            --cann-version "${{ matrix.cann_version }}"
+
+      - name: Build SGL-Kernel-NPU
+        if: steps.remote.outputs.cache_hit != 'true'
+        run: |
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}:${ASCEND_HOME_PATH}/\$(arch)-linux/devlib &&
+            python3 setup.py --arch-version ${{ matrix.arch_version }} --ops all --artifact wheel -j ${{ inputs.jobs }}
+          "
+
+      - name: Build Attentions
+        if: steps.remote.outputs.cache_hit != 'true'
+        run: |
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
+            ./build.sh -a attentions
+          "
+
+      - name: Build Torch-Memory-Saver
+        if: steps.remote.outputs.cache_hit != 'true'
+        run: |
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
+            ./build.sh -a memory-saver
+          "
+
+      - name: Build DeepEP for a3
+        if: steps.remote.outputs.cache_hit != 'true' && matrix.target == 'a3'
+        run: |
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
+            ./build.sh -a deepep
+          "
+
+      - name: Build DeepEP for 950
+        if: steps.remote.outputs.cache_hit != 'true' && matrix.target == '950'
+        run: |
+          env -i PATH="${PATH}" bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} &&
+            ./build.sh -a deepep Ascend950
+          "
+
+      - name: Pack final package
+        if: steps.remote.outputs.cache_hit != 'true'
+        env:
+          PACKAGE_NAME: ${{ steps.artifact.outputs.package_name }}
+        run: |
+          mkdir -p upload
+          (
+            cd output
+            zip -v "../upload/${PACKAGE_NAME}" ./*.whl
+          )
+          (
+            cd upload
+            sha256sum "${PACKAGE_NAME}" > "${PACKAGE_NAME}.sha256"
+          )
+
+      - name: Upload final package to OBS
+        if: steps.remote.outputs.cache_hit != 'true'
+        env:
+          OBJECT_DIR: ${{ steps.artifact.outputs.object_dir }}
+          PACKAGE_NAME: ${{ steps.artifact.outputs.package_name }}
+          COMMIT: ${{ steps.artifact.outputs.commit }}
+          TORCH_VERSION: ${{ steps.artifact.outputs.torch_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ matrix.target }}
+          CPU_ARCH: ${{ matrix.arch }}
+          CANN_VERSION: ${{ matrix.cann_version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from obs import ObsClient
+
+          package = os.environ["PACKAGE_NAME"]
+          local = Path("upload") / package
+          checksum = Path("upload") / f"{package}.sha256"
+          digest = hashlib.sha256(local.read_bytes()).hexdigest()
+          expected = checksum.read_text(encoding="utf-8").split()[0]
+          if digest != expected:
+              raise RuntimeError("Local package checksum mismatch")
+
+          manifest = {
+              "schema_version": 1,
+              "release_tag": os.environ["RELEASE_TAG"],
+              "commit": os.environ["COMMIT"],
+              "arch": os.environ["CPU_ARCH"],
+              "target": os.environ["TARGET"],
+              "cann_version": os.environ["CANN_VERSION"],
+              "torch_version": os.environ["TORCH_VERSION"],
+              "python_version": "py312",
+              "package": package,
+              "sha256": digest,
+              "size": local.stat().st_size,
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+          }
+
+          client = ObsClient(
+              access_key_id=os.environ["OBS_ACCESS_KEY_ID"],
+              secret_access_key=os.environ["OBS_SECRET_ACCESS_KEY"],
+              server=os.environ["OBS_ENDPOINT"],
+          )
+          bucket = os.environ["OBS_BUCKET"]
+          root = os.environ["OBJECT_DIR"]
+          try:
+              response = client.putFile(bucket, f"{root}/{package}", str(local))
+              if response.status != 200:
+                  raise RuntimeError(f"PUT package failed: {response.status}")
+              response = client.putFile(
+                  bucket, f"{root}/{package}.sha256", str(checksum)
+              )
+              if response.status != 200:
+                  raise RuntimeError(f"PUT checksum failed: {response.status}")
+              response = client.putObject(
+                  bucket,
+                  f"{root}/manifest.json",
+                  content=json.dumps(
+                      manifest, indent=2, sort_keys=True
+                  ).encode(),
+              )
+              if response.status != 200:
+                  raise RuntimeError(f"PUT manifest failed: {response.status}")
+              print(f"Uploaded OBS artifact: {root}/{package}")
+          finally:
+              client.close()
+          PY
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### Prebuild result"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Release tag | ${{ inputs.release_tag }} |"
+            echo "| Architecture | ${{ matrix.arch }} |"
+            echo "| Target | ${{ matrix.target }} |"
+            echo "| CANN | ${{ matrix.cann_version }} |"
+            echo "| Commit | ${{ steps.artifact.outputs.commit }} |"
+            echo "| Cache hit | ${{ steps.remote.outputs.cache_hit }} |"
+            echo "| OBS prefix | ${{ steps.artifact.outputs.object_dir }} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
