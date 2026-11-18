@@ -1,4 +1,4 @@
-#include "../metadata_args.h"
+#include "../build_kv_sparse_metadata_args.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -6,7 +6,7 @@
 #include "cpu_kernel.h"
 #include "log.h"
 namespace {
-const char *const kBuildKvSparseMetadata = "BuildKvSparseMetadata";
+const char *const kSglBuildKvSparseMetadata = "SglBuildKvSparseMetadata";
 
 void CacheRange(const void *ptr, size_t bytes, bool invalidate, uintptr_t line_size)
 {
@@ -123,7 +123,7 @@ static uint32_t BuildRecords(const sglang::kv_metadata::Args *args)
     return 0;
 }
 
-class KvSparseMetadataKernel : public CpuKernel
+class BuildKvSparseMetadataKernel : public CpuKernel
 {
 public:
     uint32_t Compute(CpuKernelContext &ctx) override
@@ -190,5 +190,5 @@ public:
         return BuildRecords(&args);
     }
 };
-REGISTER_CPU_KERNEL(kBuildKvSparseMetadata, KvSparseMetadataKernel);
+REGISTER_CPU_KERNEL(kSglBuildKvSparseMetadata, BuildKvSparseMetadataKernel);
 }  // namespace aicpu

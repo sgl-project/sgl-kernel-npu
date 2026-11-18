@@ -1,5 +1,5 @@
 {
-    "BuildKvSparseMetadata": {
+    "SglBuildKvSparseMetadata": {
         "opInfo": {
             "computeCost": "100",
             "engine": "DNN_VM_AICPU",

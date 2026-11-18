@@ -9,7 +9,7 @@
  */
 
 // ACLNN launch integration follows examples/add_example.
-#include "aclnn_build_kv_sparse_metadata.h"
+#include "aclnn_sgl_build_kv_sparse_metadata.h"
 #include "opdev/aicpu/aicpu_task.h"
 #include "opdev/common_types.h"
 #include "opdev/make_op_executor.h"
@@ -21,25 +21,25 @@
 
 namespace l0op {
 using namespace op;
-OP_TYPE_REGISTER(BuildKvSparseMetadata);
+OP_TYPE_REGISTER(SglBuildKvSparseMetadata);
 
 static aclnnStatus BuildMetadata(const aclTensor *di, const aclTensor *hi, const aclIntArray *componentInfo,
                                  int64_t pageSize, int64_t direction, const aclTensor *src, const aclTensor *dst,
                                  const aclTensor *lengths, const aclTensor *count, aclOpExecutor *executor)
 {
-    static internal::AicpuTaskSpace space("BuildKvSparseMetadata");
-    return ADD_TO_LAUNCHER_LIST_AICPU(BuildKvSparseMetadata,
+    static internal::AicpuTaskSpace space("SglBuildKvSparseMetadata");
+    return ADD_TO_LAUNCHER_LIST_AICPU(SglBuildKvSparseMetadata,
                                       OP_ATTR_NAMES({"component_info", "page_size", "direction"}), OP_INPUT(di, hi),
                                       OP_OUTPUT(src, dst, lengths, count), OP_ATTR(componentInfo, pageSize, direction));
 }
 }  // namespace l0op
 
-extern "C" aclnnStatus aclnnBuildKvSparseMetadataGetWorkspaceSize(const aclTensor *di, const aclTensor *hi,
-                                                                  const aclIntArray *componentInfo, int64_t pageSize,
-                                                                  int64_t direction, const aclTensor *src,
-                                                                  const aclTensor *dst, const aclTensor *lengths,
-                                                                  const aclTensor *count, uint64_t *workspaceSize,
-                                                                  aclOpExecutor **executor)
+extern "C" aclnnStatus aclnnSglBuildKvSparseMetadataGetWorkspaceSize(const aclTensor *di, const aclTensor *hi,
+                                                                     const aclIntArray *componentInfo, int64_t pageSize,
+                                                                     int64_t direction, const aclTensor *src,
+                                                                     const aclTensor *dst, const aclTensor *lengths,
+                                                                     const aclTensor *count, uint64_t *workspaceSize,
+                                                                     aclOpExecutor **executor)
 {
     if (!di || !hi || !componentInfo || !src || !dst || !lengths || !count || !workspaceSize || !executor) {
         return ACLNN_ERR_PARAM_NULLPTR;
@@ -68,8 +68,8 @@ extern "C" aclnnStatus aclnnBuildKvSparseMetadataGetWorkspaceSize(const aclTenso
     return ACLNN_SUCCESS;
 }
 
-extern "C" aclnnStatus aclnnBuildKvSparseMetadata(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
-                                                  aclrtStream stream)
+extern "C" aclnnStatus aclnnSglBuildKvSparseMetadata(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+                                                     aclrtStream stream)
 {
     return CommonOpExecutorRun(workspace, workspaceSize, executor, stream);
 }

@@ -126,7 +126,7 @@ def _get_aicpu_submit():
     # The operator's pybind entry lives in the already loaded Torch library.
     library = Path(__file__).resolve().parents[3] / "lib" / "libsgl_kernel_npu.so"
     spec = importlib.util.spec_from_file_location(
-        "sgl_kernel_npu._kv_sparse_metadata", library
+        "sgl_kernel_npu._build_kv_sparse_metadata", library
     )
     if spec is None or spec.loader is None:
         raise RuntimeError("Cannot load the AICPU submission entry")
@@ -135,7 +135,7 @@ def _get_aicpu_submit():
         spec.loader.exec_module(module)
     except ImportError as error:
         raise RuntimeError(
-            "Rebuild sgl-kernel-npu with --ops kv_sparse_metadata"
+            "Rebuild sgl-kernel-npu with --ops build_kv_sparse_metadata"
         ) from error
     return module.submit
 

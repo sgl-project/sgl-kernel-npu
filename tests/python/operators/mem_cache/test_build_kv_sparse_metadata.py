@@ -23,9 +23,9 @@ from tests.python.utils.common import (
 )
 from tests.python.utils.performance import check_performance
 
-build = getattr(torch.ops.npu, "kv_sparse_metadata_aicpu", None)
+build = getattr(torch.ops.npu, "build_kv_sparse_metadata", None)
 pytestmark = pytest.mark.skipif(
-    build is None, reason="build a wheel with kv_sparse_metadata"
+    build is None, reason="build a wheel with build_kv_sparse_metadata"
 )
 
 

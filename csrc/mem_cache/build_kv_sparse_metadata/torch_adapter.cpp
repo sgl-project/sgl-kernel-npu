@@ -1,6 +1,6 @@
-#include "metadata_args.h"
+#include "build_kv_sparse_metadata_args.h"
 #include "aclnn_runtime.h"
-#include "aclnn_build_kv_sparse_metadata.h"
+#include "aclnn_sgl_build_kv_sparse_metadata.h"
 #include <ATen/record_function.h>
 #include <c10/core/DeviceGuard.h>
 #include <pybind11/stl.h>
@@ -20,11 +20,14 @@
 
 namespace sglang::kv_metadata {
 namespace {
-at::Tensor PrepareIndices(const at::Tensor &tensor, const at::Device &device, const c10_npu::NPUStream &stream)
+at::Tensor PrepareIndices(const at::Tensor &tensor, const at::Device &device, const c10_npu::NPUStream &stream,
+                          bool capturing)
 {
     TORCH_CHECK(tensor.device() == device && tensor.scalar_type() == at::kLong && tensor.dim() == 1,
                 "AICPU metadata indices must be 1-D int64 tensors on the KV NPU");
-    tensor.record_stream(stream);
+    if (!capturing) {
+        tensor.record_stream(stream);
+    }
     auto indices = tensor.contiguous();
     TORCH_CHECK(at_npu::native::get_npu_format(indices) == ACL_FORMAT_ND, "AICPU metadata indices must use ND format");
     return indices;
@@ -74,8 +77,8 @@ static SparseMetadata BuildMetadataImpl(const at::Tensor &device_indices, const 
                 "Indices must describe equal numbers of complete pages");
     const auto stream = c10_npu::getCurrentNPUStream();
     capturing = c10_npu::currentStreamCaptureStatusMayInitCtx() == c10_npu::CaptureStatus::Active;
-    const auto di = PrepareIndices(device_indices, device, stream);
-    const auto hi = PrepareIndices(host_indices, device, stream);
+    const auto di = PrepareIndices(device_indices, device, stream, capturing);
+    const auto hi = PrepareIndices(host_indices, device, stream, capturing);
     Args args{};
     args.device_indices = reinterpret_cast<uintptr_t>(di.data_ptr());
     args.host_indices = reinterpret_cast<uintptr_t>(hi.data_ptr());
@@ -136,10 +139,10 @@ static SparseMetadata BuildMetadataImpl(const at::Tensor &device_indices, const 
         sgl_cann::tensor_descriptor(di, ACL_INT64),      sgl_cann::tensor_descriptor(hi, ACL_INT64),
         sgl_cann::tensor_descriptor(src, ACL_INT64),     sgl_cann::tensor_descriptor(dst, ACL_INT64),
         sgl_cann::tensor_descriptor(lengths, ACL_INT32), sgl_cann::tensor_descriptor(count, ACL_INT32)};
-    static auto query = reinterpret_cast<decltype(&aclnnBuildKvSparseMetadataGetWorkspaceSize)>(
-        sgl_cann::op_api_symbol("aclnnBuildKvSparseMetadataGetWorkspaceSize"));
-    static auto execute =
-        reinterpret_cast<decltype(&aclnnBuildKvSparseMetadata)>(sgl_cann::op_api_symbol("aclnnBuildKvSparseMetadata"));
+    static auto query = reinterpret_cast<decltype(&aclnnSglBuildKvSparseMetadataGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglBuildKvSparseMetadataGetWorkspaceSize"));
+    static auto execute = reinterpret_cast<decltype(&aclnnSglBuildKvSparseMetadata)>(
+        sgl_cann::op_api_symbol("aclnnSglBuildKvSparseMetadata"));
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
     auto status =
@@ -152,8 +155,10 @@ static SparseMetadata BuildMetadataImpl(const at::Tensor &device_indices, const 
     if (workspaceSize > 0) {
         workspace = at::empty({static_cast<int64_t>(workspaceSize)}, di.options().dtype(at::kByte));
     }
-    for (const auto &tensor : devices) {
-        tensor.record_stream(stream);
+    if (!capturing) {
+        for (const auto &tensor : devices) {
+            tensor.record_stream(stream);
+        }
     }
     const auto aclStream = stream.stream(false);
     // Metadata and workspace are allocated and consumed on this stream.
@@ -170,7 +175,7 @@ static SparseMetadata BuildMetadataImpl(const at::Tensor &device_indices, const 
         TORCH_CHECK(stream.stream() != nullptr, "KV metadata: failed to drain the host task queue");
         launch();
     } else {
-        at_npu::native::OpCommand::RunOpApi("aclnnBuildKvSparseMetadata", launch);
+        at_npu::native::OpCommand::RunOpApi("aclnnSglBuildKvSparseMetadata", launch);
     }
     return {src, dst, lengths, count};
 }
@@ -231,7 +236,7 @@ void Submit(SparseSubmitState &state, const pybind11::function &sparse_copy, con
         {
             // Retain the builder-only profiling range when bypassing Python's
             // Torch dispatcher. MF copy and event submission stay outside it.
-            RECORD_FUNCTION("npu::kv_sparse_metadata_aicpu", c10::ArrayRef<c10::IValue>{});
+            RECORD_FUNCTION("npu::build_kv_sparse_metadata", c10::ArrayRef<c10::IValue>{});
             metadata = BuildMetadataImpl(device_indices, host_indices, devices, hosts, page_size, direction, capturing);
         }
         if (!capturing) {
@@ -270,18 +275,18 @@ void Submit(SparseSubmitState &state, const pybind11::function &sparse_copy, con
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def(
-        "kv_sparse_metadata_aicpu(Tensor device_indices, Tensor host_indices, "
+        "build_kv_sparse_metadata(Tensor device_indices, Tensor host_indices, "
         "Tensor[] device_components, Tensor[] host_components, int page_size, int direction) "
         "-> (Tensor, Tensor, Tensor, Tensor)");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
-    m.impl("kv_sparse_metadata_aicpu", TORCH_FN(sglang::kv_metadata::BuildMetadata));
+    m.impl("build_kv_sparse_metadata", TORCH_FN(sglang::kv_metadata::BuildMetadata));
 }
 
 // Export a private Python entry from the same Torch library. This needs no
 // separate extension or change to the shared operator build framework.
-PYBIND11_MODULE(_kv_sparse_metadata, m)
+PYBIND11_MODULE(_build_kv_sparse_metadata, m)
 {
     auto state = std::make_shared<sglang::kv_metadata::SparseSubmitState>();
     m.def("submit", [state](const pybind11::function &sparse_copy, const at::Tensor &device_indices,

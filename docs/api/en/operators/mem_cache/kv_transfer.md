@@ -89,9 +89,9 @@ For MemFabric, create a `memfabric_hybrid.offload.Offload` instance, initialize 
 ## memfabric_aicpu
 
 The four APIs accept explicit `impl="memfabric_aicpu"` in wheels containing
-`kv_sparse_metadata`. This command builds the metadata operator and the AIV operator on A3.
+`build_kv_sparse_metadata`. This command builds the metadata operator and the AIV operator on A3.
 
-    python3 setup.py --arch-version 2201 --ops kv_exchange,kv_sparse_metadata --artifact wheel
+    python3 setup.py --arch-version 2201 --ops kv_exchange,build_kv_sparse_metadata --artifact wheel
 
 The default `--ops all` also discovers both operators. Follow the upstream
 [AICPU build prerequisites](../../../../../python/sgl_kernel_npu/README.md#building-and-installing-aicpu-operators).
@@ -119,7 +119,7 @@ an empty batch and reports an error.
 
 The AICPU builder's address checks can be run without an MF entity:
 
-    python -m pytest tests/python/operators/mem_cache/test_kv_sparse_metadata_aicpu.py -v
+    python -m pytest tests/python/operators/mem_cache/test_build_kv_sparse_metadata.py -v
 
 End-to-end checks also require compatible MemFabric sparse copy and a matching
 Host pool.
@@ -132,11 +132,11 @@ An independent synchronous reference directly copies original Tensor layer/page 
 
 AIV enqueues on the caller's current NPU stream. The C++ adapter retains the NPU tensors through the queued launch. Contiguous index copies are created and used on the submission stream. The caller provides cross-stream dependencies, keeps its NPU inputs and registered Host buffers alive through completion, and waits before modifying or reusing transfer storage. Synchronize outstanding transfers before releasing the MemFabric pool.
 
-AICPU enqueues metadata generation and MemFabric copy on the caller's current NPU stream. Its C++ adapter records the Device components and original indices on that stream. The address tables are allocated and consumed on the same stream. In eager execution, the Host C++ submission entry records the internal event after MF copy submission and orders MemFabric submissions across streams on the same device. Python no longer creates, records, or waits on internal events. The caller owns the Host buffers and provides dependencies between producers, transfers, and consumers.
+AICPU enqueues metadata generation and MemFabric copy on the caller's current NPU stream. In eager execution, its C++ adapter records the Device components and original indices on that stream. The address tables are allocated and consumed on the same stream. In eager execution, the Host C++ submission entry records the internal event after MF copy submission and orders MemFabric submissions across streams on the same device. Python no longer creates, records, or waits on internal events. The caller owns the Host buffers and provides dependencies between producers, transfers, and consumers.
 
 ## NPU graph capture
 
-The AIV path requires eager execution. The AICPU path can capture metadata generation and `sparse_copy` on the capture stream with a graph-compatible MemFabric runtime. The caller keeps the index and KV tensors and the registered MF pool alive at fixed addresses for capture and replay. Update index values in place with unchanged shapes. The caller orders replays against other MemFabric submissions that share the pool, since captured transfers bypass the eager per-device completion event.
+The AIV path requires eager execution. The AICPU path can capture metadata generation and `sparse_copy` on the capture stream with a graph-compatible MemFabric runtime. The caller keeps the index and KV tensors and the registered MF pool alive at fixed addresses for capture and replay. Update index values in place with unchanged shapes. The caller orders replays against other MemFabric submissions that share the pool, since captured transfers bypass input `record_stream()` calls and the eager per-device completion event.
 
 ## Example
 
@@ -191,4 +191,4 @@ For LF Host, allocate `[5,6,ps,1,8]`, meaning `[host_layers,host_pages,ps,1,8]`,
 python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl ascendc_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
 ```
 
-The fixture initializes the LOCAL MemFabric pool and registers Host allocations. With `--impl auto`, it exercises `memfabric_aicpu` for H2D and `ascendc_aiv` for D2H. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Shared profiling reports summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately. The tests require an available NPU and matching CANN, Torch, and MemFabric builds with `kv_exchange`. With `--impl auto`, they also require `kv_sparse_metadata` and compatible MemFabric `sparse_copy`.
+The fixture initializes the LOCAL MemFabric pool and registers Host allocations. With `--impl auto`, it exercises `memfabric_aicpu` for H2D and `ascendc_aiv` for D2H. Tests isolate in-place destinations, compare exact bytes, and then use `make_executor` / `check_performance`. Shared profiling reports summed NPU-task duration, excluding full CPU submission overhead; measure end-to-end overhead separately. The tests require an available NPU and matching CANN, Torch, and MemFabric builds with `kv_exchange`. With `--impl auto`, they also require `build_kv_sparse_metadata` and compatible MemFabric `sparse_copy`.

@@ -88,10 +88,10 @@ A3 使用 `python3 setup.py --arch-version 2201 --ops kv_exchange` 构建，A5 �
 
 ## memfabric_aicpu
 
-包含 `kv_sparse_metadata` 的 wheel 中，四个接口均可显式选择 `impl="memfabric_aicpu"`。
+包含 `build_kv_sparse_metadata` 的 wheel 中，四个接口均可显式选择 `impl="memfabric_aicpu"`。
 在 A3 上可以用以下命令同时构建 AIV 和 AICPU 算子。
 
-    python3 setup.py --arch-version 2201 --ops kv_exchange,kv_sparse_metadata --artifact wheel
+    python3 setup.py --arch-version 2201 --ops kv_exchange,build_kv_sparse_metadata --artifact wheel
 
 默认 `--ops all` 也会发现这两个算子。环境要求见官方
 [AICPU 构建说明](../../../../../python/sgl_kernel_npu/README.md#building-and-installing-aicpu-operators)。
@@ -112,7 +112,7 @@ Python 将 `host_memory.set_memfabric_pool` 发布的已初始化池的 `sparse_
 
 构表地址校验不需要初始化 MF entity：
 
-    python -m pytest tests/python/operators/mem_cache/test_kv_sparse_metadata_aicpu.py -v
+    python -m pytest tests/python/operators/mem_cache/test_build_kv_sparse_metadata.py -v
 
 验证整条搬运链路还需要兼容的 MemFabric sparse copy 和匹配的 Host 池。
 
@@ -124,11 +124,11 @@ Python 将 `host_memory.set_memfabric_pool` 发布的已初始化池的 `sparse_
 
 AIV 在调用者的当前 NPU 流上提交搬运。C++ adapter 将 NPU 张量保留到排队的算子下发完成。连续索引副本在提交流上创建并使用。调用者负责建立跨流依赖，在搬运完成前保留自己的 NPU 输入和已注册的 Host 缓冲区，并等待搬运结束后再改写或复用相关存储。释放 MemFabric 池前，须同步所有尚未完成的搬运。
 
-AICPU 在调用者的当前 NPU 流上提交构表和 MemFabric copy。C++ adapter 在该流上记录 Device 组件和原始索引，地址表也在同一流上分配和消费。普通异步提交时，Host C++ 入口在 MF copy 提交后记录内部事件，并为同一设备上的跨流 MemFabric copy 建立顺序；Python 不再创建、记录或等待内部事件。调用者负责持有 Host 缓冲区，并建立生产、搬运和消费之间的依赖。
+AICPU 在调用者的当前 NPU 流上提交构表和 MemFabric copy。普通异步执行时，C++ adapter 在该流上记录 Device 组件和原始索引。地址表在同一流上分配和消费。普通异步提交时，Host C++ 入口在 MF copy 提交后记录内部事件，并为同一设备上的跨流 MemFabric copy 建立顺序；Python 不再创建、记录或等待内部事件。调用者负责持有 Host 缓冲区，并建立生产、搬运和消费之间的依赖。
 
 ## NPU Graph 捕获
 
-AIV 路径要求普通异步提交。使用支持图捕获的 MemFabric 运行时时，AICPU 路径可在捕获流上提交构表和 `sparse_copy`。调用方须在捕获和重放期间保留固定地址的索引张量、KV 张量及已注册的 MF 池，并以相同形状原地更新索引值。图内搬运跳过普通提交的逐设备完成事件，调用方负责对共享同一 MF 池的重放与其他搬运建立顺序。
+AIV 路径要求普通异步提交。使用支持图捕获的 MemFabric 运行时时，AICPU 路径可在捕获流上提交构表和 `sparse_copy`。调用方须在捕获和重放期间保留固定地址的索引张量、KV 张量及已注册的 MF 池，并以相同形状原地更新索引值。图内搬运跳过输入的 `record_stream()` 和普通提交的逐设备完成事件，调用方负责对共享同一 MF 池的重放与其他搬运建立顺序。
 
 ## 示例
 
@@ -183,4 +183,4 @@ LF Host 可改为 `[5,6,ps,1,8]`，即 `[host_layers,host_pages,ps,1,8]` 分配�
 python -m pytest tests/python/operators/mem_cache/test_kv_transfer.py --impl ascendc_aiv --impl-ref torch_native --enable-perf=false -v -s -rs
 ```
 
-测试初始化 LOCAL MemFabric 池，并注册完整的 Host 分配。使用 `--impl auto` 时，测试的 H2D 走 `memfabric_aicpu`，D2H 走 `ascendc_aiv`。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。测试需要可用 NPU、匹配的 CANN、Torch 和 MemFabric，以及 `kv_exchange` 算子。使用 `--impl auto` 时还需要 `kv_sparse_metadata` 和兼容的 MemFabric `sparse_copy`。
+测试初始化 LOCAL MemFabric 池，并注册完整的 Host 分配。使用 `--impl auto` 时，测试的 H2D 走 `memfabric_aicpu`，D2H 走 `ascendc_aiv`。对原地修改目标使用独立缓冲区，逐字节比较后通过 `make_executor` / `check_performance` 采集。共享性能工具报告 NPU task 耗时之和，不包含全部 CPU 提交开销；端到端开销须另行计时。测试需要可用 NPU、匹配的 CANN、Torch 和 MemFabric，以及 `kv_exchange` 算子。使用 `--impl auto` 时还需要 `build_kv_sparse_metadata` 和兼容的 MemFabric `sparse_copy`。
