@@ -84,6 +84,7 @@
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`、`torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`、`torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`、`torch_native` |
+| [div_argmax](operators/sample/div_argmax.md) | `triton`、`torch_native` |
 | [build_tree](operators/speculative/build_tree.md) | `ascendc`、`torch_native` |
 | [causal_conv1d](operators/mamba/causal_conv1d.md) | `ascendc`、`torch_native` |
 | [chain_speculative_sampling](operators/speculative/chain_speculative_sampling.md) | `triton`、`torch_native` |
