@@ -176,7 +176,7 @@ torch registration: `include/sgl_kenel_npu_ops.h` (declaration) +
 `csrc/pytorch_extensions.cpp` (`m.def` + `m.impl`).
 
 ```bash
-source /usr/local/Ascend/cann-9.0.0/set_env.sh
+source /usr/local/Ascend/cann-9.1.0/set_env.sh
 bash build.sh -a kernels Ascend910_9382
 ```
 
