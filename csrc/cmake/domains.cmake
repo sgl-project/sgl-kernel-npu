@@ -1,12 +1,13 @@
 include_guard(GLOBAL)
 # Register domains once; each domain discovers only its direct operator children.
 set(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
-# HOST declarations are discovered before the legacy CANN declarations so the
-# unified request can be partitioned without exposing HOST IDs to CANN helpers.
+# Discover domains with HOST operators before partitioning the unified request.
 function(sgl_add_host_operator_domains)
-    foreach(domain IN ITEMS data_move norm sparsity_driven_kv_offload/shm_allocator)
+    foreach(domain IN ITEMS data_move norm)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
+    add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/mem_cache/sparsity_driven_kv_offload"
+        "declarations/host/sparsity_driven_kv_offload")
 endfunction()
 
 function(sgl_add_cann_operator_domains)
