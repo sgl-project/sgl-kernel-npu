@@ -6,6 +6,13 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
 )
 
 
+def _prune_rmsnorm_configs(configs, named_args, **kwargs):
+    # Bound the tile size now that squaring and normalization use FP32.
+    hidden_size = named_args["hidden_size"]
+    tile_limit = max(8192, hidden_size)
+    return [c for c in configs if c.kwargs["block_l"] * hidden_size <= tile_limit]
+
+
 @triton.autotune(
     configs=[
         triton.Config(
@@ -26,8 +33,12 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
         triton.Config(
             {"block_l": 2},
         ),
+        triton.Config(
+            {"block_l": 1},
+        ),
     ],
-    key=["num_tokens"],
+    key=["num_tokens", "hidden_size"],
+    prune_configs_by={"early_config_prune": _prune_rmsnorm_configs},
 )
 @triton.jit
 def fused_rmsnorm_without_weight_kernel(
@@ -51,7 +62,7 @@ def fused_rmsnorm_without_weight_kernel(
         mask_dim = dim_offsets[None, :] < hidden_size
         mask = mask_token & mask_dim
 
-        x = tl.load(x_ptr + offsets, mask=mask, other=0.0)
+        x = tl.load(x_ptr + offsets, mask=mask, other=0.0).to(tl.float32)
         x_sq = x * x
         var = tl.sum(x_sq, axis=1) * (1 / hidden_size)
         rstd = tl.math.rsqrt(var + eps)

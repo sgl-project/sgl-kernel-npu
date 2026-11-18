@@ -51,9 +51,9 @@ Use finite inputs; cross-backend NaN behavior is unspecified. The public interfa
 ## triton backend
 
 - Uses a CANN Triton kernel that flattens `B*L` tokens and reduces per row; non-quantized output only.
-- Autotunes `block_l ∈ {64, 32, 16, 8, 4, 2}` keyed by `num_tokens`; the grid is the vector core count.
+- Autotunes `block_l ∈ {64, 32, 16, 8, 4, 2, 1}` keyed by `num_tokens` and `C`; the grid is the vector core count. Candidate tiles are limited to `max(8192, C)` elements to bound FP32 intermediate storage.
 - Uses `tl.arange(0, C)` for the reduction dimension, so `C` must be a power of two; requires contiguous three-dimensional input.
-- `x*x` follows the input dtype, so reduction accuracy may be lower than a float32 reference (Triton usually promotes bf16 reductions to float32); fp16 outputs show larger numerical differences.
+- Input values are promoted to float32 before squaring. Mean-square reduction and normalization use float32; the result is cast back to the input dtype.
 
 ## torch_native backend
 
