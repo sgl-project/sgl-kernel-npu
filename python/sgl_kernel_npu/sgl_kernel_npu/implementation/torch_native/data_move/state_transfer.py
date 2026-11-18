@@ -245,6 +245,53 @@ def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, dir
     _copy_packed_state(device_buf, host_buf, device_indices, host_indices, direction)
 
 
+def transfer_state_per_layer_direct_pf_lf(
+    src, dst, src_indices, dst_indices, layer_id, flags
+):
+    # The Mamba host pool reuses the KV direct contract verbatim: host source
+    # [slots, layers, 1, *payload] -> device layer view [slots, *payload].
+    return transfer_kv_per_layer_direct_pf_lf(
+        src, dst, src_indices, dst_indices, layer_id, flags
+    )
+
+
+def transfer_state_all_layer_direct_lf_pf(
+    device_states, host_states, device_indices, host_indices, flags
+):
+    # Unlike the KV all-layer reference, every component transfers its own
+    # layer count: main components [L, slots, ...] plus draft components
+    # [1, slots, ...] with layer-narrowed host views back up in one call.
+    if not device_states or len(device_states) != len(host_states):
+        raise RuntimeError("expected matching nonempty component lists")
+    pairs = _slot_pairs(device_indices, host_indices, flags)
+    if not pairs:
+        return
+    for which, (dev, host) in enumerate(zip(device_states, host_states)):
+        if (
+            not dev.numel()
+            or not host.numel()
+            or dev.ndim < 3
+            or host.ndim != dev.ndim + 1
+            or host.size(1) != dev.size(0)
+            or host.size(2) != 1
+        ):
+            raise RuntimeError(
+                f"component {which}: expected device [layers, slots, *payload] "
+                "and host [slots, layers, 1, *payload]"
+            )
+        if dev.dtype != host.dtype or dev[0, 0].numel() != host[0, 0, 0].numel():
+            raise RuntimeError(
+                f"component {which}: slot payload dtypes or widths differ"
+            )
+        _check_slots(pairs, dev.size(1), host.size(0))
+    for dev, host in zip(device_states, host_states):
+        # Narrowed host views (draft layers) are not contiguous; flatten each
+        # dense payload in storage order instead of viewing the host block.
+        device = _payload_view(dev, 2)
+        host = _payload_view(host, 3)
+        _copy_all_layers(device, host, device_indices, host_indices)
+
+
 def transfer_kv_dim_exchange(
     device_indices,
     host_indices,

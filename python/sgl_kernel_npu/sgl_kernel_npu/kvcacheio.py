@@ -3,6 +3,13 @@ from typing import Optional, Sequence
 
 import torch
 
+from .operators.data_move.transfer_state_direct import (
+    transfer_state_all_layer_direct_lf_pf as _state_all_layer_direct,
+)
+from .operators.data_move.transfer_state_direct import (
+    transfer_state_per_layer_direct_pf_lf as _state_per_layer_direct,
+)
+
 
 class TransferDirection(Enum):
     H2D = 1
@@ -21,13 +28,13 @@ def transfer_state_per_layer_direct_pf_lf(
     layer_id: int,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
+    _state_per_layer_direct(
         src,
         dst,
         src_indices,
         dst_indices,
         layer_id,
-        flags.value,
+        flags,
     )
 
 
@@ -38,12 +45,12 @@ def transfer_state_all_layer_direct_lf_pf(
     host_indices: torch.Tensor,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
-        list(device_states),
-        list(host_states),
+    _state_all_layer_direct(
+        device_states,
+        host_states,
         device_indices,
         host_indices,
-        flags.value,
+        flags,
     )
 
 
