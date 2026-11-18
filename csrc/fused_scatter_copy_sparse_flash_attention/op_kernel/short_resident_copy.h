@@ -116,12 +116,12 @@ public:
         }
     }
 
-    // Call only after every copying task has crossed the barrier. Each row is
-    // committed by one AIV task, and the next launch observes stream ordering.
+    // Call after the copy barrier. One AIV writes both state arrays because
+    // scalar stores write back whole cache lines. The next launch is stream-ordered.
     __aicore__ inline void Commit()
     {
-        if (core_ >= cores_) return;
-        for (uint32_t b = core_; b < batch_; b += cores_) {
+        if (core_ != 0) return;
+        for (uint32_t b = 0; b < batch_; ++b) {
             const int32_t req = slots_.GetValue(b);
             const int32_t len = lengths_.GetValue(b);
             if (req <= 0 || req >= rows_ || len <= 0) continue;
