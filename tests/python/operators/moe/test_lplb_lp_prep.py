@@ -12,11 +12,12 @@ from tests.python.utils.common import (
     require_distinct_impls,
 )
 from tests.python.utils.performance import check_performance
+import os
+os.environ['ASCEND_LAUNCH_BLOCKING'] = '1'
 
 # Production case: a 256-logical-expert EP group spread over 16 NPU cards,
 # with 32 replicated logical experts and 16 GPUs in the IPM row block.
 perf_shape = [(224, 32, 64, 16, 256)]
-
 
 def generate_data(shape, mode, seed=42):
     """Build one consistent LPLB solver state.
