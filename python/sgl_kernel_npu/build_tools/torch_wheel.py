@@ -1,4 +1,4 @@
-"""Continue a selected CANN build through Torch and an optional binary wheel."""
+"""Continue an installed native RUN package through Torch and a binary wheel."""
 
 import hashlib
 import importlib.metadata
@@ -33,22 +33,30 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
     )
     shutil.copy2(source_root / "config.ini", package / "config.ini")
     # This is the expanded vendor, not the installer and not SDK libraries.
-    shutil.copytree(vendor, package / "_cann/vendors/sgl_kernel_npu")
+    if vendor is not None:
+        shutil.copytree(
+            vendor,
+            package / "_cann/vendors/sgl_kernel_npu",
+            ignore=shutil.ignore_patterns("libsgl_host_operators.a"),
+        )
 
 
 def build_torch(
-    cann, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
+    native_build, arch_version, *, jobs=None, source_root=PROJECT_ROOT, dependencies=()
 ):
-    if cann.vendor is None:
+    if native_build.vendor is None:
         raise RuntimeError("Torch requires a built and installed CANN package")
+    arch_version = str(arch_version)
     source_root = Path(source_root).resolve()
-    directory = cann.directory.parent / "torch"
+    directory = native_build.directory.parent / "torch"
     if directory.is_symlink():
         raise RuntimeError("Refusing a symlinked Torch build directory")
     expected = {
         "CMAKE_HOME_DIRECTORY": str(source_root / "csrc/aclnn_torch_adapter"),
         "SGL_ARCH_VERSION": arch_version,
-        "SGL_CANN_OPERATORS": ";".join(cann.operators),
+        "SGL_CANN_OPERATORS": ";".join(native_build.cann_operators),
+        "SGL_HOST_OPERATORS": ";".join(native_build.host_operators),
+        "SGL_CANN_VENDOR": str(native_build.vendor),
         "Python3_EXECUTABLE": sys.executable,
         "SGL_TORCH_LIBRARY_DIR": str(directory / "lib"),
     }
@@ -73,21 +81,37 @@ def build_torch(
     directory.mkdir(parents=True, exist_ok=True)
     signature.write_text(json.dumps(environment, sort_keys=True) + "\n")
     package = directory / "package/sgl_kernel_npu"
-    stage_runtime(cann.vendor, package, source_root, arch_version)
+    stage_runtime(
+        native_build.vendor if native_build.cann_operators else None,
+        package,
+        source_root,
+        arch_version,
+    )
     from build_tools.third_party import stage_dependencies
 
     third_party = stage_dependencies(dependencies, package)
-    (package / "_cann/selected-operators.txt").write_text(
-        "\n".join(cann.operators) + "\n"
-    )
-    (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
+    if native_build.cann_operators:
+        (package / "_cann/selected-operators.txt").write_text(
+            "\n".join(native_build.cann_operators) + "\n"
+        )
+        (package / "_cann/arch-version.txt").write_text(arch_version + "\n")
     manifest = {
         "schema_version": 1,
         "build_mode": "REFACTOR",
         "arch_version": arch_version,
-        "selection_kind": cann.selection_kind,
-        "operators": sorted(cann.operators),
-        "compute_units": architecture(arch_version, source_root)["compute_units"],
+        "selection_kind": native_build.selection_kind,
+        "operators": sorted(
+            (*native_build.cann_operators, *native_build.host_operators)
+        ),
+        "operators_by_type": {
+            "cann": sorted(native_build.cann_operators),
+            "cpp": sorted(native_build.host_operators),
+        },
+        "compute_units": (
+            architecture(arch_version, source_root)["compute_units"]
+            if native_build.cann_operators
+            else []
+        ),
         "third_party": third_party,
     }
     (package / "_build_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -101,8 +125,9 @@ def build_torch(
             "-DCMAKE_BUILD_TYPE=Release",
             "-DPython3_EXECUTABLE=" + sys.executable,
             "-DSGL_ARCH_VERSION=" + arch_version,
-            "-DSGL_CANN_OPERATORS=" + ";".join(cann.operators),
-            "-DSGL_CANN_VENDOR=" + str(cann.vendor),
+            "-DSGL_CANN_OPERATORS=" + ";".join(native_build.cann_operators),
+            "-DSGL_HOST_OPERATORS=" + ";".join(native_build.host_operators),
+            "-DSGL_CANN_VENDOR=" + str(native_build.vendor),
             "-DSGL_TORCH_LIBRARY_DIR=" + str(directory / "lib"),
         ],
         directory / "configure.log",
@@ -125,13 +150,14 @@ def wheel_build_tag(manifest):
     kind = manifest["selection_kind"]
     if kind not in ("all", "custom"):
         raise ValueError("Invalid wheel selection kind")
+    # Preserve main's tag format and third-party fingerprint. Native ALL is also
+    # hashed because native selections can contain CANN, CPP or both.
     parts = ["1", "refactor", manifest["arch_version"], kind]
-    if kind == "custom":
-        parts.append(
-            hashlib.sha256(
-                ",".join(sorted(manifest["operators"])).encode()
-            ).hexdigest()[:10]
-        )
+    parts.append(
+        hashlib.sha256(",".join(sorted(manifest["operators"])).encode()).hexdigest()[
+            :10
+        ]
+    )
     if manifest.get("third_party"):
         parts.extend(
             [
@@ -217,7 +243,7 @@ def build_wheel(package, *, source_root=PROJECT_ROOT):
     verify_wheel(wheels[0], staged)
     print("WHEEL: " + str(wheels[0]), flush=True)
     print(
-        "PASS: wheel contains this build's selected CANN vendor and Torch library; NPU tests still required"
+        "PASS: wheel matches this build's native operator manifest and Torch library; NPU tests still required"
     )
     return wheels[0]
 
@@ -253,7 +279,7 @@ def setup_refactor():
     setup(
         name="sgl_kernel_npu",
         version=config.get("global", "version"),
-        description="Selected CANN operators and Torch adapters for Ascend NPU",
+        description="Selected CANN and C++ operators for Ascend NPU",
         packages=find_namespace_packages(
             where=str(package.parent),
             include=["sgl_kernel_npu", "sgl_kernel_npu.*"],

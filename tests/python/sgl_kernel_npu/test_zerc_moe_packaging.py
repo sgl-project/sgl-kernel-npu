@@ -1,5 +1,6 @@
 """Host-only checks for opt-in ZeRCMoE build staging."""
 
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
@@ -41,18 +42,21 @@ def test_opt_in_is_not_selected_by_default(modules, tmp_path, monkeypatch):
     third_party, _ = modules
     profiles = tmp_path / "third_party/profiles/cann-9.2.0"
     profiles.mkdir(parents=True)
-    (profiles / "existing.json").write_text(json.dumps(_profile("existing")))
+    existing = _profile("existing")
+    existing["additional_builds"] = [{"name": "existing_experimental"}]
+    (profiles / "existing.json").write_text(json.dumps(existing))
     (profiles / "zerc_moe.json").write_text(
         json.dumps(_profile("zerc_moe", opt_in=True))
     )
     adapter = SimpleNamespace(configure=lambda config, jobs: config)
     monkeypatch.setattr(third_party, "get_adapter", lambda name: adapter)
     default = third_party.resolve_plan("9.2.0", "3510", source_root=tmp_path)
-    assert [item["name"] for item in default] == ["existing"]
+    assert [item["name"] for item in default] == ["existing", "existing_experimental"]
     selected = third_party.resolve_plan(
         "9.2.0", "3510", source_root=tmp_path, third_party=("zerc_moe",)
     )
     assert [item["name"] for item in selected] == ["zerc_moe"]
+    assert third_party.resolve_plan("9.2.0", "2201", source_root=tmp_path) == []
     with pytest.raises(ValueError, match="not supported"):
         third_party.resolve_plan(
             "9.2.0", "2201", source_root=tmp_path, third_party=("zerc_moe",)
@@ -61,17 +65,16 @@ def test_opt_in_is_not_selected_by_default(modules, tmp_path, monkeypatch):
 
 def test_configure_fingerprints_overlay_and_targets_ascend_950(modules, monkeypatch):
     _, adapter = modules
-    monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend950")
     state = {"csrc/zerc_moe/source/kernel.cpp": "a"}
     monkeypatch.setattr(adapter, "local_input_hashes", lambda paths: dict(state))
     config = {"arch_version": "3510", "name": "zerc_moe"}
     first = adapter.configure(config, 4)
+    assert first["soc"] == "ascend950"
     assert first["commands"][0][-2:] == ["--ops=zerc_moe", "-j4"]
     state["csrc/zerc_moe/source/kernel.cpp"] = "b"
     assert adapter.configure(config, 4)["overlay_sha256"] != first["overlay_sha256"]
-    monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910_93")
-    with pytest.raises(RuntimeError, match="Ascend 950"):
-        adapter.configure(config, 4)
+    with pytest.raises(ValueError, match="arch35"):
+        adapter.configure({"arch_version": "2201", "name": "zerc_moe"}, 4)
 
 
 def test_prepare_source_registers_a_separate_mc2_name(modules, tmp_path, monkeypatch):
@@ -191,6 +194,46 @@ def test_stage_python_rejects_unsafe_wheel(modules, tmp_path):
         archive.writestr("../../escape", "bad")
     with pytest.raises(ValueError, match="Unsafe wheel"):
         adapter.stage_python(wheel, tmp_path / "package")
+
+
+def test_stage_isolates_opapi_before_recording_hashes(modules, tmp_path, monkeypatch):
+    _, adapter = modules
+    vendor = tmp_path / "vendor_zerc_moe"
+    library = vendor / "op_api/lib/libcust_opapi.so"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"original")
+    license_file = tmp_path / "LICENSE"
+    license_file.write_text("license")
+    package = tmp_path / "package"
+
+    def isolate(staged_package):
+        staged_library = (
+            staged_package
+            / "_cann/vendors"
+            / vendor.name
+            / "op_api/lib/libcust_opapi.so"
+        )
+        assert staged_library.read_bytes() == b"original"
+        staged_library.write_bytes(b"isolated")
+        return {vendor.name: "sgl_private.so"}
+
+    monkeypatch.setattr(adapter, "isolate_staged_opapis", isolate)
+    monkeypatch.setattr(adapter, "stage_python", lambda wheel, destination: None)
+    manifest = adapter.stage(
+        {
+            "config": {"name": "zerc_moe"},
+            "vendor": vendor,
+            "wheel": None,
+            "license": license_file,
+        },
+        package,
+    )
+    assert manifest["opapi_soname"] == "sgl_private.so"
+    assert (
+        manifest["files"]["op_api/lib/libcust_opapi.so"]
+        == hashlib.sha256(b"isolated").hexdigest()
+    )
+    assert library.read_bytes() == b"original"
 
 
 def test_inspect_vendor_requires_kernel_metadata_and_binaries(modules, tmp_path):

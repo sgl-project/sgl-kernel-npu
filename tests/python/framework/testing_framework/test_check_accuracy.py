@@ -224,7 +224,7 @@ def test_same_entry_cannot_be_used_as_reference(accuracy_case, reference):
     assert_calls(case, [])
 
 
-# Distinguish missing entries, unsupported DUT skips and reference errors before computation.
+# An unsupported DUT skips before the reference is resolved; missing entries fail.
 @pytest.mark.parametrize(
     "skip_accuracy, dut_state, ref_state, expected",
     [
@@ -238,14 +238,14 @@ def test_same_entry_cannot_be_used_as_reference(accuracy_case, reference):
             False,
             "unsupported",
             "missing",
-            "missing-ref",
-            id="reference-error-before-skip",
+            "skip",
+            id="unsupported-dut-missing-reference",
         ),
         pytest.param(
             False,
             "unsupported",
             "unsupported",
-            "unsupported-ref",
+            "skip",
             id="both-unsupported",
         ),
         pytest.param(

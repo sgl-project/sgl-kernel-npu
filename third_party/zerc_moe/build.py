@@ -11,7 +11,9 @@ from pathlib import Path, PurePosixPath
 
 from build_tools.cann import PROJECT_ROOT, run
 from build_tools.local_inputs import local_input_hashes
-from build_tools.third_party import detect_soc_version, read_json
+from build_tools.third_party import read_json, resolve_soc_version
+
+from third_party.opapi import isolate_staged_opapis
 
 _SOURCE_ROOT = PROJECT_ROOT / "csrc/zerc_moe"
 _BINDINGS = (
@@ -43,9 +45,7 @@ def configure(config, jobs):
     config = dict(config)
     if config["arch_version"] != "3510":
         raise ValueError("ZeRCMoE requires arch35")
-    if detect_soc_version() != "ascend950":
-        raise RuntimeError("ZeRCMoE requires an Ascend 950 build host")
-    config["soc"] = "ascend950"
+    config["soc"] = resolve_soc_version(config["arch_version"])
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
@@ -249,6 +249,7 @@ def stage(result, package):
     shutil.copytree(vendor, target)
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     stage_python(result["wheel"], package)
     licenses = package / "_third_party/licenses" / item["name"]
     licenses.mkdir(parents=True)
@@ -259,5 +260,9 @@ def stage(result, package):
         if p.is_file()
     }
     return dict(
-        item, vendor_directory=vendor.name, files=hashes, binding="upstream_jit"
+        item,
+        vendor_directory=vendor.name,
+        files=hashes,
+        binding="upstream_jit",
+        opapi_soname=opapi_sonames[vendor.name],
     )

@@ -1,1 +1,1 @@
-"""PyTorch LoRA references."""
+"""PyTorch LoRA references (loaded on demand)."""

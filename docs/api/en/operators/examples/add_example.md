@@ -21,7 +21,7 @@ def add_example(x1, x2, *, impl="auto"):
 ```
 
 Omitting `impl` or passing `"auto"` selects `aicpu`. No automatic fallback occurs
-when the native operator is unavailable. Pass `impl="torch_native"` explicitly
+when the AICPU implementation is unavailable. Pass `impl="torch_native"` explicitly
 to select the independent reference.
 
 ## Description
@@ -56,9 +56,9 @@ layout before dispatch. Unsupported inputs are rejected rather than converted.
 
 ## aicpu backend
 
-Calls the packaged native `torch.ops.npu.sgl_add_example` binding. Supports
+Calls the packaged AICPU implementation through `torch.ops.npu.sgl_add_example`. Supports
 matching FP32 or INT32 inputs under the constraints above. The wheel must include
-this native operator; a missing binding causes an error.
+this AICPU implementation; a missing binding causes an error.
 
 ## torch_native backend
 

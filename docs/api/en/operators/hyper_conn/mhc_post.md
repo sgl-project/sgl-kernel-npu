@@ -7,8 +7,6 @@
 | cann_ops_transformer | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
-Accuracy validated on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582) with CANN 9.1: all 16 independent Torch-reference cases passed on each device, covering FP16/BF16 activations and FP32 parameters.
-
 ## Signature
 
 ```python
@@ -42,7 +40,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
+Uses `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_post` bundled in a wheel built with the matching CANN 9.1 or 9.2 third-party profile. A separately installed `cann_ops_transformer` package is not required. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 Argument order matches the vendor API: residual streams, residual matrix, layer output, post gates.
 

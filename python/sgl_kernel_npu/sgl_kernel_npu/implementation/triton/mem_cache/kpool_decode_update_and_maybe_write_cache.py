@@ -134,7 +134,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             + row * block_tables_stride_0
             + token_page_row * block_tables_stride_1,
         )
-        loc_page_index = packed_page.to(tl.int64)
+        loc_page_index = packed_page.to(tl.int64) // POOL_SIZE
         loc_token_offset_in_page = pool_id % SLOTS_PER_PAGE
         out_k_offsets = (
             loc_page_index * BUF_NUMEL_PER_PAGE

@@ -8,7 +8,9 @@ import sys
 from pathlib import Path
 
 from build_tools.cann import run
-from build_tools.third_party import detect_soc_version, extract_python, read_json
+from build_tools.third_party import extract_python, read_json, resolve_soc_version
+
+from third_party.opapi import isolate_staged_opapis
 
 
 def configure(config, jobs):
@@ -17,27 +19,58 @@ def configure(config, jobs):
     if not isinstance(operators, dict) or not operators:
         raise ValueError("recipes ops must map Python interface names to kernel names")
     for interface, kernel in operators.items():
-        if any(
+        kernels = kernel if isinstance(kernel, list) else [kernel]
+        if not kernels or any(
             not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
-            for name in (interface, kernel)
+            for name in [interface] + [name for name in kernels if name is not None]
         ):
             raise ValueError("Invalid recipes interface or kernel name")
-    config["soc"] = detect_soc_version()
-    supported = {"2201": ("ascend910b", "ascend910_93"), "3510": ("ascend950",)}
-    if config["soc"] not in supported[config["arch_version"]]:
-        raise RuntimeError("Detected recipes SoC does not match selected architecture")
+    config["soc"] = resolve_soc_version(config["arch_version"])
     if config.get("has_aicpu", False):
         raise ValueError("Selected recipes operators do not contain AICPU kernels")
     config["vendor_name"] = "vendor_" + config["name"]
     config["python_package"] = config["name"]
     config["jobs"] = jobs or 8
-    config["kernel_ops"] = ";".join(dict.fromkeys(operators.values()))
+    config["kernel_ops"] = ";".join(
+        dict.fromkeys(
+            name
+            for kernel in operators.values()
+            for name in (kernel if isinstance(kernel, list) else [kernel])
+            if name is not None
+        )
+    )
+    if not config["kernel_ops"]:
+        raise ValueError("recipes profile needs at least one owned kernel")
     values = dict(config, python=sys.executable)
     config["commands"] = [
         [argument.format(**values) for argument in command]
         for command in config["commands"]
     ]
     return config
+
+
+# Bridge source names that differ from the interface name. npu_hc_pre_v2
+# shares the npu_hc_pre bridge and is selected line by line below.
+_BRIDGE_SOURCES = {
+    "indexer_compress_epilog": "npu_indexer_compress_epilog",
+    "kv_compress_epilog_v2": "npu_kv_compress_epilog_v2",
+    "npu_hc_pre_v2": "npu_hc_pre",
+}
+
+
+def _select_impls(content, operators):
+    """Keep only m.impl registrations for the operators in this build.
+
+    A shared bridge may register several operators while only a subset has a
+    generated schema; the extra registrations fail at import time.
+    """
+    selected = set(operators)
+    kept = []
+    for line in content.splitlines():
+        match = re.match(r'\s*m\.impl\("([^"]+)"', line)
+        if match is None or match.group(1) in selected:
+            kept.append(line)
+    return "\n".join(kept) + "\n"
 
 
 def prepare_python(source, item):
@@ -58,11 +91,12 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        content = (upstream / (op + ".cpp")).read_text()
+        source_name = _BRIDGE_SOURCES.get(op, op)
+        content = (upstream / (source_name + ".cpp")).read_text()
         content = content.replace(
             "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
         )
-        (sources / (op + ".cpp")).write_text(content)
+        (sources / (op + ".cpp")).write_text(_select_impls(content, item["ops"]))
     notice = declarations[: declarations.index("#include")]
     (sources / "ops_def_registration.cpp").write_text(
         notice
@@ -111,12 +145,11 @@ def inspect_vendor(vendor, item):
 
     require(vendor / "op_api/lib/libcust_opapi.so")
     kernel = vendor / "op_impl/ai_core/tbe/kernel"
-    for op in item["ops"]:
-        name = item["ops"][op]
+    for name in item["kernel_ops"].split(";"):
         read_json(require(kernel / "config" / item["soc"] / (name + ".json")))
         binaries = sorted((kernel / item["soc"] / name).glob("*.o"))
         if not binaries:
-            raise RuntimeError("No recipes AICore binaries for " + op)
+            raise RuntimeError("No recipes AICore binaries for " + name)
         for binary in binaries:
             require(binary)
             read_json(require(binary.with_suffix(".json")))
@@ -157,6 +190,7 @@ def stage(result, package):
     shutil.copytree(vendor, target)
     if (target / "bin").exists():
         shutil.rmtree(target / "bin")
+    opapi_sonames = isolate_staged_opapis(package)
     extract_python(
         result["wheel"],
         item["python_package"],
@@ -172,4 +206,10 @@ def stage(result, package):
         for path in target.rglob("*")
         if path.is_file()
     }
-    return dict(item, vendor_directory=vendor.name, files=files, binding="precompiled")
+    return dict(
+        item,
+        vendor_directory=vendor.name,
+        files=files,
+        binding="precompiled",
+        opapi_soname=opapi_sonames[vendor.name],
+    )
