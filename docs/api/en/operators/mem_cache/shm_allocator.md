@@ -61,4 +61,3 @@ finally:
 ## References
 
 - [Ascend HAL driver documentation for `halHostRegister` and `halHostUnregister`](https://gitcode.com/cann/driver/blob/master/src/ascend_hal/svm/README_en.md#memory-sharing)
-- Original `shm_allocator.cpp` from PR #636. [Allocation and registration](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L226-L273) · [Release](https://github.com/sgl-project/sgl-kernel-npu/blob/2cb8904711ee050d2f56ef260b65be24d38fa866/csrc/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp#L354-L365)
