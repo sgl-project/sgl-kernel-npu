@@ -20,14 +20,6 @@ target_include_directories(sgl_host_operators PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../aclnn_torch_adapter"
     "${torch_npu_root}/include" "${ASCEND_CANN_PACKAGE_PATH}/include"
     ${Python3_INCLUDE_DIRS})
-if("shm_allocator" IN_LIST host_operators)
-    find_path(SGL_ASCEND_DRIVER_INCLUDE driver/ascend_hal_define.h
-        HINTS "${ASCEND_DRIVER_PATH}/include" "$ENV{ASCEND_DRIVER_PATH}/include"
-            "${ASCEND_DRIVER_PATH}/kernel/inc" "$ENV{ASCEND_DRIVER_PATH}/kernel/inc"
-            "/usr/local/Ascend/driver/include" "/usr/local/Ascend/driver/kernel/inc"
-            "${ASCEND_CANN_PACKAGE_PATH}/include" REQUIRED)
-    target_include_directories(sgl_host_operators PRIVATE "${SGL_ASCEND_DRIVER_INCLUDE}")
-endif()
 target_link_libraries(sgl_host_operators PRIVATE ${TORCH_LIBRARIES})
 set_target_properties(sgl_host_operators PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_EXTENSIONS OFF

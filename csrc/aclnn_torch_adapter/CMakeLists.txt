@@ -61,14 +61,6 @@ set_target_properties(sgl_kernel_npu PROPERTIES CXX_EXTENSIONS OFF
 target_include_directories(sgl_kernel_npu PRIVATE ${cann_includes})
 target_link_libraries(sgl_kernel_npu PRIVATE "${TORCH_NPU_LIBRARY}"
     "${ACL_LIBRARY}" ${cann_libraries} ${CMAKE_DL_LIBS})
-if("shm_allocator" IN_LIST SGL_HOST_OPERATORS)
-    find_library(SGL_ASCEND_HAL_LIBRARY NAMES ascend_hal
-        HINTS "${ASCEND_DRIVER_PATH}/lib64/driver" "$ENV{ASCEND_DRIVER_PATH}/lib64/driver"
-            "${ASCEND_DRIVER_PATH}/lib64/common" "$ENV{ASCEND_DRIVER_PATH}/lib64/common"
-            "/usr/local/Ascend/driver/lib64/driver" "/usr/local/Ascend/driver/lib64/common"
-            "${sdk}/lib64" "${sdk}/lib64/stub" REQUIRED)
-    target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_ASCEND_HAL_LIBRARY}")
-endif()
 # Dependencies are loaded by torch/torch_npu and the initialized CANN runtime.
 # Do not bake the build machine's absolute directories into the wheel.
 set_target_properties(sgl_kernel_npu PROPERTIES
