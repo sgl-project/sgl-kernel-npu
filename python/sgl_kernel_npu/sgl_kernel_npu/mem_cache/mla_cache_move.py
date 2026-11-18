@@ -4,6 +4,8 @@ import torch
 import triton
 import triton.language as tl
 
+from .kv_cache_move import _move_cache_rows, _page_rows
+
 
 @triton.jit
 def _mla_nz_rows(
@@ -79,10 +81,10 @@ def move_mla_kv_cache(
 
     Caches have contiguous [layer, page, slot, 1, dim] storage. NZ storage is
     addressed as [layer, page, dim/16, slot, 16]. Locations can be strided int32
-    or int64 tensors. Targets must be unique; sources may repeat or overlap
-    targets, including cycles. Each native gather snapshots all source rows
-    before the corresponding scatter writes to the cache. ND needs no physical
-    index expansion and retains the native gather/scatter path.
+    or int64 tensors. Non-identity targets must be unique; self-copies may
+    repeat. Sources may repeat or overlap targets, including cycles. All source
+    rows are snapshotted before writes.
+    ND needs no physical index expansion.
     """
     count = src_loc.numel()
     if count == 0:
@@ -90,12 +92,6 @@ def move_mla_kv_cache(
     if tgt_loc.numel() != count:
         raise ValueError("MLA source and target location counts must match.")
     src_loc, tgt_loc = src_loc.reshape(-1), tgt_loc.reshape(-1)
-    # The native BF16 copy path preserves 16-bit payloads without the FP16
-    # conversion that canonicalizes NaNs or the slower int16 gather path.
-    if k_cache.dtype != torch.bfloat16:
-        k_cache = k_cache.view(torch.bfloat16)
-    if rope_cache.dtype != torch.bfloat16:
-        rope_cache = rope_cache.view(torch.bfloat16)
     if use_fia_nz:
         k_tiles, r_tiles = k_cache.shape[-1] // 16, rope_cache.shape[-1] // 16
         k_count, r_count = count * k_tiles, count * r_tiles
@@ -123,12 +119,11 @@ def move_mla_kv_cache(
             LARGE_SLOTS=k_cache.shape[1] * page_size > 2**31,
             BLOCK=256,
         )
-        k_rows = k_cache.view(k_cache.shape[0], -1, 16)
-        r_rows = rope_cache.view(rope_cache.shape[0], -1, 16)
+        k_rows = k_cache.view(torch.bfloat16).view(k_cache.shape[0], -1, 16)
+        r_rows = rope_cache.view(torch.bfloat16).view(rope_cache.shape[0], -1, 16)
+        k_rows.index_copy_(1, k_dst, k_rows.index_select(1, k_src))
+        r_rows.index_copy_(1, r_dst, r_rows.index_select(1, r_src))
     else:
-        k_src = r_src = src_loc.long()
-        k_dst = r_dst = tgt_loc.long()
-        k_rows = k_cache.flatten(1, 2)
-        r_rows = rope_cache.flatten(1, 2)
-    k_rows.index_copy_(1, k_dst, k_rows.index_select(1, k_src))
-    r_rows.index_copy_(1, r_dst, r_rows.index_select(1, r_src))
+        k_rows = _page_rows(k_cache)
+        r_rows = _page_rows(rope_cache)
+        _move_cache_rows(k_rows, r_rows, tgt_loc, src_loc)
