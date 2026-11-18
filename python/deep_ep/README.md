@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-blue)]()
-[![CANN](https://img.shields.io/badge/CANN-9.1.0%20%7C%209.2.0-green)]()
+[![CANN](https://img.shields.io/badge/CANN-9.0.0%20%7C%209.1.0-green)]()
 [![Python](https://img.shields.io/badge/Python-3.9%2B-yellow)]()
 
 English | [中文](#中文)
@@ -27,12 +27,12 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 
 ### Software and Hardware
 
-Supported Hardware Models: Atlas A2, A3, and A5 (support CANN 9.1.0 and 9.2.0; current A5 CI covers 9.1.0).
+Supported Hardware Models: Atlas A2, A3 (support CANN 9.0.0 and 9.1.0), and Atlas A5 (supports CANN 9.0.0 and 9.1.0; current A5 CI covers 9.1.0).
 
 Platform: aarch64/x86
 
 Supporting Software:
-- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 9.1.0 or 9.2.0, with firmware and dependencies matching the selected CANN release.
+- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 9.0.0 or 9.1.0, with firmware and dependencies matching the selected CANN release.
 - Python >= 3.9, Recommendation: Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -284,7 +284,7 @@ export DEEPEP_HYBRID_DEPLOYMENT=1
 
 #### A5
 
-- Supports CANN 9.1.0 and 9.2.0; current A5 CI validates 9.1.0.
+- Supports CANN 9.0.0 and 9.1.0; current A5 CI validates 9.1.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
 - Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`), MXFP8 per-block quantization, and MXFP4 per-block quantization in normal dispatch.
 
@@ -308,7 +308,7 @@ bash tests/python/deepep/run_test_internode.sh
 
 ### CI coverage and A2 multi-node status
 
-- The [PR workflow](../../.github/workflows/pr-test-deepep-npu.yml) validates A2/A3 on CANN 9.1.0 and 9.2.0, and A5 on 9.1.0. The [daily workflow](../../.github/workflows/daily-build-test.yml) covers A2/A3 on 9.1.0 and 9.2.0.
+- The [PR workflow](../../.github/workflows/pr-test-deepep-npu.yml) validates A2/A3 on CANN 9.0.0 and 9.1.0, and A5 on 9.1.0. The [daily workflow](../../.github/workflows/daily-build-test.yml) covers A2/A3 on 9.0.0 and 9.1.0.
 - CANN 8.5.0 runners were retired and its test matrices removed in August 2026. Compatibility with 8.5.0 is no longer verified.
 - **A2 multi-node CI has been disabled since September 2, 2026**. The node pool shrank from four to two nodes, leaving insufficient capacity for CI. The dedicated `a2-internode-test.yml` and daily `multi-node-internode` job were removed.
 - `test_internode_a2.py`, `run_test_internode.sh`, the reusable `internode.yml`, and hierarchical/non-hierarchical communication and HCCL tuning instructions remain available for manual validation and future restoration. They do not imply active A2 multi-node CI coverage.
@@ -347,12 +347,12 @@ DeepEP-Ascend 采用**策略式架构**，通过环境变量灵活选择通信�
 
 ### 软硬件配套说明
 
-硬件型号支持：Atlas A2、A3、A5 系列产品均能适配 CANN 9.1.0 和 9.2.0（当前 A5 CI 验证 9.1.0）。
+硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 9.0.0 和 9.1.0，Atlas A5 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 
 平台：aarch64/x86
 
 配套软件：
-- 驱动 Ascend HDK 25.1.RC1.1、CANN 社区版 9.1.0 或 9.2.0，并安装与所选版本配套的固件和依赖。
+- 驱动 Ascend HDK 25.1.RC1.1、CANN 社区版 9.0.0 或 9.1.0，并安装与所选版本配套的固件和依赖。
 - Python >= 3.9，推荐 Python 3.11
 - PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
@@ -588,7 +588,7 @@ export DEEPEP_HYBRID_DEPLOYMENT=1
 
 #### A5
 
-- 适配 CANN 9.1.0 和 9.2.0（当前 A5 CI 验证 9.1.0）。
+- 适配 CANN 9.0.0 和 9.1.0（当前 A5 CI 验证 9.1.0）。
 - 构建命令：`bash build.sh -a deepep Ascend950`。
 - 支持 scalar FP8 per-token 量化（`quant_mode="pertoken_fp8_e4m3"`）、MXFP8 per-block 量化和 MXFP4 per-block 量化（normal dispatch）。
 
@@ -612,7 +612,7 @@ bash tests/python/deepep/run_test_internode.sh
 
 ### CI 覆盖范围与 A2 多机状态
 
-- [PR 工作流](../../.github/workflows/pr-test-deepep-npu.yml) 在 A2/A3 上验证 CANN 9.1.0、9.2.0，在 A5 上验证 9.1.0；[每日工作流](../../.github/workflows/daily-build-test.yml) 覆盖 A2/A3 的 9.1.0、9.2.0。
+- [PR 工作流](../../.github/workflows/pr-test-deepep-npu.yml) 在 A2/A3 上验证 CANN 9.0.0、9.1.0，在 A5 上验证 9.1.0；[每日工作流](../../.github/workflows/daily-build-test.yml) 覆盖 A2/A3 的 9.0.0、9.1.0。
 - CANN 8.5.0 runner 已下线，测试矩阵于 2026 年 8 月移除，不再验证 8.5.0 的兼容性。
 - **A2 多机 CI 自 2026-09-02 起停用**。节点池从 4 个缩减为 2 个，资源不足以支撑 CI，已删除独立的 `a2-internode-test.yml` 和每日流水线的 `multi-node-internode` job。
 - 保留 `test_internode_a2.py`、`run_test_internode.sh`、可复用的 `internode.yml`，以及分层/不分层通信、HCCL 调优说明，供手动验证及后续恢复使用；这些资料不代表 A2 多机仍有 CI 覆盖。

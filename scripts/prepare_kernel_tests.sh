@@ -11,13 +11,68 @@ export UV_NO_CACHE=1
 
 # --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
 
-# Triton-Ascend (CANN-customized triton with triton.language.extra.cann) is
-# installed by npu_ci_install_dependency.sh --with-triton so that the wheel
-# matches the SGLang NPU image for the same CANN version.
-if ! python3 -c 'from importlib.metadata import version; version("triton-ascend")' >/dev/null 2>&1; then
-    echo "ERROR: Triton-Ascend is not installed. Run scripts/npu_ci_install_dependency.sh --cann-version <9.1.0|9.2.0> --with-triton first." >&2
+# Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann).
+# Keep the wheel identical to the SGLang NPU image for the same CANN version:
+#   CANN 9.1.0 -> triton-ascend 3.2.2
+#   CANN 9.2.0 -> triton-ascend 3.6.0 dev build
+# CANN 8.5.0 and 9.0.0 are no longer supported.
+if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
+    TRITON_ASCEND_VER="custom"
+    echo "Installing Triton-Ascend from override: ${TRITON_ASCEND_WHL}"
+    pip install "${TRITON_ASCEND_WHL}"
+else
+    CANN_VER="${CANN_VERSION:-}"
+    ARCH="$(arch)"
+    case "$CANN_VER" in
+        9.1.*)
+            TRITON_ASCEND_VER="3.2.2"
+            ;;
+        9.2.*)
+            TRITON_ASCEND_VER="3.6.0+dev20261105160244"
+            ;;
+        *)
+            echo "Unsupported CANN version '${CANN_VER}' for Triton-Ascend; supported versions: 9.1.x, 9.2.x" >&2
+            exit 1
+            ;;
+    esac
+
+    case "${TRITON_ASCEND_VER}:${ARCH}" in
+        "3.2.2:aarch64")
+            # Same artifact as the SGLang NPU image (signed OBS URL, expires 2027-03-29).
+            TRITON_ASCEND_URL="https://sglang-npu.obs.cn-southwest-2.myhuaweicloud.com:443/Triton-ascend/3.2.2/triton_ascend-3.2.2-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl?AccessKeyId=HPUAAPJN7IAXFCS2GDSQ&Expires=1806290330&Signature=eRq3VKjwgP/tTkObtsho%2BzIsmJM%3D"
+            ;;
+        "3.2.2:x86_64")
+            TRITON_ASCEND_URL="https://github.com/triton-lang/triton-ascend/releases/download/v3.2.2/triton_ascend-3.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+            ;;
+        "3.6.0+dev20261105160244:aarch64")
+            TRITON_ASCEND_URL="https://ascend-triton-open.obs.cn-north-4.myhuaweicloud.com/triton-ascend/20261105160244/triton_ascend-3.6.0%2Bdev20261105160244-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_34_aarch64.whl"
+            ;;
+        "3.6.0+dev20261105160244:x86_64")
+            TRITON_ASCEND_URL="https://ascend-triton-open.obs.cn-north-4.myhuaweicloud.com/triton-ascend/20261105160244/triton_ascend-3.6.0%2Bdev20261105160244-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_34_x86_64.whl"
+            ;;
+        *)
+            echo "Unsupported architecture for Triton-Ascend: ${ARCH}" >&2
+            exit 1
+            ;;
+    esac
+
+    echo "Installing Triton-Ascend ${TRITON_ASCEND_VER} for CANN ${CANN_VER} (${ARCH})"
+    pip install "${TRITON_ASCEND_URL}"
+fi
+
+ACTUAL_TRITON_VERSION="$(
+    python3 -c 'from importlib.metadata import version; print(version("triton-ascend"))' 2>/dev/null || true
+)"
+if [ -z "$ACTUAL_TRITON_VERSION" ]; then
+    echo "Triton-Ascend installation failed: package metadata not found" >&2
     exit 1
 fi
+if [ "$TRITON_ASCEND_VER" != "custom" ] && [ "$ACTUAL_TRITON_VERSION" != "$TRITON_ASCEND_VER" ]; then
+    echo "Triton-Ascend version mismatch: expected ${TRITON_ASCEND_VER}, got ${ACTUAL_TRITON_VERSION}" >&2
+    exit 1
+fi
+TRITON_RUNTIME_VERSION="$(python3 -c 'import triton; print(triton.__version__)' 2>/dev/null || echo unknown)"
+echo "Installed Triton-Ascend ${ACTUAL_TRITON_VERSION} (triton runtime ${TRITON_RUNTIME_VERSION})"
 
 # Install other test dependencies
 uv pip install expecttest einops pytest packaging ninja

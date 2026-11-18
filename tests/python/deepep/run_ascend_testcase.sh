@@ -53,7 +53,7 @@ CANN_VERSION=""
 if [ -f /usr/local/Ascend/ascend-toolkit/latest/version.cfg ]; then
     CANN_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /usr/local/Ascend/ascend-toolkit/latest/version.cfg | head -n1 || true)
 fi
-# Fallback: parse the CANN toolkit directory name, e.g. /usr/local/Ascend/cann-9.1.0
+# Fallback: parse the CANN toolkit directory name, e.g. /usr/local/Ascend/cann-9.0.0
 if [ -z "$CANN_VERSION" ]; then
     CANN_VERSION=$(ls -d /usr/local/Ascend/cann-* 2>/dev/null | head -n1 | sed -E 's/.*cann-([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true)
 fi

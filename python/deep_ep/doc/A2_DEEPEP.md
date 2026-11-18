@@ -20,7 +20,7 @@ English | [中文](#中文)
 Supported Hardware: Atlas A2 series
 Platform: aarch64/x86
 Supporting Software:
-- Driver Ascend HDK ≥ 25.3.RC1, CANN 9.1.0 or 9.2.0, with matching firmware; CANN 8.5.0 is no longer CI-validated.
+- Driver Ascend HDK ≥ 25.3.RC1, CANN 9.0.0 or 9.1.0, with matching firmware; CANN 8.5.0 is no longer CI-validated.
 
 ### Build
 
@@ -187,7 +187,7 @@ DeepEP 支持 A2、A3、A5 平台。本节为 A2 专属配置说明。
 硬件型号：Atlas A2 系列
 平台：aarch64/x86
 配套软件
-- 驱动 Ascend HDK ≥ 25.3.RC1、CANN 9.1.0 或 9.2.0，并安装配套固件；CANN 8.5.0 不再由 CI 验证。
+- 驱动 Ascend HDK ≥ 25.3.RC1、CANN 9.0.0 或 9.1.0，并安装配套固件；CANN 8.5.0 不再由 CI 验证。
 
 ### 构建DeepEp包
 
