@@ -165,8 +165,6 @@ std::tuple<at::Tensor, at::Tensor> kv_quant_sparse_attn_sharedkv(
           &cu_seqlens_ori_kv, &cu_seqlens_cmp_kv, &seqused_q, &seqused_kv, &sinks, &metadata}) {
         if (tensor->has_value()) tensors.push_back(**tensor);
     }
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, inputs, outDesc, lseDesc, layoutQString, layoutKvString, workspace, workspaceSize, executor,
                    aclStream]() -> int {

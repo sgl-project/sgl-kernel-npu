@@ -30,6 +30,18 @@ PAGE_SIZE = 128
 DECODE_BATCH = 16
 
 
+@pytest.fixture(scope="module")
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(
+            f"Released Sparse Flash MLA cases require CANN >= 9.2.0 (found {version})"
+        )
+
+
 def generate_data(batch, query_len):
     """DeepSeek-V4-Flash Q [T,64,512], shared KV and 128-token pages."""
     torch.manual_seed(12)
@@ -164,16 +176,6 @@ def generate_dspark_data(batch, query_len, kv_lengths=None):
     return q, metadata_kwargs, kwargs
 
 
-def _require_cann92_arch22():
-    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    if get_hardware().generation != Generation.ARCH22:
-        pytest.skip("CANN 9.2 sparse Flash MLA requires arch22")
-    if detect_cann_version() != "9.2.0":
-        pytest.skip("Upstream SWA/CSA/HCA cases require the CANN 9.2 ABI")
-
-
 def _paged(length):
     """Return the block count for one batch of ``length`` tokens."""
     return (length + PAGE_SIZE - 1) // PAGE_SIZE
@@ -273,6 +275,7 @@ def _schedule(inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length
     )
 
 
+@pytest.mark.usefixtures("require_cann_9_2_0_or_newer")
 @pytest.mark.parametrize(
     "query_lengths,ori_length,cmp_ratio,cmp_length,cmp_topk,index_pool",
     [
@@ -292,7 +295,6 @@ def test_sparse_flash_mla_paged(
         sparse_flash_mla_metadata,
     )
 
-    _require_cann92_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     q, inputs, _ = _build_paged_case(
         cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length, index_pool
@@ -315,11 +317,11 @@ def test_sparse_flash_mla_paged(
     check_performance(executor, enable_perf=True)
 
 
+@pytest.mark.usefixtures("require_cann_9_2_0_or_newer")
 @pytest.mark.parametrize("cmp_ratio", [3, 128], ids=["csa-ratio-3", "csa-ratio-128"])
 def test_sparse_flash_mla_metadata_rejects_unsupported_csa_ratio(cmp_ratio):
     from sgl_kernel_npu.operators.attention import sparse_flash_mla_metadata
 
-    _require_cann92_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     query_lengths = (16, 8)
     ori_length, cmp_topk = 128, 8
@@ -332,13 +334,13 @@ def test_sparse_flash_mla_metadata_rejects_unsupported_csa_ratio(cmp_ratio):
         _schedule(inputs, cmp_ratio, cmp_length, cmp_topk, query_lengths, ori_length)
 
 
+@pytest.mark.usefixtures("require_cann_9_2_0_or_newer")
 def test_sparse_flash_mla_bsnd_swa():
     from sgl_kernel_npu.operators.attention import (
         sparse_flash_mla,
         sparse_flash_mla_metadata,
     )
 
-    _require_cann92_arch22()
     require_test_impl(sparse_flash_mla_metadata, "auto")
     torch.npu.manual_seed(42)
     length = 16

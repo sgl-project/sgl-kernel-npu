@@ -3,6 +3,7 @@
 import torch
 
 from ..utils.cann import detect_cann_version
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 
@@ -58,13 +59,8 @@ def _cann_9_1_mhc_pre(
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+    from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre as op
 
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_pre", None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_hc_pre in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
     y, post, comb = op(
         x,
         fn,
@@ -78,24 +74,128 @@ def _cann_9_1_mhc_pre(
     return y.to(x.dtype), post, comb
 
 
+@register_impl(
+    "hyper_conn.mhc_pre_dpskv4",
+    "cann_recipes_infer_cann920",
+    supported_generations={Generation.ARCH35},
+)
+def _cann_9_2_mhc_pre_v2(
+    x,
+    fn,
+    scale,
+    base,
+    hc_mult,
+    sinkhorn_iters,
+    hc_eps,
+    rms_norm_eps,
+    *,
+    pre_mix=None,
+    return_pre=False,
+):
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+
+    op = getattr(torch.ops.sgl_cann_recipes_infer, "npu_hc_pre_v2", None)
+    if op is None:
+        raise RuntimeError(
+            "Missing operator sgl_cann_recipes_infer.npu_hc_pre_v2 in the installed "
+            f"sgl-kernel-npu wheel for CANN {cann_version}"
+        )
+    y, post, comb, pre = op(
+        x,
+        fn,
+        scale,
+        base,
+        pre_mix,
+        hc_mult=hc_mult,
+        hc_sinkhorn_iters=sinkhorn_iters,
+        norm_eps=rms_norm_eps,
+        hc_eps=hc_eps,
+    )
+    y = y.to(x.dtype)
+    return (y, post, comb, pre) if return_pre else (y, post, comb)
+
+
 @register_impl("hyper_conn.mhc_pre_dpskv4", "torch_native")
-def _torch_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps):
+def _torch_mhc_pre(
+    x,
+    fn,
+    scale,
+    base,
+    hc_mult,
+    sinkhorn_iters,
+    hc_eps,
+    rms_norm_eps,
+    *,
+    pre_mix=None,
+    return_pre=False,
+):
     from ...implementation.torch_native.hyper_conn.mhc_pre_dpskv4 import mhc_pre_dpskv4
 
-    return mhc_pre_dpskv4(
-        x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
+    outputs = mhc_pre_dpskv4(
+        x,
+        fn,
+        scale,
+        base,
+        hc_mult,
+        sinkhorn_iters,
+        hc_eps,
+        rms_norm_eps,
+        pre_mix=pre_mix,
     )
+    return outputs if return_pre else outputs[:3]
 
 
 @register_operator("hyper_conn.mhc_pre_dpskv4")
 def mhc_pre_dpskv4(
-    x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, impl="auto"
+    x,
+    fn,
+    scale,
+    base,
+    hc_mult,
+    sinkhorn_iters,
+    hc_eps,
+    rms_norm_eps,
+    *,
+    pre_mix=None,
+    return_pre=False,
+    impl="auto",
 ):
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
-    impl: auto (SDK-selected), cann_recipes_infer_cann910, cann_ops_transformers_cann920, or torch_native.
+    pre_mix optionally supplies the [T,n] FP32 weights used to accumulate y, and
+    return_pre appends the computed pre weights as a fourth output. Both need impl
+    "cann_recipes_infer_cann920" (DSV4.1 fused kernel) or "torch_native"; auto stays
+    on the DSV4 backend.
     torch_native is an eager correctness reference, not a graph fallback.
+
+    impl: auto (SDK-selected), cann_ops_transformers_cann920,
+    cann_recipes_infer_cann910, cann_recipes_infer_cann920, or torch_native.
     """
-    return get_impl_by_name("hyper_conn.mhc_pre_dpskv4", impl)(
-        x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps
-    )
+    if not isinstance(return_pre, bool):
+        raise TypeError("return_pre must be bool")
+    needs_pre = pre_mix is not None or return_pre
+    if needs_pre and impl not in ("cann_recipes_infer_cann920", "torch_native"):
+        raise ValueError(
+            "pre_mix and return_pre require impl 'cann_recipes_infer_cann920' or "
+            f"'torch_native', got {impl!r}"
+        )
+    impl_fn = get_impl_by_name("hyper_conn.mhc_pre_dpskv4", impl)
+    if needs_pre:
+        return impl_fn(
+            x,
+            fn,
+            scale,
+            base,
+            hc_mult,
+            sinkhorn_iters,
+            hc_eps,
+            rms_norm_eps,
+            pre_mix=pre_mix,
+            return_pre=return_pre,
+        )
+    return impl_fn(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps)

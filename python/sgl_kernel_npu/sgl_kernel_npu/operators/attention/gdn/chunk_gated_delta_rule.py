@@ -14,7 +14,7 @@ def _ascendc_impl(
 ):
     import torch
 
-    return torch.ops.npu.sgl_chunk_gated_delta_rule(
+    return torch.ops.npu.chunk_gated_delta_rule(
         query,
         key,
         value,

@@ -144,24 +144,16 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
                 )
             count = kwargs["batch_size"] + (private == "cu_seqlens_q")
             args[private] = value[:count].contiguous()
-    namespace, binding = (
-        ("npu", "kv_quant_sparse_attn_sharedkv_metadata_host")
-        if sparse
-        else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
-    )
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if namespace == "custom":
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-        namespace = "sgl_cann_recipes_infer"
-    op = getattr(getattr(torch.ops, namespace), binding, None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+    if sparse:
+        op = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host
+    else:
+        from ..._third_party.sgl_cann_recipes_infer import (
+            npu_kv_quant_sparse_attn_sharedkv_metadata as op,
         )
     return op(**args)
 

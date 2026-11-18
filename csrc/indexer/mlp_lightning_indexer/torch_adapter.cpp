@@ -102,12 +102,6 @@ std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
 
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, query.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors) {
-        if (tensor.defined() && tensor.device().type() == c10::DeviceType::PrivateUse1) {
-            tensor.record_stream(stream);
-        }
-    }
-    workspace.record_stream(stream);
     auto aclStream = stream.stream(false);
     // Retain descriptors, attributes and storage through the asynchronous host queue.
     auto launch = [tensors, descriptors, queryLayout, keyLayout, workspace, workspaceSize, executor,

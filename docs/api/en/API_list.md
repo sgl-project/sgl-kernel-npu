@@ -5,9 +5,10 @@
 | [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `cann_recipes_infer_cann920`, `torch_native` |
 | [indexer_quant_cache](operators/mem_cache/indexer_quant_cache.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
+| [kv_compress_epilog_v2](operators/mem_cache/kv_compress_epilog_v2.md) | `cann_recipes_infer`, `torch_native` |
 | [compressor](operators/attention/compressor.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
 | [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
 | [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
@@ -45,9 +46,11 @@
 | [chunk_gated_delta_rule_npu](operators/attention/gdn/chunk_gated_delta_rule_npu.md) | `triton`, `torch_native` |
 | [recurrent_gated_delta_rule](operators/attention/gdn/recurrent_gated_delta_rule.md) | `ascendc`, `torch_native` |
 | [la](operators/attention/laser_attention.md) | `ascendc` (ARCH22), `torch_native` |
+| [rain_fusion_attention](operators/attention/rain_fusion_attention.md) | `cann_ops_transformer` (ARCH22), `torch_native` |
 | [ada_block_sparse_attention](operators/attention/ada_block_sparse_attention.md) | `ascendc` (ARCH22), `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [kv_quant_sparse_flash_attention](operators/attention/kv_quant_sparse_flash_attention.md) | `ascendc`, `torch_native` |
 | [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`, `torch_native` |
 | [sparse_block_estimate](operators/attention/sparse_block_estimate.md) | `ascendc` (ARCH22), `torch_native` |
@@ -73,6 +76,7 @@
 | [situ_mxfp8_quant](operators/activation/situ_mxfp8_quant.md) | `ascendc`, `torch_native` |
 | [l1_norm](operators/norm/l1_norm.md) | `triton`, `torch_native` |
 | [l2norm_fwd](operators/norm/l2norm_fwd.md) | `triton`, `torch_native` |
+| [layer_norm](operators/norm/layer_norm.md) | `cann_ops_nn` (ARCH22), `torch_native` |
 | [layer_norm_fwd](operators/norm/layer_norm_fwd.md) | `triton`, `torch_native` |
 | [fused_rope_qk_mqa](operators/rope/fused_rope_qk_mqa.md) | `triton`, `torch_native` |
 | [fused_scale_shift](operators/elementwise/fused_scale_shift.md) | `triton`, `torch_native` |
@@ -80,6 +84,7 @@
 | [gate_multiply](operators/elementwise/gate_multiply.md) | `triton`, `torch_native` |
 | [fused_sigmoid_mul_broadcast](operators/activation/fused_sigmoid_mul_broadcast.md) | `triton`, `torch_native` |
 | [row_argmax](operators/sample/row_argmax.md) | `triton`, `torch_native` |
+| [div_argmax](operators/sample/div_argmax.md) | `triton`, `torch_native` |
 | [build_tree](operators/speculative/build_tree.md) | `ascendc`, `torch_native` |
 | [causal_conv1d](operators/mamba/causal_conv1d.md) | `ascendc`, `torch_native` |
 | [chain_speculative_sampling](operators/speculative/chain_speculative_sampling.md) | `triton`, `torch_native` |
@@ -89,7 +94,9 @@
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`, `torch_native` |
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |
 | [markov_sample_step_triton](operators/sample/markov_sample_step_triton.md) | `triton`, `torch_native` |
-| [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `aclnn` |
+| [pool_key_indexer](operators/indexer/pool_key_indexer.md) | `cann_ops_transformer`, `torch_native` |
+| [prepare_pool_key_indexer_inputs](operators/indexer/prepare_pool_key_indexer_inputs.md) | `triton`, `torch_native` |
+| [pack_pool_key_indexer_indices](operators/indexer/pack_pool_key_indexer_indices.md) | `triton`, `torch_native` |
 | [indexer_prologue_k_dsl](operators/indexer/indexer_prologue_k_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_dsl](operators/indexer/quant_lightning_indexer_dsl.md) | `cannbot_dsl`, `torch_native` |
 | [quant_lightning_indexer_metadata_dsl](operators/indexer/quant_lightning_indexer_metadata_dsl.md) | `cannbot_dsl` |
@@ -125,6 +132,8 @@
 | [sgemmc_shrink](operators/lora/sgemmc_shrink.md) | `ascendc`, `torch_native` |
 | [flatten_patches](operators/multimodal/flatten_patches.md) | `torch_native` |
 | [flash_decode_bnsd_with_topk_idx](operators/indexer/flash_decode_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
+| [mega_moe](operators/moe/mega_moe.md) | `cann_ops_transformer` |
+| [get_symm_buffer_for_mega_moe](operators/moe/get_symm_buffer_for_mega_moe.md) | `cann_ops_transformer` |
 | [append_local_block_to_topk_idx](operators/indexer/append_local_block_to_topk_idx.md) | `triton`, `torch_native` |
 | [flash_prefill_bnsd_indexer](operators/indexer/flash_prefill_bnsd_indexer.md) | `triton`, `torch_native` |
 | [flash_prefill_bnsd_with_topk_idx](operators/indexer/flash_prefill_bnsd_with_topk_idx.md) | `triton`, `torch_native` |
@@ -164,3 +173,24 @@ installation steps; see
 | [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `triton`, `torch_native` |
 | [hc_mix](operators/hyper_conn/hc_mix.md) | `triton`, `torch_native` |
 | [hc_combine](operators/hyper_conn/hc_combine.md) | `triton`, `torch_native` |
+| [situ](operators/activation/situ.md) | `triton`, `torch_native` |
+| [swiglu_quant](operators/activation/swiglu_quant.md) | `triton`, `torch_native` |
+| [swiglu_oai](operators/activation/swiglu_oai.md) | `triton`, `torch_native` |
+| [attention_sinks](operators/attention/attention_sinks.md) | `triton`, `torch_native` |
+| [attention_sinks_prefill](operators/attention/attention_sinks_prefill.md) | `triton`, `torch_native` |
+| [fused_gdn_gating_without_sigmoid](operators/attention/gdn/fused_gdn_gating_without_sigmoid.md) | `triton`, `torch_native` |
+| [fused_kda_gate](operators/attention/kda/fused_kda_gate.md) | `triton`, `torch_native` |
+| [kda_target_verify](operators/attention/kda/kda_target_verify.md) | `triton`, `torch_native` |
+| [causal_conv1d_fn](operators/mamba/causal_conv1d_fn.md) | `torch_native` |
+| [causal_conv1d_update](operators/mamba/causal_conv1d_update.md) | `triton`, `torch_native` |
+| [move_intermediate_cache](operators/mamba/move_intermediate_cache.md) | `triton`, `torch_native` |
+| [move_intermediate_cache_kda](operators/mamba/move_intermediate_cache_kda.md) | `triton`, `torch_native` |
+| [conv_state_rollback](operators/mamba/conv_state_rollback.md) | `triton`, `torch_native` |
+| [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
+| [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
+| [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
+| [top_k_renorm_prob](operators/sample/top_k_renorm_prob.md) | `triton`, `torch_native` |
+| [top_p_renorm_prob](operators/sample/top_p_renorm_prob.md) | `triton`, `torch_native` |
+| [zero_experts_compute_identity](operators/moe/zero_experts_compute_identity.md) | `triton`, `torch_native` |
+| [flash_prefill_bnsd_blockq_sparse_fia](operators/attention/flash_prefill_bnsd_blockq_sparse_fia.md) | `triton`, `torch_native` |
+| [gemma_rmsnorm](operators/norm/gemma_rmsnorm.md) | `torch_npu`, `torch_native` |

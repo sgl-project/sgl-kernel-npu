@@ -97,8 +97,6 @@ at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at::Tensor 
     std::vector<at::Tensor> tensors{q, k, v, mask, countTable, attentionOut, workspace};
     std::vector<std::shared_ptr<aclTensor>> descriptors{qDesc, kDesc, vDesc, maskDesc, countDesc, outDesc};
     auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
     auto aclStream = stream.stream(false);
     auto launch = [tensors, descriptors, seqLengths, seqLengthsKv, input_layout, workspace, workspaceSize, executor,
                    aclStream]() -> int {

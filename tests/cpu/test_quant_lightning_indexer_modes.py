@@ -136,7 +136,7 @@ def test_profiles_select_a3_candidate_vendor(monkeypatch):
     release["ops"] = release["ops"]["arch22"]
     for cfg in (experiment, release):
         cfg["arch_version"] = "2201"
-    monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910_93")
+    monkeypatch.setattr(adapter, "resolve_soc_version", lambda _arch: "ascend910_93")
     selected = adapter.configure(experiment, 1)
     assert selected["a3_indexer_bindings"] and selected["has_aicpu"]
     assert selected["commit"] == "e7da18105f08b06e01ef0fff78f439098d483746"
@@ -149,7 +149,7 @@ def test_profiles_select_a3_candidate_vendor(monkeypatch):
     resolved_release = adapter.configure(release, 1)
     assert "quant_lightning_indexer_v2" not in resolved_release["ops"]
     assert not resolved_release["has_aicpu"]
-    monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910b")
+    monkeypatch.setattr(adapter, "resolve_soc_version", lambda _arch: "ascend910b")
     assert adapter.configure(experiment, 1)["ops"] == ["compressor_v2"]
     assert "quant_lightning_indexer_v2" in adapter.configure(release, 1)["ops"]
 

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from build_tools.cann import run
-from build_tools.third_party import detect_soc_version, extract_python, read_json
+from build_tools.third_party import extract_python, read_json, resolve_soc_version
 
 from third_party.opapi import isolate_staged_opapis
 
@@ -25,10 +25,7 @@ def configure(config, jobs):
             for name in [interface] + [name for name in kernels if name is not None]
         ):
             raise ValueError("Invalid recipes interface or kernel name")
-    config["soc"] = detect_soc_version()
-    supported = {"2201": ("ascend910b", "ascend910_93"), "3510": ("ascend950",)}
-    if config["soc"] not in supported[config["arch_version"]]:
-        raise RuntimeError("Detected recipes SoC does not match selected architecture")
+    config["soc"] = resolve_soc_version(config["arch_version"])
     if config.get("has_aicpu", False):
         raise ValueError("Selected recipes operators do not contain AICPU kernels")
     config["vendor_name"] = "vendor_" + config["name"]
@@ -52,6 +49,30 @@ def configure(config, jobs):
     return config
 
 
+# Bridge source names that differ from the interface name. npu_hc_pre_v2
+# shares the npu_hc_pre bridge and is selected line by line below.
+_BRIDGE_SOURCES = {
+    "indexer_compress_epilog": "npu_indexer_compress_epilog",
+    "kv_compress_epilog_v2": "npu_kv_compress_epilog_v2",
+    "npu_hc_pre_v2": "npu_hc_pre",
+}
+
+
+def _select_impls(content, operators):
+    """Keep only m.impl registrations for the operators in this build.
+
+    A shared bridge may register several operators while only a subset has a
+    generated schema; the extra registrations fail at import time.
+    """
+    selected = set(operators)
+    kept = []
+    for line in content.splitlines():
+        match = re.match(r'\s*m\.impl\("([^"]+)"', line)
+        if match is None or match.group(1) in selected:
+            kept.append(line)
+    return "\n".join(kept) + "\n"
+
+
 def prepare_python(source, item):
     """Keep upstream kernels/bindings, selecting schemas and isolating namespace."""
     extension = source / "ops/ascendc/torch_ops_extension"
@@ -70,12 +91,12 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        source_name = "npu_" + op if op == "indexer_compress_epilog" else op
+        source_name = _BRIDGE_SOURCES.get(op, op)
         content = (upstream / (source_name + ".cpp")).read_text()
         content = content.replace(
             "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
         )
-        (sources / (op + ".cpp")).write_text(content)
+        (sources / (op + ".cpp")).write_text(_select_impls(content, item["ops"]))
     notice = declarations[: declarations.index("#include")]
     (sources / "ops_def_registration.cpp").write_text(
         notice
