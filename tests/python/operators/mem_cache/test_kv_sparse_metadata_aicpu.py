@@ -172,6 +172,74 @@ def indices(starts, page_size):
 
 
 @pytest.mark.extra_checks
+def test_memfabric_aicpu_h2d_graph_replay(offload_runtime):
+    impl, _ = get_test_impls()
+    if impl not in ("auto", "memfabric_aicpu"):
+        pytest.skip("requires the MemFabric AICPU transfer path")
+
+    from sgl_kernel_npu.operators.mem_cache import (
+        transfer_kv_per_layer_kv_split_pf_lf as load,
+    )
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
+        register_host_memory,
+    )
+
+    page_size = 128
+    host_k = offload_runtime.empty([2, 1, page_size, 1, 64], dtype=torch.bfloat16)
+    host_k[0].fill_(3)
+    host_k[1].fill_(7)
+    register_host_memory(host_k)
+    device_k = torch.empty((1, 2, page_size, 1, 64), device="npu", dtype=host_k.dtype)
+    device_v, host_v = device_k.new_empty((0,)), host_k.new_empty((0,))
+    device_indices = indices([0], page_size)
+    host_indices = indices([0], page_size)
+
+    def submit():
+        load(
+            device_indices,
+            host_indices,
+            device_k,
+            host_k,
+            device_v,
+            host_v,
+            device_layer_id=0,
+            host_layer_id=0,
+            page_size=page_size,
+            impl=impl,
+        )
+
+    stream = torch.npu.Stream()
+    stream.wait_stream(torch.npu.current_stream())
+    with torch.npu.stream(stream):
+        submit()
+    stream.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph, stream=stream, auto_dispatch_capture=True):
+        submit()
+
+    try:
+        with torch.npu.stream(stream):
+            device_k.zero_()
+            graph.replay()
+        stream.synchronize()
+        snapshot = device_k.cpu()[0]
+        assert_accuracy(snapshot[0].view(torch.uint8), host_k[0, 0].view(torch.uint8))
+        assert torch.count_nonzero(snapshot[1]).item() == 0
+
+        with torch.npu.stream(stream):
+            device_indices.add_(page_size)
+            host_indices.add_(page_size)
+            graph.replay()
+        stream.synchronize()
+        snapshot = device_k.cpu()[0]
+        assert_accuracy(snapshot[0].view(torch.uint8), host_k[0, 0].view(torch.uint8))
+        assert_accuracy(snapshot[1].view(torch.uint8), host_k[1, 0].view(torch.uint8))
+    finally:
+        stream.synchronize()
+        graph.reset()
+
+
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize("direction", [1, 2])
 @pytest.mark.parametrize("component_count", [1, 2, 3, 4])
