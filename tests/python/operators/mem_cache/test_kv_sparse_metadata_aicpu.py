@@ -1,4 +1,8 @@
-"""User-run NPU checks for the AICPU builder; no MF entity required."""
+"""Public MF H2D accuracy/performance, followed by supplementary metadata checks.
+
+The main test measures the public transfer, including metadata and MF sparse copy.
+Supplementary cases exercise internal tables and failure paths without an MF pool.
+"""
 
 import subprocess
 import sys
@@ -9,10 +13,154 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 pytest.importorskip("sgl_kernel_npu")
 
+from tests.python.utils.accuracy import assert_accuracy
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
+from tests.python.utils.performance import check_performance
+
 build = getattr(torch.ops.npu, "kv_sparse_metadata_aicpu", None)
 pytestmark = pytest.mark.skipif(
     build is None, reason="build a wheel with kv_sparse_metadata"
 )
+
+
+# GLM-5.2: borrowed per-layer K/V/Indexer widths, page size and seven loaded pages.
+# Synthetic pools include guard layers and untouched pages.
+perf_shape = [(7, 128, 512, 64, 128)]
+
+
+def generate_data(pool, shape, dtype, layout, *, with_reference):
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
+        register_host_memory,
+    )
+
+    pages, page_size, k_width, v_width, index_width = shape
+    actual = {"page_size": page_size}
+    reference = {"page_size": page_size}
+    host_snapshots = []
+    for name, width in (("k", k_width), ("v", v_width), ("index_k", index_width)):
+        device_shape = (3, pages + 3, page_size, 1, width)
+        device = torch.full(device_shape, -1, dtype=dtype, device="npu")
+        host_shape = (pages + 2, 3, page_size, 1, width)
+        if layout == "layer_first":
+            host_shape = (3, pages + 2, page_size, 1, width)
+        values = (
+            torch.arange((pages + 2) * 3 * page_size * width, device="cpu")
+            .remainder(127)
+            .to(dtype)
+            .reshape(host_shape)
+        )
+        host = pool.empty(list(host_shape), dtype=dtype)
+        host.copy_(values)
+        register_host_memory(host)
+        actual["device_" + name], actual["host_" + name] = device, host
+        if with_reference:
+            # H2D sources are read-only; isolate both mutable destinations.
+            reference["device_" + name] = device.clone()
+            reference["host_" + name] = host
+            host_snapshots.append((host, values))
+
+    device_indices = indices([p * page_size for p in range(2, pages + 2)], page_size)
+    host_indices = indices(
+        [p * page_size for p in reversed(range(1, pages + 1))], page_size
+    )
+    selection = dict(
+        device_layer_id=1,
+        host_layer_id=2,
+        device_index_layer_id=2,
+        host_index_layer_id=1,
+    )
+    actual.update(selection)
+    reference.update(selection)
+    return (device_indices, host_indices), actual, reference, host_snapshots
+
+
+def check_accuracy(operator, data, *, skip_accuracy):
+    args, actual, reference, host_snapshots = data
+    impl, impl_ref = get_test_impls()
+    if skip_accuracy:
+        require_test_impl(operator, impl)
+    else:
+        require_distinct_impls(operator, impl, impl_ref)
+        # The public H2D operator mutates its Device tensors and returns None.
+        operator(*args, **reference, impl=impl_ref)
+        operator(*args, **actual, impl=impl)
+        torch.npu.current_stream().synchronize()
+        for name in ("device_k", "device_v", "device_index_k"):
+            assert_accuracy(
+                actual[name].cpu().view(torch.uint8),
+                reference[name].cpu().view(torch.uint8),
+            )
+        for host, snapshot in host_snapshots:
+            assert_accuracy(host.view(torch.uint8), snapshot.view(torch.uint8))
+    return make_executor(
+        operator,
+        args=args,
+        kwargs=actual,
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=not skip_accuracy,
+    )
+
+
+@pytest.mark.parametrize("layout", ["page_first", "layer_first"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((7, 128, 512, 64, 128), id="glm52-borrowed-h2d-dimensions"),
+        pytest.param((2, 4, 7, 3, 5), id="edge-small-unaligned-widths"),
+    ],
+)
+def test_memfabric_aicpu_h2d(offload_runtime, shape, dtype, layout):
+    from sgl_kernel_npu.operators.mem_cache import (
+        transfer_kv_per_layer_kv_split,
+        transfer_kv_per_layer_kv_split_pf_lf,
+    )
+
+    operator = (
+        transfer_kv_per_layer_kv_split_pf_lf
+        if layout == "page_first"
+        else transfer_kv_per_layer_kv_split
+    )
+    skip_accuracy = bool(get_skip_acc_check())
+    data = generate_data(
+        offload_runtime, shape, dtype, layout, with_reference=not skip_accuracy
+    )
+    executor = check_accuracy(operator, data, skip_accuracy=skip_accuracy)
+    check_performance(executor, enable_perf=shape in perf_shape)
+
+
+@pytest.fixture
+def offload_runtime():
+    pytest.importorskip("memfabric_hybrid")
+    from memfabric_hybrid import offload
+    from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
+        set_memfabric_pool,
+        uninitialize_host_memory,
+    )
+
+    pool = offload.Offload()
+    config = offload.OffloadConfig()
+    config.device_id = torch.npu.current_device()
+    config.reserve_size = 8 << 30
+    config.alloc_size = 8 << 30
+    config.flags = 0
+    config.scene = offload.Scene.LOCAL
+    status = pool.initialize(config)
+    if status != 0:
+        raise RuntimeError(f"MemFabric initialize failed: {status}")
+    set_memfabric_pool(pool)
+    try:
+        yield pool
+    finally:
+        torch.npu.synchronize()
+        uninitialize_host_memory()
 
 
 def indices(starts, page_size):
@@ -23,6 +171,7 @@ def indices(starts, page_size):
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize("direction", [1, 2])
 @pytest.mark.parametrize("component_count", [1, 2, 3, 4])
@@ -40,7 +189,7 @@ def test_addresses_and_updated_indices(layout, direction, component_count):
         shape = (10, layers + 2, ps, 1, width)
         if layout == "layer_first":
             shape = (layers + 2, 10, ps, 1, width)
-        host = torch.empty(shape, dtype=dtype)
+        host = torch.empty(shape, dtype=dtype, device="cpu")
         host = (
             host[1 : layers + 1].transpose(0, 1)
             if layout == "layer_first"
@@ -82,6 +231,7 @@ def test_addresses_and_updated_indices(layout, direction, component_count):
         assert count.cpu().item() == len(expected_lengths)
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("direction", [1, 2])
 def test_native_submit_callback_and_errors(direction, monkeypatch):
     from sgl_kernel_npu.operators.mem_cache.memfabric import kv_transfer_impl
@@ -91,7 +241,7 @@ def test_native_submit_callback_and_errors(direction, monkeypatch):
     submit = kv_transfer_impl._get_aicpu_submit()
     ps = 4
     dev = torch.empty((2, 3, ps, 1, 8), dtype=torch.uint8, device="npu")
-    host = torch.empty((4, 2, ps, 1, 8), dtype=torch.uint8)
+    host = torch.empty((4, 2, ps, 1, 8), dtype=torch.uint8, device="cpu")
     di, hi = indices([8, 0], ps), indices([4, 12], ps)
     device_addresses = [
         dev[layer, page].data_ptr() for page in (2, 0) for layer in range(2)
@@ -148,7 +298,7 @@ def test_native_submit_callback_and_errors(direction, monkeypatch):
 def _check_invalid_page_aborts_batch():
     ps = 4
     dev = torch.empty((1, 2, ps, 1, 1), dtype=torch.uint8, device="npu")
-    host = torch.empty((2, 1, ps, 1, 1), dtype=torch.uint8)
+    host = torch.empty((2, 1, ps, 1, 1), dtype=torch.uint8, device="cpu")
     di, hi = indices([0, 1], ps), indices([0, 4], ps)
     stream = torch.npu.current_stream()
     stream.synchronize()
@@ -157,6 +307,7 @@ def _check_invalid_page_aborts_batch():
         stream.synchronize()
 
 
+@pytest.mark.extra_checks
 def test_invalid_page_aborts_batch():
     # An AICPU task error can leave the stream in an error state.
     subprocess.run(
@@ -172,17 +323,19 @@ def test_invalid_page_aborts_batch():
     )
 
 
+@pytest.mark.extra_checks
 def test_record_limit():
     dev = torch.empty((1, 8, 1, 1, 1), dtype=torch.uint8, device="npu")
-    host = torch.empty((10, 1, 1, 1, 1), dtype=torch.uint8)
+    host = torch.empty((10, 1, 1, 1, 1), dtype=torch.uint8, device="cpu")
     di = torch.zeros(65537, dtype=torch.int64, device="npu")
     with pytest.raises(RuntimeError, match="65536"):
         build(di, di, [dev], [host], 1, 1)
 
 
+@pytest.mark.extra_checks
 def test_empty_tables():
     dev = torch.empty((1, 8, 4, 1, 1), dtype=torch.uint8, device="npu")
-    host = torch.empty((10, 1, 4, 1, 1), dtype=torch.uint8)
+    host = torch.empty((10, 1, 4, 1, 1), dtype=torch.uint8, device="cpu")
     di = torch.empty(0, dtype=torch.int64, device="npu")
     src, dst, lengths, count = build(di, di, [dev], [host], 4, 1)
     assert src.numel() == dst.numel() == lengths.numel() == 0
@@ -236,6 +389,7 @@ def _assert_copy_coverage(src, dst, lengths, originals, split_first):
             assert (first + 31) // 32 * 32 + (second + 31) // 32 * 32 <= 88 * 1024
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("layout", ["page_first", "layer_first"])
 @pytest.mark.parametrize("direction", [1, 2])
 @pytest.mark.parametrize(
@@ -333,7 +487,7 @@ def test_large_page_copy_coverage(
         shape = (5, layer_count + 2, page_size, 1, width)
         if layout == "layer_first":
             shape = (layer_count + 2, 5, page_size, 1, width)
-        host = torch.empty(shape, dtype=dtype)
+        host = torch.empty(shape, dtype=dtype, device="cpu")
         host = (
             host[1 : layer_count + 1].transpose(0, 1)
             if layout == "layer_first"
@@ -365,6 +519,7 @@ def test_large_page_copy_coverage(
     )
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "page_bytes,layers",
     [
@@ -378,7 +533,7 @@ def test_split_paired_batch_rejects_unaligned_payload(page_bytes, layers):
         for size, n in zip(page_bytes, layers)
     ]
     hosts = [
-        torch.empty((1, n, 1, 1, size), dtype=torch.uint8)
+        torch.empty((1, n, 1, 1, size), dtype=torch.uint8, device="cpu")
         for size, n in zip(page_bytes, layers)
     ]
     di = indices([0], 1)
@@ -388,12 +543,13 @@ def test_split_paired_batch_rejects_unaligned_payload(page_bytes, layers):
     torch.npu.current_stream().synchronize()
 
 
+@pytest.mark.extra_checks
 @pytest.mark.parametrize("chunks,accepted_pages", [(2, 32768), (3, 21845)])
 @pytest.mark.parametrize("exceeds_limit", [False, True])
 def test_split_record_limit(chunks, accepted_pages, exceeds_limit):
     size = chunks * _SPLIT_BYTES
     dev = torch.empty((1, 1, 1, 1, size), dtype=torch.uint8, device="npu")
-    host = torch.empty((1, 1, 1, 1, size), dtype=torch.uint8)
+    host = torch.empty((1, 1, 1, 1, size), dtype=torch.uint8, device="cpu")
     # Reuse one valid page to exercise the table limit without a multi-GB KV pool.
     pages = accepted_pages + int(exceeds_limit)
     di = torch.zeros(pages, dtype=torch.int64, device="npu")
