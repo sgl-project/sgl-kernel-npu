@@ -17,7 +17,6 @@ index, a NaN quotient never wins, and an all-NaN tile leaves its index at
 the N sentinel. ``ignore_nan`` forces NaN quotients to -inf, so a row with
 nothing above -inf gives 0.
 
-Migrated from ``sglang.kernels.ops.speculative.row_argmax`` (Apache License 2.0).
 """
 
 from typing import Optional
