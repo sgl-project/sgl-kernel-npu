@@ -5,9 +5,10 @@
 | [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
-| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
+| [mhc_pre_dpskv4](operators/hyper_conn/mhc_pre_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `cann_recipes_infer_cann920`, `torch_native` |
 | [indexer_quant_cache](operators/mem_cache/indexer_quant_cache.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [kv_compress_epilog](operators/mem_cache/kv_compress_epilog.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
+| [kv_compress_epilog_v2](operators/mem_cache/kv_compress_epilog_v2.md) | `cann_recipes_infer`, `torch_native` |
 | [compressor](operators/attention/compressor.md) | `cann_ops_transformers_cann920`, `ascendc`, `torch_native` |
 | [quant_lightning_indexer_metadata](operators/indexer/quant_lightning_indexer_metadata.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
 | [quant_lightning_indexer](operators/indexer/quant_lightning_indexer.md) | `cann_ops_transformers_cann920`, `ops_transformers_cann910`, `torch_native` |
@@ -49,6 +50,7 @@
 | [ada_block_sparse_attention](operators/attention/ada_block_sparse_attention.md) | `ascendc` (ARCH22), `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [kv_quant_sparse_flash_attention](operators/attention/kv_quant_sparse_flash_attention.md) | `ascendc`, `torch_native` |
 | [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`, `torch_native` |
 | [sparse_block_estimate](operators/attention/sparse_block_estimate.md) | `ascendc` (ARCH22), `torch_native` |
