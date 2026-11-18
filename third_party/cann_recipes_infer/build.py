@@ -49,9 +49,11 @@ def configure(config, jobs):
     return config
 
 
-# Interfaces sharing a bridge need an explicit source; a simple npu_ prefix
-# is resolved automatically below.
-_SHARED_BRIDGE_SOURCES = {
+# Bridge source names that differ from the interface name. npu_hc_pre_v2
+# shares the npu_hc_pre bridge and is selected line by line below.
+_BRIDGE_SOURCES = {
+    "indexer_compress_epilog": "npu_indexer_compress_epilog",
+    "kv_compress_epilog_v2": "npu_kv_compress_epilog_v2",
     "npu_hc_pre_v2": "npu_hc_pre",
 }
 
@@ -89,11 +91,8 @@ def prepare_python(source, item):
         if len(matches) != 1:
             raise RuntimeError("Expected one upstream schema for " + op)
         schemas.append(matches[0])
-        source_name = _SHARED_BRIDGE_SOURCES.get(op, op)
-        source_file = upstream / (source_name + ".cpp")
-        if not source_file.is_file() and not source_name.startswith("npu_"):
-            source_file = upstream / ("npu_" + source_name + ".cpp")
-        content = source_file.read_text()
+        source_name = _BRIDGE_SOURCES.get(op, op)
+        content = (upstream / (source_name + ".cpp")).read_text()
         content = content.replace(
             "TORCH_LIBRARY_IMPL(custom,", "TORCH_LIBRARY_IMPL(" + item["name"] + ","
         )
