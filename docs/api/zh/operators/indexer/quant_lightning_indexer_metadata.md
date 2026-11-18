@@ -17,13 +17,15 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
     ...
 ```
 
-`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。
+`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 在 A3 上使用 wheel 内的实验算子绑定，其他支持的平台使用正式绑定；不在执行失败后重试其他后端。
 
 ## 说明
 
 与 quant_lightning_indexer 使用相同实现和长度；不同 ABI 的元数据不可混用。
 
 根据头维度、Top-K、量化模式和请求长度生成调度信息。参考元数据是参数描述对象，不作为 tiling 字节精度基准。
+
+在 A3 + CANN 9.2 上，使用相同的头维度、Top-K、布局、压缩比和请求长度为[索引器的三种模式](quant_lightning_indexer.md#a3--cann-92-int8-模式)准备元数据。`candidate_mode` 和 `candidate_topk_index` 在计算时传给索引器；元数据接口不接收这两个参数。若 graph replay 时设备上的长度发生变化，应根据新长度重新生成元数据。
 
 ## 参数
 
@@ -33,7 +35,7 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
 | num_heads_k | int | 必填 | Number of key heads; reference supports 1 |
 | head_dim | int | 必填 | Head width D |
 | topk | int | 必填 | Requested number of logical compressed keys |
-| quant_mode | int / str | 必填 | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| quant_mode | int | 必填 | 1=FP8，2=INT8 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
 ### 关键字参数
@@ -57,7 +59,7 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
 
 ## cann_ops_transformers_cann920
 
-仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
+A3 调用 wheel 内的 ops-transformer 实验算子绑定，其他支持的平台调用 CANN 9.2 正式绑定。旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 
 ## ops_transformers_cann910
 

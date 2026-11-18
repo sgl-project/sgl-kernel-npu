@@ -17,13 +17,15 @@ def quant_lightning_indexer_metadata(num_heads_q, num_heads_k, head_dim, topk, q
     ...
 ```
 
-`auto` selects the initialized SDK production path: original bindings on CANN 9.1, released bindings on CANN 9.2. Execution failures never trigger another backend.
+`auto` selects the initialized SDK production path: original bindings on CANN 9.1, bundled experimental bindings on A3 with CANN 9.2, and released bindings on other supported CANN 9.2 hardware. Execution failures never trigger another backend.
 
 ## Description
 
 Use the same implementation and lengths as quant_lightning_indexer. Metadata is not interchangeable between ABIs.
 
 Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-request lengths. Reference metadata is a parameter descriptor, not a byte-level tiling oracle.
+
+On A3 + CANN 9.2, use matching head geometry, top-k, layouts, compression ratio, and request lengths to prepare metadata for the [three indexer modes](quant_lightning_indexer.md#a3--cann-92-int8-modes). Pass `candidate_mode` and `candidate_topk_index` to the compute call. If device lengths change on graph replay, regenerate metadata from the updated lengths.
 
 ## Parameters
 
@@ -33,7 +35,7 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 | num_heads_k | int | required | Number of key heads; reference supports 1 |
 | head_dim | int | required | Head width D |
 | topk | int | required | Requested number of logical compressed keys |
-| quant_mode | int / str | required | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| quant_mode | int | required | 1=FP8, 2=INT8 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
 ### Keyword arguments
@@ -57,7 +59,7 @@ Prepare indexer scheduling from head geometry, Top-K, quantization mode and per-
 
 ## cann_ops_transformers_cann920
 
-Calls only the released CANN 9.2 binding. The old ABI is registered separately as `CANN 9.1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
+Uses the bundled experimental ops-transformer binding on A3 and the released CANN 9.2 binding on other supported hardware. The old ABI is registered separately as `CANN 9.1`. An explicit implementation inconsistent with the initialized SDK is rejected before execution.
 
 ## ops_transformers_cann910
 
