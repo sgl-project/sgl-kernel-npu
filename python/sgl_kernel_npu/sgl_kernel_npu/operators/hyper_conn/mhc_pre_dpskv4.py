@@ -1,7 +1,5 @@
 """Public mhc_pre operator with registered implementations."""
 
-import torch
-
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
@@ -112,16 +110,9 @@ def _cann_9_2_mhc_pre_v2(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
     if _cann_920_v2_fn is None:
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+        from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre_v2
 
-        _cann_920_v2_fn = getattr(
-            torch.ops.sgl_cann_recipes_infer, "npu_hc_pre_v2", None
-        )
-        if _cann_920_v2_fn is None:
-            raise RuntimeError(
-                "Missing operator sgl_cann_recipes_infer.npu_hc_pre_v2 in the installed "
-                f"sgl-kernel-npu wheel for CANN {cann_version}"
-            )
+        _cann_920_v2_fn = npu_hc_pre_v2
     y, post, comb, pre = _cann_920_v2_fn(
         x,
         fn,

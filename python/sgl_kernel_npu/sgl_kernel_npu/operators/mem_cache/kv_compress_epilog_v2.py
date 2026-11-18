@@ -1,7 +1,5 @@
 """Public kv_compress_epilog_v2 operator with registered implementations."""
 
-import torch
-
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
@@ -23,12 +21,8 @@ def _cann_kv_compress_epilog_v2(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    op = getattr(torch.ops.sgl_cann_recipes_infer, "kv_compress_epilog_v2", None)
-    if op is None:
-        raise RuntimeError(
-            "Missing operator sgl_cann_recipes_infer.kv_compress_epilog_v2 in the "
-            f"installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+    from ..._third_party.sgl_cann_recipes_infer import kv_compress_epilog_v2 as op
+
     op(cache, x, slot_mapping, **kwargs)
 
 
