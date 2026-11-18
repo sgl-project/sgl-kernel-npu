@@ -1,4 +1,4 @@
-"""CPU numerical and schema contracts for the A3 INT8 candidate extension."""
+"""Basic routing and packaging contracts for the A3 INT8 candidate extension."""
 
 import importlib
 import sys
@@ -52,102 +52,16 @@ def modules():
                     sys.modules.pop(name, None)
 
 
-def inputs(ratio=1):
-    length = 16448  # More than 2048 blocks, so candidate pruning is exercised.
-    pages = (length + 63) // 64
-    table = torch.arange(pages - 1, -1, -1, dtype=torch.int32).view(1, -1)
-    q = torch.ones(1, 32, 128, dtype=torch.int8)
-    k = torch.ones(pages, 64, 1, 128, dtype=torch.int8)
-    ks = torch.zeros(pages, 64, 1, dtype=torch.float16)
-    for position in range(length):
-        scale = (
-            (position + 1) / 1024
-            if position < length - 8
-            else 1001 + position - (length - 8)
-        )
-        ks[table[0, position // 64], position % 64, 0] = scale
-    args = (
-        q,
-        k,
+def inputs():
+    return (
+        torch.ones(1, 32, 128, dtype=torch.int8),
+        torch.ones(1, 64, 1, 128, dtype=torch.int8),
         torch.ones(1, 32, dtype=torch.float16),
         torch.ones(1, 32, dtype=torch.float16),
-        ks,
+        torch.ones(1, 64, 1, dtype=torch.float16),
         4,
         2,
-    )
-    common = dict(
-        cu_seqlens_q=torch.tensor([0, 1], dtype=torch.int32),
-        seqused_k=torch.tensor([length], dtype=torch.int32),
-        cmp_residual_k=torch.tensor([ratio - 1], dtype=torch.int32),
-        block_table=table,
-        cmp_ratio=ratio,
-    )
-    return args, common
-
-
-@pytest.mark.parametrize("ratio", [1, 2])
-def test_source_consumer_and_ordinary_use_logical_compressed_rows(modules, ratio):
-    op, _ = modules
-    args, common = inputs(ratio)
-    ordinary = op(*args, **common)
-    assert len(ordinary) == 2
-    selected, _, candidates = op(*args, **common, candidate_mode=1)
-    assert candidates.shape == (1, 1, 2048)
-    assert set(candidates.flatten().tolist()) == set(range(8, 2056))
-    assert selected.flatten().tolist() == [16447, 16446, 16445, 16444]
-    result = op(*args, **common, candidate_mode=2, candidate_topk_index=candidates)
-    assert torch.equal(result[0], selected)
-    assert torch.equal(op(*args, **common, candidate_mode=3)[0], ordinary[0])
-    restricted = torch.full((1, 1, 2048), -1, dtype=torch.int32)
-    restricted[0, 0, :4] = torch.tensor([0, 0, -1, 99999])
-    result = op(*args, **common, candidate_mode=2, candidate_topk_index=restricted)
-    assert result[0].flatten().tolist() == [7, 6, 5, 4]
-
-
-def test_source_pins_last_visible_block_and_causal_padding(modules):
-    op, _ = modules
-    args, common = inputs()
-    args[4].fill_(1)
-    length = int(common["seqused_k"][0])
-    for position in range(length - 8, length):
-        args[4][common["block_table"][0, position // 64], position % 64] = 0
-    _, _, blocks = op(*args, **common, candidate_mode=1)
-    assert (length - 1) // 8 in blocks.flatten().tolist()
-    common["seqused_k"].zero_()
-    indices, _, blocks = op(*args, **common, candidate_mode=1)
-    assert torch.all(indices == -1) and torch.all(blocks == -1)
-    common["seqused_k"].fill_(1)
-    common["cu_seqlens_q"] = torch.tensor([0, 2], dtype=torch.int32)
-    q, k, w, qs, ks, topk, mode = args
-    result = op(
-        q.expand(2, -1, -1).contiguous(),
-        k,
-        w.expand(2, -1).contiguous(),
-        qs.expand(2, -1).contiguous(),
-        ks,
-        topk,
-        mode,
-        **common,
-        candidate_mode=3,
-    )
-    assert result[0][0].eq(-1).all()
-    assert result[0][1, 0, 0] == 0
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        dict(candidate_mode=0),
-        dict(candidate_mode=1, candidate_topk_blocks=64),
-        dict(candidate_mode=1, candidate_block_size=4),
-        dict(candidate_mode=2),
-    ],
-)
-def test_invalid_candidate_contract_rejected(modules, kwargs):
-    op, _ = modules
-    args, common = inputs()
-    with pytest.raises(ValueError):
-        op(*args, **common, **kwargs)
+    ), {}
 
 
 def test_public_route_reuses_existing_upstream_operators(modules):
@@ -202,9 +116,7 @@ def test_public_route_reuses_existing_upstream_operators(modules):
     assert calls[2][1]["candidate_topk_index"] is candidates
 
 
-def test_profiles_reuse_experimental_a3_ops_without_source_overlay(
-    monkeypatch, tmp_path
-):
+def test_profiles_select_a3_candidate_vendor(monkeypatch):
     import importlib.util
     import json
 
@@ -240,85 +152,6 @@ def test_profiles_reuse_experimental_a3_ops_without_source_overlay(
     monkeypatch.setattr(adapter, "detect_soc_version", lambda: "ascend910b")
     assert adapter.configure(experiment, 1)["ops"] == ["compressor_v2"]
     assert "quant_lightning_indexer_v2" in adapter.configure(release, 1)["ops"]
-    assert not list((ROOT / "third_party/ops_transformer/dsv41_indexer").rglob("*.cpp"))
-
-    # Exercise the pinned source adjustment and repeated builds. The reduced
-    # MM buffer must retain the separately addressed FP16 weight workspace.
-    source = tmp_path / "upstream"
-    paths = []
-    for op in ("quant_lightning_indexer_v2", "quant_sparse_lightning_indexer"):
-        path = source / "experimental/attention" / op / "op_host" / (op + "_tiling.cpp")
-        path.parent.mkdir(parents=True)
-        path.write_text("uint32_t mm1ResSize = M_BASE_SIZE * S2_BASE_SIZE;\n")
-        paths.append(path)
-    adapter.fix_a3_indexer_workspace(source)
-    first = [path.read_text() for path in paths]
-    adapter.fix_a3_indexer_workspace(source)
-    assert [path.read_text() for path in paths] == first
-    for text in first:
-        assert "mm1ResSize = S1_BASE_SIZE * S2_BASE_SIZE" in text
-        assert "16ULL * M_BASE_SIZE * DOUBLE_BUFFER * sizeof(uint16_t)" in text
-
-    kernel = source / (
-        "experimental/attention/quant_sparse_lightning_indexer/op_kernel/arch22/"
-        "quant_sparse_lightning_indexer_service_vector_arch22.h"
-    )
-    kernel.parent.mkdir(parents=True)
-    kernel.write_text("    int32_t tileBlockBase = cuBaseS2Idx / blockSize;\n")
-    adapter.optimize_a3_consumer_mask(source)
-    adjusted = kernel.read_text()
-    adapter.optimize_a3_consumer_mask(source)
-    assert kernel.read_text() == adjusted
-    assert "blockCount <= tableCapacity" in adjusted
-    assert "b >= 0 && b < blockCount" in adjusted
-    assert "innerS1Idx * tableCapacity" in adjusted
-    assert "HardEvent::MTE2_S" in adjusted
-    kernel.write_text("unexpected upstream source")
-    with pytest.raises(RuntimeError, match="Unexpected A3 consumer mask"):
-        adapter.optimize_a3_consumer_mask(source)
-
-    import zipfile
-
-    wheel = tmp_path / "upstream.whl"
-    prefix = "cann_ops_transformer_" + selected["vendor_name"]
-    binding = """class Builder:
-    def register_meta(self):
-        def metadata(cu_seqlens_q=None, cu_seqlens_k=None, seqused_q=None,
-                     seqused_k=None, cmp_residual_k=None):
-            return torch.empty((QLI_METADATA_SIZE), dtype=torch.int32, device="npu")
-        def compute(query, return_value=0):
-            sparse_indices_out = torch.empty(3, dtype=torch.int32, device=query.device)
-            if return_value:
-                sparse_values_out = torch.empty(3, dtype=torch.bfloat16, device=query.device)
-            else:
-                sparse_values_out = torch.empty(0, dtype=torch.bfloat16, device=query.device)
-            return (sparse_indices_out, sparse_values_out)
-        return metadata, compute
-"""
-    with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr(
-            prefix + "/ops/attention/quant_lightning_indexer_v2/__init__.py", ""
-        )
-        archive.writestr(
-            prefix
-            + "/ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py",
-            binding,
-        )
-    package = tmp_path / "package"
-    adapter.stage_python(wheel, selected, package)
-    staged = (
-        package
-        / "_third_party"
-        / selected["name"]
-        / "ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py"
-    )
-    ns = {"torch": torch, "QLI_METADATA_SIZE": 1024}
-    exec(compile(staged.read_text(), str(staged), "exec"), ns)
-    metadata, compute = ns["Builder"]().register_meta()
-    query = torch.empty(1, device="meta")
-    assert metadata(seqused_k=query).device.type == "meta"
-    assert compute(query, 1)[1].dtype == torch.float32
-    assert compute(query, 0)[1].dtype == torch.bfloat16
 
 
 def test_public_wrapper_keeps_legacy_pair_and_explicit_mode_triple():

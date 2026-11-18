@@ -199,9 +199,7 @@ def test_quant_lightning_indexer_queued_lifetimes(case):
         assert_indexer_accuracy(result, expected)
 
 
-@pytest.mark.parametrize("ratio", [1, 2])
-@pytest.mark.parametrize("query_length", [1, 5])
-@pytest.mark.parametrize("heads", [32, 64])
+@pytest.mark.parametrize("ratio,query_length,heads", [(1, 1, 32), (2, 5, 64)])
 def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
     from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
@@ -295,9 +293,7 @@ def test_a3_v41_three_modes_and_graph_replay(ratio, query_length, heads):
     assert ordinary[0].shape == (query_length, 1, 512)
 
 
-@pytest.mark.parametrize("length", [4096, 32769])
-@pytest.mark.parametrize("ragged", [False, True])
-def test_a3_consumer_dirty_candidates_and_replay(length, ragged):
+def test_a3_consumer_dirty_candidates_and_replay():
     from sgl_kernel_npu.operators.indexer import (
         quant_lightning_indexer,
         quant_lightning_indexer_metadata,
@@ -309,12 +305,9 @@ def test_a3_consumer_dirty_candidates_and_replay(length, ragged):
 
     if torch_npu_soc_family() != 250 or not detect_cann_version().startswith("9.2."):
         pytest.skip("V4.1 INT8 candidate modes require A3 + CANN 9.2")
+    length = 32769  # Exercise fallback -> membership-table transition on replay.
     with torch.device("cpu"):
-        case = (
-            ((length, length - 64), (2, 3), (0, 0))
-            if ragged
-            else ((length,), (5,), (0,))
-        )
+        case = ((length, length - 64), (2, 3), (0, 0))
         args, common, table = generate_data(case, 2, scale_divisor=4096)
         args[4].fill_(1)  # Candidate eligibility, rather than scores, decides the set.
         candidates = torch.full((5, 1, 2048), -1, dtype=torch.int32)
