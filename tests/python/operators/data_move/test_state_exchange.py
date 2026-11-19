@@ -45,6 +45,22 @@ def _indices(values):
             2, 10, 12, (32,), torch.float32, [7, 2, 9], [11, 1, 4], id="fp32-pools-differ"
         ),
         pytest.param(3, 5, 5, (16,), torch.float32, [2], [3], id="single-slot"),
+        # The AIV kernel stages each slot through an 88KB UB buffer and
+        # splits larger entries, so cover the boundary from both sides:
+        # 45056 * 2B = 88KB exactly, 45057/45055 straddle it by one element.
+        pytest.param(
+            2, 4, 4, (45056,), torch.float16, range(4), range(4), id="ub-88kb-exact-fp16"
+        ),
+        pytest.param(
+            2, 4, 4, (45057,), torch.float16, [0, 2], [1, 3], id="ub-88kb-over-fp16"
+        ),
+        pytest.param(
+            2, 4, 4, (45055,), torch.float16, range(4), range(4), id="ub-88kb-under-fp16"
+        ),
+        # Real GDN state shape (~2MB per slot, fp32): several splits per entry.
+        pytest.param(
+            2, 4, 4, (32, 128, 128), torch.float32, range(4), range(4), id="gdn-shaped-fp32"
+        ),
     ],
 )
 def test_state_exchange_all_layer_d2h(
@@ -149,6 +165,17 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
         pytest.param(3, 6, 6, (8, 64), torch.float16, 0, [2, 5], [1, 4], id="subset"),
         pytest.param(
             2, 10, 12, (32,), torch.float32, 1, [9, 3], [5, 0], id="fp32-pools-differ"
+        ),
+        # UB-staging boundary (88KB per slot) in both directions, plus a
+        # multi-split GDN-shaped payload.
+        pytest.param(
+            2, 4, 4, (45056,), torch.float16, 1, range(4), range(4), id="ub-88kb-exact-fp16"
+        ),
+        pytest.param(
+            2, 4, 4, (45057,), torch.float16, 0, [1, 3], [0, 2], id="ub-88kb-over-fp16"
+        ),
+        pytest.param(
+            2, 4, 4, (32, 128, 128), torch.float32, 1, range(4), range(4), id="gdn-shaped-fp32"
         ),
     ],
 )
