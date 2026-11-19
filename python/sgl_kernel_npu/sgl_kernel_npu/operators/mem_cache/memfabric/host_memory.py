@@ -68,6 +68,11 @@ def set_memfabric_pool(pool) -> None:
     _MF_POOL = pool
 
 
+def get_memfabric_pool():
+    """Return the initialized Offload instance published by the host pool."""
+    return _MF_POOL
+
+
 def _register_mf_block(host_ptr: int) -> int:
     """Register one MF-allocated block; return 0 on success.
 
