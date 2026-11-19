@@ -16,8 +16,6 @@
 
 #include "laser_attention_tiling.h"
 
-#include <cstring>
-#include <iostream>
 #include <string>
 #include <cinttypes>
 
@@ -54,7 +52,7 @@ namespace optiling {
 class LaserAttentionTiling
 {
 public:
-    SglLaserAttentionTilingData tilingData{};
+    LaserAttentionTilingData tilingData;
 
     ge::graphStatus Tiling4LaserAttention(gert::TilingContext *context);
 
@@ -256,14 +254,8 @@ static ge::graphStatus LaserAttentionTilingFunc(gert::TilingContext *context)
                     groupNum * 256 * 128 * 8 * 2 * 4 * 2 +  // 256、128、8、2、4 is offset
                     rowSumSize + workspaceSize;
 
-    auto *rawTilingData = context->GetRawTilingData();
-    if (rawTilingData == nullptr || rawTilingData->GetData() == nullptr ||
-        rawTilingData->GetCapacity() < sizeof(tiling.tilingData)) {
-        return ge::GRAPH_FAILED;
-    }
-    // Host and Kernel share the same plain struct, so the raw bytes are the layout.
-    std::memcpy(rawTilingData->GetData(), &tiling.tilingData, sizeof(tiling.tilingData));
-    rawTilingData->SetDataSize(sizeof(tiling.tilingData));
+    tiling.tilingData.SaveToBuffer(context->GetRawTilingData()->GetData(), context->GetRawTilingData()->GetCapacity());
+    context->GetRawTilingData()->SetDataSize(tiling.tilingData.GetDataSize());
 
     const auto inputData = context->GetInputTensor(0);
     if (inputData == nullptr) {
@@ -284,8 +276,8 @@ ge::graphStatus TilingPrepareForLaserAttention(gert::TilingParseContext *context
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(SglLaserAttention)
+IMPL_OP_OPTILING(LaserAttention)
     .Tiling(LaserAttentionTilingFunc)
-    .TilingParse<SglLaserAttentionCompileInfo>(TilingPrepareForLaserAttention);
+    .TilingParse<LaserAttentionCompileInfo>(TilingPrepareForLaserAttention);
 
 }  // namespace optiling
