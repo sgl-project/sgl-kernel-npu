@@ -91,9 +91,9 @@ def test_dynamic_quant(shape, dtype, mode):
     assert scale.shape == x.shape[:-1]
     assert scale.dtype == torch.float32
     # Byte-wise comparison so the input is verified unchanged.
-    assert torch.equal(x.view(torch.uint8), x_copy.view(torch.uint8)), (
-        "x must not be modified"
-    )
+    assert torch.equal(
+        x.view(torch.uint8), x_copy.view(torch.uint8)
+    ), "x must not be modified"
 
     if not skip_accuracy:
         actual = dequantize(payload, scale)

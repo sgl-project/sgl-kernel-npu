@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 
+from ._kpool_hadamard import hadamard128
 from ._kpool_mx_quant import mx_quantize_row
 
 
@@ -69,7 +70,15 @@ def kpool_write_tail_and_maybe_compress(
             write_row = int(write_loc[batch, pool_offset].item())
             if scale_cache is None:
                 cache_2d[write_row] = pooled.to(torch.bfloat16)
+            elif scale_cache.dtype == torch.float32:
+                pooled = hadamard128(pooled)
+                scale = pooled.abs().amax().clamp_min(1e-4) / 448.0
+                cache_2d[write_row] = (
+                    (pooled / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+                )
+                scale_cache.view(-1)[write_row] = scale
             elif index_k_cache.dtype == torch.int8:
+                pooled = hadamard128(pooled)
                 amax = pooled.abs().amax()
                 scale = amax / 127.0 if amax > 0 else torch.ones_like(amax)
                 scaled = pooled / scale

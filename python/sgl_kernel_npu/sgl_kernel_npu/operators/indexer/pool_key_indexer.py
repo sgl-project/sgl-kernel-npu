@@ -59,7 +59,8 @@ def pool_key_indexer(
     ``pool_tail_k`` requires an int64 Tensor on CPU or NPU; ``actual_seq_*``
     accept the same Tensor inputs or None when optional for the layout.
     ``q_descale``/``k_descale`` are the dequantization scales consumed when
-    ``quant_mode >= 0``: FP16 per-row scales for INT8 (``quant_mode=2``) and
+    ``quant_mode >= 0``: FP32 per-row scales for FP8 (``quant_mode=0``),
+    FP16 per-row scales for INT8 (``quant_mode=2``) and
     E8M0 bytes for mxFP8 (``quant_mode=1``); their dtypes and shapes are
     validated by CANN.
     Arguments and the (indices, values) result are forwarded unchanged; CANN

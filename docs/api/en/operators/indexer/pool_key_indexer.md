@@ -61,7 +61,7 @@ Returns the CANN `(indices, values)` tuple unchanged. Indices use int32, with un
 | `mask_mode` | `int` | — | — | `3` | Forwarded to CANN. |
 | `quant_mode` | `int` | — | — | `-1` | Forwarded unchanged; CANN defines the supported modes (no quantization, FP8/mxFP8 on 950, and INT8 where the installed CANN release implements it). |
 | `q_descale` | `torch.Tensor` or `None` | layout-dependent | CANN-validated dequantization dtype | `None` | Query dequantization scales consumed when `quant_mode >= 0`; forwarded unchanged. |
-| `k_descale` | `torch.Tensor` or `None` | `[B, S2, N2]` / `[T2, N2]` / `[block_num, block_size, N2]` (INT8) or `[..., D/64, 2]` (mxFP8) | CANN-validated dequantization dtype | `None` | Pooled-key dequantization scales consumed when `quant_mode >= 0`: FP16 per-row scales for INT8 (`quant_mode=2`), E8M0 bytes packed per 32 head-dim elements for mxFP8 (`quant_mode=1`); forwarded unchanged. |
+| `k_descale` | `torch.Tensor` or `None` | `[B, S2, N2]` / `[T2, N2]` / `[block_num, block_size, N2]` (INT8) or `[..., D/64, 2]` (mxFP8) | CANN-validated dequantization dtype | `None` | Pooled-key dequantization scales consumed when `quant_mode >= 0`: FP32 per-row scales for FP8 (`quant_mode=0`), FP16 per-row scales for INT8 (`quant_mode=2`), E8M0 bytes packed per 32 head-dim elements for mxFP8 (`quant_mode=1`); forwarded unchanged. |
 | `return_value` | `bool` | — | — | `False` | Forwarded to CANN; controls whether values contain selected pool scores. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only: auto, cann_ops_transformer, or torch_native. |
 
@@ -87,7 +87,7 @@ Requires CANN 9.2.0. The facade directly imports `cann_ops_transformer.ops.pool_
 
 An independent FP32 reference for BSND/BSND and TND/{TND, PA_BBND} inputs, runnable
 on CPU or NPU. It returns the same tuple structure and honors return_value.
-quant_mode is accepted for call compatibility; supplied tensor values are scored
+FP8 quant_mode=0 applies FP32 q_descale/k_descale before scoring. For INT8/mxFP8, quant_mode is accepted for call compatibility; supplied tensor values are scored
 in FP32 without reproducing vendor-specific quantized rounding.
 This is a correctness reference, not a serving backend.
 

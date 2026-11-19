@@ -1,5 +1,5 @@
 # In-place Operator
-"""INT8 pooled-key writes: dequantized cache must track the BF16 reference."""
+"""INT8 pooled-key writes must track the Hadamard-rotated BF16 reference."""
 
 import pytest
 
@@ -11,7 +11,7 @@ from tests.python.utils.standards import AccuracyStandard
 
 HEAD_DIM = 128
 # One INT8 step is amax / 127 over the pooled row, so the dequantized key stays
-# within a few quantization steps of the BF16 pooled key for these inputs.
+# within a few quantization steps of the rotated BF16 pooled key.
 INT8_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=5e-2),
 }
@@ -28,7 +28,21 @@ def dequantize(cache, scale):
     return (rows * scale.float().reshape(-1, 1)).reshape(cache.shape).to(torch.bfloat16)
 
 
-def test_assemble_int8_cache_tracks_bf16():
+def rotate_reference(cache):
+    """Dense Sylvester matrix, independent of the kernel's butterfly transform."""
+    matrix = torch.ones(1, 1, device=cache.device)
+    while matrix.shape[0] < HEAD_DIM:
+        matrix = torch.cat(
+            (torch.cat((matrix, matrix), dim=1), torch.cat((matrix, -matrix), dim=1)),
+            dim=0,
+        )
+    matrix *= HEAD_DIM**-0.5
+    rotated = cache.float().reshape(-1, HEAD_DIM) @ matrix
+    return rotated.reshape(cache.shape).to(torch.bfloat16)
+
+
+@pytest.mark.parametrize("zero_keys", [False, True])
+def test_assemble_int8_cache_tracks_bf16(zero_keys):
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_assemble_softmax_rotate_write_cache,
     )
@@ -41,6 +55,9 @@ def test_assemble_int8_cache_tracks_bf16():
     chunk_score = torch.randn(n_pools * pool_size, HEAD_DIM)
     tail_k = torch.randn(2, tail_size, HEAD_DIM).bfloat16()
     tail_score = torch.randn(2, tail_size, HEAD_DIM)
+    if zero_keys:
+        chunk_k.zero_()
+        tail_k.zero_()
     ape = torch.randn(pool_size, HEAD_DIM) * 2
     loc = torch.tensor([0, 1, 5], dtype=torch.int64)
     plan = dict(
@@ -79,11 +96,42 @@ def test_assemble_int8_cache_tracks_bf16():
 
     assert_accuracy(
         dequantize(int8_cache, scale),
-        bf16_cache,
+        rotate_reference(bf16_cache),
         INT8_STANDARD,
         path="index_k_cache",
     )
     assert torch.all(scale[loc] > 0)
+    if zero_keys:
+        assert torch.count_nonzero(int8_cache) == 0
+        assert torch.all(scale[loc] == 1)
+
+
+def test_assemble_int8_all_masked_preserves_cache():
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_assemble_softmax_rotate_write_cache,
+    )
+
+    impl, _ = get_test_impls()
+    cache = torch.full((4, HEAD_DIM), 7, dtype=torch.int8)
+    scale = torch.full((4,), 0.25, dtype=torch.float16)
+    kpool_assemble_softmax_rotate_write_cache(
+        cache,
+        torch.randn(4, HEAD_DIM).bfloat16(),
+        torch.randn(4, HEAD_DIM),
+        torch.zeros(1, 4, HEAD_DIM, dtype=torch.bfloat16),
+        torch.zeros(1, 4, HEAD_DIM),
+        torch.tensor([0], dtype=torch.int64),
+        torch.tensor([0], dtype=torch.int32),
+        torch.tensor([0], dtype=torch.int64),
+        torch.tensor([0], dtype=torch.int32),
+        torch.zeros(4, HEAD_DIM),
+        torch.tensor([2], dtype=torch.int64),
+        write_mask=torch.tensor([False]),
+        scale_cache=scale,
+        impl=impl,
+    )
+    assert torch.all(cache == 7)
+    assert torch.all(scale == 0.25)
 
 
 def test_decode_int8_cache_tracks_bf16():
@@ -130,7 +178,7 @@ def test_decode_int8_cache_tracks_bf16():
 
     assert_accuracy(
         dequantize(int8_cache, scale),
-        bf16_cache,
+        rotate_reference(bf16_cache),
         INT8_STANDARD,
         path="index_k_cache",
     )
@@ -174,7 +222,7 @@ def test_mtp_int8_cache_tracks_bf16():
 
     assert_accuracy(
         dequantize(int8_cache, scale),
-        bf16_cache,
+        rotate_reference(bf16_cache),
         INT8_STANDARD,
         path="index_k_cache",
     )

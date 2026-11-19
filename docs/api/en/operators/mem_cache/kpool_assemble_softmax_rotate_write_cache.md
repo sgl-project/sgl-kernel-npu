@@ -7,6 +7,8 @@
 | `triton` | Supported | Verified |
 | `torch_native` | Supported | Verified |
 
+The FP8/INT8 Hadamard paths have CPU-reference coverage only; NPU/Triton validation is pending.
+
 ## Signature
 
 ```python
@@ -39,15 +41,17 @@ def kpool_assemble_softmax_rotate_write_cache(
 
 ## Description
 
-Assemble each pool from a prefix in the request's tail ring and a suffix in the current chunk, according to the supplied plan. Apply channel-wise softmax pooling to keys using their scores plus positional scores, then write the result to the specified cache row. BF16 stores the pooled key; INT8 stores a symmetric per-row quantization and writes the FP16 dequantization scale to `scale_cache`; mxFP8 (`float8_e4m3fn`) stores E4M3FN keys with one E8M0 scale byte per 32 channels in `scale_cache`.
+Assemble each pool from a prefix in the request's tail ring and a suffix in the current chunk, according to the supplied plan. Apply channel-wise softmax pooling to keys using their scores plus positional scores, then write the result to the specified cache row. BF16 stores the pooled key; INT8 applies normalized Hadamard128 after pooling, then stores a symmetric per-row quantization and writes the FP16 dequantization scale to `scale_cache`; mxFP8 (`float8_e4m3fn`) stores E4M3FN keys with one E8M0 scale byte per 32 channels in `scale_cache`.
 
 Pooling uses FP32 arithmetic. The write mask can leave selected cache rows unchanged; tail and chunk inputs remain read-only.
+
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. FP8 and INT8 queries must apply the same Hadamard128 before quantization. BF16 and mxFP8 keys and queries do not apply Hadamard; tail keys remain in the original basis.
 
 ## Parameters and return value
 
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `index_k_cache` | `torch.Tensor` | Contiguous storage flattenable to `[cache_rows, 128]` | `torch.bfloat16`, `torch.int8`, or `torch.float8_e4m3fn` | Required | Index cache updated in place. INT8 and mxFP8 require `scale_cache`. |
+| `index_k_cache` | `torch.Tensor` | Contiguous storage flattenable to `[cache_rows, 128]` | `torch.bfloat16`, `torch.int8`, or `torch.float8_e4m3fn` | Required | Index cache updated in place. FP8, INT8 and mxFP8 require `scale_cache`. |
 | `chunk_k` | `torch.Tensor` | `[N, 128]` | `torch.bfloat16` | Required | Current-chunk keys. |
 | `chunk_score` | `torch.Tensor` | Same as `chunk_k` | `torch.float16`, `torch.bfloat16`, or `torch.float32` | Required | Scores paired with `chunk_k`. |
 | `tail_k` | `torch.Tensor` | `[R, T, 128]` | `torch.bfloat16` | Required | Request-local key rings; read only. |
@@ -59,7 +63,7 @@ Pooling uses FP32 arithmetic. The write mask can leave selected cache rows uncha
 | `ape` | `torch.Tensor` | `[pool_size, 128]` | `torch.float32` | Required | Additive pooling-position scores; `pool_size > 0`. |
 | `loc` | `torch.Tensor` | `[P]` | `torch.int64` | Required | Flattened cache rows to write. |
 | `write_mask` | `torch.Tensor` or `None` | `[P]` or — | `torch.bool` | `None` | Optional per-pool write enable. |
-| `scale_cache` | `torch.Tensor` or `None` | `[cache_rows]` for INT8 or `[cache_rows, 128/64, 2]` for mxFP8 | `torch.float16` (INT8) or `torch.uint8` (mxFP8 E8M0 bytes) | `None` | Per-row dequantization scales written with INT8/mxFP8 keys. |
+| `scale_cache` | `torch.Tensor` or `None` | `[cache_rows]` for FP8/INT8 or `[cache_rows, 128/64, 2]` for mxFP8 | `torch.float32` (FP8), `torch.float16` (INT8) or `torch.uint8` (mxFP8 E8M0 bytes) | `None` | Per-row dequantization scales written with FP8/INT8/mxFP8 keys. |
 | `num_programs` | `int` or `None` | — | — | `None` | Optional execution-parallelism hint; must be positive when supplied. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 

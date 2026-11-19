@@ -115,9 +115,9 @@ def test_dynamic_mx_quant(shape, dtype, mode):
     assert scales.shape == (*x.shape[:-1], x.shape[-1] // _MX_BLOCK)
     assert scales.dtype == torch.float8_e8m0fnu
     # Byte-wise comparison so NaN inputs do not break the equality check.
-    assert torch.equal(x.view(torch.uint8), x_copy.view(torch.uint8)), (
-        "x must not be modified"
-    )
+    assert torch.equal(
+        x.view(torch.uint8), x_copy.view(torch.uint8)
+    ), "x must not be modified"
 
     if not skip_accuracy:
         actual = dequantize(payload, scales)

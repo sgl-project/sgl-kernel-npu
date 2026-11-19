@@ -118,3 +118,5 @@ indices, values = pool_key_indexer(
 assert indices.shape == (1, 1, 19) and indices.dtype == torch.int32
 assert values.shape == (0,)
 ```
+
+普通 FP8（`quant_mode=0`）使用逐行 FP32 q/k scale；Torch 参考会先反量化再评分。INT8/mxFP8 的 Torch 参考仍仅接收兼容参数，未复现其反量化。

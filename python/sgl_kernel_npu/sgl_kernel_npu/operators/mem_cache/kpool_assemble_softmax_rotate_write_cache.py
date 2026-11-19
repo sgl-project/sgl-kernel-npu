@@ -121,8 +121,12 @@ def kpool_assemble_softmax_rotate_write_cache(
 
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
 
+    Ordinary FP8 stores a Hadamard-rotated E4M3FN key with one FP32 scale per row.
+    INT8 applies normalized Hadamard128 after pooling and before quantization.
+    FP8/INT8 queries use the same rotation; BF16 and mxFP8 do not apply Hadamard.
+
     Args:
-        index_k_cache: torch.Tensor, shape Contiguous storage flattenable to [cache_rows, 128], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Index cache updated in place. INT8 and mxFP8 require ``scale_cache``.
+        index_k_cache: torch.Tensor, shape Contiguous storage flattenable to [cache_rows, 128], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Index cache updated in place. FP8, INT8 and mxFP8 require ``scale_cache``.
         chunk_k: torch.Tensor, shape [N, 128], dtype torch.bfloat16. Current-chunk keys.
         chunk_score: torch.Tensor, shape Same as chunk_k, dtype torch.float16, torch.bfloat16, or torch.float32. Scores paired with chunk_k.
         tail_k: torch.Tensor, shape [R, T, 128], dtype torch.bfloat16. Request-local key rings; read only.
@@ -134,12 +138,12 @@ def kpool_assemble_softmax_rotate_write_cache(
         ape: torch.Tensor, shape [pool_size, 128], dtype torch.float32. Additive pooling-position scores; pool_size > 0.
         loc: torch.Tensor, shape [P], dtype torch.int64. Flattened cache rows to write.
         write_mask: torch.Tensor or None, shape [P] or —, dtype torch.bool. Optional per-pool write enable.
-        scale_cache: torch.Tensor or None, shape [cache_rows] for INT8 or [cache_rows, 128/64, 2] for mxFP8, dtype torch.float16 for INT8 or torch.uint8 (E8M0 bytes) for mxFP8. Per-row dequantization scales written with the quantized keys.
+        scale_cache: torch.Tensor or None, shape [cache_rows] for FP8/INT8 or [cache_rows, 128/64, 2] for mxFP8, dtype torch.float32 for FP8, torch.float16 for INT8 or torch.uint8 (E8M0 bytes) for mxFP8. Per-row dequantization scales written with the quantized keys.
         num_programs: int or None, shape —, dtype —. Keyword-only Triton grid size. Must be positive when supplied; it is capped at P. By default, the backend uses the available Vector Core count capped at P.
         impl: Backend name: auto, triton or torch_native.
 
     Returns:
-        None. Updates index_k_cache and, for INT8/mxFP8, scale_cache in place.
+        None. Updates index_k_cache and, for FP8/INT8/mxFP8, scale_cache in place.
     """
     impl_fn = get_impl_by_name(
         "mem_cache.kpool_assemble_softmax_rotate_write_cache", impl

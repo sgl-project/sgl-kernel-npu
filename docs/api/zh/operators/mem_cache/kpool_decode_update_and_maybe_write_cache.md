@@ -9,6 +9,8 @@
 
 ## 函数原型
 
+FP8/INT8 Hadamard 路径目前仅有 CPU 参考校验，NPU/Triton 实机验证待补。
+
 ```python
 import torch
 from sgl_kernel_npu.operators.mem_cache import kpool_decode_update_and_maybe_write_cache
@@ -39,18 +41,20 @@ def kpool_decode_update_and_maybe_write_cache(
 
 ## 功能说明
 
-将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表把结果写入 pooled cache。BF16 写入 pooled key；INT8 写入逐行对称量化后的 key，并把 FP16 反量化系数写入 `scale_cache`；mxFP8（`float8_e4m3fn`）写入 E4M3FN key，并按每 32 通道一个 E8M0 字节把反量化系数写入 `scale_cache`。
+将当前 decode token 的 key 和 score 写入请求的 tail 环形缓冲区。如果该 token 恰好补齐一个 pool，则结合已有 tail 历史，逐通道进行 softmax 加权汇聚，并通过页表把结果写入 pooled cache。BF16 写入 pooled key；INT8 在池化后先做归一化 Hadamard128，再写入逐行对称量化后的 key，并把 FP16 反量化系数写入 `scale_cache`；mxFP8（`float8_e4m3fn`）写入 E4M3FN key，并按每 32 通道一个 E8M0 字节把反量化系数写入 `scale_cache`。
 
 汇聚使用 FP32 计算，并加入位置分数。无效请求行不修改任何状态。`out_cache_loc` 用于判断该行是否有效，pooled cache 的实际写入位置另外通过页表确定。
 
 `block_tables` 保存物理 KV 页号。一个逻辑分配页包含 pool_size 个连续 KV 页，
 对应一个压缩 index 页，写入时使用后者。GLM-5.3-Flash 的逻辑页为 512 tokens，index 页为 128 行。
 
+普通 FP8 在 Hadamard128 后按 `max(absmax, 1e-4) / 448` 量化，写入 E4M3FN key 与每 pooled row 一个 FP32 scale。FP8/INT8 query 必须在量化前应用相同的 Hadamard128。BF16 与 mxFP8 的 key/query 均不做 Hadamard；tail key 仍保持原坐标系。
+
 ## 参数与返回值
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16`、`torch.int8` 或 `torch.float8_e4m3fn` | 必填 | 原地 cache；S=slots_per_page、D=head_dim，页 stride 必须等于 S*D；INT8 与 mxFP8 需同时传入 `scale_cache`。 |
+| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16`、`torch.int8` 或 `torch.float8_e4m3fn` | 必填 | 原地 cache；S=slots_per_page、D=head_dim，页 stride 必须等于 S*D；FP8、INT8 与 mxFP8 需同时传入 `scale_cache`。 |
 | `tail_k` | `torch.Tensor` | `[R, T, head_dim]` | `torch.bfloat16` | 必填 | 请求本地 key 环形缓冲；有效行原地更新。 |
 | `tail_score` | `torch.Tensor` | 与 `tail_k` 相同 | `torch.bfloat16` / `torch.float32` | 必填 | 配对 score；当前测试覆盖 BF16 与 FP32，归约用 FP32。 |
 | `key` | `torch.Tensor` | `[B, head_dim]` | `torch.bfloat16` | 必填 | 当前 decode key。 |
@@ -64,7 +68,7 @@ def kpool_decode_update_and_maybe_write_cache(
 | `pool_size` | `int` | — | — | 必填 | 仅限关键字参数；一个 pool 的 token 数。 |
 | `slots_per_page` | `int` | — | — | 必填 | 仅限关键字参数；每个扁平 cache 页的 pool slot 数。 |
 | `head_dim` | `int` | — | — | `128` | 仅限关键字参数；通道宽度，必须等于 tail 的最后一维。 |
-| `scale_cache` | `torch.Tensor` 或 `None` | INT8 为 `[num_pages * S]`，mxFP8 为 `[num_pages * S, head_dim/64, 2]` | INT8 为 `torch.float16`，mxFP8 为 `torch.uint8`（E8M0 字节） | `None` | 与 INT8/mxFP8 key 一同写入的逐行反量化系数。 |
+| `scale_cache` | `torch.Tensor` 或 `None` | FP8/INT8 为 `[num_pages * S]`，mxFP8 为 `[num_pages * S, head_dim/64, 2]` | FP8 为 `torch.float32`，INT8 为 `torch.float16`，mxFP8 为 `torch.uint8`（E8M0 字节） | `None` | 与 INT8/mxFP8 key 一同写入的逐行反量化系数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
 | 返回值 | 类型 | Shape | Dtype | 描述与约束 |

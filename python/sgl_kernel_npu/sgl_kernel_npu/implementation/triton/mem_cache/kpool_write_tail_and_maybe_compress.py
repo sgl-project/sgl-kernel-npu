@@ -7,6 +7,7 @@ import triton
 import triton.language as tl
 
 from ..utils.triton_utils import get_device_properties
+from ._kpool_hadamard import hadamard128
 
 INDEX_HEAD_DIM = 128
 KPOOL_SCORE_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
@@ -26,7 +27,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
     out_cache_loc_ptr,  # Token cache locations; zero marks a padded batch.
     effective_n_ptr,  # Optional valid draft-token count per batch item.
     cache_ptr,  # Flattened index cache: [CACHE_ROWS, HEAD_DIM].
-    scale_ptr,  # Per-cache-row scales: FP16 for INT8, uint8 E8M0 for mxFP8.
+    scale_ptr,  # Per-cache-row scales: FP32 for FP8, FP16 for INT8, E8M0 for mxFP8.
     batch_size,
     key_stride_0,
     score_stride_0,
@@ -44,6 +45,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
     MAX_CLOSED_POOLS: tl.constexpr,
     HAS_EFFECTIVE_N: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    HAS_FP8SCALE: tl.constexpr,
     HAS_MXSCALE: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
@@ -157,6 +159,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                     )
                     cache_offsets = write_loc * cache_stride_0 + offs
                     if HAS_SCALE:
+                        pooled = hadamard128(pooled)
                         amax = tl.max(tl.abs(pooled), axis=0)
                         scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
                         scaled = pooled / scale
@@ -164,6 +167,15 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                         quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
                         tl.store(cache_ptr + cache_offsets, quantized, mask=dim_mask)
                         tl.store(scale_ptr + write_loc, scale.to(tl.float16))
+                    elif HAS_FP8SCALE:
+                        rotated = hadamard128(pooled)
+                        amax = tl.maximum(tl.max(tl.abs(rotated), axis=0), 1e-4)
+                        scale = amax / 448.0
+                        payload = tl.clamp(rotated / scale, -448.0, 448.0).to(
+                            tl.float8e4nv
+                        )
+                        tl.store(cache_ptr + cache_offsets, payload, mask=dim_mask)
+                        tl.store(scale_ptr + write_loc, scale)
                     elif HAS_MXSCALE:
                         blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
                         group_max = tl.max(tl.abs(blocks), axis=1)
@@ -251,7 +263,7 @@ def kpool_write_tail_and_maybe_compress(
         effective_n_per_batch: Optional effective draft count used only to
             decide whether a pool was completed. Tail writes still cover ``N``.
         scale_cache: Optional dequantization scales per cache row. Required for
-            INT8 (FP16, one element per row) and mxFP8 (uint8 E8M0 bytes shaped
+            FP8 (FP32, one element per row), INT8 (FP16) and mxFP8 (uint8 E8M0 bytes shaped
             ``[cache_rows, 128/64, 2]``).
         num_programs: Optional Triton grid size. Defaults to the NPU Vector Core
             count and uses a grid-stride loop for larger batches.
@@ -280,10 +292,10 @@ def kpool_write_tail_and_maybe_compress(
         if index_k_cache.dtype == torch.int8:
             assert scale_cache.dtype == torch.float16
         else:
-            assert scale_cache.dtype == torch.uint8
+            assert scale_cache.dtype in (torch.float32, torch.uint8)
         assert scale_cache.is_contiguous()
         cache_rows = index_k_cache.numel() // INDEX_HEAD_DIM
-        if index_k_cache.dtype == torch.int8:
+        if index_k_cache.dtype == torch.int8 or scale_cache.dtype == torch.float32:
             assert scale_cache.numel() == cache_rows
         else:
             assert scale_cache.numel() == cache_rows * (INDEX_HEAD_DIM // 64) * 2
@@ -399,6 +411,9 @@ def kpool_write_tail_and_maybe_compress(
         MAX_CLOSED_POOLS=max_closed_pools,
         HAS_EFFECTIVE_N=has_effective_n,
         HAS_SCALE=index_k_cache.dtype == torch.int8,
-        HAS_MXSCALE=index_k_cache.dtype == torch.float8_e4m3fn,
+        HAS_FP8SCALE=index_k_cache.dtype == torch.float8_e4m3fn
+        and scale_cache.dtype == torch.float32,
+        HAS_MXSCALE=index_k_cache.dtype == torch.float8_e4m3fn
+        and scale_cache.dtype == torch.uint8,
         BLOCK_D=triton.next_power_of_2(INDEX_HEAD_DIM),
     )

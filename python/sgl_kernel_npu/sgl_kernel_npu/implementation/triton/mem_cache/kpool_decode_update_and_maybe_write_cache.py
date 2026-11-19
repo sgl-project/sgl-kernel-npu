@@ -6,6 +6,8 @@ import torch
 import triton
 import triton.language as tl
 
+from ._kpool_hadamard import hadamard128
+
 
 @triton.jit
 def _kpool_decode_update_and_maybe_write_cache_kernel(
@@ -20,7 +22,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     positions_ptr,  # [>=batch] int
     seq_lens_ptr,  # [>=batch] int
     out_cache_loc_ptr,  # [>=batch] int
-    scale_ptr,  # Per-cache-row scales: FP16 for INT8, uint8 E8M0 for mxFP8.
+    scale_ptr,  # Per-cache-row scales: FP32 for FP8, FP16 for INT8, E8M0 for mxFP8.
     tail_k_stride_0,
     tail_k_stride_1,
     tail_score_stride_0,
@@ -38,6 +40,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     BLOCK_TABLE_COLS: tl.constexpr,
     SLOTS_PER_PAGE: tl.constexpr,
     HAS_SCALE: tl.constexpr,
+    HAS_FP8SCALE: tl.constexpr,
     HAS_MXSCALE: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
@@ -126,9 +129,9 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             k = tl.where(is_current, key, k_buf)
             acc += k * prob
 
-        # BF16 keeps the raw pooled key; INT8 stores a symmetric per-pool
-        # quantization plus an FP16 scale; mxFP8 stores E4M3FN blocks plus
-        # one E8M0 scale byte per 32 channels.
+        # BF16 keeps the raw pooled key. FP8/INT8 apply Hadamard128 before
+        # quantization with FP32/FP16 scales; mxFP8 stores E4M3FN blocks
+        # with one E8M0 scale byte per 32 channels.
         pooled = acc / denom
 
         # Compute write location in buf
@@ -150,6 +153,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
         )
 
         if HAS_SCALE:
+            pooled = hadamard128(pooled)
             amax = tl.max(tl.abs(pooled), axis=0)
             scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
             scaled = pooled / scale
@@ -159,6 +163,16 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             tl.store(
                 scale_ptr + loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page,
                 scale.to(tl.float16),
+            )
+        elif HAS_FP8SCALE:
+            rotated = hadamard128(pooled)
+            amax = tl.maximum(tl.max(tl.abs(rotated), axis=0), 1e-4)
+            scale = amax / 448.0
+            payload = tl.clamp(rotated / scale, -448.0, 448.0).to(tl.float8e4nv)
+            tl.store(buf_bf16_ptr + out_k_offsets, payload, mask=dim_mask)
+            tl.store(
+                scale_ptr + loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page,
+                scale,
             )
         elif HAS_MXSCALE:
             blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
@@ -217,12 +231,12 @@ def kpool_decode_update_and_maybe_write_cache(
     head_dim: int = 128,
     scale_cache: Optional[torch.Tensor] = None,
 ) -> None:
-    """BF16/INT8/mxFP8 variant of kpool_decode_update_and_maybe_write_cache.
+    """BF16/FP8/INT8/mxFP8 variant of kpool_decode_update_and_maybe_write_cache.
 
     Differences from FP8 original:
-    - No Hadamard128 rotation
+    - Hadamard128 rotation after pooling for FP8 and INT8
     - BF16 stores the softmax-weighted average directly; INT8 stores a
-      symmetric per-pool quantization plus an FP16 scale per cache row;
+      Hadamard-rotated per-pool quantization plus an FP16 scale per cache row;
       mxFP8 stores E4M3FN keys plus per-32-channel E8M0 scale bytes
     """
     batch = key.shape[0]
@@ -252,6 +266,8 @@ def kpool_decode_update_and_maybe_write_cache(
         cache_rows = buf.numel() // head_dim
         if buf.dtype == torch.int8:
             assert scale_cache.dtype == torch.float16
+            assert scale_cache.numel() == cache_rows
+        elif scale_cache.dtype == torch.float32:
             assert scale_cache.numel() == cache_rows
         else:
             assert scale_cache.dtype == torch.uint8
@@ -302,6 +318,9 @@ def kpool_decode_update_and_maybe_write_cache(
         BLOCK_TABLE_COLS=block_table_cols,
         SLOTS_PER_PAGE=slots_per_page,
         HAS_SCALE=buf.dtype == torch.int8,
-        HAS_MXSCALE=buf.dtype == torch.float8_e4m3fn,
+        HAS_FP8SCALE=buf.dtype == torch.float8_e4m3fn
+        and scale_cache.dtype == torch.float32,
+        HAS_MXSCALE=buf.dtype == torch.float8_e4m3fn
+        and scale_cache.dtype == torch.uint8,
         BLOCK_D=triton.next_power_of_2(head_dim),
     )

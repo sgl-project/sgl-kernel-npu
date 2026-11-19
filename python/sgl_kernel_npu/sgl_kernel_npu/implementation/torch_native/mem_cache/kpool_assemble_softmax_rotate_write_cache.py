@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 
+from ._kpool_hadamard import hadamard128
 from ._kpool_mx_quant import mx_quantize_row
 
 
@@ -71,7 +72,16 @@ def kpool_assemble_softmax_rotate_write_cache(
     active_locs = loc.index_select(0, active_rows)
     if scale_cache is None:
         cache_2d.index_copy_(0, active_locs, pooled.to(torch.bfloat16))
+    elif scale_cache.dtype == torch.float32:
+        pooled = hadamard128(pooled)
+        scale = pooled.abs().amax(dim=-1, keepdim=True).clamp_min(1e-4) / 448.0
+        payload = (pooled / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+        cache_2d.view(torch.uint8).index_copy_(
+            0, active_locs, payload.view(torch.uint8)
+        )
+        scale_cache.view(-1).index_copy_(0, active_locs, scale.view(-1))
     elif index_k_cache.dtype == torch.int8:
+        pooled = hadamard128(pooled)
         amax = pooled.abs().amax(dim=-1, keepdim=True)
         scale = torch.where(amax > 0, amax / 127.0, torch.ones_like(amax))
         scaled = pooled / scale

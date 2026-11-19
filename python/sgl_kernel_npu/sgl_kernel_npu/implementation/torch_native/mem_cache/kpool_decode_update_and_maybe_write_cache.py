@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 
+from ._kpool_hadamard import hadamard128
 from ._kpool_mx_quant import mx_quantize_row
 
 
@@ -79,7 +80,14 @@ def kpool_decode_update_and_maybe_write_cache(
                 buf.view(-1)[out_offset : out_offset + head_dim] = compressed.to(
                     torch.bfloat16
                 )
+            elif scale_cache.dtype == torch.float32:
+                compressed = hadamard128(compressed)
+                scale = compressed.abs().amax().clamp_min(1e-4) / 448.0
+                payload = (compressed / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+                buf.view(-1)[out_offset : out_offset + head_dim] = payload
+                scale_cache.view(-1)[out_offset // head_dim] = scale
             elif buf.dtype == torch.int8:
+                compressed = hadamard128(compressed)
                 amax = compressed.abs().amax()
                 scale = amax / 127.0 if amax > 0 else torch.ones_like(amax)
                 scaled = compressed / scale
