@@ -17,7 +17,7 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
     ...
 ```
 
-`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。
+`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 在 A3 上使用 wheel 内的实验算子绑定，其他支持的平台使用正式绑定；不在执行失败后重试其他后端。
 
 ## 说明
 
@@ -30,12 +30,12 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
 | 参数 | 类型 | 默认值 | 约束 |
 | --- | --- | --- | --- |
 | q | Tensor | 必填 | [T,H,D] TND or [B,S,H,D] BSND; NPU in production |
-| k | Tensor / int | 必填 | Indexer: paged [pages,page_size,1,D]; MoE: requested expert count |
+| k | Tensor | 必填 | 分页 key，形状为 [pages,page_size,1,D] |
 | weights | Tensor | 必填 | [T,H], indexer head weights |
 | q_scale | Tensor | 必填 | [T,H], query dequantization scales |
-| k_scale | Tensor | 必填 | [pages,page_size,1,1], key scales |
+| k_scale | Tensor | 必填 | [pages,page_size,1], key 反量化 scale |
 | topk | int | 必填 | Requested number of logical compressed keys |
-| quant_mode | int / str | 必填 | Indexer 1=FP8, 2=INT8; packed KV None selects SDK format |
+| quant_mode | int | 必填 | 1=FP8，2=INT8 |
 | impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
 
 ### 关键字参数
@@ -58,9 +58,47 @@ def quant_lightning_indexer(q, k, weights, q_scale, k_scale, topk, quant_mode, *
 | indices | int32 Tensor | [T,1,topk] logical compressed-key positions, -1 padding. |
 | values | FP32 Tensor | Optional selected scores; empty when return_value=0. |
 
+## A3 + CANN 9.2 INT8 模式
+
+在 A3 + CANN 9.2 上，生产后端支持显式传入 `candidate_mode`。以下示例使用 TND query 和 PA_BBND key。显式模式要求 `quant_mode=2`、INT8 Q/K、FP16 scale 和 head weight、32 或 64 个 query head、1 个 key head、head dim 为 128，且 `1 <= topk <= 2048`。
+
+| `candidate_mode` | 行为 | 返回值 |
+| --- | --- | --- |
+| 省略 | 普通索引 | `(indices, values)` |
+| `1`（source） | 选择 Top-K key，同时输出候选块 | `(indices, values, candidates)` |
+| `2`（consumer） | 在 `candidate_topk_index` 指定的块内选择 Top-K key | `(indices, values, empty_candidates)` |
+| `3`（ordinary） | 显式选择普通索引 | `(indices, values, empty_candidates)` |
+
+source 和 consumer 的 `candidate_topk_blocks` 与 `candidate_block_size` 分别固定为 2048 和 8，默认值即为此配置。TND 下 `candidates` 是形状为 `[T, 1, 2048]` 的 INT32 逻辑块 ID，每块对应 8 个压缩 key 位置，`-1` 表示填充。consumer 将 source 的第三个返回值作为 `candidate_topk_index`。模式 2 和 3 的第三项为空 INT32 张量。模式 1 和 2 要求 `return_value=0`。
+
+以下片段假定 Q/K、scale、weight 和分页表已准备好，`layout_and_lengths` 包含 `layout_q="TND"`、`layout_k="PA_BBND"`、`cu_seqlens_q`、`seqused_k`、`mask_mode`、`cmp_ratio` 以及压缩因果模式所需的 `cmp_residual_k`。
+
+```python
+from sgl_kernel_npu.operators.indexer import (
+    quant_lightning_indexer,
+    quant_lightning_indexer_metadata,
+)
+
+metadata = quant_lightning_indexer_metadata(
+    q.shape[-2], 1, 128, topk, 2, **layout_and_lengths
+)
+args = (q, k, weights, q_scale, k_scale, topk, 2)
+kwargs = dict(layout_and_lengths, block_table=block_table, metadata=metadata)
+
+source_indices, _, candidates = quant_lightning_indexer(
+    *args, candidate_mode=1, **kwargs
+)
+consumer_indices, _, _ = quant_lightning_indexer(
+    *args, candidate_mode=2, candidate_topk_index=candidates, **kwargs
+)
+ordinary_indices, _, _ = quant_lightning_indexer(
+    *args, candidate_mode=3, **kwargs
+)
+```
+
 ## cann_ops_transformers_cann920
 
-仅调用正式 CANN 9.2 绑定；旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
+A3 调用 wheel 内的 ops-transformer 实验算子绑定，其他支持的平台调用 CANN 9.2 正式绑定。旧 ABI 独立注册为 `CANN 9.1`。显式指定与当前 SDK 不符的实现会在执行前报错。
 
 ## ops_transformers_cann910
 
@@ -78,10 +116,10 @@ import torch_npu
 from sgl_kernel_npu.operators.indexer import quant_lightning_indexer
 
 q = torch.ones(1, 2, 128, device="npu", dtype=torch.int8)
-k = torch.ones(1, 128, 1, 128, device="npu", dtype=torch.int8)
+k = torch.ones(1, 128, 128, device="npu", dtype=torch.int8)
 w = torch.ones(1, 2, device="npu", dtype=torch.float16)
 qs = torch.ones(1, 2, device="npu", dtype=torch.float16)
-ks = torch.ones(1, 128, 1, 1, device="npu", dtype=torch.float16)
+ks = torch.ones(1, 128, 1, device="npu", dtype=torch.float16)
 i32 = lambda values: torch.tensor(values, device="npu", dtype=torch.int32)
 kw = dict(cu_seqlens_q=i32([0, 1]), seqused_k=i32([1]),
           cmp_residual_k=i32([0]), block_table=i32([[0]]),

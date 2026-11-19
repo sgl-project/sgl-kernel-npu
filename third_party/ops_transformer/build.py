@@ -22,6 +22,15 @@ def configure(config, jobs):
     config["python_bindings"] = config.get("python_bindings", True)
     if not isinstance(config["python_bindings"], bool):
         raise ValueError("python_bindings must be a boolean")
+    a3_ops = config.pop("a3_add_ops", [])
+    a3_exclude = config.pop("a3_exclude_ops", [])
+    if config["soc"] == "ascend910_93":
+        config["ops"] = [op for op in config["ops"] if op not in a3_exclude] + a3_ops
+        if a3_exclude:
+            config["has_aicpu"] = False
+        if a3_ops:
+            config["a3_indexer_bindings"] = True
+            config["has_aicpu"] = True
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
     config["commands"] = [
@@ -74,6 +83,31 @@ def stage_python(wheel, item, package):
             'sys.modules["{}.ops"]'.format(qualified),
         )
         path.write_text(source)
+    if item.get("a3_indexer_bindings"):
+        binding = (
+            destination
+            / "ops/attention/quant_lightning_indexer_v2/quant_lightning_indexer.py"
+        )
+        source = binding.read_text()
+        start = source.index("            if return_value:")
+        end = source.index(
+            "            return (sparse_indices_out, sparse_values_out)", start
+        )
+        source = (
+            source[:start]
+            + source[start:end].replace(
+                "dtype=torch.bfloat16",
+                "dtype=torch.float32 if return_value else torch.bfloat16",
+            )
+            + source[end:]
+        )
+        source = source.replace(
+            'return torch.empty((QLI_METADATA_SIZE), dtype=torch.int32, device="npu")',
+            "device = next((t.device for t in (cu_seqlens_q, cu_seqlens_k, seqused_q, "
+            'seqused_k, cmp_residual_k) if t is not None), "npu")\n'
+            "            return torch.empty(QLI_METADATA_SIZE, dtype=torch.int32, device=device)",
+        )
+        binding.write_text(source)
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")
     (destination / "ops/__init__.py").write_text(
@@ -140,7 +174,92 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def fix_a3_indexer_workspace(source):
+    # The arch22 kernels reduce heads before writing mm1ResGm, so its rows
+    # are s1BaseSize (4), not mBaseSize (256). Keep the separate FP16 weight
+    # workspace, sized for the largest supported head group (64).
+    old = "uint32_t mm1ResSize = M_BASE_SIZE * S2_BASE_SIZE;"
+    new = (
+        "uint32_t mm1ResSize = S1_BASE_SIZE * S2_BASE_SIZE;\n"
+        "    workspaceSize += 16ULL * M_BASE_SIZE * DOUBLE_BUFFER * "
+        "sizeof(uint16_t) * aicNum;"
+    )
+    for op in ("quant_lightning_indexer_v2", "quant_sparse_lightning_indexer"):
+        path = source / "experimental/attention" / op / "op_host" / (op + "_tiling.cpp")
+        text = path.read_text()
+        if text.count(old) != 1 and new not in text:
+            raise RuntimeError("Unexpected A3 indexer workspace formula: " + str(path))
+        path.write_text(text.replace(old, new))
+
+
+def optimize_a3_consumer_mask(source):
+    """Reuse the pinned BF16 consumer's row-local membership-table strategy."""
+    path = source / (
+        "experimental/attention/quant_sparse_lightning_indexer/op_kernel/arch22/"
+        "quant_sparse_lightning_indexer_service_vector_arch22.h"
+    )
+    text = path.read_text()
+    marker = "// SGL A3 consumer: row-local block membership table."
+    if marker in text:
+        return
+    anchor = "    int32_t tileBlockBase = cuBaseS2Idx / blockSize;\n"
+    if text.count(anchor) != 1:
+        raise RuntimeError("Unexpected A3 consumer mask: " + str(path))
+    # candBuf_ already holds two rows of 2048 (value,index) pairs. Reuse
+    # each row's 4096 floats as a table, without increasing UB or workspace.
+    fast = r"""    // SGL A3 consumer: row-local block membership table.
+    // Same strategy as SparseLightningIndexer in the pinned upstream source.
+    // Preserve the original sorted-membership path for larger key domains.
+    constexpr int32_t tableCapacity = BASE_TOPK * 2;
+    int32_t blockCount = static_cast<int32_t>(
+        (info.actS2Size + s2BaseSize_ - 1) / s2BaseSize_) * tileBlkNum;
+    if (blockSize == 8 && tileBlkNum % 8 == 0 && blockCount <= tableCapacity) {
+        LocalTensor<float> table = candBuf_.Get<float>()[innerS1Idx * tableCapacity];
+        LocalTensor<int32_t> tableBits = table.template ReinterpretCast<int32_t>();
+        if (info.isFirstS2InnerLoop) {
+            // Drain previous vector readers before scalar table reuse. Keep
+            // initialization and marking on S to avoid cross-pipe write races.
+            SetWaitFlag<HardEvent::V_S>(HardEvent::V_S);
+            for (int32_t b = 0; b < blockCount; ++b) {
+                tableBits.SetValue(b, 0x3F800000); // non-candidate: 1.0f
+            }
+            LocalTensor<int32_t> candidate = tmpBuf_.Get<float>()[12288]
+                .template ReinterpretCast<int32_t>();
+            AscendC::DataCopyExtParams copyParams{1,
+                static_cast<uint32_t>(candBlocks * sizeof(int32_t)), 0, 0, 0};
+            AscendC::DataCopyPadExtParams<int32_t> padParams{true, 0, 0, 0};
+            SetWaitFlag<HardEvent::V_MTE2>(HardEvent::V_MTE2);
+            AscendC::DataCopyPad(candidate,
+                candidateTopkIndexInGm[info.candidateOutOffset +
+                    cuS1Idx * constInfo_.candidateTopkBlocks], copyParams, padParams);
+            SetWaitFlag<HardEvent::MTE2_S>(HardEvent::MTE2_S);
+            for (int32_t j = 0; j < candBlocks; ++j) {
+                int32_t b = candidate.GetValue(j);
+                if (b >= 0 && b < blockCount) {
+                    tableBits.SetValue(b, 0); // duplicates are idempotent
+                }
+            }
+            SetWaitFlag<HardEvent::S_V>(HardEvent::S_V);
+        }
+        // Use a fixed staging address, as in the BF16 implementation: Brcb
+        // directly from a row-dependent sub-tensor is unsafe on arch22.
+        LocalTensor<float> stage = tmpBuf_.Get<float>()[4096];
+        Adds(stage, table[tileBlockBase], 0.0f, tileBlkNum);
+        PipeBarrier<PIPE_V>();
+        LocalTensor<float> positionMask = tmpBuf_.Get<float>()[12288];
+        Brcb(positionMask, stage, static_cast<uint8_t>(tileBlkNum / 8), {1, 8});
+        PipeBarrier<PIPE_V>();
+        candIsOut_ = positionMask;
+        return;
+    }
+"""
+    path.write_text(text.replace(anchor, anchor + fast, 1))
+
+
 def build(item, source, directory):
+    if item.get("a3_indexer_bindings"):
+        fix_a3_indexer_workspace(source)
+        optimize_a3_consumer_mask(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     # The pinned 9.1 build.sh has no --torch_extension option.

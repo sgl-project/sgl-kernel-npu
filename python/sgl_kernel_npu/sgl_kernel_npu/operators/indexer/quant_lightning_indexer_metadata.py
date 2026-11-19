@@ -48,6 +48,14 @@ def _cann_quant_lightning_indexer_metadata(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
+    from .quant_lightning_indexer import torch_npu_soc_family
+
+    if torch_npu_soc_family() == 250:
+        from ..._third_party.sgl_ops_transformer_experimental import ops  # noqa: F401
+
+        return torch.ops.cann_ops_transformer.quant_lightning_indexer_metadata(
+            num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
+        )
     from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
     return ops.quant_lightning_indexer_metadata(

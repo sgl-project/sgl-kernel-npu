@@ -159,3 +159,42 @@ def _cann_9_1_indexer_kwargs(kwargs):
         key_quant_mode=0,
     )
     return args
+
+
+def validate_quant_indexer_candidates(
+    q,
+    k,
+    w,
+    qs,
+    ks,
+    topk,
+    quant_mode,
+    *,
+    candidate_mode,
+    candidate_topk_index=None,
+    candidate_topk_blocks=2048,
+    candidate_block_size=8,
+    **kwargs,
+):
+    if candidate_mode not in (1, 2, 3) or quant_mode != 2:
+        raise ValueError("Candidate indexing requires INT8 and mode 1, 2 or 3")
+    if q.dtype != torch.int8 or k.dtype != torch.int8:
+        raise TypeError("INT8 indexer requires INT8 Q/K")
+    if any(t.dtype != torch.float16 for t in (w, qs, ks)):
+        raise TypeError("INT8 indexer weights and scales must be FP16")
+    if q.shape[-1] != 128 or q.shape[-2] not in (32, 64) or k.shape[-2:] != (1, 128):
+        raise ValueError("INT8 indexer requires D=128, 32/64 Q heads and one K head")
+    if w.shape != q.shape[:-1] or qs.shape != w.shape or ks.shape != k.shape[:-1]:
+        raise ValueError("Indexer scale/weight shapes must match Q/K rows")
+    if not 1 <= topk <= 2048:
+        raise ValueError("INT8 indexer topk must be in [1, 2048]")
+    if candidate_mode != 3:
+        if candidate_topk_blocks != 2048 or candidate_block_size != 8:
+            raise ValueError("Candidates require 2048 blocks and block size 8")
+    if candidate_mode == 2:
+        if (
+            candidate_topk_index is None
+            or candidate_topk_index.dtype != torch.int32
+            or candidate_topk_index.shape != (*q.shape[:-2], 1, candidate_topk_blocks)
+        ):
+            raise ValueError("Consumer requires matching INT32 candidate block IDs")

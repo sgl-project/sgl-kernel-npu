@@ -43,5 +43,9 @@
   ],
   "has_aicpu": true,
   "license": "LICENSE",
-  "builder": "ops_transformer"
+  "builder": "ops_transformer",
+  "a3_exclude_ops": [
+    "quant_lightning_indexer_v2",
+    "quant_lightning_indexer_v2_metadata"
+  ]
 }

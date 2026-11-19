@@ -34,10 +34,68 @@ def _cann_quant_lightning_indexer(
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if torch_npu_soc_family() != 250:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    return ops.quant_lightning_indexer(
-        q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
+        if "candidate_mode" in kwargs:
+            raise RuntimeError("INT8 candidate indexing requires A3 + CANN 9.2")
+        return ops.quant_lightning_indexer(
+            q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
+        )
+    from ..._third_party.sgl_ops_transformer_experimental import ops  # noqa: F401
+
+    return _a3_quant_lightning_indexer(
+        torch.ops.cann_ops_transformer,
+        q,
+        k,
+        weights,
+        q_scale,
+        k_scale,
+        topk,
+        quant_mode,
+        **kwargs,
+    )
+
+
+def _a3_quant_lightning_indexer(
+    ops, q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
+):
+    explicit_mode = "candidate_mode" in kwargs
+    if explicit_mode:
+        from .indexer_utils import validate_quant_indexer_candidates
+
+        validate_quant_indexer_candidates(
+            q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
+        )
+    mode = kwargs.pop("candidate_mode", 3)
+    blocks = kwargs.pop("candidate_topk_blocks", 2048)
+    block_size = kwargs.pop("candidate_block_size", 8)
+    candidates = kwargs.pop("candidate_topk_index", None)
+    args = (q, k, weights, q_scale, k_scale, topk, quant_mode)
+    if mode == 1:
+        if kwargs.pop("return_value", 0):
+            raise ValueError("Candidate modes do not return scores")
+        return ops.quant_lightning_indexer_candidate(
+            *args,
+            **kwargs,
+            candidate_topk_blocks=blocks,
+            candidate_block_size=block_size,
+        )
+    if mode == 2:
+        if kwargs.pop("return_value", 0):
+            raise ValueError("Candidate modes do not return scores")
+        result = ops.quant_sparse_lightning_indexer(
+            *args,
+            **kwargs,
+            candidate_topk_index=candidates,
+            candidate_block_size=block_size,
+        )
+    else:
+        result = ops.quant_lightning_indexer(*args, **kwargs)
+    return (
+        (*result, torch.empty(0, dtype=torch.int32, device=q.device))
+        if explicit_mode
+        else result
     )
 
 
@@ -50,10 +108,12 @@ def _cann_9_1_quant_lightning_indexer(
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party.sgl_cann_recipes_infer import npu_quant_lightning_indexer as op
-
+    if "candidate_mode" in kwargs:
+        raise RuntimeError("INT8 candidate indexing requires A3 + CANN 9.2")
     if quant_mode not in (1, 2):
         raise RuntimeError("cann_9_1 indexer supports the migrated FP8/INT8 modes only")
+    from ..._third_party.sgl_cann_recipes_infer import npu_quant_lightning_indexer as op
+
     return op(
         query=q,
         key=k,
@@ -84,14 +144,29 @@ def quant_lightning_indexer(
 ):
     """Return logical compressed-KV top-k indices and optional values.
 
+    With candidate_mode omitted, return (indices, values), as before.
+    A3 + CANN 9.2 also accepts candidate_mode=1 (source), 2 (consumer), or
+    3 (ordinary), returning (indices, values, candidate_blocks). Consumer
+    passes INT32 candidate_topk_index; only source produces candidate_blocks.
+    The upstream A3 operators require 2048 candidate blocks of size 8.
+
     impl: auto (SDK-selected), ops_transformers_cann910, cann_ops_transformers_cann920, or torch_native.
     torch_native is an eager correctness reference, not a graph fallback.
     """
-    indices, values = get_impl_by_name("indexer.quant_lightning_indexer", impl)(
+    result = get_impl_by_name("indexer.quant_lightning_indexer", impl)(
         q, k, weights, q_scale, k_scale, topk, quant_mode, **kwargs
     )
+    indices, values = result[:2]
+    if "candidate_mode" in kwargs:
+        return indices.to(torch.int32), values, result[2]
     return indices.to(torch.int32), (
         values
         if kwargs.get("return_value", 0)
         else torch.empty(0, dtype=torch.float32, device=q.device)
     )
+
+
+def torch_npu_soc_family():
+    import torch_npu
+
+    return torch_npu._C._npu_get_soc_version() // 10 * 10
