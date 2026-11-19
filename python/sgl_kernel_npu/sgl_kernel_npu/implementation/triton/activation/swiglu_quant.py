@@ -2,6 +2,7 @@ import torch
 import triton
 import triton.language as tl
 import triton.language.extra.cann.extension as al
+
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -22,15 +23,23 @@ def _swiglu_quant_kernel(
     SCALE: tl.constexpr,
     DO_LIMIT: tl.constexpr,
     LIMIT: tl.constexpr,
+    CLAMP_BEFORE_SILU: tl.constexpr,
+    ROW_CAPACITY: tl.constexpr,
+    HALF_BLOCK_SIZE: tl.constexpr,
 ):
     # calc real total_rows
-    if GROUP_LIST_TYPE == 0:  # cusum
+    if GROUP_LIST_TYPE == 0 and CLAMP_BEFORE_SILU:
+        total_rows = tl.load(group_list_ptr + NUM_EXPERTS - 1).to(tl.int32)
+    elif GROUP_LIST_TYPE == 0:  # legacy cumulative metadata has an extra entry
         total_rows = tl.load(group_list_ptr + NUM_EXPERTS).to(tl.int32)
     else:
         gl_offsets = tl.arange(0, NUM_EXPERTS_ALGIN)
         gl_mask = gl_offsets < NUM_EXPERTS
         group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(tl.int32)
         total_rows = tl.sum(group_list)
+
+    if CLAMP_BEFORE_SILU:
+        total_rows = tl.minimum(total_rows, ROW_CAPACITY)
 
     block_size = (total_rows - 1) // NUM_CORES + 1
     pid = tl.program_id(0)
@@ -40,52 +49,87 @@ def _swiglu_quant_kernel(
     row_end = tl.minimum((pid + 1) * block_size, total_rows)
 
     for row_idx in range(row_begin, row_end):
-        # swiglu
-        x_offsets = row_idx * TOTAL_COLS + tl.arange(0, TOTAL_COLS)
-        cur_x = tl.load(x_ptr + x_offsets).to(tl.float32)
-        x1 = al.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
-        x2 = al.extract_slice(
-            cur_x, offsets=(HALF_COLS,), sizes=(HALF_COLS,), strides=(1,)
-        )
-
-        # clamp
-        if DO_LIMIT:
-            gate = x1 * tl.sigmoid(x1)
+        if CLAMP_BEFORE_SILU:
+            # Load the split gate/up halves directly. Mask the column tail
+            # before the row max and leave capacity rows for GMM2 to skip.
+            cols = tl.arange(0, HALF_BLOCK_SIZE)
+            col_mask = cols < HALF_COLS
+            row_offset = row_idx.to(tl.int64) * TOTAL_COLS
+            gate = tl.load(x_ptr + row_offset + cols, col_mask, 0).to(tl.float32)
+            up = tl.load(x_ptr + row_offset + HALF_COLS + cols, col_mask, 0).to(
+                tl.float32
+            )
             gate = tl.minimum(gate, LIMIT)
-            up = tl.maximum(tl.minimum(x2, LIMIT), -LIMIT)
-            out = gate * up
+            up = tl.clamp(up, -LIMIT, LIMIT)
+            value = (gate * tl.sigmoid(gate)) * up
+            if SCALE:
+                scale = tl.maximum(tl.max(tl.abs(value)) / DTYPE_MAX, 1e-30)
+                tl.store(scale_ptr + row_idx, scale)
+                value = tl.clamp(tl.floor(value / scale + 0.5), -128, 127)
+            tl.store(
+                out_ptr + row_idx.to(tl.int64) * HALF_COLS + cols,
+                value.to(out_ptr.dtype.element_ty),
+                col_mask,
+            )
         else:
-            out = x1 * tl.sigmoid(x1) * x2
+            # swiglu
+            x_offsets = row_idx * TOTAL_COLS + tl.arange(0, TOTAL_COLS)
+            cur_x = tl.load(x_ptr + x_offsets).to(tl.float32)
+            x1 = al.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
+            x2 = al.extract_slice(
+                cur_x, offsets=(HALF_COLS,), sizes=(HALF_COLS,), strides=(1,)
+            )
 
-        # quant
-        if SCALE:
-            scale = tl.max(tl.abs(out.to(tl.float32))) / DTYPE_MAX
-            # store scale
-            tl.store(scale_ptr + row_idx, scale.to(scale_ptr.dtype.element_ty))
-            # out = tl.math.rint(out / scale.reshape(SUB_BLOCK_SIZE, 1))   # ub overflow
-            for col_blk_idx in range(0, HALF_COLS, COL_BLOCK_SIZE):
-                tmp_out = al.extract_slice(
-                    out, offsets=(col_blk_idx,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
-                )
-                tmp_out = tmp_out.to(tl.float32) / scale
-                tmp_out = tl.floor(tmp_out + 0.5)
-                tmp_out = tl.clamp(tmp_out, -128, 127).to(tl.int8)
+            # clamp
+            if DO_LIMIT:
+                gate = x1 * tl.sigmoid(x1)
+                gate = tl.minimum(gate, LIMIT)
+                up = tl.maximum(tl.minimum(x2, LIMIT), -LIMIT)
+                out = gate * up
+            else:
+                out = x1 * tl.sigmoid(x1) * x2
 
-                o_offsets = (
-                    row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
-                )
-                mask = (col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)) < HALF_COLS
-                tl.store(
-                    out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty), mask=mask
-                )
-        else:
-            # store out
-            o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
-            tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
+            # quant
+            if SCALE:
+                scale = tl.max(tl.abs(out.to(tl.float32))) / DTYPE_MAX
+                # store scale
+                tl.store(scale_ptr + row_idx, scale.to(scale_ptr.dtype.element_ty))
+                # out = tl.math.rint(out / scale.reshape(SUB_BLOCK_SIZE, 1))   # ub overflow
+                for col_blk_idx in range(0, HALF_COLS, COL_BLOCK_SIZE):
+                    tmp_out = al.extract_slice(
+                        out,
+                        offsets=(col_blk_idx,),
+                        sizes=(COL_BLOCK_SIZE,),
+                        strides=(1,),
+                    )
+                    tmp_out = tmp_out.to(tl.float32) / scale
+                    tmp_out = tl.floor(tmp_out + 0.5)
+                    tmp_out = tl.clamp(tmp_out, -128, 127).to(tl.int8)
+
+                    o_offsets = (
+                        row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
+                    )
+                    mask = (col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)) < HALF_COLS
+                    tl.store(
+                        out_ptr + o_offsets,
+                        tmp_out.to(out_ptr.dtype.element_ty),
+                        mask=mask,
+                    )
+            else:
+                # store out
+                o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
+                tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
 
 
 def swiglu_quant(
-    x, group_list, group_list_type, need_quant=True, do_limit=False, limit=7.0
+    x,
+    group_list,
+    group_list_type,
+    need_quant=True,
+    do_limit=False,
+    limit=7.0,
+    *,
+    clamp_before_silu=False,
 ):
     # group_list_type must be 0 cusum or 1 count
     if group_list_type not in [0, 1]:
@@ -95,6 +139,8 @@ def swiglu_quant(
     out = torch.empty((s, h // 2), dtype=out_dtype, device=x.device)
     scale = torch.empty((s,), dtype=torch.float32, device=x.device)
     num_experts = group_list.shape[0]
+    if clamp_before_silu and (s == 0 or num_experts == 0):
+        return out, scale
     # ub must be 32-byte aligned on npu
     if group_list.dtype == torch.int64:
         num_experts_algin = (num_experts + 7) // 8 * 8
@@ -123,5 +169,8 @@ def swiglu_quant(
         multibuffer=True,
         DO_LIMIT=do_limit,
         LIMIT=limit,
+        CLAMP_BEFORE_SILU=clamp_before_silu,
+        ROW_CAPACITY=s,
+        HALF_BLOCK_SIZE=triton.next_power_of_2(h // 2) if clamp_before_silu else 0,
     )
     return out, scale

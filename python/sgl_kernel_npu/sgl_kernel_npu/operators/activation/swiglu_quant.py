@@ -9,26 +9,56 @@ _torch_native_fn = None
 @register_impl("activation.swiglu_quant", "auto")
 @register_impl("activation.swiglu_quant", "triton")
 def _triton_impl(
-    x, group_list, group_list_type, need_quant=True, do_limit=False, limit=7.0
+    x,
+    group_list,
+    group_list_type,
+    need_quant=True,
+    do_limit=False,
+    limit=7.0,
+    *,
+    clamp_before_silu=False,
 ):
     global _triton_fn
     if _triton_fn is None:
         from ...implementation.triton.activation.swiglu_quant import swiglu_quant
 
         _triton_fn = swiglu_quant
-    return _triton_fn(x, group_list, group_list_type, need_quant, do_limit, limit)
+    return _triton_fn(
+        x,
+        group_list,
+        group_list_type,
+        need_quant,
+        do_limit,
+        limit,
+        clamp_before_silu=clamp_before_silu,
+    )
 
 
 @register_impl("activation.swiglu_quant", "torch_native")
 def _torch_native_impl(
-    x, group_list, group_list_type, need_quant=True, do_limit=False, limit=7.0
+    x,
+    group_list,
+    group_list_type,
+    need_quant=True,
+    do_limit=False,
+    limit=7.0,
+    *,
+    clamp_before_silu=False,
 ):
     global _torch_native_fn
     if _torch_native_fn is None:
         from ...implementation.torch_native.activation.swiglu_quant import swiglu_quant
 
         _torch_native_fn = swiglu_quant
-    return _torch_native_fn(x, group_list, group_list_type, need_quant, do_limit, limit)
+    return _torch_native_fn(
+        x,
+        group_list,
+        group_list_type,
+        need_quant,
+        do_limit,
+        limit,
+        clamp_before_silu=clamp_before_silu,
+    )
 
 
 @register_operator("activation.swiglu_quant")
@@ -40,7 +70,8 @@ def swiglu_quant(
     do_limit=False,
     limit=7.0,
     *,
-    impl="auto"
+    clamp_before_silu=False,
+    impl="auto",
 ):
     """Applies split-layout SwiGLU to routed MoE rows and optionally quantizes each row to INT8. do_limit clamps SiLU(gate) from above and clamps up on both sides before multiplication. Quantization uses max(abs(value))/127, floor(value/scale+0.5), and saturation to [-128,127]. Unrouted rows and scales without quantization are unspecified.
 
@@ -51,11 +82,16 @@ def swiglu_quant(
         need_quant (bool): Return INT8 values and FP32 row scales when true. Default: True.
         do_limit (bool): Clamp SiLU(gate) and up before multiplication. Default: False.
         limit (float): Clamp magnitude. Default: 7.0.
+        clamp_before_silu (bool): Clamp gate before SiLU and clamp up on both
+            sides. In this mode type 0 stores inclusive cumulative counts in
+            the logical view, and the FP32 row scale has a floor of 1e-30.
         impl (str): auto selects triton; explicit backend selection. Default: 'auto'.
 
     Returns:
         [rows,D] values and [rows] FP32 scales; scales are unspecified without quantization.
     """
-    return get_impl_by_name("activation.swiglu_quant", impl)(
-        x, group_list, group_list_type, need_quant, do_limit, limit
-    )
+    impl_fn = get_impl_by_name("activation.swiglu_quant", impl)
+    args = (x, group_list, group_list_type, need_quant, do_limit, limit)
+    if clamp_before_silu:
+        return impl_fn(*args, clamp_before_silu=True)
+    return impl_fn(*args)
