@@ -9,7 +9,7 @@ TEST_GROUP="${1:-all}"
 
 case "$TEST_GROUP" in
     speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
-    matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul") ;;
+    matmul) TEST_DIRS=("$TEST_ROOT/operators/matmul" "$TEST_ROOT/operators/quant") ;;
     mamba) TEST_DIRS=("$TEST_ROOT/operators/mamba") ;;
     moe) TEST_DIRS=("$TEST_ROOT/operators/moe") ;;
     embedding) TEST_DIRS=("$TEST_ROOT/operators/embedding") ;;
@@ -23,7 +23,7 @@ case "$TEST_GROUP" in
     hyper_conn)         TEST_DIRS=("$TEST_ROOT/operators/hyper_conn") ;;
     indexer)            TEST_DIRS=("$TEST_ROOT/operators/indexer") ;;
     lora)               TEST_DIRS=("$TEST_ROOT/operators/lora") ;;
-    mem_cache)          TEST_DIRS=("$TEST_ROOT/operators/mem_cache") ;;
+    mem_cache)          TEST_DIRS=("$TEST_ROOT/operators/mem_cache" "$TEST_ROOT/operators/tensor_ops") ;;
     multimodal)         TEST_DIRS=("$TEST_ROOT/operators/multimodal") ;;
     norm)               TEST_DIRS=("$TEST_ROOT/operators/norm") ;;
     rope)               TEST_DIRS=("$TEST_ROOT/operators/rope") ;;
