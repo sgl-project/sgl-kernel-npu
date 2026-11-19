@@ -54,9 +54,11 @@ jobs:
       mem_cache: ${{ steps.select.outputs.mem_cache }}
       multimodal: ${{ steps.select.outputs.multimodal }}
       norm: ${{ steps.select.outputs.norm }}
+      quant: ${{ steps.select.outputs.quant }}
       rope: ${{ steps.select.outputs.rope }}
       sample: ${{ steps.select.outputs.sample }}
       sampler: ${{ steps.select.outputs.sampler }}
+      tensor_ops: ${{ steps.select.outputs.tensor_ops }}
       operator_framework: ${{ steps.select.outputs.operator_framework }}
       testing_framework: ${{ steps.select.outputs.testing_framework }}
     steps:
@@ -94,9 +96,11 @@ jobs:
               "mem_cache": "tests/python/operators/mem_cache/",
               "multimodal": "tests/python/operators/multimodal/",
               "norm": "tests/python/operators/norm/",
+              "quant": "tests/python/operators/quant/",
               "rope": "tests/python/operators/rope/",
               "sample": "tests/python/operators/sample/",
               "sampler": "tests/python/operators/sampler/",
+              "tensor_ops": "tests/python/operators/tensor_ops/",
               "operator_framework": "tests/python/framework/operator_framework/",
               "testing_framework": "tests/python/framework/testing_framework/",
           }
@@ -288,6 +292,20 @@ jobs:
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
 
+  test-quant-ops:
+    needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.quant == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: quant
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
   test-rope-ops:
     needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.rope == 'true' }}
@@ -326,6 +344,20 @@ jobs:
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: sampler
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
+  test-tensor-ops:
+    needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.tensor_ops == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: tensor_ops
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
@@ -493,9 +525,11 @@ jobs:
       - test-mem-cache-ops
       - test-multimodal-ops
       - test-norm-ops
+      - test-quant-ops
       - test-rope-ops
       - test-sample-ops
       - test-sampler-ops
+      - test-tensor-ops
       - test-operator-framework-ops
       - test-testing-framework-ops
     runs-on: ubuntu-latest
