@@ -22,7 +22,9 @@ function(sgl_configure_shm_allocator_driver)
             HINTS "${ASCEND_DRIVER_PATH}/lib64/driver" "$ENV{ASCEND_DRIVER_PATH}/lib64/driver"
                 "${ASCEND_DRIVER_PATH}/lib64/common" "$ENV{ASCEND_DRIVER_PATH}/lib64/common"
                 "/usr/local/Ascend/driver/lib64/driver" "/usr/local/Ascend/driver/lib64/common"
-                "${sdk}/lib64" "${sdk}/lib64/stub" REQUIRED)
+                "${sdk}/lib64" "${sdk}/lib64/stub"
+                "${sdk}/${CMAKE_SYSTEM_PROCESSOR}-linux/devlib/linux/${CMAKE_SYSTEM_PROCESSOR}"
+                "${sdk}/${CMAKE_SYSTEM_PROCESSOR}-linux/devlib" REQUIRED)
         target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_ASCEND_HAL_LIBRARY}")
     endif()
 endfunction()
