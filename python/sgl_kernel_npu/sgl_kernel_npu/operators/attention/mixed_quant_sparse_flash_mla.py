@@ -24,6 +24,9 @@ def _packed_kv_width(scale_itemsize, row_alignment):
 
 _CANN_920_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=2, row_alignment=32)
 _CANN_910_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=1, row_alignment=128)
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
 
 
 @register_impl(
@@ -56,12 +59,16 @@ def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
+
+        _cann_920_fn = ops.mixed_quant_sparse_flash_mla
 
     if kwargs.get("quant_mode", 1) != 1:
         raise RuntimeError(
@@ -79,7 +86,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
     }
     if args.get("ori_mask_mode", 4) == 0:
         args.update(ori_win_left=-1, ori_win_right=-1)
-    out, lse = ops.mixed_quant_sparse_flash_mla(q, **args)
+    out, lse = _cann_920_fn(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
@@ -115,6 +122,7 @@ def _ascendc(q, **kwargs):
 
 def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     """Adapt the public KV arguments to the legacy A5 attention bindings."""
+    global _cann_910_fn
     indices = kwargs.get("ori_sparse_indices")
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
@@ -124,9 +132,13 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     if indices is not None:
         attention_op = torch.ops.npu.kv_quant_sparse_attn_sharedkv
     else:
-        from ..._third_party.sgl_cann_recipes_infer import (
-            npu_kv_quant_sparse_attn_sharedkv as attention_op,
-        )
+        if _cann_910_fn is None:
+            from ..._third_party.sgl_cann_recipes_infer import (
+                npu_kv_quant_sparse_attn_sharedkv,
+            )
+
+            _cann_910_fn = npu_kv_quant_sparse_attn_sharedkv
+        attention_op = _cann_910_fn
     if kwargs.get("quant_mode", 1) != 1:
         raise RuntimeError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"
@@ -201,11 +213,14 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.attention import (
-        mixed_quant_sparse_flash_mla,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+            dsv4_sparse_mla,
+        )
 
-    return mixed_quant_sparse_flash_mla(q, **kwargs)
+        _torch_native_fn = dsv4_sparse_mla
+    return _torch_native_fn(q, **kwargs)
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla")
