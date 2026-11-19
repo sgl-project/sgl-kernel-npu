@@ -14,7 +14,7 @@ CANN 9.1.0 在 A3 和 Ascend950 上支持 hidden_size=128、256 等小尺寸；C
 ```python
 from sgl_kernel_npu.operators.hyper_conn import mhc_pre_sinkhorn
 
-def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, norm_eps=1e-6, *, impl="auto"):
+def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, norm_eps=1e-6, *, return_pre=False, impl="auto"):
     ...
 ```
 
@@ -38,6 +38,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 | num_iters | int | Sinkhorn 迭代次数，支持范围由后端决定 | 20 |
 | hc_eps | float | 透传后端 | 1e-6 |
 | norm_eps | float | 透传后端 | 1e-6 |
+| `return_pre` | bool | 为 True 时追加 FP32 hpre [T,N]（sigmoid + hc_eps） | False |
 | impl | str | auto / cann_ops_transformer / torch_native | auto |
 
 适配层不额外限制输入类型、步长、设备、形状或标量值，支持范围与错误检查交由所选后端决定。示例采用 GLM 的 N=4、FP16/BF16 激活与 FP32 参数。空输入/IDLE 仍由 SGLang 调用方按 glmx PR #21 的约定短路处理，适配层不新增该行为。
@@ -45,6 +46,8 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 | 返回 | 类型 | 形状与类型 |
 | --- | --- | --- |
 | output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N*N] FP32) |
+
+默认返回原有三项。设置 `return_pre=True` 时，CANN 后端请求底层绑定的可选输出并返回 `(hin, hpost, hres, hpre)`。该推理调用还会生成底层辅助张量。DSV4.1 将 hpre 传递给下一子层进行混合。
 
 ## cann_ops_transformer
 
