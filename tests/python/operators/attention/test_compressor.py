@@ -380,6 +380,196 @@ def test_compressor(
     )
 
 
+def _check_compressor_state_round(actual, expected, executor):
+    from sgl_kernel_npu.operators.attention import compressor
+
+    before = actual["state_cache"].clone()
+    state_ptr = actual["state_cache"].data_ptr()
+    out = compressor(**actual, impl=executor.impl)
+    ref = compressor(**expected, impl=executor.impl_ref)
+    mask = valid_mask(expected, ref)
+    assert_accuracy(out[mask], ref[mask], standard=OUTPUT_STANDARD)
+    assert_accuracy(
+        actual["state_cache"],
+        expected["state_cache"],
+        standard=STATE_STANDARD,
+        path="state_cache",
+    )
+    assert actual["state_cache"].data_ptr() == state_ptr
+    untouched = expected["state_cache"] == before
+    assert torch.equal(actual["state_cache"][untouched], before[untouched])
+
+
+@pytest.mark.parametrize(
+    "shape,ratio,coff,ring,start,spacing,rounds,advance",
+    [
+        pytest.param(
+            (1, 128, 1024, 512),
+            4,
+            2,
+            8,
+            8,
+            0,
+            1,
+            128,
+            id="c4-long-prefill-small-ring",
+        ),
+        pytest.param(
+            (64, 8, 1024, 512),
+            4,
+            2,
+            8,
+            8,
+            8,
+            1,
+            8,
+            id="c4-batch64-small-ring",
+        ),
+        pytest.param(
+            (2, 8, 1024, 512),
+            4,
+            2,
+            8,
+            8,
+            8,
+            4,
+            8,
+            id="c4-four-rounds-small-ring",
+        ),
+        pytest.param(
+            (256, 8, 1024, 512),
+            4,
+            2,
+            8,
+            8,
+            8,
+            2,
+            8,
+            id="c4-batch256-two-rounds",
+        ),
+        pytest.param(
+            (4, 8, 1024, 128),
+            128,
+            1,
+            8,
+            8,
+            8,
+            1,
+            8,
+            id="c128-sparse-no-complete-group",
+        ),
+        pytest.param(
+            (2, 3, 1024, 128),
+            128,
+            1,
+            256,
+            125,
+            3,
+            4,
+            1,
+            id="c128-mtp-cross-boundary",
+        ),
+        pytest.param(
+            (2, 5, 1024, 128),
+            4,
+            2,
+            16,
+            7,
+            5,
+            5,
+            1,
+            id="c4-mtp-accept-one",
+        ),
+    ],
+)
+def test_compressor_arch35_state_rounds(
+    shape, ratio, coff, ring, start, spacing, rounds, advance
+):
+    from sgl_kernel_npu.operators.attention import compressor
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("Legacy Ascend 950 state and synchronization regressions")
+    if get_skip_acc_check():
+        pytest.skip("Requires output and state comparisons after each round")
+
+    # Port the legacy A5 shapes using the explicit-table ABI introduced by #989.
+    data = generate_data(
+        shape, "TH", ratio, coff, 2, start, ring, False, torch.bfloat16
+    )
+    executor = make_executor(compressor, kwargs=data)
+    require_distinct_impls(compressor, executor.impl, executor.impl_ref)
+    actual, expected = clone_inputs(data), clone_inputs(data)
+    batch, capacity, hidden, _ = shape
+    span = (rounds - 1) * advance + capacity
+    gen = torch.Generator(device="cpu").manual_seed(20260813 + ratio)
+    # A token keeps its value when partial acceptance revisits its position.
+    tokens = (
+        (torch.randn((batch, span, hidden), generator=gen, device="cpu") * 0.02)
+        .to(torch.bfloat16)
+        .to(data["x"].device)
+    )
+    for step in range(rounds):
+        starts = [
+            start + request * spacing + step * advance for request in range(batch)
+        ]
+        table, banks = _make_explicit_state_table(starts, capacity, ring, ratio, coff)
+        assert banks == data["state_cache"].shape[0]
+        round_tokens = tokens[:, step * advance : step * advance + capacity].reshape(
+            batch * capacity, hidden
+        )
+        for inputs in (actual, expected):
+            inputs["x"].copy_(round_tokens)
+            inputs["start_pos"].copy_(inputs["start_pos"].new_tensor(starts))
+            inputs["seqused"].fill_(capacity)
+            inputs["state_block_table"].copy_(table.to(inputs["x"].device))
+        # Keep both caches across rounds; only the new tokens and table change.
+        _check_compressor_state_round(actual, expected, executor)
+
+
+@pytest.mark.parametrize("accepted", [1, 2, 4])
+def test_compressor_arch35_rejected_suffix_overwrite(accepted):
+    from sgl_kernel_npu.operators.attention import compressor
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("Legacy Ascend 950 rejected-suffix overwrite regression")
+    if get_skip_acc_check():
+        pytest.skip("Requires output and state comparisons after each round")
+
+    data = generate_data((1, 4, 1024, 512), "TH", 4, 2, 2, 8, 8, False, torch.bfloat16)
+    executor = make_executor(compressor, kwargs=data)
+    require_distinct_impls(compressor, executor.impl, executor.impl_ref)
+    actual, expected = clone_inputs(data), clone_inputs(data)
+    _check_compressor_state_round(actual, expected, executor)
+
+    # Accept a prefix of the first call, then replace the remaining candidates.
+    # Changing the seed makes revisited positions contain new token values.
+    capacity = 8 - accepted
+    start = 8 + accepted
+    followup = generate_data(
+        (1, capacity, 1024, 512), "TH", 4, 2, 2, start, 8, False, torch.bfloat16
+    )
+    gen = torch.Generator(device="cpu").manual_seed(20260813 + accepted)
+    followup["x"] = (
+        (torch.randn((capacity, 1024), generator=gen, device="cpu") * 0.02)
+        .to(torch.bfloat16)
+        .to(data["x"].device)
+    )
+    for inputs in (actual, expected):
+        for name in (
+            "x",
+            "state_block_table",
+            "cu_seqlens",
+            "seqused",
+            "start_pos",
+            "rope_sin",
+            "rope_cos",
+        ):
+            inputs[name] = followup[name].clone()
+    _check_compressor_state_round(actual, expected, executor)
+
+
 @pytest.mark.parametrize("ring", [8, 16])
 def test_compressor_arch35_c4_resume_from_swa_page_tail(ring):
     from sgl_kernel_npu.operators.attention import compressor
