@@ -135,6 +135,24 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         OP_LOGE(nodeName, "numTokenPtr is invalid, only support >= 0, but got numTokenPtr=%d.", *numTokenPtr),
         return ge::GRAPH_FAILED);
 
+#ifdef NOTIFY_DISPATCH_DECODE
+    OP_TILING_CHECK(*rankSizePtr != 8 || *localRankSizePtr != 8 || *localRankIdPtr != *rankIdPtr ||
+                        *sendCountPtr != 864 || *numTokenPtr != 1 || *roundPtr != 1 || *perRoundTokensPtr < 1,
+                    OP_LOGE(nodeName, "decode requires EP8, 288 experts, one token and one round."),
+                    return ge::GRAPH_FAILED);
+    auto idsShape = context->GetInputShape(INPUT_TOKEN_PER_EXPERT_INDEX);
+    OP_TILING_CHECK(idsShape == nullptr || idsShape->GetStorageShape().GetShapeSize() != 8,
+                    OP_LOGE(nodeName, "decode requires exactly eight expert IDs."), return ge::GRAPH_FAILED);
+#endif
+
+#ifdef FUSED_DISPATCH_DECODE
+    OP_TILING_CHECK(*rankSizePtr != 8 || *localRankSizePtr != 8 || *localRankIdPtr != *rankIdPtr ||
+                        *sendCountPtr != 864 || *numTokenPtr < 1 || *numTokenPtr > 4 || *roundPtr != 1 ||
+                        *perRoundTokensPtr < *numTokenPtr,
+                    OP_LOGE(nodeName, "fused decode requires EP8 and equal rank token counts in [1,4]."),
+                    return ge::GRAPH_FAILED);
+#endif
+
     commGroup = std::string(commGroupPtr);
     tilingData.notifyDispatchInfo.rankSize = static_cast<uint32_t>(*rankSizePtr);
     tilingData.notifyDispatchInfo.rankId = static_cast<uint32_t>(*rankIdPtr);
@@ -171,6 +189,30 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 
 static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeName)
 {
+#ifdef FUSED_DISPATCH_DECODE
+    auto *data = context->GetTilingData<NotifyDispatchTilingData>();
+    const int64_t n = data->notifyDispatchInfo.numTokens;
+    auto *x = context->GetInputShape(0);
+    auto *ids = context->GetInputShape(1);
+    OP_TILING_CHECK(x == nullptr || ids == nullptr || x->GetStorageShape().GetDimNum() != 2 ||
+                        ids->GetStorageShape().GetDimNum() != 2 ||
+                        x->GetStorageShape().GetDim(0) != n || x->GetStorageShape().GetDim(1) != 4096 ||
+                        ids->GetStorageShape().GetDim(0) != n || ids->GetStorageShape().GetDim(1) != 8,
+                    OP_LOGE(nodeName, "fused decode requires x[N,4096], ids[N,8]."), return false);
+    const ge::DataType types[] = {ge::DT_INT8, ge::DT_FLOAT, ge::DT_INT64, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32};
+    const int64_t sizes[] = {n * 64 * 4096, n * 64, 36, n * 64 * 3, 288, 1};
+    for (int i = 0; i < 6; ++i) {
+        auto *desc = context->GetOutputDesc(i);
+        auto *shape = context->GetOutputShape(i);
+        OP_TILING_CHECK(desc == nullptr || shape == nullptr || desc->GetDataType() != types[i] ||
+                            shape->GetStorageShape().GetShapeSize() != sizes[i],
+                        OP_LOGE(nodeName, "invalid fused decode output %d.", i), return false);
+    }
+    data->notifyDispatchInfo.totalWinSize = Mc2TilingUtils::GetMaxWindowSize();
+    OP_TILING_CHECK(data->notifyDispatchInfo.totalWinSize < 16 * MB_SIZE,
+                    OP_LOGE(nodeName, "fused decode requires at least 16 MiB HCCL window."), return false);
+    return true;
+#else
     auto sendData = context->GetInputDesc(INPUT_SEND_DATA_INDEX);
     OP_TILING_CHECK(sendData == nullptr, OP_LOGE(nodeName, "sendData is null."), return false);
     OP_TILING_CHECK(
@@ -284,6 +326,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     }
     tilingData->notifyDispatchInfo.totalWinSize = maxWindowSize;
     return true;
+#endif
 }
 
 static ge::graphStatus TilingCheckTensor(gert::TilingContext *context, const char *nodeName)
@@ -322,6 +365,9 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
         tilingKey = TILING_KEY_FLOAT;
     }
 
+#ifdef FUSED_DISPATCH_DECODE
+    tilingKey = TILING_KEY_INT;
+#endif
     context->SetTilingKey(tilingKey);
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
@@ -352,7 +398,13 @@ ge::graphStatus TilingParseForNotifyDispatch(gert::TilingParseContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
+#if defined(FUSED_DISPATCH_DECODE)
+IMPL_OP_OPTILING(FusedDispatchDecode)
+#elif defined(NOTIFY_DISPATCH_DECODE)
+IMPL_OP_OPTILING(NotifyDispatchDecode)
+#else
 IMPL_OP_OPTILING(NotifyDispatch)
+#endif
     .Tiling(NotifyDispatchTilingFunc)
     .TilingParse<NotifyDispatchCompileInfo>(TilingParseForNotifyDispatch);
 }  // namespace optiling

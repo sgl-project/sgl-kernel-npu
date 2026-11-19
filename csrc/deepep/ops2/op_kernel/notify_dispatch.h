@@ -34,7 +34,7 @@ __aicore__ inline void SyncFunc()
         round, perRoundTokens, numTokens, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,   \
         totalWinSize, tiling
 
-template <typename T>
+template <typename T, bool Decode = false>
 class NotifyDispatch
 {
     constexpr static int32_t MAX_RANK_PER_CORE = 8;
@@ -74,7 +74,7 @@ public:
         recvOffset_ = recvOffset;
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
-        batchRounds = numExperts > EXPERT_NORMAL_NUM ? BATCH_ROUND : BATCH_ROUND * 2;
+        batchRounds = Decode ? 1 : (numExperts > EXPERT_NORMAL_NUM ? BATCH_ROUND : BATCH_ROUND * 2);
         tokenPerExpertDataAlignLen = Ceil(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataOffsetAlignLen = Ceil(batchRounds * numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataAlignLen = Ceil(batchRounds * numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -104,6 +104,13 @@ public:
         recvDataOutGt.SetGlobalBuffer((__gm__ int32_t *)recvDataOutput);
     }
 
+    // Decode consumes Top8 IDs directly and emits the GMM INT64 end offsets.
+    __aicore__ inline void SetDecodeOutputs(GM_ADDR sendIndices, GM_ADDR expertEnds)
+    {
+        decodeSendIndices_ = sendIndices;
+        decodeExpertEnds_ = expertEnds;
+    }
+
     __aicore__ inline void Process()
     {
         if (blockIdx < 1) {
@@ -118,18 +125,93 @@ public:
         }
         SyncAll<true>();
         pipe.Reset();
-        BuildTotalRecvTokens();
-        BuildRecvCount();
-        BuildRecvOffset();
-        BuildMaxBs();
-        BuildRecvTokenPerExp();
-        BuildExpGlobalOffset();
-        BuildsrcRankInExpOffset();
-        BuildRInSrcrankOffset();
+        if constexpr (Decode) {
+            BuildDecodeMetadata();
+        } else {
+            BuildTotalRecvTokens();
+            BuildRecvCount();
+            BuildRecvOffset();
+            BuildMaxBs();
+            BuildRecvTokenPerExp();
+            BuildExpGlobalOffset();
+            BuildsrcRankInExpOffset();
+            BuildRInSrcrankOffset();
+        }
         hccl_.Finalize();
     }
 
 private:
+    template <typename U>
+    __aicore__ inline void StoreDecode(GM_ADDR dst, LocalTensor<U> src, uint32_t count)
+    {
+        GlobalTensor<U> output;
+        output.SetGlobalBuffer((__gm__ U *)dst);
+        DataCopyPad(output, src, {1U, static_cast<uint32_t>(count * sizeof(U)), 0U, 0U, 0U});
+    }
+
+    __aicore__ inline void BuildDecodeMetadata()
+    {
+        if (blockIdx != 0) return;
+        // EP8, 36 local experts, one token/rank: each source contributes
+        // [count, sender offset, token count] for each local expert.
+        constexpr uint32_t sourceStride = 112;  // align_up(36 * 3, 8)
+        pipe.InitBuffer(recvDataBuf, 8 * sourceStride * sizeof(int32_t));
+        recvDataTensor = recvDataBuf.Get<T>();
+        for (uint32_t r = 0; r < 8; ++r) {
+            DataCopyPad(recvDataTensor[r * sourceStride], recvDataOutputGt[r * 108],
+                        {1U, 108U * sizeof(int32_t), 0U, 0U, 0U},
+                        {false, 0U, 0U, 0U});
+        }
+        // Separate aligned arrays so all stores can run without UB aliasing.
+        pipe.InitBuffer(decodeMetadataBuf_, (4 * 288 + 2 * 40 + 16) * sizeof(int32_t));
+        pipe.InitBuffer(decodeEndsBuf_, 36 * sizeof(int64_t));
+        auto data = decodeMetadataBuf_.Get<int32_t>();
+        auto cumulative = data;
+        auto sender = data[288];
+        auto source = data[576];
+        auto rounds = data[864];
+        auto starts = data[1152];
+        auto counts = data[1192];
+        auto total = data[1232];
+        auto maxBatch = data[1240];
+        auto ends = decodeEndsBuf_.Get<int64_t>();
+        SyncFunc<HardEvent::MTE2_S>();
+        int32_t prefix = 0;
+        for (uint32_t e = 0; e < 36; ++e) {
+            int32_t start = prefix;
+            starts(e) = start;
+            for (uint32_t r = 0; r < 8; ++r) {
+                uint32_t i = e * 8 + r;
+                uint32_t input = r * sourceStride + e * 3;
+                source(i) = prefix - start;
+                rounds(i) = 0;
+                sender(i) = recvDataTensor(input + 1);
+                prefix += recvDataTensor(input);
+                cumulative(i) = prefix;
+            }
+            counts(e) = prefix - start;
+            ends(e) = static_cast<int64_t>(prefix);
+        }
+        total(0) = prefix;
+        maxBatch(0) = 1;
+        SyncFunc<HardEvent::S_MTE3>();
+        StoreDecode(recvCount_, cumulative, 288);
+        StoreDecode(recvOffset_, sender, 288);
+        StoreDecode(srcrankInExpertOffset_, source, 288);
+        StoreDecode(rInSrcrankOffset_, rounds, 288);
+        StoreDecode(expertGlobalOffset_, starts, 36);
+        StoreDecode(recvTokensPerExpert_, counts, 36);
+        StoreDecode(totalRecvTokens_, total, 1);
+        StoreDecode(maxBs_, maxBatch, 1);
+        StoreDecode(decodeExpertEnds_, ends, 36);
+        SyncFunc<HardEvent::MTE3_S>();
+    }
+
+    GM_ADDR decodeSendIndices_ = nullptr;
+    GM_ADDR decodeExpertEnds_ = nullptr;
+    TBuf<TPosition::VECCALC> decodeMetadataBuf_;
+    TBuf<TPosition::VECCALC> decodeEndsBuf_;
+
     __aicore__ inline void InitCoreGroup()
     {
         coreNumPerStageY = blockNum;
@@ -175,10 +257,34 @@ private:
             DataCopyPadExtParams<int32_t> copyPadExtParams{false, 0U, 0U, 0U};
             AscendC::SetFlag<HardEvent::S_MTE2>(EVENT_ID0);
             AscendC::WaitFlag<HardEvent::S_MTE2>(EVENT_ID0);
-            DataCopyPad(tokenPerExpertTensor, tokenPerExpertDataInputGt[rBase * numExperts], tokenPerExpertParams,
-                        copyPadExtParams);
-            AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
-            AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);
+            if constexpr (Decode) {
+                // Reuse the histogram UB to load the eight IDs, then clear it.
+                DataCopyPad(tokenPerExpertTensor, tokenPerExpertDataInputGt,
+                            {1U, 8U * sizeof(int32_t), 0U, 0U, 0U}, copyPadExtParams);
+                SyncFunc<HardEvent::MTE2_S>();
+                int32_t ids[8];
+                for (int k = 0; k < 8; ++k) ids[k] = tokenPerExpertTensor(k);
+                for (int e = 0; e < numExperts; ++e) tokenPerExpertTensor(e) = 0;
+                // The first eight entries of newSendDataTensor are scratch here.
+                for (int k = 0; k < 8; ++k) {
+                    const int32_t e = ids[k];
+                    int32_t pos = 0;
+                    if (e >= 0 && e < numExperts) {
+                        pos = tokenPerExpertTensor(e);
+                        tokenPerExpertTensor(e) = pos + 1;
+                    }
+                    newSendDataTensor(k) = pos;
+                }
+                GlobalTensor<int32_t> indices;
+                indices.SetGlobalBuffer((__gm__ int32_t *)decodeSendIndices_);
+                SyncFunc<HardEvent::S_MTE3>();
+                DataCopyPad(indices, newSendDataTensor, {1U, 8U * sizeof(int32_t), 0U, 0U, 0U});
+                SyncFunc<HardEvent::MTE3_S>();
+            } else {
+                DataCopyPad(tokenPerExpertTensor, tokenPerExpertDataInputGt[rBase * numExperts],
+                            tokenPerExpertParams, copyPadExtParams);
+                SyncFunc<HardEvent::MTE2_S>();
+            }
 
             for (int r = 0; r < currentBatch; r++) {
                 int absRound = rBase + r;
@@ -891,14 +997,14 @@ private:
     TBuf<> tmpBuf4_;
 };
 
-template <typename T>
-__aicore__ inline int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
+template <typename T, bool Decode>
+__aicore__ inline int64_t NotifyDispatch<T, Decode>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
 {
     return dataLen / useBlockNum;
 }
 
-template <typename T>
-__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
+template <typename T, bool Decode>
+__aicore__ inline GM_ADDR NotifyDispatch<T, Decode>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
 {
     uint32_t curRankId = rank;
 #ifdef OPT_RANK_OFFSET
@@ -910,8 +1016,8 @@ __aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t r
 }
 
 // Assign values to winContext_[COMM_EP_IDX] and blockIdx before calling
-template <typename T>
-__aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
+template <typename T, bool Decode>
+__aicore__ inline uint64_t NotifyDispatch<T, Decode>::GetMagicValue(void)
 {
     uint64_t magic = 0;
     GlobalTensor<uint64_t> selfDataStatusTensor;
@@ -927,8 +1033,8 @@ __aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
     return magic;
 }
 
-template <typename T>
-__aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
+template <typename T, bool Decode>
+__aicore__ inline void NotifyDispatch<T, Decode>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
 {
     this->root = root;
     this->len = len;
@@ -1001,9 +1107,9 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
  * If they are not, it divides the buffer according to the size ratio of the types and aligns it to 32 bytes.
  * Then, it sets the atomic operation, waits for the flags, and performs the copy operation.
  */
-template <typename T>
+template <typename T, bool Decode>
 template <typename K, typename U>
-__aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
+__aicore__ inline void NotifyDispatch<T, Decode>::CpGM2GMPingPong(int64_t dataSizeRemain,
                                                           const GlobalTensor<U> &sendDataInputGt,
                                                           const GlobalTensor<K> &recvDataOutputGT, int op)
 {
@@ -1064,9 +1170,9 @@ __aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain
     return;
 }
 
-template <typename T>
+template <typename T, bool Decode>
 template <typename F>
-__aicore__ inline void NotifyDispatch<T>::SetAtomic(int op)
+__aicore__ inline void NotifyDispatch<T, Decode>::SetAtomic(int op)
 {
     PipeBarrier<PIPE_ALL>();
     if (op != -1) {
@@ -1077,8 +1183,8 @@ __aicore__ inline void NotifyDispatch<T>::SetAtomic(int op)
     PipeBarrier<PIPE_ALL>();
 }
 
-template <typename T>
-__aicore__ inline void NotifyDispatch<T>::UnsetAtomic(int op)
+template <typename T, bool Decode>
+__aicore__ inline void NotifyDispatch<T, Decode>::UnsetAtomic(int op)
 {
     if (op != -1) {
         AscendC::SetAtomicNone();
@@ -1086,9 +1192,9 @@ __aicore__ inline void NotifyDispatch<T>::UnsetAtomic(int op)
     PipeBarrier<PIPE_ALL>();
 }
 
-template <typename T>
+template <typename T, bool Decode>
 template <HardEvent eventType>
-__aicore__ inline void NotifyDispatch<T>::SetWaitEvent(event_t eventId)
+__aicore__ inline void NotifyDispatch<T, Decode>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);

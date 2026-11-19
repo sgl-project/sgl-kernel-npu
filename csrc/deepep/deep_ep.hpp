@@ -63,6 +63,21 @@ public:
 
     torch::Tensor get_notify_send_data();
 
+    std::vector<at::Tensor> intranode_dispatch_fused_decode(const at::Tensor &x, const at::Tensor &ids);
+
+    std::vector<at::Tensor> intranode_dispatch_decode(const at::Tensor &x, const at::Tensor &topk_idx);
+
+    std::vector<at::Tensor> dispatch_device_counts_impl(
+        const at::Tensor &x, const at::Tensor &topk_idx,
+        const at::Tensor &num_tokens_per_expert, int64_t max_tokens_per_rank,
+        const std::optional<at::Tensor> &send_token_indices, bool fused_decode);
+
+    std::vector<at::Tensor> intranode_dispatch_device_counts(
+        const at::Tensor &x, const at::Tensor &topk_idx,
+        const at::Tensor &num_tokens_per_expert, int64_t max_tokens_per_rank,
+        const std::optional<at::Tensor> &send_token_indices = std::nullopt);
+
+
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
                std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
     intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,

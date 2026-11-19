@@ -115,7 +115,7 @@ inline const char *GetOpApiLibName(void)
 
 inline const char *GetCustOpApiLibName(void)
 {
-    return "libcust_opapi.so";
+    return "libglm_deepep_opapi.so";
 }
 
 inline void *GetOpApiFuncAddrInLib(void *handler, const char *libName, const char *apiName)

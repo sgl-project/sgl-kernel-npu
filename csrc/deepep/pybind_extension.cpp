@@ -37,6 +37,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("get_notify_send_data", &deep_ep::Buffer::get_notify_send_data)
         .def("clean_low_latency_buffer", &deep_ep::Buffer::clean_low_latency_buffer)
         .def("intranode_dispatch", &deep_ep::Buffer::intranode_dispatch)
+        .def("intranode_dispatch_fused_decode", &deep_ep::Buffer::intranode_dispatch_fused_decode,
+             py::arg("x"), py::arg("ids"))
+        .def("intranode_dispatch_decode", &deep_ep::Buffer::intranode_dispatch_decode,
+             py::arg("x"), py::arg("topk_idx"))
+        .def("intranode_dispatch_device_counts", &deep_ep::Buffer::intranode_dispatch_device_counts,
+             py::arg("x"), py::arg("topk_idx"), py::arg("num_tokens_per_expert"),
+             py::arg("max_tokens_per_rank"), py::arg("send_token_indices") = py::none())
         .def("notify_verify", &deep_ep::Buffer::notify_verify)
         .def("intranode_combine", &deep_ep::Buffer::intranode_combine)
         .def("internode_dispatch", &deep_ep::Buffer::internode_dispatch)

@@ -1,0 +1,4 @@
+#define NOTIFY_DISPATCH_DECODE 1
+#define NotifyDispatchCompileInfo NotifyDispatchDecodeCompileInfo
+#define TilingParseForNotifyDispatch TilingParseForNotifyDispatchDecode
+#include "notify_dispatch_tiling.cc"
