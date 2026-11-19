@@ -2,6 +2,43 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [fast_gelu](operators/activation/fast_gelu.md) | `torch_npu`, `torch_native` |
+| [geglu](operators/activation/geglu.md) | `torch_npu`, `torch_native` |
+| [swiglu](operators/activation/swiglu.md) | `torch_npu`, `torch_native` |
+| [attention_update](operators/attention/attention_update.md) | `torch_npu` |
+| [flash_attention_qlens](operators/attention/flash_attention_qlens.md) | `torch_npu` |
+| [fused_infer_attention_score](operators/attention/fused_infer_attention_score.md) | `torch_npu` |
+| [fused_infer_attention_score_out](operators/attention/fused_infer_attention_score.md) | `torch_npu` |
+| [fused_infer_attention_score_get_max_workspace](operators/attention/fused_infer_attention_score.md) | `torch_npu` |
+| [fused_infer_attention_score_v2](operators/attention/fused_infer_attention_score_v2.md) | `torch_npu` |
+| [fused_infer_attention_score_v2_out](operators/attention/fused_infer_attention_score_v2.md) | `torch_npu` |
+| [fused_infer_attention_score_v2_get_max_workspace](operators/attention/fused_infer_attention_score_v2.md) | `torch_npu` |
+| [kv_quant_sparse_flash_attention_torch_npu](operators/attention/kv_quant_sparse_flash_attention_torch_npu.md) | `torch_npu` |
+| [mla_prolog_v3](operators/attention/mla_prolog_v3.md) | `torch_npu` |
+| [paged_attention](operators/attention/paged_attention.md) | `torch_npu` |
+| [paged_attention_mla](operators/attention/paged_attention_mla.md) | `torch_npu` |
+| [dtype_cast](operators/data_move/dtype_cast.md) | `torch_npu` |
+| [format_cast](operators/data_move/format_cast.md) | `torch_npu` |
+| [prefetch](operators/data_move/prefetch.md) | `torch_npu` |
+| [lightning_indexer](operators/indexer/lightning_indexer.md) | `torch_npu` |
+| [dual_level_quant_matmul](operators/matmul/dual_level_quant_matmul.md) | `torch_npu` |
+| [quant_matmul](operators/matmul/quant_matmul.md) | `torch_npu` |
+| [transpose_quant_batchmatmul](operators/matmul/transpose_quant_batchmatmul.md) | `torch_npu` |
+| [weight_quant_batchmatmul](operators/matmul/weight_quant_batchmatmul.md) | `torch_npu` |
+| [kv_rmsnorm_rope_cache](operators/mem_cache/kv_rmsnorm_rope_cache.md) | `torch_npu` |
+| [reshape_and_cache](operators/mem_cache/reshape_and_cache.md) | `torch_npu` |
+| [scatter_pa_kv_cache](operators/mem_cache/scatter_pa_kv_cache.md) | `torch_npu` |
+| [add_rms_norm](operators/norm/add_rms_norm.md) | `torch_npu`, `torch_native` |
+| [rms_norm](operators/norm/rms_norm.md) | `torch_npu`, `torch_native` |
+| [dynamic_block_quant](operators/quant/dynamic_block_quant.md) | `torch_npu` |
+| [dynamic_dual_level_mx_quant](operators/quant/dynamic_dual_level_mx_quant.md) | `torch_npu` |
+| [dynamic_mx_quant](operators/quant/dynamic_mx_quant.md) | `torch_npu` |
+| [dynamic_quant](operators/quant/dynamic_quant.md) | `torch_npu` |
+| [interleave_rope](operators/rope/interleave_rope.md) | `torch_npu`, `torch_native` |
+| [mrope](operators/rope/mrope.md) | `torch_npu`, `torch_native` |
+| [rotary_mul](operators/rope/rotary_mul.md) | `torch_npu`, `torch_native` |
+| [top_k_top_p](operators/sampler/top_k_top_p.md) | `torch_npu`, `torch_native` |
+| [scatter_nd_update_](operators/tensor_ops/scatter_nd_update_.md) | `torch_npu` |
 | [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
