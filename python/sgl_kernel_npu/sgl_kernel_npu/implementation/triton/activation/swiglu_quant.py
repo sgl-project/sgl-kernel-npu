@@ -6,12 +6,13 @@ import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["row_capacity"])
 def _swiglu_quant_kernel(
     x_ptr,
     group_list_ptr,
     out_ptr,
     scale_ptr,
+    row_capacity,
     TOTAL_COLS: tl.constexpr,
     HALF_COLS: tl.constexpr,
     COL_BLOCK_SIZE: tl.constexpr,
@@ -24,7 +25,6 @@ def _swiglu_quant_kernel(
     DO_LIMIT: tl.constexpr,
     LIMIT: tl.constexpr,
     CLAMP_BEFORE_SILU: tl.constexpr,
-    ROW_CAPACITY: tl.constexpr,
     HALF_BLOCK_SIZE: tl.constexpr,
 ):
     # calc real total_rows
@@ -39,7 +39,7 @@ def _swiglu_quant_kernel(
         total_rows = tl.sum(group_list)
 
     if CLAMP_BEFORE_SILU:
-        total_rows = tl.minimum(total_rows, ROW_CAPACITY)
+        total_rows = tl.minimum(total_rows, row_capacity)
 
     block_size = (total_rows - 1) // NUM_CORES + 1
     pid = tl.program_id(0)
@@ -157,6 +157,7 @@ def swiglu_quant(
         group_list,
         out,
         scale,
+        s,
         TOTAL_COLS=h,
         HALF_COLS=h // 2,
         COL_BLOCK_SIZE=1536,
@@ -170,7 +171,6 @@ def swiglu_quant(
         DO_LIMIT=do_limit,
         LIMIT=limit,
         CLAMP_BEFORE_SILU=clamp_before_silu,
-        ROW_CAPACITY=s,
         HALF_BLOCK_SIZE=triton.next_power_of_2(h // 2) if clamp_before_silu else 0,
     )
     return out, scale
