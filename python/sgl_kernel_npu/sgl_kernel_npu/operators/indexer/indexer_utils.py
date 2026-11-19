@@ -1,6 +1,33 @@
-"""Metadata-only input checks shared by the arch22 indexers."""
+"""Metadata helpers and input checks for indexers."""
 
 import torch
+
+
+def build_qblock_mappings(
+    cu_seqlens: torch.Tensor,
+    seq_lens: torch.Tensor,
+    req_to_token: torch.Tensor,
+    req_pool_indices: torch.Tensor,
+    block_size_q: int,
+    page_size: int,
+    max_blocks: int,
+    device,
+):
+    """Build query-block metadata for sparse indexer prefill."""
+    from ...implementation.triton.indexer.flash_prefill_bnsd_score import (
+        _build_qblock_mappings,
+    )
+
+    return _build_qblock_mappings(
+        cu_seqlens,
+        seq_lens,
+        req_to_token,
+        req_pool_indices,
+        block_size_q,
+        page_size,
+        max_blocks,
+        device,
+    )
 
 
 def validate_lightning_indexer_inputs(

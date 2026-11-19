@@ -21,7 +21,10 @@ from .memfabric.kv_transfer import (
     transfer_kv_per_layer_kv_split_pf_lf,
 )
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
+from .shm_allocator import create_shm_tensor, free_shm
+from .slot_map_lookup import slot_map_lookup
 from .store_kv_cache_prefix_valid import store_kv_cache_prefix_valid
+from .unidex_copy import unidex_copy_inplace
 
 __all__ = [
     "NPU_KV_QUANT_PATH",
@@ -31,6 +34,8 @@ __all__ = [
     "assign_cache_op",
     "cache_loc_assign",
     "cache_loc_update",
+    "create_shm_tensor",
+    "free_shm",
     "get_npu_kv_quant_path",
     "indexer_quant_cache",
     "kpool_assemble_softmax_rotate_write_cache",
@@ -39,9 +44,11 @@ __all__ = [
     "kv_compress_epilog",
     "kv_compress_epilog_v2",
     "scatter_kpool_tail_updates",
+    "slot_map_lookup",
     "store_kv_cache_prefix_valid",
     "transfer_kv_all_layer_kv_split",
     "transfer_kv_all_layer_kv_split_lf_pf",
     "transfer_kv_per_layer_kv_split",
     "transfer_kv_per_layer_kv_split_pf_lf",
+    "unidex_copy_inplace",
 ]
