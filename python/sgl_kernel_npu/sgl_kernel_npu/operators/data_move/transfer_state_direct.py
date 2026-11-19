@@ -9,10 +9,9 @@ The ``ascendc_aiv`` implementation submits one fused ``state_exchange`` AIV
 kernel per call: host addresses resolve through the registered DVA table
 (MemFabric or aclrt registration), and the ACLNN adapter records NPU
 tensors on the caller's stream with the transfer description passed through
-CANN tiling. NPU graph capture is not supported by this AIV path. Unregistered
-pinned memory falls back to the aclrt SDMA implementation; the aclrt
-HOST-unit op transfers one shared layer window per call, so components are
-grouped by layer count.
+CANN tiling. NPU graph capture is not supported by this AIV path. Host
+memory must be registered with the DVA table (register_host_memory /
+register_acl_host_memory) before transfer.
 """
 
 from threading import Lock
@@ -20,7 +19,7 @@ from typing import Sequence
 
 import torch
 
-from ..mem_cache.memfabric.host_memory import lookup_host_dva, resolve_host_dva
+from ..mem_cache.memfabric.host_memory import resolve_host_dva
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from ._types import TransferFlag
 
@@ -88,25 +87,6 @@ def _aiv_per_layer(
     _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id)
 
 
-@register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "aclrt")
-def _aclrt_per_layer(
-    src: torch.Tensor,
-    dst: torch.Tensor,
-    src_indices: torch.Tensor,
-    dst_indices: torch.Tensor,
-    layer_id: int,
-    flags: TransferFlag = TransferFlag.FAST2D,
-):
-    torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
-        src,
-        dst,
-        src_indices,
-        dst_indices,
-        layer_id,
-        flags.value,
-    )
-
-
 @register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "auto")
 def _auto_per_layer(
     src: torch.Tensor,
@@ -116,18 +96,11 @@ def _auto_per_layer(
     layer_id: int,
     flags: TransferFlag = TransferFlag.FAST2D,
 ):
-    if not src_indices.numel():
-        return
-    if lookup_host_dva(src) != 0:
-        impl = "ascendc_aiv"
-    elif src.is_pinned():
-        impl = "aclrt"
-    else:
-        raise RuntimeError(
-            "host state must be device-mapped (register_host_memory / "
-            "register_acl_host_memory) or pinned for transfer"
-        )
-    return get_impl_by_name("data_move.transfer_state_per_layer_direct_pf_lf", impl)(
+    # Mirrors the kv_exchange contract: the registration table is the only
+    # DVA source, so unregistered host memory fails inside resolve_host_dva.
+    return get_impl_by_name(
+        "data_move.transfer_state_per_layer_direct_pf_lf", "ascendc_aiv"
+    )(
         src=src,
         dst=dst,
         src_indices=src_indices,
@@ -169,7 +142,7 @@ def transfer_state_per_layer_direct_pf_lf(
         dst_indices: Corresponding device slots.
         layer_id: Zero-based source layer.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (AIV when registered, else aclrt), ascendc_aiv, aclrt, or torch_native.
+        impl: auto (validates DVA registration), ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.
@@ -232,33 +205,6 @@ def _aiv_all_layer(
         )
 
 
-@register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "aclrt")
-def _aclrt_all_layer(
-    device_states: Sequence[torch.Tensor],
-    host_states: Sequence[torch.Tensor],
-    device_indices: torch.Tensor,
-    host_indices: torch.Tensor,
-    flags: TransferFlag = TransferFlag.FAST2D,
-):
-    if not device_indices.numel():
-        return
-    # The aclrt HOST-unit op transfers one shared layer window per call, so
-    # group components by their (independent) layer counts.
-    groups = {}
-    for dev, host in zip(device_states, host_states):
-        pair = groups.setdefault(int(dev.size(0)), ([], []))
-        pair[0].append(dev)
-        pair[1].append(host)
-    for devs, hosts in groups.values():
-        torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
-            devs,
-            hosts,
-            device_indices,
-            host_indices,
-            flags.value,
-        )
-
-
 @register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "auto")
 def _auto_all_layer(
     device_states: Sequence[torch.Tensor],
@@ -267,18 +213,11 @@ def _auto_all_layer(
     host_indices: torch.Tensor,
     flags: TransferFlag = TransferFlag.FAST2D,
 ):
-    if not device_indices.numel():
-        return
-    if all(lookup_host_dva(host) != 0 for host in host_states):
-        impl = "ascendc_aiv"
-    elif all(host.is_pinned() for host in host_states):
-        impl = "aclrt"
-    else:
-        raise RuntimeError(
-            "host states must be device-mapped (register_host_memory / "
-            "register_acl_host_memory) or pinned for transfer"
-        )
-    return get_impl_by_name("data_move.transfer_state_all_layer_direct_lf_pf", impl)(
+    # Same contract as kv_exchange: resolve_host_dva is the only gate; the
+    # empty-index early return lives in the AIV implementation below.
+    return get_impl_by_name(
+        "data_move.transfer_state_all_layer_direct_lf_pf", "ascendc_aiv"
+    )(
         device_states=device_states,
         host_states=host_states,
         device_indices=device_indices,
@@ -322,7 +261,7 @@ def transfer_state_all_layer_direct_lf_pf(
         device_indices: Non-negative device slot indices valid for every component.
         host_indices: Corresponding non-negative host slot indices valid for every component.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (AIV when registered, else aclrt), ascendc_aiv, aclrt, or torch_native.
+        impl: auto (validates DVA registration), ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.

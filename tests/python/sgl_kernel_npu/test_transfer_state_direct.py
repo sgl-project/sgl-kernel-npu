@@ -5,6 +5,10 @@ from sgl_kernel_npu.kvcacheio import (
     transfer_state_all_layer_direct_lf_pf,
     transfer_state_per_layer_direct_pf_lf,
 )
+from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
+    register_acl_host_memory,
+    uninitialize_host_memory,
+)
 
 NUM_LAYERS = 3
 DEVICE_SLOTS = 8
@@ -32,14 +36,20 @@ class TestTransferStateDirect(unittest.TestCase):
             torch.zeros(
                 (HOST_SLOTS, NUM_LAYERS, 1, 2, 4),
                 dtype=torch.float32,
-                pin_memory=True,
             ),
             torch.zeros(
                 (HOST_SLOTS, NUM_LAYERS, 1, 3),
                 dtype=torch.float16,
-                pin_memory=True,
             ),
         ]
+        # The AIV path resolves host addresses through the DVA table, so the
+        # pools must be registered with the acl backend.
+        for host in self.host_states:
+            register_acl_host_memory(host)
+
+    def tearDown(self):
+        torch.npu.synchronize()
+        uninitialize_host_memory()
 
     def _submit_d2h(self, device_indices, host_indices):
         stream = torch.npu.Stream()
@@ -48,13 +58,15 @@ class TestTransferStateDirect(unittest.TestCase):
             transfer_state_all_layer_direct_lf_pf(
                 device_states=self.device_states,
                 host_states=self.host_states,
-                device_indices=device_indices,
-                host_indices=host_indices,
+                device_indices=device_indices.to("npu"),
+                host_indices=host_indices.to("npu"),
             )
             event.record(stream)
         event.synchronize()
 
     def _submit_h2d(self, device_indices, host_indices, layers):
+        device_indices = device_indices.to("npu")
+        host_indices = host_indices.to("npu")
         stream = torch.npu.Stream()
         event = torch.npu.Event()
         with torch.npu.stream(stream):
@@ -175,8 +187,8 @@ class TestTransferStateDirect(unittest.TestCase):
             transfer_state_all_layer_direct_lf_pf(
                 device_states=[device],
                 host_states=[host],
-                device_indices=device_indices,
-                host_indices=host_indices,
+                device_indices=device_indices.to("npu"),
+                host_indices=host_indices.to("npu"),
             )
             event.record(stream)
         event.synchronize()
@@ -197,12 +209,12 @@ class TestTransferStateDirect(unittest.TestCase):
         torch.testing.assert_close(device[:, device_indices], expected)
 
     def test_reject_pageable_host_memory(self):
-        with self.assertRaisesRegex(RuntimeError, "pinned memory"):
+        with self.assertRaisesRegex(RuntimeError, "not registered"):
             transfer_state_per_layer_direct_pf_lf(
                 src=torch.empty_like(self.host_states[0], pin_memory=False),
                 dst=self.device_states[0][0],
-                src_indices=torch.tensor([0]),
-                dst_indices=torch.tensor([0]),
+                src_indices=torch.tensor([0], device="npu"),
+                dst_indices=torch.tensor([0], device="npu"),
                 layer_id=0,
             )
 
@@ -217,8 +229,8 @@ class TestTransferStateDirect(unittest.TestCase):
         host = torch.zeros(
             (HOST_SLOTS, NUM_LAYERS, 1, 4, 2),
             dtype=torch.float32,
-            pin_memory=True,
         )
+        register_acl_host_memory(host)
         device_indices = torch.tensor([1, 4, 6], dtype=torch.int64)
         host_indices = torch.tensor([2, 5, 7], dtype=torch.int64)
         expected = temporal[:, device_indices].clone()
@@ -229,8 +241,8 @@ class TestTransferStateDirect(unittest.TestCase):
             transfer_state_all_layer_direct_lf_pf(
                 device_states=[temporal],
                 host_states=[host],
-                device_indices=device_indices,
-                host_indices=host_indices,
+                device_indices=device_indices.to("npu"),
+                host_indices=host_indices.to("npu"),
             )
             event.record(stream)
         event.synchronize()
