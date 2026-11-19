@@ -9,9 +9,21 @@ TorchMemorySaver &TorchMemorySaver::instance() {
   return instance;
 }
 
+// devmm only creates physical memory in whole 2 MiB granules, so a smaller
+// request cannot go through the VMM path at all (aclrtMallocPhysical rejects
+// it with "Size should aligned by granularity_size"). Such allocations are
+// served by the regular allocator instead and stay unpauseable; free() already
+// forwards for pointers it does not track.
+static constexpr size_t kDevmmGranularityBytes = 2 * 1024 * 1024;
+
 aclError TorchMemorySaver::malloc(void **ptr, int device, size_t size,
                                   const std::string &tag,
-                                  const bool enable_cpu_backup) {
+                                  const bool enable_cpu_backup,
+                                  aclrtMemMallocPolicy policy) {
+  if (size < kDevmmGranularityBytes) {
+    return APIForwarder::call_real_aclrt_malloc_align32(ptr, size, policy);
+  }
+
   aclrtDrvMemHandle allocHandle;
   CANNUtils::cann_mem_create(&allocHandle, size, device);
   int ret = aclrtReserveMemAddress(ptr, size, 0, nullptr, 0);

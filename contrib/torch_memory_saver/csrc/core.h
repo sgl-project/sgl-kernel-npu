@@ -20,7 +20,8 @@ public:
   static TorchMemorySaver &instance();
 
   aclError malloc(void **ptr, int device, size_t size, const std::string &tag,
-                  bool enable_cpu_backup);
+                  bool enable_cpu_backup,
+                  aclrtMemMallocPolicy policy = ACL_MEM_MALLOC_HUGE_FIRST);
   aclError free(void *ptr);
 
   void pause(const std::string &tag);
