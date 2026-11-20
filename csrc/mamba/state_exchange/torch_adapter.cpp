@@ -102,8 +102,7 @@ void CheckComponentPair(const at::Tensor &device_buf, const at::Tensor &host_buf
         hostWidth *= host_buf.size(i);
     }
     TORCH_CHECK(width > 0 && width == hostWidth, "component ", which,
-                ": device and host packed payload widths must be positive and match, got ", width, " vs ",
-                hostWidth);
+                ": device and host packed payload widths must be positive and match, got ", width, " vs ", hostWidth);
     TORCH_CHECK(TrailingDimsPacked(device_buf, 2) && TrailingDimsPacked(host_buf, 3), "component ", which,
                 ": trailing payload dims must be packed (contiguous within a (slot, layer) row)");
     TORCH_CHECK(device_buf.stride(0) * esz >= width && device_buf.stride(1) * esz >= width, "component ", which,
@@ -121,8 +120,8 @@ void FillEntry(int64_t *fields, const at::Tensor &device_buf, const at::Tensor &
     fields[1] = host_dva;
     fields[2] = device_buf.stride(1) * esz;  // device_slot_pitch
     fields[3] = device_buf.stride(0) * esz;  // device_layer_pitch
-    fields[4] = host_buf.stride(0) * esz;   // host_slot_pitch
-    fields[5] = host_buf.stride(1) * esz;   // host_layer_pitch
+    fields[4] = host_buf.stride(0) * esz;    // host_slot_pitch
+    fields[5] = host_buf.stride(1) * esz;    // host_layer_pitch
     // The kernel copies this many contiguous bytes per (slot, layer) row:
     // the packed extent of the trailing payload dims.
     int64_t width = esz;
@@ -134,8 +133,8 @@ void FillEntry(int64_t *fields, const at::Tensor &device_buf, const at::Tensor &
 }
 
 void state_exchange_submit(const at::Tensor &device_indices, const at::Tensor &host_indices,
-                           at::TensorList device_components, at::TensorList host_components,
-                           at::IntArrayRef host_dvas, int64_t direction)
+                           at::TensorList device_components, at::TensorList host_components, at::IntArrayRef host_dvas,
+                           int64_t direction)
 {
     TORCH_CHECK(direction == kDirectionH2D || direction == kDirectionD2H, "direction must be H2D (1) or D2H (2), got ",
                 direction);

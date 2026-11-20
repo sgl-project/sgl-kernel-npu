@@ -48,10 +48,12 @@ def _check_indices(device_indices, host_indices):
 # [slots, *payload]
 # ---------------------------------------------------------------------------
 
+
 def _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id):
     # Normalized state_exchange component pair: device [1, slots, *payload],
     # host layer-narrowed [slots, 1, 1, *payload]; base pointers and strides
     # carry the offsets.
+
     device_view = dst.unsqueeze(0)
     host_view = src.narrow(1, layer_id, 1)
     with _submit_lock, torch.npu.device(dst_indices.device):
@@ -98,6 +100,7 @@ def _auto_per_layer(
 ):
     # Mirrors the kv_exchange contract: the registration table is the only
     # DVA source, so unregistered host memory fails inside resolve_host_dva.
+
     return get_impl_by_name(
         "data_move.transfer_state_per_layer_direct_pf_lf", "ascendc_aiv"
     )(
@@ -163,6 +166,7 @@ def transfer_state_per_layer_direct_pf_lf(
 # (e.g. main [L, slots, ...] plus draft [1, slots, ...] pairs).
 # ---------------------------------------------------------------------------
 
+
 def _check_all_layer_components(device_states, host_states):
     if not device_states or len(device_states) != len(host_states):
         raise ValueError("expected matching nonempty component lists")
@@ -215,6 +219,7 @@ def _auto_all_layer(
 ):
     # Same contract as kv_exchange: resolve_host_dva is the only gate; the
     # empty-index early return lives in the AIV implementation below.
+
     return get_impl_by_name(
         "data_move.transfer_state_all_layer_direct_lf_pf", "ascendc_aiv"
     )(

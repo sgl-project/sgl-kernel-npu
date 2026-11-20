@@ -114,6 +114,7 @@ def transfer_kv_dim_exchange(
         # Device scale cache is 4-D (layers, pages, page_size, 1) while the host
         # cache is 5-D (pages, layers, page_size, 1, 1); the kernel requires both
         # operands to be 5-D, so pad the device operand with a trailing singleton.
+
         if device_index_k_scale.dim() == 4:
             device_index_k_scale = device_index_k_scale.unsqueeze(-1)
         torch.ops.npu.transfer_kv_dim_exchange(

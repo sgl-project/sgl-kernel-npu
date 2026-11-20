@@ -57,9 +57,10 @@ public:
     STATE_EXCHANGE_AICORE_KERNEL StateExchangeKernel() {}
 
     // Use the transfer description resolved by CANN tiling.
-    STATE_EXCHANGE_AICORE_KERNEL void Init(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx,
-                                           int64_t numEntries, int64_t indicesLen, int64_t direction, int64_t startDim,
-                                           const int64_t entries[STATE_EXCHANGE_MAX_ENTRIES][STATE_EXCHANGE_META_STRIDE])
+    STATE_EXCHANGE_AICORE_KERNEL void
+    Init(AscendC::TPipe *pipe, __gm__ int64_t *deviceIdx, __gm__ int64_t *hostIdx, int64_t numEntries,
+         int64_t indicesLen, int64_t direction, int64_t startDim,
+         const int64_t entries[STATE_EXCHANGE_MAX_ENTRIES][STATE_EXCHANGE_META_STRIDE])
     {
         pipe_ = pipe;
         aivNum_ = AscendC::GetBlockNum();
@@ -182,7 +183,8 @@ private:
         const Entry &entry = entries_[entryIdx];
         const int64_t deviceSlot = deviceIdxGm_.GetValue(idx);
         const int64_t hostSlot = hostIdxGm_.GetValue(idx);
-        const int64_t deviceRow = entry.deviceBase + layer * entry.deviceLayerPitch + deviceSlot * entry.deviceSlotPitch;
+        const int64_t deviceRow =
+            entry.deviceBase + layer * entry.deviceLayerPitch + deviceSlot * entry.deviceSlotPitch;
         const int64_t hostRow = entry.hostBase + hostSlot * entry.hostSlotPitch + layer * entry.hostLayerPitch;
         const bool isD2H = (direction_ == 2);
         const int64_t srcRow = isD2H ? deviceRow : hostRow;

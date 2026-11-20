@@ -26,8 +26,7 @@ static ge::graphStatus TilingStateExchange(gert::TilingContext *context)
     const auto &hostShape = host->GetStorageShape();
     if (deviceShape.GetDimNum() != 1 || hostShape.GetDimNum() != 1 || deviceShape.GetDim(0) <= 0 ||
         deviceShape.GetDim(0) != hostShape.GetDim(0) || fields[NUM_ENTRIES] < 1 ||
-        fields[NUM_ENTRIES] > STATE_EXCHANGE_MAX_ENTRIES ||
-        (fields[DIRECTION] != 1 && fields[DIRECTION] != 2)) {
+        fields[NUM_ENTRIES] > STATE_EXCHANGE_MAX_ENTRIES || (fields[DIRECTION] != 1 && fields[DIRECTION] != 2)) {
         return ge::GRAPH_FAILED;
     }
     // Per entry: [0]=device_base [1]=host_dva [2]=device_slot_pitch
@@ -59,8 +58,7 @@ static ge::graphStatus TilingStateExchange(gert::TilingContext *context)
     tiling->startDim = fields[START_DIM];
     for (int32_t entry = 0; entry < STATE_EXCHANGE_MAX_ENTRIES; ++entry) {
         for (int32_t field = 0; field < STATE_EXCHANGE_META_STRIDE; ++field) {
-            tiling->entries[entry][field] =
-                fields[ATTR_HEADER_SIZE + entry * STATE_EXCHANGE_META_STRIDE + field];
+            tiling->entries[entry][field] = fields[ATTR_HEADER_SIZE + entry * STATE_EXCHANGE_META_STRIDE + field];
         }
     }
     raw->SetDataSize(sizeof(SglStateExchangeTilingData));

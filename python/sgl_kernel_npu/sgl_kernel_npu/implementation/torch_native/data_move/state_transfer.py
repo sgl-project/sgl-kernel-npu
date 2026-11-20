@@ -14,6 +14,7 @@ this avoids accelerator scatter writes through flattened int8 storage views.
 import torch
 
 # Native direction ABI; keep this reference independent of public facade enums.
+
 _D2H = 2
 
 
@@ -26,6 +27,7 @@ def _payload(tensor):
             raise RuntimeError("slot payload must be physically dense")
         stride *= size
     # ACL copies physically dense payloads in storage order, including transposed states.
+
     return tensor.as_strided((tensor.numel(),), (1,))
 
 
@@ -108,6 +110,7 @@ def _check_transfer_indices(device_indices, host_indices):
 def _packed_views(device, host):
     # The original Mamba/KV ACL kernels compute packed pitches from sizes,
     # rather than tensor strides. Keep that byte layout in the reference too.
+
     layers, slots = device.shape[:2]
     width = device[0, 0].numel()
     return (
@@ -122,6 +125,7 @@ def _write_slots(dst, indices, values):
     indices = indices.to(device="cpu", dtype=torch.long).reshape(-1)
     # ACL submits copies in input order. index_copy_ with repeated destinations
     # does not guarantee that order on accelerators, so retain ordered writes.
+
     if indices.unique().numel() != indices.numel():
         for i, index in enumerate(indices.tolist()):
             dst[index].copy_(values[i])
@@ -131,6 +135,7 @@ def _write_slots(dst, indices, values):
 
 def _copy_per_layer(host, device, host_indices, device_indices, layer_id):
     # SGLang MambaPoolHost._copy_tensor_pf_lf: sync Torch fallback.
+
     host_indices = host_indices.to(dtype=torch.long, device=host.device).reshape(-1)
     values = host.select(1, layer_id).index_select(0, host_indices).select(1, 0)
     _write_slots(device, device_indices, values.to(device=device.device))
@@ -138,6 +143,7 @@ def _copy_per_layer(host, device, host_indices, device_indices, layer_id):
 
 def _copy_all_layers(device, host, device_indices, host_indices):
     # SGLang MambaPoolHost._copy_tensor_all_layers_lf_pf: per-layer fallback.
+
     device_indices = device_indices.to(dtype=torch.long, device=device.device).reshape(
         -1
     )
@@ -171,6 +177,7 @@ def _copy_packed_state(device, host, device_indices, host_indices, direction):
     # unselected pages survive, and preserve dense payload permutations for ACL's
     # physical storage order. Copy back through the original shape, not a flat
     # NPU view: odd-width int8 payloads must not overwrite neighbouring pages.
+
     target = device
     if direction.value != _D2H:
         target = device.to(device="cpu", copy=True, memory_format=torch.preserve_format)
@@ -250,6 +257,7 @@ def transfer_state_per_layer_direct_pf_lf(
 ):
     # The Mamba host pool reuses the KV direct contract verbatim: host source
     # [slots, layers, 1, *payload] -> device layer view [slots, *payload].
+
     return transfer_kv_per_layer_direct_pf_lf(
         src, dst, src_indices, dst_indices, layer_id, flags
     )
@@ -261,6 +269,7 @@ def transfer_state_all_layer_direct_lf_pf(
     # Unlike the KV all-layer reference, every component transfers its own
     # layer count: main components [L, slots, ...] plus draft components
     # [1, slots, ...] with layer-narrowed host views back up in one call.
+
     if not device_states or len(device_states) != len(host_states):
         raise RuntimeError("expected matching nonempty component lists")
     pairs = _slot_pairs(device_indices, host_indices, flags)
@@ -287,6 +296,7 @@ def transfer_state_all_layer_direct_lf_pf(
     for dev, host in zip(device_states, host_states):
         # Narrowed host views (draft layers) are not contiguous; flatten each
         # dense payload in storage order instead of viewing the host block.
+
         device = _payload_view(dev, 2)
         host = _payload_view(host, 3)
         _copy_all_layers(device, host, device_indices, host_indices)
@@ -351,6 +361,7 @@ def transfer_kv_dim_exchange(
     ):
         raise RuntimeError("transfer indices must be non-negative")
     # ACL uses only the first token index in each group to identify a whole page.
+
     device_pages = device_indices[::page_size].to(dtype=torch.long) // page_size
     host_pages = host_indices[::page_size].to(dtype=torch.long) // page_size
     for dev, host in pairs:

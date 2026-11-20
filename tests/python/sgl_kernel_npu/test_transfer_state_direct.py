@@ -44,6 +44,7 @@ class TestTransferStateDirect(unittest.TestCase):
         ]
         # The AIV path resolves host addresses through the DVA table, so the
         # pools must be registered with the acl backend.
+
         for host in self.host_states:
             register_acl_host_memory(host)
 
@@ -111,7 +112,6 @@ class TestTransferStateDirect(unittest.TestCase):
             host[4, layer, 0].copy_(payload + component * 20)
         for device in self.device_states:
             device.zero_()
-
         self._submit_h2d(device_indices, host_indices, [layer])
 
         for component, device in enumerate(self.device_states):
@@ -137,7 +137,6 @@ class TestTransferStateDirect(unittest.TestCase):
                 host[host_index, layer, 0].fill_(component * 100 + offset + 1)
         for device in self.device_states:
             device.zero_()
-
         self._submit_h2d(device_indices, host_indices, [layer])
 
         for component, device in enumerate(self.device_states):

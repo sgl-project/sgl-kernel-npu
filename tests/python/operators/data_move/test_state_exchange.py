@@ -12,6 +12,7 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 # (layers, slots, payload) exercised by the perf gate.
+
 perf_shape = [(4, 8, (128,))]
 
 
@@ -40,26 +41,56 @@ def _indices(values):
     "layers,slots,host_slots,payload,dtype,device_ids,host_ids",
     [
         pytest.param(4, 8, 8, (128,), torch.bfloat16, range(8), range(8), id="bf16"),
-        pytest.param(3, 6, 6, (8, 64), torch.float16, [1, 3, 5], [5, 0, 2], id="subset"),
         pytest.param(
-            2, 10, 12, (32,), torch.float32, [7, 2, 9], [11, 1, 4], id="fp32-pools-differ"
+            3, 6, 6, (8, 64), torch.float16, [1, 3, 5], [5, 0, 2], id="subset"
+        ),
+        pytest.param(
+            2,
+            10,
+            12,
+            (32,),
+            torch.float32,
+            [7, 2, 9],
+            [11, 1, 4],
+            id="fp32-pools-differ",
         ),
         pytest.param(3, 5, 5, (16,), torch.float32, [2], [3], id="single-slot"),
         # The AIV kernel stages each slot through an 88KB UB buffer and
         # splits larger entries, so cover the boundary from both sides:
         # 45056 * 2B = 88KB exactly, 45057/45055 straddle it by one element.
         pytest.param(
-            2, 4, 4, (45056,), torch.float16, range(4), range(4), id="ub-88kb-exact-fp16"
+            2,
+            4,
+            4,
+            (45056,),
+            torch.float16,
+            range(4),
+            range(4),
+            id="ub-88kb-exact-fp16",
         ),
         pytest.param(
             2, 4, 4, (45057,), torch.float16, [0, 2], [1, 3], id="ub-88kb-over-fp16"
         ),
         pytest.param(
-            2, 4, 4, (45055,), torch.float16, range(4), range(4), id="ub-88kb-under-fp16"
+            2,
+            4,
+            4,
+            (45055,),
+            torch.float16,
+            range(4),
+            range(4),
+            id="ub-88kb-under-fp16",
         ),
         # Real GDN state shape (~2MB per slot, fp32): several splits per entry.
         pytest.param(
-            2, 4, 4, (32, 128, 128), torch.float32, range(4), range(4), id="gdn-shaped-fp32"
+            2,
+            4,
+            4,
+            (32, 128, 128),
+            torch.float32,
+            range(4),
+            range(4),
+            id="gdn-shaped-fp32",
         ),
     ],
 )
@@ -72,7 +103,6 @@ def test_state_exchange_all_layer_d2h(
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_state_all_layer_direct_lf_pf, impl, impl_ref)
-
     torch.manual_seed(0)
     dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
     host = acl_host(torch.randn(host_slots, layers, 1, *payload, dtype=dtype))
@@ -81,14 +111,16 @@ def test_state_exchange_all_layer_d2h(
     ref_dev = dev.clone()
     ref_host = host.clone()
     if checked:
-        transfer_state_all_layer_direct_lf_pf([ref_dev], [ref_host], d, h, impl=impl_ref)
-
+        transfer_state_all_layer_direct_lf_pf(
+            [ref_dev], [ref_host], d, h, impl=impl_ref
+        )
     host.zero_()
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())
     with torch.npu.stream(stream):
         assert (
-            transfer_state_all_layer_direct_lf_pf([dev], [host], d, h, impl=impl) is None
+            transfer_state_all_layer_direct_lf_pf([dev], [host], d, h, impl=impl)
+            is None
         )
     stream.synchronize()
 
@@ -111,17 +143,19 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
     # Main layers live in one layer-first tensor while each draft layer is its
     # own single-layer allocation; the host pool is narrowed per component so
     # one submission covers independent layer counts.
+
     from sgl_kernel_npu.operators.data_move import transfer_state_all_layer_direct_lf_pf
 
     impl, impl_ref = get_test_impls()
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_state_all_layer_direct_lf_pf, impl, impl_ref)
-
     layers_main, drafts, slots, host_slots, payload = 3, 2, 8, 9, (48,)
     total_layers = layers_main + drafts
     torch.manual_seed(0)
-    dev_main = torch.randn(layers_main, slots, *payload, dtype=torch.float32, device="npu")
+    dev_main = torch.randn(
+        layers_main, slots, *payload, dtype=torch.float32, device="npu"
+    )
     dev_drafts = [
         torch.randn(1, slots, *payload, dtype=torch.float32, device="npu")
         for _ in range(drafts)
@@ -144,7 +178,6 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
         transfer_state_all_layer_direct_lf_pf(
             ref_device_states, ref_host_states, d, h, impl=impl_ref
         )
-
     host.zero_()
     transfer_state_all_layer_direct_lf_pf(device_states, host_states, d, h, impl=impl)
     torch.npu.synchronize()
@@ -152,7 +185,9 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
     if checked:
         expected = torch.zeros_like(ref_host)
         for device_slot, host_slot in zip(d.tolist(), h.tolist()):
-            expected[host_slot, :layers_main, 0] = ref_device_states[0][:, device_slot].transpose(0, 1)
+            expected[host_slot, :layers_main, 0] = ref_device_states[0][
+                :, device_slot
+            ].transpose(0, 1)
             for i, draft in enumerate(ref_device_states[1:]):
                 expected[host_slot, layers_main + i, 0] = draft[0, device_slot]
         assert_accuracy(host.view(torch.uint8), expected.view(torch.uint8))
@@ -169,13 +204,29 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
         # UB-staging boundary (88KB per slot) in both directions, plus a
         # multi-split GDN-shaped payload.
         pytest.param(
-            2, 4, 4, (45056,), torch.float16, 1, range(4), range(4), id="ub-88kb-exact-fp16"
+            2,
+            4,
+            4,
+            (45056,),
+            torch.float16,
+            1,
+            range(4),
+            range(4),
+            id="ub-88kb-exact-fp16",
         ),
         pytest.param(
             2, 4, 4, (45057,), torch.float16, 0, [1, 3], [0, 2], id="ub-88kb-over-fp16"
         ),
         pytest.param(
-            2, 4, 4, (32, 128, 128), torch.float32, 1, range(4), range(4), id="gdn-shaped-fp32"
+            2,
+            4,
+            4,
+            (32, 128, 128),
+            torch.float32,
+            1,
+            range(4),
+            range(4),
+            id="gdn-shaped-fp32",
         ),
     ],
 )
@@ -188,7 +239,6 @@ def test_state_exchange_per_layer_h2d(
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_state_per_layer_direct_pf_lf, impl, impl_ref)
-
     torch.manual_seed(0)
     dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
     host = acl_host(torch.randn(host_slots, layers, 1, *payload, dtype=dtype))
@@ -200,7 +250,6 @@ def test_state_exchange_per_layer_h2d(
         transfer_state_per_layer_direct_pf_lf(
             ref_host, ref_dev[layer_id], h, d, layer_id, impl=impl_ref
         )
-
     dev.zero_()
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())
@@ -219,6 +268,7 @@ def test_state_exchange_per_layer_h2d(
 
 def test_state_exchange_roundtrip(acl_host):
     # Backup every layer D2H, restore them per-layer H2D, and compare.
+
     from sgl_kernel_npu.operators.data_move import (
         transfer_state_all_layer_direct_lf_pf,
         transfer_state_per_layer_direct_pf_lf,
@@ -246,6 +296,7 @@ def test_state_exchange_roundtrip(acl_host):
 
 def test_state_exchange_empty_indices_noop(acl_host):
     # Empty indices return before any submission; buffers stay untouched.
+
     from sgl_kernel_npu.operators.data_move import (
         transfer_state_all_layer_direct_lf_pf,
         transfer_state_per_layer_direct_pf_lf,
@@ -255,8 +306,12 @@ def test_state_exchange_empty_indices_noop(acl_host):
     host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32))
     before_host, before_dev = host.clone(), dev.clone()
     empty = _indices([])
-    transfer_state_all_layer_direct_lf_pf([dev], [host], empty, empty, impl="ascendc_aiv")
-    transfer_state_per_layer_direct_pf_lf(host, dev[0], empty, empty, 0, impl="ascendc_aiv")
+    transfer_state_all_layer_direct_lf_pf(
+        [dev], [host], empty, empty, impl="ascendc_aiv"
+    )
+    transfer_state_per_layer_direct_pf_lf(
+        host, dev[0], empty, empty, 0, impl="ascendc_aiv"
+    )
     assert_accuracy(host.view(torch.uint8), before_host.view(torch.uint8))
     assert_accuracy(dev.view(torch.uint8), before_dev.view(torch.uint8))
 
@@ -293,7 +348,9 @@ def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
             dev_states = [dev[0]]
     d, h = _indices([1]), _indices([2])
     with pytest.raises(error_type, match=message):
-        transfer_state_all_layer_direct_lf_pf(dev_states, host_states, d, h, impl="ascendc_aiv")
+        transfer_state_all_layer_direct_lf_pf(
+            dev_states, host_states, d, h, impl="ascendc_aiv"
+        )
 
 
 @pytest.mark.extra_checks
