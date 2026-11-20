@@ -6,10 +6,24 @@ if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
 fi
 
 cd "${GITHUB_WORKSPACE}"
+
+WHEEL_PATH=""
+if [[ $# -gt 0 ]]; then
+    if [[ $# -ne 2 || "$1" != --wheel ]]; then
+        echo "Usage: $0 [--wheel PATH]" >&2
+        exit 2
+    fi
+    WHEEL_PATH="$2"
+    if [[ ! -f "$WHEEL_PATH" ]]; then
+        echo "Kernel wheel does not exist: $WHEEL_PATH" >&2
+        exit 1
+    fi
+fi
+
 export UV_SYSTEM_PYTHON=true
 export UV_NO_CACHE=1
 
-# --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
+# --- Step 1: Install test and build dependencies ---
 
 # Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann).
 # Keep the wheel identical to the SGLang NPU image for the same CANN version:
@@ -77,29 +91,35 @@ echo "Installed Triton-Ascend ${ACTUAL_TRITON_VERSION} (triton runtime ${TRITON_
 # Install other test dependencies
 uv pip install expecttest einops pytest packaging ninja
 
-# --- Step 2: Build and install kernel module ---
+# --- Step 2: Build a wheel or install an existing CI artifact ---
 
-case "${NPU_HARDWARE:-}" in
-    a3) ARCH_VERSION=2201 ;;
-    950) ARCH_VERSION=3510 ;;
-    *)
-        echo "Unsupported NPU_HARDWARE: ${NPU_HARDWARE:-unset} (expected a3 or 950)" >&2
-        exit 1
-        ;;
-esac
+if [[ -z "$WHEEL_PATH" ]]; then
+    case "${NPU_HARDWARE:-}" in
+        a3) ARCH_VERSION=2201 ;;
+        950) ARCH_VERSION=3510 ;;
+        *)
+            echo "Unsupported NPU_HARDWARE: ${NPU_HARDWARE:-unset} (expected a3 or 950)" >&2
+            exit 1
+            ;;
+    esac
 
-echo '=== npu-smi info -t board -i 0 ==='
-probe_status=0
-npu-smi info -t board -i 0 2>&1 || probe_status=$?
-echo "npu-smi exit code: $probe_status"
+    echo '=== npu-smi info -t board -i 0 ==='
+    probe_status=0
+    npu-smi info -t board -i 0 2>&1 || probe_status=$?
+    echo "npu-smi exit code: $probe_status"
 
-echo '=== npu-smi info -t board -i 0 -c 0 ==='
-probe_status=0
-npu-smi info -t board -i 0 -c 0 2>&1 || probe_status=$?
-echo "npu-smi exit code: $probe_status"
+    echo '=== npu-smi info -t board -i 0 -c 0 ==='
+    probe_status=0
+    npu-smi info -t board -i 0 -c 0 2>&1 || probe_status=$?
+    echo "npu-smi exit code: $probe_status"
 
-python3 setup.py --arch-version "$ARCH_VERSION" --artifact wheel
-python3 -m pip install output/sgl_kernel_npu-*.whl --no-cache-dir --force-reinstall --no-deps
+    python3 setup.py --arch-version "$ARCH_VERSION" --artifact wheel
+    kernel_wheels=(output/sgl_kernel_npu-*.whl)
+else
+    echo "Using prebuilt kernel wheel: $WHEEL_PATH"
+    kernel_wheels=("$WHEEL_PATH")
+fi
+python3 -m pip install "${kernel_wheels[@]}" --no-cache-dir --force-reinstall --no-deps
 
 # --- Step 3: CI workarounds for test-side issues ---
 
