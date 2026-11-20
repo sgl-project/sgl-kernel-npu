@@ -65,6 +65,8 @@ public:
         this->Attr("real_max_bs").AttrType(OPTIONAL).Int(0);
         this->Attr("round").AttrType(OPTIONAL).Int(4);
         this->Attr("per_round_tokens").AttrType(OPTIONAL).Int(1024);
+        this->Attr("combined_stride").AttrType(OPTIONAL).Int(0);
+        this->Attr("src_info_stride").AttrType(OPTIONAL).Int(0);
 
         OpAICoreConfig aicore_config;
         aicore_config.DynamicCompileStaticFlag(true)
