@@ -47,9 +47,10 @@ def markov_sample_step_triton(
     logits_out=None,
     has_sampled_rows=None,
     exp_noise=None,
-    impl="auto"
+    impl="auto",
+    **kwargs,
 ):
-    """Dispatch to the selected markov_sample_step_triton implementation."""
+    """Dispatch to the selected backend, ignoring extra keyword arguments."""
     return get_impl_by_name("sample.markov_sample_step_triton", impl)(
         base_logits=base_logits,
         bias=bias,
