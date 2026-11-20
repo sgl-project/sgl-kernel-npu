@@ -105,7 +105,9 @@ def test_state_exchange_all_layer_d2h(
         require_distinct_impls(transfer_state_all_layer_direct_lf_pf, impl, impl_ref)
     torch.manual_seed(0)
     dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(torch.randn(host_slots, layers, 1, *payload, dtype=dtype))
+    host = acl_host(
+        torch.randn(host_slots, layers, 1, *payload, dtype=dtype, device="cpu")
+    )
     d, h = _indices(device_ids), _indices(host_ids)
 
     ref_dev = dev.clone()
@@ -161,7 +163,9 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
         for _ in range(drafts)
     ]
     host = acl_host(
-        torch.randn(host_slots, total_layers, 1, *payload, dtype=torch.float32)
+        torch.randn(
+            host_slots, total_layers, 1, *payload, dtype=torch.float32, device="cpu"
+        )
     )
     d, h = _indices([4, 1, 6]), _indices([7, 0, 3])
     device_states = [dev_main, *dev_drafts]
@@ -241,7 +245,9 @@ def test_state_exchange_per_layer_h2d(
         require_distinct_impls(transfer_state_per_layer_direct_pf_lf, impl, impl_ref)
     torch.manual_seed(0)
     dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(torch.randn(host_slots, layers, 1, *payload, dtype=dtype))
+    host = acl_host(
+        torch.randn(host_slots, layers, 1, *payload, dtype=dtype, device="cpu")
+    )
     h, d = _indices(host_ids), _indices(device_ids)
 
     ref_dev = torch.zeros_like(dev)
@@ -279,7 +285,7 @@ def test_state_exchange_roundtrip(acl_host):
     layers, slots, payload, dtype = 4, 8, (64,), torch.float16
     torch.manual_seed(0)
     original = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(torch.zeros(slots, layers, 1, *payload, dtype=dtype))
+    host = acl_host(torch.zeros(slots, layers, 1, *payload, dtype=dtype, device="cpu"))
     ids = _indices(range(slots))
 
     transfer_state_all_layer_direct_lf_pf([original], [host], ids, ids, impl=impl)
@@ -303,7 +309,7 @@ def test_state_exchange_empty_indices_noop(acl_host):
     )
 
     dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32))
+    host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu"))
     before_host, before_dev = host.clone(), dev.clone()
     empty = _indices([])
     transfer_state_all_layer_direct_lf_pf(
@@ -332,7 +338,7 @@ def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
 
     torch.manual_seed(0)
     dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = torch.randn(4, 2, 1, 16, dtype=torch.float32)
+    host = torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu")
     if case != "unregistered":
         host = acl_host(host)
     if case == "too-many":
@@ -367,7 +373,7 @@ def test_state_exchange_per_layer_rejected(acl_host, case, error_type, message):
 
     torch.manual_seed(0)
     dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = torch.randn(4, 2, 1, 16, dtype=torch.float32)
+    host = torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu")
     if case != "unregistered":
         host = acl_host(host)
     layer_id = 0
