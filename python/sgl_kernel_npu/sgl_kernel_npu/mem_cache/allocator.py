@@ -4,7 +4,7 @@ import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["free_page_ptr", "max_num_extend_tokens"])
 def alloc_extend_kernel(
     pre_lens_ptr,
     seq_lens_ptr,
@@ -13,7 +13,7 @@ def alloc_extend_kernel(
     out_indices,
     bs_upper: tl.constexpr,
     page_size: tl.constexpr,
-    max_num_extend_tokens: tl.constexpr,
+    max_num_extend_tokens,
     BLOCK_SIZE: tl.constexpr = 2048,
 ):
     pid = tl.program_id(0)
@@ -60,7 +60,11 @@ def alloc_extend_kernel(
         - (pre_len + page_size - 1) // page_size * page_size
     )
 
-    num_loop = tl.cdiv(max_num_extend_tokens, BLOCK_SIZE)
+    # Keep max_num_extend_tokens in the call signature for compatibility with
+    # existing SGLang releases. The amount of work for each request is already
+    # available as num_part2, so use it as a runtime loop bound instead of
+    # specializing and unrolling the kernel for every extend-token bucket.
+    num_loop = tl.cdiv(num_part2, BLOCK_SIZE)
     blk_offset = tl.arange(0, BLOCK_SIZE)
     for i in range(num_loop):
         offset_many_page = blk_offset + i * BLOCK_SIZE
