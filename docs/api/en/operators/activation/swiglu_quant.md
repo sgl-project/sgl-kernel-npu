@@ -23,6 +23,7 @@ def swiglu_quant(
     do_limit=False,
     limit=7.0,
     *,
+    clamp_before_silu=False,
     impl="auto"
 ): ...
 ```
@@ -43,11 +44,14 @@ All tensors must be on the same NPU device.
 | `need_quant` | bool | `True` | Return INT8 values and FP32 row scales when true. |
 | `do_limit` | bool | `False` | Clamp SiLU(gate) and up before multiplication. |
 | `limit` | float | `7.0` | Clamp magnitude. |
+| `clamp_before_silu` | bool | `False` | Clamp gate before SiLU and up on both sides. Takes precedence over `do_limit`. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
 
 | Return | Type | Description |
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | [rows,D] values and [rows] FP32 scales; scales are unspecified without quantization. |
+
+With `clamp_before_silu=True`, type 0 uses inclusive cumulative counts and reads the last element of the logical `group_list` tensor. Type 1 sums counts on the device. The row scale is floored at `1e-30` so zero rows produce INT8 zeros. Fixed-capacity output storage is allocated and only the valid prefix is written. Pass the same group metadata to downstream grouped matmul to skip the inactive rows.
 
 ## triton backend
 
