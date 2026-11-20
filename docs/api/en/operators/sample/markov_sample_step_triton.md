@@ -26,8 +26,8 @@ def markov_sample_step_triton(
     ...
 ```
 
-Extra keyword arguments are ignored only when their value is `None`. Other
-values raise `TypeError` before backend dispatch.
+Extra keyword arguments are accepted for upstream compatibility and ignored
+regardless of value. They are not forwarded to the backend.
 
 ## Description
 
