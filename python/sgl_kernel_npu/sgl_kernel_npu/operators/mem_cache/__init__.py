@@ -23,6 +23,7 @@ from .memfabric.kv_transfer import (
 )
 from .reshape_and_cache import reshape_and_cache
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
+from .scatter_nd_update import scatter_nd_update_
 from .scatter_pa_kv_cache import scatter_pa_kv_cache
 from .shm_allocator import create_shm_tensor, free_shm
 from .slot_map_lookup import slot_map_lookup
@@ -49,6 +50,7 @@ __all__ = [
     "kv_rmsnorm_rope_cache",
     "reshape_and_cache",
     "scatter_kpool_tail_updates",
+    "scatter_nd_update_",
     "scatter_pa_kv_cache",
     "slot_map_lookup",
     "store_kv_cache_prefix_valid",

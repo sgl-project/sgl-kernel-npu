@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-math` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-math`。
 
 ```python
 from sgl_kernel_npu.operators.data_move import dtype_cast
@@ -30,15 +31,19 @@ def dtype_cast(input, dtype, input_dtype=None, *, impl="auto"): ...
 | `input` | Tensor | any supported shape 与 输入 dtype | 必传 | 源 NPU Tensor。打包类型须使用 SDK 要求的表示。 |
 | `dtype` | torch.dtype | - | 必传 | 目标 dtype。 |
 | `input_dtype` | torch.dtype or None | - | `None` | 打包表示的可选逻辑输入 dtype。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-math`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `out` | Tensor | dtype | 同卡转换后的结果。普通 cast 保持逻辑形状。 |
 
-## torch_npu 后端
+## ops-math 后端
 
-调用 `torch_npu.npu_dtype_cast`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml#L6168)
+调用 `torch_npu.npu_dtype_cast`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml#L6168) [CANN ops-math 源码](https://gitcode.com/cann/ops-math/tree/a6032a3fbb02592142169b05a2157bea08b47ac5/math/cast)
+
+## torch_native 后端
+
+使用 PyTorch 转换常规张量 dtype。打包 dtype 的重解释由 SDK 后端提供。
 
 ## 调用示例
 
@@ -49,5 +54,5 @@ import torch_npu
 from sgl_kernel_npu.operators.data_move import dtype_cast
 
 x = torch.randn((4, 32), dtype=torch.float32, device="npu")
-y = dtype_cast(x, torch.float16, impl="torch_npu")
+y = dtype_cast(x, torch.float16, impl="ops-math")
 ```

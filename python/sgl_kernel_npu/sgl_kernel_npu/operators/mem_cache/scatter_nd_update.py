@@ -1,20 +1,29 @@
 """In-place TorchNPU ScatterND update."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_OP_NAME = "tensor_ops.scatter_nd_update_"
-_torch_npu_fn = None
+_OP_NAME = "mem_cache.scatter_nd_update_"
+_native_impl = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-nn")
 def _torch_npu_impl(input, indices, updates):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_scatter_nd_update_
+    return torch_npu.npu_scatter_nd_update_(input, indices, updates)
 
-        _torch_npu_fn = npu_scatter_nd_update_
-    return _torch_npu_fn(input, indices, updates)
+
+@register_impl(_OP_NAME, "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _native_impl
+    if _native_impl is None:
+        from ...implementation.torch_native.mem_cache.paged_cache import (
+            scatter_nd_update_,
+        )
+
+        _native_impl = scatter_nd_update_
+    return _native_impl(*args, **kwargs)
 
 
 @register_operator(_OP_NAME)
@@ -23,6 +32,6 @@ def scatter_nd_update_(input, indices, updates, *, impl="auto"):
 
     Each last-axis entry of indices is a coordinate vector of length N.
     updates must have shape indices.shape[:-1] + input.shape[N:].
-    Auto selects torch_npu.
+    Auto selects ops-nn.
     """
     return get_impl_by_name(_OP_NAME, impl)(input, indices, updates)

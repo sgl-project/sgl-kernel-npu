@@ -4,11 +4,14 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ascend-transformer-boost` | Supported | Unsupported |
+| `torch_native` | Supported | Supported |
+
+The legacy ATB binding is registered for the A2/A3 host-length path.
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ascend-transformer-boost` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import paged_attention_mla
@@ -48,16 +51,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `context_lens` | Tensor | [B], INT32 CPU in the example | Required | Number of visible cached tokens per request. |
 | `out` | Tensor | [T, H, Dv], same dtype and NPU as query | Required | Caller-owned output buffer, written in place. |
 | `mla_vheadsize` | int | - | Required | Width of the latent value prefix of each cache row and the output head. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `result` | None | - | The output is written into out. |
 
-## torch_npu backend
+## ascend-transformer-boost backend
 
-Calls `torch_npu._npu_paged_attention_mla`. Shape, dtype and layout combinations follow the installed SDK. Requires the SDK's private ATB paged MLA binding. The example uses a 512-value latent prefix and a 64-value rotary tail. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_paged_attention_mla.py)
+Calls `torch_npu._npu_paged_attention_mla`. Shape, dtype and layout combinations follow the installed SDK. Requires the SDK's private ATB paged MLA binding. The example uses a 512-value latent prefix and a 64-value rotary tail. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_paged_attention_mla.py) [Ascend Transformer Boost source](https://gitcode.com/cann/ascend-transformer-boost)
+
+## torch_native backend
+
+Gathers ND MLA cache pages. The full cached row supplies keys and its latent prefix supplies values.
 
 ## Example
 
@@ -74,6 +81,6 @@ table = torch.arange(4, dtype=torch.int32, device=q.device).reshape(4, 1)
 lengths = torch.full((4,), 4, dtype=torch.int32, device="cpu")
 out = torch.empty((4, heads, dv), dtype=q.dtype, device=q.device)
 paged_attention_mla(
-    q, cache, 1, heads, dk**-0.5, table, lengths, dv, out, impl="torch_npu"
+    q, cache, 1, heads, dk**-0.5, table, lengths, dv, out, impl="ascend-transformer-boost"
 )
 ```

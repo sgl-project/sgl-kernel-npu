@@ -4,12 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.rope import interleave_rope
@@ -30,15 +30,15 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | --- | --- | --- | --- | --- |
 | `x` | Tensor | [T, H, S, D], FP16/BF16/FP32 | Required | ND input. D is even. |
 | `cos`, `sin` | Tensor | broadcastable to x, x.dtype | Required | Rotary coefficients in the deinterleaved order. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`, `torch_native`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | same as x | Rotated result in the deinterleaved order. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_interleave_rope`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_interleave_rope.md)
+Calls `torch_npu.npu_interleave_rope`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_interleave_rope.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/posembedding/interleave_rope)
 
 ## torch_native backend
 
@@ -55,5 +55,5 @@ from sgl_kernel_npu.operators.rope import interleave_rope
 x = torch.randn((16, 16, 1, 64), dtype=torch.float16, device="npu")
 cos = torch.ones((16, 1, 1, 64), dtype=x.dtype, device=x.device)
 sin = torch.zeros_like(cos)
-y = interleave_rope(x, cos, sin, impl="torch_npu")
+y = interleave_rope(x, cos, sin, impl="ops-transformer")
 ```

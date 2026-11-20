@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.attention import mla_prolog_v3
@@ -52,16 +53,20 @@ def mla_prolog_v3(
 | `kv_cache`, `kr_cache` | Tensor | [P, L, 1, Hckv] 与 [P, L, 1, Dr] 在 PA_BSND 布局下 | 必传 | 由调用方分配的潜变量和旋转键缓存，原地更新。 |
 | `cache_index`, `cache_mode` | Tensor or None, str | [B, S], INT64 在示例中 | `None` / `"PA_BSND"` | 可选缓存槽位和 SDK 布局，示例采用 PA_BSND。 |
 | `rmsnorm_epsilon_cq`, `rmsnorm_epsilon_ckv` | float | - | `1e-05` | 可选归一化稳定项，SDK 默认均为 1e-5。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `query`, `query_rope`, `dequant_scale_q_nope`, `query_norm`, `dequant_scale_q_norm` | tuple of five tensors | Shapes 与 dtypes follow projection 与 quantization modes | 投影后的 query、旋转 query、反量化尺度、可选归一化 query 及其尺度。两个缓存另行原地更新。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_mla_prolog_v3`。形状、dtype 和布局组合以已安装的 SDK 为准。 V3 返回元组和缓存写入遵循已安装 TorchNPU 的 ABI。其他量化属性可通过 SDK 关键字参数传入。示例采用 A3 的 BF16 PA_BSND 配置。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_mla_prolog_v3.md)
+调用 `torch_npu.npu_mla_prolog_v3`。形状、dtype 和布局组合以已安装的 SDK 为准。 V3 返回元组和缓存写入遵循已安装 TorchNPU 的 ABI。其他量化属性可通过 SDK 关键字参数传入。示例采用 A3 的 BF16 PA_BSND 配置。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_mla_prolog_v3.md) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/mla_prolog_v3)
+
+## torch_native 后端
+
+计算未量化 BF16 投影、归一化和 RoPE，并写入分开存储的分页 KV 与旋转位置编码缓存。权重按逻辑矩阵顺序读取。
 
 ## 调用示例
 
@@ -102,6 +107,6 @@ out = mla_prolog_v3(
     kr_cache,
     cache_index=slots,
     cache_mode="PA_BSND",
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

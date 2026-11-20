@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention_torch_npu
@@ -46,16 +47,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `block_table`, `actual_seq_lengths_query`, `actual_seq_lengths_kv` | Tensor or None | [B, max_pages], [B], [B], INT32 | `None` | Optional paged metadata. Required by the example. |
 | `layout_query`, `layout_kv`, `attention_mode` | str, str, int | - | `"BSND"` / `0` | Optional SDK settings. Example uses BSND, PA_BSND and MLA mode 2. |
 | `rope_head_dim`, `tile_size`, `quant_scale_repo_mode` | int | - | `64` / `128` / `1` | Optional rotary width, quantization tile width and scale storage mode. Values must match how key is encoded. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | [B, Sq, Hq, D] with BF16 in the example | Attention output on the input NPU. For MLA, D excludes the rotary tail. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_kv_quant_sparse_flash_attention`. Shape, dtype and layout combinations follow the installed SDK. Uses the vendor signature with separate key and value parameters, including the requested quantization modes. Call the packed FP8 repository API only with its own cache layout and signature. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_npu_kv_quant_sparse_flash_attention.py)
+Calls `torch_npu.npu_kv_quant_sparse_flash_attention`. Shape, dtype and layout combinations follow the installed SDK. Uses the vendor signature with separate key and value parameters, including the requested quantization modes. Call the packed FP8 repository API only with its own cache layout and signature. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_npu_kv_quant_sparse_flash_attention.py) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/kv_quant_sparse_flash_attention)
+
+## torch_native backend
+
+Decodes packed per-tile INT8 or E4M3 KV records with scales stored in the same record and computes sparse MLA for TND or BSND queries and PA_BSND caches.
 
 ## Example
 
@@ -93,6 +98,6 @@ out = kv_quant_sparse_flash_attention_torch_npu(
     quant_scale_repo_mode=1,
     tile_size=tile,
     rope_head_dim=dr,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

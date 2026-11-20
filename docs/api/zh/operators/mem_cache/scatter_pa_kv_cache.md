@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import scatter_pa_kv_cache
@@ -44,15 +45,19 @@ def scatter_pa_kv_cache(
 | `slot_mapping` | Tensor | [T], INT32，用于 example | 必传 | 各 token 行对应的物理槽位。 |
 | `compress_lens`, `compress_seq_offsets`, `seq_lens` | Tensor or None | SDK metadata tensors | `None` | 压缩缓存放置的可选元数据。 |
 | `cache_mode` | str | - | `'PA_NZ'` | 缓存布局模式。示例的未压缩 ND 缓存使用 Norm，厂商默认格式为 PA_NZ。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `result` | None | - | 结果写入传入的缓存。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_scatter_pa_kv_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_scatter_pa_kv_cache.md)
+调用 `torch_npu.npu_scatter_pa_kv_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_scatter_pa_kv_cache.md) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/scatter_pa_kv_cache)
+
+## torch_native 后端
+
+在 Norm 模式下将键值写入未压缩的 ND 缓存页。
 
 ## 调用示例
 
@@ -68,6 +73,6 @@ key_cache = torch.zeros((2, 16, 2, 128), dtype=key.dtype, device=key.device)
 value_cache = torch.zeros_like(key_cache)
 slots = torch.tensor([31, 15, 16], dtype=torch.int32, device=key.device)
 scatter_pa_kv_cache(
-    key, value, key_cache, value_cache, slots, cache_mode="Norm", impl="torch_npu"
+    key, value, key_cache, value_cache, slots, cache_mode="Norm", impl="ops-transformer"
 )
 ```

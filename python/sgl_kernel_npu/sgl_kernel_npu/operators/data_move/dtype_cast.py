@@ -1,22 +1,29 @@
 """TorchNPU dtype conversion, including packed NPU dtypes."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "data_move.dtype_cast"
-_torch_npu_fn = None
+_native_impl = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-math")
 def _torch_npu_impl(input, dtype, input_dtype):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_dtype_cast
-
-        _torch_npu_fn = npu_dtype_cast
     if input_dtype is None:
-        return _torch_npu_fn(input, dtype)
-    return _torch_npu_fn(input, dtype, input_dtype=input_dtype)
+        return torch_npu.npu_dtype_cast(input, dtype)
+    return torch_npu.npu_dtype_cast(input, dtype, input_dtype=input_dtype)
+
+
+@register_impl(_OP_NAME, "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _native_impl
+    if _native_impl is None:
+        from ...implementation.torch_native.data_move.cast import dtype_cast
+
+        _native_impl = dtype_cast
+    return _native_impl(*args, **kwargs)
 
 
 @register_operator(_OP_NAME)
@@ -24,6 +31,6 @@ def dtype_cast(input, dtype, input_dtype=None, *, impl="auto"):
     """Cast an NPU tensor to dtype, optionally interpreting its input dtype.
 
     The installed TorchNPU defines packed dtype support and output shape.
-    Auto selects torch_npu.
+    Auto selects ops-math.
     """
     return get_impl_by_name(_OP_NAME, impl)(input, dtype, input_dtype)

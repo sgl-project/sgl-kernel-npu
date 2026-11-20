@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-math` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-math`。
 
 ```python
 from sgl_kernel_npu.operators.data_move import format_cast
@@ -33,15 +34,19 @@ def format_cast(
 | `acl_format` | int or Tensor | - | 必传 | 目标 ACL 格式编号（例如 2 表示 ND），也可传入提供格式的 Tensor。 |
 | `customize_dtype` | torch.dtype or None | - | `None` | 目标打包表示的可选逻辑 dtype。 |
 | `input_dtype` | torch.dtype or None | - | `None` | 输入打包表示的可选逻辑 dtype。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-math`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `out` | Tensor | target storage format | 输入 NPU 上转换后的结果。 |
 
-## torch_npu 后端
+## ops-math 后端
 
-调用 `torch_npu.npu_format_cast`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml)
+调用 `torch_npu.npu_format_cast`，由 TorchNPU 根据 SDK 支持情况选择 CANN 的 `aclnnNpuFormatCast` 路径。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml) [CANN ops-math 源码](https://gitcode.com/cann/ops-math/tree/a6032a3fbb02592142169b05a2157bea08b47ac5/conversion/npu_format_cast)
+
+## torch_native 后端
+
+将常规 dtype 的逻辑张量值转换为稠密 ND 布局（格式 2）。其他 ACL 存储布局由 SDK 后端提供。
 
 ## 调用示例
 
@@ -52,5 +57,5 @@ import torch_npu
 from sgl_kernel_npu.operators.data_move import format_cast
 
 x = torch.randn((16, 32), dtype=torch.float16, device="npu")
-y = format_cast(x, 2, impl="torch_npu")
+y = format_cast(x, 2, impl="ops-math")
 ```

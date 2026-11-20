@@ -4,12 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Unsupported |
+| `ops-transformer` | Supported | Unsupported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.rope import mrope
@@ -46,15 +46,15 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `mrope_section` | list[int] or None | - | `None` | Splits half the rotary frequencies among multimodal axes. |
 | `rotary_mode` | str | - | `'half'` | Rotary pairing mode. half is the default. |
 | `cache_mode` | str | - | `'default'` | Trig cache layout. Vendor support for other layouts depends on the installed SDK. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`, `torch_native`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `query_out`, `key_out` | tuple[Tensor, Tensor] | corresponding input shape and dtype | Rotated query and key on the input device. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_mrope`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_mrope.md)
+Calls `torch_npu.npu_mrope`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_mrope.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/posembedding/rope_with_sin_cos_cache)
 
 ## torch_native backend
 
@@ -73,5 +73,5 @@ q = torch.randn((7, 4 * 128), dtype=torch.float16, device="npu")
 k = torch.randn((7, 128), dtype=q.dtype, device=q.device)
 theta = torch.zeros((9, 64), dtype=q.dtype, device=q.device)
 cache = torch.cat((theta.cos(), theta.sin()), dim=-1)
-q_out, k_out = mrope(pos, q, k, cache, 128, impl="torch_npu")
+q_out, k_out = mrope(pos, q, k, cache, 128, impl="ops-transformer")
 ```

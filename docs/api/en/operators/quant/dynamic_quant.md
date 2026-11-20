@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-nn` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.quant import dynamic_quant
@@ -31,16 +32,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `dst_type` | torch.dtype | - | `None` | Optional keyword. INT8 is the standard per-token destination. |
 | `smooth_scales`, `group_index` | Tensor or None | [H] or [groups, H], and [groups] | `None` | Optional smoothing factors and expert group boundaries. |
 | `quant_mode` | str | - | `"pertoken"` | Optional SDK quantization granularity. The default is pertoken. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `values`, `scales` | tuple[Tensor, Tensor] | destination dtype, FP32 | INT8 values have input shape in ordinary per-token mode, with one scale for each row. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_dynamic_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_quant.md)
+Calls `torch_npu.npu_dynamic_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_quant.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/quant/dynamic_quant)
+
+## torch_native backend
+
+Computes per-token INT8 or FP8 values and FP32 scales, including optional per-expert smoothing.
 
 ## Example
 
@@ -51,5 +56,5 @@ import torch_npu
 from sgl_kernel_npu.operators.quant import dynamic_quant
 
 x = torch.randn((1, 4096), dtype=torch.float16, device="npu")
-values, scales = dynamic_quant(x, dst_type=torch.int8, impl="torch_npu")
+values, scales = dynamic_quant(x, dst_type=torch.int8, impl="ops-nn")
 ```

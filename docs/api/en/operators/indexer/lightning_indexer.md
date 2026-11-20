@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.indexer import lightning_indexer
@@ -34,16 +35,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `block_table` | Tensor or None | [B, max_pages], INT32 | `None` | Optional logical-to-physical page mapping. Required in the paged example. |
 | `layout_query`, `layout_key` | str | - | `"BSND"` | Optional layout tags, both BSND by default. The example uses PA_BSND for key. |
 | `sparse_count`, `sparse_mode`, `return_value` | int, int, bool | - | `2048` / `3` / `False` | Optional SDK knobs. Defaults are 2048, 3 and False. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `indices`, `values` | tuple[Tensor, Tensor] | [B, Sq, Hkv, K] for BSND or [T, Hkv, K] for TND | Top-k positions as INT32. The score output is empty when return_value=False. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_lightning_indexer`. Shape, dtype and layout combinations follow the installed SDK. Current OpPlugin product documentation includes 950DT. Check the installed TorchNPU for the requested SoC and layouts. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_lightning_indexer.md)
+Calls `torch_npu.npu_lightning_indexer`. Shape, dtype and layout combinations follow the installed SDK. Current OpPlugin product documentation includes 950DT. Check the installed TorchNPU for the requested SoC and layouts. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_lightning_indexer.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/lightning_indexer)
+
+## torch_native backend
+
+Computes weighted ReLU scores and selects TopK positions for one shared key head, in the dense BSND and paged PA_BSND layouts.
 
 ## Example
 
@@ -68,6 +73,6 @@ indices, values = lightning_indexer(
     block_table=table,
     layout_key="PA_BSND",
     sparse_count=2048,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

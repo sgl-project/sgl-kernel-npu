@@ -4,12 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-nn` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-nn`。
 
 ```python
 from sgl_kernel_npu.operators.activation import swiglu
@@ -30,15 +30,15 @@ def swiglu(input, dim=-1, *, impl="auto"): ...
 | --- | --- | --- | --- | --- |
 | `input` | Tensor | FP16/BF16/FP32 | 必传 | ND 输入，在偶数长度的切分轴上前半段为 gate，后半段为 up。 |
 | `dim` | int | - | `-1` | 切分轴。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`, `torch_native`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `out` | Tensor | 输入 dtype | 沿 dim 的长度减半，其余维度保持输入形状。 |
 
-## torch_npu 后端
+## ops-nn 后端
 
-调用 `torch_npu.npu_swiglu`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml#L7011)
+调用 `torch_npu.npu_swiglu`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/op_plugin_functions.yaml#L7011) [CANN ops-nn 源码](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/activation/swi_glu)
 
 ## torch_native 后端
 
@@ -53,5 +53,5 @@ import torch_npu
 from sgl_kernel_npu.operators.activation import swiglu
 
 x = torch.randn((16, 4096), dtype=torch.float16, device="npu")
-y = swiglu(x, impl="torch_npu")
+y = swiglu(x, impl="ops-nn")
 ```

@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import (
@@ -51,7 +52,7 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `return_softmax_lse` | bool | - | `False` | Optional. Requests the LSE result when true. Defaults to false. |
 | `out` | sequence[Tensor] | two buffers matching the output shape and dtype | Required | Required by the out overload. Contains attention output followed by LSE. |
 | `workspace` | Tensor or None | SDK workspace | SDK default | Optional workspace for the out overload. Obtain it using the matching helper and arguments. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
@@ -59,9 +60,13 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `attention_output`, `softmax_lse` | tuple[Tensor, Tensor] | [B, Hq, Sq, D] in the example; FP32 LSE | Main call returns both tensors. For BNSD with LSE enabled, its shape is [B, Hq, Sq, 1]. The out overload uses the given buffers. |
 | `workspace` | Tensor | SDK workspace shape and dtype | The workspace helper returns this buffer for the matching configuration. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_fused_infer_attention_score_v2`. Shape, dtype and layout combinations follow the installed SDK. Pass vendor options supported by the installed SDK. V2 uses softmax_scale and return_softmax_lse. Match the main call, the workspace helper and the out overload's layout, optional inputs and flags. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_fused_infer_attention_score_v2.md)
+Calls `torch_npu.npu_fused_infer_attention_score_v2`. Shape, dtype and layout combinations follow the installed SDK. Pass vendor options supported by the installed SDK. V2 uses softmax_scale and return_softmax_lse. Match the main call, the workspace helper and the out overload's layout, optional inputs and flags. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_fused_infer_attention_score_v2.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/fused_infer_attention_score)
+
+## torch_native backend
+
+Computes dense FP16/BF16 attention in BNSD, BSND, and BSH layouts. Supports the main and `out` APIs with explicit masks and optional LSE. The workspace query is specific to `ops-transformer`.
 
 ## Example
 
@@ -83,7 +88,7 @@ kwargs = dict(
     softmax_scale=128**-0.5,
     input_layout="BNSD",
     return_softmax_lse=True,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 y, lse = fused_infer_attention_score_v2(q, k, v, **kwargs)
 workspace = fused_infer_attention_score_v2_get_max_workspace(q, k, v, **kwargs)

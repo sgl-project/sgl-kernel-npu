@@ -1,20 +1,31 @@
 """TorchNPU fused MLA normalization, RoPE, and cache update."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "mem_cache.kv_rmsnorm_rope_cache"
-_torch_npu_fn = None
+_native_impl = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-transformer")
 def _torch_npu_impl(kv, gamma, cos, sin, index, k_cache, ckv_cache, **kwargs):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_kv_rmsnorm_rope_cache
+    return torch_npu.npu_kv_rmsnorm_rope_cache(
+        kv, gamma, cos, sin, index, k_cache, ckv_cache, **kwargs
+    )
 
-        _torch_npu_fn = npu_kv_rmsnorm_rope_cache
-    return _torch_npu_fn(kv, gamma, cos, sin, index, k_cache, ckv_cache, **kwargs)
+
+@register_impl(_OP_NAME, "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _native_impl
+    if _native_impl is None:
+        from ...implementation.torch_native.mem_cache.paged_cache import (
+            kv_rmsnorm_rope_cache,
+        )
+
+        _native_impl = kv_rmsnorm_rope_cache
+    return _native_impl(*args, **kwargs)
 
 
 @register_operator(_OP_NAME)
@@ -44,7 +55,7 @@ def kv_rmsnorm_rope_cache(
     mode sets the storage layout and interpretation of index. Optional
     scales and offsets are forwarded to the installed TorchNPU.
 
-    Auto selects torch_npu and returns the two updated caches and the two
+    Auto selects ops-transformer and returns the two updated caches and the two
     backend outputs. The last two outputs are valid when is_output_kv is true.
     """
     optional = {"v": v} if v is not None else {}

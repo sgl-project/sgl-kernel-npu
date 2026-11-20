@@ -4,11 +4,14 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ascend-transformer-boost` | Supported | Unsupported |
+| `torch_native` | Supported | Supported |
+
+The legacy ATB binding is registered for the A2/A3 host-length path.
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ascend-transformer-boost` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_attention_qlens
@@ -51,16 +54,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `out` | Tensor | [T, H, Dv], same dtype and NPU as query | Required | Caller-owned output buffer, written in place. |
 | `mask` | Tensor | [128, 128], BF16 in the example | Required | Compressed upper-triangular mask for the vendor causal path. |
 | `seq_len` | Tensor | [B], INT32 CPU in the example | Required | Number of packed query tokens for each request. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `result` | None | - | The output is written into out. |
 
-## torch_npu backend
+## ascend-transformer-boost backend
 
-Calls `torch_npu._npu_flash_attention_qlens`. Shape, dtype and layout combinations follow the installed SDK. Requires the private ATB Flash Attention binding. The example follows an ATB BF16 test configuration and assumes the cache already contains the current query suffix. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_flash_attention_qlens.py)
+Calls `torch_npu._npu_flash_attention_qlens`. Shape, dtype and layout combinations follow the installed SDK. Requires the private ATB Flash Attention binding. The example follows an ATB BF16 test configuration and assumes the cache already contains the current query suffix. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_flash_attention_qlens.py) [Ascend Transformer Boost source](https://gitcode.com/cann/ascend-transformer-boost)
+
+## torch_native backend
+
+Gathers ND KV pages and applies the supplied two-dimensional prefill mask before writing into `out`.
 
 ## Example
 
@@ -91,6 +98,6 @@ flash_attention_qlens(
     heads,
     kv_heads,
     out,
-    impl="torch_npu",
+    impl="ascend-transformer-boost",
 )
 ```

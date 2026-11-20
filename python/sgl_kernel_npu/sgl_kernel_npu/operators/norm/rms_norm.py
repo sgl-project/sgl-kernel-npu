@@ -1,21 +1,17 @@
 """Public rms_norm operator."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "norm.rms_norm"
-_torch_npu_fn = None
 _torch_native_fn = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-nn")
 def _torch_npu_impl(input, gamma, epsilon=1e-6):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_rms_norm
-
-        _torch_npu_fn = npu_rms_norm
-    return _torch_npu_fn(input, gamma, epsilon)
+    return torch_npu.npu_rms_norm(input, gamma, epsilon)
 
 
 @register_impl(_OP_NAME, "torch_native")
@@ -35,6 +31,6 @@ def rms_norm(input, gamma, epsilon=1e-6, *, impl="auto"):
     gamma matches the trailing dimensions of the floating-point input
     and defines the normalization axes. epsilon stabilizes the divisor.
     Returns (output, rstd), with float32 rstd and singleton dimensions
-    along the reduction axes. auto selects torch_npu.
+    along the reduction axes. auto selects ops-nn.
     """
     return get_impl_by_name(_OP_NAME, impl)(input, gamma, epsilon)

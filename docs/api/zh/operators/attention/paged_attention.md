@@ -4,11 +4,14 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ascend-transformer-boost` | 支持 | 不支持 |
+| `torch_native` | 支持 | 支持 |
+
+旧版 ATB 入口在 A2/A3 上注册，采用主机侧长度参数。
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ascend-transformer-boost`。
 
 ```python
 from sgl_kernel_npu.operators.attention import paged_attention
@@ -47,16 +50,20 @@ def paged_attention(
 | `block_table` | Tensor | [B, max_pages], INT32, NPU | 必传 | 将每个请求的逻辑页映射到物理页。 |
 | `context_lens` | Tensor | [B], INT32 CPU 在示例中 | 必传 | 每个请求可见的缓存 token 数。 |
 | `out` | Tensor | [T, H, Dv], same dtype 与 NPU as query | 必传 | 由调用方分配，原地写入。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `result` | None | - | 结果写入 out。 |
 
-## torch_npu 后端
+## ascend-transformer-boost 后端
 
-调用 `torch_npu._npu_paged_attention`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有分页注意力入口。示例使用主机侧长度和设备侧页表。workspace 等可选后端参数由 SDK 决定。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_paged_attention.py)
+调用 `torch_npu._npu_paged_attention`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有分页注意力入口。示例使用主机侧长度和设备侧页表。workspace 等可选后端参数由 SDK 决定。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_paged_attention.py) [Ascend Transformer Boost 源码](https://gitcode.com/cann/ascend-transformer-boost)
+
+## torch_native 后端
+
+根据每个解码请求的页表读出 ND 布局的 KV，结果写入 `out`。
 
 ## 调用示例
 
@@ -74,6 +81,6 @@ table = torch.arange(16, dtype=torch.int32, device=q.device).reshape(2, 8)
 lengths = torch.full((2,), 1024, dtype=torch.int32, device="cpu")
 out = torch.empty((2, heads, dv), dtype=q.dtype, device=q.device)
 paged_attention(
-    q, k, v, heads, kv_heads, dk**-0.5, table, lengths, out, impl="torch_npu"
+    q, k, v, heads, kv_heads, dk**-0.5, table, lengths, out, impl="ascend-transformer-boost"
 )
 ```

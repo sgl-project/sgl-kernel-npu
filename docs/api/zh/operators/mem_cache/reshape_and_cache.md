@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ascend-transformer-boost` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ascend-transformer-boost`。
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import reshape_and_cache
@@ -32,15 +33,19 @@ def reshape_and_cache(
 | `key`, `value` | Tensor | [T, Hkv, D] 在示例中, FP16 | 必传 | 与目标缓存同卡的 T 个缓存行。 |
 | `key_cache`, `value_cache` | Tensor | [P, L, Hkv, D] 在 ND 布局下, 输入 dtype | 必传 | 由调用方分配的分页目标缓存，原地更新。 |
 | `slot_indices` | Tensor | [T], INT32 在示例中 | 必传 | 各输入行对应的物理槽位。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `result` | None | - | 结果写入传入的缓存。 |
 
-## torch_npu 后端
+## ascend-transformer-boost 后端
 
-调用 `torch_npu._npu_reshape_and_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有 reshape-and-cache 入口。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/atb_ops.yaml)
+调用 `torch_npu._npu_reshape_and_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有 reshape-and-cache 入口。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/op_plugin/config/atb_ops.yaml) [Ascend Transformer Boost 源码](https://gitcode.com/cann/ascend-transformer-boost)
+
+## torch_native 后端
+
+按逻辑槽位将键值行写入 ND 缓存页。
 
 ## 调用示例
 
@@ -55,5 +60,5 @@ value = torch.randn_like(key)
 key_cache = torch.zeros((2, 16, 2, 128), dtype=key.dtype, device=key.device)
 value_cache = torch.zeros_like(key_cache)
 slots = torch.tensor([31, 15, 16], dtype=torch.int32, device=key.device)
-reshape_and_cache(key, value, key_cache, value_cache, slots, impl="torch_npu")
+reshape_and_cache(key, value, key_cache, value_cache, slots, impl="ascend-transformer-boost")
 ```

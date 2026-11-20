@@ -4,11 +4,14 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ascend-transformer-boost` | 支持 | 不支持 |
+| `torch_native` | 支持 | 支持 |
+
+旧版 ATB 入口在 A2/A3 上注册，采用主机侧长度参数。
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ascend-transformer-boost`。
 
 ```python
 from sgl_kernel_npu.operators.attention import flash_attention_qlens
@@ -51,16 +54,20 @@ def flash_attention_qlens(
 | `out` | Tensor | [T, H, Dv], same dtype 与 NPU as query | 必传 | 由调用方分配，原地写入。 |
 | `mask` | Tensor | [128, 128], BF16 在示例中 | 必传 | 厂商因果路径使用的压缩上三角掩码。 |
 | `seq_len` | Tensor | [B], INT32 CPU 在示例中 | 必传 | 每个请求打包的 query token 数。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `result` | None | - | 结果写入 out。 |
 
-## torch_npu 后端
+## ascend-transformer-boost 后端
 
-调用 `torch_npu._npu_flash_attention_qlens`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有 Flash Attention 入口。示例采用 ATB BF16 测试配置，缓存已包含当前查询后缀。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_flash_attention_qlens.py)
+调用 `torch_npu._npu_flash_attention_qlens`。形状、dtype 和布局组合以已安装的 SDK 为准。 要求 SDK 提供 ATB 私有 Flash Attention 入口。示例采用 ATB BF16 测试配置，缓存已包含当前查询后缀。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_atb_flash_attention_qlens.py) [Ascend Transformer Boost 源码](https://gitcode.com/cann/ascend-transformer-boost)
+
+## torch_native 后端
+
+读取 ND 布局的分页 KV 缓存，应用输入的二维预填充 mask，结果写入 `out`。
 
 ## 调用示例
 
@@ -91,6 +98,6 @@ flash_attention_qlens(
     heads,
     kv_heads,
     out,
-    impl="torch_npu",
+    impl="ascend-transformer-boost",
 )
 ```

@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-nn` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.quant import dynamic_block_quant
@@ -31,16 +32,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `row_block_size`, `col_block_size` | int | - | `1` / `128` | Optional block sizes. The SDK defaults are 1 and 128. |
 | `dst_type` | torch.dtype | - | `torch.int8` | Optional quantized dtype. FP8 requires a compatible arch35 SDK. |
 | `min_scale`, `round_mode` | float, str | - | `0.0` / `"rint"` | Optional scale floor and rounding mode. The typical rounding mode is rint. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `values`, `scales` | tuple[Tensor, Tensor] | input shape, FP32 per block | Quantized input and its blockwise scales. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_dynamic_block_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_block_quant.md)
+Calls `torch_npu.npu_dynamic_block_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_block_quant.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/quant/dynamic_block_quant)
+
+## torch_native backend
+
+Computes per-block INT8 or FP8 values and scales with RINT and default scale limits.
 
 ## Example
 
@@ -51,5 +56,5 @@ import torch_npu
 from sgl_kernel_npu.operators.quant import dynamic_block_quant
 
 x = torch.randn((16, 256), dtype=torch.float16, device="npu")
-y, s = dynamic_block_quant(x, row_block_size=1, col_block_size=128, impl="torch_npu")
+y, s = dynamic_block_quant(x, row_block_size=1, col_block_size=128, impl="ops-nn")
 ```

@@ -1,21 +1,17 @@
 """Public swiglu operator."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "activation.swiglu"
-_torch_npu_fn = None
 _torch_native_fn = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-nn")
 def _torch_npu_impl(input, dim=-1):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_swiglu
-
-        _torch_npu_fn = npu_swiglu
-    return _torch_npu_fn(input, dim)
+    return torch_npu.npu_swiglu(input, dim)
 
 
 @register_impl(_OP_NAME, "torch_native")
@@ -33,6 +29,6 @@ def swiglu(input, dim=-1, *, impl="auto"):
     """Split a floating-point input in half along an even-sized dim.
 
     The output is SiLU(left) * right with half the size along dim.
-    auto selects torch_npu.
+    auto selects ops-nn.
     """
     return get_impl_by_name(_OP_NAME, impl)(input, dim)

@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Unsupported | Supported |
+| `ops-nn` | Unsupported | Supported |
+| `torch_native` | Unsupported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.matmul import transpose_quant_batchmatmul
@@ -32,16 +33,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `x1_scale`, `x2_scale` | Tensor or None | [M], [N], FP32 in the per-row and per-column case | `None` | Optional input scales. Grouped recipes have different required shapes. |
 | `perm_x1`, `perm_x2`, `perm_y` | tuple[int, int, int] | - | `None` | Optional permutations for the left operand, right operand and result. |
 | `group_sizes` | list[int] or None | - | `None` | Optional SDK quantization groups. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | [M, B, N] for the example, dtype | Batched product after the output permutation. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_transpose_quant_batchmatmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_transpose_quant_batchmatmul.md)
+Calls `torch_npu.npu_transpose_quant_batchmatmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_transpose_quant_batchmatmul.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/matmul/transpose_quant_batch_mat_mul)
+
+## torch_native backend
+
+Computes MXFP8 batched multiplication with E8M0 scales for groups of 32, including the grouped WoA layout used by DeepSeek V4.
 
 ## Example
 
@@ -71,6 +76,6 @@ y = transpose_quant_batchmatmul(
     perm_x1=(1, 0, 2),
     perm_x2=(0, 1, 2),
     perm_y=(1, 0, 2),
-    impl="torch_npu",
+    impl="ops-nn",
 )
 ```

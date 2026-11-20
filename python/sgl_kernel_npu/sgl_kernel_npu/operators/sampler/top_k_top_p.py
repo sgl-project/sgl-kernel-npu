@@ -1,21 +1,17 @@
 """Public top_k_top_p operator."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "sampler.top_k_top_p"
-_torch_npu_fn = None
 _torch_native_fn = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-nn")
 def _torch_npu_impl(logits, p=None, k=None):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_top_k_top_p
-
-        _torch_npu_fn = npu_top_k_top_p
-    return _torch_npu_fn(logits, p, k)
+    return torch_npu.npu_top_k_top_p(logits, p, k)
 
 
 @register_impl(_OP_NAME, "torch_native")
@@ -35,7 +31,7 @@ def top_k_top_p(logits, p=None, k=None, *, impl="auto"):
     logits is a floating-point [batch, vocabulary] tensor. Provide at
     least one of p or k. The thresholds have shape [batch]; p matches
     logits.dtype and k is int32. The output matches logits and uses
-    -inf for discarded entries. auto selects torch_npu.
+    -inf for discarded entries. auto selects ops-nn.
     """
     if p is None and k is None:
         raise ValueError("Provide at least one of p or k")
