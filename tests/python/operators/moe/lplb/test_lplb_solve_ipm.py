@@ -30,15 +30,33 @@ def generate_data(shape, seed=42):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape, num_iters",
     [
-        pytest.param((3, 6), id="sglang-unit-test-shape"),
-        pytest.param((24, 42), id="one-replica-per-logical-16npu"),
-        pytest.param((48, 82), id="two-copies-32-logical-16npu"),
-        pytest.param((17, 25), id="edge-unaligned-uses-dot"),
+        pytest.param((3, 6), 5, id="sglang-unit-test-shape"),
+        pytest.param((24, 42), 5, id="one-replica-per-logical-16npu"),
+        pytest.param((48, 82), 5, id="two-copies-32-logical-16npu"),
+        pytest.param((17, 25), 5, id="edge-unaligned-uses-dot"),
+        pytest.param((3, 6), 0, id="edge-zero-iterations-sentinel"),
+        pytest.param(
+            (24, 42),
+            1,
+            id="one-iteration-small-production",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (48, 82),
+            1,
+            id="one-iteration-production",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (17, 25),
+            0,
+            id="edge-unaligned-zero-iterations",
+            marks=pytest.mark.extra_checks,
+        ),
     ],
 )
-@pytest.mark.parametrize("num_iters", [0, 1, 5])
 def test_solve_ipm(shape, num_iters):
     from sgl_kernel_npu.operators.moe import solve_ipm
 

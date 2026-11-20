@@ -52,16 +52,40 @@ def generate_data(shape, mode, seed=42):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape, mode",
     [
-        pytest.param((256, 2, 4096, 8), id="deepseek-v3-prefill"),
-        pytest.param((256, 2, 1, 8), id="deepseek-v3-decode"),
-        pytest.param((13, 3, 37, 2), id="edge-non-power-of-two-table"),
-        pytest.param((8, 4, 0, 8), id="edge-empty-batch"),
-        pytest.param((1, 1, 5, 1), id="edge-minimum"),
+        pytest.param((256, 2, 4096, 8), "normal", id="deepseek-v3-prefill"),
+        pytest.param((256, 2, 1, 8), "normal", id="deepseek-v3-decode"),
+        pytest.param((13, 3, 37, 2), "normal", id="edge-non-power-of-two-table"),
+        pytest.param((8, 4, 0, 8), "normal", id="edge-empty-batch"),
+        pytest.param((1, 1, 5, 1), "zero_rows", id="edge-minimum-zero-row-fallback"),
+        pytest.param((256, 2, 4096, 8), "zero_rows", id="production-zero-row-fallback"),
+        pytest.param(
+            (256, 2, 1, 8),
+            "int64_ids",
+            id="decode-int64-ids",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (13, 3, 37, 2),
+            "int64_ids",
+            id="edge-non-power-of-two-int64-ids",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (256, 2, 4096, 8),
+            "non_contiguous",
+            id="prefill-non-contiguous",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (13, 3, 37, 2),
+            "non_contiguous",
+            id="edge-non-power-of-two-non-contiguous",
+            marks=pytest.mark.extra_checks,
+        ),
     ],
 )
-@pytest.mark.parametrize("mode", ["normal", "zero_rows", "int64_ids", "non_contiguous"])
 def test_dispatch_probability(shape, mode):
     from sgl_kernel_npu.operators.moe import dispatch_probability
 

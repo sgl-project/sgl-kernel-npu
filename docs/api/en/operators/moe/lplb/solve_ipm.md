@@ -5,11 +5,14 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
+| `triton_cann920` | Supported | Supported |
 | `torch_native` | Supported | Supported |
+
+`triton_cann920` requires CANN 9.2.x; selecting it explicitly on another release raises `RuntimeError`.
 
 ## Signature
 
-`auto` selects `triton`.
+`auto` selects `triton_cann920` on CANN 9.2.x and `triton` on other releases.
 
 ```python
 from sgl_kernel_npu.operators.moe import solve_ipm
@@ -51,7 +54,7 @@ All tensors must be on the same NPU device and contiguous.
 | `c` | Tensor | `Required` | Float32 [NV] objective coefficients; the last entry is the large penalty that removes the sink variable. |
 | `num_iters` | int | `5` | Number of barrier iterations; `0` returns the all-`0.5` sentinel. |
 | `result` | Tensor \| None | `None` | Optional writable float32 [NV] output buffer. A fresh tensor is allocated when omitted. |
-| `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
+| `impl` | str | `'auto'` | auto selects triton_cann920 on CANN 9.2.x and triton otherwise; explicit backend selection. |
 
 | Return | Type | Description |
 | --- | --- | --- |
@@ -62,6 +65,13 @@ All tensors must be on the same NPU device and contiguous.
 - One program for the whole solve (`grid=(1,)`); the `NC x NV` matrix and its transpose are loaded into UB once and stay resident across iterations.
 - The KKT product uses `tl.dot` when the tiles are large enough and fall back to an explicit broadcast reduction otherwise; padded rows and columns contribute zero.
 - The elimination sweep keeps `L` in the lower triangle of the working tile and applies the Schur complement through masked rank-1 updates, followed by a row-wise `L^T` back substitution.
+- Padded `A`/`A^T` and KKT tiles are checked against a 32768-element resident budget before launch; the broadcast fallback is additionally limited to 16384 elements.
+
+## triton_cann920 backend
+
+- Same algorithm and contract as `triton`, but the forward and backward elimination sweeps are fully unrolled with `tl.static_range` and the launcher is cached, which is cheap to compile on CANN 9.2.x.
+- `auto` selects this backend on CANN 9.2.x; an explicit request on another release is rejected before launch.
+- The same resident and broadcast tile budget checks run before launch.
 
 ## torch_native backend
 

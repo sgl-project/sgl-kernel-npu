@@ -10,6 +10,7 @@ from tests.python.utils.common import (
     get_test_impls,
     make_executor,
     require_distinct_impls,
+    require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 
@@ -22,8 +23,10 @@ def generate_data(shape, mode, seed=42):
     """Build one consistent LPLB solver state.
 
     shape is (num_single, num_red_log, num_red_phy, num_gpus, num_logical).
-    normal: random counts; every logical expert is either single or replicated,
-        matching LPLBSolver's partition of log_single/log_replicated.
+    normal: random counts; ids [0, num_single + num_red_log) are split between
+        the two index lists. The production shape covers every logical id,
+        while the unaligned shape leaves ids in neither list, which exercises
+        the documented full-table ``sum(global_counts)`` normalisation.
     zero_counts: all counts are zero, which exercises the max(total, 1) clamp.
     int32_ids: int32 index vectors instead of int64 (both are supported).
     """
@@ -58,12 +61,37 @@ def generate_data(shape, mode, seed=42):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape, mode",
     [
-        pytest.param((224, 32, 64, 16, 256), id="deepseek-v3-16npu-redundant"),
+        pytest.param(
+            (224, 32, 64, 16, 256), "normal", id="deepseek-v3-16npu-redundant"
+        ),
+        pytest.param(
+            (224, 32, 64, 16, 256), "zero_counts", id="production-zero-counts"
+        ),
+        # Unaligned dimensions exercise every masked load/store and reduce path,
+        # and leave some logical ids in neither index list.
+        pytest.param((3, 5, 7, 4, 13), "normal", id="edge-unaligned-partial-partition"),
+        pytest.param(
+            (224, 32, 64, 16, 256),
+            "int32_ids",
+            id="production-int32-ids",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (3, 5, 7, 4, 13),
+            "zero_counts",
+            id="edge-unaligned-zero-counts",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (3, 5, 7, 4, 13),
+            "int32_ids",
+            id="edge-unaligned-int32-ids",
+            marks=pytest.mark.extra_checks,
+        ),
     ],
 )
-@pytest.mark.parametrize("mode", ["normal", "zero_counts", "int32_ids"])
 def test_lp_prep(shape, mode):
     from sgl_kernel_npu.operators.moe import lp_prep
 
@@ -78,6 +106,8 @@ def test_lp_prep(shape, mode):
         actual = executor()
         assert_accuracy(actual, expected)
         executor.accuracy_checked = True
+    else:
+        require_test_impl(lp_prep, executor.impl)
 
     # lp_prep only rewrites its output buffers, so repeated calls are
     # idempotent and the same executor can be profiled.

@@ -10,6 +10,7 @@ from tests.python.utils.common import (
     get_test_impls,
     make_executor,
     require_distinct_impls,
+    require_test_impl,
 )
 from tests.python.utils.performance import check_performance
 
@@ -48,15 +49,28 @@ def generate_data(shape, mode, seed=42):
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "shape, mode",
     [
-        pytest.param((256, 2, 224, 64), id="deepseek-v3-2-copies"),
-        pytest.param((256, 4, 224, 576), id="four-copies-wide-table"),
-        pytest.param((1, 1, 0, 1), id="edge-no-single-expert"),
-        pytest.param((37, 3, 17, 9), id="edge-unaligned-table"),
+        pytest.param((256, 2, 224, 64), "normal", id="deepseek-v3-2-copies"),
+        pytest.param((256, 2, 224, 64), "empty_row", id="production-empty-row"),
+        pytest.param((256, 4, 224, 576), "normal", id="four-copies-wide-table"),
+        pytest.param((1, 1, 0, 1), "normal", id="edge-no-single-expert"),
+        pytest.param((37, 3, 17, 9), "normal", id="edge-unaligned-table"),
+        pytest.param((37, 3, 17, 9), "empty_row", id="edge-unaligned-empty-row"),
+        pytest.param(
+            (256, 2, 224, 64),
+            "int32_ids",
+            id="production-int32-ids",
+            marks=pytest.mark.extra_checks,
+        ),
+        pytest.param(
+            (37, 3, 17, 9),
+            "int32_ids",
+            id="edge-unaligned-int32-ids",
+            marks=pytest.mark.extra_checks,
+        ),
     ],
 )
-@pytest.mark.parametrize("mode", ["normal", "empty_row", "int32_ids"])
 def test_lp_post(shape, mode):
     from sgl_kernel_npu.operators.moe import lp_post
 
@@ -73,6 +87,8 @@ def test_lp_post(shape, mode):
         assert_accuracy(actual, expected)
         assert actual.data_ptr() == args[0].data_ptr(), "lp_post must write in place"
         executor.accuracy_checked = True
+    else:
+        require_test_impl(lp_post, executor.impl)
 
     # The kernel overwrites the same buffer from unchanged inputs, so repeated
     # calls are idempotent and the executor can be profiled as-is.

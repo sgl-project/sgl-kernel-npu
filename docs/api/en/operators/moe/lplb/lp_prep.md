@@ -71,6 +71,7 @@ All tensors must be on the same NPU device and contiguous.
 - Single-program kernel (`grid=(1,)`): the count table is loaded into UB once and the per-expert counts are selected with an in-UB gather, so no random global reads are issued.
 - `B1 @ t1` runs as one unrolled row-chunk tile sized to the GPU count, and the `t1` / `b` writes are fused into the same launch.
 - Padding lanes of every tile contribute exactly zero to the reductions, so non-power-of-two expert counts need no special handling.
+- Padded `BS`/`BR`/`BT` tiles must fit within 32768 resident elements; larger inputs are rejected with `ValueError` before launch.
 
 ## torch_native backend
 

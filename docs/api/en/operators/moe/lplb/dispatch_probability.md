@@ -5,11 +5,14 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Supported | Supported |
+| `triton_cann920` | Supported | Supported |
 | `torch_native` | Supported | Supported |
+
+`triton_cann920` requires CANN 9.2.x; selecting it explicitly on another release raises `RuntimeError`.
 
 ## Signature
 
-`auto` selects `triton`.
+`auto` selects `triton_cann920` on CANN 9.2.x and `triton` on other releases.
 
 ```python
 from sgl_kernel_npu.operators.moe import dispatch_probability
@@ -42,7 +45,7 @@ All tensors must be on the same NPU device.
 | `log2phy_prob` | Tensor | `Required` | Contiguous float32 [num_logical,max_copies] replica probabilities. |
 | `log2phy_map` | Tensor | `Required` | Contiguous int32/int64 [num_logical,max_copies] physical ids; `-1` marks an unused replica. Shape and device must match `log2phy_prob`. |
 | `random_vals` | Tensor \| None | `None` | Optional contiguous float32 [numel(topk_ids)] uniform samples in `[0, 1)`. Fresh values are drawn when omitted. |
-| `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
+| `impl` | str | `'auto'` | auto selects triton_cann920 on CANN 9.2.x and triton otherwise; explicit backend selection. |
 
 | Return | Type | Description |
 | --- | --- | --- |
@@ -53,6 +56,13 @@ All tensors must be on the same NPU device.
 - Each program loads the whole `[num_logical, max_copies]` table into UB once (transposed so the copy axis is the reduction axis) and then strides over token blocks of 64 entries.
 - Per slot the program computes the CDF row with `tl.cumsum`, turns the uniform sample into a threshold `r * total`, counts the CDF entries at or below it, and gathers the physical id. Counting instead of a search avoids a serial loop over copies.
 - Logical and copy counts are padded with masked power-of-two tiles, so no power-of-two restriction is imposed on the caller; the chosen copy index is clamped to `max_copies - 1`.
+- Inputs whose padded table or `[max_copies, 64]` gather tile exceeds 32768 elements are rejected with `ValueError` before launch.
+
+## triton_cann920 backend
+
+- Same contract as `triton`, but keeps `num_logical` and `max_copies` as compile-time constants and transposes the resident table with `tl.trans`, so the table does not need power-of-two padding.
+- `auto` selects this backend on CANN 9.2.x; an explicit request on another release is rejected before launch.
+- Table and gather tiles are validated against the same 32768-element UB budget before launch.
 
 ## torch_native backend
 

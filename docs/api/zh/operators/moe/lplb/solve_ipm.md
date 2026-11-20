@@ -5,11 +5,14 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 支持 | 支持 |
+| `triton_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
+
+`triton_cann920` 要求 CANN 9.2.x；在其他版本上显式选择会在启动前抛出 `RuntimeError`。
 
 ## 函数签名
 
-`auto` 选择 `triton`。
+`auto` 在 CANN 9.2.x 上选择 `triton_cann920`，其他版本选择 `triton`。
 
 ```python
 from sgl_kernel_npu.operators.moe import solve_ipm
@@ -51,7 +54,7 @@ Ascend 向量单元没有分块 Cholesky 原语，因此 KKT 系统用 UB 内的
 | `c` | Tensor | `Required` | float32 [NV] 目标系数；最后一项是消去 sink 变量的大惩罚。 |
 | `num_iters` | int | `5` | 障碍法迭代次数；取 `0` 时直接返回全 `0.5` 哨兵值。 |
 | `result` | Tensor \| None | `None` | 可选的可写 float32 [NV] 输出缓冲区；省略时新分配。 |
-| `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
+| `impl` | str | `'auto'` | auto 在 CANN 9.2.x 上选择 triton_cann920，其他版本选择 triton；也可显式选择后端。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -62,6 +65,13 @@ Ascend 向量单元没有分块 Cholesky 原语，因此 KKT 系统用 UB 内的
 - 整个求解只用一个 program（`grid=(1,)`）：`NC x NV` 矩阵及其转置一次性载入 UB，并在迭代之间常驻。
 - 当 tile 足够大时 KKT 乘用 `tl.dot`，否则回退为显式广播归约；填充的行列贡献为零。
 - 消元扫描把 `L` 保存在工作 tile 的下三角，通过掩码 rank-1 更新完成 Schur 补，随后做逐行的 `L^T` 回代。
+- 填充后的 `A`/`A^T` 与 KKT tile 在启动前按 32768 元素的常驻预算校验；广播回退路径另外限制为 16384 元素。
+
+## triton_cann920 后端
+
+- 与 `triton` 算法和契约相同，但前向、后向消元扫描用 `tl.static_range` 完全展开，并缓存 launcher；这在 CANN 9.2.x 上编译开销很低。
+- `auto` 在 CANN 9.2.x 上选择此后端；在其他版本上显式选择会在启动前被拒绝。
+- 启动前同样执行常驻 tile 与广播 tile 的预算校验。
 
 ## torch_native 后端
 

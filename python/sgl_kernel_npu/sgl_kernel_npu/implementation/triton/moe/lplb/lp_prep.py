@@ -23,6 +23,11 @@ import torch
 import triton
 import triton.language as tl
 
+# ``tl.arange`` tiles are resident in the vector-core UB. This is the same
+# single-tile element budget lp_post enforces; lp_prep keeps BS/BR/BT live at
+# the same time, so their sum is checked against it before launch.
+_MAX_TABLE_ELEMENTS = 32768
+
 
 @triton.jit
 def lp_prep_kernel(
@@ -67,10 +72,11 @@ def lp_prep_kernel(
     c_s = tl.where(m_s, c_s, 0.0)
     c_r = tl.where(m_r, c_r, 0.0)
 
-    # Masked lanes contribute exactly 0 to the sums (padding never enters exp).
-    sum_s = tl.sum(c_s, axis=0)
-    sum_r = tl.sum(c_r, axis=0)
-    total = sum_s + sum_r
+    # Normalise by the full count table, matching the documented
+    # ``max(sum(global_counts), 1)`` and the torch_native reference. Summing
+    # only the gathered single/replicated counts would diverge when a logical
+    # id is present in neither list (or is duplicated across them).
+    total = tl.sum(tl.where(m_t, counts_tab, 0.0), axis=0)
     inv_total = 1.0 / tl.maximum(total, 1.0)
 
     # ---------------- Stage 2: scale t1 and b[:NUM_RED_LOG] ----------------
@@ -218,6 +224,12 @@ def lp_prep(
     BS = _next_pow2(max(16, num_single))
     BR = _next_pow2(max(16, num_red_log))
     BT = _next_pow2(max(16, num_logical))
+    if BS + BR + BT > _MAX_TABLE_ELEMENTS:
+        raise ValueError(
+            f"padded LPLB lp_prep tables (BS={BS}, BR={BR}, BT={BT}) need "
+            f"{BS + BR + BT} resident elements, above the UB budget of "
+            f"{_MAX_TABLE_ELEMENTS}"
+        )
 
     # Size the B1 tile so that the tile, its product and the reduction temp
     # buffer stay inside the UB even on toolchains that pad/blockify a UB tile

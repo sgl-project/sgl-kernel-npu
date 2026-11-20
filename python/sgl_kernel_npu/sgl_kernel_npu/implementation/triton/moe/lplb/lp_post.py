@@ -202,6 +202,12 @@ def lp_post(
     tab = torch.empty(pad_p, dtype=torch.float32, device=log2phy_prob.device)
 
     # --- kernel 1: build the physical probability table ---
+    # PCH sizes the per-program compare tile to PCH x SCH (SCH=128 below), so
+    # it bounds both the compare/reduction working set and the number of
+    # physical slots handled per program. Short tables (<= 320 slots) use 16
+    # to keep the tile at 2048 FP32 elements and spread the work over more
+    # programs; longer tables use 32 to halve the chunk count and loop trips.
+    # Both values stay far below the vector-core UB budget.
     pch = 16 if phy_prob_size <= 320 else 32
     nch = (phy_prob_size + pch - 1) // pch
     nc1 = min(nvec, nch)
@@ -221,6 +227,10 @@ def lp_post(
     )
 
     # --- kernel 2: gather the logical outputs ---
+    # BLOCK bounds the per-iteration output tile: BLOCK gather indices plus
+    # BLOCK gathered values. 512 keeps short outputs spread over more blocks;
+    # once the output exceeds 2560 entries, 1024 halves the loop trip count
+    # while the tile still fits alongside the resident probability table.
     block = 512 if total_out <= 2560 else 1024
     nb = (total_out + block - 1) // block
     nc2 = min(nvec, nb)

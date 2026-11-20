@@ -5,11 +5,14 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | 支持 | 支持 |
+| `triton_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
+
+`triton_cann920` 要求 CANN 9.2.x；在其他版本上显式选择会在启动前抛出 `RuntimeError`。
 
 ## 函数签名
 
-`auto` 选择 `triton`。
+`auto` 在 CANN 9.2.x 上选择 `triton_cann920`，其他版本选择 `triton`。
 
 ```python
 from sgl_kernel_npu.operators.moe import dispatch_probability
@@ -42,7 +45,7 @@ physical = log2phy_map[topk_ids, multinomial(p)]
 | `log2phy_prob` | Tensor | `Required` | 连续 float32 [num_logical,max_copies] 副本概率。 |
 | `log2phy_map` | Tensor | `Required` | 连续 int32/int64 [num_logical,max_copies] 物理 id；`-1` 表示未使用的副本。形状与设备须与 `log2phy_prob` 一致。 |
 | `random_vals` | Tensor \| None | `None` | 可选的连续 float32 [numel(topk_ids)] `[0, 1)` 均匀随机数；省略时自动生成。 |
-| `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
+| `impl` | str | `'auto'` | auto 在 CANN 9.2.x 上选择 triton_cann920，其他版本选择 triton；也可显式选择后端。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -53,6 +56,13 @@ physical = log2phy_map[topk_ids, multinomial(p)]
 - 每个 program 先把整张 `[num_logical, max_copies]` 表载入 UB（转置后以副本轴为归约轴），随后按 64 个 token 一块跨步处理。
 - 每个槽位用 `tl.cumsum` 求出 CDF 行，把均匀随机数换算为阈值 `r * total`，统计不大于阈值的 CDF 元素个数，再 gather 出物理 id；用计数代替搜索，避免对副本数的串行循环。
 - 逻辑数与副本数都用带掩码的 2 的幂 tile 填充，因此对调用方不施加 2 的幂限制；选中的副本下标会截断到 `max_copies - 1`。
+- 填充后的表或 `[max_copies, 64]` gather tile 超过 32768 个元素时，会在启动前以 `ValueError` 拒绝。
+
+## triton_cann920 后端
+
+- 与 `triton` 契约相同，但把 `num_logical` 与 `max_copies` 作为编译期常量，并用 `tl.trans` 转置常驻表，因此表不需要按 2 的幂填充。
+- `auto` 在 CANN 9.2.x 上选择此后端；在其他版本上显式选择会在启动前被拒绝。
+- 表与 gather tile 在启动前同样按 32768 元素的 UB 预算校验。
 
 ## torch_native 后端
 

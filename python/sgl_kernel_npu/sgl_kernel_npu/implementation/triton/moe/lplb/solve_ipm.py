@@ -29,6 +29,12 @@ import torch
 import triton
 import triton.language as tl
 
+# Resident vector-core tiles are bounded against the same single-tile element
+# budget lp_post uses. The 3-D broadcast reduction has its own smaller budget
+# because that tile is short-lived but much more expensive to materialise.
+_MAX_TABLE_ELEMENTS = 32768
+_MAX_BROADCAST_ELEMENTS = 16384
+
 
 @triton.jit
 def ipm_kernel(
@@ -150,6 +156,35 @@ def _pow2(v, floor=8):
     return p
 
 
+def _plan_tiles(nc, nv):
+    """Return (NCP, NVP, use_dot) after checking the resident UB footprint.
+
+    ``A``, ``A^T`` and the ``NC x NC`` KKT tile are live together, so their
+    padded sizes are checked as one resident set. The broadcast fallback also
+    materialises an ``NCP x NCP x NVP`` tile; when the Cube path cannot be used
+    (either dimension below 16), that tile is rejected before launch.
+    """
+    ncp = _pow2(nc)
+    nvp = _pow2(nv)
+    resident_elements = 2 * ncp * nvp + ncp * ncp
+    if resident_elements > _MAX_TABLE_ELEMENTS:
+        raise ValueError(
+            f"padded LP tiles A=({ncp}, {nvp}) need {resident_elements} "
+            f"resident elements, above the UB budget of {_MAX_TABLE_ELEMENTS}"
+        )
+
+    # The 3-D broadcast tile is NCP*NCP*NVP elements; above 64 KiB it overflows
+    # the UB, so fall back to the Cube path (which needs M, N, K >= 16).
+    use_dot = ncp * ncp * nvp > _MAX_BROADCAST_ELEMENTS and ncp >= 16 and nvp >= 16
+    if not use_dot and ncp * ncp * nvp > _MAX_BROADCAST_ELEMENTS:
+        raise ValueError(
+            f"padded broadcast tile ({ncp}, {ncp}, {nvp}) needs "
+            f"{ncp * ncp * nvp} elements, above the UB budget of "
+            f"{_MAX_BROADCAST_ELEMENTS}"
+        )
+    return ncp, nvp, use_dot
+
+
 def solve_ipm(A, b, c, num_iters=5, result=None):
     """Return the barrier-method solution of the standard-form LP.
 
@@ -198,11 +233,7 @@ def solve_ipm(A, b, c, num_iters=5, result=None):
         if not result.is_contiguous():
             raise ValueError("result must be contiguous")
 
-    ncp = _pow2(nc)
-    nvp = _pow2(nv)
-    # The 3-D broadcast tile is NCP*NCP*NVP elements; above 64 KiB it overflows
-    # the UB, so fall back to the Cube path (which needs M, N, K >= 16).
-    use_dot = (ncp * ncp * nvp > 16384) and ncp >= 16 and nvp >= 16
+    ncp, nvp, use_dot = _plan_tiles(nc, nv)
 
     ipm_kernel[(1,)](A, b, c, result, num_iters, nc, nv, ncp, nvp, use_dot)
     return result
@@ -354,11 +385,7 @@ def solve_ipm_cann92(A, b, c, num_iters=5, result=None):
         if not result.is_contiguous():
             raise ValueError("result must be contiguous")
 
-    ncp = _pow2(nc)
-    nvp = _pow2(nv)
-    # The 3-D broadcast tile is NCP*NCP*NVP elements; above 64 KiB it overflows
-    # the UB, so fall back to the Cube path (which needs M, N, K >= 16).
-    use_dot = (ncp * ncp * nvp > 16384) and ncp >= 16 and nvp >= 16
+    ncp, nvp, use_dot = _plan_tiles(nc, nv)
 
     ipm_kernel_cann92[(1,)](A, b, c, result, num_iters, nc, nv, ncp, nvp, use_dot)
     return result

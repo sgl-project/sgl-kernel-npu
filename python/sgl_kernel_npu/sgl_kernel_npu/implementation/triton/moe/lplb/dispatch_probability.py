@@ -16,8 +16,8 @@ The whole ``[num_logical, max_copies]`` table is loaded into UB once per
 program (transposed to ``[max_copies, num_logical]`` so the copy axis is the
 reduction axis) and the per-row inverse-CDF sample is a single gather plus a
 compare-sum. Tables whose logical/copy counts are not powers of two are padded
-with masked lanes, so no shape restriction beyond ``num_logical >= 1`` is
-imposed on the caller.
+with masked lanes, so no alignment restriction is imposed on the caller; the
+wrapper rejects tables whose padded size does not fit the UB budget.
 
 The CANN 9.2 variant (``dispatch_probability_cann92``) keeps the table geometry
 as compile-time constants and transposes the resident table with ``tl.trans``
@@ -32,6 +32,11 @@ import triton.language as tl
 from ...utils.triton_utils import get_device_properties
 
 _DISPATCH_BLOCK = 64
+
+# The resident probability/map tables and the derived [max_copies, BLOCK]
+# gather tile must fit in the vector-core UB. 32768 FP32 elements is the same
+# single-tile budget lp_post uses.
+_MAX_TABLE_ELEMENTS = 32768
 
 
 @triton.jit(do_not_specialize=["N", "NC", "NL"])
@@ -150,6 +155,17 @@ def dispatch_probability(topk_ids, log2phy_prob, log2phy_map, random_vals=None):
     if n == 0:
         return torch.empty_like(flat_ids).reshape(original_shape)
 
+    nld = triton.next_power_of_2(num_logical)
+    mcd = triton.next_power_of_2(max_copies)
+    table_elements = nld * mcd
+    gather_elements = mcd * _DISPATCH_BLOCK
+    if table_elements > _MAX_TABLE_ELEMENTS or gather_elements > _MAX_TABLE_ELEMENTS:
+        raise ValueError(
+            f"padded dispatch tables ({table_elements} table and "
+            f"{gather_elements} gather elements) exceed the UB budget of "
+            f"{_MAX_TABLE_ELEMENTS}"
+        )
+
     if random_vals is None:
         random_vals = torch.rand(n, dtype=torch.float32, device=flat_ids.device)
     else:
@@ -170,8 +186,8 @@ def dispatch_probability(topk_ids, log2phy_prob, log2phy_map, random_vals=None):
         n,
         grid,
         num_logical,
-        triton.next_power_of_2(num_logical),
-        triton.next_power_of_2(max_copies),
+        nld,
+        mcd,
         max_copies,
         _DISPATCH_BLOCK,
     )
@@ -273,6 +289,14 @@ def dispatch_probability_cann92(topk_ids, log2phy_prob, log2phy_map, random_vals
     n = flat_ids.numel()
     if n == 0:
         return torch.empty_like(flat_ids).reshape(original_shape)
+
+    table_elements = num_logical * max_copies
+    gather_elements = max_copies * _DISPATCH_BLOCK
+    if table_elements > _MAX_TABLE_ELEMENTS or gather_elements > _MAX_TABLE_ELEMENTS:
+        raise ValueError(
+            f"dispatch tables ({table_elements} table and {gather_elements} "
+            f"gather elements) exceed the UB budget of {_MAX_TABLE_ELEMENTS}"
+        )
 
     if random_vals is None:
         random_vals = torch.rand(n, dtype=torch.float32, device=flat_ids.device)
