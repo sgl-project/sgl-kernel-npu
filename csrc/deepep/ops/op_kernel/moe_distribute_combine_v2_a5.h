@@ -119,6 +119,10 @@ private:
     __aicore__ inline bool WaitDispatch(uint32_t tokenIndex, uint32_t copyCount, uint32_t beginIndex);
     __aicore__ inline bool IsAsyncCombinePath()
     {
+        if constexpr (!IsInt8Quant && !IsMxfp8Quant &&
+                      std::is_same_v<XType, bfloat16_t>) {
+            return false;
+        }
         return !IsNeedReduceScatter && sharedExpertNum_ == 0U && !hasSharedExpertX_;
     }
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain)
