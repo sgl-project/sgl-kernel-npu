@@ -119,8 +119,7 @@ private:
     __aicore__ inline bool WaitDispatch(uint32_t tokenIndex, uint32_t copyCount, uint32_t beginIndex);
     __aicore__ inline bool IsAsyncCombinePath()
     {
-        if constexpr (!IsInt8Quant && !IsMxfp8Quant &&
-                      std::is_same_v<XType, bfloat16_t>) {
+        if constexpr (!IsInt8Quant && !IsMxfp8Quant && std::is_same_v<XType, bfloat16_t>) {
             return false;
         }
         return !IsNeedReduceScatter && sharedExpertNum_ == 0U && !hasSharedExpertX_;

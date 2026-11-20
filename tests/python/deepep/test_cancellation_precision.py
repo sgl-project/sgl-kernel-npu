@@ -37,9 +37,7 @@ def test(
         + 0.1
     )
     sign_pattern = torch.randint(0, 2, (num_tokens, num_topk), device="npu")
-    topk_weights = topk_weights_pos * torch.where(
-        sign_pattern == 0, 1.0, -1.0
-    ).float()
+    topk_weights = topk_weights_pos * torch.where(sign_pattern == 0, 1.0, -1.0).float()
 
     masked_weights = topk_weights.masked_fill(topk_idx == -1, 0.0)
     weight_sums = masked_weights.sum(dim=1)
