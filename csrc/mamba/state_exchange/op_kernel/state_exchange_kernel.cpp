@@ -9,6 +9,10 @@
 // Same UB double-buffer budget as the KV sparse-copy kernel: one entry is
 // copied through an 88KB UB slot, entries larger than that are split.
 constexpr int64_t STATE_EXCHANGE_UB_BUFFER_SIZE = 88 * 1024;
+// DataCopyExtParams::blockLen is a uint16_t, so one DataCopy moves at most
+// 65535 bytes; chunk splits at the largest 32-byte aligned value below it.
+// The 88KB UB slot still hosts each chunk with room to spare.
+constexpr int64_t STATE_EXCHANGE_COPY_CHUNK = 65504;
 using optiling::STATE_EXCHANGE_MAX_ENTRIES;
 using optiling::STATE_EXCHANGE_META_STRIDE;
 
@@ -189,8 +193,8 @@ private:
         const bool isD2H = (direction_ == 2);
         const int64_t srcRow = isD2H ? deviceRow : hostRow;
         const int64_t dstRow = isD2H ? hostRow : deviceRow;
-        const int64_t remain = entry.width - offset;
-        const int64_t len = STATE_EXCHANGE_UB_BUFFER_SIZE < remain ? STATE_EXCHANGE_UB_BUFFER_SIZE : remain;
+        const int64_t remain = entry.width - offset_;
+        const int64_t len = STATE_EXCHANGE_COPY_CHUNK < remain ? STATE_EXCHANGE_COPY_CHUNK : remain;
         ctx.src = static_cast<uint64_t>(srcRow + offset);
         ctx.dst = static_cast<uint64_t>(dstRow + offset);
         ctx.bytes = static_cast<uint32_t>(len);
@@ -241,8 +245,8 @@ private:
             int64_t layer = 0;
             k_->ResolveUnit(unit_, entryIdx, layer);
             const int64_t width = k_->entries_[entryIdx].width;
-            if (offset_ + STATE_EXCHANGE_UB_BUFFER_SIZE < width) {
-                offset_ += STATE_EXCHANGE_UB_BUFFER_SIZE;
+            if (offset_ + STATE_EXCHANGE_COPY_CHUNK < width) {
+                offset_ += STATE_EXCHANGE_COPY_CHUNK;
                 return true;
             }
             offset_ = 0;
