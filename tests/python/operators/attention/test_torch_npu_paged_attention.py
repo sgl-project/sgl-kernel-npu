@@ -130,3 +130,31 @@ def test_legacy_atb_attention(
         },
     )
     check_performance(executor)
+
+
+@pytest.mark.parametrize("blocked_value", [1.0, -torch.inf], ids=["binary", "additive"])
+def test_torch_native_fp16_short_prefill_mask(blocked_value):
+    from sgl_kernel_npu.operators.attention import flash_attention_qlens
+
+    positions = torch.arange(_PAGE_SIZE, dtype=torch.float16, device="cpu")
+    key = positions.new_zeros((1, _PAGE_SIZE, 1, 16))
+    values = positions.view(1, -1, 1, 1).expand_as(key)
+    lengths = torch.tensor([_PAGE_SIZE], dtype=torch.int32, device="cpu")
+    out = torch.full_like(key[0], torch.nan)
+    flash_attention_qlens(
+        query=key[0],
+        key_cache=key,
+        value_cache=values,
+        mask=positions.new_full((_PAGE_SIZE, _PAGE_SIZE), blocked_value).triu_(1),
+        block_table=lengths.new_zeros((1, 1)),
+        seq_len=lengths,
+        context_lens=lengths,
+        scale_value=16**-0.5,
+        num_heads=1,
+        num_kv_heads=1,
+        out=out,
+        impl="torch_native",
+    )
+    # Zero logits give row i the mean of the visible values 0 through i.
+    expected = (positions / 2).view(-1, 1, 1).expand_as(out)
+    torch.testing.assert_close(out, expected, atol=0, rtol=0)

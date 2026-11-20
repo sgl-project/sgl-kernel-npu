@@ -91,9 +91,11 @@ def flash_attention_qlens(
         if mask.ndim != 2:
             raise NotImplementedError("torch_native requires a 2D prefill mask")
         mask = mask.detach().cpu()
-        if mask.dtype == torch.bfloat16:
-            # ATB uses 1 to block a position in its BF16 mask.
-            mask = mask.masked_fill(mask == 1, -torch.inf)
+        # ATB high-precision FP16 and BF16 masks use 1 for a blocked key.
+        if mask.dtype in (torch.float16, torch.bfloat16) and torch.all(
+            (mask == 0) | (mask == 1)
+        ):
+            mask = mask.bool()
     _run_paged_attention(
         query,
         key_cache,
