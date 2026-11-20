@@ -1,0 +1,52 @@
+name: Reusable Kernel Wheel Build
+
+on:
+  workflow_call:
+    inputs:
+      cann_version:
+        required: true
+        type: string
+      npu_hardware:
+        required: true
+        type: string
+
+jobs:
+  build-kernel-wheel:
+    name: Build wheel (CANN ${{ inputs.cann_version }}, ${{ inputs.npu_hardware }})
+    runs-on: ${{ inputs.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-2' }}
+    timeout-minutes: 180
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-ubuntu22.04-py3.12
+    env:
+      CANN_VERSION: ${{ inputs.cann_version }}
+      NPU_HARDWARE: ${{ inputs.npu_hardware }}
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version "${{ inputs.cann_version }}"
+      - name: Build and install kernel wheel
+        run: bash scripts/prepare_kernel_tests.sh
+      - name: Upload kernel wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-wheel-${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-${{ github.sha }}
+          path: output/sgl_kernel_npu-*.whl
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+          overwrite: true

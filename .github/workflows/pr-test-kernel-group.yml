@@ -40,14 +40,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           clean: true
           submodules: recursive
       - name: Install dependencies
         run: |
           pip install uv
           bash scripts/npu_ci_install_dependency.sh --cann-version "${{ inputs.cann_version }}"
-      - name: Set up Triton-Ascend and kernel test dependencies
-        run: bash scripts/prepare_kernel_tests.sh
+      - name: Download kernel wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-wheel-${{ inputs.cann_version }}-${{ inputs.npu_hardware }}-${{ github.sha }}
+          path: .ci-wheel
+      - name: Set up test dependencies and install kernel wheel
+        run: bash scripts/prepare_kernel_tests.sh --wheel .ci-wheel/sgl_kernel_npu-*.whl
       - name: Run kernel operator group tests
         timeout-minutes: ${{ inputs.timeout_minutes }}
         env:
