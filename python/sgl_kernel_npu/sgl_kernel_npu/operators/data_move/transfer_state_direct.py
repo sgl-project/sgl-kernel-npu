@@ -43,6 +43,28 @@ def _check_indices(device_indices, host_indices):
         raise ValueError("device and host indices must have the same length")
 
 
+def _check_slot_values(
+    device_indices, host_indices, device_slots, host_slots, host_is_dst
+):
+    # The AIV kernel dereferences device-resident slot indices unchecked, so
+    # pull the values once (a small sync) and mirror the torch_native
+    # reference: an out-of-range slot would corrupt unrelated GM/DVA memory.
+    # Duplicate sources are fine; duplicate destinations race across the
+    # round-robin cores, so they are rejected.
+    pairs = list(
+        zip(
+            device_indices.cpu().long().flatten().tolist(),
+            host_indices.cpu().long().flatten().tolist(),
+        )
+    )
+    for d, h in pairs:
+        if not (0 <= d < device_slots and 0 <= h < host_slots):
+            raise RuntimeError("index exceeds component slot count")
+    destinations = [h for _, h in pairs] if host_is_dst else [d for d, _ in pairs]
+    if len(set(destinations)) != len(destinations):
+        raise RuntimeError("destination slot indices must be unique")
+
+
 # ---------------------------------------------------------------------------
 # H2D per layer: host [slots, layers, 1, *payload] -> device layer view
 # [slots, *payload]
@@ -69,6 +91,7 @@ def _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id):
         )
 
 
+@register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "auto")
 @register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "ascendc_aiv")
 def _aiv_per_layer(
     src: torch.Tensor,
@@ -86,31 +109,10 @@ def _aiv_per_layer(
         raise ValueError("state source must be host memory and destination must be NPU")
     if not 0 <= layer_id < src.size(1):
         raise ValueError("layer_id is outside the host state layer count")
-    _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id)
-
-
-@register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "auto")
-def _auto_per_layer(
-    src: torch.Tensor,
-    dst: torch.Tensor,
-    src_indices: torch.Tensor,
-    dst_indices: torch.Tensor,
-    layer_id: int,
-    flags: TransferFlag = TransferFlag.FAST2D,
-):
-    # Mirrors the kv_exchange contract: the registration table is the only
-    # DVA source, so unregistered host memory fails inside resolve_host_dva.
-
-    return get_impl_by_name(
-        "data_move.transfer_state_per_layer_direct_pf_lf", "ascendc_aiv"
-    )(
-        src=src,
-        dst=dst,
-        src_indices=src_indices,
-        dst_indices=dst_indices,
-        layer_id=layer_id,
-        flags=flags,
+    _check_slot_values(
+        dst_indices, src_indices, dst.size(0), src.size(0), host_is_dst=False
     )
+    _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id)
 
 
 @register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "torch_native")
@@ -145,7 +147,7 @@ def transfer_state_per_layer_direct_pf_lf(
         dst_indices: Corresponding device slots.
         layer_id: Zero-based source layer.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (validates DVA registration), ascendc_aiv, or torch_native.
+        impl: auto, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.
@@ -181,6 +183,7 @@ def _check_all_layer_components(device_states, host_states):
             raise ValueError(f"component {which}: host state must be a CPU tensor")
 
 
+@register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "auto")
 @register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "ascendc_aiv")
 def _aiv_all_layer(
     device_states: Sequence[torch.Tensor],
@@ -196,6 +199,13 @@ def _aiv_all_layer(
         return
     device_states = list(device_states)
     host_states = list(host_states)
+    _check_slot_values(
+        device_indices,
+        host_indices,
+        min(dev.size(1) for dev in device_states),
+        min(host.size(0) for host in host_states),
+        host_is_dst=True,
+    )
     with _submit_lock, torch.npu.device(device_indices.device):
         if torch.npu.is_current_stream_capturing():
             raise RuntimeError("AIV state transfer does not support NPU graph capture")
@@ -207,28 +217,6 @@ def _aiv_all_layer(
             [resolve_host_dva(host) for host in host_states],
             2,
         )
-
-
-@register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "auto")
-def _auto_all_layer(
-    device_states: Sequence[torch.Tensor],
-    host_states: Sequence[torch.Tensor],
-    device_indices: torch.Tensor,
-    host_indices: torch.Tensor,
-    flags: TransferFlag = TransferFlag.FAST2D,
-):
-    # Same contract as kv_exchange: resolve_host_dva is the only gate; the
-    # empty-index early return lives in the AIV implementation below.
-
-    return get_impl_by_name(
-        "data_move.transfer_state_all_layer_direct_lf_pf", "ascendc_aiv"
-    )(
-        device_states=device_states,
-        host_states=host_states,
-        device_indices=device_indices,
-        host_indices=host_indices,
-        flags=flags,
-    )
 
 
 @register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "torch_native")
@@ -266,7 +254,7 @@ def transfer_state_all_layer_direct_lf_pf(
         device_indices: Non-negative device slot indices valid for every component.
         host_indices: Corresponding non-negative host slot indices valid for every component.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (validates DVA registration), ascendc_aiv, or torch_native.
+        impl: auto, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.

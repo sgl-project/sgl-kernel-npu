@@ -270,6 +270,14 @@ def test_state_exchange_per_layer_h2d(
 
     if checked:
         assert_accuracy(dev.view(torch.uint8), ref_dev.view(torch.uint8))
+    executor = make_executor(
+        transfer_state_per_layer_direct_pf_lf,
+        args=(host, dev[layer_id], h, d, layer_id),
+        impl=impl,
+        impl_ref=impl_ref,
+        accuracy_checked=checked,
+    )
+    check_performance(executor, enable_perf=(layers, slots, payload) in perf_shape)
 
 
 def test_state_exchange_per_layer_h2d_duplicate_host_source(acl_host):
@@ -360,6 +368,8 @@ def test_state_exchange_empty_indices_noop(acl_host):
         ("dtype", RuntimeError, "dtypes must match"),
         ("host-layout", RuntimeError, "buffers must be device \\(layers, slots"),
         ("device-layout", RuntimeError, "buffers must be device \\(layers, slots"),
+        # Duplicate host destinations race across the round-robin cores.
+        ("duplicate-host-dst", RuntimeError, "destination slot indices must be unique"),
     ],
 )
 def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
@@ -382,6 +392,8 @@ def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
         elif case == "device-layout":
             dev_states = [dev[0]]
     d, h = _indices([1]), _indices([2])
+    if case == "duplicate-host-dst":
+        d, h = _indices([1, 3]), _indices([2, 2])
     with pytest.raises(error_type, match=message):
         transfer_state_all_layer_direct_lf_pf(
             dev_states, host_states, d, h, impl="ascendc_aiv"
@@ -399,6 +411,11 @@ def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
         # block is rejected (migrated from the retired unittest suite's
         # non-dense rejection; the AIV path copies raw (slot, layer) rows).
         ("non-packed", RuntimeError, "trailing payload dims must be packed"),
+        # The AIV kernel dereferences indices unchecked, so out-of-range
+        # slots and duplicate destinations are rejected up front (mirrors
+        # the retired unittest suite's out-of-range rejection).
+        ("out-of-range", RuntimeError, "exceeds component slot count"),
+        ("duplicate-dst", RuntimeError, "destination slot indices must be unique"),
     ],
 )
 def test_state_exchange_per_layer_rejected(acl_host, case, error_type, message):
@@ -422,6 +439,10 @@ def test_state_exchange_per_layer_rejected(acl_host, case, error_type, message):
         dst = base[0].transpose(-1, -2)
         host = acl_host(torch.randn(4, 2, 1, 8, 2, dtype=torch.float32, device="cpu"))
     h, d = _indices([2]), _indices([1])
+    if case == "out-of-range":
+        d = _indices([4])
+    elif case == "duplicate-dst":
+        d = _indices([1, 1])
     with pytest.raises(error_type, match=message):
         transfer_state_per_layer_direct_pf_lf(
             host, dst, h, d, layer_id, impl="ascendc_aiv"

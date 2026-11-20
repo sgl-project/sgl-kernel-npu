@@ -31,7 +31,7 @@ to restore, and each index pair transfers exactly that layer. Unselected slots r
 | `src` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Host state [slots, layers, 1, *state_shape]. |
 | `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination device layer view `[slots, *state_shape]`, typically one layer slice of the device pool; trailing dims must be flat-packed (contiguous). |
 | `src_indices` | Tensor | [N] | int64 | Required | Host slot indices in copy order. |
-| `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slot indices. |
+| `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slot indices; destinations must be unique. |
 | `layer_id` | int | — | — | Required | Zero-based source layer; must be smaller than the `src` layer count. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 2D copy flag FAST2D. |
 | `impl` | str | — | — | 'auto' | auto, ascendc_aiv, or torch_native. |

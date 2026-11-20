@@ -47,6 +47,13 @@ static ge::graphStatus TilingStateExchange(gert::TilingContext *context)
     if (blockDim <= 0 || blockDim > cores) {
         return ge::GRAPH_FAILED;
     }
+    // -1 selects the native acc_offload occupancy; an explicit START_DIM must
+    // stay inside the launched core window, otherwise every core takes the
+    // skip branch and the transfer silently drops.
+    const int64_t startDim = fields[START_DIM];
+    if (startDim < -1 || startDim >= blockDim) {
+        return ge::GRAPH_FAILED;
+    }
 
     auto *tiling = context->GetTilingData<SglStateExchangeTilingData>();
     if (!tiling) {

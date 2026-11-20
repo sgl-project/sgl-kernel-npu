@@ -33,7 +33,7 @@ components may be layer-narrowed views of one registered pool. Unselected slots 
 | `device_states` | Tensor list | [L,D,...] each | Matching payload dtype | Required | Layer-first device state components; layer counts may differ, slot payload trailing dims must be flat-packed (contiguous), permuted in-slot views are rejected. |
 | `host_states` | Tensor list | [H,L,1,...] each | Matching payload dtype | Required | Host state components paired one-to-one with the device components; may be layer-narrowed views of one registered pool. |
 | `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices valid for every component. |
-| `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices. |
+| `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices; destinations must be unique. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 2D copy flag FAST2D. |
 | `impl` | str | — | — | 'auto' | auto, ascendc_aiv, or torch_native. |
 
