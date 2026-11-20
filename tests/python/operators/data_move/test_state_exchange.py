@@ -129,7 +129,7 @@ def test_state_exchange_all_layer_d2h(
     if checked:
         expected = torch.zeros_like(ref_host)
         for device_slot, host_slot in zip(device_ids, host_ids):
-            expected[host_slot, :, 0] = ref_dev[:, device_slot].transpose(0, 1)
+            expected[host_slot, :, 0] = ref_dev[:, device_slot]
         assert_accuracy(host.view(torch.uint8), expected.view(torch.uint8))
     executor = make_executor(
         transfer_state_all_layer_direct_lf_pf,
@@ -189,9 +189,7 @@ def test_state_exchange_all_layer_draft_mixed(acl_host):
     if checked:
         expected = torch.zeros_like(ref_host)
         for device_slot, host_slot in zip(d.tolist(), h.tolist()):
-            expected[host_slot, :layers_main, 0] = ref_device_states[0][
-                :, device_slot
-            ].transpose(0, 1)
+            expected[host_slot, :layers_main, 0] = ref_device_states[0][:, device_slot]
             for i, draft in enumerate(ref_device_states[1:]):
                 expected[host_slot, layers_main + i, 0] = draft[0, device_slot]
         assert_accuracy(host.view(torch.uint8), expected.view(torch.uint8))
