@@ -1,7 +1,7 @@
 """Independent CPU reference for sparse flash attention.
 
 This is an accuracy reference, not a graph-compatible execution fallback. It
-covers ``sparse_mode=0`` (explicit top-k selection), ``attention_mode=2``
+covers explicit top-k selection with sparse mode 0 or bottom-right causal mode 3, ``attention_mode=2``
 (MLA/DeepSeek sparse attention) and ``sparse_block_size`` blocks, which is the
 path used by the legacy operator tests. Intermediates use FP32, with optional
 BF16 rounding of the weights before multiplying by V. The attention output
@@ -76,8 +76,12 @@ def sparse_flash_attention(
         raise NotImplementedError("layout_kv must be 'BSND', 'TND' or 'PA_BSND'")
     if attention_mode != 2:
         raise NotImplementedError("The reference implements attention_mode=2 only")
-    if sparse_mode != 0:
-        raise NotImplementedError("The reference implements sparse_mode=0 only")
+    if sparse_mode not in (0, 3):
+        raise NotImplementedError("The reference supports sparse_mode=0 or 3")
+    if sparse_mode == 3 and (pre_tokens, next_tokens) != (2**63 - 1, 2**63 - 1):
+        raise NotImplementedError(
+            "Causal sparse attention requires the default token window"
+        )
     if layout_kv == "PA_BSND" and block_table is None:
         raise ValueError("layout_kv='PA_BSND' requires block_table")
 
@@ -90,7 +94,7 @@ def sparse_flash_attention(
     topk_cpu = sparse_indices.detach().cpu().long()
     # The attention output keeps the non-rope head dimension of the value.
     out = torch.zeros(
-        query_cpu.shape[:-1] + (value_cpu.shape[-1],), dtype=torch.float32
+        query_cpu.shape[:-1] + (value_cpu.shape[-1],), dtype=torch.float32, device="cpu"
     )
     if query_rope is not None:
         query_cpu = torch.cat((query_cpu, query_rope.detach().cpu().float()), dim=-1)
@@ -148,11 +152,13 @@ def sparse_flash_attention(
         lse_shape = (
             (kv_heads, tokens, group) if tnd else (batch, kv_heads, q_len, group)
         )
-        softmax_max = torch.full(lse_shape, _SOFTMAX_MIN, dtype=torch.float32)
-        softmax_sum = torch.zeros(lse_shape, dtype=torch.float32)
+        softmax_max = torch.full(
+            lse_shape, _SOFTMAX_MIN, dtype=torch.float32, device="cpu"
+        )
+        softmax_sum = torch.zeros(lse_shape, dtype=torch.float32, device="cpu")
     else:
-        softmax_max = torch.empty(0, dtype=torch.float32)
-        softmax_sum = torch.empty(0, dtype=torch.float32)
+        softmax_max = torch.empty(0, dtype=torch.float32, device="cpu")
+        softmax_sum = torch.empty(0, dtype=torch.float32, device="cpu")
 
     block_table_cpu = None if block_table is None else block_table.detach().cpu().long()
     for b in range(batch):
@@ -166,9 +172,10 @@ def sparse_flash_attention(
         else:
             key_b = key_cpu[b, : kv_lens[b]]
             value_b = value_cpu[b, : kv_lens[b]]
-        threshold = kv_lens[b]
-
         for s in range(query_lengths[b]):
+            threshold = kv_lens[b]
+            if sparse_mode == 3:
+                threshold = max(0, threshold - query_lengths[b] + s + 1)
             token = query_offsets[b] + s
             query_row = query_cpu[token] if tnd else query_cpu[b, s]
             for n2 in range(kv_heads):
