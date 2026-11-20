@@ -115,24 +115,3 @@ def test_dynamic_quant(shape, dtype, mode):
             shape in _PERF_SHAPES and dtype == torch.bfloat16 and mode == "normal"
         ),
     )
-
-
-@pytest.mark.extra_checks
-def test_rejects_invalid_contract():
-    from sgl_kernel_npu.operators.activation import dynamic_quant
-
-    x = torch.zeros((4, 128), dtype=torch.bfloat16, device="npu")
-
-    with pytest.raises(ValueError):
-        dynamic_quant(torch.zeros((4, 0), dtype=torch.bfloat16, device="npu"))
-    with pytest.raises(ValueError):
-        dynamic_quant(torch.zeros((4, 128), dtype=torch.int8, device="npu"))
-    with pytest.raises(ValueError):
-        dynamic_quant(x, dst_type=torch.float8_e4m3fn)
-    with pytest.raises(ValueError):
-        dynamic_quant(torch.zeros((), dtype=torch.bfloat16, device="npu"))
-    with pytest.raises(RuntimeError):
-        non_contiguous = torch.zeros((4, 256), dtype=torch.bfloat16, device="npu")[
-            :, ::2
-        ]
-        dynamic_quant(non_contiguous)

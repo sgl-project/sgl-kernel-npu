@@ -7,82 +7,63 @@
 | `torch_npu` | Unsupported | Supported |
 | `torch_native` | Unsupported | Supported |
 
-The operator is A5-only: the vendor `npu_dynamic_mx_quant` op is A5-specific,
-and the Python layer reports every implementation, including the PyTorch
-reference, as unavailable on arch22.
+Both implementations are registered for arch35. Vendor support also depends
+on the installed `torch_npu` and CANN versions.
 
 ## Signature
 
 ```python
 from sgl_kernel_npu.operators.activation import dynamic_mx_quant
 
-def dynamic_mx_quant(
-    x: torch.Tensor,
-    dst_type: torch.dtype = torch.float8_e4m3fn,
-    *,
-    impl="auto",
-) -> tuple[torch.Tensor, torch.Tensor]:
+def dynamic_mx_quant(*args, impl="auto", **kwargs):
     ...
 ```
 
-`auto` and `torch_npu` call `torch_npu.npu_dynamic_mx_quant` with `axis=-1`
-and a fixed block size of 32; `torch_native` selects the pure PyTorch
-reference. Backend modules are imported lazily. There is no fallback unless
-`impl="torch_native"` is requested.
+`auto` and `torch_npu` call `torch_npu.npu_dynamic_mx_quant`. `torch_native`
+selects the PyTorch reference. The registry dispatches the requested implementation
+without falling back to a different implementation.
 
 ## Description
 
-Dynamic MXFP8 quantization along the last dimension: each 32 consecutive
-values share one E8M0 (power-of-two) scale derived from the floor(log2) of the
-group's maximum absolute value, clamped so the largest scaled value fits the
-E4M3FN range. The scaled values are saturated to ±448 and converted to E4M3FN
-with round-to-nearest-even; the saturation is explicit, not merely implied by
-the format's finite maximum. An all-zero group stores scale byte `0`; a group
-containing non-finite values stores scale byte `255` and a NaN payload.
+The `torch_npu` implementation forwards positional and keyword arguments to
+`torch_npu.npu_dynamic_mx_quant` and returns its result unchanged. The vendor
+operator computes a shared scale for each block along the selected axis.
+Supported options, defaults, layouts and dtypes depend on the installed vendor
+version. See the
+[torch_npu API](https://github.com/Ascend/op-plugin/blob/master/docs/zh/custom_APIs/torch_npu/torch_npu-npu_dynamic_mx_quant.md).
 
-$$
-e_g = \lfloor \log_2 \max_{i \in g} |x_i| \rfloor, \qquad
-s_g = 2^{e_g - 8}, \qquad
-y_i = \mathrm{E4M3FN}\big(\mathrm{clamp}(x_i / s_g, \pm 448)\big).
-$$
-
-The E8M0 scale byte is `e_g - 8 + 127`, clamped to a minimum of `0`.
-
-A typical use is the GLM-5.3-Flash DSA indexer query quantization: reshape
-`[tokens, heads, 128]` to `[-1, 128]` and call this operator to obtain the
-E4M3FN payload plus one E8M0 scale per 32 elements for the downstream
-quantized indexer computation.
+For the KPool query case, the caller supplies `axis=-1` and
+`dst_type=torch.float8_e4m3fn`. With the vendor's per-32 block configuration,
+each group of 32 values has an E8M0 scale. For an input `[rows, 128]`,
+the vendor result contains four scale bytes per row, arranged as
+`[rows, 2, 2]`. The caller views the returned bytes as E8M0 for the indexer.
 
 ## Parameters and return values
 
-| Parameter | Type | Shape | Dtype | Default | Description and constraints |
-| --- | --- | --- | --- | --- | --- |
-| `x` | `torch.Tensor` | `[..., D]` with `D > 0` and `D % 32 == 0` | `torch.bfloat16`, `torch.float16`, `torch.float32` | Required | Contiguous tensor on an Ascend NPU with at least one dimension. |
-| `dst_type` | `torch.dtype` | — | — | `torch.float8_e4m3fn` | Only `torch.float8_e4m3fn` is supported. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"torch_npu"` or `"torch_native"`. |
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `*args` | — | Required vendor input | Positional arguments passed to the selected implementation. |
+| `impl` | `str` | `"auto"` | Keyword-only implementation selector, accepting `"auto"`, `"torch_npu"` or `"torch_native"`. |
+| `**kwargs` | — | — | Arguments passed to the selected implementation, such as `axis`, `dst_type`, `round_mode`, `block_size` or `scale_alg` when supported by the vendor version. |
 
-The public operator checks the rank, the last-dimension width, dtype,
-contiguity and `dst_type` before dispatch; violations raise `ValueError`,
-except non-contiguous inputs, which raise `RuntimeError`. `axis=-1` and the
-block size of 32 are fixed and not exposed.
-
-| Return value | Type | Shape | Dtype | Description and constraints |
-| --- | --- | --- | --- | --- |
-| `payload` | `torch.Tensor` | Same as `x` | `torch.float8_e4m3fn` | Newly allocated contiguous tensor on the input device. |
-| `scales` | `torch.Tensor` | `x.shape[:-1] + (D // 32,)` | `torch.float8_e8m0fnu` | One E8M0 scale byte per 32-element group; a vendor uint8 or `[..., D // 64, 2]` layout is normalized to this shape. |
+The return value is the selected implementation's `(payload, scales)` tuple.
+For the E4M3FN per-32 example below, the payload has the input shape and
+`torch.float8_e4m3fn` dtype. The scale tensor has dtype `torch.uint8` and
+shape `[rows, ceil(D / 64), 2]`; scale bytes encode E8M0 values, and an odd
+number of blocks is padded to a pair. Other options follow the installed vendor API.
 
 ## torch_npu backend
 
-- Binds the vendor operator `torch_npu.npu_dynamic_mx_quant` directly with `axis=-1` and the vendor default block size of 32; no new Ascend C kernel is added.
-- The quantization semantics (E8M0 scale derivation, ±448 saturation, the `0`/`255` special bytes) are guaranteed by the vendor micro-scaling primitives.
-- The vendor scale output is normalized to `torch.float8_e8m0fnu` with shape `[..., D // 32]`.
-- There is no silent fallback to another implementation; on arch22 the generation registry reports the operator as unavailable.
+Calls `torch_npu.npu_dynamic_mx_quant(*args, **kwargs)`. The wrapper preserves
+the input arguments and the returned tensors, including their shapes and dtypes.
 
 ## torch_native backend
 
-- Pure PyTorch reference in `implementation/torch_native/activation/dynamic_mx_quant.py`; it does not call the Kernel and can run on CPU.
-- Reproduces the per-32-element E8M0 scale construction (including `0` for all-zero groups and `255` for non-finite groups) and the E4M3FN cast with ±448 saturation, for any `[..., D]` shape and bf16/fp16/fp32 inputs.
-- It does not model the Kernel's bitwise rounding differences, so compare dequantized results with a dtype-appropriate tolerance rather than bitwise. Intended for accuracy comparison, not performance.
+The reference in `implementation/torch_native/activation/dynamic_mx_quant.py`
+implements last-axis per-32 E4M3FN quantization with paired E8M0 scale bytes.
+It accepts `x` and `dst_type` and is intended for accuracy comparison. Pass
+`dst_type=torch.float8_e4m3fn` when comparing with the vendor implementation.
+The reference does not implement the vendor's other axes, block sizes or modes.
 
 ## Example
 
@@ -91,17 +72,17 @@ import torch
 import torch_npu
 from sgl_kernel_npu.operators.activation import dynamic_mx_quant
 
-x = torch.randn(4096, 128, dtype=torch.bfloat16, device="npu")
-payload, scales = dynamic_mx_quant(x)  # auto -> torch_npu
-assert payload.shape == (4096, 128)
+x = torch.randn(64, 128, dtype=torch.bfloat16, device="npu")
+payload, scales = dynamic_mx_quant(x, axis=-1, dst_type=torch.float8_e4m3fn)
+assert payload.shape == (64, 128)
 assert payload.dtype == torch.float8_e4m3fn
-assert scales.shape == (4096, 4)
-assert scales.dtype == torch.float8_e8m0fnu
+assert scales.shape == (64, 2, 2)
+assert scales.dtype == torch.uint8
 ```
 
 ## Limitations
 
-- A5-only; every implementation is unavailable on arch22.
-- Only `dst_type=torch.float8_e4m3fn` is supported; `axis=-1` and the block size of 32 are fixed.
-- The last dimension must be a positive multiple of 32; the input must be contiguous.
-- The `torch_native` reference is intended for accuracy comparison, not performance.
+- The registry makes both implementations available on arch35.
+- The vendor implementation's supported options depend on the installed
+  `torch_npu` and CANN versions.
+- The Torch reference covers last-axis per-32 E4M3FN quantization.

@@ -48,14 +48,16 @@ def _group_scales(blocks):
 def dynamic_mx_quant(x, dst_type=torch.float8_e4m3fn):
     """Reference implementation of per-32-element dynamic MX quantization.
 
-    ``x`` is a contiguous bf16/fp16/fp32 tensor whose last dimension is a
-    positive multiple of 32. Returns ``(payload, scales)``: the payload has
-    the same shape as ``x`` in ``torch.float8_e4m3fn``, and the scales have
-    shape ``x.shape[:-1] + (D // 32,)`` in ``torch.float8_e8m0fnu``.
+    Returns an E4M3FN payload and per-32 scale bytes packed in pairs, with
+    shape ``x.shape[:-1] + (ceil(D / 64), 2)`` and dtype ``torch.uint8``.
     """
     if dst_type != torch.float8_e4m3fn:
         raise ValueError(f"dst_type must be torch.float8_e4m3fn, got {dst_type}")
-    blocks = x.to(torch.float32).reshape(*x.shape[:-1], -1, _MX_BLOCK)
+    import torch.nn.functional as F
+
+    head_dim = x.shape[-1]
+    padded = F.pad(x.to(torch.float32), (0, (-head_dim) % _MX_BLOCK))
+    blocks = padded.reshape(*x.shape[:-1], -1, _MX_BLOCK)
     scale_bytes, finite = _group_scales(blocks)
     scale = torch.pow(2.0, scale_bytes.to(torch.float32) - float(_E8M0_BIAS)).unsqueeze(
         -1
@@ -63,6 +65,7 @@ def dynamic_mx_quant(x, dst_type=torch.float8_e4m3fn):
     scaled = (blocks / scale).clamp(-_E4M3_MAX, _E4M3_MAX)
     nan = torch.full_like(scaled, float("nan"))
     scaled = torch.where(finite.unsqueeze(-1), scaled, nan)
-    payload = scaled.reshape(x.shape).to(torch.float8_e4m3fn)
-    scales = scale_bytes.view(torch.float8_e8m0fnu)
+    payload = scaled.flatten(-2)[..., :head_dim].to(torch.float8_e4m3fn)
+    scales = F.pad(scale_bytes, (0, scale_bytes.shape[-1] % 2))
+    scales = scales.reshape(*x.shape[:-1], -1, 2)
     return payload, scales

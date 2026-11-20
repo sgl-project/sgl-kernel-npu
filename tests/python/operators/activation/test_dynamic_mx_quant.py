@@ -54,6 +54,13 @@ CASES = [
         marks=pytest.mark.extra_checks,
     ),
     pytest.param(
+        (7, 100),
+        torch.bfloat16,
+        "normal",
+        id="partial-block",
+        marks=pytest.mark.extra_checks,
+    ),
+    pytest.param(
         (8, 128),
         torch.bfloat16,
         "special",
@@ -91,7 +98,10 @@ def dequantize(payload, scales):
         scales.contiguous().view(torch.uint8).reshape(*payload.shape[:-1], -1).float()
     )
     scale = torch.pow(2.0, scale - 127.0)
-    return payload.float() * scale.repeat_interleave(_MX_BLOCK, dim=-1)
+    return (
+        payload.float()
+        * scale.repeat_interleave(_MX_BLOCK, dim=-1)[..., : payload.shape[-1]]
+    )
 
 
 @pytest.mark.parametrize("shape,dtype,mode", CASES)
@@ -106,14 +116,16 @@ def test_dynamic_mx_quant(shape, dtype, mode):
         require_test_impl(dynamic_mx_quant, impl)
     else:
         require_distinct_impls(dynamic_mx_quant, impl, impl_ref)
-        ref_payload, ref_scales = dynamic_mx_quant(x, impl=impl_ref)
+        ref_payload, ref_scales = dynamic_mx_quant(
+            x, dst_type=torch.float8_e4m3fn, impl=impl_ref
+        )
 
-    payload, scales = dynamic_mx_quant(x, impl=impl)
+    payload, scales = dynamic_mx_quant(x, dst_type=torch.float8_e4m3fn, impl=impl)
 
     assert payload.shape == x.shape
     assert payload.dtype == torch.float8_e4m3fn
-    assert scales.shape == (*x.shape[:-1], x.shape[-1] // _MX_BLOCK)
-    assert scales.dtype == torch.float8_e8m0fnu
+    assert scales.shape == (*x.shape[:-1], (x.shape[-1] + 63) // 64, 2)
+    assert scales.dtype == torch.uint8
     # Byte-wise comparison so NaN inputs do not break the equality check.
     assert torch.equal(
         x.view(torch.uint8), x_copy.view(torch.uint8)
@@ -130,6 +142,7 @@ def test_dynamic_mx_quant(shape, dtype, mode):
     executor = make_executor(
         dynamic_mx_quant,
         args=(x,),
+        kwargs={"dst_type": torch.float8_e4m3fn},
         impl=impl,
         impl_ref=impl_ref,
         accuracy_checked=not skip_accuracy,
@@ -140,24 +153,3 @@ def test_dynamic_mx_quant(shape, dtype, mode):
             shape in _PERF_SHAPES and dtype == torch.bfloat16 and mode == "normal"
         ),
     )
-
-
-@pytest.mark.extra_checks
-def test_rejects_invalid_contract():
-    from sgl_kernel_npu.operators.activation import dynamic_mx_quant
-
-    x = torch.zeros((4, 128), dtype=torch.bfloat16, device="npu")
-
-    with pytest.raises(ValueError):
-        dynamic_mx_quant(torch.zeros((4, 100), dtype=torch.bfloat16, device="npu"))
-    with pytest.raises(ValueError):
-        dynamic_mx_quant(torch.zeros((4, 128), dtype=torch.int8, device="npu"))
-    with pytest.raises(ValueError):
-        dynamic_mx_quant(x, dst_type=torch.float8_e5m2)
-    with pytest.raises(ValueError):
-        dynamic_mx_quant(torch.zeros((), dtype=torch.bfloat16, device="npu"))
-    with pytest.raises(RuntimeError):
-        non_contiguous = torch.zeros((4, 256), dtype=torch.bfloat16, device="npu")[
-            :, ::2
-        ]
-        dynamic_mx_quant(non_contiguous)
