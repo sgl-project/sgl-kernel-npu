@@ -1,0 +1,12 @@
+{
+  "name": "zerc_moe",
+  "builder": "zerc_moe",
+  "opt_in": true,
+  "ops": {
+    "arch22": [],
+    "arch35": ["zerc_moe"]
+  },
+  "repository": "https://gitcode.com/hanggongmao1/ops-transformer.git",
+  "commit": "d4c5f65d93591f26895c126fc590f0d622440819",
+  "license": "LICENSE"
+}
