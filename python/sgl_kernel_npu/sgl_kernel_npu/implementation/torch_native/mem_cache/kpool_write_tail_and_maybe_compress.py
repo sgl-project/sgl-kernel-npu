@@ -4,6 +4,9 @@ from typing import Optional
 
 import torch
 
+from ._kpool_hadamard import hadamard128
+from ._kpool_mx_quant import mx_quantize_row
+
 
 @torch.no_grad()
 def kpool_write_tail_and_maybe_compress(
@@ -21,9 +24,13 @@ def kpool_write_tail_and_maybe_compress(
     num_draft_tokens: int,
     effective_n_per_batch: Optional[torch.Tensor] = None,
     *,
-    num_programs: Optional[int] = None
+    scale_cache: Optional[torch.Tensor] = None,
+    num_programs: Optional[int] = None,
 ) -> None:
     """Torch reference matching the original target-verify semantics."""
+    assert (scale_cache is not None) == (
+        index_k_cache.dtype in (torch.int8, torch.float8_e4m3fn)
+    )
     total_rows = key.shape[0]
     if total_rows == 0:
         return
@@ -59,5 +66,28 @@ def kpool_write_tail_and_maybe_compress(
             pool_keys = tail_k[req].index_select(0, tail_slots).float()
             pool_scores = tail_score[req].index_select(0, tail_slots).float()
             probs = torch.softmax(pool_scores + ape.float(), dim=0)
-            pooled = torch.sum(pool_keys * probs, dim=0).to(torch.bfloat16)
-            cache_2d[int(write_loc[batch, pool_offset].item())] = pooled
+            pooled = torch.sum(pool_keys * probs, dim=0)
+            write_row = int(write_loc[batch, pool_offset].item())
+            if scale_cache is None:
+                cache_2d[write_row] = pooled.to(torch.bfloat16)
+            elif scale_cache.dtype == torch.float32:
+                pooled = hadamard128(pooled)
+                scale = pooled.abs().amax().clamp_min(1e-4) / 448.0
+                cache_2d[write_row] = (
+                    (pooled / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+                )
+                scale_cache.view(-1)[write_row] = scale
+            elif index_k_cache.dtype == torch.int8:
+                pooled = hadamard128(pooled)
+                amax = pooled.abs().amax()
+                scale = amax / 127.0 if amax > 0 else torch.ones_like(amax)
+                scaled = pooled / scale
+                rounded = scaled + torch.where(scaled >= 0, 0.5, -0.5)
+                cache_2d[write_row] = rounded.trunc().clamp(-127, 127).to(torch.int8)
+                scale_cache.view(-1)[write_row] = scale.to(torch.float16)
+            else:
+                payload, scale_bytes = mx_quantize_row(pooled)
+                cache_2d[write_row] = payload
+                scale_cache.view(cache_2d.shape[0], -1)[write_row] = (
+                    scale_bytes.reshape(-1)
+                )

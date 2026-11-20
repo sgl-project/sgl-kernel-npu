@@ -7,6 +7,8 @@
 | `triton` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
+The FP8/INT8 Hadamard paths have CPU-reference coverage only; NPU/Triton validation is pending.
+
 ## Signature
 
 ```python
@@ -29,6 +31,7 @@ def kpool_decode_update_and_maybe_write_cache(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
     impl="auto",
 ) -> None:
     ...
@@ -38,7 +41,7 @@ def kpool_decode_update_and_maybe_write_cache(
 
 ## Description
 
-Write the current decode key and score into the request's tail ring. When this token completes a pool, combine it with the stored tail history, apply channel-wise softmax pooling, and write the BF16 result to the pooled cache using the page table.
+Write the current decode key and score into the request's tail ring. When this token completes a pool, combine it with the stored tail history, apply channel-wise softmax pooling, and write the result to the pooled cache using the page table. BF16 stores the pooled key; INT8 applies normalized Hadamard128 after pooling, then stores a symmetric per-row quantization and writes the FP16 dequantization scale to `scale_cache`; mxFP8 (`float8_e4m3fn`) stores E4M3FN keys with one E8M0 scale byte per 32 channels in `scale_cache`.
 
 Pooling uses FP32 arithmetic and includes positional scores. Invalid request rows leave all state unchanged. `out_cache_loc` controls whether the row is valid; the pooled-cache destination is resolved separately from the page table.
 
@@ -46,11 +49,13 @@ Pooling uses FP32 arithmetic and includes positional scores. Invalid request row
 pool_size consecutive KV pages and one compressed index page; cache writes use
 that compressed page. GLM-5.3-Flash uses 512-token logical pages and 128-row index pages.
 
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. FP8 and INT8 queries must apply the same Hadamard128 before quantization. BF16 and mxFP8 keys and queries do not apply Hadamard; tail keys remain in the original basis.
+
 ## Parameters and return value
 
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16` | Required | In-place cache; S=slots_per_page, D=head_dim, page stride must equal S*D. |
+| `buf` | `torch.Tensor` | `[num_pages, S*D]` / `[num_pages, S, 1, D]` | `torch.bfloat16`, `torch.int8`, or `torch.float8_e4m3fn` | Required | In-place cache; S=slots_per_page, D=head_dim, page stride must equal S*D. FP8, INT8 and mxFP8 require `scale_cache`. |
 | `tail_k` | `torch.Tensor` | `[R, T, head_dim]` | `torch.bfloat16` | Required | Request-local key rings; updated in place for valid rows. |
 | `tail_score` | `torch.Tensor` | Same as `tail_k` | `torch.bfloat16` / `torch.float32` | Required | Paired scores; current tests cover BF16 and FP32, with FP32 reduction. |
 | `key` | `torch.Tensor` | `[B, head_dim]` | `torch.bfloat16` | Required | Current decode keys. |
@@ -64,6 +69,7 @@ that compressed page. GLM-5.3-Flash uses 512-token logical pages and 128-row ind
 | `pool_size` | `int` | — | — | Required | Keyword-only number of tokens in one pool. |
 | `slots_per_page` | `int` | — | — | Required | Keyword-only number of pooled slots per flattened cache page. |
 | `head_dim` | `int` | — | — | `128` | Keyword-only channel width; must match the tail's last dimension. |
+| `scale_cache` | `torch.Tensor` or `None` | `[num_pages * S]` for FP8/INT8 or `[num_pages * S, head_dim/64, 2]` for mxFP8 | `torch.float32` (FP8), `torch.float16` (INT8) or `torch.uint8` (mxFP8 E8M0 bytes) | `None` | Per-row dequantization scales written with FP8/INT8/mxFP8 keys. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 
 | Return value | Type | Shape | Dtype | Description |

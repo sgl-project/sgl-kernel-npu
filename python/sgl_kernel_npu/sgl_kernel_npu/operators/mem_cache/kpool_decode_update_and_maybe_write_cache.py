@@ -1,5 +1,7 @@
 """Public BF16 decode-update and conditional cache-write operator."""
 
+from typing import Optional
+
 import torch
 
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
@@ -26,6 +28,7 @@ def _triton_impl(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
 ) -> None:
     global _triton_fn
     if _triton_fn is None:
@@ -50,6 +53,7 @@ def _triton_impl(
         pool_size=pool_size,
         slots_per_page=slots_per_page,
         head_dim=head_dim,
+        scale_cache=scale_cache,
     )
 
 
@@ -70,6 +74,7 @@ def _torch_native_impl(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
 ) -> None:
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -93,6 +98,7 @@ def _torch_native_impl(
         pool_size=pool_size,
         slots_per_page=slots_per_page,
         head_dim=head_dim,
+        scale_cache=scale_cache,
     )
 
 
@@ -113,14 +119,19 @@ def kpool_decode_update_and_maybe_write_cache(
     pool_size: int,
     slots_per_page: int,
     head_dim: int = 128,
+    scale_cache: Optional[torch.Tensor] = None,
     impl="auto",
 ) -> None:
-    """Update BF16 decode tails and conditionally write completed pools.
+    """Update decode tails and conditionally write completed pools.
 
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
 
+    Ordinary FP8 stores a Hadamard-rotated E4M3FN key with one FP32 scale per row.
+    INT8 applies normalized Hadamard128 after pooling and before quantization.
+    FP8/INT8 queries use the same rotation; BF16 and mxFP8 do not apply Hadamard.
+
     Args:
-        buf: torch.Tensor, shape [num_pages, slots_per_page * head_dim], dtype torch.bfloat16. Flattened index cache; updated in place when a pool completes.
+        buf: torch.Tensor, shape [num_pages, slots_per_page * head_dim], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Flattened index cache; updated in place when a pool completes. FP8, INT8 and mxFP8 require ``scale_cache``.
         tail_k: torch.Tensor, shape [R, T, head_dim], dtype torch.bfloat16. Request-local key rings; updated in place for valid rows.
         tail_score: torch.Tensor, shape Same as tail_k, dtype torch.float32 per the backend contract. Scores paired with tail_k; updated in place for valid rows.
         key: torch.Tensor, shape [B, head_dim], dtype torch.bfloat16. Current decode keys.
@@ -134,10 +145,11 @@ def kpool_decode_update_and_maybe_write_cache(
         pool_size: int, shape —, dtype —. Keyword-only number of tokens in one pool.
         slots_per_page: int, shape —, dtype —. Keyword-only number of pooled slots per flattened cache page.
         head_dim: int, shape —, dtype —. Keyword-only channel width; must match the tail's last dimension.
+        scale_cache: torch.Tensor or None, shape [num_pages * slots_per_page] for FP8/INT8 or [num_pages * slots_per_page, head_dim/64, 2] for mxFP8, dtype torch.float32 for FP8, torch.float16 for INT8 or torch.uint8 (E8M0 bytes) for mxFP8. Per-row dequantization scales written with the quantized keys.
         impl: Backend name: auto, triton or torch_native.
 
     Returns:
-        None. Updates buf, tail_k and tail_score in place.
+        None. Updates buf, tail_k, tail_score and, for FP8/INT8/mxFP8, scale_cache in place.
     """
     impl_fn = get_impl_by_name(
         "mem_cache.kpool_decode_update_and_maybe_write_cache", impl
@@ -157,4 +169,5 @@ def kpool_decode_update_and_maybe_write_cache(
         pool_size=pool_size,
         slots_per_page=slots_per_page,
         head_dim=head_dim,
+        scale_cache=scale_cache,
     )
