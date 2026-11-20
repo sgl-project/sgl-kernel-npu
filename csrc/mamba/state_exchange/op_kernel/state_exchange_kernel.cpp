@@ -193,7 +193,7 @@ private:
         const bool isD2H = (direction_ == 2);
         const int64_t srcRow = isD2H ? deviceRow : hostRow;
         const int64_t dstRow = isD2H ? hostRow : deviceRow;
-        const int64_t remain = entry.width - offset_;
+        const int64_t remain = entry.width - offset;
         const int64_t len = STATE_EXCHANGE_COPY_CHUNK < remain ? STATE_EXCHANGE_COPY_CHUNK : remain;
         ctx.src = static_cast<uint64_t>(srcRow + offset);
         ctx.dst = static_cast<uint64_t>(dstRow + offset);
