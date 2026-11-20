@@ -294,6 +294,36 @@ def test_main(
         except AssertionError as e:
             raise
 
+    def check_layout_scratch_tail(notify_send_data):
+        # Regression check for the scratch de-alias fix: the cross-core prefix
+        # staging scratch (tempExpertGM_/tempServerGM_) lives in a dedicated
+        # tail region after the per-expert token-index table (item 8). Each
+        # core re-zeroes its own scratch slot before kernel exit, so the whole
+        # tail must read back as zeros; a non-zero value means the kernel wrote
+        # outside its scratch slot or the scratch aliased an output region
+        # again. Offsets mirror dispatch_layout_a2.h / deep_ep.cpp.
+        layout_scratch_cores = 48  # LAYOUT_SCRATCH_CORES in deep_ep.cpp
+        scratch_base = (
+            num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (1 + 2 * num_servers + 2 * num_topk)
+            + num_experts * MAX_BATCH_SIZE
+        )
+        expected_numel = scratch_base + layout_scratch_cores * (
+            num_experts + num_servers
+        )
+        assert notify_send_data.numel() == expected_numel, (
+            f"notify_send_data size mismatch on rank {rank}: "
+            f"Expected {expected_numel}, Actual {notify_send_data.numel()}"
+        )
+        scratch_tail = notify_send_data[scratch_base:]
+        nonzero = torch.nonzero(scratch_tail)
+        assert nonzero.numel() == 0, (
+            f"layout scratch tail not zeroed on rank {rank}: "
+            f"{nonzero.numel()} non-zero elements, first at offset "
+            f"{scratch_base + nonzero[0].item()}"
+        )
+
     # Rank layout meta
     num_tokens_per_rank = torch.empty((num_ranks,), dtype=torch.int, device="npu")
     num_tokens_per_rdma_rank = torch.empty((num_nodes,), dtype=torch.int, device="npu")
@@ -354,6 +384,10 @@ def test_main(
             raise
     except Exception as e:
         print(f"An error occurred: {e}")
+
+    # Always-on scratch-tail regression check, outside the try/except above so
+    # that a failure is fatal instead of being swallowed by the broad handler.
+    check_layout_scratch_tail(buffer.get_notify_send_data())
 
     # Config
     buffer_size = 256
