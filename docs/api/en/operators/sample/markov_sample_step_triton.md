@@ -21,10 +21,13 @@ from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 def markov_sample_step_triton(
     *, base_logits, bias, temperatures, key, offset, step, step_dtype,
     vocab_start=0, gather=None, gather_logits=None, logits_out=None,
-    has_sampled_rows=None, exp_noise=None, impl="auto"
+    has_sampled_rows=None, exp_noise=None, impl="auto", **kwargs
 ):
     ...
 ```
+
+Extra keyword arguments are ignored only when their value is `None`. Other
+values raise `TypeError` before backend dispatch.
 
 ## Description
 

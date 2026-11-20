@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -14,6 +16,25 @@ def generate_test_data(rows, vocab, hidden, dtype):
         "prev_embeds": torch.randn(rows, hidden, dtype=dtype),
         "w2_weight": torch.randn(vocab, hidden, dtype=dtype),
     }
+
+
+def test_markov_greedy_keyword_compatibility(monkeypatch):
+    from sgl_kernel_npu.operators.sample import markov_greedy
+
+    backend = Mock()
+    select_backend = Mock(return_value=backend)
+    monkeypatch.setattr(markov_greedy, "get_impl_by_name", select_backend)
+    kwargs = generate_test_data(1, 8, 4, torch.float32)
+
+    result = markov_greedy.markov_greedy_step_triton(**kwargs, future_option=None)
+    assert result is backend.return_value
+    select_backend.assert_called_once_with("sample.markov_greedy_step_triton", "auto")
+    backend.assert_called_once_with(**kwargs)
+
+    select_backend.reset_mock()
+    with pytest.raises(TypeError, match="future_option"):
+        markov_greedy.markov_greedy_step_triton(**kwargs, future_option=False)
+    select_backend.assert_not_called()
 
 
 @pytest.mark.parametrize(

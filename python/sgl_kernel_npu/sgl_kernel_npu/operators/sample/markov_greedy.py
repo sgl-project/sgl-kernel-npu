@@ -32,8 +32,16 @@ def _torch_native_impl(**kwargs):
 
 
 @register_operator("sample.markov_greedy_step_triton")
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
     """Dispatch to the selected markov_greedy_step_triton implementation."""
+    for name, value in kwargs.items():
+        if value is not None:
+            raise TypeError(
+                f"markov_greedy_step_triton does not support non-None {name!r}"
+            )
+
     return get_impl_by_name("sample.markov_greedy_step_triton", impl)(
         base_logits=base_logits, prev_embeds=prev_embeds, w2_weight=w2_weight
     )

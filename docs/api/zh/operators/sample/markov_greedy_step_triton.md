@@ -16,9 +16,13 @@
 ```python
 from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
     ...
 ```
+
+额外关键字参数仅在值为 `None` 时被忽略；否则在分派到后端前抛出 `TypeError`。
 
 ## 功能说明
 

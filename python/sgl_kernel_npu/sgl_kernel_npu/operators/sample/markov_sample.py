@@ -47,9 +47,16 @@ def markov_sample_step_triton(
     logits_out=None,
     has_sampled_rows=None,
     exp_noise=None,
-    impl="auto"
+    impl="auto",
+    **kwargs,
 ):
     """Dispatch to the selected markov_sample_step_triton implementation."""
+    for name, value in kwargs.items():
+        if value is not None:
+            raise TypeError(
+                f"markov_sample_step_triton does not support non-None {name!r}"
+            )
+
     return get_impl_by_name("sample.markov_sample_step_triton", impl)(
         base_logits=base_logits,
         bias=bias,

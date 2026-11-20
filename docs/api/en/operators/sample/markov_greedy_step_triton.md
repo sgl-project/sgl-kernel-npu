@@ -18,9 +18,14 @@ currently verified status.
 ```python
 from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
     ...
 ```
+
+Extra keyword arguments are ignored only when their value is `None`. Other
+values raise `TypeError` before backend dispatch.
 
 ## Description
 
