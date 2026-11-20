@@ -30,8 +30,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-a5-environment-diagnostic:
+    name: A5 environment fingerprints (CANN 9.1.0)
+    if: >-
+      ${{
+        (github.head_ref == 'codex/kda-a3-ci-diagnostic' &&
+         github.event.pull_request.head.repo.full_name == 'cl-vv-h/sgl-kernel-npu') ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.ref_name == 'codex/kda-a3-ci-diagnostic' &&
+         github.repository == 'cl-vv-h/sgl-kernel-npu')
+      }}
+    runs-on: linux-amd64-a5-1
+    timeout-minutes: 35
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:9.1.0-950-ubuntu22.04-py3.12
+    env:
+      CANN_VERSION: '9.1.0'
+      NPU_HARDWARE: '950'
+      GITHUB_PROXY_URL: 'https://gh-proxy.test.osinfra.cn/'
+      ACL_OP_SELECT_IMPL_MODE: high_precision
+      UV_SYSTEM_PYTHON: 'true'
+      UV_NO_CACHE: '1'
+    steps:
+      - name: Clean git config
+        run: |
+          git config --global --unset http.https://gh-proxy.test.osinfra.cn/.extraheader || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+      - name: Capture base image SDK and driver
+        run: |
+          python3 .github/scripts/collect_npu_environment.py --skip-runtime --output a5-environment/base.json
+      - name: Install CI dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version 9.1.0
+      - name: Install matching Triton-Ascend and test dependencies
+        run: |
+          pip install https://github.com/triton-lang/triton-ascend/releases/download/v3.2.2/triton_ascend-3.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+          uv pip install expecttest einops pytest packaging ninja
+      - name: Capture prepared NPU runtime
+        run: |
+          python3 .github/scripts/collect_npu_environment.py --output a5-environment/prepared.json
+      - name: Upload environment fingerprints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a5-environment-diagnostic
+          path: a5-environment/
+          if-no-files-found: error
+
   get-changed-files:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
+    if: >-
+      ${{
+        github.head_ref != 'codex/kda-a3-ci-diagnostic' &&
+        github.ref_name != 'codex/kda-a3-ci-diagnostic' &&
+        (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
+      }}
     runs-on: ubuntu-latest
     outputs:
       speculative: ${{ steps.select.outputs.speculative }}
@@ -456,7 +512,12 @@ jobs:
       timeout_minutes: 60
 
   finish:
-    if: ${{ always() }}
+    if: >-
+      ${{
+        always() &&
+        github.head_ref != 'codex/kda-a3-ci-diagnostic' &&
+        github.ref_name != 'codex/kda-a3-ci-diagnostic'
+      }}
     needs:
       - get-changed-files
       - test-speculative-ops
