@@ -30,7 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-kda-a3-diagnostic:
+  test-a5-environment-diagnostic:
+    name: A5 environment fingerprints (CANN 9.1.0)
     if: >-
       ${{
         (github.head_ref == 'codex/kda-a3-ci-diagnostic' &&
@@ -39,12 +40,46 @@ jobs:
          github.ref_name == 'codex/kda-a3-ci-diagnostic' &&
          github.repository == 'cl-vv-h/sgl-kernel-npu')
       }}
-    uses: ./.github/workflows/pr-test-kernel-group.yml
-    with:
-      group: kda-a3-diagnostic
-      cann_version: '9.1.0'
-      npu_hardware: a3
-      timeout_minutes: 30
+    runs-on: linux-amd64-a5-1
+    timeout-minutes: 35
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:9.1.0-950-ubuntu22.04-py3.12
+    env:
+      CANN_VERSION: '9.1.0'
+      NPU_HARDWARE: '950'
+      GITHUB_PROXY_URL: 'https://gh-proxy.test.osinfra.cn/'
+      ACL_OP_SELECT_IMPL_MODE: high_precision
+      UV_SYSTEM_PYTHON: 'true'
+      UV_NO_CACHE: '1'
+    steps:
+      - name: Clean git config
+        run: |
+          git config --global --unset http.https://gh-proxy.test.osinfra.cn/.extraheader || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+      - name: Capture base image SDK and driver
+        run: |
+          python3 .github/scripts/collect_npu_environment.py --skip-runtime --output a5-environment/base.json
+      - name: Install CI dependencies
+        run: |
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh --cann-version 9.1.0
+      - name: Install matching Triton-Ascend and test dependencies
+        run: |
+          pip install https://github.com/triton-lang/triton-ascend/releases/download/v3.2.2/triton_ascend-3.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+          uv pip install expecttest einops pytest packaging ninja
+      - name: Capture prepared NPU runtime
+        run: |
+          python3 .github/scripts/collect_npu_environment.py --output a5-environment/prepared.json
+      - name: Upload environment fingerprints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a5-environment-diagnostic
+          path: a5-environment/
+          if-no-files-found: error
 
   get-changed-files:
     if: >-
@@ -62,6 +97,7 @@ jobs:
       embedding: ${{ steps.select.outputs.embedding }}
       data_move: ${{ steps.select.outputs.data_move }}
       activation: ${{ steps.select.outputs.activation }}
+      diffusion: ${{ steps.select.outputs.diffusion }}
       attention: ${{ steps.select.outputs.attention }}
       batch_invariant: ${{ steps.select.outputs.batch_invariant }}
       elementwise: ${{ steps.select.outputs.elementwise }}
@@ -101,6 +137,7 @@ jobs:
               "embedding": "tests/python/operators/embedding/",
               "data_move": "tests/python/operators/data_move/",
               "activation": "tests/python/operators/activation/",
+              "diffusion": "tests/python/operators/diffusion/",
               "attention": "tests/python/operators/attention/",
               "batch_invariant": "tests/python/operators/batch_invariant/",
               "elementwise": "tests/python/operators/elementwise/",
@@ -376,6 +413,20 @@ jobs:
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
 
+  test-diffusion-ops:
+    needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.diffusion == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: diffusion
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
   test-data_move-ops:
     needs: get-changed-files
     if: ${{ needs.get-changed-files.outputs.data_move == 'true' }}
@@ -476,6 +527,7 @@ jobs:
       - test-embedding-ops
       - test-data_move-ops
       - test-activation-ops
+      - test-diffusion-ops
       - test-attention-ops
       - test-batch-invariant-ops
       - test-elementwise-ops

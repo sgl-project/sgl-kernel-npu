@@ -1,8 +1,8 @@
-"""Shared eager paged sparse-attention math."""
+"""DSV4 shared-KV sparse MLA reference for paged and packed KV caches."""
 
 import torch
 
-from .metadata import ReferenceMetadata
+from .dsv4_sparse_mla_metadata import DSV4SparseMLAMetadata
 
 
 def _fp8_to_float(value):
@@ -11,7 +11,7 @@ def _fp8_to_float(value):
     return value.float()
 
 
-def unpack_kv(cache):
+def _unpack_dsv4_packed_kv(cache):
     rows = cache.view(torch.uint8).reshape(-1, cache.shape[-1])
     if rows.shape[-1] not in (608, 640):
         raise NotImplementedError("reference supports 608B and cann_9_1 640B KV rows")
@@ -34,11 +34,15 @@ def _paged_rows(cache, table, batch, positions, quantized):
         table[batch, positions // cache.shape[1]].long() * cache.shape[1]
         + positions % cache.shape[1]
     )
-    rows = unpack_kv(cache) if quantized else cache.reshape(-1, cache.shape[-1]).float()
+    rows = (
+        _unpack_dsv4_packed_kv(cache)
+        if quantized
+        else cache.reshape(-1, cache.shape[-1]).float()
+    )
     return rows[slots]
 
 
-def _attention(
+def dsv4_sparse_mla(
     q,
     *,
     ori_kv,
@@ -75,7 +79,7 @@ def _attention(
         raise NotImplementedError(
             "reference supports explicit/SWA original KV and causal compressed KV"
         )
-    if metadata is not None and not isinstance(metadata, ReferenceMetadata):
+    if metadata is not None and not isinstance(metadata, DSV4SparseMLAMetadata):
         raise TypeError("torch_native requires torch_native metadata")
     quantized = quant_mode is not None
     if quantized and (quant_mode != 1 or rope_head_dim != 64):
@@ -136,11 +140,3 @@ def _attention(
     return out.reshape_as(q), (
         lse if return_softmax_lse else torch.empty(0, device=q.device)
     )
-
-
-def sparse_flash_mla(q, **kwargs):
-    return _attention(q, **kwargs)
-
-
-def mixed_quant_sparse_flash_mla(q, **kwargs):
-    return _attention(q, **kwargs)

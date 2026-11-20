@@ -219,7 +219,13 @@ static ge::graphStatus TilingChunkKdaFwd(gert::TilingContext *context)
     workspace[0] = platform.GetLibApiWorkSpaceSize() + AlignWorkspace(userWorkspace);
     context->SetBlockDim(blockDim);
     context->SetScheduleMode(1);
+#ifdef SGL_KDA_SPLIT_TILING_KEY
+    // Preserve the previous kernel's shape test for the fast path.
+    const bool useFastPath = td.chunkSize == 64 && td.kHeadDim == 128 && td.vHeadDim == 128;
+    context->SetTilingKey(useFastPath ? 2 : 1);
+#else
     context->SetTilingKey(0);
+#endif
     return ge::GRAPH_SUCCESS;
 }
 IMPL_OP_OPTILING(SglChunkKdaFwd).Tiling(TilingChunkKdaFwd);

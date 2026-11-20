@@ -1,4 +1,5 @@
 from .build_out_tokens import build_out_tokens_triton
+from .div_argmax import div_argmax
 from .markov_greedy import markov_greedy_step_triton
 from .markov_sample import markov_sample_step_triton
 from .row_argmax import row_argmax
@@ -8,6 +9,7 @@ from .top_p_renorm_prob import top_p_renorm_prob
 
 __all__ = [
     "build_out_tokens_triton",
+    "div_argmax",
     "markov_greedy_step_triton",
     "markov_sample_step_triton",
     "row_argmax",
