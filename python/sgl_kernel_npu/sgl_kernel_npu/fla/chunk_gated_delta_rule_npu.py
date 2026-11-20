@@ -46,3 +46,47 @@ def chunk_gated_delta_rule_npu(
         g=g,
         chunk_state=chunk_state,
     )
+
+
+def chunk_gated_delta_rule_pool_npu(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    state_pool: torch.Tensor,
+    src_slots: torch.Tensor,
+    dst_slots: torch.Tensor,
+    *,
+    src_pool: torch.Tensor | None = None,
+    beta: torch.Tensor | None = None,
+    actual_seq_lengths: torch.Tensor | None = None,
+    scale: float | None = None,
+    g: torch.Tensor | None = None,
+    chunk_state: torch.Tensor | None = None,
+    has_initial_state: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Run GDN prefill with indexed, read-only sources and in-place destinations.
+
+    Pools have shape (P, Nv, Dv, Dk). Slot and source-head strides may describe
+    the real pool layout, but each [Dv, Dk] matrix must be row-contiguous and
+    each destination slot must be one contiguous [Nv, Dv, Dk] block with a
+    64-byte-aligned base and slot stride. Index tensors are contiguous int32
+    arrays of length B. A negative source slot or a false
+    has_initial_state entry starts that row from zero; a negative destination
+    slot skips that row without writing state. Destination slots must be unique
+    and must not alias a source slot that another row still needs.
+    """
+    return torch.ops.npu.chunk_gated_delta_rule_pool(
+        query,
+        key,
+        value,
+        state_pool,
+        src_slots,
+        dst_slots,
+        src_pool=src_pool,
+        beta=beta,
+        actual_seq_lengths=actual_seq_lengths,
+        scale=scale,
+        g=g,
+        chunk_state=chunk_state,
+        has_initial_state=has_initial_state,
+    )
