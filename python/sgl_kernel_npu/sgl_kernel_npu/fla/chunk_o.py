@@ -158,8 +158,11 @@ def chunk_fwd_o_npu(
         return (triton.cdiv(V, meta["BV"]), N * H)
 
     # Pre-transpose tensors outside the kernel to ensure contiguous memory access within the kernel
-    # avoiding scattered (non-contiguous) access that may lead to axis expansion
-    g = g.transpose(1, 2).contiguous()
+    # avoiding scattered (non-contiguous) access that may lead to axis expansion.
+    # `g` is optional: without it the kernel is compiled with USE_G=False and never reads
+    # the pointer, so the layout fix-up has to be skipped instead of dereferencing None.
+    if g is not None:
+        g = g.transpose(1, 2).contiguous()
     chunk_fwd_kernel_o_npu_kernel[grid](
         q,
         k,
