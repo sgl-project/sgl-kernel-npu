@@ -249,7 +249,9 @@ def test_state_exchange_per_layer_h2d(
     h, d = _indices(host_ids), _indices(device_ids)
 
     ref_dev = torch.zeros_like(dev)
-    ref_host = host.clone()
+    # The torch_native reference requires a pinned host source; host itself
+    # stays a pageable acl-registered pool for the AIV path under test.
+    ref_host = torch.empty_like(host, pin_memory=True).copy_(host)
     if checked:
         transfer_state_per_layer_direct_pf_lf(
             ref_host, ref_dev[layer_id], h, d, layer_id, impl=impl_ref
