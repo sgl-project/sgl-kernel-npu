@@ -1,0 +1,64 @@
+{
+  "repository": "https://github.com/vllm-project/vllm-ascend",
+  "commit": "3326f350c0de30a5170b86ecfce851322e3216e6",
+  "upstream_source_root": "csrc/attention/fused_lightning_indexer_manage/op_kernel",
+  "unchanged_device_headers": {
+    "fused_lightning_indexer_manage_constants.h": "78fb9724396690e27e9a9603193d67954d5245ac9210ebc2ea9080a687b8e65c",
+    "fused_lightning_indexer_manage_workspace.h": "354ce00b93d6c84a05eac8a6e81a20f3102951d259b6fa2b9ee293d50e86c4d9",
+    "lightning_indexer_service_cube.h": "3119d14f6a9243a5453745bfcd7710032d0aba286afe9e808344d57bc67f312a",
+    "lightning_indexer_vector.h": "d6eee291976b3e29b66983ab43a0f031a2b5a6a85eee55b5e927a57281696bce"
+  },
+  "adapted_entry_original_sha256": "c0cc0dad33d9bf6865aac3079a41cc6bc84ccb407283cffefbbacd75debc157c",
+  "adapted_entry_upstream_path": "csrc/attention/fused_lightning_indexer_manage/op_kernel/fused_lightning_indexer_manage.cpp",
+  "adapted_entry_original_git_blob_sha1": "a522eceaa26b82cfd50a3fc62ea9742bf800bf47",
+  "adaptations": [
+    "Direct AscendC entry instead of generated aclnn template dispatch",
+    "Shared explicit POD tiling with runtime dtype",
+    "Host launch integrated into sgl_kernel_npu; no custom vendor package or libcust_opapi dependency",
+    "Read GM tiling scalar fields into local storage instead of invoking a cross-address-space copy constructor",
+    "Use GM_ADDR kernel parameters for the AscendC launch generator",
+    "Resolve EVENT_ID5 to the identical literal 5 for CANN host-only compilation without changing pinned headers"
+  ],
+  "adapted_device_headers": {
+    "lightning_indexer_common.h": {
+      "upstream_path": "csrc/attention/fused_lightning_indexer_manage/op_kernel/lightning_indexer_common.h",
+      "original_sha256": "ce8cc08d6228a7c3f49c32418767c331ab7559150e1d4af537d5163db640421d",
+      "git_blob_sha1": "35673604751272f6b0499df13c8b04d5e3e1a29e",
+      "adapted_sha256_lf": "cb881c0f81bf09a8f2ee9374b3daa8c1b6593948ad12615447222f7b82f3b1da",
+      "adaptations": [
+        "Add causalScore state to distinguish score masking from causal attention."
+      ]
+    },
+    "lightning_indexer_kernel.h": {
+      "upstream_path": "csrc/attention/fused_lightning_indexer_manage/op_kernel/lightning_indexer_kernel.h",
+      "original_sha256": "dd480e52169e186fbcf0d8289569aa4ba1cdb43c5bb4b0564dc7bead426e6e68",
+      "git_blob_sha1": "34ea7fecba9504de4e91be9d12d889bb3bdfd1e3",
+      "adapted_sha256_lf": "4a09c94e69fab0a8525acc50ec26006181f26603e4b96f495457accee045d83b",
+      "adaptations": [
+        "Read fullVisible from tiling data and set causalScore when either causal attention or full-visible scoring requires score masking."
+      ]
+    },
+    "lightning_indexer_service_vector.h": {
+      "upstream_path": "csrc/attention/fused_lightning_indexer_manage/op_kernel/lightning_indexer_service_vector.h",
+      "original_sha256": "6bf39b702e419a10e92be4540449f4826ae96e05ddc1adbaa2ffac0e10c4d0a1",
+      "git_blob_sha1": "eaab3477936935c747888cb7ae6d8e80c9f6a16b",
+      "adapted_sha256_lf": "e2f09b64e31564dd0995f54e4818654697f8f15d1854610504b795b68c557ff7",
+      "adaptations": [
+        "Use causalScore for both causal score-range calculations so full-visible mode masks invisible keys."
+      ]
+    },
+    "fused_lightning_indexer_manage_union.h": {
+      "upstream_path": "csrc/attention/fused_lightning_indexer_manage/op_kernel/fused_lightning_indexer_manage_union.h",
+      "original_sha256": "d394140db6313559066e9b155a7b1f45b78d897520c3ee9ed265f9d1ce2e4ec2",
+      "git_blob_sha1": "8f4d4a04b1a90f7f6f769eb4a36328b1590f8584",
+      "adapted_sha256_lf": "a3da8bb54cc0ed4a90f698ef2288d019677d2d6664cd52b3b759a14cb3f3848f",
+      "adaptations": [
+        "Add full-visible score masking and cache maintenance for steady requests.",
+        "Build Q1 union plans directly from the source-sorted TopK miss prefix and allow full-visible selection without the legacy page-aligned stable-prefix restriction.",
+        "Refresh rewritten resident entries by scanning miss plans in bounded chunks, checking source/slot ownership, and appending missing current residents.",
+        "Make eviction reduction operate on a full vector chunk and explicitly pad/invalidate logical tails before sorting.",
+        "Support the full-visible capacity path while retaining bounded eviction behavior."
+      ]
+    }
+  }
+}
