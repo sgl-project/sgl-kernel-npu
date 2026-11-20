@@ -6,6 +6,25 @@ from .fused_infer_attention_score import dense_attention
 from .sparse_flash_attention import _paged_sequence
 
 
+def _prefill_mask(mask, q_len, kv_len):
+    if mask is None:
+        return None
+    prefix_len = kv_len - q_len
+    if prefix_len < 0:
+        raise ValueError("Query length exceeds the cached context length")
+    if mask.size(1) >= kv_len:
+        # A full context mask starts at the first cached token. A rectangular
+        # query-by-key mask already contains just the query rows.
+        start = prefix_len if mask.size(0) >= kv_len else 0
+        return mask[start : start + q_len, :kv_len]
+
+    # ATB's compressed mask is one triangular tile, even for multi-page KV.
+    triangle = torch.ones_like(mask, dtype=torch.bool).triu_(1)
+    if mask.size(0) != mask.size(1) or not torch.equal(mask.bool(), triangle):
+        raise ValueError("Expected an upper-triangular compressed prefill mask")
+    return mask.new_ones((q_len, kv_len), dtype=torch.bool).triu_(prefix_len + 1)
+
+
 def _run_paged_attention(
     query,
     key_cache,
@@ -46,7 +65,7 @@ def _run_paged_attention(
                     keys.transpose(0, 1).unsqueeze(0),
                     values.transpose(0, 1).unsqueeze(0),
                     scale_value,
-                    mask=mask[:q_len, :kv_len] if mask is not None else None,
+                    mask=_prefill_mask(mask, q_len, kv_len),
                 )[0]
                 .squeeze(0)
                 .transpose(0, 1)
@@ -68,8 +87,13 @@ def flash_attention_qlens(
     num_kv_heads,
     out,
 ):
-    if mask is not None and mask.ndim != 2:
-        raise NotImplementedError("torch_native requires a 2D prefill mask")
+    if mask is not None:
+        if mask.ndim != 2:
+            raise NotImplementedError("torch_native requires a 2D prefill mask")
+        mask = mask.detach().cpu()
+        if mask.dtype == torch.bfloat16:
+            # ATB uses 1 to block a position in its BF16 mask.
+            mask = mask.masked_fill(mask == 1, -torch.inf)
     _run_paged_attention(
         query,
         key_cache,
@@ -81,7 +105,7 @@ def flash_attention_qlens(
         num_heads,
         num_kv_heads,
         out,
-        mask=mask.detach().cpu() if mask is not None else None,
+        mask=mask,
     )
 
 
