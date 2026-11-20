@@ -29,7 +29,7 @@ to restore, and each index pair transfers exactly that layer. Unselected slots r
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `src` | Tensor | [H,L,1,...] | Matching payload dtype | Required | Host state [slots, layers, 1, *state_shape]. |
-| `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination device layer view `[slots, *state_shape]`, typically one layer slice of the device pool. |
+| `dst` | Tensor | [D,...] | Matching payload dtype | Required | Destination device layer view `[slots, *state_shape]`, typically one layer slice of the device pool; trailing dims must be flat-packed (contiguous). |
 | `src_indices` | Tensor | [N] | int64 | Required | Host slot indices in copy order. |
 | `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slot indices. |
 | `layer_id` | int | — | — | Required | Zero-based source layer; must be smaller than the `src` layer count. |

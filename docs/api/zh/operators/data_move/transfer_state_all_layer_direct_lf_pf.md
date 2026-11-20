@@ -25,7 +25,7 @@ def transfer_state_all_layer_direct_lf_pf(device_states, host_states, device_ind
 
 | 参数 | 类型 | 形状 | 数据类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `device_states` | Tensor 列表 | [L,D,...] 每组件 | 源与目标一致 | 必填 | 按层排列的设备状态组件；各组件层数可不同，槽位 payload 须物理稠密且按槽位打包。 |
+| `device_states` | Tensor 列表 | [L,D,...] 每组件 | 源与目标一致 | 必填 | 按层排列的设备状态组件；各组件层数可不同，槽位 payload 的尾部维度必须平坦连续（打包），槽内转置视图会被拒绝。 |
 | `host_states` | Tensor 列表 | [H,L,1,...] 每组件 | 源与目标一致 | 必填 | 与设备组件一一对应的主机状态组件，可为同一注册池的按层 narrow 视图。 |
 | `device_indices` | Tensor | [N] | int64 | 必填 | 对所有组件有效的非负设备槽位索引。 |
 | `host_indices` | Tensor | [N] | int64 | 必填 | 与设备索引一一对应的非负主机槽位索引。 |

@@ -272,6 +272,35 @@ def test_state_exchange_per_layer_h2d(
         assert_accuracy(dev.view(torch.uint8), ref_dev.view(torch.uint8))
 
 
+def test_state_exchange_per_layer_h2d_duplicate_host_source(acl_host):
+    # Migrated from the retired unittest suite: one host source slot may back
+    # several device slots, and the (src, dst) pairs map in input order even
+    # when both sides are unsorted. Expected values are constructed directly
+    # so the mapping order is verified without relying on the reference impl.
+
+    from sgl_kernel_npu.operators.data_move import transfer_state_per_layer_direct_pf_lf
+
+    impl, _impl_ref = get_test_impls()
+    layers, slots, host_slots, payload = 2, 6, 8, (16,)
+    torch.manual_seed(0)
+    dev = torch.zeros(layers, slots, *payload, dtype=torch.float32, device="npu")
+    host = acl_host(
+        torch.randn(host_slots, layers, 1, *payload, dtype=torch.float32, device="cpu")
+    )
+    # host slot 3 backs device slots 0 and 2; neither side is sorted.
+    h, d = _indices([3, 3, 5]), _indices([0, 2, 5])
+    layer_id = 1
+    transfer_state_per_layer_direct_pf_lf(
+        host, dev[layer_id], h, d, layer_id, impl=impl
+    )
+    torch.npu.synchronize()
+
+    expected = torch.zeros_like(dev)
+    for host_slot, device_slot in zip(h.tolist(), d.tolist()):
+        expected[layer_id, device_slot] = host[host_slot, layer_id, 0]
+    assert_accuracy(dev.view(torch.uint8), expected.view(torch.uint8))
+
+
 def test_state_exchange_roundtrip(acl_host):
     # Backup every layer D2H, restore them per-layer H2D, and compare.
 
@@ -366,6 +395,10 @@ def test_state_exchange_all_layer_rejected(acl_host, case, error_type, message):
         ("unregistered", RuntimeError, "not registered"),
         ("layer-id", ValueError, "layer_id is outside"),
         ("host-layout", RuntimeError, "buffers must be device \\(layers, slots"),
+        # Slot payloads must be flat-packed: a dense-but-permuted trailing
+        # block is rejected (migrated from the retired unittest suite's
+        # non-dense rejection; the AIV path copies raw (slot, layer) rows).
+        ("non-packed", RuntimeError, "trailing payload dims must be packed"),
     ],
 )
 def test_state_exchange_per_layer_rejected(acl_host, case, error_type, message):
@@ -382,6 +415,12 @@ def test_state_exchange_per_layer_rejected(acl_host, case, error_type, message):
         layer_id = 2
     elif case == "host-layout":
         host = host.squeeze(2)
+    elif case == "non-packed":
+        # Same element count as a [slots, 16] layer, but the trailing block
+        # is permuted so it is not flat-contiguous inside a slot row.
+        base = torch.randn(2, 4, 2, 8, dtype=torch.float32, device="npu")
+        dst = base[0].transpose(-1, -2)
+        host = acl_host(torch.randn(4, 2, 1, 8, 2, dtype=torch.float32, device="cpu"))
     h, d = _indices([2]), _indices([1])
     with pytest.raises(error_type, match=message):
         transfer_state_per_layer_direct_pf_lf(
