@@ -69,7 +69,6 @@ def test_split_hbm_short_resident_current_and_history(width, old_end, graph):
         )
         valid = npu(torch.tensor([True] * width + [False, False]))
         slots = npu(torch.tensor([1], dtype=torch.int32))
-        begin = npu(torch.tensor([-1, 0 if old_end >= 0 else -1], dtype=torch.int32))
         end = npu(torch.tensor([-1, old_end], dtype=torch.int32))
         current = npu(current_cpu)
         q = npu(torch.randn(width, 8, 512, generator=generator, dtype=dtype))
@@ -114,7 +113,6 @@ def test_split_hbm_short_resident_current_and_history(width, old_end, graph):
                 valid=valid,
                 request_slots=slots,
                 req_to_token=req_table,
-                resident_begin=begin,
                 resident_end=end,
                 host_token_capacity=host_rows,
                 **({"dram_rope_dev_ptr": rope_ptr} if split_host else {}),
@@ -125,14 +123,12 @@ def test_split_hbm_short_resident_current_and_history(width, old_end, graph):
             torch.npu.synchronize()
             hbm_k.copy_(initial_hbm[..., :512])
             hbm_rope.copy_(initial_hbm[..., 512:])
-            begin[1] = 0 if old_end >= 0 else -1
             end[1] = old_end
             capture = torch.npu.NPUGraph()
             with torch.npu.graph(capture):
                 run()
             hbm_k.copy_(initial_hbm[..., :512])
             hbm_rope.copy_(initial_hbm[..., 512:])
-            begin[1] = 0 if old_end >= 0 else -1
             end[1] = old_end
             capture.replay()
         else:
@@ -147,7 +143,6 @@ def test_split_hbm_short_resident_current_and_history(width, old_end, graph):
         for pos in range(length):
             expected_hbm[physical_pages[pos // 128], pos % 128, 0] = logical[pos]
         torch.testing.assert_close(hbm.cpu(), expected_hbm, atol=0, rtol=0)
-        assert begin.cpu().tolist() == [-1, 0]
         assert end.cpu().tolist() == [-1, length]
         actual = output.cpu().float()
         q_cpu, qr_cpu = q.cpu().float(), qr.cpu().float()
@@ -208,8 +203,7 @@ def _check_long_first_fill(width, graph, missing_current_page=False):
         )
         slots = torch.tensor([1, 0], dtype=torch.int32, device=case.device)
         table = torch.zeros((3, 2048), dtype=torch.int32, device=case.device)
-        begin = torch.full((3,), -1, dtype=torch.int32, device=case.device)
-        end = begin.clone()
+        end = torch.full((3,), -1, dtype=torch.int32, device=case.device)
         initial = case.hbm.clone()
         hbm_k = initial[..., :512].contiguous()
         hbm_rope = initial[..., 512:].contiguous()
@@ -255,7 +249,6 @@ def _check_long_first_fill(width, graph, missing_current_page=False):
                 valid=valid,
                 request_slots=slots,
                 req_to_token=table,
-                resident_begin=begin,
                 resident_end=end,
                 host_token_capacity=case.dram.numel() // 576,
                 dram_rope_dev_ptr=rope_ptr,
@@ -266,14 +259,12 @@ def _check_long_first_fill(width, graph, missing_current_page=False):
             torch.npu.synchronize()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture = torch.npu.NPUGraph()
             with torch.npu.graph(capture):
                 run()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture.replay()
         else:
@@ -293,7 +284,6 @@ def _check_long_first_fill(width, graph, missing_current_page=False):
             atol=0,
             rtol=0,
         )
-        assert begin.cpu().tolist() == [-1, -1, -1]
         assert end.cpu().tolist() == [-1, -1, -1]
     finally:
         case.close()
@@ -348,8 +338,7 @@ def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
         )
         slots = torch.tensor([1, 0], dtype=torch.int32, device=case.device)
         table = torch.zeros((3, 4096), dtype=torch.int32, device=case.device)
-        begin = torch.full((3,), -1, dtype=torch.int32, device=case.device)
-        end = begin.clone()
+        end = torch.full((3,), -1, dtype=torch.int32, device=case.device)
         initial = case.hbm.clone()
         hbm_k = initial[..., :512].contiguous()
         hbm_rope = initial[..., 512:].contiguous()
@@ -397,7 +386,6 @@ def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
                 valid=valid,
                 request_slots=slots,
                 req_to_token=table,
-                resident_begin=begin,
                 resident_end=end,
                 host_token_capacity=case.dram.numel() // 576,
                 dram_rope_dev_ptr=rope_ptr,
@@ -408,14 +396,12 @@ def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
             torch.npu.synchronize()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture = torch.npu.NPUGraph()
             with torch.npu.graph(capture):
                 run()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture.replay()
         else:
@@ -435,7 +421,6 @@ def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
             atol=0,
             rtol=0,
         )
-        assert begin.cpu().tolist() == [-1, -1, -1]
         assert end.cpu().tolist() == [-1, -1, -1]
         fused = case.output.clone()
         old_output = torch.empty_like(case.output)
@@ -534,8 +519,7 @@ def test_mixed_short_first_fill_and_padding(graph):
         table_cpu = torch.zeros((3, capacity), dtype=torch.int32)
         table_cpu[1] = torch.arange(capacity, dtype=torch.int32)
         table = table_cpu.to(case.device)
-        begin = torch.full((3,), -1, dtype=torch.int32, device=case.device)
-        end = begin.clone()
+        end = torch.full((3,), -1, dtype=torch.int32, device=case.device)
         current = current_cpu.to(case.device)
         initial = case.hbm.clone()
         hbm_k = initial[..., :512].contiguous()
@@ -582,7 +566,6 @@ def test_mixed_short_first_fill_and_padding(graph):
                 valid=valid,
                 request_slots=slots,
                 req_to_token=table,
-                resident_begin=begin,
                 resident_end=end,
                 host_token_capacity=case.dram.numel() // 576,
                 dram_rope_dev_ptr=rope_ptr,
@@ -593,14 +576,12 @@ def test_mixed_short_first_fill_and_padding(graph):
             torch.npu.synchronize()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture = torch.npu.NPUGraph()
             with torch.npu.graph(capture):
                 run()
             hbm_k.copy_(initial[..., :512])
             hbm_rope.copy_(initial[..., 512:])
-            begin.fill_(-1)
             end.fill_(-1)
             capture.replay()
         else:
@@ -632,7 +613,6 @@ def test_mixed_short_first_fill_and_padding(graph):
             atol=0,
             rtol=0,
         )
-        assert begin.cpu().tolist() == [-1, 0, -1]
         assert end.cpu().tolist() == [-1, first + width, -1]
         q, qr, actual = (
             case.query.cpu().float(),

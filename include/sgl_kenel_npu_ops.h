@@ -146,7 +146,6 @@ void fused_scatter_copy_sparse_flash_attention(
     const c10::optional<at::Tensor> &valid,
     const c10::optional<at::Tensor> &request_slots,
     const c10::optional<at::Tensor> &req_to_token,
-    const c10::optional<at::Tensor> &resident_begin,
     const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity,
     int64_t dram_rope_dev_ptr);
 
@@ -166,7 +165,6 @@ void fused_scatter_copy_sparse_flash_attention_split(
     const c10::optional<at::Tensor> &valid,
     const c10::optional<at::Tensor> &request_slots,
     const c10::optional<at::Tensor> &req_to_token,
-    const c10::optional<at::Tensor> &resident_begin,
     const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity,
     int64_t dram_rope_dev_ptr);
 

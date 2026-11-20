@@ -18,10 +18,10 @@ class Copy
 public:
     __aicore__ inline void Init(TPipe *pipe, GM_ADDR current, GM_ADDR host, GM_ADDR hostRope, GM_ADDR cache,
                                 GM_ADDR cacheRope, GM_ADDR table, GM_ADDR slots, GM_ADDR positions, GM_ADDR valid,
-                                GM_ADDR qEnds, GM_ADDR hbmTable, GM_ADDR lengths, GM_ADDR cacheTokens, GM_ADDR oldBegin,
-                                GM_ADDR oldEnd, uint32_t batch, uint32_t rows, uint32_t context, uint32_t capacity,
-                                uint32_t sourceRows, uint32_t currentRows, uint32_t hbmPages, uint32_t cores,
-                                bool allocateQueue, bool splitHost)
+                                GM_ADDR qEnds, GM_ADDR hbmTable, GM_ADDR lengths, GM_ADDR cacheTokens, GM_ADDR oldEnd,
+                                uint32_t batch, uint32_t rows, uint32_t context, uint32_t capacity, uint32_t sourceRows,
+                                uint32_t currentRows, uint32_t hbmPages, uint32_t cores, bool allocateQueue,
+                                bool splitHost)
     {
         current_.SetGlobalBuffer((__gm__ T *)current);
         host_.SetGlobalBuffer((__gm__ T *)host);
@@ -37,7 +37,6 @@ public:
         hbmTable_.SetGlobalBuffer((__gm__ int32_t *)hbmTable);
         lengths_.SetGlobalBuffer((__gm__ int32_t *)lengths);
         cacheTokens_.SetGlobalBuffer((__gm__ int32_t *)cacheTokens);
-        oldBegin_.SetGlobalBuffer((__gm__ int32_t *)oldBegin);
         oldEnd_.SetGlobalBuffer((__gm__ int32_t *)oldEnd);
         batch_ = batch;
         rows_ = rows;
@@ -73,7 +72,7 @@ public:
                 ASSERT_MSG(valid_.GetValue(q) != 0 && positions_.GetValue(q) == first + q - startQ,
                            "active current KV rows must be valid and consecutive");
             }
-            int32_t oldEnd = oldBegin_.GetValue(req) == 0 ? oldEnd_.GetValue(req) : 0;
+            int32_t oldEnd = oldEnd_.GetValue(req);
             if (oldEnd < 0) oldEnd = 0;
             if (oldEnd > first) oldEnd = static_cast<int32_t>(first);
             for (int64_t pos = oldEnd + core_; pos < first; pos += cores_) {
@@ -116,7 +115,7 @@ public:
         }
     }
 
-    // Call after the copy barrier. One AIV writes both state arrays because
+    // Call after the copy barrier. One AIV writes the state array because
     // scalar stores write back whole cache lines. The next launch is stream-ordered.
     __aicore__ inline void Commit()
     {
@@ -126,7 +125,6 @@ public:
             const int32_t len = lengths_.GetValue(b);
             if (req <= 0 || req >= rows_ || len <= 0) continue;
             if (cacheTokens_.GetValue(b) != 0) {
-                oldBegin_.SetValue(req, -1);
                 oldEnd_.SetValue(req, -1);
             } else {
                 const int32_t startQ = b == 0 ? 0 : qEnds_.GetValue(b - 1);
@@ -141,7 +139,7 @@ public:
                     for (int32_t q = startQ; q < endQ; ++q) {
                         if (valid_.GetValue(q) == 0 || positions_.GetValue(q) != first + q - startQ) ok = false;
                     }
-                    int32_t begin = oldBegin_.GetValue(req) == 0 ? oldEnd_.GetValue(req) : 0;
+                    int32_t begin = oldEnd_.GetValue(req);
                     if (begin < 0) begin = 0;
                     if (begin > first) begin = static_cast<int32_t>(first);
                     for (int32_t pos = begin; pos < first; ++pos) {
@@ -149,7 +147,6 @@ public:
                         if (physical < 0 || physical >= sourceRows_) ok = false;
                     }
                 }
-                oldBegin_.SetValue(req, ok ? 0 : -1);
                 oldEnd_.SetValue(req, ok ? len : -1);
             }
         }
@@ -205,7 +202,7 @@ private:
     }
     GlobalTensor<T> current_, host_, hostRope_, cache_, cacheRope_;
     bool splitHost_;
-    GlobalTensor<int32_t> table_, slots_, qEnds_, hbmTable_, lengths_, cacheTokens_, oldBegin_, oldEnd_;
+    GlobalTensor<int32_t> table_, slots_, qEnds_, hbmTable_, lengths_, cacheTokens_, oldEnd_;
     GlobalTensor<int64_t> positions_;
     GlobalTensor<uint8_t> valid_;
     TQueBind<QuePosition::VECIN, QuePosition::VECOUT, 2> queue_;

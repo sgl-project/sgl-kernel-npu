@@ -126,8 +126,8 @@ extern "C" __global__ __aicore__ void fused_scatter_copy_sparse_flash_attention_
     GM_ADDR actualSeqLengthsQuery, GM_ADDR actualSeqLengthsKv, GM_ADDR queryRope, GM_ADDR hbmKeyRope,
     GM_ADDR dramKeyRope, GM_ADDR dramKvCache, GM_ADDR dramBlockTable, GM_ADDR topkSourceIds, GM_ADDR topkMissCounts,
     GM_ADDR missSourceIds, GM_ADDR missDstSlots, GM_ADDR missCounts, GM_ADDR attentionOut, GM_ADDR current,
-    GM_ADDR positions, GM_ADDR currentValid, GM_ADDR requestSlots, GM_ADDR reqToToken, GM_ADDR residentBegin,
-    GM_ADDR residentEnd, GM_ADDR workspace, GM_ADDR tiling)
+    GM_ADDR positions, GM_ADDR currentValid, GM_ADDR requestSlots, GM_ADDR reqToToken, GM_ADDR residentEnd,
+    GM_ADDR workspace, GM_ADDR tiling)
 {
     // AscendC's HAVE_WORKSPACE + HAVE_TILING wrapper uses the last two
     // arguments for system workspace and tiling; keep them in that order.
@@ -156,23 +156,21 @@ extern "C" __global__ __aicore__ void fused_scatter_copy_sparse_flash_attention_
         if ASCEND_IS_AIV {
             const uint32_t cores = fusedTiling->singleCoreParams.usedCoreNum * 2U;
             if (isBf16) {
-                residentBf16.Init(&pipe, current, dramKvCache, dramKeyRope, key, hbmKeyRope, reqToToken, requestSlots,
-                                  positions, currentValid, actualSeqLengthsQuery, hbmBlockTable, actualSeqLengthsKv,
-                                  cacheTokens, residentBegin, residentEnd, fusedTiling->baseParams.batchSize,
-                                  fusedTiling->residentRows, fusedTiling->residentContext,
-                                  fusedTiling->hbmMaxBlockNum * 128U, fusedTiling->residentHostRows,
-                                  fusedTiling->residentCurrentRows, fusedTiling->residentHbmPages, cores, hasShort,
-                                  fusedTiling->splitHost);
+                residentBf16.Init(
+                    &pipe, current, dramKvCache, dramKeyRope, key, hbmKeyRope, reqToToken, requestSlots, positions,
+                    currentValid, actualSeqLengthsQuery, hbmBlockTable, actualSeqLengthsKv, cacheTokens, residentEnd,
+                    fusedTiling->baseParams.batchSize, fusedTiling->residentRows, fusedTiling->residentContext,
+                    fusedTiling->hbmMaxBlockNum * 128U, fusedTiling->residentHostRows, fusedTiling->residentCurrentRows,
+                    fusedTiling->residentHbmPages, cores, hasShort, fusedTiling->splitHost);
                 residentBf16.ValidateCurrent();
                 if (hasShort) residentBf16.Process();
             } else {
-                residentHalf.Init(&pipe, current, dramKvCache, dramKeyRope, key, hbmKeyRope, reqToToken, requestSlots,
-                                  positions, currentValid, actualSeqLengthsQuery, hbmBlockTable, actualSeqLengthsKv,
-                                  cacheTokens, residentBegin, residentEnd, fusedTiling->baseParams.batchSize,
-                                  fusedTiling->residentRows, fusedTiling->residentContext,
-                                  fusedTiling->hbmMaxBlockNum * 128U, fusedTiling->residentHostRows,
-                                  fusedTiling->residentCurrentRows, fusedTiling->residentHbmPages, cores, hasShort,
-                                  fusedTiling->splitHost);
+                residentHalf.Init(
+                    &pipe, current, dramKvCache, dramKeyRope, key, hbmKeyRope, reqToToken, requestSlots, positions,
+                    currentValid, actualSeqLengthsQuery, hbmBlockTable, actualSeqLengthsKv, cacheTokens, residentEnd,
+                    fusedTiling->baseParams.batchSize, fusedTiling->residentRows, fusedTiling->residentContext,
+                    fusedTiling->hbmMaxBlockNum * 128U, fusedTiling->residentHostRows, fusedTiling->residentCurrentRows,
+                    fusedTiling->residentHbmPages, cores, hasShort, fusedTiling->splitHost);
                 residentHalf.ValidateCurrent();
                 if (hasShort) residentHalf.Process();
             }

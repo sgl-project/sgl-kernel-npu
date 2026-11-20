@@ -45,41 +45,41 @@ void LaunchCopySfa(bool split, uint32_t blockDim, const at::Tensor &query, const
                    const at::Tensor &topkSourceIds, const at::Tensor &topkMissCounts, const at::Tensor &missSourceIds,
                    const at::Tensor &missDstSlots, const at::Tensor &missCounts, const at::Tensor &attentionOut,
                    const at::Tensor &workspace, const at::Tensor &tiling, void *current, void *positions, void *valid,
-                   void *requestSlots, void *reqToToken, void *residentBegin, void *residentEnd)
+                   void *requestSlots, void *reqToToken, void *residentEnd)
 {
     if (split) {
         EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_split, blockDim, query, key, value, sparseIndices,
                         cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
                         dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
                         missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
-                        residentBegin, residentEnd, workspace, tiling);
+                        residentEnd, workspace, tiling);
     } else {
         EXEC_KERNEL_CMD(fused_scatter_copy_sparse_flash_attention_combined, blockDim, query, key, value, sparseIndices,
                         cacheTokens, hbmBlockTable, actualSeqLengthsQuery, actualSeqLengthsKv, queryRope, hbmKeyRope,
                         dramKeyRope, dramKvCache, dramBlockTable, topkSourceIds, topkMissCounts, missSourceIds,
                         missDstSlots, missCounts, attentionOut, current, positions, valid, requestSlots, reqToToken,
-                        residentBegin, residentEnd, workspace, tiling);
+                        residentEnd, workspace, tiling);
     }
 }
 
 }  // namespace
 
-static void FusedCopySfaImpl(
-    const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv, at::Tensor *hbm_rope,
-    const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_kv,
-    const at::Tensor &num_cache_tokens, const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
-    const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
-    const at::Tensor &miss_counts, const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
-    int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
-    bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
-    const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
-    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
-    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
+static void
+FusedCopySfaImpl(const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv, at::Tensor *hbm_rope,
+                 const at::Tensor &actual_seq_lengths_query, const at::Tensor &actual_seq_lengths_kv,
+                 const at::Tensor &num_cache_tokens, const at::Tensor &topk_src_ids, const at::Tensor &topk_dst_slots,
+                 const at::Tensor &topk_miss_counts, const at::Tensor &miss_src_ids, const at::Tensor &miss_dst_slots,
+                 const at::Tensor &miss_counts, const at::Tensor &hbm_block_table, const at::Tensor &dram_block_table,
+                 int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
+                 bool resident_refresh_tail, const c10::optional<at::Tensor> &current,
+                 const c10::optional<at::Tensor> &positions, const c10::optional<at::Tensor> &valid,
+                 const c10::optional<at::Tensor> &request_slots, const c10::optional<at::Tensor> &req_to_token,
+                 const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
 {
     const bool resident = current.has_value();
     TORCH_CHECK(resident == positions.has_value() && resident == valid.has_value() &&
                     resident == request_slots.has_value() && resident == req_to_token.has_value() &&
-                    resident == resident_begin.has_value() && resident == resident_end.has_value(),
+                    resident == resident_end.has_value(),
                 "resident staging inputs must be supplied together");
     TORCH_CHECK(!resident_refresh_tail || full_visible,
                 "resident_refresh_tail requires full_visible=True and a native LIM suffix plan");
@@ -108,13 +108,11 @@ static void FusedCopySfaImpl(
         TORCH_CHECK(req_to_token->dim() == 2 && req_to_token->size(0) > 0 && req_to_token->size(1) > 0 &&
                         req_to_token->scalar_type() == at::kInt,
                     "req_to_token must be int32 [rows,context]");
-        TORCH_CHECK(resident_begin->dim() == 1 && resident_end->sizes() == resident_begin->sizes() &&
-                        resident_begin->numel() == req_to_token->size(0) && resident_begin->scalar_type() == at::kInt &&
+        TORCH_CHECK(resident_end->dim() == 1 && resident_end->numel() == req_to_token->size(0) &&
                         resident_end->scalar_type() == at::kInt && host_token_capacity > 0 &&
                         host_token_capacity <= UINT32_MAX,
                     "invalid resident extent or host capacity");
-        for (const auto *tensor :
-             {&*current, &*positions, &*valid, &*request_slots, &*req_to_token, &*resident_begin, &*resident_end}) {
+        for (const auto *tensor : {&*current, &*positions, &*valid, &*request_slots, &*req_to_token, &*resident_end}) {
             CheckNpuTensor(*tensor, query, "resident input");
             tensor->record_stream(c10_npu::getCurrentNPUStream());
         }
@@ -260,8 +258,7 @@ static void FusedCopySfaImpl(
                   miss_dst_slots, miss_counts, attention_out, workspace, tilingTensor,
                   resident ? current->data_ptr() : nullptr, resident ? positions->data_ptr() : nullptr,
                   resident ? valid->data_ptr() : nullptr, resident ? request_slots->data_ptr() : nullptr,
-                  resident ? req_to_token->data_ptr() : nullptr, resident ? resident_begin->data_ptr() : nullptr,
-                  resident ? resident_end->data_ptr() : nullptr);
+                  resident ? req_to_token->data_ptr() : nullptr, resident ? resident_end->data_ptr() : nullptr);
 }
 
 void fused_scatter_copy_sparse_flash_attention(
@@ -273,14 +270,14 @@ void fused_scatter_copy_sparse_flash_attention(
     int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
     bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
     const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
-    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
-    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_end,
+    int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
 {
     FusedCopySfaImpl(query, query_rope, hbm_ckv, nullptr, actual_seq_lengths_query, actual_seq_lengths_kv,
                      num_cache_tokens, topk_src_ids, topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots,
                      miss_counts, hbm_block_table, dram_block_table, dram_kv_dev_ptr, attention_out, scale_value,
                      full_visible, resident_refresh_tail, current, positions, valid, request_slots, req_to_token,
-                     resident_begin, resident_end, host_token_capacity, dram_rope_dev_ptr);
+                     resident_end, host_token_capacity, dram_rope_dev_ptr);
 }
 
 void fused_scatter_copy_sparse_flash_attention_split(
@@ -292,14 +289,14 @@ void fused_scatter_copy_sparse_flash_attention_split(
     int64_t dram_kv_dev_ptr, at::Tensor &attention_out, double scale_value, bool full_visible,
     bool resident_refresh_tail, const c10::optional<at::Tensor> &current, const c10::optional<at::Tensor> &positions,
     const c10::optional<at::Tensor> &valid, const c10::optional<at::Tensor> &request_slots,
-    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_begin,
-    const c10::optional<at::Tensor> &resident_end, int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &resident_end,
+    int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
 {
     FusedCopySfaImpl(query, query_rope, hbm_ckv, &hbm_rope, actual_seq_lengths_query, actual_seq_lengths_kv,
                      num_cache_tokens, topk_src_ids, topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots,
                      miss_counts, hbm_block_table, dram_block_table, dram_kv_dev_ptr, attention_out, scale_value,
                      full_visible, resident_refresh_tail, current, positions, valid, request_slots, req_to_token,
-                     resident_begin, resident_end, host_token_capacity, dram_rope_dev_ptr);
+                     resident_end, host_token_capacity, dram_rope_dev_ptr);
 }
 
 }  // namespace sglang::npu_kernel
