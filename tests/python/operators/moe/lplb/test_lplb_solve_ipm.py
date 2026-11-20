@@ -133,7 +133,7 @@ def _realistic_lplb_instance():
         log_replicated,
         B1,
         A_base.sum(1).contiguous(),
-        impl="triton",
+        impl="auto",
     )
     return A_full, b, c
 
@@ -148,7 +148,7 @@ def test_solve_ipm_converging_instance():
         torch.all(expected == 0.5)
     ), "the reference must converge on the LPLB instance"
 
-    got = solve_ipm(A, b, c, 5, impl="triton")
+    got = solve_ipm(A, b, c, 5, impl="auto")
     torch.testing.assert_close(got, expected, atol=1e-4, rtol=1e-4)
 
 
@@ -157,7 +157,7 @@ def test_solve_ipm_writes_result_buffer():
 
     A, b, c = generate_data((24, 42))
     result = torch.empty(42, dtype=torch.float32)
-    returned = solve_ipm(A, b, c, 5, result, impl="triton")
+    returned = solve_ipm(A, b, c, 5, result, impl="auto")
     assert returned.data_ptr() == result.data_ptr(), "result must be written in place"
     expected = solve_ipm(A, b, c, 5, impl="torch_native")
     torch.testing.assert_close(returned, expected, atol=1e-4, rtol=1e-4)
