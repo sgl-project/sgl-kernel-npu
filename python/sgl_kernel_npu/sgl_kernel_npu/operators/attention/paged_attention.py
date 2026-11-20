@@ -1,23 +1,37 @@
 """TorchNPU prefill and decode operators for paged KV caches."""
 
+import torch_npu
+
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_torch_npu = None
+# The legacy ATB bindings here use the A2/A3 host-length interface.
+_ARCH22 = {Generation.ARCH22}
+_native_flash_attention_qlens = None
+_native_paged_attention = None
+_native_paged_attention_mla = None
 
 
-def _get_torch_npu():
-    global _torch_npu
-    if _torch_npu is None:
-        import torch_npu
-
-        _torch_npu = torch_npu
-    return _torch_npu
-
-
-@register_impl("attention.flash_attention_qlens", "auto")
-@register_impl("attention.flash_attention_qlens", "torch_npu")
+@register_impl("attention.flash_attention_qlens", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.flash_attention_qlens",
+    "ascend-transformer-boost",
+    supported_generations=_ARCH22,
+)
 def _flash_attention_qlens_impl(**kwargs):
-    return _get_torch_npu()._npu_flash_attention_qlens(**kwargs)
+    return torch_npu._npu_flash_attention_qlens(**kwargs)
+
+
+@register_impl("attention.flash_attention_qlens", "torch_native")
+def _torch_native_flash_attention_qlens(*args, **kwargs):
+    global _native_flash_attention_qlens
+    if _native_flash_attention_qlens is None:
+        from ...implementation.torch_native.attention.paged_attention import (
+            flash_attention_qlens,
+        )
+
+        _native_flash_attention_qlens = flash_attention_qlens
+    return _native_flash_attention_qlens(*args, **kwargs)
 
 
 @register_operator("attention.flash_attention_qlens")
@@ -41,7 +55,7 @@ def flash_attention_qlens(
 
     Query is packed by token (for example [T, num_heads * head_dim]).
     The block table maps requests to KV pages. seq_len and context_lens give
-    each request's query and context lengths. auto selects torch_npu.
+    each request's query and context lengths. auto selects ascend-transformer-boost.
     """
     return get_impl_by_name("attention.flash_attention_qlens", impl)(
         query=query,
@@ -59,10 +73,26 @@ def flash_attention_qlens(
     )
 
 
-@register_impl("attention.paged_attention", "auto")
-@register_impl("attention.paged_attention", "torch_npu")
+@register_impl("attention.paged_attention", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.paged_attention",
+    "ascend-transformer-boost",
+    supported_generations=_ARCH22,
+)
 def _paged_attention_impl(**kwargs):
-    return _get_torch_npu()._npu_paged_attention(**kwargs)
+    return torch_npu._npu_paged_attention(**kwargs)
+
+
+@register_impl("attention.paged_attention", "torch_native")
+def _torch_native_paged_attention(*args, **kwargs):
+    global _native_paged_attention
+    if _native_paged_attention is None:
+        from ...implementation.torch_native.attention.paged_attention import (
+            paged_attention,
+        )
+
+        _native_paged_attention = paged_attention
+    return _native_paged_attention(*args, **kwargs)
 
 
 @register_operator("attention.paged_attention")
@@ -84,7 +114,7 @@ def paged_attention(
 
     Query is shaped [B, num_heads, head_dim] on SGLang's decode path.
     block_table gives the page IDs and context_lens the valid KV lengths.
-    auto selects torch_npu and passes through SDK options such as workspace.
+    auto selects ascend-transformer-boost and passes through SDK options such as workspace.
     """
     return get_impl_by_name("attention.paged_attention", impl)(
         query=query,
@@ -100,10 +130,26 @@ def paged_attention(
     )
 
 
-@register_impl("attention.paged_attention_mla", "auto")
-@register_impl("attention.paged_attention_mla", "torch_npu")
+@register_impl("attention.paged_attention_mla", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.paged_attention_mla",
+    "ascend-transformer-boost",
+    supported_generations=_ARCH22,
+)
 def _paged_attention_mla_impl(**kwargs):
-    return _get_torch_npu()._npu_paged_attention_mla(**kwargs)
+    return torch_npu._npu_paged_attention_mla(**kwargs)
+
+
+@register_impl("attention.paged_attention_mla", "torch_native")
+def _torch_native_paged_attention_mla(*args, **kwargs):
+    global _native_paged_attention_mla
+    if _native_paged_attention_mla is None:
+        from ...implementation.torch_native.attention.paged_attention import (
+            paged_attention_mla,
+        )
+
+        _native_paged_attention_mla = paged_attention_mla
+    return _native_paged_attention_mla(*args, **kwargs)
 
 
 @register_operator("attention.paged_attention_mla")
@@ -124,7 +170,7 @@ def paged_attention_mla(
     """Decode MLA against a shared paged latent/RoPE cache.
 
     mla_vheadsize is the latent value width. out is the preallocated
-    [B, num_heads, mla_vheadsize] output. auto selects torch_npu.
+    [B, num_heads, mla_vheadsize] output. auto selects ascend-transformer-boost.
     """
     return get_impl_by_name("attention.paged_attention_mla", impl)(
         query=query,

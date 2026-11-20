@@ -38,9 +38,7 @@ def torch_npu_stub(monkeypatch):
     return stub
 
 
-@pytest.mark.parametrize(
-    "selection", [{}, {"impl": "torch_npu"}], ids=["auto", "explicit"]
-)
+@pytest.mark.parametrize("explicit_impl", [False, True], ids=["auto", "explicit"])
 @pytest.mark.parametrize(
     "category,op_name,symbol,args,kwargs",
     [
@@ -166,21 +164,37 @@ def torch_npu_stub(monkeypatch):
     ],
 )
 def test_torch_npu_attention_dispatch(
-    operator_modules, torch_npu_stub, category, op_name, symbol, args, kwargs, selection
+    registry_for_generation,
+    torch_npu_stub,
+    category,
+    op_name,
+    symbol,
+    args,
+    kwargs,
+    explicit_impl,
 ):
+    operator_modules = registry_for_generation("ARCH22")
     api = operator_modules.import_module(f"operators.{category}")
     call = getattr(api, op_name)
     registry = operator_modules.registry
     assert op_name in api.__all__
     assert registry.get_op_name(call) == f"{category}.{op_name}"
-    assert registry.list_impls(call) == ["auto", "torch_npu"]
-    assert registry.get_impl(call, "auto") is registry.get_impl(call, "torch_npu")
+    legacy_atb_ops = {"flash_attention_qlens", "paged_attention", "paged_attention_mla"}
+    vendor_impl = (
+        "ascend-transformer-boost" if op_name in legacy_atb_ops else "ops-transformer"
+    )
+    implementations = ["auto", vendor_impl]
+    if not op_name.endswith("_get_max_workspace"):
+        implementations.append("torch_native")
+    assert registry.list_impls(call) == sorted(implementations)
+    assert registry.get_impl(call, "auto") is registry.get_impl(call, vendor_impl)
 
     sdk = torch_npu_stub
     for name in symbol.split("."):
         sdk = getattr(sdk, name)
     sdk.return_value = sentinel.result
 
+    selection = {"impl": vendor_impl} if explicit_impl else {}
     assert call(*args, **kwargs, **selection) is sentinel.result
     sdk.assert_called_once_with(*args, **kwargs)
 
@@ -196,3 +210,15 @@ def test_fia_unknown_impl_and_sdk_error(operator_modules, torch_npu_stub):
     with pytest.raises(RuntimeError, match="unsupported by the installed SDK"):
         api.fused_infer_attention_score(*_QKV)
     sdk.assert_called_once_with(*_QKV)
+
+
+@pytest.mark.parametrize(
+    "name", ["flash_attention_qlens", "paged_attention", "paged_attention_mla"]
+)
+def test_legacy_atb_vendor_is_arch22_only(registry_for_generation, name):
+    modules = registry_for_generation("ARCH35")
+    operator = getattr(modules.import_module("operators.attention"), name)
+    for impl in ("auto", "ascend-transformer-boost"):
+        with pytest.raises(modules.registry.UnsupportedGenerationError):
+            modules.registry.get_impl(operator, impl)
+    assert callable(modules.registry.get_impl(operator, "torch_native"))

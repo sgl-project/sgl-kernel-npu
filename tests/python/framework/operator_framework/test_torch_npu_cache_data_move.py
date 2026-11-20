@@ -7,12 +7,13 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "category, name, vendor_name, args, kwargs, expected_args, expected_kwargs",
+    "category, name, vendor_name, vendor_impl, args, kwargs, expected_args, expected_kwargs",
     [
         pytest.param(
             "data_move",
             "dtype_cast",
             "npu_dtype_cast",
+            "ops-math",
             (sentinel.input, sentinel.dtype),
             {},
             (sentinel.input, sentinel.dtype),
@@ -23,6 +24,7 @@ import pytest
             "data_move",
             "dtype_cast",
             "npu_dtype_cast",
+            "ops-math",
             (sentinel.input, sentinel.dtype),
             {"input_dtype": sentinel.packed},
             (sentinel.input, sentinel.dtype),
@@ -33,6 +35,7 @@ import pytest
             "data_move",
             "format_cast",
             "npu_format_cast",
+            "ops-math",
             (sentinel.input, 29),
             {"customize_dtype": sentinel.dtype, "input_dtype": sentinel.packed},
             (sentinel.input, 29),
@@ -43,6 +46,7 @@ import pytest
             "data_move",
             "prefetch",
             "npu_prefetch",
+            "runtime",
             (sentinel.input, sentinel.dependency, 4096),
             {},
             (sentinel.input, sentinel.dependency, 4096),
@@ -53,6 +57,7 @@ import pytest
             "data_move",
             "prefetch",
             "npu_prefetch",
+            "runtime",
             (sentinel.input, None, 4096, 64),
             {},
             (sentinel.input, None, 4096),
@@ -63,6 +68,7 @@ import pytest
             "mem_cache",
             "reshape_and_cache",
             "_npu_reshape_and_cache",
+            "ascend-transformer-boost",
             (),
             {
                 "key": sentinel.key,
@@ -85,6 +91,7 @@ import pytest
             "mem_cache",
             "scatter_pa_kv_cache",
             "npu_scatter_pa_kv_cache",
+            "ops-transformer",
             (
                 sentinel.key,
                 sentinel.value,
@@ -112,6 +119,7 @@ import pytest
             "mem_cache",
             "kv_rmsnorm_rope_cache",
             "npu_kv_rmsnorm_rope_cache",
+            "ops-transformer",
             (
                 sentinel.kv,
                 sentinel.gamma,
@@ -147,9 +155,10 @@ import pytest
             id="kv_rmsnorm_rope_cache",
         ),
         pytest.param(
-            "tensor_ops",
+            "mem_cache",
             "scatter_nd_update_",
             "npu_scatter_nd_update_",
+            "ops-nn",
             (sentinel.input, sentinel.indices, sentinel.updates),
             {},
             (sentinel.input, sentinel.indices, sentinel.updates),
@@ -158,19 +167,21 @@ import pytest
         ),
     ],
 )
-@pytest.mark.parametrize("impl", ["auto", "torch_npu"])
+@pytest.mark.parametrize("explicit_impl", [False, True], ids=["auto", "explicit"])
 def test_torch_npu_operator_forwards_to_vendor(
     registry_for_generation,
     category,
     name,
     vendor_name,
+    vendor_impl,
     args,
     kwargs,
     expected_args,
     expected_kwargs,
-    impl,
+    explicit_impl,
 ):
     modules = registry_for_generation("ARCH22")
+    impl = vendor_impl if explicit_impl else "auto"
     vendor = Mock(return_value=sentinel.result)
     with patch.object(sys.modules["torch_npu"], vendor_name, vendor, create=True):
         exported = modules.import_module(f"operators.{category}")
@@ -178,17 +189,20 @@ def test_torch_npu_operator_forwards_to_vendor(
 
         assert name in exported.__all__
         assert modules.registry.get_op_name(operator) == f"{category}.{name}"
-        assert modules.public_api.list_impls(operator) == ["auto", "torch_npu"]
+        implementations = ["auto", vendor_impl]
+        if name != "prefetch":
+            implementations.append("torch_native")
+        assert modules.public_api.list_impls(operator) == sorted(implementations)
         assert modules.public_api.get_impl(
             operator, "auto"
-        ) is modules.public_api.get_impl(operator, "torch_npu")
+        ) is modules.public_api.get_impl(operator, vendor_impl)
         vendor.assert_not_called()
         assert operator(*args, **kwargs, impl=impl) is sentinel.result
 
     vendor.assert_called_once_with(*expected_args, **expected_kwargs)
 
 
-@pytest.mark.parametrize("impl", ["auto", "torch_npu"])
+@pytest.mark.parametrize("impl", ["auto", "runtime"])
 def test_prefetch_rejects_arch35_before_calling_torch_npu(
     registry_for_generation, impl
 ):
@@ -201,3 +215,9 @@ def test_prefetch_rejects_arch35_before_calling_torch_npu(
             prefetch(sentinel.input, None, 4096, impl=impl)
 
     vendor.assert_not_called()
+
+
+def test_scatter_nd_original_import_alias(operator_modules):
+    mem_cache = operator_modules.import_module("operators.mem_cache")
+    tensor_ops = operator_modules.import_module("operators.tensor_ops")
+    assert tensor_ops.scatter_nd_update_ is mem_cache.scatter_nd_update_

@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import mla_prolog_v3
@@ -52,16 +53,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `kv_cache`, `kr_cache` | Tensor | [P, L, 1, Hckv] and [P, L, 1, Dr] for PA_BSND | Required | Caller-owned latent and rotary key caches, updated in place. |
 | `cache_index`, `cache_mode` | Tensor or None, str | [B, S], INT64 for the example | `None` / `"PA_BSND"` | Optional cache slots and SDK layout. The example uses PA_BSND. |
 | `rmsnorm_epsilon_cq`, `rmsnorm_epsilon_ckv` | float | - | `1e-05` | Optional normalization epsilons. The SDK defaults are both 1e-5. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `query`, `query_rope`, `dequant_scale_q_nope`, `query_norm`, `dequant_scale_q_norm` | tuple of five tensors | Shapes and dtypes follow projection and quantization modes | Projected query, rotated query, dequantization scale, optional normalized query and its scale. The two caches are mutated separately. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_mla_prolog_v3`. Shape, dtype and layout combinations follow the installed SDK. The V3 result tuple and cache writes follow the installed TorchNPU ABI. Pass additional quantization attributes through the SDK keyword arguments. The example uses the A3 BF16 PA_BSND configuration. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_mla_prolog_v3.md)
+Calls `torch_npu.npu_mla_prolog_v3`. Shape, dtype and layout combinations follow the installed SDK. The V3 result tuple and cache writes follow the installed TorchNPU ABI. Pass additional quantization attributes through the SDK keyword arguments. The example uses the A3 BF16 PA_BSND configuration. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_mla_prolog_v3.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/mla_prolog_v3)
+
+## torch_native backend
+
+Evaluates unquantized BF16 projections, normalization, RoPE, and updates separate paged KV and rotary caches. Weights are read in logical matrix order.
 
 ## Example
 
@@ -102,6 +107,6 @@ out = mla_prolog_v3(
     kr_cache,
     cache_index=slots,
     cache_mode="PA_BSND",
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

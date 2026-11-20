@@ -4,12 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.rope import rotary_mul
@@ -32,15 +32,15 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `r1`, `r2` | Tensor | broadcastable to input | Required | Cosine and sine factors for the chosen layout. |
 | `rotary_mode` | str | - | `'half'` | Pairing mode, such as half or interleave. |
 | `rotate` | Tensor or None | SDK-specific | `None` | Optional rotation matrix accepted by the installed TorchNPU. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`, `torch_native`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | same as input | Rotated activations. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_rotary_mul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_rotary_mul.md)
+Calls `torch_npu.npu_rotary_mul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_rotary_mul.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/posembedding/rotary_position_embedding)
 
 ## torch_native backend
 
@@ -57,5 +57,5 @@ from sgl_kernel_npu.operators.rope import rotary_mul
 x = torch.randn((2, 17, 4, 64), dtype=torch.float16, device="npu")
 r1 = torch.ones((1, 17, 1, 64), dtype=x.dtype, device=x.device)
 r2 = torch.zeros_like(r1)
-y = rotary_mul(x, r1, r2, impl="torch_npu")
+y = rotary_mul(x, r1, r2, impl="ops-transformer")
 ```

@@ -91,13 +91,13 @@ def test_torch_npu_quant_operator(
 
     assert name in api.__all__
     assert modules.registry.get_op_name(public) == f"{category}.{name}"
-    assert modules.public_api.list_impls(public) == ["auto", "torch_npu"]
+    assert modules.public_api.list_impls(public) == ["auto", "ops-nn", "torch_native"]
     with pytest.raises(modules.registry.ImplementationNotFoundError):
         public(*args, impl="missing", **kwargs)
     backend.assert_not_called()
 
     if arch35_only and generation == "ARCH22":
-        for impl in ("auto", "torch_npu"):
+        for impl in ("auto", "ops-nn"):
             with pytest.raises(modules.registry.UnsupportedGenerationError):
                 public(*args, impl=impl, **kwargs)
         backend.assert_not_called()
@@ -106,7 +106,7 @@ def test_torch_npu_quant_operator(
     assert public(*args, **kwargs) is sentinel.output
     backend.assert_called_once_with(*args, **kwargs)
     backend.reset_mock()
-    assert public(*args, impl="torch_npu", **kwargs) is sentinel.output
+    assert public(*args, impl="ops-nn", **kwargs) is sentinel.output
     backend.assert_called_once_with(*args, **kwargs)
 
     backend.side_effect = RuntimeError("TorchNPU rejected the input")

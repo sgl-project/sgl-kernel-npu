@@ -1,20 +1,27 @@
 """TorchNPU physical storage-format conversion."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _OP_NAME = "data_move.format_cast"
-_torch_npu_fn = None
+_native_impl = None
 
 
 @register_impl(_OP_NAME, "auto")
-@register_impl(_OP_NAME, "torch_npu")
+@register_impl(_OP_NAME, "ops-math")
 def _torch_npu_impl(input, acl_format, **kwargs):
-    global _torch_npu_fn
-    if _torch_npu_fn is None:
-        from torch_npu import npu_format_cast
+    return torch_npu.npu_format_cast(input, acl_format, **kwargs)
 
-        _torch_npu_fn = npu_format_cast
-    return _torch_npu_fn(input, acl_format, **kwargs)
+
+@register_impl(_OP_NAME, "torch_native")
+def _torch_native_impl(*args, **kwargs):
+    global _native_impl
+    if _native_impl is None:
+        from ...implementation.torch_native.data_move.cast import format_cast
+
+        _native_impl = format_cast
+    return _native_impl(*args, **kwargs)
 
 
 @register_operator(_OP_NAME)
@@ -24,7 +31,7 @@ def format_cast(
     """Convert an NPU tensor to an ACL format ID or a tensor's storage format.
 
     The optional dtype arguments describe packed input and output representations.
-    Auto selects torch_npu and returns the converted tensor.
+    Auto selects ops-math and returns the converted tensor.
     """
     dtypes = {}
     if customize_dtype is not None:

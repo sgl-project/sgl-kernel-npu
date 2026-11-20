@@ -1,6 +1,10 @@
-"""Public TorchNPU MLA tests with CPU references for paged execution."""
+"""GLM DSA and DeepSeek MLA Prolog accuracy cases."""
 
 import pytest
+
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 torch = pytest.importorskip("torch")
 
@@ -10,28 +14,7 @@ _ROPE = 64
 _TILE = 128
 
 
-@pytest.mark.parametrize(
-    "encoding,heads,context_length,topk",
-    [
-        pytest.param("int8", 32, 4096, 2048, id="glm52-dsa-int8-paged-decode"),
-        pytest.param("fp8", 32, 4096, 2048, id="glm52-dsa-fp8-paged-decode"),
-    ],
-)
-def test_kv_quant_sparse_flash_attention(encoding, heads, context_length, topk):
-    import torch_npu
-    from sgl_kernel_npu.operators.attention import (
-        kv_quant_sparse_flash_attention_torch_npu,
-    )
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    # OpPlugin documents per-tile INT8 on Atlas A2/A3 and FP8 on Ascend 950.
-    # https://github.com/Ascend/op-plugin/blob/master/docs/zh/custom_APIs/torch_npu/torch_npu-npu_kv_quant_sparse_flash_attention.md
-    required = Generation.ARCH22 if encoding == "int8" else Generation.ARCH35
-    if get_hardware().generation is not required:
-        pytest.skip(f"This GLM-5.2 {encoding} case targets {required.value}")
-    if not callable(getattr(torch_npu, "npu_kv_quant_sparse_flash_attention", None)):
-        pytest.skip("Installed TorchNPU lacks npu_kv_quant_sparse_flash_attention")
-
+def generate_sparse_data(encoding, heads, context_length, topk):
     generator = torch.Generator(device="cpu").manual_seed(929)
     dtype = torch.bfloat16
     query = (
@@ -74,29 +57,16 @@ def test_kv_quant_sparse_flash_attention(encoding, heads, context_length, topk):
         .sort()
         .values
     )
-    scale = 1.0 / 24
-
-    logical_latent = (
-        (latent.float() * scales.repeat_interleave(_TILE, dim=-1))
-        .to(dtype)[page_table]
-        .reshape(context_length, _LATENT)
-    )
-    logical_rope = rope[page_table].reshape(context_length, _ROPE)
-    selected_values = logical_latent[selected].float()
-    selected_keys = torch.cat((selected_values, logical_rope[selected].float()), dim=-1)
-    scores = (query.float() @ selected_keys.T) * scale
-    # The kernel rounds probabilities to BF16 before multiplying V.
-    probabilities = scores.softmax(dim=-1).to(dtype).float()
-    expected = (probabilities @ selected_values).to(dtype)
-
-    actual = kv_quant_sparse_flash_attention_torch_npu(
+    args = (
         query.npu(),
         packed,
         packed,
         selected.to(torch.int32).view(1, 1, topk).npu(),
-        scale,
+        1.0 / 24,
         2,
         2,
+    )
+    kwargs = dict(
         block_table=page_table.to(torch.int32).unsqueeze(0).npu(),
         actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32),
         actual_seq_lengths_kv=torch.tensor([context_length], dtype=torch.int32),
@@ -109,7 +79,32 @@ def test_kv_quant_sparse_flash_attention(encoding, heads, context_length, topk):
         tile_size=_TILE,
         rope_head_dim=_ROPE,
     )
-    torch.testing.assert_close(actual.cpu(), expected, atol=2e-2, rtol=3e-2)
+    return args, kwargs
+
+
+@pytest.mark.parametrize(
+    "heads, context_length, topk",
+    [pytest.param(32, 4096, 2048, id="glm52-dsa-paged-decode")],
+)
+def test_kv_quant_sparse_flash_attention(heads, context_length, topk):
+    import torch_npu
+    from sgl_kernel_npu.operators.attention import (
+        kv_quant_sparse_flash_attention_torch_npu,
+    )
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if not callable(getattr(torch_npu, "npu_kv_quant_sparse_flash_attention", None)):
+        pytest.skip("Installed TorchNPU lacks npu_kv_quant_sparse_flash_attention")
+    # The GLM workload uses different cache encodings on the two generations.
+    encoding = "int8" if get_hardware().generation is Generation.ARCH22 else "fp8"
+    args, kwargs = generate_sparse_data(encoding, heads, context_length, topk)
+    executor = check_accuracy(
+        kv_quant_sparse_flash_attention_torch_npu,
+        args,
+        kwargs=kwargs,
+        standard={"torch.bfloat16": AccuracyStandard(atol=2e-2, rtol=3e-2)},
+    )
+    check_performance(executor)
 
 
 @pytest.fixture
@@ -130,21 +125,10 @@ def allow_internal_weight_format():
         torch_npu.npu.config.allow_internal_format = was_enabled
 
 
-@pytest.mark.parametrize(
-    "hidden,cq_rank,heads,head_dim",
-    [pytest.param(7168, 1536, 16, 128, id="deepseek-v3-tp8-bf16-paged-prolog")],
-)
-def test_mla_prolog_v3_paged_writes(
-    allow_internal_weight_format, hidden, cq_rank, heads, head_dim
-):
+def generate_prolog_data(hidden, cq_rank, heads, head_dim):
     import torch_npu
-    from sgl_kernel_npu.operators.attention import mla_prolog_v3
 
-    if not callable(getattr(torch_npu, "npu_mla_prolog_v3", None)):
-        pytest.skip("Installed TorchNPU lacks npu_mla_prolog_v3")
-    # Use the unquantized NZ-weight mode documented in OpPlugin, with the
-    # DeepSeek projection sizes and TND query/cache-index layout from SGLang.
-    # https://github.com/Ascend/op-plugin/blob/master/docs/zh/custom_APIs/torch_npu/torch_npu-npu_mla_prolog_v3.md
+    # BF16 NZ weights and the DeepSeek projection/absorption dimensions.
     dtype = torch.bfloat16
     token_x = torch.zeros((2, hidden), dtype=dtype)
     token_x[0, 0] = token_x[1, 1] = 1
@@ -170,7 +154,7 @@ def test_mla_prolog_v3_paged_writes(
     slots = [_PAGE_SIZE, _PAGE_SIZE - 1]
     kv_cache = torch.zeros((2, _PAGE_SIZE, 1, _LATENT), dtype=dtype)
     kr_cache = torch.zeros((2, _PAGE_SIZE, 1, _ROPE), dtype=dtype)
-    query, query_rope, _, _, _ = mla_prolog_v3(
+    args = (
         token_x,
         torch_npu.npu_format_cast(weight_dq, 29),
         torch_npu.npu_format_cast(weight_uq_qr, 29),
@@ -180,29 +164,35 @@ def test_mla_prolog_v3_paged_writes(
         gamma_ckv,
         sin,
         cos,
-        kv_cache,
-        kr_cache,
+    )
+    return args, dict(
+        kv_cache=kv_cache,
+        kr_cache=kr_cache,
         cache_index=torch.tensor(slots, dtype=torch.int64),
         cache_mode="PA_BSND",
         weight_quant_mode=0,
     )
-    # RMS normalization maps constant projections of 2 and -0.5 to 1 and
-    # -1 at BF16 precision. The identity absorption writes only head_dim
-    # latent values. The second token's rotation swaps and negates the halves.
-    expected_query = torch.zeros((2, heads, _LATENT), dtype=dtype, device="cpu")
-    expected_query[0, :, :head_dim] = 1
-    expected_query[1, :, :head_dim] = -1
-    expected_query_rope = torch.ones((2, heads, _ROPE), dtype=dtype, device="cpu")
-    expected_query_rope[1, :, _ROPE // 2 :] = -1
 
-    expected_kv_cache = torch.zeros(kv_cache.shape, dtype=dtype, device="cpu")
-    expected_kv_cache[1, 0].fill_(1)
-    expected_kv_cache[0, -1].fill_(-1)
-    expected_kr_cache = torch.zeros(kr_cache.shape, dtype=dtype, device="cpu")
-    expected_kr_cache[1, 0].fill_(2)
-    expected_kr_cache[0, -1, :, : _ROPE // 2] = 0.5
-    expected_kr_cache[0, -1, :, _ROPE // 2 :] = -0.5
-    torch.testing.assert_close(query.cpu(), expected_query)
-    torch.testing.assert_close(query_rope.cpu(), expected_query_rope)
-    torch.testing.assert_close(kv_cache.cpu(), expected_kv_cache)
-    torch.testing.assert_close(kr_cache.cpu(), expected_kr_cache)
+
+@pytest.mark.parametrize(
+    "hidden, cq_rank, heads, head_dim",
+    [pytest.param(7168, 1536, 16, 128, id="deepseek-v3-tp8-bf16-paged-prolog")],
+)
+def test_mla_prolog_v3_paged_writes(
+    allow_internal_weight_format, hidden, cq_rank, heads, head_dim
+):
+    import torch_npu
+    from sgl_kernel_npu.operators.attention import mla_prolog_v3
+
+    if not callable(getattr(torch_npu, "npu_mla_prolog_v3", None)):
+        pytest.skip("Installed TorchNPU lacks npu_mla_prolog_v3")
+    args, kwargs = generate_prolog_data(hidden, cq_rank, heads, head_dim)
+    executor = check_accuracy(
+        mla_prolog_v3,
+        args,
+        kwargs=kwargs,
+        mutable_kwargs=("kv_cache", "kr_cache"),
+        result_transform=lambda result: result[:2],
+        standard={"torch.bfloat16": AccuracyStandard(atol=1e-5, rtol=1.6e-2)},
+    )
+    check_performance(executor)

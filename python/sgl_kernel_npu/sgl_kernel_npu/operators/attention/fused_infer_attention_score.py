@@ -1,23 +1,31 @@
 """TorchNPU fused inference attention and its graph-capture helpers."""
 
+import torch_npu
+
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_torch_npu = None
-
-
-def _get_torch_npu():
-    global _torch_npu
-    if _torch_npu is None:
-        import torch_npu
-
-        _torch_npu = torch_npu
-    return _torch_npu
+_native_fused_infer_attention_score = None
+_native_fused_infer_attention_score_out = None
+_native_fused_infer_attention_score_v2 = None
+_native_fused_infer_attention_score_v2_out = None
 
 
 @register_impl("attention.fused_infer_attention_score", "auto")
-@register_impl("attention.fused_infer_attention_score", "torch_npu")
+@register_impl("attention.fused_infer_attention_score", "ops-transformer")
 def _fia_impl(query, key, value, **kwargs):
-    return _get_torch_npu().npu_fused_infer_attention_score(query, key, value, **kwargs)
+    return torch_npu.npu_fused_infer_attention_score(query, key, value, **kwargs)
+
+
+@register_impl("attention.fused_infer_attention_score", "torch_native")
+def _torch_native_fused_infer_attention_score(*args, **kwargs):
+    global _native_fused_infer_attention_score
+    if _native_fused_infer_attention_score is None:
+        from ...implementation.torch_native.attention.fused_infer_attention_score import (
+            fused_infer_attention_score,
+        )
+
+        _native_fused_infer_attention_score = fused_infer_attention_score
+    return _native_fused_infer_attention_score(*args, **kwargs)
 
 
 @register_operator("attention.fused_infer_attention_score")
@@ -26,7 +34,7 @@ def fused_infer_attention_score(query, key, value, *, impl="auto", **kwargs):
 
     Query, key and value shapes follow input_layout, e.g. [B, N, S, D] for
     BNSD. Optional TorchNPU keywords include block_table, sequence lengths,
-    RoPE, mask and quantization settings. auto selects torch_npu.
+    RoPE, mask and quantization settings. auto selects ops-transformer.
     """
     return get_impl_by_name("attention.fused_infer_attention_score", impl)(
         query, key, value, **kwargs
@@ -34,11 +42,21 @@ def fused_infer_attention_score(query, key, value, *, impl="auto", **kwargs):
 
 
 @register_impl("attention.fused_infer_attention_score_out", "auto")
-@register_impl("attention.fused_infer_attention_score_out", "torch_npu")
+@register_impl("attention.fused_infer_attention_score_out", "ops-transformer")
 def _fia_out_impl(query, key, value, **kwargs):
-    return _get_torch_npu().npu_fused_infer_attention_score.out(
-        query, key, value, **kwargs
-    )
+    return torch_npu.npu_fused_infer_attention_score.out(query, key, value, **kwargs)
+
+
+@register_impl("attention.fused_infer_attention_score_out", "torch_native")
+def _torch_native_fused_infer_attention_score_out(*args, **kwargs):
+    global _native_fused_infer_attention_score_out
+    if _native_fused_infer_attention_score_out is None:
+        from ...implementation.torch_native.attention.fused_infer_attention_score import (
+            fused_infer_attention_score_out,
+        )
+
+        _native_fused_infer_attention_score_out = fused_infer_attention_score_out
+    return _native_fused_infer_attention_score_out(*args, **kwargs)
 
 
 @register_operator("attention.fused_infer_attention_score_out")
@@ -46,7 +64,7 @@ def fused_infer_attention_score_out(query, key, value, *, out, impl="auto", **kw
     """Run FIA into out=[attention_out, softmax_lse] using the native .out overload.
 
     The other keywords match FIA and may include a preallocated workspace.
-    auto selects torch_npu.
+    auto selects ops-transformer.
     """
     return get_impl_by_name("attention.fused_infer_attention_score_out", impl)(
         query, key, value, out=out, **kwargs
@@ -54,9 +72,11 @@ def fused_infer_attention_score_out(query, key, value, *, out, impl="auto", **kw
 
 
 @register_impl("attention.fused_infer_attention_score_get_max_workspace", "auto")
-@register_impl("attention.fused_infer_attention_score_get_max_workspace", "torch_npu")
+@register_impl(
+    "attention.fused_infer_attention_score_get_max_workspace", "ops-transformer"
+)
 def _fia_workspace_impl(query, key, value, **kwargs):
-    return _get_torch_npu()._npu_fused_infer_attention_score_get_max_workspace(
+    return torch_npu._npu_fused_infer_attention_score_get_max_workspace(
         query, key, value, **kwargs
     )
 
@@ -72,11 +92,21 @@ def fused_infer_attention_score_get_max_workspace(
 
 
 @register_impl("attention.fused_infer_attention_score_v2", "auto")
-@register_impl("attention.fused_infer_attention_score_v2", "torch_npu")
+@register_impl("attention.fused_infer_attention_score_v2", "ops-transformer")
 def _fia_v2_impl(query, key, value, **kwargs):
-    return _get_torch_npu().npu_fused_infer_attention_score_v2(
-        query, key, value, **kwargs
-    )
+    return torch_npu.npu_fused_infer_attention_score_v2(query, key, value, **kwargs)
+
+
+@register_impl("attention.fused_infer_attention_score_v2", "torch_native")
+def _torch_native_fused_infer_attention_score_v2(*args, **kwargs):
+    global _native_fused_infer_attention_score_v2
+    if _native_fused_infer_attention_score_v2 is None:
+        from ...implementation.torch_native.attention.fused_infer_attention_score import (
+            fused_infer_attention_score_v2,
+        )
+
+        _native_fused_infer_attention_score_v2 = fused_infer_attention_score_v2
+    return _native_fused_infer_attention_score_v2(*args, **kwargs)
 
 
 @register_operator("attention.fused_infer_attention_score_v2")
@@ -85,7 +115,7 @@ def fused_infer_attention_score_v2(query, key, value, *, impl="auto", **kwargs):
 
     Query, key and value shapes follow input_layout, e.g. [B, N, S, D] for
     BNSD. Optional SDK keywords include actual_seq_qlen, actual_seq_kvlen,
-    softmax_scale, num_query_heads and learnable_sink. auto selects torch_npu.
+    softmax_scale, num_query_heads and learnable_sink. auto selects ops-transformer.
     """
     return get_impl_by_name("attention.fused_infer_attention_score_v2", impl)(
         query, key, value, **kwargs
@@ -93,11 +123,21 @@ def fused_infer_attention_score_v2(query, key, value, *, impl="auto", **kwargs):
 
 
 @register_impl("attention.fused_infer_attention_score_v2_out", "auto")
-@register_impl("attention.fused_infer_attention_score_v2_out", "torch_npu")
+@register_impl("attention.fused_infer_attention_score_v2_out", "ops-transformer")
 def _fia_v2_out_impl(query, key, value, **kwargs):
-    return _get_torch_npu().npu_fused_infer_attention_score_v2.out(
-        query, key, value, **kwargs
-    )
+    return torch_npu.npu_fused_infer_attention_score_v2.out(query, key, value, **kwargs)
+
+
+@register_impl("attention.fused_infer_attention_score_v2_out", "torch_native")
+def _torch_native_fused_infer_attention_score_v2_out(*args, **kwargs):
+    global _native_fused_infer_attention_score_v2_out
+    if _native_fused_infer_attention_score_v2_out is None:
+        from ...implementation.torch_native.attention.fused_infer_attention_score import (
+            fused_infer_attention_score_v2_out,
+        )
+
+        _native_fused_infer_attention_score_v2_out = fused_infer_attention_score_v2_out
+    return _native_fused_infer_attention_score_v2_out(*args, **kwargs)
 
 
 @register_operator("attention.fused_infer_attention_score_v2_out")
@@ -112,10 +152,10 @@ def fused_infer_attention_score_v2_out(
 
 @register_impl("attention.fused_infer_attention_score_v2_get_max_workspace", "auto")
 @register_impl(
-    "attention.fused_infer_attention_score_v2_get_max_workspace", "torch_npu"
+    "attention.fused_infer_attention_score_v2_get_max_workspace", "ops-transformer"
 )
 def _fia_v2_workspace_impl(query, key, value, **kwargs):
-    return _get_torch_npu()._npu_fused_infer_attention_score_v2_get_max_workspace(
+    return torch_npu._npu_fused_infer_attention_score_v2_get_max_workspace(
         query, key, value, **kwargs
     )
 

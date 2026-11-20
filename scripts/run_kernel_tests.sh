@@ -30,7 +30,6 @@ case "$TEST_GROUP" in
     rope)               TEST_DIRS=("$TEST_ROOT/operators/rope") ;;
     sample)             TEST_DIRS=("$TEST_ROOT/operators/sample") ;;
     sampler)            TEST_DIRS=("$TEST_ROOT/operators/sampler") ;;
-    tensor_ops)         TEST_DIRS=("$TEST_ROOT/operators/tensor_ops") ;;
     operator_framework) TEST_DIRS=("$TEST_ROOT/framework/operator_framework") ;;
     testing_framework)  TEST_DIRS=("$TEST_ROOT/framework/testing_framework") ;;
     all)                TEST_DIRS=("$TEST_ROOT/operators" "$TEST_ROOT/framework") ;;

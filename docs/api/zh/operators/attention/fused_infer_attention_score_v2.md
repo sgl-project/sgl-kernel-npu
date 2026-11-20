@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.attention import (
@@ -51,7 +52,7 @@ def fused_infer_attention_score_v2_get_max_workspace(
 | `return_softmax_lse` | bool | - | `False` | 可选，设为 true 时返回 LSE，默认 false。 |
 | `out` | sequence[Tensor] | two buffers matching the output shape 与 dtype | 必传 | out 重载必传，依次为注意力输出和 LSE 缓冲区。 |
 | `workspace` | Tensor or None | SDK workspace | SDK 默认值 | out 重载的可选工作区，由对应辅助函数以相同参数获取。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
@@ -59,9 +60,13 @@ def fused_infer_attention_score_v2_get_max_workspace(
 | `attention_output`, `softmax_lse` | tuple[Tensor, Tensor] | [B, Hq, Sq, D] 在示例中; FP32 LSE | 主调用返回两个 Tensor。BNSD 下启用 LSE 时形状为 [B, Hq, Sq, 1]。out 重载使用传入的缓冲区。 |
 | `workspace` | Tensor | SDK workspace shape 与 dtype | 工作区辅助函数为相同配置返回此缓冲区。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_fused_infer_attention_score_v2`。形状、dtype 和布局组合以已安装的 SDK 为准。 可传递已安装 SDK 支持的选项。V2 使用 softmax_scale 和 return_softmax_lse。主调用、工作区辅助函数和 out 重载的布局、可选输入及标志应一致。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_fused_infer_attention_score_v2.md)
+调用 `torch_npu.npu_fused_infer_attention_score_v2`。形状、dtype 和布局组合以已安装的 SDK 为准。 可传递已安装 SDK 支持的选项。V2 使用 softmax_scale 和 return_softmax_lse。主调用、工作区辅助函数和 out 重载的布局、可选输入及标志应一致。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_fused_infer_attention_score_v2.md) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/fused_infer_attention_score)
+
+## torch_native 后端
+
+参考实现支持 BNSD、BSND 和 BSH 布局的 FP16/BF16 稠密注意力，覆盖主接口及 `out` 接口，支持显式 mask 和可选的 LSE 输出。工作区查询由 `ops-transformer` 提供。
 
 ## 调用示例
 
@@ -83,7 +88,7 @@ kwargs = dict(
     softmax_scale=128**-0.5,
     input_layout="BNSD",
     return_softmax_lse=True,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 y, lse = fused_infer_attention_score_v2(q, k, v, **kwargs)
 workspace = fused_infer_attention_score_v2_get_max_workspace(q, k, v, **kwargs)

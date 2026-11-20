@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 不支持 | 支持 |
+| `ops-nn` | 不支持 | 支持 |
+| `torch_native` | 不支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-nn`。
 
 ```python
 from sgl_kernel_npu.operators.matmul import transpose_quant_batchmatmul
@@ -32,16 +33,20 @@ def transpose_quant_batchmatmul(x1, x2, dtype, *, impl="auto", **kwargs): ...
 | `x1_scale`, `x2_scale` | Tensor or None | [M], [N], FP32 在逐行和逐列配置下 | `None` | 可选输入尺度。分组模式要求不同的形状。 |
 | `perm_x1`, `perm_x2`, `perm_y` | tuple[int, int, int] | - | `None` | 左右矩阵和结果的可选轴置换。 |
 | `group_sizes` | list[int] or None | - | `None` | 可选 SDK 量化分组。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `out` | Tensor | [M, B, N] 在示例中, dtype | 经输出置换后的批量矩阵乘结果。 |
 
-## torch_npu 后端
+## ops-nn 后端
 
-调用 `torch_npu.npu_transpose_quant_batchmatmul`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_transpose_quant_batchmatmul.md)
+调用 `torch_npu.npu_transpose_quant_batchmatmul`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_transpose_quant_batchmatmul.md) [CANN ops-nn 源码](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/matmul/transpose_quant_batch_mat_mul)
+
+## torch_native 后端
+
+使用每 32 个元素的 E8M0 scale 计算 MXFP8 批量矩阵乘法，覆盖 DeepSeek V4 的分组 WoA 布局。
 
 ## 调用示例
 
@@ -71,6 +76,6 @@ y = transpose_quant_batchmatmul(
     perm_x1=(1, 0, 2),
     perm_x2=(0, 1, 2),
     perm_y=(1, 0, 2),
-    impl="torch_npu",
+    impl="ops-nn",
 )
 ```

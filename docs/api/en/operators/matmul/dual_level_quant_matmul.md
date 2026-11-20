@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Unsupported | Supported |
+| `ops-nn` | Unsupported | Supported |
+| `torch_native` | Unsupported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.matmul import dual_level_quant_matmul
@@ -41,16 +42,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `x1_level0_scale`, `x2_level0_scale` | Tensor | [M, ceil(K/512)], [ceil(K/512), N], FP32 | Required | Level-0 scales for 512-element groups. |
 | `x1_level1_scale`, `x2_level1_scale` | Tensor | [M, ceil(K/64), 2], [N, ceil(K/64), 2], E8M0 bytes | Required | Paired level-1 scales for 32-element groups, in the SDK's packed format. |
 | `bias`, `output_dtype` | Tensor or None, torch.dtype | [N], FP32 bias | `None` / `torch.bfloat16` | Optional keywords. The result dtype is FP16 or BF16. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | [M, N], output_dtype | Matrix product on the input NPU. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_dual_level_quant_matmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dual_level_quant_matmul.md)
+Calls `torch_npu.npu_dual_level_quant_matmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dual_level_quant_matmul.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/matmul/dual_level_quant_batch_matmul)
+
+## torch_native backend
+
+Unpacks FP4 E2M1 values, applies the 32-element and 512-element scales, and multiplies the dequantized matrices.
 
 ## Example
 
@@ -69,6 +74,6 @@ b0 = torch.ones((k // 512, n), dtype=torch.float32, device=a.device)
 a1 = torch.full((m, k // 64, 2), 127, dtype=torch.uint8, device=a.device)
 b1 = torch.full((n, k // 64, 2), 127, dtype=torch.uint8, device=a.device)
 y = dual_level_quant_matmul(
-    a, b_nz, a0, b0, a1, b1, output_dtype=torch.bfloat16, impl="torch_npu"
+    a, b_nz, a0, b0, a1, b1, output_dtype=torch.bfloat16, impl="ops-nn"
 )
 ```

@@ -6,7 +6,7 @@ from unittest.mock import Mock, sentinel
 import pytest
 
 
-@pytest.mark.parametrize("impl", ["auto", "torch_npu"])
+@pytest.mark.parametrize("explicit_impl", [False, True], ids=["auto", "explicit"])
 @pytest.mark.parametrize(
     "category, name, args, kwargs, forwarded_args, forwarded_kwargs",
     [
@@ -93,7 +93,7 @@ import pytest
 def test_torch_npu_migration_forwarding(
     registry_for_generation,
     monkeypatch,
-    impl,
+    explicit_impl,
     category,
     name,
     args,
@@ -101,6 +101,8 @@ def test_torch_npu_migration_forwarding(
     forwarded_args,
     forwarded_kwargs,
 ):
+    vendor_impl = "ops-transformer" if category == "rope" else "ops-nn"
+    impl = vendor_impl if explicit_impl else "auto"
     modules = registry_for_generation("ARCH22")
     operator = getattr(modules.import_module(f"operators.{category}"), name)
     npu_fn = Mock(return_value=sentinel.result)
@@ -108,11 +110,11 @@ def test_torch_npu_migration_forwarding(
 
     assert modules.public_api.list_impls(operator) == [
         "auto",
+        vendor_impl,
         "torch_native",
-        "torch_npu",
     ]
     assert modules.public_api.get_impl(operator, "auto") is modules.public_api.get_impl(
-        operator, "torch_npu"
+        operator, vendor_impl
     )
     assert operator(*args, impl=impl, **kwargs) is sentinel.result
     npu_fn.assert_called_once_with(*forwarded_args, **forwarded_kwargs)
@@ -125,7 +127,7 @@ def test_mrope_reports_unsupported_vendor_generation(registry_for_generation):
     with pytest.raises(modules.registry.UnsupportedGenerationError):
         operator(None, None, None, None, 128)
     with pytest.raises(modules.registry.UnsupportedGenerationError):
-        modules.public_api.get_impl(operator, "torch_npu")
+        modules.public_api.get_impl(operator, "ops-transformer")
     assert callable(modules.public_api.get_impl(operator, "torch_native"))
 
 
@@ -144,7 +146,7 @@ def test_torch_npu_backend_error_propagates(registry_for_generation, monkeypatch
     backend.assert_called_once_with(sentinel.x)
 
 
-@pytest.mark.parametrize("impl", ["auto", "torch_npu", "torch_native"])
+@pytest.mark.parametrize("impl", ["auto", "ops-nn", "torch_native"])
 def test_top_k_top_p_requires_at_least_one_threshold(registry_for_generation, impl):
     modules = registry_for_generation("ARCH22")
     operator = modules.import_module("operators.sampler").top_k_top_p

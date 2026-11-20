@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import kv_rmsnorm_rope_cache
@@ -56,15 +57,19 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `epsilon` | float | - | `1e-05` | Stability constant for RMS normalization. |
 | `cache_mode` | str | - | `'Norm'` | Vendor storage layout and slot interpretation. |
 | `is_output_kv` | bool | - | `False` | Requests intermediate rotated and normalized KV tensors when true. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `k_cache`, `ckv_cache`, `rotated`, `normalized` | tuple of four tensors | cache shapes and intermediate shapes | First two results are the updated rotary and latent caches. The last two are valid when is_output_kv=True. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_kv_rmsnorm_rope_cache`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_kv_rmsnorm_rope_cache.md)
+Calls `torch_npu.npu_kv_rmsnorm_rope_cache`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_kv_rmsnorm_rope_cache.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/posembedding/kv_rms_norm_rope_cache)
+
+## torch_native backend
+
+Computes RMSNorm and RoPE for unquantized ND caches in Norm, PA, or PA_BNSD mode.
 
 ## Example
 
@@ -91,6 +96,6 @@ results = kv_rmsnorm_rope_cache(
     latent_cache,
     cache_mode="PA_BNSD",
     is_output_kv=True,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

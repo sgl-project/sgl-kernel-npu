@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.indexer import lightning_indexer
@@ -34,16 +35,20 @@ def lightning_indexer(query, key, weights, *, impl="auto", **kwargs): ...
 | `block_table` | Tensor or None | [B, max_pages], INT32 | `None` | 可选逻辑页到物理页映射，分页示例中必传。 |
 | `layout_query`, `layout_key` | str | - | `"BSND"` | 可选布局标签，默认均为 BSND。示例中 key 为 PA_BSND。 |
 | `sparse_count`, `sparse_mode`, `return_value` | int, int, bool | - | `2048` / `3` / `False` | 可选 SDK 参数，默认分别为 2048、3 和 False。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `indices`, `values` | tuple[Tensor, Tensor] | [B, Sq, Hkv, K] for BSND 或 [T, Hkv, K] for TND | INT32 top-k 位置索引。return_value=False 时分数输出为空。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_lightning_indexer`。形状、dtype 和布局组合以已安装的 SDK 为准。 当前 OpPlugin 产品文档列出了 950DT。请按所用 SoC 和布局核对已安装的 TorchNPU。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_lightning_indexer.md)
+调用 `torch_npu.npu_lightning_indexer`。形状、dtype 和布局组合以已安装的 SDK 为准。 当前 OpPlugin 产品文档列出了 950DT。请按所用 SoC 和布局核对已安装的 TorchNPU。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_lightning_indexer.md) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/lightning_indexer)
+
+## torch_native 后端
+
+针对单个共享 key 头计算加权 ReLU 分数并选出 TopK 位置，支持稠密 BSND 和分页 PA_BSND 布局。
 
 ## 调用示例
 
@@ -68,6 +73,6 @@ indices, values = lightning_indexer(
     block_table=table,
     layout_key="PA_BSND",
     sparse_count=2048,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

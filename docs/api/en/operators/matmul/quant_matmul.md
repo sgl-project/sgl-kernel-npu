@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-nn` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.matmul import quant_matmul
@@ -31,16 +32,20 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `scale` | Tensor | [N], FP32 for the example | Required | Weight-channel or group scale in the representation required by the selected mode. |
 | `pertoken_scale` | Tensor or None | [M], FP32 for the example | `None` | Optional scale for each input token. |
 | `output_dtype`, `group_sizes` | torch.dtype, list[int] | - | `None` | Optional result dtype and SDK group dimensions. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `out` | Tensor | [M, N] in the example | Quantized matmul result with the requested output dtype. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_quant_matmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_quant_matmul.md)
+Calls `torch_npu.npu_quant_matmul`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_quant_matmul.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/matmul/quant_batch_matmul_v4)
+
+## torch_native backend
+
+Computes INT8 accumulation with floating-point channel scales, optional token scales, and optional bias.
 
 ## Example
 
@@ -60,6 +65,6 @@ y = quant_matmul(
     channel_scale,
     pertoken_scale=token_scale,
     output_dtype=torch.bfloat16,
-    impl="torch_npu",
+    impl="ops-nn",
 )
 ```

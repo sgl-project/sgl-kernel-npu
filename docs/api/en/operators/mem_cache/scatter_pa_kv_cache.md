@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import scatter_pa_kv_cache
@@ -44,15 +45,19 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `slot_mapping` | Tensor | [T], INT32 in example | Required | Physical slot for each token row. |
 | `compress_lens`, `compress_seq_offsets`, `seq_lens` | Tensor or None | SDK metadata tensors | `None` | Optional metadata for compressed-cache placement. |
 | `cache_mode` | str | - | `'PA_NZ'` | Cache layout mode. Use Norm for uncompressed ND cache in the example, PA_NZ for the default vendor format. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `result` | None | - | Only the supplied caches are updated. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_scatter_pa_kv_cache`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_scatter_pa_kv_cache.md)
+Calls `torch_npu.npu_scatter_pa_kv_cache`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_scatter_pa_kv_cache.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/scatter_pa_kv_cache)
+
+## torch_native backend
+
+Writes K/V into uncompressed ND pages in Norm mode.
 
 ## Example
 
@@ -68,6 +73,6 @@ key_cache = torch.zeros((2, 16, 2, 128), dtype=key.dtype, device=key.device)
 value_cache = torch.zeros_like(key_cache)
 slots = torch.tensor([31, 15, 16], dtype=torch.int32, device=key.device)
 scatter_pa_kv_cache(
-    key, value, key_cache, value_cache, slots, cache_mode="Norm", impl="torch_npu"
+    key, value, key_cache, value_cache, slots, cache_mode="Norm", impl="ops-transformer"
 )
 ```

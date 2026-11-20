@@ -2,26 +2,13 @@
 
 import pytest
 
+from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.performance import check_performance
+
 torch = pytest.importorskip("torch")
 
 
-@pytest.mark.parametrize(
-    "heads,context_length,page_size,topk",
-    [pytest.param(64, 4096, 128, 2048, id="deepseek-v32-dsa-paged-decode")],
-)
-def test_lightning_indexer_paged_decode(heads, context_length, page_size, topk):
-    import torch_npu
-    from sgl_kernel_npu.operators.indexer import lightning_indexer
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
-    # The vendor lists A2/A3 and 950DT, rather than the entire ARCH35 family.
-    # This case covers the A2/A3 DSA workload without assuming a 950 SKU.
-    # https://github.com/Ascend/op-plugin/blob/master/docs/zh/custom_APIs/torch_npu/torch_npu-npu_lightning_indexer.md
-    if get_hardware().generation is not Generation.ARCH22:
-        pytest.skip("This legacy LightningIndexer test targets Atlas A2/A3")
-    if not callable(getattr(torch_npu, "npu_lightning_indexer", None)):
-        pytest.skip("Installed TorchNPU lacks npu_lightning_indexer")
-
+def generate_data(heads, context_length, page_size, topk):
     generator = torch.Generator(device="cpu").manual_seed(7)
     dtype = torch.bfloat16
     head_dim = 128
@@ -43,15 +30,7 @@ def test_lightning_indexer_paged_decode(heads, context_length, page_size, topk):
     weights = torch.linspace(0.5, 1.5, heads, device="cpu").to(dtype).unsqueeze(0)
     page_order = torch.randperm(pages, generator=generator, device="cpu")
 
-    logical_keys = key[page_order].reshape(context_length, head_dim)
-    similarities = (query[0].float() @ logical_keys.float().T).relu()
-    scores = (similarities * weights[0, :, None].float()).sum(dim=0)
-    expected = scores.topk(topk).indices.sort().values
-
-    indices, values = lightning_indexer(
-        query.npu(),
-        key.npu(),
-        weights.npu(),
+    return (query.npu(), key.npu(), weights.npu()), dict(
         block_table=page_order.to(torch.int32).unsqueeze(0).npu(),
         actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32),
         actual_seq_lengths_key=torch.tensor([context_length], dtype=torch.int32),
@@ -59,9 +38,35 @@ def test_lightning_indexer_paged_decode(heads, context_length, page_size, topk):
         layout_key="PA_BSND",
         sparse_count=topk,
         sparse_mode=3,
-        impl="torch_npu",
     )
-    assert indices.shape == (1, 1, topk)
-    assert indices.dtype == torch.int32
-    assert values.numel() == 0
-    torch.testing.assert_close(indices.cpu().flatten().long().sort().values, expected)
+
+
+@pytest.mark.parametrize(
+    "heads, context_length, page_size, topk",
+    [pytest.param(64, 4096, 128, 2048, id="deepseek-v32-dsa-paged-decode")],
+)
+def test_lightning_indexer_paged_decode(heads, context_length, page_size, topk):
+    import torch_npu
+    from sgl_kernel_npu.operators.indexer import lightning_indexer
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    # The legacy binding supports A2/A3 and the 950DT SKU.
+    if (
+        get_hardware().generation is Generation.ARCH35
+        and not torch.npu.get_device_name().upper().startswith("ASCEND950DT")
+    ):
+        pytest.skip("Legacy LightningIndexer requires a 950DT on arch35")
+    if not callable(getattr(torch_npu, "npu_lightning_indexer", None)):
+        pytest.skip("Installed TorchNPU lacks npu_lightning_indexer")
+
+    args, kwargs = generate_data(heads, context_length, page_size, topk)
+    executor = check_accuracy(
+        lightning_indexer,
+        args,
+        kwargs=kwargs,
+        result_transform=lambda result: (
+            result[0].cpu().sort().values,
+            result[1].cpu(),
+        ),
+    )
+    check_performance(executor)

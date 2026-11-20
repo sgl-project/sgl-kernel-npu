@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Supported | Supported |
+| `ops-transformer` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-transformer` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.attention import attention_update
@@ -30,15 +31,19 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `lse` | sequence[Tensor] | P tensors of [N], FP32 | Required | Per-partition LSE, where N flattens token and head axes. |
 | `local_out` | sequence[Tensor] | P tensors of [N, D], same floating dtype | Required | Normalized output per partition on the same NPU as its LSE. |
 | `update_type` | int | - | Required | 0 computes the merged output. 1 also computes merged LSE. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | Return value | Type | Shape / dtype | Description |
 | --- | --- | --- | --- |
 | `output`, `lse` | tuple[Tensor, Tensor] | [N, D], [N] | Merged attention and SDK LSE buffer. Only mode 1 computes a usable merged LSE. |
 
-## torch_npu backend
+## ops-transformer backend
 
-Calls `torch_npu.npu_attention_update`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_attention_update.md)
+Calls `torch_npu.npu_attention_update`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_attention_update.md) [CANN ops-transformer source](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/attention_update)
+
+## torch_native backend
+
+Merges partition outputs with PyTorch softmax weights and returns the merged LSE in mode 1.
 
 ## Example
 
@@ -50,5 +55,5 @@ from sgl_kernel_npu.operators.attention import attention_update
 
 lse_parts = [torch.zeros((64,), dtype=torch.float32, device="npu") for _ in range(2)]
 values = [torch.ones((64, 512), dtype=torch.float32, device="npu") for _ in range(2)]
-out, lse = attention_update(lse_parts, values, 1, impl="torch_npu")
+out, lse = attention_update(lse_parts, values, 1, impl="ops-transformer")
 ```

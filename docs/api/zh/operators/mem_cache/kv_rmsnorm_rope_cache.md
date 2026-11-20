@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.mem_cache import kv_rmsnorm_rope_cache
@@ -56,15 +57,19 @@ def kv_rmsnorm_rope_cache(
 | `epsilon` | float | - | `1e-05` | RMS 归一化的稳定项。 |
 | `cache_mode` | str | - | `'Norm'` | 厂商存储布局和槽位解释方式。 |
 | `is_output_kv` | bool | - | `False` | 为 true 时返回旋转和归一化 KV 中间结果。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `k_cache`, `ckv_cache`, `rotated`, `normalized` | tuple of four tensors | cache shapes 与 intermediate shapes | 前两项为更新后的旋转与潜变量缓存。is_output_kv=True 时后两项有效。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_kv_rmsnorm_rope_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_kv_rmsnorm_rope_cache.md)
+调用 `torch_npu.npu_kv_rmsnorm_rope_cache`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_kv_rmsnorm_rope_cache.md) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/posembedding/kv_rms_norm_rope_cache)
+
+## torch_native 后端
+
+在 Norm、PA 或 PA_BNSD 模式下为未量化 ND 缓存计算 RMSNorm 和 RoPE。
 
 ## 调用示例
 
@@ -91,6 +96,6 @@ results = kv_rmsnorm_rope_cache(
     latent_cache,
     cache_mode="PA_BNSD",
     is_output_kv=True,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

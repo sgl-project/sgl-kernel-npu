@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-transformer` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-transformer`。
 
 ```python
 from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention_torch_npu
@@ -46,16 +47,20 @@ def kv_quant_sparse_flash_attention_torch_npu(
 | `block_table`, `actual_seq_lengths_query`, `actual_seq_lengths_kv` | Tensor or None | [B, max_pages], [B], [B], INT32 | `None` | 可选分页元数据，示例中必传。 |
 | `layout_query`, `layout_kv`, `attention_mode` | str, str, int | - | `"BSND"` / `0` | 可选 SDK 设置。示例采用 BSND、PA_BSND 和 MLA 模式 2。 |
 | `rope_head_dim`, `tile_size`, `quant_scale_repo_mode` | int | - | `64` / `128` / `1` | 可选旋转宽度、量化块宽度和尺度存储模式，须与 key 编码方式一致。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-transformer`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `out` | Tensor | [B, Sq, Hq, D] with BF16 在示例中 | 输入 NPU 上的注意力结果。MLA 的 D 不含旋转尾部。 |
 
-## torch_npu 后端
+## ops-transformer 后端
 
-调用 `torch_npu.npu_kv_quant_sparse_flash_attention`。形状、dtype 和布局组合以已安装的 SDK 为准。 调用带独立 key、value 和量化模式参数的厂商接口。仓内的 packed FP8 API 使用自身的缓存布局和签名。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_npu_kv_quant_sparse_flash_attention.py)
+调用 `torch_npu.npu_kv_quant_sparse_flash_attention`。形状、dtype 和布局组合以已安装的 SDK 为准。 调用带独立 key、value 和量化模式参数的厂商接口。仓内的 packed FP8 API 使用自身的缓存布局和签名。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/test/test_custom_ops/test_npu_kv_quant_sparse_flash_attention.py) [CANN ops-transformer 源码](https://gitcode.com/cann/ops-transformer/tree/7326dcc4f1e2dde5d2a802458877f927570267d1/attention/kv_quant_sparse_flash_attention)
+
+## torch_native 后端
+
+解包每 tile 使用 INT8 或 E4M3 量化并在记录中保存 scale 的 KV 缓存，计算 TND 或 BSND query 与 PA_BSND KV 的稀疏 MLA。
 
 ## 调用示例
 
@@ -93,6 +98,6 @@ out = kv_quant_sparse_flash_attention_torch_npu(
     quant_scale_repo_mode=1,
     tile_size=tile,
     rope_head_dim=dr,
-    impl="torch_npu",
+    impl="ops-transformer",
 )
 ```

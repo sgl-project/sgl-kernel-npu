@@ -4,11 +4,12 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 |
+| `ops-nn` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数原型
 
-`auto` 在对应代际选择已注册的 `torch_npu`。
+`auto` 在对应代际选择已注册的 `ops-nn`。
 
 ```python
 from sgl_kernel_npu.operators.quant import dynamic_quant
@@ -31,16 +32,20 @@ def dynamic_quant(input, *, impl="auto", **kwargs): ...
 | `dst_type` | torch.dtype | - | `None` | 可选关键字。标准逐 token 模式的目标为 INT8。 |
 | `smooth_scales`, `group_index` | Tensor or None | [H] 或 [groups, H], 与 [groups] | `None` | 可选平滑系数和专家组边界。 |
 | `quant_mode` | str | - | `"pertoken"` | 可选 SDK 量化粒度，默认为 pertoken。 |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | 其他受支持的 TorchNPU 关键字参数。具体默认值和约束见厂商接口。 |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
 | `values`, `scales` | tuple[Tensor, Tensor] | destination dtype, FP32 | 普通逐 token 模式返回输入形状的 INT8 值和每行一个尺度。 |
 
-## torch_npu 后端
+## ops-nn 后端
 
-调用 `torch_npu.npu_dynamic_quant`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_dynamic_quant.md)
+调用 `torch_npu.npu_dynamic_quant`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_dynamic_quant.md) [CANN ops-nn 源码](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/quant/dynamic_quant)
+
+## torch_native 后端
+
+计算逐 token 的 INT8 或 FP8 量化值和 FP32 scale，支持可选的分专家平滑系数。
 
 ## 调用示例
 
@@ -51,5 +56,5 @@ import torch_npu
 from sgl_kernel_npu.operators.quant import dynamic_quant
 
 x = torch.randn((1, 4096), dtype=torch.float16, device="npu")
-values, scales = dynamic_quant(x, dst_type=torch.int8, impl="torch_npu")
+values, scales = dynamic_quant(x, dst_type=torch.int8, impl="ops-nn")
 ```

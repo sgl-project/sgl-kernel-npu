@@ -4,11 +4,12 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `torch_npu` | Unsupported | Supported |
+| `ops-nn` | Unsupported | Supported |
+| `torch_native` | Unsupported | Supported |
 
 ## Signature
 
-`auto` selects `torch_npu` wherever it is registered.
+`auto` selects `ops-nn` wherever it is registered.
 
 ```python
 from sgl_kernel_npu.operators.quant import dynamic_dual_level_mx_quant
@@ -30,7 +31,7 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `input` | Tensor | [..., K], FP16/BF16 | Required | ND activations. Packed output requires an even last dimension. |
 | `smooth_scale` | Tensor or None | [K] | `None` | Optional SDK smoothing factors for input features. |
 | `round_mode` | str | - | `"rint"` | Optional rounding control. The SDK defaults to rint. |
-| `impl` | str | - | `"auto"` | `auto`, `torch_npu`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
 | `**kwargs` | dict | - | - | Additional supported TorchNPU keyword arguments. The linked vendor contract specifies their defaults and constraints. |
 
 | Return value | Type | Shape / dtype | Description |
@@ -39,9 +40,13 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 | `level0_scale` | Tensor | [..., ceil(K/512)], FP32 | Scale for each 512-element group. |
 | `level1_scale` | Tensor | [..., ceil(K/64), 2], E8M0 bytes | Paired scales for 32-element subgroups. |
 
-## torch_npu backend
+## ops-nn backend
 
-Calls `torch_npu.npu_dynamic_dual_level_mx_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_dual_level_mx_quant.md)
+Calls `torch_npu.npu_dynamic_dual_level_mx_quant`. Shape, dtype and layout combinations follow the installed SDK. [TorchNPU reference](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/en/custom_APIs/torch_npu/torch_npu-npu_dynamic_dual_level_mx_quant.md) [CANN ops-nn source](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/quant/dynamic_dual_level_mx_quant)
+
+## torch_native backend
+
+Computes the 512-element level-0 scales and the 32-element E8M0 scales, then packs the RINT FP4 E2M1 values.
 
 ## Example
 
@@ -52,5 +57,5 @@ import torch_npu
 from sgl_kernel_npu.operators.quant import dynamic_dual_level_mx_quant
 
 x = torch.randn((1, 512), dtype=torch.bfloat16, device="npu")
-y, s0, s1 = dynamic_dual_level_mx_quant(x, impl="torch_npu")
+y, s0, s1 = dynamic_dual_level_mx_quant(x, impl="ops-nn")
 ```
