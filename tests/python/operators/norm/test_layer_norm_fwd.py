@@ -153,3 +153,31 @@ def test_layer_norm_preallocated_output(dtype):
         rtol=0,
     )
     torch.testing.assert_close(x, x_before, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("norm_first", [False, True])
+def test_sigmoid_gate_matches_separate_bf16_operations(norm_first):
+    from sgl_kernel_npu.operators.norm import layer_norm_fwd
+
+    assert layer_norm_fwd.supports_sigmoid_gate
+    x = torch.randn((768, 128), device="npu", dtype=torch.bfloat16)
+    z = torch.randn_like(x)
+    weight = torch.randn(128, device=x.device, dtype=x.dtype)
+    gate = z.float().sigmoid()
+    norm_input = x if norm_first else (x.float() * gate).to(x.dtype)
+    expected, _, _ = layer_norm_fwd(norm_input, weight, None, 1e-6, is_rms_norm=True)
+    if norm_first:
+        expected = (expected.float() * gate).to(x.dtype)
+    for impl in ("triton", "torch_native"):
+        y, _, _ = layer_norm_fwd(
+            x,
+            weight,
+            None,
+            1e-6,
+            z=z,
+            norm_before_gate=norm_first,
+            is_rms_norm=True,
+            activation="sigmoid",
+            impl=impl,
+        )
+        torch.testing.assert_close(y, expected, atol=0.008, rtol=0.008)

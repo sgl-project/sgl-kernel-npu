@@ -71,7 +71,6 @@ def _torch_native_impl(
         else torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
     )
     rstd = torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
-    # activation is accepted but ignored by the original kernel; gating is always SiLU.
     _torch_native_fn(
         x.reshape(rows, groups, size),
         weight.reshape(1, groups, size),
@@ -83,6 +82,7 @@ def _torch_native_impl(
         eps,
         norm_before_gate,
         is_rms_norm,
+        sigmoid_gate=activation == "sigmoid",
     )
     return output, mean, rstd
 
@@ -102,12 +102,12 @@ def layer_norm_fwd(
     *,
     impl="auto"
 ):
-    """Grouped LayerNorm or RMSNorm with optional affine bias and SiLU gating.
+    """Grouped LayerNorm or RMSNorm with optional affine bias and gating.
 
     x is [rows, hidden]; group_size defaults to hidden and must divide it.
     When norm_before_gate is True, gate the affine-normalized output; otherwise
-    gate x before computing normalization statistics. The legacy activation
-    argument is accepted but ignored: the kernel always uses SiLU for z.
+    gate x before computing normalization statistics. Use activation="sigmoid"
+    for a sigmoid gate. Other activation values retain the default SiLU gate.
 
     Return (out, mean, rstd), with FP32 statistics flattened in group-major
     order. mean is None for RMSNorm. A supplied out is written in place and
@@ -144,3 +144,6 @@ def layer_norm_fwd(
         is_rms_norm,
         activation,
     )
+
+
+layer_norm_fwd.supports_sigmoid_gate = True
