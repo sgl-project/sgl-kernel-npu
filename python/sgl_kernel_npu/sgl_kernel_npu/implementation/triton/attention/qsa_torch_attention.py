@@ -1,6 +1,7 @@
-"""Bounded BF16 hybrid path: masked gather and FP32 matrix softmax."""
+"""Gathered BF16 attention with masked KV loads."""
 
 import torch
+import torch_npu
 import triton
 import triton.language as tl
 
@@ -210,3 +211,50 @@ def _batched_attention(q, k, v, slots, scale):
             result.reshape(count, kv_heads, group, dim)
         )
     return output
+
+
+def fia_attention(q, k, v, slots, scale):
+    """Masked gather and native attention for R32..128, Q3/KV1, S2051/2054/2055.
+
+    Each selected occurrence becomes one KV column. For example, [5, 5, -1]
+    reads slot 5 twice and masks the last column. Empty rows return zero.
+    Gather buffers use up to 257 MiB; native workspace is additional.
+    """
+    rows, width = slots.shape
+    keys = torch.empty((rows, 1, width, 256), dtype=q.dtype, device=q.device)
+    values = torch.empty_like(keys)
+    items = rows * width
+    _gather[(triton.cdiv(items, 32),)](
+        k,
+        v,
+        slots,
+        keys,
+        values,
+        k.stride(0),
+        k.stride(1),
+        v.stride(0),
+        v.stride(1),
+        *slots.stride(),
+        width,
+        256,
+        0,
+        0,
+        0,
+        items,
+        enable_fp_fusion=False,
+    )
+    invalid = slots < 0
+    output, _ = torch_npu.npu_fused_infer_attention_score(
+        q.unsqueeze(2).contiguous(),
+        keys,
+        values,
+        atten_mask=invalid[:, None, None, :],
+        num_heads=3,
+        num_key_value_heads=1,
+        input_layout="BNSD",
+        scale=scale,
+        sparse_mode=0,
+        inner_precise=0,
+    )
+    # A fully masked row has no KV contribution.
+    return torch.where(invalid.all(-1)[:, None, None], 0, output.squeeze(2))

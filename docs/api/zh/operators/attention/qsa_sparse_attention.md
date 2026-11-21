@@ -44,6 +44,8 @@ def qsa_sparse_attention(q, k, v, slots, softmax_scale=None, *, impl="auto"):
 
 默认实现。启动前检查输入元数据，支持 graph capture，以及原地更新输入后的 replay。
 
+arch22 上，R32..128、Q3/KV1、S2051/2054/2055 使用带掩码的 BF16 收集和原生 attention。重复槽位保留为独立列，全空行仍输出零。收集缓冲区最多约 257 MiB，另需原生算子的工作空间。其他形状和 arch35 保留原路径。
+
 ## torch_native
 
 独立 CPU FP64 参考实现，结果返回输入设备。仅在图外使用，通过 `impl="torch_native"` 显式选择。

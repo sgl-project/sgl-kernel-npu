@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0.02, rtol=0.02)}
-perf_shape = [(1, 3, 1, 2051), (8, 3, 1, 2051), (32, 3, 1, 2051)]
+perf_shape = [(1, 3, 1, 2051), (8, 3, 1, 2051), (32, 3, 1, 2051), (128, 3, 1, 2051)]
 
 
 def generate_data(rows=4, heads=3, kv_heads=1, width=2051, gaps=False, mode="masked"):
@@ -118,11 +118,25 @@ def generate_data(rows=4, heads=3, kv_heads=1, width=2051, gaps=False, mode="mas
             id="qwen3-8-flash-next-attn-tp8-verify-b8-w4-t32-q3-kv1",
         ),
         pytest.param(
+            128,
+            8,
+            2051,
+            "verify",
+            id="qwen3-8-flash-next-attn-tp8-verify-b32-w4-t128-q3-kv1",
+        ),
+        pytest.param(
             8,
             8,
             2055,
             "full",
             id="qwen3-8-flash-next-attn-tp8-draft-b8-shared-tail-s2055",
+        ),
+        pytest.param(
+            32,
+            8,
+            2055,
+            "full",
+            id="qwen3-8-flash-next-attn-tp8-draft-b32-shared-tail-s2055",
         ),
         pytest.param(
             4096,
@@ -172,6 +186,7 @@ def test_qsa_sparse_attention_accuracy(rows, attn_tp, width, mode):
     [
         pytest.param(8, 2051, id="qwen3-8-flash-next-tp8-decode-r8-s2051"),
         pytest.param(32, 2051, id="qwen3-8-flash-next-tp8-mtp-r32-s2051"),
+        pytest.param(128, 2051, id="qwen3-8-flash-next-tp8-mtp-r128-s2051"),
     ],
 )
 def test_qsa_sparse_attention_graph_updates(rows, width):
@@ -199,10 +214,11 @@ def test_qsa_sparse_attention_graph_updates(rows, width):
 
 @pytest.mark.extra_checks
 @pytest.mark.parametrize("scale", [None, 0, 0.3, -0.1])
-def test_qsa_sparse_attention_scale(scale):
+@pytest.mark.parametrize("rows", [4, 128])
+def test_qsa_sparse_attention_scale(scale, rows):
     check_accuracy(
         qsa_sparse_attention,
-        args=generate_data(),
+        args=generate_data(rows=rows),
         kwargs={"softmax_scale": scale},
         standard=STANDARD,
     )

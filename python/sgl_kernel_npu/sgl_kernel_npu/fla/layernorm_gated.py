@@ -171,6 +171,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
+    SIGMOID_GATE: tl.constexpr,
 ):
     # Map the program id to the row of X and Y it should compute.
     pid_m = tl.program_id(0)
@@ -205,7 +206,10 @@ def _layer_norm_fwd_1pass_kernel_npu(
                 tl.float32
             )
             if not NORM_BEFORE_GATE:
-                x *= z * tl.sigmoid(z)
+                if SIGMOID_GATE:
+                    x = (x * tl.sigmoid(z)).to(X.dtype.element_ty).to(tl.float32)
+                else:
+                    x *= z * tl.sigmoid(z)
 
         # Compute statistics per row
         if not IS_RMS_NORM:
@@ -232,7 +236,10 @@ def _layer_norm_fwd_1pass_kernel_npu(
 
         # Post-gate
         if HAS_Z and NORM_BEFORE_GATE:
-            y *= z * tl.sigmoid(z)
+            if SIGMOID_GATE:
+                y = y.to(Y.dtype.element_ty).to(tl.float32) * tl.sigmoid(z)
+            else:
+                y *= z * tl.sigmoid(z)
 
         # Store output
         y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
@@ -309,6 +316,10 @@ def layer_norm_fwd_npu(
         BLOCK_N=BLOCK_N,
         NORM_BEFORE_GATE=norm_before_gate,
         IS_RMS_NORM=is_rms_norm,
+        SIGMOID_GATE=activation == "sigmoid",
         # Remove multibuffer if not needed
     )
     return out, mean, rstd
+
+
+layer_norm_fwd_npu.supports_sigmoid_gate = True

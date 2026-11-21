@@ -44,6 +44,8 @@ For each query head, select its GQA key/value head and the keys named by slots, 
 
 Default implementation. Checks input metadata before launch. Supports graph capture and replay after in-place input updates.
 
+On arch22, R32..128 with Q3/KV1 and S2051/2054/2055 uses masked BF16 gathers and native attention. Duplicate slots remain separate columns; empty rows stay zero. Gather buffers use up to 257 MiB; native workspace is additional. Other shapes and arch35 retain their existing paths.
+
 ## torch_native
 
 Independent CPU FP64 reference; returns results to the input device. Use outside graph capture. Select explicitly with `impl="torch_native"`.
