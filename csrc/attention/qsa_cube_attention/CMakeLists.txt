@@ -4,7 +4,7 @@
 # the BSD 3-Clause License (the "License"). Please refer to the License for details.
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND.
 # -----------------------------------------------------------------------------------------------------------
-# Adapted from the A3 QSA Cube operator in the vLLM NPU plugin 74b02d912.
+# Adapted from the QSA Cube operator for A3 in the vLLM NPU plugin.
 sgl_register_operator(
     ID qsa_cube_attention
     EXECUTION_UNIT AICORE

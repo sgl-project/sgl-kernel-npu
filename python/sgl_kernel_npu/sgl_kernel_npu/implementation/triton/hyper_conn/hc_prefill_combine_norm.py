@@ -1,6 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
 """Qwen HC combine and grouped normalization."""
 
-# Derived from the vLLM NPU plugin 22e9efb1a, ops/triton/qwen4_exp/hc_fusion.py.
+# Adapted from ops/triton/qwen4_exp/hc_fusion.py in the vLLM NPU plugin.
 import triton
 import triton.language as tl
 import torch
