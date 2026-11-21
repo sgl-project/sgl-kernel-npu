@@ -1,0 +1,16 @@
+{
+  "name": "sgl_ops_transformer_gmm93",
+  "builder": "ops_transformer",
+  "ops": {
+    "arch22": ["grouped_matmul"],
+    "arch35": []
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "bf792a315334832f2743f930fb5ecb26f7bba86e",
+  "commands": [
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"]
+  ],
+  "has_aicpu": false,
+  "python_bindings": false,
+  "license": "LICENSE"
+}

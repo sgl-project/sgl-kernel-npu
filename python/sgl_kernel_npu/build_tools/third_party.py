@@ -74,6 +74,8 @@ def resolve_plan(
     profile = root / "profiles" / ("cann-" + version)
     configs = sorted(profile.glob("*.json"))
     if third_party is not None:
+        # Optional providers can override SDK operators for every model in a process.
+        configs.extend(sorted((profile / "optional").glob("*.json")))
         available = {path.stem for path in configs}
         missing = set(third_party) - available
         if missing:
