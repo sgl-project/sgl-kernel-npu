@@ -34,7 +34,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
-    SIGMOID_GATE: tl.constexpr,
+    SIGMOID_GATE: tl.constexpr = False,
 ):
     # Map the program id to the row of X and Y it should compute.
     pid_m = tl.program_id(0)
