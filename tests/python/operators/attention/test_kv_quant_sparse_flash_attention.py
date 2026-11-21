@@ -88,3 +88,57 @@ def test_kv_quant_sparse_flash_attention_rejects_invalid_record_width():
     data["packed_kv"] = data["packed_kv"][..., :-1].contiguous()
     with pytest.raises(RuntimeError, match="packed KV must be uint8"):
         kv_quant_sparse_flash_attention(**data, impl="ascendc")
+
+
+def _rope0_inputs():
+    padded = generate_data(8, 260, (2, 129, 0))
+    padded["query_rope"].zero_()
+    packed = padded["packed_kv"]
+    rope = packed[..., 512:640]
+    rope.zero_()
+    compact = dict(
+        padded,
+        query_rope=padded["query_rope"][..., :0],
+        packed_kv=torch.cat((packed[..., :512], packed[..., 640:]), dim=-1),
+    )
+    return padded, compact
+
+
+@pytest.mark.parametrize("return_softmax_lse", [True, False])
+def test_kv_quant_sparse_flash_attention_rope0(return_softmax_lse):
+    from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
+
+    require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
+    padded, compact = _rope0_inputs()
+    options = {"return_softmax_lse": return_softmax_lse}
+    padded_output = kv_quant_sparse_flash_attention(**padded, **options)
+    compact_output = kv_quant_sparse_flash_attention(**compact, **options)
+    torch.testing.assert_close(compact_output, padded_output, rtol=0, atol=0)
+    if not return_softmax_lse:
+        assert compact_output[1].numel() == compact_output[2].numel() == 0
+    check_accuracy(
+        kv_quant_sparse_flash_attention,
+        kwargs=compact | options,
+        standard=_STANDARD,
+    )
+
+
+@pytest.mark.extra_checks
+def test_kv_quant_sparse_flash_attention_rope0_graph_replay():
+    from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
+
+    require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
+    _, compact = _rope0_inputs()
+
+    def run():
+        return kv_quant_sparse_flash_attention(**compact, return_softmax_lse=False)[0]
+
+    run()
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = run()
+    compact["sparse_indices"][0, 0, 0] = 128
+    graph.replay()
+    torch.npu.synchronize()
+    torch.testing.assert_close(output, run(), rtol=0, atol=0)

@@ -303,6 +303,10 @@ void SFAMlaTiling::Split()
 void SFAMlaTiling::FillTilingBaseParamsMla()
 {
     tilingData_.baseParams.set_batchSize(sfaInfo_->bSize);
+    const auto packedKvBytes = sfaInfo_->opParamInfo.key.desc->GetDataType() == ge::DT_UINT8
+                                   ? sfaInfo_->opParamInfo.key.shape->GetStorageShape().GetDim(3)
+                                   : 0;
+    tilingData_.baseParams.set_packedKvBytes(static_cast<uint32_t>(packedKvBytes));
     tilingData_.baseParams.set_seqSize(sfaInfo_->s2Size);
     tilingData_.baseParams.set_qSeqSize(sfaInfo_->s1Size);
     tilingData_.baseParams.set_blockSize(sfaInfo_->blockSize);
@@ -1078,9 +1082,13 @@ ge::graphStatus SFATilingCheck::CheckVAndKRopeShapeForPageAttention()
     shapeParams.Bn = blockNum;
     shapeParams.N = n2Size_;
     shapeParams.Bs = blockSize_;
-    shapeParams.D = packedKv ? kSfaPackedKvBytes : vHeadDim_;
+    shapeParams.D = vHeadDim_;
     shapeParams.T = kvTSize_;
     if (packedKv) {
+        const auto rowBytes = keyShapeCmp_.GetDim(3);
+        OP_CHECK_IF(rowBytes != kSfaPackedKvBytes && rowBytes != kSfaPackedKvNoRopeBytes,
+                    OP_LOGE(opName_, "packed KV row must be 528 or 656 bytes"), return ge::GRAPH_FAILED);
+        shapeParams.D = rowBytes;
         return CompareShape(shapeParams, keyShapeCmp_, kvLayout_, KEY_NAME);
     }
     if (CompareShape(shapeParams, valueShapeCmp_, kvLayout_, VALUE_NAME) != ge::GRAPH_SUCCESS) {
@@ -1322,10 +1330,9 @@ ge::graphStatus SFATilingCheck::CheckFeatureMla() const
 {
     OP_CHECK_IF(inputKvType_ == ge::DT_UINT8 && (!isA5_ || inputQType_ != ge::DT_BF16 || qLayout_ != SFALayout::TND ||
                                                  kvLayout_ != SFALayout::PA_BSND || sparseBlockSize_ != 1 ||
-                                                 *opParamInfo_.sparseMode != 0 || !*opParamInfo_.returnSoftmaxLse),
+                                                 *opParamInfo_.sparseMode != 0),
                 OP_LOGE(opName_,
-                        "packed KV requires arch35, BF16 query, TND/PA_BSND, sparse_block_size=1, "
-                        "sparse_mode=0 and return_softmax_lse=true"),
+                        "packed KV requires arch35, BF16 query, TND/PA_BSND, sparse_block_size=1 and sparse_mode=0"),
                 return ge::GRAPH_FAILED);
     return CheckFeatureMlaNoquant();
 }

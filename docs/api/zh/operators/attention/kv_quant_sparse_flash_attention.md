@@ -22,21 +22,24 @@ def kv_quant_sparse_flash_attention(
     actual_seq_lengths_kv,
     scale_value,
     *,
+    return_softmax_lse=True,
     impl="auto",
 ):
     ...
 ```
 
 在 arch35 上，`auto` 选择 `ascendc`。SGLang 使用
-`torch.ops.npu.kv_quant_sparse_flash_attention` 原生绑定，入参为相同的八项。
+`torch.ops.npu.kv_quant_sparse_flash_attention` 原生绑定，使用相同的 Tensor 与注意力参数。
 
 ## 功能说明
 
-使用显式的 rank-local Top-K 索引，计算单个 DCP rank 的 MLA Attention。
-每条 KV 记录依次存放 512 字节 FP8 E4M3FN latent、128 字节 BF16 RoPE，
+使用显式的 Top-K 索引计算 MLA Attention。
+RoPE64 的每条 KV 记录依次存放 512 字节 FP8 E4M3FN latent、128 字节 BF16 RoPE，
 以及从第 640 字节开始的四个 FP32 scale。每个 scale 对应连续的 128 个
 latent 元素。latent 在 FP32 中乘 scale，再舍入到 BF16 后参与 Attention。
-RoPE 已经是 BF16。
+RoPE0 的 KV 行长为 528 字节，四个 scale 从字节偏移 512 开始，query_rope 的末维为空。
+计算因果注意力时，传入已经按可见范围筛选的索引。
+return_softmax_lse=False 时，两项 softmax 统计量均为空 Tensor。
 
 ```text
 latent[d] = BF16(FP32(fp8_latent[d]) * scale[d // 128])
@@ -57,8 +60,8 @@ LSE = maximum + log(total)
 | 参数 | 类型与形状 | 说明 |
 | --- | --- | --- |
 | `query` | BF16 `[T, H, 512]` | TND 查询 latent。`H` 为 1～64 或 128。 |
-| `query_rope` | BF16 `[T, H, 64]` | 查询 RoPE。 |
-| `packed_kv` | UINT8 `[pages, page_size, 1, 656]` | PA_BSND 打包 KV，只有一个 KV 头。页大小为不超过 1024 的正 16 倍数。 |
+| `query_rope` | BF16 `[T, H, 64]` 或 `[T, H, 0]` | 查询 RoPE。 |
+| `packed_kv` | UINT8 `[pages, page_size, 1, 656 或 528]` | PA_BSND 打包 KV，只有一个 KV 头。页大小为不超过 1024 的正 16 倍数。 |
 | `sparse_indices` | INT32 `[T, 1, K]` | 每个请求中选中的逻辑位置，尾部用 `-1` 填充。 |
 | `block_table` | INT32 `[B, max_pages]` | 从逻辑页映射到物理页。 |
 | `actual_seq_lengths_query` | INT32 `[B]` | 查询长度的累加值，无开头的零。 |
@@ -74,7 +77,7 @@ LSE = maximum + log(total)
 
 ## Ascend C 后端
 
-arch35 kernel 直接读取分页打包 KV，返回两项 softmax 统计量供框架做跨 rank LSE 合并。
+arch35 kernel 直接读取分页打包 KV，可返回两项 softmax 统计量供框架做跨 rank LSE 合并。
 
 ## torch_native 后端
 
