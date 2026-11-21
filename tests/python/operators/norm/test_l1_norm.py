@@ -77,3 +77,15 @@ def test_l1_norm_zero_sum_classification(dtype):
         torch.isinf(result) & torch.signbit(result),
         torch.isinf(reference) & torch.signbit(reference),
     )
+
+
+@pytest.mark.parametrize("count", [0, 13, 16])
+def test_l1_norm_valid_rows(count):
+    from sgl_kernel_npu.operators.norm import l1_norm
+
+    x = torch.arange(1, 16 * 8 + 1, dtype=torch.float32, device="npu").reshape(16, 8)
+    valid_rows = torch.tensor(count, dtype=torch.int32, device=x.device)
+    expected = x / x.sum(dim=1, keepdim=True)
+    expected[count:] = 0
+    for impl in ("auto", "torch_native"):
+        torch.testing.assert_close(l1_norm(x, valid_rows=valid_rows, impl=impl), expected)
