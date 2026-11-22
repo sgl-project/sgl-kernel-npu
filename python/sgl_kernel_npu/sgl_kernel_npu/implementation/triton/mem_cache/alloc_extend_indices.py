@@ -1,8 +1,8 @@
 import triton
 import triton.language as tl
 
-
 _BLOCK_SIZE = 2048
+
 
 @triton.jit
 def alloc_extend_kernel(
