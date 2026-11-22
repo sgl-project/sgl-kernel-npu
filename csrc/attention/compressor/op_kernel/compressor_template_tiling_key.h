@@ -25,7 +25,7 @@
 //   bit7-8    : ROTARY_MODE (1, 2)
 //   bit9-10   : CACHE_MODE  (1, 2)
 //   bit11-12  : TEMPLATE_ID (0=NORMAL, 1=EMPTY_X, 2=FULL_LOAD)
-#define GET_TPL_TILING_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId)                              \
+#define SGL_COMPRESSOR_PAYLOAD_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId)                      \
     (static_cast<uint64_t>(layout) | (static_cast<uint64_t>(dtype) << 1) | (static_cast<uint64_t>(coff) << 5) | \
      (static_cast<uint64_t>(rotaryMode) << 7) | (static_cast<uint64_t>(cacheMode) << 9) |                       \
      (static_cast<uint64_t>(templateId) << 11))

@@ -15,6 +15,7 @@ case "$TEST_GROUP" in
     embedding) TEST_DIRS=("$TEST_ROOT/operators/embedding") ;;
     data_move) TEST_DIRS=("$TEST_ROOT/operators/data_move") ;;
     activation) TEST_DIRS=("$TEST_ROOT/operators/activation") ;;
+    diffusion)          TEST_DIRS=("$TEST_ROOT/operators/diffusion") ;;
     attention)          TEST_DIRS=("$TEST_ROOT/operators/attention") ;;
     batch_invariant)    TEST_DIRS=("$TEST_ROOT/operators/batch_invariant") ;;
     elementwise)        TEST_DIRS=("$TEST_ROOT/operators/elementwise") ;;
@@ -61,8 +62,10 @@ filter_tests() {
 
     for test_file in "${TESTS[@]}"; do
         # Failures confirmed with developers on A5.
+        # The diffusion RMSNorm is arch22-only: 23 of 16.7M outputs differ by one bf16 ulp on A5.
         if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
             case "$test_file" in
+                tests/python/operators/diffusion/test_rmsnorm_cast_before_weight.py|\
                 tests/python/operators/attention/test_compressor.py|\
                 tests/python/operators/attention/test_flash_mla.py|\
                 tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
