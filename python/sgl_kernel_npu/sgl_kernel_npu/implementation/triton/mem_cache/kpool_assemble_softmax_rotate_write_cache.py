@@ -15,7 +15,7 @@ KPOOL_SCORE_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 @triton.jit
 def _kpool_assemble_softmax_rotate_write_cache_kernel(
-    cache_ptr,  # Flattened BF16 cache: [CACHE_ROWS, HEAD_DIM].
+    cache_ptr,  # Flattened index key cache: [CACHE_ROWS, HEAD_DIM].
     chunk_k_ptr,  # Current extend keys: [CHUNK_TOKENS, HEAD_DIM].
     chunk_score_ptr,  # Scores paired with chunk_k_ptr.
     tail_k_ptr,  # Per-request BF16 ring buffer: [REQS, TAIL_SIZE, HEAD_DIM].
@@ -27,7 +27,7 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
     ape_ptr,  # Additive pooling position scores: [POOL_SIZE, HEAD_DIM].
     loc_ptr,  # Flattened cache row written by each output pool.
     write_mask_ptr,  # Optional per-pool write mask.
-    scale_ptr,  # Per-cache-row scales: FP32 for FP8, FP16 for INT8, E8M0 for mxFP8.
+    scale_ptr,  # Per-cache-row scales.
     n_pools,  # Number of entries in every plan tensor above.
     # Only leading strides are passed; HEAD_DIM is contiguous by contract.
     cache_stride_0,
@@ -42,9 +42,9 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
     TAIL_SIZE: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     HAS_WRITE_MASK: tl.constexpr,
-    HAS_SCALE: tl.constexpr,
-    HAS_FP8SCALE: tl.constexpr,
-    HAS_MXSCALE: tl.constexpr,
+    QUANTIZE_INT8: tl.constexpr,
+    QUANTIZE_FP8: tl.constexpr,
+    QUANTIZE_MXFP8: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     # Cap the launch grid at the Vector Core count. Programs consume any
@@ -118,35 +118,33 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                 acc = acc * rescale + key * prob
                 running_max = new_max
 
-            # BF16 keeps the raw pooled key. FP8/INT8 apply Hadamard128 before
-            # quantization with FP32/FP16 scales; mxFP8 stores E4M3FN blocks
-            # with one E8M0 scale byte per 32 channels.
             pooled = acc / denom
 
             write_loc = tl.load(loc_ptr + row)
             out_offsets = write_loc * cache_stride_0 + offs
-            if HAS_SCALE:
-                pooled = hadamard128(pooled)
-                amax = tl.max(tl.abs(pooled), axis=0)
+            if QUANTIZE_INT8:
+                values = hadamard128(pooled)
+                amax = tl.max(tl.abs(values), axis=0)
                 scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
-                scaled = pooled / scale
-                rounded = scaled + tl.where(scaled >= 0.0, 0.5, -0.5)
-                quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
-                tl.store(cache_ptr + out_offsets, quantized, mask=head_mask)
+                scaled = values / scale
+                rounding_bias = tl.where(scaled >= 0.0, 0.5, -0.5)
+                payload = tl.clamp(scaled + rounding_bias, -127.0, 127.0).to(tl.int8)
+                tl.store(cache_ptr + out_offsets, payload, mask=head_mask)
                 tl.store(scale_ptr + write_loc, scale.to(tl.float16))
-            elif HAS_FP8SCALE:
-                rotated = hadamard128(pooled)
-                amax = tl.maximum(tl.max(tl.abs(rotated), axis=0), 1e-4)
-                scale = amax / 448.0
-                payload = tl.clamp(rotated / scale, -448.0, 448.0).to(tl.float8e4nv)
+            elif QUANTIZE_FP8:
+                values = hadamard128(pooled)
+                amax = tl.max(tl.abs(values), axis=0)
+                scale = tl.maximum(amax, 1e-4) / 448.0
+                scaled = values / scale
+                payload = tl.clamp(scaled, -448.0, 448.0).to(tl.float8e4nv)
                 tl.store(cache_ptr + out_offsets, payload, mask=head_mask)
                 tl.store(scale_ptr + write_loc, scale)
-            elif HAS_MXSCALE:
-                blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
-                group_max = tl.max(tl.abs(blocks), axis=1)
-                finite = (group_max == group_max) & (group_max != float("inf"))
-                nonzero = group_max > 0.0
-                magnitude = tl.where(nonzero & finite, group_max, 1.0)
+            elif QUANTIZE_MXFP8:
+                values = tl.reshape(pooled, (HEAD_DIM // 32, 32))
+                amax = tl.max(tl.abs(values), axis=1)
+                finite = (amax == amax) & (amax != float("inf"))
+                nonzero = amax > 0.0
+                magnitude = tl.where(nonzero & finite, amax, 1.0)
                 exponent = tl.floor(tl.log2(magnitude))
                 exponent = tl.where(
                     tl.exp2(exponent) > magnitude, exponent - 1.0, exponent
@@ -158,7 +156,8 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                 scale_bytes = tl.where(nonzero, scale_bytes, 0.0)
                 scale_bytes = tl.where(finite, scale_bytes, 255.0)
                 scale = tl.exp2(scale_bytes - 127.0)
-                scaled = tl.clamp(blocks / scale[:, None], -448.0, 448.0)
+                scaled = values / scale[:, None]
+                scaled = tl.clamp(scaled, -448.0, 448.0)
                 scaled = tl.where(finite[:, None], scaled, float("nan"))
                 payload = tl.reshape(scaled, (BLOCK_D,)).to(tl.float8e4nv)
                 tl.store(cache_ptr + out_offsets, payload, mask=head_mask)
@@ -200,10 +199,7 @@ def kpool_assemble_softmax_rotate_write_cache(
 
     Args:
         index_k_cache: Contiguous index cache. Its storage must be
-            flattenable to ``[cache_rows, 128]``. BF16 stores the pooled key;
-            INT8 requires ``scale_cache`` and stores the Hadamard-rotated INT8 key;
-            mxFP8 (``float8_e4m3fn``) requires ``scale_cache`` and stores
-            E4M3FN keys with per-32-channel E8M0 scales.
+            flattenable to ``[cache_rows, 128]``.
         chunk_k: BF16 current-chunk keys with shape ``[N, 128]``.
         chunk_score: Scores for ``chunk_k`` with shape ``[N, 128]`` and dtype
             FP16, BF16, or FP32.
@@ -257,13 +253,6 @@ def kpool_assemble_softmax_rotate_write_cache(
     assert tail_score.shape == tail_k.shape
     assert ape.ndim == 2 and ape.shape[1] == INDEX_HEAD_DIM
     assert index_k_cache.numel() % INDEX_HEAD_DIM == 0
-    if scale_cache is not None:
-        cache_rows = index_k_cache.numel() // INDEX_HEAD_DIM
-        if index_k_cache.dtype == torch.int8 or scale_cache.dtype == torch.float32:
-            assert scale_cache.numel() == cache_rows
-        else:
-            assert scale_cache.numel() == cache_rows * (INDEX_HEAD_DIM // 64) * 2
-        assert scale_cache.is_contiguous()
 
     n_pools = req_pool_idx.numel()
     pool_size = int(ape.shape[0])
@@ -330,11 +319,6 @@ def kpool_assemble_softmax_rotate_write_cache(
         has_write_mask = True
 
     cache_2d = index_k_cache.view(-1, INDEX_HEAD_DIM)
-    scale_1d = (
-        scale_cache.view(-1)
-        if scale_cache is not None
-        else torch.empty((1,), dtype=torch.float16, device=chunk_k.device)
-    )
     _kpool_assemble_softmax_rotate_write_cache_kernel[(num_programs,)](
         cache_2d,
         chunk_k,
@@ -348,7 +332,7 @@ def kpool_assemble_softmax_rotate_write_cache(
         ape,
         loc,
         write_mask,
-        scale_1d,
+        scale_cache,
         n_pools,
         cache_2d.stride(0),
         chunk_k.stride(0),
@@ -362,10 +346,10 @@ def kpool_assemble_softmax_rotate_write_cache(
         TAIL_SIZE=tail_size,
         HEAD_DIM=INDEX_HEAD_DIM,
         HAS_WRITE_MASK=has_write_mask,
-        HAS_SCALE=index_k_cache.dtype == torch.int8,
-        HAS_FP8SCALE=index_k_cache.dtype == torch.float8_e4m3fn
+        QUANTIZE_INT8=index_k_cache.dtype == torch.int8,
+        QUANTIZE_FP8=index_k_cache.dtype == torch.float8_e4m3fn
         and scale_cache.dtype == torch.float32,
-        HAS_MXSCALE=index_k_cache.dtype == torch.float8_e4m3fn
+        QUANTIZE_MXFP8=index_k_cache.dtype == torch.float8_e4m3fn
         and scale_cache.dtype == torch.uint8,
         BLOCK_D=triton.next_power_of_2(INDEX_HEAD_DIM),
     )

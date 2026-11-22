@@ -121,10 +121,6 @@ def kpool_assemble_softmax_rotate_write_cache(
 
     ``auto`` selects Triton; ``torch_native`` selects independent PyTorch.
 
-    Ordinary FP8 stores a Hadamard-rotated E4M3FN key with one FP32 scale per row.
-    INT8 applies normalized Hadamard128 after pooling and before quantization.
-    FP8/INT8 queries use the same rotation; BF16 and mxFP8 do not apply Hadamard.
-
     Args:
         index_k_cache: torch.Tensor, shape Contiguous storage flattenable to [cache_rows, 128], dtype torch.bfloat16, torch.int8, or torch.float8_e4m3fn. Index cache updated in place. FP8, INT8 and mxFP8 require ``scale_cache``.
         chunk_k: torch.Tensor, shape [N, 128], dtype torch.bfloat16. Current-chunk keys.

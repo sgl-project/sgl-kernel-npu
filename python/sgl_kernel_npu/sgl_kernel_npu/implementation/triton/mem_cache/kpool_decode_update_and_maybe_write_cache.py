@@ -11,7 +11,7 @@ from ._kpool_hadamard import hadamard128
 
 @triton.jit
 def _kpool_decode_update_and_maybe_write_cache_kernel(
-    buf_bf16_ptr,  # [num_pages, SLOTS_PER_PAGE * HEAD_DIM] bfloat16
+    buf_ptr,  # Paged index key cache: [num_pages, SLOTS_PER_PAGE * HEAD_DIM].
     tail_k_ptr,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] bfloat16
     tail_score_ptr,  # [REQ_POOL_SIZE, TAIL_SIZE, HEAD_DIM] same as score dtype
     key_ptr,  # [batch, HEAD_DIM] bfloat16
@@ -22,7 +22,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     positions_ptr,  # [>=batch] int
     seq_lens_ptr,  # [>=batch] int
     out_cache_loc_ptr,  # [>=batch] int
-    scale_ptr,  # Per-cache-row scales: FP32 for FP8, FP16 for INT8, E8M0 for mxFP8.
+    scale_ptr,  # Per-cache-row scales.
     tail_k_stride_0,
     tail_k_stride_1,
     tail_score_stride_0,
@@ -39,9 +39,9 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
     HEAD_DIM: tl.constexpr,
     BLOCK_TABLE_COLS: tl.constexpr,
     SLOTS_PER_PAGE: tl.constexpr,
-    HAS_SCALE: tl.constexpr,
-    HAS_FP8SCALE: tl.constexpr,
-    HAS_MXSCALE: tl.constexpr,
+    QUANTIZE_INT8: tl.constexpr,
+    QUANTIZE_FP8: tl.constexpr,
+    QUANTIZE_MXFP8: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
     row = tl.program_id(0)
@@ -129,9 +129,6 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             k = tl.where(is_current, key, k_buf)
             acc += k * prob
 
-        # BF16 keeps the raw pooled key. FP8/INT8 apply Hadamard128 before
-        # quantization with FP32/FP16 scales; mxFP8 stores E4M3FN blocks
-        # with one E8M0 scale byte per 32 channels.
         pooled = acc / denom
 
         # Compute write location in buf
@@ -152,34 +149,35 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             + offs
         )
 
-        if HAS_SCALE:
-            pooled = hadamard128(pooled)
-            amax = tl.max(tl.abs(pooled), axis=0)
+        if QUANTIZE_INT8:
+            values = hadamard128(pooled)
+            amax = tl.max(tl.abs(values), axis=0)
             scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
-            scaled = pooled / scale
-            rounded = scaled + tl.where(scaled >= 0.0, 0.5, -0.5)
-            quantized = tl.clamp(rounded, -127.0, 127.0).to(tl.int8)
-            tl.store(buf_bf16_ptr + out_k_offsets, quantized, mask=dim_mask)
+            scaled = values / scale
+            rounding_bias = tl.where(scaled >= 0.0, 0.5, -0.5)
+            payload = tl.clamp(scaled + rounding_bias, -127.0, 127.0).to(tl.int8)
+            tl.store(buf_ptr + out_k_offsets, payload, mask=dim_mask)
             tl.store(
                 scale_ptr + loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page,
                 scale.to(tl.float16),
             )
-        elif HAS_FP8SCALE:
-            rotated = hadamard128(pooled)
-            amax = tl.maximum(tl.max(tl.abs(rotated), axis=0), 1e-4)
-            scale = amax / 448.0
-            payload = tl.clamp(rotated / scale, -448.0, 448.0).to(tl.float8e4nv)
-            tl.store(buf_bf16_ptr + out_k_offsets, payload, mask=dim_mask)
+        elif QUANTIZE_FP8:
+            values = hadamard128(pooled)
+            amax = tl.max(tl.abs(values), axis=0)
+            scale = tl.maximum(amax, 1e-4) / 448.0
+            scaled = values / scale
+            payload = tl.clamp(scaled, -448.0, 448.0).to(tl.float8e4nv)
+            tl.store(buf_ptr + out_k_offsets, payload, mask=dim_mask)
             tl.store(
                 scale_ptr + loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page,
                 scale,
             )
-        elif HAS_MXSCALE:
-            blocks = tl.reshape(pooled, (HEAD_DIM // 32, 32))
-            group_max = tl.max(tl.abs(blocks), axis=1)
-            finite = (group_max == group_max) & (group_max != float("inf"))
-            nonzero = group_max > 0.0
-            magnitude = tl.where(nonzero & finite, group_max, 1.0)
+        elif QUANTIZE_MXFP8:
+            values = tl.reshape(pooled, (HEAD_DIM // 32, 32))
+            amax = tl.max(tl.abs(values), axis=1)
+            finite = (amax == amax) & (amax != float("inf"))
+            nonzero = amax > 0.0
+            magnitude = tl.where(nonzero & finite, amax, 1.0)
             exponent = tl.floor(tl.log2(magnitude))
             exponent = tl.where(tl.exp2(exponent) > magnitude, exponent - 1.0, exponent)
             exponent = tl.where(
@@ -189,19 +187,18 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
             scale_bytes = tl.where(nonzero, scale_bytes, 0.0)
             scale_bytes = tl.where(finite, scale_bytes, 255.0)
             scale = tl.exp2(scale_bytes - 127.0)
-            scaled = tl.clamp(blocks / scale[:, None], -448.0, 448.0)
+            scaled = values / scale[:, None]
+            scaled = tl.clamp(scaled, -448.0, 448.0)
             scaled = tl.where(finite[:, None], scaled, float("nan"))
             payload = tl.reshape(scaled, (BLOCK_D,)).to(tl.float8e4nv)
-            tl.store(buf_bf16_ptr + out_k_offsets, payload, mask=dim_mask)
+            tl.store(buf_ptr + out_k_offsets, payload, mask=dim_mask)
             scale_row = loc_page_index * SLOTS_PER_PAGE + loc_token_offset_in_page
             scale_offsets = scale_row * (HEAD_DIM // 64 * 2) + tl.arange(
                 0, HEAD_DIM // 64 * 2
             )
             tl.store(scale_ptr + scale_offsets, scale_bytes.to(tl.uint8))
         else:
-            tl.store(
-                buf_bf16_ptr + out_k_offsets, pooled.to(tl.bfloat16), mask=dim_mask
-            )
+            tl.store(buf_ptr + out_k_offsets, pooled.to(tl.bfloat16), mask=dim_mask)
 
     # (A) Tail buffer update (ALWAYS)
     tail_k_offset = req * tail_k_stride_0 + phys_slot * tail_k_stride_1 + offs
@@ -235,9 +232,6 @@ def kpool_decode_update_and_maybe_write_cache(
 
     Differences from FP8 original:
     - Hadamard128 rotation after pooling for FP8 and INT8
-    - BF16 stores the softmax-weighted average directly; INT8 stores a
-      Hadamard-rotated per-pool quantization plus an FP16 scale per cache row;
-      mxFP8 stores E4M3FN keys plus per-32-channel E8M0 scale bytes
     """
     batch = key.shape[0]
     if batch == 0:
@@ -282,12 +276,6 @@ def kpool_decode_update_and_maybe_write_cache(
     seq_lens = seq_lens.contiguous()
     out_cache_loc = out_cache_loc.contiguous()
 
-    scale_1d = (
-        scale_cache.view(-1)
-        if scale_cache is not None
-        else torch.empty((1,), dtype=torch.float16, device=buf.device)
-    )
-
     _kpool_decode_update_and_maybe_write_cache_kernel[(batch,)](
         buf,
         tail_k,
@@ -300,7 +288,7 @@ def kpool_decode_update_and_maybe_write_cache(
         positions,
         seq_lens,
         out_cache_loc,
-        scale_1d,
+        scale_cache,
         tail_k.stride(0),
         tail_k.stride(1),
         tail_score.stride(0),
@@ -317,10 +305,10 @@ def kpool_decode_update_and_maybe_write_cache(
         HEAD_DIM=head_dim,
         BLOCK_TABLE_COLS=block_table_cols,
         SLOTS_PER_PAGE=slots_per_page,
-        HAS_SCALE=buf.dtype == torch.int8,
-        HAS_FP8SCALE=buf.dtype == torch.float8_e4m3fn
+        QUANTIZE_INT8=buf.dtype == torch.int8,
+        QUANTIZE_FP8=buf.dtype == torch.float8_e4m3fn
         and scale_cache.dtype == torch.float32,
-        HAS_MXSCALE=buf.dtype == torch.float8_e4m3fn
+        QUANTIZE_MXFP8=buf.dtype == torch.float8_e4m3fn
         and scale_cache.dtype == torch.uint8,
         BLOCK_D=triton.next_power_of_2(head_dim),
     )
