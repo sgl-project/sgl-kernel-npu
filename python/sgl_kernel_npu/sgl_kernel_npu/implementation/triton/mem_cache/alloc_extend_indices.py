@@ -2,6 +2,8 @@ import triton
 import triton.language as tl
 
 
+_BLOCK_SIZE = 2048
+
 @triton.jit
 def alloc_extend_kernel(
     pre_lens_ptr,
@@ -11,8 +13,8 @@ def alloc_extend_kernel(
     out_indices,
     bs_upper: tl.constexpr,
     page_size: tl.constexpr,
-    max_num_extend_tokens: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr = 2048,
+    NUM_BLOCKS: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
 ):
     pid = tl.program_id(0)
 
@@ -58,9 +60,8 @@ def alloc_extend_kernel(
         - (pre_len + page_size - 1) // page_size * page_size
     )
 
-    num_loop = tl.cdiv(max_num_extend_tokens, BLOCK_SIZE)
     blk_offset = tl.arange(0, BLOCK_SIZE)
-    for i in range(num_loop):
+    for i in range(NUM_BLOCKS):
         offset_many_page = blk_offset + i * BLOCK_SIZE
         page_start = tl.load(
             free_page_ptr + new_page_start_loc + offset_many_page // page_size,
@@ -104,5 +105,6 @@ def alloc_extend_indices(
         out_indices,
         triton.next_power_of_2(pre_lens.numel()),
         page_size,
-        max_num_extend_tokens,
+        triton.cdiv(max_num_extend_tokens, _BLOCK_SIZE),
+        _BLOCK_SIZE,
     )
