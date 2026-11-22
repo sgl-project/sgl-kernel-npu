@@ -1,0 +1,238 @@
+name: c211-129612 NPU device marker (read-only)
+on:
+  pull_request:
+    branches: [ main ]
+permissions:
+  contents: read
+jobs:
+  npuq-a3-container:
+    name: npuq-a3-container-${{ matrix.slot }}
+    runs-on: ${{ matrix.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-2' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cann_version: ['9.1.0']
+        npu_hardware: [a3]
+        slot: ['01', '02', '03', '04']
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
+    steps:
+      - name: read-only-ascend-inventory
+        shell: bash
+        run: |
+
+          set -u
+          set +e
+          NONCE='c211-129612-c1149586c1c3e2e1'
+          JOB='npuq-a3-container-${{ matrix.slot }}'
+          MODE='container'
+          echo "C211_MARKER job=$JOB mode=$MODE nonce=$NONCE host=$(hostname 2>/dev/null) uid=$(id -u 2>/dev/null) user=$(id -un 2>/dev/null)"
+          echo "C211_HOSTNAME=$(hostname 2>/dev/null)"
+          echo "C211_UID=$(id -u 2>/dev/null)"
+          echo "C211_MODE=$MODE"
+          uname -a 2>&1 || true
+          echo "C211_ARCH=$(uname -m 2>/dev/null)"
+          echo "C211_KERNEL=$(uname -r 2>/dev/null)"
+          if command -v timeout >/dev/null 2>&1; then T="timeout 25"; else T=""; fi
+          echo "--- ASCEND_INSTALL_INFO ---"
+          for f in /etc/ascend_install.info /usr/local/Ascend/ascend-toolkit/latest/ascend_install.info /usr/local/Ascend/driver/version.info; do
+            if [ -f "$f" ]; then echo "ASCEND_FILE=$f"; $T cat "$f" 2>&1 | head -40; else echo "ASCEND_FILE_ABSENT=$f"; fi
+          done
+          echo "--- DEV_PRESENCE ---"
+          for d in /dev/davinci0 /dev/davinci1 /dev/davinci2 /dev/davinci3 /dev/davinci4 /dev/davinci5 /dev/davinci6 /dev/davinci7 /dev/davinci8 /dev/davinci9 /dev/davinci10 /dev/davinci11 /dev/davinci12 /dev/davinci13 /dev/davinci14 /dev/davinci15 /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc; do
+            if [ -e "$d" ]; then echo "DEV_PRESENT $d"; else echo "DEV_ABSENT $d"; fi
+          done
+          if ls /dev/davinci* >/dev/null 2>&1; then echo DAVINCI_ANY_PRESENT; else echo DAVINCI_ANY_ABSENT; fi
+          echo "--- DEV_LIST ---"
+          ls -l /dev/davinci* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc 2>&1 | head -40
+          echo "--- SYSFS_DAVINCI ---"
+          if ls -d /sys/class/davinci* >/dev/null 2>&1; then ls -l /sys/class/davinci* 2>&1 | head -60; else echo SYSFS_DAVINCI_ABSENT; fi
+          echo "--- SYSFS_PCI_ASCEND ---"
+          for d in /sys/bus/pci/devices/*; do
+            v=$(cat "$d/vendor" 2>/dev/null || true)
+            case "$v" in
+              0x19e5)
+                echo "PCI_ASCEND dev=$(basename "$d") vendor=$v device=$(cat "$d/device" 2>/dev/null) subsystem_vendor=$(cat "$d/subsystem_vendor" 2>/dev/null) subsystem_device=$(cat "$d/subsystem_device" 2>/dev/null) class=$(cat "$d/class" 2>/dev/null) revision=$(cat "$d/revision" 2>/dev/null)"
+                if [ -r "$d/serial" ]; then echo "PCI_SERIAL dev=$(basename "$d") serial=$(cat "$d/serial" 2>/dev/null)"; fi
+                ;;
+            esac
+          done
+          echo "--- NPU_SMI_RESOLVE ---"
+          NPU=''
+          for c in npu-smi /usr/local/Ascend/driver/tools/npu-smi /usr/local/Ascend/latest/driver/tools/npu-smi /usr/local/Ascend/ascend-toolkit/latest/tools/npu-smi; do
+            if command -v "$c" >/dev/null 2>&1; then NPU=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then NPU="$c"; break; fi
+          done
+          echo "NPU_SMI=$NPU"
+          if [ -n "$NPU" ]; then
+            echo NPU_SMI_PRESENT
+            echo "--- NPU_SMI_INFO ---"
+            $T "$NPU" info 2>&1 | head -80
+            echo "--- NPU_SMI_LIST ---"
+            $T "$NPU" info -l 2>&1 | head -40
+            echo "--- NPU_SMI_BOARD_JSON ---"
+            i=0
+            while [ "$i" -lt 16 ]; do
+              o=$($T "$NPU" info -t board -i "$i" -j 2>&1); rc=$?
+              if [ "$rc" -eq 0 ]; then
+                echo "NPU_BOARD_JSON_BEGIN i=$i"
+                echo "$o" | head -60
+                echo "NPU_BOARD_JSON_END i=$i"
+              fi
+              i=$((i + 1))
+            done
+            echo "--- NPU_SMI_BOARD_TEXT ---"
+            i=0
+            while [ "$i" -lt 16 ]; do
+              o=$($T "$NPU" info -t board -i "$i" 2>&1); rc=$?
+              if [ "$rc" -eq 0 ]; then
+                echo "NPU_BOARD_BEGIN i=$i"
+                echo "$o" | head -40
+                echo "NPU_BOARD_END i=$i"
+              fi
+              i=$((i + 1))
+            done
+          else
+            echo NPU_SMI_ABSENT
+          fi
+          echo "--- UPGRADE_TOOL ---"
+          UT=''
+          for c in upgrade-tool /usr/local/Ascend/driver/tools/upgrade-tool /usr/local/Ascend/latest/driver/tools/upgrade-tool; do
+            if command -v "$c" >/dev/null 2>&1; then UT=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then UT="$c"; break; fi
+          done
+          echo "UPGRADE_TOOL=$UT"
+          if [ -n "$UT" ]; then
+            $T "$UT" --device_index -1 --system_info 2>&1 | head -60
+          else
+            echo UPGRADE_TOOL_ABSENT
+          fi
+          echo "--- HCCN_TOOL ---"
+          HT=''
+          for c in hccn_tool /usr/local/Ascend/driver/tools/hccn_tool /usr/local/Ascend/latest/driver/tools/hccn_tool; do
+            if command -v "$c" >/dev/null 2>&1; then HT=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then HT="$c"; break; fi
+          done
+          echo "HCCN_TOOL=$HT"
+          if [ -n "$HT" ]; then
+            $T "$HT" -i 0 -info 2>&1 | head -40
+          else
+            echo HCCN_TOOL_ABSENT
+          fi
+          echo "C211_PROBE_END job=$JOB mode=$MODE nonce=$NONCE"
+          exit 0
+  npuq-a3-host:
+    name: npuq-a3-host-${{ matrix.slot }}
+    runs-on: ${{ matrix.npu_hardware == '950' && 'linux-amd64-a5-1' || 'linux-aarch64-a3-800t-2' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3]
+        slot: ['05', '06']
+    steps:
+      - name: read-only-ascend-inventory
+        shell: bash
+        run: |
+
+          set -u
+          set +e
+          NONCE='c211-129612-c1149586c1c3e2e1'
+          JOB='npuq-a3-host-${{ matrix.slot }}'
+          MODE='host'
+          echo "C211_MARKER job=$JOB mode=$MODE nonce=$NONCE host=$(hostname 2>/dev/null) uid=$(id -u 2>/dev/null) user=$(id -un 2>/dev/null)"
+          echo "C211_HOSTNAME=$(hostname 2>/dev/null)"
+          echo "C211_UID=$(id -u 2>/dev/null)"
+          echo "C211_MODE=$MODE"
+          uname -a 2>&1 || true
+          echo "C211_ARCH=$(uname -m 2>/dev/null)"
+          echo "C211_KERNEL=$(uname -r 2>/dev/null)"
+          if command -v timeout >/dev/null 2>&1; then T="timeout 25"; else T=""; fi
+          echo "--- ASCEND_INSTALL_INFO ---"
+          for f in /etc/ascend_install.info /usr/local/Ascend/ascend-toolkit/latest/ascend_install.info /usr/local/Ascend/driver/version.info; do
+            if [ -f "$f" ]; then echo "ASCEND_FILE=$f"; $T cat "$f" 2>&1 | head -40; else echo "ASCEND_FILE_ABSENT=$f"; fi
+          done
+          echo "--- DEV_PRESENCE ---"
+          for d in /dev/davinci0 /dev/davinci1 /dev/davinci2 /dev/davinci3 /dev/davinci4 /dev/davinci5 /dev/davinci6 /dev/davinci7 /dev/davinci8 /dev/davinci9 /dev/davinci10 /dev/davinci11 /dev/davinci12 /dev/davinci13 /dev/davinci14 /dev/davinci15 /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc; do
+            if [ -e "$d" ]; then echo "DEV_PRESENT $d"; else echo "DEV_ABSENT $d"; fi
+          done
+          if ls /dev/davinci* >/dev/null 2>&1; then echo DAVINCI_ANY_PRESENT; else echo DAVINCI_ANY_ABSENT; fi
+          echo "--- DEV_LIST ---"
+          ls -l /dev/davinci* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc 2>&1 | head -40
+          echo "--- SYSFS_DAVINCI ---"
+          if ls -d /sys/class/davinci* >/dev/null 2>&1; then ls -l /sys/class/davinci* 2>&1 | head -60; else echo SYSFS_DAVINCI_ABSENT; fi
+          echo "--- SYSFS_PCI_ASCEND ---"
+          for d in /sys/bus/pci/devices/*; do
+            v=$(cat "$d/vendor" 2>/dev/null || true)
+            case "$v" in
+              0x19e5)
+                echo "PCI_ASCEND dev=$(basename "$d") vendor=$v device=$(cat "$d/device" 2>/dev/null) subsystem_vendor=$(cat "$d/subsystem_vendor" 2>/dev/null) subsystem_device=$(cat "$d/subsystem_device" 2>/dev/null) class=$(cat "$d/class" 2>/dev/null) revision=$(cat "$d/revision" 2>/dev/null)"
+                if [ -r "$d/serial" ]; then echo "PCI_SERIAL dev=$(basename "$d") serial=$(cat "$d/serial" 2>/dev/null)"; fi
+                ;;
+            esac
+          done
+          echo "--- NPU_SMI_RESOLVE ---"
+          NPU=''
+          for c in npu-smi /usr/local/Ascend/driver/tools/npu-smi /usr/local/Ascend/latest/driver/tools/npu-smi /usr/local/Ascend/ascend-toolkit/latest/tools/npu-smi; do
+            if command -v "$c" >/dev/null 2>&1; then NPU=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then NPU="$c"; break; fi
+          done
+          echo "NPU_SMI=$NPU"
+          if [ -n "$NPU" ]; then
+            echo NPU_SMI_PRESENT
+            echo "--- NPU_SMI_INFO ---"
+            $T "$NPU" info 2>&1 | head -80
+            echo "--- NPU_SMI_LIST ---"
+            $T "$NPU" info -l 2>&1 | head -40
+            echo "--- NPU_SMI_BOARD_JSON ---"
+            i=0
+            while [ "$i" -lt 16 ]; do
+              o=$($T "$NPU" info -t board -i "$i" -j 2>&1); rc=$?
+              if [ "$rc" -eq 0 ]; then
+                echo "NPU_BOARD_JSON_BEGIN i=$i"
+                echo "$o" | head -60
+                echo "NPU_BOARD_JSON_END i=$i"
+              fi
+              i=$((i + 1))
+            done
+            echo "--- NPU_SMI_BOARD_TEXT ---"
+            i=0
+            while [ "$i" -lt 16 ]; do
+              o=$($T "$NPU" info -t board -i "$i" 2>&1); rc=$?
+              if [ "$rc" -eq 0 ]; then
+                echo "NPU_BOARD_BEGIN i=$i"
+                echo "$o" | head -40
+                echo "NPU_BOARD_END i=$i"
+              fi
+              i=$((i + 1))
+            done
+          else
+            echo NPU_SMI_ABSENT
+          fi
+          echo "--- UPGRADE_TOOL ---"
+          UT=''
+          for c in upgrade-tool /usr/local/Ascend/driver/tools/upgrade-tool /usr/local/Ascend/latest/driver/tools/upgrade-tool; do
+            if command -v "$c" >/dev/null 2>&1; then UT=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then UT="$c"; break; fi
+          done
+          echo "UPGRADE_TOOL=$UT"
+          if [ -n "$UT" ]; then
+            $T "$UT" --device_index -1 --system_info 2>&1 | head -60
+          else
+            echo UPGRADE_TOOL_ABSENT
+          fi
+          echo "--- HCCN_TOOL ---"
+          HT=''
+          for c in hccn_tool /usr/local/Ascend/driver/tools/hccn_tool /usr/local/Ascend/latest/driver/tools/hccn_tool; do
+            if command -v "$c" >/dev/null 2>&1; then HT=$(command -v "$c"); break; fi
+            if [ -x "$c" ]; then HT="$c"; break; fi
+          done
+          echo "HCCN_TOOL=$HT"
+          if [ -n "$HT" ]; then
+            $T "$HT" -i 0 -info 2>&1 | head -40
+          else
+            echo HCCN_TOOL_ABSENT
+          fi
+          echo "C211_PROBE_END job=$JOB mode=$MODE nonce=$NONCE"
+          exit 0
