@@ -21,7 +21,9 @@ def kv_quant_sparse_flash_attention(
     packed = packed_kv.detach().cpu()
     latent_bytes = 512
     rope_end = latent_bytes + query_rope.shape[-1] * 2
-    latent = packed[..., :latent_bytes].contiguous().view(torch.float8_e4m3fn)
+    latent = packed[..., :latent_bytes].contiguous()
+    if packed.dtype == torch.uint8:
+        latent = latent.view(torch.float8_e4m3fn)
     rope = packed[..., latent_bytes:rope_end].contiguous().view(torch.bfloat16)
     scales = packed[..., rope_end:].contiguous().view(torch.float32)
     # Each FP32 scale applies to a contiguous group of 128 latent values.

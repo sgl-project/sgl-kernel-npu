@@ -36,6 +36,8 @@ aclDataType ToAclType(const at::Tensor &tensor)
             return ACL_INT32;
         case at::kByte:
             return ACL_UINT8;
+        case at::kChar:
+            return ACL_INT8;
         default:
             TORCH_CHECK(false, "sparse_flash_attention does not support dtype ", tensor.scalar_type());
             return ACL_FLOAT;
@@ -277,9 +279,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sgl_kv_quant_sparse_flash_attenti
                 "query_rope dtype and device must match query");
     const bool hasRope = query_rope.size(2) != 0;
     const auto rowBytes = hasRope ? kSfaPackedKvBytes : kSfaPackedKvNoRopeBytes;
-    TORCH_CHECK(packed_kv.scalar_type() == at::kByte && packed_kv.dim() == 4 && packed_kv.size(2) == 1 &&
+    TORCH_CHECK((packed_kv.scalar_type() == at::kByte || packed_kv.scalar_type() == at::kChar) &&
+                    packed_kv.dim() == 4 && packed_kv.size(2) == 1 &&
                     packed_kv.size(3) == rowBytes,
-                "packed KV must be uint8 [pages, page_size, 1, ", rowBytes, "]");
+                "packed KV must be uint8 (E4M3) or int8 [pages, page_size, 1, ", rowBytes, "]");
     // The Cube consumes separate latent and RoPE tensors. Synthesize only the query-side zeros here.
     const c10::DeviceGuard deviceGuard(query.device());
     const auto ropeInput = hasRope ? query_rope :

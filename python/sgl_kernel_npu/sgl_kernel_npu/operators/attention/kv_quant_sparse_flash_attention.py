@@ -1,4 +1,4 @@
-"""Packed FP8 KV sparse attention dispatch for Ascend 950."""
+"""Packed C8 KV sparse attention dispatch for Ascend."""
 
 import torch
 
@@ -9,14 +9,14 @@ _torch_native_fn = None
 _OP_NAME = "attention.kv_quant_sparse_flash_attention"
 
 
-@register_impl(_OP_NAME, "auto", supported_generations={Generation.ARCH35})
-@register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH35})
+@register_impl(_OP_NAME, "auto", supported_generations={Generation.ARCH22, Generation.ARCH35})
+@register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH22, Generation.ARCH35})
 def _ascendc_impl(*args, **kwargs):
     # Calls the PyTorch binding in csrc/attention/sparse_flash_attention/torch_adapter.cpp.
     return torch.ops.npu.kv_quant_sparse_flash_attention(*args, **kwargs)
 
 
-@register_impl(_OP_NAME, "torch_native", supported_generations={Generation.ARCH35})
+@register_impl(_OP_NAME, "torch_native", supported_generations={Generation.ARCH22, Generation.ARCH35})
 def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -42,12 +42,13 @@ def kv_quant_sparse_flash_attention(
     return_softmax_lse: bool = True,
     impl: str = "auto",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Run rank-local MLA sparse attention; auto selects ascendc on arch35.
+    """Run rank-local MLA sparse attention; auto selects ascendc.
 
     query is BF16 [T, H, 512]. query_rope is BF16 [T, H, 64] for
     656-byte KV rows, or [T, H, 0] for 528-byte rows. The latter store
     only the FP8 latent followed by four FP32 scales at byte offset 512.
-    packed_kv is uint8 [pages, page_size, 1, row_bytes].
+    packed_kv is int8 on A2/A3. On A5 it is int8 or uint8 carrying E4M3 bytes.
+    Both use [pages, page_size, 1, row_bytes].
     sparse_indices is int32 [T, 1, K] with trailing -1 padding.
     block_table is int32 [B, max_pages]. actual_seq_lengths_query and
     actual_seq_lengths_kv are int32 [B] query prefix sums and valid KV lengths.

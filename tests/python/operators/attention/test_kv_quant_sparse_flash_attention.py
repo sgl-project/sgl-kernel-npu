@@ -1,4 +1,4 @@
-"""Packed MLA sparse attention accuracy and performance on arch35."""
+"""Packed MLA sparse attention accuracy and performance on Ascend."""
 
 import pytest
 
@@ -18,7 +18,14 @@ _STANDARD = {
 perf_shape = [(128, 4096, (2048,))]
 
 
-def generate_data(heads, kv_len, selected_counts, device="npu"):
+def _require_kv_dtype(kv_dtype):
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if kv_dtype == torch.uint8 and get_hardware().generation != Generation.ARCH35:
+        pytest.skip("E4M3 packed KV requires A5")
+
+
+def generate_data(heads, kv_len, selected_counts, device="npu", *, kv_dtype=torch.uint8):
     generator = torch.Generator(device="cpu").manual_seed(929)
     tokens = len(selected_counts)
     pages = (kv_len + _PAGE_SIZE - 1) // _PAGE_SIZE
@@ -29,11 +36,17 @@ def generate_data(heads, kv_len, selected_counts, device="npu"):
 
     query = (randn((tokens, heads, 512)) * 0.5).bfloat16()
     query_rope = (randn((tokens, heads, 64)) * 0.5).bfloat16()
-    latent = randn((*page_shape, 512)).to(torch.float8_e4m3fn)
+    latent = randn((*page_shape, 512))
+    if kv_dtype == torch.int8:
+        latent = (latent * 32).round().clamp(-128, 127).to(torch.int8)
+    else:
+        latent = latent.to(torch.float8_e4m3fn).view(torch.uint8)
     rope = (randn((*page_shape, 64)) * 0.4).bfloat16()
     scales = torch.rand((*page_shape, 4), generator=generator, device="cpu") * 0.4 + 0.1
+    if kv_dtype == torch.int8:
+        scales /= 32
     packed_kv = torch.cat(
-        (latent.view(torch.uint8), rope.view(torch.uint8), scales.view(torch.uint8)),
+        (latent, rope.view(kv_dtype), scales.view(kv_dtype)),
         dim=-1,
     )
     page_ids = torch.arange(pages, device="cpu", dtype=torch.int32).roll(1)
@@ -58,6 +71,7 @@ def generate_data(heads, kv_len, selected_counts, device="npu"):
     }
 
 
+@pytest.mark.parametrize("kv_dtype", [torch.uint8, torch.int8], ids=["e4m3", "int8"])
 @pytest.mark.parametrize(
     "heads,kv_len,selected_counts",
     [
@@ -67,15 +81,16 @@ def generate_data(heads, kv_len, selected_counts, device="npu"):
         pytest.param(32, 260, (3, 129, 0), id="shared-page-table-short-tail-empty"),
     ],
 )
-def test_kv_quant_sparse_flash_attention(heads, kv_len, selected_counts):
+def test_kv_quant_sparse_flash_attention(heads, kv_len, selected_counts, kv_dtype):
     from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
-    data = generate_data(heads, kv_len, selected_counts)
+    _require_kv_dtype(kv_dtype)
+    data = generate_data(heads, kv_len, selected_counts, kv_dtype=kv_dtype)
     executor = check_accuracy(
         kv_quant_sparse_flash_attention, kwargs=data, standard=_STANDARD
     )
     check_performance(
-        executor, enable_perf=(heads, kv_len, selected_counts) in perf_shape
+        executor, enable_perf=kv_dtype == torch.uint8 and (heads, kv_len, selected_counts) in perf_shape
     )
 
 
@@ -84,14 +99,14 @@ def test_kv_quant_sparse_flash_attention_rejects_invalid_record_width():
     from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
     require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
-    data = generate_data(32, 1, (1,))
+    data = generate_data(32, 1, (1,), kv_dtype=torch.int8)
     data["packed_kv"] = data["packed_kv"][..., :-1].contiguous()
     with pytest.raises(RuntimeError, match="packed KV must be uint8"):
         kv_quant_sparse_flash_attention(**data, impl="ascendc")
 
 
-def _rope0_inputs():
-    padded = generate_data(8, 260, (2, 129, 0))
+def _rope0_inputs(kv_dtype):
+    padded = generate_data(8, 260, (2, 129, 0), kv_dtype=kv_dtype)
     padded["query_rope"].zero_()
     packed = padded["packed_kv"]
     rope = packed[..., 512:640]
@@ -105,11 +120,13 @@ def _rope0_inputs():
 
 
 @pytest.mark.parametrize("return_softmax_lse", [True, False])
-def test_kv_quant_sparse_flash_attention_rope0(return_softmax_lse):
+@pytest.mark.parametrize("kv_dtype", [torch.uint8, torch.int8], ids=["e4m3", "int8"])
+def test_kv_quant_sparse_flash_attention_rope0(return_softmax_lse, kv_dtype):
     from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
     require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
-    padded, compact = _rope0_inputs()
+    _require_kv_dtype(kv_dtype)
+    padded, compact = _rope0_inputs(kv_dtype)
     options = {"return_softmax_lse": return_softmax_lse}
     padded_output = kv_quant_sparse_flash_attention(**padded, **options)
     compact_output = kv_quant_sparse_flash_attention(**compact, **options)
@@ -124,11 +141,13 @@ def test_kv_quant_sparse_flash_attention_rope0(return_softmax_lse):
 
 
 @pytest.mark.extra_checks
-def test_kv_quant_sparse_flash_attention_rope0_graph_replay():
+@pytest.mark.parametrize("kv_dtype", [torch.uint8, torch.int8], ids=["e4m3", "int8"])
+def test_kv_quant_sparse_flash_attention_rope0_graph_replay(kv_dtype):
     from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
     require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
-    _, compact = _rope0_inputs()
+    _require_kv_dtype(kv_dtype)
+    _, compact = _rope0_inputs(kv_dtype)
 
     def run():
         return kv_quant_sparse_flash_attention(**compact, return_softmax_lse=False)[0]

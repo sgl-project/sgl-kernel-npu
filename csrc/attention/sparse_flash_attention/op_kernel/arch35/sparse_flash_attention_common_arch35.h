@@ -42,7 +42,7 @@ enum class SFATemplateMode { SWA_TEMPLATE_MODE = 0, CFA_TEMPLATE_MODE = 1, SCFA_
 
 namespace BaseApi {
 // CANN compiles a separate binary for each key dtype in the OpDef.
-constexpr bool kSfaUsesPackedKv = std::is_same_v<DTYPE_KEY, uint8_t>;
+constexpr bool kSfaUsesPackedKv = std::is_same_v<DTYPE_KEY, uint8_t> || std::is_same_v<DTYPE_KEY, int8_t>;
 constexpr uint32_t kSfaPackedKvNzBlock = 16;
 constexpr uint32_t kSfaPackedKvNzStride = kSfaPackedKvNzBlock + 1;  // Pad UB tiles to avoid bank conflicts.
 

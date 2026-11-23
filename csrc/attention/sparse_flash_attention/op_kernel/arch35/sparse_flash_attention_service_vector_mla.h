@@ -329,7 +329,7 @@ static constexpr MicroAPI::CastTrait castTraitFp8_3 = {MicroAPI::RegLayout::ZERO
 static constexpr MicroAPI::CastTrait castTraitFp8_4 = {MicroAPI::RegLayout::ONE, MicroAPI::SatMode::NO_SAT,
                                                        MicroAPI::MaskMergeMode::ZEROING, RoundMode::CAST_RINT};
 
-// A5 FP8 path from vLLM Ascend #16706 (0bbd68adc71f1b9603ac68a5be585035c1817f25).
+// A5 FP8/INT8 path from vLLM Ascend #16706 (0bbd68adc71f1b9603ac68a5be585035c1817f25).
 // AntiquantVFImplFp8D448 dequantizes 128 values per scale and stores 16-row NZ tiles.
 template <typename Q_T, uint32_t InputStride>
 __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *output,
@@ -339,7 +339,8 @@ __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *ou
     constexpr uint32_t halfTile = tileSize / 2;
     MicroAPI::MaskReg fp32Mask = MicroAPI::CreateMask<float, MicroAPI::MaskPattern::ALL>();
     MicroAPI::MaskReg outputMask = MicroAPI::CreateMask<Q_T, MicroAPI::MaskPattern::ALL>();
-    MicroAPI::RegTensor<fp8_e4m3fn_t> kv0, kv1;
+    using PackedType = std::conditional_t<std::is_same_v<DTYPE_KEY, int8_t>, int8_t, fp8_e4m3fn_t>;
+    MicroAPI::RegTensor<PackedType> kv0, kv1;
     MicroAPI::RegTensor<float> fp32Kv0, fp32Kv1, scaledKv0, scaledKv1, scale;
     MicroAPI::RegTensor<Q_T> output0, output1, packed0, packed1;
 
@@ -355,8 +356,21 @@ __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *ou
             MicroAPI::LoadAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_BRC_B32>(
                 scale, tileScale, InputStride / sizeof(float));
 
-            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv0, kv0, fp32Mask);
-            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv1, kv1, fp32Mask);
+            if constexpr (std::is_same_v<PackedType, int8_t>) {
+                constexpr MicroAPI::CastTrait int8ToHalf = {MicroAPI::RegLayout::ZERO,
+                    MicroAPI::SatMode::UNKNOWN, MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
+                constexpr MicroAPI::CastTrait halfToFp32 = {MicroAPI::RegLayout::ZERO,
+                    MicroAPI::SatMode::UNKNOWN, MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
+                MicroAPI::RegTensor<half> halfKv0, halfKv1;
+                auto halfMask = MicroAPI::CreateMask<half, MicroAPI::MaskPattern::ALL>();
+                MicroAPI::Cast<half, PackedType, int8ToHalf>(halfKv0, kv0, halfMask);
+                MicroAPI::Cast<half, PackedType, int8ToHalf>(halfKv1, kv1, halfMask);
+                MicroAPI::Cast<float, half, halfToFp32>(fp32Kv0, halfKv0, fp32Mask);
+                MicroAPI::Cast<float, half, halfToFp32>(fp32Kv1, halfKv1, fp32Mask);
+            } else {
+                MicroAPI::Cast<float, PackedType, castTraitFp8_1>(fp32Kv0, kv0, fp32Mask);
+                MicroAPI::Cast<float, PackedType, castTraitFp8_1>(fp32Kv1, kv1, fp32Mask);
+            }
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv0, fp32Kv0, scale, fp32Mask);
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv1, fp32Kv1, scale, fp32Mask);
             MicroAPI::Cast<Q_T, float, castTraitFp8_3>(output0, scaledKv0, fp32Mask);
