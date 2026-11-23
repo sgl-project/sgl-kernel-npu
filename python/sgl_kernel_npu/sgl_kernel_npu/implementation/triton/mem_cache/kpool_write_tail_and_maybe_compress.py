@@ -160,7 +160,7 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                     )
                     cache_offsets = write_loc * cache_stride_0 + offs
                     if QUANTIZE_INT8:
-                        values = hadamard128(pooled)
+                        values = pooled
                         amax = tl.max(tl.abs(values), axis=0)
                         scale = tl.where(amax > 0.0, amax / 127.0, 1.0)
                         scaled = values / scale
