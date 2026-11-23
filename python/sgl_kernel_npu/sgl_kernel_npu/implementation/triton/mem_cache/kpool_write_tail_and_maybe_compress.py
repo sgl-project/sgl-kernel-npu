@@ -139,12 +139,13 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                             tail_score_ptr + pool_tail_score_offset,
                             mask=dim_mask,
                             other=0.0,
-                        ).to(tl.float32)
-                        pool_score += tl.load(
+                        ).to(tl.float32) + tl.load(
                             ape_ptr + slot * ape_stride_0 + offs,
                             mask=dim_mask,
                             other=0.0,
-                        ).to(tl.float32)
+                        ).to(
+                            tl.float32
+                        )
 
                         new_max = tl.maximum(running_max, pool_score)
                         rescale = tl.exp(running_max - new_max)

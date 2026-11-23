@@ -91,8 +91,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
                 mask=dim_mask,
                 other=0.0,
             ).to(tl.float32)
-            score = tl.where(is_current, score_current, score_buf)
-            score += tl.load(
+            score = tl.where(is_current, score_current, score_buf) + tl.load(
                 ape_ptr + pool_slot * ape_stride_0 + offs,
                 mask=dim_mask,
                 other=0.0,
@@ -113,8 +112,7 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
                 mask=dim_mask,
                 other=0.0,
             ).to(tl.float32)
-            score = tl.where(is_current, score_current, score_buf)
-            score += tl.load(
+            score = tl.where(is_current, score_current, score_buf) + tl.load(
                 ape_ptr + pool_slot * ape_stride_0 + offs,
                 mask=dim_mask,
                 other=0.0,

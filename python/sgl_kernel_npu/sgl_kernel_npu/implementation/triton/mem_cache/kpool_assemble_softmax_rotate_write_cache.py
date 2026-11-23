@@ -106,7 +106,7 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                         other=0.0,
                     ).to(tl.float32)
 
-                score += tl.load(
+                score = score + tl.load(
                     ape_ptr + slot * ape_stride_0 + offs,
                     mask=head_mask,
                     other=0.0,
