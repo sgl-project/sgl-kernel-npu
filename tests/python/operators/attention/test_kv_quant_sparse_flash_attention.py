@@ -18,11 +18,15 @@ _STANDARD = {
 perf_shape = [(128, 4096, (2048,))]
 
 
-def _require_kv_dtype(kv_dtype):
+def _hardware_kv_dtype():
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
-    if kv_dtype == torch.uint8 and get_hardware().generation != Generation.ARCH35:
-        pytest.skip("E4M3 packed KV requires A5")
+    return torch.uint8 if get_hardware().generation == Generation.ARCH35 else torch.int8
+
+
+def _require_kv_dtype(kv_dtype):
+    if kv_dtype != _hardware_kv_dtype():
+        pytest.skip(f"{kv_dtype} packed KV is unsupported on this architecture")
 
 
 def generate_data(heads, kv_len, selected_counts, device="npu", *, kv_dtype=torch.uint8):
@@ -99,7 +103,7 @@ def test_kv_quant_sparse_flash_attention_rejects_invalid_record_width():
     from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
     require_test_impl(kv_quant_sparse_flash_attention, "ascendc")
-    data = generate_data(32, 1, (1,), kv_dtype=torch.int8)
+    data = generate_data(32, 1, (1,), kv_dtype=_hardware_kv_dtype())
     data["packed_kv"] = data["packed_kv"][..., :-1].contiguous()
     with pytest.raises(RuntimeError, match="packed KV must be uint8"):
         kv_quant_sparse_flash_attention(**data, impl="ascendc")

@@ -46,8 +46,8 @@ def kv_quant_sparse_flash_attention(
 
     query is BF16 [T, H, 512]. query_rope is BF16 [T, H, 64] for
     656-byte KV rows, or [T, H, 0] for 528-byte rows. The latter store
-    only the FP8 latent followed by four FP32 scales at byte offset 512.
-    packed_kv is int8 on A2/A3. On A5 it is int8 or uint8 carrying E4M3 bytes.
+    only the quantized latent followed by four FP32 scales at byte offset 512.
+    Ascend C uses int8 on A2/A3 and uint8 carrying E4M3 bytes on A5.
     Both use [pages, page_size, 1, row_bytes].
     sparse_indices is int32 [T, 1, K] with trailing -1 padding.
     block_table is int32 [B, max_pages]. actual_seq_lengths_query and

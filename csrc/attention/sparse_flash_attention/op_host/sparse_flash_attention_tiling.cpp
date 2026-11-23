@@ -1334,13 +1334,14 @@ ge::graphStatus SFATilingCheck::CheckFeatureMlaNoquant() const
 
 ge::graphStatus SFATilingCheck::CheckFeatureMla() const
 {
+    const auto packedKvType = isA5_ ? ge::DT_UINT8 : ge::DT_INT8;
     OP_CHECK_IF(IsPackedKv(inputKvType_) &&
-                    ((!isA5_ && inputKvType_ == ge::DT_UINT8) || inputQType_ != ge::DT_BF16 ||
+                    (inputKvType_ != packedKvType || inputQType_ != ge::DT_BF16 ||
                      qLayout_ != SFALayout::TND || kvLayout_ != SFALayout::PA_BSND || sparseBlockSize_ != 1 ||
                      *opParamInfo_.sparseMode != 0),
                 OP_LOGE(opName_,
-                        "packed KV requires BF16 query, TND/PA_BSND, sparse_block_size=1 and sparse_mode=0; "
-                        "UINT8 requires A5"),
+                        "packed KV requires UINT8 on A5 or INT8 on A2/A3, BF16 query, TND/PA_BSND, "
+                        "sparse_block_size=1 and sparse_mode=0"),
                 return ge::GRAPH_FAILED);
     return CheckFeatureMlaNoquant();
 }

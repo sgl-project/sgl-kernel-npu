@@ -316,8 +316,8 @@ SFAVectorService<TEMPLATE_ARGS>::CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int
     return copied;
 }
 
-// Widen values from register layout ZERO.
-static constexpr MicroAPI::CastTrait castTraitWidenZero = {MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
+// fp8->fp32
+static constexpr MicroAPI::CastTrait castTraitFp8_1 = {MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
                                                        MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
 // fp8->fp32
 static constexpr MicroAPI::CastTrait castTraitFp8_2 = {MicroAPI::RegLayout::ONE, MicroAPI::SatMode::UNKNOWN,
@@ -329,7 +329,7 @@ static constexpr MicroAPI::CastTrait castTraitFp8_3 = {MicroAPI::RegLayout::ZERO
 static constexpr MicroAPI::CastTrait castTraitFp8_4 = {MicroAPI::RegLayout::ONE, MicroAPI::SatMode::NO_SAT,
                                                        MicroAPI::MaskMergeMode::ZEROING, RoundMode::CAST_RINT};
 
-// A5 FP8/INT8 path from vLLM Ascend #16706 (0bbd68adc71f1b9603ac68a5be585035c1817f25).
+// A5 FP8 path from vLLM Ascend #16706 (0bbd68adc71f1b9603ac68a5be585035c1817f25).
 // AntiquantVFImplFp8D448 dequantizes 128 values per scale and stores 16-row NZ tiles.
 template <typename Q_T, uint32_t InputStride>
 __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *output,
@@ -339,8 +339,7 @@ __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *ou
     constexpr uint32_t halfTile = tileSize / 2;
     MicroAPI::MaskReg fp32Mask = MicroAPI::CreateMask<float, MicroAPI::MaskPattern::ALL>();
     MicroAPI::MaskReg outputMask = MicroAPI::CreateMask<Q_T, MicroAPI::MaskPattern::ALL>();
-    using PackedType = std::conditional_t<std::is_same_v<DTYPE_KEY, int8_t>, int8_t, fp8_e4m3fn_t>;
-    MicroAPI::RegTensor<PackedType> kv0, kv1;
+    MicroAPI::RegTensor<fp8_e4m3fn_t> kv0, kv1;
     MicroAPI::RegTensor<float> fp32Kv0, fp32Kv1, scaledKv0, scaledKv1, scale;
     MicroAPI::RegTensor<Q_T> output0, output1, packed0, packed1;
 
@@ -356,17 +355,8 @@ __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *ou
             MicroAPI::LoadAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_BRC_B32>(
                 scale, tileScale, InputStride / sizeof(float));
 
-            if constexpr (std::is_same_v<PackedType, int8_t>) {
-                MicroAPI::RegTensor<half> halfKv0, halfKv1;
-                auto halfMask = MicroAPI::CreateMask<half, MicroAPI::MaskPattern::ALL>();
-                MicroAPI::Cast<half, PackedType, castTraitWidenZero>(halfKv0, kv0, halfMask);
-                MicroAPI::Cast<half, PackedType, castTraitWidenZero>(halfKv1, kv1, halfMask);
-                MicroAPI::Cast<float, half, castTraitWidenZero>(fp32Kv0, halfKv0, fp32Mask);
-                MicroAPI::Cast<float, half, castTraitWidenZero>(fp32Kv1, halfKv1, fp32Mask);
-            } else {
-                MicroAPI::Cast<float, PackedType, castTraitWidenZero>(fp32Kv0, kv0, fp32Mask);
-                MicroAPI::Cast<float, PackedType, castTraitWidenZero>(fp32Kv1, kv1, fp32Mask);
-            }
+            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv0, kv0, fp32Mask);
+            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv1, kv1, fp32Mask);
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv0, fp32Kv0, scale, fp32Mask);
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv1, fp32Kv1, scale, fp32Mask);
             MicroAPI::Cast<Q_T, float, castTraitFp8_3>(output0, scaledKv0, fp32Mask);
@@ -419,8 +409,8 @@ __simd_vf__ void CastScaleImpl(__ubuf__ float *ubDstAddr, __ubuf__ int8_t *ubSrc
         MicroAPI::LoadAlign<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_UNPACK4_B8>(
             (MicroAPI::RegTensor<int8_t> &)vScale0, ubScaleSrcAddrTemp, 640);
 
-        MicroAPI::Cast<bfloat16_t, fp8_e8m0_t, castTraitWidenZero>(vScalebf16Res0, vScale0, bf16TypeMaskAll);
-        MicroAPI::Cast<float, bfloat16_t, castTraitWidenZero>(vScalefp32Res0, vScalebf16Res0, fp32MaskAll);
+        MicroAPI::Cast<bfloat16_t, fp8_e8m0_t, castTraitFp8_1>(vScalebf16Res0, vScale0, bf16TypeMaskAll);
+        MicroAPI::Cast<float, bfloat16_t, castTraitFp8_1>(vScalefp32Res0, vScalebf16Res0, fp32MaskAll);
 
         MicroAPI::StoreAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE>(ubDstAddrTmp, vScalefp32Res0, 64,
                                                                              bf16TypeMaskAll);

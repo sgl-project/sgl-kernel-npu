@@ -4,7 +4,7 @@
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` | INT8 | INT8 and E4M3 FP8 |
+| `ascendc` | INT8 | E4M3 FP8 |
 | `torch_native` | INT8 | INT8 and E4M3 FP8 |
 
 ## Signature
