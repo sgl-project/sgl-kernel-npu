@@ -574,6 +574,21 @@ def test_state_aiv_per_layer_h2d_duplicate_host_source(acl_host):
     assert_accuracy(dev.view(torch.uint8), expected.view(torch.uint8))
 
 
+def test_state_aiv_host_side_indices(acl_host):
+    # Host-resident indices: the backend validates them on the CPU without
+    # an NPU-to-CPU sync and uploads them with the submission.
+    from sgl_kernel_npu.operators.data_move import transfer_kv_per_layer_direct_pf_lf
+
+    torch.manual_seed(0)
+    dev = torch.zeros(2, 4, 16, dtype=torch.float32, device="npu")
+    host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu"))
+    h = torch.tensor([3, 1, 2], dtype=torch.int64, device="cpu")
+    d = torch.tensor([0, 2, 1], dtype=torch.int64, device="cpu")
+    transfer_kv_per_layer_direct_pf_lf(host, dev[1], h, d, 1)
+    torch.npu.synchronize()
+    assert_accuracy(dev[1][d].cpu(), host[h, 1, 0])
+
+
 def test_state_aiv_roundtrip(acl_host):
     # Backup every layer D2H, restore them per-layer H2D, and compare.
 

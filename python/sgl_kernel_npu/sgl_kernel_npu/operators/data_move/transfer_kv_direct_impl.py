@@ -12,7 +12,10 @@ Requirements specific to this backend: host memory must be registered with
 the DVA table (register_host_memory / register_acl_host_memory) before
 transfer, destination slot indices must be unique (the round-robin AIV
 cores would race on repeated destinations), and NPU graph capture is not
-supported.
+supported. Indices may be host- or device-resident: host-resident indices
+are validated on the CPU without an NPU-to-CPU sync and uploaded with the
+submission, while device-resident indices pay a one-time readback to
+validate.
 """
 
 from threading import Lock
@@ -37,24 +40,37 @@ def _check_indices(device_indices, host_indices):
     for index in (device_indices, host_indices):
         if index.ndim != 1 or index.dtype != torch.int64:
             raise ValueError("transfer indices must be 1-D int64 tensors")
+        if index.device.type not in ("cpu", "npu"):
+            raise ValueError("transfer indices must be host or NPU tensors")
     if device_indices.numel() != host_indices.numel():
         raise ValueError("device and host indices must have the same length")
+
+
+def _host_values(index):
+    # Read the values where they live: host-resident indices validate on the
+    # CPU with no device sync; device-resident indices pay a one-time
+    # NPU-to-CPU readback.
+    if index.device.type == "cpu":
+        return index.tolist()
+    return index.cpu().tolist()
+
+
+def _to_device(index, device):
+    # Upload host-resident indices for the kernel; keep device-resident ones
+    # contiguous. Validation has already read the values.
+    if index.device.type == "cpu":
+        return index.to(device)
+    return index.contiguous()
 
 
 def _check_slot_values(
     device_indices, host_indices, device_slots, host_slots, host_is_dst
 ):
-    # The AIV kernel dereferences device-resident slot indices unchecked, so
-    # pull the values once (a small sync) and mirror the torch_native
-    # reference: an out-of-range slot would corrupt unrelated GM/DVA memory.
-    # Duplicate sources are fine; duplicate destinations race across the
-    # round-robin cores, so they are rejected.
-    pairs = list(
-        zip(
-            device_indices.cpu().long().flatten().tolist(),
-            host_indices.cpu().long().flatten().tolist(),
-        )
-    )
+    # The AIV kernel dereferences slot indices unchecked, so mirror the
+    # torch_native reference: an out-of-range slot would corrupt unrelated
+    # GM/DVA memory. Duplicate sources are fine; duplicate destinations race
+    # across the round-robin cores, so they are rejected.
+    pairs = list(zip(_host_values(device_indices), _host_values(host_indices)))
     for d, h in pairs:
         if not (0 <= d < device_slots and 0 <= h < host_slots):
             raise RuntimeError("index exceeds component slot count")
@@ -93,12 +109,14 @@ def aiv_per_layer(
     # carry the offsets.
     device_view = dst.unsqueeze(0)
     host_view = src.narrow(1, layer_id, 1)
-    with _submit_lock, torch.npu.device(dst_indices.device):
+    dst_indices = _to_device(dst_indices, dst.device)
+    src_indices = _to_device(src_indices, dst.device)
+    with _submit_lock, torch.npu.device(dst.device):
         if torch.npu.is_current_stream_capturing():
             raise RuntimeError("AIV state transfer does not support NPU graph capture")
         torch.ops.npu.state_exchange(
-            dst_indices.contiguous(),
-            src_indices.contiguous(),
+            dst_indices,
+            src_indices,
             [device_view],
             [host_view],
             [resolve_host_dva(host_view)],
@@ -148,12 +166,15 @@ def aiv_all_layer(
         min(host.size(0) for host in host_states),
         host_is_dst=True,
     )
-    with _submit_lock, torch.npu.device(device_indices.device):
+    device = device_states[0].device
+    device_indices = _to_device(device_indices, device)
+    host_indices = _to_device(host_indices, device)
+    with _submit_lock, torch.npu.device(device):
         if torch.npu.is_current_stream_capturing():
             raise RuntimeError("AIV state transfer does not support NPU graph capture")
         torch.ops.npu.state_exchange(
-            device_indices.contiguous(),
-            host_indices.contiguous(),
+            device_indices,
+            host_indices,
             device_states,
             host_states,
             [resolve_host_dva(host) for host in host_states],
