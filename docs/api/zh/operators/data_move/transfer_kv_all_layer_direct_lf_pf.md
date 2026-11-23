@@ -47,7 +47,7 @@ def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indice
 
 ## ascendc_aiv 后端
 
-每次调用提交一个融合的 `state_exchange` AIV 内核，替代逐组件的 ACL 拷贝。主机组件须预先注册到 DVA 表（register_host_memory / register_acl_host_memory）；目标槽位索引在单次提交内必须唯一，且不支持 NPU 图捕获。组件可携带互不相同的层数（主干层加草稿层池），主机组件可为同一注册池的按层窄化视图。
+每次调用提交融合的 `state_exchange` AIV 内核，替代逐组件的 ACL 拷贝；超过 16 个组件的列表自动拆分为同流上的多次连续提交。主机组件须预先注册到 DVA 表（register_host_memory / register_acl_host_memory）；目标槽位索引在单次提交内必须唯一，且不支持 NPU 图捕获。组件可携带互不相同的层数（主干层加草稿层池），主机组件可为同一注册池的按层窄化视图。索引可驻留主机或设备：主机索引在 CPU 侧直接校验（无 NPU 到 CPU 同步）并随提交上传；设备索引校验时需一次回读。
 
 A3 使用 `python3 setup.py --arch-version 2201 --ops state_exchange` 编译 CANN 算子，A5 使用 `--arch-version 3510`。
 

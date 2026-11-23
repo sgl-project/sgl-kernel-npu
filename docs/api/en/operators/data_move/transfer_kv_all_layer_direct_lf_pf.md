@@ -60,7 +60,7 @@ Repeated destination indices are overwritten in input order.
 
 ## ascendc_aiv backend
 
-Submits one fused `state_exchange` AIV kernel per call instead of one ACL copy per component. Host components must be registered in the DVA table (register_host_memory / register_acl_host_memory) before the call; destination slot indices must be unique across the submission, and NPU graph capture is not supported. Components may carry independent layer counts (main plus draft pools), and host components may be layer-narrowed views of one registered pool.
+Submits a fused `state_exchange` AIV kernel per call instead of one ACL copy per component; component lists longer than 16 are split across consecutive submissions on the same stream. Host components must be registered in the DVA table (register_host_memory / register_acl_host_memory) before the call; destination slot indices must be unique across the submission, and NPU graph capture is not supported. Components may carry independent layer counts (main plus draft pools), and host components may be layer-narrowed views of one registered pool. Indices may be host- or device-resident: host-resident indices are validated on the CPU without an NPU-to-CPU sync and uploaded with the submission, while device-resident indices pay a one-time readback to validate.
 
 Build the CANN operator with `python3 setup.py --arch-version 2201 --ops state_exchange` for A3 or use `--arch-version 3510` for A5.
 

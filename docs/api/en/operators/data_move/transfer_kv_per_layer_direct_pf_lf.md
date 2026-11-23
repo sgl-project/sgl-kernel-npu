@@ -61,7 +61,7 @@ input order.
 
 ## ascendc_aiv backend
 
-Submits one fused `state_exchange` AIV kernel per call. The host source must be registered in the DVA table (register_host_memory / register_acl_host_memory); destination slot indices must be unique, and NPU graph capture is not supported. Layer-narrowed host views of one registered pool are accepted.
+Submits one fused `state_exchange` AIV kernel per call. The host source must be registered in the DVA table (register_host_memory / register_acl_host_memory); destination slot indices must be unique, and NPU graph capture is not supported. Layer-narrowed host views of one registered pool are accepted. Indices may be host- or device-resident: host-resident indices are validated on the CPU without an NPU-to-CPU sync and uploaded with the submission, while device-resident indices pay a one-time readback to validate.
 
 Build the CANN operator with `python3 setup.py --arch-version 2201 --ops state_exchange` for A3 or use `--arch-version 3510` for A5.
 

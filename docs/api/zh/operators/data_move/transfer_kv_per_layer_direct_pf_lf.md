@@ -48,7 +48,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 
 ## ascendc_aiv 后端
 
-每次调用提交一个融合的 `state_exchange` AIV 内核。主机源须预先注册到 DVA 表（register_host_memory / register_acl_host_memory）；目标槽位索引必须唯一，且不支持 NPU 图捕获。支持同一注册池的按层窄化主机视图。
+每次调用提交一个融合的 `state_exchange` AIV 内核。主机源须预先注册到 DVA 表（register_host_memory / register_acl_host_memory）；目标槽位索引必须唯一，且不支持 NPU 图捕获。支持同一注册池的按层窄化主机视图。索引可驻留主机或设备：主机索引在 CPU 侧直接校验（无 NPU 到 CPU 同步）并随提交上传；设备索引校验时需一次回读。
 
 A3 使用 `python3 setup.py --arch-version 2201 --ops state_exchange` 编译 CANN 算子，A5 使用 `--arch-version 3510`。
 

@@ -642,7 +642,6 @@ def test_state_aiv_empty_indices_noop(acl_host):
     "case,error_type,message",
     [
         ("unregistered", RuntimeError, "not registered"),
-        ("too-many", ValueError, "at most 16 components"),
         ("dtype", RuntimeError, "dtypes must match"),
         ("host-layout", RuntimeError, "buffers must be device \\(layers, slots"),
         ("device-layout", RuntimeError, "buffers must be device \\(layers, slots"),
@@ -658,17 +657,13 @@ def test_state_aiv_all_layer_rejected(acl_host, case, error_type, message):
     host = torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu")
     if case != "unregistered":
         host = acl_host(host)
-    if case == "too-many":
-        dev_states = [dev] * 17
-        host_states = [host] * 17
-    else:
-        dev_states, host_states = [dev], [host]
-        if case == "dtype":
-            host_states = [acl_host(host.to(torch.bfloat16))]
-        elif case == "host-layout":
-            host_states = [host.squeeze(2)]
-        elif case == "device-layout":
-            dev_states = [dev[0]]
+    dev_states, host_states = [dev], [host]
+    if case == "dtype":
+        host_states = [acl_host(host.to(torch.bfloat16))]
+    elif case == "host-layout":
+        host_states = [host.squeeze(2)]
+    elif case == "device-layout":
+        dev_states = [dev[0]]
     d, h = _indices([1]), _indices([2])
     if case == "duplicate-host-dst":
         d, h = _indices([1, 3]), _indices([2, 2])
@@ -676,6 +671,30 @@ def test_state_aiv_all_layer_rejected(acl_host, case, error_type, message):
         transfer_kv_all_layer_direct_lf_pf(
             dev_states, host_states, d, h, impl="ascendc_aiv"
         )
+
+
+def test_state_aiv_all_layer_splits_large_component_lists(acl_host):
+    # Component lists beyond the per-submission descriptor limit are split
+    # across consecutive state_exchange submissions (draft-enabled mamba
+    # backups pass one component per layer).
+    from sgl_kernel_npu.operators.data_move import transfer_kv_all_layer_direct_lf_pf
+
+    torch.manual_seed(0)
+    layers, slots, payload = 17, 2, (8,)
+    dev = torch.randn(layers, slots, *payload, dtype=torch.float32, device="npu")
+    host = acl_host(
+        torch.zeros(slots, layers, 1, *payload, dtype=torch.float32, device="cpu")
+    )
+    d, h = _indices([1]), _indices([0])
+    transfer_kv_all_layer_direct_lf_pf(
+        [dev[i].unsqueeze(0) for i in range(layers)],
+        [host.narrow(1, i, 1) for i in range(layers)],
+        d,
+        h,
+        impl="ascendc_aiv",
+    )
+    torch.npu.synchronize()
+    assert_accuracy(host[0, :, 0], dev[:, 1, :].cpu())
 
 
 @pytest.mark.extra_checks

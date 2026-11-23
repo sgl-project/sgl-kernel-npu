@@ -127,17 +127,15 @@ def aiv_per_layer(
 # ---------------------------------------------------------------------------
 # D2H all layers: device components [layers, slots, ...] -> host components
 # [slots, layers, 1, ...]; components may carry independent layer counts
-# (e.g. main [L, slots, ...] plus draft [1, slots, ...] pairs).
+# (e.g. main [L, slots, ...] plus draft [1, slots, ...] pairs). Component
+# lists longer than _MAX_COMPONENTS are split across consecutive
+# submissions.
 # ---------------------------------------------------------------------------
 
 
 def _check_all_layer_components(device_states, host_states):
     if not device_states or len(device_states) != len(host_states):
         raise ValueError("expected matching nonempty component lists")
-    if len(device_states) > _MAX_COMPONENTS:
-        raise ValueError(
-            f"at most {_MAX_COMPONENTS} components are supported, got {len(device_states)}"
-        )
     for which, (dev, host) in enumerate(zip(device_states, host_states)):
         if dev.device.type != "npu":
             raise ValueError(f"component {which}: device state must be an NPU tensor")
@@ -172,11 +170,17 @@ def aiv_all_layer(
     with _submit_lock, torch.npu.device(device):
         if torch.npu.is_current_stream_capturing():
             raise RuntimeError("AIV state transfer does not support NPU graph capture")
-        torch.ops.npu.state_exchange(
-            device_indices,
-            host_indices,
-            device_states,
-            host_states,
-            [resolve_host_dva(host) for host in host_states],
-            2,
-        )
+        # The kernel takes at most _MAX_COMPONENTS descriptors per submission;
+        # split larger component lists across consecutive submissions on the
+        # same stream (the indices repeat per submission, which the
+        # per-submission uniqueness check still allows).
+        for start in range(0, len(device_states), _MAX_COMPONENTS):
+            hosts = host_states[start : start + _MAX_COMPONENTS]
+            torch.ops.npu.state_exchange(
+                device_indices,
+                host_indices,
+                device_states[start : start + _MAX_COMPONENTS],
+                hosts,
+                [resolve_host_dva(host) for host in hosts],
+                2,
+            )
