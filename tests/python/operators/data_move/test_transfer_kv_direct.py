@@ -389,8 +389,7 @@ def test_state_aiv_all_layer_d2h(
     stream.wait_stream(torch.npu.current_stream())
     with torch.npu.stream(stream):
         assert (
-            transfer_kv_all_layer_direct_lf_pf([dev], [host], d, h, impl=impl)
-            is None
+            transfer_kv_all_layer_direct_lf_pf([dev], [host], d, h, impl=impl) is None
         )
     stream.synchronize()
 
