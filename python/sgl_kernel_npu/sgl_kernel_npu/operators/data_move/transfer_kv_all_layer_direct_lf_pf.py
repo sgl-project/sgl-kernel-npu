@@ -21,8 +21,8 @@ def _aiv(
     # components must be registered in the DVA table; destination slots must
     # be unique and NPU graph capture is not supported. Components may carry
     # independent layer counts and host components may be layer-narrowed
-    # views (see transfer_kv_direct_impl).
-    from .transfer_kv_direct_impl import aiv_all_layer
+    # views (see transfer_kv_direct_aiv_impl).
+    from .transfer_kv_direct_aiv_impl import aiv_all_layer
 
     aiv_all_layer(device_states, host_states, device_indices, host_indices, flags)
 
