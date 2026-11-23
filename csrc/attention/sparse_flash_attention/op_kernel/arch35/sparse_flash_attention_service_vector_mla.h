@@ -50,8 +50,6 @@ public:
     static constexpr uint32_t dVTemplateType = 512;
     static constexpr uint32_t dTemplateAlign64 = Align64Func(dVTemplateType);
     static constexpr uint32_t dVTemplateTypeInput = 576;
-    // CANN compiles a separate binary for each key dtype in the OpDef.
-    static constexpr bool kPackedKv = std::is_same_v<DTYPE_KEY, uint8_t>;
     static constexpr uint32_t packedKvStride = (kSfaPackedKvBytes + 31U) / 32U * 32U;
     static constexpr float R0 = 1.0f;
     static constexpr uint64_t SYNC_SINKS_BUF_FLAG = 6;
@@ -331,62 +329,66 @@ static constexpr MicroAPI::CastTrait castTraitFp8_3 = {MicroAPI::RegLayout::ZERO
 static constexpr MicroAPI::CastTrait castTraitFp8_4 = {MicroAPI::RegLayout::ONE, MicroAPI::SatMode::NO_SAT,
                                                        MicroAPI::MaskMergeMode::ZEROING, RoundMode::CAST_RINT};
 
-template <typename Q_T>
-__simd_vf__ inline void UnpackSfaLatent(__ubuf__ Q_T *output, __ubuf__ uint8_t *input, uint32_t rows,
-                                        uint32_t inputStride, uint32_t scaleOffset, bool hasRope)
+// A5 FP8 path from vLLM Ascend #16706 (0bbd68adc71f1b9603ac68a5be585035c1817f25).
+// AntiquantVFImplFp8D448 dequantizes 128 values per scale and stores 16-row NZ tiles.
+template <typename Q_T, uint32_t InputStride>
+__simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *output,
+                                      __ubuf__ float *scales, uint32_t rows)
 {
     constexpr uint32_t tileSize = kSfaPackedKvQuantBlockSize;
-    constexpr uint32_t lanes = 64;
-    auto mask = MicroAPI::CreateMask<float, MicroAPI::MaskPattern::ALL>();
-    MicroAPI::RegTensor<fp8_e4m3fn_t> bytes;
-    MicroAPI::RegTensor<float> values;
-    MicroAPI::RegTensor<float> scale;
-    MicroAPI::RegTensor<Q_T> converted;
-    MicroAPI::RegTensor<Q_T> zero;
-    MicroAPI::Duplicate(zero, static_cast<Q_T>(0.0f));
+    constexpr uint32_t halfTile = tileSize / 2;
+    MicroAPI::MaskReg fp32Mask = MicroAPI::CreateMask<float, MicroAPI::MaskPattern::ALL>();
+    MicroAPI::MaskReg outputMask = MicroAPI::CreateMask<Q_T, MicroAPI::MaskPattern::ALL>();
+    MicroAPI::RegTensor<fp8_e4m3fn_t> kv0, kv1;
+    MicroAPI::RegTensor<float> fp32Kv0, fp32Kv1, scaledKv0, scaledKv1, scale;
+    MicroAPI::RegTensor<Q_T> output0, output1, packed0, packed1;
 
-    for (uint32_t row = 0; row < rows; ++row) {
-        auto rowIn = input + row * inputStride;
-        auto rowOut = output + row * kSfaPackedKvDequantizedDim;
-        auto scales = reinterpret_cast<__ubuf__ float *>(rowIn + scaleOffset);
-        for (uint32_t tile = 0; tile < kSfaPackedKvLatentDim / tileSize; ++tile) {
-            auto scaleAddress = scales + tile;
+    for (uint16_t tile = 0; tile < kSfaPackedKvLatentDim / tileSize; ++tile) {
+        auto tileInput = input + tile * tileSize;
+        auto tileScale = scales + tile;
+        auto tileOutput = output + tile * tileSize * kSfaPackedKvNzStride;
+        for (uint16_t row = 0; row < static_cast<uint16_t>(rows); ++row) {
+            MicroAPI::LoadAlign<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_UNPACK4_B8>(
+                reinterpret_cast<MicroAPI::RegTensor<int8_t> &>(kv0), tileInput, halfTile);
+            MicroAPI::LoadAlign<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_UNPACK4_B8>(
+                reinterpret_cast<MicroAPI::RegTensor<int8_t> &>(kv1), tileInput, InputStride - halfTile);
             MicroAPI::LoadAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_BRC_B32>(
-                scale, scaleAddress, 1);
-            auto source = reinterpret_cast<__ubuf__ int8_t *>(rowIn + tile * tileSize);
-            for (uint32_t offset = 0; offset < tileSize; offset += lanes) {
-                MicroAPI::LoadAlign<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE,
-                                    MicroAPI::LoadDist::DIST_UNPACK4_B8>(
-                    reinterpret_cast<MicroAPI::RegTensor<int8_t> &>(bytes), source, lanes);
-                MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(values, bytes, mask);
-                MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(values, values, scale, mask);
-                MicroAPI::Cast<Q_T, float, castTraitFp8_3>(converted, values, mask);
-                MicroAPI::DataCopy<Q_T, MicroAPI::StoreDist::DIST_PACK_B32>(rowOut + tile * tileSize + offset,
-                                                                            converted, mask);
-            }
-        }
-        if (!hasRope) {
-            MicroAPI::DataCopy<Q_T, MicroAPI::StoreDist::DIST_PACK_B32>(rowOut + kSfaPackedKvLatentDim,
-                                                                        zero, mask);
+                scale, tileScale, InputStride / sizeof(float));
+
+            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv0, kv0, fp32Mask);
+            MicroAPI::Cast<float, fp8_e4m3fn_t, castTraitFp8_1>(fp32Kv1, kv1, fp32Mask);
+            MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv0, fp32Kv0, scale, fp32Mask);
+            MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv1, fp32Kv1, scale, fp32Mask);
+            MicroAPI::Cast<Q_T, float, castTraitFp8_3>(output0, scaledKv0, fp32Mask);
+            MicroAPI::Cast<Q_T, float, castTraitFp8_3>(output1, scaledKv1, fp32Mask);
+
+            MicroAPI::DeInterleave(packed0, packed1, output0, output1);
+            MicroAPI::StoreAlign<Q_T, MicroAPI::DataCopyMode::DATA_BLOCK_COPY, MicroAPI::PostLiteral::POST_MODE_UPDATE>(
+                tileOutput, packed0, kSfaPackedKvNzStride, 1, outputMask);
         }
     }
 }
 
 TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void
 SFAVectorService<TEMPLATE_ARGS>::DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input,
-                                                     uint32_t rows, uint32_t rowBytes)
+                                                    uint32_t rows, uint32_t rowBytes)
 {
-    // Keep the internal 576-wide Cube layout for both packed record formats.
-    const bool hasRope = rowBytes == kSfaPackedKvBytes;
-    UnpackSfaLatent<Q_T>((__ubuf__ Q_T *)output.GetPhyAddr(), (__ubuf__ uint8_t *)input.GetPhyAddr(), rows,
-                         packedKvStride, rowBytes - kSfaPackedKvScaleBytes, hasRope);
-    if (!hasRope) {
+    // Packed rows contain NoPE, optional RoPE, then four FP32 scales.
+    const uint32_t scaleOffset = rowBytes - kSfaPackedKvScaleBytes;
+    AntiquantVFImplFp8D448<Q_T, packedKvStride>(
+        (__ubuf__ int8_t *)input.GetPhyAddr(), (__ubuf__ Q_T *)output.GetPhyAddr(),
+        (__ubuf__ float *)input[scaleOffset].GetPhyAddr(), rows);
+
+    auto ropeNz = output[kSfaPackedKvLatentDim * kSfaPackedKvNzStride];
+    if (rowBytes == kSfaPackedKvNoRopeBytes) {
+        // The Cube still consumes 64 RoPE lanes for the compact cache.
+        Duplicate(ropeNz.template ReinterpretCast<uint16_t>(), static_cast<uint16_t>(0),
+                  kSfaPackedKvRopeDim * kSfaPackedKvNzStride);
         return;
     }
     auto rope = input[kSfaPackedKvLatentDim].template ReinterpretCast<Q_T>();
-    Copy(
-        output[kSfaPackedKvLatentDim], rope, kSfaPackedKvRopeDim, static_cast<uint8_t>(rows),
-        {1, 1, kSfaPackedKvDequantizedDim * sizeof(Q_T) / BUFFER_SIZE_BYTE_32B, packedKvStride / BUFFER_SIZE_BYTE_32B});
+    Copy(ropeNz, rope, kSfaPackedKvRopeDim, static_cast<uint8_t>(rows),
+         {kSfaPackedKvNzStride, 1, 1, packedKvStride / BUFFER_SIZE_BYTE_32B});
 }
 
 template <typename Q_T, typename KV_T>
@@ -421,7 +423,16 @@ __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>::CopyOutKvUb2Gm(
     int64_t s2StartIdx, const RunInfo &runInfo, ConstInfo &constInfo)
 {
     GlobalTensor<Q_T> v0ResGmTensor = v0ResGm.template GetTensor<Q_T>();
-    DataCopy(v0ResGmTensor[s2StartIdx * 576], kvOutUb, dealRow * 576);
+    if constexpr (kSfaUsesPackedKv) {
+        DataCopyParams copy;
+        copy.blockCount = kSfaPackedKvDequantizedDim / kSfaPackedKvNzBlock;
+        copy.blockLen = dealRow;
+        copy.srcGap = kSfaPackedKvNzStride - dealRow;
+        copy.dstGap = Align16Func(runInfo.s2RealSize) - dealRow;
+        DataCopy(v0ResGmTensor[s2StartIdx * kSfaPackedKvNzBlock], kvOutUb, copy);
+    } else {
+        DataCopy(v0ResGmTensor[s2StartIdx * 576], kvOutUb, dealRow * 576);
+    }
 }
 
 TEMPLATES_DEF_NO_DEFAULT
@@ -497,7 +508,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
         // 1、copy kv in, gm ->ub
         LocalTensor<Q_T> stage0OutUb = this->stage0OutBuf[pingPong].template Get<Q_T>();
         LocalTensor<uint8_t> packedUb;
-        if constexpr (kPackedKv) {
+        if constexpr (kSfaUsesPackedKv) {
             packedUb = packedKvBuf[pingPong].template Get<uint8_t>();
         }
         WaitFlag<HardEvent::MTE3_MTE2>(mte3ToMte2[pingPong]);
@@ -508,7 +519,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
                 meetEnd = true;
                 break;
             }
-            if constexpr (kPackedKv) {
+            if constexpr (kSfaUsesPackedKv) {
                 dealRow += CopyInPackedKv(packedUb, dealRow, token0Idx, token1Idx, runInfo, constInfo);
             } else {
                 dealRow += CopyInKvSparse(stage0OutUb, dealRow, token0Idx, token1Idx, runInfo, constInfo);
@@ -523,7 +534,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
             pingPong ^= 1;
             return;
         }
-        if constexpr (kPackedKv) {
+        if constexpr (kSfaUsesPackedKv) {
             SetFlag<HardEvent::MTE2_V>(mte2ToV);
             WaitFlag<HardEvent::MTE2_V>(mte2ToV);
             DequantizePackedKv(stage0OutUb, packedUb, dealRow, constInfo.packedKvBytes);
@@ -751,7 +762,7 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
     __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *keyRope, __gm__ uint8_t *sparseIndices,
     __gm__ uint8_t *blockTable, __gm__ uint8_t *softmaxMax, __gm__ uint8_t *softmaxSum)
 {
-    if constexpr (kPackedKv) {
+    if constexpr (kSfaUsesPackedKv) {
         packedKvGm.SetGlobalBuffer(key);
     } else {
         keyGm.SetGlobalBuffer((__gm__ KV_T *)key);
@@ -832,9 +843,10 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
     tPipe->InitBuffer(lseBuf, 512);      // lseBuf内存申请512B
     lseUb = this->lseBuf.template Get<float>();
 
-    tPipe->InitBuffer(stage0OutBuf[0], 576 * 16 * sizeof(KV_T));
-    tPipe->InitBuffer(stage0OutBuf[1], 576 * 16 * sizeof(KV_T));
-    if constexpr (kPackedKv) {
+    constexpr uint32_t stage0UbRows = kSfaUsesPackedKv ? kSfaPackedKvNzStride : kSfaPackedKvNzBlock;
+    tPipe->InitBuffer(stage0OutBuf[0], kSfaPackedKvDequantizedDim * stage0UbRows * sizeof(Q_T));
+    tPipe->InitBuffer(stage0OutBuf[1], kSfaPackedKvDequantizedDim * stage0UbRows * sizeof(Q_T));
+    if constexpr (kSfaUsesPackedKv) {
         tPipe->InitBuffer(packedKvBuf[0], packedKvStride * 16);
         tPipe->InitBuffer(packedKvBuf[1], packedKvStride * 16);
         packedVToMte3 = GetTPipePtr()->AllocEventID<HardEvent::V_MTE3>();
