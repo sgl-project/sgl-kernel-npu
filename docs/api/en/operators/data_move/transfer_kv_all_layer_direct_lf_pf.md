@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
+| `ascendc_aiv` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -35,7 +36,7 @@ convolution states. Unselected host slots remain unchanged.
 | `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices within every component's slot count; no page-size conversion. |
 | `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices within every component's slot count. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
-| `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, or torch_native. |
+| `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, ascendc_aiv, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -56,6 +57,12 @@ Adapts the all-layer Torch fallback from SGLang's `MambaPoolHost`: gather device
 `index_select`, move the layer dimension after the slot dimension, and write to the host.
 Components are handled separately; physical storage views preserve dense transposed payloads.
 Repeated destination indices are overwritten in input order.
+
+## ascendc_aiv backend
+
+Submits one fused `state_exchange` AIV kernel per call instead of one ACL copy per component. Host components must be registered in the DVA table (register_host_memory / register_acl_host_memory) before the call; destination slot indices must be unique across the submission, and NPU graph capture is not supported. Components may carry independent layer counts (main plus draft pools), and host components may be layer-narrowed views of one registered pool.
+
+Build the CANN operator with `python3 setup.py --arch-version 2201 --ops state_exchange` for A3 or use `--arch-version 3510` for A5.
 
 ## Example
 

@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | 支持 | 支持 |
+| `ascendc_aiv` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -31,7 +32,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 | `dst_indices` | Tensor | [N] | int64 | 必填 | 对应的设备槽位。 |
 | `layer_id` | int | — | — | 必填 | 要读取的主机层号，从 0 开始。 |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 二维拷贝标志 FAST2D。 |
-| `impl` | str | — | — | 'auto' | 选择实现，默认为 auto。 |
+| `impl` | str | — | — | 'auto' | 选择实现：auto（ACL Runtime）、aclrt、ascendc_aiv 或 torch_native，默认为 auto。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
@@ -44,6 +45,12 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 ## torch_native 后端
 
 复用 SGLang `MambaPoolHost` 的单层 Torch fallback，通过 `index_select/index_copy_` 完成主机槽位到设备槽位的映射。先将稠密状态按物理存储顺序展平，保持转置状态与原生字节拷贝一致；重复目标索引按输入顺序覆盖。
+
+## ascendc_aiv 后端
+
+每次调用提交一个融合的 `state_exchange` AIV 内核。主机源须预先注册到 DVA 表（register_host_memory / register_acl_host_memory）；目标槽位索引必须唯一，且不支持 NPU 图捕获。支持同一注册池的按层窄化主机视图。
+
+A3 使用 `python3 setup.py --arch-version 2201 --ops state_exchange` 编译 CANN 算子，A5 使用 `--arch-version 3510`。
 
 ## 示例
 

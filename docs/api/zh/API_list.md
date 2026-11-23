@@ -1,4 +1,4 @@
-# API 索引
+﻿# API 索引
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
@@ -23,10 +23,8 @@
 | [chunk_fwd_o](operators/attention/gdn/chunk_o.md) | `triton`, `torch_native` |
 | [transfer_kv_dim_exchange](operators/data_move/transfer_kv_dim_exchange.md) | `aclrt`, `torch_native` |
 | [transfer_mamba_state](operators/data_move/transfer_mamba_state.md) | `aclrt`, `torch_native` |
-| [transfer_kv_all_layer_direct_lf_pf](operators/data_move/transfer_kv_all_layer_direct_lf_pf.md) | `aclrt`, `torch_native` |
-| [transfer_kv_per_layer_direct_pf_lf](operators/data_move/transfer_kv_per_layer_direct_pf_lf.md) | `aclrt`, `torch_native` |
-| [transfer_state_all_layer_direct_lf_pf](operators/data_move/transfer_state_all_layer_direct_lf_pf.md) | `aclrt`, `ascendc_aiv`, `torch_native` |
-| [transfer_state_per_layer_direct_pf_lf](operators/data_move/transfer_state_per_layer_direct_pf_lf.md) | `aclrt`, `ascendc_aiv`, `torch_native` |
+| [transfer_kv_all_layer_direct_lf_pf](operators/data_move/transfer_kv_all_layer_direct_lf_pf.md) | `aclrt`, `ascendc_aiv`, `torch_native` |
+| [transfer_kv_per_layer_direct_pf_lf](operators/data_move/transfer_kv_per_layer_direct_pf_lf.md) | `aclrt`, `ascendc_aiv`, `torch_native` |
 | [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc` (ARCH35), `torch_native` |
 | [alloc_extend](operators/mem_cache/alloc_extend.md) | `ascendc`, `torch_native` |
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |

@@ -207,68 +207,9 @@ def transfer_kv_per_layer_direct_pf_lf(
 def transfer_kv_all_layer_direct_lf_pf(
     device_states, host_states, device_indices, host_indices, flags
 ):
-    if not device_states or len(device_states) != len(host_states):
-        raise RuntimeError("expected matching nonempty component lists")
-    pairs = _slot_pairs(device_indices, host_indices, flags)
-    if not pairs:
-        return
-    layers = device_states[0].size(0)
-    for dev, host in zip(device_states, host_states):
-        if (
-            not dev.numel()
-            or dev.ndim < 3
-            or host.ndim < 2
-            or dev.size(0) != host.size(1)
-            or dev.size(0) < layers
-        ):
-            raise RuntimeError("incompatible component layer counts or shape")
-        _check_layer(dev[0], host)
-        if dev.stride(0) < dev.size(1) * dev.stride(1):
-            raise RuntimeError("device layer pitch overlaps adjacent slots")
-        _check_slots(pairs, dev.size(1), host.size(0))
-    for dev, host in zip(device_states, host_states):
-        device = _payload_view(dev[:layers], 2)
-        host = host.view(host.size(0), host.size(1), 1, device.size(-1))
-        _copy_all_layers(device, host[:, :layers], device_indices, host_indices)
-
-
-def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, direction):
-    if (
-        device_buf.ndim < 2
-        or host_buf.ndim < 2
-        or not device_buf.numel()
-        or not host_buf.numel()
-        or device_buf.size(0) != host_buf.size(1)
-        or device_buf[0, 0].numel() != host_buf[0, 0].numel()
-    ):
-        raise RuntimeError("incompatible Mamba state buffers")
-    _check_transfer_indices(device_indices, host_indices)
-    if device_indices.numel() != host_indices.numel() or direction.value not in (1, 2):
-        raise RuntimeError("invalid Mamba transfer indices or direction")
-    for d, h in zip(device_indices.tolist(), host_indices.tolist()):
-        d, h = int(d), int(h)
-        if not (0 <= d < device_buf.size(1) and 0 <= h < host_buf.size(0)):
-            raise RuntimeError("slot index out of range")
-    _copy_packed_state(device_buf, host_buf, device_indices, host_indices, direction)
-
-
-def transfer_state_per_layer_direct_pf_lf(
-    src, dst, src_indices, dst_indices, layer_id, flags
-):
-    # The Mamba host pool reuses the KV direct contract verbatim: host source
-    # [slots, layers, 1, *payload] -> device layer view [slots, *payload].
-
-    return transfer_kv_per_layer_direct_pf_lf(
-        src, dst, src_indices, dst_indices, layer_id, flags
-    )
-
-
-def transfer_state_all_layer_direct_lf_pf(
-    device_states, host_states, device_indices, host_indices, flags
-):
-    # Unlike the KV all-layer reference, every component transfers its own
-    # layer count: main components [L, slots, ...] plus draft components
-    # [1, slots, ...] with layer-narrowed host views back up in one call.
+    # Every component transfers its own layer count: main components
+    # [L, slots, ...] plus draft components [1, slots, ...] with
+    # layer-narrowed host views back up in one call.
 
     if not device_states or len(device_states) != len(host_states):
         raise RuntimeError("expected matching nonempty component lists")
@@ -300,6 +241,26 @@ def transfer_state_all_layer_direct_lf_pf(
         device = _payload_view(dev, 2)
         host = _payload_view(host, 3)
         _copy_all_layers(device, host, device_indices, host_indices)
+
+
+def transfer_mamba_state(device_buf, host_buf, device_indices, host_indices, direction):
+    if (
+        device_buf.ndim < 2
+        or host_buf.ndim < 2
+        or not device_buf.numel()
+        or not host_buf.numel()
+        or device_buf.size(0) != host_buf.size(1)
+        or device_buf[0, 0].numel() != host_buf[0, 0].numel()
+    ):
+        raise RuntimeError("incompatible Mamba state buffers")
+    _check_transfer_indices(device_indices, host_indices)
+    if device_indices.numel() != host_indices.numel() or direction.value not in (1, 2):
+        raise RuntimeError("invalid Mamba transfer indices or direction")
+    for d, h in zip(device_indices.tolist(), host_indices.tolist()):
+        d, h = int(d), int(h)
+        if not (0 <= d < device_buf.size(1) and 0 <= h < host_buf.size(0)):
+            raise RuntimeError("slot index out of range")
+    _copy_packed_state(device_buf, host_buf, device_indices, host_indices, direction)
 
 
 def transfer_kv_dim_exchange(
