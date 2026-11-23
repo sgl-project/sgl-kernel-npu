@@ -3,13 +3,6 @@ from typing import Optional, Sequence
 
 import torch
 
-from .operators.data_move.transfer_state_direct import (
-    transfer_state_all_layer_direct_lf_pf as _state_all_layer_direct,
-)
-from .operators.data_move.transfer_state_direct import (
-    transfer_state_per_layer_direct_pf_lf as _state_per_layer_direct,
-)
-
 
 class TransferDirection(Enum):
     H2D = 1
@@ -28,13 +21,13 @@ def transfer_state_per_layer_direct_pf_lf(
     layer_id: int,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    _state_per_layer_direct(
+    torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
         src,
         dst,
         src_indices,
         dst_indices,
         layer_id,
-        flags,
+        flags.value,
     )
 
 
@@ -45,12 +38,12 @@ def transfer_state_all_layer_direct_lf_pf(
     host_indices: torch.Tensor,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    _state_all_layer_direct(
-        device_states,
-        host_states,
+    torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
+        list(device_states),
+        list(host_states),
         device_indices,
         host_indices,
-        flags,
+        flags.value,
     )
 
 
@@ -114,7 +107,6 @@ def transfer_kv_dim_exchange(
         # Device scale cache is 4-D (layers, pages, page_size, 1) while the host
         # cache is 5-D (pages, layers, page_size, 1, 1); the kernel requires both
         # operands to be 5-D, so pad the device operand with a trailing singleton.
-
         if device_index_k_scale.dim() == 4:
             device_index_k_scale = device_index_k_scale.unsqueeze(-1)
         torch.ops.npu.transfer_kv_dim_exchange(

@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc_aiv` | 支持 | 支持 |
+| `aclrt` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -15,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_state_per_
 def transfer_state_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer_id, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` 选择 `ascendc_aiv`。
+`auto` 选择 `ascendc_aiv`；`aclrt` 转发到既有 ACL Runtime 算子 `torch.ops.npu.transfer_state_per_layer_direct_pf_lf`，签名一致。
 
 ## 功能说明
 
@@ -31,11 +32,15 @@ def transfer_state_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, la
 | `dst_indices` | Tensor | [N] | int64 | 必填 | 与主机索引一一对应的设备槽位索引；作为目标不得重复。 |
 | `layer_id` | int | — | — | 必填 | 从零开始的主机源层号，须小于 `src` 的层数。 |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 二维拷贝标志 FAST2D。 |
-| `impl` | str | — | — | 'auto' | 选择实现，默认为 auto。 |
+| `impl` | str | — | — | 'auto' | 选择实现：`auto`、`aclrt`、`ascendc_aiv` 或 `torch_native`，默认为 auto。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
 | `None` | NoneType | 原地写入目标。在读取结果或复用源缓冲区前同步提交拷贝的流。 |
+
+## aclrt 后端
+
+转发到既有 ACL Runtime 算子 `torch.ops.npu.transfer_state_per_layer_direct_pf_lf`（原实现，签名一致）；主机缓冲区须锁页，不要求 DVA 注册。
 
 ## ascendc_aiv 后端
 

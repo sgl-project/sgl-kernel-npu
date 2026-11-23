@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc_aiv` | Supported | Supported |
+| `aclrt` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -15,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_state_all_
 def transfer_state_all_layer_direct_lf_pf(device_states, host_states, device_indices, host_indices, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` selects `ascendc_aiv`.
+`auto` selects `ascendc_aiv`; `aclrt` forwards to the pre-existing ACL runtime op `torch.ops.npu.transfer_state_all_layer_direct_lf_pf` with an identical signature.
 
 ## Description
 
@@ -35,11 +36,15 @@ components may be layer-narrowed views of one registered pool. Unselected slots 
 | `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices valid for every component. |
 | `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices; destinations must be unique. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 2D copy flag FAST2D. |
-| `impl` | str | — | — | 'auto' | auto, ascendc_aiv, or torch_native. |
+| `impl` | str | — | — | 'auto' | auto, aclrt, ascendc_aiv, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
 | `None` | NoneType | Updates the destination in place. Synchronize the submitting stream before reading it or reusing the source. |
+
+## aclrt backend
+
+Forwards to the pre-existing ACL runtime op `torch.ops.npu.transfer_state_all_layer_direct_lf_pf` (original implementation, identical signature); the host buffers must be pinned but need no DVA registration.
 
 ## ascendc_aiv backend
 

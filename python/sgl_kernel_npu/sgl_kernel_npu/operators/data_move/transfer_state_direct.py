@@ -12,6 +12,10 @@ tensors on the caller's stream with the transfer description passed through
 CANN tiling. NPU graph capture is not supported by this AIV path. Host
 memory must be registered with the DVA table (register_host_memory /
 register_acl_host_memory) before transfer.
+
+The ``aclrt`` implementation forwards to the pre-existing ACL runtime op
+``torch.ops.npu.transfer_state_*`` with an identical signature, so callers
+whose host memory is not in the DVA table keep the original code path.
 """
 
 from threading import Lock
@@ -115,6 +119,27 @@ def _aiv_per_layer(
     _submit_aiv_per_layer(src, dst, src_indices, dst_indices, layer_id)
 
 
+@register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "aclrt")
+def _aclrt_per_layer(
+    src: torch.Tensor,
+    dst: torch.Tensor,
+    src_indices: torch.Tensor,
+    dst_indices: torch.Tensor,
+    layer_id: int,
+    flags: TransferFlag = TransferFlag.FAST2D,
+):
+    # The pre-existing ACL runtime op, reused verbatim: identical signature,
+    # for callers whose host memory is not in the DVA table.
+    torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
+        src,
+        dst,
+        src_indices,
+        dst_indices,
+        layer_id,
+        flags.value,
+    )
+
+
 @register_impl("data_move.transfer_state_per_layer_direct_pf_lf", "torch_native")
 def _native_per_layer(**kwargs):
     global _NATIVE_PER_LAYER_FN
@@ -147,7 +172,7 @@ def transfer_state_per_layer_direct_pf_lf(
         dst_indices: Corresponding device slots.
         layer_id: Zero-based source layer.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto, ascendc_aiv, or torch_native.
+        impl: auto, aclrt, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.
@@ -219,6 +244,25 @@ def _aiv_all_layer(
         )
 
 
+@register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "aclrt")
+def _aclrt_all_layer(
+    device_states: Sequence[torch.Tensor],
+    host_states: Sequence[torch.Tensor],
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    flags: TransferFlag = TransferFlag.FAST2D,
+):
+    # The pre-existing ACL runtime op, reused verbatim: identical signature,
+    # for callers whose host memory is not in the DVA table.
+    torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
+        list(device_states),
+        list(host_states),
+        device_indices,
+        host_indices,
+        flags.value,
+    )
+
+
 @register_impl("data_move.transfer_state_all_layer_direct_lf_pf", "torch_native")
 def _native_all_layer(**kwargs):
     global _NATIVE_ALL_LAYER_FN
@@ -254,7 +298,7 @@ def transfer_state_all_layer_direct_lf_pf(
         device_indices: Non-negative device slot indices valid for every component.
         host_indices: Corresponding non-negative host slot indices valid for every component.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto, ascendc_aiv, or torch_native.
+        impl: auto, aclrt, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.
