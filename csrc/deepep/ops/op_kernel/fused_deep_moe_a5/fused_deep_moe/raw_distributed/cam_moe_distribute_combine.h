@@ -883,7 +883,6 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::DeepFuseCom
             FUSED_MOE_DBG("cr%u\n", coreIdx_);
         }
     }
-    BuffInit();
     AlltoAllBuffInit();
     FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u SetStatus enter\n",
                   epRankId_, GetBlockIdx(), GetSubBlockIdx());
