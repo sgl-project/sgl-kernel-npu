@@ -2,8 +2,8 @@
 
 import torch
 
-from ..norm.rms_norm import rms_norm
-from ..rope.rotary_mul import rotary_mul
+from ..utils.normalization import rms_norm
+from ..utils.rotary import rotary_mul
 
 
 def _write_slots(cache, slots, rows):

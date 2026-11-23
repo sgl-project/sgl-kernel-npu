@@ -2,8 +2,7 @@
 
 import torch
 
-from .fused_infer_attention_score import dense_attention
-from .sparse_flash_attention import _paged_sequence
+from ..utils.attention import _paged_sequence, dense_attention
 
 
 def _prefill_mask(mask, q_len, kv_len):

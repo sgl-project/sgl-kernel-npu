@@ -2,7 +2,7 @@
 
 import torch
 
-from ..attention.mlaprolog_v4 import _cpu, _decode_e8m0
+from ..utils.tensor import _cpu, _decode_e8m0
 
 
 def quant_matmul(

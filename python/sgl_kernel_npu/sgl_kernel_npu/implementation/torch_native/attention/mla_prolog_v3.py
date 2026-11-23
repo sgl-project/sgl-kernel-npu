@@ -2,7 +2,7 @@
 
 import torch
 
-from .mlaprolog_v4 import mlaprolog_v4
+from ..utils.mla_prolog import mlaprolog_v4
 
 
 def mla_prolog_v3(

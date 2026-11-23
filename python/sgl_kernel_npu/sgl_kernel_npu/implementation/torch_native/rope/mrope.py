@@ -2,7 +2,7 @@
 
 import torch
 
-from .rotary_mul import rotary_mul
+from ..utils.rotary import rotary_mul
 
 
 def _apply_rope(states, cos, sin, head_size, rotary_mode):

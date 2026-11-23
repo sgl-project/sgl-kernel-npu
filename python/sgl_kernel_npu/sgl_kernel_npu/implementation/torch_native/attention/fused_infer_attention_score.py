@@ -4,32 +4,7 @@ from itertools import pairwise
 
 import torch
 
-from .sparse_flash_attention import _paged_sequence
-
-
-def dense_attention(query, key, value, scale, *, mask=None, bias=None):
-    """Compute FP32 attention for [B, H, S, D] tensors."""
-    repeats = query.size(1) // key.size(1)
-    if query.size(1) % key.size(1) or key.size(1) != value.size(1):
-        raise ValueError("Query heads must be a multiple of the key/value heads")
-    key = key.float().repeat_interleave(repeats, dim=1)
-    value = value.float().repeat_interleave(repeats, dim=1)
-    scores = (query.float() @ key.transpose(-1, -2)) * scale
-    if bias is not None:
-        scores = scores + bias.float()
-    if mask is not None:
-        if mask.dtype in (torch.bool, torch.uint8):
-            scores = scores.masked_fill(mask.bool(), -torch.inf)
-        else:
-            scores = scores + mask.float()
-    # Softmax of a fully masked row is NaN in PyTorch. FIA returns zero there.
-    probabilities = scores.softmax(dim=-1)
-    probabilities = probabilities.masked_fill(
-        scores.isneginf().all(dim=-1, keepdim=True), 0
-    )
-    return (probabilities @ value).to(query.dtype), scores.logsumexp(
-        dim=-1, keepdim=True
-    )
+from ..utils.attention import _paged_sequence, dense_attention
 
 
 def _tnd_attention(q, k, v, scale, q_lengths, kv_lengths):

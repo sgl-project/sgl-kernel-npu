@@ -2,7 +2,7 @@
 
 import torch
 
-from .sparse_flash_attention import sparse_flash_attention
+from ..utils.sparse_attention import sparse_flash_attention
 
 
 def _unpack(cache, rope_dtype, tile_size, rope_dim):

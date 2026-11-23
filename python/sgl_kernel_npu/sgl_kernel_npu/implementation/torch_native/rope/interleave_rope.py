@@ -2,7 +2,7 @@
 
 import torch
 
-from .rotary_mul import rotary_mul
+from ..utils.rotary import rotary_mul
 
 
 def interleave_rope(x, cos, sin):

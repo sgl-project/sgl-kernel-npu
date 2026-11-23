@@ -2,7 +2,7 @@
 
 import torch
 
-from .sparse_flash_attention import sparse_flash_attention
+from ..utils.sparse_attention import sparse_flash_attention
 
 
 def kv_quant_sparse_flash_attention(
