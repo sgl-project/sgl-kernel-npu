@@ -17,13 +17,8 @@
 
 using namespace Cam;
 
-// 1C1V 串行模式开关：真 1C1V 平台运行时按 GetSubBlockNum()==1 自动生效；
-// A5(1C2V) 上模拟 1C1V 时，编译期额外定义 FUSED_MOE_SIM_1C1V 强制所有核走串行路径（sub1 空转）。
-#if defined(FUSED_MOE_SIM_1C1V)
+// The V2 A5 build always exercises the serial GEMM2 path for 1C1V simulation.
 #define FUSED_MOE_SERIAL_MODE() (true)
-#else
-#define FUSED_MOE_SERIAL_MODE() (AscendC::GetSubBlockNum() == 1)
-#endif
 
 namespace Catlass::Gemm::Kernel {
 namespace GMM2 {
