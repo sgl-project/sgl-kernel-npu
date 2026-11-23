@@ -57,6 +57,18 @@ target_include_directories(sgl_kernel_npu PRIVATE
 target_link_libraries(sgl_kernel_npu PRIVATE ${TORCH_LIBRARIES})
 set_target_properties(sgl_kernel_npu PROPERTIES CXX_EXTENSIONS OFF
     CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+# CCE kernels archived inside libsgl_host_operators.a launch through the CANN
+# runtime; link it explicitly instead of relying on transitive DT_NEEDED loading.
+set(cce_kernel_specs)
+if(SGL_HOST_OPERATORS)
+    sgl_collect_cce_kernels(cce_kernel_specs ARCH "${SGL_ARCH_VERSION}"
+        OPERATORS ${SGL_HOST_OPERATORS})
+endif()
+if(cce_kernel_specs)
+    find_library(SGL_CCE_RUNTIME_LIBRARY runtime
+        PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
+    target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_CCE_RUNTIME_LIBRARY}")
+endif()
 # Only CANN adapters need the repository's installed vendor and nnopbase.
 target_include_directories(sgl_kernel_npu PRIVATE ${cann_includes})
 target_link_libraries(sgl_kernel_npu PRIVATE "${TORCH_NPU_LIBRARY}"
