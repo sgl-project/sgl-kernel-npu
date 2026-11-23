@@ -5,6 +5,7 @@
 #include "../../raw_distributed/cam_moe_distribute_combine.h"
 #include "../../fused_deep_moe_utils.h"
 #include "catlass/catlass.hpp"
+#include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
 #include "catlass/coord.hpp"
 #include "catlass/detail/callback.hpp"
@@ -521,32 +522,35 @@ public:
         uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         uint32_t coreNum = AscendC::GetBlockNum();
 
-        AscendC::GlobalTensor<ElementC> gmC;
-        gmC.SetGlobalBuffer(params.ptrC);
-        AscendC::GlobalTensor<ElementGroupList> groupList;
-        groupList.SetGlobalBuffer(params.ptrGroupList);
-        bool sparseFastPath = params.enableRoutedSparseFastPath;
-        AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
-        AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
-        AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;
-        uint32_t activeGroupCount = params.problemCount;
-        if (sparseFastPath) {
-            routedGroupMetaTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(params.gmRoutedGroupMeta));
-            routedActiveGroupCountTensor.SetGlobalBuffer(
-                reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupCount));
-            routedActiveGroupIdsTensor.SetGlobalBuffer(
-                reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupIds));
-            activeGroupCount = FlushAndGetValue<uint32_t>(routedActiveGroupCountTensor, 0);
-            activeGroupCount = activeGroupCount > params.problemCount ? params.problemCount : activeGroupCount;
-        }
-
-        AscendC::GlobalTensor<ElementD> gmD;
-        gmD.SetGlobalBuffer(params.ptrD);
-
+        const bool serialDeepFuse = (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) && FUSED_MOE_SERIAL_MODE();
+        const uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
+        const uint32_t epRank = combiner->GetCalcInfo().epRankId_;
         uint32_t target = 1;
-        {
+        if (!serialDeepFuse || subBlockIdx == 0) {
+            AscendC::GlobalTensor<ElementC> gmC;
+            gmC.SetGlobalBuffer(params.ptrC);
+            AscendC::GlobalTensor<ElementGroupList> groupList;
+            groupList.SetGlobalBuffer(params.ptrGroupList);
+            bool sparseFastPath = params.enableRoutedSparseFastPath;
+            AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
+            AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
+            AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;
+            uint32_t activeGroupCount = params.problemCount;
+            if (sparseFastPath) {
+                routedGroupMetaTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(params.gmRoutedGroupMeta));
+                routedActiveGroupCountTensor.SetGlobalBuffer(
+                    reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupCount));
+                routedActiveGroupIdsTensor.SetGlobalBuffer(
+                    reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupIds));
+                activeGroupCount = FlushAndGetValue<uint32_t>(routedActiveGroupCountTensor, 0);
+                activeGroupCount = activeGroupCount > params.problemCount ? params.problemCount : activeGroupCount;
+            }
+
+            AscendC::GlobalTensor<ElementD> gmD;
+            gmD.SetGlobalBuffer(params.ptrD);
+
             if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-                if (AscendC::GetSubBlockIdx() == 0) {
+                if (!serialDeepFuse && subBlockIdx == 0) {
                     AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
@@ -615,7 +619,7 @@ public:
                                   static_cast<int32_t>(coreIdx), target);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, groupIdx,
-                                  totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N);
+                                  totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N, serialDeepFuse);
                 }
 
                 totalM += inGroupProblemShape.m();
@@ -689,6 +693,16 @@ public:
             // 派发角色打印：d=dispatch，无此行说明卡在更早的 GEMM/epilogue 阶段
             FUSED_MOE_DBG("d%u\n", AscendC::GetBlockIdx());
         }
+        if (serialDeepFuse) {
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u routed_done enter\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
+            // All AIVs on this rank participate, including the idle sibling.
+            // Routed EP window writes have drained on each active worker.
+            Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u routed_done pass\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
+        }
+
         icache_preload(4);
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             if (FUSED_MOE_SERIAL_MODE()) {
@@ -715,23 +729,24 @@ public:
                 }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            if (FUSED_MOE_SERIAL_MODE()) {
-                // 1C1V：唯一 AIV 串行承担发送+接收双角色（combiner 内已去掉 sub0<->sub1 事件会合）
-                uint64_t profWeightSumCombineStart = 0;
-                if (params.profile != nullptr) {
-                    profWeightSumCombineStart = params.profile->Now();
-                }
-                resource.pipe.Init();
-                combiner->TPipeSet(&resource.pipe);
-                combiner->DeepFuseCombineSerial();
-                combiner->TPipeSet(nullptr);
-                resource.pipe.Destroy();
-                if (AscendC::GetBlockIdx() < 2) {
-                    FUSED_MOE_DBG("C%u\n", AscendC::GetBlockIdx());
-                }
-                if (params.profile != nullptr) {
-                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
-                                           profWeightSumCombineStart, params.profile->Now());
+            if (serialDeepFuse) {
+                if (subBlockIdx == 0) {
+                    uint64_t profWeightSumCombineStart = 0;
+                    if (params.profile != nullptr) {
+                        profWeightSumCombineStart = params.profile->Now();
+                    }
+                    resource.pipe.Init();
+                    combiner->TPipeSet(&resource.pipe);
+                    combiner->DeepFuseCombineSerial();
+                    combiner->TPipeSet(nullptr);
+                    resource.pipe.Destroy();
+                    if (AscendC::GetBlockIdx() < 2) {
+                        FUSED_MOE_DBG("C%u\n", AscendC::GetBlockIdx());
+                    }
+                    if (params.profile != nullptr) {
+                        params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
+                                               profWeightSumCombineStart, params.profile->Now());
+                    }
                 }
             } else if (AscendC::GetSubBlockIdx() == 0) {
                 uint64_t profWeightSumAllToAllSendStart = 0;
@@ -788,14 +803,11 @@ public:
                 }
             }
             AscendC::PipeBarrier<PIPE_ALL>();
-            if (AscendC::GetBlockIdx() < 4) {
-                // 尾段卡死定位：有 enter 无 PASS = 有核（AIV 或 AIC）没到 SyncAll 会合点
-                FUSED_MOE_DBG("a+%u\n", AscendC::GetBlockIdx());
-            }
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u tail enter\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
             AscendC::SyncAll<true>();
-            if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("a%u\n", AscendC::GetBlockIdx());
-            }
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u tail pass\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
             AscendC::PipeBarrier<PIPE_ALL>();
         }
         if (AscendC::GetSubBlockIdx() == 0) {

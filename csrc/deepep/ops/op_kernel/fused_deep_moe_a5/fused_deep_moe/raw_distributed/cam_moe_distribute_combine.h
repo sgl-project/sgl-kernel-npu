@@ -801,14 +801,16 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::ProcessComb
         }
     }
     AlltoAllBuffInit();
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u SetStatus enter\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     SetStatus();
-    if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("Ps%u\n", coreIdx_);
-    }
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u SetStatus pass\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u WaitDispatchSpin enter\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     WaitDispatchSpin();
-    if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("Pw%u\n", coreIdx_);
-    }
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u WaitDispatchSpin pass\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     LocalWindowCopy();
     if (coreIdx_ < 2) {
         FUSED_MOE_DBG("Pd%u\n", coreIdx_);
@@ -883,14 +885,16 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::DeepFuseCom
     }
     BuffInit();
     AlltoAllBuffInit();
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u SetStatus enter\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     SetStatus();
-    if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("cs%u\n", coreIdx_);
-    }
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u SetStatus pass\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u WaitDispatchSpin enter\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     WaitDispatchSpin();
-    if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("cw%u\n", coreIdx_);
-    }
+    FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u WaitDispatchSpin pass\n",
+                  epRankId_, GetBlockIdx(), GetSubBlockIdx());
     LocalWindowCopy();
     if (coreIdx_ < 2) {
         FUSED_MOE_DBG("cd%u\n", coreIdx_);
