@@ -1,4 +1,4 @@
-"""Shared ``ascendc_aiv`` backend for the mamba state direct transfers.
+"""Shared implementation of the ``transfer_kv`` direct transfers.
 
 The ``data_move.transfer_kv_per_layer_direct_pf_lf`` (H2D, per layer) and
 ``data_move.transfer_kv_all_layer_direct_lf_pf`` (D2H, all layers) operators

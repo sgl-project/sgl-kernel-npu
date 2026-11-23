@@ -17,9 +17,10 @@ def _aiv(
     flags: TransferFlag = TransferFlag.FAST2D,
 ):
     # One fused state_exchange AIV kernel per call; `auto` routes here. The
-    # host source must be registered in the DVA table; destination slots must
-    # be unique and NPU graph capture is not supported (see _state_aiv).
-    from ._state_aiv import aiv_per_layer
+    # host source must be registered in the DVA table; destination slots
+    # must be unique and NPU graph capture is not supported. Details in
+    # transfer_kv_direct_impl.
+    from .transfer_kv_direct_impl import aiv_per_layer
 
     aiv_per_layer(src, dst, src_indices, dst_indices, layer_id, flags)
 
