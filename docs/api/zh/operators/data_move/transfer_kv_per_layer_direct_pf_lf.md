@@ -16,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_kv_per_lay
 def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer_id, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` 选择 `aclrt`。
+`auto` 选择 `ascendc_aiv`。
 
 ## 功能说明
 
@@ -32,7 +32,7 @@ def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer
 | `dst_indices` | Tensor | [N] | int64 | 必填 | 对应的设备槽位。 |
 | `layer_id` | int | — | — | 必填 | 要读取的主机层号，从 0 开始。 |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | 二维拷贝标志 FAST2D。 |
-| `impl` | str | — | — | 'auto' | 选择实现：auto（ACL Runtime）、aclrt、ascendc_aiv 或 torch_native，默认为 auto。 |
+| `impl` | str | — | — | 'auto' | 选择实现：auto（融合 AIV）、aclrt、ascendc_aiv 或 torch_native，默认为 auto。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |

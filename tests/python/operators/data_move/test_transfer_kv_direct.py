@@ -119,7 +119,11 @@ def test_state_transfer(flow, layout, d, h, layers):
     )
 
     devices, hosts, storage_views, d, h = generate_data(flow, layout, d, h)
-    impl, impl_ref = get_test_impls()
+    # These cases assert aclrt physical-copy semantics: host sources are
+    # plain pinned (unregistered) buffers and destinations may repeat with
+    # ordered writes. The default auto (AIV) backend requires DVA-registered
+    # host memory and rejects repeated destinations, so pin the aclrt impl.
+    impl, impl_ref = "aclrt", get_test_impls()[1]
     checked = not get_skip_acc_check()
     stream = torch.npu.Stream()
     event = torch.npu.Event()
@@ -212,6 +216,9 @@ def test_state_transfer_rejected(case, message):
     from sgl_kernel_npu.operators.data_move import transfer_kv_per_layer_direct_pf_lf
 
     host, dst, source_indices, target_indices = generate_rejected_data(case)
+    # The pageable/strided/bounds rejections below are aclrt input checks;
+    # pin it because the default auto (AIV) path rejects unregistered host
+    # memory with a different message.
     with pytest.raises(RuntimeError, match=message):
         transfer_kv_per_layer_direct_pf_lf(
             host,
@@ -219,7 +226,7 @@ def test_state_transfer_rejected(case, message):
             source_indices,
             target_indices,
             0,
-            impl=get_test_impls()[0],
+            impl="aclrt",
         )
 
 
@@ -230,7 +237,9 @@ def test_state_transfer_repeated_destination(direction):
         transfer_kv_per_layer_direct_pf_lf,
     )
 
-    impl, impl_ref = get_test_impls()
+    # aclrt applies repeated-destination writes in order; the AIV backend
+    # (auto) rejects duplicates outright.
+    impl, impl_ref = "aclrt", get_test_impls()[1]
     host, device, source_indices, target_indices = generate_repeated_destination_data()
     if direction == "D2H":
         op = transfer_kv_all_layer_direct_lf_pf
@@ -258,6 +267,19 @@ def test_state_transfer_repeated_destination(direction):
     if not get_skip_acc_check():
         assert_accuracy(actual.cpu().view(torch.uint8), expected.view(torch.uint8))
         assert_accuracy(ref.cpu().view(torch.uint8), expected.view(torch.uint8))
+
+
+def test_auto_routes_to_fused_aiv():
+    from sgl_kernel_npu.operators.utils.registry import get_impl_by_name
+
+    for operator_id in (
+        "data_move.transfer_kv_per_layer_direct_pf_lf",
+        "data_move.transfer_kv_all_layer_direct_lf_pf",
+    ):
+        assert (
+            get_impl_by_name(operator_id, "auto")
+            is get_impl_by_name(operator_id, "ascendc_aiv")
+        )
 
 
 # (layers, slots, payload) exercised by the perf gate.

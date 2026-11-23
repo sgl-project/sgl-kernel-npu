@@ -16,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_kv_all_lay
 def transfer_kv_all_layer_direct_lf_pf(device_states, host_states, device_indices, host_indices, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` selects `aclrt`.
+`auto` selects `ascendc_aiv`.
 
 ## Description
 
@@ -36,7 +36,7 @@ convolution states. Unselected host slots remain unchanged.
 | `device_indices` | Tensor | [N] | int64 | Required | Non-negative device slot indices within every component's slot count; no page-size conversion. |
 | `host_indices` | Tensor | [N] | int64 | Required | Corresponding non-negative host slot indices within every component's slot count. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
-| `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, ascendc_aiv, or torch_native. |
+| `impl` | str | — | — | 'auto' | auto (fused AIV), aclrt, ascendc_aiv, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |

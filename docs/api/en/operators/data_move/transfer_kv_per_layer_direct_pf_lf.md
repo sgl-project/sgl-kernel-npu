@@ -16,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_kv_per_lay
 def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer_id, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` selects `aclrt`.
+`auto` selects `ascendc_aiv`.
 
 ## Description
 
@@ -37,7 +37,7 @@ destination slots are updated. This also applies to other state tensors with the
 | `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slots. |
 | `layer_id` | int | — | — | Required | Zero-based source layer. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
-| `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, ascendc_aiv, or torch_native. |
+| `impl` | str | — | — | 'auto' | auto (fused AIV), aclrt, ascendc_aiv, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
