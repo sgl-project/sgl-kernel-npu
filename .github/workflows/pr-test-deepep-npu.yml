@@ -912,10 +912,7 @@ jobs:
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-a3-20261110
     env:
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -931,10 +928,6 @@ jobs:
           submodules: recursive
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           apt update -y && apt install -y build-essential cmake ccache ninja-build
           python3 -m pip install --no-cache-dir ninja pybind11 pyyaml decorator scipy attrs psutil
       - name: Prepare Deepep
@@ -962,10 +955,7 @@ jobs:
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:cann9.2.0-950-20261110
     env:
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     steps:
       - name: Clean git config
         run: |
@@ -981,10 +971,6 @@ jobs:
           submodules: recursive
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
           apt update -y && apt install -y build-essential cmake ccache ninja-build
           python3 -m pip install --no-cache-dir ninja pybind11 pyyaml decorator scipy attrs psutil
       - name: Prepare Deepep
