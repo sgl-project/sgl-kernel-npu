@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import shlex
 import subprocess
 import sys
@@ -16,7 +17,35 @@ PACKAGE_ROOT = PROJECT_ROOT / "python" / "sgl_kernel_npu"
 NORM_ROOT = PACKAGE_ROOT / "sgl_kernel_npu" / "norm"
 SETUP_PATH = PACKAGE_ROOT / "setup.py"
 
-# npu-smi reports Ascend 950 from the device-level query, while A2/A3 need a chip id.
+
+@pytest.mark.parametrize(
+    "arch,profiles,expect_gmm",
+    [
+        ("2201", [], False),
+        ("2201", ["--third-party", "ops_transformer"], False),
+        ("2201", ["--third-party", "ops_transformer,ops_transformer_gmm93"], True),
+        ("3510", ["--third-party", "ops_transformer,ops_transformer_gmm93"], False),
+    ],
+)
+def test_optional_gmm_provider_selection(arch, profiles, expect_gmm):
+    plan = subprocess.check_output(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "setup.py"),
+            "--plan",
+            "--cann-version",
+            "9.2.0",
+            "--arch-version",
+            arch,
+            *profiles,
+        ],
+        text=True,
+    )
+    providers = {item["name"] for item in json.loads(plan)}
+    assert "sgl_ops_transformer" in providers
+    assert ("sgl_ops_transformer_gmm93" in providers) == expect_gmm
+
+# npu-smi reports the 950 target from the device-level query, while A2/A3 need a chip id.
 FAKE_NPU_SMI = {
     "950": 'echo "  Chip Name  : Ascend950PR"',
     "a3": 'if [[ "$*" == *"-c 0"* ]]; then echo "  Chip Name  : Ascend910"; fi',
@@ -126,7 +155,7 @@ def test_wheel_stages_only_target_provider(
 
 def test_unknown_wheel_target_is_rejected(wheel_setup, monkeypatch, tmp_path):
     monkeypatch.setattr(build_py, "run", lambda self: None)
-    monkeypatch.setenv(wheel_setup.BUILD_TARGET_ENV, "FutureAscend")
+    monkeypatch.setenv(wheel_setup.BUILD_TARGET_ENV, "UnknownNPU")
     command = wheel_setup.TargetBuildPy(Distribution())
     command.build_lib = str(tmp_path)
 
@@ -138,7 +167,7 @@ def test_missing_build_target_env_is_rejected(wheel_setup, monkeypatch, tmp_path
     """A source/editable build must fail loudly.
 
     Without the env var there is no provider to stage, and quietly
-    defaulting to the 910 one would let it run on an A5 host.
+    defaulting to the 910 one would let it run on a host that requires the 950 provider.
     """
     monkeypatch.setattr(build_py, "run", lambda self: None)
     monkeypatch.delenv(wheel_setup.BUILD_TARGET_ENV, raising=False)
@@ -184,7 +213,7 @@ def test_kernels_build_detects_the_local_soc(chip, wheel_target, cmake_soc):
     [
         ("910B", "Ascend910", "Ascend910B1"),
         ("950", "Ascend950", "Ascend950PR_9599"),
-        # A concrete Ascend 950 target other than the default reaches CMake unchanged.
+        # A concrete 950 compiler target other than the default reaches CMake unchanged.
         ("Ascend950PR_958b", "Ascend950", "Ascend950PR_958b"),
     ],
 )
@@ -200,8 +229,8 @@ def test_explicit_soc_version_skips_detection(requested_soc, wheel_target, cmake
 
 @pytest.mark.parametrize("requested_soc", ["", "Ascend950PR_9599"])
 @needs_posix_shell
-def test_full_build_rejects_ascend950(requested_soc):
-    """deep_ep needs the A3 CMake SoC and Ascend 950 kernels a concrete one."""
+def test_full_build_rejects_950_target(requested_soc):
+    """deep_ep needs the A3 CMake SoC and the 950 kernels need a concrete target."""
     done = resolve_soc("all", chip="950", requested_soc=requested_soc)
 
     assert done.returncode != 0

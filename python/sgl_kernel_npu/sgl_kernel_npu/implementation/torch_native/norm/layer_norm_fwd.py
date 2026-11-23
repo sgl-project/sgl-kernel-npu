@@ -4,12 +4,18 @@ import torch
 
 
 def layer_norm_fwd(
-    x, weight, bias, z, out, mean, rstd, eps, norm_before_gate, is_rms_norm
+    x, weight, bias, z, out, mean, rstd, eps, norm_before_gate, is_rms_norm, sigmoid_gate=False
 ):
     values = x.float()
-    gate = None if z is None else z.float() * torch.sigmoid(z.float())
+    gate = None
+    if z is not None:
+        gate = torch.sigmoid(z.float())
+        if not sigmoid_gate:
+            gate = z.float() * gate
     if gate is not None and not norm_before_gate:
         values = values * gate
+        if sigmoid_gate:
+            values = values.to(x.dtype).float()
     if is_rms_norm:
         centered = values
     else:
@@ -22,5 +28,7 @@ def layer_norm_fwd(
     if bias is not None:
         output = output + bias.float()
     if gate is not None and norm_before_gate:
+        if sigmoid_gate:
+            output = output.to(out.dtype).float()
         output = output * gate
     out.copy_(output)

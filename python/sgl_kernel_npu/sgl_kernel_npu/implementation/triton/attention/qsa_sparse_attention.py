@@ -4,7 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .qsa_torch_attention import torch_attention
+from .qsa_torch_attention import fia_attention, torch_attention
 
 _MAX_GRID_PROGRAMS = 65535
 
@@ -407,7 +407,7 @@ def _use_grouped(q, k, wide_offsets):
     )
 
 
-def sparse_attention(q, k, v, slots, softmax_scale=None):
+def sparse_attention(q, k, v, slots, softmax_scale=None, *, use_fia=False):
     """Compute sparse attention over physical KV rows.
 
     Q is BF16 [R,Hq,256], K/V are contiguous BF16 [N,Hkv,256], and slots
@@ -424,7 +424,9 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
 
     For 3:1 heads, Triton reuses each KV tile across three query heads when
     address spans fit int32; otherwise it uses per-head int64 addressing.
-    Other head pairs use masked gathers and FP32 matrix operations.
+    When use_fia is enabled, R32..128 with 3:1 heads and S2051/2054/2055
+    uses masked BF16 gathers and native attention. Other head pairs use
+    masked gathers and FP32 matrix operations.
     Triton processes 32 slots per tile. Safe grouped inputs use 16/8/4/1
     splits for R=1..2/3..7/8..31/>=32; wide addresses use 8 splits.
     Few rows need more KV parallelism; more rows need less merging.
@@ -442,6 +444,13 @@ def sparse_attention(q, k, v, slots, softmax_scale=None):
     width = slots.shape[1]
     if rows == 0 or k.shape[0] == 0:
         return torch.zeros(q.shape, dtype=q.dtype, device=q.device)
+    if (
+        use_fia
+        and 32 <= rows <= 128
+        and (heads, k.shape[1]) == (3, 1)
+        and width in (2051, 2054, 2055)
+    ):
+        return fia_attention(q, k, v, slots, softmax_scale or dim**-0.5)
     block, splits = _configuration(q, k, v, slots)
     wide_offsets = _wide_offsets(q, k, v, slots, block, splits)
     grouped = _use_grouped(q, k, wide_offsets)

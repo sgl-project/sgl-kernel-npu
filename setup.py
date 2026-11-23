@@ -39,7 +39,7 @@ def arguments(argv=None):
     third_party = parser.add_mutually_exclusive_group()
     third_party.add_argument(
         "--third-party",
-        help="comma-separated third-party profile filenames without .json; default: all",
+        help="comma-separated third-party profile names; default: all non-optional profiles",
     )
     third_party.add_argument(
         "--without-third-party",

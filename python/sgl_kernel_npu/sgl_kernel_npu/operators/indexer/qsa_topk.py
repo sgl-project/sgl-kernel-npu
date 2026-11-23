@@ -1,6 +1,6 @@
 """Public operators for the QSA/PLE/HC model contracts."""
 
-from ..utils.generation import Generation
+from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _qsa_topk_triton_fn = None
@@ -23,7 +23,13 @@ def _qsa_topk_triton(score, lengths, topk, row_starts=None):
         from ...implementation.triton.indexer.qsa_topk import fast_topk
 
         _qsa_topk_triton_fn = fast_topk
-    return _qsa_topk_triton_fn(score, lengths, topk, row_starts)
+    return _qsa_topk_triton_fn(
+        score,
+        lengths,
+        topk,
+        row_starts,
+        use_native_decode=get_hardware().generation == Generation.ARCH22,
+    )
 
 
 @register_impl(

@@ -68,9 +68,12 @@ def generate_data(rows, width, topk, pattern):
         lengths[:4] = torch.tensor(
             [0, 1, min(topk, width), min(topk + 1, width)], dtype=torch.int32
         )
-        if pattern != "decode":
+        if pattern not in ("decode", "rollout"):
             starts[1] = min(3, max(0, width - 1))
         score[0] = float("nan")
+    if pattern == "rollout":
+        # 30000 input + 4096 output tokens need at most8524 compressed keys.
+        lengths.clamp_(max=8524)
     return score, lengths, topk, starts
 
 
@@ -172,6 +175,21 @@ def check_accuracy(args):
             "cp8",
             id="qwen3-8-flash-next-cp8-prefill-local-t512-m1024-k512",
         ),
+        pytest.param(
+            32,
+            16384,
+            512,
+            "rollout",
+            id="qwen3-8-flash-next-decode-b32-context65536-m16384-k512",
+        ),
+        pytest.param(
+            128,
+            16384,
+            512,
+            "rollout",
+            id="qwen3-8-flash-next-verify-b32-w4-t128-context65536-m16384-k512",
+        ),
+        pytest.param(33, 16384, 512, "ties", id="edge-native-equal-scores"),
         pytest.param(0, 4096, 512, "random", id="edge-empty"),
         pytest.param(8, 256, 512, "random", id="edge-short-row-padding"),
         pytest.param(33, 8193, 512, "strided", id="edge-strided-row-and-column-tail"),
@@ -200,6 +218,7 @@ def test_qsa_topk_accuracy(rows, width, topk, pattern):
     "topk,width",
     [
         pytest.param(512, 65536, id="qwen3-8-flash-next-decode-b8-m65536-k512"),
+        pytest.param(512, 16384, id="qwen3-8-flash-next-context65536-m16384-k512"),
         pytest.param(512, 256, id="edge-short-row-padding"),
         pytest.param(2048, 262145, id="edge-wide-selection-k2048"),
     ],

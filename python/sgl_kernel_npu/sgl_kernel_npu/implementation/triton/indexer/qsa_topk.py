@@ -43,11 +43,11 @@ def select_implementation(rows, columns, topk):
     return "tiled"
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _short(
     Lengths,
     Output,
-    ROWS: tl.constexpr,
+    ROWS,
     K: tl.constexpr,
     BR: tl.constexpr,
     CORES: tl.constexpr,
@@ -196,7 +196,7 @@ def _emit_tiles(
         )
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _single_tile(
     Scores,
     Lengths,
@@ -206,7 +206,7 @@ def _single_tile(
     K: tl.constexpr,
     HAS_STARTS: tl.constexpr,
     BLOCK: tl.constexpr,
-    ROWS: tl.constexpr,
+    ROWS,
     CORES: tl.constexpr,
 ):
     for row_id in range(tl.program_id(0), ROWS, CORES):
@@ -305,18 +305,18 @@ def tiled_topk(score, lengths, topk, row_starts=None):
     return output
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["TASKS", "M", "TILES", "stride"])
 def _pack(
     X,
     Lengths,
     Starts,
     Packed,
     stride,
-    M: tl.constexpr,
+    M,
     K: tl.constexpr,
     HAS_STARTS: tl.constexpr,
-    TILES: tl.constexpr,
-    TASKS: tl.constexpr,
+    TILES,
+    TASKS,
     CORES: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
@@ -336,10 +336,8 @@ def _pack(
         tl.store(Packed + row * M + cols, values, cols < M)
 
 
-@triton.jit
-def _finish(
-    Lengths, Indices, Output, K: tl.constexpr, ROWS: tl.constexpr, CORES: tl.constexpr
-):
+@triton.jit(do_not_specialize=["ROWS"])
+def _finish(Lengths, Indices, Output, K: tl.constexpr, ROWS, CORES: tl.constexpr):
     for rid in range(tl.program_id(0), ROWS, CORES):
         row = rid.to(tl.int64)
         length = tl.load(Lengths + row)
@@ -396,7 +394,7 @@ def hybrid_topk(score, lengths, topk, row_starts=None):
     return output
 
 
-def fast_topk(score, lengths, topk, row_starts=None):
+def fast_topk(score, lengths, topk, row_starts=None, *, use_native_decode=False):
     """Select sequence-local compressed block indices into int32 [R,K].
 
     score is FP32 [R,M] with contiguous columns; lengths and optional
@@ -431,6 +429,9 @@ def fast_topk(score, lengths, topk, row_starts=None):
         raise ValueError("score must be NPU FP32 [R,M], contiguous in columns")
     rows, columns = score.shape
     implementation = select_implementation(rows, columns, topk)
+    # R32 decode and R128 verify share the 64K-context score width.
+    if use_native_decode and 4 <= rows <= 128 and columns == 16384 and topk == 512:
+        implementation = "hybrid"
     bounds = (lengths,) if row_starts is None else (lengths, row_starts)
     for tensor in bounds:
         if (

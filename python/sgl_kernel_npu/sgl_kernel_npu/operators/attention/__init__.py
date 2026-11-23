@@ -11,6 +11,10 @@ from .flash_decode_bnsd_with_gqa_share_sparse import (
 )
 from .flash_mla import flash_mla, flash_mla_metadata
 from .flash_prefill_bnsd_blockq_sparse_fia import flash_prefill_bnsd_blockq_sparse_fia
+from .generic_block_sparse_attention import (
+    generic_block_sparse_attention,
+    generic_block_sparse_attention_metadata,
+)
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
 from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
@@ -31,6 +35,7 @@ from .mixed_quant_sparse_flash_mla_metadata_dsl import (
 from .mla_preprocess import mla_preprocess
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
+from .qsa_cube_attention import qsa_cube_attention
 from .qsa_sparse_attention import qsa_sparse_attention
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
@@ -56,6 +61,8 @@ __all__ = [
     "flash_mla",
     "flash_mla_metadata",
     "flash_prefill_bnsd_blockq_sparse_fia",
+    "generic_block_sparse_attention",
+    "generic_block_sparse_attention_metadata",
     "get_mixed_quant_sparse_flash_mla_metadata_size",
     "get_sparse_flash_mla_metadata_size",
     "gqa_share_sparse_decode",
@@ -70,6 +77,7 @@ __all__ = [
     "mla_preprocess",
     "mlaprolog_v4",
     "paged_mtp_attention_decode",
+    "qsa_cube_attention",
     "qsa_sparse_attention",
     "quant_flash_attn",
     "quant_flash_attn_metadata",

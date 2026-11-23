@@ -1,6 +1,6 @@
 """Public operators for the QSA/PLE/HC model contracts."""
 
-from ..utils.generation import Generation
+from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _qsa_sparse_attention_triton_fn = None
@@ -25,7 +25,14 @@ def _qsa_sparse_attention_triton(q, k, v, slots, softmax_scale=None):
         )
 
         _qsa_sparse_attention_triton_fn = sparse_attention
-    return _qsa_sparse_attention_triton_fn(q, k, v, slots, softmax_scale)
+    return _qsa_sparse_attention_triton_fn(
+        q,
+        k,
+        v,
+        slots,
+        softmax_scale,
+        use_fia=get_hardware().generation == Generation.ARCH22,
+    )
 
 
 @register_impl(

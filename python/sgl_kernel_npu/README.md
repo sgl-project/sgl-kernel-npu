@@ -47,7 +47,7 @@ No `SGL_BUILD_MODE` setting or `-a kernels` is needed for the new entry.
 | `--ops all` or `--ops ID[,ID...]` | `all` | All supported AICORE/AICPU/HOST operators, or an explicit list. Unknown, repeated or unsupported IDs fail. |
 | `--artifact run/wheel` | `wheel` | Package CANN and host C++ operators in a `.run` installer or a Python wheel. |
 | `-j N` / `--jobs N` | `16` | Limit the number of simultaneous build jobs; must be a positive integer. |
-| `--third-party NAME[,NAME...]` | All matching profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
+| `--third-party NAME[,NAME...]` | All matching non-optional profiles | Select third-party profile filenames without `.json`, such as `cann_recipes_infer` or `ops_transformer`. Wheel builds only; names must be distinct and non-empty. |
 | `--without-third-party` | Off | Skip third-party builds and bundling. Mutually exclusive with `--third-party`. |
 | `--plan` | Off | Print the resolved third-party configuration and build commands, then exit without compiling either third-party or repository-owned operators. |
 | `--cann-version X.Y.Z` | Detected SDK version | Override the profile version for `--plan` only. Actual builds always detect the initialized SDK version. |
@@ -125,7 +125,11 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
   --third-party cann_recipes_infer --plan --cann-version 9.1.0
 ```
 
-Omitting `--third-party` selects all profiles for the detected SDK version.
+Omitting `--third-party` selects the top-level profiles for the detected SDK version.
+Profiles in its `optional/` directory must be requested by name. On A3 with
+CANN 9.2, the Qwen3.8-Flash-Next build with D256 attention and the 9.3 beta
+MoE GroupedMatmul provider uses
+`python3 setup.py --arch-version 2201 --third-party ops_transformer,ops_transformer_gmm93`.
 No matching profiles, or an empty/missing operator list for the chosen
 architecture, produces an INFO message and skips that dependency. Explicitly
 requesting a profile that does not exist for the SDK version is an error.
@@ -289,7 +293,7 @@ wheel on A2/A3:
 python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 --ops add_example --artifact wheel --without-third-party --make-clean
 ```
 
-On A5, use `--arch-version 3510`. For a mixed wheel, select
+For architecture 3510, use `--arch-version 3510`. For a mixed wheel, select
 `--ops apply_token_bitmask,add_example`.
 
 When installing the RUN package manually, pass `--force` to the generated installer. For the A2/A3 custom build above with `--artifact run`, install it by:
@@ -400,10 +404,10 @@ fallback when the CANN implementation is not installed. See the API documentatio
 [Chinese](../../docs/api/zh/operators/sampler/apply_token_bitmask.md).
 
 ## Legacy build: software and hardware
-Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
+Supported NPU targets: A2, A3, and the `950` build target.
 Platform: aarch64/x86
 Supporting Software
-- Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
+- HDK driver 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
 - Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_0045.html?Mode=PmIns&InstallType=netconda&OS=openEuler&Software=cannToolKit)
 - Python >= 3.7
 - pybind11 (install via `pip install pybind11`)
@@ -432,13 +436,13 @@ build containers, for instance — fall back to `Ascend910_9382`, which is what
 every target used to default to unconditionally, so container builds are
 unaffected. Detection only picks a default: an explicit argument always wins.
 
-`910B` (A2), `910`/`910C` (A3) and `950` (Ascend 950) select the SoC family. A generic or
-auto-detected Ascend 950 target compiles with `Ascend950PR_9599`, the target of the
+`910B` (A2), `910` (A3), and `950` select the SoC family. A generic or
+auto-detected `950` target compiles with `Ascend950PR_9599`, the target of the
 released `950` package; pass another concrete compiler target such as
-`Ascend950PR_958b` to override it. Both forms stage the same Ascend 950 target
+`Ascend950PR_958b` to override it. Both forms stage the same `950` target
 providers for the wheel.
 
-Operators whose implementation differs across Ascend generations live under
+Operators whose implementation differs across NPU generations live under
 `target_providers/<target>/` — build input, not a runtime package. The wheel
 build stages the chosen target's tree into the `sgl_kernel_npu` package by
 relative module path, so the directory layout itself is the registry:
@@ -450,8 +454,8 @@ targets, not operators: adding another cross-generation operator is just two
 provider files plus tests, with no build-framework changes.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`: native `torch_npu`
-Gemma RMSNorm on Ascend 910, standard ACLNN RMSNorm with `1 + weight` on
-Ascend 950. SGLang performs no runtime SoC detection for this operator.
+Gemma RMSNorm for the `910` target and standard ACLNN RMSNorm with `1 + weight`
+for the `950` target. SGLang performs no runtime SoC detection for this operator.
 Because providers are chosen at build time, the source tree ships no
 `norm/gemma_rmsnorm.py` — it only exists inside a built wheel, and
 `SGL_KERNEL_NPU_BUILD_TARGET` must be set when building one. Running from a

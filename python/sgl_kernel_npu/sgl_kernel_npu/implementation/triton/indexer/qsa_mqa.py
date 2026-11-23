@@ -22,6 +22,7 @@ Q, keys, bounds and page tables may be updated in place before replay.
 """
 
 import math
+import os
 from functools import lru_cache
 
 import torch
@@ -42,15 +43,15 @@ def _compute_cores(device_index):
     return cores
 
 
-@triton.jit
-def _score(
+@triton.jit(do_not_specialize=["R", "W"])
+def _score_loop(
     Q,
     K,
     First,
     Last,
     Out,
-    R: tl.constexpr,
-    W: tl.constexpr,
+    R,
+    W,
     L: tl.constexpr,
     PAGED: tl.constexpr,
     BQ: tl.constexpr,
@@ -123,6 +124,13 @@ def _score(
             )
 
 
+@triton.jit
+def _score(Q, K, First, Last, Out, R: tl.constexpr, W: tl.constexpr,
+           L: tl.constexpr, PAGED: tl.constexpr, BQ: tl.constexpr, BN: tl.constexpr,
+           HQ: tl.constexpr, PROGRAMS: tl.constexpr):
+    _score_loop(Q, K, First, Last, Out, R, W, L, PAGED, BQ, BN, HQ, PROGRAMS)
+
+
 def _validate(q, k, first, last, paged, width=None):
     if q.ndim != 3 or q.shape[1:] != (4, 128):
         raise ValueError("Expected Q[R,4,128]")
@@ -165,7 +173,15 @@ def packed(q, k, starts, ends):
     programs = min(
         _compute_cores(q.device.index), triton.cdiv(rows, bq) * triton.cdiv(width, bn)
     )
-    _score[(programs,)](
+    score = _score
+    if (
+        width >= 1024
+        and programs == _compute_cores(q.device.index)
+        and os.environ.get("SGL_KERNEL_NPU_QSA_DYNAMIC_SCORE") == "1"
+    ):
+        # Full prefill grids recur with different row counts and packed key widths.
+        score = _score_loop
+    score[(programs,)](
         q,
         k,
         starts,

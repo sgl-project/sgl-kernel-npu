@@ -1,0 +1,33 @@
+{
+  "name": "sgl_ops_transformer_gbsa",
+  "builder": "ops_transformer",
+  "ops": {
+    "arch22": [
+      "generic_block_sparse_attention",
+      "generic_block_sparse_attention_metadata"
+    ],
+    "arch35": []
+  },
+  "commit": "bf792a315334832f2743f930fb5ecb26f7bba86e",
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commands": [
+    [
+      "bash",
+      "build.sh",
+      "--pkg",
+      "--soc={soc}",
+      "--vendor_name={vendor_name}",
+      "--ops={ops}",
+      "-j{jobs}"
+    ],
+    [
+      "bash",
+      "build.sh",
+      "--torch_extension",
+      "--ops={ops}",
+      "--vendor_name={vendor_name}"
+    ]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE"
+}
