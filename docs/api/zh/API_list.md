@@ -2,6 +2,8 @@
 
 | 接口名称 | 支持的后端 |
 | --- | --- |
+| [zerc_moe](operators/moe/zerc_moe.md) | `ascendc`（未验证） |
+| [create_zerc_moe_buffer](operators/moe/zerc_moe.md) | `ascendc`（未验证） |
 | [moe_gating_top_k](operators/moe/moe_gating_top_k.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [inplace_partial_rotary_mul](operators/rope/inplace_partial_rotary_mul.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
 | [mhc_post_dpskv4](operators/hyper_conn/mhc_post_dpskv4.md) | `cann_ops_transformers_cann920`, `cann_recipes_infer_cann910`, `torch_native` |
