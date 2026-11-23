@@ -1,5 +1,7 @@
 """Public activation operators."""
 
+from .dynamic_mx_quant import dynamic_mx_quant
+from .dynamic_quant import dynamic_quant
 from .fused_sigmoid_mul import fused_sigmoid_mul
 from .fused_sigmoid_mul_broadcast import fused_sigmoid_mul_broadcast
 from .situ import situ
@@ -11,6 +13,8 @@ from .swiglu_oai_quant import swiglu_oai_quant
 from .swiglu_quant import swiglu_quant
 
 __all__ = [
+    "dynamic_mx_quant",
+    "dynamic_quant",
     "fused_sigmoid_mul",
     "fused_sigmoid_mul_broadcast",
     "situ",

@@ -103,12 +103,20 @@ def pool_key_indexer(
     mask_mode=3,
     quant_mode=-1,
     return_value=False,
+    q_descale=None,
+    k_descale=None,
 ):
     """Return (indices, values) using FP32 scoring.
 
-    quant_mode is accepted for call compatibility. The reference scores the
-    supplied tensor values without reproducing vendor quantized rounding.
+    FP8 quant_mode=0 applies per-token-head FP32 q_descale/k_descale
+    before scoring. INT8 quant_mode=2 and mxFP8 quant_mode=1 remain accepted
+    for call compatibility without reproducing their vendor dequantization.
     """
+    if quant_mode == 0:
+        if q_descale is None or k_descale is None:
+            raise ValueError("FP8 quant_mode=0 requires q_descale and k_descale")
+        query = query.float() * q_descale.float().unsqueeze(-1)
+        pool_key = pool_key.float() * k_descale.float().unsqueeze(-1)
     if topk <= 0 or pool_size <= 0 or topk % pool_size:
         raise ValueError("topk must be a positive multiple of pool_size")
     tails = _host_ints(pool_tail_k)
