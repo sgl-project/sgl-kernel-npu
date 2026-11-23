@@ -316,8 +316,8 @@ SFAVectorService<TEMPLATE_ARGS>::CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int
     return copied;
 }
 
-// fp8->fp32
-static constexpr MicroAPI::CastTrait castTraitFp8_1 = {MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
+// Widen values from register layout ZERO.
+static constexpr MicroAPI::CastTrait castTraitWidenZero = {MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
                                                        MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
 // fp8->fp32
 static constexpr MicroAPI::CastTrait castTraitFp8_2 = {MicroAPI::RegLayout::ONE, MicroAPI::SatMode::UNKNOWN,
@@ -357,19 +357,15 @@ __simd_vf__ void AntiquantVFImplFp8D448(__ubuf__ int8_t *input, __ubuf__ Q_T *ou
                 scale, tileScale, InputStride / sizeof(float));
 
             if constexpr (std::is_same_v<PackedType, int8_t>) {
-                constexpr MicroAPI::CastTrait int8ToHalf = {MicroAPI::RegLayout::ZERO,
-                    MicroAPI::SatMode::UNKNOWN, MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
-                constexpr MicroAPI::CastTrait halfToFp32 = {MicroAPI::RegLayout::ZERO,
-                    MicroAPI::SatMode::UNKNOWN, MicroAPI::MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
                 MicroAPI::RegTensor<half> halfKv0, halfKv1;
                 auto halfMask = MicroAPI::CreateMask<half, MicroAPI::MaskPattern::ALL>();
-                MicroAPI::Cast<half, PackedType, int8ToHalf>(halfKv0, kv0, halfMask);
-                MicroAPI::Cast<half, PackedType, int8ToHalf>(halfKv1, kv1, halfMask);
-                MicroAPI::Cast<float, half, halfToFp32>(fp32Kv0, halfKv0, fp32Mask);
-                MicroAPI::Cast<float, half, halfToFp32>(fp32Kv1, halfKv1, fp32Mask);
+                MicroAPI::Cast<half, PackedType, castTraitWidenZero>(halfKv0, kv0, halfMask);
+                MicroAPI::Cast<half, PackedType, castTraitWidenZero>(halfKv1, kv1, halfMask);
+                MicroAPI::Cast<float, half, castTraitWidenZero>(fp32Kv0, halfKv0, fp32Mask);
+                MicroAPI::Cast<float, half, castTraitWidenZero>(fp32Kv1, halfKv1, fp32Mask);
             } else {
-                MicroAPI::Cast<float, PackedType, castTraitFp8_1>(fp32Kv0, kv0, fp32Mask);
-                MicroAPI::Cast<float, PackedType, castTraitFp8_1>(fp32Kv1, kv1, fp32Mask);
+                MicroAPI::Cast<float, PackedType, castTraitWidenZero>(fp32Kv0, kv0, fp32Mask);
+                MicroAPI::Cast<float, PackedType, castTraitWidenZero>(fp32Kv1, kv1, fp32Mask);
             }
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv0, fp32Kv0, scale, fp32Mask);
             MicroAPI::Mul<float, MicroAPI::MaskMergeMode::ZEROING>(scaledKv1, fp32Kv1, scale, fp32Mask);
@@ -423,8 +419,8 @@ __simd_vf__ void CastScaleImpl(__ubuf__ float *ubDstAddr, __ubuf__ int8_t *ubSrc
         MicroAPI::LoadAlign<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_UNPACK4_B8>(
             (MicroAPI::RegTensor<int8_t> &)vScale0, ubScaleSrcAddrTemp, 640);
 
-        MicroAPI::Cast<bfloat16_t, fp8_e8m0_t, castTraitFp8_1>(vScalebf16Res0, vScale0, bf16TypeMaskAll);
-        MicroAPI::Cast<float, bfloat16_t, castTraitFp8_1>(vScalefp32Res0, vScalebf16Res0, fp32MaskAll);
+        MicroAPI::Cast<bfloat16_t, fp8_e8m0_t, castTraitWidenZero>(vScalebf16Res0, vScale0, bf16TypeMaskAll);
+        MicroAPI::Cast<float, bfloat16_t, castTraitWidenZero>(vScalefp32Res0, vScalebf16Res0, fp32MaskAll);
 
         MicroAPI::StoreAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE>(ubDstAddrTmp, vScalefp32Res0, 64,
                                                                              bf16TypeMaskAll);
