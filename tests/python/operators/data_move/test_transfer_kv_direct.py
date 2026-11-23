@@ -276,9 +276,8 @@ def test_auto_routes_to_fused_aiv():
         "data_move.transfer_kv_per_layer_direct_pf_lf",
         "data_move.transfer_kv_all_layer_direct_lf_pf",
     ):
-        assert (
-            get_impl_by_name(operator_id, "auto")
-            is get_impl_by_name(operator_id, "ascendc_aiv")
+        assert get_impl_by_name(operator_id, "auto") is get_impl_by_name(
+            operator_id, "ascendc_aiv"
         )
 
 
@@ -384,9 +383,7 @@ def test_state_aiv_all_layer_d2h(
     ref_dev = dev.clone()
     ref_host = host.clone()
     if checked:
-        transfer_kv_all_layer_direct_lf_pf(
-            [ref_dev], [ref_host], d, h, impl=impl_ref
-        )
+        transfer_kv_all_layer_direct_lf_pf([ref_dev], [ref_host], d, h, impl=impl_ref)
     host.zero_()
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())
@@ -569,9 +566,7 @@ def test_state_aiv_per_layer_h2d_duplicate_host_source(acl_host):
     # host slot 3 backs device slots 0 and 2; neither side is sorted.
     h, d = _indices([3, 3, 5]), _indices([0, 2, 5])
     layer_id = 1
-    transfer_kv_per_layer_direct_pf_lf(
-        host, dev[layer_id], h, d, layer_id, impl=impl
-    )
+    transfer_kv_per_layer_direct_pf_lf(host, dev[layer_id], h, d, layer_id, impl=impl)
     torch.npu.synchronize()
 
     expected = torch.zeros_like(dev)
@@ -620,9 +615,7 @@ def test_state_aiv_empty_indices_noop(acl_host):
     host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu"))
     before_host, before_dev = host.clone(), dev.clone()
     empty = _indices([])
-    transfer_kv_all_layer_direct_lf_pf(
-        [dev], [host], empty, empty, impl="ascendc_aiv"
-    )
+    transfer_kv_all_layer_direct_lf_pf([dev], [host], empty, empty, impl="ascendc_aiv")
     transfer_kv_per_layer_direct_pf_lf(
         host, dev[0], empty, empty, 0, impl="ascendc_aiv"
     )
