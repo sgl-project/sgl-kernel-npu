@@ -85,11 +85,11 @@ OPERATORS = {
         "transfer_mamba_state",
     ),
     "transfer_kv_per_layer_direct_pf_lf": (
-        "data_move/test_transfer_kv_direct.py",
+        "data_move/test_transfer_state_direct.py",
         "transfer_state_per_layer_direct_pf_lf",
     ),
     "transfer_kv_all_layer_direct_lf_pf": (
-        "data_move/test_transfer_kv_direct.py",
+        "data_move/test_transfer_state_direct.py",
         "transfer_state_all_layer_direct_lf_pf",
     ),
 }
@@ -166,7 +166,7 @@ def test_groups(selected):
         path = "tests/python/operators/" + OPERATORS[operator][0]
         backend = {"HOST": "aclrt", "AICPU": "aicpu", "AICORE": "ascendc"}[unit]
         groups[path] = {"file": path, "impl": backend, "required": True, "filter": None}
-    path = "tests/python/operators/data_move/test_transfer_kv_direct.py"
+    path = "tests/python/operators/data_move/test_transfer_state_direct.py"
     if path in groups and not {PER_LAYER, ALL_LAYERS}.issubset(selected):
         # Shared tests contain both one-way copies and round trips. Single-ID
         # wheels must exercise only the API actually selected for that wheel.
