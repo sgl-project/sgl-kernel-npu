@@ -630,7 +630,7 @@ public:
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 if (AscendC::GetSubBlockIdx() == 0) {
                     if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("sharedEp begin blk=%u\n", AscendC::GetBlockIdx());
+                        FUSED_MOE_DBG("sb%u\n", AscendC::GetBlockIdx());
                     }
                     if (!FUSED_MOE_SERIAL_MODE()) {
                         // 1C2V：通知兄弟 sub1 开始 combine；串行模式（1C1V/A5 模拟）下无消费者，跳过避免事件残留
@@ -674,7 +674,7 @@ public:
                         blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, UINT32_MAX, 0, 0);
                     }
                     if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("sharedEp done blk=%u\n", AscendC::GetBlockIdx());
+                        FUSED_MOE_DBG("sd%u\n", AscendC::GetBlockIdx());
                     }
                     if (!FUSED_MOE_SERIAL_MODE()) {
                         // 1C2V：等 sub1 combine 完成；串行模式下 combine 在本段之后才执行，此处必跳过否则死等
@@ -686,10 +686,8 @@ public:
         }
 
         if (AscendC::GetBlockIdx() < 2) {
-            // 派发角色打印：确认本核串行/并行与 sub 角色；没有此行说明卡在更早的 GEMM/epilogue 阶段
-            FUSED_MOE_DBG("dispatch blk=%u sub=%u subNum=%u serial=%u flag=%u\n", AscendC::GetBlockIdx(),
-                          AscendC::GetSubBlockIdx(), AscendC::GetSubBlockNum(),
-                          static_cast<uint32_t>(FUSED_MOE_SERIAL_MODE()), static_cast<uint32_t>(EXEC_FLAG));
+            // 派发角色打印：d=dispatch，无此行说明卡在更早的 GEMM/epilogue 阶段
+            FUSED_MOE_DBG("d%u\n", AscendC::GetBlockIdx());
         }
         icache_preload(4);
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
@@ -702,7 +700,7 @@ public:
                     combiner->TPipeSet(nullptr);
                     resource.pipe.Destroy();
                     if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("SHARED serial combine DONE blk=%u\n", AscendC::GetBlockIdx());
+                        FUSED_MOE_DBG("S%u\n", AscendC::GetBlockIdx());
                     }
                 }
             } else if (AscendC::GetSubBlockIdx() == 1) {
@@ -713,7 +711,7 @@ public:
                 combiner->TPipeSet(nullptr);
                 resource.pipe.Destroy();
                 if (AscendC::GetBlockIdx() < 2) {
-                    FUSED_MOE_DBG("SHARED sub1 combine DONE blk=%u\n", AscendC::GetBlockIdx());
+                    FUSED_MOE_DBG("s%u\n", AscendC::GetBlockIdx());
                 }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
@@ -729,7 +727,7 @@ public:
                 combiner->TPipeSet(nullptr);
                 resource.pipe.Destroy();
                 if (AscendC::GetBlockIdx() < 2) {
-                    FUSED_MOE_DBG("DEEP_FUSE serial combine DONE blk=%u\n", AscendC::GetBlockIdx());
+                    FUSED_MOE_DBG("C%u\n", AscendC::GetBlockIdx());
                 }
                 if (params.profile != nullptr) {
                     params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
@@ -774,30 +772,29 @@ public:
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             CleanRoutedX2ReadyState(params.problemCount);
             if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("tail cleanX2 done blk=%u\n", AscendC::GetBlockIdx());
+                FUSED_MOE_DBG("x%u\n", AscendC::GetBlockIdx());
             }
         }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (AscendC::GetSubBlockIdx() == 0) {
                 if (AscendC::GetBlockIdx() < 4) {
                     // 尾段卡死定位：有 enter 无 PASS = SOFT_SYNC 计数未到 target（AIC 侧没跑完/没递增）
-                    FUSED_MOE_DBG("tail checksync enter core=%u target=%u\n", coreIdx, target);
+                    FUSED_MOE_DBG("k+%u\n", coreIdx);
                 }
                 CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
                               static_cast<int32_t>(coreIdx), target);
                 if (AscendC::GetBlockIdx() < 4) {
-                    FUSED_MOE_DBG("tail checksync PASS core=%u\n", coreIdx);
+                    FUSED_MOE_DBG("k%u\n", coreIdx);
                 }
             }
             AscendC::PipeBarrier<PIPE_ALL>();
             if (AscendC::GetBlockIdx() < 4) {
                 // 尾段卡死定位：有 enter 无 PASS = 有核（AIV 或 AIC）没到 SyncAll 会合点
-                FUSED_MOE_DBG("tail syncall enter blk=%u sub=%u\n", AscendC::GetBlockIdx(),
-                              AscendC::GetSubBlockIdx());
+                FUSED_MOE_DBG("a+%u\n", AscendC::GetBlockIdx());
             }
             AscendC::SyncAll<true>();
             if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("tail syncall PASS blk=%u\n", AscendC::GetBlockIdx());
+                FUSED_MOE_DBG("a%u\n", AscendC::GetBlockIdx());
             }
             AscendC::PipeBarrier<PIPE_ALL>();
         }
@@ -827,11 +824,11 @@ public:
                 }
             }
             if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("tail zeroclean done blk=%u\n", AscendC::GetBlockIdx());
+                FUSED_MOE_DBG("z%u\n", AscendC::GetBlockIdx());
             }
         }
         if (AscendC::GetBlockIdx() < 4) {
-            FUSED_MOE_DBG("KERNEL END blk=%u sub=%u\n", AscendC::GetBlockIdx(), AscendC::GetSubBlockIdx());
+            FUSED_MOE_DBG("E%u\n", AscendC::GetBlockIdx());
         }
     }
 

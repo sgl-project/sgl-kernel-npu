@@ -13,7 +13,7 @@ using namespace Cam;
 // 调试打印开关：默认关闭；编译期定义 FUSED_MOE_DEBUG_PRINT 开启（1C1V 串行路径 / A5 模拟调试用）。
 // 打印走核内调试 FIFO（容量有限），只在必要分支插桩并限制 block 数，调试完成后务必关闭。
 #if defined(FUSED_MOE_DEBUG_PRINT)
-#define FUSED_MOE_DBG(fmt, ...) AscendC::printf("[MOE_DBG] " fmt, ##__VA_ARGS__)
+#define FUSED_MOE_DBG(fmt, ...) AscendC::printf("[M] " fmt, ##__VA_ARGS__)
 #else
 #define FUSED_MOE_DBG(fmt, ...) \
     do {                        \
@@ -791,28 +791,27 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::ProcessCombineSerial()
 {
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("ProcessCombineSerial enter core=%u startRank=%u endRank=%u\n", coreIdx_, startRankId_,
-                      endRankId_);
+        FUSED_MOE_DBG("P%u %u-%u\n", coreIdx_, startRankId_, endRankId_);
     }
     if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
         BuffInit();
         SetWaitTpStatusAndDisPatch();
         if (coreIdx_ < 2) {
-            FUSED_MOE_DBG("ProcessCombineSerial TpStatus done core=%u\n", coreIdx_);
+            FUSED_MOE_DBG("Pt%u\n", coreIdx_);
         }
     }
     AlltoAllBuffInit();
     SetStatus();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("ProcessCombineSerial SetStatus done core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("Ps%u\n", coreIdx_);
     }
     WaitDispatchSpin();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("ProcessCombineSerial WaitDispatch done core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("Pw%u\n", coreIdx_);
     }
     LocalWindowCopy();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("ProcessCombineSerial DONE core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("Pd%u\n", coreIdx_);
     }
 }
 
@@ -823,8 +822,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatc
 {
     if (startRankId_ < epWorldSize_) {
         // 挂死定位关键点（全核放开）：只看到 enter 没有 PASS，说明远端 rank 状态未就绪（对端未发布/未走到 SetStatus）
-        FUSED_MOE_DBG("WaitDispatchSpin enter core=%u startRank=%u epWorld=%u sendRankNum=%u sumTarget=%.1f\n",
-                      coreIdx_, startRankId_, epWorldSize_, sendRankNum_, sumTarget_);
+        FUSED_MOE_DBG("we%u r%u\n", coreIdx_, startRankId_);
         LocalTensor<float> statusTensor = statusBuf_.Get<float>();
         LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
         LocalTensor<uint32_t> gatherTmpTensor = gatherTmpBuf_.Get<uint32_t>();
@@ -857,14 +855,13 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatc
                 ++spinCnt;
                 if (spinCnt >= spinNextPrint) {
                     // 卡死进度：sum 停在 need 区间外 = 对端 rank 状态未发布；sum 的具体值指示还差几份
-                    FUSED_MOE_DBG("WaitDispatchSpin spinning core=%u cnt=%u sum=%.1f need=[%.1f,%.1f]\n", coreIdx_,
-                                  spinCnt, sumOfFlag, minTarget, maxTarget);
+                    FUSED_MOE_DBG("g%u n%u s%.1f\n", coreIdx_, spinCnt, sumOfFlag);
                     spinNextPrint <<= 1;
                 }
                 SPIN_WAIT_CYCLES();
             }
         }
-        FUSED_MOE_DBG("WaitDispatchSpin PASS core=%u sum=%.1f\n", coreIdx_, sumOfFlag);
+        FUSED_MOE_DBG("wp%u\n", coreIdx_);
     }
 }
 
@@ -876,27 +873,27 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::DeepFuseCombineSerial()
 {
     // 入口打印全核放开：每个参与核的 rank 分段可见，用于核对多核 rank 覆盖是否完整
-    FUSED_MOE_DBG("DeepFuseCombineSerial enter core=%u startRank=%u endRank=%u\n", coreIdx_, startRankId_, endRankId_);
+    FUSED_MOE_DBG("c%u %u-%u\n", coreIdx_, startRankId_, endRankId_);
     if constexpr (IsNeedReduceScatter) {
         tpipe_->InitBuffer(moeQueue_, BUFFER_NUM, axisHExpandXTypeSize_);
         ReduceScatterTrans();
         if (coreIdx_ < 2) {
-            FUSED_MOE_DBG("DeepFuseCombineSerial ReduceScatter done core=%u\n", coreIdx_);
+            FUSED_MOE_DBG("cr%u\n", coreIdx_);
         }
     }
     BuffInit();
     AlltoAllBuffInit();
     SetStatus();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("DeepFuseCombineSerial SetStatus done core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("cs%u\n", coreIdx_);
     }
     WaitDispatchSpin();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("DeepFuseCombineSerial WaitDispatch done core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("cw%u\n", coreIdx_);
     }
     LocalWindowCopy();
     if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("DeepFuseCombineSerial DONE core=%u\n", coreIdx_);
+        FUSED_MOE_DBG("cd%u\n", coreIdx_);
     }
 }
 }  // namespace MoeDistributeCombineImpl
