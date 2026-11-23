@@ -1,4 +1,6 @@
-"""GLM DSA and DeepSeek MLA Prolog accuracy cases."""
+"""DeepSeek-V3.2 packed DSA and DeepSeek-V2 MLA Prolog accuracy cases."""
+
+import math
 
 import pytest
 
@@ -14,7 +16,7 @@ _ROPE = 64
 _TILE = 128
 
 
-def generate_sparse_data(encoding, heads, context_length, topk):
+def generate_sparse_data(heads, context_length, topk):
     generator = torch.Generator(device="cpu").manual_seed(929)
     dtype = torch.bfloat16
     query = (
@@ -23,19 +25,12 @@ def generate_sparse_data(encoding, heads, context_length, topk):
     ).to(dtype)
     # Keep the rotary contribution large enough to detect a dropped RoPE slice.
     query[..., _LATENT:] *= 4
-    pages = context_length // _PAGE_SIZE
-    page_shape = (pages, _PAGE_SIZE, 1)
+    pages = (context_length + _PAGE_SIZE - 1) // _PAGE_SIZE
+    page_shape = (pages + 1, _PAGE_SIZE, 1)
     latent_shape = (*page_shape, _LATENT)
-    if encoding == "int8":
-        latent = torch.randint(
-            -8, 9, latent_shape, generator=generator, device="cpu", dtype=torch.int8
-        )
-        scale_factor = 0.125
-    else:
-        latent = torch.randn(latent_shape, generator=generator, device="cpu").to(
-            torch.float8_e4m3fn
-        )
-        scale_factor = 0.5
+    latent = torch.randn(latent_shape, generator=generator, device="cpu").to(
+        torch.float8_e4m3fn
+    )
     rope = (
         torch.randn((*page_shape, _ROPE), generator=generator, device="cpu") * 2
     ).to(dtype)
@@ -43,7 +38,7 @@ def generate_sparse_data(encoding, heads, context_length, topk):
         torch.rand((*page_shape, _LATENT // _TILE), generator=generator, device="cpu")
         * 0.75
         + 0.25
-    ) * scale_factor
+    ) * 0.5
     # Match the SGLang DSA packed cache: 512 quantized bytes, 64 BF16 RoPE
     # values, then four FP32 scales per cached token.
     packed_bytes = torch.cat(
@@ -51,7 +46,7 @@ def generate_sparse_data(encoding, heads, context_length, topk):
         dim=-1,
     )
     packed = packed_bytes.npu().view(latent.dtype)
-    page_table = torch.randperm(pages, generator=generator, device="cpu")
+    page_table = torch.randperm(pages, generator=generator, device="cpu") + 1
     selected = (
         torch.randperm(context_length, generator=generator, device="cpu")[:topk]
         .sort()
@@ -62,14 +57,15 @@ def generate_sparse_data(encoding, heads, context_length, topk):
         packed,
         packed,
         selected.to(torch.int32).view(1, 1, topk).npu(),
-        1.0 / 24,
+        # DeepSeek-V3.2: QK width 128+64, YaRN factor=40, mscale_all_dim=1.
+        192**-0.5 * (1 + 0.1 * math.log(40)) ** 2,
         2,
         2,
     )
     kwargs = dict(
         block_table=page_table.to(torch.int32).unsqueeze(0).npu(),
-        actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32),
-        actual_seq_lengths_kv=torch.tensor([context_length], dtype=torch.int32),
+        actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32).npu(),
+        actual_seq_lengths_kv=torch.tensor([context_length], dtype=torch.int32).npu(),
         sparse_block_size=1,
         layout_query="TND",
         layout_kv="PA_BSND",
@@ -84,7 +80,7 @@ def generate_sparse_data(encoding, heads, context_length, topk):
 
 @pytest.mark.parametrize(
     "heads, context_length, topk",
-    [pytest.param(32, 4096, 2048, id="glm52-dsa-paged-decode")],
+    [pytest.param(16, 4093, 2048, id="deepseek-v32-tp8-fp8-dsa-paged-decode")],
 )
 def test_kv_quant_sparse_flash_attention(heads, context_length, topk):
     import torch_npu
@@ -93,11 +89,11 @@ def test_kv_quant_sparse_flash_attention(heads, context_length, topk):
     )
     from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
+    if get_hardware().generation is not Generation.ARCH35:
+        pytest.skip("The SGLang packed FP8 DSA cache path requires Ascend A5")
     if not callable(getattr(torch_npu, "npu_kv_quant_sparse_flash_attention", None)):
         pytest.skip("Installed TorchNPU lacks npu_kv_quant_sparse_flash_attention")
-    # The GLM workload uses different cache encodings on the two generations.
-    encoding = "int8" if get_hardware().generation is Generation.ARCH22 else "fp8"
-    args, kwargs = generate_sparse_data(encoding, heads, context_length, topk)
+    args, kwargs = generate_sparse_data(heads, context_length, topk)
     executor = check_accuracy(
         kv_quant_sparse_flash_attention_torch_npu,
         args,
@@ -128,17 +124,21 @@ def allow_internal_weight_format():
 def generate_prolog_data(hidden, cq_rank, heads, head_dim):
     import torch_npu
 
-    # BF16 NZ weights and the DeepSeek projection/absorption dimensions.
+    # BF16 NZ weights and the DeepSeek-V2 projection/absorption dimensions.
     dtype = torch.bfloat16
     token_x = torch.zeros((2, hidden), dtype=dtype)
     token_x[0, 0] = token_x[1, 1] = 1
     weight_dq = torch.zeros((hidden, cq_rank), dtype=dtype)
     weight_dkv_kr = torch.zeros((hidden, _LATENT + _ROPE), dtype=dtype)
-    for weight in (weight_dq, weight_dkv_kr):
-        weight[0].fill_(2)
-        weight[1].fill_(-0.5)
+    weight_dq[0, ::2] = 2
+    weight_dq[1, 1::2] = -0.5
+    weight_dkv_kr[0, ::2] = 2
+    weight_dkv_kr[0, 1::2] = 0.25
+    weight_dkv_kr[1, ::2] = -0.5
+    weight_dkv_kr[1, 1::2] = 1
     weight_uq_qr = torch.zeros((cq_rank, heads * (head_dim + _ROPE)), dtype=dtype)
-    weight_uq_qr[0].fill_(1)
+    weight_uq_qr[0, ::2] = 0.25
+    weight_uq_qr[1, 1::2] = 0.5
     weight_uk = (
         torch.eye(head_dim, _LATENT, dtype=dtype, device="cpu")
         .expand(heads, -1, -1)
@@ -151,32 +151,35 @@ def generate_prolog_data(hidden, cq_rank, heads, head_dim):
     cos = torch.zeros((2, _ROPE), dtype=dtype)
     cos[0].fill_(1)
     sin[1].fill_(1)
-    slots = [_PAGE_SIZE, _PAGE_SIZE - 1]
-    kv_cache = torch.zeros((2, _PAGE_SIZE, 1, _LATENT), dtype=dtype)
-    kr_cache = torch.zeros((2, _PAGE_SIZE, 1, _ROPE), dtype=dtype)
+    slots = [2 * _PAGE_SIZE + 4, 2 * _PAGE_SIZE - 1]
+    kv_cache = torch.zeros((3, _PAGE_SIZE, 1, _LATENT), dtype=dtype)
+    kr_cache = torch.zeros((3, _PAGE_SIZE, 1, _ROPE), dtype=dtype)
     args = (
-        token_x,
-        torch_npu.npu_format_cast(weight_dq, 29),
-        torch_npu.npu_format_cast(weight_uq_qr, 29),
+        token_x.npu(),
+        torch_npu.npu_format_cast(weight_dq.npu(), 29),
+        torch_npu.npu_format_cast(weight_uq_qr.npu(), 29),
         weight_uk,
-        torch_npu.npu_format_cast(weight_dkv_kr, 29),
-        gamma_cq,
-        gamma_ckv,
-        sin,
-        cos,
+        torch_npu.npu_format_cast(weight_dkv_kr.npu(), 29),
+        gamma_cq.npu(),
+        gamma_ckv.npu(),
+        sin.npu(),
+        cos.npu(),
     )
     return args, dict(
-        kv_cache=kv_cache,
-        kr_cache=kr_cache,
-        cache_index=torch.tensor(slots, dtype=torch.int64),
+        kv_cache=kv_cache.npu(),
+        kr_cache=kr_cache.npu(),
+        cache_index=torch.tensor(slots, dtype=torch.int64).npu(),
+        rmsnorm_epsilon_cq=1e-6,
+        rmsnorm_epsilon_ckv=1e-6,
         cache_mode="PA_BSND",
+        query_norm_flag=True,
         weight_quant_mode=0,
     )
 
 
 @pytest.mark.parametrize(
     "hidden, cq_rank, heads, head_dim",
-    [pytest.param(7168, 1536, 16, 128, id="deepseek-v3-tp8-bf16-paged-prolog")],
+    [pytest.param(5120, 1536, 16, 128, id="deepseek-v2-tp8-bf16-paged-prolog")],
 )
 def test_mla_prolog_v3_paged_writes(
     allow_internal_weight_format, hidden, cq_rank, heads, head_dim
@@ -192,7 +195,7 @@ def test_mla_prolog_v3_paged_writes(
         args,
         kwargs=kwargs,
         mutable_kwargs=("kv_cache", "kr_cache"),
-        result_transform=lambda result: result[:2],
+        result_transform=lambda result: (result[0], result[1], result[3]),
         standard={"torch.bfloat16": AccuracyStandard(atol=1e-5, rtol=1.6e-2)},
     )
     check_performance(executor)

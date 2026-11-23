@@ -43,7 +43,7 @@ def dtype_cast(input, dtype, input_dtype=None, *, impl="auto"): ...
 
 ## torch_native 后端
 
-使用 PyTorch 转换常规张量 dtype。打包 dtype 的重解释由 SDK 后端提供。
+使用 PyTorch 转换常规张量 dtype。支持将 FP8 E4M3 权重转换为 E2M1，每个输出字节打包两个 FP4 值。
 
 ## 调用示例
 

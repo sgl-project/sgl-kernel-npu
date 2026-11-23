@@ -46,7 +46,7 @@ def weight_quant_batchmatmul(
 
 ## torch_native 后端
 
-使用通道 scale 和可选偏移反量化 INT8 权重，计算 A16W8 矩阵乘法，输出浮点结果。
+使用逐张量、逐通道或逐组尺度与可选偏移对 INT8 权重进行反量化，再与浮点激活相乘。当 `antiquant_group_size` 为正数时，尺度和偏移的形状均为 `[ceil(K / antiquant_group_size), N]`。结果沿用激活的数据类型，无输出再量化。
 
 ## 调用示例
 

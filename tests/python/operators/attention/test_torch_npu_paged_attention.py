@@ -1,4 +1,6 @@
-"""Validate the legacy ATB attention APIs through their registered references."""
+"""SGLang Qwen3 GQA and DeepSeek-V2 MLA cases for legacy ATB attention."""
+
+import math
 
 import pytest
 
@@ -16,7 +18,7 @@ def generate_data(
 ):
     generator = torch.Generator(device="cpu").manual_seed(42)
     prefill = query_lengths is not None
-    dtype = torch.bfloat16 if prefill else torch.float16
+    dtype = torch.bfloat16
     q_tokens = sum(query_lengths) if prefill else len(context_lengths)
     pages_per_request = (max(context_lengths) + _PAGE_SIZE - 1) // _PAGE_SIZE
     pages = len(context_lengths) * pages_per_request
@@ -27,22 +29,24 @@ def generate_data(
     )
     key = (
         torch.randn(
-            (pages, _PAGE_SIZE, kv_heads, head_dim), generator=generator, device="cpu"
+            (pages + 1, _PAGE_SIZE, kv_heads, head_dim),
+            generator=generator,
+            device="cpu",
         )
         .to(dtype)
         .npu()
     )
     page_rows = (
-        torch.arange(pages, dtype=torch.int32, device="cpu")
+        torch.arange(1, pages + 1, dtype=torch.int32, device="cpu")
         .reshape(-1, pages_per_request)
         .flip(-1)
     )
     kwargs = dict(
         query=query,
         key_cache=key,
-        block_table=page_rows.to(query.device) if prefill else page_rows,
+        block_table=page_rows.to(query.device),
         context_lens=torch.tensor(context_lengths, dtype=torch.int32, device="cpu"),
-        scale_value=(head_dim if mla_vheadsize is None else 192) ** -0.5,
+        scale_value=head_dim**-0.5,
         num_heads=q_heads,
         num_kv_heads=kv_heads,
     )
@@ -52,6 +56,8 @@ def generate_data(
         )
     else:
         kwargs["mla_vheadsize"] = mla_vheadsize
+        # DeepSeek-V2 computes scale from the pre-absorption head width and YaRN.
+        kwargs["scale_value"] = 192**-0.5 * (1 + 0.1 * 0.707 * math.log(40)) ** 2
     if prefill:
         kwargs["query"] = query.flatten(1)
         kwargs["mask"] = (
@@ -78,7 +84,7 @@ def generate_data(
             (128, 1024),
             (128, 256),
             None,
-            id="qwen3-8b-prefix-cache-prefill",
+            id="qwen3-8b-tp2-prefix-cache-prefill",
         ),
         pytest.param(
             "paged_attention",
@@ -88,7 +94,7 @@ def generate_data(
             (255, 129),
             None,
             None,
-            id="qwen3-8b-paged-decode",
+            id="qwen3-8b-tp2-paged-decode",
         ),
         pytest.param(
             "paged_attention_mla",
@@ -98,7 +104,7 @@ def generate_data(
             (255,),
             None,
             512,
-            id="deepseek-v3-paged-mla-decode",
+            id="deepseek-v2-tp8-paged-mla-decode",
         ),
     ],
 )
@@ -115,19 +121,11 @@ def test_legacy_atb_attention(
     kwargs = generate_data(
         q_heads, kv_heads, head_dim, context_lengths, query_lengths, mla_vheadsize
     )
-    standard = (
-        AccuracyStandard(atol=5e-3, rtol=6e-3)
-        if mla_vheadsize
-        else AccuracyStandard(atol=4e-3, rtol=5e-3)
-    )
     executor = check_accuracy(
         operator,
         kwargs=kwargs,
         mutable_kwargs=("out",),
-        standard={
-            "torch.float16": standard,
-            "torch.bfloat16": AccuracyStandard(atol=2e-2, rtol=2e-2),
-        },
+        standard={"torch.bfloat16": AccuracyStandard(atol=2e-2, rtol=2e-2)},
     )
     check_performance(executor)
 

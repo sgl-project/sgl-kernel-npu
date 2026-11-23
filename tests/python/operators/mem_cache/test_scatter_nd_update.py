@@ -11,7 +11,7 @@ torch = pytest.importorskip("torch")
 
 def generate_data(page_shape, slots, dtype):
     destination = torch.zeros(page_shape, dtype=torch.uint8).view(dtype)
-    # DeepSeek V4 flattens its page and page-offset axes before scattering.
+    # The C4 indexer has 32 compressed slots per 128-token model page.
     destination = destination.flatten(0, 1)
     indices = torch.tensor(slots, dtype=torch.int64).unsqueeze(-1)
     generator = torch.Generator(device="cpu").manual_seed(42)
@@ -26,7 +26,7 @@ def generate_data(page_shape, slots, dtype):
     "page_shape, slots",
     [
         pytest.param(
-            (2, 128, 1, 128), (128, 127, 1), id="deepseek-v4-paged-indexer-k-cache"
+            (4, 32, 1, 128), (65, 63, 96), id="deepseek-v4-flash-c4-indexer-k-cache"
         )
     ],
 )

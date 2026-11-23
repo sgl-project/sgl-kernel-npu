@@ -43,7 +43,7 @@ Calls `torch_npu.npu_dtype_cast`. Shape, dtype and layout combinations follow th
 
 ## torch_native backend
 
-Uses PyTorch casting for ordinary tensor dtypes. Packed dtype reinterpretation is handled by the SDK backend.
+Uses PyTorch casting for ordinary tensor dtypes. For FP8 E4M3 weights and an E2M1 destination, packs two FP4 values per output byte.
 
 ## Example
 

@@ -66,7 +66,13 @@ def fused_infer_attention_score_get_max_workspace(
 
 ## torch_native 后端
 
-参考实现支持 BNSD、BSND 和 BSH 布局的 FP16/BF16 稠密注意力，覆盖主接口及 `out` 接口，支持显式 mask 和可选的 LSE 输出。工作区查询由 `ops-transformer` 提供。
+主接口与 `out` 接口共用 FP16/BF16 参考实现，支持以下场景。
+
+- BNSD、BSND 和 BSH 布局的稠密注意力，可传入显式掩码和偏置，也可返回 LSE。
+- BSND 单 token 解码，KV 分页形状为 `[num_blocks, block_size, kv_heads * head_dim]`，使用 int32 块表和每个请求的 KV 长度。
+- TND 注意力，使用累积查询长度和累积 KV 长度，可分别传入 Q 和 K 的 RoPE 张量。
+
+分页 BSND 与 TND 场景使用 `sparse_mode=0` 和默认 token 窗口，掩码与偏置均为空。启用 LSE 时，批量布局返回形状为 `[B, N, S, 1]` 的 FP32 Tensor，TND 返回形状为 `[T, N, 1]` 的 FP32 Tensor。关闭 LSE 时，第二个 Tensor 的形状为 `[0]`。工作区辅助函数由 `ops-transformer` 提供。
 
 ## 调用示例
 

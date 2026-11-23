@@ -46,7 +46,7 @@ Calls `torch_npu.npu_weight_quant_batchmatmul`. Shape, dtype and layout combinat
 
 ## torch_native backend
 
-Dequantizes per-channel INT8 weights with optional offsets and computes A16W8 matmul without output requantization.
+Dequantizes INT8 weights with per-tensor, per-channel, or per-group scales and optional offsets, then multiplies by the floating-point activations. With a positive `antiquant_group_size`, scales and offsets have shape `[ceil(K / antiquant_group_size), N]`. The result uses the activation dtype with no output requantization.
 
 ## Example
 

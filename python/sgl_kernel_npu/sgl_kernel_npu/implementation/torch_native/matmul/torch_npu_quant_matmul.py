@@ -55,17 +55,28 @@ def weight_quant_batchmatmul(
 ):
     if (
         weight.dtype != torch.int8
-        or antiquant_group_size != 0
+        or antiquant_group_size < 0
         or quant_scale is not None
         or quant_offset is not None
         or weight_dtype is not None
         or inner_precise not in (0, 1)
     ):
-        raise NotImplementedError("torch_native requires per-channel A16W8")
+        raise NotImplementedError(
+            "torch_native requires unquantized output and INT8 weights"
+        )
     weights = _cpu(weight).float()
-    if antiquant_offset is not None:
-        weights = weights + _cpu(antiquant_offset).float()
-    weights = weights * _cpu(antiquant_scale).float()
+    scales = _cpu(antiquant_scale).float()
+    offsets = _cpu(antiquant_offset).float() if antiquant_offset is not None else None
+    if antiquant_group_size:
+        width = weights.size(-2)
+        scales = scales.repeat_interleave(antiquant_group_size, dim=-2)[..., :width, :]
+        if offsets is not None:
+            offsets = offsets.repeat_interleave(antiquant_group_size, dim=-2)[
+                ..., :width, :
+            ]
+    if offsets is not None:
+        weights = weights + offsets
+    weights = weights * scales
     result = _cpu(x).float() @ weights
     if bias is not None:
         result = result + _cpu(bias).float()

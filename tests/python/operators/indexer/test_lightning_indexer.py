@@ -12,28 +12,33 @@ def generate_data(heads, context_length, page_size, topk):
     generator = torch.Generator(device="cpu").manual_seed(7)
     dtype = torch.bfloat16
     head_dim = 128
-    pages = context_length // page_size
+    pages = (context_length + page_size - 1) // page_size
     query = (
         torch.randn((1, heads, head_dim), generator=generator, device="cpu") * 0.01
     ).to(dtype)
-    query[..., 0] = 1
+    query[:, : heads // 2, :2] = torch.tensor([1, 0], dtype=dtype)
+    query[:, heads // 2 :, :2] = torch.tensor([0, 1], dtype=dtype)
     key = (
-        torch.randn((pages, page_size, 1, head_dim), generator=generator, device="cpu")
+        torch.randn(
+            (pages + 1, page_size, 1, head_dim), generator=generator, device="cpu"
+        )
         * 0.1
     ).to(dtype)
     physical_keys = key.flatten(0, 1)
-    physical_keys[..., 0] = -2
-    # Separate the chosen keys from the rest at the top-k boundary even
-    # after BF16 rounding. Tie order inside the selected set is immaterial.
-    positive = torch.randperm(context_length, generator=generator, device="cpu")[:topk]
-    physical_keys[positive, :, 0] = 2
-    weights = torch.linspace(0.5, 1.5, heads, device="cpu").to(dtype).unsqueeze(0)
-    page_order = torch.randperm(pages, generator=generator, device="cpu")
+    page_order = torch.randperm(pages, generator=generator, device="cpu") + 1
+    logical = torch.randperm(context_length, generator=generator, device="cpu")[:topk]
+    physical = page_order[logical // page_size] * page_size + logical % page_size
+    # The chosen set wins with the model's head weights. Uniform head
+    # weights would rank the other keys higher.
+    physical_keys[..., :2] = torch.tensor([3, -1], dtype=dtype)
+    physical_keys[physical, :, :2] = torch.tensor([-1, 2], dtype=dtype)
+    weights = torch.full((1, heads), 1.5, dtype=dtype)
+    weights[:, : heads // 2] = 0.25
 
     return (query.npu(), key.npu(), weights.npu()), dict(
         block_table=page_order.to(torch.int32).unsqueeze(0).npu(),
-        actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32),
-        actual_seq_lengths_key=torch.tensor([context_length], dtype=torch.int32),
+        actual_seq_lengths_query=torch.tensor([1], dtype=torch.int32).npu(),
+        actual_seq_lengths_key=torch.tensor([context_length], dtype=torch.int32).npu(),
         layout_query="TND",
         layout_key="PA_BSND",
         sparse_count=topk,
@@ -43,7 +48,7 @@ def generate_data(heads, context_length, page_size, topk):
 
 @pytest.mark.parametrize(
     "heads, context_length, page_size, topk",
-    [pytest.param(64, 4096, 128, 2048, id="deepseek-v32-dsa-paged-decode")],
+    [pytest.param(64, 4093, 128, 2048, id="deepseek-v32-tp8-bf16-dsa-paged-decode")],
 )
 def test_lightning_indexer_paged_decode(heads, context_length, page_size, topk):
     import torch_npu

@@ -66,7 +66,13 @@ Calls `torch_npu.npu_fused_infer_attention_score`. Shape, dtype and layout combi
 
 ## torch_native backend
 
-Computes dense FP16/BF16 attention in BNSD, BSND, and BSH layouts. Supports the main and `out` APIs with explicit masks and optional LSE. The workspace query is specific to `ops-transformer`.
+The main and `out` APIs share an FP16/BF16 reference implementation for these cases.
+
+- Dense BNSD, BSND and BSH attention with optional explicit masks, bias and LSE.
+- Single-token BSND decode with flattened KV pages `[num_blocks, block_size, kv_heads * head_dim]`, an int32 block table and one KV length per request.
+- Packed TND attention with cumulative query and KV lengths and optional separate query and key RoPE tensors.
+
+Paged BSND and packed TND require `sparse_mode=0`, the default token windows, and no attention mask or bias. LSE uses FP32 with shape `[B, N, S, 1]` for batched layouts and `[T, N, 1]` for TND. With LSE disabled, the second tensor has shape `[0]`. The workspace helper is provided by `ops-transformer`.
 
 ## Example
 
