@@ -131,12 +131,16 @@ bool HasShape(const at::Tensor &tensor, std::initializer_list<int64_t> expected)
     return true;
 }
 
-int64_t CountChunks(const c10::optional<at::Tensor> &cuSeqlens, int64_t seqlen, int64_t chunkSize)
+int64_t CountChunks(const c10::optional<at::Tensor> &cuSeqlens, int64_t seqlen, int64_t chunkSize,
+                    const c10::optional<at::Tensor> &cuSeqlensHost)
 {
     if (!cuSeqlens.has_value()) {
         return (seqlen + chunkSize - 1) / chunkSize;
     }
-    const at::Tensor cu = cuSeqlens->cpu().contiguous();
+    // Prefer the caller-provided host copy: cuSeqlens->cpu() is a blocking D2H
+    // copy that stalls the host until the device queue drains.
+    const at::Tensor cu = (cuSeqlensHost.has_value() && cuSeqlensHost->defined()) ? cuSeqlensHost->contiguous()
+                                                                                  : cuSeqlens->cpu().contiguous();
     const int64_t *cuPtr = reinterpret_cast<const int64_t *>(cu.data_ptr());
     const int64_t n = cu.numel();
     int64_t chunks = 0;
@@ -148,7 +152,8 @@ int64_t CountChunks(const c10::optional<at::Tensor> &cuSeqlens, int64_t seqlen, 
 
 void ResolveShapeInfo(const at::Tensor &q, const at::Tensor &v, const c10::optional<at::Tensor> &beta,
                       const c10::optional<at::Tensor> &g, KdaFwdLayout layout, int64_t chunkSize,
-                      const c10::optional<at::Tensor> &cuSeqlens, KdaShapeInfo &info)
+                      const c10::optional<at::Tensor> &cuSeqlens, const c10::optional<at::Tensor> &cuSeqlensHost,
+                      KdaShapeInfo &info)
 {
     info.isRank3 = layout == KdaFwdLayout::TND || layout == KdaFwdLayout::NTD;
     const int64_t tensorRank = info.isRank3 ? 3 : 4;
@@ -204,7 +209,7 @@ void ResolveShapeInfo(const at::Tensor &q, const at::Tensor &v, const c10::optio
     }
 
     info.seqNum = cuSeqlens.has_value() ? cuSeqlens->numel() - 1 : info.batch;
-    info.totalChunks = CountChunks(cuSeqlens, info.seqlen, chunkSize);
+    info.totalChunks = CountChunks(cuSeqlens, info.seqlen, chunkSize, cuSeqlensHost);
 }
 
 void ComputeTilingData(int64_t batch, int64_t seqlen, int64_t hNum, int64_t hvNum, int64_t kDim, int64_t vDim,
@@ -323,9 +328,10 @@ std::tuple<at::Tensor, c10::optional<at::Tensor>, c10::optional<at::Tensor>, at:
 chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
               const at::Tensor &beta, const c10::optional<at::Tensor> &aLog, const c10::optional<at::Tensor> &dtBias,
               const c10::optional<at::Tensor> &initialState, const c10::optional<at::Tensor> &cuSeqlens,
-              const c10::optional<at::Tensor> &chunkIndices, const std::string &layout, double scale, int64_t chunkSize,
-              bool safeGate, double lowerBound, bool useGateInKernel, bool stateVFirst, bool outputFinalState,
-              bool outputGk, bool outputW, bool outputU, bool outputQG, bool outputKg, bool outputVNew, bool outputH)
+              const c10::optional<at::Tensor> &cuSeqlensHost, const c10::optional<at::Tensor> &chunkIndices,
+              const std::string &layout, double scale, int64_t chunkSize, bool safeGate, double lowerBound,
+              bool useGateInKernel, bool stateVFirst, bool outputFinalState, bool outputGk, bool outputW, bool outputU,
+              bool outputQG, bool outputKg, bool outputVNew, bool outputH)
 {
     TORCH_CHECK(q.defined() && k.defined() && v.defined() && g.defined() && beta.defined(),
                 "chunk_kda_fwd: q, k, v, g and beta must be defined");
@@ -364,7 +370,7 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
     }
 
     KdaShapeInfo info;
-    ResolveShapeInfo(q, v, beta, g, parsedLayout, chunkSize, cuSeqlens, info);
+    ResolveShapeInfo(q, v, beta, g, parsedLayout, chunkSize, cuSeqlens, cuSeqlensHost, info);
 
     TORCH_CHECK(info.hNum > 0 && info.hvNum >= info.hNum && info.hvNum % info.hNum == 0,
                 "chunk_kda_fwd: H and HV must be positive, HV must be a multiple of H");
@@ -380,7 +386,14 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, con
         TORCH_CHECK(cuSeqlens->numel() >= 2, "chunk_kda_fwd: cu_seqlens must contain at least [0, T]");
         TORCH_CHECK(!isRank3 || info.batch == 1, "chunk_kda_fwd: rank4 varlen requires B=1");
         TORCH_CHECK(info.seqNum <= MAX_KDA_VARLEN_SEQUENCES, "chunk_kda_fwd: varlen supports at most 1024 sequences");
-        const at::Tensor cuCpu = cuSeqlens->cpu().contiguous();
+        const bool hasHostCu = cuSeqlensHost.has_value() && cuSeqlensHost->defined();
+        if (hasHostCu) {
+            TORCH_CHECK(cuSeqlensHost->is_cpu() && cuSeqlensHost->scalar_type() == at::kLong,
+                        "chunk_kda_fwd: cu_seqlens_host must be a CPU int64 tensor");
+            TORCH_CHECK(cuSeqlensHost->numel() == cuSeqlens->numel(),
+                        "chunk_kda_fwd: cu_seqlens_host must match cu_seqlens shape");
+        }
+        const at::Tensor cuCpu = hasHostCu ? cuSeqlensHost->contiguous() : cuSeqlens->cpu().contiguous();
         const int64_t *cuPtr = reinterpret_cast<const int64_t *>(cuCpu.data_ptr());
         TORCH_CHECK(cuPtr[0] == 0, "chunk_kda_fwd: cu_seqlens[0] must be 0");
         TORCH_CHECK(cuPtr[cuCpu.numel() - 1] == info.seqlen,
