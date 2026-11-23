@@ -58,4 +58,5 @@ jobs:
         timeout-minutes: ${{ inputs.timeout_minutes }}
         env:
           HCCL_BUFFSIZE: 4096
-        run: bash scripts/run_kernel_tests.sh "${{ inputs.group }}"
+        # Include historically skipped files in PR CI to reassess their failures.
+        run: env -u NPU_HARDWARE bash scripts/run_kernel_tests.sh "${{ inputs.group }}"
