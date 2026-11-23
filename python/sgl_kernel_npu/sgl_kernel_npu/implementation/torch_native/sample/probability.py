@@ -53,3 +53,14 @@ def top_p_renorm_prob(probs, top_ps):
     probs = _prepare_probs(probs)
     top_ps = _as_batch_threshold(top_ps, probs, probs.dtype, "top_ps").clamp(0, 1)
     return _reference(probs, top_ps, True)
+
+
+def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None):
+    """Reference for the fused top-p/top-k renorm: filter in two passes.
+
+    The public operator applies top-p to the original distribution and then
+    top-k; running the two existing references in that order is an independent
+    computation of the same support. max_keep only bounds the fused kernel, so
+    the reference filters the full vocabulary and ignores it.
+    """
+    return top_k_renorm_prob(top_p_renorm_prob(probs, top_ps), top_ks)
