@@ -190,13 +190,8 @@ public:
     }
 
     CATLASS_DEVICE
-    void CleanRoutedX2ReadyState(uint32_t problemCount)
+    void CleanRoutedX2ReadyState(uint32_t problemCount, uint32_t workerIdx, uint32_t workerCount)
     {
-        // This helper is called by the AIV specialization.  Its block index
-        // is already the logical AIV index; multiplying by subblock count
-        // would leave ready slots uncleared.
-        uint32_t workerIdx = AscendC::GetBlockIdx();
-        uint32_t workerCount = AscendC::GetBlockNum();
         AscendC::LocalTensor<int32_t> zeroLocal = resource.ubBuf.template GetBufferByByte<int32_t>(0);
         AscendC::Duplicate(zeroLocal, static_cast<int32_t>(0), GMM2::INT32_COUNT_PER_BLOCK);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
@@ -785,12 +780,6 @@ public:
             resource.pipe.Destroy();
         }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            CleanRoutedX2ReadyState(params.problemCount);
-            if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("x%u\n", AscendC::GetBlockIdx());
-            }
-        }
-        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (AscendC::GetSubBlockIdx() == 0) {
                 if (AscendC::GetBlockIdx() < 4) {
                     // 尾段卡死定位：有 enter 无 PASS = SOFT_SYNC 计数未到 target（AIC 侧没跑完/没递增）
@@ -809,6 +798,11 @@ public:
             FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u tail pass\n",
                           epRank, AscendC::GetBlockIdx(), subBlockIdx);
             AscendC::PipeBarrier<PIPE_ALL>();
+            // Each sub0 has observed its paired AIC's final SOFT_SYNC sentinel.
+            // The AIV rendezvous makes it safe to clear X2 ready across the rank.
+            if (subBlockIdx == 0) {
+                CleanRoutedX2ReadyState(params.problemCount, coreIdx, coreNum);
+            }
         }
         if (AscendC::GetSubBlockIdx() == 0) {
             uint64_t profWeightSumCleanStart = 0;
