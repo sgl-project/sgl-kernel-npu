@@ -274,7 +274,7 @@ def prepare_w4a8_weights(
             hidden,
             intermediate_hidden,
             num_local_experts,
-            device,
+            torch.device("cpu"),
             weight_range=(-8, 8),
             scale_range=(0.01, 0.1),
         )

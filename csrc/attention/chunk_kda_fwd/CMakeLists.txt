@@ -14,5 +14,7 @@ sgl_register_operator(
 )
 sgl_register_operator_variant(
     ID chunk_kda_fwd ARCH 3510
+    TILING_COMPILE_DEFINITIONS SGL_KDA_SPLIT_TILING_KEY
+    KERNEL_SOURCES op_kernel/chunk_kda_fwd_arch35.cpp
     KERNEL_COMPILE_DEFINITIONS HAVE_WORKSPACE HAVE_TILING ENABLE_CV_COMM_VIA_SSBUF=true
 )

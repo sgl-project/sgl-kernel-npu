@@ -11,6 +11,9 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 # Graph setup queries this count to allocate buffers without running the producer.
 _CANN_910_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
 _CANN_920_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 2048
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
 
 
 def get_sparse_flash_mla_metadata_size():
@@ -51,19 +54,23 @@ def _auto_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH22},
 )
 def _cann_sparse_flash_mla_metadata(**kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer import ops
+
+        _cann_920_fn = ops.sparse_flash_mla_metadata
 
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    return ops.sparse_flash_mla_metadata(**args)
+    return _cann_920_fn(**args)
 
 
 def _uses_native_sparse_inputs(kwargs):
@@ -82,6 +89,7 @@ def _ops_transformers_cann910(**kwargs):
 
 
 def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
+    global _cann_910_fn
     args = {
         key: value
         for key, value in kwargs.items()
@@ -142,19 +150,26 @@ def _cann_9_1_sparse_flash_mla_metadata(**kwargs):
     if sparse:
         op = torch.ops.npu.sparse_attn_sharedkv_metadata_host
     else:
-        from ..._third_party.sgl_cann_recipes_infer import (
-            npu_sparse_attn_sharedkv_metadata as op,
-        )
+        if _cann_910_fn is None:
+            from ..._third_party.sgl_cann_recipes_infer import (
+                npu_sparse_attn_sharedkv_metadata,
+            )
+
+            _cann_910_fn = npu_sparse_attn_sharedkv_metadata
+        op = _cann_910_fn
     return op(**args)
 
 
 @register_impl("attention.sparse_flash_mla_metadata", "torch_native")
 def _torch_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.metadata import (
-        sparse_flash_mla_metadata,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+            dsv4_sparse_mla_metadata,
+        )
 
-    return sparse_flash_mla_metadata(
+        _torch_native_fn = dsv4_sparse_mla_metadata
+    return _torch_native_fn(
         **{
             key: value
             for key, value in kwargs.items()

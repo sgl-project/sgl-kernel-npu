@@ -5,6 +5,10 @@ import torch
 from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
+
 
 @register_impl("rope.inplace_partial_rotary_mul", "auto")
 def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
@@ -24,37 +28,48 @@ def _auto_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
 
 @register_impl("rope.inplace_partial_rotary_mul", "cann_ops_transformers_cann920")
 def _cann_ops_transformer_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    ops.inplace_partial_rotary_mul(x, cos, sin, **kwargs)
+        _cann_920_fn = ops.inplace_partial_rotary_mul
+
+    _cann_920_fn(x, cos, sin, **kwargs)
     return x
 
 
 @register_impl("rope.inplace_partial_rotary_mul", "cann_recipes_infer_cann910")
 def _cann_9_1_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
+    global _cann_910_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party.sgl_cann_recipes_infer import inplace_partial_rotary_mul as op
+    if _cann_910_fn is None:
+        from ..._third_party.sgl_cann_recipes_infer import inplace_partial_rotary_mul
 
-    op(x, cos, sin, **kwargs)
+        _cann_910_fn = inplace_partial_rotary_mul
+
+    _cann_910_fn(x, cos, sin, **kwargs)
     return x
 
 
 @register_impl("rope.inplace_partial_rotary_mul", "torch_native")
 def _torch_inplace_partial_rotary_mul(x, cos, sin, **kwargs):
-    from ...implementation.torch_native.rope.inplace_partial_rotary_mul import (
-        inplace_partial_rotary_mul,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.rope.inplace_partial_rotary_mul import (
+            inplace_partial_rotary_mul,
+        )
 
-    return inplace_partial_rotary_mul(x, cos, sin, **kwargs)
+        _torch_native_fn = inplace_partial_rotary_mul
+    return _torch_native_fn(x, cos, sin, **kwargs)
 
 
 @register_operator("rope.inplace_partial_rotary_mul")

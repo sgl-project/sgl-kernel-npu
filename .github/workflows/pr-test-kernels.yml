@@ -1,5 +1,5 @@
 name: PR Test - Kernel Operators (Ascend NPU)
-# Build and install the kernel wheel before running operator tests.
+# Build one wheel per environment and share it across operator test groups.
 on:
   pull_request:
     branches: [main]
@@ -23,6 +23,7 @@ on:
       - ".gitmodules"
       - ".github/workflows/pr-test-kernels.yml"
       - ".github/workflows/pr-test-kernel-group.yml"
+      - ".github/workflows/pr-build-kernel-wheel.yml"
   workflow_dispatch:
 
 concurrency:
@@ -34,6 +35,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
+      has_tests: ${{ steps.select.outputs.has_tests }}
       speculative: ${{ steps.select.outputs.speculative }}
       matmul: ${{ steps.select.outputs.matmul }}
       mamba: ${{ steps.select.outputs.mamba }}
@@ -41,6 +43,7 @@ jobs:
       embedding: ${{ steps.select.outputs.embedding }}
       data_move: ${{ steps.select.outputs.data_move }}
       activation: ${{ steps.select.outputs.activation }}
+      diffusion: ${{ steps.select.outputs.diffusion }}
       attention: ${{ steps.select.outputs.attention }}
       batch_invariant: ${{ steps.select.outputs.batch_invariant }}
       elementwise: ${{ steps.select.outputs.elementwise }}
@@ -80,6 +83,7 @@ jobs:
               "embedding": "tests/python/operators/embedding/",
               "data_move": "tests/python/operators/data_move/",
               "activation": "tests/python/operators/activation/",
+              "diffusion": "tests/python/operators/diffusion/",
               "attention": "tests/python/operators/attention/",
               "batch_invariant": "tests/python/operators/batch_invariant/",
               "elementwise": "tests/python/operators/elementwise/",
@@ -127,12 +131,25 @@ jobs:
                       selected.add(group)
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"has_tests={str(bool(selected)).lower()}", file=output)
               for group in directories:
                   print(f"{group}={str(group in selected).lower()}", file=output)
           PY
 
-  test-attention-ops:
+  build-kernel-wheel:
     needs: get-changed-files
+    if: ${{ needs.get-changed-files.outputs.has_tests == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-build-kernel-wheel.yml
+    with:
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+
+  test-attention-ops:
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.attention == 'true' }}
     strategy:
       fail-fast: false
@@ -146,7 +163,7 @@ jobs:
       timeout_minutes: 60
 
   test-batch-invariant-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.batch_invariant == 'true' }}
     strategy:
       fail-fast: false
@@ -160,7 +177,7 @@ jobs:
       timeout_minutes: 60
 
   test-elementwise-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.elementwise == 'true' }}
     strategy:
       fail-fast: false
@@ -174,7 +191,7 @@ jobs:
       timeout_minutes: 60
 
   test-examples-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.examples == 'true' }}
     strategy:
       fail-fast: false
@@ -188,7 +205,7 @@ jobs:
       timeout_minutes: 60
 
   test-hyper-conn-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.hyper_conn == 'true' }}
     strategy:
       fail-fast: false
@@ -202,7 +219,7 @@ jobs:
       timeout_minutes: 60
 
   test-indexer-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.indexer == 'true' }}
     strategy:
       fail-fast: false
@@ -216,7 +233,7 @@ jobs:
       timeout_minutes: 60
 
   test-lora-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.lora == 'true' }}
     strategy:
       fail-fast: false
@@ -230,7 +247,7 @@ jobs:
       timeout_minutes: 60
 
   test-mem-cache-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.mem_cache == 'true' }}
     strategy:
       fail-fast: false
@@ -244,7 +261,7 @@ jobs:
       timeout_minutes: 60
 
   test-multimodal-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.multimodal == 'true' }}
     strategy:
       fail-fast: false
@@ -258,7 +275,7 @@ jobs:
       timeout_minutes: 60
 
   test-norm-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.norm == 'true' }}
     strategy:
       fail-fast: false
@@ -272,7 +289,7 @@ jobs:
       timeout_minutes: 60
 
   test-rope-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.rope == 'true' }}
     strategy:
       fail-fast: false
@@ -286,7 +303,7 @@ jobs:
       timeout_minutes: 60
 
   test-sample-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.sample == 'true' }}
     strategy:
       fail-fast: false
@@ -300,7 +317,7 @@ jobs:
       timeout_minutes: 60
 
   test-sampler-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.sampler == 'true' }}
     strategy:
       fail-fast: false
@@ -314,7 +331,7 @@ jobs:
       timeout_minutes: 60
 
   test-operator-framework-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.operator_framework == 'true' }}
     strategy:
       fail-fast: false
@@ -328,7 +345,7 @@ jobs:
       timeout_minutes: 60
 
   test-testing-framework-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.testing_framework == 'true' }}
     strategy:
       fail-fast: false
@@ -342,7 +359,7 @@ jobs:
       timeout_minutes: 60
 
   test-activation-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.activation == 'true' }}
     strategy:
       fail-fast: false
@@ -355,8 +372,22 @@ jobs:
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
 
+  test-diffusion-ops:
+    needs: [get-changed-files, build-kernel-wheel]
+    if: ${{ needs.get-changed-files.outputs.diffusion == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: diffusion
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
   test-data_move-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.data_move == 'true' }}
     strategy:
       fail-fast: false
@@ -370,7 +401,7 @@ jobs:
       timeout_minutes: 60
 
   test-embedding-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.embedding == 'true' }}
     strategy:
       fail-fast: false
@@ -384,7 +415,7 @@ jobs:
       timeout_minutes: 60
 
   test-matmul-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.matmul == 'true' }}
     strategy:
       fail-fast: false
@@ -398,7 +429,7 @@ jobs:
       timeout_minutes: 60
 
   test-speculative-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.speculative == 'true' }}
     strategy:
       fail-fast: false
@@ -412,7 +443,7 @@ jobs:
       timeout_minutes: 60
 
   test-mamba-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.mamba == 'true' }}
     strategy:
       fail-fast: false
@@ -426,7 +457,7 @@ jobs:
       timeout_minutes: 60
 
   test-moe-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.moe == 'true' }}
     strategy:
       fail-fast: false
@@ -443,6 +474,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - get-changed-files
+      - build-kernel-wheel
       - test-speculative-ops
       - test-mamba-ops
       - test-moe-ops
@@ -450,6 +482,7 @@ jobs:
       - test-embedding-ops
       - test-data_move-ops
       - test-activation-ops
+      - test-diffusion-ops
       - test-attention-ops
       - test-batch-invariant-ops
       - test-elementwise-ops

@@ -2,43 +2,51 @@
 
 from ...utils.registry import get_impl_by_name, register_impl, register_operator
 
+# Direction values expected by the native operators.
+H2D = 1
+D2H = 2
+
 _memfabric_fn = None
 _reference_fn = None
 
 
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split_pf_lf",
-    "ascendc_aiv",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split_lf_pf",
-    "ascendc_aiv",
-)
-@register_impl(
-    "mem_cache.transfer_kv_per_layer_kv_split",
-    "ascendc_aiv",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split",
-    "ascendc_aiv",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split_lf_pf",
-    "auto",
-)
-@register_impl(
-    "mem_cache.transfer_kv_all_layer_kv_split",
-    "auto",
-)
-@register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "auto")
-@register_impl("mem_cache.transfer_kv_per_layer_kv_split", "auto")
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "memfabric_aicpu")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", "memfabric_aicpu")
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split", "memfabric_aicpu")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split", "memfabric_aicpu")
+def _aicpu_impl(*args, **kwargs):
+    global _memfabric_fn
+    if _memfabric_fn is None:
+        from .kv_transfer_impl import transfer_kv
+
+        _memfabric_fn = transfer_kv
+    return _memfabric_fn(*args, backend="memfabric_aicpu", **kwargs)
+
+
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "ascendc_aiv")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", "ascendc_aiv")
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split", "ascendc_aiv")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split", "ascendc_aiv")
 def _aiv_impl(*args, **kwargs):
     global _memfabric_fn
     if _memfabric_fn is None:
         from .kv_transfer_impl import transfer_kv
 
         _memfabric_fn = transfer_kv
-    return _memfabric_fn(*args, **kwargs)
+    return _memfabric_fn(*args, backend="ascendc_aiv", **kwargs)
+
+
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "auto")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", "auto")
+@register_impl("mem_cache.transfer_kv_per_layer_kv_split", "auto")
+@register_impl("mem_cache.transfer_kv_all_layer_kv_split", "auto")
+def _auto_impl(*args, **kwargs):
+    global _memfabric_fn
+    if _memfabric_fn is None:
+        from .kv_transfer_impl import transfer_kv
+
+        _memfabric_fn = transfer_kv
+    return _memfabric_fn(*args, backend="auto", **kwargs)
 
 
 @register_impl("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", "torch_native")
@@ -88,7 +96,7 @@ def transfer_kv_per_layer_kv_split_pf_lf(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects ascendc_aiv; explicit impl can override it.
+    auto uses memfabric_aicpu for MF-registered Host buffers and ascendc_aiv otherwise.
     """
     return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split_pf_lf", impl)(
         device_indices,
@@ -103,7 +111,7 @@ def transfer_kv_per_layer_kv_split_pf_lf(
         host_index_k_scale,
         page_size,
         host_layout="page_first",
-        direction=1,
+        direction=H2D,
         kv_layers=(device_layer_id, host_layer_id, 1),
         index_layers=_index_layers(device_index_layer_id, host_index_layer_id),
     )
@@ -132,7 +140,7 @@ def transfer_kv_all_layer_kv_split_lf_pf(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects ascendc_aiv; explicit impl can override it.
+    auto uses ascendc_aiv with the registered Host device addresses.
     """
     return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split_lf_pf", impl)(
         device_indices,
@@ -147,7 +155,7 @@ def transfer_kv_all_layer_kv_split_lf_pf(
         host_index_k_scale,
         page_size,
         host_layout="page_first",
-        direction=2,
+        direction=D2H,
         kv_layers=(0, host_layer_start, None),
         index_layers=(0, 0, None),
     )
@@ -179,7 +187,7 @@ def transfer_kv_per_layer_kv_split(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects ascendc_aiv; explicit impl can override it.
+    auto uses memfabric_aicpu for MF-registered Host buffers and ascendc_aiv otherwise.
     """
     return get_impl_by_name("mem_cache.transfer_kv_per_layer_kv_split", impl)(
         device_indices,
@@ -194,7 +202,7 @@ def transfer_kv_per_layer_kv_split(
         host_index_k_scale,
         page_size,
         host_layout="layer_first",
-        direction=1,
+        direction=H2D,
         kv_layers=(device_layer_id, host_layer_id, 1),
         index_layers=_index_layers(device_index_layer_id, host_index_layer_id),
     )
@@ -223,7 +231,7 @@ def transfer_kv_all_layer_kv_split(
     Indices are int64 complete-page token slots on the same NPU as the KV buffers.
     Optional Indexer/scale tensors are copied only when both operands exist.
     Mutates the destination, returns None, and enqueues on the current stream.
-    auto selects ascendc_aiv; explicit impl can override it.
+    auto uses ascendc_aiv with the registered Host device addresses.
     """
     return get_impl_by_name("mem_cache.transfer_kv_all_layer_kv_split", impl)(
         device_indices,
@@ -238,7 +246,7 @@ def transfer_kv_all_layer_kv_split(
         host_index_k_scale,
         page_size,
         host_layout="layer_first",
-        direction=2,
+        direction=D2H,
         kv_layers=(0, host_layer_start, None),
         index_layers=(0, 0, None),
     )
