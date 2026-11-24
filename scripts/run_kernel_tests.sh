@@ -56,65 +56,6 @@ discover_tests() {
     done <<< "$discovered"
 }
 
-filter_tests() {
-    local test_file
-    local -a filtered=()
-
-    for test_file in "${TESTS[@]}"; do
-        # Failures confirmed with developers on A5.
-        # The diffusion RMSNorm is arch22-only: 23 of 16.7M outputs differ by one bf16 ulp on A5.
-        if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
-            case "$test_file" in
-                tests/python/operators/diffusion/test_rmsnorm_cast_before_weight.py|\
-                tests/python/operators/attention/test_compressor.py|\
-                tests/python/operators/attention/test_flash_mla.py|\
-                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_dsl.py|\
-                tests/python/operators/attention/test_mixed_quant_sparse_flash_mla_metadata_dsl.py|\
-                tests/python/operators/indexer/test_indexer_prologue_k_dsl.py|\
-                tests/python/operators/indexer/test_quant_lightning_indexer_dsl.py|\
-                tests/python/operators/indexer/test_quant_lightning_indexer_metadata_dsl.py|\
-                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_dsl.py|\
-                tests/python/operators/indexer/test_quant_sparse_lightning_indexer_metadata_dsl.py|\
-                tests/python/operators/mem_cache/test_kv_transfer.py|\
-                tests/python/operators/norm/test_add_rmsnorm_bias.py|\
-                tests/python/operators/sample/test_markov_sample_step_triton.py|\
-                tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py|\
-                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
-                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
-                tests/python/operators/moe/test_mega_moe.py|\
-                tests/python/operators/indexer/test_pool_key_indexer.py)
-                    echo "[NPU_HARDWARE=950] Skipping: $test_file"
-                    continue
-                    ;;
-            esac
-        fi
-
-        if [[ "${NPU_HARDWARE:-}" == a3 ]]; then
-            case "$test_file" in
-                tests/python/operators/attention/test_mla_preprocess.py|\
-                tests/python/operators/attention/gdn/test_recompute_w_u_fwd.py|\
-                tests/python/operators/hyper_conn/test_mhc_post.py|\
-                tests/python/operators/hyper_conn/test_mhc_pre_sinkhorn.py|\
-                tests/python/operators/attention/test_compressor_v2.py|\
-                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
-                tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
-                tests/python/operators/indexer/test_lightning_indexer_v2.py|\
-                tests/python/operators/moe/test_mega_moe.py|\
-                tests/python/operators/mem_cache/test_kv_transfer.py|\
-                tests/python/operators/indexer/test_pool_key_indexer.py|\
-                tests/python/operators/indexer/test_qsa_mqa.py)
-                    echo "[NPU_HARDWARE=a3] Skipping: $test_file"
-                    continue
-                    ;;
-            esac
-        fi
-
-        filtered+=("$test_file")
-    done
-
-    TESTS=("${filtered[@]}")
-}
-
 run_test() {
     local test_file="$1"
     local exit_code=0
@@ -140,13 +81,6 @@ discover_tests "${TEST_DIRS[@]}"
 if [[ "${#TESTS[@]}" -eq 0 ]]; then
     echo "No test files found in group: $TEST_GROUP" >&2
     exit 1
-fi
-
-filter_tests
-
-if [[ "${#TESTS[@]}" -eq 0 ]]; then
-    echo "All test files in group '$TEST_GROUP' were skipped by environment rules."
-    exit 0
 fi
 
 echo "Running test group: $TEST_GROUP (${#TESTS[@]} test files)"
