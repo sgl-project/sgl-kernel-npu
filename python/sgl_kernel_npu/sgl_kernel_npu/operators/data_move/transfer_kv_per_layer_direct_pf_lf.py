@@ -7,6 +7,24 @@ _torch_native_fn = None
 
 
 @register_impl("data_move.transfer_kv_per_layer_direct_pf_lf", "auto")
+@register_impl("data_move.transfer_kv_per_layer_direct_pf_lf", "ascendc_aiv")
+def _aiv(
+    src: torch.Tensor,
+    dst: torch.Tensor,
+    src_indices: torch.Tensor,
+    dst_indices: torch.Tensor,
+    layer_id: int,
+    flags: TransferFlag = TransferFlag.FAST2D,
+):
+    # One fused state_exchange AIV kernel per call; `auto` routes here. The
+    # host source must be registered in the DVA table; destination slots
+    # must be unique and NPU graph capture is not supported. Details in
+    # transfer_kv_direct_aiv_impl.
+    from .transfer_kv_direct_aiv_impl import aiv_per_layer
+
+    aiv_per_layer(src, dst, src_indices, dst_indices, layer_id, flags)
+
+
 @register_impl("data_move.transfer_kv_per_layer_direct_pf_lf", "aclrt")
 def _aclrt(
     src: torch.Tensor,
@@ -62,7 +80,7 @@ def transfer_kv_per_layer_direct_pf_lf(
         dst_indices: Corresponding device slots.
         layer_id: Zero-based source layer.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (ACL Runtime), aclrt, or torch_native.
+        impl: auto (fused AIV), aclrt, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.

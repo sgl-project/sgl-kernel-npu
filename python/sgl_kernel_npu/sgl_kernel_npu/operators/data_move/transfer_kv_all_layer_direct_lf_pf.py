@@ -9,6 +9,24 @@ _torch_native_fn = None
 
 
 @register_impl("data_move.transfer_kv_all_layer_direct_lf_pf", "auto")
+@register_impl("data_move.transfer_kv_all_layer_direct_lf_pf", "ascendc_aiv")
+def _aiv(
+    device_states: Sequence[torch.Tensor],
+    host_states: Sequence[torch.Tensor],
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    flags: TransferFlag = TransferFlag.FAST2D,
+):
+    # One fused state_exchange AIV kernel per call; `auto` routes here. Host
+    # components must be registered in the DVA table; destination slots must
+    # be unique and NPU graph capture is not supported. Components may carry
+    # independent layer counts and host components may be layer-narrowed
+    # views (see transfer_kv_direct_aiv_impl).
+    from .transfer_kv_direct_aiv_impl import aiv_all_layer
+
+    aiv_all_layer(device_states, host_states, device_indices, host_indices, flags)
+
+
 @register_impl("data_move.transfer_kv_all_layer_direct_lf_pf", "aclrt")
 def _aclrt(
     device_states: Sequence[torch.Tensor],
@@ -60,7 +78,7 @@ def transfer_kv_all_layer_direct_lf_pf(
         device_indices: Non-negative device slot indices valid for every component, without page-size conversion.
         host_indices: Corresponding non-negative host slot indices valid for every component.
         flags: TransferFlag.FAST2D for 2D copies.
-        impl: auto (ACL Runtime), aclrt, or torch_native.
+        impl: auto (fused AIV), aclrt, ascendc_aiv, or torch_native.
 
     Returns:
         None. The destination is updated in place. Synchronize the submitting stream before reading it.
