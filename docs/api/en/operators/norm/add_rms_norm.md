@@ -43,7 +43,7 @@ Calls `torch_npu.npu_add_rms_norm`. Shape, dtype and layout combinations follow 
 
 ## torch_native backend
 
-Adds the residual and computes normalization in FP32. Casts the normalized result and residual sum to the input dtype separately.
+Adds the residual and computes the RMS statistic in FP32. For BF16 inputs on arch22, it rounds the residual sum to BF16 before computing `rstd` and rounds the normalized values to BF16 before multiplying by `gamma`. The first and third outputs use the input dtype.
 
 ## Example
 

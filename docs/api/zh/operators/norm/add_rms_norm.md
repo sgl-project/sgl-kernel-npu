@@ -43,7 +43,7 @@ def add_rms_norm(x1, x2, gamma, epsilon=1e-06, *, impl="auto"): ...
 
 ## torch_native 后端
 
-以 FP32 执行残差相加和归一化，并分别将归一化输出和残差和转换回输入 dtype。
+以 FP32 执行残差相加和均方根计算。arch22 上使用 BF16 输入时，先将残差和舍入到 BF16，再计算 `rstd`，并在乘以 `gamma` 前将归一化结果舍入到 BF16。第一个和第三个输出使用输入 dtype。
 
 ## 调用示例
 

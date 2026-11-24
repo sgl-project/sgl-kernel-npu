@@ -59,7 +59,8 @@ def test_format_cast_to_nz(shape):
             # INT8 weights use FRACTAL_NZ or the device's NZ C0_16/C0_32 format.
             assert torch_npu.get_npu_format(result) in (29, 50, 51)
             expected = format_cast(weight, 2, impl=executor.impl_ref)
-            assert_accuracy(result.cpu(), expected.cpu())
+            result_nd = torch_npu.npu_format_cast(result, 2)
+            assert_accuracy(result_nd.cpu(), expected.cpu())
             executor.accuracy_checked = True
         check_performance(executor)
     finally:

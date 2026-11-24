@@ -16,8 +16,8 @@ def generate_data(heads, context_length, page_size, topk):
     query = (
         torch.randn((1, heads, head_dim), generator=generator, device="cpu") * 0.01
     ).to(dtype)
-    query[:, : heads // 2, :2] = torch.tensor([1, 0], dtype=dtype)
-    query[:, heads // 2 :, :2] = torch.tensor([0, 1], dtype=dtype)
+    query[:, : heads // 2, :2] = torch.tensor([1, 0], dtype=dtype, device="cpu")
+    query[:, heads // 2 :, :2] = torch.tensor([0, 1], dtype=dtype, device="cpu")
     key = (
         torch.randn(
             (pages + 1, page_size, 1, head_dim), generator=generator, device="cpu"
@@ -30,9 +30,9 @@ def generate_data(heads, context_length, page_size, topk):
     physical = page_order[logical // page_size] * page_size + logical % page_size
     # The chosen set wins with the model's head weights. Uniform head
     # weights would rank the other keys higher.
-    physical_keys[..., :2] = torch.tensor([3, -1], dtype=dtype)
-    physical_keys[physical, :, :2] = torch.tensor([-1, 2], dtype=dtype)
-    weights = torch.full((1, heads), 1.5, dtype=dtype)
+    physical_keys[..., :2] = torch.tensor([3, -1], dtype=dtype, device="cpu")
+    physical_keys[physical, :, :2] = torch.tensor([-1, 2], dtype=dtype, device="cpu")
+    weights = torch.full((1, heads), 1.5, dtype=dtype, device="cpu")
     weights[:, : heads // 2] = 0.25
 
     return (query.npu(), key.npu(), weights.npu()), dict(

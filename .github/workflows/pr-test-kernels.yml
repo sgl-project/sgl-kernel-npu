@@ -291,7 +291,7 @@ jobs:
       timeout_minutes: 60
 
   test-quant-ops:
-    needs: get-changed-files
+    needs: [get-changed-files, build-kernel-wheel]
     if: ${{ needs.get-changed-files.outputs.quant == 'true' }}
     strategy:
       fail-fast: false
