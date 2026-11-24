@@ -119,12 +119,21 @@ filter_tests() {
 run_test() {
     local test_file="$1"
     local exit_code=0
+    local max_failures=1
+    # On 950, report each TorchNPU entry point even if an earlier case fails.
+    if [[ "${NPU_HARDWARE:-}" == 950 ]]; then
+        case "$test_file" in
+            tests/python/operators/attention/test_torch_npu_paged_attention.py|\
+            tests/python/operators/rope/test_torch_npu_rope.py)
+                max_failures=0 ;;
+        esac
+    fi
 
     echo "=========================================="
     echo "Running: $test_file"
     echo "=========================================="
 
-    python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
+    python3 -m pytest "$test_file" -q --maxfail="$max_failures" --enable-perf=false || exit_code=$?
 
     if [[ "$exit_code" -eq 0 ]]; then
         PASSED+=("$test_file")
