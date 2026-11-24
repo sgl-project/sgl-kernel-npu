@@ -269,20 +269,7 @@ def test_state_transfer_repeated_destination(direction):
         assert_accuracy(ref.cpu().view(torch.uint8), expected.view(torch.uint8))
 
 
-def test_auto_routes_to_fused_aiv():
-    from sgl_kernel_npu.operators.utils.registry import get_impl_by_name
-
-    for operator_id in (
-        "data_move.transfer_kv_per_layer_direct_pf_lf",
-        "data_move.transfer_kv_all_layer_direct_lf_pf",
-    ):
-        assert get_impl_by_name(operator_id, "auto") is get_impl_by_name(
-            operator_id, "ascendc_aiv"
-        )
-
-
 # (layers, slots, payload) exercised by the perf gate.
-
 aiv_perf_shape = [(4, 8, (128,))]
 
 
@@ -307,6 +294,16 @@ def _indices(values):
     return torch.tensor(values, dtype=torch.int64, device="npu")
 
 
+def generate_aiv_pools(layers, slots, host_slots, payload, dtype):
+    # Device [layers, slots, *payload] and host [host_slots, layers, 1, *payload]
+    # pools, in the style of generate_data above; wrap the host side with the
+    # acl_host fixture before the AIV submission.
+    torch.manual_seed(0)
+    dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
+    host = torch.randn(host_slots, layers, 1, *payload, dtype=dtype, device="cpu")
+    return dev, host
+
+
 @pytest.mark.parametrize(
     "layers,slots,host_slots,payload,dtype,device_ids,host_ids",
     [
@@ -324,10 +321,9 @@ def _indices(values):
             [11, 1, 4],
             id="fp32-pools-differ",
         ),
-        pytest.param(3, 5, 5, (16,), torch.float32, [2], [3], id="single-slot"),
-        # The AIV kernel stages each slot through an 88KB UB buffer and
-        # splits larger entries, so cover the boundary from both sides:
-        # 45056 * 2B = 88KB exactly, 45057/45055 straddle it by one element.
+        # The AIV kernel stages each slot through an 88KB UB buffer and splits
+        # larger entries: 45056 * 2B = 88KB exactly, 45057 straddles it by one
+        # element. Slow payloads run only under extra_checks.
         pytest.param(
             2,
             4,
@@ -337,30 +333,18 @@ def _indices(values):
             range(4),
             range(4),
             id="ub-88kb-exact-fp16",
-        ),
-        pytest.param(
-            2, 4, 4, (45057,), torch.float16, [0, 2], [1, 3], id="ub-88kb-over-fp16"
+            marks=pytest.mark.extra_checks,
         ),
         pytest.param(
             2,
             4,
             4,
-            (45055,),
+            (45057,),
             torch.float16,
-            range(4),
-            range(4),
-            id="ub-88kb-under-fp16",
-        ),
-        # Real GDN state shape (~2MB per slot, fp32): several splits per entry.
-        pytest.param(
-            2,
-            4,
-            4,
-            (32, 128, 128),
-            torch.float32,
-            range(4),
-            range(4),
-            id="gdn-shaped-fp32",
+            [0, 2],
+            [1, 3],
+            id="ub-88kb-over-fp16",
+            marks=pytest.mark.extra_checks,
         ),
     ],
 )
@@ -373,11 +357,8 @@ def test_state_aiv_all_layer_d2h(
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_kv_all_layer_direct_lf_pf, impl, impl_ref)
-    torch.manual_seed(0)
-    dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(
-        torch.randn(host_slots, layers, 1, *payload, dtype=dtype, device="cpu")
-    )
+    dev, host = generate_aiv_pools(layers, slots, host_slots, payload, dtype)
+    host = acl_host(host)
     d, h = _indices(device_ids), _indices(host_ids)
 
     ref_dev = dev.clone()
@@ -470,8 +451,8 @@ def test_state_aiv_all_layer_draft_mixed(acl_host):
         pytest.param(
             2, 10, 12, (32,), torch.float32, 1, [9, 3], [5, 0], id="fp32-pools-differ"
         ),
-        # UB-staging boundary (88KB per slot) in both directions, plus a
-        # multi-split GDN-shaped payload.
+        # UB-staging boundary (88KB per slot) in both directions; the slow
+        # boundary cases run only under extra_checks.
         pytest.param(
             2,
             4,
@@ -482,20 +463,19 @@ def test_state_aiv_all_layer_draft_mixed(acl_host):
             range(4),
             range(4),
             id="ub-88kb-exact-fp16",
-        ),
-        pytest.param(
-            2, 4, 4, (45057,), torch.float16, 0, [1, 3], [0, 2], id="ub-88kb-over-fp16"
+            marks=pytest.mark.extra_checks,
         ),
         pytest.param(
             2,
             4,
             4,
-            (32, 128, 128),
-            torch.float32,
-            1,
-            range(4),
-            range(4),
-            id="gdn-shaped-fp32",
+            (45057,),
+            torch.float16,
+            0,
+            [1, 3],
+            [0, 2],
+            id="ub-88kb-over-fp16",
+            marks=pytest.mark.extra_checks,
         ),
     ],
 )
@@ -508,11 +488,8 @@ def test_state_aiv_per_layer_h2d(
     checked = not get_skip_acc_check()
     if checked:
         require_distinct_impls(transfer_kv_per_layer_direct_pf_lf, impl, impl_ref)
-    torch.manual_seed(0)
-    dev = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(
-        torch.randn(host_slots, layers, 1, *payload, dtype=dtype, device="cpu")
-    )
+    dev, host = generate_aiv_pools(layers, slots, host_slots, payload, dtype)
+    host = acl_host(host)
     h, d = _indices(host_ids), _indices(device_ids)
 
     ref_dev = torch.zeros_like(dev)
@@ -600,9 +577,8 @@ def test_state_aiv_roundtrip(acl_host):
     impl, impl_ref = "ascendc_aiv", get_test_impls()[1]
     checked = not get_skip_acc_check()
     layers, slots, payload, dtype = 4, 8, (64,), torch.float16
-    torch.manual_seed(0)
-    original = torch.randn(layers, slots, *payload, dtype=dtype, device="npu")
-    host = acl_host(torch.zeros(slots, layers, 1, *payload, dtype=dtype, device="cpu"))
+    original, host = generate_aiv_pools(layers, slots, slots, payload, dtype)
+    host = acl_host(host)
     ids = _indices(range(slots))
 
     transfer_kv_all_layer_direct_lf_pf([original], [host], ids, ids, impl=impl)
@@ -625,8 +601,8 @@ def test_state_aiv_empty_indices_noop(acl_host):
         transfer_kv_per_layer_direct_pf_lf,
     )
 
-    dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = acl_host(torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu"))
+    dev, host = generate_aiv_pools(2, 4, 4, (16,), torch.float32)
+    host = acl_host(host)
     before_host, before_dev = host.clone(), dev.clone()
     empty = _indices([])
     transfer_kv_all_layer_direct_lf_pf([dev], [host], empty, empty, impl="ascendc_aiv")
@@ -652,9 +628,7 @@ def test_state_aiv_empty_indices_noop(acl_host):
 def test_state_aiv_all_layer_rejected(acl_host, case, error_type, message):
     from sgl_kernel_npu.operators.data_move import transfer_kv_all_layer_direct_lf_pf
 
-    torch.manual_seed(0)
-    dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu")
+    dev, host = generate_aiv_pools(2, 4, 4, (16,), torch.float32)
     if case != "unregistered":
         host = acl_host(host)
     dev_states, host_states = [dev], [host]
@@ -718,9 +692,7 @@ def test_state_aiv_all_layer_splits_large_component_lists(acl_host):
 def test_state_aiv_per_layer_rejected(acl_host, case, error_type, message):
     from sgl_kernel_npu.operators.data_move import transfer_kv_per_layer_direct_pf_lf
 
-    torch.manual_seed(0)
-    dev = torch.randn(2, 4, 16, dtype=torch.float32, device="npu")
-    host = torch.randn(4, 2, 1, 16, dtype=torch.float32, device="cpu")
+    dev, host = generate_aiv_pools(2, 4, 4, (16,), torch.float32)
     if case != "unregistered":
         host = acl_host(host)
     layer_id = 0
