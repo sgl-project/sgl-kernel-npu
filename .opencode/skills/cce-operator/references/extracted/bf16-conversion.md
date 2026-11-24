@@ -26,7 +26,7 @@ __simd_callee__ inline void bf_unpack(__ubuf__ uint16_t* src,
             vshrs(hsb,h,16,m);vand(hsb,hsb,one,m);
             vadd(l,l,roundbias,m);vadd(l,l,lsb,m);vshrs(l,l,16,m);
             vadd(h,h,roundbias,m);vadd(h,h,hsb,m);vand(h,h,highmask,m);
-            vor(packed,l,h,m);
+            vor(packed,l,h,m);  // codespell:ignore vor
             vsts(packed,(__ubuf__ uint32_t*)(output+row*stride+col),0,__cce_simd::NORM_B32,m);
 ```
 
