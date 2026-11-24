@@ -9,6 +9,15 @@ from tests.python.utils.common import require_test_impl
 from tests.python.utils.performance import check_performance
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0():
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if version != "9.2.0":
+        pytest.skip(f"Flash MLA requires CANN 9.2.0 (found {version})")
+
+
 def generate_test_data(
     shape,
     cache_shape,
