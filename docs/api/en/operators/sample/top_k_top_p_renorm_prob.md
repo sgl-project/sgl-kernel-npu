@@ -51,7 +51,8 @@ All tensors must be on the same NPU device.
 
 ## torch_native backend
 
-- Independent two-pass reference: top-p over the full distribution, then top-k. It ignores `max_keep`.
+- Independent full-sort reference: applies the joint top-p/top-k mask to the original sorted probabilities and normalizes once. This keeps the selected token independent of intermediate normalization rounding.
+- Honors `max_keep` by capping each row top-k, matching the fused backend.
 - Uses PyTorch sort, masking, sum, and scatter for filtering, normalization, and vocabulary-order restoration.
 
 ## Example

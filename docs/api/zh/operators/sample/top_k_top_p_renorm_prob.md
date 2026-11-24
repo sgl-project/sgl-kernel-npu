@@ -51,7 +51,8 @@ def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None, *, impl="auto"
 
 ## torch_native 后端
 
-- 独立的两遍参考实现：先在完整分布上做 top-p，再做 top-k；忽略 `max_keep`。
+- 独立的全排序参考实现：在原始排序概率上应用 top-p/top-k 联合掩码，并只归一化一次，避免中间归一化舍入改变被选中的 token。
+- 通过把每行 top-k 限制到 `max_keep` 来与融合后端保持一致。
 - 使用 PyTorch sort、mask、sum 和 scatter 完成筛选、归一化与词表顺序恢复。
 
 ## 示例

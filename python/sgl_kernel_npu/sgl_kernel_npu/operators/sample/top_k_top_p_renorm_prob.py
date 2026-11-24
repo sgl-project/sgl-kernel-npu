@@ -51,6 +51,10 @@ def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None, *, impl="auto"
     Returns:
         FP32 [batch,vocab] normalized probabilities, same device as probs.
     """
+    if max_keep is not None and (
+        isinstance(max_keep, bool) or not isinstance(max_keep, int) or max_keep < 1
+    ):
+        raise ValueError("max_keep must be a positive integer or None")
     return get_impl_by_name("sample.top_k_top_p_renorm_prob", impl)(
         probs, top_ks, top_ps, max_keep
     )

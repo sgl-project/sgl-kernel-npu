@@ -242,6 +242,12 @@ def top_k_top_p_renorm_prob(
     the narrow scatter restores vocabulary order without the full-vocabulary
     write-back.
     """
+    # Validate the contract before the empty-batch early return so both
+    # backends reject the same inputs.
+    if max_keep is not None and (
+        isinstance(max_keep, bool) or not isinstance(max_keep, int) or max_keep < 1
+    ):
+        raise ValueError("max_keep must be a positive integer or None")
     probs = _prepare_probs(probs)
     rows, vocab = probs.shape
     # Scalar thresholds expand to stride 0; the kernel loads one value per row,
@@ -258,28 +264,23 @@ def top_k_top_p_renorm_prob(
     )
     if rows == 0:
         return torch.empty_like(probs)
-    if max_keep is None:
-        width = vocab
-    elif isinstance(max_keep, bool) or not isinstance(max_keep, int):
-        raise ValueError("max_keep must be a positive integer or None")
-    elif max_keep < 1:
-        raise ValueError("max_keep must be a positive integer or None")
-    else:
-        width = min(max_keep, vocab)
+    width = vocab if max_keep is None else min(max_keep, vocab)
+    top_ks = top_ks.clamp(max=width)
 
     values, indices = torch.topk(probs, k=width, dim=-1)
     cumulative = values.cumsum(dim=-1)
     if width <= _JOINT_BLOCK_LIMIT:
         dense = torch.empty_like(values)
-        _joint_filter_kernel[(rows,)](
-            values,
-            cumulative,
-            top_ks,
-            top_ps,
-            dense,
-            width,
-            BLOCK=triton.next_power_of_2(width),
-        )
+        with torch.npu.device(probs.device):
+            _joint_filter_kernel[(rows,)](
+                values,
+                cumulative,
+                top_ks,
+                top_ps,
+                dense,
+                width,
+                BLOCK=triton.next_power_of_2(width),
+            )
     else:
         dense = _torch_joint_filter(values, cumulative, top_ks, top_ps)
     return torch.zeros_like(probs).scatter_(-1, indices, dense)
