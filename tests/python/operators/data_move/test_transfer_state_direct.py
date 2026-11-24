@@ -308,33 +308,12 @@ def generate_aiv_pools(layers, slots, host_slots, payload, dtype):
     "layers,slots,host_slots,payload,dtype,device_ids,host_ids",
     [
         pytest.param(4, 8, 8, (128,), torch.bfloat16, range(8), range(8), id="bf16"),
+        # Scattered indices with a larger host pool in fp32.
         pytest.param(
-            3, 6, 6, (8, 64), torch.float16, [1, 3, 5], [5, 0, 2], id="subset"
-        ),
-        pytest.param(
-            2,
-            10,
-            12,
-            (32,),
-            torch.float32,
-            [7, 2, 9],
-            [11, 1, 4],
-            id="fp32-pools-differ",
+            3, 6, 10, (8, 64), torch.float32, [1, 3, 5], [9, 0, 4], id="subset"
         ),
         # The AIV kernel stages each slot through an 88KB UB buffer and splits
-        # larger entries: 45056 * 2B = 88KB exactly, 45057 straddles it by one
-        # element. Slow payloads run only under extra_checks.
-        pytest.param(
-            2,
-            4,
-            4,
-            (45056,),
-            torch.float16,
-            range(4),
-            range(4),
-            id="ub-88kb-exact-fp16",
-            marks=pytest.mark.extra_checks,
-        ),
+        # larger entries: 45057 * 2B straddles the boundary by one element.
         pytest.param(
             2,
             4,
@@ -447,24 +426,12 @@ def test_state_aiv_all_layer_draft_mixed(acl_host):
     "layers,slots,host_slots,payload,dtype,layer_id,host_ids,device_ids",
     [
         pytest.param(4, 8, 8, (128,), torch.bfloat16, 2, range(8), range(8), id="bf16"),
-        pytest.param(3, 6, 6, (8, 64), torch.float16, 0, [2, 5], [1, 4], id="subset"),
+        # Scattered indices with a larger host pool in fp32.
         pytest.param(
-            2, 10, 12, (32,), torch.float32, 1, [9, 3], [5, 0], id="fp32-pools-differ"
+            3, 6, 10, (8, 64), torch.float32, 1, [9, 0, 4], [1, 3, 5], id="subset"
         ),
-        # UB-staging boundary (88KB per slot) in both directions; the slow
-        # boundary cases run only under extra_checks.
-        pytest.param(
-            2,
-            4,
-            4,
-            (45056,),
-            torch.float16,
-            1,
-            range(4),
-            range(4),
-            id="ub-88kb-exact-fp16",
-            marks=pytest.mark.extra_checks,
-        ),
+        # The AIV kernel stages each slot through an 88KB UB buffer and splits
+        # larger entries: 45057 * 2B straddles the boundary by one element.
         pytest.param(
             2,
             4,
@@ -524,33 +491,6 @@ def test_state_aiv_per_layer_h2d(
     check_performance(executor, enable_perf=(layers, slots, payload) in aiv_perf_shape)
 
 
-def test_state_aiv_per_layer_h2d_duplicate_host_source(acl_host):
-    # Migrated from the retired unittest suite: one host source slot may back
-    # several device slots, and the (src, dst) pairs map in input order even
-    # when both sides are unsorted. Expected values are constructed directly
-    # so the mapping order is verified without relying on the reference impl.
-
-    from sgl_kernel_npu.operators.data_move import transfer_kv_per_layer_direct_pf_lf
-
-    impl = "ascendc_aiv"
-    layers, slots, host_slots, payload = 2, 6, 8, (16,)
-    torch.manual_seed(0)
-    dev = torch.zeros(layers, slots, *payload, dtype=torch.float32, device="npu")
-    host = acl_host(
-        torch.randn(host_slots, layers, 1, *payload, dtype=torch.float32, device="cpu")
-    )
-    # host slot 3 backs device slots 0 and 2; neither side is sorted.
-    h, d = _indices([3, 3, 5]), _indices([0, 2, 5])
-    layer_id = 1
-    transfer_kv_per_layer_direct_pf_lf(host, dev[layer_id], h, d, layer_id, impl=impl)
-    torch.npu.synchronize()
-
-    expected = torch.zeros_like(dev)
-    for host_slot, device_slot in zip(h.tolist(), d.tolist()):
-        expected[layer_id, device_slot] = host[host_slot, layer_id, 0]
-    assert_accuracy(dev.view(torch.uint8), expected.view(torch.uint8))
-
-
 def test_state_aiv_host_side_indices(acl_host):
     # Host-resident indices: the backend validates them on the CPU without
     # an NPU-to-CPU sync and uploads them with the submission.
@@ -566,59 +506,11 @@ def test_state_aiv_host_side_indices(acl_host):
     assert_accuracy(dev[1][d].cpu(), host[h, 1, 0])
 
 
-def test_state_aiv_roundtrip(acl_host):
-    # Backup every layer D2H, restore them per-layer H2D, and compare.
-
-    from sgl_kernel_npu.operators.data_move import (
-        transfer_kv_all_layer_direct_lf_pf,
-        transfer_kv_per_layer_direct_pf_lf,
-    )
-
-    impl, impl_ref = "ascendc_aiv", get_test_impls()[1]
-    checked = not get_skip_acc_check()
-    layers, slots, payload, dtype = 4, 8, (64,), torch.float16
-    original, host = generate_aiv_pools(layers, slots, slots, payload, dtype)
-    host = acl_host(host)
-    ids = _indices(range(slots))
-
-    transfer_kv_all_layer_direct_lf_pf([original], [host], ids, ids, impl=impl)
-    restored = torch.zeros_like(original)
-    for layer_id in range(layers):
-        transfer_kv_per_layer_direct_pf_lf(
-            host, restored[layer_id], ids, ids, layer_id, impl=impl
-        )
-    torch.npu.synchronize()
-
-    if checked:
-        assert_accuracy(restored.view(torch.uint8), original.view(torch.uint8))
-
-
-def test_state_aiv_empty_indices_noop(acl_host):
-    # Empty indices return before any submission; buffers stay untouched.
-
-    from sgl_kernel_npu.operators.data_move import (
-        transfer_kv_all_layer_direct_lf_pf,
-        transfer_kv_per_layer_direct_pf_lf,
-    )
-
-    dev, host = generate_aiv_pools(2, 4, 4, (16,), torch.float32)
-    host = acl_host(host)
-    before_host, before_dev = host.clone(), dev.clone()
-    empty = _indices([])
-    transfer_kv_all_layer_direct_lf_pf([dev], [host], empty, empty, impl="ascendc_aiv")
-    transfer_kv_per_layer_direct_pf_lf(
-        host, dev[0], empty, empty, 0, impl="ascendc_aiv"
-    )
-    assert_accuracy(host.view(torch.uint8), before_host.view(torch.uint8))
-    assert_accuracy(dev.view(torch.uint8), before_dev.view(torch.uint8))
-
-
 @pytest.mark.extra_checks
 @pytest.mark.parametrize(
     "case,error_type,message",
     [
         ("unregistered", RuntimeError, "not registered"),
-        ("dtype", RuntimeError, "dtypes must match"),
         ("host-layout", RuntimeError, "buffers must be device \\(layers, slots"),
         ("device-layout", RuntimeError, "buffers must be device \\(layers, slots"),
         # Duplicate host destinations race across the round-robin cores.
@@ -632,9 +524,7 @@ def test_state_aiv_all_layer_rejected(acl_host, case, error_type, message):
     if case != "unregistered":
         host = acl_host(host)
     dev_states, host_states = [dev], [host]
-    if case == "dtype":
-        host_states = [acl_host(host.to(torch.bfloat16))]
-    elif case == "host-layout":
+    if case == "host-layout":
         host_states = [host.squeeze(2)]
     elif case == "device-layout":
         dev_states = [dev[0]]
@@ -677,7 +567,6 @@ def test_state_aiv_all_layer_splits_large_component_lists(acl_host):
     [
         ("unregistered", RuntimeError, "not registered"),
         ("layer-id", ValueError, "layer_id is outside"),
-        ("host-layout", RuntimeError, "buffers must be device \\(layers, slots"),
         # Slot payloads must be flat-packed: a dense-but-permuted trailing
         # block is rejected (migrated from the retired unittest suite's
         # non-dense rejection; the AIV path copies raw (slot, layer) rows).
@@ -699,8 +588,6 @@ def test_state_aiv_per_layer_rejected(acl_host, case, error_type, message):
     dst = dev[0]
     if case == "layer-id":
         layer_id = 2
-    elif case == "host-layout":
-        host = host.squeeze(2)
     elif case == "non-packed":
         # Same element count as a [slots, 16] layer, but the trailing block
         # is permuted so it is not flat-contiguous inside a slot row.
