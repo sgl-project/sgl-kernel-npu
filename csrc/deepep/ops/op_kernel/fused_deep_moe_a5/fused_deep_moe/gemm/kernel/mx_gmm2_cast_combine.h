@@ -694,7 +694,37 @@ public:
         }
 
         icache_preload(4);
-        if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
+        if (serialDeepFuse) {
+            uint64_t profWeightSumCombineStart = 0;
+            if (subBlockIdx == 0) {
+                if (params.profile != nullptr) {
+                    profWeightSumCombineStart = params.profile->Now();
+                }
+                resource.pipe.Init();
+                combiner->TPipeSet(&resource.pipe);
+                combiner->PublishAndWaitCombineSerial();
+            }
+
+            // Each sub0 polls only its assigned source ranks. The reduction
+            // can read experts from any source rank.
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u remote_ready enter\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
+            Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
+            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u remote_ready pass\n",
+                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
+
+            if (subBlockIdx == 0) {
+                combiner->LocalWindowCopy();
+                combiner->TPipeSet(nullptr);
+                resource.pipe.Destroy();
+                if constexpr ((EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) == 0) {
+                    if (params.profile != nullptr) {
+                        params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
+                                               profWeightSumCombineStart, params.profile->Now());
+                    }
+                }
+            }
+        } else if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             if (FUSED_MOE_SERIAL_MODE()) {
                 // 1C1V（或 A5 模拟串行）：sub0 先写完共享专家输出，再串行跑 combine；sub1 空转
                 if (AscendC::GetSubBlockIdx() == 0) {
@@ -719,26 +749,7 @@ public:
                 }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            if (serialDeepFuse) {
-                if (subBlockIdx == 0) {
-                    uint64_t profWeightSumCombineStart = 0;
-                    if (params.profile != nullptr) {
-                        profWeightSumCombineStart = params.profile->Now();
-                    }
-                    resource.pipe.Init();
-                    combiner->TPipeSet(&resource.pipe);
-                    combiner->DeepFuseCombineSerial();
-                    combiner->TPipeSet(nullptr);
-                    resource.pipe.Destroy();
-                    if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("C%u\n", AscendC::GetBlockIdx());
-                    }
-                    if (params.profile != nullptr) {
-                        params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
-                                               profWeightSumCombineStart, params.profile->Now());
-                    }
-                }
-            } else if (AscendC::GetSubBlockIdx() == 0) {
+            if (subBlockIdx == 0) {
                 uint64_t profWeightSumAllToAllSendStart = 0;
                 if (params.profile != nullptr) {
                     profWeightSumAllToAllSendStart = params.profile->Now();

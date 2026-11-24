@@ -70,9 +70,9 @@ public:
     __aicore__ inline void AllToAllSend();
     __aicore__ inline void ReducePermute();
     __aicore__ inline void ProcessCombine();
-    // 1C1V 串行双角色 combine：等价 DEEP_FUSE 下 sub0 的 AllToAllSend + sub1 的 ReducePermute，
-    // 去掉全部 sub0<->sub1 CrossCore 事件会合（无兄弟 sub，程序顺序天然保证依赖）。仅 1C1V 调用，A5(1C2V) 不走此路径。
-    __aicore__ inline void DeepFuseCombineSerial();
+    // Call LocalWindowCopy only after all source rank ranges are ready.
+    __aicore__ inline void PublishAndWaitCombineSerial();
+    __aicore__ inline void LocalWindowCopy();
     // 1C1V 串行版 ProcessCombine：去掉入口 sub0<->sub1 SEND 事件会合，WaitDispatch 换无旗标自旋版。
     __aicore__ inline void ProcessCombineSerial();
 
@@ -97,7 +97,6 @@ private:
     __aicore__ inline void ExpertAlltoAllDispatchInnerCopyAdd(uint32_t tokenNumLoop, uint32_t srcStartTokenIdx,
                                                               uint32_t ep, uint32_t expertIdx);
     __aicore__ inline void ExpertAlltoAllDispatchCopyAdd();
-    __aicore__ inline void LocalWindowCopy();
     __aicore__ inline void BuffInit();
     __aicore__ inline void SplitCoreCal();
     __aicore__ inline void SetStatus();
@@ -867,12 +866,9 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatc
     }
 }
 
-// 1C1V 串行双角色 combine（DEEP_FUSE）：同一 AIV 先做发送侧实质步骤（ReduceScatterTrans?/BuffInit/
-// SetStatus），再做接收侧实质步骤（AlltoAllBuffInit/WaitDispatch 自旋/LocalWindowCopy）。
-// 相比 AllToAllSend + ReducePermute，仅去掉 4 处 sub0<->sub1 CrossCore 事件会合，实质步骤与
-// Process() 的单核串行顺序一致。
+// Poll the assigned source ranks before the caller's rank-wide receive rendezvous.
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::DeepFuseCombineSerial()
+__aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::PublishAndWaitCombineSerial()
 {
     // 入口打印全核放开：每个参与核的 rank 分段可见，用于核对多核 rank 覆盖是否完整
     FUSED_MOE_DBG("c%u %u-%u\n", coreIdx_, startRankId_, endRankId_);
@@ -894,11 +890,8 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::DeepFuseCom
     WaitDispatchSpin();
     FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u WaitDispatchSpin pass\n",
                   epRankId_, GetBlockIdx(), GetSubBlockIdx());
-    LocalWindowCopy();
-    if (coreIdx_ < 2) {
-        FUSED_MOE_DBG("cd%u\n", coreIdx_);
-    }
 }
+
 }  // namespace MoeDistributeCombineImpl
 
 #endif  // CAM_MOE_DISTRIBUTE_COMBINE_IMPL_H
