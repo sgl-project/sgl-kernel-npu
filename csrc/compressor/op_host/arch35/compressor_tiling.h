@@ -131,7 +131,7 @@ const std::map<std::string, std::vector<uint32_t>> DIM_NUM_MAP = {
     {NORM_WEIGHT_NAME, {COMPRESSOR_DIM_NUM_1}},
     {ROPE_SIN_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
     {ROPE_COS_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
-    {STATE_BLOCK_TABLE_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_1}},
+    {STATE_BLOCK_TABLE_NAME, {COMPRESSOR_DIM_NUM_2}},
     {CU_SEQLENS_NAME, {COMPRESSOR_DIM_NUM_1}},
     {SEQUSED_NAME, {COMPRESSOR_DIM_NUM_1}},
     {START_POS_NAME, {COMPRESSOR_DIM_NUM_1}},
@@ -220,7 +220,7 @@ const std::vector<int> CACHE_MODE{1, 2};
 
 enum class ROTARY_MODE : uint8_t { HALF = 1, INTERLEAVE = 2 };
 
-enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, CYCLE = 2 };
+enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, EXPLICIT = 2 };
 
 struct CompressorContext {
     const char *opName;

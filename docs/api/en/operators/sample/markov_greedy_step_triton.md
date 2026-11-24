@@ -18,9 +18,14 @@ currently verified status.
 ```python
 from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
     ...
 ```
+
+Extra keyword arguments are accepted for upstream compatibility and ignored
+regardless of value. They are not forwarded to the backend.
 
 ## Description
 

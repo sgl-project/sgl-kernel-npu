@@ -7,7 +7,7 @@
 | cann_ops_transformer | Verified | Verified |
 | torch_native | Verified on NPU | Verified on NPU |
 
-Accuracy validated on A3 (Ascend910_9362) and 950DT (Ascend950DT_9582) with CANN 9.1: all 24 independent Torch-reference cases passed on each device, covering FP16/BF16 activations and FP32 parameters.
+CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. On Ascend950, CANN 9.2.0 only supports hidden sizes 4096 and 7168. The GLM-5.3-Flash hidden size of 4096 is supported by both versions.
 
 ## Signature
 
@@ -48,7 +48,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_pre_sinkhorn` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
+Uses `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_pre_sinkhorn` bundled in a wheel built with the matching CANN 9.1 or 9.2 third-party profile. A separately installed `cann_ops_transformer` package is not required. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 The facade expands [T,N,D] to [T,1,N,D] for the vendor BSND wrapper and squeezes the singleton sequence dimension of each output. Output dtypes are preserved; any activation conversion belongs to the SGLang caller, matching GitCode glmx PR #21.
 

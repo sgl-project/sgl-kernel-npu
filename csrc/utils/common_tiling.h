@@ -11,11 +11,16 @@
 #ifndef COMMMON_TILING_H
 #define COMMMON_TILING_H
 
+#include <algorithm>
 #include <iostream>
 #include <cmath>
 #include "common.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "../batch_matmul_transpose/op_host/tiling/tiling_data.h"
+
+namespace optiling {
+struct BatchMatmulTransposeTilingData;
+}
 
 namespace host_utils {
 
@@ -200,7 +205,8 @@ void TilingFunc(OpShareType &opShape, TilingType &tilingParam, const HardwareTyp
                 continue;
             }
             costMin = cost;
-            if constexpr (std::is_same<TilingType, pp_matmul::PpMatmulTilingData>::value) {
+            if constexpr (std::is_same<TilingType, pp_matmul::PpMatmulTilingData>::value ||
+                          std::is_same<TilingType, optiling::BatchMatmulTransposeTilingData>::value) {
                 tilingParam.SetBaseOp(hwInfor.coreNum, opShape.m0, opShape.n0, mmInfo);
             } else {
                 tilingParam.SetBaseOp(hwInfor.coreNum, opShape.m0, opShape.n0);
@@ -246,6 +252,8 @@ uint32_t Swizzl(PpTilingDataType &tilingData)
     return swizzlDirect;
 }
 
+// Torch checks are only available in Torch builds; the scheduling helpers above are shared with CANN.
+#ifdef TORCH_CHECK
 template <typename PpTilingDataType>
 inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDataType &tilingData)
 {
@@ -257,6 +265,7 @@ inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDat
     TORCH_CHECK(tilingData.nLoop > 0, "nLoop is invalid");
     TORCH_CHECK(tilingData.blockDim > 0, "nLoop is invalid");
 }
+#endif
 
 }  // namespace host_utils
 

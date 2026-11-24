@@ -11,14 +11,13 @@ def build_out_tokens_triton(
     bs = draft_tokens.shape[0]
     if correct_len.shape != (bs,) or bonus.shape != (bs,):
         raise ValueError("correct_len and bonus must have shape [batch]")
-    out = torch.cat(
-        (
-            draft_tokens.to(torch.int64),
-            draft_tokens.new_zeros((bs, 1), dtype=torch.int64),
-        ),
-        dim=1,
+    correct_len = correct_len.to(torch.int64)
+    keep = (
+        torch.arange(gamma, device=draft_tokens.device)[None, :] < correct_len[:, None]
     )
-    out.scatter_(
-        1, correct_len.to(torch.int64).unsqueeze(1), bonus.to(torch.int64).unsqueeze(1)
+    out = torch.zeros(
+        (bs, verify_num_draft_tokens), dtype=torch.int64, device=draft_tokens.device
     )
+    out[:, :gamma] = torch.where(keep, draft_tokens.to(torch.int64), 0)
+    out.scatter_(1, correct_len.unsqueeze(1), bonus.to(torch.int64).unsqueeze(1))
     return out
