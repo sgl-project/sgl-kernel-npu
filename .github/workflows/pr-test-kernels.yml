@@ -54,6 +54,7 @@ jobs:
       mem_cache: ${{ steps.select.outputs.mem_cache }}
       multimodal: ${{ steps.select.outputs.multimodal }}
       norm: ${{ steps.select.outputs.norm }}
+      quant: ${{ steps.select.outputs.quant }}
       rope: ${{ steps.select.outputs.rope }}
       sample: ${{ steps.select.outputs.sample }}
       sampler: ${{ steps.select.outputs.sampler }}
@@ -94,6 +95,7 @@ jobs:
               "mem_cache": "tests/python/operators/mem_cache/",
               "multimodal": "tests/python/operators/multimodal/",
               "norm": "tests/python/operators/norm/",
+              "quant": "tests/python/operators/quant/",
               "rope": "tests/python/operators/rope/",
               "sample": "tests/python/operators/sample/",
               "sampler": "tests/python/operators/sampler/",
@@ -284,6 +286,20 @@ jobs:
     uses: ./.github/workflows/pr-test-kernel-group.yml
     with:
       group: norm
+      cann_version: '9.1.0'
+      npu_hardware: ${{ matrix.npu_hardware }}
+      timeout_minutes: 60
+
+  test-quant-ops:
+    needs: [get-changed-files, build-kernel-wheel]
+    if: ${{ needs.get-changed-files.outputs.quant == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npu_hardware: [a3, '950']
+    uses: ./.github/workflows/pr-test-kernel-group.yml
+    with:
+      group: quant
       cann_version: '9.1.0'
       npu_hardware: ${{ matrix.npu_hardware }}
       timeout_minutes: 60
@@ -493,6 +509,7 @@ jobs:
       - test-mem-cache-ops
       - test-multimodal-ops
       - test-norm-ops
+      - test-quant-ops
       - test-rope-ops
       - test-sample-ops
       - test-sampler-ops

@@ -26,6 +26,7 @@ case "$TEST_GROUP" in
     mem_cache)          TEST_DIRS=("$TEST_ROOT/operators/mem_cache") ;;
     multimodal)         TEST_DIRS=("$TEST_ROOT/operators/multimodal") ;;
     norm)               TEST_DIRS=("$TEST_ROOT/operators/norm") ;;
+    quant)              TEST_DIRS=("$TEST_ROOT/operators/quant") ;;
     rope)               TEST_DIRS=("$TEST_ROOT/operators/rope") ;;
     sample)             TEST_DIRS=("$TEST_ROOT/operators/sample") ;;
     sampler)            TEST_DIRS=("$TEST_ROOT/operators/sampler") ;;
