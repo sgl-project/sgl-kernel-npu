@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ops-transformer` | Supported | Unsupported |
+| `ops-transformer` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature

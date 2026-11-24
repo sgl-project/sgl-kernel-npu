@@ -5,8 +5,8 @@ import torch_npu
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-# The legacy ATB bindings here use the A2/A3 host-length interface.
 _ARCH22 = {Generation.ARCH22}
+_DECODE_GENERATIONS = {Generation.ARCH22, Generation.ARCH35}
 _native_flash_attention_qlens = None
 _native_paged_attention = None
 _native_paged_attention_mla = None
@@ -73,11 +73,15 @@ def flash_attention_qlens(
     )
 
 
-@register_impl("attention.paged_attention", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.paged_attention",
+    "auto",
+    supported_generations=_DECODE_GENERATIONS,
+)
 @register_impl(
     "attention.paged_attention",
     "ascend-transformer-boost",
-    supported_generations=_ARCH22,
+    supported_generations=_DECODE_GENERATIONS,
 )
 def _paged_attention_impl(**kwargs):
     return torch_npu._npu_paged_attention(**kwargs)
@@ -130,11 +134,13 @@ def paged_attention(
     )
 
 
-@register_impl("attention.paged_attention_mla", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.paged_attention_mla", "auto", supported_generations=_DECODE_GENERATIONS
+)
 @register_impl(
     "attention.paged_attention_mla",
     "ascend-transformer-boost",
-    supported_generations=_ARCH22,
+    supported_generations=_DECODE_GENERATIONS,
 )
 def _paged_attention_mla_impl(**kwargs):
     return torch_npu._npu_paged_attention_mla(**kwargs)

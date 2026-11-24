@@ -97,6 +97,16 @@ def generate_data(
             id="qwen3-8b-tp2-paged-decode",
         ),
         pytest.param(
+            "paged_attention",
+            16,
+            4,
+            128,
+            (1, 128, 257),
+            None,
+            None,
+            id="qwen3-8b-tp2-mixed-page-boundaries",
+        ),
+        pytest.param(
             "paged_attention_mla",
             16,
             1,
@@ -106,6 +116,16 @@ def generate_data(
             512,
             id="deepseek-v2-tp8-paged-mla-decode",
         ),
+        pytest.param(
+            "paged_attention_mla",
+            4,
+            1,
+            576,
+            (255, 129),
+            None,
+            512,
+            id="deepseek-v2-tp32-4q1kv-paged-mla-decode",
+        ),
     ],
 )
 def test_legacy_atb_attention(
@@ -113,11 +133,17 @@ def test_legacy_atb_attention(
 ):
     import torch_npu
     from sgl_kernel_npu.operators import attention
+    from sgl_kernel_npu.operators.utils.registry import get_impl
 
     operator = getattr(attention, name)
-    require_test_impl(operator, get_test_impls()[0])
-    if not callable(getattr(torch_npu, f"_npu_{name}", None)):
-        pytest.skip(f"Installed TorchNPU lacks _npu_{name}")
+    if name == "flash_attention_qlens":
+        require_test_impl(operator, get_test_impls()[0])
+        if not callable(getattr(torch_npu, f"_npu_{name}", None)):
+            pytest.skip(f"Installed TorchNPU lacks _npu_{name}")
+    else:
+        assert get_impl(operator, "auto") is get_impl(
+            operator, "ascend-transformer-boost"
+        )
     kwargs = generate_data(
         q_heads, kv_heads, head_dim, context_lengths, query_lengths, mla_vheadsize
     )

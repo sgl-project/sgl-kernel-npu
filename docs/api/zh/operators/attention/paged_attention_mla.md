@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascend-transformer-boost` | 支持 | 不支持 |
+| `ascend-transformer-boost` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-旧版 ATB 入口在 A2/A3 上注册，采用主机侧长度参数。
+两个代际的默认实现均通过 TorchNPU 调用 ATB 接口，并使用相同的主机侧长度参数。
 
 ## 函数原型
 
