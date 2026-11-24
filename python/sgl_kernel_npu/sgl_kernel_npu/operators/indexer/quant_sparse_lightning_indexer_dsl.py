@@ -85,7 +85,8 @@ def quant_sparse_lightning_indexer_dsl(
 
     Args:
         q: UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128.
-        k: UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes.
+        k: UINT8 K: TND [K,1,64], or PA_BBND [P,S,1,64] with separate scales.
+            Without descale_k, PA_BBND takes combined [P,S/8,544] records.
         w: FP32 [T,32], query-head score weights.
         descale_q: UINT8/E8M0 [T,32,2,2], one scale per 32 logical features.
         candidate_block_indices: INT32 [T,1,2048], candidate logical block IDs; valid prefix given by lengths.
@@ -98,7 +99,8 @@ def quant_sparse_lightning_indexer_dsl(
         block_table: Optional INT32 [B,max_blocks], logical-to-physical PA page map.
         output_idx_offset: Optional INT32 [T,1], added to each valid selected token index.
         metadata: INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it.
-        descale_k: UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage.
+        descale_k: UINT8/E8M0 [K,1,2,2] for TND; [P,S,1,2,2] or [P,S,1,4]
+            for split PA. Omit for combined PA storage.
         topk: int, maximum selected tokens per query, in [1,8192].
         candidate_block_size: int, use 8 tokens per candidate block when enabled.
         quant_mode: int, use 1 for the supported quantized profile.

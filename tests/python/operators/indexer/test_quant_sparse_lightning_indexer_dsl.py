@@ -49,7 +49,7 @@ def _check_topk(indices, values, scores, allowed):
         )
 
 
-def generate_data(rows, length):
+def generate_data(rows, length, split_pa=False):
     # DSV4.1 index Q: 32 heads x 128 MXFP4 values. Reconstructed model shapes,
     # not a captured production tensor dump; T=6 models static DSPARK verify.
     torch.manual_seed(42)
@@ -75,7 +75,10 @@ def generate_data(rows, length):
         max_seqlen_k=max(length, 1)
     )
     kwargs = dict(sequence, **attrs, block_table=table, quant_mode=1, return_value=True)
-    k = torch.cat((k.reshape(pages, 8, 512), ks.reshape(pages, 8, 32)), -1)
+    if split_pa:
+        kwargs["descale_k"] = ks
+    else:
+        k = torch.cat((k.reshape(pages, 8, 512), ks.reshape(pages, 8, 32)), -1)
     candidates = torch.full((rows, 1, 2048), -1, dtype=torch.int32)
     blocks = torch.arange(0, (length + 7) // 8, 2, dtype=torch.int32)
     count = blocks.numel()
@@ -119,14 +122,54 @@ perf_shape = [(1, 4096), (6, 4096)]
         pytest.param((1, 0), id="edge-empty-keys"),
     ],
 )
-def test_quant_sparse_lightning_indexer_dsl(shape):
+@pytest.mark.parametrize("split_pa", [False, True], ids=["packed-pa", "split-pa"])
+def test_quant_sparse_lightning_indexer_dsl(shape, split_pa):
     from sgl_kernel_npu.operators.indexer import (
         quant_sparse_lightning_indexer_dsl,
         quant_sparse_lightning_indexer_metadata_dsl,
     )
 
     require_test_impl(quant_sparse_lightning_indexer_metadata_dsl, "auto")
-    args, kwargs, meta = generate_data(*shape)
+    args, kwargs, meta = generate_data(*shape, split_pa=split_pa)
     kwargs["metadata"] = quant_sparse_lightning_indexer_metadata_dsl(**meta)
     executor = check_indexer(quant_sparse_lightning_indexer_dsl, args, kwargs, shape[1])
     check_performance(executor, enable_perf=shape in perf_shape)
+
+
+@pytest.mark.parametrize("table_width", [3, 2049], ids=["cached-table", "long-table"])
+def test_split_pa_qsli(table_width):
+    from sgl_kernel_npu.operators.indexer import (
+        quant_sparse_lightning_indexer_dsl,
+        quant_sparse_lightning_indexer_metadata_dsl,
+    )
+
+    require_test_impl(quant_sparse_lightning_indexer_metadata_dsl, "auto")
+    args, kwargs, meta = generate_data(6, 139)
+    q, _, w, qs, candidates, lengths = args
+    # Different, padded page strides; the final block is partial in each batch.
+    k = torch.randint(0, 256, (5, 72, 1, 64), dtype=torch.uint8)[:, :64]
+    scale = torch.randint(125, 130, (5, 80, 1, 4), dtype=torch.uint8)[:, :64]
+    if table_width == 3:
+        scale = scale.unflatten(-1, (2, 2))
+    table = torch.full((2, table_width), -1, dtype=torch.int32)
+    table[:, :3] = torch.tensor([[4, 0, 3], [2, 1, -1]], dtype=torch.int32)
+    candidates.fill_(-1)
+    for row in range(6):
+        count = 0 if row == 0 else (18 if row < 3 else 9)
+        lengths[row, 0] = count
+        candidates[row, 0, :count] = torch.arange(count, dtype=torch.int32).flip(0)
+    sequence = dict(
+        cu_seqlens_q=torch.tensor([0, 3, 6], dtype=torch.int32),
+        seqused_k=torch.tensor([139, 67], dtype=torch.int32),
+        topk=16,
+    )
+    meta.update(sequence, max_seqlen_q=3)
+    kwargs.update(sequence, block_table=table, descale_k=scale)
+    kwargs["metadata"] = quant_sparse_lightning_indexer_metadata_dsl(**meta)
+    executor = check_indexer(
+        quant_sparse_lightning_indexer_dsl,
+        (q, k, w, qs, candidates, lengths),
+        kwargs,
+        length=139,
+    )
+    check_performance(executor, enable_perf=False)

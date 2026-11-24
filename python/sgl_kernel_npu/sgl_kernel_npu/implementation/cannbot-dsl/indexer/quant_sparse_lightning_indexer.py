@@ -893,7 +893,9 @@ def _split_page_general(value, reciprocal, divisor, shift, mask):
 class QsliVector0:
     """Each AIV gathers packed K/scales through two UB buffers into the GM ring."""
 
-    def __init__(self, subblock_idx, pa_block_size):
+    def __init__(self, subblock_idx, pa_block_size, split_pa):
+        self.split_pa = split_pa
+        self.block_address_unit = 1 if split_pa else PACKED_BLOCK_BYTES
         self.subblock_idx = subblock_idx
         self.pa_block_size = int(pa_block_size)
         self.page_divisor = int(pa_block_size) // CANDIDATE_BLOCK_SIZE
@@ -948,12 +950,16 @@ class QsliVector0:
         key_stride,
         candidate_begin,
         candidate_end,
-        key_extent_bytes,
+        num_pages,
         table_length,
         has_block_table,
     ):
+        if self.split_pa:
+            # The vectorized mapper stores physical block IDs. Each split tensor
+            # then applies its own page stride when copying a block.
+            key_stride = self.page_divisor
         if has_block_table and table_length <= self.pa_table_capacity:
-            if key_extent_bytes <= MAX_PACKED_ADDRESS32_BYTES:
+            if num_pages * key_stride <= MAX_PACKED_ADDRESS32_BYTES:
                 self._prepare_addresses32(
                     candidates,
                     row,
@@ -1043,7 +1049,7 @@ class QsliVector0:
                 physical = rr.vreinterpret(physical, dtypes.uint32)
                 low = rr.vmul(physical, stride_low, mask=mask)
                 offset_bytes = rr.vreinterpret(
-                    rr.vmuls(offset, PACKED_BLOCK_BYTES, mask=mask), dtypes.uint32
+                    rr.vmuls(offset, self.block_address_unit, mask=mask), dtypes.uint32
                 )
                 low = rr.vadd(low, offset_bytes, mask=mask)
                 even_low = rr.vgather_reg(low, even_lane)
@@ -1136,7 +1142,7 @@ class QsliVector0:
                 physical = rr.vreinterpret(physical, dtypes.uint32)
                 low, high = rr.vmull(physical, stride_low, dtypes.uint32, mask=mask)
                 offset_bytes = rr.vreinterpret(
-                    rr.vmuls(offset, PACKED_BLOCK_BYTES, mask=mask), dtypes.uint32
+                    rr.vmuls(offset, self.block_address_unit, mask=mask), dtypes.uint32
                 )
                 carry, low = rr.vaddco(low, offset_bytes, mask=mask)
                 carry_out, high = rr.vaddc(
@@ -1181,6 +1187,58 @@ class QsliVector0:
         vec_sync_wait(PIPE.V, PIPE.S, 6)
 
     @jit
+    def _copy_split_blocks(
+        self,
+        packed_ub,
+        key,
+        candidates,
+        valid_blocks,
+        table,
+        row,
+        batch,
+        tile,
+        has_block_table,
+    ):
+        first = dtypes.int64(tile) * CANDIDATE_BLOCKS_PER_AIV
+        for i in range(CANDIDATE_BLOCKS_PER_AIV):
+            if has_block_table and table.shape[1] <= self.pa_table_capacity:
+                # prepare_addresses already accounted for the AIV and pair swaps.
+                if key.shape[0] * self.page_divisor <= MAX_PACKED_ADDRESS32_BYTES:
+                    physical = dtypes.int64(self.physical_blocks[0, first + i])
+                else:
+                    physical = self.physical_blocks.reinterpret(
+                        dtypes.int64, make_layout((1, CANDIDATE_CAPACITY // 2))
+                    )[0, first + i]
+                page = physical // self.page_divisor
+                block = physical % self.page_divisor
+            else:
+                pos = (
+                    first * 2
+                    + dtypes.int64(self.subblock_idx) * CANDIDATE_BLOCKS_PER_AIV
+                    + i
+                )
+                logical = dtypes.int64(
+                    candidates[row, 0, min(pos, dtypes.int64(valid_blocks) - 1)]
+                )
+                page = logical // self.page_divisor
+                block = logical % self.page_divisor
+                if has_block_table:
+                    page = dtypes.int64(table[batch, page])
+            # Pages contain whole blocks. The score mask clips any partial last
+            # block to the same visible sequence length as in the packed layout.
+            keys = tile_view(key, (1, 1, KEY_BLOCK_BYTES), (page, block, 0))
+            scales = tile_view(
+                self.key_scale, (1, 1, SCALE_BLOCK_BYTES), (page, block, 0)
+            )
+            mem_copy(
+                packed_ub[i : i + 1, 0:KEY_BLOCK_BYTES], keys.view(1, KEY_BLOCK_BYTES)
+            )
+            mem_copy(
+                packed_ub[i : i + 1, KEY_BLOCK_BYTES:PACKED_BLOCK_BYTES],
+                scales.view(1, SCALE_BLOCK_BYTES),
+            )
+
+    @jit
     def _gather_half(
         self,
         half,
@@ -1198,7 +1256,11 @@ class QsliVector0:
         packed_ub,
         slot,
     ):
-        if not has_block_table or block_table.shape[1] > self.pa_table_capacity:
+        if (
+            self.split_pa
+            or not has_block_table
+            or block_table.shape[1] > self.pa_table_capacity
+        ):
             self._gather_half_scalar(
                 half,
                 key,
@@ -1281,7 +1343,19 @@ class QsliVector0:
             vec_sync_wait(PIPE.MTE3, PIPE.MTE2, 2)
         else:
             vec_sync_wait(PIPE.MTE3, PIPE.MTE2, 3)
-        if self.batch_consistency != 0:
+        if self.split_pa:
+            self._copy_split_blocks(
+                packed_ub,
+                key,
+                candidate_block_indices,
+                valid_blocks,
+                block_table,
+                task_query_row,
+                batch_idx,
+                candidate_tile,
+                has_block_table,
+            )
+        elif self.batch_consistency != 0:
             for block_idx in range(CANDIDATE_BLOCKS_PER_AIV):
                 pos = first_candidate + block_idx
                 safe_pos = dtypes.int64(
@@ -2010,6 +2084,7 @@ class QsliFusedKernel:
         has_output_offset,
         pa_block_size,
         splits,
+        split_pa,
     ):
         self.splits = int(splits)
         self.tokens = int(tokens)
@@ -2029,7 +2104,7 @@ class QsliFusedKernel:
             MemLoc.UB, dtypes.bfloat16, make_layout((TILE_M * 2, TILE_N // 2))
         )
         self.cube = QsliCube()
-        self.vector0 = QsliVector0(get_subblock_id(), pa_block_size)
+        self.vector0 = QsliVector0(get_subblock_id(), pa_block_size, split_pa)
         self.vector1 = QsliVector1(tokens)
         self.topk_workspace = QsliLocalTopKWorkspace(TOPK_TRUNK_LEN, self.topk_count)
         self.topk = QsliLocalTopKSelector(self.topk_count, self.topk_workspace)
@@ -2045,7 +2120,7 @@ class QsliFusedKernel:
         self,
         query: Tensor,
         key: Tensor,
-        key_address,
+        key_address_or_scale,
         weights: Tensor,
         query_scale: Tensor,
         candidate_block_indices: Tensor,
@@ -2078,7 +2153,10 @@ class QsliFusedKernel:
         batch_consistency,
     ):
         self.vector0.batch_consistency = batch_consistency
-        self.vector0.key_address = key_address
+        if self.vector0.split_pa:
+            self.vector0.key_scale = key_address_or_scale
+        else:
+            self.vector0.key_address = key_address_or_scale
         self.vector1.key_workspace_address = key_workspace_address
         worker_idx = dtypes.int64(get_block_idx())
         subblock_idx = dtypes.int64(get_subblock_id())
@@ -2225,7 +2303,7 @@ class QsliFusedKernel:
                                     key.stride[0],
                                     candidate_begin,
                                     candidate_end,
-                                    key.shape[0] * key.stride[0],
+                                    key.shape[0],
                                     block_table.shape[1],
                                     self.has_block_table,
                                 )
@@ -2357,7 +2435,7 @@ class QsliFusedKernel:
                                         key.stride[0],
                                         dtypes.int64(0),
                                         next_end * CANDIDATE_BLOCKS_PER_TILE,
-                                        key.shape[0] * key.stride[0],
+                                        key.shape[0],
                                         block_table.shape[1],
                                         self.has_block_table,
                                     )
@@ -2443,6 +2521,7 @@ def _build_compiled_fused_runner(
     has_output_offset,
     pa_block_size,
     splits,
+    split_pa=False,
 ):
     """Compile the dynamic TensorSpec contract using the standard DSL entry."""
     has_residual = int(mask_mode) == 3 and int(cmp_ratio) != 1
@@ -2455,7 +2534,7 @@ def _build_compiled_fused_runner(
     def QuantSparseLightningIndexer(
         query_address,
         key,
-        key_address,
+        key_address_or_scale,
         weights: Tensor,
         query_scale: Tensor,
         candidate_block_indices,
@@ -2535,10 +2614,11 @@ def _build_compiled_fused_runner(
             has_output_offset,
             pa_block_size,
             splits,
+            split_pa,
         )(
             query,
             key,
-            key_address,
+            key_address_or_scale,
             weights,
             query_scale,
             candidate_block_indices,
@@ -2591,7 +2671,7 @@ def _build_compiled_fused_runner(
     def run_fused(
         query_address,
         key,
-        key_address,
+        key_address_or_scale,
         weights: Tensor,
         query_scale: Tensor,
         candidate_block_indices,
@@ -2626,7 +2706,7 @@ def _build_compiled_fused_runner(
         QuantSparseLightningIndexer[worker_count](
             query_address,
             key,
-            key_address,
+            key_address_or_scale,
             weights,
             query_scale,
             candidate_block_indices,
@@ -2685,19 +2765,26 @@ def _build_compiled_fused_runner(
     seqused_k_spec = fake((batch_dim,), dtypes.int32) if has_seqused_k else dummy_spec
     residual_spec = fake((batch_dim,), dtypes.int32) if has_residual else dummy_spec
     offset_spec = fake((query_rows_dim, N2), dtypes.int32)
+    block_bytes = KEY_BLOCK_BYTES if split_pa else PACKED_BLOCK_BYTES
+    blocks_per_page = pa_block_size // CANDIDATE_BLOCK_SIZE
+    key_aux_spec = (
+        fake(
+            (physical_blocks_dim, blocks_per_page, SCALE_BLOCK_BYTES),
+            dtypes.uint8,
+            stride=(cannbotdsl.Dim("KS_S0"), SCALE_BLOCK_BYTES, 1),
+        )
+        if split_pa
+        else dtypes.int64
+    )
     compiled = cannbotdsl.compile(
         run_fused,
         dtypes.int64,
         fake(
-            (
-                physical_blocks_dim,
-                pa_block_size // CANDIDATE_BLOCK_SIZE,
-                PACKED_BLOCK_BYTES,
-            ),
+            (physical_blocks_dim, blocks_per_page, block_bytes),
             dtypes.uint8,
-            stride=(key_stride_dim, PACKED_BLOCK_BYTES, 1),
+            stride=(key_stride_dim, block_bytes, 1),
         ),
-        dtypes.int64,
+        key_aux_spec,
         fake((query_rows_dim, N1), dtypes.float32),
         fake((query_rows_dim * N1, 2, 2), dtypes.float8_e8m0),
         fake((query_rows_dim, N2, candidate_capacity), dtypes.int32),
@@ -2968,21 +3055,31 @@ def quant_sparse_lightning_indexer(
         raise ValueError("Quant_sparse_lightning_indexer supports quant_mode=1 only")
     if layout_q != "TND" or layout_k != "PA_BBND":
         raise ValueError("Current QSLI layouts must be TND and PA_BBND")
-    if descale_k is not None:
-        raise ValueError(
-            "Descale_k is only supported with TND K; PA_BBND stores scales in packed k"
-        )
     if q.device.type != "npu" or k.device.type != "npu":
         raise ValueError("Quant_sparse_lightning_indexer requires NPU q/k tensors")
     if q.dtype != torch.uint8 or k.dtype != torch.uint8:
         raise TypeError("Q/k storage must be uint8 packed MXFP4")
     if q.ndim != 3 or tuple(q.shape[1:]) != (N1, PACKED_D):
         raise ValueError("Q must have shape (T1,32,64)")
-    if k.ndim != 3 or int(k.shape[2]) != PACKED_BLOCK_BYTES:
-        raise ValueError(
-            "K must have shape (block_num,block_size/8,544), each block K[512] followed by scale[32]"
-        )
-    pa_block_size = int(k.shape[1]) * CANDIDATE_BLOCK_SIZE
+    split_pa = descale_k is not None
+    if split_pa:
+        if k.ndim != 4 or tuple(k.shape[2:]) != (N2, PACKED_D):
+            raise ValueError("Split PA k must have shape [pages,page_size,1,64]")
+        pages, pa_block_size = map(int, k.shape[:2])
+        if tuple(descale_k.shape) not in (
+            (pages, pa_block_size, N2, 2, 2),
+            (pages, pa_block_size, N2, 4),
+        ):
+            raise ValueError("Split PA descale_k must have four scale bytes per K row")
+        if descale_k.dtype not in (torch.uint8, torch.float8_e8m0fnu):
+            raise TypeError("Split PA descale_k must contain E8M0 scale bytes")
+        if k.device != q.device or descale_k.device != q.device:
+            raise ValueError("Split PA k and descale_k must be on the query device")
+        _validate_pa_dim0_stride(descale_k, "descale_k")
+    else:
+        if k.ndim != 3 or int(k.shape[2]) != PACKED_BLOCK_BYTES:
+            raise ValueError("Combined PA k must have shape [pages,page_size/8,544]")
+        pa_block_size = int(k.shape[1]) * CANDIDATE_BLOCK_SIZE
     if (
         pa_block_size <= 0
         or pa_block_size > MAX_PA_BLOCK_SIZE
@@ -2994,6 +3091,14 @@ def quant_sparse_lightning_indexer(
     if query_rows <= 0 or physical_k_blocks <= 0:
         raise ValueError("T1 and the physical K block count must be positive")
     _validate_pa_dim0_stride(k, "k")
+    if split_pa:
+        blocks = pa_block_size // CANDIDATE_BLOCK_SIZE
+        k = k.view(physical_k_blocks, blocks, KEY_BLOCK_BYTES)
+        key_address_or_scale = descale_k.view(torch.uint8).view(
+            physical_k_blocks, blocks, SCALE_BLOCK_BYTES
+        )
+    else:
+        key_address_or_scale = k.data_ptr()
 
     _validate_query_auxiliary(w, descale_q, query_rows)
 
@@ -3106,10 +3211,11 @@ def quant_sparse_lightning_indexer(
         output_idx_offset is not None,
         pa_block_size,
         split_count,
+        split_pa,
     )(
         q.data_ptr(),
         k,
-        k.data_ptr(),
+        key_address_or_scale,
         w,
         query_scale_bytes.reshape(query_rows * N1, 2, 2).view(torch.float8_e8m0fnu),
         candidate_block_indices,
@@ -3169,6 +3275,7 @@ def export_qsli():
         "pa_block_size": 128,
         "splits": 8,
         "layout_k": "PA_BBND",
+        "split_pa": False,
     }
     profiles = [
         dict(
@@ -3177,6 +3284,7 @@ def export_qsli():
             pa_block_size=page,
             has_output_offset=offset,
             layout_k=layout,
+            split_pa=split_pa,
             has_cu=has_cu,
             has_seqused_q=has_seqused_q,
             has_seqused_k=has_seqused_k,
@@ -3185,6 +3293,7 @@ def export_qsli():
         for mask in (0, 3)
         for ratio in (1, 2)
         for layout in ("PA_BBND", "TND")
+        for split_pa in ((False, True) if layout == "PA_BBND" else (False,))
         for page in ((64, 128) if layout == "PA_BBND" else (0,))
         for offset in (False, True)
         for has_cu in ((False, True) if layout == "PA_BBND" else (True,))
@@ -3216,12 +3325,14 @@ def export_qsli():
                 continue
             exported.add(identity)
             runner_config = tuple(
-                config[name] for name in defaults if name != "layout_k"
+                config[name]
+                for name in defaults
+                if name not in ("layout_k", "split_pa")
             )
             if config["layout_k"] == "TND":
                 _get_tnd_compiled_fused_runner(*runner_config)
             elif config["layout_k"] == "PA_BBND":
-                _get_compiled_fused_runner(*runner_config)
+                _get_compiled_fused_runner(*runner_config, config["split_pa"])
             else:
                 raise ValueError("Layout_k export profile must be PA_BBND or TND")
     finally:
