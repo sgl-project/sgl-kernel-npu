@@ -13,7 +13,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.common import make_executor, require_distinct_impls
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
@@ -246,3 +246,74 @@ def test_sparse_flash_attention_grouped_heads(dtype):
         return_softmax_lse=True,
     )
     check_accuracy(sparse_flash_attention, kwargs=data, standard=_STANDARD)
+
+
+@pytest.mark.parametrize("heads", [16, 32, 64, 128])
+def test_sparse_flash_attention_cce_backend(heads):
+    """Raw CCE backend vs the ascendc baseline under the fixed DSA contract.
+
+    The CCE kernel targets arch35 with the production prefill shapes: BSND
+    layouts, batch 1, an 8192-token shared K/V latent, top-2048 selection and
+    bf16 inputs. Both backends return (out, softmax_max, softmax_sum), so the
+    outputs compare directly, including the LSE statistics.
+    """
+    from sgl_kernel_npu.operators.attention import sparse_flash_attention
+
+    require_distinct_impls(sparse_flash_attention, "cce", "ascendc")
+
+    data = generate_data(
+        torch.bfloat16,
+        layout_query="BSND",
+        layout_kv="BSND",
+        heads=heads,
+        kv_len=8192,
+        selected=2048,
+        capacity=2048,
+        q_len=2,
+        return_softmax_lse=True,
+    )
+    check_accuracy(
+        sparse_flash_attention,
+        kwargs=data,
+        impl="cce",
+        impl_ref="ascendc",
+        standard=_STANDARD,
+    )
+
+
+@pytest.mark.parametrize("heads", [16, 32, 64, 128])
+def test_sparse_flash_attention_cce_backend_performance(heads):
+    """Device-time comparison of the raw CCE backend vs the ascendc baseline.
+
+    Profiles both backends on the same production DSA shapes (BSND layouts,
+    batch 1, 8192-token shared K/V latent, top-2048 selection, bf16, 1024
+    queries) and emits one CSV row per backend so the average device task
+    times compare directly. Accuracy is verified before timing: the CCE
+    result against the ascendc output, and the ascendc result against the
+    torch native reference. Profiling is on by default for this dedicated
+    comparison test; --enable-perf=false disables it.
+    """
+    from sgl_kernel_npu.operators.attention import sparse_flash_attention
+
+    require_distinct_impls(sparse_flash_attention, "cce", "ascendc")
+
+    data = generate_data(
+        torch.bfloat16,
+        layout_query="BSND",
+        layout_kv="BSND",
+        heads=heads,
+        kv_len=8192,
+        selected=2048,
+        capacity=2048,
+        q_len=1024,
+        return_softmax_lse=True,
+    )
+    for impl, impl_ref in (("cce", "ascendc"), ("ascendc", "torch_native")):
+        executor = check_accuracy(
+            sparse_flash_attention,
+            kwargs=data,
+            impl=impl,
+            impl_ref=impl_ref,
+            standard=_STANDARD,
+        )
+        check_performance(executor, enable_perf=True)
