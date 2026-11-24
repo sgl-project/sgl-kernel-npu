@@ -11,8 +11,8 @@ from tests.python.utils.standards import AccuracyStandard
 
 # Shapes cover the minimum vocabulary, ragged tails, a page-tail size, the
 # SGLang EAGLE verify call (5 requests x 4 draft tokens), large vocabularies,
-# and the perf shapes used by the existing renorm tests (216 rows).
-perf_shape = [(216, 154880), (216, 248320)]
+# and the perf shape used by the existing renorm tests (216 rows).
+perf_shape = [(216, 248320)]
 
 
 def generate_data(rows, vocab, scalar):

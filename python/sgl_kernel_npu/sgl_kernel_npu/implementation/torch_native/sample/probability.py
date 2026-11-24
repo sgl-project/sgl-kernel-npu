@@ -85,7 +85,7 @@ def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None):
     values, indices = probs.sort(dim=-1, descending=True)
     positions = torch.arange(vocab, device=probs.device).view(1, -1)
     keep = (positions < top_ks.reshape(-1, 1)) & (
-        values.cumsum(dim=-1) - values <= top_ps.reshape(-1, 1)
+        (values.cumsum(dim=-1) - values) <= top_ps.reshape(-1, 1)
     )
     values = values.masked_fill(~keep, 0.0)
     values = values / values.sum(dim=-1, keepdim=True).clamp_min_(1e-20)
