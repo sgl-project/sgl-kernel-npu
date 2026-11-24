@@ -322,12 +322,11 @@ def inspect_installation(
             ),
         ]
     if host:
-        pairs.append(
-            (
-                stage_build / "host/libsgl_host_operators.a",
-                vendor / "op_impl/host/lib/libsgl_host_operators.a",
+        for kind in _cache_list(cache, "SGL_DIRECT_ARCHIVES"):
+            name = f"libsgl_{kind}_operators.a"
+            pairs.append(
+                (stage_build / kind / name, vendor / "op_impl" / kind / "lib" / name)
             )
-        )
     for source, installed in pairs:
         if not source.is_file() or not source.stat().st_size:
             raise RuntimeError(f"Missing or empty build artifact: {source}")
