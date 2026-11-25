@@ -32,8 +32,10 @@ def _torch_native_impl(**kwargs):
 
 
 @register_operator("sample.markov_greedy_step_triton")
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
-    """Dispatch to the selected markov_greedy_step_triton implementation."""
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
+    """Dispatch to the selected backend, ignoring extra keyword arguments."""
     return get_impl_by_name("sample.markov_greedy_step_triton", impl)(
         base_logits=base_logits, prev_embeds=prev_embeds, w2_weight=w2_weight
     )

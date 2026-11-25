@@ -48,7 +48,7 @@ def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, 
 
 ## cann_ops_transformer
 
-依赖 CANN 9.1 的公开 Python API，首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
+使用 wheel 内置的 `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_pre_sinkhorn`，构建时须包含匹配 CANN 9.1 或 9.2 的第三方 profile，无需单独安装 `cann_ops_transformer`。首次执行时加载缓存；错误直接上抛，不回退旧算子。不设置额外架构白名单。
 
 适配层将 [T,N,D] 扩为 [T,1,N,D] 的 BSND 布局，返回时去掉序列维。保留 vendor 输出类型，激活类型转换留给 SGLang 调用方，与 GitCode glmx PR #21 一致。
 

@@ -1,4 +1,4 @@
-"""Stateful experimental ops-transformer compressor for CANN 9.2.0 / arch22."""
+"""Stateful experimental ops-transformer compressor for CANN 9.2.0 / arch22 and arch35."""
 
 import torch
 
@@ -20,12 +20,14 @@ def _binding():
 
 
 @register_impl(
-    "attention.compressor_v2", "auto", supported_generations={Generation.ARCH22}
+    "attention.compressor_v2",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
     "attention.compressor_v2",
     "cann_ops_transformers_cann920",
-    supported_generations={Generation.ARCH22},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _cann_impl(*args, **kwargs):
     if detect_cann_version() != "9.2.0":

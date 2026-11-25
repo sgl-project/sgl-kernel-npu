@@ -6,7 +6,12 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from .attention_utils import cann_9_1_dspark_kv_indices_to_physical_slots
-from .sparse_flash_mla_metadata import sparse_flash_mla_metadata  # noqa: F401
+
+_cann_920_fn = None
+_cann_910_fn = None
+_reference_metadata_type = None
+_torch_native_dspark_fn = None
+_torch_native_standard_fn = None
 
 
 @register_impl(
@@ -35,19 +40,23 @@ def _auto_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH22},
 )
 def _cann_sparse_flash_mla(q, **kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer import ops
+
+        _cann_920_fn = ops.sparse_flash_mla
 
     args = {
         key: value
         for key, value in kwargs.items()
         if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
     }
-    out, lse = ops.sparse_flash_mla(q, **args)
+    out, lse = _cann_920_fn(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
@@ -74,26 +83,21 @@ def _ascendc(q, **kwargs):
 
 
 def _cann_9_1_sparse_flash_mla(q, **kwargs):
+    global _cann_910_fn
     indices = kwargs.get("ori_sparse_indices")
-    namespace, binding = (
-        ("npu", "sparse_attn_sharedkv")
-        if indices is not None
-        else ("custom", "npu_sparse_attn_sharedkv")
-    )
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if namespace == "custom":
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+    if indices is not None:
+        op = torch.ops.npu.sparse_attn_sharedkv
+    else:
+        if _cann_910_fn is None:
+            from ..._third_party.sgl_cann_recipes_infer import npu_sparse_attn_sharedkv
 
-        namespace = "sgl_cann_recipes_infer"
-    op = getattr(getattr(torch.ops, namespace), binding, None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+            _cann_910_fn = npu_sparse_attn_sharedkv
+        op = _cann_910_fn
     args = {
         key: value
         for key, value in kwargs.items()
@@ -153,21 +157,37 @@ def _cann_9_1_sparse_flash_mla(q, **kwargs):
 
 @register_impl("attention.sparse_flash_mla", "torch_native")
 def _torch_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.metadata import ReferenceMetadata
+    global _reference_metadata_type, _torch_native_dspark_fn, _torch_native_standard_fn
+    if _reference_metadata_type is None:
+        from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+            DSV4SparseMLAMetadata,
+        )
+
+        _reference_metadata_type = DSV4SparseMLAMetadata
 
     # DSpark and migrated tests carry independently built reference descriptors.
     # The upstream reference additionally covers BSND/SWA/CSA/HCA inputs with
     # opaque production metadata and the CANN 9.2 LSE layout.
     if (
-        isinstance(kwargs.get("metadata"), ReferenceMetadata)
+        isinstance(kwargs.get("metadata"), _reference_metadata_type)
         or kwargs.get("ori_sparse_indices") is not None
     ):
-        from ...implementation.torch_native.attention.attention import sparse_flash_mla
+        if _torch_native_dspark_fn is None:
+            from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+                dsv4_sparse_mla,
+            )
+
+            _torch_native_dspark_fn = dsv4_sparse_mla
+        op = _torch_native_dspark_fn
     else:
-        from ...implementation.torch_native.attention.sparse_flash_mla import (
-            sparse_flash_mla,
-        )
-    return sparse_flash_mla(
+        if _torch_native_standard_fn is None:
+            from ...implementation.torch_native.attention.sparse_flash_mla import (
+                sparse_flash_mla,
+            )
+
+            _torch_native_standard_fn = sparse_flash_mla
+        op = _torch_native_standard_fn
+    return op(
         q,
         **{
             key: value

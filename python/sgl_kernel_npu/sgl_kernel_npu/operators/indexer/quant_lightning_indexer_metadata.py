@@ -6,6 +6,10 @@ from ..utils.cann import detect_cann_version
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 from .indexer_utils import _cann_9_1_indexer_kwargs
 
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
+
 
 def get_quant_lightning_indexer_metadata_size():
     """Return this operator's int32 metadata length without launching a kernel."""
@@ -43,36 +47,37 @@ def _auto_quant_lightning_indexer_metadata(
 def _cann_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    return ops.quant_lightning_indexer_metadata(
-        num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
-    )
+        _cann_920_fn = ops.quant_lightning_indexer_metadata
+
+    return _cann_920_fn(num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs)
 
 
 @register_impl("indexer.quant_lightning_indexer_metadata", "ops_transformers_cann910")
 def _cann_9_1_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
+    global _cann_910_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
-
-    op = getattr(
-        torch.ops.sgl_cann_recipes_infer, "npu_quant_lightning_indexer_metadata", None
-    )
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator sgl_cann_recipes_infer.npu_quant_lightning_indexer_metadata in the installed sgl-kernel-npu wheel for CANN {cann_version}"
+    if _cann_910_fn is None:
+        from ..._third_party.sgl_cann_recipes_infer import (
+            npu_quant_lightning_indexer_metadata,
         )
+
+        _cann_910_fn = npu_quant_lightning_indexer_metadata
+
     if quant_mode not in (1, 2):
         raise RuntimeError(
             "cann_9_1 indexer metadata supports the migrated FP8/INT8 modes only"
@@ -85,18 +90,21 @@ def _cann_9_1_quant_lightning_indexer_metadata(
         sparse_count=topk,
         device=str(args["actual_seq_lengths_query"].device),
     )
-    return op(**args)
+    return _cann_910_fn(**args)
 
 
 @register_impl("indexer.quant_lightning_indexer_metadata", "torch_native")
 def _torch_quant_lightning_indexer_metadata(
     num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
 ):
-    from ...implementation.torch_native.indexer.quant_lightning_indexer_metadata import (
-        quant_lightning_indexer_metadata,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.indexer.quant_lightning_indexer_metadata import (
+            quant_lightning_indexer_metadata,
+        )
 
-    return quant_lightning_indexer_metadata(
+        _torch_native_fn = quant_lightning_indexer_metadata
+    return _torch_native_fn(
         num_heads_q, num_heads_k, head_dim, topk, quant_mode, **kwargs
     )
 

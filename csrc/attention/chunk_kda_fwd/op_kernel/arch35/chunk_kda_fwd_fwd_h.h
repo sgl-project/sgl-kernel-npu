@@ -666,7 +666,9 @@ private:
         StoreCurrentStateAiv(b, hv, chunk, stateRowBegin, state, stateTyped);
 
         CrossCoreWaitFlag(KDA_FWD_H_DIRECT_READY_FLAG);
-        WaitFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
+        if (chunk != 0) {
+            WaitFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
+        }
         if (fusePostWuIntoFwdH_) {
             Cast(ioTyped, direct, RoundMode::CAST_RINT, KDA_FWD_H_TOKEN_SUB_ELEMS);
             PipeBarrier<PIPE_V>();
@@ -772,7 +774,9 @@ private:
         WaitFlag<HardEvent::V_MTE3>(aivVToMte3Event_);
         CopyOutputRows(b, hv, chunk * KDA_FWD_H_CHUNK + tokenBegin, ioTyped, KDA_FWD_H_SUB_CHUNK);
         CrossCoreSetFlag<0x2, PIPE_V>(KDA_FWD_H_DIRECT_FREE_FLAG);
-        SetFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
+        if (chunk + 1 < totalChunks_) {
+            SetFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
+        }
     }
 
     __aicore__ inline void ProcessAiv()
@@ -794,6 +798,7 @@ private:
             const uint64_t b = task / heads_;
             const uint64_t hv = task % heads_;
             const uint32_t stateRowBegin = subBlockIdx * KDA_FWD_H_SUB_DIM;
+            WaitFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
             InitializeStateAiv(b, hv, stateRowBegin, state);
             CrossCoreSetFlag<0x2, PIPE_V>(KDA_FWD_H_DIRECT_FREE_FLAG);
             for (uint32_t chunk = 0; chunk < static_cast<uint32_t>(totalChunks_); ++chunk) {
@@ -807,6 +812,8 @@ private:
                 SetFlag<HardEvent::MTE3_V>(aivMte3ToVEvent_);
                 WaitFlag<HardEvent::MTE3_V>(aivMte3ToVEvent_);
             }
+            // Complete the final-state store before MTE2 can reuse the state buffer for the next head.
+            SetFlag<HardEvent::MTE3_MTE2>(aivMte3ToMte2Event_);
         }
         WaitL1SlotFreeMte3(KDA_FWD_H_STATE_FREE_FLAG, statePublishCount_[subBlockIdx]);
         if (fusePostWuIntoFwdH_) {
