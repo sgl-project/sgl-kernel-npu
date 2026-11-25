@@ -9,7 +9,7 @@
  */
 
 /* !
- * \file scatter_nd_update_sk_tiling_regbase.h
+ * \file scatter_nd_update_hp_tiling_arch35.h
  * \brief ascendc scatter_nd_update_sk regbase tiling h
  */
 

@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file scatter_nd_update_tiling.cpp
+ * \file scatter_nd_update_hp_tiling.cpp
  * \brief scatter_nd_update arch22 tiling implementation
  */
 
@@ -18,8 +18,8 @@
 #include "tiling/tiling_api.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "register/op_impl_registry.h"
-#include "scatter_nd_update_sk_tiling.h"
-#include "scatter_nd_update_sk_tiling_regbase.h"
+#include "scatter_nd_update_hp_tiling.h"
+#include "scatter_nd_update_hp_tiling_arch35.h"
 
 namespace optiling {
 constexpr uint64_t MAX_DIM_NUM = 8;

@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file scatter_nd_update.cpp
+ * \file scatter_nd_update_hp_arch22.cpp
  * \brief scatter_nd_update arch22 kernel entry
  */
 #include "./arch22/scatter_nd_update_large_index.h"

@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file scatter_nd_update_sk_apt.cpp
- * \brief scatter_nd_update_sk arch35 (regbase) kernel entry.
+ * \file scatter_nd_update_hp_arch35.cpp
+ * \brief scatter_nd_update_hp arch35 (regbase) kernel entry.
  */
 #include "arch35/scatter_nd_update_simt.h"
 #include "arch35/scatter_nd_update_simd.h"

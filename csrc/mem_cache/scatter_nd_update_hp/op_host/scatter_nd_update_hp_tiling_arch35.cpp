@@ -9,11 +9,11 @@
  */
 
 /* !
- * \file scatter_nd_update_sk_tiling_regbase.cpp
+ * \file scatter_nd_update_hp_tiling_arch35.cpp
  * \brief ascendc scatter_nd_update_sk regbase tiling cpp
  */
 
-#include "scatter_nd_update_sk_tiling_regbase.h"
+#include "scatter_nd_update_hp_tiling_arch35.h"
 #include "tiling_base/error_log.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "op_common/log/log.h"

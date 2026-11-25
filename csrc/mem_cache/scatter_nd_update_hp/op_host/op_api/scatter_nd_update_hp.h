@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 /*!
- * \file scatter_nd_update_sk.h
+ * \file scatter_nd_update_hp.h
  * \brief
  */
 #ifndef OP_API_INC_LEVEL0_OP_SCATTER_ND_UPDATE_SK_OP_H_

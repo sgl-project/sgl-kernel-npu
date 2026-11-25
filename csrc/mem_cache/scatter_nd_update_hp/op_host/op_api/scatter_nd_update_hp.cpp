@@ -8,11 +8,11 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 /*!
- * \file scatter_nd_update_sk.cpp
+ * \file scatter_nd_update_hp.cpp
  * \brief
  */
 
-#include "scatter_nd_update_sk.h"
+#include "scatter_nd_update_hp.h"
 #include "opdev/make_op_executor.h"
 #include "opdev/op_dfx.h"
 #include "opdev/op_log.h"

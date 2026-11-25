@@ -9,12 +9,12 @@
  */
 
 /*!
- * \file aclnn_scatter_nd_update_sk.cpp
+ * \file aclnn_scatter_nd_update_hp.cpp
  * \brief
  */
 
-#include "aclnn_scatter_nd_update_sk.h"
-#include "scatter_nd_update_sk.h"
+#include "aclnn_scatter_nd_update_hp.h"
+#include "scatter_nd_update_hp.h"
 #include "aclnn_kernels/contiguous.h"
 #include "aclnn_kernels/common/op_error_check.h"
 #include "opdev/make_op_executor.h"

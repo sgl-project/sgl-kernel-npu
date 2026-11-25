@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file scatter_nd_update_tiling.h
+ * \file scatter_nd_update_hp_tiling.h
  * \brief scatter_nd_update arch22 tiling data definition
  */
 

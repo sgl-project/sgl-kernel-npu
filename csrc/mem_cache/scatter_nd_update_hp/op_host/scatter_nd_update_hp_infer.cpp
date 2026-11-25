@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 /*!
- * \file scatter_nd_update_infershape.cpp
+ * \file scatter_nd_update_hp_infer.cpp
  * \brief ScatterNdUpdate InferShape RT2.0 implementation
  */
 

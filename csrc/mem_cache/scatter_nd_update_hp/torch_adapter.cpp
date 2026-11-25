@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "aclnn_runtime.h"
-#include "aclnn_scatter_nd_update_sk.h"
+#include "aclnn_scatter_nd_update_hp.h"
 
 #include <c10/core/DeviceGuard.h>
 #include <c10/util/ScopeExit.h>
