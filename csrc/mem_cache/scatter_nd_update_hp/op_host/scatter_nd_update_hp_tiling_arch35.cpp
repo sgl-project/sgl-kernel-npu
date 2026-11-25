@@ -55,7 +55,6 @@ static inline auto SkFloorAlign(T a, U b) -> decltype(a / b)
 static constexpr uint64_t INPUT_IDX_VAR = 0;
 static constexpr uint64_t INPUT_IDX_INDICES = 1;
 static constexpr uint64_t INPUT_IDX_UPDATES = 2;
-static constexpr uint64_t OUTPUT_IDX_SHAPE = 0;
 static constexpr uint64_t ATTR_IDX_STRIDES = 0;
 static constexpr uint16_t RANK_MIN_VALUE = 1;
 static constexpr uint16_t RANK_MAX_VALUE = 7;
@@ -65,8 +64,6 @@ static constexpr uint32_t DCACHE_SIZE = 32U * 1024U;
 static constexpr uint32_t RESERVED_WORKSPACE_SIZE = 16U * 1024U * 1024U;
 static constexpr uint32_t INPUT_ADDRESS_IN_INT32 = 100;
 static constexpr uint32_t INPUT_ADDRESS_IN_INT64 = 200;
-static constexpr uint32_t THREE = 3;
-static constexpr uint32_t SIMT_SORT_USED_QUENUM = 5;
 
 static constexpr uint64_t DB_BUFFER = 2;
 static constexpr uint64_t RESERVE_SIZE = 256;
@@ -195,38 +192,40 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateVarInfo(const gert::Tens
 }
 
 ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateIndicesInfo(const gert::Tensor *indices,
-                                                                    gert::Shape &indiceShape, int64_t &indiceDims)
+                                                                    gert::Shape &indiceShape)
 {
-    indiceShapeSize = indices->GetShapeSize();
-    if (indiceShapeSize < 0UL) {
-        OP_LOGE(opName, "indices shapeSize cannot be negative, got %" PRIu64, indiceShapeSize);
+    const auto shapeSize = indices->GetShapeSize();
+    if (shapeSize < 0) {
+        OP_LOGE(opName, "indices shapeSize cannot be negative, got %" PRId64, shapeSize);
         return ge::GRAPH_FAILED;
     }
+    indiceShapeSize = shapeSize;
     auto indicesDesc = context_->GetInputDesc(INPUT_IDX_INDICES);
     OP_CHECK_NULL_WITH_CONTEXT(context_, indicesDesc);
     indiceDtype_ = indicesDesc->GetDataType();
     indicesTypeSize_ = ge::GetSizeByDataType(indiceDtype_);
 
     indiceShape = indices->GetStorageShape();
-    indiceDims = indiceShape.GetDimNum();
-    rankSize_ = indiceShape.GetDim(indiceDims - 1);
+    const int64_t indiceDims = indiceShape.GetDimNum();
     if (indiceDims < TWO) {
         OP_LOGE(opName, "indices dimNum must be >= 2, got %" PRId64, indiceDims);
         return ge::GRAPH_FAILED;
     }
 
-    if (RANK_MIN_VALUE > static_cast<uint16_t>(rankSize_) || static_cast<uint16_t>(rankSize_) > RANK_MAX_VALUE) {
-        OP_LOGE(opName, "rankSize must be in the range [1, 7], got %u", rankSize_);
+    const auto rankSize = indiceShape.GetDim(indiceDims - 1);
+    if (rankSize < RANK_MIN_VALUE || rankSize > RANK_MAX_VALUE) {
+        OP_LOGE(opName, "rankSize must be in the range [1, 7], got %" PRId64, rankSize);
         return ge::GRAPH_FAILED;
     }
+    rankSize_ = rankSize;
 
     return ge::GRAPH_SUCCESS;
 }
 
-bool ScatterNdUpdateSkTilingRegbase::ReadStridesAttr(const gert::Shape &varOriginShape)
+ge::graphStatus ScatterNdUpdateSkTilingRegbase::ReadStridesAttr(const gert::Shape &varOriginShape, bool &isContiguous)
 {
-    // 读取 strides 属性（torch view 语义的 var 步长），校验其与 varOriginShape 是否完全连续。
-    // 连续时返回 true（走 HandleContiguousCase）；否则填充 attrStrides_ 并返回 false。
+    // Parse the explicit view strides independently of the contiguity result.
+    isContiguous = true;
     auto attrs = context_->GetAttrs();
     OP_CHECK_NULL_WITH_CONTEXT(context_, attrs);
     auto stridesPtr = attrs->GetListInt(ATTR_IDX_STRIDES);
@@ -234,9 +233,8 @@ bool ScatterNdUpdateSkTilingRegbase::ReadStridesAttr(const gert::Shape &varOrigi
     OP_CHECK_IF(stridesPtr->GetSize() != static_cast<size_t>(shapeRank_),
                 OP_LOGE(opName, "strides attr size (%zu) must match var dimNum (%" PRId64 ")", stridesPtr->GetSize(),
                         shapeRank_),
-                return false);
+                return ge::GRAPH_FAILED);
 
-    bool isContiguous = true;
     int64_t expectedStride = 1;
     for (int64_t dim = shapeRank_ - 1; dim >= 0; --dim) {
         int64_t stride = stridesPtr->GetData()[dim];
@@ -246,7 +244,7 @@ bool ScatterNdUpdateSkTilingRegbase::ReadStridesAttr(const gert::Shape &varOrigi
         }
         expectedStride *= varOriginShape.GetDim(dim);
     }
-    return isContiguous;
+    return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus ScatterNdUpdateSkTilingRegbase::HandleNonContiguousCase(const gert::Shape &varOriginShape)
@@ -305,11 +303,12 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::HandleContiguousCase()
 ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateUpdatesInfo(const gert::Tensor *updates,
                                                                     gert::Shape &updateShape)
 {
-    updateShapeSize = updates->GetShapeSize();
-    if (updateShapeSize < 0UL) {
-        OP_LOGE(opName, "updates shapeSize must not be negative, got %" PRIu64, updateShapeSize);
+    const auto shapeSize = updates->GetShapeSize();
+    if (shapeSize < 0) {
+        OP_LOGE(opName, "updates shapeSize must not be negative, got %" PRId64, shapeSize);
         return ge::GRAPH_FAILED;
     }
+    updateShapeSize = shapeSize;
 
     auto updateDesc = context_->GetInputDesc(INPUT_IDX_UPDATES);
     OP_CHECK_NULL_WITH_CONTEXT(context_, updateDesc);
@@ -389,14 +388,16 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::GetShapeAttrsInfo()
     const gert::Tensor *indices = context_->GetInputTensor(INPUT_IDX_INDICES);
     OP_CHECK_NULL_WITH_CONTEXT(context_, indices);
     gert::Shape indiceShape;
-    int64_t indiceDims = 0;
 
     // 验证和获取 indices 的基本信息
-    status = ValidateIndicesInfo(indices, indiceShape, indiceDims);
+    status = ValidateIndicesInfo(indices, indiceShape);
     OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateIndicesInfo failed"), return status);
 
     // Determine view contiguity from the explicit strides.
-    if (ReadStridesAttr(varOriginShape)) {
+    bool isContiguous;
+    status = ReadStridesAttr(varOriginShape, isContiguous);
+    OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ReadStridesAttr failed"), return status);
+    if (isContiguous) {
         status = HandleContiguousCase();
         OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "HandleContiguousCase failed"), return status);
     } else {
@@ -569,23 +570,6 @@ uint32_t ScatterNdUpdateSkTilingRegbase::GetSortTmpSize(ge::DataType dataType, u
     return maxValue;
 }
 
-int64_t ScatterNdUpdateSkTilingRegbase::GetRestAvailableSize(int64_t sampleNum, int64_t valueTypeBytes,
-                                                             int64_t originalSize, int64_t postAxisSize,
-                                                             ge::DataType idType)
-{
-    int64_t ubBlock = GetSkUbBlockSize();
-    int64_t occupy =
-        SkCeilAlign(sampleNum * rankSize_ * indicesTypeSize_, ubBlock) +
-        SkCeilAlign(sampleNum * outOfSetTypeSize_, ubBlock) +
-        SkCeilAlign(sampleNum * (outOfSetTypeSize_ + TWO * ALIGN_SIZE), ubBlock) +
-        SkCeilAlign(sampleNum * INT32_BYTES, ubBlock) + SkCeilAlign(sampleNum * (INT32_BYTES * TWO), ubBlock) +
-        SkCeilAlign(sampleNum * indicesTypeSize_, ubBlock) +
-        sampleNum * SkCeilAlign((varTypeSize_)*postAxisSize, ubBlock) +
-        sampleNum * SkCeilAlign((FP32_BYTES)*postAxisSize, ubBlock) +
-        sampleNum * SkCeilAlign((FP32_BYTES)*postAxisSize, ubBlock) + GetSortTmpSize(idType, sampleNum, false);
-    return originalSize - occupy;
-}
-
 void ScatterNdUpdateSkTilingRegbase::ComputeCoreSplitAfterAxis()
 {
     eachCoreAfterAxisCount_ = SkCeilDiv(afterAxis_, totalCoreNum_);
@@ -709,7 +693,6 @@ void ScatterNdUpdateSkTilingRegbase::DoOpTilingSplitAfter()
     int64_t halfUbSize = static_cast<int64_t>((ubSize_ - RESERVE_SIZE) / DB_BUFFER);
     int64_t alignNum = ALIGN_SIZE / varTypeSize_;
     int64_t oneIndexSize = static_cast<int64_t>(rankSize_) * indicesTypeSize_;
-    needInt64_ = outOfSetTypeSize_ == sizeof(int64_t);
 
     int64_t indicesSize =
         oneIndexSize + outOfSetTypeSize_ + (outOfSetTypeSize_ + TWO * ALIGN_SIZE) + INT32_BYTES + (INT32_BYTES + 1);

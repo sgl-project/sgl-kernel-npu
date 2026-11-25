@@ -34,14 +34,12 @@ private:
     ge::graphStatus GetPlatformInfo();
     ge::graphStatus GetShapeAttrsInfo();
     uint32_t GetSortTmpSize(ge::DataType dataType, uint32_t lastAxisNum, bool isDescend);
-    int64_t GetRestAvailableSize(int64_t sampleNum, int64_t valueTypeBytes, int64_t originalSize, int64_t postAxisSize,
-                                 ge::DataType idType);
     ge::graphStatus CheckScatterNdUpdateTensorShape(const gert::Shape &indiceShape, const gert::Shape &updateShape,
                                                     const gert::Shape &outputShape);
     ge::graphStatus ValidateVarInfo(const gert::Tensor *var, const gert::Shape &varOriginShape);
-    ge::graphStatus ValidateIndicesInfo(const gert::Tensor *indices, gert::Shape &indiceShape, int64_t &indiceDims);
+    ge::graphStatus ValidateIndicesInfo(const gert::Tensor *indices, gert::Shape &indiceShape);
     ge::graphStatus HandleNonContiguousCase(const gert::Shape &varOriginShape);
-    bool ReadStridesAttr(const gert::Shape &varOriginShape);
+    ge::graphStatus ReadStridesAttr(const gert::Shape &varOriginShape, bool &isContiguous);
     ge::graphStatus HandleContiguousCase();
     ge::graphStatus ValidateUpdatesInfo(const gert::Tensor *updates, gert::Shape &updateShape);
     ge::graphStatus CalculateDerivedParams(const gert::Shape &varOriginShape, gert::Shape &indiceShape,
@@ -106,7 +104,6 @@ private:
     int64_t indicesAxis_ = 0;
     int64_t varInAxis_ = 1;
     int64_t varStorageInAxis_ = 1;
-    int64_t updatesInAxis_ = 1;
     int64_t afterAxis_ = 1;
     int64_t varTypeSize_ = 0;
     int64_t indicesTypeSize_ = 0;
@@ -117,15 +114,12 @@ private:
     int64_t ubQuantaIndxFactor_ = 0;
     int64_t usedCoreNumBefore_ = 0;
     int64_t usedCoreNumAfter_ = 0;
-    int64_t eachCorePreAxisCount_ = 0;
-    int64_t tailCorePreAxisCount_ = 0;
     int64_t eachCoreAfterAxisCount_ = 0;
     int64_t tailCoreAfterAxisCount_ = 0;
     int64_t updateLoopSize_ = 0;
     int64_t updateTailNum_ = 0;
     int64_t indicesLoopSize_ = 0;
     int64_t indiceTailNum_ = 0;
-    int64_t isSplitPreAxis_ = 0;
     int64_t tailUpdateLoopSize_ = 0;
     int64_t tailUpdateTailNum_ = 0;
     int64_t isSplitAfterAxis_ = 0;
@@ -155,7 +149,6 @@ private:
     int64_t maskNormBlockLen_ = 0;
     int64_t maskTailBlockLen_ = 0;
     int64_t isDeterminSimt_ = 0;
-    int64_t needInt64_ = 0;
 
     const char *opName = "SglScatterNdUpdateHp";
 };
