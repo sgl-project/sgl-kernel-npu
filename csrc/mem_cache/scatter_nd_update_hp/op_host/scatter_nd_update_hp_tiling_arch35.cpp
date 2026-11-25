@@ -14,6 +14,7 @@
  */
 
 #include "scatter_nd_update_hp_tiling_arch35.h"
+#include "register/op_impl_registry.h"
 #include "tiling_base/error_log.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "op_common/log/log.h"
@@ -1139,5 +1140,13 @@ void ScatterNdUpdateSkTilingRegbase::DumpTilingInfo()
     info << "eachCoreAfterAxisCount: " << eachCoreAfterAxisCount_ << std::endl;
     OP_LOGI(opName, "Tiling info is: %s", info.str().c_str());
 }
+
+static ge::graphStatus ScatterNdUpdateSkArch35TilingFunc(gert::TilingContext *context)
+{
+    ScatterNdUpdateSkTilingRegbase tilingOp(context);
+    return tilingOp.DoTiling();
+}
+
+IMPL_OP_OPTILING(SglScatterNdUpdateSk).Tiling(ScatterNdUpdateSkArch35TilingFunc);
 
 }  // namespace optiling
