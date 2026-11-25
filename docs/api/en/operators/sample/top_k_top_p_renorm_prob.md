@@ -20,7 +20,7 @@ def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None, *, impl="auto"
 
 ## Description
 
-Applies top-p to the original distribution, then top-k, and renormalizes the joint support once by max(sum,1e-20). Both filters keep a prefix of the descending row, so the surviving columns are the intersection of their prefix masks; the inclusive cumulative probability minus the current value is compared with the top-p threshold.
+Applies top-p to the original distribution, then top-k, and renormalizes the joint support once by max(sum,1e-20). Both filters keep a prefix of the descending row, so the surviving columns are the intersection of their prefix masks; the inclusive cumulative probability minus the current value is compared with the top-p threshold. Top-k thresholds are clamped to [1,vocab] and capped at `max_keep`; top-p thresholds to [0,1]. Inputs remain unchanged.
 
 `max_keep` is an optional upper bound on every row top-k. When it bounds every row, selecting only that many leading columns is exact. If a row top-k exceeds `max_keep`, that row is truncated to `max_keep` columns, so pass the exact batch maximum or a safe upper bound. `None` filters the full vocabulary and is exact for any input, but it is the slow path; prefer a bound in hot paths.
 

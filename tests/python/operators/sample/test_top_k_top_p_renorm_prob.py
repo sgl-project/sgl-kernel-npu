@@ -116,17 +116,13 @@ def test_tied_rows_keep_equal_mass():
 
 
 def test_rounding_does_not_change_selected_token():
-    probs = torch.tensor(
-        [0.375, 0.19, 0.19000001, 0.14, 0.10499999], device="npu"
-    )
+    probs = torch.tensor([0.375, 0.19, 0.19000001, 0.14, 0.10499999], device="npu")
     ks = torch.tensor([2], device="npu", dtype=torch.int32)
     ps = torch.tensor([0.6], device="npu")
     for order in ([0, 1, 2, 3, 4], [0, 2, 1, 3, 4]):
         reordered = probs[order].unsqueeze(0).contiguous()
         actual = top_k_top_p_renorm_prob(reordered, ks, ps, 2, impl="triton")
-        expected = top_k_top_p_renorm_prob(
-            reordered, ks, ps, 2, impl="torch_native"
-        )
+        expected = top_k_top_p_renorm_prob(reordered, ks, ps, 2, impl="torch_native")
         assert_accuracy(actual, expected)
         kept = (actual[0] > 0).nonzero().flatten().tolist()
         # 0.19000001 is the larger of the two near-ties and must be kept.
@@ -147,9 +143,7 @@ def test_validation_and_empty_batch():
     with pytest.raises(ValueError, match="vocab_size"):
         top_k_top_p_renorm_prob(p[:, :0], 1, 0.9, impl=impl)
     with pytest.raises(ValueError, match="vocab_size"):
-        top_k_top_p_renorm_prob(
-            p[:1, :1].expand(1, 2**23 + 1), 1, 0.9, impl=impl
-        )
+        top_k_top_p_renorm_prob(p[:1, :1].expand(1, 2**23 + 1), 1, 0.9, impl=impl)
     with pytest.raises(ValueError, match="scalar or"):
         top_k_top_p_renorm_prob(p, torch.ones(3), 0.9, impl=impl)
     with pytest.raises(ValueError, match="scalar or"):
@@ -185,9 +179,9 @@ def test_graph_replay_with_changed_inputs(rows, vocab):
     impl, impl_ref = get_test_impls()
     probs = torch.softmax(torch.randn(rows, vocab, device="npu"), -1)
     ks = torch.full((rows,), 20, device="npu", dtype=torch.int32)
-    ps = torch.tensor([0.0, 0.5, 0.95, 1.0], device="npu").repeat(
-        (rows + 3) // 4
-    )[:rows]
+    ps = torch.tensor([0.0, 0.5, 0.95, 1.0], device="npu").repeat((rows + 3) // 4)[
+        :rows
+    ]
     max_keep = 20
     stream = torch.npu.Stream()
     stream.wait_stream(torch.npu.current_stream())

@@ -11,9 +11,7 @@ _torch_native_fn = None
 def _triton_impl(probs, top_ks, top_ps, max_keep):
     global _triton_fn
     if _triton_fn is None:
-        from ...implementation.triton.sample.probability import (
-            top_k_top_p_renorm_prob,
-        )
+        from ...implementation.triton.sample.probability import top_k_top_p_renorm_prob
 
         _triton_fn = top_k_top_p_renorm_prob
     return _triton_fn(probs, top_ks, top_ps, max_keep)
