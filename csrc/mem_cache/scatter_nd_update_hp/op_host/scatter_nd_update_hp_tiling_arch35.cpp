@@ -180,12 +180,14 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateVarInfo(const gert::Tens
         return ge::GRAPH_FAILED;
     }
 
-    std::ostringstream originShapeStr;
-    for (int64_t i = 0; i < shapeRank_; i++) {
-        originShapeStr << varOriginShape.GetDim(i);
-        if (i < shapeRank_ - 1) originShapeStr << ", ";
+    if (CheckLogLevel(OP_MODULE_ID, DLOG_INFO) == 1) {
+        std::ostringstream originShapeStr;
+        for (int64_t i = 0; i < shapeRank_; i++) {
+            originShapeStr << varOriginShape.GetDim(i);
+            if (i < shapeRank_ - 1) originShapeStr << ", ";
+        }
+        OP_LOGI(opName, "Input var origin shape: (%s), dims: %" PRId64, originShapeStr.str().c_str(), shapeRank_);
     }
-    OP_LOGI(opName, "Input var origin shape: (%s), dims: %lld", originShapeStr.str().c_str(), shapeRank_);
 
     auto varDesc = context_->GetInputDesc(INPUT_IDX_VAR);
     OP_CHECK_NULL_WITH_CONTEXT(context_, varDesc);
@@ -1117,6 +1119,9 @@ void ScatterNdUpdateSkTilingRegbase::SetTilingData()
 
 void ScatterNdUpdateSkTilingRegbase::DumpTilingInfo()
 {
+    if (CheckLogLevel(OP_MODULE_ID, DLOG_INFO) != 1) {
+        return;
+    }
     std::ostringstream info;
     info << "outputStorageShapeSize: " << outputStorageShapeSize_ << std::endl;
     info << "normCoreHandleIdx: " << normCoreHandleIdx_ << std::endl;

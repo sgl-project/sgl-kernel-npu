@@ -16,6 +16,9 @@
 #ifndef SCATTER_ND_UPDATE_STTRUCT_H
 #define SCATTER_ND_UPDATE_STTRUCT_H
 
+#include <cstddef>
+#include <cstdint>
+
 static constexpr uint16_t MAX_RANK_COUNT = 7;
 static constexpr uint16_t MAX_SHAPE_RANK = 8;
 
@@ -81,4 +84,17 @@ public:
     int64_t normBlockTail = 0;
     int64_t tailBlockTail = 0;
 };
+
+static_assert(sizeof(ScatterNdUpdateSkRegBaseTilingData) == 512, "Host and Kernel must share the tiling layout");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, blockTilingSize) == 16, "Tiling rankSize padding mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, sliceSize) == 40, "Tiling ubTilingSize padding mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, outPutShape) == 48, "Tiling output shape offset mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, strideList) == 112, "Tiling stride offset mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, outputStorageShapeSize) == 176,
+              "Tiling storage span offset mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, maskNormBlockLen) == 448,
+              "Tiling calcMaskUsedCoreNum padding mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, indicesUbFactor) == 472,
+              "Tiling indicesUbFactor offset mismatch");
+static_assert(offsetof(ScatterNdUpdateSkRegBaseTilingData, tailBlockTail) == 504, "Tiling tail offset mismatch");
 #endif
