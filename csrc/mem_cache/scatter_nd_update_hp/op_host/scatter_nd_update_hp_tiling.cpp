@@ -365,24 +365,6 @@ inline size_t ScatterNdUpdateSkArch22Tiling::CalcWorkSpaceSize()
     return sysWorkspaceSize;
 }
 
-static ge::graphStatus TilingParseForScatterNdUpdateSkArch22(gert::TilingParseContext *context)
-{
-    auto compileInfo = context->GetCompiledInfo<ScatterNdUpdateSkArch22CompileInfo>();
-    OP_CHECK_NULL_WITH_CONTEXT(context, compileInfo);
-    auto platformInfo = context->GetPlatformInfo();
-    OP_CHECK_NULL_WITH_CONTEXT(context, platformInfo);
-    auto ascendcPlatform = platform_ascendc::PlatformAscendC(platformInfo);
-    compileInfo->vectorCoreNum = ascendcPlatform.GetCoreNumAiv();
-    OP_CHECK_IF((compileInfo->vectorCoreNum <= 0), OP_LOGE(context->GetNodeName(), "Failed to get core num."),
-                return ge::GRAPH_FAILED);
-    uint64_t ubSize = 0;
-    ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
-    compileInfo->ubSize = ubSize;
-    OP_CHECK_IF((compileInfo->ubSize <= 0), OP_LOGE(context->GetNodeName(), "Failed to get ub size."),
-                return ge::GRAPH_FAILED);
-    return ge::GRAPH_SUCCESS;
-}
-
 void ScatterNdUpdateSkArch22Tiling::TilingDataPrint() const
 {
     OP_LOGD(tilingContext_, "coreNum:                   %lu", coreNum_);
@@ -485,11 +467,13 @@ ge::graphStatus ScatterNdUpdateSkArch22Tiling::Init()
     } else {
         isSort_ = IsSort(info.totalLength);
     }
-    auto compileInfo = tilingContext_->GetCompileInfo<ScatterNdUpdateSkArch22CompileInfo>();
-    OP_CHECK_NULL_WITH_CONTEXT(tilingContext_, compileInfo);
-    // Use all available vector cores for full-core scheduling.
-    coreNum_ = static_cast<uint64_t>(compileInfo->vectorCoreNum);
-    ubSize_ = compileInfo->ubSize;
+    auto platformInfo = tilingContext_->GetPlatformInfo();
+    OP_CHECK_NULL_WITH_CONTEXT(tilingContext_, platformInfo);
+    platform_ascendc::PlatformAscendC platform(platformInfo);
+    coreNum_ = platform.GetCoreNumAiv();
+    OP_CHECK_IF(coreNum_ == 0, OP_LOGE(tilingContext_, "Failed to get core num."), return ge::GRAPH_FAILED);
+    platform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize_);
+    OP_CHECK_IF(ubSize_ == 0, OP_LOGE(tilingContext_, "Failed to get ub size."), return ge::GRAPH_FAILED);
     GetDtypeSize();
     SetTilingKeyMode();
     tilingContext_->SetScheduleMode(1);
@@ -514,8 +498,6 @@ static ge::graphStatus ScatterNdUpdateSkArch22TilingFunc(gert::TilingContext *co
     return tilingOp.SetKernelTiling();
 }
 
-IMPL_OP_OPTILING(SglScatterNdUpdateHp)
-    .Tiling(ScatterNdUpdateSkArch22TilingFunc)
-    .TilingParse<ScatterNdUpdateSkArch22CompileInfo>(TilingParseForScatterNdUpdateSkArch22);
+IMPL_OP_OPTILING(SglScatterNdUpdateHp).Tiling(ScatterNdUpdateSkArch22TilingFunc);
 
 }  // namespace optiling

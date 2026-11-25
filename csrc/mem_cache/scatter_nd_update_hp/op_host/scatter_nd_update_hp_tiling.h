@@ -8,18 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-// Compile information and host tiling implementation for arch22.
+// Host tiling implementation for arch22.
 #pragma once
 
 #include "../op_kernel/scatter_nd_update_hp_tiling_arch22.h"
 #include "exe_graph/runtime/tiling_context.h"
 
 namespace optiling {
-struct ScatterNdUpdateSkArch22CompileInfo {
-    uint32_t vectorCoreNum = 0;
-    uint64_t ubSize = 0;
-};
-
 class ScatterNdUpdateSkArch22Tiling
 {
 public:
