@@ -166,6 +166,10 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateVarInfo(const gert::Tens
 {
     // 获取并记录 var 的形状信息
     shapeRank_ = varOriginShape.GetDimNum();
+    OP_CHECK_IF(shapeRank_ > MAX_SHAPE_RANK,
+                OP_LOGE(opName, "var dimNum (%" PRId64 ") exceeds tiling array capacity (%u)", shapeRank_,
+                        static_cast<unsigned>(MAX_SHAPE_RANK)),
+                return ge::GRAPH_FAILED);
 
     // 计算基于 origin shape 的 varShapeSize
     for (int64_t i = 0; i < shapeRank_; i++) {
