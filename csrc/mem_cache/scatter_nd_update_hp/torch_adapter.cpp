@@ -10,6 +10,9 @@
 
 namespace {
 
+using TensorDescriptor = std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)>;
+using IntArrayDescriptor = std::unique_ptr<aclIntArray, decltype(&aclDestroyIntArray)>;
+
 class HostMemoryPool
 {
     using InitFn = int (*)(void *, bool);
@@ -53,47 +56,39 @@ private:
     }
 };
 
-// Prepared descriptors are owned together until the queued launch completes.
-auto Describe(const at::Tensor &tensor)
+aclDataType ToAclDataType(at::ScalarType dtype)
 {
-    aclDataType dtype;
-    switch (tensor.scalar_type()) {
+    switch (dtype) {
         case at::kByte:
-            dtype = ACL_UINT8;
-            break;
+            return ACL_UINT8;
         case at::kChar:
-            dtype = ACL_INT8;
-            break;
+            return ACL_INT8;
         case at::kShort:
-            dtype = ACL_INT16;
-            break;
+            return ACL_INT16;
         case at::kInt:
-            dtype = ACL_INT32;
-            break;
+            return ACL_INT32;
         case at::kLong:
-            dtype = ACL_INT64;
-            break;
+            return ACL_INT64;
         case at::kHalf:
-            dtype = ACL_FLOAT16;
-            break;
+            return ACL_FLOAT16;
         case at::kFloat:
-            dtype = ACL_FLOAT;
-            break;
+            return ACL_FLOAT;
         case at::kBool:
-            dtype = ACL_BOOL;
-            break;
+            return ACL_BOOL;
         case at::kBFloat16:
-            dtype = ACL_BF16;
-            break;
+            return ACL_BF16;
         case at::kFloat8_e4m3fn:
-            dtype = ACL_FLOAT8_E4M3FN;
-            break;
+            return ACL_FLOAT8_E4M3FN;
         case at::kFloat8_e5m2:
-            dtype = ACL_FLOAT8_E5M2;
-            break;
+            return ACL_FLOAT8_E5M2;
         default:
-            TORCH_CHECK(false, "Unsupported dtype: ", tensor.scalar_type());
+            TORCH_CHECK(false, "Unsupported dtype: ", dtype);
     }
+}
+
+TensorDescriptor Describe(const at::Tensor &tensor)
+{
+    const auto dtype = ToAclDataType(tensor.scalar_type());
     // torch_npu does not export NPUBridge::GetNpuStorageImplDesc on all builds.
     // Use its storage type directly.
     const auto &storage =
@@ -130,14 +125,15 @@ auto Describe(const at::Tensor &tensor)
         aclCreateTensor(tensor.sizes().data(), tensor.dim(), dtype, tensor.strides().data(), tensor.storage_offset(),
                         format, storage_dims.data(), storage_dims.size(), const_cast<void *>(tensor.storage().data()));
     TORCH_CHECK(descriptor, "aclCreateTensor failed: ", aclGetRecentErrMsg());
-    return std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)>(descriptor, &aclDestroyTensor);
+    return TensorDescriptor(descriptor, &aclDestroyTensor);
 }
 
+// Prepared descriptors are owned together until the queued launch completes.
 struct PreparedCall {
-    std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)> self{nullptr, &aclDestroyTensor};
-    std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)> index{nullptr, &aclDestroyTensor};
-    std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)> update{nullptr, &aclDestroyTensor};
-    std::unique_ptr<aclIntArray, decltype(&aclDestroyIntArray)> strides{nullptr, &aclDestroyIntArray};
+    TensorDescriptor self{nullptr, &aclDestroyTensor};
+    TensorDescriptor index{nullptr, &aclDestroyTensor};
+    TensorDescriptor update{nullptr, &aclDestroyTensor};
+    IntArrayDescriptor strides{nullptr, &aclDestroyIntArray};
     decltype(HostMemoryPool::Release()) release_memory = HostMemoryPool::Release();
     uint64_t workspace_size = 0;
     aclOpExecutor *executor = nullptr;
