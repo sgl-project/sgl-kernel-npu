@@ -34,7 +34,7 @@ csrc/cce/<op>/
 - [ ] 非对称输入验证布局，输出/workspace 哨兵检查越界，尾块补零不读旧数据；Host 不为 NPU Tensor 做逐元素打包作为最终路径。
 - [ ] 通过 `sgl_register_operator(... EXECUTION_UNIT CCE ...)` 声明 `CPP_SOURCES`、`TORCH_ADAPTER`、`SUPPORTED_ARCHS`，通过 `sgl_register_cce_kernel` 声明编译源与必要变体。
 - [ ] 多个编译变体的 Kernel 和 launcher 符号唯一。仅需一个实现时不照搬 SFA 的四变体分发。
-- [ ] 使用仓库统一 CMake/build_tools 构建安装，确认本次 wheel 包含 CCE archive 和选中的 adapter。无需交付独立 `build_torch.sh` 或手动 load_library 流程。
+- [ ] 使用仓库统一 CMake/build_tools 构建安装。选择 CCE 算子时，RUN 包含 `libsgl_cce_operators.a`；wheel 包含已链接 CCE 实现及所选 Torch adapter 的 `libsgl_kernel_npu.so`，不要求单独交付 archive。安装 wheel 后验证 Torch 注册、公开接口和实际执行。无需交付独立 `build_torch.sh` 或手动 load_library 流程。
 - [ ] 核对[构建映射](<../../../csrc/cmake/cce_kernels.cmake>)。当前仅有 3510 CCE 映射；若新增架构需要改公共构建，说明依赖和影响，交维护者审查，不能仅改声明声称支持。
 - [ ] 临时 ACL 测试或候选实现可用于诊断。最终保留实际构建依赖、必要来源和许可证，清理无关实验及生成物。
 

@@ -68,7 +68,7 @@ extern "C" __global__ [aicore] __cube__ void kernel(...) { }
 extern "C" __global__ [aicore] __mix__(1, 2) void kernel(...) { }
 ```
 
-- `__mix__(1,2)` 入口需要 `libascendc_runtime.a`，引入 `mmGetTid`/`strcpy_s`/`CheckLogLevel` 等难解依赖。**纯 vector/cube kernel 用 `[aicore] __vector__`/`__cube__` 即可**。
+- 按实际计算单元选择纯 Vector、纯 Cube 或混合入口。仓库 SFA 使用 `__mix__(1,2)`，当前 CCE 构建与统一链接规则未显式要求 `libascendc_runtime.a`；不能仅凭混合入口增加该依赖。遇到链接错误时核对目标 SDK、实际编译/链接命令和未解析符号，再定位原因，不能将某次编译路径的问题推广为通用要求。
 - 公共设备函数只保留 `[aicore]`，核类型属性放在 Kernel 入口。
 
 ### 2.2 UB 分配
@@ -196,15 +196,20 @@ CANN9.1 的 `DataCopyUB2L1ND2NZImpl` 硬通路分支仍先执行 `TransND2NZ` �
 
 ### 5.1 按设备核数自动选组数
 
+在 Torch adapter 内，参考[当前 SFA 的查询方式](../../../../csrc/cce/sparse_flash_attention/torch_adapter.cpp)，先初始化结果并检查返回值及有效范围：
+
 ```cpp
-// Host 查询核数
-size_t cubeCores, vectorCores;
-aclrtGetDeviceInfo(device, ACL_DEV_ATTR_AIC_CORE, &cubeCores);
-aclrtGetDeviceInfo(device, ACL_DEV_ATTR_AIV_CORE, &vectorCores);
-// 1C:2V 混合组容量 = min(cubeCores, vectorCores / 2)
+// device 为输入 Tensor 的 c10::Device；使用 adapter 已引入的 ACL/Torch 头文件。
+int64_t cubeCores = 0;
+const aclError status = aclrtGetDeviceInfo(
+    device.index(), ACL_DEV_ATTR_CUBE_CORE_NUM, &cubeCores);
+TORCH_CHECK(status == ACL_SUCCESS && cubeCores > 0,
+            "could not query Cube core count: ", status);
 ```
 
-A5 实测 24 Cube + 48 Vector = 24 组。
+`aclrtGetDeviceInfo` 的属性名、输出指针类型及平台支持范围仍需按目标 SDK 头文件核实。若调度还需要 Vector 核数，另行核对目标 SDK 的 Vector 属性并检查查询结果，不能沿用未经核实的 `ACL_DEV_ATTR_AIC_CORE/AIV_CORE` 或用 `size_t*` 替代要求的 `int64_t*`。
+
+对于每组使用一个 Cube 核的方案，按有效任务数与可用 Cube 核数选择组数；1C:2V 的混合配置还需确认平台的子核配比和启动约束，不能把任意核数相除直接当成可用组数。历史某次设备查询得到 24 Cube、48 Vector，只用于解释当时的分工，不作为 A5 的固定规格。
 
 ### 5.2 任务划分
 
