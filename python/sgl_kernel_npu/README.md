@@ -126,6 +126,8 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 ```
 
 Omitting `--third-party` selects all profiles for the detected SDK version.
+On A3, `ops_transformer` and `ops_transformer_dsv4` both
+include the shared mHC pre vendor and its V2 binding.
 No matching profiles, or an empty/missing operator list for the chosen
 architecture, produces an INFO message and skips that dependency. Explicitly
 requesting a profile that does not exist for the SDK version is an error.

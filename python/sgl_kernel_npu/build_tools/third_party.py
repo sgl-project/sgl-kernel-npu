@@ -104,7 +104,7 @@ def resolve_plan(
         additional = config.pop("additional_builds", [])
         builds.append((config_path, config))
         builds.extend((config_path, dict(config, **build)) for build in additional)
-    plan = []
+    plan = {}
     for config_path, config in builds:
         if not isinstance(config.get("has_aicpu", False), bool):
             raise ValueError("has_aicpu must be a boolean")
@@ -129,13 +129,14 @@ def resolve_plan(
         builder = config.get("builder", config_path.stem)
         config["arch_version"] = str(arch)
         config = get_adapter(builder).configure(config, jobs)
-        plan.append(
-            dict(config, builder=builder, cann_version=version, arch_version=str(arch))
+        item = dict(
+            config, builder=builder, cann_version=version, arch_version=str(arch)
         )
-    names = [item["name"] for item in plan]
-    if len(set(names)) != len(names):
-        raise ValueError("Duplicate dependency names")
-    return plan
+        if plan.setdefault(item["name"], item) != item:
+            raise ValueError(
+                "Conflicting dependency configurations for " + item["name"]
+            )
+    return list(plan.values())
 
 
 def extract_python(wheel, original, destination):

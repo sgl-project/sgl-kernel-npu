@@ -162,7 +162,7 @@
 | [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
 | [fused_gdn_decode](operators/attention/gdn/fused_gdn_decode.md) | `triton`, `torch_native` |
 | [gqa_share_sparse_decode](operators/attention/gqa_share_sparse_decode.md) | `triton`, `torch_native` |
-| [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
+| [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `cann_ops_transformer_v2`, `torch_native` |
 | [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
 | [hc_post](operators/hyper_conn/hc_post.md) | `cann_recipes_infer_cann910`, `torch_native` |
 | [sgemmv_expand](operators/lora/sgemmv_expand.md) | `ascendc`, `torch_native` |

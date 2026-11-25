@@ -2,7 +2,7 @@
   "name": "sgl_ops_transformer",
   "_comment": "Preserve mainline operators, including BF16 sparse MLA, at their original commit and internal package. DSV4 bindings not supplied by this profile are built by ops_transformer_dsv4.json.",
   "ops": {
-    "arch22": ["lightning_indexer_v2", "lightning_indexer_v2_metadata", "sparse_lightning_indexer", "sparse_flash_mla", "sparse_flash_mla_metadata", "mhc_pre_sinkhorn", "mhc_post"],
+    "arch22": ["lightning_indexer_v2", "lightning_indexer_v2_metadata", "sparse_lightning_indexer", "sparse_flash_mla", "sparse_flash_mla_metadata", "mhc_post"],
     "arch35": ["flash_mla", "flash_mla_metadata", "mhc_pre_sinkhorn", "mhc_post"]
   },
   "repository": "https://gitcode.com/cann/ops-transformer.git",
@@ -24,6 +24,14 @@
         ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
         ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
       ],
+      "has_aicpu": false
+    },
+    {
+      "name": "sgl_ops_transformer_mhc",
+      "commit": "53f5c56996be158b52579d9cdd484b54a38dfb64",
+      "ops": {
+        "arch22": ["mhc_pre_sinkhorn"]
+      },
       "has_aicpu": false
     }
   ]

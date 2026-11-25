@@ -8,7 +8,17 @@ import torch
 
 
 def mhc_pre_sinkhorn(
-    x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps, *, return_pre=False
+    x,
+    phi,
+    alpha,
+    bias,
+    hc_mult,
+    num_iters,
+    hc_eps,
+    norm_eps,
+    *,
+    return_pre=False,
+    pre_mix=None,
 ):
     flat = x.float().flatten(1)
     normalized = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + norm_eps)
@@ -23,6 +33,7 @@ def mhc_pre_sinkhorn(
     for _ in range(num_iters - 1):
         comb = comb / (comb.sum(-1, keepdim=True) + hc_eps)
         comb = comb / (comb.sum(-2, keepdim=True) + hc_eps)
-    hin = (pre.unsqueeze(-1) * x.float()).sum(1).to(x.dtype)
+    weights = pre if pre_mix is None else pre_mix
+    hin = (weights.unsqueeze(-1) * x.float()).sum(1).to(x.dtype)
     outputs = hin, post, comb.reshape(x.shape[0], hc_mult * hc_mult)
     return (*outputs, pre) if return_pre else outputs
