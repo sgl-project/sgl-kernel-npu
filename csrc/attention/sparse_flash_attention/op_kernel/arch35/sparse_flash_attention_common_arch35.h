@@ -41,11 +41,6 @@ enum class SFA_LAYOUT {
 enum class SFATemplateMode { SWA_TEMPLATE_MODE = 0, CFA_TEMPLATE_MODE = 1, SCFA_TEMPLATE_MODE = 2 };
 
 namespace BaseApi {
-// CANN compiles a separate binary for each key dtype in the OpDef.
-constexpr bool kSfaUsesPackedKv = std::is_same_v<DTYPE_KEY, uint8_t>;
-constexpr uint32_t kSfaPackedKvNzBlock = 16;
-constexpr uint32_t kSfaPackedKvNzStride = kSfaPackedKvNzBlock + 1;  // Pad UB tiles to avoid bank conflicts.
-
 __aicore__ constexpr uint64_t Align2Func(uint64_t data)
 {
     return (data + 1UL) >> 1UL << 1UL;  // 向上2对齐, +1移位2
