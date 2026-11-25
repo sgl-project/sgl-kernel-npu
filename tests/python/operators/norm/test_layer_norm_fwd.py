@@ -202,9 +202,7 @@ def test_layer_norm_fwd_activation_aliases_and_validation():
 
     assert SUPPORTED_GATE_ACTIVATIONS == ("swish", "silu", "sigmoid")
     x, weight, _, z = generate_test_data(torch.bfloat16, 32, True, False, True)
-    default_out, _, _ = layer_norm_fwd(
-        x, weight, None, 1e-6, z=z, is_rms_norm=True
-    )
+    default_out, _, _ = layer_norm_fwd(x, weight, None, 1e-6, z=z, is_rms_norm=True)
     swish_out, _, _ = layer_norm_fwd(
         x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="swish"
     )
@@ -215,6 +213,4 @@ def test_layer_norm_fwd_activation_aliases_and_validation():
     torch.testing.assert_close(swish_out, silu_out, atol=0, rtol=0)
 
     with pytest.raises(ValueError, match="Unsupported gated RMSNorm activation"):
-        layer_norm_fwd(
-            x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="gelu"
-        )
+        layer_norm_fwd(x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="gelu")

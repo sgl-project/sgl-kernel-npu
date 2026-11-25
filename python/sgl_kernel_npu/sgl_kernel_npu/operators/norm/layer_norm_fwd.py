@@ -113,7 +113,7 @@ def layer_norm_fwd(
     is_rms_norm=False,
     activation=None,
     *,
-    impl="auto"
+    impl="auto",
 ):
     """Grouped LayerNorm or RMSNorm with optional affine bias and gating.
 
