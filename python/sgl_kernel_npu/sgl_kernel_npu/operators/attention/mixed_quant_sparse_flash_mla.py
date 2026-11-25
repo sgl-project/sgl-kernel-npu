@@ -24,6 +24,9 @@ def _packed_kv_width(scale_itemsize, row_alignment):
 
 _CANN_920_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=2, row_alignment=32)
 _CANN_910_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=1, row_alignment=128)
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
 
 
 @register_impl(
@@ -56,12 +59,16 @@ def _auto_mixed_quant_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
+
+        _cann_920_fn = ops.mixed_quant_sparse_flash_mla
 
     if kwargs.get("quant_mode", 1) != 1:
         raise RuntimeError(
@@ -79,7 +86,7 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
     }
     if args.get("ori_mask_mode", 4) == 0:
         args.update(ori_win_left=-1, ori_win_right=-1)
-    out, lse = ops.mixed_quant_sparse_flash_mla(q, **args)
+    out, lse = _cann_920_fn(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
@@ -114,26 +121,24 @@ def _ascendc(q, **kwargs):
 
 
 def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
+    """Adapt the public KV arguments to the legacy A5 attention bindings."""
+    global _cann_910_fn
     indices = kwargs.get("ori_sparse_indices")
-    namespace, binding = (
-        ("npu", "kv_quant_sparse_attn_sharedkv")
-        if indices is not None
-        else ("custom", "npu_kv_quant_sparse_attn_sharedkv")
-    )
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if namespace == "custom":
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+    if indices is not None:
+        attention_op = torch.ops.npu.kv_quant_sparse_attn_sharedkv
+    else:
+        if _cann_910_fn is None:
+            from ..._third_party.sgl_cann_recipes_infer import (
+                npu_kv_quant_sparse_attn_sharedkv,
+            )
 
-        namespace = "sgl_cann_recipes_infer"
-    op = getattr(getattr(torch.ops, namespace), binding, None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+            _cann_910_fn = npu_kv_quant_sparse_attn_sharedkv
+        attention_op = _cann_910_fn
     if kwargs.get("quant_mode", 1) != 1:
         raise RuntimeError(
             "The migrated paired KV reader/writer contract supports quant_mode=1"
@@ -143,13 +148,19 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         cache = kwargs.get(name)
         if cache is not None and cache.shape[-1] != width:
             raise ValueError(f"{name} must use the selected {width}B KV encoding")
-    args = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in ("cu_seqlens_q_cpu", "seqused_ori_kv_cpu")
-    }
-    args.pop("seqused_cmp_kv", None)
-    args.pop("cmp_residual_kv", None)
+    # CPU mirrors and public scheduling hints are not inputs of the 9.1 kernels.
+    args = kwargs.copy()
+    for name in (
+        "cu_seqlens_q_cpu",
+        "seqused_ori_kv_cpu",
+        "seqused_cmp_kv",
+        "cmp_residual_kv",
+        "ori_topk_length",
+        "ori_topk",
+        "has_ori_kv",
+        "has_cmp_kv",
+    ):
+        args.pop(name, None)
     args["seqused_kv"] = args.pop("seqused_ori_kv", None)
     layout = args.get("layout_kv", "BSND")
     if layout == "PA_BBND":
@@ -162,16 +173,13 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
         )
     if args.pop("cmp_topk_length", None) is not None:
         raise RuntimeError("cann_9_1 attention does not accept cmp_topk_length")
-    args.pop("ori_topk_length", None)
-    args.pop("ori_topk", None)
     if args.get("ori_mask_mode", 4) == 0:
         # Native DSpark selects explicit indices by tensor presence, with the
         # cann_9_1 SWA/window metadata ABI.
         args["ori_mask_mode"] = 4
-    if not args.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
+    if not kwargs.get("has_cmp_kv", True) or args.get("cmp_ratio", 1) == 1:
         args["cmp_mask_mode"] = 3
-    if args.pop("quant_mode", 1) != 1:
-        raise RuntimeError("cann_9_1 packed KV supports quant_mode=1 only")
+    args.pop("quant_mode", None)
     args.update(kv_quant_mode=1, tile_size=64)
     if args.get("rope_head_dim", 64) != 64:
         raise RuntimeError("cann_9_1 packed KV requires rope_head_dim=64")
@@ -193,9 +201,7 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
             kwargs.get("cu_seqlens_q"),
             kwargs.get("layout_q", "BSND"),
         )
-    args.pop("has_ori_kv", None)
-    args.pop("has_cmp_kv", None)
-    out, lse = op(q, **args)
+    out, lse = attention_op(q, **args)
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
@@ -207,11 +213,14 @@ def _cann_9_1_mixed_quant_sparse_flash_mla(q, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla(q, **kwargs):
-    from ...implementation.torch_native.attention.attention import (
-        mixed_quant_sparse_flash_mla,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.dsv4_sparse_mla import (
+            dsv4_sparse_mla,
+        )
 
-    return mixed_quant_sparse_flash_mla(q, **kwargs)
+        _torch_native_fn = dsv4_sparse_mla
+    return _torch_native_fn(q, **kwargs)
 
 
 @register_operator("attention.mixed_quant_sparse_flash_mla")

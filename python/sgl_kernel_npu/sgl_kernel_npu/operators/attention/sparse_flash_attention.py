@@ -1,10 +1,66 @@
 """Public sparse flash attention dispatch for the independent CANN operator."""
 
+import math
+
 import torch
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
+
+
+@register_impl(
+    "attention.sparse_flash_attention", "cce", supported_generations={Generation.ARCH35}
+)
+def _cce_impl(
+    query,
+    key,
+    value,
+    sparse_indices,
+    scale_value,
+    *,
+    block_table=None,
+    actual_seq_lengths_query=None,
+    actual_seq_lengths_kv=None,
+    query_rope=None,
+    key_rope=None,
+    sparse_block_size=1,
+    layout_query="BSND",
+    layout_kv="BSND",
+    sparse_mode=3,
+    pre_tokens=9223372036854775807,
+    next_tokens=9223372036854775807,
+    attention_mode=2,
+    return_softmax_lse=False,
+):
+    """Raw CCE kernel: fixed DSA prefill contract (arch35 only).
+
+    Requires BSND layouts, a shared K/V latent (``key is value``) of 8192
+    tokens, top-2048 sparse indices, heads in {16, 32, 64, 128} and
+    ``scale_value=1/24``; batch size and query length are runtime-generic.
+    Other configurations stay on the ascendc backend.
+    Always returns the softmax max/sum alongside the attention output.
+    """
+    if layout_query != "BSND" or layout_kv != "BSND":
+        raise ValueError("cce backend supports BSND query/KV layouts only")
+    if query.dim() != 4 or query.size(0) < 1:
+        raise ValueError("cce backend requires a [B,SQ,H,512] query")
+    if query.size(2) not in (16, 32, 64, 128):
+        raise ValueError("cce backend requires heads in {16, 32, 64, 128}")
+    if key is not value:
+        raise ValueError("cce backend requires the shared K/V latent (key is value)")
+    if key.dim() != 4 or key.size(1) != 8192:
+        raise ValueError("cce backend requires a [1,8192,1,512] K/V latent")
+    if sparse_indices.shape[-1] != 2048:
+        raise ValueError("cce backend requires top-2048 sparse indices")
+    if not math.isclose(scale_value, 1.0 / 24.0, rel_tol=0.0, abs_tol=1e-9):
+        raise ValueError("cce backend requires scale_value=1/24")
+    if query_rope is None or key_rope is None:
+        raise ValueError("cce backend requires query_rope and key_rope")
+    return torch.ops.cce.sparse_flash_attention(
+        query, query_rope, key, key_rope, sparse_indices
+    )
 
 
 @register_impl("attention.sparse_flash_attention", "auto")

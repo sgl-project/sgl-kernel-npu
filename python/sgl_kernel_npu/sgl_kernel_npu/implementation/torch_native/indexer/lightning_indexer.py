@@ -5,6 +5,8 @@ candidate mask from ops-transformer e7da18105f08b06e01ef0fff78f439098d483746.
 This reference does not call the upstream bindings and is not a performance backend.
 """
 
+from itertools import pairwise
+
 import torch
 import torch.nn.functional as F
 
@@ -129,3 +131,103 @@ def sparse_lightning_indexer(
     allowed = selected.index_select(-1, blocks) != 0
     score = score.masked_fill(~allowed, -torch.inf)
     return _topk(score, topk, return_value, invalid_value=0.0)
+
+
+def lightning_indexer(
+    query,
+    key,
+    weights,
+    *,
+    actual_seq_lengths_query=None,
+    actual_seq_lengths_key=None,
+    block_table=None,
+    layout_query="BSND",
+    layout_key="BSND",
+    sparse_count=2048,
+    sparse_mode=3,
+    pre_tokens=2**63 - 1,
+    next_tokens=2**63 - 1,
+    return_value=False
+):
+    """Reference for one shared key head in dense BSND or paged DSA layouts."""
+    from ..attention.sparse_flash_attention import _paged_sequence
+
+    q, k, w = (tensor.detach().cpu() for tensor in (query, key, weights))
+    if sparse_mode not in (0, 3) or (pre_tokens, next_tokens) != (2**63 - 1, 2**63 - 1):
+        raise NotImplementedError(
+            "torch_native supports default windows in modes 0 and 3"
+        )
+    if layout_query == layout_key == "BSND":
+        if k.size(-2) != 1:
+            raise NotImplementedError("torch_native requires one key head")
+        q_lengths = (
+            None
+            if actual_seq_lengths_query is None
+            else F.pad(actual_seq_lengths_query.cpu(), (1, 0))
+        )
+        scores = _scores(
+            q,
+            k,
+            w,
+            cu_seqlens_q=q_lengths,
+            seqused_k=(
+                None if actual_seq_lengths_key is None else actual_seq_lengths_key.cpu()
+            ),
+            mask_mode=sparse_mode,
+        )
+        indices, scores = _topk(scores, sparse_count, return_value)
+    elif layout_query in ("BSND", "TND") and layout_key == "PA_BSND":
+        if block_table is None or actual_seq_lengths_key is None:
+            raise ValueError(
+                "Paged LightningIndexer requires a block table and KV lengths"
+            )
+        pages = block_table.detach().cpu()
+        if k.size(-2) != 1:
+            raise NotImplementedError("torch_native requires one key head")
+        lengths = actual_seq_lengths_key.tolist()
+        if layout_query == "TND":
+            if actual_seq_lengths_query is None:
+                raise ValueError("TND requires cumulative query lengths")
+            spans = list(pairwise([0, *actual_seq_lengths_query.tolist()]))
+        else:
+            q_lengths = (
+                [q.size(1)] * q.size(0)
+                if actual_seq_lengths_query is None
+                else actual_seq_lengths_query.tolist()
+            )
+            spans = [
+                (i * q.size(1), i * q.size(1) + n) for i, n in enumerate(q_lengths)
+            ]
+        if len(spans) != len(lengths) or len(spans) != len(pages):
+            raise ValueError("Query spans, KV lengths and page tables must match")
+        q = q.reshape(-1, *q.shape[-2:])
+        w = w.reshape(-1, w.size(-1))
+        indices = torch.full(
+            (q.size(0), 1, sparse_count), -1, dtype=torch.int32, device="cpu"
+        )
+        scores = (
+            torch.full(indices.shape, -torch.inf, device="cpu")
+            if return_value
+            else q.new_empty(0)
+        )
+        for batch, ((left, right), length) in enumerate(zip(spans, lengths)):
+            if left == right or length == 0:
+                continue
+            keys = _paged_sequence(k, pages[batch], length)
+            score = _scores(
+                q[left:right].unsqueeze(0),
+                keys.unsqueeze(0),
+                w[left:right].unsqueeze(0),
+                mask_mode=sparse_mode,
+            )
+            selected, values = _topk(score, sparse_count, return_value)
+            indices[left:right] = selected[0]
+            if return_value:
+                scores[left:right] = values[0]
+        if layout_query == "BSND":
+            indices = indices.reshape(*query.shape[:2], 1, sparse_count)
+            if return_value:
+                scores = scores.reshape_as(indices)
+    else:
+        raise NotImplementedError("torch_native supports dense BSND and PA_BSND keys")
+    return indices.to(query.device), scores.to(device=query.device, dtype=query.dtype)

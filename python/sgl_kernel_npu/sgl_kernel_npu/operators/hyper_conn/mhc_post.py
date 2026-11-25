@@ -11,7 +11,7 @@ _torch_native_fn = None
 def _cann_impl(x, h_res, h_out, h_post):
     global _cann_fn
     if _cann_fn is None:
-        from cann_ops_transformer.ops import mhc_post
+        from ..._third_party.sgl_ops_transformer.ops import mhc_post
 
         _cann_fn = mhc_post
     return _cann_fn(x, h_res, h_out, h_post)

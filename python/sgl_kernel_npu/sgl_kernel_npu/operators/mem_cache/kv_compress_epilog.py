@@ -6,6 +6,9 @@ from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_cann_920_fn = None
+_torch_native_fn = None
+
 
 @register_impl(
     "mem_cache.kv_compress_epilog", "auto", supported_generations={Generation.ARCH35}
@@ -33,6 +36,7 @@ def _auto_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
+    global _cann_920_fn
     if isinstance(kwargs["quant_mode"], int):
         raise ValueError("The released KV writer requires a packed quant_mode string")
     cann_version = detect_cann_version()
@@ -40,9 +44,12 @@ def _cann_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-    ops.kv_compress_epilog(cache.view(torch.uint8), x, slot_mapping, **kwargs)
+        _cann_920_fn = ops.kv_compress_epilog
+
+    _cann_920_fn(cache.view(torch.uint8), x, slot_mapping, **kwargs)
     return cache
 
 
@@ -59,11 +66,12 @@ def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    op = getattr(torch.ops.npu, "kv_compress_epilog", None)
-    if op is None:
+    try:
+        op = torch.ops.npu.kv_compress_epilog
+    except AttributeError as exc:
         raise RuntimeError(
             f"Missing operator npu.kv_compress_epilog in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+        ) from exc
     if (
         kwargs["quant_mode"] != "fp8_e8m0"
         or not kwargs["round_scale"]
@@ -89,11 +97,14 @@ def _cann_9_1_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
     "torch_native",
 )
 def _torch_kv_compress_epilog(cache, x, slot_mapping, **kwargs):
-    from ...implementation.torch_native.mem_cache.kv_compress_epilog import (
-        kv_compress_epilog,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.mem_cache.kv_compress_epilog import (
+            kv_compress_epilog,
+        )
 
-    return kv_compress_epilog(cache, x, slot_mapping, **kwargs)
+        _torch_native_fn = kv_compress_epilog
+    return _torch_native_fn(cache, x, slot_mapping, **kwargs)
 
 
 @register_operator("mem_cache.kv_compress_epilog")

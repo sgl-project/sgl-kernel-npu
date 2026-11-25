@@ -1,6 +1,6 @@
 # compressor_v2
 
-目标为 **CANN 9.2.0 / A3（arch22）**，接入 experimental CompressorV2。
+目标为 **CANN 9.2.0 / A3（arch22）与 A5（arch35）**，接入 experimental CompressorV2。
 `auto` 与 `cann_ops_transformers_cann920` 是同一包内后端，不自动回退。
 
 上游原始文档: [CompressorV2 Torch API](https://gitcode.com/cann/ops-transformer/blob/e7da18105f08b06e01ef0fff78f439098d483746/experimental/attention/compressor_v2/docs/torchapi_compressor.md).
@@ -9,7 +9,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `cann_ops_transformers_cann920` / `auto` | 支持 | 不支持 |
+| `cann_ops_transformers_cann920` / `auto` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -59,6 +59,8 @@ B/S/T 可为 0，权重与 cache 仍须非空。上游 Python 签名的 state_bl
 块号、长度、位置及有效历史由调用方保证。
 
 ## cann_ops_transformers_cann920 后端
+
+要求已初始化的 CANN 9.2.x SDK；非 9.2 环境下测试文件整文件跳过。
 
 使用 `ops_transformer` profile 构建，其中 `additional_builds` 声明 CompressorV2 的独立构建，
 两条上游命令均带 `--experimental`。
