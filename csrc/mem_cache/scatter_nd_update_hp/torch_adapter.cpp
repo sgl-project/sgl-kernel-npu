@@ -5,7 +5,7 @@
 #include <c10/core/DeviceGuard.h>
 #include <limits>
 #include <torch/library.h>
-#include <torch_npu/csrc/core/NPUStorageImpl.h>
+#include <torch_npu/csrc/core/npu/NPUFormat.h>
 
 namespace {
 
@@ -15,8 +15,6 @@ using IntArrayDescriptor = std::unique_ptr<aclIntArray, decltype(&aclDestroyIntA
 aclDataType ToAclDataType(at::ScalarType dtype)
 {
     switch (dtype) {
-        case at::kByte:
-            return ACL_UINT8;
         case at::kChar:
             return ACL_INT8;
         case at::kShort:
@@ -38,30 +36,23 @@ aclDataType ToAclDataType(at::ScalarType dtype)
         case at::kFloat8_e5m2:
             return ACL_FLOAT8_E5M2;
         default:
-            TORCH_CHECK(false, "Unsupported dtype: ", dtype);
+            TORCH_CHECK(false, "Unsupported cache dtype: ", dtype);
     }
 }
 
-void CheckDtypes(const at::Tensor &cache, const at::Tensor &indices, const at::Tensor &updates)
+aclDataType CheckDtypes(const at::Tensor &cache, const at::Tensor &indices, const at::Tensor &updates)
 {
     const auto dtype = cache.scalar_type();
-    TORCH_CHECK(dtype == at::kFloat || dtype == at::kHalf || dtype == at::kBool || dtype == at::kBFloat16 ||
-                    dtype == at::kLong || dtype == at::kChar || dtype == at::kInt || dtype == at::kShort ||
-                    dtype == at::kFloat8_e4m3fn || dtype == at::kFloat8_e5m2,
-                "Unsupported cache dtype: ", dtype);
+    const auto acl_dtype = ToAclDataType(dtype);
     TORCH_CHECK(indices.scalar_type() == at::kLong || indices.scalar_type() == at::kInt,
                 "indices must be int32 or int64, got ", indices.scalar_type());
     TORCH_CHECK(updates.scalar_type() == dtype, "updates dtype must match cache dtype");
+    return acl_dtype;
 }
 
-TensorDescriptor Describe(const at::Tensor &tensor)
+TensorDescriptor Describe(const at::Tensor &tensor, aclDataType dtype)
 {
-    const auto dtype = ToAclDataType(tensor.scalar_type());
-    // torch_npu does not export NPUBridge::GetNpuStorageImplDesc on all builds.
-    // Use its storage type directly.
-    const auto &storage =
-        static_cast<const torch_npu::NPUStorageImpl *>(tensor.storage().unsafeGetStorageImpl())->npu_desc_;
-    auto format = storage.npu_format_;
+    auto format = static_cast<aclFormat>(at_npu::native::get_npu_format(tensor));
     c10::SmallVector<int64_t, 5> storage_dims;
     // Describe views into larger allocations using their storage metadata.
     switch (format) {
@@ -85,9 +76,11 @@ TensorDescriptor Describe(const at::Tensor &tensor)
             }
             storage_dims.push_back(tensor.storage().nbytes() / tensor.element_size());
             break;
-        default:
-            storage_dims.assign(storage.storage_sizes_.begin(), storage.storage_sizes_.end());
+        default: {
+            const auto sizes = at_npu::native::get_npu_storage_sizes(tensor);
+            storage_dims.assign(sizes.begin(), sizes.end());
             break;
+        }
     }
     auto *descriptor =
         aclCreateTensor(tensor.sizes().data(), tensor.dim(), dtype, tensor.strides().data(), tensor.storage_offset(),
@@ -112,7 +105,7 @@ void Scatter(at::Tensor &cache, const at::Tensor &indices, const at::Tensor &upd
     TORCH_CHECK(indices.device() == cache.device() && updates.device() == cache.device(),
                 "All tensors must be on the same NPU");
     const c10::DeviceGuard guard(cache.device());
-    CheckDtypes(cache, indices, updates);
+    const auto cache_dtype = CheckDtypes(cache, indices, updates);
     if (cache.numel() == 0 || indices.numel() == 0 || updates.numel() == 0) {
         return;
     }
@@ -125,9 +118,9 @@ void Scatter(at::Tensor &cache, const at::Tensor &indices, const at::Tensor &upd
     static auto execute =
         reinterpret_cast<decltype(&aclnnSglScatterNdUpdateHp)>(sgl_cann::op_api_symbol("aclnnSglScatterNdUpdateHp"));
     auto prepared = std::make_shared<PreparedCall>();
-    prepared->self = Describe(cache);
-    prepared->index = Describe(contiguous_indices);
-    prepared->update = Describe(contiguous_updates);
+    prepared->self = Describe(cache, cache_dtype);
+    prepared->index = Describe(contiguous_indices, indices.scalar_type() == at::kLong ? ACL_INT64 : ACL_INT32);
+    prepared->update = Describe(contiguous_updates, cache_dtype);
     prepared->strides.reset(aclCreateIntArray(cache.strides().data(), cache.dim()));
     TORCH_CHECK(prepared->strides, "aclCreateIntArray failed: ", aclGetRecentErrMsg());
     auto status = query(prepared->self.get(), prepared->index.get(), prepared->update.get(), prepared->strides.get(),
@@ -141,7 +134,7 @@ void Scatter(at::Tensor &cache, const at::Tensor &indices, const at::Tensor &upd
     at::Tensor workspace;
     if (prepared->workspace_size != 0) {
         workspace = at::empty({static_cast<int64_t>(prepared->workspace_size)}, cache.options().dtype(at::kByte));
-        workspace_addr = const_cast<void *>(workspace.storage().data());
+        workspace_addr = workspace.data_ptr();
     }
     // Capture converted descriptors and raw launch arguments, without retaining
     // the original tensors or workspace tensor.
