@@ -37,7 +37,7 @@ if(SGL_NATIVE_OPERATORS)
     # Keep the original unified request intact. Only the CANN request reaches
     # legacy declaration-local dependency expansion; ALL retains CANN's ALL scope.
     set(cann_operators)
-    sgl_get_registered_operators(registered_host_operators EXECUTION_UNIT HOST)
+    get_property(registered_host_operators GLOBAL PROPERTY SGL_HOST_OPERATOR_IDS)
     foreach(id IN LISTS SGL_NATIVE_OPERATORS)
         if(id IN_LIST registered_host_operators)
             list(APPEND host_operators "${id}")
@@ -135,10 +135,21 @@ if(SGL_CANN_BUILD_STAGE STREQUAL "KERNEL")
         list(APPEND native_build_targets sgl_cann_aicpu sgl_cann_aicpu_metadata)
     endif()
 
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/host_ops.cmake")
+    sgl_split_direct_operators(host_operators cce_operators ${host_operators})
+    set(direct_archives)
+    if(cce_operators)
+        add_subdirectory(cmake/cce cce)
+        list(APPEND native_build_targets sgl_cce_operators)
+        list(APPEND direct_archives cce)
+    endif()
     if(host_operators)
+        list(APPEND direct_archives host)
         add_subdirectory(cmake/host host)
         list(APPEND native_build_targets sgl_host_operators)
     endif()
+
+    set(SGL_DIRECT_ARCHIVES "${direct_archives}" CACHE INTERNAL "Direct-launch archives" FORCE)
 
     # Package and check the targets created by the Host and device builders.
     set(cann_host_libraries)

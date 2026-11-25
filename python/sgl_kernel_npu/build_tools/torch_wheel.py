@@ -37,7 +37,9 @@ def stage_runtime(vendor, package, source_root=PROJECT_ROOT, arch_version="2201"
         shutil.copytree(
             vendor,
             package / "_cann/vendors/sgl_kernel_npu",
-            ignore=shutil.ignore_patterns("libsgl_host_operators.a"),
+            ignore=shutil.ignore_patterns(
+                "libsgl_host_operators.a", "libsgl_cce_operators.a"
+            ),
         )
 
 

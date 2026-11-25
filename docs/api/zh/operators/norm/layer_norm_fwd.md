@@ -33,18 +33,18 @@ def layer_norm_fwd(
 
 ## 功能说明
 
-对二维输入逐行、逐组执行 LayerNorm 或 RMSNorm，并支持仿射变换及 SiLU 门控。设输入为 `[M, N]`，组宽 `H = group_size`，组数 `G = N // H`；未指定组宽时 `H = N`。
+对二维输入逐行、逐组执行 LayerNorm 或 RMSNorm，并支持仿射变换及可选门控（`SiLU`/`swish` 或 `sigmoid`）。设输入为 `[M, N]`，组宽 `H = group_size`，组数 `G = N // H`；未指定组宽时 `H = N`。
 
-存在 `z` 且 `norm_before_gate=False` 时，先令 `u = x * SiLU(z)`；其余情况令 `u = x`。每组按以下规则计算：
+存在 `z` 且 `norm_before_gate=False` 时，先令 `u = x * gate(z)`；其余情况令 `u = x`。每组按以下规则计算：
 
 | 模式 | 统计量与归一化 |
 | --- | --- |
 | LayerNorm | `mean = mean(u)`，`rstd = 1 / sqrt(mean((u - mean) ** 2) + eps)`，`normalized = (u - mean) * rstd` |
 | RMSNorm | `rstd = 1 / sqrt(mean(u ** 2) + eps)`，`normalized = u * rstd`，不返回 mean tensor |
 
-随后乘 `weight`、加可选 `bias`。存在 `z` 且 `norm_before_gate=True` 时，在仿射之后乘 `SiLU(z)`。SiLU 为 `z * sigmoid(z)`。
+随后乘 `weight`、加可选 `bias`。存在 `z` 且 `norm_before_gate=True` 时，在仿射之后乘 `gate(z)`。
 
-`activation` 是保留的兼容参数，当前不参与实现分支；传入不同字符串不会改变门控函数。
+`activation` 用于选择门控函数 `gate(z)`：`"swish"` 或 `"silu"` 为 `z * sigmoid(z)`（`activation=None` 时默认使用该分支）；`"sigmoid"` 为 `sigmoid(z)`；传入其他字符串将抛出 `ValueError`。
 
 ## 参数与返回值
 
@@ -59,7 +59,7 @@ def layer_norm_fwd(
 | `group_size` | `int` 或 `None` | — | — | `None` | 正整数，必须整除 N；None 表示 N。组宽不能超过 `65536 // x.element_size()`。 |
 | `norm_before_gate` | `bool` | — | — | `True` | True：归一化、仿射后门控；False：对门控后的输入归一化。 |
 | `is_rms_norm` | `bool` | — | — | `False` | False 使用 LayerNorm，True 使用 RMSNorm。 |
-| `activation` | `str` 或 `None` | — | — | `None` | 兼容参数，当前被忽略；门控始终为 SiLU。 |
+| `activation` | `str` 或 `None` | — | — | `None` | 提供 `z` 时的门控激活函数，支持 `"swish"`、`"silu"`、`"sigmoid"`（`None` 默认为 `"swish"`）。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字参数；可选 `"auto"`、`"triton"`、`"torch_native"`。 |
 
 返回 `(out, mean, rstd)`：

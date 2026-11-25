@@ -1,13 +1,19 @@
 """MemFabric KV transfers on the caller's current NPU stream.
 
-The caller owns the registered Host storage. The ACLNN adapter records
-NPU tensors on the caller's stream and provides the transfer description
-through CANN tiling. NPU graph capture is not supported by this AIV path.
+The caller owns the registered Host storage and orders cross-stream access.
+The AIV path requires eager execution.
 """
 
+import importlib.util
+import os
+from functools import lru_cache
+from pathlib import Path
 from threading import Lock
 
 import torch
+
+from .host_memory import _load_offload, _lookup_mapping, get_memfabric_pool
+from .kv_transfer import D2H, H2D
 
 _submit_lock = Lock()
 
@@ -106,13 +112,51 @@ def select_components(
 
 
 def _resolve_host_dva(host):
-    # Mirrors the mf_aiv host_memory contract, device-validated there: the
+    # Mirrors the AIV host_memory contract, device-validated there: the
     # registration table (host_register + host_get_device_pointer at
     # allocation time, interior views by byte offset) is the ONLY DVA source;
     # unregistered MF memory is an error with no HVA/get_dva fallback.
     from .host_memory import resolve_host_dva
 
     return resolve_host_dva(host)
+
+
+@lru_cache(maxsize=1)
+def _get_aicpu_submit():
+    # The operator's pybind entry lives in the already loaded Torch library.
+    library = Path(__file__).resolve().parents[3] / "lib" / "libsgl_kernel_npu.so"
+    spec = importlib.util.spec_from_file_location(
+        "sgl_kernel_npu._build_kv_sparse_metadata", library
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load the AICPU submission entry")
+    try:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except ImportError as error:
+        raise RuntimeError(
+            "Rebuild sgl-kernel-npu with --ops build_kv_sparse_metadata"
+        ) from error
+    return module.submit
+
+
+def _submit_aicpu(
+    components, device_indices, host_indices, page_size, direction, device
+):
+    submit = _get_aicpu_submit()
+    pool = get_memfabric_pool()
+    if pool is None:
+        pool = _load_offload()
+    submit(
+        pool.sparse_copy,
+        device_indices,
+        host_indices,
+        [dev for dev, _ in components],
+        [host for _, host in components],
+        page_size,
+        direction,
+        device,
+    )
 
 
 def _submit_aiv(components, di, hi, page_size, direction, host_layout):
@@ -149,6 +193,7 @@ def transfer_kv(
     direction,
     kv_layers,
     index_layers,
+    backend="ascendc_aiv",
 ):
     """Submit one selected pool/range without synchronizing the caller's stream."""
     if page_size <= 0 or device_indices.ndim != 1 or host_indices.ndim != 1:
@@ -160,8 +205,14 @@ def transfer_kv(
         or device_indices.numel() % page_size
     ):
         raise ValueError("indices must describe equal numbers of complete pages")
-    if direction not in (1, 2):
-        raise ValueError("expected H2D (1) or D2H (2)")
+    if direction not in (H2D, D2H) or backend not in (
+        "auto",
+        "ascendc_aiv",
+        "memfabric_aicpu",
+    ):
+        raise ValueError(
+            f"expected H2D ({H2D}) or D2H ({D2H}) and backend auto, ascendc_aiv or memfabric_aicpu"
+        )
     components = select_components(
         device_k,
         host_k,
@@ -184,15 +235,29 @@ def transfer_kv(
         _check_component(dev, host, page_size, device)
     if not device_indices.numel():
         return
-    # Host addresses resolve through the registered DVA table (MF or aclrt).
-    # Input lifetime needs no Python-side event bookkeeping: the C++ adapter
-    # record_stream's every NPU input, so the caching allocator's
-    # stream-ordered reuse defers any freed slot until this submission
-    # retires, and the host component views are persistent pool buffers.
-
+    if backend == "auto":
+        backend = "ascendc_aiv"
+        if direction == H2D:
+            # The selected components share a host pool. Its K view identifies
+            # the registration provider even when it starts inside a block.
+            mapping, _ = _lookup_mapping(components[0][1].data_ptr())
+            if mapping is not None and mapping.kind == "memfabric":
+                backend = "memfabric_aicpu"
+    elif (
+        backend == "memfabric_aicpu"
+        and os.environ.get("SGLANG_HICACHE_HOST_MEM_BACKEND", "").lower() == "acl"
+    ):
+        raise ValueError(
+            "impl='memfabric_aicpu' requires MF host-pool memory, not ACL host registration"
+        )
     with _submit_lock, torch.npu.device(device):
-        if torch.npu.is_current_stream_capturing():
-            raise RuntimeError("AIV KV transfer does not support NPU graph capture")
-        di = device_indices.contiguous()
-        hi = host_indices.contiguous()
-        _submit_aiv(components, di, hi, page_size, direction, host_layout)  # fmt: skip
+        if backend == "ascendc_aiv":
+            if torch.npu.is_current_stream_capturing():
+                raise RuntimeError("AIV KV transfer does not support NPU graph capture")
+            di = device_indices.contiguous()
+            hi = host_indices.contiguous()
+            _submit_aiv(components, di, hi, page_size, direction, host_layout)
+        else:
+            _submit_aicpu(
+                components, device_indices, host_indices, page_size, direction, device
+            )

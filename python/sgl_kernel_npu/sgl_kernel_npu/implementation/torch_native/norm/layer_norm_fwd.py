@@ -1,13 +1,27 @@
-"""Grouped LayerNorm/RMSNorm and SiLU gating on prepared tensor views."""
+"""Grouped LayerNorm/RMSNorm and gating on prepared tensor views."""
 
 import torch
 
 
 def layer_norm_fwd(
-    x, weight, bias, z, out, mean, rstd, eps, norm_before_gate, is_rms_norm
+    x,
+    weight,
+    bias,
+    z,
+    out,
+    mean,
+    rstd,
+    eps,
+    norm_before_gate,
+    is_rms_norm,
+    activation="swish",
 ):
     values = x.float()
-    gate = None if z is None else z.float() * torch.sigmoid(z.float())
+    if z is None:
+        gate = None
+    else:
+        zf = z.float()
+        gate = torch.sigmoid(zf) if activation == "sigmoid" else zf * torch.sigmoid(zf)
     if gate is not None and not norm_before_gate:
         values = values * gate
     if is_rms_norm:

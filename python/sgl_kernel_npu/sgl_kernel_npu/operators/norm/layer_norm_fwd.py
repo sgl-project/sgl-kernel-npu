@@ -7,6 +7,19 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _triton_fn = None
 _torch_native_fn = None
 
+SUPPORTED_GATE_ACTIVATIONS = ("swish", "silu", "sigmoid")
+
+
+def _check_activation(activation):
+    if activation is None:
+        return "swish"
+    if activation not in SUPPORTED_GATE_ACTIVATIONS:
+        raise ValueError(
+            f"Unsupported gated RMSNorm activation on NPU: {activation!r}; "
+            f"expected one of {SUPPORTED_GATE_ACTIVATIONS}"
+        )
+    return activation
+
 
 @register_impl("norm.layer_norm_fwd", "auto")
 @register_impl("norm.layer_norm_fwd", "triton")
@@ -71,7 +84,6 @@ def _torch_native_impl(
         else torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
     )
     rstd = torch.empty((groups * rows,), device=x.device, dtype=torch.float32)
-    # activation is accepted but ignored by the original kernel; gating is always SiLU.
     _torch_native_fn(
         x.reshape(rows, groups, size),
         weight.reshape(1, groups, size),
@@ -83,6 +95,7 @@ def _torch_native_impl(
         eps,
         norm_before_gate,
         is_rms_norm,
+        activation,
     )
     return output, mean, rstd
 
@@ -102,16 +115,18 @@ def layer_norm_fwd(
     *,
     impl="auto"
 ):
-    """Grouped LayerNorm or RMSNorm with optional affine bias and SiLU gating.
+    """Grouped LayerNorm or RMSNorm with optional affine bias and gating.
 
     x is [rows, hidden]; group_size defaults to hidden and must divide it.
     When norm_before_gate is True, gate the affine-normalized output; otherwise
-    gate x before computing normalization statistics. The legacy activation
-    argument is accepted but ignored: the kernel always uses SiLU for z.
+    gate x before computing normalization statistics. activation selects the
+    gate function for z ("swish", "silu", or "sigmoid"; None defaults to
+    "swish").
 
     Return (out, mean, rstd), with FP32 statistics flattened in group-major
     order. mean is None for RMSNorm. A supplied out is written in place and
     returned by identity. impl selects auto (Triton), triton, or torch_native."""
+    activation = _check_activation(activation)
     rows, hidden = x.shape
     size = hidden if group_size is None else group_size
     assert hidden % size == 0

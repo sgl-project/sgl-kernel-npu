@@ -4,11 +4,7 @@ Both operators are halves of one distributed RMSNorm: variance is reduced
 locally, averaged across tensor-parallel ranks by the caller, then applied.
 """
 
-from sgl_kernel_npu.operators.utils.registry import (
-    get_impl_by_name,
-    register_impl,
-    register_operator,
-)
+from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _variance_triton_fn = None
 _variance_torch_native_fn = None

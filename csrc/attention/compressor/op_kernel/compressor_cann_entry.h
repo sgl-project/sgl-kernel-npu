@@ -8,15 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file compressor.cpp
- * \brief CANN entry adapter; the dispatch and computation below follow the legacy compressor.
- *
- * compressor_arch22.cpp / compressor_arch35.cpp select the architecture
- * explicitly. The template dispatch below is preserved from the legacy entry;
- * only CANN naming, tiling registration and the workspace boundary are adapted.
- */
-
+// Shared device headers and event IDs. A3 retains its runtime dispatch below.
 // EVENT_ID constants used by the cube kernel. In the top-level ge_helper build
 // these are not provided by the msopgen toolchain, so define them here.
 #ifndef EVENT_ID0
@@ -50,16 +42,15 @@
 #include "arch22/compressor_tiling_data.h"
 #include "arch22/compressor_kernel.h"
 #include "arch22/compressor_kernel_perf.h"
-#define COMPRESSOR_ARCH_22 1
 #elif defined(SGL_COMPRESSOR_ARCH35)
 #include "arch35/compressor_tiling_data.h"
 #include "arch35/compressor_kernel.h"
 #include "arch35/compressor_kernel_full_load.h"
-#define COMPRESSOR_ARCH_35 1
 #else
 #error "Select a compressor architecture entry"
 #endif
 
+#if defined(SGL_COMPRESSOR_ARCH22)
 using namespace Compressor;
 
 #define INVOKE_COMPRESSOR_GENERAL_OP_IMPL(templateClass, ...)                                                      \
@@ -70,27 +61,12 @@ using namespace Compressor;
         op.Process();                                                                                              \
     } while (0)
 
-#ifdef COMPRESSOR_ARCH_22
 #define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                              \
+    case SGL_COMPRESSOR_PAYLOAD_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                      \
         INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, static_cast<X_LAYOUT>(LAYOUT_BIT),                \
                                           static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
                                           static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
         break;
-#else
-#define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 0):                              \
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, static_cast<X_LAYOUT>(LAYOUT_BIT),                    \
-                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
-                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
-        break;                                                                                                    \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                              \
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelFullLoad, static_cast<X_LAYOUT>(LAYOUT_BIT),            \
-                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
-                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
-        break;
-#endif
-
 extern "C" __global__ __aicore__ void sgl_compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache,
                                                      GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
                                                      GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed,
@@ -138,5 +114,4 @@ extern "C" __global__ __aicore__ void sgl_compressor(GM_ADDR x, GM_ADDR wKv, GM_
 
 #undef LAUNCH_COMPRESSOR_KEY
 #undef INVOKE_COMPRESSOR_GENERAL_OP_IMPL
-#undef COMPRESSOR_ARCH_22
-#undef COMPRESSOR_ARCH_35
+#endif  // SGL_COMPRESSOR_ARCH22

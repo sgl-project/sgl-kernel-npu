@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `aclrt` | Supported | Supported |
+| `ascendc_aiv` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -15,7 +16,7 @@ from sgl_kernel_npu.operators.data_move import TransferFlag, transfer_kv_per_lay
 def transfer_kv_per_layer_direct_pf_lf(src, dst, src_indices, dst_indices, layer_id, flags=TransferFlag.FAST2D, *, impl='auto'): ...
 ```
 
-`auto` selects `aclrt`.
+`auto` selects `ascendc_aiv`.
 
 ## Description
 
@@ -36,7 +37,7 @@ destination slots are updated. This also applies to other state tensors with the
 | `dst_indices` | Tensor | [N] | int64 | Required | Corresponding device slots. |
 | `layer_id` | int | — | — | Required | Zero-based source layer. |
 | `flags` | TransferFlag | — | — | TransferFlag.FAST2D | TransferFlag.FAST2D for 2D copies. |
-| `impl` | str | — | — | 'auto' | auto (ACL Runtime), aclrt, or torch_native. |
+| `impl` | str | — | — | 'auto' | auto (fused AIV), aclrt, ascendc_aiv, or torch_native. |
 
 | Return value | Type | Description |
 | --- | --- | --- |
@@ -57,6 +58,12 @@ Adapts the per-layer Torch fallback from SGLang's `MambaPoolHost`, mapping host 
 slots with `index_select/index_copy_`. Dense payloads are flattened in physical storage order
 so transposed states match native byte copies. Repeated destination indices are overwritten in
 input order.
+
+## ascendc_aiv backend
+
+Submits one fused `state_exchange` AIV kernel per call. The host source must be registered in the DVA table (register_host_memory / register_acl_host_memory); destination slot indices must be unique, and NPU graph capture is not supported. Layer-narrowed host views of one registered pool are accepted. Indices may be host- or device-resident: host-resident indices are validated on the CPU without an NPU-to-CPU sync and uploaded with the submission, while device-resident indices pay a one-time readback to validate.
+
+Build the CANN operator with `python3 setup.py --arch-version 2201 --ops state_exchange` for A3 or use `--arch-version 3510` for A5.
 
 ## Example
 

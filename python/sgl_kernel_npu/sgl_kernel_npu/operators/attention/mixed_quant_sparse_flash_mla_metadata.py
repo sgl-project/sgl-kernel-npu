@@ -10,6 +10,9 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 # mixed-quant metadata producer use 1024 int32 entries (4096 bytes).
 # Graph setup queries this count to allocate buffers without running the producer.
 _MIXED_QUANT_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
+_cann_920_fn = None
+_cann_910_fn = None
+_torch_native_fn = None
 
 
 def get_mixed_quant_sparse_flash_mla_metadata_size():
@@ -52,12 +55,16 @@ def _auto_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
+    global _cann_920_fn
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.2."):
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
+
+        _cann_920_fn = ops.mixed_quant_sparse_flash_mla_metadata
 
     args = {
         key: value
@@ -66,7 +73,7 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     }
     if args.get("ori_mask_mode", 4) == 0:
         args.update(ori_win_left=-1, ori_win_right=-1)
-    return ops.mixed_quant_sparse_flash_mla_metadata(**args)
+    return _cann_920_fn(**args)
 
 
 def _uses_native_sparse_inputs(kwargs):
@@ -89,6 +96,7 @@ def _ops_transformers_cann910(**kwargs):
 
 
 def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
+    global _cann_910_fn
     args = {
         key: value
         for key, value in kwargs.items()
@@ -144,25 +152,21 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
                 )
             count = kwargs["batch_size"] + (private == "cu_seqlens_q")
             args[private] = value[:count].contiguous()
-    namespace, binding = (
-        ("npu", "kv_quant_sparse_attn_sharedkv_metadata_host")
-        if sparse
-        else ("custom", "npu_kv_quant_sparse_attn_sharedkv_metadata")
-    )
     cann_version = detect_cann_version()
     if not cann_version.startswith("9.1."):
         raise RuntimeError(
             f"This implementation requires CANN 9.1.x, got {cann_version}"
         )
-    if namespace == "custom":
-        from ..._third_party import sgl_cann_recipes_infer  # noqa: F401
+    if sparse:
+        op = torch.ops.npu.kv_quant_sparse_attn_sharedkv_metadata_host
+    else:
+        if _cann_910_fn is None:
+            from ..._third_party.sgl_cann_recipes_infer import (
+                npu_kv_quant_sparse_attn_sharedkv_metadata,
+            )
 
-        namespace = "sgl_cann_recipes_infer"
-    op = getattr(getattr(torch.ops, namespace), binding, None)
-    if op is None:
-        raise RuntimeError(
-            f"Missing operator {namespace}.{binding} in the installed sgl-kernel-npu wheel for CANN {cann_version}"
-        )
+            _cann_910_fn = npu_kv_quant_sparse_attn_sharedkv_metadata
+        op = _cann_910_fn
     return op(**args)
 
 
@@ -172,11 +176,14 @@ def _cann_9_1_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     supported_generations={Generation.ARCH35},
 )
 def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
-    from ...implementation.torch_native.attention.metadata import (
-        mixed_quant_sparse_flash_mla_metadata,
-    )
+    global _torch_native_fn
+    if _torch_native_fn is None:
+        from ...implementation.torch_native.attention.dsv4_sparse_mla_metadata import (
+            dsv4_sparse_mla_metadata,
+        )
 
-    return mixed_quant_sparse_flash_mla_metadata(
+        _torch_native_fn = dsv4_sparse_mla_metadata
+    return _torch_native_fn(
         **{
             key: value
             for key, value in kwargs.items()

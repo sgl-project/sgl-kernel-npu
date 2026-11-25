@@ -50,7 +50,7 @@ def _layer_norm_fwd_1pass_kernel_npu_simd(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
-    ACTIVATION: tl.constexpr,
+    ACTIVATION: tl.constexpr = "swish",
 ):
     # Map the program id to the row of X and Y it should compute.
     core = tl.program_id(0)
@@ -196,7 +196,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
-    ACTIVATION: tl.constexpr,
+    ACTIVATION: tl.constexpr = "swish",
 ):
     # Map the program id to the row of X and Y it should compute.
     pid_m = tl.program_id(0)

@@ -11,7 +11,7 @@ _torch_native_fn = None
 def _cann_impl(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
     global _cann_fn
     if _cann_fn is None:
-        from cann_ops_transformer.ops import mhc_pre_sinkhorn
+        from ..._third_party.sgl_ops_transformer.ops import mhc_pre_sinkhorn
 
         _cann_fn = mhc_pre_sinkhorn
     # CANN 9.1's wrapper requires BSND, even for packed tokens.

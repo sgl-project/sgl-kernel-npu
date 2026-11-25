@@ -3,6 +3,7 @@
 import pytest
 import torch
 from sgl_kernel_npu.operators.attention import compressor_v2
+from sgl_kernel_npu.operators.utils.cann import detect_cann_version
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
@@ -12,6 +13,17 @@ from tests.python.utils.common import (
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
+
+
+def _unavailable():
+    """Skip outside the released CANN 9.2 channel instead of failing there."""
+    try:
+        return not detect_cann_version().startswith("9.2.")
+    except RuntimeError:
+        return True
+
+
+pytestmark = pytest.mark.skipif(_unavailable(), reason="requires CANN 9.2.x")
 
 
 def generate_test_data(packed, decode):
