@@ -323,7 +323,8 @@ ge::graphStatus ScatterNdUpdateSkArch22Tiling::SetKernelTiling()
     tilingData_.linearIndexTiling.set_frontBlockNum(frontBlockNum_);
     tilingData_.linearIndexTiling.set_frontCoreNum(frontCoreNum_);
     tilingData_.linearIndexTiling.set_tailCoreNum(tailCoreNum_);
-    tilingData_.linearIndexTiling.set_sortWorkspace(sortWorkspace_);
+    // Reserve the unused field to preserve the serialized tiling layout.
+    tilingData_.linearIndexTiling.set_sortWorkspace(0);
     tilingData_.linearIndexTiling.set_isInt64Indices(isInt64Indices_);
     tilingData_.linearIndexTiling.set_needLargeIndexKernel(needLargeIndexKernel_);
     tilingData_.viewTiling.set_isViewStride0(isViewStride0_);
@@ -360,20 +361,12 @@ ge::graphStatus ScatterNdUpdateSkArch22Tiling::SetKernelTiling()
     return ge::GRAPH_SUCCESS;
 }
 
-inline size_t ScatterNdUpdateSkArch22Tiling::CalcWorkSpaceSize(uint64_t indexRow)
+inline size_t ScatterNdUpdateSkArch22Tiling::CalcWorkSpaceSize()
 {
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(tilingContext_->GetPlatformInfo());
     size_t sysWorkspaceSize = ascendcPlatform.GetLibApiWorkSpaceSize();
-    size_t indexRowAligned = (indexRow + ALIGNED_NUM - 1) & ~(ALIGNED_NUM - 1);
-    sortWorkspace_ = indexRowAligned;
-    size_t totalWorkspace = sysWorkspaceSize;
-    if (isLinearIndex_) {
-        totalWorkspace += sortWorkspace_ * sizeof(int);
-    }
-    if (isSort_) {
-        totalWorkspace += sortWorkspace_ * sizeof(int);
-    }
-    return totalWorkspace;
+    // HP and LargeIndex kernels do not use per-index GM workspace.
+    return sysWorkspaceSize;
 }
 
 static ge::graphStatus TilingParseForScatterNdUpdateSkArch22(gert::TilingParseContext *context)
@@ -401,7 +394,6 @@ void ScatterNdUpdateSkArch22Tiling::TilingDataPrint() const
     OP_LOGD(tilingContext_, "tilingKey:                 %lu", tilingKey_);
     OP_LOGD(tilingContext_, "isInt64Indices:            %d", isInt64Indices_);
     OP_LOGD(tilingContext_, "needLargeIndexKernel:      %d", needLargeIndexKernel_);
-    OP_LOGD(tilingContext_, "isLinearIndex:             %d", isLinearIndex_);
     OP_LOGD(tilingContext_, "isSort:                    %d", isSort_);
 
     OP_LOGD(tilingContext_, "isViewStride0:             %lu", isViewStride0_);
@@ -416,7 +408,6 @@ void ScatterNdUpdateSkArch22Tiling::TilingDataPrint() const
     OP_LOGD(tilingContext_, "tailBlockNum:              %lu", tailBlockNum_);
     OP_LOGD(tilingContext_, "frontCoreNum:              %lu", frontCoreNum_);
     OP_LOGD(tilingContext_, "tailCoreNum:               %lu", tailCoreNum_);
-    OP_LOGD(tilingContext_, "sortWorkspace:             %lu", sortWorkspace_);
     for (size_t i = 0; i < indexDim_; i++) {
         OP_LOGD(tilingContext_, "indicesMask[%zu]:            %lu", i, indicesMask_[i]);
     }
@@ -496,10 +487,8 @@ ge::graphStatus ScatterNdUpdateSkArch22Tiling::Init()
     }
     if (needLargeIndexKernel_) {
         isSort_ = false;
-        isLinearIndex_ = false;
     } else {
         isSort_ = IsSort(info.totalLength);
-        isLinearIndex_ = IsLinearIndex(info.totalLength);
     }
     auto compileInfo = tilingContext_->GetCompileInfo<ScatterNdUpdateSkArch22CompileInfo>();
     OP_CHECK_NULL_WITH_CONTEXT(tilingContext_, compileInfo);
@@ -516,7 +505,7 @@ ge::graphStatus ScatterNdUpdateSkArch22Tiling::Init()
         return ge::GRAPH_FAILED;
     }
     size_t *currentWorkSpace = tilingContext_->GetWorkspaceSizes(1);
-    currentWorkSpace[0] = CalcWorkSpaceSize(info.indexRow);
+    currentWorkSpace[0] = CalcWorkSpaceSize();
     return ge::GRAPH_SUCCESS;
 }
 

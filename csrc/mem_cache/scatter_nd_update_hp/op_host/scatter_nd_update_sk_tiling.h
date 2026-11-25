@@ -110,7 +110,7 @@ public:
 private:
     inline bool IsSort(uint64_t totalLength) const;
     inline bool IsLinearIndex(uint64_t totalLength) const;
-    inline size_t CalcWorkSpaceSize(uint64_t indexRow);
+    inline size_t CalcWorkSpaceSize();
     inline void SetTilingKeyMode();
     inline void GetDtypeSize();
     inline void Tiling4Scatter(uint64_t totalLength);
@@ -127,9 +127,7 @@ private:
     uint64_t coreNum_ = 0;
     uint64_t tilingKey_ = 0;
     uint64_t ubSize_ = 0;
-    bool isLinearIndex_ = false;
     bool isSort_ = false;
-    uint64_t sortWorkspace_ = 0;
     uint64_t dataTypeSize_ = 0;
     bool isInt64Indices_ = false;
     bool needLargeIndexKernel_ = false;
