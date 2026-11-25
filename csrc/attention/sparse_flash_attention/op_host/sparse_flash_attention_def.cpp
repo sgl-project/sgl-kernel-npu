@@ -6,6 +6,7 @@
 // ge_helper definition is preserved in csrc/sparse_flash_attention.
 
 #include <cstdint>
+#include <string_view>
 
 #include "register/op_def_registry.h"
 #include "sgl_operator_config.h"
@@ -17,7 +18,8 @@ class SglSparseFlashAttention : public OpDef
 public:
     explicit SglSparseFlashAttention(const char *name) : OpDef(name)
     {
-        // Tiling restricts the packed uint8 KV signature to arch35.
+        // Each CANN build targets one architecture.
+        constexpr auto packedKvType = std::string_view(SGL_CANN_CONFIGS[0]) == "ascend950" ? ge::DT_UINT8 : ge::DT_INT8;
         this->Input("query")
             .ParamType(REQUIRED)
             .DataType({ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16})
@@ -25,12 +27,12 @@ public:
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Input("key")
             .ParamType(REQUIRED)
-            .DataType({ge::DT_FLOAT16, ge::DT_BF16, ge::DT_UINT8})
+            .DataType({ge::DT_FLOAT16, ge::DT_BF16, packedKvType})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Input("value")
             .ParamType(REQUIRED)
-            .DataType({ge::DT_FLOAT16, ge::DT_BF16, ge::DT_UINT8})
+            .DataType({ge::DT_FLOAT16, ge::DT_BF16, packedKvType})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Input("sparse_indices")

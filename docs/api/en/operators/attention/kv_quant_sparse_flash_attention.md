@@ -4,8 +4,8 @@
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` | Unsupported | Supported |
-| `torch_native` | Unsupported | Supported |
+| `ascendc` | INT8 | E4M3 FP8 |
+| `torch_native` | INT8 | INT8 and E4M3 FP8 |
 
 ## Signature
 
@@ -22,24 +22,28 @@ def kv_quant_sparse_flash_attention(
     actual_seq_lengths_kv,
     scale_value,
     *,
+    return_softmax_lse=True,
     impl="auto",
 ):
     ...
 ```
 
-`auto` selects `ascendc` on arch35. The native binding used by SGLang is
-`torch.ops.npu.kv_quant_sparse_flash_attention` with the same eight arguments.
+`auto` selects `ascendc` on arch22 and arch35. The native binding used by SGLang is
+`torch.ops.npu.kv_quant_sparse_flash_attention` with the same tensors and attention options.
 
 ## Description
 
-Compute one DCP rank's MLA attention over explicit, rank-local Top-K indices.
-Each KV record stores 512 bytes of FP8 E4M3FN latent, 128 bytes of BF16 RoPE,
+Compute MLA attention over explicit Top-K indices.
+A RoPE64 KV record stores 512 bytes of INT8 or E4M3 FP8 latent, 128 bytes of BF16 RoPE,
 and four FP32 scales at byte offset 640. A scale covers 128 contiguous latent
 values. Latent multiplication is in FP32 and the result is rounded to BF16
-before attention. RoPE is already BF16.
+before attention. A RoPE0 record contains 528 bytes, with the four scales at
+byte offset 512. Pass an empty final dimension in query_rope for RoPE0.
+For causal attention, pass indices that already encode causal visibility.
+With return_softmax_lse=False, the two softmax tensors are empty.
 
 ```text
-latent[d] = BF16(FP32(fp8_latent[d]) * scale[d // 128])
+latent[d] = BF16(FP32(quantized_latent[d]) * scale[d // 128])
 logit[i] = (dot(query, latent[i]) + dot(query_rope, rope[i])) * scale_value
 maximum = max(logit)
 total = sum(exp(logit - maximum))
@@ -58,8 +62,8 @@ query head count, `B` counts requests, and `K` is the Top-K capacity.
 | Parameter | Type and shape | Description |
 | --- | --- | --- |
 | `query` | BF16 `[T, H, 512]` | TND query latent. `H` is 1–64 or 128. |
-| `query_rope` | BF16 `[T, H, 64]` | Query RoPE. |
-| `packed_kv` | UINT8 `[pages, page_size, 1, 656]` | PA_BSND packed KV with one KV head. Page size is a positive multiple of 16 up to 1024. |
+| `query_rope` | BF16 `[T, H, 64]` or `[T, H, 0]` | Query RoPE. |
+| `packed_kv` | INT8 or UINT8 `[pages, page_size, 1, 656 or 528]` | PA_BSND packed KV with one KV head. Page size is a positive multiple of 16 up to 1024. |
 | `sparse_indices` | INT32 `[T, 1, K]` | Selected logical positions in each request, followed by `-1` padding. |
 | `block_table` | INT32 `[B, max_pages]` | Maps logical pages to physical pages. |
 | `actual_seq_lengths_query` | INT32 `[B]` | Cumulative query lengths without a leading zero. |
@@ -75,8 +79,8 @@ query head count, `B` counts requests, and `K` is the Top-K capacity.
 
 ## Ascend C backend
 
-The arch35 kernel uses paged KV and consumes the packed cache directly. It
-returns both softmax statistics for the framework's cross-rank LSE merge.
+Both kernels read paged packed KV and can return softmax statistics for
+cross-rank LSE merging.
 
 ## torch_native backend
 

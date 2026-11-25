@@ -128,6 +128,9 @@ public:
     static constexpr uint32_t REPEATE_STRIDE_UP_BOUND = 256;
 
 private:
+    static constexpr bool kInt8Kv = IsSameType<DTYPE_KEY, int8_t>::value;
+    static constexpr uint32_t kPackedStride = (kSfaPackedKvBytes + 31U) / 32U * 32U;
+    static constexpr uint32_t kMergeRows = 32;
     static constexpr bool PAGE_ATTENTION = SFAT::pageAttention;
     static constexpr int TEMPLATE_MODE = SFAT::templateMode;
     static constexpr bool FLASH_DECODE = SFAT::flashDecode;
@@ -175,6 +178,7 @@ private:
     GlobalTensor<KV_T> kvMergeGm_;
     GlobalTensor<KV_T> keyRopeGm_;
     GlobalTensor<KV_T> keyGm_;
+    GlobalTensor<int8_t> packedKvGm_;
     GlobalTensor<int32_t> topkGm_;
     GlobalTensor<int32_t> kvValidSizeGm_;
 
@@ -274,6 +278,9 @@ __aicore__ inline void SFAVectorService<SFAT>::InitVec0GlobalTensor(const Global
     this->kvMergeGm_ = kvMergeGm;
     this->keyRopeGm_ = keyRopeGm;
     this->keyGm_ = keyGm;
+    if constexpr (kInt8Kv) {
+        packedKvGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(keyGm.GetPhyAddr(0)));
+    }
     this->blkTableGm_ = blkTableGm;
     this->kvValidSizeGm_ = kvValidSizeGm;
 }
@@ -914,6 +921,22 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInKv(int64_t &mte2Size, int64
         return;
     }
 
+    if constexpr (kInt8Kv) {
+        const uint32_t rowBytes = tilingData->baseParams.packedKvBytes;
+        const uint8_t padding = (32U - rowBytes % 32U) % 32U;
+        const DataCopyExtParams copy{1, rowBytes, 0, 0, 0};
+        const DataCopyPadExtParams<int8_t> pad{true, 0, padding, 0};
+        auto packed = inputBuff1.Get<int8_t>()[mergeMte3Idx % 2 * INPUT1_BUFFER_OFFSET];
+        const int64_t offsets[] = {keyOffset1, keyOffset2};
+        for (int64_t offset : offsets) {
+            if (offset >= 0) {
+                DataCopyPad(packed[(mte2Size - mte3Size) * kPackedStride], packedKvGm_[offset * rowBytes], copy, pad);
+                ++mte2Size;
+            }
+        }
+        return;
+    }
+
     int64_t keySrcStride = 0;
     int64_t keyRopeSrcStride = 0;
     if constexpr (PAGE_ATTENTION) {
@@ -972,22 +995,78 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyOutMrgeResult(int64_t mte2Siz
     if (mte2Size <= mte3Size) {
         return;
     }
-    SetFlag<AscendC::HardEvent::MTE2_MTE3>(0);
-    WaitFlag<AscendC::HardEvent::MTE2_MTE3>(0);
+    const uint32_t rows = mte2Size - mte3Size;
+    const uint32_t pingPong = mergeMte3Idx % 2;
+    LocalTensor<KV_T> latent = kvMergUb_[pingPong * kMergeRows * kSfaPackedKvLatentDim];
+    LocalTensor<KV_T> rope = ropeMergUb_[pingPong * kMergeRows * kSfaPackedKvRopeDim];
+    if constexpr (kInt8Kv) {
+        // Adapt the INT8 widening and per-tile scales from vLLM Ascend #16706
+        // to SFA's separate ND latent and RoPE workspace buffers.
+        SetFlag<AscendC::HardEvent::MTE2_V>(0);
+        WaitFlag<AscendC::HardEvent::MTE2_V>(0);
+        constexpr uint32_t latentDim = kSfaPackedKvLatentDim;
+        constexpr uint32_t tile = kSfaPackedKvQuantBlockSize;
+        auto packed = inputBuff1.Get<int8_t>()[pingPong * INPUT1_BUFFER_OFFSET];
+        auto widened = tmpBuff1.Get<half>();
+        latent = tmpBuff1.Get<KV_T>();
+        auto scratch = packed[kMergeRows * kPackedStride].template ReinterpretCast<float>();
+        // The first 8 KiB of inputBuff2 contain the two RoPE tiles.
+        auto broadcastScales = inputBuff2.Get<float>()[ConstInfo::BUFFER_SIZE_BYTE_8K / sizeof(float)];
+        auto scaleRows = broadcastScales[kMergeRows * BYTE_BLOCK / sizeof(float) * 4];
+        for (uint32_t offset = 0; offset < latentDim; offset += tile) {
+            Cast(widened[offset], packed[offset], RoundMode::CAST_NONE, tile, static_cast<uint8_t>(rows),
+                 {1, 1, latentDim * sizeof(half) / BYTE_BLOCK, kPackedStride / BYTE_BLOCK});
+        }
+        const uint32_t rowBytes = tilingData->baseParams.packedKvBytes;
+        auto scale = packed[rowBytes - kSfaPackedKvScaleBytes].template ReinterpretCast<float>();
+        const DataCopyParams scaleCopy{static_cast<uint16_t>(rows), 1, kPackedStride / BYTE_BLOCK - 1, 0};
+        DataCopy(scaleRows, scale, scaleCopy);
+        PipeBarrier<PIPE_V>();
+        Brcb(broadcastScales, scaleRows, static_cast<uint8_t>(rows), {1, 4});
+        PipeBarrier<PIPE_V>();
+        for (uint32_t row = 0; row < rows; ++row) {
+            const uint32_t offset = row * latentDim;
+            Cast(scratch, widened[offset], RoundMode::CAST_NONE, latentDim);
+            PipeBarrier<PIPE_V>();
+            for (uint32_t lane = 0; lane < tile; lane += FP32_REPEAT_ELEMENT_NUM) {
+                Mul(scratch[lane], scratch[lane], broadcastScales[row * 32], FP32_REPEAT_ELEMENT_NUM, latentDim / tile,
+                    {1, 1, 0, 16, 16, 1});
+            }
+            PipeBarrier<PIPE_V>();
+            Cast(latent[offset], scratch, RoundMode::CAST_RINT, latentDim);
+            PipeBarrier<PIPE_V>();
+        }
+        if (rowBytes == kSfaPackedKvNoRopeBytes) {
+            Duplicate(rope, static_cast<KV_T>(0), rows * kSfaPackedKvRopeDim);
+        } else {
+            auto inputRope = packed[latentDim].template ReinterpretCast<KV_T>();
+            Copy(rope, inputRope, kSfaPackedKvRopeDim, static_cast<uint8_t>(rows),
+                 {1, 1, kSfaPackedKvRopeDim * sizeof(KV_T) / BYTE_BLOCK, kPackedStride / BYTE_BLOCK});
+        }
+        SetFlag<AscendC::HardEvent::V_MTE3>(0);
+        WaitFlag<AscendC::HardEvent::V_MTE3>(0);
+    } else {
+        SetFlag<AscendC::HardEvent::MTE2_MTE3>(0);
+        WaitFlag<AscendC::HardEvent::MTE2_MTE3>(0);
+    }
 
     DataCopyExtParams dataCopyParams;
-    dataCopyParams.blockCount = mte2Size - mte3Size;
+    dataCopyParams.blockCount = rows;
     dataCopyParams.blockLen = constInfo.headDim * sizeof(KV_T);
     dataCopyParams.srcStride = 0;
     dataCopyParams.dstStride = 0;
 
-    DataCopyPad(kvMergeGm_[runInfo.loop % 4 * 512 * 576 + (s2GmStartOffset + mte3Size) * constInfo.headDim],
-                kvMergUb_[mergeMte3Idx % 2 * 32 * 512], dataCopyParams);
+    DataCopyPad(kvMergeGm_[runInfo.loop % 4 * 512 * 576 + (s2GmStartOffset + mte3Size) * constInfo.headDim], latent,
+                dataCopyParams);
 
     dataCopyParams.blockLen = constInfo.headDimRope * sizeof(KV_T);
     DataCopyPad(
         kvMergeGm_[runInfo.loop % 4 * 512 * 576 + 512 * 512 + (s2GmStartOffset + mte3Size) * constInfo.headDimRope],
-        ropeMergUb_[mergeMte3Idx % 2 * 32 * 64], dataCopyParams);
+        rope, dataCopyParams);
+    if constexpr (kInt8Kv) {
+        SetFlag<AscendC::HardEvent::MTE3_V>(0);
+        WaitFlag<AscendC::HardEvent::MTE3_V>(0);
+    }
 }
 
 // b s1 k
